@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { PublicKey } from "@solana/web3.js";
 import { userEvent, within } from "storybook/test";
-import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "@/app/(app)/wallet/MoneySheets";
+import { RedeemExchange, RedeemSheet, ReturnOwnSheet, ReturnSheet, type InstantOffer } from "@/app/(app)/wallet/MoneySheets";
 import { NativeRedeemSheet } from "@/app/(app)/wallet/NativePositions";
 import { demoSnapshot } from "@/lib/chain/fixture";
 import { ETH_VAULTS } from "@/lib/chain/eth";
@@ -156,4 +156,32 @@ export const RedeemNowEvmTreasuryShort: Story = {
   parameters: { data: { snapshot: onlyEth }, screen: { vaultTreasury: "short" } },
   render: (args) => <NativeRedeemSheet {...args} />,
   play: openRedeemNow,
+};
+
+const offer = (orders: NonNullable<InstantOffer["orders"]>): InstantOffer => ({
+  rows: [{ key: "a", asset: "SOL", from: "Won · 7zr1…qh7M", gemas: 1500, amount: 0.075, token: "test SOL", later: false }],
+  feePct: 25,
+  available: [{ asset: "SOL", amount: 2.4, token: "test SOL" }],
+  unavailable: null,
+  orders,
+});
+const exchange = (instant: InstantOffer, done: Parameters<typeof RedeemExchange>[0]["done"] = null) => (
+  <div style={{ maxWidth: 480, margin: "24px auto", padding: "0 16px" }}>
+    <RedeemExchange payouts={[]} instant={instant} busy={false} error={null} done={done} canSign onRedeem={() => {}} onInstant={() => {}} onCancelOrder={() => {}} onClose={() => {}} />
+  </div>
+);
+
+/** Instant Redeem is a request: the Player offers the Gemas, Tesoro buys when it can. Here one request is already waiting. */
+export const InstantRedeemRequested: Story = {
+  render: () => exchange(offer([{ key: "o1", gemas: 1200, sold: 0, expiresAt: Date.now() + 6 * 86_400_000, state: "requested" }])),
+  play: openRedeemNow,
+};
+/** A request Tesoro has bought part of. */
+export const InstantRedeemPartlyBought: Story = {
+  render: () => exchange(offer([{ key: "o1", gemas: 800, sold: 400, expiresAt: Date.now() + 2 * 86_400_000, state: "partly-sold" }])),
+  play: openRedeemNow,
+};
+/** Right after the request was sent. */
+export const InstantRedeemSent: Story = {
+  render: () => exchange(offer([]), { gemas: 1500, later: false, instant: true, receipts: [{ label: "Offered for sale", sig: "5Kd3aXpQ9TqLm2VnYbT6uJc8HsRfE3aZoNqXd5iWcTYPLm2VnYbT6uJc8HsRfE3aZoNqXd5i" }] }),
 };

@@ -1,6 +1,5 @@
 "use client";
 
-import type { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, ChainChip, Chip, ClockIcon, CrossChainProgress } from "@/components/ui";
 import { ReturnOwnSheet, useReturnable } from "./MoneySheets";

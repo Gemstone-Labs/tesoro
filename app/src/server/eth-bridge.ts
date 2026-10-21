@@ -47,6 +47,7 @@ import {
   lstAbi,
   netOfVault,
   vaultByAddress,
+  vaultsOn,
   parseBridgePosition,
   sourceAuthPda,
   vaultAbi,
@@ -578,6 +579,18 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
 export async function handleEthPrice(asset: string | null = null) {
   const p = await assetPrice(asset === "HYPE" ? "HYPE" : "ETH");
   return { priceMicroUsd: p.microUsd.toString(), live: p.live };
+}
+
+/**
+ * Public: what paying a Redeem out on ETH or HYPE costs in cross-chain fees, quoted for the vault of `asset`
+ * (the `PayYield` message). The fee is in lamports; the Wallet turns it into dollars and compares it with the payout.
+ */
+export async function handleRedeemCost(asset: string | null = null) {
+  const vault = vaultsOn(asset === "HYPE" ? "hyperevm" : "hoodi")[0];
+  if (!vault) throw new DemoHttpError(503, "not-configured", "Cross-chain transfers are not available right now.");
+  const acc = await sendAccounts(vault.address);
+  const fee = await quoteFee(vault.address, 4, acc.quote);
+  return { feeLamports: fee.toString() };
 }
 
 /** The chain a Position lives on, as the Player knows it: Ethereum for Hoodi, HyperEVM otherwise. */

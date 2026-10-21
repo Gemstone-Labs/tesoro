@@ -50,7 +50,6 @@ import { RequestCard } from "@/components/backing/RequestCard";
 import { BackingExample, FEES } from "./BackingExample";
 import "./backing.css";
 import { entryError } from "@/lib/chain/entry-errors";
-import { plainError } from "@/lib/errors";
 import { awayNotice } from "@/lib/chain/protections";
 import { useAway } from "@/lib/chain/useAway";
 

@@ -61,6 +61,36 @@ export const WithEthAndHypePositions: Story = { parameters: { data: { snapshot: 
 /** The same Positions with the Advance repaid: Debt is zero and Unlock is ready. */
 export const EthAndHypePositionsPaidOff: Story = { parameters: { data: { snapshot: ethSnapshot(true) }, screen: { eth: { advance: "paid" } } } };
 
+const DAY = 86_400;
+const later = (days: number) => Math.floor(Date.now() / 1000) + days * DAY;
+
+/**
+ * Speed in the Wallet: Redeem now per chain, "ready by" dates for the rest (planned repayment of each line), the fee of a
+ * small ETH Redeem against what it pays, and Redeem small leftovers.
+ */
+const speedSnapshot = (a: string): AccountSnapshot => {
+  const s = demoSnapshot(a);
+  const sol = (n: number, amount: bigint, redeemable: bigint, days: number, isOwn = false) =>
+    fixtureHolding(n, { amount, redeemable, isOwn, dueAt: later(days), native: true, sourceOwner: isOwn ? a : demoKey(7000 + n) });
+  const eth = (n: number, amount: bigint, redeemable: bigint, days: number) =>
+    fixtureHolding(n, { amount, redeemable, isOwn: false, dueAt: later(days), asset: "ETH", unitNum: 10n ** 22n, unitDen: 2_600_000_000n, eth: { vault: ETH_VAULTS[0].address, id: BigInt(n) }, sourceOwner: demoKey(7000 + n) });
+  const holdings = [
+    sol(1, 3500n, 1240n, 20, true),
+    sol(2, 800n, 0n, 12),
+    sol(3, 600n, 0n, 45),
+    sol(4, 400n, 0n, 120),
+    sol(5, 6n, 6n, 3),
+    sol(6, 18n, 18n, 3),
+    sol(7, 11n, 0n, 9),
+    eth(8, 60n, 60n, 2),
+    eth(9, 340n, 0n, 30),
+  ];
+  const total = (own: boolean) => holdings.filter((h) => h.isOwn === own).reduce((t, h) => t + h.amount, 0n);
+  return { ...s, holdings, ownTotal: total(true), wonTotal: total(false) };
+};
+
+export const SpeedAndLeftovers: Story = { parameters: { data: { snapshot: speedSnapshot } } };
+
 /** A long-time Player: a few own Positions per chain (one ETH unlocked), Gemas won from about 200 Players across SOL, ETH and HYPE. */
 const heavySnapshot = (a: string): AccountSnapshot => {
   const s = demoSnapshot(a);

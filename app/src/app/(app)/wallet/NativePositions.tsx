@@ -35,12 +35,11 @@ import { extendAdvance, friendlyError, setExtendLimit, getTestSimSol, openPositi
 import { quoteDepositSol } from "@/lib/chain/stake-pool";
 import { tokenSymbol } from "@/lib/chain/stake-pool";
 import { tokensForUnits, unitsForTokens } from "@/lib/chain/stake";
-import { runInstant } from "@/lib/chain/instant-run";
 import { MAX_ADVANCE_MONTHS, blockedLabel, extendLimitView, fetchExtendLimit, type ExtendLimitData } from "@/lib/chain/extend-limit";
 import { getChain } from "@/lib/chain/client";
 import type { Chain } from "@/lib/mock";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
-import { NOTHING_REDEEMABLE_YET, ethRedeemables, ethYieldWaiting, freshenHoldings, redeemEthHoldings, useEthCtx } from "./EthPositions";
+import { NOTHING_REDEEMABLE_YET, ethRedeemables, ethYieldWaiting, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { useInstantRedeem } from "./instant";
 import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type RedeemPayout } from "./MoneySheets";
 import { GemasLabel } from "./AdvanceQuote";

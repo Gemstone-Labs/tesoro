@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Busy, Button, GemaAmount } from "@/components/ui";
 import { PlayerAvatar } from "@/components/account/Player";
@@ -16,6 +16,10 @@ import { DemoError } from "@/lib/chain/demo-client";
 import { ageCall } from "@/lib/chain/age-client";
 import { ageGate, readAgeCache, writeAgeCache } from "@/lib/age-gate";
 import { AgeConfirm } from "./AgeConfirm";
+import { EntryPlan } from "./EntryPlan";
+import { UnfinishedEntries } from "./UnfinishedEntries";
+import { previewEntry, DrawError } from "@/lib/chain/entry";
+import { storesFromSnapshot } from "@/lib/chain/entry-snapshot";
 import { fmtGemas } from "@/lib/format";
 import { practiceHref } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
@@ -56,6 +60,7 @@ export function EnterMatch(props: EnterKind) {
   const [status, setStatus] = useState("Getting your wallet ready…");
   const [failure, setFailure] = useState<{ text: string; short?: boolean } | null>(null);
   const [launched, setLaunched] = useState(false);
+  const [staged, setStaged] = useState<StagedEntry | null>(null);
   const [existing, setExisting] = useState<string | null>(null);
   const [freshRead, setFreshRead] = useState<"ok" | "failed" | null>(null);
   const [ageServer, setAgeServer] = useState<boolean | null>(null);
@@ -135,7 +140,7 @@ export function EnterMatch(props: EnterKind) {
       try {
         setStatus("Checking your Account…");
         // A long entry is prepared in steps: say how far along it is.
-        const onStaged = (t: StagedEntry) => setStatus(`Preparing your entry: ${fmtGemas(Number(t.staged))} of ${fmtGemas(Number(t.target))} Gemas ready.`);
+        const onStaged = (t: StagedEntry) => setStaged(t);
         const entered = (r: Entered, opened: string) => {
           if (r.via === "existing") return setExisting(r.id);
           setStatus(r.via === "joined" ? "Opponent found." : opened);
@@ -193,6 +198,17 @@ export function EnterMatch(props: EnterKind) {
           : game === "block-puzzle"
             ? "No one waiting yet: you play now and are paired when someone joins."
             : `No one waiting yet: you sit first and the Match starts when someone joins${assetName ? ` (trading ${assetName})` : ""}.`;
+  // The program's draw for this entry, from the Account already read (own Gemas first, the fastest first). A backed entry draws the Backer's Gemas, not shown here.
+  const preview = useMemo(() => {
+    if (!snapshot?.exists || props.kind === "challenge-join" || props.backing) return null;
+    try {
+      return previewEntry(storesFromSnapshot(snapshot), BigInt(props.entry));
+    } catch (e) {
+      if (e instanceof DrawError) return null;
+      throw e;
+    }
+  }, [snapshot, props]);
+  const nowSec = Math.floor((snapshot?.fetchedAt ?? 0) / 1000);
   const heldLine = `${props.backing ? "The entry is" : `Your ${fmtGemas(entryGemas)} Gemas are`} held for this Match. If nobody joins within an hour, ${props.backing ? "it comes" : "they come"} back.`;
   return (
     <section className="enter" aria-label={title}>
@@ -228,6 +244,7 @@ export function EnterMatch(props: EnterKind) {
         </figure>
       </div>
       <div className="enter-foot">
+        {signer && (!launched || failure) && <UnfinishedEntries />}
         {signedOut ? (
           <>
             <p className="meta">Sign in to play a Match.</p>
@@ -263,6 +280,7 @@ export function EnterMatch(props: EnterKind) {
         ) : (
           <>
             <Busy>{status}</Busy>
+            <EntryPlan preview={found ? null : preview} staged={staged} nowSec={nowSec} />
             {!found && <p className="meta">{waitLine}</p>}
             {!found && props.kind !== "challenge-join" && <p className="meta">{heldLine}</p>}
           </>
