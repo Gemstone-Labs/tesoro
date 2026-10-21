@@ -1,47 +1,68 @@
 /* Deposit packs: a store-style modal of three cards, and the steps after a pick. */
-dialog.sheet.dep-sheet { max-width: 860px; }
-.dep { display: grid; gap: 16px; }
-.dep-lead { color: var(--fg-2); font-size: var(--fs-14); margin: -6px 0 0; }
+dialog.sheet.dep-sheet { max-width: 920px; }
+dialog.sheet.dep-sheet.ack { max-width: 880px; }
+dialog.sheet.dep-sheet.done { max-width: 640px; }
+dialog.sheet.dep-sheet.packs .sheet-head h2 { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: clamp(34px, 4vw, 52px); letter-spacing: 0.005em; line-height: 1; }
+.dep { display: grid; gap: 18px; }
 
-.dep-packs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+/* ack and done draw their own big title: the sheet's one stays for screen readers, the close button floats */
+.dep-sheet.ack .sheet-in, .dep-sheet.done .sheet-in { position: relative; }
+.dep-sheet.ack .sheet-head, .dep-sheet.done .sheet-head { position: absolute; top: 12px; right: 12px; z-index: 2; }
+.dep-sheet.ack .sheet-head h2, .dep-sheet.done .sheet-head h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.dep-sheet.ack .sheet-in { padding: 0; gap: 0; }
+
+/* packs: the Player pack sits in the middle, bigger and raised */
+.dep-packs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: center; padding-top: 4px; }
 .dep-card {
   --edge: var(--edge-1); --c: var(--cut-card);
-  position: relative; display: grid; grid-template-rows: auto auto 1fr auto; gap: 10px; justify-items: center; text-align: center;
-  padding: 18px 14px 16px; background: var(--surface);
+  position: relative; display: grid; gap: 10px; justify-items: center; text-align: center;
+  padding: 26px 16px 18px; background: var(--surface);
 }
+.dep-card.feat { --edge: var(--edge-2); background: var(--surface-2); padding: 38px 20px 22px; gap: 12px; margin-block: -10px; }
 .dep-card.hot { --edge: var(--edge-em); background: radial-gradient(90% 60% at 50% 0, rgba(36, 216, 168, 0.14), transparent 70%), var(--surface); }
 .dep-tag {
   position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 1;
-  padding: 3px 10px; font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
-  background: var(--facet); color: var(--em-ink); white-space: nowrap;
+  padding: 3px 12px; font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  background: var(--raised-2); color: var(--fg); white-space: nowrap;
 }
-.dep-art { width: min(100%, 172px); height: auto; aspect-ratio: 1; object-fit: contain; }
-.dep-name { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: var(--fs-22); letter-spacing: 0.02em; line-height: 1; }
-.dep-gemas { display: grid; gap: 2px; justify-items: center; align-content: start; }
-.dep-gemas b { display: inline-flex; align-items: center; gap: 8px; font-size: 34px; line-height: 1; font-weight: 900; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-.dep-gemas span { font-size: var(--fs-12); color: var(--fg-2); font-weight: 700; }
+.dep-tag.hot { background: var(--facet); color: var(--em-ink); }
+.dep-art { width: min(100%, 210px); height: auto; aspect-ratio: 1; object-fit: contain; }
+.dep-card.feat .dep-art { width: min(100%, 280px); }
+.dep-name { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: var(--fs-24); letter-spacing: 0.02em; line-height: 1; }
+.dep-card.feat .dep-name { font-size: 32px; }
+.dep-gemas { display: grid; gap: 2px; justify-items: center; align-content: start; margin: 0; }
+.dep-gemas b { display: inline-flex; align-items: center; gap: 8px; font-size: 32px; line-height: 1; font-weight: 900; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: var(--em-hi); }
+.dep-card.feat .dep-gemas b { font-size: 40px; }
+.dep-gemas span { font-size: var(--fs-13); color: var(--fg-2); font-weight: 700; }
 .dep-card .btn { width: 100%; }
 
+/* three small notes under the cards */
+.dep-notes { list-style: none; margin: 0; padding: 14px 0 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
+.dep-note { display: flex; align-items: center; gap: 12px; padding: 2px 18px; font-size: var(--fs-13); line-height: 1.35; color: var(--fg-2); }
+.dep-note + .dep-note { border-left: 1px solid var(--line); }
+.dep-note:first-child { padding-left: 0; }
+.dep-note-icon { flex: none; display: grid; place-items: center; width: 32px; height: 32px; color: var(--fg); }
+.dep-note-icon svg { width: 26px; height: 26px; stroke-width: 1.5; }
 .dep-small { display: grid; gap: 6px; }
-.dep-back { margin: 0; font-size: var(--fs-13); font-weight: 700; color: var(--fg); }
-.dep-info { margin: 0; display: flex; gap: 6px; align-items: flex-start; }
-.dep-info svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }
 .dep-test { margin: 0; font-family: var(--f-mono); font-size: var(--fs-11); color: var(--fg-2); }
-.dep-soon { margin: 0; font-size: var(--fs-13); color: var(--fg-2); }
-.dep-soon a, .dep-link { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
+.dep-link { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
 
-/* founders compare the two art sets */
-.dep-art-pick { display: inline-flex; gap: 6px; align-items: center; font-size: var(--fs-12); color: var(--fg-2); }
-.dep-art-pick button { --c: var(--cut-chip); padding: 4px 10px; font: inherit; font-weight: 700; color: var(--fg); background: var(--raised); border: 0; cursor: pointer; }
-.dep-art-pick button[aria-pressed="true"] { background: var(--surface-2); outline: 0; box-shadow: inset 0 0 0 1px var(--line-2); }
-
-/* acknowledgment */
-.dep-ack { display: grid; gap: 14px; }
-.dep-ack ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
-.dep-ack li { display: grid; grid-template-columns: 18px 1fr; gap: 10px; font-size: var(--fs-14); line-height: 1.4; }
-.dep-ack li svg { width: 16px; height: 16px; margin-top: 2px; color: var(--fg-2); }
-.dep-check { display: flex; gap: 10px; align-items: flex-start; font-weight: 700; cursor: pointer; }
+/* acknowledgment: wording left, the chosen pack right */
+.dep-ack { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
+.dep-ack-main { display: grid; gap: 18px; align-content: start; padding: 34px 32px 28px; }
+.dep-ack-title { margin: 0; font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: clamp(34px, 4vw, 52px); line-height: 1; letter-spacing: 0.005em; }
+.dep-ack-points { display: grid; gap: 14px; }
+.dep-ack-points p { margin: 0; font-size: var(--fs-15); line-height: 1.5; color: var(--fg); }
+.dep-ack-foot { display: grid; gap: 14px; margin-top: 6px; }
+.dep-check { display: flex; gap: 10px; align-items: center; font-weight: 600; cursor: pointer; font-size: var(--fs-14); }
 .dep-check input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--em); }
+.dep-ack-pack { display: grid; gap: 14px; align-content: center; justify-items: start; padding: 34px 28px 28px; border-left: 1px solid var(--line); }
+.dep-ack-pack .dep-art { width: min(100%, 260px); }
+.dep-ack-sum { display: grid; gap: 6px; }
+.dep-ack-sum .dep-gemas { justify-items: start; grid-auto-flow: column; align-items: baseline; gap: 8px; }
+.dep-ack-sum .dep-gemas b { font-size: 34px; }
+.dep-ack-pay { margin: 0; width: 100%; display: grid; gap: 2px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--fg-2); font-size: var(--fs-14); }
+.dep-ack-pay b { font-size: 34px; font-weight: 900; letter-spacing: -0.02em; color: var(--fg); line-height: 1.1; }
 .dep-actions { display: grid; gap: 8px; }
 
 /* paying and adding */
@@ -53,25 +74,42 @@ dialog.sheet.dep-sheet { max-width: 860px; }
 .dep-steps svg { width: 18px; height: 18px; color: var(--em-hi); }
 .dep-pack-line { margin: 0; color: var(--fg-2); font-size: var(--fs-13); }
 
-/* done */
-.dep-done { display: grid; gap: 14px; justify-items: center; text-align: center; padding: 6px 0 2px; }
-.dep-done .status { justify-self: center; }
-.dep-done-fig { display: inline-flex; align-items: center; gap: 10px; font-size: 44px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; color: var(--em-hi); font-variant-numeric: tabular-nums; animation: dep-rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
-.dep-done p { margin: 0; color: var(--fg-2); font-size: var(--fs-14); max-width: 40ch; }
-.dep-done .dep-actions { width: 100%; max-width: 360px; }
-@keyframes dep-rise { from { transform: translateY(14px) scale(0.97); opacity: 0; } }
+/* done: a big counter */
+.dep-done { display: grid; gap: 14px; justify-items: center; text-align: center; padding: 14px 0 2px; }
+.dep-done-fig { margin: 0; font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: clamp(54px, 9vw, 96px); line-height: 0.95; letter-spacing: 0.005em; font-variant-numeric: tabular-nums; color: var(--em-hi); background: linear-gradient(180deg, #8dfbe3, var(--em)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.dep-done-ready { margin: 0; display: inline-flex; align-items: center; gap: 12px; font-size: var(--fs-20); font-weight: 800; color: var(--fg); }
+.dep-done-check { display: grid; place-items: center; width: 34px; height: 34px; background: var(--raised-2); box-shadow: inset 0 0 0 1px var(--line-2); border-radius: 8px; }
+.dep-done-check svg { width: 20px; height: 20px; }
+.dep-done .dep-art { width: min(70%, 300px); filter: drop-shadow(0 0 28px rgba(36, 216, 168, 0.28)); }
+.dep-done .dep-actions { width: 100%; max-width: 420px; justify-items: center; }
+.dep-done-quiet { background: none; border: 0; padding: 10px 18px; font: inherit; font-weight: 700; color: var(--fg-2); cursor: pointer; }
+.dep-done-quiet:hover { color: var(--fg); }
+.dep-done-quiet:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 
 .dep-error { display: grid; gap: 12px; }
 
 @media (max-width: 639px) {
-  .dep-packs { grid-template-columns: 1fr; }
-  .dep-card { grid-template-columns: 96px 1fr; grid-template-rows: auto auto auto; column-gap: 14px; row-gap: 8px; text-align: left; justify-items: start; align-items: center; padding: 16px 14px 14px; }
-  .dep-card .dep-art { grid-row: 1 / span 2; width: 96px; }
-  .dep-card .dep-gemas { justify-items: start; }
+  .dep-packs { grid-template-columns: 1fr; gap: 12px; padding-top: 0; }
+  .dep-card { grid-template-columns: 110px 1fr; grid-template-rows: auto auto auto; column-gap: 14px; row-gap: 8px; text-align: left; justify-items: start; align-items: center; padding: 28px 14px 14px; }
+  .dep-card.feat { order: -1; margin-block: 0; padding: 28px 14px 14px; }
+  .dep-card .dep-name, .dep-card.feat .dep-name { font-size: var(--fs-24); grid-column: 2; grid-row: 1; }
+  .dep-card .dep-art, .dep-card.feat .dep-art { grid-column: 1; grid-row: 1 / span 2; width: 110px; }
+  .dep-card .dep-gemas { grid-column: 2; grid-row: 2; justify-items: start; }
   .dep-card .btn { grid-column: 1 / -1; }
-  .dep-gemas b { font-size: 30px; }
+  .dep-gemas b, .dep-card.feat .dep-gemas b { font-size: 28px; }
   .dep-tag { left: 14px; transform: none; }
+  .dep-notes { grid-template-columns: 1fr; gap: 10px; }
+  .dep-note, .dep-note + .dep-note { padding: 0; border-left: 0; }
+
+  .dep-ack { grid-template-columns: 1fr; }
+  .dep-ack-pack { order: -1; grid-template-columns: 64px 1fr auto; align-items: center; gap: 4px 12px; padding: 18px 64px 14px 18px; border-left: 0; border-bottom: 1px solid var(--line); }
+  .dep-ack-pack .dep-art { width: 64px; }
+  .dep-ack-sum .dep-gemas { grid-auto-flow: row; gap: 0; }
+  .dep-ack-sum .dep-gemas b { font-size: 22px; white-space: nowrap; }
+  .dep-ack-sum .dep-name { font-size: var(--fs-20); }
+  .dep-ack-pay { width: auto; padding: 0; border: 0; justify-items: end; font-size: var(--fs-12); }
+  .dep-ack-pay b { font-size: 24px; }
+  .dep-ack-main { padding: 20px 18px 20px; gap: 14px; }
+  .dep-ack-title { font-size: 32px; }
 }
 @media (prefers-reduced-motion: reduce) { .dep-done-fig { animation: none; } }
-.dep-play { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
-.dep-play i { font-style: normal; }

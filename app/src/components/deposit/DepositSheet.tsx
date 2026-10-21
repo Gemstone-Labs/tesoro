@@ -8,46 +8,30 @@ import { SIM_MONTH_MIN } from "@/lib/chain/native";
 import { backLink } from "@/lib/deposit/back-link";
 import { onDeposit, type DepositIntent } from "@/lib/deposit/bus";
 import { DEPOSIT_ACK_TITLE } from "@/lib/deposit/acknowledgment";
+import type { DepositStep } from "./use-deposit-flow";
 import { PACK_MONTHS } from "@/lib/deposit/packs";
 import { CLUSTER } from "@/lib/cluster-settings";
 import { writeViewMode } from "@/lib/deposit/view-mode";
-import { AckView, DoneView, ErrorView, PacksView, WorkingView, type DepositArt } from "./DepositPanel";
+import { AckView, DoneView, ErrorView, PacksView, WorkingView } from "./DepositPanel";
 import { useDepositFlow } from "./use-deposit-flow";
 
 const TEST_MODE = CLUSTER.yieldModel !== "real";
 const HOURS = (PACK_MONTHS * SIM_MONTH_MIN) / 60;
-const ART_KEY = "tesoro:deposit-art";
 
-/** The founders compare two art sets: the choice sticks in this browser. */
-function useArt(): [DepositArt, (a: DepositArt) => void] {
-  // The sheet's content only renders once opened in the browser, so reading storage here can't mismatch server markup.
-  const [art, setArt] = useState<DepositArt>(() => {
-    try {
-      const v = localStorage.getItem(ART_KEY);
-      return v === "a" || v === "b" ? v : "b";
-    } catch {
-      return "b";
-    }
-  });
-  return [
-    art,
-    (a) => {
-      setArt(a);
-      try {
-        localStorage.setItem(ART_KEY, a);
-      } catch {
-        // Not remembered.
-      }
-    },
-  ];
-}
+/** The sheet's name for each step; the bare steps draw their own big title and keep this one for screen readers. */
+const TITLES: Record<DepositStep, string> = {
+  packs: "Get Gemas",
+  ack: DEPOSIT_ACK_TITLE,
+  working: "Get Gemas",
+  done: "Your Gemas are ready",
+  error: "Get Gemas",
+};
 
 /** The deposit modal: packs, the acknowledgment, progress, success. Controlled by `open`. */
 export function DepositSheet({ open, onClose, intent }: { open: boolean; onClose: () => void; intent: DepositIntent | null }) {
   const flow = useDepositFlow(intent);
   const auth = useAuth();
   const router = useRouter();
-  const [art, setArt] = useArt();
   const { step, picked, reset } = flow;
   // A finished or abandoned deposit starts over the next time the modal opens.
   const wasOpen = useRef(false);
@@ -63,35 +47,31 @@ export function DepositSheet({ open, onClose, intent }: { open: boolean; onClose
   };
 
   return (
-    <Sheet open={open} onClose={onClose} title={step === "ack" ? DEPOSIT_ACK_TITLE : "Get Gemas"} className="dep-sheet">
+    <Sheet open={open} onClose={onClose} title={TITLES[step]} className={`dep-sheet ${step}`}>
       {step === "packs" && (
         <PacksView
           quotes={flow.quotes}
           highlight={flow.highlight}
-          art={art}
-          onArt={setArt}
           canPay={flow.canPay}
           testMode={TEST_MODE}
           feePct={flow.feePct}
-          checking={flow.checking}
-          onPick={(id) => void flow.pick(id)}
+          onPick={flow.pick}
           onAdvanced={goAdvanced}
         />
       )}
       {step === "ack" && picked && (
         <AckView
-          pack={picked.pack}
-          checked={flow.ack.checked}
-          onChecked={flow.ack.setChecked}
+          quote={picked}
+          dontShow={flow.ack.dontShow}
+          onDontShow={flow.ack.setDontShow}
           busy={flow.ack.busy}
           error={flow.ack.error}
           onConfirm={() => void flow.ack.confirm()}
-          onBack={flow.back}
         />
       )}
       {step === "working" && picked && <WorkingView pack={picked.pack} phase={flow.phase} testMode={TEST_MODE} hours={HOURS} />}
       {step === "done" && flow.result && (
-        <DoneView gemas={flow.result.gemas} back={backLink(intent)} onDone={onClose} testMode={TEST_MODE} hours={HOURS} />
+        <DoneView gemas={flow.result.gemas} packId={flow.result.packId} back={backLink(intent)} onDone={onClose} testMode={TEST_MODE} hours={HOURS} />
       )}
       {step === "error" && picked && (
         <ErrorView pack={picked.pack} message={flow.error ?? "That didn’t go through. Try again in a moment."} paidAlready={flow.paidAlready} onRetry={flow.retry} onClose={onClose} />
