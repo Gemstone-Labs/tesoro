@@ -124,7 +124,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
       )}
 
       {showTable && t && seat !== null && (
-        <HoldemTable table={t} seat={seat} hole={view.hole} busy={view.busy} ended={tableOver || stage === "settled"} entry={m?.entry} onAct={(a, label) => void act(a, label)} onClaim={() => void claimTimeout()} />
+        <HoldemTable table={t} seat={seat} hole={view.hole} busy={view.busy} ended={tableOver || stage === "settled"} entry={m?.entry} error={view.error} onAct={(a, label) => void act(a, label)} onClaim={() => void claimTimeout()} />
       )}
 
       {stage === "closing" && (
@@ -144,7 +144,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         </Button>
       )}
 
-      {view.error && <p className="status err" role="alert">{view.error}</p>}
+      {view.error && !showTable && <p className="status err" role="alert">{view.error}</p>}
 
       <Receipts items={view.sigs} className="hd-sigs" />
       <p className="note hd-note">Chips only keep score inside the Match. Test mode · Gemas come from simulated yield and have no real value.</p>

@@ -3,7 +3,7 @@
 import { useEffect, type CSSProperties, type ReactNode } from "react";
 import { art } from "@/lib/art";
 import { FxLayer } from "./burst";
-import { isFullScreen, setFullScreen, watchNativeExit } from "./full-screen";
+import { isFullScreen, setFullScreen } from "./full-screen";
 
 export type ArenaGame = "block-puzzle" | "holdem" | "trading-duel" | "vanguard";
 
@@ -11,11 +11,17 @@ export type ArenaGame = "block-puzzle" | "holdem" | "trading-duel" | "vanguard";
  * The stage a game sits on: a dark backdrop with colour at the edges and a quiet, dark centre, kept
  * inside the content column (the app shell is untouched). Paints `art.arena[game]` over a CSS
  * gradient per game, which shows if the art fails to load. Also mounts the `FxLayer` bursts draw on,
- * and owns full screen: F toggles it (unless `fullScreenKey` is off, as in Hold'em where F folds), Esc leaves it,
- * and leaving the game leaves it.
+ * and owns full screen: `autoFull` turns it on (a live Match passes `autoFull={!ended}`, so it turns off again when
+ * the Match ends), F toggles it (unless `fullScreenKey` is off, as in Hold'em where F folds), Esc leaves it, and
+ * leaving the game leaves it.
  * `<Arena game="holdem">...the game...</Arena>`.
  */
-export function Arena({ game, children, className = "", fullScreenKey = true }: { game: ArenaGame; children: ReactNode; className?: string; fullScreenKey?: boolean }) {
+export function Arena({ game, children, className = "", fullScreenKey = true, autoFull = false }: { game: ArenaGame; children: ReactNode; className?: string; fullScreenKey?: boolean; autoFull?: boolean }) {
+  useEffect(() => {
+    if (!autoFull) return;
+    setFullScreen(true);
+    return () => setFullScreen(false);
+  }, [autoFull]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -24,10 +30,8 @@ export function Arena({ game, children, className = "", fullScreenKey = true }: 
       else if (e.key === "Escape" && isFullScreen() && !t?.closest("dialog")) setFullScreen(false);
     };
     window.addEventListener("keydown", onKey);
-    const unwatch = watchNativeExit();
     return () => {
       window.removeEventListener("keydown", onKey);
-      unwatch();
       setFullScreen(false);
     };
   }, [fullScreenKey]);
