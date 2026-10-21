@@ -966,6 +966,41 @@ fn close_unstarted_ix(env: &Env, payer: APk) -> Instruction {
 
 // --- Setup: config, create, permissions ---------------------------------------------------------
 
+/// LiteSVM has no permission program, so this checks the flags instead: the permission program takes each
+/// hidden account as the writable payer of its permission, and the rollup refuses the whole step with
+/// `PrivilegeEscalation` when the Game passes one read-only (the first staging Match, 2026-10-21).
+#[test]
+fn every_account_given_a_permission_is_writable() {
+    let ad = addrs(7);
+    let metas = vanguard::accounts::InitPermissions {
+        payer: APk::new_unique(),
+        battle: ad.battle,
+        secret: ad.secret,
+        army_0: ad.army_0,
+        army_1: ad.army_1,
+        battle_permission: permission_pda(ad.battle),
+        secret_permission: permission_pda(ad.secret),
+        army_0_permission: permission_pda(ad.army_0),
+        army_1_permission: permission_pda(ad.army_1),
+        permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
+        ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
+        magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+    }
+    .to_account_metas(None);
+    for (name, key) in [
+        ("battle", ad.battle),
+        ("secret", ad.secret),
+        ("army_0", ad.army_0),
+        ("army_1", ad.army_1),
+    ] {
+        let meta = metas.iter().find(|m| m.pubkey == key).unwrap();
+        assert!(
+            meta.is_writable,
+            "init_permissions: mark `{name}` #[account(mut)], the permission CPI writes it"
+        );
+    }
+}
+
 #[test]
 fn only_the_upgrade_authority_sets_the_tee_validator() {
     let mut env = Env::new();

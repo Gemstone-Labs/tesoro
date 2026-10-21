@@ -1069,11 +1069,12 @@ pub struct InitPermissions<'info> {
     pub payer: Signer<'info>,
     #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
-    #[account(seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
+    // Writable: the permission program takes each hidden account as the payer of its permission.
+    #[account(mut, seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
     pub secret: Box<Account<'info, Secret>>,
-    #[account(seeds = [ARMY_SEED, battle.key().as_ref(), &[0]], bump = army_0.bump)]
+    #[account(mut, seeds = [ARMY_SEED, battle.key().as_ref(), &[0]], bump = army_0.bump)]
     pub army_0: Box<Account<'info, Army>>,
-    #[account(seeds = [ARMY_SEED, battle.key().as_ref(), &[1]], bump = army_1.bump)]
+    #[account(mut, seeds = [ARMY_SEED, battle.key().as_ref(), &[1]], bump = army_1.bump)]
     pub army_1: Box<Account<'info, Army>>,
     /// CHECK: permission PDA of the Battle, verified by the permission program
     #[account(mut, seeds = [PERMISSION_SEED, battle.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]

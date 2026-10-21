@@ -1927,6 +1927,7 @@
         },
         {
           "name": "secret",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1948,10 +1949,12 @@
           }
         },
         {
-          "name": "army_0"
+          "name": "army_0",
+          "writable": true
         },
         {
-          "name": "army_1"
+          "name": "army_1",
+          "writable": true
         },
         {
           "name": "battle_permission",
