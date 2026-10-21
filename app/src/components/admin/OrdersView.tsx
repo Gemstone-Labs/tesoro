@@ -41,7 +41,7 @@ function OrderCard({ o, busy, result, onFill }: { o: AdminOrder; busy: boolean; 
     <li className="cut cut-card od-order">
       <header className="od-head">
         <span className="cut cut-chip od-state">{STATE[o.state]}</span>
-        <span className="od-kind">{o.asset} · {o.kind === "reported" ? "filled by the bridge" : o.kind === "stake" ? "staking token" : "simSOL"}</span>
+        <span className="od-kind">{o.asset} · {o.kind === "reported" ? "filled by the bridge" : o.kind === "stake" ? "staking token" : "test SOL"}</span>
       </header>
       <p className="od-who">
         <AccountLink account={o.account} />
@@ -116,7 +116,7 @@ export function OrdersView({ reply, error = null, signedOut = false, busy = null
             <h2>Spendable now</h2>
             <dl className="od-facts">
               <div>
-                <dt>simSOL route</dt>
+                <dt>test SOL route</dt>
                 <dd className="tnum">{reply.routes.native ? `${shares(reply.routes.native.spendable)} shares` : "No Treasury"}</dd>
               </div>
               <div>
