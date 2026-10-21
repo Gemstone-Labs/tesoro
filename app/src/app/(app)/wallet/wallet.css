@@ -14,6 +14,8 @@
 .wl-redeemable b, .wl-pending b { font-size: clamp(30px, 2.6vw, 44px); font-weight: 900; letter-spacing: -0.02em; line-height: 1.1; word-spacing: 0; }
 .wl-redeemable b { color: var(--em-hi); }
 .wl-redeemable .btn { margin-top: 8px; }
+/* room for the button and its one-line note, so the card keeps one height across views and states */
+@media (min-width: 768px) { .wl-redeemable, .wl-pending { min-height: 178px; } }
 .wl-pending .meta, .wl-redeemable .meta { color: var(--fg-2); font-size: var(--fs-13); }
 .wl-total-fig .wl-usd, .wl-usd { align-self: flex-end; padding-bottom: 0.4em; font-size: clamp(16px, 1.4vw, 22px); color: var(--fg-2); }
 .wl-redeemable .wl-usd, .wl-pending .wl-usd { display: block; font-size: var(--fs-15); padding: 0; }

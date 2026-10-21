@@ -1,5 +1,5 @@
 /* The Vault: Gemas to play, winnings, deposits. */
-.vt-body { display: grid; gap: 20px; max-width: 1100px; }
+/* the body shares the Wallet's .wl grid and section gap, so both views line up */
 .vt-head { align-items: center; }
 .vt-head-side { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; justify-content: flex-end; }
 .vt-head-side .btn { white-space: nowrap; }

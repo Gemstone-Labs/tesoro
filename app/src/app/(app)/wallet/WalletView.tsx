@@ -2,9 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ChevronDown } from "lucide-react";
 import { CLUSTER } from "@/lib/cluster-settings";
-import { Button, FacetCrown, GemaMark, GemaUsd, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
+import { Button, Sheet, SkeletonCards, CountUp } from "@/components/ui";
 import { redeemableOf, useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { fmtAsset, fmtGemas } from "@/lib/format";
@@ -21,6 +20,7 @@ import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemable
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables, ethYieldWaiting } from "./EthPositions";
 import { vaultsOn, type EthVault } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, OpenIntentContext, type OpenIntent } from "./OpenPanel";
+import { BalanceHero } from "@/components/money/BalanceHero";
 import { ChainPockets, NextRedeem, type Pocket, type PocketSource } from "./ChainPockets";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
@@ -41,7 +41,6 @@ export function WalletView() {
   const [openSheet, setOpenSheet] = useState(false);
   const [intent, setIntent] = useState<OpenIntent | null>(null);
   // Phones fold the balance to the Total; wider screens always show all of it.
-  const [heroOpen, setHeroOpen] = useState(false);
   const router = useRouter();
   // The Vault's Get Gemas button, the top bar's Gemas pill and `/vault?open=1` open this sheet (a game adds what it needs).
   useEffect(() => onGetGemas((from) => auth.gate("get Gemas", () => {
@@ -161,52 +160,41 @@ export function WalletView() {
 
   return (
     <div className="wl">
-      <section className={`cut cut-frame facet-panel wl-hero${heroOpen ? " open" : ""}`} aria-label="Balance">
-        <FacetCrown />
-        <div className="wl-total" onClick={() => setHeroOpen((o) => !o)}>
-          <div className="wl-total-head">
-            <h2>Total Balance</h2>
-            <button type="button" className="wl-fold" aria-expanded={heroOpen} aria-controls="wl-second">
-              <ChevronDown size={18} aria-hidden="true" />
-              <span className="sr-only">{heroOpen ? "Hide" : "Show"} Redeemable and Pending</span>
-            </button>
-          </div>
-          <div className="wl-total-fig">
-            <GemaMark size={72} glint />
-            <b aria-busy={!ready}>{ready ? <CountUp value={gemas.total} /> : "—"}</b>
-            <span>Gemas</span>
-            {ready && <GemaUsd className="wl-usd" value={gemas.total} />}
-          </div>
-          {ready && !heroOpen && (
-            <button type="button" className="wl-sum" aria-expanded={heroOpen} aria-controls="wl-second">
-              <span>Redeemable <b className="tnum">{fmtGemas(redeemAmount)}</b></span>
-              <span aria-hidden="true">·</span>
-              <span>Pending <b className="tnum">{fmtGemas(pendingAmount)}</b></span>
-            </button>
-          )}
-        </div>
-        <div className="wl-second" id="wl-second">
-          <div className="wl-redeemable" aria-label="Redeemable now">
-            <h2>Redeemable now</h2>
-            <b>{ready ? fmtGemas(redeemAmount) : "—"}</b>
-            {ready && <GemaUsd className="wl-usd" value={redeemAmount} />}
-            <Button variant="money" disabled={redeemAmount === 0 && !canFetchYield} onClick={() => openRedeem()}>Redeem</Button>
-            {ready && redeemAmount === 0 && <span className="meta">{canFetchYield ? "Redeem fetches the latest yield first" : "Nothing redeemable yet"}</span>}
-          </div>
-          <div className="wl-pending" aria-label="Pending">
-            <h2>Pending</h2>
-            <b>{ready ? fmtGemas(pendingAmount) : "—"}</b>
-            {ready && <GemaUsd className="wl-usd" value={pendingAmount} />}
-            {ready && pendingAmount > 0 && <NextRedeem at={heroNext} />}
-          </div>
-        </div>
-        {error && (
+      <BalanceHero
+        label="Total Balance"
+        figure={ready ? <CountUp value={gemas.total} /> : "—"}
+        usdOf={ready ? gemas.total : undefined}
+        busy={!ready}
+        simulated={!REAL}
+        summary={ready && (
+          <>
+            <span>Redeemable <b className="tnum">{fmtGemas(redeemAmount)}</b></span>
+            <span aria-hidden="true">·</span>
+            <span>Pending <b className="tnum">{fmtGemas(pendingAmount)}</b></span>
+          </>
+        )}
+        columns={[
+          {
+            label: "Redeemable now",
+            figure: ready ? fmtGemas(redeemAmount) : "—",
+            usdOf: ready ? redeemAmount : undefined,
+            emerald: true,
+            action: <Button variant="money" disabled={redeemAmount === 0 && !canFetchYield} onClick={() => openRedeem()}>Redeem</Button>,
+            note: ready && redeemAmount === 0 ? (canFetchYield ? "Redeem fetches the latest yield first" : "Nothing redeemable yet") : undefined,
+          },
+          {
+            label: "Pending",
+            figure: ready ? fmtGemas(pendingAmount) : "—",
+            usdOf: ready ? pendingAmount : undefined,
+            action: ready && pendingAmount > 0 ? <NextRedeem at={heroNext} /> : undefined,
+          },
+        ]}
+        error={error && (
           <p className="status err wl-hero-err" role="alert">
             Could not read your Account from {CLUSTER.solana.label}. <Button size="sm" onClick={() => void refresh()}>Retry</Button>
           </p>
         )}
-        {!REAL && <SimulatedYieldLabel className="wl-hero-sim" />}
-      </section>
+      />
 
       <section className="wl-positions" aria-label="Your Gemas and Locks by chain">
         {onChain && loading && positions.length === 0 && (

@@ -1,59 +1,77 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useId, useState, type ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 import { FacetCrown, GemaMark, GemaUsd, SimulatedYieldLabel } from "@/components/ui";
-import "./balance-hero.css";
+import "@/app/(app)/wallet/wallet.css";
 
 export interface HeroColumn {
   label: string;
   /** The figure, already formatted; "—" while loading. */
-  figure: string;
+  figure: ReactNode;
   /** Gemas the ≈ dollar figure is worked out from; omit to hide it. */
   usdOf?: number;
-  /** Colours the figure emerald: money that can move now. */
+  /** Money that can move now: the emerald column. */
   emerald?: boolean;
-  /** A small line under the dollars. */
-  note?: ReactNode;
   action?: ReactNode;
+  /** A small line under the action. */
+  note?: ReactNode;
 }
 
 /**
- * The green cut balance card (the Wallet's Total Balance look): one big figure on the left, two smaller columns on the
- * right. Used by the Vault; the Wallet keeps its own markup until the economy rewrite lands.
+ * The green cut balance card at the top of the Vault, the same in both views: one big figure on the left, two columns on
+ * the right. On phones it folds to the big figure plus `summary`, and opens on tap.
  */
-export function BalanceHero({ label, figure, usdOf, sub, columns, busy = false, error }: {
+export function BalanceHero({ label, figure, usdOf, busy = false, summary, columns, error, simulated = true }: {
   label: string;
-  figure: string;
+  figure: ReactNode;
   usdOf?: number;
-  sub?: ReactNode;
-  columns: [HeroColumn, HeroColumn];
   busy?: boolean;
+  /** The one-line summary a folded phone card shows instead of the columns. */
+  summary?: ReactNode;
+  columns: [HeroColumn, HeroColumn];
   error?: ReactNode;
+  /** Show the simulated-yield label (test mode). */
+  simulated?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
   return (
-    <section className="cut cut-frame facet-panel bh" aria-label={label}>
+    <section className={`cut cut-frame facet-panel wl-hero${open ? " open" : ""}`} aria-label={label}>
       <FacetCrown />
-      <div className="bh-total">
-        <h2>{label}</h2>
-        <div className="bh-total-fig">
+      <div className="wl-total" onClick={() => setOpen((o) => !o)}>
+        <div className="wl-total-head">
+          <h2>{label}</h2>
+          <button type="button" className="wl-fold" aria-expanded={open} aria-controls={id}>
+            <ChevronDown size={18} aria-hidden="true" />
+            <span className="sr-only">{open ? "Hide" : "Show"} {columns[0].label} and {columns[1].label}</span>
+          </button>
+        </div>
+        <div className="wl-total-fig">
           <GemaMark size={72} glint />
           <b aria-busy={busy}>{figure}</b>
           <span>Gemas</span>
-          {usdOf !== undefined && <GemaUsd className="bh-usd" value={usdOf} />}
+          {usdOf !== undefined && <GemaUsd className="wl-usd" value={usdOf} />}
         </div>
-        {sub && <p className="bh-sum">{sub}</p>}
+        {summary && !open && (
+          <button type="button" className="wl-sum" aria-expanded={open} aria-controls={id}>
+            {summary}
+          </button>
+        )}
       </div>
-      <div className="bh-second">
+      <div className="wl-second" id={id}>
         {columns.map((c) => (
-          <div key={c.label} className="bh-col" aria-label={c.label}>
+          <div key={c.label} className={c.emerald ? "wl-redeemable" : "wl-pending"} aria-label={c.label}>
             <h2>{c.label}</h2>
-            <b className={c.emerald ? "em" : undefined}>{c.figure}</b>
-            {c.usdOf !== undefined && <GemaUsd className="bh-usd" value={c.usdOf} />}
-            {c.note && <span className="meta">{c.note}</span>}
+            <b>{c.figure}</b>
+            {c.usdOf !== undefined && <GemaUsd className="wl-usd" value={c.usdOf} />}
             {c.action}
+            {c.note && <span className="meta">{c.note}</span>}
           </div>
         ))}
       </div>
-      {error && <div className="bh-err">{error}</div>}
-      <SimulatedYieldLabel className="bh-sim" />
+      {error}
+      {simulated && <SimulatedYieldLabel className="wl-hero-sim" />}
     </section>
   );
 }

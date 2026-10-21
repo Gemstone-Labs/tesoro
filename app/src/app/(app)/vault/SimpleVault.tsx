@@ -63,7 +63,7 @@ export function SimpleVault() {
   const waiting = w.readyNow > 0 || w.readyLater > 0;
 
   return (
-    <div className="vt-body">
+    <div className="wl vt-body">
       {error && !snapshot && (
         <p className="status err" role="alert">
           Could not read your Account. <Button size="sm" onClick={() => void refresh()}>Retry</Button>
@@ -77,15 +77,23 @@ export function SimpleVault() {
         figure={ready ? fmtGemas(view.gemas) : "—"}
         usdOf={ready ? view.gemas : undefined}
         busy={!ready}
+        simulated={CLUSTER.yieldModel !== "real"}
+        summary={ready && (
+          <>
+            <span>Ready to cash out <b className="tnum">{fmtGemas(w.readyNow)}</b></span>
+            <span aria-hidden="true">·</span>
+            <span>Ready later <b className="tnum">{fmtGemas(w.readyLater)}</b></span>
+          </>
+        )}
         columns={[
           {
             label: "Ready to cash out",
             figure: ready ? fmtGemas(w.readyNow) : "—",
             usdOf: ready ? w.readyNow : undefined,
             emerald: true,
-            note: ready && w.readyNow === 0 ? "Win Matches and your winnings show up here." : undefined,
-            action: ready && w.readyNow > 0 && (
-              <Button variant="money" disabled={!signer || busy !== null} onClick={() => void cashOut()}>
+            note: ready && w.readyNow === 0 ? "Nothing to cash out yet" : undefined,
+            action: (
+              <Button variant="money" disabled={!ready || w.readyNow === 0 || !signer || busy !== null} onClick={() => void cashOut()}>
                 {busy === "cash" ? "Cashing out…" : "Cash out"}
               </Button>
             ),
