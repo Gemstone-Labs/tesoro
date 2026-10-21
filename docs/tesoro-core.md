@@ -5,7 +5,7 @@ The money rules of Tesoro (CONTEXT.md, ADR 0001). Two layers:
 - `programs/tesoro_core/src/ledger/` is the pure accounting core: plain structs and functions, no clocks, accounts or syscalls (Anchor is used only for the Borsh derive). Every mutating function validates before it mutates. Property tests live in `ledger/tests.rs`.
 - The rest of the crate is thin Anchor instructions that load accounts, validate them, call the ledger and store the result.
 
-Cross-chain and game integration are not here yet. Two seams are explicit: `Config.oracle_authority` (see below) and the `Redeemed` / `PositionUnlocked` events (the `PayYield` and `Unlock` message seams).
+Read "Economy upgrade (ADR 0013)" below first: it replaces Holdings, the Multi-Source allocation rule, pro rata Redeem, automatic Instant Redeem and the Pool drain described in the older sections, which are kept only where they still hold. Two seams are explicit: `Config.oracle_authority` (see below) and the `Redeemed` / `PositionUnlocked` events (the `PayYield` and `Unlock` message seams).
 
 ## Units
 
@@ -23,7 +23,16 @@ Per Source: `issued`, `returned` (cancelled by the owner), `redeemed`, `yield_un
 | `TesoroAccount` | Account | `["account", authority]` |
 | `PositionState` | Position | `["position", chain_byte, position_id]` |
 | `SourceState` | Source (one per Advance) | `["source", position, index_le]` |
-| `HoldingState` | Gemas held per (Account, Source) | `["holding", account, source]` |
+| `HoldingState` | Gemas held per (Account, Source). Being removed (ticket 08z); kept only for the devnet wipe | `["holding", account, source]` |
+| Basket | All an Account's Gemas, one sorted list of lines | `["basket", account]` |
+| Spill | Credits that did not fit the basket; same line layout, playable at once | `["spill", account]` |
+| Sponsor | Core-owned rent sponsor: relayer key, pause, per-Account and total caps | `["sponsor"]` |
+| Source book | A Source's classes, coverage counters and fee counters | `["book", source]` |
+| Checkpoint page | Append-only history of closed segments, per Source and class | `["ckpt", source, class, page_no_le]` |
+| `EconomyConfig` | Season keeper, fill keeper, Pool share, prize routes | `["economy"]` |
+| Instant Redeem order | One Instant Redeem order | `["instant", account, nonce_le]` |
+| Prize Source | The prize Gemas of one Season on one route | `["prize", route, season_le]` |
+| Settlement receipt | Written when a Match enters Settling or Refunding | `["settled", match]` |
 | `MatchState` | Match (and its Pot, in escrow as lines) | `["match", id_le]` |
 | `RequestState` | Request | `["request", player_account, nonce_le]` |
 | `OfferState` | Offer (and the reservation) | `["offer", backer_account, nonce_le]` |
@@ -33,9 +42,10 @@ Per Source: `issued`, `returned` (cancelled by the owner), `redeemed`, `yield_un
 
 ## Instructions
 
-Config: `initialize_config`, `update_config` (admin). Game registry: `register_game`, `propose_game_change`, `apply_game_change`, `cancel_game_change` (signed by the control of the Game program, see below), `list_game` (admin). Invite gate (admin): `set_invite_gate(required, key)`. Identity: `create_account` (takes the `invite_gate` PDA; while the gate is required the Invite `key` must also sign, passed as the first remaining account, else `InviteRequired`; no gate account means off), `set_evm_address`, `open_holding` (anyone pays; own-sourced iff the Source belongs to the Account).
-Position: `open_position` (oracle), `open_native_position`, `take_native_advance`, `extend_native_advance`, `init_native_custody`, `set_price` (see Solana-native Positions below), `take_advance` (owner picks the Horizon, oracle supplies the price, both sign), `apply_yield` (oracle; idempotent by `seq`), `return_own`, `redeem` (refuses EVM-sourced Sources: they use `redeem_from_source`, co-signed by the chain's source authority, called by the bridge's `redeem_to_evm`), `claim_free_yield`, `unlock`. Protections (owner): `set_entry_limit`, `set_break`, `set_self_exclusion`. On-chain prices: `set_onchain_price` (admin), `take_native_advance_onchain`, `take_advance_onchain` (see ADR 0012).
-Match: `open_match`, `join_match`, `open_match_backed`, `join_match_backed`, `settle_match` (registered Game authority only), `extend_match_deadline` (registered Game authority only), `refund_match`.
+Config: `initialize_config`, `update_config` (admin). Game registry: `register_game`, `propose_game_change`, `apply_game_change`, `cancel_game_change` (signed by the control of the Game program, see below), `list_game` (admin). Invite gate (admin): `set_invite_gate(required, key)`. Identity: `create_account` (takes the `invite_gate` PDA; while the gate is required the Invite `key` must also sign, passed as the first remaining account, else `InviteRequired`; no gate account means off), `set_evm_address`, `init_stores` (creates the basket and spill of an Account that has none), `open_holding` (Holdings only; removed with ticket 08z).
+Position: `open_position` (oracle), `open_native_position`, `take_native_advance`, `extend_native_advance`, `init_native_custody`, `set_price` (see Solana-native Positions below), `take_advance` (owner picks the Horizon, oracle supplies the price, both sign), `apply_yield` (oracle; idempotent by `seq`), `return_own(line, amount)`, `redeem(line, amount)` (a line is `LineRef{side, due_at, class, tranche}`; EVM-sourced Sources use `redeem_from_source`, co-signed by the chain's source authority, called by the bridge's `redeem_to_evm`), `claim_free_yield`, `unlock`. Protections (owner): `set_entry_limit`, `set_break`, `set_self_exclusion`. On-chain prices: `set_onchain_price` (admin), `take_native_advance_onchain`, `take_advance_onchain` (see ADR 0012).
+Match: `open_match`, `join_match`, `open_match_backed`, `join_match_backed`, `settle_match` (registered Game authority only), `extend_match_deadline` (registered Game authority only, capped at 7 days after open), `refund_match`. These still run on Holdings until ticket 09 moves them onto baskets, Tickets and the Settling/Refunding states described below.
+Economy upgrade: baskets (`grow_store`, `grow_store_sponsored`, `shrink_store`, `claim_spill`, `init_source_book`, `init_ckpt_page`, `init_ckpt_page_sponsored`), sponsor (`init_sponsor`, `set_sponsor`), economy (`set_economy`, `set_prize_share`, `set_prize_escrow`), Instant Redeem (`request_instant_redeem`, `fill_instant_redeem`, `fill_instant_redeem_from_source`, `cancel_instant_redeem`, `expire_instant_redeem`), prizes and Seasons (`harvest`, `fund_season_prize_native`, `fund_season_prize_stake`, `redeem_prize`, `record_season`, `pay_season_rank`, `void_season_rank`, `close_season`), listing (`list_game`, `refresh_listing`, `close_pair`).
 Backing: `create_request`, `cancel_request`, `create_offer`, `accept_directed`, `apply_offer`, `accept_applicant`, `cancel_offer`, `expire_offer` (both take the accepted Request as an optional account, required when the Offer had one, and return it to Open).
 
 Ledger errors surface as custom error `6100 + CoreError::code()`; program errors (`Unauthorized` = 6000, `GameNotRegistered` = 6001, `InvalidAccount` = 6003, ...) as usual.
@@ -52,35 +62,19 @@ Ledger errors surface as custom error `6100 + CoreError::code()`; program errors
 
 ## How Gemas move with their Sources
 
-A Gema never loses its Source. A Pot is a list of lines `(source, amount)` per side. On a win the winner receives the loser's actual lines (minus fees) and their own entry back; the recipient's Holding of that Source is credited (own-sourced iff they own the Source, so Gemas that come home count as own again). Fees are taken in Gemas from the loser's lines. A Draw, abandonment or no-show returns every entry to its funder unchanged. Holdings of a payout's `(recipient, source)` must exist before settling; anyone can create them with `open_holding`, so a recipient cannot block a settlement.
+A Gema never loses its Source, its class or its tranche. A Pot is a list of lines per side. On a win the winner receives the loser's actual lines (minus fees) and their own entry back; the recipient's basket (or spill) is credited, and a line is on the own side iff the recipient owns the Source's Lock, so Gemas that come home count as own again. Fees are taken in Gemas from the loser's lines. A Draw or abandonment returns every entry to its funder, unchanged. A credit that does not fit the basket goes to the spill, so a recipient can never block a settlement. See "Economy upgrade (ADR 0013)" for the exact rules.
 
-## Multi-Source allocation rule
+## Entry draw (replaces the Multi-Source allocation rule)
 
-Deterministic and bounded.
+The program, not the client, chooses the lines of an entry. Rules:
 
-1. **Entry draw** (join, open, and Offer reservations): `own = min(entry, own_free)` comes from own-sourced Gemas, the rest from won Gemas.
-2. The caller supplies the Holdings: own class first, then won, each **strictly ascending by Source address**.
-3. Each class is drained in that order: every Holding except the last used is fully drained; a Holding that would contribute nothing, out of order, or of another Account, is rejected (`NonCanonicalDraw`, `InvalidAccount`).
-4. At most `MAX_ENTRY_SOURCES = 8` Holdings per entry (raised from 2 on 2026-09-30, because winners accumulate many small Sources), which bounds accounts per instruction and the payout lines at settlement. The supplied Holdings need not be every Holding: any strictly ascending subset that satisfies rule 3 is accepted, so a client skips small Holdings and sends the smallest set that covers the entry (`planEntry` in `app/src/lib/chain/ledger.ts`). When the own class must be drained completely (own Gemas < entry) every own Holding with Gemas is needed. Match and Offer accounts created before the change were sized for 2 lines per side; they keep working, but joining one with more than 2 Holdings fails at serialization and the transaction reverts (nothing is lost).
-   Settlement stays bounded: each side has at most 8 lines; the loser's lines are cut at most three times by the three fees, so a settlement pays at most `2 * 8 + 3 = 19` `(recipient, source)` lines (20 for a backed win), i.e. 38-40 remaining accounts (before the Leaderboard Fee: 18 and 19).
-5. **Take N Gemas from a Pot** (fees, the Player's share): lines are merged by Source, sorted ascending by Source address, and drained in that order. Platform Fee first, then Studio Fee, then the Leaderboard Fee, then (for a backed win) the Player's share from what remains.
-6. **Payout order** for `settle_match` / `refund_match`: payouts are merged by `(recipient, source)` and sorted by that pair. `remaining_accounts` carry, per payout, the recipient's `TesoroAccount` then its Holding of that Source.
-7. **Redeem** pays a holder `held * redeemable / outstanding` at most (pro rata to holders, including escrowed and reserved Gemas in the denominator), so redemption never exceeds what the Source has accrued.
+1. Own lines first, in order of `due_at`; then won lines, earliest `due_at` first. A line's key is (side, `due_at`, source, class, tranche) and the basket is kept sorted by it. Fee-class lines (Platform, Studio, Leaderboard) are never drawn, reserved or moved.
+2. The draw never takes below `reserved_total` (an Offer's amount is held by the tail of the order, so it never conflicts with an entry).
+3. A line with a non-zero amount that sorts before another line that is drawn is drawn first. The client cannot skip a fast line.
+4. If the lines do not fit one transaction (`MAX_DRAW_LINES = 12`, a placeholder until ticket 09 measures it), the entry is staged in an Entry Ticket, with no cap on lines. `open`/`join` consume a complete Ticket after checking that no playable line sorts before the Ticket's last staged line.
+5. **A Player whose free Gemas cover an entry can always enter.** The draw spans the basket and the spill. Fuzz tests check this after every operation, with no cancel-first shortcut.
 
-## Compute and size (8 Holdings per side, devnet, 2026-09-30)
-
-Worst case: both entrants draw on 8 Holdings of distinct Sources, opener wins (18 payout lines). Legacy transactions, no Address Lookup Table needed: the largest (settle) is 1,091 bytes of the 1,232 limit, so a lookup table is not built; if the cap is raised again, settle moves to a v0 transaction with a lookup table for the payout Holdings.
-
-| Instruction | 1 Holding | 2 | 5 | 8 | Measured on |
-|---|---|---|---|---|---|
-| `open_match` (core) | 16,110 | 19,036 | 27,835 | 36,688 | LiteSVM |
-| `join_match` (core) | 10,247 | 13,329 | 22,596 | 31,918 | LiteSVM |
-| `settle_match` (core, payouts) | 29,589 (4) | 40,497 (6) | 74,091 (12) | 107,496 (18) | LiteSVM |
-| Block Puzzle `open_match + open_session` tx | | | | 78,679 | devnet |
-| Block Puzzle `join_match + join_session` tx | | | | 74,747 | devnet |
-| Block Puzzle `settle` tx (CPI, 18 payouts; core part 100,506) | | | | 135,734 (1,091 bytes) | devnet |
-
-Settlement is the binding number: 136k of the 150k target and well under 200k, so 8 is the cap. Proof: `docs/deployments.md`.
+Settlement is bounded by chunks, not by a line cap: see "Match lifecycle".
 
 ## Money rules as built
 
@@ -88,27 +82,27 @@ Settlement is the binding number: 136k of the 150k target and well under 200k, s
 - **Debt**: outstanding Gemas of the Position's open Source, in Gemas (source-unit view via `debt_units`). `YieldAccrued(cumulative)` repays it automatically; yield beyond the Advance goes to the owner as `free_yield`.
 - **Principal never reduces Debt**: no ledger function reads Principal after sizing an Advance, and the only paths that lower Debt are `apply_yield` and `return_own` (property-tested).
 - **Return**: only the Position owner, only their own-sourced Gemas, only up to Debt.
-- **Yield Fee**: 20% (`yield_fee_bps = 2000`, cap 5000) of every yield increment goes to the Treasury before it counts toward Debt, redemption or free yield. Never on Principal.
-- **Instant Redeem**: won, free Gemas only (`NotWonGemas` otherwise), and only the holding's pending part: at most `free - redeemable_for(free)` (`ExceedsPending` otherwise; the app redeems the landed part in full first, in the same transaction); payout `floor(units * (10_000 - instant_fee_bps) / 10_000)` with `instant_fee_bps = 3500`, paid by the Treasury (`TreasuryShort`, 6017, when it holds less). The Gemas move to the Treasury Account's Holding of the same Source; Source counts are unchanged.
-- **Redeem**: only up to accrued yield; `redeemed_units` versus `yield_units` is the redeemed-versus-pending split per Source.
+- **Yield Fee**: 20% (`yield_fee_bps = 2000`, cap 5000) of every yield increment is taken before it counts toward Debt, redemption or free yield. Never on Principal. It stays unspendable until realised (a Lock's fee is realised at Unlock); then half is Tesoro's and half becomes `pool_owed` (see "Pool, prizes and Seasons").
+- **Instant Redeem**: an order, not an instant payout. See "Instant Redeem orders". The old one-step instruction (`instant_redeem`, `instant_redeem_stake`, `instant_fee_bps = 3500`) is removed.
+- **Redeem**: only up to a line's own ready part, paid in staking-token shares (see "Exact bookkeeping"); `redeemed` versus `yield_units` is still the redeemed-versus-pending split per Source. Another holder's Redeem, an Extend or a new fee never lowers a line's ready part.
 - **Match**: entries are `Config.entry_sizes` (1 to 4 sizes, each a multiple of 100 so Points stay whole; set by `set_entry_sizes`, admin only; all zero = default 500 / 1,000 / 2,500, so devnet needs no call; mainnet sets 100 / 500 / 1,000, test mode keeps 500 / 1,000 / 2,500; the app mirrors it in `cluster-settings.ts`; open Matches, Requests and Offers keep their entry); settle once (`Open`/`Active` to `Settled`/`Refunded`); fees `platform_bps + studio_bps` of the Pot (placeholders 200 + 300), snapshotted when the Match opens, plus the **Leaderboard Fee** `Config.leaderboard_bps` (100), read from Config when the Match settles (all three capped at 5,000 together; see "Leaderboard" below). Refund by the Game authority any time, by the opener of an unjoined Match, or by anyone after 1h.
-- **Backing**: Request (Player, game, entry); Offer (Backer, game, entry, Player share of surplus in bps; directed at a Request or public with up to 8 applicants). Requests and Offers live 24h; an accepted Offer has 24h to be used. The Backer's Gemas are reserved on create. Win: Backer's entry first, then the Player's share of the surplus (after fees), the rest to the Backer. Loss: the Backer loses the entry, nothing more. No revoke after the Match starts (`Consumed`). The Player is never debited and only ever receives won Gemas.
+- **Backing**: Request (Player, game, entry); Offer (Backer, game, entry, Player share of surplus in bps; directed at a Request or public with up to 8 applicants). Requests and Offers live 24h; an accepted Offer has 24h to be used. An Offer reserves an amount of the Backer's Gemas (`reserved_total`), not lines; the lines are drawn by the Entry draw when the backed Match opens. Only a Listed Game can be Backed. Win: Backer's entry first, then the Player's share of the surplus (after fees), the rest to the Backer. Loss: the Backer loses the entry, nothing more. No revoke after the Match starts (`Consumed`). The Player is never debited and only ever receives won Gemas.
 
 ## Game programs (CPI settlement)
 
 A Game registers `(game program id, authority, studio_bps)`. `authority` may be a PDA of the Game program: `settle_match` and `extend_match_deadline` only require that the `game_authority` signer equals it, and a PDA signs by `invoke_signed` from the Game program. No change was needed for that. Block Puzzle (`docs/games/block-puzzle.md`) does exactly this with `PDA(["authority"], block_puzzle)`.
 
-One change was strictly necessary: **`extend_match_deadline(new_deadline)`**. `join` sets the refund deadline to 1 h and anyone may refund an Active Match after it, which would let the losing Player of an async Game refund before the result is settled. The Game authority may push an Open or Active, unexpired Match's deadline later (an Open Match: block_puzzle's 24 h Queue window) (never earlier, at most 7 days from now, `MAX_MATCH_EXTENSION_SECS`); errors `InvalidDeadline`, `InvalidStatus`, `Expired`, `Unauthorized`. Covered by `only_the_game_authority_extends_a_deadline_forward_and_within_the_cap`. `refund_match` stays the liveness fallback: block_puzzle sets the deadline to its submission deadline plus 1 h, so its own settlement always comes first.
+One change was strictly necessary: **`extend_match_deadline(new_deadline)`**. `join` sets the refund deadline to 1 h and anyone may refund an Active Match after it, which would let the losing Player of an async Game refund before the result is settled. The Game authority may push an Open or Active, unexpired Match's deadline later (an Open Match: block_puzzle's 24 h Queue window) (never earlier, at most 7 days from now, `MAX_MATCH_EXTENSION_SECS`, and since ADR 0013 never past 7 days after the Match opened); errors `InvalidDeadline`, `InvalidStatus`, `Expired`, `Unauthorized`. Covered by `only_the_game_authority_extends_a_deadline_forward_and_within_the_cap`. `refund_match` stays the liveness fallback: block_puzzle sets the deadline to its submission deadline plus 1 h, so its own settlement always comes first.
 
 ## Leaderboard (ADR 0006)
 
 - **Config** gained `leaderboard_bps: u16` and `pool_account: Pubkey` after `games`. A Config created before them decodes with both zero (its unused tail is zeroed) and charges nothing. `init_leaderboard(bps)` (admin) reallocs it, creates the pool and sets the fee; it can be called again to change the fee. `update_config` and `register_game` keep platform + studio + leaderboard within the 5,000 bps cap.
-- **Pool**: `TesoroAccount` at `["account", pda(["leaderboard"])]`. Its Holdings are opened with `open_holding` like any Account's. Every won Match credits it through the normal payout path (one more `(recipient, source)` line in `settle_match`'s remaining accounts, sorted with the rest). A Game's client must read `Config.leaderboard_bps` and `pool_account` to build the same payouts (`computePayouts(m, result, lb)` in the TS ports). Draws and refunds pay nothing.
+- **Pool**: `TesoroAccount` at `["account", pda(["leaderboard"])]`, with a basket and a spill like any Account. Every won Match credits it through the normal payout path as a fee-class (Leaderboard) line, repaid third in the Payout order. Half the Yield Fee reaches it as prize Gemas (see "Pool, prizes and Seasons").
 - **Event** `MatchWon { match_id, game, entry, player, funder, points, pool_fee, season, ts }` on every decisive `settle_match`. `points = entry / 100`, to the Player who played.
 - **Seasons**: `season = (ts - 1_791_158_400) / 604_800 + 1` (Monday 2026-10-05 00:00 UTC is Season 1). `ledger/season.rs`, mirrored in `app/src/lib/chain/season.ts`.
-- **`record_season(number, points[])`** (admin or `oracle_authority`; the Players' `TesoroAccount`s as remaining accounts, in rank order): the season must have ended, ranks must be distinct, with points above zero, non-increasing, at most ten. Creates `Season` at `["season", number u32 LE]` holding the ranking and each prize, `pool_total * PRIZE_BPS[i] / 10_000` floored (25, 18, 13, 10, 8, 7, 6, 5, 4, 4%). Once per season (the account is `init`). Unfilled ranks are not paid, so their shares stay in the pool.
-- **`pay_season_rank(rank)`** (same authority): pays rank `rank` once (`paid_mask`). Remaining accounts: `n` pool Holdings then the winner's `n` Holdings of the same Sources. The pool's Holdings must be non-empty, strictly ascending by Source, each drained but the last (`plan_prize`); Gemas keep their Source. A rank paid with a zero amount sends no Holdings.
-- **Trust**: the ranking comes from the keeper (recomputed from `MatchWon` events / pool history); everything else is enforced here. See ADR 0006.
+- **`record_season(number, points[])`** (admin or the Season keeper in `EconomyConfig`): see "Pool, prizes and Seasons". The ranking is read only from events the core program wrote (verified program id; main 93e7960).
+- **`pay_season_rank(rank, line)`**: pays each rank its share of every line of the frozen budget, one step at a time (`(rank, line)` cursor), rounding down. See "Pool, prizes and Seasons".
+- **Trust**: the ranking comes from the keeper (recomputed from `MatchWon` events); the budget, the shares and the payouts are enforced here. See ADR 0006 and ADR 0013.
 
 ## Open questions
 
@@ -116,7 +110,7 @@ Conservative readings chosen where CONTEXT.md is silent. Raise before the build 
 
 1. **Surplus base.** "The remainder is split by the Offer" is read as the remainder after Platform and Studio Fees. Alternative: split before fees.
 2. **Who pays fees.** Fees come out of the loser's lines, so a winner always receives their own entry whole. Alternative: pro rata from the whole Pot.
-3. **Entry cap.** An entry draws from at most 8 Holdings (was 2, which stranded Accounts spread over 3+ Sources). Beyond 8 the Player redeems small balances; a consolidation instruction is still not built.
+3. **Entry cap.** Resolved by ADR 0013: no cap on lines per entry (Entry Tickets); "Redeem small leftovers" tidies tiny lines.
 4. **Fee rounding.** Fees are floored, so the winner gets the dust.
 5. **Debt in source units.** Debt is stored in Gemas and derived in source units, so it is stable against price; the rounding of partial yield (floor when crediting, ceil when repaying) can leave sub-Gema dust on a Source.
 6. **Backed Player's Match timeout.** The 1h no-show timer, the 24h Request/Offer TTL and the 24h use-by window after acceptance are placeholders.
@@ -178,6 +172,8 @@ Tests: `ledger/native.rs` (property test over random Time/Advance/Redeem/ReturnO
 Flow: `create_account` (once) -> sim_lst `faucet` -> one tx of `open_native_position(nonce, lst)` + `take_native_advance(months)` (source index = `advances`, no `prev_source`) -> read Debt with `position_accrued` + `source_view` (no keeper) -> `redeem` with the eight remaining accounts -> `unlock` with the ten (+ Source) remaining accounts. Keep the price feed fresh (`set_price` from the keeper, < 24 h old). Oracle Positions keep working with no remaining accounts for `redeem` and `unlock`.
 
 ## Yield Fee, Instant Redeem and the Treasury (2026-10-12, ADR 0007; balance by math, ADR 0010)
+
+> ADR 0013 changed this section: the Treasury spends only realised fees through one `spendable_shares` figure, Instant Redeem is an order (`request_instant_redeem`, `fill_instant_redeem`), and half the realised Yield Fee is owed to the Pool. Where the text below names `instant_redeem`, `instant_redeem_stake` or a Holding, read "Instant Redeem orders" and "Pool, prizes and Seasons" in the Economy upgrade section instead.
 
 **Treasury balance** (SOL units, O(1)): `earned_fee(now, speedup) - fee_minted` (the Yield Fee earned by native Positions, never minted until paid) plus the simSOL in the treasury vault valued at the rate (funding and `redeem_treasury` refills land in the vault). `pay_from_treasury` pays Instant Redeem and withdrawals the same way: vault first, the shortfall shares minted by `sim_lst::mint_yield` straight to the destination, `fee_minted += ceil(value of minted shares)`, refused (`TreasuryShort`) when that would pass `earned_fee`. So `fee_minted <= earned_fee` always, and `earned_fee` itself is at most the sum of the per-Position fees (conservative). The Treasury never pays more than fee earned + simSOL it received.
 
@@ -259,3 +255,94 @@ A Game is one `["game", program_id]` record. `Config.games` is no longer read or
 - **Immutable Games.** A Game that signs with `["tesoro-register"]` hands its registry to whoever can reach that CPI: expose it only behind the Game's own authority check.
 - **Pair limit.** A joiner may join at most 20 Matches opened by the same opener in a 24-hour window (`PairState`, `PairLimitReached`). The counter costs the joiner about 0.001 SOL of rent; `close_pair(opener, joiner)` (anyone, after the window) returns it to the wallet that paid. The per-Account cap on Matches open at once belongs to the Match lifecycle (ticket 09), where the per-Account Match counter lives.
 - **Call sites.** `open_match`, `open_match_backed`, `create_request`, `create_offer` take `game_record` (the three Game accounts for the two `open_match` variants); `join_match` and `join_match_backed` take `pair` and `system_program`; `settle_match` takes `config` and `game_record`; `refund_match` and `extend_match_deadline` take `game_record` instead of `config`. Game programs pass their own record (`["game", crate::ID]` of tesoro_core).
+
+## Economy upgrade (ADR 0013)
+
+One `tesoro_core` upgrade changes how Gemas are stored, repaid, bet, paid out and counted. Everything below is new or replaces the older sections. Built so far: the ledger (pure Rust) and its instructions for baskets, Positions, Advances, Redeem, Treasury, Instant Redeem orders, prizes, Seasons and the registry. Matching on baskets and Tickets (ticket 09) and fee cash-in (ticket 11b) are described from the spec and marked.
+
+### Exact bookkeeping per line
+
+Code: `programs/tesoro_core/src/ledger/book/`.
+
+- **Classes.** Every Gema of a Source is in one class: 0 Platform, 1 Studio, 2 Leaderboard (fee classes), 3 General, then Extension 1 to 11 (class 3 + n). Landed yield pays classes in this order, so it is the **Payout order**. A Gema keeps its class and tranche for life. A fee cut is the one operation that changes a line's class: it moves Gemas from a playable line to a fee-class line of the same Source, and the unpaid part becomes senior.
+- **Index.** Each class is a Liquity-style stability pool: unpaid total `U`, product `P` (a fixed-point fraction still unpaid), `scale` and `epoch`, plus a share sum `S`. A line stores its `amount`, its unpaid part, the snapshot `(P, scale, epoch, ck, S)` it was last brought up to date at, and the staking-token shares it already owns. Every operation brings a line up to date first. Ready is derived: `amount - unpaid`. Fixed-point fractions stay with the line; whole Gemas are rounded down only when paid out.
+- **Landing.** When a Source is touched, its new coverage (computed cumulative minus the high-water mark `H`) is allocated in class order, and the staking-token shares it is worth at that instant are recorded with it. Coverage beyond total unpaid is the owner's free yield. A sync allocates only `max(0, computed - H)`, so an unchanged yield figure allocates nothing after a return.
+- **Holders carry a slash (D2).** Ready Gemas are claims on shares, not on a fixed amount of SOL, ETH or HYPE. A later slash lowers every holder's value by the same ratio. Redeem, fee cash-in, `return_own` and prize Redeem all pay shares by this one rule. Each line owns its exact shares (a share-sum `S` per class; closed history lives in append-only checkpoint pages of 32 records, 1,576 bytes, never a ring). A line asleep through thousands of epochs reads only its own epoch's records, and at most 11 inside one long epoch. Platform and Leaderboard are single-holder counters on the Source, exact for one holder; the instruction layer allows exactly one line of each class per Source.
+- **Transfers are proportional.** Moving `k` of a line's Gemas moves `k * ready / amount` of its ready part and its shares with them. The donor keeps fixed-point remainders; at most one unit of dust goes to the owner pocket.
+- **Counters.** `H` (coverage ever allocated, only grows), `R` (released by `return_own`), `C = H - R`. Invariants after every operation: Left to pay back equals the sum of the classes' unpaid amounts; ready + redeemed + `R` <= `H`; `ready + unpaid == sum(amount)` per class.
+- **`return_own(k)`** returns the owner's own Gemas: the unpaid part is cancelled (Left to pay back falls by exactly that), the ready part goes to the owner's free yield and `R`. Nothing is taken from other holders.
+- **Extend** opens a new class with its own `due_at` (now plus the new Length) and zero ready. It is junior to everything issued before it.
+- **Cost.** A basket line is 144 bytes (`BASKET_VERSION` 3), the basket header 128. A Source book is 594 bytes with no Extension and 2,002 at 11. The book is read and written in place (`BookBytes`) because the in-memory book overflows the 4 KB SBF stack frame.
+- **Bounds (documented, tested).** Shares per unit of coverage are limited to `shares <= delta * 2^40` (`SharesOutOfRange` otherwise). The error is a few units of unpaid amount per touch times the shares per unit landed, concentrated in the last units of a class's epoch; it never exceeds what landed. Tests: `ledger/book/tests.rs` (reference model in exact rational numbers, fuzz, directed Codex counterexamples).
+
+### Basket, spill and sponsored rent
+
+- **Basket** `["basket", account]` and **spill** `["spill", account]` are created with the Account (`create_account`; `init_stores` for older Accounts, the Pool and the Treasury). Both use the same sorted line layout, kept by one small `LineStore` type with no other logic (fuzzed against a list model).
+- **Header** fields include totals (own, won, fee), `reserved_total`, `ticket_need`, sponsored lamports, `room_reserved` and flags (Entry Ticket open, Backing Ticket open).
+- **Pool.** The basket and the spill act as one: the draw order, the free figure, every withdrawal and Ticket staging span both. A credit goes to a matching line, else a basket slot, else the spill. `put` is atomic: `SpillFull` changes nothing, the instruction layer grows the spill and retries. The room a settlement needs is reserved before it debits (`room_plan`).
+- **Growing.** Anyone may grow a store with their own lamports (`grow_store`, a gift to the owner). `grow_store_sponsored` is signed by the sponsor's relayer key and paid by the sponsor PDA, within a per-Account cap (basket and spill together) and a total cap. `shrink_store` (owner) refunds the sponsor first, then the owner; a spill keeps its `room_reserved` slots. `claim_spill` merges spill lines into the basket (benchmark: 16 Sources, 32 merges, about 150,000 compute units).
+- **Fee counters** live in the Source book (Platform, Studio for Tesoro's own Games, Leaderboard), never in a basket. A basket cannot hold a fee line of a Source whose counter exists (`basket_may_hold`). Outside studios' Studio Fees are fee-class lines in their own baskets.
+
+### Entry draw and Entry Tickets
+
+See "Entry draw" above. Ticket rules (ledger `draw/`, instructions with ticket 09):
+
+- A Ticket `["ticket", account, nonce]` is bound to an Account, a Game and an entry size. Staging needs the owner, or applies to an accepted Offer's Backing Ticket. The Ticket reserves storage first (sponsored and refundable, within a total cap).
+- While an Entry Ticket is open the basket allows no other draw and refuses new Offers' reservations. A Backing Ticket has its own flag, one at a time; it blocks only new Offers, and the Backer cancels it at once.
+- `open`/`join` consume a complete Ticket: its pages become the side's Pot pages, so open and join stay one bounded transaction. A Ticket expires after `TICKET_WINDOW_SECS` (1 hour), and cancel/expiry return its lines in idempotent chunks anyone may run.
+- An Offer reserves an amount; the Backer's lines are drawn by the same order when the backed Match opens. Reservation is refused while a Ticket is open.
+- Open for ticket 09: the per-transaction line cap (`MAX_DRAW_LINES` is 12 until measured), `open_backing` authorisation (the Requester's signed open; Backer cancel or expiry), sponsor-paid growth for Ticket storage.
+
+### Match lifecycle (ledger built; instructions are ticket 09)
+
+- States: Open, Active, then **Settling** (frozen outcome) or **Refunding**, then Closed. Entering Settling or Refunding is one atomic, one-way step; the two exclude each other.
+- The plan is frozen at the start: fee totals, cuts from the fewest loser lines (largest first), the Backed share, the phase order. Each chunk syncs the Sources it cuts, credits baskets or spills, and is idempotent by a cursor kept in the record. Anyone may continue a chunk.
+- Payout order of a settlement: fee cuts (Platform, Studio, Leaderboard), then the winner's Backing, then the surplus.
+- **Deadline.** Open, join and extend all clamp to 7 days after open (`MAX_MATCH_LIFETIME_SECS`). Starting a settlement at or after that point is refused; only a refund can start. A running settlement ignores the clock.
+- **Same build as at open.** The Game's deploy slot is compared at the start of settling, through `GameRecord::same_build(match, slot)`: a slot moved by a harmless extension with an unchanged approved build and the same listing epoch counts as the same build. After a real upgrade only a refund can start.
+- **No-show.** A committed "started, nobody acted" result costs each side the Platform Fee once, then returns the rest exactly. A draw is an exact refund.
+- **Records.** The settlement receipt `["settled", match]` is written at the start of Settling or Refunding. Start, chunk and completion records are written as events of the core program (event-CPI). The Match closes when every obligation is a durable basket or spill line; unused reserve goes back to its payer. Match ids come from the opener's Account and a counter that never resets (ticket 09).
+- **Per-Account concurrent Match cap** and the per-Account Match counter belong to ticket 09. The per-pair limit is built: a joiner may join at most 20 Matches opened by the same opener per 24 hours (`PairState`).
+
+### Pool, prizes and Seasons
+
+Code: `ledger/prize/`, `instructions/prize.rs`, `instructions/season.rs`.
+
+- **Realised Yield Fee (D1).** A Lock's Yield Fee counts when the Lock is Unlocked. `realise_yield_fee` is the only way `pool_owed` grows: the Pool's share (`EconomyConfig.pool_share`, half of the fee by default, changeable from a Season announced ahead through `set_prize_share`) goes to `pool_owed`, the rest to the Treasury.
+- **One spendable figure per route:** `spendable_shares = max(0, T - owed_shares - pool_owed - reserved)`. `T` is the shares the Treasury holds; `owed_shares` is what holders of unlocked Locks may still claim, fixed in shares at Unlock; `reserved` is pending payouts. Treasury withdrawals, Instant Redeem fills and prize funding all spend only this. No cushion (D3).
+- **Prize escrow.** An accounting bucket inside each custody vault (Solana native and stake routes), switched off until `set_prize_escrow`. `harvest(source)` (anyone; refused on prize Sources) moves a Leaderboard counter's ready part into the escrow. `fund_season_prize_native` / `_stake` (Season keeper or admin, once per ended Season) moves `pool_owed` into the escrow only while `T - owed - reserved >= pool_owed`, then issues one prize Source (`["prize", route, season]`) for the confirmed shares not yet issued, credited to the Pool. Each prize Source owns its own share quantity; a holder redeems `held / outstanding` of it with `redeem_prize`. Only prize Redeem and the finish of a payout lower the escrow. Every other Redeem path refuses prize Sources. A fee cut from prize Gemas becomes an ordinary, fully ready line in the recipient's basket and leaves only through prize Redeem.
+- **Season order.** The Season ends; each route's `fund_season_prize`; `record_season` stores the ranking and a **frozen budget** (the Pool's 16 biggest free lines at most, reserved in `["pool_reservations"]` so a later Season cannot promise them again; `record` waits until every enabled route has been funded for that Season); the 48-hour void window (`void_season_rank`); `pay_season_rank(rank, line)` pays each rank its share of every budget line, rounding down; `close_season` releases leftovers into the next Season. Every rank gets the same mix.
+- **Obligations** for later work: every other spender of Pool lines must respect the frozen reservations; a non-prize line in the Pool basket would freeze that rank's pay step (cannot happen while nobody can send Gemas to the Pool outside prize funding).
+
+### Instant Redeem orders
+
+Code: `ledger/instant/`, `instructions/instant.rs`.
+
+- `request_instant_redeem(line, sell, ttl)` (the holder): Redeems the line's ready Gemas to the seller at full value, then moves `sell` Gemas of the unpaid part (won side only; never own or fee-class) into an order `["instant", account, nonce]`. The order keeps the Gemas' Source, class and tranche. They cannot be played, reserved or drawn while the order is open. The request is refused if the Gemas leaving would pass `reserved_total` (`ReservedGemas`), and a ttl outside 1 hour to 30 days (`InvalidOrderTtl`); the default is 7 days.
+- `fill_instant_redeem` (the fill authority: the admin, or `EconomyConfig.fill_keeper` while `keeper_fills` is on; off by default), in full or in part: first Redeems any ready Gemas that repaid while the order waited (to the owner, from the class pool, not from Treasury money), then pays `floor(value at fill * (10000 - fee) / 10000)` from `spendable_shares` (fee `INSTANT_REDEEM_FEE_BPS = 2500`, one function that already receives the Source's fee share, so a curve can come later; cap `MAX_INSTANT_FEE_BPS`). The Treasury's basket takes the Gemas with the seller's class and tranche, never a fee class and never promoted. A fill into a full Treasury basket lands in its spill. A fill never touches `owed_shares` or `pool_owed`.
+- `fill_instant_redeem_from_source` is the EVM twin, signed by the chain's source authority; the budget is the bridge-supplied `available_shares`. It is refused (`BridgedSource`) while the order holds repaid Gemas.
+- `cancel_instant_redeem` (owner, any time) and `expire_instant_redeem` (anyone, after `expires_at`) return the exact line.
+- `InstantOrder::max_fill` is the largest affordable part: what an automatic filler with a budget would call. Nothing else is needed to add one.
+
+### Treasury
+
+`spendable_shares` is the single figure for Treasury withdrawals, Instant Redeem fills and prize funding (see above). The stake custody counts only realised fee shares as spendable (the finding of ticket 26: open Locks' fees were counted before). On Unlock, a stake owner's payout is `custody shares - paid - owed - fee`, and the fee is taken only from what is above the owner's Principal. The Treasury is also refilled when it redeems the Gemas it bought (`redeem_treasury`). `Unlock` needs the `EconomyConfig` account, so `set_economy` runs in the same batch as the upgrade. Every stake payout needs a fresh stake pool (`UpdateStakePoolBalance`, which anyone can call; the keeper does).
+
+### Fee cash-in (ticket 11b, not built)
+
+The Platform and Studio counters on a Source are repaid by the Payout order but belong to nobody until a permissionless `cash_in_fee` per Source pays each recipient (Platform from Config, Studio from the Game's record) the covered part in shares, once, idempotently, never negative, refused on prize Sources. On EVM Sources it uses the bridge's batch path. Recheck this section when 11b merges.
+
+### Game registry and listing
+
+See "Game registry and listing" above. Changes made after it was first written:
+
+- `list_game(listed_until, approved_hash)` and `refresh_listing` bind the build by SHA-256 of the deployed bytes (trailing zeros ignored; at most 1,800,000 bytes). Measured on `vanguard.so`: `list_game` 402,500 compute units, `refresh_listing` 407,641, and 1,162,069 at the size cap, so both need a raised limit (1,400,000).
+- `GameRecord.listing_epoch` bumps only when `list_game` sets a different hash. A Match stores it at open. `GameRecord::same_build` decides whether a pending backed join and a settlement still follow the same build.
+- Known limit: whether the loader's checked extend is active on mainnet was not confirmed, so the slot alone is never trusted.
+
+### Recheck when these merge
+
+- Ticket 09 (matching): the "Match lifecycle" and "Entry Tickets" bullets above; the line cap; instruction names; compute numbers; Match ids and the `MatchWon` event fields (`challenge`, `asset`, `opened_at` explicit); the per-Account Match cap; `open_backing` authorisation.
+- Ticket 11b (fee cash-in): the section above.
+- Tickets 12 to 15 (Games), 16 and 17 (bridge and vaults): `docs/cross-chain.md` "Economy upgrade on the bridge and vaults".
+- Ticket 08z (Holdings removal): drop `HoldingState`, `open_holding` and the Holding rows and text from this file.
