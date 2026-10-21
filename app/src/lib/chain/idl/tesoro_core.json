@@ -916,7 +916,31 @@
         },
         {
           "name": "owner_wallet",
+          "docs": [
+            "when the order is finished."
+          ],
           "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -2853,7 +2877,31 @@
         },
         {
           "name": "owner_wallet",
+          "docs": [
+            "when the order is finished."
+          ],
           "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -3787,7 +3835,31 @@
         },
         {
           "name": "owner_wallet",
+          "docs": [
+            "when the order is finished."
+          ],
           "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "position",
@@ -9693,8 +9765,16 @@
       ],
       "accounts": [
         {
-          "name": "holder_authority",
+          "name": "payer",
+          "docs": [
+            "Pays the order's rent: the holder, or with the sponsor accounts the relayer, made whole",
+            "from the sponsor at once (a Player with no SOL can still sell)."
+          ],
           "writable": true,
+          "signer": true
+        },
+        {
+          "name": "holder_authority",
           "signer": true
         },
         {
@@ -9821,6 +9901,27 @@
               {
                 "kind": "arg",
                 "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
               }
             ]
           }
@@ -15471,138 +15572,228 @@
   "errors": [
     {
       "code": 6000,
-      "name": "RoomNotReserved",
-      "msg": "the spill has no free slots to reserve: grow it first"
+      "name": "Unauthorized",
+      "msg": "signer is not authorised"
     },
     {
       "code": 6001,
-      "name": "TooManyOpenMatches",
-      "msg": "this Account already has the most Matches open at once"
+      "name": "GameNotRegistered",
+      "msg": "game is not registered"
     },
     {
       "code": 6002,
-      "name": "TicketMismatch",
-      "msg": "the Ticket is not this Account's, Game or entry size"
+      "name": "GameRegistryFull",
+      "msg": "game registry is full"
     },
     {
       "code": 6003,
-      "name": "TicketNotComplete",
-      "msg": "the Ticket has not staged the whole entry yet"
+      "name": "InvalidAccount",
+      "msg": "account does not match"
     },
     {
       "code": 6004,
-      "name": "FasterGemasAvailable",
-      "msg": "faster Gemas arrived since the Ticket staged: stage again"
+      "name": "BadRemainingAccounts",
+      "msg": "wrong number of remaining accounts"
     },
     {
       "code": 6005,
-      "name": "NeedsTicket",
-      "msg": "this entry needs more lines than one transaction moves: use an Entry Ticket"
+      "name": "DuplicateAccount",
+      "msg": "the same account was supplied twice"
     },
     {
       "code": 6006,
-      "name": "TicketStorageFull",
-      "msg": "the Ticket's storage is full: grow it"
+      "name": "NotWritable",
+      "msg": "account must be writable"
     },
     {
       "code": 6007,
-      "name": "NotTicketOwner",
-      "msg": "only the owner stages an Entry Ticket"
+      "name": "InvalidPool",
+      "msg": "pool is not the canonical sim_lst pool"
     },
     {
       "code": 6008,
-      "name": "TicketNotExpired",
-      "msg": "only the owner cancels a Ticket before it expires"
+      "name": "InvalidMint",
+      "msg": "mint is not the sim_lst pool's simSOL mint"
     },
     {
       "code": 6009,
-      "name": "TicketAlreadyOpen",
-      "msg": "a Ticket of this kind is already open on this basket"
+      "name": "NativePosition",
+      "msg": "native Positions are opened and driven only by the native instructions"
     },
     {
       "code": 6010,
-      "name": "StorageNotReserved",
-      "msg": "the Ticket's storage and spill room were not reserved"
+      "name": "NotNativePosition",
+      "msg": "position is not a native Position"
     },
     {
       "code": 6011,
-      "name": "TicketNotOpen",
-      "msg": "the Ticket is not open"
+      "name": "StalePrice",
+      "msg": "price is stale or not set"
     },
     {
       "code": 6012,
-      "name": "PotNotEmpty",
-      "msg": "the Pot still holds Gemas"
+      "name": "BridgedSource",
+      "msg": "Gemas of an EVM-sourced Advance are redeemed through the bridge"
     },
     {
       "code": 6013,
-      "name": "MatchNotClosed",
-      "msg": "the Match is not closed: its run is not finished"
+      "name": "InvalidProfileName",
+      "msg": "a name is 3 to 20 letters, digits, spaces, dots, underscores or dashes, with no space at either end"
     },
     {
       "code": 6014,
-      "name": "WrongPot",
-      "msg": "this is not the Pot of the Match"
+      "name": "InvalidAvatar",
+      "msg": "avatar is not one of the available pictures"
     },
     {
       "code": 6015,
-      "name": "BadBacking",
-      "msg": "the Backing's accounts do not match the Offer"
+      "name": "EvmNotLinked",
+      "msg": "the EVM address is not linked to this Account through the bridge"
     },
     {
       "code": 6016,
-      "name": "OfferHasTicket",
-      "msg": "the Offer has a Backing Ticket open: cancel that first"
+      "name": "LeaderboardOff",
+      "msg": "the leaderboard is not set up"
     },
     {
       "code": 6017,
-      "name": "PastAbsoluteDeadline",
-      "msg": "settlement can only start before the Match's absolute deadline"
+      "name": "TreasuryShort",
+      "msg": "the treasury cannot pay this instant redeem now"
     },
     {
       "code": 6018,
-      "name": "GameUpgraded",
-      "msg": "the Game was upgraded since the Match opened: it can only be refunded"
+      "name": "SourceRequired",
+      "msg": "the open Advance's Source must be supplied"
     },
     {
       "code": 6019,
-      "name": "Inconsistent",
-      "msg": "the Match record and its Pots disagree"
+      "name": "CompanyNotSet",
+      "msg": "the Treasury has no company wallet set"
     },
     {
       "code": 6020,
-      "name": "NotJoined",
-      "msg": "the Match has no joiner yet"
+      "name": "BadPriceFeed",
+      "msg": "the price feed account is not the mapped Pyth feed, or is not a verified price update"
     },
     {
       "code": 6021,
-      "name": "RunUnfinished",
-      "msg": "the run is not finished: more chunks are needed"
+      "name": "PriceTooUncertain",
+      "msg": "the price feed's confidence interval is too wide to issue Gemas on"
     },
     {
       "code": 6022,
-      "name": "ReceiptTooNew",
-      "msg": "a settlement receipt can be closed 14 days after it was written"
+      "name": "OnchainPriceRequired",
+      "msg": "this asset is priced from its on-chain feed; use the on-chain Advance"
     },
     {
       "code": 6023,
-      "name": "AccountMissing",
-      "msg": "an account that must be supplied for this chunk is missing"
+      "name": "InviteRequired",
+      "msg": "creating an Account needs an Invite"
     },
     {
       "code": 6024,
-      "name": "WrongStage",
-      "msg": "the Match is not in the state this instruction needs"
+      "name": "InviteKeyMissing",
+      "msg": "an Invite key is needed to turn the Invite gate on"
     },
     {
       "code": 6025,
-      "name": "OfferNotUsable",
-      "msg": "the Offer cannot be used: it is not accepted, or not by this Player"
+      "name": "StakeTokenInactive",
+      "msg": "this staking token is not the one new Positions open with"
     },
     {
       "code": 6026,
-      "name": "TooManyOffers",
-      "msg": "this Account already has the most Offers open at once"
+      "name": "StakeCeilingNotSet",
+      "msg": "the Advance APY ceiling is not set"
+    },
+    {
+      "code": 6027,
+      "name": "NotStakePosition",
+      "msg": "position is not a staking-token Position"
+    },
+    {
+      "code": 6028,
+      "name": "BadStakePoolAccount",
+      "msg": "the stake pool account is not the custody's pool, is not owned by a stake pool program, or is not its token's pool"
+    },
+    {
+      "code": 6029,
+      "name": "OracleLocked",
+      "msg": "the oracle key can no longer register Positions, report yield or price Advances"
+    },
+    {
+      "code": 6030,
+      "name": "NotOldWorld",
+      "msg": "this account is not of the retired world, so it cannot be retired"
+    },
+    {
+      "code": 6031,
+      "name": "GameProofInvalid",
+      "msg": "the Game program is not a live program of a loader the registry understands"
+    },
+    {
+      "code": 6032,
+      "name": "NotGameControl",
+      "msg": "the signer does not control the Game program"
+    },
+    {
+      "code": 6033,
+      "name": "StudioFeeTooHigh",
+      "msg": "a Studio Fee is at most 10%"
+    },
+    {
+      "code": 6034,
+      "name": "StudioRecipientReserved",
+      "msg": "the Studio recipient may not be the Pool, the Treasury or the platform recipient"
+    },
+    {
+      "code": 6035,
+      "name": "NoPendingChange",
+      "msg": "no change is waiting for this Game"
+    },
+    {
+      "code": 6036,
+      "name": "ChangeDelayNotElapsed",
+      "msg": "a change to a Game applies 7 days after it is proposed"
+    },
+    {
+      "code": 6037,
+      "name": "GameNotListed",
+      "msg": "this Game is not listed, or was upgraded since the admin approved it"
+    },
+    {
+      "code": 6038,
+      "name": "PairLimitReached",
+      "msg": "these two Accounts have started too many Matches together today"
+    },
+    {
+      "code": 6039,
+      "name": "PairWindowOpen",
+      "msg": "this pair counter is still inside its 24-hour window"
+    },
+    {
+      "code": 6040,
+      "name": "CodeHashMismatch",
+      "msg": "the program's executable does not hash to the value given"
+    },
+    {
+      "code": 6041,
+      "name": "CodeChanged",
+      "msg": "the program's executable differs from the approved build; the admin must approve it again"
+    },
+    {
+      "code": 6042,
+      "name": "ListingCurrent",
+      "msg": "the listing already matches the program's deploy slot"
+    },
+    {
+      "code": 6043,
+      "name": "NotListed",
+      "msg": "the Game is not listed, so there is nothing to refresh"
+    },
+    {
+      "code": 6044,
+      "name": "ProgramTooLarge",
+      "msg": "the program is too large to hash in one transaction"
     }
   ],
   "types": [
@@ -16516,7 +16707,8 @@
       "docs": [
         "An open Instant Redeem order (ticket 07's `InstantOrder` on chain): the unsold Gemas sit in",
         "`line`, off the owner's basket, until a fill buys them, the owner cancels or the order expires.",
-        "Seeds `[\"instant\", holder account, nonce LE]`; the owner pays the rent and gets it back."
+        "Seeds `[\"instant\", holder account, nonce LE]`; the owner pays the rent and gets it back, or the",
+        "sponsor does for a Player with no SOL (it is repaid first)."
       ],
       "type": {
         "kind": "struct",
@@ -16578,6 +16770,18 @@
           {
             "name": "paid_shares",
             "type": "u128"
+          },
+          {
+            "name": "payer",
+            "docs": [
+              "Who paid the order's rent and gets it back at the close: the seller, or the sponsor's",
+              "relayer (then `sponsored_lamports` of it return to the sponsor first)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "sponsored_lamports",
+            "type": "u64"
           }
         ]
       }

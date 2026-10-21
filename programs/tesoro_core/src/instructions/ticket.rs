@@ -95,7 +95,7 @@ pub(crate) fn release_room(spill: &AccountInfo, slots: u32) -> Result<()> {
 
 /// Moves the sponsor's rent for a fresh sponsored account to the relayer that fronted it, within
 /// the caps; returns what was sponsored.
-fn sponsor_rent<'info>(
+pub(crate) fn sponsor_rent<'info>(
     sponsor: &mut Account<'info, SponsorState>,
     relayer: &AccountInfo<'info>,
     account_sponsored_now: u64,

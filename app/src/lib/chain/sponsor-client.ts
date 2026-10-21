@@ -48,9 +48,16 @@ export async function sponsorStatus(): Promise<SponsorStatus> {
   return (await res.json()) as SponsorStatus;
 }
 
-/** Sends `ixs` with the relayer paying the fee. Resolves with the signature. Throws SponsorError (`selfPay` says to pay instead). */
-export async function sponsoredSend(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[]): Promise<string> {
-  if (!signer.signSerialized) throw new SponsorError("This wallet cannot take part in free transactions.", "unsupported-wallet", 400);
+export interface SponsorBuild {
+  message: string;
+  meta: string;
+  mac: string;
+}
+
+const bytesOf = (b64text: string) => Uint8Array.from(atob(b64text), (c) => c.charCodeAt(0));
+
+/** Asks the server to build the message for `ixs` (the signer authenticates the request). */
+export async function sponsorBuild(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[]): Promise<SponsorBuild> {
   const intent = JSON.stringify({
     ixs: ixs.map((ix) => ({
       program: ix.programId.toBase58(),
@@ -63,11 +70,26 @@ export async function sponsoredSend(signer: ChainSigner, getToken: GetToken, ixs
   const nonce = newNonce();
   const signature = await signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-sponsor", "build", address, ts, nonce, { intent })));
   const token = await getToken().catch(() => null);
-  const built = await post<{ message: string; meta: string; mac: string }>("/api/sponsor/build", { step: "build", address, ts, nonce, signature: b64(signature), intent }, token);
+  return post<SponsorBuild>("/api/sponsor/build", { step: "build", address, ts, nonce, signature: b64(signature), intent }, token);
+}
 
-  const message = VersionedMessage.deserialize(Uint8Array.from(atob(built.message), (c) => c.charCodeAt(0)));
+/** Adds this wallet's signature to a built message. Returns the serialized transaction, base64. */
+export async function sponsorSign(signer: ChainSigner, built: SponsorBuild): Promise<string> {
+  if (!signer.signSerialized) throw new SponsorError("This wallet cannot take part in free transactions.", "unsupported-wallet", 400);
+  const message = VersionedMessage.deserialize(bytesOf(built.message));
   const unsigned = new VersionedTransaction(message).serialize();
   const needsPlayer = message.staticAccountKeys.slice(1, message.header.numRequiredSignatures).some((k) => k.equals(signer.publicKey));
-  const tx = needsPlayer ? await signer.signSerialized(unsigned) : unsigned;
-  return (await post<{ signature: string }>("/api/sponsor/submit", { tx: b64(tx), meta: built.meta, mac: built.mac }, null)).signature;
+  return b64(needsPlayer ? await signer.signSerialized(unsigned) : unsigned);
+}
+
+/** Sends a signed transaction. The server checks the signatures and the MAC, adds the fee payer's and sends. */
+export async function sponsorSubmit(tx: string, built: SponsorBuild): Promise<string> {
+  return (await post<{ signature: string }>("/api/sponsor/submit", { tx, meta: built.meta, mac: built.mac }, null)).signature;
+}
+
+/** Sends `ixs` with the relayer paying the fee. Resolves with the signature. Throws SponsorError (`selfPay` says to pay instead). */
+export async function sponsoredSend(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[]): Promise<string> {
+  if (!signer.signSerialized) throw new SponsorError("This wallet cannot take part in free transactions.", "unsupported-wallet", 400);
+  const built = await sponsorBuild(signer, getToken, ixs);
+  return sponsorSubmit(await sponsorSign(signer, built), built);
 }
