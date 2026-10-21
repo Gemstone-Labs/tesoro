@@ -1,7 +1,7 @@
 import type { GameId } from "@/lib/mock/types";
 import { browserStore, type Store } from "@/lib/storage";
 
-/** Simple: deposit packs and the Vault. Advanced: today's Wallet with chains, amounts and Lengths. */
+/** Two bodies of the one Vault page. Simple: deposit packs. Advanced: chains, amounts and Lengths. */
 export type ViewMode = "simple" | "advanced";
 
 const key = (authority: string) => `tesoro:view:${authority}`;
@@ -32,5 +32,5 @@ export function getGemasHref(mode: ViewMode, intent?: { game: GameId; need?: num
   q.set(mode === "simple" ? "deposit" : "open", "1");
   if (intent?.need) q.set("need", String(intent.need));
   if (intent) q.set("game", intent.game);
-  return `${mode === "simple" ? "/vault" : "/wallet"}?${q.toString()}`;
+  return `/vault?${q.toString()}`;
 }

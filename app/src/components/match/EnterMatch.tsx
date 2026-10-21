@@ -31,8 +31,8 @@ export type EnterKind =
 function explain(e: unknown): { text: string; short?: boolean } {
   if (e instanceof EntryError) {
     return e.code === "insufficient"
-      ? { text: "You need more Gemas to join this Challenge. Get Gemas in your Wallet (free test SOL works).", short: true }
-      : { text: `Your Gemas come from more than ${MAX_ENTRY_SOURCES} different Advances, and this entry cannot draw on that many. Redeem a few small balances in your Wallet to consolidate, then try again.` };
+      ? { text: "You need more Gemas to join this Challenge. Get Gemas in your Vault (free test SOL works).", short: true }
+      : { text: `Your Gemas come from more than ${MAX_ENTRY_SOURCES} different Advances, and this entry cannot draw on that many. Redeem a few small balances in your Vault to consolidate, then try again.` };
   }
   if (e instanceof ChallengeError || e instanceof BackingError || e instanceof QueueUnconfirmedError) return { text: e.message };
   if (e instanceof DemoError) return { text: e.message };

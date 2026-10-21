@@ -4,14 +4,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { CLUSTER } from "@/lib/cluster-settings";
-import { Button, Card, FacetCrown, GemaMark, GemaUsd, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
+import { Button, FacetCrown, GemaMark, GemaUsd, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
 import { redeemableOf, useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { fmtAsset, fmtGemas } from "@/lib/format";
 import { onGetGemas } from "@/lib/get-gemas";
-import { GAME_NAMES, type Chain, type GameId, type GemaHolding, type Position } from "@/lib/mock";
+import { type Chain, type GemaHolding, type Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
-import { ViewSwitchLink } from "@/components/deposit/ViewSwitchLink";
 import { AdvanceSheet } from "./AdvanceSheet";
 import type { AccountSnapshot, ChainPosition } from "@/lib/chain/read";
 import { returnRows } from "@/lib/chain/return-own";
@@ -28,7 +27,7 @@ import "./wallet.css";
 
 const REAL = CLUSTER.yieldModel === "real";
 
-export default function Wallet() {
+export function WalletView() {
   const { gemas, positions, holdings, auth, onChain, loading, ready, error, refresh, snapshot } = useAccount();
   const [tab, setTab] = useState<Chain>("SOL");
   const [advanceFor, setAdvanceFor] = useState<Position | null>(null);
@@ -44,22 +43,11 @@ export default function Wallet() {
   // Phones fold the balance to the Total; wider screens always show all of it.
   const [heroOpen, setHeroOpen] = useState(false);
   const router = useRouter();
-  // `/wallet?open=1` (the Lobby's Get Gemas) lands with the Open a Position sheet already up.
-  useEffect(() => {
-    const q = new URLSearchParams(window.location.search);
-    if (q.get("open") !== "1") return;
-    // A game that sent the Player here (`game`, and the entry as `need`) is remembered for the sheet.
-    const game = q.get("game");
-    const need = Math.floor(Number(q.get("need")));
-    const from: OpenIntent | null = game && game in GAME_NAMES ? { game: game as GameId, need: need > 0 ? need : null } : null;
-    const t = setTimeout(() => {
-      setIntent(from);
-      setOpenSheet(true);
-    }, 0);
-    return () => clearTimeout(t);
-  }, []);
-  // The top bar's Gemas pill opens the same sheet while on this page.
-  useEffect(() => onGetGemas(() => auth.gate("get Gemas", () => setOpenSheet(true))), [auth]);
+  // The Vault's Get Gemas button, the top bar's Gemas pill and `/vault?open=1` open this sheet (a game adds what it needs).
+  useEffect(() => onGetGemas((from) => auth.gate("get Gemas", () => {
+    setIntent(from ? { game: from.game, need: from.need ?? null } : null);
+    setOpenSheet(true);
+  })), [auth]);
   useGuideTip({
     id: "wallet-first",
     pose: "himExplain",
@@ -68,18 +56,6 @@ export default function Wallet() {
       ? "Gemas you win stay Pending until the yield of their Lock lands, then they become redeemable."
       : "Gemas you win stay Pending until the yield of their Lock lands, then they become redeemable. Yield here is simulated: 1 month = 10 min.",
   });
-
-  if (auth.status === "signed-out") {
-    return (
-      <Card large as="section" aria-label="Sign in to see your Wallet">
-        <div className="stack">
-          <h1 className="page-title">Wallet</h1>
-          <p className="meta">Your Locks, Gemas and Advances belong to your Account. Sign in to see them.</p>
-          <Button block onClick={() => auth.openSignIn()}>Sign in</Button>
-        </div>
-      </Card>
-    );
-  }
 
   const market = snapshot?.market ?? null;
   const nativeIds = new Set((snapshot?.positions ?? []).filter((p) => p.native).map((p) => p.address.toBase58()));
@@ -100,12 +76,7 @@ export default function Wallet() {
       setRedeemOpen(true);
     });
   const offline = auth.status === "unconfigured";
-
   const generic = positions.filter((p) => !nativeIds.has(p.id) && !ethIds.has(p.id));
-  const openTab = (c: Chain) => {
-    setTab(c);
-    setOpenSheet(true);
-  };
 
   const genericTile = (p: Position, label: string) => {
     const yearly = p.principal * p.apy;
@@ -187,18 +158,9 @@ export default function Wallet() {
     .filter((p) => p.positions.length > 0 || p.closed.length > 0 || p.gemas > 0);
   const hasPositions = pockets.some((p) => p.positions.length > 0 || p.closed.length > 0);
   const heroNext = pockets.filter((p) => p.gemas > p.redeemable && p.nextRedeemAt).reduce<number | null>((m, p) => (m === null || p.nextRedeemAt! < m ? p.nextRedeemAt! : m), null);
-  const openPosition = () => auth.gate("get Gemas", () => openTab(tab));
 
   return (
     <div className="wl">
-      <header className="page-head wl-head">
-        <div>
-          <h1 className="page-title">Wallet</h1>
-          <p className="page-sub">1 Gema = $0.01 · <ViewSwitchLink to="simple" className="wl-link" /></p>
-        </div>
-        <Button variant="money" size="lg" onClick={openPosition}>Get Gemas</Button>
-      </header>
-
       <section className={`cut cut-frame facet-panel wl-hero${heroOpen ? " open" : ""}`} aria-label="Balance">
         <FacetCrown />
         <div className="wl-total" onClick={() => setHeroOpen((o) => !o)}>

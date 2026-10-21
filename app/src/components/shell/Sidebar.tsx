@@ -7,7 +7,6 @@ import { BookOpen, ChevronRight, CircleHelp, Gamepad2, HandCoins, House, Swords,
 import { AvatarSkeleton, PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { TesoroLogo } from "@/components/brand";
 import { useAccount } from "@/lib/account";
-import { useViewMode } from "@/lib/deposit/use-view-mode";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import { BRAND } from "@/lib/brand";
 
@@ -17,34 +16,26 @@ const PLAY: NavItem = { href: "/play", label: "Play", Icon: Gamepad2 };
 const MATCHES: NavItem = { href: "/matches", label: "Matches", Icon: Swords };
 const BACKING: NavItem = { href: "/backing", label: "Backing", Icon: HandCoins };
 const BOARD: NavItem = { href: "/leaderboard", label: "Leaderboard", Icon: Trophy };
-const WALLET: NavItem = { href: "/wallet", label: "Wallet", Icon: Wallet };
+const VAULT: NavItem = { href: "/vault", label: "Vault", Icon: Wallet };
 
 /** The phone bottom nav. */
-export const NAV: NavItem[] = [LOBBY, PLAY, BACKING, BOARD, WALLET];
+export const NAV: NavItem[] = [LOBBY, PLAY, BACKING, BOARD, VAULT];
 
 /** The sidebar, in labelled groups. */
 const GROUPS: { title: string; items: NavItem[] }[] = [
   { title: "Play", items: [LOBBY, PLAY, MATCHES] },
-  { title: "Money", items: [WALLET, BACKING] },
+  { title: "Money", items: [VAULT, BACKING] },
   { title: "Season", items: [BOARD] },
 ];
 
-const VAULT: NavItem = { href: "/vault", label: "Vault", Icon: Wallet };
-
-/** The money page of the Player's view: the Vault in Simple, the Wallet in Advanced. */
+/** The nav lists: one money item, the Vault, in both views. */
 export function useNavItems(): { nav: NavItem[]; groups: typeof GROUPS } {
-  const path = usePathname() ?? "";
-  const simple = useViewMode().mode === "simple";
-  // The page you're on wins (someone can open /wallet in Simple, or /vault in Advanced); elsewhere, the view decides.
-  const money = isHere(path, WALLET.href) ? WALLET : isHere(path, VAULT.href) ? VAULT : simple ? VAULT : WALLET;
-  return {
-    nav: NAV.map((n) => (n === WALLET ? money : n)),
-    groups: GROUPS.map((g) => ({ ...g, items: g.items.map((n) => (n === WALLET ? money : n)) })),
-  };
+  return { nav: NAV, groups: GROUPS };
 }
 
 export function isHere(path: string, href: string): boolean {
-  return path.startsWith(href);
+  // /wallet/opening is part of the Vault: the nav keeps the Vault lit there.
+  return path.startsWith(href) || (href === "/vault" && path.startsWith("/wallet"));
 }
 
 export function Wordmark({ onNavigate }: { onNavigate?: () => void }) {

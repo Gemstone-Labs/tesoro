@@ -22,7 +22,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   const signedIn = auth.status === "signed-in";
   const signedOut = auth.status === "signed-out";
   const onLobby = path === "/lobby";
-  const onWallet = path === "/wallet";
+  const onVault = path === "/vault";
   const simple = useViewMode().mode === "simple";
 
   return (
@@ -63,9 +63,9 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         {auth.status !== "signed-out" &&
           (ready || (error && auth.status !== "loading") ? (
             <Link
-              href={simple ? "/vault" : "/wallet"}
+              href="/vault"
               className="cut cut-card gpill"
-              aria-label={simple || onWallet ? "Your Gemas, get Gemas" : "Your Gemas, open Wallet"}
+              aria-label={simple || onVault ? "Your Gemas, get Gemas" : "Your Gemas, open Vault"}
               title={simple ? "Get Gemas" : "Simulated yield · 1 month = 10 min"}
               onClick={(e) => {
                 if (simple) {
@@ -73,7 +73,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
                   requestDeposit();
                   return;
                 }
-                if (!onWallet) return;
+                if (!onVault) return;
                 e.preventDefault();
                 requestGetGemas();
               }}

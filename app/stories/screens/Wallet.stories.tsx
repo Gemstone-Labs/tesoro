@@ -1,20 +1,27 @@
-import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import type { Decorator, Meta, StoryObj } from "@storybook/nextjs-vite";
 import { userEvent, waitFor, within } from "storybook/test";
 import { PublicKey } from "@solana/web3.js";
 import { demoSnapshot } from "@/lib/chain/fixture";
 import { ETH_VAULTS } from "@/lib/chain/eth";
 import type { AccountSnapshot, ChainPosition } from "@/lib/chain/read";
-import Wallet from "@/app/(app)/wallet/page";
+import Vault from "@/app/(app)/vault/page";
 import Opening from "@/app/(app)/wallet/opening/page";
+import { writeViewMode } from "@/lib/deposit/view-mode";
 import { demoKey, withScreen, type ScreenData } from "./support/screen";
 import { withSigner } from "./support/signer";
 
+/** The Vault in its Advanced view (the old Wallet): the demo Account has chosen it. */
+const withAdvancedView: Decorator = (Story) => {
+  writeViewMode(PublicKey.default.toBase58(), "advanced");
+  return <Story />;
+};
+
 const meta = {
   title: "Screens/Wallet",
-  component: Wallet,
-  decorators: [withSigner, withScreen],
-  parameters: { layout: "fullscreen", shell: "app", nextjs: { navigation: { pathname: "/wallet" } } },
-} satisfies Meta<typeof Wallet>;
+  component: Vault,
+  decorators: [withAdvancedView, withSigner, withScreen],
+  parameters: { layout: "fullscreen", shell: "app", nextjs: { navigation: { pathname: "/vault" } } },
+} satisfies Meta<typeof Vault>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 

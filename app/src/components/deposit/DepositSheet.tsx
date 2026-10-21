@@ -11,7 +11,7 @@ import { DEPOSIT_ACK_TITLE } from "@/lib/deposit/acknowledgment";
 import type { DepositStep } from "./use-deposit-flow";
 import { PACK_MONTHS } from "@/lib/deposit/packs";
 import { CLUSTER } from "@/lib/cluster-settings";
-import { writeViewMode } from "@/lib/deposit/view-mode";
+import { useViewMode } from "@/lib/deposit/use-view-mode";
 import { AckView, DoneView, ErrorView, PacksView, WorkingView } from "./DepositPanel";
 import { useDepositFlow } from "./use-deposit-flow";
 
@@ -30,8 +30,8 @@ const TITLES: Record<DepositStep, string> = {
 /** The deposit modal: packs, the acknowledgment, progress, success. Controlled by `open`. */
 export function DepositSheet({ open, onClose, intent }: { open: boolean; onClose: () => void; intent: DepositIntent | null }) {
   const flow = useDepositFlow(intent);
-  const auth = useAuth();
   const router = useRouter();
+  const { setMode } = useViewMode();
   const { step, picked, reset } = flow;
   // A finished or abandoned deposit starts over the next time the modal opens.
   const wasOpen = useRef(false);
@@ -40,10 +40,9 @@ export function DepositSheet({ open, onClose, intent }: { open: boolean; onClose
     wasOpen.current = open;
   }, [open, step, reset]);
   const goAdvanced = () => {
-    const a = auth.signer?.publicKey.toBase58();
-    if (a) writeViewMode(a, "advanced");
+    setMode("advanced");
     onClose();
-    router.push("/wallet");
+    router.push("/vault");
   };
 
   return (

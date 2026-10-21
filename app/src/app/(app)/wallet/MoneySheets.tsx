@@ -77,7 +77,7 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
     return (
       <div className="mx">
         <div className="status ok" role="status"><CheckIcon /> {done.instant ? "Redeemed now" : "Redeemed"} {fmtGemas(done.gemas)} Gemas</div>
-        {done.later && <p className="meta">Your ETH and HYPE payouts arrive on their own chain in a few minutes. The Wallet shows their progress.</p>}
+        {done.later && <p className="meta">Your ETH and HYPE payouts arrive on their own chain in a few minutes. The Vault shows their progress.</p>}
         <Button block onClick={onClose}>Done</Button>
         <Receipts items={done.receipts} />
       </div>

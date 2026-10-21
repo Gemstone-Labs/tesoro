@@ -25,7 +25,7 @@ export function commitCopy(c: CommitState): { title: string; line: string } {
   return {
     title: "Taking longer than usual",
     line: c.won
-      ? "Your result is saved; your winnings show in your Wallet once it lands. You can leave this page."
+      ? "Your result is saved; your winnings show in your Vault once it lands. You can leave this page."
       : "Your result is saved and will show once it lands. You can leave this page.",
   };
 }

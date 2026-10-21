@@ -345,7 +345,7 @@ function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGem
             ? `${name} has not finished a Match. When they do, their Account shows:`
             : hasGemas !== false
               ? "Play a Match and your Account fills in as it settles. This is what other Players will see:"
-              : "Get Gemas in your Wallet, then play a Match: your Account fills in as it settles. This is what other Players will see:"}
+              : "Get Gemas in your Vault, then play a Match: your Account fills in as it settles. This is what other Players will see:"}
         </p>
       </div>
       {own &&

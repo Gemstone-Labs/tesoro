@@ -189,7 +189,7 @@ export function MatchResult(p: MatchResultProps) {
             <div className="mr-in mr-notes" style={{ "--d": "1400ms" } as Css}>
               {won && (
                 <>
-                  <Link className="mr-pending" href="/wallet">
+                  <Link className="mr-pending" href="/vault">
                     Pending · redeemable as their yield lands <span aria-hidden="true">→</span>
                   </Link>
                   <SimulatedYieldLabel />
@@ -247,7 +247,7 @@ export function MatchResult(p: MatchResultProps) {
           </div>
           <nav className="mr-links" aria-label="Leave the result">
             <Link href="/lobby">Lobby</Link>
-            <Link href="/wallet">Wallet</Link>
+            <Link href="/vault">Vault</Link>
           </nav>
         </div>
         {p.children}
