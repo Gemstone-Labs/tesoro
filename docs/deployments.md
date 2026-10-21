@@ -7,6 +7,7 @@ Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per
 Played only on the staging app (branch `staging`) until launch; the app on `main` leaves Vanguard Matches, Requests and Offers out.
 
 - **Program:** `vanguard` `TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH`, 774,712 B, sha256 `6a504a27…`, slot 512819688, sig `cRGf4q1Z…`. Upgrade authority: the deployer.
+- **Upgrade 2026-10-21 (`init_permissions` fix, d31878b):** the Secret and both Armies are writable in `init_permissions`. Before this the rollup refused the step with `PrivilegeEscalation`, so no Match could start. Slot 513466509, sig `5AC3PXeJ…`, 774,352 B, sha256 `d446f7fa…` (on-chain bytes compared). The previous program is kept at `~/.cache/tesoro-tmp/rollback-2026-10-21/vanguard-prev.so`. A real QA Match (3585146036139) reached live in 14 s with each Player reading only their own Army, then the keeper played it out by timeouts: `close_match` 09:01:24Z, `finalize` 09:01:46Z.
 - **Config:** `keeper/scripts/vanguard-config.ts`: TEE `MTEWGuqx…`, VRF queue `5hBR571x…` (sig `4BgTpKYc…`).
 - **TEE whitelist:** `whitelist-tee.ts` (sig `m4HE1feP…`).
 - **Registered in tesoro_core:** `register-game.ts <id> 300`, authority `ApLcUhNF…`, Studio recipient = Platform recipient (sig `3Z91BCcK…`).
