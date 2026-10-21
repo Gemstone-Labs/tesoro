@@ -31,6 +31,7 @@ use tesoro_core::{
 // The economy suites' helpers: reading baskets and books, and forging what a settled Match does.
 #[path = "../../../../programs/tesoro_core/tests/common/econ.rs"]
 #[allow(dead_code)]
+#[rustfmt::skip]
 mod econ;
 
 type Failed = litesvm::types::FailedTransactionMetadata;
