@@ -56,6 +56,8 @@ interface Row {
   /** Compute unit limit the server sets. */
   cu: number;
   spend?: (args: Args) => Spend;
+  /** The Player who asks must be one of the instruction's signers (an exit is the Player's own, not anyone's). */
+  playerSigns?: boolean;
 }
 
 /** Rent of one 144-byte line (docs: economy-notes/basket-instructions.md). */
@@ -91,6 +93,18 @@ export const ROWS: Readonly<Record<string, Row>> = {
   close_receipt: { class: "exit", relayer: ["caller", "payer"], cu: 100_000 },
   shrink_store: { class: "exit", relayer: [], cu: 200_000 },
   redeem_from_source: { class: "exit", relayer: [], cu: 400_000, extra: 4 },
+  // Ticket 18b: the Player's own exits. The Player signs as the authority, the relayer only pays the fee, so none has a
+  // relayer slot. `extra` is the books (and pages) of the Sources a Redeem or an order touches.
+  redeem: { class: "exit", relayer: [], cu: 600_000, extra: 12, playerSigns: true },
+  redeem_prize: { class: "exit", relayer: [], cu: 400_000, extra: 12, playerSigns: true },
+  unlock: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
+  claim_free_yield: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
+  cancel_offer: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
+  cancel_request: { class: "exit", relayer: [], cu: 100_000, playerSigns: true },
+  cancel_instant_redeem: { class: "exit", relayer: [], cu: 400_000, extra: 12, playerSigns: true },
+  expire_instant_redeem: { class: "exit", relayer: [], cu: 400_000, extra: 12, playerSigns: true },
+  // The order's rent is the holder's own (the program has no payer slot): only the fee is sponsored.
+  request_instant_redeem: { class: "continue", relayer: [], cu: 400_000, extra: 12, playerSigns: true },
 };
 
 /**
@@ -98,7 +112,11 @@ export const ROWS: Readonly<Record<string, Row>> = {
  * server and are not listed. Ticket 09b: when a full spill needs "grow, then open", add
  * `["grow_store_sponsored", "open_match"]` and `["grow_store_sponsored", "join_match"]` here.
  */
-export const TX_SHAPES: readonly (readonly string[])[] = [...Object.keys(ROWS).map((n) => [n])];
+export const TX_SHAPES: readonly (readonly string[])[] = [
+  ...Object.keys(ROWS).map((n) => [n]),
+  // A Backing Ticket: the Requester opens it, the Backer stages the lines in the same transaction (two signers).
+  ["open_ticket", "stage_entry"],
+];
 
 /** A Game's instructions: the relayer is never an account of one, and only the Player signs. */
 export const MAX_GAME_IXS = 4;
@@ -134,6 +152,10 @@ export interface Plan {
   pair: PublicKey | null;
   /** Signers other than the relayer. */
   signers: PublicKey[];
+  /** An instruction in the plan is the Player's own: the Player who asks must be one of its signers. */
+  playerSigns: boolean;
+  /** Accounts whose Gemas fund the admission when they are not the Player's own (the Backer of a Backing Ticket). */
+  funders: PublicKey[];
 }
 
 const seedBytes = (type: unknown, v: unknown): Buffer | null => {
@@ -181,6 +203,9 @@ function planCore(ixs: Ix[], relayer: PublicKey): Plan {
   const obligations: PublicKey[] = [];
   let pair: PublicKey | null = null;
   const signers = new Map<string, PublicKey>();
+  const funders = new Map<string, PublicKey>();
+  const named: Map<string, PublicKey>[] = [];
+  let playerSigns = false;
 
   for (const ix of ixs) {
     const decoded = coder.decode(Buffer.from(ix.data));
@@ -196,6 +221,8 @@ function planCore(ixs: Ix[], relayer: PublicKey): Plan {
 
     const byName = new Map<string, PublicKey>();
     def.accounts.forEach((a, i) => byName.set(a.name, ix.keys[i].pubkey));
+    named.push(byName);
+    if (row.playerSigns) playerSigns = true;
 
     ix.keys.forEach((k, i) => {
       const acc = def.accounts[i];
@@ -226,6 +253,8 @@ function planCore(ixs: Ix[], relayer: PublicKey): Plan {
       const k = byName.get(n);
       if (k) obligations.push(k);
     }
+    const funder = name === "open_ticket" ? byName.get("owner") : name === "open_match" || name === "join_match" ? byName.get("backer_account") : undefined;
+    if (funder && !funder.equals(CORE_ID)) funders.set(funder.toBase58(), funder);
     if (name === "join_match") pair = byName.get("pair") ?? null;
 
     names.push(name);
@@ -238,7 +267,24 @@ function planCore(ixs: Ix[], relayer: PublicKey): Plan {
   if (!TX_SHAPES.some((s) => s.length === names.length && s.every((n, i) => n === names[i]))) {
     throw new RuleError("bad-shape", `${names.join(" + ")} is not a transaction we pay for.`);
   }
-  return { kind: "core", names, class: cls, spend, cu: Math.min(cu, 1_400_000), obligations, pair, signers: [...signers.values()] };
+  if (names.length === 2 && names[0] === "open_ticket" && names[1] === "stage_entry") {
+    const [open, stage] = named;
+    if (!open.get("ticket")?.equals(stage.get("ticket") as PublicKey) || !open.get("owner")?.equals(stage.get("owner") as PublicKey)) {
+      throw new RuleError("bad-shape", "open_ticket and stage_entry must be for the same Ticket and Account.");
+    }
+  }
+  return {
+    kind: "core",
+    names,
+    class: cls,
+    spend,
+    cu: Math.min(cu, 1_400_000),
+    obligations: [...new Map(obligations.map((o) => [o.toBase58(), o])).values()],
+    pair,
+    signers: [...signers.values()],
+    playerSigns,
+    funders: [...funders.values()],
+  };
 }
 
 function planGame(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
@@ -256,7 +302,7 @@ function planGame(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
       }
     }
   }
-  return { kind: "game", names: ixs.map(() => "game"), class: "continue", spend: NONE, cu: 400_000, obligations: [], pair: null, signers: [...signers.values()] };
+  return { kind: "game", names: ixs.map(() => "game"), class: "continue", spend: NONE, cu: 400_000, obligations: [], pair: null, signers: [...signers.values()], playerSigns: false, funders: [] };
 }
 
 /**

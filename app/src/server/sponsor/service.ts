@@ -160,9 +160,14 @@ export class Sponsor {
   }
 
   /** Exits and continues are for Accounts: a throwaway key cannot make the relayer pay fees. */
-  private async requireAccount(player: PublicKey) {
-    const a = await this.d.chain.account(accountPda(player));
+  private async requireAccount(authority: PublicKey) {
+    const a = await this.d.chain.account(accountPda(authority));
     if (!a || !a.owner.equals(CORE_ID)) throw new DemoHttpError(403, "no-account", "Free transactions are for Accounts.");
+  }
+
+  /** A transaction with several signers (a Backing Ticket): every one of them is an Account, not a throwaway key. */
+  private async requireOtherSigners(plan: Plan, player: PublicKey) {
+    for (const sg of plan.signers) if (!sg.equals(player)) await this.requireAccount(sg);
   }
 
   async build(player: PublicKey, raw: unknown): Promise<Built> {
@@ -171,7 +176,10 @@ export class Sponsor {
     const ixs = parseIntent(raw);
     const plan = await this.plan(ixs, player);
     if (plan.class === "admission" && !plan.signers.some((s) => s.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
-    if (!(await this.d.store.take(`build:${who}`, 1, this.d.limits.buildsPerDay, DAY, now))) throw new DemoHttpError(429, "account-limit", "Too many requests today.");
+    if (plan.playerSigns && !plan.signers.some((sg) => sg.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
+    // Admissions and exits have separate build counters: spam on one can never use up the other (exits always work).
+    const bucket = plan.class === "admission" ? "build" : "buildx";
+    if (!(await this.d.store.take(`${bucket}:${who}`, 1, this.d.limits.buildsPerDay, DAY, now))) throw new DemoHttpError(429, "account-limit", "Too many requests today.");
 
     const fee = SIGNATURE_LAMPORTS * BigInt(1 + plan.signers.length) + (BigInt(plan.cu) * BigInt(PRIORITY_MICROLAMPORTS)) / 1_000_000n;
     const balance = await this.balance();
@@ -183,8 +191,13 @@ export class Sponsor {
 
     if (plan.class === "admission") {
       if (await this.d.paused()) throw new DemoHttpError(503, "sponsor-paused", "Free transactions are paused. You can still play: pay the network fee from your own SOL.");
-      const basket = await this.d.chain.account(basketPda(accountPda(player)));
-      if (!basket || !basket.owner.equals(CORE_ID) || basketGemas(basket.data) === 0n) throw new DemoHttpError(403, "no-gemas", "Free transactions are for Accounts that hold Gemas.");
+      // The Gemas that fund it must exist: the Player's own, or the Backer's when a Backer's lines are drawn.
+      for (const funder of plan.funders.length ? plan.funders : [accountPda(player)]) {
+        const basket = await this.d.chain.account(basketPda(funder));
+        if (!basket || !basket.owner.equals(CORE_ID) || basketGemas(basket.data) === 0n) throw new DemoHttpError(403, "no-gemas", "Free transactions are for Accounts that hold Gemas.");
+      }
+      if (plan.funders.length) await this.requireAccount(player);
+      await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
       reserve = plan.names.some((n) => n === "open_match" || n === "join_match" || n === "open_ticket") ? this.d.limits.completionReserve : 0n;
       if (!admissionFits(this.d.limits, balance, plan.spend.refundable + plan.spend.sunk + fee, reserve)) {
@@ -200,6 +213,7 @@ export class Sponsor {
       if (reserve > 0n) hold.push(...plan.obligations.map((o) => o.toBase58()));
     } else {
       await this.requireAccount(player);
+      await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
       if (!exitFits(balance, fee)) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
       if (plan.names.some((n) => n === "close_match" || n === "close_ticket")) release.push(...plan.obligations.map((o) => o.toBase58()));

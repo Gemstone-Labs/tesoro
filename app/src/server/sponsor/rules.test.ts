@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BN } from "@coral-xyz/anchor";
 import { SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
-import { chunkIx, coreIx, key, openMatchIx } from "./fixtures";
+import { backingPairIx, chunkIx, coreIx, key, openMatchIx, playerIx } from "./fixtures";
 import { CORE_ID, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
 
 const relayer = key();
@@ -112,5 +112,76 @@ describe("refused", () => {
     refused([], "bad-shape");
     const open = await openMatchIx(relayer, player, game);
     refused(Array(5).fill(open), "bad-shape");
+  });
+});
+
+describe("the Player's own exits and orders (ticket 18b)", () => {
+  const exits = {
+    redeem: playerIx.redeem,
+    redeem_prize: playerIx.redeemPrize,
+    unlock: playerIx.unlock,
+    cancel_instant_redeem: (a: typeof player) => playerIx.cancelInstantRedeem(a),
+    expire_instant_redeem: (a: typeof player) => playerIx.expireInstantRedeem(a),
+    cancel_offer: (a: typeof player) => playerIx.cancelOffer(a),
+    cancel_request: (a: typeof player) => playerIx.cancelRequest(a),
+    claim_free_yield: playerIx.claimFreeYield,
+  };
+  for (const [name, build] of Object.entries(exits)) {
+    it(`${name}: an exit signed by the Player, the relayer is only the fee payer`, async () => {
+      const p = plan([await build(player)]);
+      expect(p).toMatchObject({ names: [name], class: "exit" });
+      expect(p.signers.map((k) => k.toBase58())).toEqual([player.toBase58()]);
+      expect(p.playerSigns).toBe(true);
+    });
+    it(`${name}: refuses an extra account and the relayer in any account`, async () => {
+      const ix0 = await build(player);
+      const extra = { ...ix0, keys: [...ix0.keys, { pubkey: key(), isSigner: true, isWritable: false }] };
+      refused([extra], "bad-accounts");
+      const ix = await build(player);
+      const i = ix.keys.findIndex((k) => k.isWritable && !k.isSigner);
+      ix.keys[i] = { pubkey: relayer, isSigner: false, isWritable: true };
+      refused([ix], "relayer-in-accounts");
+      const asSigner = await build(player);
+      asSigner.keys[0] = { pubkey: relayer, isSigner: true, isWritable: asSigner.keys[0].isWritable };
+      refused([asSigner], "relayer-in-accounts");
+    });
+  }
+  it("redeem may carry the books of the Sources it touches, never a signer", async () => {
+    const ix = await playerIx.redeem(player);
+    ix.keys.push({ pubkey: key(), isSigner: false, isWritable: true }, { pubkey: key(), isSigner: false, isWritable: false });
+    expect(plan([ix]).names).toEqual(["redeem"]);
+    ix.keys.push({ pubkey: key(), isSigner: true, isWritable: false });
+    refused([ix], "bad-accounts");
+  });
+  it("request_instant_redeem is accepted but its rent stays the Player's: the relayer may not stand in for the holder", async () => {
+    expect(plan([await playerIx.requestInstantRedeem(player)]).names).toEqual(["request_instant_redeem"]);
+    refused([await playerIx.requestInstantRedeem(relayer)], "relayer-in-accounts");
+  });
+  it("an exit cannot ride along with another instruction", async () => {
+    refused([await playerIx.unlock(player), await playerIx.unlock(player)], "bad-shape");
+  });
+});
+
+describe("a Backing Ticket opened and staged in one transaction", () => {
+  it("is an admission with two signers, the Requester and the Backer, and names whose lines fund it", async () => {
+    const { ixs, requester, backer, backerAccount } = await backingPairIx(relayer);
+    const p = plan(ixs);
+    expect(p).toMatchObject({ names: ["open_ticket", "stage_entry"], class: "admission" });
+    expect(p.signers.map((k) => k.toBase58()).sort()).toEqual([requester.toBase58(), backer.toBase58()].sort());
+    expect(p.funders.map((k) => k.toBase58())).toEqual([backerAccount.toBase58()]);
+  });
+  it("is refused when stage_entry is for another Ticket or another Account", async () => {
+    const a = await backingPairIx(relayer);
+    a.ixs[1].keys[4] = { ...a.ixs[1].keys[4], pubkey: key() };
+    refused(a.ixs, "bad-shape");
+    const b = await backingPairIx(relayer);
+    const other = await backingPairIx(relayer);
+    b.ixs[1] = other.ixs[1];
+    refused(b.ixs, "bad-shape");
+  });
+  it("is refused with the relayer as the Backer's signer", async () => {
+    const a = await backingPairIx(relayer);
+    a.ixs[1].keys[0] = { pubkey: relayer, isSigner: true, isWritable: false };
+    refused(a.ixs, "relayer-in-accounts");
   });
 });

@@ -1,7 +1,7 @@
 import { Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import nacl from "tweetnacl";
-import { chunkIx, coreIx, key, openMatchIx } from "./fixtures";
+import { accountOf, backingPairIx, chunkIx, coreIx, key, openMatchIx, playerIx } from "./fixtures";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type WireIx } from "./service";
@@ -53,7 +53,14 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
     lowBalance: 1n * SOL,
     now: () => t,
   };
-  return { sponsor: new Sponsor(deps), deps, relayer, player, game, sent, alerts, setBalance: (b: bigint) => (balance = b), tick: (ms: number) => (t += ms) };
+  return { accounts, sponsor: new Sponsor(deps), deps, relayer, player, game, sent, alerts, setBalance: (b: bigint) => (balance = b), tick: (ms: number) => (t += ms) };
+}
+
+/** Every wallet in `players` that must sign the message we built does so, in any order. */
+function signedBy(built: { message: string }, players: Keypair[]): string {
+  const tx = new VersionedTransaction(VersionedMessage.deserialize(Buffer.from(built.message, "base64")));
+  tx.sign(players);
+  return Buffer.from(tx.serialize()).toString("base64");
 }
 
 /** The wallet's part: deserialise the message we built, sign it. */
@@ -229,5 +236,119 @@ describe("reserve timing and exits for throwaway keys", () => {
     const ms = key();
     const s = setup({ noAccount: true, existing: [ms] });
     await expect(s.sponsor.build(s.player.publicKey, wire([await chunkIx(s.relayer.publicKey, ms)]))).rejects.toMatchObject({ code: "no-account" });
+  });
+});
+
+describe("the Player's own exits (ticket 18b)", () => {
+  const shapes: [string, (a: PublicKey) => Promise<Ix>][] = [
+    ["redeem", playerIx.redeem],
+    ["redeem_prize", playerIx.redeemPrize],
+    ["unlock", playerIx.unlock],
+    ["claim_free_yield", playerIx.claimFreeYield],
+    ["cancel_offer", (a) => playerIx.cancelOffer(a)],
+    ["cancel_request", (a) => playerIx.cancelRequest(a)],
+    ["cancel_instant_redeem", (a) => playerIx.cancelInstantRedeem(a)],
+    ["expire_instant_redeem", (a) => playerIx.expireInstantRedeem(a)],
+  ];
+  for (const [name, make] of shapes) {
+    it(`${name}: sponsored while paused, with the day's quota spent, below the floor and after build spam`, async () => {
+      const s = setup({ paused: true, balance: DEFAULT_LIMITS.floor / 2n, limits: { accountPerDay: 0, globalPerDay: 0, failuresPerDay: 0, cyclesPerDay: 0, buildsPerDay: 2 } });
+      for (let i = 0; i < 2; i++) await expect(s.sponsor.build(s.player.publicKey, wire([await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game)]))).rejects.toBeTruthy();
+      const built = await s.sponsor.build(s.player.publicKey, wire([await make(s.player.publicKey)]));
+      expect(built.class).toBe("exit");
+      await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+      expect(s.sent).toHaveLength(1);
+      expect(s.sent[0].message.staticAccountKeys[0].equals(s.relayer.publicKey)).toBe(true);
+    });
+  }
+  it("is refused for a key with no Account, and for an instruction signed by someone else", async () => {
+    const s = setup({ noAccount: true });
+    await expect(s.sponsor.build(s.player.publicKey, wire([await playerIx.unlock(s.player.publicKey)]))).rejects.toMatchObject({ code: "no-account" });
+    const t = setup();
+    await expect(t.sponsor.build(t.player.publicKey, wire([await playerIx.unlock(key())]))).rejects.toMatchObject({ code: "bad-signer" });
+  });
+  it("when the relayer is empty the Player is told to pay the fee", async () => {
+    const s = setup({ balance: 1_000n });
+    await expect(s.sponsor.build(s.player.publicKey, wire([await playerIx.unlock(s.player.publicKey)]))).rejects.toMatchObject({ code: "sponsor-empty" });
+  });
+  it("an unsigned exit is not sent", async () => {
+    const s = setup();
+    const built = await s.sponsor.build(s.player.publicKey, wire([await playerIx.redeem(s.player.publicKey)]));
+    const bare = Buffer.from(new VersionedTransaction(VersionedMessage.deserialize(Buffer.from(built.message, "base64"))).serialize()).toString("base64");
+    await expect(s.sponsor.submit(bare, built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
+  });
+  it("request_instant_redeem is sponsored for the fee, also while paused", async () => {
+    const s = setup({ paused: true });
+    const built = await s.sponsor.build(s.player.publicKey, wire([await playerIx.requestInstantRedeem(s.player.publicKey)]));
+    expect(built.class).toBe("continue");
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    expect(s.sent).toHaveLength(1);
+  });
+});
+
+describe("a Backing Ticket signed by two parties (ticket 18b)", () => {
+  async function pair(over: Parameters<typeof setup>[0] = {}, backerGemas = 500n) {
+    const s = setup(over);
+    const backer = Keypair.generate();
+    const made = await backingPairIx(s.relayer.publicKey, { requester: s.player.publicKey, backer: backer.publicKey });
+    s.accounts.set(accountOf(backer.publicKey).toBase58(), { owner: CORE_ID, data: new Uint8Array(10) });
+    s.accounts.set(basketPda(accountOf(backer.publicKey)).toBase58(), { owner: CORE_ID, data: basketData(backerGemas) });
+    return { s, backer, ixs: made.ixs };
+  }
+  it("is built once, signed by both, then sent with the relayer paying", async () => {
+    const { s, backer, ixs } = await pair({ gemas: 0n });
+    const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
+    expect(built.class).toBe("admission");
+    const { signature } = await s.sponsor.submit(signedBy(built, [s.player, backer]), built.meta, built.mac);
+    expect(signature).toBe("sig1");
+    expect(s.sent[0].message.staticAccountKeys[0].equals(s.relayer.publicKey)).toBe(true);
+    expect(await s.deps.store.held()).toBe(DEFAULT_LIMITS.completionReserve);
+  });
+  it("the Backer's Gemas fund it: a Backer with none is refused, a Requester with none is fine", async () => {
+    const { s, ixs } = await pair({ gemas: 500n }, 0n);
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "no-gemas" });
+  });
+  it("needs an Account for the other signer too", async () => {
+    const { s, backer, ixs } = await pair({ gemas: 0n });
+    s.accounts.delete(accountOf(backer.publicKey).toBase58());
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "no-account" });
+  });
+  it("is refused when only one party signed, or the second signature is not theirs", async () => {
+    const { s, backer, ixs } = await pair({ gemas: 0n });
+    const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
+    await expect(s.sponsor.submit(signedBy(built, [s.player]), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
+    await expect(s.sponsor.submit(signedBy(built, [backer]), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
+    // a signature over other bytes in the Backer's slot
+    const tx = VersionedTransaction.deserialize(Buffer.from(signedBy(built, [s.player, backer]), "base64"));
+    const slot = tx.message.staticAccountKeys.findIndex((k) => k.equals(backer.publicKey));
+    tx.signatures[slot] = nacl.sign.detached(Buffer.from("something else"), backer.secretKey);
+    await expect(s.sponsor.submit(Buffer.from(tx.serialize()).toString("base64"), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
+    // a signature from a stranger
+    const stranger = Keypair.generate();
+    tx.signatures[slot] = nacl.sign.detached(tx.message.serialize(), stranger.secretKey);
+    await expect(s.sponsor.submit(Buffer.from(tx.serialize()).toString("base64"), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
+    expect(s.sent).toHaveLength(0);
+  });
+  it("both parties must sign within the message's lifetime", async () => {
+    const { s, backer, ixs } = await pair({ gemas: 0n });
+    const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
+    s.tick(80_000);
+    await expect(s.sponsor.submit(signedBy(built, [s.player, backer]), built.meta, built.mac)).rejects.toMatchObject({ code: "expired" });
+  });
+  it("a swapped message is not ours even with both signatures", async () => {
+    const { s, backer, ixs } = await pair({ gemas: 0n });
+    const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
+    const again = await backingPairIx(s.relayer.publicKey, { requester: s.player.publicKey, backer: backer.publicKey });
+    const other = await s.sponsor.build(s.player.publicKey, wire(again.ixs));
+    await expect(s.sponsor.submit(signedBy(other, [s.player, backer]), built.meta, built.mac)).rejects.toMatchObject({ code: "not-ours" });
+  });
+  it("is paused with the other admissions", async () => {
+    const { s, ixs } = await pair({ paused: true, gemas: 0n });
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "sponsor-paused" });
+  });
+  it("whoever asks must be one of the signers", async () => {
+    const { ixs } = await pair({ gemas: 0n });
+    const t = setup();
+    await expect(t.sponsor.build(t.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "bad-signer" });
   });
 });
