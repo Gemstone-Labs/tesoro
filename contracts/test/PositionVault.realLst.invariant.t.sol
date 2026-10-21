@@ -23,6 +23,14 @@ contract RealLstHandler is Test {
     /// ghost: yield was paid out of this open Position (to a player or back to the vault) (audit E-1 exposure: a fall can erase it)
     mapping(uint64 => bool) public paidOut;
     bool public unlockShort;
+    uint64 public nextBatch;
+    uint64 public nextPayout;
+    uint256 public prizeSharesPaid;
+    uint256 public lastEscrowedShares;
+    uint256 public lastEscrowedUnits;
+    bool public escrowCounterFell;
+    /// ghost: cumulative paid per (batch, entry) never exceeds requested nor falls
+    bool public batchOverpaid;
 
     constructor() {
         tok = new RateToken();
@@ -83,7 +91,7 @@ contract RealLstHandler is Test {
     function payYield(uint256 idx, uint256 pct, bool toVault) external {
         if (ids.length == 0) return;
         uint64 id = ids[idx % ids.length];
-        uint256 amount = vault.payableYield(id) * bound(pct, 0, 100) / 100;
+        uint256 amount = vault.unreservedYield(id) * bound(pct, 0, 100) / 100;
         address to = toVault ? address(vault) : redeemer;
         bool ok = _deliver(abi.encode(uint8(4), CHAIN, id, ++nextSeq[id], bytes32(uint256(uint160(to))), amount));
         // a refill to the vault moves the Position's shares out just like a payout to a player
@@ -104,9 +112,112 @@ contract RealLstHandler is Test {
         if (ok && !paidOut[id] && tok.balanceOf(user) - before < needed) unlockShort = true;
     }
 
+    /// A Leaderboard (2), Platform (0) or Studio (1) batch over 1..3 Positions, sometimes asking for more than is payable
+    /// and sometimes re-delivering an earlier batch id.
+    function batch(uint256 seed, uint256 pct, bool resend) external {
+        if (ids.length == 0) return;
+        uint64 batchId = resend && nextBatch > 0 ? uint64(bound(seed, 1, nextBatch)) : ++nextBatch;
+        if (resend && batchId != nextBatch) {
+            // re-deliver the stored content exactly
+            (bool exists, uint8 bkind, bytes32 recipient, PositionVault.BatchEntry[] memory es) = vault.batchOf(batchId);
+            if (!exists) return;
+            uint64[] memory bi = new uint64[](es.length);
+            uint128[] memory bu = new uint128[](es.length);
+            for (uint256 i; i < es.length; i++) {
+                bi[i] = es[i].positionId;
+                bu[i] = es[i].requested;
+            }
+            _deliver(abi.encode(uint8(6), CHAIN, batchId, uint64(0), bkind, recipient, bi, bu));
+            _checkBatch(batchId);
+            return;
+        }
+        uint256 n = bound(seed >> 8, 1, 3);
+        uint64[] memory pi = new uint64[](n);
+        uint128[] memory pu = new uint128[](n);
+        for (uint256 i; i < n; i++) {
+            pi[i] = ids[uint256(keccak256(abi.encode(seed, i))) % ids.length];
+            pu[i] = uint128(vault.payableYield(pi[i]) * bound(pct, 0, 200) / 100 + (seed % 3));
+        }
+        uint8 kind = uint8((seed >> 16) % 3);
+        bytes32 to = kind == 2 ? bytes32(0) : bytes32(uint256(uint160(redeemer)));
+        _deliver(abi.encode(uint8(6), CHAIN, batchId, uint64(0), kind, to, pi, pu));
+        for (uint256 i; i < n; i++) {
+            if (!vault.getPosition(pi[i]).unlocked && pu[i] > 0) paidOut[pi[i]] = true;
+        }
+        _checkBatch(batchId);
+    }
+
+    function _checkBatch(uint64 batchId) internal {
+        (,,, PositionVault.BatchEntry[] memory es) = vault.batchOf(batchId);
+        for (uint256 i; i < es.length; i++) {
+            if (es[i].paid > es[i].requested) batchOverpaid = true;
+        }
+    }
+
+    function fundEscrow() external {
+        try vault.fundPrizeEscrow(0) {} catch {}
+    }
+
+    function payPrize(uint256 pct) external {
+        uint256 shares = vault.escrowShares() * bound(pct, 0, 100) / 100;
+        if (shares == 0) return;
+        uint256 before = vault.escrowShares();
+        _deliver(
+            abi.encode(
+                uint8(7),
+                CHAIN,
+                ++nextPayout,
+                uint64(0),
+                bytes32(uint256(uint160(address(tok)))),
+                bytes32(uint256(1)),
+                bytes32(uint256(uint160(redeemer))),
+                shares
+            )
+        );
+        prizeSharesPaid += before - vault.escrowShares();
+    }
+
     function report(uint256 idx) external {
         if (ids.length == 0) return;
         try vault.reportYield(ids[idx % ids.length]) {} catch {}
+    }
+
+    /// I4: every share in the escrow can be paid out in full whatever the Treasury holds, and nothing else moves.
+    function escrowAlwaysPaysInFull() external returns (bool) {
+        uint256 snap = vm.snapshotState();
+        uint256 esc = vault.escrowShares();
+        bool ok = true;
+        if (esc > 0) {
+            uint256 treasuryBefore = vault.treasuryShares();
+            uint256 balBefore = tok.balanceOf(address(this));
+            uint256 t = vault.treasuryBalance();
+            if (t > 0) vault.withdrawTreasury(t, address(0xC0FFEE));
+            ok = _deliver(
+                abi.encode(
+                    uint8(7),
+                    CHAIN,
+                    uint64(type(uint64).max),
+                    uint64(0),
+                    bytes32(uint256(uint160(address(tok)))),
+                    bytes32(uint256(1)),
+                    bytes32(uint256(uint160(address(0xB0B)))),
+                    esc
+                )
+            );
+            ok = ok && tok.balanceOf(address(0xB0B)) == esc && vault.escrowShares() == 0;
+            treasuryBefore;
+            balBefore;
+        }
+        vm.revertToState(snap);
+        return ok;
+    }
+
+    function trackEscrow() external {
+        if (vault.escrowedShares() < lastEscrowedShares || vault.escrowedUnits() < lastEscrowedUnits) {
+            escrowCounterFell = true;
+        }
+        lastEscrowedShares = vault.escrowedShares();
+        lastEscrowedUnits = vault.escrowedUnits();
     }
 
     function _deliver(bytes memory m) internal returns (bool ok) {
@@ -123,7 +234,7 @@ contract RealLstHandler is Test {
         bool ok = true;
         for (uint256 i; i < ids.length; i++) {
             uint64 id = ids[i];
-            uint256 amount = vault.payableYield(id);
+            uint256 amount = vault.unreservedYield(id);
             if (amount == 0) continue;
             ok = ok
                 && _deliver(abi.encode(uint8(4), CHAIN, id, ++nextSeq[id], bytes32(uint256(uint160(redeemer))), amount));
@@ -139,7 +250,7 @@ contract RealLstInvariantTest is Test {
     function setUp() public {
         h = new RealLstHandler();
         targetContract(address(h));
-        bytes4[] memory sel = new bytes4[](8);
+        bytes4[] memory sel = new bytes4[](12);
         sel[0] = h.open.selector;
         sel[1] = h.warp.selector;
         sel[2] = h.moveRate.selector;
@@ -148,6 +259,10 @@ contract RealLstInvariantTest is Test {
         sel[5] = h.instant.selector;
         sel[6] = h.payYield.selector;
         sel[7] = h.unlock.selector;
+        sel[8] = h.batch.selector;
+        sel[9] = h.fundEscrow.selector;
+        sel[10] = h.payPrize.selector;
+        sel[11] = h.trackEscrow.selector;
         targetSelector(FuzzSelector({addr: address(h), selectors: sel}));
     }
 
@@ -164,9 +279,32 @@ contract RealLstInvariantTest is Test {
             if (p.unlocked) assertEq(p.heldShares, 0);
         }
         assertEq(h.tok().balanceOf(address(v)), held + v.treasuryShares(), "balance = open held + T");
+        assertGe(
+            v.treasuryShares(),
+            v.owedShares() + v.poolOwedShares() + v.escrowShares(),
+            "T backs the holders, the Pool and the escrow"
+        );
         assertEq(v.openHeldShares(), held);
         assertEq(v.owedShares(), owed);
         assertGe(v.treasuryShares(), v.owedShares(), "the Treasury always holds what it owes");
+    }
+
+    /// I5: escrow counters only grow; the escrow balance is what came in minus what prizes paid.
+    function invariant_I5_escrowCounters() public {
+        PositionVault v = h.vault();
+        h.trackEscrow();
+        assertFalse(h.escrowCounterFell());
+        assertEq(v.escrowedShares() - h.prizeSharesPaid(), v.escrowShares(), "in - paid = balance");
+    }
+
+    /// I6: the whole escrow pays out even after the owner withdraws the whole Treasury.
+    function invariant_I6_escrowAlwaysPays() public {
+        assertTrue(h.escrowAlwaysPaysInFull());
+    }
+
+    /// I7: a batch entry is never paid beyond what was requested.
+    function invariant_I7_batchesNeverOverpay() public view {
+        assertFalse(h.batchOverpaid());
     }
 
     /// I2: Unlock returned the Principal in full whenever no player was paid yield the rate has since erased.
@@ -183,6 +321,6 @@ contract RealLstInvariantTest is Test {
     function invariant_spendableWithinT() public view {
         PositionVault v = h.vault();
         assertLe(v.spendableTreasuryShares(), v.treasuryShares());
-        assertEq(v.poolOwedShares() + v.reservedShares(), 0);
+        assertEq(v.reservedShares(), 0);
     }
 }

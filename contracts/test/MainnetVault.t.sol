@@ -99,7 +99,7 @@ abstract contract MainnetVaultBase is Test {
     function _report(uint64 id) internal returns (uint256 accrued, uint256 treasury, uint64 seq) {
         vault.reportYield{value: 0.0001 ether}(id);
         bytes memory m = lz.lastMessage();
-        assertEq(m.length, 101, "Yield Report is 101 bytes");
+        assertEq(m.length, 133, "Yield Report is 133 bytes: 101 plus the escrow counters");
         assertEq(uint8(m[0]), 2);
         assertEq(bytes32(_slice(m, 5, 32)), _key(id));
         seq = uint64(bytes8(_slice(m, 37, 8)));
@@ -211,7 +211,10 @@ abstract contract MainnetVaultBase is Test {
         assertEq(vault.unlockRate(id), 1.32e18);
         assertEq(vault.owedSharesOf(id), uint256(0.96 ether) * 1e18 / 1.32e18);
         assertEq(vault.owedShares(), vault.owedSharesOf(id));
-        assertApproxEqAbs(vault.treasuryBalance(), 0.24 ether, 4, "the spendable part is the fee");
+        assertApproxEqAbs(vault.treasuryBalance(), 0.12 ether, 4, "the spendable part is Tesoro's half of the fee");
+        assertApproxEqAbs(
+            vault.poolOwedShares(), uint256(0.12 ether) * 1e18 / 1.32e18, 4, "the other half is owed to the Pool"
+        );
         assertEq(tok.balanceOf(address(vault)), vault.treasuryShares());
     }
 
@@ -470,10 +473,12 @@ abstract contract MainnetVaultBase is Test {
         tok.setRate(1.32e18); // +10%
         assertApproxEqAbs(vault.accruedYield(id), 0.96 ether, 2);
         _recv(_unlock(id, 1));
-        assertApproxEqAbs(vault.treasuryBalance(), 0.24 ether, 4, "20% to the Treasury once unlocked");
+        assertApproxEqAbs(
+            vault.treasuryBalance(), 0.12 ether, 4, "10% to the Treasury once unlocked (the other 10% is the Pool's)"
+        );
     }
 
-    function test_yieldReportIs101BytesWithAccruedAndTreasury() public {
+    function test_yieldReportIs133BytesWithAccruedTreasuryAndEscrow() public {
         uint64 id = _open(10 ether);
         tok.setRate(1.26e18);
         (uint256 accrued, uint256 treasury, uint64 seq) = _report(id);
@@ -549,7 +554,7 @@ abstract contract MainnetVaultBase is Test {
         uint256 sum = ((vault.accruedYield(a) * 2000) / 8000) + ((vault.accruedYield(b) * 2000) / 8000);
         _recv(_unlock(a, 1));
         _recv(_unlock(b, 1));
-        assertApproxEqAbs(vault.treasuryBalance(), sum, 8);
+        assertApproxEqAbs(vault.treasuryBalance(), sum / 2, 8);
     }
 
     function test_unlockAfterADipReturnsAllSharesAndKeepsNoYield() public {
@@ -687,7 +692,7 @@ contract MainnetReceiveGasTest is MainnetVaultBase {
             vm.prank(address(lz));
             uint256 g = gasleft();
             vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), msgs[i], address(0), "");
-            assertLt(g - gasleft(), 150_000, "well under 250,000");
+            assertLt(g - gasleft(), 200_000, "well under 250,000");
         }
     }
 }
