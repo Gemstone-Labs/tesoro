@@ -1729,9 +1729,8 @@
         "Base layer, permissionless. Settles the tesoro_core Match from the committed result by CPI, signing as",
         "this Game's `authority` PDA: the winner takes the Pot minus Fees. A draw, a cancelled Battle, or one never",
         "started before its start deadline refunds both entries. A Match tesoro_core already refunded (its",
-        "deadline passed first) is only marked finalized. `remaining_accounts` are the payout accounts",
-        "tesoro_core expects (recipient `TesoroAccount` then its Holding, per payout, sorted by recipient and",
-        "Source)."
+        "deadline passed first) is only marked finalized. `remaining_accounts` are passed to tesoro_core",
+        "unchanged (the accounts a settle reaches, see its `settlement` module)."
       ],
       "discriminator": [
         171,
@@ -3293,37 +3292,6 @@
   ],
   "types": [
     {
-      "name": "Account",
-      "docs": [
-        "One Account's identity ledger. Balances mirror the sum of its Holdings, split by whether the",
-        "Gemas are own-sourced (Source owned by this Account) or won (any other Source)."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "own_total",
-            "type": "u64"
-          },
-          {
-            "name": "won_total",
-            "type": "u64"
-          },
-          {
-            "name": "own_reserved",
-            "docs": [
-              "Reserved for Offers (part of the totals, not free to enter Matches or redeem)."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "won_reserved",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "Army",
       "docs": [
         "One side's private state."
@@ -4691,14 +4659,6 @@
                 "u8",
                 20
               ]
-            }
-          },
-          {
-            "name": "inner",
-            "type": {
-              "defined": {
-                "name": "Account"
-              }
             }
           }
         ]

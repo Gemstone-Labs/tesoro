@@ -2381,37 +2381,6 @@
   ],
   "types": [
     {
-      "name": "Account",
-      "docs": [
-        "One Account's identity ledger. Balances mirror the sum of its Holdings, split by whether the",
-        "Gemas are own-sourced (Source owned by this Account) or won (any other Source)."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "own_total",
-            "type": "u64"
-          },
-          {
-            "name": "won_total",
-            "type": "u64"
-          },
-          {
-            "name": "own_reserved",
-            "docs": [
-              "Reserved for Offers (part of the totals, not free to enter Matches or redeem)."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "won_reserved",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "Board",
       "docs": [
         "One Player's run. Private in the rollup; public once committed after both runs close. The",
@@ -3255,14 +3224,6 @@
                 "u8",
                 20
               ]
-            }
-          },
-          {
-            "name": "inner",
-            "type": {
-              "defined": {
-                "name": "Account"
-              }
             }
           }
         ]

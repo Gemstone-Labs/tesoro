@@ -162,7 +162,7 @@ pub(crate) fn set_stake_apy_ceiling(
 // --- Open ------------------------------------------------------------------------------------
 
 /// The owner deposits `shares` of the active staking token into the shared vault. Principal is
-/// recorded in lamports at the pool's Staking Rate now. A Player holding plain SOL puts the pool's
+/// recorded in lamports at the pool's Staking Rate now. A Player with plain SOL puts the pool's
 /// `DepositSol` in front of this instruction in the same transaction, so the whole thing reverts
 /// when the deposit mints fewer tokens than `shares`.
 #[derive(Accounts)]
@@ -573,7 +573,6 @@ pub(crate) fn init_treasury_stake(
         account.bump = ctx.bumps.treasury_account;
         account.authority = treasury_key;
         account.evm_address = [0; 20];
-        account.inner = Default::default();
     }
     let account_key = account.key();
     let t = &mut ctx.accounts.treasury;

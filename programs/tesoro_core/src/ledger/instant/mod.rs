@@ -239,9 +239,7 @@ pub fn request_instant_redeem<B: Bytes, S: Bytes>(
         Ok(i) => (false, i),
         Err(_) => (
             true,
-            pool.spill
-                .find(key)
-                .map_err(|_| CoreError::HoldingMismatch)?,
+            pool.spill.find(key).map_err(|_| CoreError::LineMismatch)?,
         ),
     };
     let mut line = if in_spill {
@@ -249,7 +247,7 @@ pub fn request_instant_redeem<B: Bytes, S: Bytes>(
     } else {
         pool.basket.get(idx)
     }
-    .ok_or(CoreError::HoldingMismatch)?;
+    .ok_or(CoreError::LineMismatch)?;
     if line.side != SIDE_WON || !line.is_playable() {
         return Err(CoreError::NotWonGemas);
     }

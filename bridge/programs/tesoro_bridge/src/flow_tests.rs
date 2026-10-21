@@ -1718,7 +1718,7 @@ impl Env {
         self.send(&[receive], &payer, &[])
     }
 
-    /// Position `id` opened with its Advance, the Platform fee counter holding `fee` Gemas cut out
+    /// Position `id` opened with its Advance, the Platform fee counter carrying `fee` Gemas cut out
     /// of the owner's own Gemas, and yield reported that covers more than the counter.
     fn position_with_fee_counter(&mut self, id: u64, fee_class: u8, fee: u64) -> Pubkey {
         self.opened_with_advance(id);

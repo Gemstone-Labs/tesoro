@@ -57,7 +57,7 @@ pub const MAX_HORIZON_MONTHS: u8 = 12;
 pub const LADDER: [u64; 3] = [500, 1_000, 2_500];
 /// Most entry sizes the admin can set.
 pub const MAX_ENTRY_SIZES: usize = 4;
-/// Maximum Holdings (distinct Sources) one entry may be drawn from. Bounds accounts per
+/// Maximum lines (distinct Sources) one entry may be drawn from. Bounds accounts per
 /// instruction, and with it the payout lines at settlement (see docs/tesoro-core.md).
 pub const MAX_ENTRY_SOURCES: usize = 8;
 /// Maximum applicants on a public Offer.
@@ -106,9 +106,9 @@ core_errors! {
     ExceedsDebt => "amount exceeds the debt of the source",
     ExceedsRedeemable => "amount exceeds what the source has accrued for this holder",
     InsufficientGemas => "not enough free gemas",
-    HoldingMismatch => "holding does not match the expected source or account",
+    LineMismatch => "line does not match the expected source or account",
     TooManySources => "entry draws on too many sources",
-    NonCanonicalDraw => "holdings must be own-sourced first, ascending by source, each drawn from",
+    NonCanonicalDraw => "lines must be own-sourced first, ascending by source, each drawn from",
     InvalidEntry => "entry is not one of the allowed sizes, or the sizes are invalid",
     InvalidBps => "basis points out of range",
     InvalidStatus => "operation not allowed in the current status",
@@ -121,7 +121,7 @@ core_errors! {
     TooManyApplicants => "too many applicants",
     AlreadyApplied => "already applied",
     NotApplicant => "request has not applied to this offer",
-    ReservationMismatch => "holdings do not match the offer reservation",
+    ReservationMismatch => "lines do not match the offer reservation",
     FeeTooHigh => "fees exceed the cap",
     InvalidDeadline => "deadline may only move later, within the extension cap",
     VaultShortfall => "vault would not cover principal and the yield owed to holders",
@@ -129,8 +129,8 @@ core_errors! {
     SeasonNotEnded => "the season has not ended",
     SeasonInvalid => "season or ranking is invalid",
     AlreadyPaid => "this rank was already paid",
-    PrizeShortfall => "the supplied pool holdings do not cover the prize",
-    NonCanonicalPrize => "pool holdings must be non-empty, ascending by source, each drained but the last",
+    PrizeShortfall => "the supplied pool lines do not cover the prize",
+    NonCanonicalPrize => "pool lines must be non-empty, ascending by source, each drained but the last",
     LeaderboardOff => "the leaderboard is not set up",
     NotWonGemas => "only won Gemas can be redeemed instantly",
     ExceedsPending => "only Gemas whose yield has not landed can be redeemed instantly; redeem the rest in full",
