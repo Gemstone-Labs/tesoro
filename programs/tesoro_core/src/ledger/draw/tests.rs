@@ -1316,3 +1316,64 @@ fn fuzz_draw_tickets_offers_against_a_model() {
         assert!(*n > 0, "the fuzz never reached case {i}: {c:?}");
     }
 }
+
+/// The app previews an entry with a TypeScript port of `plan_draw` (`app/src/lib/chain/draw.ts`). This test builds a basket and a
+/// spill with the program's own code, records the raw accounts and the draws the program plans, and `app/src/lib/chain/draw.test.ts`
+/// decodes the same bytes and must plan the same draws. Run with `UPDATE_APP_FIXTURES=1` to rewrite the file after a change.
+#[test]
+fn app_draw_fixture_matches_plan_draw() {
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    let mut w = world(3);
+    w.credit(SIDE_WON, 5, 1, CLASS_GENERAL, 100);
+    w.credit(SIDE_WON, 2, 2, CLASS_GENERAL, 100);
+    w.credit(SIDE_OWN, 9, 3, CLASS_GENERAL, 100);
+    w.credit(SIDE_OWN, 1, 4, 1, 50); // Studio fee line: never drawn
+    w.credit(SIDE_OWN, 9, 0, CLASS_GENERAL, 40); // same due as another line: the Source breaks the tie
+    w.credit(SIDE_WON, 2, 3, CLASS_GENERAL, 60);
+    w.credit(SIDE_OWN, 30, 2, CLASS_EXTENSION_BASE, 25);
+    w.credit(SIDE_WON, 700, 1, CLASS_GENERAL, 300);
+    w.credit(SIDE_OWN, 3, 0, 0, 10); // Platform fee line
+    w.run(|p, _| p.reserve_offer(120, 0)).unwrap();
+    assert!(w.s().len() > 0, "the fixture must put lines in the spill");
+
+    let lines = |l: &[(LineKey, u64)]| {
+        l.iter()
+            .map(|(k, t)| {
+                format!(
+                    "{{\"side\":{},\"dueAt\":{},\"source\":\"{}\",\"class\":{},\"tranche\":{},\"take\":{}}}",
+                    k.side, k.due_at, hex(&k.source), k.class, k.tranche, t
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let free = w.free();
+    let mut cases = vec![];
+    for amount in [1u64, 100, 101, 250, 400, free] {
+        let steps = w.run_raw(|p, _| p.plan_draw(amount, free)).unwrap();
+        cases.push(format!(
+            "    {{\"amount\":{amount},\"steps\":[{}]}}",
+            lines(&steps)
+        ));
+    }
+    // accounts carry an 8-byte discriminator in front of the body
+    let account = |body: &[u8]| hex(&[&[0u8; 8][..], body].concat());
+    let json = format!(
+        "{{\n  \"free\": {free},\n  \"basket\": \"{}\",\n  \"spill\": \"{}\",\n  \"cases\": [\n{}\n  ]\n}}\n",
+        account(&w.basket),
+        account(&w.spill),
+        cases.join(",\n")
+    );
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../app/src/lib/chain/draw.fixtures.json"
+    );
+    if std::env::var("UPDATE_APP_FIXTURES").is_ok() {
+        std::fs::write(path, &json).unwrap();
+    }
+    let on_disk = std::fs::read_to_string(path).unwrap_or_default();
+    assert_eq!(
+        on_disk, json,
+        "app/src/lib/chain/draw.fixtures.json is stale: run with UPDATE_APP_FIXTURES=1"
+    );
+}
