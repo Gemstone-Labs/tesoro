@@ -258,7 +258,11 @@ pub mod holdem {
                 is_private: true,
                 members: vec![player_member(players[0]), player_member(players[1])],
             },
-            &[MATCH_SEED, tesoro_match.as_ref(), &[ctx.accounts.game_match.bump]],
+            &[
+                MATCH_SEED,
+                tesoro_match.as_ref(),
+                &[ctx.accounts.game_match.bump],
+            ],
         )?;
         create_permission(
             &*ctx.accounts,

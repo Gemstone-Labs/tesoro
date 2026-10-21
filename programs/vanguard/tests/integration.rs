@@ -152,7 +152,6 @@ fn budget() -> Instruction {
     }
 }
 
-
 type Failed = litesvm::types::FailedTransactionMetadata;
 
 fn custom_code(err: &Failed) -> u32 {
@@ -947,7 +946,9 @@ fn delegate_ix(env: &Env, payer: APk, validator: Option<APk>) -> Instruction {
             delegation_program: dlp,
             system_program: anchor_lang::system_program::ID,
         },
-        vanguard::instruction::DelegateMatch { tesoro_match: env.tmatch },
+        vanguard::instruction::DelegateMatch {
+            tesoro_match: env.tmatch,
+        },
         vec![],
     )
 }
@@ -3288,4 +3289,3 @@ fn the_storm_waits_for_the_turn_that_ends_it_not_for_the_first_step_of_a_two_ste
     env.mv(0, id_of(95), 85).expect("second step");
     assert_eq!((env.battle().storm_done, storm_events(&env)), (1, 1));
 }
-

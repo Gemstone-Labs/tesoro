@@ -29,7 +29,11 @@ fn pda(seeds: &[&[u8]]) -> APk {
     APk::find_program_address(seeds, &tesoro_core::ID).0
 }
 
-fn ix(accounts: impl ToAccountMetas, data: impl InstructionData, remaining: Vec<AccountMeta>) -> Instruction {
+fn ix(
+    accounts: impl ToAccountMetas,
+    data: impl InstructionData,
+    remaining: Vec<AccountMeta>,
+) -> Instruction {
     let mut metas: Vec<AccountMeta> = accounts
         .to_account_metas(None)
         .into_iter()
@@ -108,7 +112,10 @@ pub fn gemas(svm: &LiteSVM, account: APk) -> u64 {
 }
 
 fn spill_free(svm: &LiteSVM, account: APk) -> usize {
-    let d = svm.get_account(&s(spill_address(&account).0)).expect("spill").data;
+    let d = svm
+        .get_account(&s(spill_address(&account).0))
+        .expect("spill")
+        .data;
     let st = tesoro_core::ledger::line_store::LineStore::new(&d[DISC..]).expect("spill");
     st.capacity() - st.len() - st.room_reserved() as usize
 }
@@ -376,12 +383,18 @@ pub fn close_match(svm: &mut LiteSVM, caller: &Keypair, m: &MatchRef) -> Result<
         remaining.push(AccountMeta::new(s(spill_address(&o).0), false));
     }
     remaining.push(AccountMeta::new(
-        s(pda(&[COUNTERS_SEED, APk::new_from_array(st.inner.a.player).as_ref()])),
+        s(pda(&[
+            COUNTERS_SEED,
+            APk::new_from_array(st.inner.a.player).as_ref(),
+        ])),
         false,
     ));
     if let Some(b) = st.inner.b {
         remaining.push(AccountMeta::new(
-            s(pda(&[COUNTERS_SEED, APk::new_from_array(b.player).as_ref()])),
+            s(pda(&[
+                COUNTERS_SEED,
+                APk::new_from_array(b.player).as_ref(),
+            ])),
             false,
         ));
     }

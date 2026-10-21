@@ -413,8 +413,16 @@ impl Env {
     fn open(&mut self, alice: &Person) -> u64 {
         let id = self.next_match;
         self.next_match += 1;
-        let m = flow::open_match(&mut self.svm, &alice.kp, block_puzzle::ID, ENTRY, id, false, 0)
-            .expect("open match");
+        let m = flow::open_match(
+            &mut self.svm,
+            &alice.kp,
+            block_puzzle::ID,
+            ENTRY,
+            id,
+            false,
+            0,
+        )
+        .expect("open match");
         MATCHES.with(|v| v.borrow_mut().push(m));
         id
     }
@@ -424,7 +432,11 @@ impl Env {
         flow::run_chunks(&mut self.svm, &caller, &match_ref(id));
     }
 
-    fn join(&mut self, bob: &Person, id: u64) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+    fn join(
+        &mut self,
+        bob: &Person,
+        id: u64,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
         flow::join_match(&mut self.svm, &bob.kp, &match_ref(id), block_puzzle::ID, id)
     }
 
@@ -755,8 +767,7 @@ fn an_unjoined_block_puzzle_match_waits_a_day_before_anyone_can_refund_it() {
     assert_eq!(env.total(&alice), 75_000 - ENTRY);
     // The window closes a day after the Session opened.
     env.set_time(t0 + block_puzzle::QUEUE_WINDOW_SECS + 1);
-    env.refund_as_stranger(id)
-        .expect("refund after a day");
+    env.refund_as_stranger(id).expect("refund after a day");
     assert_eq!(env.total(&alice), 75_000);
 }
 
@@ -1726,4 +1737,3 @@ fn tesoro_core_treasury() -> anchor_lang::prelude::Pubkey {
     )
     .0
 }
-

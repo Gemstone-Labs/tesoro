@@ -482,7 +482,11 @@ pub(crate) fn open_match<'info>(
     let (party, funder_spill, pot) = if backed {
         require!(listed, TesoroError::GameNotListed);
         crate::util::require_can_play(&ctx.accounts.protections.to_account_info())?;
-        let offer = ctx.accounts.offer.as_mut().expect("checked");
+        let offer = ctx
+            .accounts
+            .offer
+            .as_mut()
+            .ok_or(error!(crate::error::MatchError::BadBacking))?;
         offer
             .inner
             .consume(player.to_bytes(), game.to_bytes(), entry, ts)
@@ -763,7 +767,11 @@ pub(crate) fn join_match<'info>(
     let own_spill = ctx.accounts.spill.to_account_info();
     let (party, funder_spill, pot) = if backed {
         require_can_play(&ctx.accounts.protections.to_account_info())?;
-        let offer = ctx.accounts.offer.as_mut().expect("checked");
+        let offer = ctx
+            .accounts
+            .offer
+            .as_mut()
+            .ok_or(error!(crate::error::MatchError::BadBacking))?;
         offer
             .inner
             .consume(player.to_bytes(), game.to_bytes(), entry, ts)

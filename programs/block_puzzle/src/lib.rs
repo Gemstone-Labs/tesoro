@@ -172,8 +172,7 @@ pub mod block_puzzle {
         let (window_end, is_open) = {
             let m = &ctx.accounts.match_state.inner;
             require!(
-                m.game == crate::ID.to_bytes()
-                    && matches!(m.stage(), Stage::Open | Stage::Active),
+                m.game == crate::ID.to_bytes() && matches!(m.stage(), Stage::Open | Stage::Active),
                 BlockPuzzleError::InvalidMatch
             );
             require!(

@@ -389,7 +389,10 @@ impl Env {
     fn studio_fees(&self) -> u64 {
         let d = self
             .svm
-            .get_account(&s(tesoro_core::storage::basket_address(&self.studio.account).0))
+            .get_account(&s(tesoro_core::storage::basket_address(
+                &self.studio.account,
+            )
+            .0))
             .expect("basket")
             .data;
         tesoro_core::ledger::line_store::LineStore::new(&d[tesoro_core::storage::DISC..])
@@ -775,7 +778,9 @@ fn f01_delegation_is_pinned_to_the_tee_validator() {
                 delegation_program: dlp,
                 system_program: anchor_lang::system_program::ID,
             },
-            holdem::instruction::DelegateMatch { tesoro_match: env.tmatch },
+            holdem::instruction::DelegateMatch {
+                tesoro_match: env.tmatch,
+            },
             vec![],
         );
         let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
@@ -828,7 +833,9 @@ fn g01_a_table_that_has_been_played_cannot_be_delegated_again() {
             delegation_program: dlp,
             system_program: anchor_lang::system_program::ID,
         },
-        holdem::instruction::DelegateMatch { tesoro_match: env.tmatch },
+        holdem::instruction::DelegateMatch {
+            tesoro_match: env.tmatch,
+        },
         vec![],
     );
     let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
@@ -960,8 +967,8 @@ fn only_active_matches_may_be_bound() {
     let mut env = Env::new();
     let alice = env.alice.kp.insecure_clone();
     // Make the Match unjoined: only Active Matches may be bound.
-    let m = flow::open_match(&mut env.svm, &alice, holdem::ID, 1_000, 1, false, 0)
-        .expect("open only");
+    let m =
+        flow::open_match(&mut env.svm, &alice, holdem::ID, 1_000, 1, false, 0).expect("open only");
     env.tmatch = m.key;
     // Bob has not joined: `account_b` cannot match `b.player`.
     let create = env.create_ix(env.alice.key, 0);

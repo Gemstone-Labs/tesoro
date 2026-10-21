@@ -1199,7 +1199,9 @@ fn delegation_is_pinned_to_the_tee_validator() {
                 delegation_program: dlp,
                 system_program: anchor_lang::system_program::ID,
             },
-            trading_duel::instruction::DelegateMatch { tesoro_match: env.tmatch },
+            trading_duel::instruction::DelegateMatch {
+                tesoro_match: env.tmatch,
+            },
             vec![],
         );
         let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
@@ -1247,7 +1249,9 @@ fn g01_a_duel_that_has_been_played_cannot_be_delegated_again() {
             delegation_program: dlp,
             system_program: anchor_lang::system_program::ID,
         },
-        trading_duel::instruction::DelegateMatch { tesoro_match: env.tmatch },
+        trading_duel::instruction::DelegateMatch {
+            tesoro_match: env.tmatch,
+        },
         vec![],
     );
     let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
