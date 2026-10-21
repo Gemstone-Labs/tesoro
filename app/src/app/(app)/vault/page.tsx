@@ -123,13 +123,6 @@ function Vault() {
         figure={ready ? fmtGemas(view.gemas) : "—"}
         usdOf={ready ? view.gemas : undefined}
         busy={!ready}
-        sub={ready && (
-          <>
-            <span>Ready to cash out <b>{fmtGemas(w.readyNow)}</b></span>
-            <span aria-hidden="true">·</span>
-            <span>Ready later <b>{fmtGemas(w.readyLater)}</b></span>
-          </>
-        )}
         columns={[
           {
             label: "Ready to cash out",
