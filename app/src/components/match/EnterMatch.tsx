@@ -6,7 +6,8 @@ import { Busy, Button, GemaAmount } from "@/components/ui";
 import { PlayerAvatar } from "@/components/account/Player";
 import { useQueue } from "@/components/lobby/useQueue";
 import { useAccount } from "@/lib/account";
-import { MAX_ENTRY_SOURCES, estimatedWin } from "@/lib/chain/ledger";
+import { estimatedWin } from "@/lib/chain/ledger";
+import { entryError } from "@/lib/chain/entry-errors";
 import { chainShortfall, checkGemas } from "@/lib/chain/fresh-gemas";
 import { BackingError, createChallengeBacked, enterQueueBacked, joinChallengeBacked } from "@/lib/chain/backing";
 import { ChallengeError, EntryError, QueueUnconfirmedError, createChallenge, enterQueue, joinChallenge, type Entered } from "@/lib/chain/match-flow";
@@ -36,14 +37,10 @@ const OPENED_LINE: Record<GameId, string> = {
 };
 
 function explain(e: unknown): { text: string; short?: boolean } {
-  if (e instanceof EntryError) {
-    return e.code === "insufficient"
-      ? { text: "You need more Gemas to join this Challenge. Get Gemas in your Wallet (free test SOL works).", short: true }
-      : { text: `Your Gemas come from more than ${MAX_ENTRY_SOURCES} different Advances, and this entry cannot draw on that many. Redeem a few small balances in your Wallet to consolidate, then try again.` };
-  }
+  if (e instanceof EntryError) return { text: "You need more free Gemas to join this Challenge. Get Gemas in your Wallet (free test SOL works).", short: true };
   if (e instanceof ChallengeError || e instanceof BackingError || e instanceof QueueUnconfirmedError) return { text: e.message };
   if (e instanceof DemoError) return { text: e.message };
-  return { text: plainError(e) };
+  return { text: entryError(e) };
 }
 
 /**
@@ -58,7 +55,7 @@ export function EnterMatch(props: EnterKind) {
   const [status, setStatus] = useState("Getting your wallet ready…");
   const [failure, setFailure] = useState<{ text: string; short?: boolean } | null>(null);
   const [launched, setLaunched] = useState(false);
-  const [existing, setExisting] = useState<bigint | null>(null);
+  const [existing, setExisting] = useState<string | null>(null);
   const [freshRead, setFreshRead] = useState<"ok" | "failed" | null>(null);
   const [ageServer, setAgeServer] = useState<boolean | null>(null);
   const [ageChecked, setAgeChecked] = useState(false);
@@ -135,11 +132,11 @@ export function EnterMatch(props: EnterKind) {
     setLaunched(true);
     void (async () => {
       try {
-        setStatus("Checking your SOL and Account…");
+        setStatus("Checking your Account…");
         const entered = (r: Entered, opened: string) => {
           if (r.via === "existing") return setExisting(r.id);
           setStatus(r.via === "joined" ? "Opponent found." : opened);
-          router.replace(`/play/match/${r.id.toString()}`);
+          router.replace(`/play/match/${r.id}`);
         };
         if (props.kind === "queue" && props.backing) {
           setStatus("Using your Backing…");
@@ -147,20 +144,20 @@ export function EnterMatch(props: EnterKind) {
         } else if (props.kind === "challenge-new" && props.backing) {
           setStatus("Using your Backing to open your Challenge…");
           const r = await createChallengeBacked(signer, props.backing, game, props.entry, auth.getAccessToken, asset);
-          router.replace(`/play/match/${r.id.toString()}`);
+          router.replace(`/play/match/${r.id}`);
         } else if (props.kind === "challenge-join" && props.backing) {
           setStatus("Joining the Challenge with your Backing…");
-          await joinChallengeBacked(signer, props.backing, BigInt(props.id), auth.getAccessToken);
+          await joinChallengeBacked(signer, props.backing, props.id, auth.getAccessToken);
           router.replace(`/play/match/${props.id}`);
         } else if (props.kind === "queue") {
           const r = await enterQueue(signer, props.entry, auth.getAccessToken, props.game, setStatus, asset);
           entered(r, OPENED_LINE[game]);
         } else if (props.kind === "challenge-new") {
           const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game, asset, setStatus);
-          router.replace(`/play/match/${id.toString()}`);
+          router.replace(`/play/match/${id}`);
         } else {
           setStatus("Joining the Challenge…");
-          await joinChallenge(signer, BigInt(props.id), auth.getAccessToken);
+          await joinChallenge(signer, props.id, auth.getAccessToken);
           router.replace(`/play/match/${props.id}`);
         }
       } catch (e) {
@@ -239,7 +236,7 @@ export function EnterMatch(props: EnterKind) {
           <>
             <p className="status" role="status">You still have a {GAME_NAMES[game]} Match to play. Finish it before entering another.</p>
             <div className="hstack wrap">
-              <Button variant="money" href={`/play/match/${existing.toString()}`}>Continue</Button>
+              <Button variant="money" href={`/play/match/${existing}`}>Continue</Button>
               <Button href="/lobby">Lobby</Button>
             </div>
           </>

@@ -16,10 +16,12 @@
  * A Player's `play` calls go to the private rollup (TEE); everything else to the base layer.
  * Scores are never sent: the program replays the moves with the same engine as `./engine.ts`.
  */
+import { matchAddressOf } from "../../lib/chain/match-id";
+import { settledPda } from "../../lib/chain/basket";
 import { protectionsPda } from "../../lib/chain/native";
-import { gameAccounts, gameRecordPda, pairPda } from "../../lib/chain/game-record";
-import { NO_LEADERBOARD, fetchLeaderboardTerms, type LeaderboardTerms } from "../../lib/chain/leaderboard";
-import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
+import { gameAccounts, gameRecordPda } from "../../lib/chain/game-record";
+import { NO_LEADERBOARD, type LeaderboardTerms } from "../../lib/chain/leaderboard";
+import { AnchorProvider, Program, type Idl } from "@coral-xyz/anchor";
 import {
   ComputeBudgetProgram,
   Connection,
@@ -60,8 +62,6 @@ export const MAX_PLAY_BATCH = 40;
 
 export type Move = { piece: number; x: number; y: number };
 export type Seat = 0 | 1;
-/** `open_holding` instructions per transaction (each is ~130 bytes; a legacy transaction holds 1232). */
-export const OPEN_HOLDINGS_PER_TX = 5;
 
 export type Result = "opener" | "joiner" | "draw";
 
@@ -98,7 +98,6 @@ type Line = { source: PublicKey; amount: bigint };
 type Payout = { recipient: PublicKey; source: PublicKey; amount: bigint };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const le8 = (n: bigint | number | BN) => new BN(n.toString()).toArrayLike(Buffer, "le", 8);
 const keyCmp = (a: PublicKey, b: PublicKey) => Buffer.compare(a.toBuffer(), b.toBuffer());
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
 
@@ -141,15 +140,11 @@ export class BlockPuzzleChain {
   static spill(account: PublicKey) {
     return PublicKey.findProgramAddressSync([Buffer.from("spill"), account.toBuffer()], TESORO_CORE_PROGRAM_ID)[0];
   }
-  static holding(account: PublicKey, source: PublicKey) {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("holding"), account.toBuffer(), source.toBuffer()],
-      TESORO_CORE_PROGRAM_ID,
-    )[0];
-  }
-  static addresses(matchId: bigint | number | BN) {
+  /** The accounts of one Match: `matchKey` is `<opener Account>-<n>` (the Match is `["match", opener, n]`), or the Match address itself. */
+  static addresses(matchKey: string | PublicKey) {
     const config = PublicKey.findProgramAddressSync([Buffer.from("config")], TESORO_CORE_PROGRAM_ID)[0];
-    const match = PublicKey.findProgramAddressSync([Buffer.from("match"), le8(matchId)], TESORO_CORE_PROGRAM_ID)[0];
+    const match = typeof matchKey === "string" ? matchAddressOf(matchKey) : matchKey;
+    if (!match) throw new Error(`Not a Match key: ${String(matchKey)}`);
     const bpPda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, BLOCK_PUZZLE_PROGRAM_ID)[0];
     const session = bpPda([Buffer.from("session"), match.toBuffer()]);
     const board = (seat: Seat) => bpPda([Buffer.from("board"), session.toBuffer(), Buffer.from([seat])]);
@@ -261,69 +256,27 @@ export class BlockPuzzleChain {
 
   // ---- tesoro_core: create and join ---------------------------------------------------------
 
-  /** Seat 0 opens a Match; for Block Puzzle also its Session (one transaction). `holdings`: own-sourced first, then won (see tesoro-core.md). */
-  async openMatch(signer: ChainSigner, matchId: bigint, entry: number, holdings: PublicKey[], game: PublicKey = BLOCK_PUZZLE_PROGRAM_ID) {
-    const a = BlockPuzzleChain.addresses(matchId);
-    const ix = await this.core.methods
-      .openMatch(new BN(matchId.toString()), game, new BN(entry))
-      .accountsPartial({
-        playerAuthority: signer.publicKey,
-        config: a.config,
-        ...gameAccounts(game),
-        playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey),
-        matchState: a.match,
-        systemProgram: SystemProgram.programId,
-      })
-      .remainingAccounts(holdings.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true })))
-      .instruction();
-    if (!game.equals(BLOCK_PUZZLE_PROGRAM_ID)) return this.sendBase(signer, [ix]);
-    const session = await this.openSessionIx(signer.publicKey, matchId, signer.publicKey);
-    return this.sendBase(signer, [ix, session]);
-  }
-
   /** The Protections address of the Account that opened the Match (a Player on a Break or Self-Excluded cannot be joined or kept waiting). */
-  async openerProtections(matchId: bigint): Promise<PublicKey> {
+  async openerProtections(matchId: string): Promise<PublicKey> {
     return protectionsPda(await this.openerAccount(matchId));
   }
 
   /** The record of the Game the Match was opened for (refunds go through whichever Game it is). */
-  async gameRecordOf(matchId: bigint): Promise<PublicKey> {
+  async gameRecordOf(matchId: string): Promise<PublicKey> {
     const m = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
     return gameRecordPda(m.inner.game);
   }
 
   /** The Account that opened the Match. */
-  async openerAccount(matchId: bigint): Promise<PublicKey> {
+  async openerAccount(matchId: string): Promise<PublicKey> {
     const m = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
     return new PublicKey(Uint8Array.from(m.inner.a.player));
-  }
-
-  /** Seat 1 joins with an equal entry; for Block Puzzle also binds to the Session (one transaction). */
-  async joinMatch(signer: ChainSigner, matchId: bigint, holdings: PublicKey[], game: PublicKey = BLOCK_PUZZLE_PROGRAM_ID) {
-    const a = BlockPuzzleChain.addresses(matchId);
-    const opener = await this.openerAccount(matchId);
-    const joiner = BlockPuzzleChain.coreAccount(signer.publicKey);
-    const ix = await this.core.methods
-      .joinMatch()
-      .accountsPartial({
-        playerAuthority: signer.publicKey,
-        playerAccount: joiner,
-        matchState: a.match,
-        openerProtections: protectionsPda(opener),
-        pair: pairPda(opener, joiner),
-        systemProgram: SystemProgram.programId,
-      })
-      .remainingAccounts(holdings.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true })))
-      .instruction();
-    if (!game.equals(BLOCK_PUZZLE_PROGRAM_ID)) return this.sendBase(signer, [ix]);
-    const session = await this.joinSessionIx(signer.publicKey, matchId, BlockPuzzleChain.coreAccount(signer.publicKey));
-    return this.sendBase(signer, [ix, session]);
   }
 
   // ---- session, delegation and the hidden Seed ----------------------------------------------
 
   /** Base layer, anyone. Binds the Session, the opener's Board and the SeedVault to an Open Match. */
-  async openSessionIx(payer: PublicKey, matchId: bigint, opener: PublicKey) {
+  async openSessionIx(payer: PublicKey, matchId: string, opener: PublicKey) {
     const a = BlockPuzzleChain.addresses(matchId);
     return this.bp.methods
       .openSession()
@@ -343,7 +296,7 @@ export class BlockPuzzleChain {
   }
 
   /** Base layer, anyone (`accountB` is the joiner's TesoroAccount). Creates their Board and extends the Match's refund deadline. */
-  async joinSessionIx(payer: PublicKey, matchId: bigint, accountB: PublicKey) {
+  async joinSessionIx(payer: PublicKey, matchId: string, accountB: PublicKey) {
     const a = BlockPuzzleChain.addresses(matchId);
     return this.bp.methods
       .joinSession()
@@ -362,7 +315,7 @@ export class BlockPuzzleChain {
   }
 
   /** Anyone. Moves the opener's Board and the SeedVault to the TEE validator. */
-  async delegateOpener(payer: ChainSigner, matchId: bigint) {
+  async delegateOpener(payer: ChainSigner, matchId: string) {
     const a = BlockPuzzleChain.addresses(matchId);
     const ix = await this.bp.methods
       .delegateOpener()
@@ -376,7 +329,7 @@ export class BlockPuzzleChain {
   }
 
   /** Anyone, once a second Player joined. Moves the joiner's Board to the TEE validator. */
-  async delegateJoiner(payer: ChainSigner, matchId: bigint) {
+  async delegateJoiner(payer: ChainSigner, matchId: string) {
     const a = BlockPuzzleChain.addresses(matchId);
     const ix = await this.bp.methods
       .delegateJoiner()
@@ -389,7 +342,7 @@ export class BlockPuzzleChain {
   }
 
   /** In the TEE. Makes a Board readable only by its Player. */
-  async initPermission(signer: ChainSigner, matchId: bigint, seat: Seat) {
+  async initPermission(signer: ChainSigner, matchId: string, seat: Seat) {
     const board = BlockPuzzleChain.addresses(matchId).boards[seat];
     const ix = await this.bp.methods
       .initPermission()
@@ -406,7 +359,7 @@ export class BlockPuzzleChain {
   }
 
   /** In the TEE. Makes the SeedVault unreadable by every wallet (private, zero members). */
-  async initVaultPermission(signer: ChainSigner, matchId: bigint) {
+  async initVaultPermission(signer: ChainSigner, matchId: string) {
     const vault = BlockPuzzleChain.addresses(matchId).vault;
     const ix = await this.bp.methods
       .initVaultPermission()
@@ -423,7 +376,7 @@ export class BlockPuzzleChain {
   }
 
   /** In the TEE, anyone. Asks the VRF oracle for the Seed; the callback writes it into the SeedVault only. */
-  async requestSeed(signer: ChainSigner, matchId: bigint, clientSeed = 7) {
+  async requestSeed(signer: ChainSigner, matchId: string, clientSeed = 7) {
     const vault = BlockPuzzleChain.addresses(matchId).vault;
     const ix = await this.bp.methods
       .requestSeed(clientSeed)
@@ -433,7 +386,7 @@ export class BlockPuzzleChain {
   }
 
   /** In the TEE. True once the Seed is drawn. Reveals nothing: the SeedVault cannot be read. */
-  async seedReady(signer: ChainSigner, matchId: bigint): Promise<boolean> {
+  async seedReady(signer: ChainSigner, matchId: string): Promise<boolean> {
     const vault = BlockPuzzleChain.addresses(matchId).vault;
     const ix = await this.bp.methods.checkSeed().accountsPartial({ payer: signer.publicKey, vault }).instruction();
     try {
@@ -451,7 +404,7 @@ export class BlockPuzzleChain {
    * in the same transaction; this returns it (read from that Board), which is the first moment the
    * Player can know the piece sequence.
    */
-  async beginRun(signer: ChainSigner, matchId: bigint, seat: Seat): Promise<{ sig: string; seed: bigint }> {
+  async beginRun(signer: ChainSigner, matchId: string, seat: Seat): Promise<{ sig: string; seed: bigint }> {
     const a = BlockPuzzleChain.addresses(matchId);
     const ix = await this.bp.methods
       .beginRun()
@@ -467,7 +420,7 @@ export class BlockPuzzleChain {
   }
 
   /** Submits moves in batches of at most 40; an illegal move fails its whole batch. */
-  async play(signer: ChainSigner, matchId: bigint, seat: Seat, moves: Move[]): Promise<string[]> {
+  async play(signer: ChainSigner, matchId: string, seat: Seat, moves: Move[]): Promise<string[]> {
     const board = BlockPuzzleChain.addresses(matchId).boards[seat];
     const sigs: string[] = [];
     for (let i = 0; i < moves.length; i += MAX_PLAY_BATCH) {
@@ -480,14 +433,14 @@ export class BlockPuzzleChain {
     return sigs;
   }
 
-  async finish(signer: ChainSigner, matchId: bigint, seat: Seat) {
+  async finish(signer: ChainSigner, matchId: string, seat: Seat) {
     const board = BlockPuzzleChain.addresses(matchId).boards[seat];
     const ix = await this.bp.methods.finish().accountsPartial({ player: signer.publicKey, board }).instruction();
     return this.sendTee(signer, [ix]);
   }
 
   /** A Player reads their own Board in the TEE (null for anyone else). Never call for the opponent. */
-  async fetchOwnBoard(signer: ChainSigner, matchId: bigint, seat: Seat) {
+  async fetchOwnBoard(signer: ChainSigner, matchId: string, seat: Seat) {
     const conn = await this.tee(signer);
     const board = BlockPuzzleChain.addresses(matchId).boards[seat];
     const info = await conn.getAccountInfo(board).catch(() => null);
@@ -499,7 +452,7 @@ export class BlockPuzzleChain {
    * timeout). Seals both Boards, closes their permissions and commits + undelegates them.
    * Waits for the Boards to be back on the base layer and returns the commit signature.
    */
-  async sealAndCommit(payer: ChainSigner, matchId: bigint, onSent?: () => void): Promise<{ teeSig: string; commitSig?: string }> {
+  async sealAndCommit(payer: ChainSigner, matchId: string, onSent?: () => void): Promise<{ teeSig: string; commitSig?: string }> {
     const a = BlockPuzzleChain.addresses(matchId);
     const seal = await this.bp.methods
       .seal()
@@ -531,45 +484,42 @@ export class BlockPuzzleChain {
 
   // ---- settlement ---------------------------------------------------------------------------
 
-  /** Anyone. Settles through tesoro_core from the committed Boards (the program picks the winner). */
-  async settle(payer: ChainSigner, matchId: bigint) {
+  /** Anyone. Starts the settlement run through tesoro_core from the committed Boards (the program picks the winner); the keeper (or anyone) then runs `match_chunk` and `close_match`. */
+  async settle(payer: ChainSigner, matchId: string) {
     const a = BlockPuzzleChain.addresses(matchId);
     const [b0, b1]: any[] = await Promise.all(a.boards.map((b) => this.bp.account.board.fetch(b)));
     const result = decide([b0.startedAt.isZero(), b1.startedAt.isZero()], [b0.score, b1.score]);
-    const remaining = await this.payoutAccounts(payer, matchId, result);
-    const ix = await this.bp.methods
-      .settle()
-      .accountsPartial(this.settleAccounts(payer, a))
-      .remainingAccounts(remaining)
-      .instruction();
+    const ix = await this.bp.methods.settle().accountsPartial(await this.settleAccounts(payer, matchId, a)).instruction();
     return { sig: await this.sendBase(payer, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]), result };
   }
 
-  /** tesoro_core `refund_match`: the opener of an unjoined Match, anyone after the deadline. Returns the entries. */
-  async refundMatch(caller: ChainSigner, matchId: bigint) {
+  /** tesoro_core `refund_match`: the opener of an unjoined Match, anyone after the deadline. Starts the refund run (chunks give the entries back). */
+  async refundMatch(caller: ChainSigner, matchId: string) {
     const a = BlockPuzzleChain.addresses(matchId);
-    const remaining = await this.payoutAccounts(caller, matchId, "draw");
+    const game = await this.gameOf(matchId);
     const ix = await this.core.methods
       .refundMatch()
-      .accountsPartial({ caller: caller.publicKey, gameRecord: await this.gameRecordOf(matchId), matchState: a.match, openerProtections: await this.openerProtections(matchId) })
-      .remainingAccounts(remaining)
+      .accountsPartial({
+        caller: caller.publicKey,
+        payer: caller.publicKey,
+        ...gameAccounts(game),
+        matchState: a.match,
+        receipt: settledPda(a.match),
+        openerProtections: await this.openerProtections(matchId),
+        systemProgram: SystemProgram.programId,
+      })
       .instruction();
     return this.sendBase(caller, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);
   }
 
-  /** Anyone, after the submission deadline, for a joined Match whose Boards were never delegated. Refunds both. */
-  async claimTimeout(payer: ChainSigner, matchId: bigint) {
+  /** Anyone, after the submission deadline, for a joined Match whose Boards were never delegated. Starts the refund run for both. */
+  async claimTimeout(payer: ChainSigner, matchId: string) {
     const a = BlockPuzzleChain.addresses(matchId);
-    const remaining = await this.payoutAccounts(payer, matchId, "draw");
-    const ix = await this.bp.methods
-      .claimTimeout()
-      .accountsPartial(this.settleAccounts(payer, a))
-      .remainingAccounts(remaining)
-      .instruction();
+    const ix = await this.bp.methods.claimTimeout().accountsPartial(await this.settleAccounts(payer, matchId, a)).instruction();
     return this.sendBase(payer, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);
   }
 
-  private settleAccounts(payer: ChainSigner, a: ReturnType<typeof BlockPuzzleChain.addresses>) {
+  private async settleAccounts(payer: ChainSigner, matchId: string, a: ReturnType<typeof BlockPuzzleChain.addresses>) {
     return {
       payer: payer.publicKey,
       session: a.session,
@@ -577,51 +527,35 @@ export class BlockPuzzleChain {
       board1: a.boards[1],
       authority: a.authority,
       config: a.config,
-      gameRecord: gameRecordPda(BLOCK_PUZZLE_PROGRAM_ID),
+      ...gameAccounts(BLOCK_PUZZLE_PROGRAM_ID),
       matchState: a.match,
+      receipt: settledPda(a.match),
+      systemProgram: SystemProgram.programId,
       tesoroCoreProgram: TESORO_CORE_PROGRAM_ID,
     };
   }
 
-  /** Payout accounts in tesoro_core's order; opens any Holding a recipient is missing first. */
-  private async payoutAccounts(payer: ChainSigner, matchId: bigint, result: Result) {
-    const m: any = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
-    const payouts = computePayouts(m.inner, result, await fetchLeaderboardTerms(this.base));
-    const holdings = payouts.map((p) => BlockPuzzleChain.holding(p.recipient, p.source));
-    const existing = await this.base.getMultipleAccountsInfo(holdings);
-    const missing: TransactionInstruction[] = [];
-    for (let i = 0; i < payouts.length; i++) {
-      if (existing[i]) continue;
-      const p = payouts[i];
-      missing.push(
-        await this.core.methods
-          .openHolding()
-          .accountsPartial({ payer: payer.publicKey, account: p.recipient, source: p.source, holding: holdings[i], systemProgram: SystemProgram.programId })
-          .instruction(),
-      );
-    }
-    // A settlement can pay up to 18 Holdings: open the missing ones a few per transaction.
-    for (let i = 0; i < missing.length; i += OPEN_HOLDINGS_PER_TX) await this.sendBase(payer, missing.slice(i, i + OPEN_HOLDINGS_PER_TX));
-    const metas: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
-    payouts.forEach((p, i) => metas.push({ pubkey: p.recipient, isSigner: false, isWritable: true }, { pubkey: holdings[i], isSigner: false, isWritable: true }));
-    return metas;
+  /** The Game program a Match was opened for. */
+  async gameOf(matchId: string): Promise<PublicKey> {
+    const m = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
+    return pk(m.inner.game);
   }
 
   // ---- results ------------------------------------------------------------------------------
 
-  async fetchSession(matchId: bigint) {
+  async fetchSession(matchId: string) {
     return this.bp.account.session.fetch(BlockPuzzleChain.addresses(matchId).session) as Promise<any>;
   }
 
   /** Public result: readable by anyone once settled (and each Board's move log after commit). */
-  async fetchResult(matchId: bigint) {
+  async fetchResult(matchId: string) {
     const s = await this.fetchSession(matchId);
     const m: any = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
     return {
       settled: s.settled as boolean,
       result: (["opener", "joiner", "draw"] as const)[s.result as number],
       scores: (s.scores as number[]).map(Number) as [number, number],
-      matchStatus: Object.keys(m.inner.status)[0],
+      matchStatus: Object.keys(m.inner.stage)[0],
       seed: BigInt(s.seed.toString()),
       deadline: Number(s.deadline.toString()),
     };

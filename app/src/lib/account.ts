@@ -3,7 +3,7 @@ import { useAuth } from "./auth/context";
 import { useChainData } from "./chain/ChainDataProvider";
 import type { AccountSnapshot, ChainMatch } from "./chain/read";
 import { accountHistory } from "./chain/history";
-import { entryProblem, type EntryError } from "./chain/ledger";
+import type { EntryError } from "./chain/ledger";
 import type { AuthState } from "./auth/types";
 import type { Account, GemaHolding, Match, Position } from "./mock";
 
@@ -42,7 +42,7 @@ export interface AccountView {
   refresh: () => Promise<boolean>;
   /**
    * Why an entry of this size cannot be made from the Account's Holdings under tesoro_core's draw
-   * rule (not enough Gemas, or more than 8 Sources needed), or null when it can. Always null when
+   * rule (not enough free Gemas), or null when it can. Always null when
    * the data is mock.
    */
   entryProblem: (entry: number) => EntryError["code"] | null;
@@ -91,7 +91,8 @@ const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
 
 function fromSnapshot(s: AccountSnapshot) {
   const holdings: GemaHolding[] = s.holdings
-    .filter((h) => h.amount > 0n)
+    // fee-class lines (an outside Studio's fee) are not Gemas the Player can enter with
+    .filter((h) => h.amount > 0n && h.classId >= 3)
     .map((h) => ({
       source: {
         positionId: h.position.toBase58(),
@@ -157,7 +158,7 @@ export function useAccount(): AccountView {
   const real = chain.snapshot ? fromSnapshot(chain.snapshot) : null;
   const holdings = mock ? mockHoldings : (real?.holdings ?? []);
   const total = holdings.reduce((s, h) => s + h.gemas, 0);
-  const reserved = onChain ? (chain.snapshot?.holdings.reduce((s, h) => s + Number(h.reserved), 0) ?? 0) : 0;
+  const reserved = onChain ? Number((chain.snapshot?.reservedTotal ?? 0n) + (chain.snapshot?.ticketNeed ?? 0n)) : 0;
   const redeemable = holdings.reduce((s, h) => s + redeemableOf(h), 0);
   const account: Account = {
     id: auth.email ?? "guest",
@@ -178,12 +179,12 @@ export function useAccount(): AccountView {
     openMatches: real?.openMatches ?? [],
     snapshot: chain.snapshot,
     refresh: chain.refresh,
-    entryProblem: (entry) =>
-      onChain && chain.snapshot
-        ? entryProblem(
-            BigInt(entry),
-            chain.snapshot.holdings.map((h) => ({ source: h.source.toBytes(), isOwn: h.isOwn, free: h.free })),
-          )
-        : null,
+    entryProblem: (entry) => {
+      const snap = chain.snapshot;
+      if (!onChain || !snap) return null;
+      // Same rule as the program: playable Gemas minus Offer reservations minus what an open Ticket still has to stage.
+      const free = snap.ownTotal + snap.wonTotal - snap.reservedTotal - snap.ticketNeed;
+      return BigInt(entry) > free ? "insufficient" : null;
+    },
   };
 }

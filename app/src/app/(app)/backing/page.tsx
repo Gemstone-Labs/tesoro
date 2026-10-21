@@ -38,7 +38,7 @@ import {
   type PlayerRecord,
 } from "@/lib/chain/backing";
 import { liveRequestFor, onePerPlayer } from "@/lib/chain/requests";
-import { backedSplit, EntryError, MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
+import { backedSplit, EntryError } from "@/lib/chain/ledger";
 import { recordFromMatches, recordText, timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { backingQuery } from "@/lib/game-params";
@@ -49,6 +49,7 @@ import { GemasLabel } from "../wallet/AdvanceQuote";
 import { RequestCard } from "@/components/backing/RequestCard";
 import { BackingExample, FEES } from "./BackingExample";
 import "./backing.css";
+import { entryError } from "@/lib/chain/entry-errors";
 import { plainError } from "@/lib/errors";
 import { awayNotice } from "@/lib/chain/protections";
 import { useAway } from "@/lib/chain/useAway";
@@ -61,12 +62,8 @@ type Sort = "recent" | "entry" | "record";
 const winRate = (r: PlayerRecord) => (r.matches === 0 ? 0 : r.wins / r.matches);
 
 function explain(e: unknown): string {
-  if (e instanceof EntryError) {
-    return e.code === "insufficient"
-      ? "Not enough available Gemas. Gemas reserved for your other Offers cannot be reserved again."
-      : `This entry would draw on Gemas from more than ${MAX_ENTRY_SOURCES} Advances. Redeem a few small balances in your Wallet first.`;
-  }
-  return plainError(e);
+  if (e instanceof EntryError) return "Not enough free Gemas. Gemas reserved for your other Offers cannot be reserved again.";
+  return entryError(e);
 }
 
 function onHashChange(notify: () => void) {
