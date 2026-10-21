@@ -8,6 +8,8 @@
 #![allow(clippy::result_large_err)]
 
 use anchor_lang::prelude::Pubkey as APk;
+#[path = "../../tesoro_core/tests/common/flow.rs"]
+mod flow;
 use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_sdk::account::Account;
@@ -18,7 +20,9 @@ use solana_sdk::pubkey::Pubkey as Pk;
 use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
-use tesoro_core::ledger::{MatchStatus, Outcome as CoreOutcome, SourceChain};
+use tesoro_core::instructions::MatchResult;
+use tesoro_core::ledger::lifecycle::Stage;
+use tesoro_core::ledger::SourceChain;
 use tesoro_core::state::*;
 use vanguard::engine::{
     self, Army as Side, EndReason, Game, LayoutPiece, BOMB, CHAIN_CLOCK, ENGINEER,
@@ -82,24 +86,11 @@ fn control_program(svm: &mut LiteSVM, program: APk, key: APk) -> [u8; 32] {
     svm.set_account(pd, acct).expect("set program data");
     hash
 }
-fn pair_pda(opener: APk, joiner: APk) -> APk {
-    APk::find_program_address(
-        &[PAIR_SEED, opener.as_ref(), joiner.as_ref()],
-        &tesoro_core::ID,
-    )
-    .0
-}
 fn vpda(seeds: &[&[u8]]) -> APk {
     APk::find_program_address(seeds, &vanguard::ID).0
 }
 fn account_pda(auth: APk) -> APk {
     tpda(&[ACCOUNT_SEED, auth.as_ref()])
-}
-fn holding_pda(account: APk, source: APk) -> APk {
-    tpda(&[HOLDING_SEED, account.as_ref(), source.as_ref()])
-}
-fn tmatch_pda(id: u64) -> APk {
-    tpda(&[MATCH_SEED, &id.to_le_bytes()])
 }
 fn authority_pda() -> APk {
     vpda(&[vanguard::AUTHORITY_SEED])
@@ -114,8 +105,8 @@ struct Addrs {
     army_0: APk,
     army_1: APk,
 }
-fn addrs(id: u64) -> Addrs {
-    let battle = vpda(&[vanguard::BATTLE_SEED, &id.to_le_bytes()]);
+fn addrs(tesoro_match: APk) -> Addrs {
+    let battle = vpda(&[vanguard::BATTLE_SEED, tesoro_match.as_ref()]);
     Addrs {
         battle,
         secret: vpda(&[vanguard::SECRET_SEED, battle.as_ref()]),
@@ -161,9 +152,6 @@ fn budget() -> Instruction {
     }
 }
 
-fn rem(k: APk) -> AccountMeta {
-    AccountMeta::new(s(k), false)
-}
 
 type Failed = litesvm::types::FailedTransactionMetadata;
 
@@ -203,11 +191,10 @@ struct Env {
     studio: Person,
     alice: Person,
     bob: Person,
-    a_holding: APk,
-    b_holding: APk,
     a_source: APk,
     b_source: APk,
-    id: u64,
+    tmatch: APk,
+    mref: Option<flow::MatchRef>,
     now: i64,
     last_cu: u64,
     last_logs: Vec<String>,
@@ -295,7 +282,7 @@ impl Env {
     }
 
     /// Position + Advance: 75_000 Gemas of the staker's own Source.
-    fn stake(&mut self, p: &Person, id: u8) -> (APk, APk) {
+    fn stake(&mut self, p: &Person, id: u8) -> APk {
         let position = tpda(&[POSITION_SEED, &[0], &[id; 32]]);
         let asset = APk::new_unique();
         let open = ix(
@@ -320,7 +307,6 @@ impl Env {
         let oracle = self.oracle.insecure_clone();
         self.send(&[open], &oracle, &[]).expect("open position");
         let source = tpda(&[SOURCE_SEED, position.as_ref(), &0u32.to_le_bytes()]);
-        let holding = holding_pda(p.account, source);
         let advance = ix(
             tesoro_core::ID,
             tesoro_core::accounts::TakeAdvance {
@@ -352,30 +338,7 @@ impl Env {
         );
         put_core_treasury(&mut self.svm);
         self.send(&[advance], &oracle, &[&p.kp]).expect("advance");
-        self.open_holding(p.account, source);
-        forge_holding_amount(&mut self.svm, p.account, source);
-        (source, holding)
-    }
-
-    fn open_holding(&mut self, account: APk, source: APk) {
-        let holding = holding_pda(account, source);
-        if self.svm.get_account(&s(holding)).is_some() {
-            return;
-        }
-        let open = ix(
-            tesoro_core::ID,
-            tesoro_core::accounts::OpenHolding {
-                payer: a(self.admin.pubkey()),
-                account,
-                source,
-                holding,
-                system_program: anchor_lang::system_program::ID,
-            },
-            tesoro_core::instruction::OpenHolding {},
-            vec![],
-        );
-        let admin = self.admin.insecure_clone();
-        self.send(&[open], &admin, &[]).expect("open holding");
+        source
     }
 
     fn load<T: AccountDeserialize>(&self, k: APk) -> T {
@@ -405,13 +368,13 @@ impl Env {
     }
 
     fn battle(&self) -> Battle {
-        self.load(addrs(self.id).battle)
+        self.load(addrs(self.tmatch).battle)
     }
     fn secret(&self) -> Secret {
-        self.load(addrs(self.id).secret)
+        self.load(addrs(self.tmatch).secret)
     }
     fn army(&self, seat: usize) -> Army {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         self.load(if seat == 0 { ad.army_0 } else { ad.army_1 })
     }
 
@@ -420,7 +383,7 @@ impl Env {
         f(&mut b);
         let mut data = <Battle as anchor_lang::Discriminator>::DISCRIMINATOR.to_vec();
         data.extend_from_slice(anchor_lang::__private::bytemuck::bytes_of(&b));
-        let key = s(addrs(self.id).battle);
+        let key = s(addrs(self.tmatch).battle);
         let mut acct = self.svm.get_account(&key).expect("battle");
         acct.data = data;
         self.svm.set_account(key, acct).expect("set battle");
@@ -428,12 +391,12 @@ impl Env {
     fn patch_secret(&mut self, f: impl FnOnce(&mut Secret)) {
         let mut v = self.secret();
         f(&mut v);
-        self.store(addrs(self.id).secret, &v, vanguard::ID);
+        self.store(addrs(self.tmatch).secret, &v, vanguard::ID);
     }
     fn patch_army(&mut self, seat: usize, f: impl FnOnce(&mut Army)) {
         let mut v = self.army(seat);
         f(&mut v);
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         self.store(
             if seat == 0 { ad.army_0 } else { ad.army_1 },
             &v,
@@ -442,12 +405,11 @@ impl Env {
     }
 
     fn gemas(&self, p: &Person) -> u64 {
-        let acct = self.load::<TesoroAccount>(p.account).inner;
-        acct.own_total + acct.won_total
+        flow::gemas(&self.svm, p.account)
     }
 
-    fn tesoro_status(&self) -> MatchStatus {
-        self.load::<MatchState>(tmatch_pda(self.id)).inner.status
+    fn tesoro_status(&self) -> Stage {
+        self.load::<MatchState>(self.tmatch).inner.stage()
     }
 
     fn new() -> Self {
@@ -485,11 +447,10 @@ impl Env {
             studio: placeholder(Keypair::new()),
             alice: placeholder(Keypair::new()),
             bob: placeholder(Keypair::new()),
-            a_holding: APk::default(),
-            b_holding: APk::default(),
             a_source: APk::default(),
             b_source: APk::default(),
-            id: 1,
+            tmatch: APk::default(),
+            mref: None,
             now: T0,
             last_cu: 0,
             last_logs: vec![],
@@ -565,58 +526,34 @@ impl Env {
         env.alice = env.person();
         env.bob = env.person();
         let (alice, bob) = (dup(&env.alice), dup(&env.bob));
-        (env.a_source, env.a_holding) = env.stake(&alice, 1);
-        (env.b_source, env.b_holding) = env.stake(&bob, 2);
+        env.a_source = env.stake(&alice, 1);
+        env.b_source = env.stake(&bob, 2);
+        env.tmatch = tpda(&[b"match", env.alice.account.as_ref(), &0u64.to_le_bytes()]);
         env
     }
 
     fn open_and_join(&mut self, entry: u64) {
         let (alice, bob) = (dup(&self.alice), dup(&self.bob));
-        let open = ix(
-            tesoro_core::ID,
-            tesoro_core::accounts::OpenMatch {
-                player_authority: alice.key,
-                config: tpda(&[CONFIG_SEED]),
-                game_record: game_record_pda(),
-                game_program: vanguard::ID,
-                program_data: program_data_pda(),
-                player_account: alice.account,
-                protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
-                match_state: tmatch_pda(self.id),
-                system_program: anchor_lang::system_program::ID,
-            },
-            tesoro_core::instruction::OpenMatch {
-                match_id: self.id,
-                game: vanguard::ID,
-                entry,
-            },
-            vec![rem(self.a_holding)],
-        );
-        self.send(&[open], &alice.kp, &[]).expect("open match");
-        let join = ix(
-            tesoro_core::ID,
-            tesoro_core::accounts::JoinMatch {
-                player_authority: bob.key,
-                player_account: bob.account,
-                protections: tpda(&[PROTECTIONS_SEED, bob.account.as_ref()]),
-                match_state: tmatch_pda(self.id),
-                opener_protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
-                pair: pair_pda(alice.account, bob.account),
-                system_program: anchor_lang::system_program::ID,
-            },
-            tesoro_core::instruction::JoinMatch {},
-            vec![rem(self.b_holding)],
-        );
-        self.send(&[join], &bob.kp, &[]).expect("join match");
+        let m = flow::open_match(&mut self.svm, &alice.kp, vanguard::ID, entry, 1, false, 0)
+            .expect("open match");
+        flow::join_match(&mut self.svm, &bob.kp, &m, vanguard::ID, 2).expect("join match");
+        assert_eq!(m.key, self.tmatch);
+        self.mref = Some(m);
+    }
+
+    fn run_settlement(&mut self) {
+        let m = self.mref.expect("a Match");
+        let caller = self.oracle.insecure_clone();
+        flow::run_chunks(&mut self.svm, &caller, &m);
     }
 
     fn create_ix(&self, creator: APk) -> Instruction {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         ix(
             vanguard::ID,
             vanguard::accounts::CreateMatch {
                 creator,
-                tesoro_match: tmatch_pda(self.id),
+                tesoro_match: self.tmatch,
                 game_record: game_record_pda(),
                 vanguard_config: config_pda(),
                 account_a: self.alice.account,
@@ -629,7 +566,7 @@ impl Env {
                 tesoro_program: tesoro_core::ID,
                 system_program: anchor_lang::system_program::ID,
             },
-            vanguard::instruction::CreateMatch { match_id: self.id },
+            vanguard::instruction::CreateMatch {},
             vec![],
         )
     }
@@ -670,7 +607,7 @@ impl Env {
     }
 
     fn deal_ix(&self, payer: APk) -> Instruction {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         ix(
             vanguard::ID,
             vanguard::accounts::Deal {
@@ -728,7 +665,7 @@ impl Env {
     }
 
     fn move_ix(&self, signer: APk, piece: u8, to: u8) -> Instruction {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         ix(
             vanguard::ID,
             vanguard::accounts::Declare {
@@ -741,7 +678,7 @@ impl Env {
     }
 
     fn resolve_ix(&self, caller: APk) -> Instruction {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         ix(
             vanguard::ID,
             vanguard::accounts::Resolve {
@@ -779,7 +716,7 @@ impl Env {
 
     fn two_step(&mut self, seat: usize) -> Result<(), Failed> {
         let p = self.player(seat);
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         let i = ix(
             vanguard::ID,
             vanguard::accounts::StartTwoStep {
@@ -806,7 +743,7 @@ impl Env {
     }
 
     fn claim_timeout_declare(&mut self, caller: &Keypair) -> Result<(), Failed> {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         let claim = ix(
             vanguard::ID,
             vanguard::accounts::ClaimTimeout {
@@ -820,42 +757,71 @@ impl Env {
         self.send(&[budget(), claim], caller, &[])
     }
 
-    fn payout_metas(&mut self, refund: bool) -> Vec<AccountMeta> {
-        let mut m = self.load::<MatchState>(tmatch_pda(self.id)).inner;
-        let payouts = if refund {
-            m.refund(i64::MAX, true).expect("refund")
-        } else {
-            let winner = self.battle().winner;
-            m.settle(CoreOutcome::Winner(winner)).expect("settle")
-        };
-        let mut metas = Vec::new();
-        for p in payouts {
-            let recipient = APk::new_from_array(p.recipient);
-            let source = APk::new_from_array(p.source);
-            self.open_holding(recipient, source);
-            metas.push(rem(recipient));
-            metas.push(rem(holding_pda(recipient, source)));
-        }
-        metas
+    fn core_refund_ix(&self, caller: APk) -> Instruction {
+        ix(
+            tesoro_core::ID,
+            tesoro_core::accounts::RefundMatch {
+                caller,
+                payer: caller,
+                game_record: game_record_pda(),
+                game_program: vanguard::ID,
+                program_data: program_data_pda(),
+                match_state: self.tmatch,
+                receipt: tpda(&[b"settled", self.tmatch.as_ref()]),
+                opener_protections: None,
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
+                program: tesoro_core::ID,
+            },
+            tesoro_core::instruction::RefundMatch {},
+            vec![],
+        )
     }
 
-    fn finalize(&mut self, refund: bool) -> Result<(), Failed> {
-        let remaining = self.payout_metas(refund);
-        self.finalize_with(remaining)
+    fn core_settle_ix(&self, signer: APk, result: MatchResult) -> Instruction {
+        ix(
+            tesoro_core::ID,
+            tesoro_core::accounts::SettleMatch {
+                game_authority: signer,
+                payer: signer,
+                config: tpda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
+                game_program: vanguard::ID,
+                program_data: program_data_pda(),
+                match_state: self.tmatch,
+                receipt: tpda(&[b"settled", self.tmatch.as_ref()]),
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
+                program: tesoro_core::ID,
+            },
+            tesoro_core::instruction::SettleMatch { result },
+            vec![],
+        )
+    }
+
+    fn finalize(&mut self, _refund: bool) -> Result<(), Failed> {
+        self.finalize_with(vec![])?;
+        self.run_settlement();
+        Ok(())
     }
 
     fn finalize_with(&mut self, remaining: Vec<AccountMeta>) -> Result<(), Failed> {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         let caller = self.oracle.insecure_clone();
         let finalize = ix(
             vanguard::ID,
             vanguard::accounts::Finalize {
                 caller: a(caller.pubkey()),
                 battle: ad.battle,
-                tesoro_match: tmatch_pda(self.id),
+                tesoro_match: self.tmatch,
                 config: tpda(&[CONFIG_SEED]),
                 game_record: game_record_pda(),
                 authority: authority_pda(),
+                game_program: vanguard::ID,
+                program_data: program_data_pda(),
+                receipt: tpda(&[b"settled", self.tmatch.as_ref()]),
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
                 tesoro_program: tesoro_core::ID,
             },
             vanguard::instruction::Finalize {},
@@ -949,7 +915,7 @@ fn set_config_ix(authority: APk, validator: APk) -> Instruction {
 }
 
 fn delegate_ix(env: &Env, payer: APk, validator: Option<APk>) -> Instruction {
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     let dlp = sdk_apk(ephemeral_rollups_sdk::id());
     let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
     let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &vanguard::ID);
@@ -981,13 +947,13 @@ fn delegate_ix(env: &Env, payer: APk, validator: Option<APk>) -> Instruction {
             delegation_program: dlp,
             system_program: anchor_lang::system_program::ID,
         },
-        vanguard::instruction::DelegateMatch { match_id: env.id },
+        vanguard::instruction::DelegateMatch { tesoro_match: env.tmatch },
         vec![],
     )
 }
 
 fn init_permissions_ix(env: &Env, payer: APk) -> Instruction {
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     ix(
         vanguard::ID,
         vanguard::accounts::InitPermissions {
@@ -1010,7 +976,7 @@ fn init_permissions_ix(env: &Env, payer: APk) -> Instruction {
 }
 
 fn close_match_ix(env: &Env, payer: APk) -> Instruction {
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     ix(
         vanguard::ID,
         vanguard::accounts::CloseMatch {
@@ -1034,7 +1000,7 @@ fn close_match_ix(env: &Env, payer: APk) -> Instruction {
 }
 
 fn close_unstarted_ix(env: &Env, payer: APk) -> Instruction {
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     ix(
         vanguard::ID,
         vanguard::accounts::CloseUnstarted {
@@ -1161,7 +1127,7 @@ fn a_battle_cannot_be_delegated_after_its_start_window() {
 #[test]
 fn a_prefunded_permission_address_is_not_a_permission() {
     let mut env = ready();
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     for target in [ad.battle, ad.secret, ad.army_0, ad.army_1] {
         env.svm
             .airdrop(&s(permission_pda(target)), 1_000_000)
@@ -1179,22 +1145,11 @@ fn a_prefunded_permission_address_is_not_a_permission() {
 #[test]
 fn create_match_pushes_the_refund_deadline_a_full_table_window_out() {
     let mut env = ready();
-    let deadline = env.load::<MatchState>(tmatch_pda(env.id)).inner.deadline;
+    let deadline = env.load::<MatchState>(env.tmatch).inner.deadline;
     assert_eq!(deadline, T0 + vanguard::TABLE_WINDOW_SECS);
     env.set_time(T0 + tesoro_core::ledger::MATCH_TIMEOUT_SECS + 1);
-    let remaining = env.payout_metas(true);
     let caller = env.bob.kp.insecure_clone();
-    let refund = ix(
-        tesoro_core::ID,
-        tesoro_core::accounts::RefundMatch {
-            caller: a(caller.pubkey()),
-            game_record: game_record_pda(),
-            match_state: tmatch_pda(env.id),
-            opener_protections: None,
-        },
-        tesoro_core::instruction::RefundMatch {},
-        remaining,
-    );
+    let refund = env.core_refund_ix(a(caller.pubkey()));
     let err = env
         .send(std::slice::from_ref(&refund), &caller, &[])
         .unwrap_err();
@@ -1202,11 +1157,12 @@ fn create_match_pushes_the_refund_deadline_a_full_table_window_out() {
         custom_code(&err),
         tesoro_core::error::CORE_ERROR_OFFSET + tesoro_core::ledger::CoreError::NotExpired.code()
     );
-    assert_eq!(env.tesoro_status(), MatchStatus::Active);
+    assert_eq!(env.tesoro_status(), Stage::Active);
     env.set_time(deadline);
     env.send(&[refund], &caller, &[])
         .expect("anyone refunds once the table window is over");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
+    env.run_settlement();
+    assert_eq!(env.tesoro_status(), Stage::Closed);
 }
 
 #[test]
@@ -1221,7 +1177,7 @@ fn create_match_binds_the_tesoro_match_and_rejects_impostors() {
     // Before the deploy step (set_config) there is nothing to create a Battle from.
     let early = env.create_ix(env.alice.key);
     assert!(env.send(&[early], &alice, &[]).is_err());
-    assert!(env.svm.get_account(&s(addrs(1).battle)).is_none());
+    assert!(env.svm.get_account(&s(addrs(env.tmatch).battle)).is_none());
     env.ensure_config();
     let stranger = Keypair::new();
     env.svm
@@ -1234,7 +1190,7 @@ fn create_match_binds_the_tesoro_match_and_rejects_impostors() {
     env.create().expect("create");
     let b = env.battle();
     assert_eq!(b.players, [env.alice.key, env.bob.key]);
-    assert_eq!(b.tesoro_match, tmatch_pda(1));
+    assert_eq!(b.tesoro_match, env.tmatch);
     assert_eq!(b.status, vanguard::STATUS_CREATED);
     assert_eq!(b.start_deadline, T0 + vanguard::START_WINDOW_SECS);
     assert_eq!(b.us_seat, vanguard::UNSET);
@@ -1249,7 +1205,7 @@ fn create_match_binds_the_tesoro_match_and_rejects_impostors() {
     let rent = ephemeral_rollups_sdk::ephemeral_accounts::rent(
         ephemeral_rollups_sdk::access_control::structs::EphemeralPermission::size_of(2) as u32,
     );
-    let ad = addrs(1);
+    let ad = addrs(env.tmatch);
     for k in [ad.battle, ad.secret, ad.army_0, ad.army_1] {
         assert!(env.svm.get_account(&s(k)).expect("account").lamports >= rent);
     }
@@ -1259,36 +1215,16 @@ fn create_match_binds_the_tesoro_match_and_rejects_impostors() {
 fn only_active_matches_may_be_bound() {
     let mut env = Env::new();
     let alice = env.alice.kp.insecure_clone();
-    let open = ix(
-        tesoro_core::ID,
-        tesoro_core::accounts::OpenMatch {
-            player_authority: env.alice.key,
-            config: tpda(&[CONFIG_SEED]),
-            game_record: game_record_pda(),
-            game_program: vanguard::ID,
-            program_data: program_data_pda(),
-            player_account: env.alice.account,
-            protections: tpda(&[PROTECTIONS_SEED, env.alice.account.as_ref()]),
-            match_state: tmatch_pda(1),
-            system_program: anchor_lang::system_program::ID,
-        },
-        tesoro_core::instruction::OpenMatch {
-            match_id: 1,
-            game: vanguard::ID,
-            entry: 1_000,
-        },
-        vec![rem(env.a_holding)],
-    );
-    env.send(&[open], &alice, &[]).expect("open only");
+    flow::open_match(&mut env.svm, &alice, vanguard::ID, 1_000, 1, false, 0).expect("open only");
     let create = env.create_ix(env.alice.key);
     assert!(env.send(&[create], &alice, &[]).is_err());
-    assert!(env.svm.get_account(&s(addrs(1).battle)).is_none());
+    assert!(env.svm.get_account(&s(addrs(env.tmatch).battle)).is_none());
 }
 
 #[test]
 fn the_account_sizes_are_what_the_docs_say() {
     let mut env = ready();
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     let size = |env: &mut Env, k: APk| env.svm.get_account(&s(k)).expect("account").data.len();
     let sizes = (
         size(&mut env, ad.battle),
@@ -1397,7 +1333,7 @@ fn a_late_vrf_after_a_cancel_cannot_start_the_match() {
         &ephemeral_rollups_sdk::compat::Pubkey::new_from_array(vanguard::ID.to_bytes()),
     ));
     let callback = |env: &Env, randomness: [u8; 32]| {
-        let ad = addrs(env.id);
+        let ad = addrs(env.tmatch);
         ix(
             vanguard::ID,
             vanguard::accounts::VrfCallbackStore {
@@ -1459,7 +1395,7 @@ fn a_late_vrf_after_a_cancel_cannot_start_the_match() {
 fn both_players_fold_secrets_in_and_nobody_else_can() {
     let mut env = ready();
     let contribute = |env: &mut Env, signer: &Keypair, secret: [u8; 32]| {
-        let ad = addrs(env.id);
+        let ad = addrs(env.tmatch);
         let i = ix(
             vanguard::ID,
             vanguard::accounts::ContributeEntropy {
@@ -1556,7 +1492,7 @@ fn a_full_match_to_a_truck_capture_pays_the_winner_the_pot_minus_fees() {
     assert_eq!(custom_code(&err), vcode(VanguardError::NotLive));
 
     env.finalize(false).expect("finalize");
-    assert_eq!(env.tesoro_status(), MatchStatus::Settled);
+    assert_eq!(env.tesoro_status(), Stage::Closed);
     assert_eq!(env.gemas(&env.alice), before.0 + 1_900);
     assert_eq!(env.gemas(&env.bob), before.1);
     assert_eq!(env.battle().finalized, 1);
@@ -1821,7 +1757,7 @@ fn a_draw_refunds_both_entries_with_no_fees() {
     assert_eq!(b.status, vanguard::STATUS_OVER);
 
     env.finalize(true).expect("a draw refunds");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
+    assert_eq!(env.tesoro_status(), Stage::Closed);
     assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
     assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
 }
@@ -1861,7 +1797,7 @@ fn a_no_show_refunds_both_entries() {
     assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
     env.set_time(T0 + vanguard::START_WINDOW_SECS + 1);
     env.finalize(true).expect("no-show refund via tesoro_core");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
+    assert_eq!(env.tesoro_status(), Stage::Closed);
     assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
     assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
 }
@@ -1887,7 +1823,7 @@ fn a_player_who_never_contributes_entropy_cancels_the_match_and_both_are_refunde
 
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
     env.finalize(true).expect("refund");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
+    assert_eq!(env.tesoro_status(), Stage::Closed);
     assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
     assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
 }
@@ -1925,24 +1861,14 @@ fn a_second_finalize_is_refused() {
 #[test]
 fn finalize_marks_a_match_tesoro_core_already_refunded_and_moves_nothing() {
     let mut env = ready();
-    let deadline = env.load::<MatchState>(tmatch_pda(env.id)).inner.deadline;
+    let deadline = env.load::<MatchState>(env.tmatch).inner.deadline;
     env.set_time(deadline);
-    let remaining = env.payout_metas(true);
     let caller = env.bob.kp.insecure_clone();
-    let refund = ix(
-        tesoro_core::ID,
-        tesoro_core::accounts::RefundMatch {
-            caller: a(caller.pubkey()),
-            game_record: game_record_pda(),
-            match_state: tmatch_pda(env.id),
-            opener_protections: None,
-        },
-        tesoro_core::instruction::RefundMatch {},
-        remaining,
-    );
+    let refund = env.core_refund_ix(a(caller.pubkey()));
     env.send(&[refund], &caller, &[])
         .expect("tesoro_core refund");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
+    env.run_settlement();
+    assert_eq!(env.tesoro_status(), Stage::Closed);
     let after = (env.gemas(&env.alice), env.gemas(&env.bob));
 
     env.finalize_with(vec![]).expect("finalize still works");
@@ -1964,19 +1890,7 @@ fn a_match_not_yet_over_cannot_be_finalized_and_only_the_authority_pda_settles()
     env.svm
         .airdrop(&intruder.pubkey(), 10 * SOL)
         .expect("airdrop");
-    let settle = ix(
-        tesoro_core::ID,
-        tesoro_core::accounts::SettleMatch {
-            game_authority: a(intruder.pubkey()),
-            config: tpda(&[CONFIG_SEED]),
-            game_record: game_record_pda(),
-            match_state: tmatch_pda(env.id),
-        },
-        tesoro_core::instruction::SettleMatch {
-            result: tesoro_core::instructions::MatchResult::Opener,
-        },
-        vec![],
-    );
+    let settle = env.core_settle_ix(a(intruder.pubkey()), MatchResult::Opener);
     let err = env.send(&[settle], &intruder, &[]).unwrap_err();
     assert_eq!(custom_code(&err), 6000);
     let record = env.load::<GameRecord>(game_record_pda());
@@ -2117,7 +2031,7 @@ fn whole_dealt_matches_end_and_settle_or_refund() {
         let after = (env.gemas(&env.alice), env.gemas(&env.bob));
         if draw {
             assert_eq!(after, (before.0 + 1_000, before.1 + 1_000));
-            assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
+            assert_eq!(env.tesoro_status(), Stage::Closed);
         } else {
             let (w, l) = if b.winner == 0 {
                 (after.0 - before.0, after.1 - before.1)
@@ -2125,7 +2039,7 @@ fn whole_dealt_matches_end_and_settle_or_refund() {
                 (after.1 - before.1, after.0 - before.0)
             };
             assert_eq!((w, l), (1_900, 0), "seed {seed} reason {}", b.reason);
-            assert_eq!(env.tesoro_status(), MatchStatus::Settled);
+            assert_eq!(env.tesoro_status(), Stage::Closed);
         }
         println!(
             "seed {seed}: {} moves, turn {}, winner {}, reason {}",
@@ -2270,7 +2184,7 @@ fn setup_has_a_hard_deadline_well_inside_the_refund_window() {
         b.setup_deadline,
         b.start_deadline + vanguard::SETUP_GRACE_SECS
     );
-    let refund = env.load::<MatchState>(tmatch_pda(env.id)).inner.deadline;
+    let refund = env.load::<MatchState>(env.tmatch).inner.deadline;
     // Dealt on the last second, the Match still ends (cap) and settles with hours to spare.
     assert!(b.setup_deadline + engine::CAP_SECS + 3_600 < refund);
 }
@@ -2342,7 +2256,7 @@ fn entropy_after_the_window_is_refused() {
         v.vrf_requested = false;
     });
     env.set_time(env.battle().entropy_deadline + 1);
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     let alice = env.alice.kp.insecure_clone();
     let i = ix(
         vanguard::ID,
@@ -2903,7 +2817,7 @@ fn nothing_is_declared_in_the_slot_of_the_deal() {
         vanguard::ID,
         vanguard::accounts::StartTwoStep {
             player: a(two.pubkey()),
-            battle: addrs(env.id).battle,
+            battle: addrs(env.tmatch).battle,
         },
         vanguard::instruction::StartTwoStep {},
         vec![],
@@ -3015,32 +2929,22 @@ fn resolve_then_finalize_in_one_transaction_is_all_or_nothing() {
         .expect("declare the Truck capture");
     env.next_slot();
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-    let remaining = {
-        // The payout accounts of a win by seat 0.
-        let mut mt = env.load::<MatchState>(tmatch_pda(env.id)).inner;
-        let payouts = mt.settle(CoreOutcome::Winner(0)).expect("settle");
-        let mut metas = vec![];
-        for p in payouts {
-            let (recipient, source) = (
-                APk::new_from_array(p.recipient),
-                APk::new_from_array(p.source),
-            );
-            env.open_holding(recipient, source);
-            metas.push(rem(recipient));
-            metas.push(rem(holding_pda(recipient, source)));
-        }
-        metas
-    };
-    let ad = addrs(env.id);
+    let remaining: Vec<AccountMeta> = vec![];
+    let ad = addrs(env.tmatch);
     let finalize = ix(
         vanguard::ID,
         vanguard::accounts::Finalize {
             caller: a(alice.pubkey()),
             battle: ad.battle,
-            tesoro_match: tmatch_pda(env.id),
+            tesoro_match: env.tmatch,
             config: tpda(&[CONFIG_SEED]),
             game_record: game_record_pda(),
             authority: authority_pda(),
+            game_program: vanguard::ID,
+            program_data: program_data_pda(),
+            receipt: tpda(&[b"settled", env.tmatch.as_ref()]),
+            system_program: anchor_lang::system_program::ID,
+            event_authority: tpda(&[b"__event_authority"]),
             tesoro_program: tesoro_core::ID,
         },
         vanguard::instruction::Finalize {},
@@ -3049,7 +2953,8 @@ fn resolve_then_finalize_in_one_transaction_is_all_or_nothing() {
     let resolve = env.resolve_ix(env.alice.key);
     env.send(&[budget(), resolve, finalize], &alice, &[])
         .expect("the Match ends and settles");
-    assert_eq!(env.tesoro_status(), MatchStatus::Settled);
+    env.run_settlement();
+    assert_eq!(env.tesoro_status(), Stage::Closed);
     assert_eq!(env.gemas(&env.alice), before.0 + 1_900);
     assert_eq!(env.battle().finalized, 1);
 }
@@ -3384,43 +3289,3 @@ fn the_storm_waits_for_the_turn_that_ends_it_not_for_the_first_step_of_a_two_ste
     assert_eq!((env.battle().storm_done, storm_events(&env)), (1, 1));
 }
 
-/// Matching reads Holdings until ticket 09 moves it onto baskets: give the Advance's owner a
-/// Holding of the new Source with the Gemas the Advance issued (the basket holds them too).
-fn forge_holding_amount(svm: &mut litesvm::LiteSVM, account: APk, source: APk) {
-    use anchor_lang::{AccountDeserialize, AccountSerialize};
-    let issued = {
-        let acc = svm.get_account(&s(source)).expect("source");
-        SourceState::try_deserialize(&mut acc.data.as_slice())
-            .expect("source")
-            .inner
-            .issued
-    };
-    let hk = holding_pda(account, source);
-    let mut h = {
-        let acc = svm.get_account(&s(hk)).expect("holding");
-        HoldingState::try_deserialize(&mut acc.data.as_slice()).expect("holding")
-    };
-    let mut acct = {
-        let acc = svm.get_account(&s(account)).expect("account");
-        TesoroAccount::try_deserialize(&mut acc.data.as_slice()).expect("account")
-    };
-    h.inner.credit(&mut acct.inner, issued).expect("credit");
-    for (k, buf) in [
-        (hk, {
-            let mut b = Vec::new();
-            h.try_serialize(&mut b).unwrap();
-            b.resize(HoldingState::SPACE, 0);
-            b
-        }),
-        (account, {
-            let mut b = Vec::new();
-            acct.try_serialize(&mut b).unwrap();
-            b.resize(TesoroAccount::SPACE, 0);
-            b
-        }),
-    ] {
-        let mut acc = svm.get_account(&s(k)).expect("account");
-        acc.data = buf;
-        svm.set_account(s(k), acc).expect("set");
-    }
-}
