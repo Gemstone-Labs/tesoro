@@ -1,16 +1,15 @@
 "use client";
 
 import Image from "next/image";
-import { Info } from "lucide-react";
-import { Busy, Button, CheckIcon, GemaAmount, GemaMark } from "@/components/ui";
-import { DEPOSIT_ACK_CONFIRM, DEPOSIT_ACK_POINTS } from "@/lib/deposit/acknowledgment";
+import { ChartColumn, Clock, CreditCard } from "lucide-react";
+import { type ReactNode } from "react";
+import { Busy, Button, CheckIcon, CountUp, GemaMark } from "@/components/ui";
+import { DEPOSIT_ACK_CONFIRM, DEPOSIT_ACK_POINTS, DEPOSIT_ACK_SKIP, DEPOSIT_ACK_TITLE } from "@/lib/deposit/acknowledgment";
 import { PACK_MONTHS, type DepositPack, type DepositPackId, type PackQuote } from "@/lib/deposit/packs";
 import { fmtGemas, fmtUsd } from "@/lib/format";
 import "./deposit.css";
 
-/** The two art sets the founders are comparing: A = piles of Gemas, B = pouch, case and vault safe. */
-export type DepositArt = "a" | "b";
-export const artSrc = (art: DepositArt, id: DepositPackId) => `/art/deposit/${art}-${id}.webp`;
+export const packArt = (id: DepositPackId) => `/art/deposit/${id}.webp`;
 
 /** Test mode only: the line that says the money is not real and how fast time runs. */
 export function TestModeLine({ hours }: { hours: number }) {
@@ -22,33 +21,43 @@ export interface PacksViewProps {
   quotes: PackQuote[] | null;
   /** The pack a game sent the Player for. */
   highlight: DepositPackId | null;
-  art: DepositArt;
-  /** Shows the A/B switch (only while the founders pick). */
-  onArt?: (art: DepositArt) => void;
   /** A way to pay exists; false on mainnet until a card provider is connected. */
   canPay: boolean;
   testMode: boolean;
   /** The fee taken from the deposit, percent; 0 hides the line. */
   feePct: number;
-  /** The pack whose acknowledgment is being looked up. */
-  checking: DepositPackId | null;
   onPick: (id: DepositPackId) => void;
   onAdvanced?: () => void;
 }
 
-export function PacksView({ quotes, highlight, art, onArt, canPay, testMode, feePct, checking, onPick, onAdvanced }: PacksViewProps) {
+const FEATURED: DepositPackId = "player";
+
+function Note({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <li className="dep-note">
+      <span className="dep-note-icon" aria-hidden="true">{icon}</span>
+      <span>{children}</span>
+    </li>
+  );
+}
+
+export function PacksView({ quotes, highlight, canPay, testMode, feePct, onPick, onAdvanced }: PacksViewProps) {
   return (
     <div className="dep">
-      <p className="dep-lead">Deposit money, get Gemas to play. 1 Gema = $0.01.</p>
       <div className="dep-packs" role="group" aria-label="Deposit packs">
         {(quotes ?? PLACEHOLDER).map((q) => {
-          const hot = highlight === q.pack.id;
+          const id = q.pack.id;
           const ready = quotes !== null && q.gemas > 0;
+          const tag = highlight === id ? "Covers your entry" : id === FEATURED ? "Most picked" : null;
           return (
-            <article key={q.pack.id} className={`cut cut-card dep-card${hot ? " hot" : ""}`} aria-label={`${q.pack.name} pack`}>
-              {hot && <span className="dep-tag">Covers your entry</span>}
-              <Image className="dep-art" src={artSrc(art, q.pack.id)} width={512} height={512} alt="" sizes="(max-width: 639px) 96px, 172px" />
+            <article
+              key={id}
+              className={`cut cut-card dep-card${id === FEATURED ? " feat" : ""}${highlight === id ? " hot" : ""}`}
+              aria-label={`${q.pack.name} pack`}
+            >
+              {tag && <span className={`dep-tag${highlight === id ? " hot" : ""}`}>{tag}</span>}
               <h3 className="dep-name">{q.pack.name}</h3>
+              <Image className="dep-art" src={packArt(id)} width={512} height={512} alt="" sizes="(max-width: 639px) 96px, 220px" />
               <p className="dep-gemas">
                 <b>
                   <GemaMark size={26} />
@@ -59,43 +68,39 @@ export function PacksView({ quotes, highlight, art, onArt, canPay, testMode, fee
               <Button
                 variant="money"
                 size="lg"
-                disabled={!canPay || !ready || checking !== null}
-                onClick={() => onPick(q.pack.id)}
+                disabled={!canPay || !ready}
+                onClick={() => onPick(id)}
                 aria-label={canPay ? `Deposit ${fmtUsd(q.pack.usd)}, ${q.pack.name} pack` : "Card deposits coming soon"}
               >
-                {!canPay ? "Card deposits coming soon" : checking === q.pack.id ? "One moment…" : `Deposit ${fmtUsd(q.pack.usd)}`}
+                {canPay ? `Deposit ${fmtUsd(q.pack.usd)}` : "Card deposits coming soon"}
               </Button>
             </article>
           );
         })}
       </div>
 
-      <div className="dep-small">
-        <p className="dep-back">You get your deposit back after about {PACK_MONTHS} months!</p>
-        <p className="note dep-info">
-          <Info aria-hidden="true" />
-          <span>What you get back depends on the SOL price when you withdraw.</span>
-        </p>
-        {feePct > 0 && <p className="note">Includes a {feePct}% card fee, taken from your deposit.</p>}
-        {quotes === null && <p className="note" role="status">Updating the SOL price. Packs show in a moment.</p>}
-        {!canPay && (
-          <p className="dep-soon">
-            Prefer to use crypto?{" "}
-            <button type="button" className="dep-link" onClick={onAdvanced}>Open the Advanced view</button>.
-          </p>
-        )}
-        {testMode && <TestModeLine hours={(PACK_MONTHS * 10) / 60} />}
-        {onArt && (
-          <p className="dep-art-pick" role="group" aria-label="Pack art">
-            Art
-            {(["a", "b"] as const).map((k) => (
-              <button key={k} type="button" className="cut cut-chip" aria-pressed={art === k} onClick={() => onArt(k)}>
-                Art {k.toUpperCase()}
-              </button>
-            ))}
-          </p>
-        )}
-      </div>
+      <ul className="dep-notes">
+        <Note icon={<Clock />}>You get your deposit back after about {PACK_MONTHS} months!</Note>
+        <Note icon={<ChartColumn />}>What you get back depends on the SOL price when you withdraw.</Note>
+        <Note icon={<CreditCard />}>
+          {testMode ? (
+            <>Test mode · no card needed · {PACK_MONTHS} months = about {(PACK_MONTHS * 10) / 60} hours</>
+          ) : canPay ? (
+            "Card, Apple Pay or Google Pay"
+          ) : (
+            <>
+              Prefer to use crypto?{" "}
+              <button type="button" className="dep-link" onClick={onAdvanced}>Open the Advanced view</button>.
+            </>
+          )}
+        </Note>
+      </ul>
+      {(feePct > 0 || quotes === null) && (
+        <div className="dep-small">
+          {feePct > 0 && <p className="note">Includes a {feePct}% card fee, taken from your deposit.</p>}
+          {quotes === null && <p className="note" role="status">Updating the SOL price. Packs show in a moment.</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -106,37 +111,53 @@ const PLACEHOLDER: PackQuote[] = [
   { pack: { id: "pro", name: "Pro", usd: 500 }, lockLamports: 0n, feeUsd: 0, gemas: 0 },
 ];
 
-export function AckView({ pack, checked, onChecked, busy, error, onConfirm, onBack }: {
-  pack: DepositPack;
-  checked: boolean;
-  onChecked: (v: boolean) => void;
+/** "Before you deposit": the wording on the left, the chosen pack on the right. Confirming always records it. */
+export function AckView({ quote, dontShow, onDontShow, busy, error, onConfirm }: {
+  quote: PackQuote;
+  dontShow: boolean;
+  onDontShow: (v: boolean) => void;
   busy: boolean;
   error: string | null;
   onConfirm: () => void;
-  onBack: () => void;
 }) {
+  const { pack, gemas } = quote;
   return (
-    <div className="dep dep-ack">
-      <p className="dep-pack-line">{pack.name} pack · {fmtUsd(pack.usd)}</p>
-      <ul>
-        {DEPOSIT_ACK_POINTS.map((p) => (
-          <li key={p}>
-            <CheckIcon aria-hidden="true" />
-            <span>{p}</span>
-          </li>
-        ))}
-      </ul>
-      <label className="dep-check">
-        <input type="checkbox" checked={checked} onChange={(e) => onChecked(e.target.checked)} />
-        <span>I have read this and agree.</span>
-      </label>
-      {error && <p className="status err" role="alert">{error}</p>}
-      <div className="dep-actions">
-        <Button variant="money" size="lg" block disabled={!checked || busy} onClick={onConfirm}>
-          {busy ? "Saving…" : DEPOSIT_ACK_CONFIRM}
-        </Button>
-        <Button block onClick={onBack} disabled={busy}>Back</Button>
+    <div className="dep-ack">
+      <div className="dep-ack-main">
+        <p className="dep-ack-title" aria-hidden="true">{DEPOSIT_ACK_TITLE}</p>
+        <div className="dep-ack-points">
+          {DEPOSIT_ACK_POINTS.map((p) => (
+            <p key={p}>{p}</p>
+          ))}
+        </div>
+        {error && <p className="status err" role="alert">{error}</p>}
+        <div className="dep-ack-foot">
+          <label className="dep-check">
+            <input type="checkbox" checked={dontShow} onChange={(e) => onDontShow(e.target.checked)} />
+            <span>{DEPOSIT_ACK_SKIP}</span>
+          </label>
+          <Button variant="money" size="lg" block disabled={busy} onClick={onConfirm}>
+            {busy ? "Saving…" : DEPOSIT_ACK_CONFIRM}
+          </Button>
+        </div>
       </div>
+      <aside className="dep-ack-pack" aria-label="Your pack">
+        <Image className="dep-art" src={packArt(pack.id)} width={512} height={512} alt="" sizes="(max-width: 639px) 80px, 260px" />
+        <div className="dep-ack-sum">
+          <h3 className="dep-name">{pack.name}</h3>
+          <p className="dep-gemas">
+            <b>
+              <GemaMark size={22} />
+              ≈ {fmtGemas(gemas)}
+            </b>
+            <span>Gemas</span>
+          </p>
+        </div>
+        <p className="dep-ack-pay">
+          <span>Deposit</span>
+          <b>{fmtUsd(pack.usd)}</b>
+        </p>
+      </aside>
     </div>
   );
 }
@@ -166,40 +187,31 @@ export function WorkingView({ pack, phase, testMode, hours }: { pack: DepositPac
   );
 }
 
-export function DoneView({ gemas, back, onDone, testMode, hours }: {
+export function DoneView({ gemas, packId, back, onDone, testMode, hours }: {
   gemas: number;
+  packId: DepositPackId;
+  /** Where a game that sent the Player goes on; "Play now" otherwise. */
   back: { href: string; label: string; need: number } | null;
   onDone: () => void;
   testMode: boolean;
   hours: number;
 }) {
+  const play = back ?? { href: "/play", label: "Play now", need: 0 };
   return (
     <div className="dep-done">
-      <p className="status ok" role="status">
-        <CheckIcon aria-hidden="true" /> Deposit added
+      <h3 className="dep-done-fig">
+        <span aria-hidden="true">
+          <CountUp value={gemas} from={0} duration={900} format={(n) => `+${fmtGemas(n)}`} /> Gemas
+        </span>
+        <span className="sr-only">{fmtGemas(gemas)} Gemas added</span>
+      </h3>
+      <p className="dep-done-ready" role="status">
+        <span className="dep-done-check" aria-hidden="true"><CheckIcon /></span> Your Gemas are ready
       </p>
-      <b className="dep-done-fig">
-        <GemaAmount value={gemas} sign size="xl" glint />
-        <span className="sr-only">Gemas added</span>
-      </b>
-      <p>Your Gemas are ready to play. Your deposit waits in your Vault and comes back after about {PACK_MONTHS} months.</p>
+      <Image className="dep-art" src={packArt(packId)} width={512} height={512} alt="" sizes="(max-width: 639px) 200px, 300px" priority />
       <div className="dep-actions">
-        {back && (
-          <Button variant="money" size="lg" block href={back.href} onClick={onDone}>
-            <span className="dep-play">
-              {back.label}
-              {back.need > 0 && (
-                <>
-                  <i aria-hidden="true">·</i>
-                  <GemaMark size={18} /> {fmtGemas(back.need)}
-                </>
-              )}
-            </span>
-          </Button>
-        )}
-        <Button block variant={back ? "neutral" : "money"} size={back ? "md" : "lg"} onClick={onDone}>
-          {back ? "Not now" : "Done"}
-        </Button>
+        <Button variant="money" size="lg" block href={play.href} onClick={onDone}>{play.label}</Button>
+        <button type="button" className="dep-done-quiet" onClick={onDone}>Done</button>
       </div>
       {testMode && <TestModeLine hours={hours} />}
     </div>

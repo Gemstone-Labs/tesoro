@@ -6,7 +6,7 @@ import { DEPOSIT_ACK_VERSION } from "./acknowledgment";
 /** Client side of the deposit acknowledgment route (app/src/app/api/deposit-ack/route.ts). */
 const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
 
-async function call(step: "status" | "confirm", signer: ChainSigner, getToken: GetToken): Promise<boolean> {
+async function call(step: "confirm", signer: ChainSigner, getToken: GetToken): Promise<boolean> {
   const address = signer.publicKey.toBase58();
   const ts = Date.now();
   const nonce = newNonce();
@@ -23,9 +23,6 @@ async function call(step: "status" | "confirm", signer: ChainSigner, getToken: G
   return json.acknowledged === true;
 }
 
-/** Has this Account acknowledged the current wording? The server is the source of truth. */
-export const depositAckStatus = (signer: ChainSigner, getToken: GetToken): Promise<boolean> => call("status", signer, getToken);
-
 /** Records the acknowledgment of the current wording. Safe to repeat. */
 export async function confirmDepositAck(signer: ChainSigner, getToken: GetToken): Promise<void> {
   if (!(await call("confirm", signer, getToken))) throw new Error("That didn’t go through. Try again in a moment.");
@@ -35,7 +32,10 @@ type CacheStore = Pick<Storage, "getItem" | "setItem">;
 
 const key = (authority: string) => `tesoro:deposit-ack:${DEPOSIT_ACK_VERSION}:${authority}`;
 
-/** This browser remembers an acknowledgment of the current wording. A convenience; never throws. */
+/**
+ * Did this Player tick "Don't show this again" when they confirmed the current wording? Then this browser skips the
+ * step. A convenience stored per wording version and Account; never throws.
+ */
 export function readDepositAckCache(authority: string, store?: CacheStore): boolean {
   try {
     return (store ?? localStorage).getItem(key(authority)) === "1";
@@ -44,6 +44,7 @@ export function readDepositAckCache(authority: string, store?: CacheStore): bool
   }
 }
 
+/** Remembers "Don't show this again". Only call it when the Player ticked the box. */
 export function writeDepositAckCache(authority: string, store?: CacheStore) {
   try {
     (store ?? localStorage).setItem(key(authority), "1");

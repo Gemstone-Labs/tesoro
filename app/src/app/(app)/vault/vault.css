@@ -1,45 +1,36 @@
-/* The Vault: Gemas, deposits, winnings. */
-.vt { display: grid; gap: 20px; max-width: 980px; }
+/* The Vault: Gemas to play, winnings, deposits. */
+.vt { display: grid; gap: 20px; max-width: 1100px; }
 .vt-head { align-items: center; }
-.vt-view { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: var(--fs-13); color: var(--fg-2); }
-.vt-section { display: grid; gap: 10px; }
-.vt-section > h2 { font-size: var(--fs-18); font-weight: 900; }
+.vt-head-side { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; justify-content: flex-end; }
+.vt-adv { background: none; border: 0; padding: 4px 0; cursor: pointer; font: inherit; font-size: var(--fs-14); color: var(--fg-2); text-decoration: underline; text-underline-offset: 3px; }
+.vt-adv:hover { color: var(--fg); }
 
-.vt-gemas { padding: 22px 22px 20px; display: grid; gap: 6px; }
-.vt-gemas h2 { font-size: var(--fs-13); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
-.vt-gemas-fig { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: clamp(40px, 5vw, 64px); font-weight: 900; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
-.vt-gemas-fig small { font-size: var(--fs-16); font-weight: 700; color: var(--fg-2); letter-spacing: 0; }
-
+.vt-deposits, .vt-empty { --edge: var(--edge-1); display: grid; gap: 14px; padding: 22px 24px; background: var(--surface); align-content: start; }
+.vt-deposits > h2, .vt-empty > h2 { font-size: clamp(26px, 2.4vw, 34px); }
+.vt-empty { justify-items: start; }
+.vt-empty p { margin: 0; max-width: 52ch; }
 .vt-list { display: grid; gap: 8px; }
 .vt-dep {
-  --edge: var(--edge-1);
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 16px;
-  padding: 14px 16px; background: var(--surface);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap;
+  padding: 12px 16px; background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); border-radius: 6px; min-height: 56px;
 }
-.vt-dep > h3, .vt-dep > p { grid-column: 1; }
-.vt-dep h3 { font-size: var(--fs-16); font-weight: 800; }
-.vt-dep .meta { margin: 0; }
-.vt-dep-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: var(--fs-14); }
-.vt-dep-state svg { width: 16px; height: 16px; flex: none; }
-.vt-dep.late .vt-dep-state { color: var(--warn); }
-.vt-dep-side { grid-column: 2; grid-row: 1 / span 3; display: grid; justify-items: end; gap: 6px; }
-
-.vt-wins { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.vt-win { --edge: var(--edge-1); display: grid; gap: 8px; align-content: start; padding: 16px; background: var(--surface); }
-.vt-win.now { --edge: var(--edge-em); }
-.vt-win h3 { font-size: var(--fs-13); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
-.vt-win p { margin: 0; }
-.vt-win .gema-amount { font-size: 28px; font-weight: 900; }
-
-.vt-empty { --edge: var(--edge-1); display: grid; gap: 12px; justify-items: start; padding: 22px; background: var(--surface); }
-.vt-empty p { margin: 0; max-width: 52ch; }
-.vt-notice { margin: 0; }
+.vt-dep-line { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; font-size: var(--fs-16); color: var(--fg-2); }
+.vt-dep-line b { color: var(--fg); font-weight: 800; font-size: var(--fs-18); }
+.vt-dep-line i { font-style: normal; color: var(--fg-2); }
+.vt-dep-line .ok { display: inline-flex; align-items: center; gap: 6px; color: var(--fg); }
+.vt-dep-line .ok svg { width: 16px; height: 16px; color: var(--em-hi); }
+.vt-dep-line .warn { color: var(--warn); }
+.vt-info { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.vt-info p, .vt-foot p, .vt-notice { margin: 0; }
+.vt-note { display: flex; gap: 10px; align-items: center; font-size: var(--fs-14); }
+.vt-note svg { width: 18px; height: 18px; flex: none; }
 .vt-foot { display: grid; gap: 6px; }
-.vt-foot p { margin: 0; }
 
 @media (max-width: 639px) {
-  .vt-wins { grid-template-columns: 1fr; }
-  .vt-dep { grid-template-columns: 1fr; }
-  .vt-dep-side { grid-column: 1; grid-row: auto; justify-items: stretch; }
-  .vt-dep-side .btn { width: 100%; }
+  .vt-head { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .vt-head-side { flex-direction: row-reverse; justify-content: flex-start; width: 100%; gap: 16px; }
+  .vt-head-side .btn { flex: 1; }
+  .vt-deposits, .vt-empty { padding: 18px 16px; }
+  .vt-dep .btn { width: 100%; }
+  .vt-dep-line { font-size: var(--fs-15); }
 }
