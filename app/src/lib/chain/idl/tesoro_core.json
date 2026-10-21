@@ -15471,228 +15471,138 @@
   "errors": [
     {
       "code": 6000,
-      "name": "Unauthorized",
-      "msg": "signer is not authorised"
+      "name": "RoomNotReserved",
+      "msg": "the spill has no free slots to reserve: grow it first"
     },
     {
       "code": 6001,
-      "name": "GameNotRegistered",
-      "msg": "game is not registered"
+      "name": "TooManyOpenMatches",
+      "msg": "this Account already has the most Matches open at once"
     },
     {
       "code": 6002,
-      "name": "GameRegistryFull",
-      "msg": "game registry is full"
+      "name": "TicketMismatch",
+      "msg": "the Ticket is not this Account's, Game or entry size"
     },
     {
       "code": 6003,
-      "name": "InvalidAccount",
-      "msg": "account does not match"
+      "name": "TicketNotComplete",
+      "msg": "the Ticket has not staged the whole entry yet"
     },
     {
       "code": 6004,
-      "name": "BadRemainingAccounts",
-      "msg": "wrong number of remaining accounts"
+      "name": "FasterGemasAvailable",
+      "msg": "faster Gemas arrived since the Ticket staged: stage again"
     },
     {
       "code": 6005,
-      "name": "DuplicateAccount",
-      "msg": "the same account was supplied twice"
+      "name": "NeedsTicket",
+      "msg": "this entry needs more lines than one transaction moves: use an Entry Ticket"
     },
     {
       "code": 6006,
-      "name": "NotWritable",
-      "msg": "account must be writable"
+      "name": "TicketStorageFull",
+      "msg": "the Ticket's storage is full: grow it"
     },
     {
       "code": 6007,
-      "name": "InvalidPool",
-      "msg": "pool is not the canonical sim_lst pool"
+      "name": "NotTicketOwner",
+      "msg": "only the owner stages an Entry Ticket"
     },
     {
       "code": 6008,
-      "name": "InvalidMint",
-      "msg": "mint is not the sim_lst pool's simSOL mint"
+      "name": "TicketNotExpired",
+      "msg": "only the owner cancels a Ticket before it expires"
     },
     {
       "code": 6009,
-      "name": "NativePosition",
-      "msg": "native Positions are opened and driven only by the native instructions"
+      "name": "TicketAlreadyOpen",
+      "msg": "a Ticket of this kind is already open on this basket"
     },
     {
       "code": 6010,
-      "name": "NotNativePosition",
-      "msg": "position is not a native Position"
+      "name": "StorageNotReserved",
+      "msg": "the Ticket's storage and spill room were not reserved"
     },
     {
       "code": 6011,
-      "name": "StalePrice",
-      "msg": "price is stale or not set"
+      "name": "TicketNotOpen",
+      "msg": "the Ticket is not open"
     },
     {
       "code": 6012,
-      "name": "BridgedSource",
-      "msg": "Gemas of an EVM-sourced Advance are redeemed through the bridge"
+      "name": "PotNotEmpty",
+      "msg": "the Pot still holds Gemas"
     },
     {
       "code": 6013,
-      "name": "InvalidProfileName",
-      "msg": "a name is 3 to 20 letters, digits, spaces, dots, underscores or dashes, with no space at either end"
+      "name": "MatchNotClosed",
+      "msg": "the Match is not closed: its run is not finished"
     },
     {
       "code": 6014,
-      "name": "InvalidAvatar",
-      "msg": "avatar is not one of the available pictures"
+      "name": "WrongPot",
+      "msg": "this is not the Pot of the Match"
     },
     {
       "code": 6015,
-      "name": "EvmNotLinked",
-      "msg": "the EVM address is not linked to this Account through the bridge"
+      "name": "BadBacking",
+      "msg": "the Backing's accounts do not match the Offer"
     },
     {
       "code": 6016,
-      "name": "LeaderboardOff",
-      "msg": "the leaderboard is not set up"
+      "name": "OfferHasTicket",
+      "msg": "the Offer has a Backing Ticket open: cancel that first"
     },
     {
       "code": 6017,
-      "name": "TreasuryShort",
-      "msg": "the treasury cannot pay this instant redeem now"
+      "name": "PastAbsoluteDeadline",
+      "msg": "settlement can only start before the Match's absolute deadline"
     },
     {
       "code": 6018,
-      "name": "SourceRequired",
-      "msg": "the open Advance's Source must be supplied"
+      "name": "GameUpgraded",
+      "msg": "the Game was upgraded since the Match opened: it can only be refunded"
     },
     {
       "code": 6019,
-      "name": "CompanyNotSet",
-      "msg": "the Treasury has no company wallet set"
+      "name": "Inconsistent",
+      "msg": "the Match record and its Pots disagree"
     },
     {
       "code": 6020,
-      "name": "BadPriceFeed",
-      "msg": "the price feed account is not the mapped Pyth feed, or is not a verified price update"
+      "name": "NotJoined",
+      "msg": "the Match has no joiner yet"
     },
     {
       "code": 6021,
-      "name": "PriceTooUncertain",
-      "msg": "the price feed's confidence interval is too wide to issue Gemas on"
+      "name": "RunUnfinished",
+      "msg": "the run is not finished: more chunks are needed"
     },
     {
       "code": 6022,
-      "name": "OnchainPriceRequired",
-      "msg": "this asset is priced from its on-chain feed; use the on-chain Advance"
+      "name": "ReceiptTooNew",
+      "msg": "a settlement receipt can be closed 14 days after it was written"
     },
     {
       "code": 6023,
-      "name": "InviteRequired",
-      "msg": "creating an Account needs an Invite"
+      "name": "AccountMissing",
+      "msg": "an account that must be supplied for this chunk is missing"
     },
     {
       "code": 6024,
-      "name": "InviteKeyMissing",
-      "msg": "an Invite key is needed to turn the Invite gate on"
+      "name": "WrongStage",
+      "msg": "the Match is not in the state this instruction needs"
     },
     {
       "code": 6025,
-      "name": "StakeTokenInactive",
-      "msg": "this staking token is not the one new Positions open with"
+      "name": "OfferNotUsable",
+      "msg": "the Offer cannot be used: it is not accepted, or not by this Player"
     },
     {
       "code": 6026,
-      "name": "StakeCeilingNotSet",
-      "msg": "the Advance APY ceiling is not set"
-    },
-    {
-      "code": 6027,
-      "name": "NotStakePosition",
-      "msg": "position is not a staking-token Position"
-    },
-    {
-      "code": 6028,
-      "name": "BadStakePoolAccount",
-      "msg": "the stake pool account is not the custody's pool, is not owned by a stake pool program, or is not its token's pool"
-    },
-    {
-      "code": 6029,
-      "name": "OracleLocked",
-      "msg": "the oracle key can no longer register Positions, report yield or price Advances"
-    },
-    {
-      "code": 6030,
-      "name": "NotOldWorld",
-      "msg": "this account is not of the retired world, so it cannot be retired"
-    },
-    {
-      "code": 6031,
-      "name": "GameProofInvalid",
-      "msg": "the Game program is not a live program of a loader the registry understands"
-    },
-    {
-      "code": 6032,
-      "name": "NotGameControl",
-      "msg": "the signer does not control the Game program"
-    },
-    {
-      "code": 6033,
-      "name": "StudioFeeTooHigh",
-      "msg": "a Studio Fee is at most 10%"
-    },
-    {
-      "code": 6034,
-      "name": "StudioRecipientReserved",
-      "msg": "the Studio recipient may not be the Pool, the Treasury or the platform recipient"
-    },
-    {
-      "code": 6035,
-      "name": "NoPendingChange",
-      "msg": "no change is waiting for this Game"
-    },
-    {
-      "code": 6036,
-      "name": "ChangeDelayNotElapsed",
-      "msg": "a change to a Game applies 7 days after it is proposed"
-    },
-    {
-      "code": 6037,
-      "name": "GameNotListed",
-      "msg": "this Game is not listed, or was upgraded since the admin approved it"
-    },
-    {
-      "code": 6038,
-      "name": "PairLimitReached",
-      "msg": "these two Accounts have started too many Matches together today"
-    },
-    {
-      "code": 6039,
-      "name": "PairWindowOpen",
-      "msg": "this pair counter is still inside its 24-hour window"
-    },
-    {
-      "code": 6040,
-      "name": "CodeHashMismatch",
-      "msg": "the program's executable does not hash to the value given"
-    },
-    {
-      "code": 6041,
-      "name": "CodeChanged",
-      "msg": "the program's executable differs from the approved build; the admin must approve it again"
-    },
-    {
-      "code": 6042,
-      "name": "ListingCurrent",
-      "msg": "the listing already matches the program's deploy slot"
-    },
-    {
-      "code": 6043,
-      "name": "NotListed",
-      "msg": "the Game is not listed, so there is nothing to refresh"
-    },
-    {
-      "code": 6044,
-      "name": "ProgramTooLarge",
-      "msg": "the program is too large to hash in one transaction"
+      "name": "TooManyOffers",
+      "msg": "this Account already has the most Offers open at once"
     }
   ],
   "types": [
@@ -17148,6 +17058,17 @@
           {
             "name": "ts",
             "type": "i64"
+          },
+          {
+            "name": "a_share_bps",
+            "docs": [
+              "Each side's Player share of a Backing, in bps (0 for an unbacked side)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "b_share_bps",
+            "type": "u16"
           }
         ]
       }

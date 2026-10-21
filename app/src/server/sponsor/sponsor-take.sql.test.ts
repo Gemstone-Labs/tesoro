@@ -2,7 +2,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import { beforeAll, describe, expect, it } from "vitest";
+import { vi, beforeAll, describe, expect, it } from "vitest";
+
+// A fresh in-process Postgres takes several seconds to start when the machine is busy.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 let db: PGlite;
 
