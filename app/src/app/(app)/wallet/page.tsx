@@ -23,7 +23,6 @@ import { vaultsOn, type EthVault } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, NoPositions, OpenIntentContext, type OpenIntent } from "./OpenPanel";
 import { ChainPockets, NextRedeem, type Pocket, type PocketSource } from "./ChainPockets";
 import { PositionTile, linearSeries } from "./PositionTile";
-import { ResetNote } from "./ResetNote";
 import "./wallet.css";
 
 const REAL = CLUSTER.yieldModel === "real";
@@ -199,8 +198,6 @@ export default function Wallet() {
         </div>
         {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Get Gemas</Button>}
       </header>
-
-      <ResetNote />
 
       <section className={`cut cut-frame facet-panel wl-hero${heroOpen ? " open" : ""}`} aria-label="Balance">
         <FacetCrown />
