@@ -63,7 +63,7 @@ Each item replaced a line of the first draft of this ADR.
 ## Still to build (recheck when each merges)
 
 - **Matching (ticket 09).** `open_match`, `join_match` and their backed forms on baskets and Tickets, the settlement receipt PDA, event-CPI records, the per-Account Match counter and the cap on concurrent Matches, and the measured per-transaction line cap (12 is a placeholder). This ADR describes them from the spec.
-- **Fee cash-in (ticket 11b).** Platform and Studio fee counters are repaid first by the payout order, but they only become the recipient's money through a permissionless cash-in per Source. Until it exists, Platform and Studio Fee Gemas stay in the counters.
+- **Fee cash-in (ticket 11b).** Platform and Studio fee counters are repaid first by the payout order, but they only become the recipient's money through a permissionless cash-in per Source. It is `cash_in_fee`; the Studio counter's recipient is the admin's `set_tesoro_studio` setting.
 - **Bridge and EVM vaults (tickets 16 and 17),** the table Games (12 to 15), the relayer, keeper, Supabase history and app (18 to 21), the Studio listing flow (23) and the devnet wipe and deploy (24).
 
 ## Considered Options

@@ -293,7 +293,7 @@ Recheck this section against the code when they merge.
   4. Solana reconciles batch by batch, never by "latest report only".
 
   Only acknowledged shares count for prize issuance. A batch is never released on timeout while its message could still execute.
-- **Fee cash-in on EVM (ticket 11b plus 16).** Platform and Studio fee cash-ins use the same batches, need a registered EVM recipient and a minimum batch size.
+- **Fee cash-in on EVM (ticket 11b built the Solana side, 16 the bridge).** Platform and Studio fee cash-ins use the same batches, need a registered EVM recipient and a minimum batch size. The bridge calls core `cash_in_fee_from_source(class, min_units)` and pays the recipient's linked EVM address from `FeeCashedIn.units`.
 - **`PayPrize` message.** Bound to chain, vault, asset, prize Source, recipient, share quantity and a unique payout id. It debits only the escrow and works with an empty Treasury. Outstanding payouts stay reserved until executed. Only prize Redeem can move tokens out of an escrow.
 - **Redeem cost.** The app shows the gas and bridge cost of a small ETH or HYPE Redeem before the Player confirms, and "Redeem small leftovers" tidies tiny lines.
 - **Deploy.** Each EVM Treasury is funded at launch (runbook), because open Locks' fees are not spendable until they Unlock.
