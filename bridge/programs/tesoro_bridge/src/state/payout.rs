@@ -17,6 +17,8 @@ pub struct PayoutRecord {
     pub peer_address: [u8; 32],
     pub id: u64,
     pub bump: u8,
+    /// Whoever paid the account's rent; `close_payout` returns it there once the payout is final.
+    pub rent_payer: Pubkey,
     pub state: u8,
     /// The holder's Tesoro Account (gets the Gemas back on a rejection).
     pub holder_account: Pubkey,
@@ -58,6 +60,7 @@ mod tests {
             peer_address: [0; 32],
             id: 1,
             bump: 0,
+            rent_payer: Pubkey::default(),
             state: PAYOUT_PENDING,
             holder_account: Pubkey::new_unique(),
             recipient: [1; 20],

@@ -1,6 +1,8 @@
 pub mod add_to_batch;
 pub mod apply_locked;
 pub mod apply_yield;
+pub mod close_batch;
+pub mod close_payout;
 pub mod fund_season_prize_evm;
 pub mod init_position;
 pub mod init_store;
@@ -30,6 +32,8 @@ pub mod sync_treasury;
 pub use add_to_batch::*;
 pub use apply_locked::*;
 pub use apply_yield::*;
+pub use close_batch::*;
+pub use close_payout::*;
 pub use fund_season_prize_evm::*;
 pub use init_position::*;
 pub use init_store::*;

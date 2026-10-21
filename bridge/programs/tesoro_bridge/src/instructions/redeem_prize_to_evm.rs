@@ -119,6 +119,7 @@ impl RedeemPrizeToEvm<'_> {
         payout.peer_address = route.peer_address;
         payout.id = id;
         payout.bump = ctx.bumps.payout;
+        payout.rent_payer = ctx.accounts.holder_authority.key();
         payout.state = PAYOUT_PENDING;
         payout.holder_account = ctx.accounts.holder_account.key();
         payout.recipient = ctx.accounts.holder_account.evm_address;

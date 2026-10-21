@@ -59,6 +59,15 @@ fn expect_address(target: &AccountInfo, seeds: &[&[u8]]) -> Result<()> {
     Ok(())
 }
 
+// A batch or payout the program closed: its id was handed out (so it is at most the route's last)
+// and the account is empty and back with the System Program. Its message is consumed as a no-op.
+fn is_closed(target: &AccountInfo, id: u64, last_id: u64) -> bool {
+    id >= 1
+        && id <= last_id
+        && target.data_is_empty()
+        && target.owner == &anchor_lang::system_program::ID
+}
+
 impl LzReceive<'_> {
     pub fn apply<'info>(
         ctx: &mut Context<'_, '_, '_, 'info, LzReceive<'info>>,
@@ -107,6 +116,17 @@ impl LzReceive<'_> {
                     &target,
                     &[BATCH_SEED, &eid.to_be_bytes(), &params.sender, &header.seq.to_be_bytes()],
                 )?;
+                if is_closed(&target, header.seq, ctx.accounts.route.last_batch_id) {
+                    ctx.accounts.route.note_escrow(escrowed_shares, escrowed_units);
+                    emit!(MessageReceived {
+                        src_eid: eid,
+                        position_id: header.position_id,
+                        msg_type: header.msg_type,
+                        seq: header.seq,
+                        applied: false,
+                    });
+                    return Ok(());
+                }
                 let mut batch: Batch = load(&target)?;
                 require!(
                     batch.eid == eid
@@ -132,6 +152,16 @@ impl LzReceive<'_> {
                     &target,
                     &[PAYOUT_SEED, &eid.to_be_bytes(), &params.sender, &header.seq.to_be_bytes()],
                 )?;
+                if is_closed(&target, header.seq, ctx.accounts.route.last_payout_id) {
+                    emit!(MessageReceived {
+                        src_eid: eid,
+                        position_id: header.position_id,
+                        msg_type: header.msg_type,
+                        seq: header.seq,
+                        applied: false,
+                    });
+                    return Ok(());
+                }
                 let mut payout: PayoutRecord = load(&target)?;
                 require!(
                     payout.eid == eid

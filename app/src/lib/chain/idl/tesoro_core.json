@@ -631,6 +631,121 @@
       ]
     },
     {
+      "name": "begin_prize_payout_from_source",
+      "docs": [
+        "A holder's prize Redeem on an EVM route: the Gemas burn, the shares are the bridge's to pay."
+      ],
+      "discriminator": [
+        110,
+        183,
+        78,
+        63,
+        109,
+        194,
+        110,
+        31
+      ],
+      "accounts": [
+        {
+          "name": "holder_authority",
+          "signer": true
+        },
+        {
+          "name": "source_signer",
+          "signer": true
+        },
+        {
+          "name": "source_authority"
+        },
+        {
+          "name": "holder_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_source",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "chain",
+          "type": {
+            "defined": {
+              "name": "SourceChain"
+            }
+          }
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "cancel_game_change",
       "discriminator": [
         57,
@@ -911,6 +1026,122 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "cancel_prize_payout_from_source",
+      "docs": [
+        "The vault rejected a prize payout for good: Gemas and shares go back."
+      ],
+      "discriminator": [
+        141,
+        191,
+        51,
+        47,
+        153,
+        103,
+        8,
+        247
+      ],
+      "accounts": [
+        {
+          "name": "source_signer",
+          "signer": true
+        },
+        {
+          "name": "source_authority"
+        },
+        {
+          "name": "holder_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_source",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "chain",
+          "type": {
+            "defined": {
+              "name": "SourceChain"
+            }
+          }
+        },
+        {
+          "name": "gemas",
+          "type": "u64"
+        },
+        {
+          "name": "shares",
+          "type": "u128"
+        }
+      ]
     },
     {
       "name": "cancel_request",
@@ -5251,6 +5482,223 @@
         {
           "name": "platform_bps",
           "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "issue_prize_from_source",
+      "docs": [
+        "The bridge issues the Pool's prize Source for shares an EVM vault confirmed in its escrow",
+        "(signed by the Season authority and the chain's source authority)."
+      ],
+      "discriminator": [
+        66,
+        42,
+        194,
+        182,
+        244,
+        134,
+        223,
+        75
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "source_signer",
+          "signer": true
+        },
+        {
+          "name": "source_authority"
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "economy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle",
+          "docs": [
+            "Only for the oracle-priced path (no `OnchainPrice` for the asset)."
+          ],
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "pool_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  122,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "route"
+              },
+              {
+                "kind": "arg",
+                "path": "season"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "chain",
+          "type": {
+            "defined": {
+              "name": "SourceChain"
+            }
+          }
+        },
+        {
+          "name": "season",
+          "type": "u32"
+        },
+        {
+          "name": "route",
+          "type": "pubkey"
+        },
+        {
+          "name": "asset",
+          "type": "pubkey"
+        },
+        {
+          "name": "decimals",
+          "type": "u8"
+        },
+        {
+          "name": "shares",
+          "type": "u128"
+        },
+        {
+          "name": "units",
+          "type": "u64"
+        },
+        {
+          "name": "price_micro_usd",
+          "type": "u64"
         }
       ]
     },
@@ -13453,6 +13901,45 @@
       ]
     },
     {
+      "name": "EvmPrizeIssued",
+      "discriminator": [
+        186,
+        118,
+        156,
+        217,
+        143,
+        30,
+        117,
+        187
+      ]
+    },
+    {
+      "name": "EvmPrizePayoutBegun",
+      "discriminator": [
+        87,
+        41,
+        193,
+        186,
+        249,
+        93,
+        38,
+        239
+      ]
+    },
+    {
+      "name": "EvmPrizePayoutCancelled",
+      "discriminator": [
+        248,
+        158,
+        173,
+        73,
+        243,
+        235,
+        33,
+        27
+      ]
+    },
+    {
       "name": "ExtendLimitSet",
       "discriminator": [
         128,
@@ -13846,228 +14333,98 @@
   "errors": [
     {
       "code": 6000,
-      "name": "Unauthorized",
-      "msg": "signer is not authorised"
+      "name": "NothingToResize",
+      "msg": "the store is already at the size you asked for"
     },
     {
       "code": 6001,
-      "name": "GameNotRegistered",
-      "msg": "game is not registered"
+      "name": "StoreAtMaximum",
+      "msg": "the store would go over its maximum number of lines"
     },
     {
       "code": 6002,
-      "name": "GameRegistryFull",
-      "msg": "game registry is full"
+      "name": "GrowTooLarge",
+      "msg": "one call adds at most 71 lines"
     },
     {
       "code": 6003,
-      "name": "InvalidAccount",
-      "msg": "account does not match"
+      "name": "SponsorPaused",
+      "msg": "sponsoring is paused"
     },
     {
       "code": 6004,
-      "name": "BadRemainingAccounts",
-      "msg": "wrong number of remaining accounts"
+      "name": "NotSponsorRelayer",
+      "msg": "only the sponsor's relayer authorises sponsored rent"
     },
     {
       "code": 6005,
-      "name": "DuplicateAccount",
-      "msg": "the same account was supplied twice"
+      "name": "AccountSponsorCap",
+      "msg": "this Account is at its cap of sponsored rent"
     },
     {
       "code": 6006,
-      "name": "NotWritable",
-      "msg": "account must be writable"
+      "name": "TotalSponsorCap",
+      "msg": "the sponsor is at its total cap of sponsored rent"
     },
     {
       "code": 6007,
-      "name": "InvalidPool",
-      "msg": "pool is not the canonical sim_lst pool"
+      "name": "SponsorShort",
+      "msg": "the sponsor does not hold enough SOL"
     },
     {
       "code": 6008,
-      "name": "InvalidMint",
-      "msg": "mint is not the sim_lst pool's simSOL mint"
+      "name": "CapBelowOutstanding",
+      "msg": "the sponsor's caps cannot be below what is already outstanding"
     },
     {
       "code": 6009,
-      "name": "NativePosition",
-      "msg": "native Positions are opened and driven only by the native instructions"
+      "name": "BadStore",
+      "msg": "the basket or spill account is malformed"
     },
     {
       "code": 6010,
-      "name": "NotNativePosition",
-      "msg": "position is not a native Position"
+      "name": "FeeCounterOnly",
+      "msg": "a basket and a spill hold no Platform or Leaderboard line: those live in the Source's book"
     },
     {
       "code": 6011,
-      "name": "StalePrice",
-      "msg": "price is stale or not set"
+      "name": "BadSourceBook",
+      "msg": "account is not a Source book of this program"
     },
     {
       "code": 6012,
-      "name": "BridgedSource",
-      "msg": "Gemas of an EVM-sourced Advance are redeemed through the bridge"
+      "name": "BadCheckpointPage",
+      "msg": "account is not a checkpoint page of a supplied Source book"
     },
     {
       "code": 6013,
-      "name": "InvalidProfileName",
-      "msg": "a name is 3 to 20 letters, digits, spaces, dots, underscores or dashes, with no space at either end"
+      "name": "DuplicateBook",
+      "msg": "the same book or page was supplied twice"
     },
     {
       "code": 6014,
-      "name": "InvalidAvatar",
-      "msg": "avatar is not one of the available pictures"
+      "name": "BookMissing",
+      "msg": "a line needs the book of its Source"
     },
     {
       "code": 6015,
-      "name": "EvmNotLinked",
-      "msg": "the EVM address is not linked to this Account through the bridge"
+      "name": "AccountNotWritable",
+      "msg": "the supplied accounts must be writable"
     },
     {
       "code": 6016,
-      "name": "LeaderboardOff",
-      "msg": "the leaderboard is not set up"
+      "name": "WrongPage",
+      "msg": "the page number is not the next one for this class"
     },
     {
       "code": 6017,
-      "name": "TreasuryShort",
-      "msg": "the treasury cannot pay this instant redeem now"
+      "name": "BookExists",
+      "msg": "the Source book already exists for this Source"
     },
     {
       "code": 6018,
-      "name": "SourceRequired",
-      "msg": "the open Advance's Source must be supplied"
-    },
-    {
-      "code": 6019,
-      "name": "CompanyNotSet",
-      "msg": "the Treasury has no company wallet set"
-    },
-    {
-      "code": 6020,
-      "name": "BadPriceFeed",
-      "msg": "the price feed account is not the mapped Pyth feed, or is not a verified price update"
-    },
-    {
-      "code": 6021,
-      "name": "PriceTooUncertain",
-      "msg": "the price feed's confidence interval is too wide to issue Gemas on"
-    },
-    {
-      "code": 6022,
-      "name": "OnchainPriceRequired",
-      "msg": "this asset is priced from its on-chain feed; use the on-chain Advance"
-    },
-    {
-      "code": 6023,
-      "name": "InviteRequired",
-      "msg": "creating an Account needs an Invite"
-    },
-    {
-      "code": 6024,
-      "name": "InviteKeyMissing",
-      "msg": "an Invite key is needed to turn the Invite gate on"
-    },
-    {
-      "code": 6025,
-      "name": "StakeTokenInactive",
-      "msg": "this staking token is not the one new Positions open with"
-    },
-    {
-      "code": 6026,
-      "name": "StakeCeilingNotSet",
-      "msg": "the Advance APY ceiling is not set"
-    },
-    {
-      "code": 6027,
-      "name": "NotStakePosition",
-      "msg": "position is not a staking-token Position"
-    },
-    {
-      "code": 6028,
-      "name": "BadStakePoolAccount",
-      "msg": "the stake pool account is not the custody's pool, is not owned by a stake pool program, or is not its token's pool"
-    },
-    {
-      "code": 6029,
-      "name": "OracleLocked",
-      "msg": "the oracle key can no longer register Positions, report yield or price Advances"
-    },
-    {
-      "code": 6030,
-      "name": "NotOldWorld",
-      "msg": "this account is not of the retired world, so it cannot be retired"
-    },
-    {
-      "code": 6031,
-      "name": "GameProofInvalid",
-      "msg": "the Game program is not a live program of a loader the registry understands"
-    },
-    {
-      "code": 6032,
-      "name": "NotGameControl",
-      "msg": "the signer does not control the Game program"
-    },
-    {
-      "code": 6033,
-      "name": "StudioFeeTooHigh",
-      "msg": "a Studio Fee is at most 10%"
-    },
-    {
-      "code": 6034,
-      "name": "StudioRecipientReserved",
-      "msg": "the Studio recipient may not be the Pool, the Treasury or the platform recipient"
-    },
-    {
-      "code": 6035,
-      "name": "NoPendingChange",
-      "msg": "no change is waiting for this Game"
-    },
-    {
-      "code": 6036,
-      "name": "ChangeDelayNotElapsed",
-      "msg": "a change to a Game applies 7 days after it is proposed"
-    },
-    {
-      "code": 6037,
-      "name": "GameNotListed",
-      "msg": "this Game is not listed, or was upgraded since the admin approved it"
-    },
-    {
-      "code": 6038,
-      "name": "PairLimitReached",
-      "msg": "these two Accounts have started too many Matches together today"
-    },
-    {
-      "code": 6039,
-      "name": "PairWindowOpen",
-      "msg": "this pair counter is still inside its 24-hour window"
-    },
-    {
-      "code": 6040,
-      "name": "CodeHashMismatch",
-      "msg": "the program's executable does not hash to the value given"
-    },
-    {
-      "code": 6041,
-      "name": "CodeChanged",
-      "msg": "the program's executable differs from the approved build; the admin must approve it again"
-    },
-    {
-      "code": 6042,
-      "name": "ListingCurrent",
-      "msg": "the listing already matches the program's deploy slot"
-    },
-    {
-      "code": 6043,
-      "name": "NotListed",
-      "msg": "the Game is not listed, so there is nothing to refresh"
-    },
-    {
-      "code": 6044,
-      "name": "ProgramTooLarge",
-      "msg": "the program is too large to hash in one transaction"
+      "name": "Ledger",
+      "msg": "the ledger refused the operation"
     }
   ],
   "types": [
@@ -14513,6 +14870,82 @@
           {
             "name": "pending_at",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EvmPrizeIssued",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "season",
+            "type": "u32"
+          },
+          {
+            "name": "route",
+            "type": "pubkey"
+          },
+          {
+            "name": "prize_source",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u128"
+          },
+          {
+            "name": "gemas",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EvmPrizePayoutBegun",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "prize_source",
+            "type": "pubkey"
+          },
+          {
+            "name": "account",
+            "type": "pubkey"
+          },
+          {
+            "name": "gemas",
+            "type": "u64"
+          },
+          {
+            "name": "shares",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EvmPrizePayoutCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "prize_source",
+            "type": "pubkey"
+          },
+          {
+            "name": "account",
+            "type": "pubkey"
+          },
+          {
+            "name": "gemas",
+            "type": "u64"
+          },
+          {
+            "name": "shares",
+            "type": "u128"
           }
         ]
       }

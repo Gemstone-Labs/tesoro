@@ -31,6 +31,7 @@ use tesoro_core::{
 // The economy suites' helpers: reading baskets and books, and forging what a settled Match does.
 #[path = "../../../../programs/tesoro_core/tests/common/econ.rs"]
 #[allow(dead_code)]
+#[rustfmt::skip]
 mod econ;
 
 type Failed = litesvm::types::FailedTransactionMetadata;
@@ -1728,6 +1729,44 @@ impl Env {
         source
     }
 
+    fn close_batch(&mut self, batch_id: u64, receiver: Pubkey) -> std::result::Result<(), Failed> {
+        let payer = self.admin.insecure_clone();
+        let close = ix(
+            crate::ID,
+            crate::accounts::CloseBatch {
+                batch: self.batch_address(batch_id),
+                rent_receiver: receiver,
+            },
+            crate::instruction::CloseBatch {},
+        );
+        self.send(&[close], &payer, &[])
+    }
+
+    fn close_payout(
+        &mut self,
+        payout_id: u64,
+        receiver: Pubkey,
+    ) -> std::result::Result<(), Failed> {
+        let payer = self.admin.insecure_clone();
+        let close = ix(
+            crate::ID,
+            crate::accounts::ClosePayout {
+                payout: self.payout_address(payout_id),
+                rent_receiver: receiver,
+            },
+            crate::instruction::ClosePayout {},
+        );
+        self.send(&[close], &payer, &[])
+    }
+
+    fn lamports(&self, key: Pubkey) -> u64 {
+        self.svm.get_account(&s(key)).map(|acc| acc.lamports).unwrap_or(0)
+    }
+
+    fn exists(&self, key: Pubkey) -> bool {
+        self.svm.get_account(&s(key)).is_some_and(|acc| acc.lamports > 0)
+    }
+
     fn batch(&self, id: u64) -> Batch {
         self.load(self.batch_address(id))
     }
@@ -2416,6 +2455,110 @@ fn prize_gemas_of_another_routes_source_cannot_be_redeemed_through_this_route() 
     let err = env.redeem_prize(10).expect_err("another route's Source");
     assert!(custom_code(&err).is_some());
     let _ = owner;
+}
+
+#[test]
+fn a_done_batch_closes_to_its_payer_and_its_replays_stay_harmless() {
+    let mut env = Env::new();
+    let source = env.position_with_fee_counter(1, 0, 300);
+    let batch_id = env.open_batch(0).expect("open");
+    env.add_to_batch(batch_id, 1).expect("add");
+    let units = u128::from(env.batch(batch_id).entries()[0].units);
+    let payer = a(env.admin.pubkey());
+    let wrong = Pubkey::new_unique();
+    let batch_key = env.batch_address(batch_id);
+
+    // Not before the batch is Done: open, sealed and half-paid batches keep their record.
+    let err = env.close_batch(batch_id, payer).expect_err("open");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::BatchNotDone)));
+    env.seal_batch(batch_id).expect("seal");
+    env.close_batch(batch_id, payer).expect_err("sealed");
+    env.lz_receive(batch_result(batch_id, &[units / 2], 0, 0), 1).expect("half");
+    env.close_batch(batch_id, payer).expect_err("half paid");
+    env.lz_receive(batch_result(batch_id, &[units], 0, 0), 2).expect("all");
+    assert_eq!(env.batch(batch_id).state, BATCH_DONE);
+
+    // The rent goes to whoever paid it, to nobody else.
+    let rent = env.lamports(batch_key);
+    assert!(rent > 0);
+    let err = env.close_batch(batch_id, wrong).expect_err("someone else");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::WrongRentReceiver)));
+    let before = env.lamports(payer);
+    env.close_batch(batch_id, payer).expect("close");
+    assert!(!env.exists(batch_key), "the record is gone");
+    assert_eq!(
+        env.lamports(payer),
+        before + rent - 5_000,
+        "the rent is back (the payer also pays the fee)"
+    );
+
+    // The counter was debited once and stays debited; closing changed nothing else.
+    let counted = env.load::<SourceState>(source).inner.redeemed_units;
+
+    // A repeated or older acknowledgement for the closed id is consumed without effect, and the
+    // vault's escrow snapshot in it is still taken.
+    env.lz_receive(batch_result(batch_id, &[units], 0, 0), 3)
+        .expect("duplicate after close");
+    env.lz_receive(batch_result(batch_id, &[units / 2], 5, 7), 4)
+        .expect("older after close");
+    assert!(!env.exists(batch_key), "a late acknowledgement does not bring the record back");
+    assert_eq!(env.route_state().escrow_shares, 5);
+    assert_eq!(env.load::<SourceState>(source).inner.redeemed_units, counted);
+    env.send_batch(batch_id).expect_err("a closed batch is not sent");
+    env.close_batch(batch_id, payer).expect_err("closed once");
+
+    // An acknowledgement for an id never handed out still fails, and ids are never reused.
+    env.lz_receive(batch_result(batch_id + 1, &[1], 0, 0), 5)
+        .expect_err("not opened yet");
+    assert_eq!(env.open_batch(0).expect("next"), batch_id + 1);
+    assert!(!env.exists(batch_key));
+}
+
+#[test]
+fn a_prize_payout_closes_only_when_paid_or_refunded() {
+    let mut env = Env::new();
+    env.prize_to_owner(1, 60);
+    let owner = a(env.owner.pubkey());
+    let paid_id = env.redeem_prize(10).expect("redeem");
+    let rejected_id = env.redeem_prize(10).expect("redeem again");
+    let (paid_key, rejected_key) = (env.payout_address(paid_id), env.payout_address(rejected_id));
+    let shares = env.payout(paid_id).shares;
+
+    let err = env.close_payout(paid_id, owner).expect_err("pending");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::PayoutNotFinal)));
+    env.lz_receive(prize_result(paid_id, msg_codec::PRIZE_PAID, shares), 1)
+        .expect("paid");
+    env.lz_receive(prize_result(rejected_id, msg_codec::PRIZE_REJECTED, 0), 2)
+        .expect("rejected");
+    env.close_payout(rejected_id, owner)
+        .expect_err("rejected but not refunded: shares reserved");
+
+    let rent = env.lamports(paid_key);
+    env.close_payout(paid_id, Pubkey::new_unique()).expect_err("wrong receiver");
+    let before = env.lamports(owner);
+    env.close_payout(paid_id, owner).expect("close paid");
+    assert!(!env.exists(paid_key));
+    assert_eq!(env.lamports(owner), before + rent, "back to the holder who paid it");
+    // A repeated PAID or a contradicting REJECTED for the closed id changes nothing.
+    env.lz_receive(prize_result(paid_id, msg_codec::PRIZE_PAID, shares), 3)
+        .expect("dup");
+    env.lz_receive(prize_result(paid_id, msg_codec::PRIZE_REJECTED, 0), 4)
+        .expect("contradiction");
+    assert!(!env.exists(paid_key));
+    let r = env.route_state();
+    assert_eq!(r.paid_payout_shares, shares, "counted once");
+    env.refund_payout(paid_id).expect_err("nothing to refund");
+
+    env.refund_payout(rejected_id).expect("refund");
+    env.close_payout(rejected_id, owner).expect("close refunded");
+    assert!(!env.exists(rejected_key));
+    env.lz_receive(prize_result(rejected_id, msg_codec::PRIZE_PAID, shares), 5)
+        .expect("a late paid for a refunded, closed payout");
+    assert!(!env.exists(rejected_key));
+    assert_eq!(env.route_state().paid_payout_shares, shares);
+    assert_eq!(env.prize_gemas_of_owner(), 50, "60 - 10 paid out; the refunded 10 are back");
+    let next = env.redeem_prize(5).expect("redeem");
+    assert_eq!(next, rejected_id + 1, "ids move on");
 }
 
 #[test]

@@ -52,6 +52,7 @@ pub const MSG_BATCH_RESULT: u8 = 8;
 pub const MSG_PAY_PRIZE_RESULT: u8 = 9;
 
 /// What a cash-in batch pays (`CashInBatch.kind`, also the core fee class).
+#[cfg(test)]
 pub const KIND_PLATFORM: u8 = 0;
 pub const KIND_STUDIO: u8 = 1;
 pub const KIND_LEADERBOARD: u8 = 2;

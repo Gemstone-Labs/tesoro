@@ -201,6 +201,10 @@ pub mod tesoro_bridge {
         SendBatch::apply(&mut ctx, &params)
     }
 
+    pub fn close_batch(mut ctx: Context<CloseBatch>) -> Result<()> {
+        CloseBatch::apply(&mut ctx)
+    }
+
     // --- Prize escrow (Leaderboard prize on ETH/HYPE routes) -----------------------------------
 
     pub fn fund_season_prize_evm<'info>(
@@ -223,6 +227,10 @@ pub mod tesoro_bridge {
 
     pub fn refund_prize_payout(mut ctx: Context<RefundPrizePayout>) -> Result<()> {
         RefundPrizePayout::apply(&mut ctx)
+    }
+
+    pub fn close_payout(mut ctx: Context<ClosePayout>) -> Result<()> {
+        ClosePayout::apply(&mut ctx)
     }
 
     // --- Executor discovery ------------------------------------------------------------------

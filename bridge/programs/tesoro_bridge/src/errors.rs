@@ -40,4 +40,7 @@ pub enum BridgeError {
     PayoutNotPending,
     PayoutNotRejected,
     WrongRoute,
+    BatchNotDone,
+    PayoutNotFinal,
+    WrongRentReceiver,
 }
