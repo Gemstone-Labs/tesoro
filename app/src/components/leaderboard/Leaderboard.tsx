@@ -87,7 +87,7 @@ export function Leaderboard() {
   );
 }
 
-/** Loading: the page in outline (the pool banner, the season heading, the table with its real column heads), not a stack of bars. */
+/** Loading: the page in outline (the pool banner, the season heading, the season's rows), not a stack of bars. */
 function LoadingSkeleton() {
   return (
     <>
@@ -113,45 +113,28 @@ function LoadingSkeleton() {
         <header className="lb-sec-head lb-season-head">
           <span className="skel-line lb-skel-h" />
         </header>
-        <table className="lb-table lb-skel-table">
-          <thead>
-            <tr>
-              <th className="lb-c-rank">#</th>
-              <th>Player</th>
-              <th className="lb-c-num lb-c-opt">Wins</th>
-              <th className="lb-c-num">Points</th>
-              <th className="lb-c-num lb-c-opt">Share</th>
-              <th className="lb-c-num">Prize</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from({ length: 10 }, (_, i) => (
-              <tr key={i}>
-                <td className="lb-c-rank">
-                  <span className="skel-line" />
-                </td>
-                <td>
-                  <span className="lb-who">
-                    <span className="cut cut-btn avatar lb-avatar skel-av" />
-                    <span className="skel-line" style={{ width: `${[52, 44, 60, 48, 40][i % 5]}%` }} />
-                  </span>
-                </td>
-                <td className="lb-c-num lb-c-opt">
-                  <span className="skel-line" />
-                </td>
-                <td className="lb-c-num">
-                  <span className="skel-line" />
-                </td>
-                <td className="lb-c-num lb-c-opt">
-                  <span className="skel-line" />
-                </td>
-                <td className="lb-c-num">
-                  <span className="skel-line" />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <ol className="lb-rows lb-skel-rows">
+          {Array.from({ length: 6 }, (_, i) => (
+            <li key={i} className="cut cut-card lb-row">
+              <span className="lb-rank">
+                <span className="skel-line" />
+              </span>
+              <span className="lb-who">
+                <span className="cut cut-btn avatar lb-avatar skel-av" />
+                <span className="skel-line" style={{ width: `${[52, 44, 60, 48, 40][i % 5]}%` }} />
+              </span>
+              <span className="lb-num lb-wins">
+                <span className="skel-line" />
+              </span>
+              <span className="lb-num">
+                <span className="skel-line" />
+              </span>
+              <span className="lb-prize">
+                <span className="skel-line" />
+              </span>
+            </li>
+          ))}
+        </ol>
       </section>
     </>
   );
@@ -266,7 +249,7 @@ function readPayout(): boolean {
   }
 }
 
-/** This season's table, 15 ranks a page, under the Payout scale band (which the visitor can hide). */
+/** This season's ranks as cards, 15 a page, under the Payout scale band (which the visitor can hide). */
 function Season({ data, pool, me }: { data: LeaderboardView; pool: number; me: string | null }) {
   const rows = data.standings;
   // Mounted only once the leaderboard has loaded in the browser, so reading storage here cannot mismatch a server render.
@@ -320,38 +303,26 @@ function Season({ data, pool, me }: { data: LeaderboardView; pool: number; me: s
         </div>
       ) : (
         <>
-          <table className="lb-table">
-            <thead>
-              <tr>
-                <th className="lb-c-rank" scope="col"><span aria-hidden="true">#</span><span className="sr-only">Rank</span></th>
-                <th scope="col">Player</th>
-                <th className="lb-c-num lb-c-opt" scope="col">Wins</th>
-                <th className="lb-c-num" scope="col">Points</th>
-                <th className="lb-c-num lb-c-opt" scope="col">Share</th>
-                <th className="lb-c-num" scope="col">Prize</th>
-              </tr>
-            </thead>
-            {paid.length > 0 && (
-              <tbody>
-                <tr className="lb-group">
-                  <th colSpan={6} scope="colgroup">In the prizes</th>
-                </tr>
+          {paid.length > 0 && (
+            <div className="lb-group">
+              <h3 className="lb-group-h">In the prizes</h3>
+              <ol className="lb-rows">
                 {paid.map((r) => (
                   <Row key={r.account} r={r} pool={pool} me={me === r.account} />
                 ))}
-              </tbody>
-            )}
-            {chasing.length > 0 && (
-              <tbody>
-                <tr className="lb-group">
-                  <th colSpan={6} scope="colgroup">Chasing{line !== undefined && ` · ${line + 1} points gets you in`}</th>
-                </tr>
+              </ol>
+            </div>
+          )}
+          {chasing.length > 0 && (
+            <div className="lb-group">
+              <h3 className="lb-group-h">Chasing{line !== undefined && ` · ${line + 1} points gets you in`}</h3>
+              <ol className="lb-rows">
                 {chasing.map((r) => (
                   <Row key={r.account} r={r} pool={pool} me={me === r.account} />
                 ))}
-              </tbody>
-            )}
-          </table>
+              </ol>
+            </div>
+          )}
           {pages > 1 && <Pager page={p} pages={pages} total={rows.length} go={go} />}
         </>
       )}
@@ -361,35 +332,35 @@ function Season({ data, pool, me }: { data: LeaderboardView; pool: number; me: s
 
 function Row({ r, pool, me }: { r: LeaderboardRow; pool: number; me: boolean }) {
   const paid = r.rank <= PRIZE_PLACES;
+  const gemas = paid ? prize(pool, r.rank - 1) : 0;
   return (
-    <tr className={me ? "me" : undefined} aria-current={me ? "true" : undefined}>
-      <td className="lb-c-rank">{r.rank}</td>
-      <td>
-        <span className="lb-who">
-          <AccountLink account={r.account} decorative>
-            <span className="cut cut-btn avatar lb-avatar">
-              <PlayerAvatar account={r.account} size={32} />
-            </span>
-          </AccountLink>
-          <AccountLink account={r.account} className="lb-name" />
-          {me && <i className="lb-you">You</i>}
-        </span>
-      </td>
-      <td className="lb-c-num lb-c-opt">{r.wins}</td>
-      <td className="lb-c-num lb-c-pts">{r.points}</td>
-      <td className="lb-c-num lb-c-opt">{paid ? `${PRIZE_BPS[r.rank - 1] / 100}%` : "—"}</td>
-      <td className="lb-c-num">
-        {paid ? (
-          <span className="lb-prize">
-            <GemaMark size={14} />
-            <b>{fmtGemas(prize(pool, r.rank - 1))}</b>
-            <GemaUsd value={prize(pool, r.rank - 1)} />
+    <li className={`cut cut-card lb-row${paid ? " paid" : ""}${me ? " me" : ""}`} aria-current={me ? "true" : undefined}>
+      <span className="lb-rank" aria-label={`Rank ${r.rank}`}>{r.rank}</span>
+      <span className="lb-who">
+        <Person account={r.account} />
+        {me && <i className="lb-you">You</i>}
+      </span>
+      <span className="lb-num lb-wins">
+        <b>{r.wins}</b>
+        <small>{r.wins === 1 ? "win" : "wins"}</small>
+      </span>
+      <span className="lb-num">
+        <b>{r.points}</b>
+        <small>points</small>
+      </span>
+      {paid ? (
+        <span className="lb-prize lb-prize-stack">
+          <span className="lb-prize-line">
+            <GemaMark size={16} />
+            <b>{fmtGemas(gemas)}</b>
+            <GemaUsd value={gemas} />
           </span>
-        ) : (
-          <span className="lb-dim">—</span>
-        )}
-      </td>
-    </tr>
+          <small>{PRIZE_BPS[r.rank - 1] / 100}% of the pool</small>
+        </span>
+      ) : (
+        <span className="lb-prize lb-dim">—</span>
+      )}
+    </li>
   );
 }
 
@@ -470,39 +441,56 @@ function Last({ last, me, now }: { last: LastSeason; me: string | null; now: num
   return (
     <section className="lb-last" aria-labelledby="lb-last-h">
       <header className="lb-sec-head">
-        <h2 id="lb-last-h" className="h-section">Season {last.number} winners</h2>
+        <h2 id="lb-last-h" className="lb-last-h">Season {last.number} winners</h2>
         <span className="lb-last-pool">
-          Pool <GemaMark size={16} /> <b>{fmtGemas(last.poolGemas)}</b>
+          Pool <GemaMark size={14} /> <b>{fmtGemas(last.poolGemas)}</b> <GemaUsd value={last.poolGemas} />
         </span>
       </header>
       {last.winners.length === 0 ? (
         <p className="note">Nobody won a Match that season; the pool carried over.</p>
       ) : (
-        <ol className="lb-rows">
-          {last.winners.map((w) => {
-            const note = lastRankNote(w, last.payoutAt, now);
-            return (
-            <li key={w.account} className={`cut cut-card lb-row paid${me === w.account ? " me" : ""}`}>
-              <span className="lb-rank" aria-label={`Rank ${w.rank}`}>{w.rank}</span>
-              <span className="lb-who">
-                <Person account={w.account} />
-                {me === w.account && <i className="lb-you">You</i>}
-              </span>
-              <span className="lb-num">
-                <b>{w.points}</b>
-                <small>points</small>
-              </span>
-              <span className="lb-num lb-wins" />
-              <span className="lb-prize">
-                <GemaMark size={16} />
-                <b>{fmtGemas(w.gemas)}</b>
-                {note.kind === "voided" && <small>not paid</small>}
-                {note.kind === "paying" && <small>{note.payoutAt ? `paying out ${fmtPayoutDate(note.payoutAt)}` : "paying"}</small>}
-              </span>
-            </li>
-            );
-          })}
-        </ol>
+        <table className="lb-table">
+          <thead>
+            <tr>
+              <th className="lb-c-rank" scope="col"><span aria-hidden="true">#</span><span className="sr-only">Rank</span></th>
+              <th scope="col">Player</th>
+              <th className="lb-c-num" scope="col">Points</th>
+              <th className="lb-c-num" scope="col">Prize</th>
+            </tr>
+          </thead>
+          <tbody>
+            {last.winners.map((w) => {
+              const note = lastRankNote(w, last.payoutAt, now);
+              const mine = me === w.account;
+              return (
+                <tr key={w.account} className={mine ? "me" : undefined} aria-current={mine ? "true" : undefined}>
+                  <td className="lb-c-rank">{w.rank}</td>
+                  <td>
+                    <span className="lb-who">
+                      <AccountLink account={w.account} decorative>
+                        <span className="cut cut-btn avatar lb-avatar">
+                          <PlayerAvatar account={w.account} size={32} />
+                        </span>
+                      </AccountLink>
+                      <AccountLink account={w.account} className="lb-name" />
+                      {mine && <i className="lb-you">You</i>}
+                    </span>
+                  </td>
+                  <td className="lb-c-num lb-c-pts">{w.points}</td>
+                  <td className="lb-c-num">
+                    <span className="lb-prize">
+                      <GemaMark size={14} />
+                      <b>{fmtGemas(w.gemas)}</b>
+                      <GemaUsd value={w.gemas} />
+                      {note.kind === "voided" && <small>not paid</small>}
+                      {note.kind === "paying" && <small>{note.payoutAt ? `paying out ${fmtPayoutDate(note.payoutAt)}` : "paying"}</small>}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       )}
     </section>
   );
