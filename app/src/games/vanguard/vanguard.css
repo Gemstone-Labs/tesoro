@@ -10,7 +10,7 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 .vg-bar-tools { display: flex; gap: 6px; }
 
 /* plates: avatar with the turn ring, name, pieces left, turn and Two-Step */
-.vg-plate { width: min(100%, 640px); display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(12, 9, 6, 0.72); border: 1px solid rgba(201, 145, 58, 0.18); border-radius: 4px; }
+.vg-plate { width: min(100%, 640px); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 10px; background: rgba(12, 9, 6, 0.72); border: 1px solid rgba(201, 145, 58, 0.18); border-radius: 4px; }
 .vg-plate.active { border-color: rgba(232, 190, 110, 0.55); }
 .vg-ava { position: relative; width: 52px; height: 52px; display: grid; place-items: center; flex: none; }
 .vg-ava-img { width: 40px; height: 40px; border-radius: 50%; }
@@ -19,7 +19,7 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 .vg-ring-track { stroke: rgba(255, 255, 255, 0.08); }
 .vg-ring-arc { stroke: #e8be6e; transition: stroke 0.2s; }
 .vg-ava.low .vg-ring-arc { stroke: var(--warn, #f2a63b); }
-.vg-who { display: grid; line-height: 1.2; min-width: 0; }
+.vg-who { display: grid; line-height: 1.2; min-width: 0; flex: 1 1 7em; }
 .vg-who b { font: 800 18px/1 var(--f-display); text-transform: uppercase; letter-spacing: 0.02em; }
 .vg-who small { color: var(--fg-2, #9aa4ad); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vg-turn { margin-left: auto; font: 600 12px/1 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: #e8be6e; white-space: nowrap; }

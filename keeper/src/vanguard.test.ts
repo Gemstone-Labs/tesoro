@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PENDING, STATUS } from "../../app/src/games/vanguard/decode.ts";
-import { GRACE_SECS, SETUP_ASSIST_SECS, setupMove, vanguardStep, type BattleFacts } from "./vanguard.ts";
+import { CU } from "../../app/src/games/vanguard/chain.ts";
+import { RULES_VERSION } from "../../app/src/games/vanguard/rules.ts";
+import { GRACE_SECS, SETUP_ASSIST_SECS, setupMove, vanguardStep, windDown, type BattleFacts } from "./vanguard.ts";
 
 const DAY = 86_400;
 const battle = (status: number, over: Partial<BattleFacts> = {}): BattleFacts => ({
@@ -15,6 +17,7 @@ const battle = (status: number, over: Partial<BattleFacts> = {}): BattleFacts =>
   capDeadline: 3000,
   pendingKind: PENDING.none,
   pendingSlot: 0n,
+  rulesVersion: RULES_VERSION,
   ...over,
 });
 const tee = (b: BattleFacts, now: number, slot = 100n) => vanguardStep(b, "tee", now, 1000 + DAY, slot);
@@ -44,6 +47,14 @@ describe("Vanguard hygiene (rollup)", () => {
     assert.equal(tee(b, 1500, 100n).do, "wait");
     assert.equal(tee(battle(STATUS.live, { pendingKind: PENDING.timeout, pendingSlot: 5n }), 1500, 6n).do, "resolve");
     assert.equal(tee(battle(STATUS.live, { pendingKind: PENDING.cap, pendingSlot: 5n }), 1500, 6n).do, "resolve");
+  });
+
+  it("resolves a declared Blast, Rescue or pass like a move (a pass names no piece, so nothing else differs)", () => {
+    for (const pendingKind of [PENDING.blast, PENDING.rescue, PENDING.pass]) {
+      const b = battle(STATUS.live, { pendingKind, pendingSlot: 100n });
+      assert.equal(tee(b, 1500, 101n).do, "resolve", `kind ${pendingKind}`);
+      assert.equal(tee(b, 1500, 100n).do, "wait", `kind ${pendingKind} in its declare slot`);
+    }
   });
 
   it("resolves before it considers any clock", () => {
@@ -114,5 +125,55 @@ describe("setup that stalls", () => {
   it("leaves the first seconds to the Players' clients, and does nothing while a secret is missing", () => {
     assert.equal(setupMove({ canDeal: false, canRequest: true, now: 103, lastRequestAt: 0, setupStartedAt: 100 }), "wait");
     assert.equal(setupMove({ canDeal: false, canRequest: false, now: 500, lastRequestAt: 0, setupStartedAt: 100 }), "wait");
+  });
+});
+
+describe("the wind-down of Battles on older rules", () => {
+  const old = (status: number, over: Partial<BattleFacts> = {}) => battle(status, { rulesVersion: RULES_VERSION - 1, ...over });
+
+  it("claims a timeout at once on an older-rules Battle that is Created, in Setup or Live, whatever its clocks say", () => {
+    for (const status of [STATUS.created, STATUS.setup, STATUS.live]) {
+      const step = tee(old(status), 1000);
+      assert.equal(step.do, "claim_timeout", `status ${status}`);
+      assert.match(step.why, /rules version/);
+    }
+  });
+
+  it("does so even with a pending action, which the claim clears", () => {
+    for (const pendingKind of [PENDING.move, PENDING.timeout, PENDING.cap]) {
+      assert.equal(tee(old(STATUS.live, { pendingKind, pendingSlot: 1n }), 1000, 9n).do, "claim_timeout");
+      assert.equal(tee(old(STATUS.live, { pendingKind, pendingSlot: 1n }), 1000, 0n).do, "claim_timeout");
+    }
+  });
+
+  it("leaves current-rules Battles to their clocks", () => {
+    assert.equal(windDown(battle(STATUS.live)), false);
+    assert.equal(tee(battle(STATUS.live), 1000).do, "wait");
+    assert.equal(tee(battle(STATUS.setup), 1000).do, "assist_setup");
+  });
+
+  it("never touches an over Battle: it is closed and settled as usual, and the Match deadline still refunds first", () => {
+    assert.equal(windDown(old(STATUS.over)), false);
+    assert.equal(tee(old(STATUS.over, { permissioned: true }), 5).do, "close_match");
+    assert.equal(vanguardStep(old(STATUS.live), "tee", 1000 + DAY, 1000 + DAY, 0n).do, "refund");
+  });
+
+  it("closes what the claim cancelled, so the normal finalize refunds it", () => {
+    assert.equal(tee(old(STATUS.cancelled, { permissioned: true }), 5).do, "close_match");
+    assert.equal(tee(old(STATUS.cancelled, { permissioned: false }), 5).do, "close_unstarted");
+    assert.equal(vanguardStep(old(STATUS.cancelled), "base", 5, 10, 0n).do, "finalize");
+  });
+
+  it("leaves an older-rules Battle on the base layer to its start deadline and the Match refund", () => {
+    assert.equal(vanguardStep(old(STATUS.created), "base", 1301, 1000 + DAY, 0n).do, "finalize");
+    assert.equal(vanguardStep(old(STATUS.live), "base", 9, 10, 0n).do, "wait");
+  });
+});
+
+describe("compute budgets", () => {
+  // ticket vgp 06, LiteSVM on compiled SBF: the worst declare and resolve, 30% headroom
+  it("cover the program's worst measured declare and resolve with 30% headroom", () => {
+    assert.ok(CU.declare >= 5_090 * 1.3, `declare budget ${CU.declare}`);
+    assert.ok(CU.resolve >= 146_052 * 1.3, `resolve budget ${CU.resolve}`);
   });
 });

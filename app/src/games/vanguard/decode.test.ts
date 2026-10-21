@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import golden from "./fixtures/golden.json";
 import layout from "./chain-layout.json";
-import { PENDING, decodeArmy, decodeBattle, decodeRecord, eventsSince, rankOfCode } from "./decode";
+import { CODE_DUG_IN, CODE_SWITCHED, PENDING, changeOfCode, dealtRankOfCode, decodeArmy, decodeBattle, decodeRecord, eventsSince, rankOfCode } from "./decode";
 
 const bytes = (hex: string) => Uint8Array.from(Buffer.from(hex, "hex"));
 const hexOf = (b: Uint8Array | { toBuffer(): Buffer }) => Buffer.from("toBuffer" in b ? b.toBuffer() : b).toString("hex");
@@ -100,5 +100,114 @@ describe("rank codes", () => {
   it("maps the program's codes to the app's ranks", () => {
     expect([1, 2, 10, 11, 12].map(rankOfCode)).toEqual(["1", "2", "10", "B", "F"]);
     expect(rankOfCode(0)).toBeNull();
+  });
+});
+
+describe("rank codes of the powers", () => {
+  it("reads a dug-in Major as a Landmine and a switched General of the Army as a Spy, and remembers what they were", () => {
+    expect(rankOfCode(CODE_DUG_IN)).toBe("B");
+    expect(rankOfCode(CODE_SWITCHED)).toBe("1");
+    expect(dealtRankOfCode(CODE_DUG_IN)).toBe("7");
+    expect(dealtRankOfCode(CODE_SWITCHED)).toBe("10");
+    expect(dealtRankOfCode(5)).toBe("5");
+    expect([CODE_DUG_IN, CODE_SWITCHED, 7, 10, 0].map(changeOfCode)).toEqual(["dug", "spy", null, null, null]);
+    expect(CODE_DUG_IN).toBe(13);
+    expect(CODE_SWITCHED).toBe(14);
+  });
+});
+
+describe("the account tails the layout table does not name", () => {
+  const battleBytes = () => bytes(golden.battle.bytes).slice();
+  const armyBytes = () => bytes(golden.army.bytes).slice();
+
+  it("puts the sealing key in the last 32 bytes of the Army, after the move counter, and the end mask in the Battle's last 31", () => {
+    // the Rust offsets test pins Battle.reserved at 8 + 1481 and the Army is Borsh with `reserved: [u8; 32]` last
+    expect(layout.army.offsets.moves + 2).toBe(layout.army.size - 32);
+    expect(layout.battle.offsets.resolveSlackSecs + 1).toBe(layout.battle.size - 31);
+  });
+
+  it("decodes the Army key and keeps the ranks and counters it had", () => {
+    const raw = armyBytes();
+    for (let i = 0; i < 32; i++) raw[layout.army.size - 32 + i] = 0xa0 + i;
+    const a = decodeArmy(raw);
+    expect(Array.from(a.sealKey)).toEqual(Array.from({ length: 32 }, (_, i) => 0xa0 + i));
+    expect(a.moves).toBe(golden.army.expected.moves);
+    expect(hexOf(Uint8Array.from(a.ranks))).toBe(golden.army.expected.ranks);
+    expect(Array.from(decodeArmy(armyBytes()).sealKey)).toEqual(Array(32).fill(0)); // wiped: no key
+  });
+
+  it("decodes the private rank codes of a dug-in Major and a switched General in the owner's Army", () => {
+    const raw = armyBytes();
+    raw[layout.army.offsets.ranks + 3] = CODE_DUG_IN;
+    raw[layout.army.offsets.ranks + 12] = CODE_SWITCHED;
+    const a = decodeArmy(raw);
+    expect([a.ranks[3], a.ranks[12]]).toEqual([13, 14]);
+  });
+
+  it("decodes the end mask as a little-endian u64, bit = piece id, and it is zero before the Match ends", () => {
+    const raw = battleBytes();
+    expect(decodeBattle(raw).endMask).toBe(0n);
+    const at = layout.battle.size - 31;
+    const mask = (1n << 5n) | (1n << 41n) | (1n << 59n);
+    new DataView(raw.buffer, raw.byteOffset).setBigUint64(at, mask, true);
+    expect(decodeBattle(raw).endMask).toBe(mask);
+    // the 31st reserved byte the mask does not use stays out of it
+    raw[layout.battle.size - 1] = 0xff;
+    expect(decodeBattle(raw).endMask).toBe(mask);
+  });
+
+  it("names the new pending kinds", () => {
+    expect(PENDING).toMatchObject({ move: 1, timeout: 2, cap: 3, blast: 4, rescue: 5, pass: 6 });
+    const raw = battleBytes();
+    raw[layout.battle.offsets.pendingKind] = 6;
+    raw[layout.battle.offsets.pendingPiece] = 0x9c; // a pass's piece byte is the sealed Dig in slot
+    expect(decodeBattle(raw)).toMatchObject({ pendingKind: PENDING.pass, pendingPiece: 0x9c });
+  });
+});
+
+describe("the events of the powers (record kinds 8-12)", () => {
+  const rec = (kind: number, data: number[], seq = 40) => ({ seq, kind, data: [...data, ...Array(35 - data.length).fill(0)] });
+  const sq = (r: number, c: number) => ({ r, c });
+
+  it("decodes a Blast: the Engineer, its square and the (piece, rank) pairs it showed", () => {
+    expect(decodeRecord(rec(8, [33, 54, 3, 20, 7, 21, 11, 22, 12]))).toEqual({
+      seq: 40, kind: "blast", id: 33, at: sq(5, 4), shown: [{ id: 20, rank: "7" }, { id: 21, rank: "B" }, { id: 22, rank: "F" }],
+    });
+    expect(decodeRecord(rec(8, [33, 54, 0]))).toMatchObject({ kind: "blast", shown: [] });
+  });
+
+  it("decodes a Blast showing all eight neighbours", () => {
+    const pairs = Array.from({ length: 8 }, (_, i) => [10 + i, i + 1]).flat();
+    const e = decodeRecord(rec(8, [33, 54, 8, ...pairs]));
+    expect(e && e.kind === "blast" && e.shown.map((s) => s.rank)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
+  });
+
+  it("decodes a Rescue: the Colonel, the Truck and the two squares", () => {
+    expect(decodeRecord(rec(9, [44, 31, 12, 66]))).toEqual({ seq: 40, kind: "rescue", colonel: 44, truck: 31, from: sq(1, 2), to: sq(6, 6) });
+  });
+
+  it("decodes a face-up Major's Dig in, a pass, and a face-up General's switch", () => {
+    expect(decodeRecord(rec(10, [1, 37]))).toEqual({ seq: 40, kind: "dug_in", army: "it", id: 37 });
+    expect(decodeRecord(rec(10, [0, 37]))).toMatchObject({ army: "us" });
+    expect(decodeRecord(rec(11, [0]))).toEqual({ seq: 40, kind: "pass", army: "us" });
+    expect(decodeRecord(rec(11, [1]))).toEqual({ seq: 40, kind: "pass", army: "it" });
+    expect(decodeRecord(rec(12, [55]))).toEqual({ seq: 40, kind: "switched", id: 55 });
+  });
+
+  it("still decodes the old kinds, and a kind it does not know is skipped", () => {
+    expect(decodeRecord(rec(1, [41, 63, 53]))).toMatchObject({ kind: "move", id: 41 });
+    expect(decodeRecord(rec(6, [1, 1]))).toEqual({ seq: 40, kind: "turn", turn: "it", timedOut: true });
+    expect(decodeRecord(rec(2, [1, 2, 3, 4, 4, 255, 255]))).toMatchObject({ outcome: "defuse" }); // v5 history
+    expect(decodeRecord(rec(99, [1]))).toBeNull();
+  });
+
+  it("a ring holding the new kinds plays in order, and a refused action is a timed-out turn", () => {
+    const b = decodeBattle(bytes(golden.battle.bytes));
+    const ring = b.ring.map((r) => ({ ...r }));
+    const put = (seq: number, kind: number, data: number[]) => (ring[seq % 16] = rec(kind, data, seq));
+    put(19, 11, [0]);
+    put(20, 6, [1, 0]);
+    const events = eventsSince({ ...b, ring, eventSeq: 21 }, 19);
+    expect(events).toMatchObject({ kind: "events", events: [{ kind: "pass" }, { kind: "turn", turn: "it", timedOut: false }] });
   });
 });
