@@ -26,11 +26,11 @@ export function EntryPlan({ preview, staged = null, nowSec }: { preview: EntryPr
       {staged && (
         <div className="enter-plan-staged" role="status">
           <Meter value={staged.progress} label="Entry prepared" />
-          <span className="meta">
+          <p className="meta">
             Preparing your entry: <b className="tnum">{fmtGemas(Number(staged.staged))}</b> of <b className="tnum">{fmtGemas(Number(staged.target))}</b> Gemas ready.
             {staged.complete ? " Opening your Match…" : staged.stepsLeft > 0 ? ` About ${staged.stepsLeft} more ${staged.stepsLeft === 1 ? "step" : "steps"}.` : ""}
-          </span>
-          {!staged.complete && <span className="meta">Keep this page open. If you leave, your Gemas stay in your Account and the entry can be finished or cancelled later.</span>}
+          </p>
+          {!staged.complete && <p className="meta">Keep this page open. If you leave, your Gemas stay in your Account and the entry can be finished or cancelled later.</p>}
         </div>
       )}
       {preview && preview.steps.length > 0 && !staged && (
