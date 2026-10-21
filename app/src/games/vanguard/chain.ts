@@ -43,11 +43,13 @@ const EPHEMERAL_VAULT = new PublicKey("MagicVau1t9999999999999999999999999999999
 const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 
 /**
- * Compute limits. A declare (a move, a timeout claim) checks public state only: about 4k CU in LiteSVM. The resolve
- * does the rank rules, the fight and the turn pass: about 57k (a fight up to 57k, a lost turn the same). The 200k
- * default is enough for both; the limits leave room. Delegation is Hold'em's 600k; `finalize` pays out.
+ * Compute limits. A declare (a move, a timeout claim) checks public state only: about 4-6k CU in LiteSVM. The resolve
+ * does the rank rules, the fight, the turn pass and the "any action left?" scan over every shape a rank could make
+ * (rules version 6): 135-145k in LiteSVM on compiled SBF whatever the board (a lost turn the same; endings that skip
+ * the scan are cheaper). 200k leaves 30% over the worst reading (see ticket vgp 05). Delegation is Hold'em's 600k;
+ * `finalize` pays out.
  */
-export const CU = { declare: 40_000, resolve: 150_000, delegate: 600_000, finalize: 400_000 } as const;
+export const CU = { declare: 40_000, resolve: 200_000, delegate: 600_000, finalize: 400_000 } as const;
 
 const le64 = (n: bigint | number) => new anchor.BN(n.toString()).toArrayLike(Buffer, "le", 8);
 

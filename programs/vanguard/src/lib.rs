@@ -14,7 +14,7 @@ pub mod engine;
 pub mod state;
 
 use anchor_lang::{prelude::*, solana_program::hash::hashv, system_program};
-use engine::{Army as Side, Events, Refusal, PIECE_SLOTS};
+use engine::{Army as Side, Events, Refusal};
 use ephemeral_rollups_sdk::{
     access_control::{
         instructions::{CloseEphemeralPermissionCpi, CreateEphemeralPermissionCpi},
@@ -485,7 +485,7 @@ pub mod vanguard {
         battle.us_seat = drawn.us_seat;
         battle.deal_slot = Clock::get()?.slot;
         battle.cap_deadline = game.cap_at;
-        battle.absorb(&game, &[0; PIECE_SLOTS]);
+        battle.absorb(&game);
         battle.status = STATUS_LIVE;
         battle.started_at = now;
         for (seat, army) in [&mut ctx.accounts.army_0, &mut ctx.accounts.army_1]
@@ -619,7 +619,7 @@ pub mod vanguard {
             |g, out| {
                 let at = g.counted(declared, now);
                 match kind {
-                    PENDING_MOVE => g.resolve_move(piece, to, at, out),
+                    PENDING_MOVE => g.resolve_move(piece, to, false, at, out),
                     PENDING_CAP => g.resolve_timeout(engine::TimeoutClass::Cap, at, out),
                     _ => g.resolve_timeout(engine::TimeoutClass::Pass, at, out),
                 }
@@ -855,13 +855,9 @@ fn run(
     f: impl FnOnce(&mut engine::Game, &mut Events),
 ) -> Result<()> {
     let mut g = battle.game([&*army_0, &*army_1], secret)?;
-    let mut before = [0u8; PIECE_SLOTS];
-    for (slot, p) in before.iter_mut().zip(g.pieces.iter()) {
-        *slot = p.rank;
-    }
     let mut out = Events::new();
     f(&mut g, &mut out);
-    battle.absorb(&g, &before);
+    battle.absorb(&g);
     battle.push_events(&out);
     army_0.absorb(&g);
     army_1.absorb(&g);

@@ -614,7 +614,7 @@ impl Env {
         let g = Game::start(layout, Side::Us, 99, 12_345, now, CHAIN_CLOCK).expect("layout");
         self.patch_battle(|b| {
             b.us_seat = us_seat;
-            b.absorb(&g, &[0; PIECE_SLOTS]);
+            b.absorb(&g);
             b.status = vanguard::STATUS_LIVE;
             b.permissioned = 1;
             b.started_at = now;
@@ -1589,12 +1589,12 @@ fn refusals_are_generic_and_change_nothing() {
     // An empty slot.
     let err = env.mv(0, id_of(80), 70).unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::IllegalMove));
-    // Onto my own piece, into a wadi, off the board, diagonally: public geometry, refused when declared.
+    // Onto my own piece, into a wadi, off the board, off every line a piece could walk: public geometry, refused when declared.
     for (piece, to) in [
         (id_of(95), 96),
         (id_of(70), 42),
         (id_of(70), 100),
-        (id_of(95), 84),
+        (id_of(95), 87),
     ] {
         let err = env.mv(0, piece, to).unwrap_err();
         assert_eq!(
@@ -2458,7 +2458,8 @@ fn first_step_cu(rank: u8, others: u8, fuel: u8) -> (u64, u64) {
 #[test]
 fn a_move_costs_the_same_compute_whatever_rank_moves() {
     let mut readings = vec![];
-    for rank in [SPY, RECON, ENGINEER, 4, 5, 6, 7, 8, 9, GENERAL_OF_THE_ARMY] {
+    // (rank 4, the Sergeant, no longer walks straight; its diagonal step is measured in the version 6 table)
+    for rank in [SPY, RECON, ENGINEER, 5, 6, 7, 8, 9, GENERAL_OF_THE_ARMY] {
         for others in [BOMB, ENGINEER, 5] {
             readings.push((
                 format!("rank {rank} others {others}"),
@@ -2633,7 +2634,7 @@ fn a_fight_costs_what_its_published_outcome_costs_and_no_more() {
         (env.battle().ring[0].data[4], env.declare_cu, env.resolve_cu)
     };
     type Class = (&'static str, engine::Outcome, Vec<(u8, u8)>);
-    let classes: [Class; 6] = [
+    let classes: [Class; 5] = [
         (
             "win",
             engine::Outcome::Win,
@@ -2641,7 +2642,7 @@ fn a_fight_costs_what_its_published_outcome_costs_and_no_more() {
                 (10, 9),
                 (9, 8),
                 (5, 3),
-                (4, 2),
+                (6, 2),
                 (SPY, GENERAL_OF_THE_ARMY),
                 (3, 1),
                 (8, 5),
@@ -2650,7 +2651,7 @@ fn a_fight_costs_what_its_published_outcome_costs_and_no_more() {
         (
             "lose",
             engine::Outcome::Lose,
-            vec![(3, 7), (1, 9), (2, 10), (4, 8), (SPY, 5), (5, 6)],
+            vec![(3, 7), (1, 9), (2, 10), (6, 8), (SPY, 5), (5, 6)],
         ),
         (
             "tie",
@@ -2666,13 +2667,13 @@ fn a_fight_costs_what_its_published_outcome_costs_and_no_more() {
                 (SPY, BOMB),
                 (RECON, BOMB),
                 (TRUCK, BOMB),
+                (ENGINEER, BOMB),
             ],
         ),
-        ("defuse", engine::Outcome::Defuse, vec![(ENGINEER, BOMB)]),
         (
             "truck",
             engine::Outcome::Truck,
-            vec![(10, TRUCK), (SPY, TRUCK), (RECON, TRUCK), (4, TRUCK)],
+            vec![(10, TRUCK), (SPY, TRUCK), (RECON, TRUCK), (6, TRUCK)],
         ),
     ];
     let mut declares = vec![];
@@ -3335,4 +3336,213 @@ fn the_storm_waits_for_the_turn_that_ends_it_not_for_the_first_step_of_a_two_ste
     assert_eq!((env.battle().storm_done, storm_events(&env)), (0, 0));
     env.mv(0, id_of(95), 85).expect("second step");
     assert_eq!((env.battle().storm_done, storm_events(&env)), (1, 1));
+}
+
+// --- Rules version 6: compute of whole `resolve` instructions ------------------------------------------
+
+/// Move a staged piece (given by its start square) to another square, as if it had walked there.
+fn tele(env: &mut Env, start_sq: u8, to: u8) {
+    let d = id_of(start_sq) as usize;
+    env.patch_battle(|b| {
+        b.sq[d] = to;
+        b.trail[d] = [to, 0, 0, 0, 0, 0];
+        b.trail_len[d] = 1;
+    });
+}
+
+/// Compute of the whole `resolve` instruction for the movement rules of version 6 (run with `--nocapture`): dense and
+/// sparse boards, the longest Sergeant run, a Lieutenant jump that attacks, a General crossing a wadi, a Two-Step
+/// continuation, a storm turn and each ending. The client budget for `resolve` is `chain.ts` `CU.resolve`.
+#[test]
+fn compute_of_resolving_moves_under_the_new_rules() {
+    const BUDGET: u64 = 200_000;
+    let rows: std::cell::RefCell<Vec<(String, u64, u64)>> = Default::default();
+    // 1: a staged board, `setup`, then the US moves piece `from` (a start square) to `to`; returns the Env for checks.
+    let play =
+        |name: &str, layout: Vec<LayoutPiece>, setup: &dyn Fn(&mut Env), from: u8, to: u8| -> Env {
+            let mut env = ready();
+            env.start_in_rollup(1);
+            env.stage(&layout, 0);
+            setup(&mut env);
+            env.set_time(T0 + 2);
+            let before = env.battle().moves;
+            env.mv(0, id_of(from), to).expect(name);
+            assert_eq!(env.battle().moves, before + 1, "{name}: the move was legal");
+            rows.borrow_mut()
+                .push((name.to_string(), env.declare_cu, env.resolve_cu));
+            env
+        };
+    let none: &dyn Fn(&mut Env) = &|_| {};
+    // sparse and dense
+    play("sparse board, one step", step_layout(5, BOMB), none, 70, 60);
+    // the Sergeant's longest run, and one that ends in an attack
+    let mut serg = vec![lp(Side::Us, 4, 90), lp(Side::Us, GENERAL_OF_THE_ARMY, 95)];
+    serg.extend(italy());
+    play(
+        "Sergeant runs nine squares diagonally",
+        serg.clone(),
+        none,
+        90,
+        9,
+    );
+    let mut serg_attack = serg.clone();
+    serg_attack.push(lp(Side::It, 3, 18));
+    play(
+        "Sergeant runs eight squares and attacks",
+        serg_attack,
+        none,
+        90,
+        18,
+    );
+    // a Lieutenant jumps an enemy and attacks the piece behind it
+    let mut jump = vec![
+        lp(Side::Us, 5, 70),
+        lp(Side::Us, GENERAL_OF_THE_ARMY, 95),
+        lp(Side::It, SPY, 20),
+        lp(Side::It, 5, 21),
+    ];
+    jump.extend(italy());
+    play(
+        "Lieutenant jumps a Spy and attacks a 5",
+        jump,
+        &|env| {
+            tele(env, 20, 60);
+            tele(env, 21, 50);
+        },
+        70,
+        50,
+    );
+    // a General crosses a wadi
+    let mut cross = vec![lp(Side::Us, 9, 72), lp(Side::Us, GENERAL_OF_THE_ARMY, 95)];
+    cross.extend(italy());
+    play(
+        "General crosses a wadi",
+        cross,
+        &|env| tele(env, 72, 32),
+        72,
+        62,
+    );
+    // a Two-Step Turn: the first step continues the turn (a second step exists), the second ends it
+    {
+        let mut env = ready();
+        env.start_in_rollup(1);
+        env.stage(&step_layout(5, BOMB), 0);
+        env.set_time(T0 + 2);
+        env.patch_battle(|b| b.two_step[0] = 1);
+        env.two_step(0).expect("spend it");
+        env.mv(0, id_of(70), 60).expect("first step");
+        rows.borrow_mut().push((
+            "Two-Step Turn, first step (turn continues)".into(),
+            env.declare_cu,
+            env.resolve_cu,
+        ));
+        env.mv(0, id_of(95), 85).expect("second step");
+        rows.borrow_mut().push((
+            "Two-Step Turn, second step (turn ends)".into(),
+            env.declare_cu,
+            env.resolve_cu,
+        ));
+    }
+    // endings
+    let raid = truck_raid_layout();
+    play("ends: the Truck is taken", raid.clone(), none, 70, 20);
+    let mut cap = step_layout(5, BOMB);
+    cap.push(lp(Side::It, 3, 17));
+    let env = play(
+        "ends: the 200th move (cap)",
+        cap,
+        &|env| env.patch_battle(|b| b.moves = 199),
+        70,
+        60,
+    );
+    assert_eq!(env.battle().reason, vanguard::reason_code(EndReason::Cap));
+    let stuck = vec![
+        lp(Side::Us, RECON, 70),
+        lp(Side::Us, GENERAL_OF_THE_ARMY, 95),
+        lp(Side::It, BOMB, 5),
+        lp(Side::It, BOMB, 6),
+    ];
+    let env = play(
+        "ends: Italy has no action left (stuck)",
+        stuck,
+        none,
+        70,
+        60,
+    );
+    assert_eq!(env.battle().reason, vanguard::reason_code(EndReason::Stuck));
+    // a third missed turn, and the time cap, through claim_timeout
+    {
+        let mut env = ready();
+        env.start_in_rollup(1);
+        env.stage(&step_layout(5, BOMB), 0);
+        env.patch_battle(|b| b.timeouts = [2, 0]);
+        env.set_time(env.battle().deadline + 1);
+        let caller = env.oracle.insecure_clone();
+        env.claim_timeout(&caller).expect("timeout");
+        assert_eq!(
+            env.battle().reason,
+            vanguard::reason_code(EndReason::Timeouts)
+        );
+        rows.borrow_mut().push((
+            "ends: the third missed turn".into(),
+            env.declare_cu,
+            env.resolve_cu,
+        ));
+        let mut env = ready();
+        env.start_in_rollup(1);
+        env.stage(&step_layout(5, BOMB), 0);
+        env.set_time(env.battle().cap_deadline + 1);
+        let caller = env.oracle.insecure_clone();
+        env.claim_timeout(&caller).expect("cap");
+        assert_eq!(env.battle().reason, vanguard::reason_code(EndReason::Cap));
+        rows.borrow_mut()
+            .push(("ends: the time cap".into(), env.declare_cu, env.resolve_cu));
+    }
+    // dense random boards (the first move of a dealt Match), plain and with the storm on that very turn
+    for (seed, storm) in [
+        (1u8, false),
+        (2, false),
+        (3, false),
+        (4, false),
+        (5, true),
+        (6, true),
+        (7, true),
+    ] {
+        let mut env = ready();
+        env.start_in_rollup(seed);
+        env.deal().expect("deal");
+        if storm {
+            env.patch_secret(|v| v.storm_at = 1);
+        }
+        let (piece, to) = legal_moves(&env)[0];
+        env.set_time(env.now + 1);
+        let seat = if env.battle().side_of_seat(0) == Some(Side::Us) {
+            0
+        } else {
+            1
+        };
+        env.mv(seat, piece, to).expect("move");
+        let stormed = env.battle().storm_done != 0;
+        assert_eq!(stormed, storm, "seed {seed}");
+        rows.borrow_mut().push((
+            format!(
+                "dense dealt board (seed {seed}){}",
+                if storm { ", storm turn" } else { "" }
+            ),
+            env.declare_cu,
+            env.resolve_cu,
+        ));
+    }
+    let rows = rows.into_inner();
+    println!("\nCU of whole instructions, rules version 6 (client budget: declare 40,000, resolve {BUDGET})");
+    for (name, declare, resolve) in &rows {
+        println!("  {name:<52} declare {declare:>6}   resolve {resolve:>7}");
+    }
+    let worst = rows.iter().map(|r| r.2).max().unwrap();
+    println!("  worst resolve {worst}");
+    assert!(worst < 600_000, "above 600k: back to the orchestrator");
+    assert!(
+        rows.iter().all(|r| r.1 <= 40_000 && r.2 <= BUDGET),
+        "a reading is over the client budget"
+    );
 }

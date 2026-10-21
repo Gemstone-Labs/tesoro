@@ -146,6 +146,34 @@ fn expected_event(e: &Event) -> Value {
                 .collect();
             json!({ "kind": "storm", "axis": if col { "col" } else { "row" }, "index": index, "dir": dir, "shifts": shifts })
         }
+        // The powers' events (rules version 6): their record kinds are pinned in `state::changes`; the app's decoders
+        // learn them with the chain client, so they are not in the golden list yet.
+        Event::Blast { id, at, n, shown } => {
+            let rank = |r: u8| match r {
+                11 => "B".to_string(),
+                12 => "F".to_string(),
+                n => n.to_string(),
+            };
+            let shown: Vec<Value> = shown
+                .iter()
+                .take(n as usize)
+                .map(|(id, r)| json!({ "id": id, "rank": rank(*r) }))
+                .collect();
+            json!({ "kind": "blast", "id": id, "at": square(at), "shown": shown })
+        }
+        Event::Rescue {
+            colonel,
+            truck,
+            from,
+            to,
+        } => {
+            json!({ "kind": "rescue", "colonel": colonel, "truck": truck, "from": square(from), "to": square(to) })
+        }
+        Event::DugIn { army, id } => {
+            json!({ "kind": "dug_in", "army": army_name(army), "id": id })
+        }
+        Event::Pass { army } => json!({ "kind": "pass", "army": army_name(army) }),
+        Event::Switched { id } => json!({ "kind": "switched", "id": id }),
         Event::Turn { turn, timed_out } => {
             json!({ "kind": "turn", "turn": army_name(turn), "timedOut": timed_out })
         }
