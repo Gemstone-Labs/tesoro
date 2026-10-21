@@ -116,10 +116,13 @@ pub struct GameRecord {
     /// The deploy slot the admin approved. A program upgraded since has a different slot and
     /// counts as unlisted until the admin approves again.
     pub approved_slot: u64,
+    /// SHA-256 of the approved build's executable bytes without trailing zeros (`registry::code_hash`).
+    /// A moved slot keeps the listing only through `refresh_listing`, which proves the bytes are these.
+    pub approved_hash: [u8; 32],
 }
 
 impl GameRecord {
-    pub const SPACE: usize = 8 + 1 + 32 + 32 + 2 + 32 + 8 + 32 + 32 + 2 + 32 + 8 + 8;
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 2 + 32 + 8 + 32 + 32 + 2 + 32 + 8 + 8 + 32;
 
     /// Listed right now, for the deploy slot the loader reports (`None`: it could not be read).
     pub fn is_listed(&self, now: i64, deploy_slot: Option<u64>) -> bool {

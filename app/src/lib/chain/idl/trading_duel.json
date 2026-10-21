@@ -2636,6 +2636,19 @@
               "counts as unlisted until the admin approves again."
             ],
             "type": "u64"
+          },
+          {
+            "name": "approved_hash",
+            "docs": [
+              "SHA-256 of the approved build's executable bytes without trailing zeros (`registry::code_hash`).",
+              "A moved slot keeps the listing only through `refresh_listing`, which proves the bytes are these."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }

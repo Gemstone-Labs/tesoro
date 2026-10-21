@@ -4,6 +4,7 @@
  * `keeper/scripts/launch-admin.ts` prints the plan and, only with `--execute`, sends the steps one single key signs.
  */
 import anchor, { type Idl } from "@coral-xyz/anchor";
+import { createHash } from "node:crypto";
 import { PublicKey, TransactionInstruction, type AccountMeta } from "@solana/web3.js";
 import coreIdl from "../../app/src/lib/chain/idl/tesoro_core.json" with { type: "json" };
 import { PROGRAMS, type ProgramName } from "./mainnet-keys.ts";
@@ -89,6 +90,17 @@ export const UPGRADEABLE_LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111
 export const programDataPda = (game: PublicKey) => pda(UPGRADEABLE_LOADER, [game.toBuffer()]);
 
 /**
+ * The hash `list_game` checks on chain: SHA-256 of a program's executable bytes without trailing zeros, from its ProgramData
+ * account data (45-byte header first). `ExtendProgram` appends zeros, so they are not part of the build.
+ */
+export function codeHash(programData: Uint8Array): string {
+  const code = Buffer.from(programData).subarray(45);
+  let end = code.length;
+  while (end > 0 && code[end - 1] === 0) end--;
+  return createHash("sha256").update(code.subarray(0, end)).digest("hex");
+}
+
+/**
  * One tesoro_core instruction: account order, signer and writable flags come from the IDL; `accounts` names the ones the
  * IDL cannot derive (signers, recipients, mints), PDAs and fixed addresses are derived. `args` are Borsh-encoded in IDL order.
  */
@@ -134,9 +146,9 @@ export interface GameInput {
   studioBps: number;
   /** The Game program's upgrade authority, who alone may register it (default: the admin). */
   control?: PublicKey;
-  /** Deploy slot the admin approves (`solana program show`). Without it the Game is registered but not listed. */
-  approvedSlot?: number;
-  /** Unix time the listing ends. Needed with `approvedSlot`. */
+  /** Hex SHA-256 of the build the admin approves (`codeHash` below, or `register-game.ts --hash`). Without it the Game is registered but not listed. */
+  approvedHash?: string;
+  /** Unix time the listing ends. Needed with `approvedHash`. */
   listedUntil?: number;
 }
 
@@ -348,15 +360,20 @@ export function buildLaunchPlan(input: LaunchInput): PlanStep[] {
         ixs: [game],
         check: `Game record ["game", ${gameId.toBase58()}] exists with this fee and recipient`,
       });
-      if (g.approvedSlot !== undefined) {
+      if (g.approvedHash !== undefined) {
         if (!g.listedUntil) throw new Error(`${g.name}: a listing needs a listed-until time`);
+        if (!/^[0-9a-f]{64}$/.test(g.approvedHash)) throw new Error(`${g.name}: the approved hash is 64 hex characters`);
         add({
           name: "games",
-          title: `tesoro_core: list_game ${g.name} (until ${new Date(g.listedUntil * 1000).toISOString().slice(0, 10)}, slot ${g.approvedSlot})`,
+          title: `tesoro_core: list_game ${g.name} (until ${new Date(g.listedUntil * 1000).toISOString().slice(0, 10)}, build ${g.approvedHash.slice(0, 12)})`,
           ...adminSigns(),
-          why: `Lists the Game for deploy slot ${g.approvedSlot}. If its program is upgraded the slot changes and the Game is unlisted (no Points, no backed Matches) until the admin lists it again. Confirm the slot with \`solana program show ${gameId.toBase58()}\` after the final deploy.`,
-          ixs: [coreIx(core, "list_game", { admin, game_record: gameRecordPda(core, gameId) }, { listed_until: new BN(g.listedUntil), approved_slot: new BN(g.approvedSlot) })],
-          check: `Game record listed_until ${g.listedUntil}, approved_slot ${g.approvedSlot}`,
+          why:
+            `Lists the Game for the build whose executable hashes to ${g.approvedHash}; tesoro_core hashes the deployed program and refuses if it differs, then records its deploy slot. ` +
+            "If the program is upgraded the Game is unlisted until the admin approves the new build; if only the slot moves (ExtendProgram) anyone can call refresh_listing to restore it.",
+          ixs: [
+            coreIx(core, "list_game", { admin, game_record: gameRecordPda(core, gameId), game_program: gameId, program_data: programDataPda(gameId) }, { listed_until: new BN(g.listedUntil), approved_hash: [...Buffer.from(g.approvedHash, "hex")] }),
+          ],
+          check: `Game record listed_until ${g.listedUntil}, approved_hash ${g.approvedHash}`,
         });
       }
     }

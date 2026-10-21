@@ -70,9 +70,20 @@ pub mod tesoro_core {
         instructions::registry::cancel_game_change(ctx)
     }
 
-    /// Admin: lists a Game until a time for an approved deploy slot (or unlists it with 0).
-    pub fn list_game(ctx: Context<ListGame>, listed_until: i64, approved_slot: u64) -> Result<()> {
-        instructions::registry::list_game(ctx, listed_until, approved_slot)
+    /// Admin: lists a Game until a time for the build that hashes to `approved_hash` (or unlists
+    /// it with 0).
+    pub fn list_game(
+        ctx: Context<ListGame>,
+        listed_until: i64,
+        approved_hash: [u8; 32],
+    ) -> Result<()> {
+        instructions::registry::list_game(ctx, listed_until, approved_hash)
+    }
+
+    /// Anyone: moves the approved slot forward when the program's bytes still hash to the
+    /// approved build.
+    pub fn refresh_listing(ctx: Context<RefreshListing>) -> Result<()> {
+        instructions::registry::refresh_listing(ctx)
     }
 
     /// Extends a Config that predates the Leaderboard, creates the pool Account and sets the fee.

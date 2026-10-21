@@ -13,10 +13,12 @@ use crate::util::now;
 use anchor_lang::prelude::*;
 
 /// Reads the program's deployment from the two loader accounts.
-pub(crate) fn read_deploy(
+/// Runs `f` on views of the two loader accounts.
+fn with_views<T>(
     game: &AccountInfo,
     program_data: &AccountInfo,
-) -> std::result::Result<Deploy, ProofError> {
+    f: impl FnOnce(&View, &View) -> std::result::Result<T, ProofError>,
+) -> std::result::Result<T, ProofError> {
     let game_data = game
         .try_borrow_data()
         .map_err(|_| ProofError::NotAProgram)?;
@@ -35,7 +37,29 @@ pub(crate) fn read_deploy(
         executable: program_data.executable,
         data: &pd_data,
     };
-    registry::read_deploy(game.key, &program, Some(&pd))
+    f(&program, &pd)
+}
+
+pub(crate) fn read_deploy(
+    game: &AccountInfo,
+    program_data: &AccountInfo,
+) -> std::result::Result<Deploy, ProofError> {
+    with_views(game, program_data, |program, pd| {
+        registry::read_deploy(game.key, program, Some(pd))
+    })
+}
+
+/// The loader state and the hash of the executable, read together.
+fn read_build(game: &AccountInfo, program_data: &AccountInfo) -> Result<(Deploy, [u8; 32])> {
+    with_views(game, program_data, |program, pd| {
+        let deploy = registry::read_deploy(game.key, program, Some(pd))?;
+        let hash = registry::code_hash(program, pd, &deploy)?;
+        Ok((deploy, hash))
+    })
+    .map_err(|e| match e {
+        ProofError::TooLarge => error!(TesoroError::ProgramTooLarge),
+        _ => error!(TesoroError::GameProofInvalid),
+    })
 }
 
 /// The signer must be whoever controls the program right now.
@@ -133,6 +157,7 @@ pub(crate) fn register_game(
     r.pending_studio_recipient = Pubkey::default();
     r.listed_until = 0;
     r.approved_slot = 0;
+    r.approved_hash = [0; 32];
     Ok(())
 }
 
@@ -295,17 +320,65 @@ pub struct ListGame<'info> {
         bump = game_record.bump
     )]
     pub game_record: Account<'info, GameRecord>,
+    /// CHECK: the Game program; its loader state is read.
+    #[account(address = game_record.game)]
+    pub game_program: UncheckedAccount<'info>,
+    /// CHECK: the program's ProgramData; its address is derived and its state tag checked.
+    pub program_data: UncheckedAccount<'info>,
 }
 
-/// Admin: lists a Game until `listed_until` for the deploy slot it approved, or unlists it
-/// (`listed_until` 0). Applies to Matches opened after it.
+/// Admin: lists a Game until `listed_until` for the build it hashed off-chain, or unlists it
+/// (`listed_until` 0, the program accounts are then not read). The program must hash to
+/// `approved_hash` right now; its current deploy slot becomes the approved slot.
 pub(crate) fn list_game(
     ctx: Context<ListGame>,
     listed_until: i64,
-    approved_slot: u64,
+    approved_hash: [u8; 32],
 ) -> Result<()> {
+    if listed_until <= 0 {
+        let r = &mut ctx.accounts.game_record;
+        r.listed_until = 0;
+        return Ok(());
+    }
+    let (deploy, hash) = read_build(
+        &ctx.accounts.game_program.to_account_info(),
+        &ctx.accounts.program_data.to_account_info(),
+    )?;
+    require!(hash == approved_hash, TesoroError::CodeHashMismatch);
     let r = &mut ctx.accounts.game_record;
     r.listed_until = listed_until;
-    r.approved_slot = approved_slot;
+    r.approved_slot = deploy.slot;
+    r.approved_hash = approved_hash;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct RefreshListing<'info> {
+    #[account(
+        mut,
+        seeds = [GAME_SEED, game_record.game.as_ref()],
+        bump = game_record.bump
+    )]
+    pub game_record: Account<'info, GameRecord>,
+    /// CHECK: the Game program; its loader state is read.
+    #[account(address = game_record.game)]
+    pub game_program: UncheckedAccount<'info>,
+    /// CHECK: the program's ProgramData; its address is derived and its state tag checked.
+    pub program_data: UncheckedAccount<'info>,
+}
+
+/// Anyone: after the deploy slot moved without the code changing (the loader's `ExtendProgram`
+/// moves it and appends zeros), hashes the program again and, if it is the approved build, moves
+/// the approved slot forward. A different build stays unlisted until the admin approves it.
+pub(crate) fn refresh_listing(ctx: Context<RefreshListing>) -> Result<()> {
+    let r = &ctx.accounts.game_record;
+    require!(r.listed_until > now()?, TesoroError::NotListed);
+    let (deploy, hash) = read_build(
+        &ctx.accounts.game_program.to_account_info(),
+        &ctx.accounts.program_data.to_account_info(),
+    )?;
+    require!(deploy.slot != r.approved_slot, TesoroError::ListingCurrent);
+    require!(hash == r.approved_hash, TesoroError::CodeChanged);
+    ctx.accounts.game_record.approved_slot = deploy.slot;
     Ok(())
 }

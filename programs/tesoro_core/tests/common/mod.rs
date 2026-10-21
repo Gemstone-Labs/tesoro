@@ -114,6 +114,17 @@ pub fn forge_upgradeable_program(svm: &mut LiteSVM, program: Pk, authority: Opti
 
 /// Rewrites the ProgramData of a forged program (an upgrade or an authority change).
 pub fn set_program_data(svm: &mut LiteSVM, program: Pk, authority: Option<Pk>, slot: u64) {
+    set_program_code(svm, program, authority, slot, &[0xAB; 64]);
+}
+
+/// ProgramData with these executable bytes after the 45-byte header.
+pub fn set_program_code(
+    svm: &mut LiteSVM,
+    program: Pk,
+    authority: Option<Pk>,
+    slot: u64,
+    code: &[u8],
+) {
     let loader: Pk = UPGRADEABLE_LOADER.parse().expect("loader id");
     let mut data = 3u32.to_le_bytes().to_vec();
     data.extend_from_slice(&slot.to_le_bytes());
@@ -127,11 +138,11 @@ pub fn set_program_data(svm: &mut LiteSVM, program: Pk, authority: Option<Pk>, s
             data.extend_from_slice(&[0; 32]);
         }
     }
-    data.extend_from_slice(&[0xAB; 64]);
+    data.extend_from_slice(code);
     svm.set_account(
         program_data_address(program),
         Account {
-            lamports: 1_000_000_000,
+            lamports: 10_000_000_000,
             data,
             owner: loader,
             executable: false,
@@ -139,6 +150,25 @@ pub fn set_program_data(svm: &mut LiteSVM, program: Pk, authority: Option<Pk>, s
         },
     )
     .expect("program data");
+}
+
+/// What the loader's `ExtendProgram` does: appends zeros and moves the slot, nothing else.
+pub fn extend_program(svm: &mut LiteSVM, program: Pk, slot: u64, extra: usize) {
+    let pd = program_data_address(program);
+    let mut acct = svm.get_account(&pd).expect("program data");
+    acct.data[4..12].copy_from_slice(&slot.to_le_bytes());
+    acct.data.extend(std::iter::repeat_n(0u8, extra));
+    svm.set_account(pd, acct).expect("extend");
+}
+
+/// The admin's off-chain hash: SHA-256 of the executable bytes without trailing zeros.
+pub fn code_hash(svm: &LiteSVM, program: Pk) -> [u8; 32] {
+    let acct = svm
+        .get_account(&program_data_address(program))
+        .expect("program data");
+    let code = &acct.data[45..];
+    let end = code.iter().rposition(|b| *b != 0).map_or(0, |i| i + 1);
+    solana_sdk::hash::hash(&code[..end]).to_bytes()
 }
 
 pub fn game_record(game: APk) -> APk {

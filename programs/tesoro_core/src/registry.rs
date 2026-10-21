@@ -22,6 +22,15 @@ pub struct View<'a> {
     pub data: &'a [u8],
 }
 
+/// Where a program's executable bytes live.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CodeAt {
+    /// In the ProgramData account, after its 45-byte header.
+    ProgramData,
+    /// In the program account itself, after this many header bytes.
+    Program(usize),
+}
+
 /// What the loader says about a program right now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Deploy {
@@ -29,7 +38,13 @@ pub struct Deploy {
     pub controller: Option<Pubkey>,
     /// Slot of the last deployment. Zero for a loader that does not record one (immutable).
     pub slot: u64,
+    pub code: CodeAt,
 }
+
+/// Largest account data `code_hash` reads. Measured on LiteSVM: about 0.55 CU a byte for the scan and the hash together (784 KB: 402k CU)
+/// so the cap stays inside one 1.4M CU transaction.
+pub const MAX_CODE_BYTES: usize = 1_800_000;
+const PROGRAM_DATA_HEADER: usize = 45;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProofError {
@@ -38,6 +53,8 @@ pub enum ProofError {
     /// The ProgramData account is missing, not the derived address, not the loader's, or not live
     /// ProgramData (closed, a buffer, truncated).
     BadProgramData,
+    /// The executable is larger than the registry hashes in one transaction.
+    TooLarge,
     /// Loader v4 program that is retracted, or finalized into a different version.
     NotDeployed,
 }
@@ -67,6 +84,7 @@ pub fn read_deploy(
         Ok(Deploy {
             controller: None,
             slot: 0,
+            code: CodeAt::Program(0),
         })
     } else {
         Err(ProofError::NotAProgram)
@@ -108,7 +126,11 @@ fn read_upgradeable(
         )),
         _ => return Err(ProofError::BadProgramData),
     };
-    Ok(Deploy { controller, slot })
+    Ok(Deploy {
+        controller,
+        slot,
+        code: CodeAt::ProgramData,
+    })
 }
 
 fn read_v4(game: &Pubkey, program: &View) -> std::result::Result<Deploy, ProofError> {
@@ -134,15 +156,60 @@ fn read_v4(game: &Pubkey, program: &View) -> std::result::Result<Deploy, ProofEr
         1 => Ok(Deploy {
             controller: Some(other),
             slot,
+            code: CodeAt::Program(48),
         }),
         // Finalized: the field forwards to the next version. Only a program that points at itself
         // is the final one.
         2 if other == *game => Ok(Deploy {
             controller: None,
             slot,
+            code: CodeAt::Program(48),
         }),
         _ => Err(ProofError::NotDeployed),
     }
+}
+
+/// Length of `data` without its trailing zero bytes. Extending a program appends zeros, so the
+/// executable is identified without them (an ELF ignores bytes after its end).
+pub fn trimmed_len(data: &[u8]) -> usize {
+    let mut end = data.len();
+    while !end.is_multiple_of(8) {
+        if data[end - 1] != 0 {
+            return end;
+        }
+        end -= 1;
+    }
+    for chunk in data[..end].rchunks_exact(8) {
+        let mut word = [0u8; 8];
+        word.copy_from_slice(chunk);
+        if u64::from_le_bytes(word) != 0 {
+            break;
+        }
+        end -= 8;
+    }
+    while end > 0 && data[end - 1] == 0 {
+        end -= 1;
+    }
+    end
+}
+
+/// SHA-256 of the program's executable bytes without trailing zeros. The same rule is applied
+/// off-chain when the admin approves a build. Refused for a program larger than `MAX_CODE_BYTES`.
+pub fn code_hash(
+    program: &View,
+    program_data: &View,
+    deploy: &Deploy,
+) -> std::result::Result<[u8; 32], ProofError> {
+    let (data, from) = match deploy.code {
+        CodeAt::ProgramData => (program_data.data, PROGRAM_DATA_HEADER),
+        CodeAt::Program(n) => (program.data, n),
+    };
+    if data.len() > MAX_CODE_BYTES || data.len() < from {
+        return Err(ProofError::TooLarge);
+    }
+    let code = &data[from..];
+    let end = trimmed_len(code);
+    Ok(anchor_lang::solana_program::hash::hash(&code[..end]).to_bytes())
 }
 
 /// The PDA a program signs with when it can no longer be upgraded.
@@ -208,7 +275,8 @@ mod tests {
             d,
             Deploy {
                 controller: Some(auth),
-                slot: 42
+                slot: 42,
+                code: CodeAt::ProgramData
             }
         );
         assert_eq!(required_signer(&game, &d), auth);
@@ -325,7 +393,8 @@ mod tests {
             d,
             Deploy {
                 controller: Some(auth),
-                slot: 77
+                slot: 77,
+                code: CodeAt::Program(48)
             }
         );
     }
@@ -362,7 +431,8 @@ mod tests {
             d,
             Deploy {
                 controller: None,
-                slot: 0
+                slot: 0,
+                code: CodeAt::Program(0)
             }
         );
     }
@@ -380,6 +450,51 @@ mod tests {
                 Err(ProofError::NotAProgram)
             );
         }
+    }
+
+    #[test]
+    fn trailing_zeros_do_not_change_the_code_hash_but_other_bytes_do() {
+        let game = Pubkey::new_unique();
+        let (pdata, pd) = upgradeable_program(game);
+        let hash = |body: &[u8]| {
+            let prog = view(game, LOADER_UPGRADEABLE, true, &pdata);
+            let pdv = view(pd, LOADER_UPGRADEABLE, false, body);
+            let d = read_deploy(&game, &prog, Some(&pdv)).unwrap();
+            code_hash(&prog, &pdv, &d)
+        };
+        let base = program_data(5, Some(Pubkey::new_unique()));
+        let mut extended = base.clone();
+        extended.extend_from_slice(&[0; 10_240 + 3]);
+        let mut changed = base.clone();
+        changed[60] ^= 1;
+        let mut tail_changed = extended.clone();
+        tail_changed[base.len() + 7] = 1;
+        assert_eq!(hash(&base), hash(&extended));
+        assert_ne!(hash(&base), hash(&changed));
+        assert_ne!(hash(&base), hash(&tail_changed));
+        // The header (slot, authority) is not part of the code.
+        let other_slot = program_data(99, Some(Pubkey::new_unique()));
+        assert_eq!(hash(&base), hash(&other_slot));
+        let mut big = base.clone();
+        big.resize(MAX_CODE_BYTES + 1, 1);
+        assert_eq!(hash(&big), Err(ProofError::TooLarge));
+    }
+
+    #[test]
+    fn trimmed_len_matches_a_byte_scan() {
+        for len in 0..40usize {
+            for last in 0..=len {
+                let mut d = vec![0u8; len];
+                if last > 0 {
+                    d[last - 1] = 3;
+                }
+                assert_eq!(trimmed_len(&d), last, "len {len} last {last}");
+            }
+        }
+        assert_eq!(
+            trimmed_len(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            1
+        );
     }
 
     #[test]

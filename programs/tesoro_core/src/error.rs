@@ -87,6 +87,18 @@ pub enum TesoroError {
     PairLimitReached,
     #[msg("this pair counter is still inside its 24-hour window")]
     PairWindowOpen,
+    #[msg("the program's executable does not hash to the value given")]
+    CodeHashMismatch,
+    #[msg(
+        "the program's executable differs from the approved build; the admin must approve it again"
+    )]
+    CodeChanged,
+    #[msg("the listing already matches the program's deploy slot")]
+    ListingCurrent,
+    #[msg("the Game is not listed, so there is nothing to refresh")]
+    NotListed,
+    #[msg("the program is too large to hash in one transaction")]
+    ProgramTooLarge,
 }
 
 pub fn core_err(e: CoreError) -> Error {

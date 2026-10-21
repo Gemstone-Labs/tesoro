@@ -9,12 +9,12 @@
  *   pnpm --filter @tesoro/keeper exec tsx scripts/register-game.ts <game program id> <studio_bps> \
  *     --keypair <upgrade authority file> --studio <wallet> [--rpc <url>] [--cluster test|mainnet] [--program tesoro_core=<ID>] [--dry-run]
  *   pnpm --filter @tesoro/keeper exec tsx scripts/register-game.ts <game program id> --list --keypair <admin file> \
- *     [--listed-days 365] [--rpc <url>]     (lists for the deploy slot in force now)
+ *     [--listed-days 365] [--rpc <url>]     (lists the build deployed now; its hash is computed here and checked again on chain)
  */
 import { PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import anchor from "@coral-xyz/anchor";
 import { adminSigning, parseArgs, programOverrides } from "../src/cli-args.ts";
-import { configPda, coreAccountPda, coreIx, gameAuthorityPda, gameRecordPda, programDataPda } from "../src/launch-admin.ts";
+import { codeHash, configPda, coreAccountPda, coreIx, gameAuthorityPda, gameRecordPda, programDataPda } from "../src/launch-admin.ts";
 
 const a = parseArgs(process.argv.slice(2), ["dry-run", "list"]);
 const [programArg, bpsArg] = a.positional;
@@ -39,10 +39,15 @@ if (a.flag("list")) {
   if (!record) throw new Error("the Game is not registered yet");
   const pd = await c.getAccountInfo(programDataPda(game));
   if (!pd || pd.data.length < 12) throw new Error("the program's ProgramData cannot be read");
-  const slot = pd.data.readBigUInt64LE(4);
+  const hash = codeHash(pd.data);
   const until = Math.floor(Date.now() / 1000) + Number(a.value("listed-days") ?? 365) * 86_400;
-  const ix = coreIx(core, "list_game", { admin: signer.publicKey, game_record: gameRecordPda(core, game) }, { listed_until: new anchor.BN(until), approved_slot: new anchor.BN(slot.toString()) });
-  await send(ix, `listed ${game.toBase58()} for deploy slot ${slot} until ${new Date(until * 1000).toISOString()}`);
+  const ix = coreIx(
+    core,
+    "list_game",
+    { admin: signer.publicKey, game_record: gameRecordPda(core, game), game_program: game, program_data: programDataPda(game) },
+    { listed_until: new anchor.BN(until), approved_hash: [...Buffer.from(hash, "hex")] },
+  );
+  await send(ix, `listed ${game.toBase58()} for build ${hash} until ${new Date(until * 1000).toISOString()}`);
 } else {
   const info = await c.getAccountInfo(configPda(core));
   if (!info) throw new Error("Config does not exist: tesoro_core is not initialised on this cluster");

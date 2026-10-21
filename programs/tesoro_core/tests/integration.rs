@@ -201,7 +201,7 @@ impl Env {
         let register = env.register_game_ix(&game_ctl, a(env.game_auth.pubkey()), 300, studio);
         env.send(&[register], &admin, &[&game_ctl])
             .expect("register game");
-        let list = env.list_game_ix(LISTED_FOR_EVER, GAME_SLOT);
+        let list = env.list_game_ix(LISTED_FOR_EVER);
         env.send(&[list], &admin, &[]).expect("list game");
         env
     }
@@ -270,16 +270,20 @@ impl Env {
         )
     }
 
-    fn list_game_ix(&self, listed_until: i64, approved_slot: u64) -> Instruction {
+    /// The admin lists the Game for the build on chain right now, hashed the way it would off-chain.
+    fn list_game_ix(&self, listed_until: i64) -> Instruction {
+        let (game_record, game_program, program_data) = self.game_accounts();
         ix(
             accounts::ListGame {
                 admin: a(self.admin.pubkey()),
                 config: pda(&[CONFIG_SEED]),
-                game_record: common::game_record(GAME),
+                game_record,
+                game_program,
+                program_data,
             },
             instruction::ListGame {
                 listed_until,
-                approved_slot,
+                approved_hash: common::code_hash(&self.svm, s(GAME)),
             },
             vec![],
         )
@@ -3166,7 +3170,7 @@ fn upgrading_a_game_unlists_it_until_the_admin_approves_the_new_slot() {
     assert_eq!(won_points(&d.env.last_logs), 0, "no Points while unlisted");
     // Re-approval applies to Matches opened after it, not to the one already open.
     let admin = d.env.admin.insecure_clone();
-    let list = d.env.list_game_ix(LISTED_FOR_EVER, GAME_SLOT + 7);
+    let list = d.env.list_game_ix(LISTED_FOR_EVER);
     d.env.send(&[list], &admin, &[]).expect("approve");
     let m2 = play_a_win(&mut d, ENTRY);
     assert!(d.env.load::<MatchState>(match_pda(m2)).listed);
@@ -3179,12 +3183,12 @@ fn a_listing_that_ran_out_or_was_withdrawn_earns_no_points() {
     let mut d = duel();
     let now = d.env.now();
     let admin = d.env.admin.insecure_clone();
-    let list = d.env.list_game_ix(now + 100, GAME_SLOT);
+    let list = d.env.list_game_ix(now + 100);
     d.env.send(&[list], &admin, &[]).expect("list");
     d.env.set_time(now + 101);
     let m = play_a_win(&mut d, ENTRY);
     assert!(!d.env.load::<MatchState>(match_pda(m)).listed);
-    let list = d.env.list_game_ix(0, 0);
+    let list = d.env.list_game_ix(0);
     d.env.send(&[list], &admin, &[]).expect("unlist");
     let m = play_a_win(&mut d, ENTRY);
     assert!(!d.env.load::<MatchState>(match_pda(m)).listed);
@@ -3200,10 +3204,12 @@ fn only_the_admin_lists_a_game() {
             admin: a(stranger.pubkey()),
             config: pda(&[CONFIG_SEED]),
             game_record: common::game_record(GAME),
+            game_program: GAME,
+            program_data: a(common::program_data_address(s(GAME))),
         },
         instruction::ListGame {
             listed_until: LISTED_FOR_EVER,
-            approved_slot: 1,
+            approved_hash: common::code_hash(&d.env.svm, s(GAME)),
         },
         vec![],
     );
@@ -3216,10 +3222,12 @@ fn only_the_admin_lists_a_game() {
             admin: a(ctl.pubkey()),
             config: pda(&[CONFIG_SEED]),
             game_record: common::game_record(GAME),
+            game_program: GAME,
+            program_data: a(common::program_data_address(s(GAME))),
         },
         instruction::ListGame {
             listed_until: LISTED_FOR_EVER,
-            approved_slot: 1,
+            approved_hash: common::code_hash(&d.env.svm, s(GAME)),
         },
         vec![],
     );
@@ -3248,7 +3256,7 @@ fn a_backed_match_on_an_unlisted_game_is_refused_at_open() {
     assert_eq!(b.reserved(), 500, "the Offer's Gemas stay reserved");
     // The admin approves the new slot: the same Offer opens.
     let admin = b.d.env.admin.insecure_clone();
-    let list = b.d.env.list_game_ix(LISTED_FOR_EVER, GAME_SLOT + 1);
+    let list = b.d.env.list_game_ix(LISTED_FOR_EVER);
     b.d.env.send(&[list], &admin, &[]).expect("approve");
     b.open_backed(offer, 500, &[b.c_holding])
         .expect("opens once listed");
@@ -3348,7 +3356,7 @@ fn a_backed_join_is_refused_once_the_game_was_upgraded_after_the_match_opened() 
     assert_eq!(b.reserved(), 500, "the Backer's Gemas stay reserved");
     // Even after the admin approves the new slot, this Match was opened for the old build.
     let admin = b.d.env.admin.insecure_clone();
-    let list = b.d.env.list_game_ix(LISTED_FOR_EVER, GAME_SLOT + 3);
+    let list = b.d.env.list_game_ix(LISTED_FOR_EVER);
     b.d.env.send(&[list], &admin, &[]).expect("approve");
     let err = b.join_backed(offer, id).unwrap_err();
     assert_eq!(
@@ -3408,7 +3416,7 @@ fn junk_program_accounts_cannot_strip_a_listed_match_of_its_points() {
     }
     // Once the admin has unlisted the Game, the same call opens an unlisted Match.
     let admin = d.env.admin.insecure_clone();
-    let unlist = d.env.list_game_ix(0, 0);
+    let unlist = d.env.list_game_ix(0);
     d.env.send(&[unlist], &admin, &[]).expect("unlist");
     open(&mut d, 900, junk).expect("opens, unlisted");
     assert!(!d.env.load::<MatchState>(match_pda(900)).listed);
@@ -3469,4 +3477,227 @@ fn a_pair_counter_returns_its_rent_to_the_joiner_after_the_window() {
         after > before.saturating_sub(10_000_000),
         "rent came back to Bob"
     );
+}
+
+// ---- Code hash: the listing survives ExtendProgram, not a different build ----
+
+fn refresh_ix(env: &Env) -> Instruction {
+    let (game_record, game_program, program_data) = env.game_accounts();
+    ix(
+        accounts::RefreshListing {
+            game_record,
+            game_program,
+            program_data,
+        },
+        instruction::RefreshListing {},
+        vec![],
+    )
+}
+
+fn refresh(env: &mut Env, by: &Keypair) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+    let i = refresh_ix(env);
+    env.send(&[i], by, &[])
+}
+
+/// ComputeBudget `SetComputeUnitLimit`.
+fn cu_limit(units: u32) -> Instruction {
+    let mut data = vec![2u8];
+    data.extend_from_slice(&units.to_le_bytes());
+    Instruction {
+        program_id: "ComputeBudget111111111111111111111111111111"
+            .parse()
+            .expect("compute budget program"),
+        accounts: vec![],
+        data,
+    }
+}
+
+fn error_code(e: tesoro_core::error::TesoroError) -> u32 {
+    anchor_code(e)
+}
+
+#[test]
+fn a_stranger_extending_the_program_unlists_it_and_refresh_restores_it() {
+    let mut d = duel();
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    // ExtendProgram needs no authority on a loader without the checked variant: it appends zeros
+    // and moves the slot, nothing else.
+    common::extend_program(&mut d.env.svm, s(GAME), GAME_SLOT + 4, 10_240);
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(
+        !d.env.load::<MatchState>(match_pda(m)).listed,
+        "slot moved: unlisted"
+    );
+    assert_eq!(won_points(&d.env.last_logs), 0);
+
+    refresh(&mut d.env, &stranger).expect("anyone refreshes: the bytes are the approved ones");
+    let record = d.env.load::<GameRecord>(common::game_record(GAME));
+    assert_eq!(record.approved_slot, GAME_SLOT + 4);
+    let m2 = play_a_win(&mut d, ENTRY);
+    assert!(d.env.load::<MatchState>(match_pda(m2)).listed);
+    assert!(won_points(&d.env.last_logs) > 0);
+
+    // Nothing left to refresh.
+    let err = refresh(&mut d.env, &stranger).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        error_code(tesoro_core::error::TesoroError::ListingCurrent)
+    );
+}
+
+#[test]
+fn a_real_upgrade_is_not_restored_by_refresh_only_by_the_admin() {
+    let mut d = duel();
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    // The studio ships different code (and an extension on top of it).
+    let mut code = vec![0xCD; 64];
+    code.extend_from_slice(&[0; 10_240]);
+    common::set_program_code(
+        &mut d.env.svm,
+        s(GAME),
+        Some(d.env.game_ctl.pubkey()),
+        GAME_SLOT + 9,
+        &code,
+    );
+    let err = refresh(&mut d.env, &stranger).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        error_code(tesoro_core::error::TesoroError::CodeChanged)
+    );
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(!d.env.load::<MatchState>(match_pda(m)).listed);
+    // A stranger cannot list it either; the admin approves the new build explicitly.
+    let admin = d.env.admin.insecure_clone();
+    let list = d.env.list_game_ix(LISTED_FOR_EVER);
+    d.env
+        .send(&[list], &admin, &[])
+        .expect("admin approves the new build");
+    let record = d.env.load::<GameRecord>(common::game_record(GAME));
+    assert_eq!(record.approved_slot, GAME_SLOT + 9);
+    assert_eq!(record.approved_hash, common::code_hash(&d.env.svm, s(GAME)));
+    let m2 = play_a_win(&mut d, ENTRY);
+    assert!(d.env.load::<MatchState>(match_pda(m2)).listed);
+}
+
+#[test]
+fn the_admin_cannot_approve_a_hash_that_is_not_the_program_on_chain() {
+    let mut d = duel();
+    let admin = d.env.admin.insecure_clone();
+    let (game_record, game_program, program_data) = d.env.game_accounts();
+    let list = |hash: [u8; 32]| {
+        ix(
+            accounts::ListGame {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                game_record,
+                game_program,
+                program_data,
+            },
+            instruction::ListGame {
+                listed_until: LISTED_FOR_EVER,
+                approved_hash: hash,
+            },
+            vec![],
+        )
+    };
+    for bad in [[0u8; 32], [7u8; 32]] {
+        let err = d.env.send(&[list(bad)], &admin, &[]).unwrap_err();
+        assert_eq!(
+            custom_code(&err),
+            error_code(tesoro_core::error::TesoroError::CodeHashMismatch)
+        );
+    }
+    // The program changes between the admin's off-chain hash and the transaction.
+    let stale = common::code_hash(&d.env.svm, s(GAME));
+    common::set_program_code(
+        &mut d.env.svm,
+        s(GAME),
+        Some(d.env.game_ctl.pubkey()),
+        GAME_SLOT + 1,
+        &[0x11; 64],
+    );
+    let err = d.env.send(&[list(stale)], &admin, &[]).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        error_code(tesoro_core::error::TesoroError::CodeHashMismatch)
+    );
+}
+
+#[test]
+fn refresh_needs_a_listing_in_force() {
+    let mut d = duel();
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    common::extend_program(&mut d.env.svm, s(GAME), GAME_SLOT + 2, 10_240);
+    // Withdrawn by the admin: a refresh must not bring it back.
+    let admin = d.env.admin.insecure_clone();
+    let unlist = d.env.list_game_ix(0);
+    d.env.send(&[unlist], &admin, &[]).expect("unlist");
+    let err = refresh(&mut d.env, &stranger).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        error_code(tesoro_core::error::TesoroError::NotListed)
+    );
+    // Expired listing: same.
+    let now = d.env.now();
+    let list = d.env.list_game_ix(now + 50);
+    d.env.send(&[list], &admin, &[]).expect("list");
+    common::extend_program(&mut d.env.svm, s(GAME), GAME_SLOT + 3, 10_240);
+    d.env.set_time(now + 51);
+    let err = refresh(&mut d.env, &stranger).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        error_code(tesoro_core::error::TesoroError::NotListed)
+    );
+}
+
+#[test]
+fn hashing_the_largest_game_program_fits_one_transaction() {
+    let mut d = duel();
+    let admin = d.env.admin.insecure_clone();
+    let so = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../target/deploy/vanguard.so"
+    ))
+    .expect("vanguard.so (pnpm build:programs)");
+    assert!(so.len() > 700_000, "the largest game program");
+    common::set_program_code(
+        &mut d.env.svm,
+        s(GAME),
+        Some(d.env.game_ctl.pubkey()),
+        GAME_SLOT + 1,
+        &so,
+    );
+    let list = d.env.list_game_ix(LISTED_FOR_EVER);
+    d.env
+        .send(&[cu_limit(1_400_000), list], &admin, &[])
+        .expect("list_game hashes the program");
+    let list_cu = d.env.last_cu;
+    // A stranger extends it by one page; refresh hashes it again.
+    common::extend_program(&mut d.env.svm, s(GAME), GAME_SLOT + 2, 10_240);
+    let i = refresh_ix(&d.env);
+    d.env
+        .send(&[cu_limit(1_400_000), i], &admin, &[])
+        .expect("refresh_listing hashes the program");
+    let refresh_cu = d.env.last_cu;
+    eprintln!(
+        "CU list_game {list_cu} refresh_listing {refresh_cu} for {} bytes",
+        so.len()
+    );
+    assert!(list_cu < 1_000_000 && refresh_cu < 1_000_000);
+    // Worst case the registry accepts: the whole cap is padding the scan must walk.
+    common::extend_program(
+        &mut d.env.svm,
+        s(GAME),
+        GAME_SLOT + 3,
+        tesoro_core::registry::MAX_CODE_BYTES - so.len() - 45 - 10_240,
+    );
+    let i = refresh_ix(&d.env);
+    d.env
+        .send(&[cu_limit(1_400_000), i], &admin, &[])
+        .expect("refresh at the size cap");
+    eprintln!("CU refresh_listing at the size cap {}", d.env.last_cu);
+    assert!(d.env.last_cu < 1_400_000);
 }

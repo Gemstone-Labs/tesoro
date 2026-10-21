@@ -3999,7 +3999,8 @@
     {
       "name": "list_game",
       "docs": [
-        "Admin: lists a Game until a time for an approved deploy slot (or unlists it with 0)."
+        "Admin: lists a Game until a time for the build that hashes to `approved_hash` (or unlists",
+        "it with 0)."
       ],
       "discriminator": [
         250,
@@ -4058,6 +4059,12 @@
               }
             ]
           }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
         }
       ],
       "args": [
@@ -4066,8 +4073,13 @@
           "type": "i64"
         },
         {
-          "name": "approved_slot",
-          "type": "u64"
+          "name": "approved_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
         }
       ]
     },
@@ -5954,6 +5966,54 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "refresh_listing",
+      "docs": [
+        "Anyone: moves the approved slot forward when the program's bytes still hash to the",
+        "approved build."
+      ],
+      "discriminator": [
+        84,
+        213,
+        200,
+        188,
+        142,
+        240,
+        12,
+        30
+      ],
+      "accounts": [
+        {
+          "name": "game_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_record.game",
+                "account": "GameRecord"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        }
+      ],
+      "args": []
     },
     {
       "name": "refund_match",
@@ -10946,6 +11006,31 @@
       "code": 6039,
       "name": "PairWindowOpen",
       "msg": "this pair counter is still inside its 24-hour window"
+    },
+    {
+      "code": 6040,
+      "name": "CodeHashMismatch",
+      "msg": "the program's executable does not hash to the value given"
+    },
+    {
+      "code": 6041,
+      "name": "CodeChanged",
+      "msg": "the program's executable differs from the approved build; the admin must approve it again"
+    },
+    {
+      "code": 6042,
+      "name": "ListingCurrent",
+      "msg": "the listing already matches the program's deploy slot"
+    },
+    {
+      "code": 6043,
+      "name": "NotListed",
+      "msg": "the Game is not listed, so there is nothing to refresh"
+    },
+    {
+      "code": 6044,
+      "name": "ProgramTooLarge",
+      "msg": "the program is too large to hash in one transaction"
     }
   ],
   "types": [
@@ -11466,6 +11551,19 @@
               "counts as unlisted until the admin approves again."
             ],
             "type": "u64"
+          },
+          {
+            "name": "approved_hash",
+            "docs": [
+              "SHA-256 of the approved build's executable bytes without trailing zeros (`registry::code_hash`).",
+              "A moved slot keeps the listing only through `refresh_listing`, which proves the bytes are these."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }

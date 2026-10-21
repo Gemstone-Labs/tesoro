@@ -41,14 +41,14 @@ const steps = a.value("steps")?.split(",").map((s) => {
 });
 const games: GameInput[] = a.values("game").map((g) => {
   const [name, rest] = g.split("=");
-  const [studio, bps, control, slot, until] = (rest ?? "").split(",");
-  if (!(["block_puzzle", "holdem", "trading_duel"] as string[]).includes(name) || !studio) throw new Error(`--game ${g}: expected <block_puzzle|holdem|trading_duel>=<studio wallet>[,<studio bps>[,<upgrade authority>[,<approved slot>,<listed until unix>]]]`);
+  const [studio, bps, control, hash, until] = (rest ?? "").split(",");
+  if (!(["block_puzzle", "holdem", "trading_duel"] as string[]).includes(name) || !studio) throw new Error(`--game ${g}: expected <block_puzzle|holdem|trading_duel>=<studio wallet>[,<studio bps>[,<upgrade authority>[,<approved build hash>,<listed until unix>]]]`);
   return {
     name: name as GameInput["name"],
     studio: new PublicKey(studio),
     studioBps: bps ? Number(bps) : 300,
     control: control ? new PublicKey(control) : undefined,
-    approvedSlot: slot ? Number(slot) : undefined,
+    approvedHash: hash || undefined,
     listedUntil: until ? Number(until) : undefined,
   };
 });

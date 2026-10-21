@@ -47,9 +47,23 @@ fn program_data_pda() -> APk {
     .0
 }
 
+/// ComputeBudget `SetComputeUnitLimit`: `list_game` hashes the whole game program.
+fn cu_limit(units: u32) -> Instruction {
+    let mut data = vec![2u8];
+    data.extend_from_slice(&units.to_le_bytes());
+    Instruction {
+        program_id: s(APk::from_str_const(
+            "ComputeBudget111111111111111111111111111111",
+        )),
+        accounts: vec![],
+        data,
+    }
+}
+
 /// Makes `key` the upgrade authority of the Game program loaded into `svm`, as the Game's studio
-/// would hold it, and returns the slot the loader recorded for its deployment.
-fn control_program(svm: &mut LiteSVM, program: APk, key: APk) -> u64 {
+/// would hold it, and returns the hash tesoro_core approves: SHA-256 of the executable without
+/// trailing zeros.
+fn control_program(svm: &mut LiteSVM, program: APk, key: APk) -> [u8; 32] {
     let pd = s(APk::find_program_address(
         &[program.as_ref()],
         &anchor_lang::solana_program::bpf_loader_upgradeable::ID,
@@ -58,9 +72,11 @@ fn control_program(svm: &mut LiteSVM, program: APk, key: APk) -> u64 {
     let mut acct = svm.get_account(&pd).expect("program data");
     acct.data[12] = 1;
     acct.data[13..45].copy_from_slice(key.as_ref());
-    let slot = u64::from_le_bytes(acct.data[4..12].try_into().expect("slot"));
+    let code = &acct.data[45..];
+    let end = code.iter().rposition(|b| *b != 0).map_or(0, |i| i + 1);
+    let hash = solana_sdk::hash::hash(&code[..end]).to_bytes();
     svm.set_account(pd, acct).expect("set program data");
-    slot
+    hash
 }
 fn pair_pda(opener: APk, joiner: APk) -> APk {
     APk::find_program_address(
@@ -429,7 +445,7 @@ impl Env {
         env.send(&[init], &admin, &[]).expect("init config");
         // The Game authority is the holdem PDA, not a keypair.
         let ctl = Keypair::new();
-        let slot = control_program(&mut env.svm, holdem::ID, a(ctl.pubkey()));
+        let hash = control_program(&mut env.svm, holdem::ID, a(ctl.pubkey()));
         let register = ix(
             tesoro_core::ID,
             tesoro_core::accounts::RegisterGame {
@@ -456,14 +472,17 @@ impl Env {
                 admin: a(admin.pubkey()),
                 config: tpda(&[CONFIG_SEED]),
                 game_record: game_record_pda(),
+                game_program: holdem::ID,
+                program_data: program_data_pda(),
             },
             tesoro_core::instruction::ListGame {
                 listed_until: 4_000_000_000,
-                approved_slot: slot,
+                approved_hash: hash,
             },
             vec![],
         );
-        env.send(&[list], &admin, &[]).expect("list game");
+        env.send(&[cu_limit(1_400_000), list], &admin, &[])
+            .expect("list game");
 
         env.alice = env.person();
         env.bob = env.person();

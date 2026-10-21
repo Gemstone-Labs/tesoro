@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import anchor, { type Idl } from "@coral-xyz/anchor";
 import { Keypair, PublicKey } from "@solana/web3.js";
@@ -13,6 +14,7 @@ import {
   STEP_NAMES,
   WSTETH,
   buildLaunchPlan,
+  codeHash,
   configPda,
   coreAccountPda,
   describeStep,
@@ -192,10 +194,12 @@ test("register_game is signed by the program's upgrade authority and names the s
   assert.ok(steps[1].signer!.equals(i.admin), "a game without a control key is signed by the admin");
 });
 
-test("list_game is an admin step and only appears with an approved slot", () => {
+test("list_game is an admin step carrying the build hash, and only appears with one", () => {
   const i = input();
   assert.equal(named(buildLaunchPlan(i), "games").length, 3);
-  i.games![1].approvedSlot = 400_000_000;
+  const hash = codeHash(Buffer.concat([Buffer.alloc(45), Buffer.from([1, 2, 3]), Buffer.alloc(10_240)]));
+  assert.equal(hash, createHash("sha256").update(Buffer.from([1, 2, 3])).digest("hex"), "trailing zeros are not part of the build");
+  i.games![1].approvedHash = hash;
   i.games![1].listedUntil = 1_800_000_000;
   const steps = named(buildLaunchPlan(i), "games");
   assert.equal(steps.length, 4);
@@ -203,9 +207,12 @@ test("list_game is an admin step and only appears with an approved slot", () => 
   assert.ok(list.signer!.equals(i.admin));
   const dec = decode(list)[0];
   assert.equal(dec.name, "list_game");
-  const data = dec.data as { listed_until: { toNumber(): number }; approved_slot: { toNumber(): number } };
+  const data = dec.data as { listed_until: { toNumber(): number }; approved_hash: number[] };
   assert.equal(data.listed_until.toNumber(), 1_800_000_000);
-  assert.equal(data.approved_slot.toNumber(), 400_000_000);
+  assert.equal(Buffer.from(data.approved_hash).toString("hex"), hash);
+  i.games![1].approvedHash = "abc";
+  assert.throws(() => buildLaunchPlan(i), /64 hex/);
+  i.games![1].approvedHash = hash;
   i.games![1].listedUntil = undefined;
   assert.throws(() => buildLaunchPlan(i), /listed-until/);
 });
