@@ -237,10 +237,10 @@ export function MatchView({ matchId }: { matchId: string }) {
                   <i className="bpx-spin" aria-hidden="true" /> Finding opponent…
                 </span>
               )}
+              {error && <p className="status err" role="alert">{error}</p>}
             </div>
           }
         />
-        {error && <p className="status err" role="alert">{error}</p>}
       </div>
     );
   }

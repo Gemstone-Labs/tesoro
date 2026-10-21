@@ -36,6 +36,7 @@
 .hdx-head-l { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
 .hdx-title { font-family: var(--f-display); text-transform: uppercase; font-weight: 800; line-height: 1; font-size: 26px; letter-spacing: 0.005em; }
 .hdx-level { color: var(--fg-2); font-size: var(--fs-14); }
+.hdx-error { margin: -12px 4px 0; }
 .hdx-entry { --edge: var(--edge-em); display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 6px 12px; background: linear-gradient(180deg, #0f3029, #0a2320); font-weight: 800; font-size: var(--fs-14); color: var(--em-hi); }
 .hdx-stage { position: relative; display: grid; gap: 12px; min-width: 0; }
 

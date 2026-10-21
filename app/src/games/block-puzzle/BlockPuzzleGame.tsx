@@ -501,7 +501,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   );
 
   return (
-    <Arena game="block-puzzle">
+    <Arena game="block-puzzle" autoFull={!!run && phase !== "over"}>
     <div className="bpx">
       <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
         <div className="bpx-score">
