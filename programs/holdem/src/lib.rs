@@ -35,7 +35,7 @@ use ephemeral_rollups_sdk::{
 };
 use tesoro_core::{
     instructions::MatchResult,
-    ledger::MatchStatus,
+    ledger::lifecycle::Stage,
     state::{Config, GameRecord, MatchState, TesoroAccount, ACCOUNT_SEED, CONFIG_SEED, GAME_SEED},
 };
 
@@ -104,12 +104,11 @@ pub mod holdem {
 
     /// Base layer. Binds a new table to an Active tesoro_core Match of this Game and pre-funds
     /// the ephemeral permission rent of each hidden account. Either Player may create it.
-    pub fn create_match(ctx: Context<CreateMatch>, match_id: u64, speed: u8) -> Result<()> {
+    pub fn create_match(ctx: Context<CreateMatch>, speed: u8) -> Result<()> {
         engine::blinds(speed, 1)?;
         let tesoro = &ctx.accounts.tesoro_match;
-        require!(tesoro.id == match_id, HoldemError::BadTesoroMatch);
         require!(
-            tesoro.inner.status == MatchStatus::Active
+            tesoro.inner.stage() == Stage::Active
                 && tesoro.inner.game == ID.to_bytes()
                 && tesoro.inner.a.player == ctx.accounts.account_a.key().to_bytes()
                 && tesoro
@@ -162,7 +161,6 @@ pub mod holdem {
                 ctx.accounts.tesoro_program.to_account_info(),
                 tesoro_core::cpi::accounts::ExtendMatchDeadline {
                     game_authority: ctx.accounts.authority.to_account_info(),
-                    game_record: ctx.accounts.game_record.to_account_info(),
                     match_state: ctx.accounts.tesoro_match.to_account_info(),
                 },
                 signer_seeds,
@@ -175,7 +173,6 @@ pub mod holdem {
         **game_match = GameMatch {
             bump: ctx.bumps.game_match,
             authority_bump: ctx.bumps.authority,
-            match_id,
             tesoro_match: ctx.accounts.tesoro_match.key(),
             players,
             speed,
@@ -202,7 +199,7 @@ pub mod holdem {
     }
 
     /// Base layer. Delegates the table and its hidden accounts to the TEE validator.
-    pub fn delegate_match(ctx: Context<DelegateMatch>, match_id: u64) -> Result<()> {
+    pub fn delegate_match(ctx: Context<DelegateMatch>, tesoro_match: Pubkey) -> Result<()> {
         // Permissionless, so only a table that has not started may be delegated: once it is
         // committed back, delegating it again would leave `finalize` unable to read it.
         {
@@ -217,7 +214,7 @@ pub mod holdem {
         let match_key = ctx.accounts.game_match.key();
         ctx.accounts.delegate_game_match(
             &ctx.accounts.payer,
-            &[MATCH_SEED, &match_id.to_le_bytes()],
+            &[MATCH_SEED, tesoro_match.as_ref()],
             config()?,
         )?;
         ctx.accounts.delegate_deck(
@@ -247,7 +244,7 @@ pub mod holdem {
 
         let players = ctx.accounts.game_match.players;
         let match_key = ctx.accounts.game_match.key();
-        let match_id = ctx.accounts.game_match.match_id.to_le_bytes();
+        let tesoro_match = ctx.accounts.game_match.tesoro_match;
         let player_member = |pubkey: Pubkey| Member {
             flags: READ_FLAGS,
             pubkey,
@@ -261,7 +258,7 @@ pub mod holdem {
                 is_private: true,
                 members: vec![player_member(players[0]), player_member(players[1])],
             },
-            &[MATCH_SEED, &match_id, &[ctx.accounts.game_match.bump]],
+            &[MATCH_SEED, tesoro_match.as_ref(), &[ctx.accounts.game_match.bump]],
         )?;
         create_permission(
             &*ctx.accounts,
@@ -508,8 +505,8 @@ pub mod holdem {
     /// Base layer, permissionless. Settles the tesoro_core Match from the committed result by CPI,
     /// signing as this Game's `authority` PDA: the winner takes the Pot minus fees. A cancelled
     /// Match, or one never started before its start deadline, refunds both entries.
-    /// `remaining_accounts` are the payout accounts tesoro_core expects (recipient
-    /// `TesoroAccount` then its Holding, per payout, sorted by recipient and Source).
+    /// This only STARTS the settlement in tesoro_core; the payouts follow in `match_chunk` calls
+    /// anyone may make.
     pub fn finalize<'info>(ctx: Context<'_, '_, 'info, 'info, Finalize<'info>>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let (status, winner, start_deadline, authority_bump) = {
@@ -530,9 +527,16 @@ pub mod holdem {
                     ctx.accounts.tesoro_program.to_account_info(),
                     tesoro_core::cpi::accounts::SettleMatch {
                         game_authority: ctx.accounts.authority.to_account_info(),
+                        payer: ctx.accounts.caller.to_account_info(),
                         config: ctx.accounts.config.to_account_info(),
                         game_record: ctx.accounts.game_record.to_account_info(),
+                        game_program: ctx.accounts.game_program.to_account_info(),
+                        program_data: ctx.accounts.program_data.to_account_info(),
                         match_state: ctx.accounts.tesoro_match.to_account_info(),
+                        receipt: ctx.accounts.receipt.to_account_info(),
+                        system_program: ctx.accounts.system_program.to_account_info(),
+                        event_authority: ctx.accounts.event_authority.to_account_info(),
+                        program: ctx.accounts.tesoro_program.to_account_info(),
                     },
                     signer_seeds,
                 )
@@ -552,9 +556,16 @@ pub mod holdem {
                     ctx.accounts.tesoro_program.to_account_info(),
                     tesoro_core::cpi::accounts::RefundMatch {
                         caller: ctx.accounts.authority.to_account_info(),
+                        payer: ctx.accounts.caller.to_account_info(),
                         game_record: ctx.accounts.game_record.to_account_info(),
+                        game_program: ctx.accounts.game_program.to_account_info(),
+                        program_data: ctx.accounts.program_data.to_account_info(),
                         match_state: ctx.accounts.tesoro_match.to_account_info(),
+                        receipt: ctx.accounts.receipt.to_account_info(),
                         opener_protections: None,
+                        system_program: ctx.accounts.system_program.to_account_info(),
+                        event_authority: ctx.accounts.event_authority.to_account_info(),
+                        program: ctx.accounts.tesoro_program.to_account_info(),
                     },
                     signer_seeds,
                 )
@@ -681,13 +692,12 @@ impl_permission_accounts!(InitPermissions);
 impl_permission_accounts!(CloseMatch);
 
 #[derive(Accounts)]
-#[instruction(match_id: u64)]
 pub struct CreateMatch<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
     #[account(
         mut,
-        seeds = [MATCH_SEED, &tesoro_match.id.to_le_bytes()],
+        seeds = [MATCH_SEED, tesoro_match.inner.id.opener.as_ref(), &tesoro_match.inner.id.n.to_le_bytes()],
         bump = tesoro_match.bump,
         seeds::program = tesoro_core::ID
     )]
@@ -715,7 +725,7 @@ pub struct CreateMatch<'info> {
     pub authority: UncheckedAccount<'info>,
     #[account(
         init, payer = creator, space = 8 + GameMatch::INIT_SPACE,
-        seeds = [MATCH_SEED, &match_id.to_le_bytes()], bump
+        seeds = [MATCH_SEED, tesoro_match.key().as_ref()], bump
     )]
     pub game_match: Account<'info, GameMatch>,
     #[account(
@@ -739,12 +749,12 @@ pub struct CreateMatch<'info> {
 
 #[delegate]
 #[derive(Accounts)]
-#[instruction(match_id: u64)]
+#[instruction(tesoro_match: Pubkey)]
 pub struct DelegateMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     /// CHECK: Match PDA to delegate
-    #[account(mut, del, seeds = [MATCH_SEED, &match_id.to_le_bytes()], bump)]
+    #[account(mut, del, seeds = [MATCH_SEED, tesoro_match.as_ref()], bump)]
     pub game_match: AccountInfo<'info>,
     /// CHECK: Deck PDA to delegate
     #[account(mut, del, seeds = [DECK_SEED, game_match.key().as_ref()], bump)]
@@ -763,7 +773,7 @@ pub struct DelegateMatch<'info> {
 pub struct InitPermissions<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut, seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
+    #[account(mut, seeds = [MATCH_SEED, game_match.tesoro_match.as_ref()], bump = game_match.bump)]
     pub game_match: Account<'info, GameMatch>,
     #[account(mut, seeds = [DECK_SEED, game_match.key().as_ref()], bump = deck.bump)]
     pub deck: Account<'info, Deck>,
@@ -797,7 +807,7 @@ pub struct InitPermissions<'info> {
 #[derive(Accounts)]
 pub struct ContributeEntropy<'info> {
     pub player: Signer<'info>,
-    #[account(seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
+    #[account(seeds = [MATCH_SEED, game_match.tesoro_match.as_ref()], bump = game_match.bump)]
     pub game_match: Account<'info, GameMatch>,
     #[account(mut, seeds = [DECK_SEED, game_match.key().as_ref()], bump = deck.bump)]
     pub deck: Account<'info, Deck>,
@@ -808,7 +818,7 @@ pub struct ContributeEntropy<'info> {
 pub struct RequestVrf<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
+    #[account(seeds = [MATCH_SEED, game_match.tesoro_match.as_ref()], bump = game_match.bump)]
     pub game_match: Account<'info, GameMatch>,
     #[account(seeds = [DECK_SEED, game_match.key().as_ref()], bump = deck.bump)]
     pub deck: Account<'info, Deck>,
@@ -827,7 +837,7 @@ pub struct VrfCallbackShuffle<'info> {
 #[derive(Accounts)]
 pub struct Deal<'info> {
     pub payer: Signer<'info>,
-    #[account(mut, seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
+    #[account(mut, seeds = [MATCH_SEED, game_match.tesoro_match.as_ref()], bump = game_match.bump)]
     pub game_match: Account<'info, GameMatch>,
     #[account(mut, seeds = [DECK_SEED, game_match.key().as_ref()], bump = deck.bump)]
     pub deck: Account<'info, Deck>,
@@ -840,7 +850,7 @@ pub struct Deal<'info> {
 #[derive(Accounts)]
 pub struct Act<'info> {
     pub player: Signer<'info>,
-    #[account(mut, seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
+    #[account(mut, seeds = [MATCH_SEED, game_match.tesoro_match.as_ref()], bump = game_match.bump)]
     pub game_match: Account<'info, GameMatch>,
     #[account(seeds = [DECK_SEED, game_match.key().as_ref()], bump = deck.bump)]
     pub deck: Account<'info, Deck>,
@@ -853,7 +863,7 @@ pub struct Act<'info> {
 #[derive(Accounts)]
 pub struct ClaimTimeout<'info> {
     pub caller: Signer<'info>,
-    #[account(mut, seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
+    #[account(mut, seeds = [MATCH_SEED, game_match.tesoro_match.as_ref()], bump = game_match.bump)]
     pub game_match: Account<'info, GameMatch>,
     #[account(seeds = [DECK_SEED, game_match.key().as_ref()], bump = deck.bump)]
     pub deck: Account<'info, Deck>,
@@ -868,7 +878,7 @@ pub struct ClaimTimeout<'info> {
 pub struct CloseMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut, seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
+    #[account(mut, seeds = [MATCH_SEED, game_match.tesoro_match.as_ref()], bump = game_match.bump)]
     pub game_match: Account<'info, GameMatch>,
     #[account(mut, seeds = [DECK_SEED, game_match.key().as_ref()], bump = deck.bump)]
     pub deck: Account<'info, Deck>,
@@ -895,13 +905,15 @@ pub struct CloseMatch<'info> {
 
 #[derive(Accounts)]
 pub struct Finalize<'info> {
+    /// Pays the settlement receipt's rent in tesoro_core.
+    #[account(mut)]
     pub caller: Signer<'info>,
-    #[account(mut, seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
+    #[account(mut, seeds = [MATCH_SEED, game_match.tesoro_match.as_ref()], bump = game_match.bump)]
     pub game_match: Account<'info, GameMatch>,
     #[account(
         mut,
         address = game_match.tesoro_match,
-        seeds = [MATCH_SEED, &tesoro_match.id.to_le_bytes()],
+        seeds = [MATCH_SEED, tesoro_match.inner.id.opener.as_ref(), &tesoro_match.inner.id.n.to_le_bytes()],
         bump = tesoro_match.bump,
         seeds::program = tesoro_core::ID
     )]
@@ -917,5 +929,22 @@ pub struct Finalize<'info> {
     /// CHECK: the registered Game authority; signs the CPI with its stored canonical bump.
     #[account(seeds = [AUTHORITY_SEED], bump = game_match.authority_bump)]
     pub authority: UncheckedAccount<'info>,
+    /// CHECK: this Game's own program account (tesoro_core reads its deploy slot).
+    #[account(address = crate::ID)]
+    pub game_program: UncheckedAccount<'info>,
+    /// CHECK: this program's ProgramData, checked by tesoro_core.
+    pub program_data: UncheckedAccount<'info>,
+    /// CHECK: the settlement receipt, created by tesoro_core at `["settled", match]`.
+    #[account(
+        mut,
+        seeds = [b"settled", tesoro_match.key().as_ref()],
+        bump,
+        seeds::program = tesoro_core::ID
+    )]
+    pub receipt: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+    /// CHECK: tesoro_core's event authority PDA.
+    #[account(seeds = [b"__event_authority"], bump, seeds::program = tesoro_core::ID)]
+    pub event_authority: UncheckedAccount<'info>,
     pub tesoro_program: Program<'info, tesoro_core::program::TesoroCore>,
 }

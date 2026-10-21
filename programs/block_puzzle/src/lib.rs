@@ -43,7 +43,7 @@ use ephemeral_rollups_sdk::{
     },
 };
 use tesoro_core::instructions::MatchResult;
-use tesoro_core::ledger::MatchStatus;
+use tesoro_core::ledger::lifecycle::Stage;
 use tesoro_core::state::{MatchState, TesoroAccount};
 
 declare_id!("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
@@ -173,7 +173,7 @@ pub mod block_puzzle {
             let m = &ctx.accounts.match_state.inner;
             require!(
                 m.game == crate::ID.to_bytes()
-                    && matches!(m.status, MatchStatus::Open | MatchStatus::Active),
+                    && matches!(m.stage(), Stage::Open | Stage::Active),
                 BlockPuzzleError::InvalidMatch
             );
             require!(
@@ -181,7 +181,7 @@ pub mod block_puzzle {
                 BlockPuzzleError::InvalidAccount
             );
             require!(now < m.deadline, BlockPuzzleError::DeadlinePassed);
-            let is_open = m.status == MatchStatus::Open;
+            let is_open = m.stage() == Stage::Open;
             let window_end = if is_open {
                 m.deadline.max(
                     now.checked_add(QUEUE_WINDOW_SECS)
@@ -204,7 +204,6 @@ pub mod block_puzzle {
                     ctx.accounts.tesoro_core_program.to_account_info(),
                     tesoro_core::cpi::accounts::ExtendMatchDeadline {
                         game_authority: ctx.accounts.authority.to_account_info(),
-                        game_record: ctx.accounts.game_record.to_account_info(),
                         match_state: ctx.accounts.match_state.to_account_info(),
                     },
                     signer,
@@ -262,7 +261,7 @@ pub mod block_puzzle {
         {
             let m = &ctx.accounts.match_state.inner;
             require!(
-                m.game == crate::ID.to_bytes() && m.status == MatchStatus::Active,
+                m.game == crate::ID.to_bytes() && m.stage() == Stage::Active,
                 BlockPuzzleError::InvalidMatch
             );
             let b = m.b.as_ref().ok_or(BlockPuzzleError::InvalidMatch)?;
@@ -308,7 +307,6 @@ pub mod block_puzzle {
                 ctx.accounts.tesoro_core_program.to_account_info(),
                 tesoro_core::cpi::accounts::ExtendMatchDeadline {
                     game_authority: ctx.accounts.authority.to_account_info(),
-                    game_record: ctx.accounts.game_record.to_account_info(),
                     match_state: ctx.accounts.match_state.to_account_info(),
                 },
                 signer,
@@ -614,7 +612,6 @@ pub mod block_puzzle {
     }
 
     /// Base layer, anyone. Settles the Pot through `tesoro_core` from the committed Boards.
-    /// `remaining_accounts` are the payout accounts as for `tesoro_core::settle_match`.
     pub fn settle<'info>(ctx: Context<'_, '_, 'info, 'info, Settle<'info>>) -> Result<()> {
         let a = &ctx.accounts.board_0;
         let b = &ctx.accounts.board_1;
@@ -722,6 +719,8 @@ fn finalize<'info>(
         MatchResult::Opener => 0,
         MatchResult::Joiner => 1,
         MatchResult::Draw => 2,
+        // a Block Puzzle Match has no "started, nobody acted" state: `decide` never returns it
+        MatchResult::NoShow => return err!(BlockPuzzleError::InvalidMatch),
     };
     let session = &mut ctx.accounts.session;
     require!(!session.settled, BlockPuzzleError::AlreadySettled);
@@ -736,13 +735,19 @@ fn finalize<'info>(
             ctx.accounts.tesoro_core_program.to_account_info(),
             tesoro_core::cpi::accounts::SettleMatch {
                 game_authority: ctx.accounts.authority.to_account_info(),
+                payer: ctx.accounts.payer.to_account_info(),
                 config: ctx.accounts.config.to_account_info(),
                 game_record: ctx.accounts.game_record.to_account_info(),
+                game_program: ctx.accounts.game_program.to_account_info(),
+                program_data: ctx.accounts.program_data.to_account_info(),
                 match_state: ctx.accounts.match_state.to_account_info(),
+                receipt: ctx.accounts.receipt.to_account_info(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+                event_authority: ctx.accounts.event_authority.to_account_info(),
+                program: ctx.accounts.tesoro_core_program.to_account_info(),
             },
             signer,
-        )
-        .with_remaining_accounts(ctx.remaining_accounts.to_vec()),
+        ),
         result,
     )?;
     emit!(SessionSettled {
@@ -804,9 +809,6 @@ pub struct OpenSession<'info> {
     /// CHECK: the Game's authority PDA; signs the `tesoro_core` CPI
     #[account(seeds = [AUTHORITY_SEED], bump)]
     pub authority: UncheckedAccount<'info>,
-    /// CHECK: this Game's `tesoro_core` record, validated by `tesoro_core`
-    #[account(owner = tesoro_core::ID)]
-    pub game_record: UncheckedAccount<'info>,
     pub tesoro_core_program: Program<'info, tesoro_core::program::TesoroCore>,
     pub system_program: Program<'info, System>,
 }
@@ -832,9 +834,6 @@ pub struct JoinSession<'info> {
     /// CHECK: the Game's authority PDA; signs the `tesoro_core` CPI
     #[account(seeds = [AUTHORITY_SEED], bump = session.authority_bump)]
     pub authority: UncheckedAccount<'info>,
-    /// CHECK: this Game's `tesoro_core` record, validated by `tesoro_core`
-    #[account(owner = tesoro_core::ID)]
-    pub game_record: UncheckedAccount<'info>,
     pub tesoro_core_program: Program<'info, tesoro_core::program::TesoroCore>,
     pub system_program: Program<'info, System>,
 }
@@ -1021,10 +1020,10 @@ pub struct CommitBoards<'info> {
     pub ephemeral_vault: UncheckedAccount<'info>,
 }
 
-/// `remaining_accounts`: per payout, in `tesoro_core`'s order, the recipient's `TesoroAccount`
-/// then its Holding of the payout's Source.
+/// Starts the settlement in `tesoro_core` (its payout chunks follow); `payer` pays the receipt.
 #[derive(Accounts)]
 pub struct Settle<'info> {
+    #[account(mut)]
     pub payer: Signer<'info>,
     #[account(
         mut,
@@ -1051,6 +1050,23 @@ pub struct Settle<'info> {
     /// CHECK: the Match, bound to the Session, validated by `tesoro_core`
     #[account(mut, owner = tesoro_core::ID, address = session.match_state)]
     pub match_state: UncheckedAccount<'info>,
+    /// CHECK: this Game's own program account (tesoro_core reads its deploy slot).
+    #[account(address = crate::ID)]
+    pub game_program: UncheckedAccount<'info>,
+    /// CHECK: this program's ProgramData, checked by tesoro_core.
+    pub program_data: UncheckedAccount<'info>,
+    /// CHECK: the settlement receipt, created by tesoro_core at `["settled", match]`.
+    #[account(
+        mut,
+        seeds = [b"settled", session.match_state.as_ref()],
+        bump,
+        seeds::program = tesoro_core::ID
+    )]
+    pub receipt: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+    /// CHECK: tesoro_core's event authority PDA.
+    #[account(seeds = [b"__event_authority"], bump, seeds::program = tesoro_core::ID)]
+    pub event_authority: UncheckedAccount<'info>,
     pub tesoro_core_program: Program<'info, tesoro_core::program::TesoroCore>,
 }
 

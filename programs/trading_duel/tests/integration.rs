@@ -18,9 +18,13 @@ use solana_sdk::pubkey::Pubkey as Pk;
 use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
-use tesoro_core::ledger::{MatchStatus, Outcome, SourceChain};
+use tesoro_core::ledger::lifecycle::Stage;
+use tesoro_core::ledger::SourceChain;
 use tesoro_core::state::*;
 use trading_duel::{Book, Duel};
+
+#[path = "../../tesoro_core/tests/common/flow.rs"]
+mod flow;
 
 const SOL: u64 = 1_000_000_000;
 const T0: i64 = 1_000_000;
@@ -94,9 +98,6 @@ fn account_pda(auth: APk) -> APk {
 fn holding_pda(account: APk, source: APk) -> APk {
     tpda(&[HOLDING_SEED, account.as_ref(), source.as_ref()])
 }
-fn tmatch_pda(id: u64) -> APk {
-    tpda(&[MATCH_SEED, &id.to_le_bytes()])
-}
 fn authority_pda() -> APk {
     dpda(&[trading_duel::AUTHORITY_SEED])
 }
@@ -106,8 +107,8 @@ struct Addrs {
     book_0: APk,
     book_1: APk,
 }
-fn addrs(id: u64) -> Addrs {
-    let duel = dpda(&[trading_duel::DUEL_SEED, &id.to_le_bytes()]);
+fn addrs(tesoro_match: APk) -> Addrs {
+    let duel = dpda(&[trading_duel::DUEL_SEED, tesoro_match.as_ref()]);
     Addrs {
         duel,
         book_0: dpda(&[trading_duel::BOOK_SEED, duel.as_ref(), &[0]]),
@@ -180,11 +181,13 @@ struct Env {
     studio: Person,
     alice: Person,
     bob: Person,
-    a_holding: APk,
-    b_holding: APk,
     a_source: APk,
     b_source: APk,
-    id: u64,
+    /// Asset of the next Match (0 SOL, 1 ETH, 2 HYPE).
+    asset: u8,
+    /// The tesoro_core Match the Duel is bound to.
+    tmatch: APk,
+    mref: Option<flow::MatchRef>,
     now: i64,
     last_cu: u64,
 }
@@ -252,7 +255,7 @@ impl Env {
     }
 
     /// Position + Advance: 75_000 Gemas of the staker's own Source.
-    fn stake(&mut self, p: &Person, id: u8) -> (APk, APk) {
+    fn stake(&mut self, p: &Person, id: u8) -> APk {
         let position = tpda(&[POSITION_SEED, &[0], &[id; 32]]);
         let asset = APk::new_unique();
         let open = ix(
@@ -277,7 +280,6 @@ impl Env {
         let oracle = self.oracle.insecure_clone();
         self.send(&[open], &oracle, &[]).expect("open position");
         let source = tpda(&[SOURCE_SEED, position.as_ref(), &0u32.to_le_bytes()]);
-        let holding = holding_pda(p.account, source);
         let advance = ix(
             tesoro_core::ID,
             tesoro_core::accounts::TakeAdvance {
@@ -309,30 +311,7 @@ impl Env {
         );
         put_core_treasury(&mut self.svm);
         self.send(&[advance], &oracle, &[&p.kp]).expect("advance");
-        self.open_holding(p.account, source);
-        forge_holding_amount(&mut self.svm, p.account, source);
-        (source, holding)
-    }
-
-    fn open_holding(&mut self, account: APk, source: APk) {
-        let holding = holding_pda(account, source);
-        if self.svm.get_account(&s(holding)).is_some() {
-            return;
-        }
-        let open = ix(
-            tesoro_core::ID,
-            tesoro_core::accounts::OpenHolding {
-                payer: a(self.admin.pubkey()),
-                account,
-                source,
-                holding,
-                system_program: anchor_lang::system_program::ID,
-            },
-            tesoro_core::instruction::OpenHolding {},
-            vec![],
-        );
-        let admin = self.admin.insecure_clone();
-        self.send(&[open], &admin, &[]).expect("open holding");
+        source
     }
 
     fn load<T: AccountDeserialize>(&self, k: APk) -> T {
@@ -362,28 +341,27 @@ impl Env {
     }
 
     fn duel(&self) -> Duel {
-        self.load(addrs(self.id).duel)
+        self.load(addrs(self.tmatch).duel)
     }
 
     fn book(&self, seat: usize) -> Book {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         self.load(if seat == 0 { ad.book_0 } else { ad.book_1 })
     }
 
     fn patch_duel(&mut self, f: impl FnOnce(&mut Duel)) {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         let mut d = self.duel();
         f(&mut d);
         self.store(ad.duel, &d, trading_duel::ID);
     }
 
     fn gemas(&self, p: &Person) -> u64 {
-        let acct = self.load::<TesoroAccount>(p.account).inner;
-        acct.own_total + acct.won_total
+        flow::gemas(&self.svm, p.account)
     }
 
-    fn tesoro_status(&self) -> MatchStatus {
-        self.load::<MatchState>(tmatch_pda(self.id)).inner.status
+    fn tesoro_status(&self) -> Stage {
+        self.load::<MatchState>(self.tmatch).inner.stage()
     }
 
     /// The tesoro_core Match is opened and joined for entry 1_000, then the Duel created.
@@ -415,11 +393,11 @@ impl Env {
             studio: placeholder(Keypair::new()),
             alice: placeholder(Keypair::new()),
             bob: placeholder(Keypair::new()),
-            a_holding: APk::default(),
-            b_holding: APk::default(),
             a_source: APk::default(),
             b_source: APk::default(),
-            id: 4_000, // asset 0 (SOL): bits 1 and 2
+            asset: 0,
+            tmatch: APk::default(),
+            mref: None,
             now: T0,
             last_cu: 0,
         };
@@ -489,58 +467,41 @@ impl Env {
         env.alice = env.person();
         env.bob = env.person();
         let (alice, bob) = (dup(&env.alice), dup(&env.bob));
-        (env.a_source, env.a_holding) = env.stake(&alice, 1);
-        (env.b_source, env.b_holding) = env.stake(&bob, 2);
+        env.a_source = env.stake(&alice, 1);
+        env.b_source = env.stake(&bob, 2);
         env
     }
 
     fn open_and_join(&mut self, entry: u64) {
         let (alice, bob) = (dup(&self.alice), dup(&self.bob));
-        let open = ix(
-            tesoro_core::ID,
-            tesoro_core::accounts::OpenMatch {
-                player_authority: alice.key,
-                config: tpda(&[CONFIG_SEED]),
-                game_record: game_record_pda(),
-                game_program: trading_duel::ID,
-                program_data: program_data_pda(),
-                player_account: alice.account,
-                protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
-                match_state: tmatch_pda(self.id),
-                system_program: anchor_lang::system_program::ID,
-            },
-            tesoro_core::instruction::OpenMatch {
-                match_id: self.id,
-                game: trading_duel::ID,
-                entry,
-            },
-            vec![rem(self.a_holding)],
-        );
-        self.send(&[open], &alice.kp, &[]).expect("open match");
-        let join = ix(
-            tesoro_core::ID,
-            tesoro_core::accounts::JoinMatch {
-                player_authority: bob.key,
-                player_account: bob.account,
-                protections: tpda(&[PROTECTIONS_SEED, bob.account.as_ref()]),
-                match_state: tmatch_pda(self.id),
-                opener_protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
-                pair: pair_pda(alice.account, bob.account),
-                system_program: anchor_lang::system_program::ID,
-            },
-            tesoro_core::instruction::JoinMatch {},
-            vec![rem(self.b_holding)],
-        );
-        self.send(&[join], &bob.kp, &[]).expect("join match");
+        let m = flow::open_match(
+            &mut self.svm,
+            &alice.kp,
+            trading_duel::ID,
+            entry,
+            1,
+            false,
+            self.asset,
+        )
+        .expect("open match");
+        flow::join_match(&mut self.svm, &bob.kp, &m, trading_duel::ID, 2).expect("join match");
+        self.tmatch = m.key;
+        self.mref = Some(m);
+    }
+
+    fn run_settlement(&mut self) {
+        let m = self.mref.expect("a Match");
+        let caller = self.oracle.insecure_clone();
+        flow::run_chunks(&mut self.svm, &caller, &m);
     }
 
     fn create_ix(&self, creator: APk) -> Instruction {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         ix(
             trading_duel::ID,
             trading_duel::accounts::CreateMatch {
                 creator,
-                tesoro_match: tmatch_pda(self.id),
+                tesoro_match: self.tmatch,
                 game_record: game_record_pda(),
                 account_a: self.alice.account,
                 account_b: self.bob.account,
@@ -551,7 +512,7 @@ impl Env {
                 tesoro_program: tesoro_core::ID,
                 system_program: anchor_lang::system_program::ID,
             },
-            trading_duel::instruction::CreateMatch { match_id: self.id },
+            trading_duel::instruction::CreateMatch {},
             vec![],
         )
     }
@@ -634,7 +595,7 @@ impl Env {
     }
 
     fn sample_ix(&self, caller: APk, data: impl InstructionData) -> Instruction {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         ix(
             trading_duel::ID,
             trading_duel::accounts::Sample {
@@ -667,7 +628,7 @@ impl Env {
         column: u8,
         band: i16,
     ) -> Result<(), Failed> {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         let ixn = ix(
             trading_duel::ID,
             trading_duel::accounts::SetPick {
@@ -683,7 +644,7 @@ impl Env {
 
     fn pick(&mut self, seat: usize, column: u8, band: i16) -> Result<(), Failed> {
         let (kp, _) = self.person_of(seat);
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         self.pick_as(
             &kp,
             if seat == 0 { ad.book_0 } else { ad.book_1 },
@@ -707,7 +668,7 @@ impl Env {
 
     fn end(&mut self) -> Result<(), Failed> {
         let (kp, key) = self.person_of(0);
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         let ixn = ix(
             trading_duel::ID,
             trading_duel::accounts::EndMatch {
@@ -729,44 +690,41 @@ impl Env {
         self.end()
     }
 
-    fn payout_metas(&mut self, refund: bool) -> Vec<AccountMeta> {
-        let mut m = self.load::<MatchState>(tmatch_pda(self.id)).inner;
-        let payouts = if refund {
-            m.refund(i64::MAX, true).expect("refund")
-        } else {
-            let winner = self.duel().winner;
-            m.settle(Outcome::Winner(winner)).expect("settle")
-        };
-        let mut metas = Vec::new();
-        for p in payouts {
-            let recipient = APk::new_from_array(p.recipient);
-            let source = APk::new_from_array(p.source);
-            self.open_holding(recipient, source);
-            metas.push(rem(recipient));
-            metas.push(rem(holding_pda(recipient, source)));
-        }
-        metas
+    /// Starts the settlement or refund by `finalize` and runs its chunks.
+    fn finalize(&mut self, _refund: bool) -> Result<(), Failed> {
+        self.finalize_start()?;
+        self.run_settlement();
+        Ok(())
     }
 
-    fn finalize(&mut self, refund: bool) -> Result<(), Failed> {
-        let remaining = self.payout_metas(refund);
-        let ad = addrs(self.id);
+    fn finalize_start(&mut self) -> Result<(), Failed> {
         let caller = self.oracle.insecure_clone();
-        let finalize = ix(
+        let finalize = self.finalize_ix(self.tmatch);
+        self.send(&[finalize], &caller, &[])
+    }
+
+    fn finalize_ix(&self, tesoro_match: APk) -> Instruction {
+        let ad = addrs(self.tmatch);
+        let caller = self.oracle.insecure_clone();
+        ix(
             trading_duel::ID,
             trading_duel::accounts::Finalize {
                 caller: a(caller.pubkey()),
                 duel: ad.duel,
-                tesoro_match: tmatch_pda(self.id),
+                tesoro_match,
                 config: tpda(&[CONFIG_SEED]),
                 game_record: game_record_pda(),
                 authority: authority_pda(),
+                game_program: trading_duel::ID,
+                program_data: program_data_pda(),
+                receipt: tpda(&[b"settled", self.tmatch.as_ref()]),
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
                 tesoro_program: tesoro_core::ID,
             },
             trading_duel::instruction::Finalize {},
-            remaining,
-        );
-        self.send(&[finalize], &caller, &[])
+            vec![],
+        )
     }
 }
 
@@ -789,7 +747,7 @@ const PRICE: i64 = 100_00000000;
 const ANCHOR: i64 = PRICE;
 
 #[test]
-fn create_binds_the_duel_to_the_match_and_reads_the_asset_from_the_id() {
+fn create_binds_the_duel_to_the_match_and_reads_the_asset_from_the_match_record() {
     let env = ready();
     let d = env.duel();
     assert_eq!(d.asset, trading_duel::ASSET_SOL);
@@ -802,7 +760,7 @@ fn create_binds_the_duel_to_the_match_and_reads_the_asset_from_the_id() {
     assert_eq!(b0.pick_count, 0);
     assert_eq!(env.book(1).player, env.bob.key);
     assert_eq!(d.revealed, [[trading_duel::NO_PICK; 12]; 2]);
-    let m = env.load::<MatchState>(tmatch_pda(env.id)).inner;
+    let m = env.load::<MatchState>(env.tmatch).inner;
     assert!(
         m.deadline > T0 + 3_600,
         "refund timer extended past one hour"
@@ -810,16 +768,16 @@ fn create_binds_the_duel_to_the_match_and_reads_the_asset_from_the_id() {
 }
 
 #[test]
-fn the_asset_follows_the_low_bits_of_the_id_and_three_is_refused() {
-    for (id, asset) in [(4_002u64, 1u8), (4_004, 2)] {
+fn the_asset_is_the_one_the_match_was_opened_with_and_three_is_refused() {
+    for asset in [1u8, 2] {
         let mut env = Env::new();
-        env.id = id;
+        env.asset = asset;
         env.open_and_join(1_000);
         env.create().expect("create");
         assert_eq!(env.duel().asset, asset);
     }
     let mut env = Env::new();
-    env.id = 4_006;
+    env.asset = 3;
     env.open_and_join(1_000);
     let err = env.create().unwrap_err();
     assert_eq!(
@@ -899,7 +857,7 @@ fn picks_must_name_a_real_column_and_any_band_goes() {
 fn only_a_player_can_pick_and_only_in_their_own_book() {
     use trading_duel::DuelError::*;
     let mut env = live();
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     let stranger = env.admin.insecure_clone();
     for book in [ad.book_0, ad.book_1] {
         let err = env.pick_as(&stranger, book, 0, 0).unwrap_err();
@@ -1051,7 +1009,7 @@ fn the_higher_score_wins_and_finalize_pays_the_winner() {
         "pot of 2000 less 5% fees"
     );
     assert_eq!(env.gemas(&env.bob), before.1);
-    assert_eq!(env.tesoro_status(), MatchStatus::Settled);
+    assert_eq!(env.tesoro_status(), Stage::Closed);
     assert!(env.duel().finalized);
 }
 
@@ -1140,7 +1098,7 @@ fn a_match_never_started_cancels_after_the_start_deadline_and_refunds() {
 fn claim_timeout_cancels_an_unstarted_duel_in_the_rollup() {
     let mut env = ready();
     let deadline = env.duel().start_deadline;
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     let caller = env.admin.insecure_clone();
     let claim = |env: &mut Env| {
         let ixn = ix(
@@ -1165,7 +1123,7 @@ fn claim_timeout_cancels_an_unstarted_duel_in_the_rollup() {
     // a started Match cannot be cancelled this way
     let mut env = live();
     env.set_time(env.duel().start_deadline + 1);
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     let caller = env.admin.insecure_clone();
     let ixn = ix(
         trading_duel::ID,
@@ -1212,7 +1170,7 @@ fn permission_pda(target: APk) -> APk {
 #[test]
 fn delegation_is_pinned_to_the_tee_validator() {
     let mut env = ready();
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     let dlp = sdk_key(ephemeral_rollups_sdk::id());
     let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
     let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &trading_duel::ID);
@@ -1241,7 +1199,7 @@ fn delegation_is_pinned_to_the_tee_validator() {
                 delegation_program: dlp,
                 system_program: anchor_lang::system_program::ID,
             },
-            trading_duel::instruction::DelegateMatch { match_id: env.id },
+            trading_duel::instruction::DelegateMatch { tesoro_match: env.tmatch },
             vec![],
         );
         let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
@@ -1261,7 +1219,7 @@ fn delegation_is_pinned_to_the_tee_validator() {
 fn g01_a_duel_that_has_been_played_cannot_be_delegated_again() {
     let mut env = ready();
     env.patch_duel(|d| d.status = trading_duel::STATUS_OVER);
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     let dlp = sdk_key(ephemeral_rollups_sdk::id());
     let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
     let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &trading_duel::ID);
@@ -1289,7 +1247,7 @@ fn g01_a_duel_that_has_been_played_cannot_be_delegated_again() {
             delegation_program: dlp,
             system_program: anchor_lang::system_program::ID,
         },
-        trading_duel::instruction::DelegateMatch { match_id: env.id },
+        trading_duel::instruction::DelegateMatch { tesoro_match: env.tmatch },
         vec![],
     );
     let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
@@ -1302,7 +1260,7 @@ fn g01_a_duel_that_has_been_played_cannot_be_delegated_again() {
 #[test]
 fn starting_after_the_start_deadline_names_the_window() {
     let mut env = ready();
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     let deadline = env.duel().start_deadline;
     env.set_time(deadline + 1);
     let payer = env.bob.kp.insecure_clone();
@@ -1339,7 +1297,7 @@ fn starting_after_the_start_deadline_names_the_window() {
 #[test]
 fn a_prefunded_permission_address_is_not_a_permission() {
     let mut env = ready();
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     for target in [ad.duel, ad.book_0, ad.book_1] {
         env.svm
             .airdrop(&s(permission_pda(target)), 1_000_000)
