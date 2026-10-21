@@ -14,7 +14,10 @@
 //!   Games. A Source has one Studio counter for all of them, so its recipient is a setting; Studio
 //!   Fees of listed outside studios are fee lines in their baskets and never come here.
 //!
-//! The Leaderboard counter is never cashed in here: `harvest` moves it into the prize escrow.
+//! The Leaderboard counter is never paid to a wallet: on Solana `harvest` moves it into the prize
+//! escrow; on an EVM route the bridge passes class 2 to `cash_in_fee_from_source`, which debits
+//! it the same way (the Pool's Account stands in as the recipient) and the bridge moves the units
+//! into the vault's escrow.
 //! Prize Sources have no book, no counters and no `SourceState`, so they cannot be named.
 
 use crate::books::OnchainBooks;
@@ -22,7 +25,7 @@ use crate::error::{core_err, TesoroError};
 use crate::instructions::economy::*;
 use crate::instructions::position::chain_byte;
 use crate::ledger::draw::SourceBooks;
-use crate::ledger::line_store::{CLASS_PLATFORM, CLASS_STUDIO};
+use crate::ledger::line_store::{CLASS_LEADERBOARD, CLASS_PLATFORM, CLASS_STUDIO};
 use crate::ledger::{self, CoreError, SourceChain};
 use crate::state::*;
 use anchor_lang::prelude::*;
@@ -81,6 +84,7 @@ fn fee_recipient(config: &Config, economy: &EconomyConfig, class: u8) -> Result<
     match class {
         CLASS_PLATFORM => Ok(config.platform_recipient),
         CLASS_STUDIO => Ok(economy.tesoro_studio),
+        CLASS_LEADERBOARD => Ok(config.pool_account),
         _ => err!(TesoroError::InvalidAccount),
     }
 }
@@ -192,6 +196,8 @@ pub(crate) fn cash_in_fee<'info>(
         ctx.accounts.position.inner.source_chain == SourceChain::Solana,
         TesoroError::BridgedSource
     );
+    // The Leaderboard counter goes to the prize escrow (`harvest`), never to a wallet.
+    require!(class != CLASS_LEADERBOARD, TesoroError::InvalidAccount);
     let remaining = ctx.remaining_accounts;
     let a = ctx.accounts;
     let want = fee_recipient(&a.config, &a.economy, class)?;
@@ -270,8 +276,10 @@ pub(crate) fn cash_in_fee_from_source<'info>(
     let a = ctx.accounts;
     let want = fee_recipient(&a.config, &a.economy, class)?;
     require_keys_eq!(a.recipient_account.key(), want, TesoroError::Unauthorized);
+    // Platform and Studio are paid to their recipient's EVM address; the Leaderboard counter
+    // (class 2, recipient = the Pool's Account) goes to the vault's prize escrow instead.
     require!(
-        a.recipient_account.evm_address != [0u8; 20],
+        class == CLASS_LEADERBOARD || a.recipient_account.evm_address != [0u8; 20],
         TesoroError::EvmNotLinked
     );
     let mut kind = KindCtx::Reported;

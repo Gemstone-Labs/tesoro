@@ -186,6 +186,52 @@ pub mod tesoro_core {
         instructions::fee::cash_in_fee_from_source(ctx, class, min_units)
     }
 
+    /// The bridge issues the Pool's prize Source for shares an EVM vault confirmed in its escrow
+    /// (signed by the Season authority and the chain's source authority).
+    #[allow(clippy::too_many_arguments)]
+    pub fn issue_prize_from_source<'info>(
+        ctx: Context<'_, '_, 'info, 'info, IssuePrizeFromSource<'info>>,
+        chain: ledger::SourceChain,
+        season: u32,
+        route: Pubkey,
+        asset: Pubkey,
+        decimals: u8,
+        shares: u128,
+        units: u64,
+        price_micro_usd: u64,
+    ) -> Result<()> {
+        instructions::evm_prize::issue_prize_from_source(
+            ctx,
+            chain,
+            season,
+            route,
+            asset,
+            decimals,
+            shares,
+            units,
+            price_micro_usd,
+        )
+    }
+
+    /// A holder's prize Redeem on an EVM route: the Gemas burn, the shares are the bridge's to pay.
+    pub fn begin_prize_payout_from_source(
+        ctx: Context<BeginPrizePayoutFromSource>,
+        chain: ledger::SourceChain,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::evm_prize::begin_prize_payout_from_source(ctx, chain, amount)
+    }
+
+    /// The vault rejected a prize payout for good: Gemas and shares go back.
+    pub fn cancel_prize_payout_from_source(
+        ctx: Context<CancelPrizePayoutFromSource>,
+        chain: ledger::SourceChain,
+        gemas: u64,
+        shares: u128,
+    ) -> Result<()> {
+        instructions::evm_prize::cancel_prize_payout_from_source(ctx, chain, gemas, shares)
+    }
+
     pub fn fund_season_prize_native(
         ctx: Context<FundSeasonPrizeNative>,
         season: u32,

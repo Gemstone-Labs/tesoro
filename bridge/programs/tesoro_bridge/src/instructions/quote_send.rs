@@ -1,6 +1,8 @@
 use crate::*;
 use msg_codec::{
-    encode_pay_instant, encode_pay_yield, encode_unlock, MSG_PAY_INSTANT, MSG_PAY_YIELD, MSG_UNLOCK,
+    encode_cash_in_batch, encode_pay_instant, encode_pay_prize, encode_pay_yield, encode_unlock,
+    BatchEntryWire, MAX_BATCH_ENTRIES, MSG_CASH_IN_BATCH, MSG_PAY_INSTANT, MSG_PAY_PRIZE,
+    MSG_PAY_YIELD, MSG_UNLOCK,
 };
 use oapp::endpoint::{
     instructions::QuoteParams, state::EndpointSettings, ENDPOINT_SEED, ID as ENDPOINT_ID,
@@ -27,6 +29,29 @@ impl QuoteSend<'_> {
             MSG_UNLOCK => encode_unlock(params.dst_eid, [0u8; 32], 1),
             MSG_PAY_YIELD => encode_pay_yield(params.dst_eid, [0u8; 32], 1, [0u8; 32], 0),
             MSG_PAY_INSTANT => encode_pay_instant(params.dst_eid, [0u8; 32], 1, [0u8; 32], 0),
+            // A full batch prices the largest one.
+            MSG_CASH_IN_BATCH => {
+                let entries: Vec<BatchEntryWire> = (0..MAX_BATCH_ENTRIES)
+                    .map(|_| BatchEntryWire { vault_position_id: 0, units: 0 })
+                    .collect();
+                encode_cash_in_batch(
+                    params.dst_eid,
+                    &params.peer_address,
+                    1,
+                    0,
+                    [0u8; 32],
+                    &entries,
+                )
+            },
+            MSG_PAY_PRIZE => encode_pay_prize(
+                params.dst_eid,
+                &params.peer_address,
+                1,
+                [0u8; 32],
+                [0u8; 32],
+                [0u8; 32],
+                0,
+            ),
             _ => return err!(BridgeError::InvalidMessageType),
         };
         oapp::endpoint_cpi::quote(
@@ -48,7 +73,7 @@ impl QuoteSend<'_> {
 pub struct QuoteSendParams {
     pub dst_eid: u32,
     pub peer_address: [u8; 32],
-    /// 3 = Unlock, 4 = PayYield, 5 = PayInstant.
+    /// 3 = Unlock, 4 = PayYield, 5 = PayInstant, 6 = CashInBatch (priced at its largest), 7 = PayPrize.
     pub msg_type: u8,
     pub options: Vec<u8>,
     pub pay_in_lz_token: bool,
