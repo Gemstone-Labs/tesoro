@@ -1,6 +1,7 @@
 import type { GameId, MatchResult } from "../mock/types";
 import type { HistoryRow } from "./history";
 import type { QueueSeat } from "./read";
+import { canJoinSeat } from "./queue";
 import { canRematch, rematchHref } from "../rematch";
 import { gameQuery } from "../game-params";
 
@@ -45,9 +46,18 @@ export function gameFacts(rows: HistoryRow[]): Partial<Record<GameId, GameFacts>
   return out;
 }
 
-/** Players waiting at each entry of a Game's Queue, not counting `me`. */
+/** Whether `me` (paying their own entry) may take this seat: not their own, and not a Player they back. */
+const takeable = (s: QueueSeat, me?: string) => (me ? canJoinSeat(s, { player: me, funder: me }) : true);
+
+/** Players waiting at each entry of a Game's Queue that `me` could play: not `me`, not a Player `me` backs. */
 export function waitingByEntry(seats: QueueSeat[] | undefined, entries: readonly number[], me?: string): Record<number, number> {
   const out: Record<number, number> = Object.fromEntries(entries.map((e) => [e, 0]));
-  for (const s of seats ?? []) if (s.player !== me && s.entry in out) out[s.entry] += 1;
+  for (const s of seats ?? []) if (takeable(s, me) && s.entry in out) out[s.entry] += 1;
   return out;
+}
+
+/** At one entry: the Players `me` could be paired with (oldest first, once each), and how many waiting Players `me` backs. */
+export function seatsAt(seats: QueueSeat[] | undefined, entry: number, me?: string): { open: string[]; backed: number } {
+  const here = (seats ?? []).filter((s) => s.entry === entry && s.player !== me);
+  return { open: [...new Set(here.filter((s) => takeable(s, me)).map((s) => s.player))], backed: here.filter((s) => !takeable(s, me)).length };
 }
