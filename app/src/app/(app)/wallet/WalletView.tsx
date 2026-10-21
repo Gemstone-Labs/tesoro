@@ -6,7 +6,7 @@ import { CLUSTER } from "@/lib/cluster-settings";
 import { Button, Sheet, SkeletonCards, CountUp } from "@/components/ui";
 import { redeemableOf, useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
-import { fmtAsset, fmtGemas } from "@/lib/format";
+import { fmtAsset, fmtGemas, fmtUsd } from "@/lib/format";
 import { onGetGemas } from "@/lib/get-gemas";
 import { type Chain, type GemaHolding, type Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
@@ -21,9 +21,10 @@ import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables, ethYieldWaiting }
 import { vaultsOn, type EthVault } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, OpenIntentContext, type OpenIntent } from "./OpenPanel";
 import { BalanceHero } from "@/components/money/BalanceHero";
+import { CARD, NextIn } from "@/components/money/card-copy";
 import { HoverHint } from "@/components/money/Tip";
 import { instantCandidates, useInstantRedeem } from "./instant";
-import { ChainPockets, NextRedeem, type Pocket, type PocketSource } from "./ChainPockets";
+import { ChainPockets, type Pocket, type PocketSource } from "./ChainPockets";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
 
@@ -60,6 +61,11 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   }, [auth, body]);
   const { offer: instantOffer } = useInstantRedeem();
   const wonPending = instantCandidates(snapshot?.holdings ?? []).length > 0;
+  // What Instant Redeem would pay now, in dollars: the Gemas the Treasury can buy, less the fee. "Up to" when it can't buy them all.
+  const instantGemas = (instantOffer?.rows ?? []).reduce((t, r) => t + r.gemas, 0);
+  const instantCandidatesGemas = instantCandidates(snapshot?.holdings ?? []).reduce((t, h) => t + Number(h.pending), 0);
+  const instantCapped = instantGemas > 0 && instantGemas < instantCandidatesGemas;
+  const instantUsdText = `≈ ${fmtUsd(Math.floor((instantGemas * (100 - (instantOffer?.feePct ?? 25))) / 100) / 100)}`;
   useGuideTip({
     id: "wallet-first",
     pose: "himExplain",
@@ -80,6 +86,10 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   const canFetchYield = onChain && ethYieldWaiting(snapshot?.holdings ?? []).length > 0;
   // Pending is what is left of the Total after Redeemable now, so the hero adds up and matches the chain cards (which use the same figures).
   const pendingAmount = Math.max(0, gemas.total - redeemAmount);
+  // Pending split by who pays it: your own Locks' yield (just waits) and other Players' (won: Instant Redeem can buy it now).
+  const heldOnChain = snapshot?.holdings ?? [];
+  const ownPending = heldOnChain.filter((h) => h.isOwn).reduce((t, h) => t + Number(h.free - h.redeemable), 0);
+  const wonPendingGemas = heldOnChain.filter((h) => !h.isOwn).reduce((t, h) => t + Number(h.free - h.redeemable), 0);
   // Which sheet opens is decided when it renders, not when the tap happened: a tap while the session
   // is still loading must not open the offline sheet once the Account turns out to be on chain.
   const openRedeem = (chain?: Chain) =>
@@ -174,8 +184,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   return (
     <div className={part === "all" ? "wl" : "wl-part"}>
       {card && <BalanceHero
-        label="Total Balance"
-        labelInfo="All your Gemas: the ones from your Locks and the ones you won. You play with all of them. Redeemable now and Pending split this same total."
+        label={CARD.total}
         figure={ready ? <CountUp value={gemas.total} /> : "—"}
         usdOf={ready ? gemas.total : undefined}
         busy={!ready}
@@ -187,43 +196,46 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
             <span>Pending <b className="tnum">{fmtGemas(pendingAmount)}</b></span>
           </>
         )}
+        totalNote={ready && gemas.reserved > 0 ? <>In play: <b className="tnum">{fmtGemas(gemas.reserved)}</b> {CARD.inPlay}</> : undefined}
         columns={[
           {
-            label: "Redeemable now",
+            label: CARD.now,
             figure: ready ? fmtGemas(redeemAmount) : "—",
             usdOf: ready ? redeemAmount : undefined,
             emerald: true,
-            info: REAL
-              ? "Gemas you can turn back into the coin they came from now, at full value: the yield of their Lock has landed. Redeem pays it to your wallet."
-              : "Gemas you can turn back into the coin they came from now, at full value: the yield of their Lock has landed. Redeem pays test SOL (simulated) to your wallet.",
+            info: CARD.nowInfo(!REAL),
             action: (
-              <HoverHint hint={ready && redeemAmount === 0 ? (canFetchYield ? "Redeem fetches the latest yield first." : "Nothing redeemable yet. Gemas move here as the yield of their Lock lands.") : null}>
-                <Button variant="money" disabled={redeemAmount === 0 && !canFetchYield} onClick={() => openRedeem()}>Redeem</Button>
+              <HoverHint hint={ready && redeemAmount === 0 ? (canFetchYield ? CARD.redeemCheck : CARD.redeemEmpty) : null}>
+                <Button variant="money" disabled={redeemAmount === 0 && !canFetchYield} onClick={() => openRedeem()}>{CARD.redeem}</Button>
               </HoverHint>
             ),
           },
           {
-            label: "Pending",
-            figure: ready ? fmtGemas(pendingAmount) : "—",
-            usdOf: ready ? pendingAmount : undefined,
+            label: CARD.own,
+            figure: ready ? fmtGemas(onChain ? ownPending : pendingAmount) : "—",
+            usdOf: ready ? (onChain ? ownPending : pendingAmount) : undefined,
             info: (
               <>
-                Pending Gemas aren&apos;t lost. They turn redeemable as the yield of the Locks they came from lands.{" "}
-                {ready && pendingAmount > 0 && <NextRedeem at={heroNext} className="tip-next" />}
+                {CARD.ownInfo} {ready && ownPending > 0 && <NextIn at={heroNext} />}
               </>
             ),
+          },
+          {
+            label: CARD.won,
+            figure: ready ? fmtGemas(onChain ? wonPendingGemas : 0) : "—",
+            usdOf: ready ? (onChain ? wonPendingGemas : 0) : undefined,
+            info: CARD.wonInfo(100 - (instantOffer?.feePct ?? 25)),
             action: (
               <HoverHint
                 align="end"
-                hint={
-                  !ready ? null
-                    : !wonPending ? "Instant Redeem is for Gemas you won that are still Pending. Gemas from your own Locks wait for their yield."
-                    : instantOffer?.unavailable ?? `Redeem Gemas you won now, before their yield lands, at ${100 - (instantOffer?.feePct ?? 25)}% of their value.`
-                }
+                hint={!ready ? null : !wonPending ? CARD.instantNoneWon : instantOffer?.unavailable ? CARD.instantUnavailable : CARD.instantGet(instantUsdText, instantCapped)}
               >
-                <Button disabled={!ready || !wonPending || !instantOffer || !!instantOffer.unavailable} onClick={() => openRedeem()}>Instant Redeem</Button>
+                <Button disabled={!ready || !wonPending || !instantOffer || !!instantOffer.unavailable} onClick={() => openRedeem()}>
+                  {CARD.instant}
+                </Button>
               </HoverHint>
             ),
+            note: instantOffer && !instantOffer.unavailable && instantGemas > 0 ? CARD.instantNote(instantUsdText, instantCapped) : undefined,
           },
         ]}
         error={error && (

@@ -95,7 +95,8 @@ describe("plain money words", () => {
  * deposit and get back, never staking. The acknowledgment wording in lib/deposit/acknowledgment.ts must name staking, so it
  * sits outside these folders.
  */
-const SIMPLE_DIRS = ["app/(app)/vault", "components/deposit"];
+// The balance card is shared by both views, so its words live in components/money and follow the Simple rules too.
+const SIMPLE_DIRS = ["app/(app)/vault", "components/deposit", "components/money"];
 const SIMPLE_WORDS: [RegExp, string][] = [
   [/\bstak(e|es|ed|ing)\b/i, "deposit"],
   [/\bAPY\b/i, "(nothing: the Simple view shows no rates)"],

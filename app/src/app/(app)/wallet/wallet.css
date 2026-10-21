@@ -15,6 +15,15 @@
 .wl-redeemable b { color: var(--em-hi); }
 .wl-redeemable .btn { margin-top: 8px; }
 .wl-col-head { display: inline-flex; align-items: center; gap: 6px; }
+.wl-total-note { margin: 8px 0 0; color: var(--fg-2); font-size: var(--fs-14); }
+/* three columns: Redeemable now · Your pending · Won pending */
+/* columns wrap before they get too narrow for a one-line button */
+.wl-hero.three .wl-second { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 24px 28px; }
+.wl-second .btn { white-space: nowrap; }
+/* side by side only when there's room for the total and three columns; narrower, the total sits on top */
+@media (max-width: 1359px) { .wl-hero.three { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1360px) { .wl-hero.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); } .wl-hero.three .wl-total-fig { flex-wrap: nowrap; gap: 12px; } .wl-hero.three .wl-total-fig b { font-size: clamp(44px, 4.4vw, 80px); } }
+@media (max-width: 639px) { .wl-hero.three .wl-second { grid-template-columns: 1fr; } }
 .wl-pending .meta, .wl-redeemable .meta { color: var(--fg-2); font-size: var(--fs-13); }
 .wl-total-fig .wl-usd, .wl-usd { align-self: flex-end; padding-bottom: 0.4em; font-size: clamp(16px, 1.4vw, 22px); color: var(--fg-2); }
 .wl-redeemable .wl-usd, .wl-pending .wl-usd { display: block; font-size: var(--fs-15); padding: 0; }
