@@ -1,5 +1,5 @@
 import "./polyfill";
-import { PublicKey, SystemProgram, TransactionInstruction, type AccountInfo, type AccountMeta } from "@solana/web3.js";
+import { PublicKey, type AccountInfo, type AccountMeta } from "@solana/web3.js";
 import { ROUTE_LEN, parseRoute, parseTreasury, type RouteView } from "./fees";
 import {
   CONFIG,
@@ -347,7 +347,7 @@ export const stakeMarketKeys = (wallet: PublicKey, token: StakeToken = JITOSOL) 
 type Info = AccountInfo<Buffer> | null;
 
 /** The mainnet market from the accounts of `stakeMarketKeys`. Throws when the token's pool cannot be read. */
-export function stakeMarketFrom([config, poolInfo, custodyInfo, vault, ata, feed, treasuryInfo]: Info[], token: StakeToken = JITOSOL): NativeMarket {
+export function stakeMarketFrom([config, poolInfo, custodyInfo, , ata, feed, treasuryInfo]: Info[], token: StakeToken = JITOSOL): NativeMarket {
   const pool = poolInfo && poolInfo.owner.equals(token.poolProgram) ? parseStakePool(poolInfo.data) : null;
   const rate = pool && stakePoolRate(pool.totalLamports, pool.poolTokenSupply);
   if (!pool || !rate) throw new Error(`${token.symbol} stake pool not readable`);
@@ -355,7 +355,6 @@ export function stakeMarketFrom([config, poolInfo, custodyInfo, vault, ata, feed
   const activeMint = cfg && !cfg.activeMint.equals(PublicKey.default) ? cfg.activeMint : null;
   const ceilingBps = cfg?.apyCeilingBps ?? 0;
   const custody = custodyInfo && custodyInfo.owner.equals(TESORO_CORE_ID) ? parseStakeCustody(custodyInfo.data) : null;
-  const vaultAmount = vault && vault.data.length >= 72 ? rdU64(vault.data, 64) : 0n;
   const treasury = treasuryInfo && treasuryInfo.owner.equals(TESORO_CORE_ID) ? parseTreasury(treasuryInfo.data) : null;
   const sizingBps = sizingApyBps(pool, ceilingBps);
   const tokenBalance = ata && ata.data.length >= 72 ? rdU64(ata.data, 64) : 0n;

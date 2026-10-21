@@ -5,7 +5,7 @@ import { HOODI_RPC, HYPEREVM_RPC, hoodi, hyperEvmTestnet } from "@/lib/chains";
 import { CLUSTER } from "@/lib/cluster-settings";
 
 export { HOODI_RPC, HYPEREVM_RPC };
-import { TESORO_CORE_ID, meta, parseSource, pda, rdU32, rdU64, s, sourcePda, treasuryAccountPda, treasuryPda, u64 } from "./native";
+import { TESORO_CORE_ID, meta, parseSource, pda, rdU32, rdU64, s, sourcePda, u64 } from "./native";
 import { unitsToRepay, type SourceMath } from "./ledger";
 import { basketPda, spillPda, type LineRef } from "./basket";
 import { coreIx } from "./core-ix";

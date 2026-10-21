@@ -63,8 +63,15 @@ export function useInstantRedeem(asset?: Chain): { offer: InstantOffer | null; p
     setOrders(await fetchInstantOrders(accountKey).catch(() => []));
   }, [accountKey]);
   useEffect(() => {
-    void reloadOrders();
-  }, [reloadOrders, snapshot?.fetchedAt]);
+    if (!accountKey) return;
+    let stopped = false;
+    fetchInstantOrders(accountKey)
+      .then((o) => !stopped && setOrders(o))
+      .catch(() => undefined);
+    return () => {
+      stopped = true;
+    };
+  }, [accountKey, snapshot?.fetchedAt]);
   useEffect(() => {
     if (vaults.length === 0) return;
     let stopped = false;
@@ -89,7 +96,7 @@ export function useInstantRedeem(asset?: Chain): { offer: InstantOffer | null; p
   );
 
   const view = useMemo((): { offer: InstantOffer | null; plan: InstantPlan } => {
-    const nowSec = Math.floor(Date.now() / 1000);
+    const nowSec = Math.floor((snapshot?.fetchedAt ?? 0) / 1000);
     const open: OpenOrderRow[] = orders.map((o) => ({ key: o.address.toBase58(), gemas: Number(o.line.amount), sold: Number(o.sold), expiresAt: o.expiresAt * 1000, state: orderState(o, nowSec) as OpenOrderRow["state"] }));
     if (won.length === 0 && open.length === 0) return { offer: null, plan: [] };
     const bps = ratesOf(market?.treasury).instantFeeBps || INSTANT_REDEEM_FEE_BPS;
@@ -112,7 +119,7 @@ export function useInstantRedeem(asset?: Chain): { offer: InstantOffer | null; p
     });
     const unavailable = market?.treasury ? null : INSTANT_NOT_OPEN;
     return { offer: { rows, feePct: bps / 100, available, unavailable, fetchesYield: false, orders: open }, plan };
-  }, [won, market, mirrors, live, orders]);
+  }, [won, market, mirrors, live, orders, snapshot?.fetchedAt]);
   /** Vaults whose own Treasury holds more than the bridge's mirror shows. */
   const behind = useMemo(() => new Set([...(mirrors ?? [])].filter(([v, m]) => (live?.get(v) ?? 0n) > m.balance).map(([v]) => v)), [mirrors, live]);
   return { ...view, orders, behind, freshPlan, reloadOrders };
