@@ -115,7 +115,7 @@ export async function vanguard(ctx: Ctx, id: bigint, m: any, st: string, subject
       log("match", subject, `${tag} wait: no Battle yet, refundable ${when(deadline, now)}`);
       return 0;
     }
-    return +(await refund(ctx, id, subject, st === "open" ? "no opponent before deadline" : "no Battle before deadline")).ok;
+    return +(await refund(ctx, m, subject, st === "open" ? "no opponent before deadline" : "no Battle before deadline")).ok;
   }
 
   if (info.owner.equals(VANGUARD_PROGRAM_ID)) {
@@ -123,7 +123,7 @@ export async function vanguard(ctx: Ctx, id: bigint, m: any, st: string, subject
     commits.clear(subject);
     const step = vanguardStep(factsOf(b), "base", now, deadline, 0n);
     if (step.do === "finalize") return +(await act(ctx, "match", subject, `finalize (${step.why})`, () => ctx.vanguard.finalize(ctx.hsigner, id))).ok;
-    if (step.do === "refund") return +(await refund(ctx, id, subject, step.why)).ok;
+    if (step.do === "refund") return +(await refund(ctx, m, subject, step.why)).ok;
     log("match", subject, `${tag} wait: ${step.why}`);
     return 0;
   }
@@ -136,7 +136,7 @@ export async function vanguard(ctx: Ctx, id: bigint, m: any, st: string, subject
   const b = await ctx.vanguard.readBattle(ctx.hsigner, id).catch(() => null);
   if (!b) {
     // The rollup does not serve it: the Match deadline still refunds both entries.
-    if (now >= deadline) return +(await refund(ctx, id, subject, "Battle not served by the rollup before the Match deadline")).ok;
+    if (now >= deadline) return +(await refund(ctx, m, subject, "Battle not served by the rollup before the Match deadline")).ok;
     log("match", subject, `${tag} wait: Battle not readable in the rollup yet`);
     return 0;
   }
@@ -144,7 +144,7 @@ export async function vanguard(ctx: Ctx, id: bigint, m: any, st: string, subject
   const slot = BigInt(await tee.getSlot().catch(() => 0));
   const step = vanguardStep(factsOf(b), "tee", now, deadline, slot);
 
-  if (step.do === "refund") return +(await refund(ctx, id, subject, step.why)).ok;
+  if (step.do === "refund") return +(await refund(ctx, m, subject, step.why)).ok;
   if (step.do === "assist_setup") return assistSetup(ctx, id, b, tee, subject, tag);
   if (step.do === "resolve") return +(await act(ctx, "match", subject, `resolve (${step.why})`, () => ctx.vanguard.resolve(ctx.hsigner, id))).ok;
   if (step.do === "claim_timeout") {

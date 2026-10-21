@@ -2,6 +2,9 @@ import { PublicKey, type AccountInfo } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID, PERMISSION_PROGRAM_ID, permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, type Seat } from "../../app/src/games/block-puzzle/chain.ts";
 import { act, log, type Ctx } from "./act.ts";
+import { refundMatchIx } from "./core-ix.ts";
+import { keyOf, matchAddress, matchRefOf } from "./kit.ts";
+import { sendIxs } from "./send.ts";
 import { simulate, when } from "./tee.ts";
 
 /** Rollup attempts per Match are spaced out: a refused seal is free but not worth a request every pass. */
@@ -10,8 +13,12 @@ const nextTry = new Map<string, number>();
 const throttled = (key: string) => (nextTry.get(key) ?? 0) > Date.now();
 const backoff = (key: string) => nextTry.set(key, Date.now() + RETRY_MS);
 
-export const refund = (ctx: Ctx, id: bigint, subject: string, why: string) =>
-  act(ctx, "match", subject, `refund_match (${why})`, () => ctx.bp.refundMatch(ctx.signer, id));
+/** Starts a refund of a Match whose deadline passed (core lets anyone); the settle job then runs its chunks. `m` is the decoded `MatchState.inner`. */
+export const refund = (ctx: Ctx, m: any, subject: string, why: string) =>
+  act(ctx, "match", subject, `refund_match (${why})`, async () => {
+    const ix = await refundMatchIx(ctx.core, { caller: ctx.payer.publicKey, payer: ctx.payer.publicKey, game: keyOf(m.game), matchState: matchAddress(matchRefOf(m.id)) });
+    return sendIxs(ctx.conn, ctx.payer, [ix], { units: 300_000 });
+  });
 
 const decodeSession = (ctx: Ctx, info: AccountInfo<Buffer> | null): any | null => {
   if (!info || !info.owner.equals(BLOCK_PUZZLE_PROGRAM_ID)) return null;
@@ -65,7 +72,7 @@ export async function blockPuzzle(ctx: Ctx, id: bigint, m: any, st: string, subj
       log("match", subject, `${tag} wait: nobody joined, Queue window ends ${when(deadline, now)} (then refund_match)`);
       return 0;
     }
-    return +(await refund(ctx, id, subject, "Queue window over, nobody joined")).ok;
+    return +(await refund(ctx, m, subject, "Queue window over, nobody joined")).ok;
   }
 
   const a = BlockPuzzleChain.addresses(id);
@@ -77,7 +84,7 @@ export async function blockPuzzle(ctx: Ctx, id: bigint, m: any, st: string, subj
       log("match", subject, `${tag} wait: ${why}; refundable ${when(deadline, now)}`);
       return 0;
     }
-    return +(await refund(ctx, id, subject, why)).ok;
+    return +(await refund(ctx, m, subject, why)).ok;
   }
   if (session.settled) {
     log("match", subject, `${tag} Session settled but Match still active: nothing to do`);
@@ -87,7 +94,7 @@ export async function blockPuzzle(ctx: Ctx, id: bigint, m: any, st: string, subj
   if (!session.joined) {
     // Joined on tesoro_core without join_session (an older client). Binding is permissionless and only
     // possible inside the Match's 1 h window.
-    if (now >= deadline) return +(await refund(ctx, id, subject, "joined without a Session and past the window")).ok;
+    if (now >= deadline) return +(await refund(ctx, m, subject, "joined without a Session and past the window")).ok;
     const r = await act(ctx, "match", subject, "join_session (bind a Match joined without it)", async () => {
       const ix = await ctx.bp.joinSessionIx(ctx.payer.publicKey, id, new PublicKey(Uint8Array.from(m.b.player)));
       return ctx.bp.sendBase(ctx.signer, [ix]);
