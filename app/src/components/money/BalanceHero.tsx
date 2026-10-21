@@ -66,8 +66,8 @@ export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, sum
           <GemaMark size={72} glint />
           <b aria-busy={busy}>{figure}</b>
           <span>Gemas</span>
-          {usdOf !== undefined && <GemaUsd className="wl-usd" value={usdOf} />}
         </div>
+        {usdOf !== undefined && <GemaUsd className="wl-usd wl-total-usd" value={usdOf} />}
         {totalNote && <p className="wl-total-note">{totalNote}</p>}
         {summary && !open && (
           <button type="button" className="wl-sum" aria-expanded={open} aria-controls={id}>
