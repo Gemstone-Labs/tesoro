@@ -299,7 +299,7 @@ See "Entry draw" above. Ticket rules (ledger `draw/`, instructions with ticket 0
 - The plan is frozen at the start: fee totals, cuts from the fewest loser lines (largest first), the Backed share, the phase order. Each chunk syncs the Sources it cuts, credits baskets or spills, and is idempotent by a cursor kept in the record. Anyone may continue a chunk.
 - Payout order of a settlement: fee cuts (Platform, Studio, Leaderboard), then the winner's Backing, then the surplus.
 - **Deadline.** Open, join and extend all clamp to 7 days after open (`MAX_MATCH_LIFETIME_SECS`). Starting a settlement at or after that point is refused; only a refund can start. A running settlement ignores the clock.
-- **Same build as at open.** The Game's deploy slot is compared at the start of settling, through `GameRecord::same_build(match, slot)`: a slot moved by a harmless extension with an unchanged approved build and the same listing epoch counts as the same build. After a real upgrade only a refund can start.
+- **Same build as at open.** The Game's deploy slot is compared at the start of settling. The backed join already decides through `GameRecord::same_build(match, slot)`; the settle and refund instructions (ticket 09) are to use it too, and until then the ledger compares the raw slot. `same_build` means: a slot moved by a harmless extension with an unchanged approved build and the same listing epoch counts as the same build. After a real upgrade only a refund can start.
 - **No-show.** A committed "started, nobody acted" result costs each side the Platform Fee once, then returns the rest exactly. A draw is an exact refund.
 - **Records.** The settlement receipt `["settled", match]` is written at the start of Settling or Refunding. Start, chunk and completion records are written as events of the core program (event-CPI). The Match closes when every obligation is a durable basket or spill line; unused reserve goes back to its payer. Match ids come from the opener's Account and a counter that never resets (ticket 09).
 - **Per-Account concurrent Match cap** and the per-Account Match counter belong to ticket 09. The per-pair limit is built: a joiner may join at most 20 Matches opened by the same opener per 24 hours (`PairState`).
@@ -337,7 +337,7 @@ The Platform and Studio counters on a Source are repaid by the Payout order but 
 See "Game registry and listing" above. Changes made after it was first written:
 
 - `list_game(listed_until, approved_hash)` and `refresh_listing` bind the build by SHA-256 of the deployed bytes (trailing zeros ignored; at most 1,800,000 bytes). Measured on `vanguard.so`: `list_game` 402,500 compute units, `refresh_listing` 407,641, and 1,162,069 at the size cap, so both need a raised limit (1,400,000).
-- `GameRecord.listing_epoch` bumps only when `list_game` sets a different hash. A Match stores it at open. `GameRecord::same_build` decides whether a pending backed join and a settlement still follow the same build.
+- `GameRecord.listing_epoch` bumps only when `list_game` sets a different hash. A Match stores it at open. `GameRecord::same_build` decides whether a pending backed join (and, once ticket 09 lands, a settlement) still follows the same build.
 - Known limit: whether the loader's checked extend is active on mainnet was not confirmed, so the slot alone is never trusted.
 
 ### Recheck when these merge

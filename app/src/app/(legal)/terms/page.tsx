@@ -134,7 +134,7 @@ export default function Terms() {
         <ul>
           <li>Fees on every Pot are fixed when the Match opens: a Platform Fee of 2%, a Studio Fee of 3% (set by the Game&apos;s Studio, never more than 10% of the Pot) and a Leaderboard Fee of 1%. A draw or refund pays none, except that a no-show (both Players checked in, neither acted) costs each side the Platform Fee.</li>
           <li>
-            <b>7-day limit.</b> No Match can start settling more than 7 days after it opened, in any Game. After that, or if the Game&apos;s code changed to a build we have not approved after the Match opened,
+            <b>7-day limit.</b> No Match can start settling more than 7 days after it opened, in any Game. After that, or if the Game&apos;s program was upgraded to different code after the Match opened,
             the Match can only be refunded, and anyone can run the refund. Big Pots are settled or refunded in steps that anyone can continue.
           </li>
           <li>
@@ -216,7 +216,7 @@ export default function Terms() {
       <Section id="our-rights" title="Our rights to change and pause">
         <p>
           We may update {BRAND.name}, change fees for new Matches and Advances, list or unlist Games, pause queues, sponsored costs or
-          redemptions to protect Players or fix a problem, upgrade programs, and stop the service. We will not pause settling or refunding a Match you are in, or Redeem and Unlock. If we change these Terms in a way that matters we will tell you
+          Instant Redeem fills to protect Players or fix a problem, upgrade programs, and stop the service. We will not pause settling or refunding a Match you are in, or Redeem and Unlock. If we change these Terms in a way that matters we will tell you
           in the app or by email, and the new Terms apply from the date shown. If you keep using {BRAND.name} after that, you accept them.
         </p>
       </Section>
