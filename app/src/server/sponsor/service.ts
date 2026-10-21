@@ -101,6 +101,10 @@ interface Meta {
   player: string;
   exp: number;
   release: string[];
+  /** Obligations whose completion reserve is held once the transaction is submitted (not when it is built). */
+  hold: string[];
+  reserve: string;
+  fronted: string;
   cycle: boolean;
   fee: string;
 }
@@ -155,6 +159,12 @@ export class Sponsor {
     }
   }
 
+  /** Exits and continues are for Accounts: a throwaway key cannot make the relayer pay fees. */
+  private async requireAccount(player: PublicKey) {
+    const a = await this.d.chain.account(accountPda(player));
+    if (!a || !a.owner.equals(CORE_ID)) throw new DemoHttpError(403, "no-account", "Free transactions are for Accounts.");
+  }
+
   async build(player: PublicKey, raw: unknown): Promise<Built> {
     const now = this.d.now();
     const who = player.toBase58();
@@ -167,13 +177,16 @@ export class Sponsor {
     const balance = await this.balance();
     await this.checkLow(balance.lamports);
     const release: string[] = [];
+    const hold: string[] = [];
+    let reserve = 0n;
+    let fronted = 0n;
 
     if (plan.class === "admission") {
       if (await this.d.paused()) throw new DemoHttpError(503, "sponsor-paused", "Free transactions are paused. You can still play: pay the network fee from your own SOL.");
       const basket = await this.d.chain.account(basketPda(accountPda(player)));
       if (!basket || !basket.owner.equals(CORE_ID) || basketGemas(basket.data) === 0n) throw new DemoHttpError(403, "no-gemas", "Free transactions are for Accounts that hold Gemas.");
       await this.requireObligations(plan);
-      const reserve = plan.names.some((n) => n === "open_match" || n === "join_match" || n === "open_ticket") ? this.d.limits.completionReserve : 0n;
+      reserve = plan.names.some((n) => n === "open_match" || n === "join_match" || n === "open_ticket") ? this.d.limits.completionReserve : 0n;
       if (!admissionFits(this.d.limits, balance, plan.spend.refundable + plan.spend.sunk + fee, reserve)) {
         throw new DemoHttpError(503, "sponsor-paused", "Free transactions are used up for now. You can still play: pay the network fee from your own SOL.");
       }
@@ -183,8 +196,10 @@ export class Sponsor {
         if (e instanceof RuleError) throw refuse(e);
         throw e;
       }
-      if (reserve > 0n) for (const o of plan.obligations) await this.d.store.hold(o.toBase58(), reserve);
+      fronted = plan.spend.refundable + plan.spend.sunk + fee;
+      if (reserve > 0n) hold.push(...plan.obligations.map((o) => o.toBase58()));
     } else {
+      await this.requireAccount(player);
       await this.requireObligations(plan);
       if (!exitFits(balance, fee)) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
       if (plan.names.some((n) => n === "close_match" || n === "close_ticket")) release.push(...plan.obligations.map((o) => o.toBase58()));
@@ -200,7 +215,7 @@ export class Sponsor {
       await this.d.lookupTables(),
     );
     const bytes = message.serialize();
-    const meta: Meta = { player: who, exp: now + BUILD_TTL_MS, release, cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString() };
+    const meta: Meta = { player: who, exp: now + BUILD_TTL_MS, release, hold, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString() };
     const metaText = JSON.stringify(meta);
     return { message: Buffer.from(bytes).toString("base64"), meta: metaText, mac: mac(this.d.macKey, bytes, metaText), expiresAt: meta.exp, class: plan.class };
   }
@@ -227,6 +242,14 @@ export class Sponsor {
       if (!sig || !nacl.sign.detached.verify(bytes, sig, keys[i].toBytes())) throw new DemoHttpError(400, "unsigned", "The transaction is not signed by the Player.");
     }
     if (!exitFits(await this.balance(), BigInt(meta.fee))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL.");
+    // The completion reserve is held only for transactions that are really sent, so an unsent build holds nothing.
+    const held: string[] = [];
+    if (meta.hold.length) {
+      if (!admissionFits(this.d.limits, await this.balance(), BigInt(meta.fronted), BigInt(meta.reserve))) {
+        throw new DemoHttpError(503, "sponsor-paused", "Free transactions are used up for now. You can still play: pay the network fee from your own SOL.");
+      }
+      for (const o of meta.hold) if (await this.d.store.hold(o, BigInt(meta.reserve))) held.push(o);
+    }
     tx.sign([this.d.relayer]);
 
     let signature: string;
@@ -234,6 +257,7 @@ export class Sponsor {
       signature = await this.d.chain.send(tx.serialize());
     } catch (e) {
       await recordFailure(this.d.store, meta.player, now);
+      for (const o of held) await this.d.store.release(o);
       throw new DemoHttpError(502, "chain", `Transaction failed: ${(e as Error).message}`.slice(0, 300));
     }
     for (const k of meta.release) await this.d.store.release(k);

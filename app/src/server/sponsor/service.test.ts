@@ -17,7 +17,7 @@ const basketData = (gemas: bigint) => {
   return d;
 };
 
-function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean } = {}) {
+function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean; noAccount?: boolean } = {}) {
   const relayer = Keypair.generate();
   const player = Keypair.generate();
   const game = key();
@@ -26,6 +26,7 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
   let balance = over.balance ?? 10n * SOL;
   const accounts = new Map<string, { owner: PublicKey; data: Uint8Array }>();
   accounts.set(basketPda(accountPda(player.publicKey)).toBase58(), { owner: CORE_ID, data: basketData(over.gemas ?? 500n) });
+  if (!over.noAccount) accounts.set(accountPda(player.publicKey).toBase58(), { owner: CORE_ID, data: new Uint8Array(10) });
   for (const k of over.existing ?? []) accounts.set(k.toBase58(), { owner: CORE_ID, data: new Uint8Array(10) });
   const chain: ChainReads = {
     balance: async () => balance,
@@ -93,7 +94,8 @@ describe("an admission", () => {
     const s = setup();
     const open = await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
     const matchState = open.keys[13].pubkey;
-    await s.sponsor.build(s.player.publicKey, wire([open]));
+    const b1 = await s.sponsor.build(s.player.publicKey, wire([open]));
+    await s.sponsor.submit(playerSigns(b1, s.player), b1.meta, b1.mac);
     expect(await s.deps.store.held()).toBe(DEFAULT_LIMITS.completionReserve);
     const s2 = setup({ existing: [matchState] });
     await s2.deps.store.hold(matchState.toBase58(), 300_000n);
@@ -201,5 +203,31 @@ describe("the low-balance email", () => {
     s.tick(5 * 3_600_000);
     await s.sponsor.build(s.player.publicKey, wire([await chunkIx(s.relayer.publicKey, matchState)]));
     expect(s.alerts).toHaveLength(2);
+  });
+});
+
+describe("reserve timing and exits for throwaway keys", () => {
+  it("an admission that is built but never submitted holds nothing", async () => {
+    const s = setup();
+    const open = await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
+    await s.sponsor.build(s.player.publicKey, wire([open]));
+    expect(await s.deps.store.held()).toBe(0n);
+  });
+  it("holds the reserve when submitted, and gives it back when the send fails", async () => {
+    const s = setup();
+    const open = await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
+    const built = await s.sponsor.build(s.player.publicKey, wire([open]));
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    expect(await s.deps.store.held()).toBe(DEFAULT_LIMITS.completionReserve);
+    const f = setup({ sendFails: true });
+    const open2 = await openMatchIx(f.relayer.publicKey, f.player.publicKey, f.game);
+    const b2 = await f.sponsor.build(f.player.publicKey, wire([open2]));
+    await expect(f.sponsor.submit(playerSigns(b2, f.player), b2.meta, b2.mac)).rejects.toMatchObject({ code: "chain" });
+    expect(await f.deps.store.held()).toBe(0n);
+  });
+  it("an exit or a Game move from a key with no Account is refused", async () => {
+    const ms = key();
+    const s = setup({ noAccount: true, existing: [ms] });
+    await expect(s.sponsor.build(s.player.publicKey, wire([await chunkIx(s.relayer.publicKey, ms)]))).rejects.toMatchObject({ code: "no-account" });
   });
 });
