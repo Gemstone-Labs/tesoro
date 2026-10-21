@@ -2,13 +2,13 @@
 
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
+import { GameTabs, HistoryPages, ResultFilter, gameFilter, historyHref, resultCounts } from "@/components/match/MatchHistory";
 import { DelayedMatches } from "@/components/match/DelayedMatches";
 import { MatchBanner, MatchBannerSkeleton } from "@/components/match/MatchBanner";
 import { Button, Card } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { useChainData } from "@/lib/chain/ChainDataProvider";
-import { accountHistory, historyPage } from "@/lib/chain/history";
+import { RESULTS, accountHistory, historyPage, resultFilter } from "@/lib/chain/history";
 import { GAME_NAMES } from "@/lib/mock";
 
 /** Every finished Match of the signed-in Account (played or backed), newest first, 10 banners per page. */
@@ -17,13 +17,15 @@ export function AllMatches() {
   const { error, refresh } = useChainData();
   const params = useSearchParams();
   const game = gameFilter(params.get("game"));
+  const results = resultFilter(params.get("result"));
   const [now] = useState(() => Date.now());
 
   const rows = useMemo(
     () => (onChain && snapshot ? accountHistory(snapshot.matches, snapshot.funded).filter((r) => !game || r.game === game) : []),
     [onChain, snapshot, game],
   );
-  const view = historyPage(rows, Number(params.get("page") ?? 1));
+  const shown = rows.filter((r) => results.includes(r.result));
+  const view = historyPage(shown, Number(params.get("page") ?? 1));
 
   if (auth.status === "signed-out") {
     return (
@@ -41,7 +43,8 @@ export function AllMatches() {
     <div className="mh-page">
       <header className="mh-head">
         <h1 className="page-title">Matches</h1>
-        <GameTabs base="/matches" game={game} />
+        <GameTabs base="/matches" game={game} results={results} />
+        {snapshot?.matchesLoaded && <ResultFilter base="/matches" game={game} results={results} counts={resultCounts(rows)} />}
       </header>
 
       {!snapshot?.matchesLoaded ? (
@@ -60,6 +63,11 @@ export function AllMatches() {
           <p>{game ? `No finished ${GAME_NAMES[game]} Matches yet.` : "No finished Matches yet."} They appear here when they finish.</p>
           <Button size="sm" href={game ? `/play/${game}` : "/play"}>Play a Match</Button>
         </div>
+      ) : shown.length === 0 ? (
+        <div className="mh-state">
+          <p>No {game ? `${GAME_NAMES[game]} ` : ""}Matches with these results.</p>
+          <Button size="sm" href={historyHref("/matches", game, 1, RESULTS)}>Show all results</Button>
+        </div>
       ) : (
         <>
           <div className="mb-list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`} role="list">
@@ -69,7 +77,7 @@ export function AllMatches() {
               </div>
             ))}
           </div>
-          <HistoryPages base="/matches" game={game} page={view.page} pages={view.pages} total={rows.length} />
+          <HistoryPages base="/matches" game={game} results={results} page={view.page} pages={view.pages} total={shown.length} />
         </>
       )}
       {error && snapshot && <p className="note">Couldn’t refresh; showing what was last loaded.</p>}
