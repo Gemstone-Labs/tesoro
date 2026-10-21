@@ -6,6 +6,8 @@ import { Menu, Search, X } from "lucide-react";
 import { AvatarSkeleton } from "@/components/account/Player";
 import { Button, CountUp, GemaMark } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { requestDeposit } from "@/lib/deposit/bus";
+import { useViewMode } from "@/lib/deposit/use-view-mode";
 import { requestGetGemas } from "@/lib/get-gemas";
 import { AccountMenu } from "./AccountMenu";
 import { PoolChest } from "./PoolChest";
@@ -21,6 +23,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   const signedOut = auth.status === "signed-out";
   const onLobby = path === "/lobby";
   const onWallet = path === "/wallet";
+  const simple = useViewMode().mode === "simple";
 
   return (
     <header className={`topbar${onLobby ? " on-lobby" : ""}`}>
@@ -60,11 +63,16 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         {auth.status !== "signed-out" &&
           (ready || (error && auth.status !== "loading") ? (
             <Link
-              href="/wallet"
+              href={simple ? "/vault" : "/wallet"}
               className="cut cut-card gpill"
-              aria-label={onWallet ? "Your Gemas, get Gemas" : "Your Gemas, open Wallet"}
-              title="Simulated yield · 1 month = 10 min"
+              aria-label={simple || onWallet ? "Your Gemas, get Gemas" : "Your Gemas, open Wallet"}
+              title={simple ? "Get Gemas" : "Simulated yield · 1 month = 10 min"}
               onClick={(e) => {
+                if (simple) {
+                  e.preventDefault();
+                  requestDeposit();
+                  return;
+                }
                 if (!onWallet) return;
                 e.preventDefault();
                 requestGetGemas();

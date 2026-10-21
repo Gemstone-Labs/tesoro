@@ -7,6 +7,7 @@ import { BookOpen, ChevronRight, CircleHelp, Gamepad2, HandCoins, House, Swords,
 import { AvatarSkeleton, PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { TesoroLogo } from "@/components/brand";
 import { useAccount } from "@/lib/account";
+import { useViewMode } from "@/lib/deposit/use-view-mode";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import { BRAND } from "@/lib/brand";
 
@@ -27,6 +28,18 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
   { title: "Money", items: [BACKING, WALLET] },
   { title: "Season", items: [BOARD] },
 ];
+
+const VAULT: NavItem = { href: "/vault", label: "Vault", Icon: Wallet };
+
+/** The money page of the Player's view: the Vault in Simple, the Wallet in Advanced. */
+export function useNavItems(): { nav: NavItem[]; groups: typeof GROUPS } {
+  const simple = useViewMode().mode === "simple";
+  const money = simple ? VAULT : WALLET;
+  return {
+    nav: NAV.map((n) => (n === WALLET ? money : n)),
+    groups: GROUPS.map((g) => ({ ...g, items: g.items.map((n) => (n === WALLET ? money : n)) })),
+  };
+}
 
 export function isHere(path: string, href: string): boolean {
   return path.startsWith(href);
@@ -70,6 +83,7 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
     () => (auth.status !== "signed-in" ? null : (snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null))),
     [auth.status, snapshot, auth.addresses.solana],
   );
+  const { groups } = useNavItems();
   const count = <OpenCount n={openMatches.length} lit={openMatches.some((m) => m.status === "active")} />;
   const profile = me ? `/account/${me}` : null;
 
@@ -79,7 +93,7 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
         <Wordmark onNavigate={onNavigate} />
       </div>
       <nav aria-label="Main" className="side-groups">
-        {GROUPS.map((g) => (
+        {groups.map((g) => (
           <div key={g.title} className="side-nav">
             <h3 className="side-group-h">{g.title}</h3>
             {g.items.map((item) => (

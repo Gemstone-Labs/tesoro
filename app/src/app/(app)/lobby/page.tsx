@@ -1,6 +1,8 @@
 "use client";
 
 import { useGuideTip } from "@/components/guide/Guide";
+import { useViewMode } from "@/lib/deposit/use-view-mode";
+import { getGemasHref } from "@/lib/deposit/view-mode";
 import { BackPlayerRail } from "@/components/lobby/BackPlayerRail";
 import { ContinueRail } from "@/components/lobby/ContinueRail";
 import { HeroCarousel } from "@/components/lobby/HeroCarousel";
@@ -15,12 +17,15 @@ import { BRAND } from "@/lib/brand";
 export default function Lobby() {
   const { openMatches } = useAccount();
   const { query } = useSearch();
+  const simple = useViewMode().mode === "simple";
   useGuideTip({
     id: "lobby-first",
     pose: "himWelcome",
     title: `Welcome to ${BRAND.name}`,
-    text: "Pick a game, choose an entry and press Play now. Your Gemas come from a Lock in your Wallet.",
-    link: { href: "/wallet", label: "Open the Wallet" },
+    text: simple
+      ? "Pick a game, choose an entry and press Play now. Get Gemas by making a deposit."
+      : "Pick a game, choose an entry and press Play now. Your Gemas come from a Lock in your Wallet.",
+    link: simple ? { href: getGemasHref("simple"), label: "Get Gemas" } : { href: "/wallet", label: "Open the Wallet" },
   });
 
   // A search turns the Lobby into its results: the matching Games only, as on Play.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { GetGemasButton } from "@/components/deposit/GetGemasButton";
 import { useRouter } from "next/navigation";
 import { Busy, Button, GemaAmount } from "@/components/ui";
 import { PlayerAvatar } from "@/components/account/Player";
@@ -239,7 +240,7 @@ export function EnterMatch(props: EnterKind) {
           <>
             <p className="status err" role="status">You need {fmtGemas(entryGemas)} Gemas to enter. You have {fmtGemas(gemas.available)}.</p>
             <div className="hstack wrap">
-              <Button variant="money" href={`/wallet?open=1&need=${entryGemas}&game=${game}`}>Get Gemas</Button>
+              <GetGemasButton intent={{ game, need: entryGemas }} />
               <Button href={practiceHref(game, props.asset)}>Practice free</Button>
               <Button href="/lobby">Lobby</Button>
             </div>
@@ -248,7 +249,7 @@ export function EnterMatch(props: EnterKind) {
           <>
             <p className="status err" role="alert">{landing ? "Your new Gemas are still landing. Try again in a few seconds." : failure.text}</p>
             <div className="hstack wrap">
-              {failure.short && !landing ? <Button variant="money" href={`/wallet?open=1&game=${game}`}>Get Gemas</Button> : <Button onClick={() => window.location.reload()}>Retry</Button>}
+              {failure.short && !landing ? <GetGemasButton intent={{ game }} /> : <Button onClick={() => window.location.reload()}>Retry</Button>}
               <Button href="/lobby">Lobby</Button>
             </div>
           </>
