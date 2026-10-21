@@ -32,10 +32,9 @@ import {
   permissionPdaFromAccount,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import nacl from "tweetnacl";
-import { gameRecordPda } from "../../lib/chain/game-record";
+import { gameAccounts, gameRecordPda } from "../../lib/chain/game-record";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { baseRpc } from "../../lib/chain/rpc-config";
-import { NO_LEADERBOARD, fetchLeaderboardTerms, type LeaderboardTerms } from "../../lib/chain/leaderboard";
 
 export const HOLDEM_PROGRAM_ID = new PublicKey("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE");
 export const TESORO_CORE_PROGRAM_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
@@ -98,12 +97,10 @@ export interface Addresses {
   authority: PublicKey;
 }
 
-const le64 = (n: bigint | number | anchor.BN) => new anchor.BN(n.toString()).toArrayLike(Buffer, "le", 8);
-
-/** PDAs of one table. `matchId` is the tesoro_core Match id. */
-export function addresses(matchId: bigint | number | anchor.BN): Addresses {
+/** PDAs of one table. `match` is the address of the tesoro_core Match (`["match", opener, n]`). */
+export function addresses(match: PublicKey): Addresses {
   const pda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, HOLDEM_PROGRAM_ID)[0];
-  const gameMatch = pda([Buffer.from("match"), le64(matchId)]);
+  const gameMatch = pda([Buffer.from("match"), match.toBuffer()]);
   return {
     gameMatch,
     deck: pda([Buffer.from("deck"), gameMatch.toBuffer()]),
@@ -115,10 +112,9 @@ export function addresses(matchId: bigint | number | anchor.BN): Addresses {
 
 const tesoroPda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, TESORO_CORE_PROGRAM_ID)[0];
 export const tesoroAccountPda = (authority: PublicKey) => tesoroPda([Buffer.from("account"), authority.toBuffer()]);
-export const tesoroMatchPda = (matchId: bigint | number | anchor.BN) => tesoroPda([Buffer.from("match"), le64(matchId)]);
 export const tesoroConfigPda = () => tesoroPda([Buffer.from("config")]);
-export const tesoroHoldingPda = (account: PublicKey, source: PublicKey) =>
-  tesoroPda([Buffer.from("holding"), account.toBuffer(), source.toBuffer()]);
+export const settledPda = (match: PublicKey) => tesoroPda([Buffer.from("settled"), match.toBuffer()]);
+export const eventAuthorityPda = () => tesoroPda([Buffer.from("__event_authority")]);
 
 // ---------------------------------------------------------------------------------------------
 // Cards
@@ -208,98 +204,6 @@ export function decodeTable(address: PublicKey, m: any): Table {
       board: Array.from(m.lastBoard),
     },
   };
-}
-
-// ---------------------------------------------------------------------------------------------
-// tesoro_core payouts (port of programs/tesoro_core/src/ledger/matches.rs)
-
-interface Line {
-  source: number[];
-  amount: bigint;
-}
-export interface Payout {
-  recipient: PublicKey;
-  source: PublicKey;
-  amount: bigint;
-}
-
-const BPS = 10_000n;
-const cmp = (a: ArrayLike<number>, b: ArrayLike<number>) => Buffer.compare(Buffer.from(a as any), Buffer.from(b as any));
-
-function normalize(lines: Line[]): Line[] {
-  const sorted = lines.filter((l) => l.amount > 0n).sort((x, y) => cmp(x.source, y.source));
-  const out: Line[] = [];
-  for (const l of sorted) {
-    const last = out[out.length - 1];
-    if (last && cmp(last.source, l.source) === 0) last.amount += l.amount;
-    else out.push({ source: l.source, amount: l.amount });
-  }
-  return out;
-}
-
-function take(lines: Line[], amount: bigint): Line[] {
-  const taken: Line[] = [];
-  for (const l of lines) {
-    if (amount === 0n) break;
-    const t = l.amount < amount ? l.amount : amount;
-    if (t > 0n) {
-      l.amount -= t;
-      amount -= t;
-      taken.push({ source: l.source, amount: t });
-    }
-  }
-  return taken;
-}
-
-const sum = (lines: Line[]) => lines.reduce((a, l) => a + l.amount, 0n);
-const toLines = (side: any): Line[] => side.lines.map((l: any) => ({ source: Array.from(l.source), amount: big(l.amount) }));
-
-/**
- * The payouts tesoro_core will compute for an Active Match, in the order it wants their accounts
- * (recipient TesoroAccount then Holding of that Source, sorted by recipient then Source).
- * `winner` is the seat (0 = opener, 1 = joiner) or `null` for a refund.
- */
-export function computePayouts(matchInner: any, winner: 0 | 1 | null, lb: LeaderboardTerms = NO_LEADERBOARD): Payout[] {
-  const raw: { recipient: number[]; source: number[]; amount: bigint }[] = [];
-  const push = (recipient: number[], lines: Line[]) => {
-    for (const l of lines) if (l.amount > 0n) raw.push({ recipient, source: l.source, amount: l.amount });
-  };
-  const a = matchInner.a;
-  const b = matchInner.b;
-  if (winner === null) {
-    push(Array.from(a.funder), normalize(toLines(a)));
-    push(Array.from(b.funder), normalize(toLines(b)));
-  } else {
-    const [w, l] = winner === 0 ? [a, b] : [b, a];
-    const pot = big(matchInner.entry) * 2n;
-    const platform = (pot * BigInt(matchInner.fees.platformBps)) / BPS;
-    const studio = (pot * BigInt(matchInner.fees.studioBps)) / BPS;
-    const rest = normalize(toLines(l));
-    push(Array.from(matchInner.fees.platformRecipient), take(rest, platform));
-    push(Array.from(matchInner.fees.studioRecipient), take(rest, studio));
-    if (lb.recipient) push(Array.from(lb.recipient.toBytes()), take(rest, (pot * BigInt(lb.bps)) / BPS));
-    const backed = Buffer.compare(Buffer.from(w.funder), Buffer.from(w.player)) !== 0;
-    if (backed) {
-      push(Array.from(w.funder), normalize(toLines(w)));
-      const share = (sum(rest) * BigInt(w.shareBps)) / BPS;
-      push(Array.from(w.player), take(rest, share));
-      push(Array.from(w.funder), rest);
-    } else {
-      push(Array.from(w.player), normalize(toLines(w)));
-      push(Array.from(w.player), rest);
-    }
-  }
-  raw.sort((x, y) => cmp(x.recipient, y.recipient) || cmp(x.source, y.source));
-  const out: Payout[] = [];
-  for (const p of raw) {
-    const last = out[out.length - 1];
-    if (last && last.recipient.equals(new PublicKey(p.recipient)) && last.source.equals(new PublicKey(p.source))) {
-      last.amount += p.amount;
-    } else {
-      out.push({ recipient: new PublicKey(p.recipient), source: new PublicKey(p.source), amount: p.amount });
-    }
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -440,30 +344,29 @@ export class HoldemChain {
    */
   async createAndDelegate(
     creator: PlayerSigner,
-    matchId: bigint | number,
+    match: PublicKey,
     seatA: PublicKey,
     seatB: PublicKey,
     speed: number = SPEED_STANDARD,
   ): Promise<Addresses> {
-    await this.createTable(creator, matchId, seatA, seatB, speed);
-    return this.delegateTable(creator, matchId);
+    await this.createTable(creator, match, seatA, seatB, speed);
+    return this.delegateTable(creator, match);
   }
 
   /** Base layer. Binds the table to the Active tesoro_core Match (step one of `createAndDelegate`). */
   async createTable(
     creator: PlayerSigner,
-    matchId: bigint | number,
+    match: PublicKey,
     seatA: PublicKey,
     seatB: PublicKey,
     speed: number = SPEED_STANDARD,
   ): Promise<string> {
-    const ad = addresses(matchId);
-    const id = new anchor.BN(matchId.toString());
+    const ad = addresses(match);
     const create = await this.program.methods
-      .createMatch(id, speed)
+      .createMatch(speed)
       .accountsPartial({
         creator: creator.publicKey,
-        tesoroMatch: tesoroMatchPda(matchId),
+        tesoroMatch: match,
         gameRecord: gameRecordPda(HOLDEM_PROGRAM_ID),
         accountA: tesoroAccountPda(seatA),
         accountB: tesoroAccountPda(seatB),
@@ -478,11 +381,10 @@ export class HoldemChain {
   }
 
   /** Base layer. Delegates a created table (and its hidden accounts) to the TEE (step two). */
-  async delegateTable(creator: PlayerSigner, matchId: bigint | number): Promise<Addresses> {
-    const ad = addresses(matchId);
-    const id = new anchor.BN(matchId.toString());
+  async delegateTable(creator: PlayerSigner, match: PublicKey): Promise<Addresses> {
+    const ad = addresses(match);
     const delegate = await this.program.methods
-      .delegateMatch(id)
+      .delegateMatch(match)
       .accountsPartial({
         payer: creator.publicKey,
         gameMatch: ad.gameMatch,
@@ -506,62 +408,40 @@ export class HoldemChain {
   /** The tesoro_core Match state (base layer), decoded. */
   /** A tesoro_core Match that can still be settled (Active); false once settled, refunded or gone. */
   private isLive(tesoroMatch: any | null): boolean {
-    return !!tesoroMatch && "active" in tesoroMatch.inner.status;
+    return !!tesoroMatch && "active" in tesoroMatch.inner.stage;
   }
 
-  async readTesoroMatch(matchId: bigint | number): Promise<any | null> {
-    const info = await this.base.getAccountInfo(tesoroMatchPda(matchId));
+  async readTesoroMatch(match: PublicKey): Promise<any | null> {
+    const info = await this.base.getAccountInfo(match);
     return info ? this.tesoro.coder.accounts.decode("matchState", info.data) : null;
   }
 
   /**
    * Base layer, permissionless. After the rollup committed the result (`closeMatch`, then wait
    * for the table to be owned by holdem again), settles or refunds the tesoro_core Match by CPI as
-   * the Game authority PDA. Creates missing Holdings for the recipients first. Returns "" without
+   * the Game authority PDA. Returns "" without
    * sending when the Match is already settled or refunded (the other Player, or the keeper, got
    * there first), so a lost race costs no fee.
    */
-  async finalize(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
+  async finalize(payer: PlayerSigner, match: PublicKey): Promise<string> {
+    const ad = addresses(match);
     if (!(await this.waitOwner(ad.gameMatch, HOLDEM_PROGRAM_ID, 90))) {
       throw new Error("the table has not been committed back to the base layer yet");
     }
-    const info = await this.base.getAccountInfo(ad.gameMatch);
-    const table = decodeTable(ad.gameMatch, this.program.coder.accounts.decode("gameMatch", info!.data));
-    const tesoroMatch = await this.readTesoroMatch(matchId);
-    if (!this.isLive(tesoroMatch)) return "";
-    const winner = table.status === STATUS.over ? (table.winner as 0 | 1) : null;
-    const payouts = computePayouts(tesoroMatch.inner, winner, await fetchLeaderboardTerms(this.base));
-    const holdings = payouts.map((p) => tesoroHoldingPda(p.recipient, p.source));
-    const existing = await this.base.getMultipleAccountsInfo(holdings);
-    const missing: TransactionInstruction[] = [];
-    for (let i = 0; i < payouts.length; i++) {
-      if (existing[i]) continue;
-      missing.push(
-        await this.tesoro.methods
-          .openHolding()
-          .accountsPartial({ payer: payer.publicKey, account: payouts[i].recipient, source: payouts[i].source, holding: holdings[i] } as any)
-          .instruction(),
-      );
-    }
-    // Up to 18 Holdings can be paid: open the missing ones a few per transaction.
-    for (let i = 0; i < missing.length; i += 5) await this.sendBase("open_holding", missing.slice(i, i + 5), [payer]);
-    const remaining: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
-    payouts.forEach((p, i) => remaining.push({ pubkey: p.recipient, isSigner: false, isWritable: true }, { pubkey: holdings[i], isSigner: false, isWritable: true }));
-    // Opening Holdings takes a few seconds: look again before paying for a transaction that would fail.
-    if (!this.isLive(await this.readTesoroMatch(matchId))) return "";
+    if (!this.isLive(await this.readTesoroMatch(match))) return "";
     const ix = await this.program.methods
       .finalize()
       .accountsPartial({
         caller: payer.publicKey,
         gameMatch: ad.gameMatch,
-        tesoroMatch: tesoroMatchPda(matchId),
+        tesoroMatch: match,
         config: tesoroConfigPda(),
-        gameRecord: gameRecordPda(HOLDEM_PROGRAM_ID),
+        ...gameAccounts(HOLDEM_PROGRAM_ID),
         authority: ad.authority,
+        receipt: settledPda(match),
+        eventAuthority: eventAuthorityPda(),
         tesoroProgram: TESORO_CORE_PROGRAM_ID,
       } as any)
-      .remainingAccounts(remaining)
       .instruction();
     return this.sendBase("finalize", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], [payer]);
   }
@@ -569,8 +449,8 @@ export class HoldemChain {
   // -- rollup --------------------------------------------------------------------------------
 
   /** Rollup. Creates the permissions and starts the Match (equal Chips, blinds posted). Anyone. */
-  async start(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
+  async start(payer: PlayerSigner, match: PublicKey): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods
       .initPermissions()
       .accountsPartial({
@@ -596,8 +476,8 @@ export class HoldemChain {
    * Call once per hand. `withVrf` also requests the VRF output in the same transaction: pass it
    * from the Player who contributes second (the program refuses the request until both are in).
    */
-  async contributeEntropy(player: PlayerSigner, matchId: bigint | number, withVrf = false): Promise<string> {
-    const ad = addresses(matchId);
+  async contributeEntropy(player: PlayerSigner, match: PublicKey, withVrf = false): Promise<string> {
+    const ad = addresses(match);
     const secret = Array.from(nacl.randomBytes(32));
     const ixs: TransactionInstruction[] = [
       await this.program.methods
@@ -617,13 +497,13 @@ export class HoldemChain {
   }
 
   /** Rollup. Re-requests the VRF output if it has not arrived (idempotent until it does). */
-  async requestVrf(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    return this.sendTee("request_vrf", [await this.requestVrfIx(payer.publicKey, addresses(matchId))], payer);
+  async requestVrf(payer: PlayerSigner, match: PublicKey): Promise<string> {
+    return this.sendTee("request_vrf", [await this.requestVrfIx(payer.publicKey, addresses(match))], payer);
   }
 
   /** Rollup. Shuffles and deals once both secrets and the VRF output are in. Anyone may call it. */
-  async deal(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
+  async deal(payer: PlayerSigner, match: PublicKey): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods
       .deal()
       .accountsPartial({
@@ -638,8 +518,8 @@ export class HoldemChain {
   }
 
   /** Rollup. A betting action on your turn. */
-  async act(player: PlayerSigner, matchId: bigint | number, action: Action): Promise<string> {
-    const ad = addresses(matchId);
+  async act(player: PlayerSigner, match: PublicKey, action: Action): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods
       .act(action as any)
       .accountsPartial({
@@ -657,8 +537,8 @@ export class HoldemChain {
    * Rollup, permissionless. Once `table.deadline` has passed: checks or folds the idle Player,
    * cancels a no-show, forfeits after three missed turns.
    */
-  async claimTimeout(caller: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
+  async claimTimeout(caller: PlayerSigner, match: PublicKey): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods
       .claimTimeout()
       .accountsPartial({
@@ -677,8 +557,8 @@ export class HoldemChain {
    * permissions and commits everything back. Returns the rollup signature and the base-layer
    * commitment signature.
    */
-  async closeMatch(payer: PlayerSigner, matchId: bigint | number): Promise<{ tee: string; commit: string }> {
-    const ad = addresses(matchId);
+  async closeMatch(payer: PlayerSigner, match: PublicKey): Promise<{ tee: string; commit: string }> {
+    const ad = addresses(match);
     const ix = await this.program.methods
       .closeMatch()
       .accountsPartial({
@@ -710,8 +590,8 @@ export class HoldemChain {
    * until when, the last hand's result. Readable by both Players only (the table's permission
    * lists exactly them). Returns `null` if this connection may not read it or it does not exist.
    */
-  async readTable(viewer: PlayerSigner, matchId: bigint | number): Promise<Table | null> {
-    const ad = addresses(matchId);
+  async readTable(viewer: PlayerSigner, match: PublicKey): Promise<Table | null> {
+    const ad = addresses(match);
     const conn = await this.teeConnection(viewer);
     const info = await conn.getAccountInfo(ad.gameMatch).catch(() => null);
     if (!info || !info.owner.equals(DELEGATION_PROGRAM_ID) && !info.owner.equals(HOLDEM_PROGRAM_ID)) {
@@ -721,8 +601,8 @@ export class HoldemChain {
   }
 
   /** The table on the base layer (final result once committed back). */
-  async readTableOnBase(matchId: bigint | number): Promise<Table | null> {
-    const ad = addresses(matchId);
+  async readTableOnBase(match: PublicKey): Promise<Table | null> {
+    const ad = addresses(match);
     const info = await this.base.getAccountInfo(ad.gameMatch);
     if (!info || !info.owner.equals(HOLDEM_PROGRAM_ID)) return null;
     return decodeTable(ad.gameMatch, this.program.coder.accounts.decode("gameMatch", info.data));
@@ -732,8 +612,8 @@ export class HoldemChain {
    * Your own hole cards for the current hand, read through your TEE auth token. Returns `null`
    * before the deal (or if the account is unreadable): a Player can never read the opponent's.
    */
-  async readOwnHole(player: PlayerSigner, matchId: bigint | number, seat: 0 | 1): Promise<{ handNo: number; cards: [number, number] } | null> {
-    const ad = addresses(matchId);
+  async readOwnHole(player: PlayerSigner, match: PublicKey, seat: 0 | 1): Promise<{ handNo: number; cards: [number, number] } | null> {
+    const ad = addresses(match);
     const conn = await this.teeConnection(player);
     const info = await conn.getAccountInfo(seat === 0 ? ad.hole0 : ad.hole1).catch(() => null);
     if (!info) return null;

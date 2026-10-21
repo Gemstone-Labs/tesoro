@@ -17,17 +17,17 @@ const ALREADY = /AlreadyContributed/;
 export async function contributeBundled(
   vg: Pick<VanguardChain, "contributeEntropy">,
   player: PlayerSigner,
-  id: bigint,
+  match: PublicKey,
   oracleQueue?: PublicKey,
 ): Promise<void> {
   try {
-    await vg.contributeEntropy(player, id, true, oracleQueue);
+    await vg.contributeEntropy(player, match, true, oracleQueue);
     return;
   } catch (e) {
     if (ALREADY.test(String(e))) return;
   }
   try {
-    await vg.contributeEntropy(player, id, false, oracleQueue);
+    await vg.contributeEntropy(player, match, false, oracleQueue);
   } catch (e) {
     if (!ALREADY.test(String(e))) throw e;
   }
