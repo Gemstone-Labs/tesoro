@@ -60,6 +60,15 @@ describe("a Season's wins from core's events", () => {
     await assert.rejects(seasonWinsFromChain(conn as any, 10, T0, T0 + 1000), /could not be read/);
   });
 
+  it("reads a week that spans several signature pages, and refuses when the pages run out first", async () => {
+    const txs = Array.from({ length: 25 }, (_, i) => ({ signature: `p${String(25 - i).padStart(2, "0")}`, tx: eventTx({ blockTime: T0 + 1000 - i * 10, events: [won(100 - i, ALICE, BOB, 11, T0 + 1000 - i * 10)] }) }));
+    const conn = scriptedConn(txs);
+    const wins = await seasonWinsFromChain(conn as any, 11, T0, T0 + 2000, 0, 3, { pageSize: 10 });
+    assert.equal(wins.length, 25);
+    // 25 signatures at 10 a page, the first one older than the start only on page 3: two pages are not enough
+    await assert.rejects(seasonWinsFromChain(scriptedConn(txs) as any, 12, T0 - 5000, T0 + 3000, 0, 3, { pageSize: 10, maxPages: 2 }), /event scan stopped after 2 page/);
+  });
+
   it("names a Win with the loser unless it is the zero key", () => {
     const rec = (loser: string) => ({ type: "won" as const, opener: ALICE.toBase58(), n: 1n, game: "g", entry: 5, winner: ALICE.toBase58(), funder: ALICE.toBase58(), loser, points: 5, poolFee: 1, season: 1, ts: 1, challenge: false, asset: 0, openedAt: 0 });
     assert.equal(winOf(rec(BOB.toBase58())).loser, BOB.toBase58());

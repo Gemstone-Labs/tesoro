@@ -32,17 +32,26 @@ export async function collectSignatures(conn: ScanConn, opts: CollectOpts = {}):
   const out: ConfirmedSignatureInfo[] = [];
   const size = opts.pageSize ?? 1000;
   let before: string | undefined;
+  let reachedEnd = false;
   for (let page = 0; page < (opts.maxPages ?? 20); page++) {
     const batch = await conn.getSignaturesForAddress(eventAuthority, { before, until: opts.until, limit: size }, "confirmed");
-    if (!batch.length) break;
+    if (!batch.length) {
+      reachedEnd = true;
+      break;
+    }
     let older = false;
     for (const s of batch) {
       if (opts.olderThan !== undefined && s.blockTime != null && s.blockTime < opts.olderThan) older = true;
       else if (!s.err) out.push(s);
     }
-    if (older || batch.length < size) break;
+    if (older || batch.length < size) {
+      reachedEnd = true;
+      break;
+    }
     before = batch[batch.length - 1].signature;
   }
+  // A scan bounded by a start time (a Season) that ran out of pages before reaching it would rank on part of the week.
+  if (!reachedEnd && opts.olderThan !== undefined) throw new Error(`event scan stopped after ${opts.maxPages ?? 20} page(s) before reaching ${new Date(opts.olderThan * 1000).toISOString()}; raise maxPages`);
   return out;
 }
 
@@ -77,8 +86,8 @@ export const winOf = (r: MatchWonRecord): Win => ({ player: r.winner, points: r.
  * to `slackSecs` after it are read too (a settle at the boundary), and each record's own `season` decides. Records
  * are cached per signature for good: a confirmed transaction never changes.
  */
-export async function seasonWinsFromChain(conn: ScanConn, n: number, startSecs: number, endSecs: number, slackSecs = 2 * 3600, concurrency = 6): Promise<Win[]> {
-  const sigs = (await collectSignatures(conn, { olderThan: startSecs, maxPages: 200 })).filter((s) => s.blockTime == null || (s.blockTime >= startSecs && s.blockTime < endSecs + slackSecs));
+export async function seasonWinsFromChain(conn: ScanConn, n: number, startSecs: number, endSecs: number, slackSecs = 2 * 3600, concurrency = 6, scan: CollectOpts = {}): Promise<Win[]> {
+  const sigs = (await collectSignatures(conn, { olderThan: startSecs, maxPages: 200, ...scan })).filter((s) => s.blockTime == null || (s.blockTime >= startSecs && s.blockTime < endSecs + slackSecs));
   const todo = sigs.filter((s) => !wonCache.has(s.signature));
   await pooled(todo, concurrency, async (s) => {
     const tx = await transactionRecords(conn, s);

@@ -1006,12 +1006,14 @@ impl Env {
             tesoro_core::ID,
             tesoro_core::accounts::RequestInstantRedeem {
                 holder_authority: a(holder.pubkey()),
+                payer: a(holder.pubkey()),
                 holder_account: account,
                 basket: basket_address(&account).0,
                 spill: spill_address(&account).0,
                 position: self.core_position(id),
                 source,
                 order: self.order_address(account, nonce),
+                sponsor: None,
                 system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::RequestInstantRedeem {

@@ -6,6 +6,8 @@ mod state;
 
 #[cfg(test)]
 mod flow_tests;
+#[cfg(test)]
+mod keeper_fixtures;
 
 use anchor_lang::prelude::*;
 use errors::BridgeError;
