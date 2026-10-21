@@ -11,6 +11,7 @@ import { fmtAsset, fmtGemas } from "@/lib/format";
 import { onGetGemas } from "@/lib/get-gemas";
 import { GAME_NAMES, type Chain, type GameId, type GemaHolding, type Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
+import { ViewSwitchLink } from "@/components/deposit/ViewSwitchLink";
 import { AdvanceSheet } from "./AdvanceSheet";
 import type { AccountSnapshot, ChainPosition } from "@/lib/chain/read";
 import { returnRows } from "@/lib/chain/return-own";
@@ -194,7 +195,7 @@ export default function Wallet() {
       <header className="page-head wl-head">
         <div>
           <h1 className="page-title">Wallet</h1>
-          <p className="page-sub">1 Gema = $0.01</p>
+          <p className="page-sub">1 Gema = $0.01 · <ViewSwitchLink to="simple" className="wl-link" /></p>
         </div>
         {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Get Gemas</Button>}
       </header>

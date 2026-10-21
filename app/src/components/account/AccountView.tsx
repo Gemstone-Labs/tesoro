@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { GetGemasButton } from "@/components/deposit/GetGemasButton";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { GameTabs, HistoryPages, ResultFilter, gameFilter, historyHref, resultCounts } from "@/components/match/MatchHistory";
@@ -354,9 +355,7 @@ function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGem
             Play now
           </Button>
         ) : (
-          <Button variant="money" href="/wallet?open=1">
-            Get Gemas
-          </Button>
+          <GetGemasButton />
         ))}
       <ul className="pa-empty-list">
         {SHOWN.map(([title, text]) => (
