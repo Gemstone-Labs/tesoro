@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { readAccountState, type StateSource } from "@/lib/chain/account-state";
-import { POOL, SIM_SOL_MINT, TESORO_CORE_ID, holdingPda, sourcePda } from "@/lib/chain/native";
+import { POOL, SIM_SOL_MINT, TESORO_CORE_ID, sourcePda } from "@/lib/chain/native";
+import { basketPda, bookPda, spillPda, SIDE_OWN, SIDE_WON } from "@/lib/chain/basket";
+import { encodeBook, encodeStore, freshClass, lineOf } from "@/lib/chain/basket-fixture";
+import { fp } from "@/lib/chain/book";
 import { decodeState } from "@/lib/chain/snapshot-wire";
 import { getAccountState, serverStateSource, type SnapshotDeps } from "./snapshot";
 
@@ -64,11 +67,6 @@ const source = (pos: PublicKey, owner: PublicKey, issued: number) => ({
     redeemedUnits: new BN(0),
   },
 });
-const holding = (account: PublicKey, src: PublicKey, isOwn: boolean, amount: number) => ({
-  bump: 1,
-  account,
-  inner: { source: bytes(src), isOwn, amount: new BN(amount), reserved: new BN(0) },
-});
 const pool = () => {
   const b = Buffer.alloc(100);
   b.writeBigUInt64LE(1_000_000_000n, 72);
@@ -82,28 +80,27 @@ const mine = key(10);
 const theirs = key(11);
 const mineSource = sourcePda(mine, 0);
 const theirSource = sourcePda(theirs, 0);
-const holdMine = holdingPda(accountKey, mineSource);
-const holdTheirs = holdingPda(accountKey, theirSource);
-const holdOther = holdingPda(other, theirSource);
+const DUE = 1_800_000_600n;
+/** The Account's own 300 Gemas of `mine` sit in the basket, its 40 won Gemas of `theirs` in the spill; nothing is landed yet, so both lines are all unpaid. */
+const basket = encodeStore([lineOf({ source: mineSource, side: SIDE_OWN, dueAt: DUE, amount: 300n, uncovered: fp(300n) })], { account: accountKey, capacity: 4 });
+const spill = encodeStore([lineOf({ source: theirSource, side: SIDE_WON, dueAt: DUE, amount: 40n, uncovered: fp(40n) })], { account: accountKey, capacity: 1 });
+const book = (owed: bigint) => encodeBook([freshClass(), freshClass(), freshClass(), { ...freshClass(), uncovered: fp(owed), w: fp(owed) }]);
 
 const entries: [PublicKey, AccountInfo<Buffer> | Promise<AccountInfo<Buffer>>][] = [
-  [accountKey, encode("tesoroAccount", { bump: 1, authority, evmAddress: Array(20).fill(0), inner: { ownTotal: new BN(300), wonTotal: new BN(40), ownReserved: new BN(0), wonReserved: new BN(0) } })],
+  [accountKey, encode("tesoroAccount", { bump: 1, authority, evmAddress: Array(20).fill(0) })],
+  [basketPda(accountKey), info(basket)],
+  [spillPda(accountKey), info(spill)],
   [POOL, pool()],
   [mine, encode("positionState", position(accountKey))],
   [mineSource, encode("sourceState", source(mine, accountKey, 300))],
+  [bookPda(mineSource), info(book(300n))],
   [theirs, encode("positionState", position(other, { openAdvance: null }))],
   [theirSource, encode("sourceState", source(theirs, other, 90))],
-  [holdMine, encode("holdingState", holding(accountKey, mineSource, true, 300))],
-  [holdTheirs, encode("holdingState", holding(accountKey, theirSource, false, 40))],
-  [holdOther, encode("holdingState", holding(other, theirSource, false, 50))],
+  [bookPda(theirSource), info(book(90n))],
 ];
 const chain = new Map<string, AccountInfo<Buffer>>(await Promise.all(entries.map(async ([k, v]) => [k.toBase58(), await v] as const)));
 
-const lists = {
-  HoldingState: [holdMine, holdTheirs, holdOther],
-  PositionState: [mine, theirs],
-};
-const ownerAt = { HoldingState: 9, PositionState: 41 };
+const lists = { PositionState: [mine, theirs] };
 
 function fake() {
   const calls = { infos: [] as number[], lists: 0, owned: 0 };
@@ -111,8 +108,7 @@ function fake() {
     lists: async (q) => {
       calls.lists++;
       const wanted = q.owner!.key;
-      const all = q.owner!.offset === ownerAt.HoldingState ? lists.HoldingState : lists.PositionState;
-      return all
+      return lists.PositionState
         .map((k) => ({ pubkey: k.toBase58(), data: chain.get(k.toBase58())!.data }))
         .filter((r) => r.data.subarray(q.owner!.offset, q.owner!.offset + 32).equals(wanted.toBuffer()))
         .map((r) => ({ pubkey: r.pubkey, account: { data: [r.data.toString("base64"), "base64"] as [string, string] } }));
@@ -146,10 +142,12 @@ describe("Account snapshot on the server", () => {
     expect(snap.exists).toBe(true);
     expect(snap.lamports).toBe(2_500_000_000);
     expect([snap.ownTotal, snap.wonTotal]).toEqual([300n, 40n]);
-    expect(snap.holdings.map((h) => [h.holding.toBase58(), h.amount, h.isOwn, h.native, h.sourceOwner])).toEqual([
-      [holdMine.toBase58(), 300n, true, true, accountKey.toBase58()],
-      [holdTheirs.toBase58(), 40n, false, true, other.toBase58()],
+    expect(snap.holdings.map((h) => [h.source.toBase58(), h.amount, h.isOwn, h.native, h.sourceOwner, h.store])).toEqual([
+      [mineSource.toBase58(), 300n, true, true, accountKey.toBase58(), "basket"],
+      [theirSource.toBase58(), 40n, false, true, other.toBase58(), "spill"],
     ]);
+    expect(snap.holdings.map((h) => h.redeemable)).toEqual([0n, 0n]);
+    expect(snap.holdings[0].line).toEqual({ side: 0, dueAt: DUE, class: 3, tranche: 0 });
     expect(snap.positions).toHaveLength(1);
     const own = snap.positions[0];
     expect(own.address.equals(mine)).toBe(true);
@@ -168,7 +166,7 @@ describe("Account snapshot on the server", () => {
     const { deps } = fake();
     const snap = decodeState<Awaited<ReturnType<typeof browserRead>>>(await getAccountState(authority, {}, deps));
     expect(snap.positions[0].advance?.debtGemas).toBe(0);
-    const mineHolding = snap.holdings.find((h) => h.holding.equals(holdMine))!;
+    const mineHolding = snap.holdings.find((h) => h.source.equals(mineSource))!;
     expect([mineHolding.sourceDebt, mineHolding.redeemable]).toEqual([0n, 300n]);
   });
 
@@ -183,7 +181,7 @@ describe("Account snapshot on the server", () => {
   it("takes three batched reads at most and one list read per kind", async () => {
     const { deps, calls } = fake();
     await getAccountState(authority, {}, deps);
-    expect(calls.lists).toBe(2);
+    expect(calls.lists).toBe(1);
     expect(calls.infos.length).toBeLessThanOrEqual(3);
   });
 
@@ -195,33 +193,34 @@ describe("Account snapshot on the server", () => {
       expect(snap.exists).toBe(false);
       expect(snap.holdings).toEqual([]);
     } finally {
-      chain.set(accountKey.toBase58(), await encode("tesoroAccount", { bump: 1, authority, evmAddress: Array(20).fill(0), inner: { ownTotal: new BN(300), wonTotal: new BN(40), ownReserved: new BN(0), wonReserved: new BN(0) } }));
+      chain.set(accountKey.toBase58(), await encode("tesoroAccount", { bump: 1, authority, evmAddress: Array(20).fill(0) }));
     }
   });
 
-  it("reads the Account's own rows upstream and merges them over the cached lists after its own transaction", async () => {
+  it("reads the Account's own Positions upstream and merges them over the cached list after its own transaction", async () => {
     const { deps, calls } = fake();
     const cached = deps.lists;
-    // The cached lists lack the Account's Holding of its own Position (created since the list was cached).
-    deps.lists = async (q) => (await cached(q)).filter((r) => r.pubkey !== holdMine.toBase58());
+    // The cached list lacks the Account's own Position (opened since the list was cached).
+    deps.lists = async (q) => (await cached(q)).filter((r) => r.pubkey !== mine.toBase58());
     const stale = decodeState<Awaited<ReturnType<typeof browserRead>>>(await getAccountState(authority, {}, deps));
     expect(calls.owned).toBe(0);
-    expect(stale.holdings.map((h) => h.holding.toBase58())).toEqual([holdTheirs.toBase58()]);
+    expect(stale.positions).toHaveLength(0);
     deps.owned = async (q) => {
       calls.owned++;
-      return (await cached(q)).filter((r) => r.pubkey === holdMine.toBase58() || r.pubkey === mine.toBase58());
+      return (await cached(q)).filter((r) => r.pubkey === mine.toBase58());
     };
     const fresh = decodeState<Awaited<ReturnType<typeof browserRead>>>(await getAccountState(authority, { fresh: true }, deps));
-    expect(calls.owned).toBe(2);
-    expect(fresh.holdings.map((h) => h.holding.toBase58()).sort()).toEqual([holdMine.toBase58(), holdTheirs.toBase58()].sort());
+    expect(calls.owned).toBe(1);
+    expect(fresh.positions.map((p) => p.address.toBase58())).toEqual([mine.toBase58()]);
   });
 
-  it("answers from the cached lists when the owner read fails", async () => {
+  it("answers from the cached list when the owner read fails", async () => {
     const { deps } = fake();
     deps.owned = async () => {
       throw new Error("429");
     };
     const snap = decodeState<Awaited<ReturnType<typeof browserRead>>>(await getAccountState(authority, { fresh: true }, deps));
+    expect(snap.positions).toHaveLength(1);
     expect(snap.holdings).toHaveLength(2);
   });
 });

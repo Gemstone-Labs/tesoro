@@ -23,7 +23,6 @@ import {
   extendStakeAdvanceIx,
   initTreasuryStakeIx,
   parseStakeConfig,
-  instantRedeemStakeIx,
   openStakePositionIx,
   parseStakeCustody,
   principalReserve,
@@ -50,6 +49,7 @@ import { accruedYieldAt, positionAccrued, stakeGrowthAt, type StakeGrowth } from
 const SOL = 1_000_000_000n;
 const owner = Keypair.generate().publicKey;
 const position = Keypair.generate().publicKey;
+const target = { line: { side: 1, dueAt: 5n, class: 3, tranche: 0 }, accounts: [] as PublicKey[] };
 const R0 = 1_300_000_000_000n;
 
 type Spec = { name: string; accounts: { writable?: boolean; signer?: boolean; optional?: boolean }[] };
@@ -58,9 +58,8 @@ const spec = (name: string) => (idl.instructions as Spec[]).find((i) => i.name =
 describe("instruction encoders match the IDL", () => {
   const cases: [string, ReturnType<typeof openStakePositionIx>][] = [
     ["open_stake_position", openStakePositionIx(owner, 1, SOL, position)],
-    ["take_stake_advance", takeStakeAdvanceIx(owner, position, 1, 3, 0)],
-    ["extend_stake_advance", extendStakeAdvanceIx(owner, position, 0, 2)],
-    ["instant_redeem_stake", instantRedeemStakeIx(owner, position, position, 5n)],
+    ["take_stake_advance", takeStakeAdvanceIx(owner, position, 1, 3)],
+    ["extend_stake_advance", extendStakeAdvanceIx(owner, position, 0, 2, [])],
     ["withdraw_treasury_stake", withdrawTreasuryStakeIx(owner, owner, 5n)],
     ["set_stake_token", setStakeTokenIx(owner)],
     ["set_stake_apy_ceiling", setStakeApyCeilingIx(owner, 800)],
@@ -79,16 +78,16 @@ describe("instruction encoders match the IDL", () => {
   });
 
   it("appends the stake tail to redeem, unlock, return_own and redeem_treasury", () => {
-    const rdm = redeemStakeIx(owner, position, position, 5n);
+    const rdm = redeemStakeIx(owner, position, position, 5n, target);
     expect(rdm.keys).toHaveLength(spec("redeem").accounts.length + 5);
-    expect(rdm.keys.slice(5).map((k) => k.pubkey.toBase58())).toEqual(
+    expect(rdm.keys.slice(6).map((k) => k.pubkey.toBase58())).toEqual(
       [stakeCustodyPda(JITOSOL.mint), JITOSOL.pool, stakeVaultPda(JITOSOL.mint), tokenAta(owner, JITOSOL.mint), TOKEN_PROGRAM_ID].map((k) => k.toBase58()),
     );
-    const unl = unlockStakeIx(owner, position, 2);
+    const unl = unlockStakeIx(owner, position, { index: 2, accounts: [] });
     expect(unl.keys).toHaveLength(spec("unlock").accounts.length + 5 + 1);
     expect(unl.keys[unl.keys.length - 1].pubkey.equals(sourcePda(position, 2))).toBe(true);
     expect(unlockStakeIx(owner, position).keys).toHaveLength(spec("unlock").accounts.length + 5);
-    expect(redeemTreasuryStakeIx(position, position, 5n).keys).toHaveLength(spec("redeem_treasury").accounts.length + 2);
+    expect(redeemTreasuryStakeIx(position, position, 5n, target).keys).toHaveLength(spec("redeem_treasury").accounts.length + 2);
   });
 
   it("prices only from the token's Pyth mapping and the SOL/USD sponsored feed", () => {
@@ -96,9 +95,10 @@ describe("instruction encoders match the IDL", () => {
     expect(ix.keys[4].pubkey.toBase58()).toBe(PublicKey.findProgramAddressSync([Buffer.from("onchain_price"), JITOSOL.mint.toBuffer()], TESORO_CORE_ID)[0].toBase58());
     expect(ix.keys[5].pubkey.equals(pythFeedAddress("SOL"))).toBe(true);
     expect(ix.keys[2].pubkey.equals(accountPda(owner))).toBe(false);
-    expect(ix.keys[9].pubkey.equals(TESORO_CORE_ID)).toBe(true);
-    expect(ix.keys[9].isWritable).toBe(false);
-    expect(takeStakeAdvanceIx(owner, position, 1, 3, 0).keys[9].pubkey.equals(sourcePda(position, 0))).toBe(true);
+    expect(ix.keys[9].pubkey.equals(sourcePda(position, 0))).toBe(true);
+    expect(ix.keys).toHaveLength(spec("take_stake_advance").accounts.length);
+    const prev = takeStakeAdvanceIx(owner, position, 1, 3, { index: 0, accounts: [] });
+    expect(prev.keys[spec("take_stake_advance").accounts.length].pubkey.equals(sourcePda(position, 0))).toBe(true);
   });
 
   it("derives the Position id the way the program does: sha256('stake' || owner || nonce)", async () => {
@@ -212,6 +212,7 @@ describe("the Treasury mirror equals the program's", () => {
     refilledShares: 0n,
     instantShares: 0n,
     withdrawnShares: 0n,
+    route: { treasuryShares: 0n, owedShares: 0n, poolOwed: 0n, reserved: 0n, spendable: 0n },
     ...over,
   });
 

@@ -44,9 +44,9 @@ const pk = (n: number) => new PublicKey(demoKey(n));
 const redeemSnapshot = (a: string): AccountSnapshot => {
   const s = nativeSnapshot("debt")(a);
   const own = s.holdings[0];
-  const won: ChainHolding = { ...own, holding: pk(211), source: pk(311), position: pk(411), isOwn: false, sourceOwner: pk(511).toBase58(), amount: 860n, free: 860n, redeemable: 860n };
-  const eth: ChainHolding = { ...own, holding: pk(212), source: pk(312), position: pk(412), native: false, asset: "ETH", eth: { vault: ETH_VAULTS[0].address, id: 1n }, unitNum: 10n ** 22n, unitDen: 3_000_000_000n, amount: 620n, free: 620n, redeemable: 620n };
-  const hype: ChainHolding = { ...eth, holding: pk(213), source: pk(313), position: pk(413), isOwn: false, sourceOwner: pk(513).toBase58(), asset: "HYPE", eth: { vault: ETH_VAULTS[1].address, id: 2n }, unitDen: 40_000_000n, amount: 400n, free: 400n, redeemable: 400n };
+  const won: ChainHolding = { ...own, key: "line-211", source: pk(311), position: pk(411), isOwn: false, sourceOwner: pk(511).toBase58(), amount: 860n, free: 860n, redeemable: 860n };
+  const eth: ChainHolding = { ...own, key: "line-212", source: pk(312), position: pk(412), native: false, asset: "ETH", eth: { vault: ETH_VAULTS[0].address, id: 1n }, unitNum: 10n ** 22n, unitDen: 3_000_000_000n, amount: 620n, free: 620n, redeemable: 620n };
+  const hype: ChainHolding = { ...eth, key: "line-213", source: pk(313), position: pk(413), isOwn: false, sourceOwner: pk(513).toBase58(), asset: "HYPE", eth: { vault: ETH_VAULTS[1].address, id: 2n }, unitDen: 40_000_000n, amount: 400n, free: 400n, redeemable: 400n };
   return { ...s, holdings: [own, won, eth, hype] };
 };
 
@@ -54,7 +54,7 @@ const redeemSnapshot = (a: string): AccountSnapshot => {
 const returnSnapshot = (two: boolean) => (a: string): AccountSnapshot => {
   const s = nativeSnapshot("debt")(a);
   const first: ChainHolding = { ...s.holdings[0], source: s.positions[0].native!.source!.key, isOwn: true, sourceOwner: s.accountKey.toBase58(), sourceDebt: 5500n, amount: 3500n, free: 3500n };
-  const second: ChainHolding = { ...first, holding: pk(221), source: pk(321), sourceDebt: 2000n, amount: 1500n, free: 1500n };
+  const second: ChainHolding = { ...first, key: "line-221", source: pk(321), sourceDebt: 2000n, amount: 1500n, free: 1500n };
   return { ...s, holdings: two ? [first, second, s.holdings[1]] : [first, s.holdings[1]] };
 };
 

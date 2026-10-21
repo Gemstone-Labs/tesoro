@@ -7,6 +7,8 @@ import { CLUSTER } from "@/lib/cluster-settings";
 export { HOODI_RPC, HYPEREVM_RPC };
 import { TESORO_CORE_ID, meta, parseSource, pda, rdU32, rdU64, s, sourcePda, treasuryAccountPda, treasuryPda, u64 } from "./native";
 import { unitsToRepay, type SourceMath } from "./ledger";
+import { basketPda, spillPda, type LineRef } from "./basket";
+import { coreIx } from "./core-ix";
 import { DEFAULT_YIELD_FEE_BPS, accruedYield, advanceUnits, netOfYieldFee } from "./yield";
 
 /**
@@ -254,7 +256,6 @@ export const claimPda = (account: PublicKey, source: PublicKey) => pda([s("claim
 /** The holder's Instant Redeems of one Source, recorded by `instant_redeem_to_evm`. */
 export const instantClaimPda = (account: PublicKey, source: PublicKey) => pda([s("instant"), account.toBuffer(), source.toBuffer()], BRIDGE_ID);
 export const sourceAuthPda = (net: EvmNet) => pda([s("source_auth"), Buffer.from([net.chainByte])]);
-export const holdingPda = (account: PublicKey, source: PublicKey) => pda([s("holding"), account.toBuffer(), source.toBuffer()]);
 export const configPda = () => pda([s("config")]);
 
 /** The text the EVM wallet signs (EIP-191) to link its address to the Account. */
@@ -297,8 +298,21 @@ export const linkEvmIx = (authority: PublicKey, evm: string, signature: Hex) =>
     data: Buffer.concat([disc("link_evm"), hexBytes(evm, 20), hexBytes(signature, 65)]),
   });
 
-/** Redeems Gemas of an ETH or HYPE Source and records the payout owed on its EVM chain (never `tesoro_core::redeem`, which would burn them unrecorded). */
-export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, net: EvmNet) => {
+/** A `LineRef` as the bridge's Borsh instruction data carries it: side u8, due_at i64, class u8, tranche u8. */
+const lineBytes = (l: LineRef) => {
+  const b = Buffer.alloc(11);
+  b.writeUInt8(l.side, 0);
+  b.writeBigInt64LE(l.dueAt, 1);
+  b.writeUInt8(l.class, 9);
+  b.writeUInt8(l.tranche, 10);
+  return b;
+};
+
+/**
+ * Redeems Gemas of one line of an ETH or HYPE Source and records the payout owed on its EVM chain (never `tesoro_core::redeem`, which would burn
+ * them unrecorded). `target.accounts` are the Source's book and checkpoint pages. `send_pay_yield` then delivers the payout.
+ */
+export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, net: EvmNet, target: { line: LineRef; accounts: PublicKey[] }) => {
   const account = coreAccountPda(holder);
   return new TransactionInstruction({
     programId: BRIDGE_ID,
@@ -308,54 +322,30 @@ export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: Pu
       meta(pda([s("authority")], BRIDGE_ID)),
       meta(sourceAuthPda(net)),
       meta(account, true),
-      meta(position),
+      meta(position, true),
       meta(source, true),
-      meta(holdingPda(account, source), true),
+      meta(basketPda(account), true),
+      meta(spillPda(account), true),
       meta(claimPda(account, source), true),
       meta(TESORO_CORE_ID),
       meta(SystemProgram.programId),
+      ...target.accounts.map((k) => meta(k, true)),
     ],
-    data: Buffer.concat([disc("redeem_to_evm"), u64(gemas)]),
+    data: Buffer.concat([disc("redeem_to_evm"), lineBytes(target.line), u64(gemas)]),
   });
 };
 
 /**
- * Instant Redeem of won ETH or HYPE Gemas: Tesoro's Treasury buys them now (the bridge refuses when the vault's treasury could not pay) and records
- * what the vault owes the holder in an Instant Claim. `send_pay_instant` then delivers it.
+ * Debt must be zero. Returns the Principal on the vault's chain once `send_unlock` is delivered. `open` is the Position's open Advance
+ * (its Source, then its book and checkpoint pages), closed here.
  */
-export const instantRedeemToEvmIx = (holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, net: EvmNet, vault: string) => {
-  const account = coreAccountPda(holder);
-  const treasuryAccount = treasuryAccountPda();
-  return new TransactionInstruction({
-    programId: BRIDGE_ID,
-    keys: [
-      meta(holder, true, true),
-      meta(BRIDGE_STORE),
-      meta(BRIDGE_AUTHORITY),
-      meta(sourceAuthPda(net)),
-      meta(account, true),
-      meta(position),
-      meta(source),
-      meta(holdingPda(account, source), true),
-      meta(treasuryPda()),
-      meta(treasuryAccount, true),
-      meta(holdingPda(treasuryAccount, source), true),
-      meta(vaultTreasuryPda(net.eid, vault), true),
-      meta(instantClaimPda(account, source), true),
-      meta(TESORO_CORE_ID),
-      meta(SystemProgram.programId),
-    ],
-    data: Buffer.concat([disc("instant_redeem_to_evm"), u64(gemas)]),
-  });
-};
-
-/** Debt must be zero. Returns the Principal on Hoodi once `send_unlock` is delivered. */
-export const coreUnlockIx = (owner: PublicKey, position: PublicKey) =>
-  new TransactionInstruction({
-    programId: TESORO_CORE_ID,
-    keys: [meta(owner, false, true), meta(coreAccountPda(owner)), meta(position, true)],
-    data: disc("unlock"),
-  });
+export const coreUnlockIx = (owner: PublicKey, position: PublicKey, open: { index: number; accounts: PublicKey[] } | null = null) =>
+  coreIx(
+    "unlock",
+    { owner_authority: owner, owner_account: coreAccountPda(owner), economy: pda([s("economy")]), position },
+    {},
+    open ? [meta(sourcePda(position, open.index), true), ...open.accounts.map((k) => meta(k, true))] : [],
+  );
 
 // ---- Solana readers -----------------------------------------------------------------------------
 

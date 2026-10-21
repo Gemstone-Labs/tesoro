@@ -3,6 +3,8 @@ import { PublicKey, Transaction } from "@solana/web3.js";
 import { maxUint256, parseEventLogs, type Address, type Hex } from "viem";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import type { EvmSigner } from "@/lib/auth/types";
+import { prevAdvanceOf, sourceAccounts } from "./redeem";
+import type { ChainHolding } from "./read";
 import { getChain } from "./client";
 import { DemoError, type GetToken } from "./demo-client";
 import {
@@ -15,7 +17,6 @@ import {
   NETS,
   coreUnlockIx,
   evmClient,
-  instantRedeemToEvmIx,
   fetchEthMarket,
   fetchLinkState,
   linkEvmIx,
@@ -381,13 +382,14 @@ export async function takeEthAdvance(ctx: Pick<EthCtx, "signer" | "getToken">, v
   return getChain().sendSigned(await ctx.signer.signTransaction(tx));
 }
 
-/** `redeem_to_evm`: redeems Gemas of an ETH or HYPE Source and records the payout owed on its EVM chain. Then `send_pay_yield` delivers it. */
-export const redeemToEvm = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint, vault: string) =>
-  getChain().sendBase(signer, [redeemToEvmIx(signer.publicKey, position, source, gemas, netOfVault(vault))]);
+/** `redeem_to_evm`: redeems Gemas of one line of an ETH or HYPE Source and records the payout owed on its EVM chain. Then `send_pay_yield` delivers it. */
+export async function redeemToEvm(signer: ChainSigner, h: Pick<ChainHolding, "line" | "accounts" | "source" | "position">, gemas: bigint, vault: string) {
+  const { accounts, create } = await sourceAccounts(getChain().base, h.source, h.accounts, signer.publicKey);
+  return getChain().sendBase(signer, [...create, redeemToEvmIx(signer.publicKey, h.position, h.source, gemas, netOfVault(vault), { line: h.line, accounts })]);
+}
 
-/** `instant_redeem_to_evm`: sells won ETH or HYPE Gemas to Tesoro's Treasury now and records the payout owed on the vault's chain. Then `send_pay_instant` delivers it. */
-export const instantRedeemToEvm = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint, vault: string) =>
-  getChain().sendBase(signer, [instantRedeemToEvmIx(signer.publicKey, position, source, gemas, netOfVault(vault), vault)]);
-
-/** Debt must be zero on chain. Then `send_unlock` releases the Principal on the vault's chain. */
-export const unlockEth = (signer: ChainSigner, position: PublicKey) => getChain().sendBase(signer, [coreUnlockIx(signer.publicKey, position)]);
+/** Debt must be zero on chain. Then `send_unlock` releases the Principal on the vault's chain. The Position's open Advance is closed here. */
+export async function unlockEth(signer: ChainSigner, position: PublicKey, openAdvance: number | null = null) {
+  const { prev, create } = await prevAdvanceOf(getChain().base, position, openAdvance, signer.publicKey);
+  return getChain().sendBase(signer, [...create, coreUnlockIx(signer.publicKey, position, prev)]);
+}

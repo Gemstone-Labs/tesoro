@@ -21,6 +21,8 @@ import { createSignerFromKeypair, publicKey as umiKey, signerIdentity } from "@m
 import { fromWeb3JsKeypair, toWeb3JsPublicKey } from "@metaplex-foundation/umi-web3js-adapters";
 import { EndpointProgram, UlnProgram } from "@layerzerolabs/lz-solana-sdk-v2/umi";
 import { CLUSTER } from "@/lib/cluster-settings";
+import { basketPda, bookPda, spillPda } from "@/lib/chain/basket";
+import { coreIx } from "@/lib/chain/core-ix";
 import { MAX_PRICE_AGE_SECS, PRICE_QUOTE_MARGIN_SECS, TESORO_CORE_ID, onchainPricePda, parsePythPrice, protectionsPda, pythFeedAddress, sourcePda, treasuryPda } from "@/lib/chain/native";
 import {
   BRIDGE_AUTHORITY,
@@ -38,7 +40,6 @@ import {
   disc,
   ethPositionId,
   evmLinkPda,
-  holdingPda,
   initPositionIdAllowed,
   instantClaimPda,
   evmClient,
@@ -546,40 +547,24 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
   const oracle = oracleKey();
   const source = sourcePda(cp, advances);
   // Mainnet: the program reads the Pyth feed itself (`take_advance_onchain`); the oracle names no price.
-  const ix = CLUSTER.priceSource === "onchain" ? new TransactionInstruction({
-    programId: TESORO_CORE_ID,
-    keys: [
-      key(oracle.publicKey, true, true),
-      key(address, true),
-      key(configPda()),
-      key(treasuryPda()),
-      key(ownerAccount, false, true),
-      key(protectionsPda(ownerAccount)),
-      key(cp, false, true),
-      key(onchainPricePda(new PublicKey(info.data.subarray(74, 106)))),
-      key(pythFeedAddress(asset)),
-      key(source, false, true),
-      key(holdingPda(ownerAccount, source), false, true),
-      key(SystemProgram.programId),
-    ],
-    data: Buffer.concat([disc("take_advance_onchain"), Buffer.from([months])]),
-  }) : new TransactionInstruction({
-    programId: TESORO_CORE_ID,
-    keys: [
-      key(oracle.publicKey, true, true),
-      key(address, true),
-      key(configPda()),
-      key(treasuryPda()),
-      key(ownerAccount, false, true),
-      key(protectionsPda(ownerAccount)),
-      key(cp, false, true),
-      key(source, false, true),
-      key(holdingPda(ownerAccount, source), false, true),
-      key(SystemProgram.programId),
-      key(onchainPricePda(new PublicKey(info.data.subarray(74, 106)))),
-    ],
-    data: Buffer.concat([disc("take_advance"), Buffer.from([months]), u64le(price.microUsd)]),
-  });
+  const common = {
+    oracle: oracle.publicKey,
+    owner_authority: address,
+    config: configPda(),
+    treasury: treasuryPda(),
+    owner_account: ownerAccount,
+    protections: protectionsPda(ownerAccount),
+    position: cp,
+    source,
+    book: bookPda(source),
+    basket: basketPda(ownerAccount),
+    spill: spillPda(ownerAccount),
+  };
+  const priceKey = onchainPricePda(new PublicKey(info.data.subarray(74, 106)));
+  const ix = CLUSTER.priceSource === "onchain"
+    ? coreIx("take_advance_onchain", { ...common, onchain_price: priceKey, price_feed: pythFeedAddress(asset) }, { horizon_months: months })
+    // The oracle names the price; the asset's OnchainPrice address follows as the first remaining account (it must not exist to be used).
+    : coreIx("take_advance", common, { horizon_months: months, price_micro_usd: price.microUsd }, [key(priceKey)]);
   const tx = new Transaction().add(ix);
   tx.feePayer = oracle.publicKey;
   tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;

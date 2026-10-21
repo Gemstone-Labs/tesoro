@@ -37,13 +37,27 @@ export type RedeemPayout = {
   later: boolean;
 };
 
-export type RedeemDone = { gemas: number; later: boolean; receipts: Receipt[]; instant?: boolean };
+export type RedeemDone = { gemas: number; later: boolean; receipts: Receipt[]; instant?: boolean; cancelled?: boolean };
 
 /** One holding "Redeem now" would sell, after the treasury's limit: `amount` of `token` is paid now. */
 export type InstantRow = RedeemPayout;
 
+/** An Instant Redeem order that is waiting for Tesoro to buy it. */
+export type OpenOrderRow = {
+  key: string;
+  /** Gemas still on offer. */
+  gemas: number;
+  /** Gemas Tesoro has bought so far. */
+  sold: number;
+  /** Unix ms. */
+  expiresAt: number;
+  state: "requested" | "partly-sold" | "expired";
+};
+
 /** The Instant Redeem side of the Redeem sheet. */
 export type InstantOffer = {
+  /** Orders already waiting for Tesoro; the Player can cancel them. */
+  orders?: OpenOrderRow[];
   rows: InstantRow[];
   /** What Tesoro keeps for paying now, in percent. */
   feePct: number;
@@ -56,7 +70,7 @@ export type InstantOffer = {
 };
 
 /** Redeem as an exchange: every redeemable Gema in, each Source asset out, the Sources folded away. */
-export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldCheck, error, done, canSign, onRedeem, onInstant, onClose }: {
+export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldCheck, error, done, canSign, onRedeem, onInstant, onCancelOrder, onClose }: {
   payouts: RedeemPayout[];
   /** Won Gemas can be sold now for less; omitted where that does not apply (offline). */
   instant?: InstantOffer | null;
@@ -70,13 +84,16 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
   canSign: boolean;
   onRedeem: () => void;
   onInstant?: () => void;
+  /** Takes an open order's unsold Gemas back. */
+  onCancelOrder?: (key: string) => void;
   onClose: () => void;
 }) {
   const [now, setNow] = useState(false);
   if (done) {
     return (
       <div className="mx">
-        <div className="status ok" role="status"><CheckIcon /> {done.instant ? "Redeemed now" : "Redeemed"} {fmtGemas(done.gemas)} Gemas</div>
+        <div className="status ok" role="status"><CheckIcon /> {done.cancelled ? "Taken back" : done.instant ? "Waiting for Tesoro to buy" : "Redeemed"} {fmtGemas(done.gemas)} Gemas</div>
+        {done.instant && <p className="meta">{BRAND.name} buys these when it can, all or part. Gemas it has not bought by the deadline come back to you, and you can take them back any time before.</p>}
         {done.later && <p className="meta">Your ETH and HYPE payouts arrive on their own chain in a few minutes. The Wallet shows their progress.</p>}
         <Button block onClick={onClose}>Done</Button>
         <Receipts items={done.receipts} />
@@ -122,7 +139,7 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
           </label>
           <label>
             <input type="radio" name="mx-when" checked={now} onChange={() => setNow(true)} />
-            <span className="cut">Redeem now <small>{100 - instant.feePct}% of the value</small></span>
+            <span className="cut">Redeem now <small>{100 - instant.feePct}% of the value, when {BRAND.name} buys</small></span>
           </label>
         </fieldset>
       )}
@@ -150,7 +167,7 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
         </div>
         <span className="mx-arrow cut" aria-hidden="true"><ArrowDown /></span>
         <div className="mx-panel get cut">
-          <div className="mx-head"><span className="label">You get{showInstant ? " now" : ""}</span><span className="meta">{showInstant ? `${100 - instant.feePct}% of ${fmtUsd(gemasToUsd(total))}` : `${fmtUsd(gemasToUsd(total))} at issuance`}</span></div>
+          <div className="mx-head"><span className="label">You get{showInstant ? " when bought" : ""}</span><span className="meta">{showInstant ? `${100 - instant.feePct}% of ${fmtUsd(gemasToUsd(total))}` : `${fmtUsd(gemasToUsd(total))} at issuance`}</span></div>
           {groups.map(({ asset, rows }) => {
             const priced = rows.every((r) => r.amount !== null);
             const amount = rows.reduce((s, r) => s + (r.amount ?? 0), 0);
@@ -169,8 +186,7 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
       </div>
       {showInstant && (
         <p className="mx-fee">
-          Only won Gemas still waiting on yield are sold: {BRAND.name} keeps {instant.feePct}% for paying you now and collects the yield later. Gemas whose yield has landed are redeemed at full value.
-          {instant.fetchesYield && " For ETH and HYPE Gemas it first fetches the latest yield (usually a minute or two) so the amount it can pay is up to date; if that changes the amounts, you are asked to confirm them."}
+          Only won Gemas still waiting on yield are offered: {BRAND.name} keeps {instant.feePct}% for paying you now and collects the yield later. Gemas whose yield has landed are redeemed at full value as soon as you ask. This is a request: you are paid when {BRAND.name} buys it.
         </p>
       )}
       <details className="mx-from">
@@ -197,13 +213,26 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
           </dl>
         </details>
       )}
+      {instant && (instant.orders?.length ?? 0) > 0 && (
+        <div className="mx-orders">
+          <span className="label">Waiting for {BRAND.name}</span>
+          {instant.orders!.map((o) => (
+            <div key={o.key} className="hstack" style={{ justifyContent: "space-between" }}>
+              <span className="meta">
+                {fmtGemas(o.gemas)} Gemas · {o.state === "expired" ? "past its deadline" : o.sold > 0 ? `${fmtGemas(o.sold)} bought so far` : "requested"}
+              </span>
+              <Button size="sm" disabled={busy || !canSign || !onCancelOrder} onClick={() => onCancelOrder?.(o.key)}>{o.state === "expired" ? "Take back" : "Cancel"}</Button>
+            </div>
+          ))}
+        </div>
+      )}
       <SimulatedYieldLabel />
       {error && <p className="status err" role="alert">{error}</p>}
       {busy ? (
         <Busy>{busyNote ?? "Paying out your Gemas…"}</Busy>
       ) : (
         <Button variant="money" size="lg" block disabled={!canSign} onClick={showInstant ? onInstant : onRedeem}>
-          {showInstant ? "Redeem now" : "Redeem"} <GemaAmount value={total} size="md" />
+          {showInstant ? "Offer for sale" : "Redeem"} <GemaAmount value={total} size="md" />
         </Button>
       )}
       </>
@@ -415,7 +444,7 @@ function ReturnOwnForm({ position, onClose, onReturned }: { position: ChainPosit
     setBusy(true);
     setError(null);
     try {
-      const sig = await returnOwn(auth.signer, position.address, row.holding.source, BigInt(value), row.holding.native);
+      const sig = await returnOwn(auth.signer, auth.getAccessToken, row.holding, BigInt(value));
       setDone({ gemas: value, cleared: value >= Number(row.holding.sourceDebt), receipts: [{ label: "Gemas returned", sig }] });
       await Promise.all([refresh(), onReturned?.()]);
     } catch (e) {
