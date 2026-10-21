@@ -104,7 +104,6 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
     const yearly = p.principal * p.apy;
     const monthsToZero = yearly > 0 ? p.debt / (yearly / 12) : null;
     const zeroAt = p.debt > 0 && monthsToZero !== null ? now + monthsToZero * 10 * 60_000 : null;
-    const canRedeem = holdings.some((h) => h.source.positionId === p.id && redeemableOf(h) > 0);
     const chainPos = snapshot?.positions.find((x) => x.address.toBase58() === p.id) ?? null;
     const canReturn = !!chainPos && !!snapshot && returnRows(snapshot.holdings, chainPos.address, snapshot.accountKey).length > 0;
     return (
@@ -125,7 +124,6 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
           <Button variant="money" size="sm" block onClick={() => auth.gate("take an Advance", () => setAdvanceFor(p))}>Take an Advance</Button>
         ) : (
           <div className="wl-actions-row">
-            <Button variant="money" size="sm" disabled={!canRedeem} onClick={() => openRedeem()}>Redeem</Button>
             {!onChain && p.advance && (
               <Button size="sm" onClick={() => auth.gate("return Gemas", () => setReturnFor(p))}>Return Gemas</Button>
             )}
@@ -144,7 +142,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
     for (const p of (snapshot?.positions ?? []).filter((x) => (chain === "SOL" ? x.native : x.eth && x.asset === chain))) {
       const label = `${chain} Lock ${++n}`;
       const tile = p.native ? (
-        <NativePositionCard key={p.address.toBase58()} position={p} market={market} onRedeem={() => openRedeem("SOL")} label={label} compact />
+        <NativePositionCard key={p.address.toBase58()} position={p} market={market} label={label} compact />
       ) : (
         <EthPositionCard key={p.address.toBase58()} position={p} market={null} label={label} compact />
       );

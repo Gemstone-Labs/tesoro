@@ -1,6 +1,6 @@
 /* The Vault: Gemas to play, winnings, deposits. */
 /* the body shares the Wallet's .wl grid and section gap, so both views line up */
-.vt-head { align-items: center; }
+.vt-head { align-items: center; margin-bottom: calc(20px - var(--section-gap)); }
 .vt-head .btn { white-space: nowrap; }
 /* the views' bodies join the page grid, so the card, the toggle and each section keep one rhythm */
 .wl-part { display: contents; }
