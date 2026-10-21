@@ -492,6 +492,11 @@ pub(crate) mod ct {
     pub fn lt(a: u64, b: u64) -> u8 {
         (opaque(a).wrapping_sub(b) >> 63) as u8
     }
+    /// 1 when `x` is not zero, else 0.
+    #[inline(always)]
+    pub fn nonzero_u8(x: u8) -> u8 {
+        1 ^ eq(x as u64, 0)
+    }
     /// All ones when `c` is 1, all zeros when it is 0. Opaque, so a select built from it stays a mask and is not
     /// folded back into a jump.
     #[inline(always)]
@@ -507,6 +512,12 @@ pub(crate) mod ct {
     pub fn pick32(c: u8, x: i32, y: i32) -> i32 {
         y ^ ((x ^ y) & (mask(c) as i8 as i32))
     }
+}
+
+/// 1 when `x` is not zero, else 0, from arithmetic only (see `ct`).
+#[inline(always)]
+fn nonzero(x: u64) -> u8 {
+    1 ^ ct::eq(x, 0)
 }
 
 /// Combat value: 0 for the Landmine and the Truck.
@@ -683,6 +694,44 @@ pub fn setup(seed: &[u8; 32], storm_from: u16, storm_to: u16) -> Setup {
         storm_at,
         storm_seed,
     }
+}
+
+/// The two sealing keys of a Match, one per army (index `Army::idx`), drawn from the setup seed. Each is 32 bytes of
+/// its own SHA-256 counter-mode stream (labels `seal-key-us` / `seal-key-it`), so it is independent of the layouts,
+/// the side draw and the storm: a Player who knows their own layout and key learns nothing about another stream.
+pub fn seal_keys(seed: &[u8; 32]) -> [[u8; 32]; 2] {
+    let labels: [&'static [u8]; 2] = [b"seal-key-us", b"seal-key-it"];
+    let mut keys = [[0u8; 32]; 2];
+    for (key, label) in keys.iter_mut().zip(labels) {
+        let mut d = Draw::new(seed, label);
+        for chunk in key.chunks_exact_mut(8) {
+            chunk.copy_from_slice(&d.next().to_le_bytes());
+        }
+    }
+    keys
+}
+
+/// Domain of the sealing pad. See `seal_pad`.
+pub const SEAL_DOMAIN: &[u8] = b"vanguard-seal-v1";
+/// `seal_pad` field: the sealed Dig in slot of a pass.
+pub const SEAL_DIG: u8 = 1;
+/// `seal_pad` field: the sealed switch of a move, Blast, Rescue or pass.
+pub const SEAL_SWITCH: u8 = 2;
+
+/// The one-time pad byte for `(key, battle, seat, seq, field)`:
+/// `SHA-256("vanguard-seal-v1" || key || battle || seat || seq (u32 LE) || field)[0]`. `seq` is the `expected_seq` the
+/// declare carried; each `(key, seq, field)` seals one byte, once. A client that seals with this and sends
+/// `plain ^ pad` shows the chain nothing: without the key every ciphertext byte is equally likely.
+pub fn seal_pad(key: &[u8; 32], battle: &[u8; 32], seat: u8, seq: u32, field: u8) -> u8 {
+    hashv(&[
+        SEAL_DOMAIN,
+        key,
+        battle,
+        &[seat],
+        &seq.to_le_bytes(),
+        &[field],
+    ])
+    .to_bytes()[0]
 }
 
 fn place_army(army: Army, d: &mut Draw, out: &mut [LayoutPiece]) {
@@ -981,6 +1030,12 @@ impl Game {
     /// Whether `army` has any legal move. Only the army's own thirty slots can move, and two squares per line
     /// decide it. Same work whatever the layout, no early exit.
     pub fn any_move(&self, army: Army, moved: u64, two_step_active: bool) -> bool {
+        self.any_move_mask(army, moved, two_step_active) != 0
+    }
+
+    /// `any_move` as a 0/1 byte built from arithmetic only, so a caller that combines it with other hidden predicates
+    /// (`has_action`) never turns a hidden count into a branch before the public result is known.
+    pub fn any_move_mask(&self, army: Army, moved: u64, two_step_active: bool) -> u8 {
         let base = if army == Army::Us { 30 } else { 0 };
         let mut count: u16 = 0;
         for id in base..base + 30 {
@@ -988,7 +1043,7 @@ impl Game {
                 .piece_scan::<EXISTS_DEPTH>(id, army, moved, two_step_active, NO_PIECE)
                 .0;
         }
-        count > 0
+        nonzero(count as u64)
     }
 
     /// Whether `army` has any legal move at the start of its turn.
@@ -1004,6 +1059,13 @@ impl Game {
     /// Whether `army` has a Blast, a Rescue or a Dig in: a live Engineer, a live Colonel with its Truck on the board,
     /// or a live Major that has not dug in. Counts over the thirty slots with masks, whatever the layout.
     pub fn has_power(&self, army: Army) -> bool {
+        self.has_power_mask(army) != 0
+    }
+
+    /// `has_power` as a 0/1 byte. Every count is turned into a flag with arithmetic (`nonzero`), never a comparison:
+    /// a comparison of a hidden count is a jump on SBF, and the jump costs one instruction more or less (a dug-in Major
+    /// is no Major, which would show in the compute of the opponent's next resolve).
+    pub fn has_power_mask(&self, army: Army) -> u8 {
         let base = if army == Army::Us { 30 } else { 0 };
         let (mut engineers, mut colonels, mut trucks, mut majors) = (0u16, 0u16, 0u16, 0u16);
         for p in &self.pieces[base..base + 30] {
@@ -1014,17 +1076,18 @@ impl Game {
             trucks += is(TRUCK) as u16;
             majors += is(MAJOR) as u16;
         }
-        let rescue = ((colonels != 0) as u16) & ((trucks != 0) as u16);
-        let v6 = (self.version >= 6) as u16;
-        v6 & (((engineers != 0) as u16) | rescue | ((majors != 0) as u16)) != 0
+        let rescue = nonzero(colonels as u64) & nonzero(trucks as u64);
+        let v6 = (self.version >= 6) as u8;
+        v6 & (nonzero(engineers as u64) | rescue | nonzero(majors as u64))
     }
 
     /// Whether `army` has any move, Blast, Rescue or Dig in at the start of its turn. The "no legal move" ending uses
-    /// this one; Passing does not count as an action.
+    /// this one; Passing does not count as an action. The two halves are combined as masks and only the final public
+    /// answer becomes a `bool`.
     pub fn has_action(&self, army: Army) -> bool {
-        let m = self.has_moves(army);
-        let p = self.has_power(army);
-        m | p
+        let m = self.any_move_mask(army, 0, false);
+        let p = self.has_power_mask(army);
+        (m | p) != 0
     }
 
     /// Higher total of surviving ranks wins (Landmines and the Truck count 0), then more pieces, else a draw.
@@ -1194,7 +1257,7 @@ impl Game {
         id: u8,
         to: u8,
         at: i64,
-        switch: bool,
+        switch: impl Into<u8>,
         out: &mut Events,
     ) -> Result<(), Refusal> {
         out.len = 0;
@@ -1207,7 +1270,14 @@ impl Game {
     /// rules are checked here; a move they do not allow costs the turn, like a timeout, so this never fails and a
     /// failure cannot depend on a rank. The next deadline counts from `resolved`. `switch` is the decoded sealed
     /// byte; it is applied only to a move that is legal, and whether the move is legal does not depend on it.
-    pub fn resolve_move(&mut self, id: u8, to: u8, switch: bool, resolved: i64, out: &mut Events) {
+    pub fn resolve_move(
+        &mut self,
+        id: u8,
+        to: u8,
+        switch: impl Into<u8>,
+        resolved: i64,
+        out: &mut Events,
+    ) {
         out.len = 0;
         let legal = (id as usize) < PIECE_SLOTS
             && self.probe(self.turn, self.moved, self.two_step_active, id, to);
@@ -1235,7 +1305,7 @@ impl Game {
             trucks += ct::eq(p.rank as u64, TRUCK as u64) as u16;
         }
         let colonel = ct::eq(eff(self.pieces[id].rank) as u64, COLONEL as u64);
-        (colonel & (trucks != 0) as u8) != 0
+        (colonel & nonzero(trucks as u64)) != 0
     }
 
     /// Blast with Engineer `id` at time `at`. Counts as a move and passes the turn.
@@ -1243,7 +1313,7 @@ impl Game {
         &mut self,
         id: u8,
         at: i64,
-        switch: bool,
+        switch: impl Into<u8>,
         out: &mut Events,
     ) -> Result<(), Refusal> {
         out.len = 0;
@@ -1260,7 +1330,7 @@ impl Game {
         &mut self,
         id: u8,
         at: i64,
-        switch: bool,
+        switch: impl Into<u8>,
         out: &mut Events,
     ) -> Result<(), Refusal> {
         out.len = 0;
@@ -1278,7 +1348,7 @@ impl Game {
         &mut self,
         at: i64,
         dig_in: u8,
-        switch: bool,
+        switch: impl Into<u8>,
         out: &mut Events,
     ) -> Result<(), Refusal> {
         out.len = 0;
@@ -1288,7 +1358,13 @@ impl Game {
     }
 
     /// Apply a declared Blast. Like `resolve_move`, one the rules refuse costs the turn.
-    pub fn resolve_blast(&mut self, id: u8, switch: bool, resolved: i64, out: &mut Events) {
+    pub fn resolve_blast(
+        &mut self,
+        id: u8,
+        switch: impl Into<u8>,
+        resolved: i64,
+        out: &mut Events,
+    ) {
         out.len = 0;
         let legal = self.acts_open()
             && (id as usize) < PIECE_SLOTS
@@ -1303,7 +1379,13 @@ impl Game {
     }
 
     /// Apply a declared Rescue. Like `resolve_move`, one the rules refuse costs the turn.
-    pub fn resolve_rescue(&mut self, id: u8, switch: bool, resolved: i64, out: &mut Events) {
+    pub fn resolve_rescue(
+        &mut self,
+        id: u8,
+        switch: impl Into<u8>,
+        resolved: i64,
+        out: &mut Events,
+    ) {
         out.len = 0;
         let legal = self.acts_open()
             && (id as usize) < PIECE_SLOTS
@@ -1319,7 +1401,13 @@ impl Game {
 
     /// Apply a declared pass, with the sealed Dig in and switch decoded. A pass is always allowed once declared (the
     /// declare checked the public conditions); if they no longer hold it costs the turn like any refused action.
-    pub fn resolve_pass(&mut self, dig_in: u8, switch: bool, resolved: i64, out: &mut Events) {
+    pub fn resolve_pass(
+        &mut self,
+        dig_in: u8,
+        switch: impl Into<u8>,
+        resolved: i64,
+        out: &mut Events,
+    ) {
         out.len = 0;
         if self.acts_open() {
             self.apply_pass(resolved, dig_in, switch, out);
@@ -1328,14 +1416,40 @@ impl Game {
         }
     }
 
+    /// Decode an unsealed switch byte: 0 is no switch, `slot + 1` names the army slot (`id % 30`) of the side to move
+    /// that holds its live, unswitched General of the Army. Every other value (an out-of-range slot, an empty or dead
+    /// slot, another rank, an already switched 10) decodes to "no switch". Visits all thirty slots with masks, so no
+    /// byte value changes the work, and uses no byte as an index. Returns 0 or 1 as a byte, not a `bool`: a `bool`
+    /// made from a comparison is a jump on the SBF target, and the jump would cost one unit more or less.
+    pub fn switch_wanted(&self, plain: u8) -> u8 {
+        let base = if self.turn == Army::Us { 30 } else { 0 };
+        let mut hit = 0u8;
+        for i in 0..30 {
+            let rank = self.pieces[base + i].rank as u64;
+            hit |= ct::eq(plain as u64, i as u64 + 1) & ct::eq(rank, GENERAL_OF_THE_ARMY as u64);
+        }
+        hit
+    }
+
+    /// Decode an unsealed Dig in byte of a pass into the piece number `resolve_pass` takes: 0 is a plain pass (`NO_PIECE`),
+    /// `slot + 1` with `slot < 30` is that army slot of the side to move, and every other value is a plain pass too.
+    /// Whether that piece really is a live Major that can dig in is decided by `apply_dig_in`, over all thirty slots.
+    pub fn dig_in_piece(&self, plain: u8) -> u8 {
+        let base = if self.turn == Army::Us { 30 } else { 0 };
+        let p = plain as u64;
+        let valid = (1 ^ ct::eq(p, 0)) & ct::lt(p, 31);
+        let slot = plain.wrapping_sub(1) & 31;
+        ct::pick(valid, base + slot, NO_PIECE)
+    }
+
     /// Become a Spy: the side's live General of the Army switches when `want` is set. Visits all thirty slots with
     /// masks, so a switch or no switch, and a 10 or no 10, cost the same. An invalid switch does nothing and is never
     /// reported; only a face-up 10 announces it (its change is public the moment it happens).
-    fn apply_switch(&mut self, want: bool, out: &mut Events) {
+    fn apply_switch(&mut self, want: impl Into<u8>, out: &mut Events) {
         let base = if self.turn == Army::Us { 30 } else { 0 };
         // A mask the optimiser cannot see through: with a plain `bool` it would unswitch the loop below and skip the
         // thirty slots when there is no switch, so the compute would say whether the switch was set.
-        let want = ct::mask(want as u8 & (self.version >= 6) as u8) & 1;
+        let want = ct::mask(want.into() & 1 & (self.version >= 6) as u8) & 1;
         let mut named = NO_PIECE;
         for i in base..base + 30 {
             let (rank, known) = (self.pieces[i].rank, self.pieces[i].known as u8);
@@ -1367,7 +1481,7 @@ impl Game {
         }
     }
 
-    fn apply_pass(&mut self, at: i64, dig_in: u8, switch: bool, out: &mut Events) {
+    fn apply_pass(&mut self, at: i64, dig_in: u8, switch: impl Into<u8>, out: &mut Events) {
         self.apply_switch(switch, out);
         self.apply_dig_in(dig_in, out);
         let army = self.turn;
@@ -1381,7 +1495,7 @@ impl Game {
         self.end_turn(out, false);
     }
 
-    fn apply_blast(&mut self, id: u8, at: i64, switch: bool, out: &mut Events) {
+    fn apply_blast(&mut self, id: u8, at: i64, switch: impl Into<u8>, out: &mut Events) {
         self.apply_switch(switch, out);
         let army = self.turn;
         let i = id as usize;
@@ -1420,7 +1534,7 @@ impl Game {
         self.end_turn(out, false);
     }
 
-    fn apply_rescue(&mut self, id: u8, at: i64, switch: bool, out: &mut Events) {
+    fn apply_rescue(&mut self, id: u8, at: i64, switch: impl Into<u8>, out: &mut Events) {
         self.apply_switch(switch, out);
         let army = self.turn;
         let i = id as usize;
@@ -1453,7 +1567,7 @@ impl Game {
         self.end_turn(out, false);
     }
 
-    fn apply_move(&mut self, id: u8, to: u8, at: i64, switch: bool, out: &mut Events) {
+    fn apply_move(&mut self, id: u8, to: u8, at: i64, switch: impl Into<u8>, out: &mut Events) {
         // Become a Spy first (free): it is applied to a legal action only, and legality does not depend on it
         self.apply_switch(switch, out);
         let army = self.turn;
@@ -1469,8 +1583,9 @@ impl Game {
         self.pieces[i].fuel += truck;
         let last = &mut self.truck_turn[army.idx()];
         *last = ct::pick32(truck, self.turn_no as i32, *last);
-        let spent = (truck & (1 ^ ct::lt(self.pieces[i].fuel as u64, TRUCK_FUEL as u64))) != 0;
-        self.pieces[i].known |= spent;
+        // Kept as a 0/1 byte until the one public test below: a `bool` made here is a jump on SBF, and the jump would
+        // skip an instruction for a Truck with fuel left.
+        let spent = truck & (1 ^ ct::lt(self.pieces[i].fuel as u64, TRUCK_FUEL as u64));
         let cell = self.cells[to as usize];
         if cell == 0 {
             self.land(i, to);
@@ -1514,11 +1629,13 @@ impl Game {
                 return;
             }
         }
-        let alive = self.pieces[i].rank != 0;
-        // Public: a Truck's last tank shows it to the other side.
-        if spent & alive {
+        let alive_flag = ct::nonzero_u8(self.pieces[i].rank);
+        // Public: a Truck's last tank shows it to the other side (a dead piece's `known` is never read).
+        if (spent & alive_flag) != 0 {
+            self.pieces[i].known = true;
             self.push(out, Event::Spotted { id });
         }
+        let alive = alive_flag != 0;
         // a one-square step onto the enemy's depot claims it, once per Match
         let a = army.idx();
         if DEPOT_SQ[a] == to && !self.depot_claimed[a] && step && alive && self.pieces[i].sq == to {
@@ -2858,5 +2975,106 @@ mod tests {
             [m.next(), m.next(), m.next()],
             [2693262067, 11749833, 2265367787]
         );
+    }
+
+    // --- The sealing recipe -------------------------------------------------------------------------------
+
+    /// Known answers for the pad, computed independently with `hashlib` from the recipe in the docs:
+    /// `SHA-256("vanguard-seal-v1" || key || battle || seat || seq u32 LE || field)[0]`. The TypeScript client checks
+    /// the same vectors.
+    #[test]
+    fn the_pad_follows_the_published_recipe() {
+        let key: [u8; 32] = core::array::from_fn(|i| i as u8);
+        let battle: [u8; 32] = core::array::from_fn(|i| 0xB0 + (i % 16) as u8);
+        for (seat, seq, field, want) in [
+            (0u8, 0u32, SEAL_DIG, 78u8),
+            (0, 0, SEAL_SWITCH, 96),
+            (1, 5, SEAL_DIG, 161),
+            (1, 5, SEAL_SWITCH, 137),
+            (1, 0x0102_0304, SEAL_SWITCH, 190),
+        ] {
+            assert_eq!(seal_pad(&key, &battle, seat, seq, field), want);
+        }
+    }
+
+    #[test]
+    fn every_input_of_the_pad_matters() {
+        let key = [3u8; 32];
+        let battle = [9u8; 32];
+        let pads = |f: &dyn Fn(u8) -> u8| (0..64).map(f).collect::<std::collections::HashSet<u8>>();
+        // many values of each input give many different pad bytes (a 1-byte hash: expect plenty of spread)
+        assert!(pads(&|n| seal_pad(&key, &battle, 0, n as u32, SEAL_SWITCH)).len() > 30);
+        assert!(pads(&|n| seal_pad(&[n; 32], &battle, 0, 1, SEAL_SWITCH)).len() > 30);
+        assert!(pads(&|n| seal_pad(&key, &[n; 32], 0, 1, SEAL_SWITCH)).len() > 30);
+        assert_ne!(
+            (0..64)
+                .map(|n| seal_pad(&key, &battle, 0, n, SEAL_DIG))
+                .collect::<Vec<_>>(),
+            (0..64)
+                .map(|n| seal_pad(&key, &battle, 0, n, SEAL_SWITCH))
+                .collect::<Vec<_>>(),
+            "the two fields of one seq have different pads"
+        );
+        assert_ne!(
+            (0..64)
+                .map(|n| seal_pad(&key, &battle, 0, n, SEAL_SWITCH))
+                .collect::<Vec<_>>(),
+            (0..64)
+                .map(|n| seal_pad(&key, &battle, 1, n, SEAL_SWITCH))
+                .collect::<Vec<_>>(),
+            "and so do the two seats"
+        );
+    }
+
+    #[test]
+    fn the_army_keys_are_independent_of_each_other_and_of_every_other_stream() {
+        let seed = seed_of(11);
+        let keys = seal_keys(&seed);
+        assert_ne!(keys[0], keys[1]);
+        assert_eq!(keys, seal_keys(&seed));
+        assert_ne!(keys, seal_keys(&seed_of(12)));
+        for label in [
+            &b"layout-us"[..],
+            b"layout-it",
+            b"storm-line",
+            b"storm-turn",
+            b"side",
+            b"first",
+        ] {
+            let label: &'static [u8] = Box::leak(label.to_vec().into_boxed_slice());
+            let mut d = Draw::new(&seed, label);
+            let first = d.next().to_le_bytes();
+            assert_ne!(&keys[0][..8], &first);
+            assert_ne!(&keys[1][..8], &first);
+        }
+    }
+
+    #[test]
+    fn the_sealed_bytes_decode_to_defined_behaviour_for_all_256_values() {
+        let mut g = board();
+        put(&mut g, 55, Army::Us, GENERAL_OF_THE_ARMY, 95);
+        put(&mut g, 45, Army::Us, MAJOR, 85);
+        put(&mut g, 46, Army::Us, DUG_IN, 86);
+        put(&mut g, 47, Army::Us, SWITCHED, 87);
+        put(&mut g, 5, Army::It, GENERAL_OF_THE_ARMY, 5);
+        for turn in [Army::Us, Army::It] {
+            g.turn = turn;
+            let base = if turn == Army::Us { 30 } else { 0 };
+            let ten = (base + if turn == Army::Us { 25 } else { 5 }) as u8;
+            for plain in 0..=255u8 {
+                // a switch only for the live, unswitched 10 of the side to move
+                let want = g.switch_wanted(plain);
+                assert!(want <= 1);
+                let named = plain >= 1 && (base + plain as usize - 1) as u8 == ten;
+                assert_eq!(want == 1, named, "turn {turn:?} value {plain}");
+                // a Dig in names one of the thirty slots of the side to move, or nothing
+                let piece = g.dig_in_piece(plain);
+                if (1..=30).contains(&plain) {
+                    assert_eq!(piece as usize, base + plain as usize - 1);
+                } else {
+                    assert_eq!(piece, NO_PIECE, "value {plain}");
+                }
+            }
+        }
     }
 }

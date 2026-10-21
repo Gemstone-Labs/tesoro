@@ -45,6 +45,13 @@ pub const PENDING_MOVE: u8 = 1;
 pub const PENDING_TIMEOUT: u8 = 2;
 /// A declared timeout claim waits for `resolve`: the time cap had passed at the declare.
 pub const PENDING_CAP: u8 = 3;
+/// A declared Blast (`pending_piece` the Engineer) waits for `resolve`.
+pub const PENDING_BLAST: u8 = 4;
+/// A declared Rescue (`pending_piece` the Colonel) waits for `resolve`.
+pub const PENDING_RESCUE: u8 = 5;
+/// A declared pass waits for `resolve`. `pending_piece` holds the SEALED Dig in slot byte (0 sealed = a plain pass),
+/// so a face-down Dig in and a pass are the same record.
+pub const PENDING_PASS: u8 = 6;
 
 pub const STATUS_CREATED: u8 = 0;
 /// Permissions exist; waiting for both secrets, the randomness and `deal`.
@@ -324,6 +331,9 @@ pub struct Battle {
     pub pending_to: u8,
     /// The seat that declared a move (a timeout claim reads 0).
     pub pending_seat: u8,
+    /// `pad_a[0]` is the SEALED switch byte of the pending move, Blast, Rescue or pass (`plain ^ pad`, see
+    /// `engine::seal_pad`); a timeout claim leaves it 0. Cleared with the pending action. The other two bytes are
+    /// unused.
     pub pad_a: [u8; 3],
     /// Counts declared actions: the n-th pending action is the one `resolve` applies.
     pub action_seq: u32,
@@ -336,7 +346,19 @@ pub struct Battle {
     pub deal_slot: u64,
     /// See `engine::RESOLVE_SLACK_SECS`.
     pub resolve_slack_secs: u8,
+    /// `reserved[..8]` is the END MASK: bit `id` (little endian `u64`, piece numbers 0-59) is set for every piece
+    /// whose rank changed in the Match (a Major that dug in, a General of the Army that became a Spy), dead pieces
+    /// included. Written when the Match ends, never before. The rest is unused.
     pub reserved: [u8; 31],
+}
+
+/// What a declare freezes in the Battle: public intent plus sealed bytes. A move uses `piece` and `to`; a Blast or a
+/// Rescue only `piece`; a pass puts its sealed Dig in slot byte in `piece`; a timeout claim carries nothing.
+#[derive(Clone, Copy, Default)]
+pub struct Intent {
+    pub piece: u8,
+    pub to: u8,
+    pub sealed_switch: u8,
 }
 
 /// What `create_match` knows when it binds a Battle to a tesoro_core Match.
@@ -383,10 +405,11 @@ impl Battle {
     }
 
     /// Record a declared action. It is bound to the n-th declare of the Match and cannot be changed.
-    pub fn record_pending(&mut self, kind: u8, piece: u8, to: u8, seat: u8, slot: u64, time: i64) {
+    pub fn record_pending(&mut self, kind: u8, intent: Intent, seat: u8, slot: u64, time: i64) {
         self.pending_kind = kind;
-        self.pending_piece = piece;
-        self.pending_to = to;
+        self.pending_piece = intent.piece;
+        self.pending_to = intent.to;
+        self.pad_a[0] = intent.sealed_switch;
         self.pending_seat = seat;
         self.pending_slot = slot;
         self.pending_time = time;
@@ -398,6 +421,7 @@ impl Battle {
         self.pending_piece = 0;
         self.pending_to = 0;
         self.pending_seat = 0;
+        self.pad_a[0] = 0;
         self.pending_slot = 0;
         self.pending_time = 0;
     }
@@ -589,6 +613,8 @@ impl Battle {
                 Winner::Army(a) => self.seat_of_side(a),
             };
             self.reason = reason_code(r);
+            // The end reveal: which pieces changed rank, dead ones included, for the end panel.
+            self.reserved[..8].copy_from_slice(&g.changed.to_le_bytes());
         }
     }
 
@@ -634,6 +660,8 @@ pub struct Army {
     pub truck_turn: i32,
     /// Moves this side made, written on every move so a Truck move writes the account like any other.
     pub moves: u16,
+    /// The 32-byte sealing key of this Army (`engine::seal_keys`), written at `deal`, private to its Player and
+    /// zeroed by `wipe`. It seals the switch and Dig in bytes this Player sends (`engine::seal_pad`).
     pub reserved: [u8; 32],
 }
 
@@ -668,7 +696,7 @@ impl Army {
 
     /// Take the Truck's fuel and last-moved turn and every rank back from the engine. All thirty rank bytes are
     /// written every time, from masks: a live piece keeps the code the engine holds for it (a Dig in or a switch
-    /// changes it), a dead piece keeps the code it had, so the end reveal and the owner's badge survive a death.
+    /// changes it), a dead piece keeps the code it had (plus a change made in its last action), so the end reveal and the owner's badge survive a death.
     pub fn absorb(&mut self, g: &Game) {
         let Some(side) = side_from(self.side) else {
             return;
@@ -680,16 +708,30 @@ impl Army {
             // Select the Truck's fuel without branching on a rank.
             let m = engine::ct::mask(engine::ct::eq(p.rank as u64, TRUCK as u64));
             self.fuel = (p.fuel & m) | (self.fuel & !m);
+            // A dead piece keeps the code it had, except that a change made in this very action (a switch, then a lost
+            // attack) is written back from `changed`, so the record and the end mask survive the death.
+            let old = self.ranks[i];
+            let changed = ((g.changed >> (base + i)) & 1) as u8;
+            let switched = changed & engine::ct::eq(old as u64, engine::GENERAL_OF_THE_ARMY as u64);
+            let dug_in = changed & engine::ct::eq(old as u64, engine::MAJOR as u64);
+            let dead_code = engine::ct::pick(
+                switched,
+                engine::SWITCHED,
+                engine::ct::pick(dug_in, engine::DUG_IN, old),
+            );
             let live = engine::ct::mask(1 ^ engine::ct::eq(p.rank as u64, 0));
-            self.ranks[i] = (p.rank & live) | (self.ranks[i] & !live);
+            self.ranks[i] = (p.rank & live) | (dead_code & !live);
         }
     }
 
+    /// Everything private to the Player goes before the Army is committed to the base layer: the rank codes (a Dig in
+    /// or a switch included) and the sealing key.
     pub fn wipe(&mut self) {
         self.ranks = [0; 30];
         self.fuel = 0;
         self.truck_turn = 0;
         self.moves = 0;
+        self.reserved = [0; 32];
     }
 }
 

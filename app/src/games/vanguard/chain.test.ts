@@ -36,13 +36,13 @@ describe("rollup instructions", () => {
   it("a declared move takes only the Player and the Battle (no Army, no Secret), with a compute limit first", async () => {
     const { chain, sent, player } = capture();
     const ad = addresses(ID);
-    await chain.movePiece(player, ID, 41, 53);
+    await chain.movePiece(player, ID, 41, 53, { expectedSeq: 0, sealedSwitch: 0 });
     const [limit, ix] = sent[0].ixs;
     expect(limit.programId.equals(ComputeBudgetProgram.programId)).toBe(true);
     expect(units(limit)).toBe(CU.declare);
     expect(ix.programId.equals(VANGUARD_PROGRAM_ID)).toBe(true);
     expect(keys(ix)).toEqual([player.publicKey, ad.battle].map((k) => k.toBase58()));
-    expect([...ix.data.subarray(8)]).toEqual([41, 53]);
+    expect([...ix.data.subarray(8)]).toEqual([41, 53, 0, 0, 0, 0, 0]);
     expect(ix.keys[0].isSigner).toBe(true);
     expect(ix.keys[1].isWritable).toBe(true);
     expect(sent[0].step).toBe("move_piece");

@@ -59,7 +59,7 @@ fn layout() -> Value {
         storm_from => "stormFrom", storm_to => "stormTo", pending_kind => "pendingKind",
         pending_piece => "pendingPiece", pending_to => "pendingTo", pending_seat => "pendingSeat",
         action_seq => "actionSeq", pending_slot => "pendingSlot", pending_time => "pendingTime",
-        deal_slot => "dealSlot",
+        deal_slot => "dealSlot", pad_a => "padA", reserved => "reserved",
     );
     // The Army is Borsh, so its fields follow each other with no padding: offset = 8 + the sizes before it.
     let fields: [(&str, usize); 8] = [
@@ -79,6 +79,8 @@ fn layout() -> Value {
         at += len;
     }
     army.insert("moves".to_string(), json!(at));
+    // the sealing key: the 32 reserved bytes right after the u16 move count
+    army.insert("reserved".to_string(), json!(at + 2));
     json!({
         "battle": {
             "size": 8 + std::mem::size_of::<Battle>(),
@@ -146,8 +148,7 @@ fn expected_event(e: &Event) -> Value {
                 .collect();
             json!({ "kind": "storm", "axis": if col { "col" } else { "row" }, "index": index, "dir": dir, "shifts": shifts })
         }
-        // The powers' events (rules version 6): their record kinds are pinned in `state::changes`; the app's decoders
-        // learn them with the chain client, so they are not in the golden list yet.
+        // The powers' events (rules version 6).
         Event::Blast { id, at, n, shown } => {
             let rank = |r: u8| match r {
                 11 => "B".to_string(),
@@ -252,6 +253,39 @@ fn events() -> Vec<Value> {
             n: 3,
             shifts,
         },
+        Event::Blast {
+            id: 33,
+            at: 73,
+            n: 3,
+            shown: [
+                (5, 9),
+                (41, 11),
+                (12, 2),
+                (0, 0),
+                (0, 0),
+                (0, 0),
+                (0, 0),
+                (0, 0),
+            ],
+        },
+        Event::Blast {
+            id: 14,
+            at: 5,
+            n: 0,
+            shown: [(0, 0); 8],
+        },
+        Event::Rescue {
+            colonel: 38,
+            truck: 44,
+            from: 96,
+            to: 72,
+        },
+        Event::DugIn {
+            army: Side::It,
+            id: 17,
+        },
+        Event::Pass { army: Side::Us },
+        Event::Switched { id: 55 },
         Event::Turn {
             turn: Side::It,
             timed_out: true,
@@ -343,6 +377,9 @@ fn probe_battle() -> Battle {
     b.pending_piece = 41;
     b.pending_to = 53;
     b.pending_seat = 1;
+    b.pad_a[0] = 0x5C;
+    // the end mask: pieces 0, 5, 31 and 55 changed rank
+    b.reserved[..8].copy_from_slice(&((1u64 << 55) | (1 << 31) | (1 << 5) | 1).to_le_bytes());
     b.action_seq = 77;
     b.pending_slot = 0x0102_0304_0506;
     b.pending_time = 1_760_000_222;
@@ -414,8 +451,47 @@ fn battle_golden() -> Value {
             "pendingSlot": b.pending_slot.to_string(),
             "pendingTime": b.pending_time,
             "dealSlot": b.deal_slot.to_string(),
+            "padA": hex(&b.pad_a),
+            "reserved": hex(&b.reserved),
+            "endMask": u64::from_le_bytes(b.reserved[..8].try_into().expect("8 bytes")).to_string(),
         }
     })
+}
+
+/// A Battle with a pending Blast (4), Rescue (5) or pass (6) as `record_pending` leaves it: for a pass the sealed Dig in
+/// slot byte sits in `pending_piece`, and each kind carries a sealed switch byte in `pad_a[0]`.
+fn pending_golden() -> Vec<Value> {
+    [
+        (vanguard::PENDING_BLAST, 33u8, 0u8, 0xE1u8),
+        (vanguard::PENDING_RESCUE, 38, 0, 0x07),
+        (vanguard::PENDING_PASS, 0xD9, 0, 0xFE),
+    ]
+    .iter()
+    .map(|(kind, piece, to, sealed)| {
+        let mut b = probe_battle();
+        b.record_pending(
+            *kind,
+            vanguard::Intent {
+                piece: *piece,
+                to: *to,
+                sealed_switch: *sealed,
+            },
+            1,
+            0x0102_0304_0506,
+            1_760_000_222,
+        );
+        let mut bytes = <Battle as Discriminator>::DISCRIMINATOR.to_vec();
+        bytes.extend_from_slice(anchor_lang::__private::bytemuck::bytes_of(&b));
+        json!({
+            "bytes": hex(&bytes),
+            "expected": {
+                "pendingKind": b.pending_kind, "pendingPiece": b.pending_piece, "pendingTo": b.pending_to,
+                "pendingSeat": b.pending_seat, "actionSeq": b.action_seq, "padA": hex(&b.pad_a),
+                "pendingSlot": b.pending_slot.to_string(), "pendingTime": b.pending_time,
+            }
+        })
+    })
+    .collect()
 }
 
 fn army_golden() -> Value {
@@ -423,6 +499,10 @@ fn army_golden() -> Value {
     for (i, r) in ranks.iter_mut().enumerate() {
         *r = (i % 12 + 1) as u8;
     }
+    // the private change codes: a dug-in Major and a switched General of the Army
+    ranks[3] = vanguard::engine::DUG_IN;
+    ranks[4] = vanguard::engine::SWITCHED;
+    let key: [u8; 32] = std::array::from_fn(|i| 0xA0 + i as u8);
     let a = Army {
         bump: 250,
         battle: pk(0x11),
@@ -433,7 +513,7 @@ fn army_golden() -> Value {
         fuel: 2,
         truck_turn: -9,
         moves: 513,
-        reserved: [0; 32],
+        reserved: key,
     };
     let mut bytes = Vec::new();
     a.try_serialize(&mut bytes).expect("serialize army");
@@ -442,6 +522,7 @@ fn army_golden() -> Value {
         "expected": {
             "bump": a.bump, "battle": hex(a.battle.as_ref()), "seat": a.seat, "player": hex(a.player.as_ref()),
             "side": a.side, "ranks": hex(&a.ranks), "fuel": a.fuel, "truckTurn": a.truck_turn, "moves": a.moves,
+            "reserved": hex(&a.reserved),
         }
     })
 }
@@ -488,6 +569,9 @@ fn the_layout_the_app_reads_is_what_the_program_writes() {
         hex(pk(0x22).as_ref())
     );
     assert_eq!(&bytes[at("moves")..at("moves") + 4], "0102");
+    let key: [u8; 32] = std::array::from_fn(|i| 0xA0 + i as u8);
+    assert_eq!(&bytes[at("reserved")..at("reserved") + 64], hex(&key));
+    assert_eq!(bytes.len(), at("reserved") + 64, "the key ends the Army");
     assert_eq!(
         l["army"]["size"].as_u64().expect("size") as usize * 2,
         bytes.len()
@@ -504,6 +588,7 @@ fn golden_account_bytes_match_the_program() {
         "generated": "by programs/vanguard/tests/golden.rs; WRITE_GOLDEN=1 cargo test -p vanguard --test golden",
         "battle": battle_golden(),
         "army": army_golden(),
+        "pending": pending_golden(),
         "events": events(),
     });
     write_or_check(app_dir().join("fixtures/golden.json"), &v);
