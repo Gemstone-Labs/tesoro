@@ -119,14 +119,25 @@ pub struct GameRecord {
     /// SHA-256 of the approved build's executable bytes without trailing zeros (`registry::code_hash`).
     /// A moved slot keeps the listing only through `refresh_listing`, which proves the bytes are these.
     pub approved_hash: [u8; 32],
+    /// Counts the builds the admin approved: bumped by `list_game` only when it sets a different
+    /// hash, never by `refresh_listing`. A Match remembers the epoch it opened under, so a moved
+    /// deploy slot with the same epoch is the same build.
+    pub listing_epoch: u32,
 }
 
 impl GameRecord {
-    pub const SPACE: usize = 8 + 1 + 32 + 32 + 2 + 32 + 8 + 32 + 32 + 2 + 32 + 8 + 8 + 32;
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 2 + 32 + 8 + 32 + 32 + 2 + 32 + 8 + 8 + 32 + 4;
 
     /// Listed right now, for the deploy slot the loader reports (`None`: it could not be read).
     pub fn is_listed(&self, now: i64, deploy_slot: Option<u64>) -> bool {
         self.listed_until > now && deploy_slot == Some(self.approved_slot)
+    }
+
+    /// The Game program is still the build a Match opened under: the deploy slot is unchanged, or
+    /// it moved (ExtendProgram) and `refresh_listing` proved the same bytes in the same epoch.
+    pub fn same_build(&self, m: &MatchState, current_slot: u64) -> bool {
+        current_slot == m.deploy_slot
+            || (current_slot == self.approved_slot && self.listing_epoch == m.listing_epoch)
     }
 
     pub fn fee_terms(&self, config: &Config) -> ledger::FeeTerms {
@@ -351,10 +362,12 @@ pub struct MatchState {
     /// The Game program's deploy slot when the Match opened (zero if it could not be read or the
     /// program cannot be upgraded).
     pub deploy_slot: u64,
+    /// `GameRecord.listing_epoch` when the Match opened.
+    pub listing_epoch: u32,
 }
 
 impl MatchState {
-    pub const SPACE: usize = 8 + 1 + 8 + 32 + 8 + 68 + 1 + SIDE + 1 + SIDE + 8 + 1 + 8;
+    pub const SPACE: usize = 8 + 1 + 8 + 32 + 8 + 68 + 1 + SIDE + 1 + SIDE + 8 + 1 + 8 + 4;
 }
 
 #[account]

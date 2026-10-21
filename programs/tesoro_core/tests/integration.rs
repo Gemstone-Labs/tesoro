@@ -3264,12 +3264,13 @@ fn a_backed_join_is_refused_once_the_game_was_upgraded_after_the_match_opened() 
     b.accept_public(offer, request);
     let id = b.d.env.open_match(&b.d.bob, 500, &[b.d.b_holding]).unwrap();
     assert!(b.d.env.load::<MatchState>(match_pda(id)).listed);
-    // The studio upgrades its program while the Match waits for an opponent.
-    common::set_program_data(
+    // The studio ships different code while the Match waits for an opponent.
+    common::set_program_code(
         &mut b.d.env.svm,
         s(GAME),
         Some(b.d.env.game_ctl.pubkey()),
         GAME_SLOT + 3,
+        &[0xCD; 64],
     );
     let err = b.join_backed(offer, id).unwrap_err();
     assert_eq!(
@@ -3277,7 +3278,7 @@ fn a_backed_join_is_refused_once_the_game_was_upgraded_after_the_match_opened() 
         anchor_code(tesoro_core::error::TesoroError::GameNotListed)
     );
     assert_eq!(b.reserved(), 500, "the Backer's Gemas stay reserved");
-    // Even after the admin approves the new slot, this Match was opened for the old build.
+    // Even after the admin approves the new build, this Match was opened for the old one.
     let admin = b.d.env.admin.insecure_clone();
     let list = b.d.env.list_game_ix(LISTED_FOR_EVER);
     b.d.env.send(&[list], &admin, &[]).expect("approve");
@@ -3286,6 +3287,50 @@ fn a_backed_join_is_refused_once_the_game_was_upgraded_after_the_match_opened() 
         custom_code(&err),
         anchor_code(tesoro_core::error::TesoroError::GameNotListed)
     );
+}
+
+#[test]
+fn a_stranger_extending_the_program_cannot_block_a_pending_backed_join() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 5_000, None);
+    b.accept_public(offer, request);
+    let id = b.d.env.open_match(&b.d.bob, 500, &[b.d.b_holding]).unwrap();
+    let stranger = Keypair::new();
+    b.d.env
+        .svm
+        .airdrop(&stranger.pubkey(), SOL)
+        .expect("airdrop");
+    common::extend_program(&mut b.d.env.svm, s(GAME), GAME_SLOT + 4, 10_240);
+    let err = b.join_backed(offer, id).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        anchor_code(tesoro_core::error::TesoroError::GameNotListed),
+        "unlisted until someone refreshes"
+    );
+    refresh(&mut b.d.env, &stranger).expect("anyone refreshes");
+    b.join_backed(offer, id)
+        .expect("the same build counts as the same Game");
+    assert_eq!(
+        b.d.env.load::<MatchState>(match_pda(id)).inner.status,
+        MatchStatus::Active
+    );
+}
+
+#[test]
+fn relisting_the_same_build_keeps_a_pending_backed_join_alive() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 5_000, None);
+    b.accept_public(offer, request);
+    let id = b.d.env.open_match(&b.d.bob, 500, &[b.d.b_holding]).unwrap();
+    common::extend_program(&mut b.d.env.svm, s(GAME), GAME_SLOT + 4, 10_240);
+    let admin = b.d.env.admin.insecure_clone();
+    let list = b.d.env.list_game_ix(LISTED_FOR_EVER);
+    b.d.env
+        .send(&[list], &admin, &[])
+        .expect("relist same bytes");
+    b.join_backed(offer, id).expect("same hash, same epoch");
 }
 
 #[test]

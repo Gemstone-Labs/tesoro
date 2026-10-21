@@ -116,6 +116,7 @@ pub(crate) fn open_match<'info>(
     state.inner = m;
     state.listed = listed;
     state.deploy_slot = deploy_slot;
+    state.listing_epoch = ctx.accounts.game_record.listing_epoch;
     Ok(())
 }
 
@@ -279,6 +280,7 @@ pub(crate) fn open_match_backed<'info>(
     state.inner = m;
     state.listed = listed;
     state.deploy_slot = deploy_slot;
+    state.listing_epoch = ctx.accounts.game_record.listing_epoch;
     Ok(())
 }
 
@@ -357,7 +359,12 @@ pub(crate) fn join_match_backed<'info>(
         &ctx.accounts.program_data.to_account_info(),
     )?;
     require!(
-        listed && ctx.accounts.match_state.listed && slot == ctx.accounts.match_state.deploy_slot,
+        listed
+            && ctx.accounts.match_state.listed
+            && ctx
+                .accounts
+                .game_record
+                .same_build(&ctx.accounts.match_state, slot),
         TesoroError::GameNotListed
     );
     record_pair(

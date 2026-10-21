@@ -14769,6 +14769,13 @@
               "program cannot be upgraded)."
             ],
             "type": "u64"
+          },
+          {
+            "name": "listing_epoch",
+            "docs": [
+              "`GameRecord.listing_epoch` when the Match opened."
+            ],
+            "type": "u32"
           }
         ]
       }
@@ -17296,6 +17303,15 @@
                 32
               ]
             }
+          },
+          {
+            "name": "listing_epoch",
+            "docs": [
+              "Counts the builds the admin approved: bumped by `list_game` only when it sets a different",
+              "hash, never by `refresh_listing`. A Match remembers the epoch it opened under, so a moved",
+              "deploy slot with the same epoch is the same build."
+            ],
+            "type": "u32"
           }
         ]
       }

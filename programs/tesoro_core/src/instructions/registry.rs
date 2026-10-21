@@ -158,6 +158,7 @@ pub(crate) fn register_game(
     r.listed_until = 0;
     r.approved_slot = 0;
     r.approved_hash = [0; 32];
+    r.listing_epoch = 0;
     Ok(())
 }
 
@@ -346,6 +347,12 @@ pub(crate) fn list_game(
     )?;
     require!(hash == approved_hash, TesoroError::CodeHashMismatch);
     let r = &mut ctx.accounts.game_record;
+    if r.approved_hash != approved_hash {
+        r.listing_epoch = r
+            .listing_epoch
+            .checked_add(1)
+            .ok_or(TesoroError::InvalidAccount)?;
+    }
     r.listed_until = listed_until;
     r.approved_slot = deploy.slot;
     r.approved_hash = approved_hash;
