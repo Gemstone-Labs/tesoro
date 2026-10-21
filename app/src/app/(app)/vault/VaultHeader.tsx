@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { Button } from "@/components/ui";
 import { requestDeposit } from "@/lib/deposit/bus";
 import { useViewMode } from "@/lib/deposit/use-view-mode";
@@ -25,16 +26,22 @@ export function VaultHeader() {
   );
 }
 
-/** Simple | Advanced, under the balance card: it switches what's below the card, in place. */
+/** Simple | Advanced, under the balance card: the same steel rail as Trading Duel's asset picker; it switches what's below the card, in place. */
 export function ViewToggle() {
   const { mode, setMode } = useViewMode();
+  const name = useId();
   return (
-    <div className="cut cut-chip vt-seg" role="group" aria-label="View">
+    <fieldset className="cut pick-rail assets compact vt-rail" style={{ ["--n" as string]: OPTIONS.length, ["--i" as string]: OPTIONS.findIndex((o) => o.mode === mode) }}>
+      <legend className="sr-only">View</legend>
+      <span className="pick-thumb" aria-hidden="true" />
       {OPTIONS.map((o) => (
-        <button key={o.mode} type="button" className="vt-seg-opt" aria-pressed={mode === o.mode} onClick={() => setMode(o.mode)}>
-          {o.label}
-        </button>
+        <label key={o.mode} className="asset">
+          <input type="radio" name={name} value={o.mode} checked={mode === o.mode} onChange={() => setMode(o.mode)} />
+          <span className="cut">
+            <b>{o.label}</b>
+          </span>
+        </label>
       ))}
-    </div>
+    </fieldset>
   );
 }
