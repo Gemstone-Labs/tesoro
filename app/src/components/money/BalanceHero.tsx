@@ -25,8 +25,10 @@ export interface HeroColumn {
  * The green cut balance card at the top of the Vault, the same in both views: one big figure on the left, two columns on
  * the right. On phones it folds to the big figure plus `summary`, and opens on tap.
  */
-export function BalanceHero({ label, figure, usdOf, busy = false, summary, columns, error, simulated = true }: {
+export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, summary, columns, error, simulated = true }: {
   label: string;
+  /** An ⓘ next to the main label that explains the total. */
+  labelInfo?: ReactNode;
   figure: ReactNode;
   usdOf?: number;
   busy?: boolean;
@@ -44,7 +46,14 @@ export function BalanceHero({ label, figure, usdOf, busy = false, summary, colum
       <FacetCrown />
       <div className="wl-total" onClick={() => setOpen((o) => !o)}>
         <div className="wl-total-head">
-          <h2>{label}</h2>
+          <h2 className="wl-col-head">
+            {label}
+            {labelInfo && (
+              <InfoTip label={`About ${label}`} align="start">
+                {labelInfo}
+              </InfoTip>
+            )}
+          </h2>
           <button type="button" className="wl-fold" aria-expanded={open} aria-controls={id}>
             <ChevronDown size={18} aria-hidden="true" />
             <span className="sr-only">{open ? "Hide" : "Show"} {columns[0].label} and {columns[1].label}</span>
@@ -68,7 +77,7 @@ export function BalanceHero({ label, figure, usdOf, busy = false, summary, colum
             <h2 className="wl-col-head">
               {c.label}
               {c.info && (
-                <InfoTip label={`About ${c.label}`} align="end">
+                <InfoTip label={`About ${c.label}`} align={c.emerald ? "center" : "end"}>
                   {c.info}
                 </InfoTip>
               )}

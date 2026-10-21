@@ -175,6 +175,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
     <div className={part === "all" ? "wl" : "wl-part"}>
       {card && <BalanceHero
         label="Total Balance"
+        labelInfo="All your Gemas: the ones from your Locks and the ones you won. You play with all of them. Redeemable now and Pending split this same total."
         figure={ready ? <CountUp value={gemas.total} /> : "—"}
         usdOf={ready ? gemas.total : undefined}
         busy={!ready}
@@ -192,6 +193,9 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
             figure: ready ? fmtGemas(redeemAmount) : "—",
             usdOf: ready ? redeemAmount : undefined,
             emerald: true,
+            info: REAL
+              ? "Gemas you can turn back into the coin they came from now, at full value: the yield of their Lock has landed. Redeem pays it to your wallet."
+              : "Gemas you can turn back into the coin they came from now, at full value: the yield of their Lock has landed. Redeem pays test SOL (simulated) to your wallet.",
             action: (
               <HoverHint hint={ready && redeemAmount === 0 ? (canFetchYield ? "Redeem fetches the latest yield first." : "Nothing redeemable yet. Gemas move here as the yield of their Lock lands.") : null}>
                 <Button variant="money" disabled={redeemAmount === 0 && !canFetchYield} onClick={() => openRedeem()}>Redeem</Button>
