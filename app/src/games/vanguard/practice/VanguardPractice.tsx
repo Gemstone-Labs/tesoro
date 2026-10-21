@@ -178,9 +178,10 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
         sfx("wind");
         shout("Dust storm!", "warn");
         setSay(`Dust storm: ${e.axis === "row" ? `row ${10 - e.index}` : `column ${e.index + 1}`}.`);
-        await wait(1500);
-        e.shifts.forEach((s) => patch(s.id, { r: s.to.r, c: s.to.c, ms: 420 }));
-        await wait(2000);
+        await wait(1000);
+        e.shifts.forEach((s) => patch(s.id, { r: s.to.r, c: s.to.c, ms: 1200, drift: true }));
+        await wait(2500);
+        e.shifts.forEach((s) => patch(s.id, { drift: false }));
         setStorm(null);
         line = `Storm drifted ${e.shifts.length} ${e.shifts.length === 1 ? "piece" : "pieces"}.`;
       } else if (e.kind === "turn" && e.timedOut) {

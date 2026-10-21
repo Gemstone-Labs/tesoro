@@ -137,15 +137,19 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 
 /* Dust Storm (Haze, founder pick): a wide slow veil over three lines that hangs, then thins out.
    Layers: i1 sandy body, i2 dust streaks, i3 bigger streaks. A column storm is the same band turned 90°. */
+/* axis classes are vg-st-row / vg-st-col: a bare `row` class picks up the global list-row card (dark surface) and hid the board under the haze */
 /* the band is 3.8 squares tall, so on an edge line it would hang over the frame: clip it to the board */
 .vg-storm-clip { position: absolute; inset: 0; z-index: 30; overflow: hidden; pointer-events: none; }
 .vg-storm { --bh: calc(var(--vg-sq) * 3.8); position: absolute; z-index: 30; pointer-events: none; overflow: hidden; width: calc(var(--vg-sq) * 10); height: var(--bh);
   left: 0; top: calc(var(--vg-sq) * (var(--vg-line) + 0.5)); transform: translateY(-50%); animation: vg-st-fade 3.6s ease-in-out both; }
-.vg-storm.col { left: calc(var(--vg-sq) * (var(--vg-line) + 0.5)); top: 50%; transform: translate(-50%, -50%) rotate(90deg); }
+.vg-storm.vg-st-col { left: calc(var(--vg-sq) * (var(--vg-line) + 0.5)); top: 50%; transform: translate(-50%, -50%) rotate(90deg); }
 .vg-storm i { position: absolute; top: 0; bottom: 0; left: -50%; width: 200%; animation: vg-st-drift 3.6s linear both; }
-.vg-storm i:nth-child(1) { background: linear-gradient(rgba(192, 146, 92, 0), rgba(192, 146, 92, 0.36) 28%, rgba(204, 160, 104, 0.44) 50%, rgba(192, 146, 92, 0.36) 72%, rgba(192, 146, 92, 0)); }
-.vg-storm i:nth-child(2) { opacity: 0.7; background: url(/art/vanguard/fx-dust-alpha.webp) 0 50% / calc(var(--bh) * 6) 100% repeat-x; }
-.vg-storm i:nth-child(3) { top: -10%; bottom: -10%; opacity: 0.5; background: url(/art/vanguard/fx-dust-alpha.webp) 30% 50% / calc(var(--bh) * 9) 100% repeat-x; animation-duration: 2.95s; }
+.vg-storm i:nth-child(1) { background: linear-gradient(rgba(192, 146, 92, 0), rgba(192, 146, 92, 0.16) 28%, rgba(204, 160, 104, 0.24) 50%, rgba(192, 146, 92, 0.16) 72%, rgba(192, 146, 92, 0)); }
+.vg-storm i:nth-child(2) { opacity: 0.5; background: url(/art/vanguard/fx-dust-alpha.webp) 0 50% / calc(var(--bh) * 6) 100% repeat-x; }
+.vg-storm i:nth-child(3) { top: -10%; bottom: -10%; opacity: 0.35; background: url(/art/vanguard/fx-dust-alpha.webp) 30% 50% / calc(var(--bh) * 9) 100% repeat-x; animation-duration: 2.95s; }
+/* a piece the storm carries slides slowly above the haze, with a warm glow, so the eye can follow it */
+.vg-piece.drift { z-index: 31; transition-timing-function: cubic-bezier(0.45, 0, 0.35, 1); }
+.vg-piece.drift .vg-pb { filter: drop-shadow(0 0 calc(var(--vg-sq) * 0.1) rgba(242, 200, 120, 0.9)); }
 @keyframes vg-st-drift { from { transform: translateX(calc(var(--vg-dir) * -12%)); } to { transform: translateX(calc(var(--vg-dir) * 12%)); } }
 @keyframes vg-st-fade { 0% { opacity: 0; } 15%, 80% { opacity: 1; } 100% { opacity: 0; } }
 
@@ -189,7 +193,7 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 @media (prefers-reduced-motion: reduce) {
   .vg-piece, .vg-pb, .vg-sh { transition: none; }
   .vg-fx, .vg-storm, .vg-storm i, .vg-piece.gone, .vg-piece.tgt .vg-face::before { animation: none; }
-  .vg-storm { opacity: 0.85; }
+  .vg-storm { opacity: 0.6; }
 }
 
 /* Storybook: the reveal on big pieces */

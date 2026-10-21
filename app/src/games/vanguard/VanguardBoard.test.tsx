@@ -40,6 +40,6 @@ describe("VanguardBoard Dust Storm", () => {
     const h = renderToStaticMarkup(
       <VanguardBoard pieces={[]} depots={[]} selected={null} marks={[]} fx={[]} storm={{ key: 1, axis: "row", index: 0, dir: 1 }} locked onPiece={() => undefined} onMark={() => undefined} />,
     );
-    expect(h).toMatch(/<span class="vg-storm-clip"[^>]*><span class="vg-storm row"/);
+    expect(h).toMatch(/<span class="vg-storm-clip"[^>]*><span class="vg-storm vg-st-row"/);
   });
 });

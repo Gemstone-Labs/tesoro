@@ -20,6 +20,8 @@ export interface ShownPiece {
   ms?: number;
   /** Set with `up` for a reveal: the side the piece was hit from (its flip starts there). */
   hitFrom?: HitSide;
+  /** Carried one square by the Dust Storm: rides above the haze while it slides. */
+  drift?: boolean;
 }
 
 export interface ShownFx {
@@ -100,7 +102,7 @@ export const Marker = memo(function Marker({ p, selected, target = false, onTap,
   return (
     <button
       type="button"
-      className={`vg-piece ${p.army}${selected ? " sel" : ""}${target ? " tgt" : ""}${p.gone ? " gone" : ""}`}
+      className={`vg-piece ${p.army}${selected ? " sel" : ""}${target ? " tgt" : ""}${p.gone ? " gone" : ""}${p.drift ? " drift" : ""}`}
       style={style}
       aria-label={label}
       aria-pressed={selected || undefined}
@@ -192,7 +194,7 @@ export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, lock
       ))}
       {storm && (
         <span className="vg-storm-clip" aria-hidden="true">
-          <span key={storm.key} className={`vg-storm ${storm.axis}`} style={{ "--vg-line": storm.index, "--vg-dir": storm.dir } as CSSProperties}>
+          <span key={storm.key} className={`vg-storm vg-st-${storm.axis}`} style={{ "--vg-line": storm.index, "--vg-dir": storm.dir } as CSSProperties}>
             <i />
             <i />
             <i />
