@@ -877,7 +877,7 @@ export function GridScreen(p: GridScreenProps) {
   const worldStyle = { width: worldW, "--tg-cw": `${cw}px`, "--tg-rh": `${rh}px`, "--tg-hd": `${HEADER_PX}px`, "--tg-bh": `${layout.bodyH}px` } as CSSProperties;
 
   return (
-    <Arena game="trading-duel" autoFull={!p.practice && phase !== "over"}>
+    <Arena game="trading-duel" autoFull={phase !== "over"}>
       <section className="tg" aria-label={p.title ?? "Trading Duel"} data-phase={phase}>
         {header}
         {p.banner}
