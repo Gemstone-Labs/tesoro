@@ -2,8 +2,18 @@
 //! next lines of the draw order, cancel or expire in chunks anyone may continue, close.
 //!
 //! A Ticket account is also the Pot of the side that consumes it (`crate::pots`), so nothing is
-//! ever copied. Opening a Ticket reserves, in the Account's spill, as many slots as the Ticket's
-//! storage holds lines, so cancelling or restaging can never find the pool without room.
+//! ever copied.
+//!
+//! # Room
+//!
+//! A line that leaves the pool for a Ticket or a Pot frees its slot, and the freed slot is *held*
+//! for it: `room_reserved` in the spill header counts the slots held for lines that are away, the
+//! holder (`TicketExtra::spill_room`, later `MatchState::room`) keeps its share, and the lines
+//! coming back use it (`Pool::put`). Every other credit may only use free slots beyond the held
+//! ones. So a Player whose basket and spill are both full can open a Ticket, stage, cancel and
+//! enter: nothing here ever needs a slot the entry did not free itself, and no third party's
+//! credit can take it. (A line split off a bigger one frees no slot and needs none: its key is
+//! still in the pool, so it merges back.)
 //!
 //! # Who may do what
 //!
@@ -16,7 +26,7 @@
 use crate::books::OnchainBooks;
 use crate::error::{core_err, BasketError, MatchError, TesoroError};
 use crate::instructions::basket::{move_lamports, top_up};
-use crate::instructions::economy::{book_err, store_err, with_pool};
+use crate::instructions::economy::{book_err, store_err, with_pool, with_pool_hold};
 use crate::ledger::draw::{DrawError, Ticket, TicketKind, TicketState, TICKET_WINDOW_SECS};
 use crate::ledger::line_store::LineStore;
 use crate::ledger::{CoreError, OfferStatus};
@@ -65,23 +75,32 @@ pub(crate) fn ticket_err(e: DrawError) -> Error {
 // Room in the spill
 // ---------------------------------------------------------------------------------------------
 
-/// Holds `slots` of the spill's free slots for Matches and Tickets in flight. The spill must have
-/// them free on top of what is already held: the caller grows it first (`grow_store`,
-/// `grow_store_sponsored`).
-pub(crate) fn reserve_room(spill: &AccountInfo, slots: u32) -> Result<()> {
+/// Holds `slots` more of the free slots of an Account's basket and spill together, if that many
+/// are free beyond what is already held; `false`, changing nothing, when not. Used for the credits
+/// a Match can still make that no entry freed room for (the other side's lines): a hold taken
+/// here is a promise those credits find a slot, and when it cannot be taken they wait for free
+/// room like any credit.
+pub(crate) fn try_hold(basket: &AccountInfo, spill: &AccountInfo, slots: u32) -> Result<bool> {
     if slots == 0 {
-        return Ok(());
+        return Ok(true);
     }
+    let free = {
+        let data = basket.try_borrow_data()?;
+        let b = LineStore::new(&data[DISC..]).map_err(store_err)?;
+        b.capacity() - b.len()
+    };
     let mut data = spill.try_borrow_mut_data()?;
     let mut store = LineStore::new(&mut data[DISC..]).map_err(store_err)?;
-    let free = store.capacity() - store.len();
+    let free = free + (store.capacity() - store.len());
     let held = store.room_reserved() as usize;
-    require!(free >= held + slots as usize, MatchError::RoomNotReserved);
+    if free < held + slots as usize {
+        return Ok(false);
+    }
     store.set_room_reserved(held as u32 + slots);
-    Ok(())
+    Ok(true)
 }
 
-/// Gives back slots held by `reserve_room`.
+/// Gives back slots held for a Ticket or a Match (`with_pool_hold`, `try_hold`).
 pub(crate) fn release_room(spill: &AccountInfo, slots: u32) -> Result<()> {
     if slots == 0 {
         return Ok(());
@@ -239,8 +258,6 @@ pub(crate) fn open_ticket(
     let expires_at = ts
         .checked_add(TICKET_WINDOW_SECS)
         .ok_or(ProgramError::ArithmeticOverflow)?;
-    // reserve the spill room first: the Ticket can always return what it holds
-    reserve_room(&spill_info, lines)?;
     let pages = init_pot(&ticket_info, &owner_key, bump)?;
     let mut ticket = with_pool(&basket_info, &spill_info, |pool| {
         match kind {
@@ -258,7 +275,7 @@ pub(crate) fn open_ticket(
     let mut extra = TicketExtra {
         bump,
         payer: ctx.accounts.payer.key(),
-        spill_room: lines,
+        spill_room: 0,
         sponsored_lamports: 0,
     };
     if let Some(sponsor) = ctx.accounts.sponsor.as_mut() {
@@ -275,7 +292,7 @@ pub(crate) fn open_ticket(
 // Grow
 // ---------------------------------------------------------------------------------------------
 
-/// Adds storage to an open Ticket (and the spill room that goes with it). Anyone may pay; with the
+/// Adds storage to an open Ticket. Anyone may pay; with the
 /// sponsor accounts the relayer fronts the rent and is made whole, within the caps.
 #[derive(Accounts)]
 pub struct GrowTicket<'info> {
@@ -286,12 +303,6 @@ pub struct GrowTicket<'info> {
         bump = owner.bump
     )]
     pub owner: Box<Account<'info, TesoroAccount>>,
-    #[account(
-        mut,
-        seeds = [SPILL_SEED, owner.key().as_ref()],
-        bump = spill.load()?.raw[STORE_BUMP_AT]
-    )]
-    pub spill: AccountLoader<'info, SpillHead>,
     /// CHECK: loaded and checked as a Ticket of `owner` by `load_ticket`.
     #[account(mut)]
     pub ticket: UncheckedAccount<'info>,
@@ -307,7 +318,6 @@ pub(crate) fn grow_ticket(ctx: Context<GrowTicket>, extra_lines: u32) -> Result<
         BasketError::GrowTooLarge
     );
     let info = ctx.accounts.ticket.to_account_info();
-    let spill_info = ctx.accounts.spill.to_account_info();
     let (new_lines, mut extra, sponsored_now) = {
         let (t, x) = load_ticket(&info)?;
         require_keys_eq!(
@@ -322,11 +332,10 @@ pub(crate) fn grow_ticket(ctx: Context<GrowTicket>, extra_lines: u32) -> Result<
         let cap = t.pages.capacity();
         let lines = cap
             .checked_add(extra_lines as usize)
-            .filter(|n| *n <= MAX_BASKET_LINES)
+            .filter(|n| *n <= MAX_TICKET_LINES)
             .ok_or(BasketError::StoreAtMaximum)?;
         (lines, x, x.sponsored_lamports)
     };
-    reserve_room(&spill_info, extra_lines)?;
     let delta = top_up(&info, ticket_len(new_lines))?;
     if let Some(sponsor) = ctx.accounts.sponsor.as_mut() {
         sponsor_rent(
@@ -352,10 +361,6 @@ pub(crate) fn grow_ticket(ctx: Context<GrowTicket>, extra_lines: u32) -> Result<
     info.resize(ticket_len(new_lines))?;
     let (mut t, _) = load_ticket(&info)?;
     t.line_cap = new_lines;
-    extra.spill_room = extra
-        .spill_room
-        .checked_add(extra_lines)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
     save_ticket(&mut t, &extra);
     Ok(())
 }
@@ -401,7 +406,7 @@ pub(crate) fn stage_entry<'info>(
 ) -> Result<()> {
     let max_ops = max_ops.clamp(1, MAX_STAGE_OPS);
     let ticket_info = ctx.accounts.ticket.to_account_info();
-    let (mut t, extra) = load_ticket(&ticket_info)?;
+    let (mut t, mut extra) = load_ticket(&ticket_info)?;
     require_keys_eq!(
         Pubkey::new_from_array(t.account),
         ctx.accounts.owner.key(),
@@ -409,9 +414,10 @@ pub(crate) fn stage_entry<'info>(
     );
     let owner_signs = ctx.accounts.signer.key() == ctx.accounts.owner.authority;
     let mut books = OnchainBooks::load(ctx.remaining_accounts)?;
-    with_pool(
+    with_pool_hold(
         &ctx.accounts.basket.to_account_info(),
         &ctx.accounts.spill.to_account_info(),
+        &mut extra.spill_room,
         |pool| {
             t.stage(pool, &mut books, max_ops as usize, owner_signs)
                 .map(drop)
@@ -476,9 +482,10 @@ pub(crate) fn cancel_ticket<'info>(
     );
     let by_owner = ctx.accounts.signer.key() == ctx.accounts.owner.authority;
     let mut books = OnchainBooks::load(ctx.remaining_accounts)?;
-    let done = with_pool(
+    let done = with_pool_hold(
         &ctx.accounts.basket.to_account_info(),
         &spill_info,
+        &mut extra.spill_room,
         |pool| {
             t.begin_cancel(pool, ts, by_owner).map_err(ticket_err)?;
             t.cancel_step(pool, &mut books, max_lines as usize)

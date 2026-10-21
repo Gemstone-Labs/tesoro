@@ -375,9 +375,9 @@ pub(crate) fn grow_store_sponsored(
 // Shrink
 // ---------------------------------------------------------------------------------------------
 
-/// The owner drops the free slots of a store, keeping `keep_free` of them. A spill also keeps the
-/// slots reserved for Matches in flight. The rent freed goes to the sponsor first (up to what it
-/// paid for this Account), then to the owner.
+/// The owner drops the free slots of a store, keeping `keep_free` of them. The two stores keep
+/// together the slots held for Matches and Tickets in flight (`room_reserved` in the spill). The
+/// rent freed goes to the sponsor first (up to what it paid for this Account), then to the owner.
 #[derive(Accounts)]
 pub struct ShrinkStore<'info> {
     #[account(mut)]
@@ -419,13 +419,33 @@ pub(crate) fn shrink_store(
             .map_err(store_err)?
             .compact();
     }
+    // slots are held on the two stores together: this one keeps what the other cannot cover
+    let (held, other_free) = {
+        let (basket, spill) = (
+            ctx.accounts.basket.to_account_info(),
+            ctx.accounts.spill.to_account_info(),
+        );
+        let other = match which {
+            StoreKind::Basket => &spill,
+            StoreKind::Spill => &basket,
+        };
+        let data = other.try_borrow_data()?;
+        let o = LineStore::new(&data[DISC..]).map_err(store_err)?;
+        let held = match which {
+            StoreKind::Basket => o.room_reserved(),
+            StoreKind::Spill => {
+                let d = info.try_borrow_data()?;
+                LineStore::new(&d[DISC..])
+                    .map_err(store_err)?
+                    .room_reserved()
+            }
+        } as usize;
+        (held, o.capacity() - o.len())
+    };
     let (lines, sponsored) = {
         let data = info.try_borrow_data()?;
         let store = LineStore::new(&data[DISC..]).map_err(store_err)?;
-        let held_back = match which {
-            StoreKind::Basket => 0,
-            StoreKind::Spill => store.room_reserved() as usize,
-        };
+        let held_back = held.saturating_sub(other_free);
         let keep = store
             .len()
             .checked_add(held_back)

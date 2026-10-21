@@ -390,13 +390,32 @@ pub struct MatchState {
     pub payer: Pubkey,
     /// The Ticket account that is each side's Pot (the default key until the side joined).
     pub pots: [Pubkey; 2],
+    /// Slots held in Accounts' stores for the lines this Match will credit (`room_reserved` of
+    /// each spill counts them). Every credit that takes a new slot pays the holder's share down;
+    /// `close_match` hands back what is left.
+    pub room: [RoomHold; ROOM_HOLDS],
+}
+
+/// Slots of one Account's stores held for a Match.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
+pub struct RoomHold {
+    pub account: [u8; 32],
+    pub left: u32,
+}
+
+/// Distinct Accounts a Match can credit: both Players, both funders and an outside Studio.
+pub const ROOM_HOLDS: usize = 5;
+
+impl RoomHold {
+    pub const LEN: usize = 32 + 4;
 }
 
 impl MatchState {
     /// Largest Borsh size of `MatchRecord` (a Match with a joiner and a run in progress), checked
     /// by a unit test.
     pub const RECORD_LEN: usize = 486;
-    pub const SPACE: usize = 8 + 1 + Self::RECORD_LEN + 1 + 4 + 32 + 64;
+    pub const SPACE: usize =
+        8 + 1 + Self::RECORD_LEN + 1 + 4 + 32 + 64 + ROOM_HOLDS * RoomHold::LEN;
 
     pub fn id(&self) -> ledger::lifecycle::MatchId {
         self.inner.id
@@ -1365,6 +1384,7 @@ mod tests {
             listing_epoch: u32::MAX,
             payer: Pubkey::new_unique(),
             pots: [Pubkey::new_unique(); 2],
+            room: [RoomHold::default(); ROOM_HOLDS],
         };
         let mut bytes = Vec::new();
         state.serialize(&mut bytes).unwrap();
@@ -1375,6 +1395,9 @@ mod tests {
             bytes.len(),
             MatchState::SPACE
         );
-        assert!(MatchState::RECORD_LEN >= bytes.len() - 1 - 1 - 4 - 32 - 64);
+        assert!(
+            MatchState::RECORD_LEN
+                >= bytes.len() - 1 - 1 - 4 - 32 - 64 - ROOM_HOLDS * RoomHold::LEN
+        );
     }
 }

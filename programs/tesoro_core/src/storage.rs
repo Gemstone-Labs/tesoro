@@ -38,9 +38,14 @@ pub const DISC: usize = 8;
 
 /// Slots a new basket starts with (the Player pays the rent of these).
 pub const INITIAL_BASKET_LINES: usize = 4;
-/// Largest basket and largest spill, in lines (about 590 KB each, 4.1 SOL of rent at full size).
-pub const MAX_BASKET_LINES: usize = 4_096;
-pub const MAX_SPILL_LINES: usize = 4_096;
+/// Largest basket and largest spill, in lines (about 3.1 MB each, 22 SOL of rent at full size).
+/// An Account at both maximums holds 65,536 distinct lines; no entry needs a free slot (see
+/// `instructions::ticket`, "Room"), so only credits of more new lines than that can wait. A chunk
+/// that credits five Accounts loads ten stores, 31 MB, within the 64 MB a transaction may load.
+pub const MAX_BASKET_LINES: usize = 32_768;
+pub const MAX_SPILL_LINES: usize = 32_768;
+/// Largest Ticket (and so Pot), in lines.
+pub const MAX_TICKET_LINES: usize = 4_096;
 /// The runtime lets one instruction grow an account by at most this many bytes.
 pub const MAX_GROW_BYTES: usize = 10_240;
 /// Slots one `grow_store` call can add.
