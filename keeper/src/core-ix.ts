@@ -76,10 +76,11 @@ export const initCkptPageIx = (core: Core, o: { payer: PublicKey; book: PublicKe
   core.methods.initCkptPage(o.cls, o.pageNo).accountsPartial({ payer: o.payer, book: o.book, page: o.page }).instruction();
 
 /** Gives an expired Instant Redeem order's Gemas back to the seller. */
-export const expireInstantRedeemIx = (core: Core, o: { signer: PublicKey; ownerAccount: PublicKey; order: PublicKey; ownerWallet: PublicKey; sponsor?: PublicKey | null }): Promise<TransactionInstruction> =>
+export const expireInstantRedeemIx = (core: Core, o: { signer: PublicKey; ownerAccount: PublicKey; order: PublicKey; ownerWallet: PublicKey; sponsor?: PublicKey | null; remaining?: AccountMeta[] }): Promise<TransactionInstruction> =>
   core.methods
     .expireInstantRedeem()
     .accountsPartial({ signer: o.signer, ownerAccount: o.ownerAccount, order: o.order, ownerWallet: o.ownerWallet, sponsor: o.sponsor ?? null })
+    .remainingAccounts(o.remaining ?? [])
     .instruction();
 
 export const fillInstantRedeemIx = (
