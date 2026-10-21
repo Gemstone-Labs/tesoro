@@ -1454,3 +1454,38 @@ fn a_hold_slot_taken_while_a_merge_needs_none_stays_held() {
         .unwrap();
     assert_eq!(used, 0);
 }
+
+#[test]
+fn a_freed_slot_a_plain_put_used_in_the_same_step_is_not_held() {
+    let mut w = full_world(4, 0);
+    let (freed, to_hold, used) = w
+        .run_raw(|p, books| {
+            p.draw_direct(books, key(OWNER), 10, 12)?;
+            // a new key lands in the slot the draw just freed (no hold of its own, none held)
+            let line = other_line_for(books, 50);
+            p.put(books, &line)?;
+            Ok((p.freed(), p.freed_to_hold(), p.used()))
+        })
+        .unwrap();
+    assert_eq!((freed, used), (1, 1));
+    // the slot is taken: holding it would leave more held than free
+    assert_eq!(to_hold, 0);
+}
+
+#[test]
+fn a_freed_slot_nobody_used_is_held_in_full() {
+    let mut w = full_world(4, 0);
+    let to_hold = w
+        .run_raw(|p, books| {
+            p.draw_direct(books, key(OWNER), 20, 12)?;
+            Ok(p.freed_to_hold())
+        })
+        .unwrap();
+    assert_eq!(to_hold, 2);
+}
+
+fn other_line_for(books: &mut Books, due: i64) -> Line {
+    let mut line = SourceBook::blank_line(SIDE_WON, due, key(4), CLASS_GENERAL, 0);
+    books.issue(&key(4), &mut line, 7).unwrap();
+    line
+}

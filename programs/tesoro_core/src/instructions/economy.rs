@@ -106,7 +106,7 @@ pub(crate) fn with_pool_hold<R>(
     with_pool(basket, spill, |pool| {
         pool.set_hold(*hold);
         let out = f(pool)?;
-        let freed = pool.freed();
+        let freed = pool.freed_to_hold();
         let held = pool.spill.room_reserved();
         pool.spill.set_room_reserved(
             held.checked_add(freed)

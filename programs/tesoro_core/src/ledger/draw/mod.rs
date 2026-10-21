@@ -344,6 +344,15 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
         self.freed
     }
 
+    /// The slots to add to the holder's hold after a step: the freed ones, but never more than
+    /// the slots that are really free beyond the header's `room_reserved`. A plain `put` in the
+    /// same step may have used a freed slot (a returned line with no hold of its own); counting
+    /// that slot as held too would leave more held than free, and a later return would fail.
+    pub fn freed_to_hold(&self) -> u32 {
+        let spare = self.free_slots().saturating_sub(self.held_slots());
+        u32::try_from(spare).map_or(self.freed, |s| self.freed.min(s))
+    }
+
     /// Lines `put` placed in a new slot since `new` (a merge into a line needs none).
     pub fn used(&self) -> u32 {
         self.used

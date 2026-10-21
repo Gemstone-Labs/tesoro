@@ -96,7 +96,11 @@ pub(crate) fn try_hold(basket: &AccountInfo, spill: &AccountInfo, slots: u32) ->
     if free < held + slots as usize {
         return Ok(false);
     }
-    store.set_room_reserved(held as u32 + slots);
+    store.set_room_reserved(
+        (held as u32)
+            .checked_add(slots)
+            .ok_or(ProgramError::ArithmeticOverflow)?,
+    );
     Ok(true)
 }
 
