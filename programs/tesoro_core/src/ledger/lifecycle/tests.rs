@@ -993,6 +993,12 @@ fn expected(before: &Rec, run: &Run) -> (HolderMap, FeeMap) {
     for (side, needs) in plans {
         for (class, i, k) in walk_cuts(&lines[side], needs) {
             cut[side][i] += k;
+            if class == CLASS_STUDIO && !before.terms.studio_priority {
+                // no priority: ordinary Gemas for the recipient
+                let to = before.terms.studio_owner.expect("recipient");
+                add(&mut holders, to, &lines[side][i], k);
+                continue;
+            }
             let owner = (class == CLASS_STUDIO)
                 .then_some(before.terms.studio_owner)
                 .flatten();
@@ -1107,7 +1113,10 @@ impl Sim {
         };
         let entry = SIZES[r.below(3) as usize];
         let share = if backed { r.below(10_001) as u16 } else { 0 };
-        let t = terms(r.chance(40), 200 + r.below(500) as u16, r.below(400) as u16);
+        let mut t = terms(r.chance(40), 200 + r.below(500) as u16, r.below(400) as u16);
+        if t.studio_owner.is_some() && r.chance(35) {
+            t.studio_priority = false;
+        }
         let mid = {
             let c = self.counters.entry(key(player)).or_default();
             c.take(key(player)).unwrap()
@@ -1434,7 +1443,11 @@ impl Sim {
             match e {
                 Ev::Sync(s) => synced = Some(*s),
                 Ev::Fee { m, class, src, .. } if *m == t.rec.id => {
-                    assert!(!seen_holder, "a fee after a holder");
+                    // (a plain Studio Fee is an ordinary credit made among the cuts)
+                    assert!(
+                        !seen_holder || !t.rec.terms.studio_priority,
+                        "a fee after a holder"
+                    );
                     if matches!(t.rec.run().unwrap().kind, RunKind::Win { .. }) {
                         assert!(*class >= last, "fee classes out of order");
                     }

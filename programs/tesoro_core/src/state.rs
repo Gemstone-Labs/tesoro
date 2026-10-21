@@ -1283,3 +1283,98 @@ pub struct OldAccountRetired {
     pub account: Pubkey,
     pub amount: u64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ledger::lifecycle::*;
+    use anchor_lang::AnchorSerialize;
+
+    #[test]
+    fn the_match_record_never_outgrows_its_account() {
+        // the fullest record: a joined Match with a Backed side, an outside studio and a run
+        let party = Party {
+            player: [1; 32],
+            funder: [2; 32],
+            share_bps: 1,
+        };
+        let mut rec = MatchRecord::open(
+            MatchId {
+                opener: [1; 32],
+                n: u64::MAX,
+            },
+            MatchMeta {
+                challenge: true,
+                asset: 9,
+                listed: true,
+            },
+            [3; 32],
+            [4; 32],
+            u64::MAX,
+            Terms {
+                platform_bps: 1,
+                studio_bps: 1,
+                studio_owner: Some([5; 32]),
+                studio_priority: true,
+            },
+            500,
+            &[500],
+            party,
+            &{
+                let mut p = crate::ledger::draw::PotPages::new([2; 32]);
+                let mut l = crate::ledger::book::SourceBook::blank_line(
+                    0,
+                    0,
+                    [7; 32],
+                    crate::ledger::line_store::CLASS_GENERAL,
+                    0,
+                );
+                l.amount = 500;
+                p.push(&l).unwrap();
+                p
+            },
+            1,
+        )
+        .unwrap();
+        let mut p = crate::ledger::draw::PotPages::new([9; 32]);
+        let mut l = crate::ledger::book::SourceBook::blank_line(
+            0,
+            0,
+            [8; 32],
+            crate::ledger::line_store::CLASS_GENERAL,
+            0,
+        );
+        l.amount = 500;
+        p.push(&l).unwrap();
+        rec.join(
+            Party {
+                player: [10; 32],
+                funder: [11; 32],
+                share_bps: 2,
+            },
+            &p,
+            2,
+        )
+        .unwrap();
+        rec.start_settle(3, &[4; 32], u64::MAX, Outcome::NoShow, 1)
+            .unwrap();
+        let state = MatchState {
+            bump: 255,
+            inner: rec,
+            listed: true,
+            listing_epoch: u32::MAX,
+            payer: Pubkey::new_unique(),
+            pots: [Pubkey::new_unique(); 2],
+        };
+        let mut bytes = Vec::new();
+        state.serialize(&mut bytes).unwrap();
+        // 8 discriminator + bump, then the Borsh of the rest
+        assert!(
+            8 + 1 + bytes.len() - 1 <= MatchState::SPACE,
+            "{} bytes against {}",
+            bytes.len(),
+            MatchState::SPACE
+        );
+        assert!(MatchState::RECORD_LEN >= bytes.len() - 1 - 1 - 4 - 32 - 64);
+    }
+}

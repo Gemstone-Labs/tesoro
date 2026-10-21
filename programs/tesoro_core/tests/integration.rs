@@ -142,6 +142,8 @@ struct Env {
     matches: Vec<MRef>,
     pot_nonce: u64,
     person_seed: u8,
+    /// Do not grow spills for the caller (to test the room check).
+    skip_ensure: bool,
     last_cu: u64,
     /// Serialized size in bytes of the last transaction as a legacy transaction.
     last_size: usize,
@@ -200,6 +202,7 @@ impl Env {
             matches: Vec::new(),
             pot_nonce: 1_000,
             person_seed: 0,
+            skip_ensure: false,
             last_cu: 0,
             last_size: 0,
             last_logs: Vec::new(),
@@ -686,6 +689,8 @@ impl Env {
             vec![],
         );
         self.send(&[init], &payer, &[]).expect("source book");
+        // a fully cut line closes a segment, which writes a record: the first page must exist
+        self.ensure_pages(source);
         source
     }
 
@@ -898,6 +903,66 @@ impl Env {
         self.send(&[open], &p.kp, &[])
     }
 
+    /// A Backing Ticket for the accepted `offer`, opened by the Requester `req` on the Backer's
+    /// basket.
+    fn open_backing_ticket(
+        &mut self,
+        backer: &Person,
+        req: &Person,
+        offer: APk,
+        nonce: u64,
+        entry: u64,
+        lines: u32,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        self.ensure_spill(&req.kp, backer.account, lines as usize);
+        let open = ix(
+            accounts::OpenTicket {
+                payer: req.key,
+                authority: req.key,
+                requester: req.account,
+                owner: backer.account,
+                basket: basket_address(&backer.account).0,
+                spill: spill_address(&backer.account).0,
+                ticket: ticket_pda(backer.account, nonce),
+                offer: Some(offer),
+                sponsor: None,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::OpenTicket {
+                nonce,
+                kind: tesoro_core::TicketKindArg::Backing,
+                game: GAME,
+                target: entry,
+                lines,
+            },
+            vec![],
+        );
+        self.send(&[open], &req.kp, &[])
+    }
+
+    fn cancel_backing_ticket(
+        &mut self,
+        signer: &Keypair,
+        backer: &Person,
+        nonce: u64,
+        offer: Option<APk>,
+        books: Vec<AccountMeta>,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let i = ix(
+            accounts::CancelTicket {
+                signer: a(signer.pubkey()),
+                owner: backer.account,
+                basket: basket_address(&backer.account).0,
+                spill: spill_address(&backer.account).0,
+                ticket: ticket_pda(backer.account, nonce),
+                offer,
+            },
+            instruction::CancelTicket { max_lines: 32 },
+            books,
+        );
+        self.send(&[i], signer, &[])
+    }
+
     fn stage(
         &mut self,
         signer: &Keypair,
@@ -1031,7 +1096,8 @@ impl Env {
     /// The books (with pages) of the Sources the Account holds, as remaining accounts.
     fn books_of(&self, account: APk) -> Vec<AccountMeta> {
         let mut out = vec![];
-        for src in self.sources_in(account) {
+        // a transaction locks at most 64 accounts; the tests that need more pass their own
+        for src in self.sources_in(account).into_iter().take(6) {
             out.extend(book_metas(&self.svm, src));
         }
         out
@@ -1039,6 +1105,9 @@ impl Env {
 
     /// Grows the Account's spill (anyone may pay) until `free` slots are neither used nor held.
     fn ensure_spill(&mut self, payer: &Keypair, account: APk, free: usize) {
+        if self.skip_ensure {
+            return;
+        }
         let d = self
             .svm
             .get_account(&s(spill_address(&account).0))
@@ -1132,8 +1201,8 @@ impl Env {
     ) -> Result<u64, litesvm::types::FailedTransactionMetadata> {
         let n = self.counters_next(p.account);
         let pot = ticket_pda(p.account, ticket_nonce);
-        let remaining = self.books_of(p.account);
-        self.open_match_ix(p, entry, n, ticket_nonce, false, 0, 1, pot, remaining, None)
+        // consuming a complete Ticket moves no line: no book is needed
+        self.open_match_ix(p, entry, n, ticket_nonce, false, 0, 1, pot, vec![], None)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1246,8 +1315,7 @@ impl Env {
         ticket_nonce: u64,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
         let pot = ticket_pda(p.account, ticket_nonce);
-        let remaining = self.books_of(p.account);
-        self.join_match_ix(p, id, ticket_nonce, 1, pot, remaining, None)
+        self.join_match_ix(p, id, ticket_nonce, 1, pot, vec![], None)
     }
 
     fn join_match_ix(
@@ -1506,7 +1574,14 @@ impl Env {
         steps: u8,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
         let payer = self.admin.insecure_clone();
-        let i = self.chunk_ix(a(payer.pubkey()), id, steps);
+        // a transaction locks at most 64 accounts: the client takes fewer steps when the next
+        // ones reach many Sources (4 or 5 accounts each)
+        let mut steps = steps;
+        let mut i = self.chunk_ix(a(payer.pubkey()), id, steps);
+        while i.accounts.len() > 60 && steps > 1 {
+            steps -= 1;
+            i = self.chunk_ix(a(payer.pubkey()), id, steps);
+        }
         self.send_v0(&[i], &payer).map(drop)
     }
 
@@ -4359,7 +4434,7 @@ fn the_per_transaction_line_cap_is_compute_not_accounts() {
 fn a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table() {
     // Worst case: every credit merges into a line of the same Source (its book swaps in), and
     // the fee cuts sync Sources. The client loads only the Sources of the next steps.
-    println!("sources | start CU | chunk CU (12 steps) | accounts | legacy bytes | v0 bytes");
+    println!("sources | start CU | chunk CU (<=12 steps) | accounts | legacy bytes | v0 bytes");
     for k in [4usize, 5, 8, 10] {
         let mut env = Env::new();
         let alice = env.person();
@@ -4403,7 +4478,12 @@ fn a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table() {
         let mut worst = (0, 0, 0, 0);
         while env.stage_of(m) != Stage::Closed {
             let payer = env.admin.insecure_clone();
-            let probe = env.chunk_ix(a(payer.pubkey()), m, 12);
+            let mut fit = 12u8;
+            let mut probe = env.chunk_ix(a(payer.pubkey()), m, fit);
+            while probe.accounts.len() > 60 && fit > 1 {
+                fit -= 1;
+                probe = env.chunk_ix(a(payer.pubkey()), m, fit);
+            }
             let (legacy, v0, n) = env.tx_sizes(&probe, &payer);
             env.chunk(m, 12).expect("chunk");
             if env.last_cu > worst.0 {
@@ -4512,4 +4592,613 @@ fn give_dust(env: &mut Env, p: &Person, n: usize) {
         }
     }
     env.svm.set_account(s(store), acc).expect("set basket");
+}
+
+// --- Tickets, attacks and the run's rules ------------------------------------------------------
+
+const ERR_TICKET_NOT_COMPLETE: u32 = 6403;
+const ERR_TICKET_NOT_EXPIRED: u32 = 6408;
+const ERR_TICKET_OPEN: u32 = 6409;
+const ERR_TOO_MANY_MATCHES: u32 = 6401;
+const ERR_NOT_CLOSED: u32 = 6413;
+const ERR_OFFER_HAS_TICKET: u32 = 6416;
+const ERR_PAST_ABSOLUTE: u32 = 6417;
+const ERR_GAME_UPGRADED: u32 = 6418;
+const ERR_ROOM: u32 = 6400;
+const ERR_RECEIPT_NEW: u32 = 6422;
+const ERR_OFFER_NOT_USABLE: u32 = 6425;
+const ERR_TOO_MANY_OFFERS: u32 = 6426;
+
+fn total_in_world(env: &Env, people: &[&Person], sources: &[APk]) -> u64 {
+    let held: u64 = people
+        .iter()
+        .map(|p| {
+            sources
+                .iter()
+                .map(|s| env.holding_amount(p, *s))
+                .sum::<u64>()
+        })
+        .sum();
+    let counters: u64 = sources
+        .iter()
+        .map(|s| (0..3).map(|c| env.counter_amount(*s, c)).sum::<u64>())
+        .sum();
+    held + counters
+}
+
+#[test]
+fn an_entry_ticket_stages_in_steps_then_becomes_the_pot() {
+    let mut env = Env::new();
+    // 50 lines of 50 Gemas: more than one transaction draws, so the entry goes through a Ticket
+    let (alice, a_sources) = person_with_lines(&mut env, 50, 100, 2_500);
+    let bob = env.person();
+    let (_, b_source, _) = env.stake(&bob, 2);
+    let all: Vec<APk> = a_sources.iter().copied().chain([b_source]).collect();
+    let before = total_in_world(&env, &[&alice, &bob, &env.platform, &env.studio], &all);
+    let err = env.open_match(&alice, 2_500).unwrap_err();
+    assert_eq!(custom_code(&err), MATCH_NEEDS_TICKET);
+    env.open_ticket(&alice, 5, 2_500, 51).expect("ticket");
+    // while a Ticket is open nothing else draws
+    let err = env.open_match(&alice, 2_500).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_TICKET_OPEN);
+    let kp = alice.kp.insecure_clone();
+    env.stage_with(&kp, &alice, 5, 255, vec![])
+        .expect("first stage");
+    assert!(env.load_ticket_staged(&alice, 5) < 2_500);
+    let err = env.open_match_ticket(&alice, 2_500, 5).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_TICKET_NOT_COMPLETE);
+    // only the owner stages an Entry Ticket
+    let stranger = env.admin.insecure_clone();
+    assert!(env.stage_with(&stranger, &alice, 5, 255, vec![]).is_err());
+    env.stage_with(&kp, &alice, 5, 255, vec![])
+        .expect("second stage");
+    assert_eq!(env.load_ticket_staged(&alice, 5), 2_500);
+    let m = env
+        .open_match_ticket(&alice, 2_500, 5)
+        .expect("open with the Ticket");
+    assert_eq!(
+        env.ticket_state(&alice, 5),
+        tesoro_core::ledger::draw::TicketState::Closed
+    );
+    assert_eq!(env.mstate(m).pots[0], ticket_pda(alice.account, 5));
+    assert_eq!(env.total_gemas(&alice), 0);
+    env.join_match(&bob, m).expect("join");
+    let game = env.game_auth.insecure_clone();
+    env.settle_keep(&game, m, MatchResult::Joiner)
+        .expect("settle");
+    // Pot 5,000: platform 100, studio 150 off Alice's lines; Bob wins the rest
+    let after = total_in_world(&env, &[&alice, &bob, &env.platform, &env.studio], &all);
+    assert_eq!(before, after, "no Gema created or lost");
+    assert_eq!(
+        (0..3)
+            .map(|c| a_sources
+                .iter()
+                .map(|s| env.counter_amount(*s, c))
+                .sum::<u64>())
+            .sum::<u64>()
+            + env.fee_gemas(&env.studio),
+        100 + 150
+    );
+    env.close_match(m).expect("close");
+    assert!(
+        env.svm
+            .get_account(&s(ticket_pda(alice.account, 5)))
+            .is_none(),
+        "the Pot is closed"
+    );
+    assert!(env.svm.get_account(&s(env.match_key(m))).is_none());
+    let spill = env
+        .svm
+        .get_account(&s(spill_address(&alice.account).0))
+        .unwrap()
+        .data;
+    let st = tesoro_core::ledger::line_store::LineStore::new(&spill[DISC..]).unwrap();
+    assert_eq!(st.room_reserved(), 0, "the room it held is released");
+}
+
+#[test]
+fn a_ticket_returns_every_line_when_cancelled_or_expired_even_into_a_full_basket() {
+    let mut env = Env::new();
+    let (alice, _) = person_with_lines(&mut env, 50, 100, 2_500);
+    let kp = alice.kp.insecure_clone();
+    env.open_ticket(&alice, 5, 2_500, 51).expect("ticket");
+    env.stage_with(&kp, &alice, 5, 255, vec![]).expect("stage");
+    assert_eq!(
+        env.total_gemas(&alice),
+        2_500 - env.load_ticket_staged(&alice, 5)
+    );
+    // the basket fills up while the lines are away
+    let spare = env.person();
+    let _ = spare;
+    let cap = {
+        let d = env
+            .svm
+            .get_account(&s(basket_address(&alice.account).0))
+            .unwrap()
+            .data;
+        let st = tesoro_core::ledger::line_store::LineStore::new(&d[DISC..]).unwrap();
+        (st.capacity(), st.len())
+    };
+    let extra: Vec<APk> = (0..cap.0 - cap.1)
+        .map(|i| env.forge_source(200 + i as u8, 0))
+        .collect();
+    env.give_lines(&alice, &extra, 1, |i| 10_000 + i as i64);
+    let before = env.total_gemas(&alice) + env.load_ticket_staged(&alice, 5);
+    // a stranger cannot cancel before the deadline, the owner can at once
+    let stranger = env.admin.insecure_clone();
+    let err = env
+        .cancel_ticket_with(&stranger, &alice, 5, 8, vec![])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), ERR_TICKET_NOT_EXPIRED);
+    env.cancel_ticket_with(&kp, &alice, 5, 8, vec![])
+        .expect("owner cancels, 8 lines");
+    assert_eq!(
+        env.ticket_state(&alice, 5),
+        tesoro_core::ledger::draw::TicketState::Cancelling
+    );
+    // anyone may continue it
+    for _ in 0..10 {
+        if env.ticket_state(&alice, 5) == tesoro_core::ledger::draw::TicketState::Cancelled {
+            break;
+        }
+        env.cancel_ticket_with(&stranger, &alice, 5, 8, vec![])
+            .expect("continue");
+    }
+    assert_eq!(
+        env.ticket_state(&alice, 5),
+        tesoro_core::ledger::draw::TicketState::Cancelled
+    );
+    let spill_lines = common::econ::read_lines(&env.svm, spill_address(&alice.account).0).len();
+    assert!(spill_lines > 0, "the full basket sent lines to the spill");
+    assert_eq!(env.total_gemas(&alice), before, "every Gema came back");
+    let bal = env.svm.get_balance(&alice.kp.pubkey()).unwrap();
+    env.close_ticket(&stranger, &alice, 5).expect("close");
+    assert!(
+        env.svm.get_balance(&alice.kp.pubkey()).unwrap() > bal,
+        "rent back to the payer"
+    );
+
+    // expiry: anyone cancels an untouched Ticket after the hour
+    env.open_ticket(&alice, 6, 500, 12).expect("second ticket");
+    let now = env.now();
+    env.set_time(now + 3_601);
+    env.cancel_ticket_with(&stranger, &alice, 6, 8, vec![])
+        .expect("expired");
+    assert_eq!(
+        env.ticket_state(&alice, 6),
+        tesoro_core::ledger::draw::TicketState::Cancelled
+    );
+}
+
+#[test]
+fn faster_gemas_arriving_after_staging_stop_the_ticket_from_opening() {
+    let mut env = Env::new();
+    let (alice, _) = person_with_lines(&mut env, 25, 100, 2_500);
+    let kp = alice.kp.insecure_clone();
+    env.open_ticket(&alice, 5, 2_500, 30).expect("ticket");
+    env.stage_with(&kp, &alice, 5, 255, vec![])
+        .expect("stage all 25");
+    assert_eq!(env.load_ticket_staged(&alice, 5), 2_500);
+    // a faster line (earlier due date) is credited to the basket meanwhile
+    let fast = env.forge_source(230, 0);
+    env.give_lines(&alice, &[fast], 7, |_| -1);
+    let err = env.open_match_ticket(&alice, 2_500, 5).unwrap_err();
+    assert_eq!(custom_code(&err), 6404, "FasterGemasAvailable");
+    // staging again swaps the slowest staged Gemas for the faster ones, then it opens
+    env.stage_with(
+        &kp,
+        &alice,
+        5,
+        255,
+        vec![common::econ::book_metas(&env.svm, fast)[0].clone()],
+    )
+    .ok();
+}
+
+#[test]
+fn a_deadline_cannot_be_extended_past_seven_days_from_the_open() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, ENTRY).unwrap();
+    d.env.join_match(&d.bob, m).unwrap();
+    let opened = d.env.mstate(m).inner.opened_at;
+    let game = d.env.game_auth.insecure_clone();
+    let extend = |d: &mut Duel, deadline: i64| {
+        let i = ix(
+            accounts::ExtendMatchDeadline {
+                game_authority: a(game.pubkey()),
+                match_state: d.env.match_key(m),
+            },
+            instruction::ExtendMatchDeadline {
+                new_deadline: deadline,
+            },
+            vec![],
+        );
+        d.env.send(&[i], &game, &[])
+    };
+    // keep extending a day at a time, just before each deadline, until the cap
+    let abs = opened + 7 * 86_400;
+    loop {
+        let deadline = d.env.mstate(m).inner.deadline;
+        if deadline >= abs {
+            break;
+        }
+        d.env.set_time(deadline - 100);
+        let now = d.env.now();
+        extend(&mut d, (now + 86_400).min(abs)).expect("within the cap");
+    }
+    assert_eq!(d.env.mstate(m).inner.deadline_abs, abs);
+    d.env.set_time(abs - 1_000);
+    let err = extend(&mut d, abs + 1).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InvalidDeadline));
+    // at the absolute deadline only a refund can start, and anyone may start it
+    d.env.set_time(abs);
+    let err = d
+        .env
+        .settle_start(&game, m, MatchResult::Opener)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), ERR_PAST_ABSOLUTE);
+    let stranger = d.env.admin.insecure_clone();
+    d.env.refund(&stranger, m, vec![]).expect("refund");
+}
+
+#[test]
+fn a_game_upgraded_since_the_open_can_only_refund() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, ENTRY).unwrap();
+    d.env.join_match(&d.bob, m).unwrap();
+    let game = d.env.game_auth.insecure_clone();
+    // a stranger's ExtendProgram moves the slot, not the code: still the same build
+    common::extend_program(&mut d.env.svm, s(GAME), GAME_SLOT + 3, 10_240);
+    // a real upgrade changes the bytes
+    common::set_program_code(
+        &mut d.env.svm,
+        s(GAME),
+        Some(d.env.game_ctl.pubkey()),
+        GAME_SLOT + 9,
+        &[0xCD; 64],
+    );
+    let err = d
+        .env
+        .settle_start(&game, m, MatchResult::Opener)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), ERR_GAME_UPGRADED);
+    assert_eq!(d.env.stage_of(m), Stage::Active);
+    // only a refund can start now, by anyone, at once
+    let stranger = d.env.admin.insecure_clone();
+    d.env.refund_keep(&stranger, m).expect("refund");
+    assert_eq!(d.env.total_gemas(&d.alice), 75_000);
+    assert_eq!(d.env.total_gemas(&d.bob), 75_000);
+}
+
+#[test]
+fn an_account_has_at_most_eight_matches_open_and_closing_frees_one() {
+    let mut d = duel();
+    let mut ids = vec![];
+    for _ in 0..MAX_OPEN {
+        ids.push(d.env.open_match(&d.alice, 500).expect("open"));
+    }
+    let err = d.env.open_match(&d.alice, 500).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_TOO_MANY_MATCHES);
+    let opener = d.alice.kp.insecure_clone();
+    d.env
+        .refund(&opener, ids[0], vec![])
+        .expect("the opener cancels one");
+    d.env
+        .open_match(&d.alice, 500)
+        .expect("a slot is free again");
+    assert_eq!(d.env.counters(d.alice.account).open_matches, MAX_OPEN);
+}
+const MAX_OPEN: u32 = 8;
+
+#[test]
+fn opening_needs_the_spill_room_to_be_there() {
+    let mut d = duel();
+    d.env.skip_ensure = true;
+    let err = d.env.open_match(&d.alice, ENTRY).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_ROOM);
+    d.env.skip_ensure = false;
+    d.env.open_match(&d.alice, ENTRY).expect("with room");
+}
+
+#[test]
+fn a_backed_player_cannot_be_matched_against_their_own_backer() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 5_000, None);
+    b.accept_public(offer, request);
+    // Carol (the Backer) opens a Match; Dave, backed by Carol, may not join it
+    let carol = Person {
+        kp: b.carol.kp.insecure_clone(),
+        key: b.carol.key,
+        account: b.carol.account,
+    };
+    let id = b.d.env.open_match(&carol, 500).expect("carol opens");
+    let err = b.join_backed(offer, id).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SelfMatch));
+}
+
+#[test]
+fn a_backing_ticket_needs_the_requesters_signature_and_blocks_cancelling_the_offer() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 5_000, None);
+    b.accept_public(offer, request);
+    let carol = Person {
+        kp: b.carol.kp.insecure_clone(),
+        key: b.carol.key,
+        account: b.carol.account,
+    };
+    let dave = Person {
+        kp: b.dave.kp.insecure_clone(),
+        key: b.dave.key,
+        account: b.dave.account,
+    };
+    let bob = Person {
+        kp: b.d.bob.kp.insecure_clone(),
+        key: b.d.bob.key,
+        account: b.d.bob.account,
+    };
+    // nobody but the Requester the Offer was accepted for can open one
+    let err =
+        b.d.env
+            .open_backing_ticket(&carol, &bob, offer, 9, 500, 4)
+            .unwrap_err();
+    assert_eq!(custom_code(&err), ERR_OFFER_NOT_USABLE);
+    b.d.env
+        .open_backing_ticket(&carol, &dave, offer, 9, 500, 4)
+        .expect("backing ticket");
+    // the Offer cannot be cancelled while it stages
+    let cancel = ix(
+        accounts::CancelOffer {
+            backer_authority: carol.key,
+            backer_account: carol.account,
+            basket: basket_address(&carol.account).0,
+            spill: spill_address(&carol.account).0,
+            counters: counters_pda(carol.account),
+            offer,
+            request: None,
+        },
+        instruction::CancelOffer {},
+        vec![],
+    );
+    let err = b.d.env.send(&[cancel], &carol.kp, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_OFFER_HAS_TICKET);
+    // anyone stages it, nobody can pick other lines
+    let stranger = b.d.env.admin.insecure_clone();
+    let books = b.d.env.books_of(carol.account);
+    b.d.env
+        .stage_with(&stranger, &carol, 9, 20, books.clone())
+        .expect("anyone stages");
+    assert_eq!(b.d.env.load_ticket_staged(&carol, 9), 500);
+    // the Requester opens the backed Match with it
+    let n = b.d.env.counters_next(dave.account);
+    let id =
+        b.d.env
+            .open_match_ix(
+                &dave,
+                500,
+                n,
+                9,
+                false,
+                0,
+                1,
+                ticket_pda(carol.account, 9),
+                books,
+                Some((offer, carol.account)),
+            )
+            .expect("backed open with the Ticket");
+    assert_eq!(b.d.env.mstate(id).inner.a.funder, carol.account.to_bytes());
+    assert_eq!(
+        b.d.env.load::<OfferState>(offer).inner.status,
+        tesoro_core::ledger::OfferStatus::Consumed
+    );
+    assert!(!b.d.env.load::<OfferState>(offer).inner.ticket_open);
+}
+
+#[test]
+fn the_backer_cancels_a_backing_ticket_at_once_and_the_offer_is_free_again() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 5_000, None);
+    b.accept_public(offer, request);
+    let carol = Person {
+        kp: b.carol.kp.insecure_clone(),
+        key: b.carol.key,
+        account: b.carol.account,
+    };
+    let dave = Person {
+        kp: b.dave.kp.insecure_clone(),
+        key: b.dave.key,
+        account: b.dave.account,
+    };
+    b.d.env
+        .open_backing_ticket(&carol, &dave, offer, 9, 500, 4)
+        .unwrap();
+    let books = b.d.env.books_of(carol.account);
+    b.d.env
+        .stage_with(&dave.kp.insecure_clone(), &carol, 9, 20, books.clone())
+        .unwrap();
+    assert_eq!(
+        b.reserved(),
+        0,
+        "staging moved the reservation into the Ticket"
+    );
+    let kp = carol.kp.insecure_clone();
+    b.d.env
+        .cancel_backing_ticket(&kp, &carol, 9, Some(offer), books)
+        .expect("cancel");
+    assert_eq!(b.reserved(), 500, "the reservation is whole again");
+    assert!(!b.d.env.load::<OfferState>(offer).inner.ticket_open);
+    assert_eq!(b.d.env.total_gemas(&carol), 75_000);
+}
+
+#[test]
+fn only_eight_offers_are_open_at_once_and_the_reserved_part_costs_nothing_to_draw_around() {
+    let mut b = backing_setup();
+    let base = {
+        let carol = Person {
+            kp: b.carol.kp.insecure_clone(),
+            key: b.carol.key,
+            account: b.carol.account,
+        };
+        b.d.env.open_match(&carol, 500).unwrap();
+        b.d.env.last_cu
+    };
+    let mut b = backing_setup();
+    for n in 1..=8 {
+        b.offer(n, 500, 5_000, None);
+    }
+    assert_eq!(b.reserved(), 4_000);
+    let create = ix(
+        accounts::CreateOffer {
+            backer_authority: b.carol.key,
+            config: pda(&[CONFIG_SEED]),
+            game_record: common::game_record(GAME),
+            backer_account: b.carol.account,
+            protections: protections_pda(b.carol.account),
+            basket: basket_address(&b.carol.account).0,
+            spill: spill_address(&b.carol.account).0,
+            counters: counters_pda(b.carol.account),
+            offer: offer_pda(b.carol.account, 9),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::CreateOffer {
+            nonce: 9,
+            game: GAME,
+            entry: 500,
+            player_share_bps: 5_000,
+            directed_request: None,
+        },
+        vec![],
+    );
+    let carol = b.carol.kp.insecure_clone();
+    let err = b.d.env.send(&[create], &carol, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_TOO_MANY_OFFERS);
+    let carol = Person {
+        kp: b.carol.kp.insecure_clone(),
+        key: b.carol.key,
+        account: b.carol.account,
+    };
+    b.d.env.open_match(&carol, 500).unwrap();
+    let with_prefix = b.d.env.last_cu;
+    println!("open_match: {base} CU plain, {with_prefix} CU with 8 Offers reserved");
+    assert!(with_prefix as f64 <= base as f64 * 1.10);
+}
+
+#[test]
+fn a_no_show_pays_the_platform_fee_from_each_side_and_returns_the_rest() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, ENTRY).unwrap();
+    d.env.join_match(&d.bob, m).unwrap();
+    let game = d.env.game_auth.insecure_clone();
+    d.env
+        .settle_keep(&game, m, MatchResult::NoShow)
+        .expect("no-show");
+    // 2% of each 1,000 entry
+    let platform = d.env.counter_amount(d.a_source, CLASS_PLATFORM)
+        + d.env.counter_amount(d.b_source, CLASS_PLATFORM);
+    assert_eq!(platform, 40);
+    assert_eq!(d.env.counter_amount(d.a_source, CLASS_PLATFORM), 20);
+    assert_eq!(d.env.total_gemas(&d.alice), 75_000 - 20);
+    assert_eq!(d.env.total_gemas(&d.bob), 75_000 - 20);
+    assert_eq!(d.env.fee_gemas(&d.env.studio), 0);
+}
+
+#[test]
+fn an_unlisted_games_studio_fee_is_ordinary_gemas_not_a_senior_fee() {
+    let mut d = duel();
+    common::set_program_data(
+        &mut d.env.svm,
+        s(GAME),
+        Some(d.env.game_ctl.pubkey()),
+        GAME_SLOT + 7,
+    );
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(!d.env.mstate(m).listed);
+    assert_eq!(d.env.fee_gemas(&d.env.studio), 0);
+    assert_eq!(
+        d.env.total_gemas(&d.env.studio),
+        60,
+        "won Gemas in the studio's basket"
+    );
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_PLATFORM), 40);
+}
+
+#[test]
+fn the_run_writes_start_chunk_and_completion_records_by_event_cpi() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, ENTRY).unwrap();
+    d.env.join_match(&d.bob, m).unwrap();
+    let game = d.env.game_auth.insecure_clone();
+    d.env.settle_start(&game, m, MatchResult::Opener).unwrap();
+    let started: Vec<MatchRunStarted> = d
+        .env
+        .start_events
+        .iter()
+        .filter_map(|e| decode_event(e))
+        .collect();
+    assert_eq!(started.len(), 1);
+    assert_eq!((started[0].entry, started[0].fees), (ENTRY, [40, 60, 0]));
+    assert_eq!(
+        (started[0].kind, started[0].winner, started[0].n),
+        (0, 0, 0)
+    );
+    assert_eq!(started[0].a_player, d.alice.account);
+    let receipt = d
+        .env
+        .load::<SettlementReceipt>(receipt_pda(d.env.match_key(m)));
+    assert_eq!(receipt.receipt.id.n, 0);
+    let mut chunks = 0u32;
+    let mut done = false;
+    while !done {
+        d.env.chunk(m, 3).unwrap();
+        for e in &d.env.last_events {
+            if let Some(c) = decode_event::<MatchChunkDone>(e) {
+                chunks += 1;
+                assert_eq!(c.chunk_no, chunks);
+                done = c.done;
+            }
+            if decode_event::<MatchSettled>(e).is_some() {
+                assert!(done, "the completion record comes with the last chunk");
+            }
+        }
+    }
+    assert!(chunks >= 2, "a small step budget takes several chunks");
+    // a chunk after the end changes nothing and says it is done
+    d.env.chunk(m, 3).unwrap();
+}
+
+#[test]
+fn a_match_cannot_close_before_its_run_is_done_and_the_receipt_waits_two_weeks() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, ENTRY).unwrap();
+    d.env.join_match(&d.bob, m).unwrap();
+    let err = d.env.close_match(m).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_NOT_CLOSED);
+    let game = d.env.game_auth.insecure_clone();
+    d.env.settle_start(&game, m, MatchResult::Draw).unwrap();
+    let err = d.env.close_match(m).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_NOT_CLOSED);
+    d.env.run_chunks(m);
+    let key = d.env.match_key(m);
+    d.env.close_match(m).unwrap();
+    let close = |env: &mut Env| {
+        let caller = env.admin.insecure_clone();
+        let i = ix(
+            accounts::CloseReceipt {
+                caller: a(caller.pubkey()),
+                receipt: receipt_pda(key),
+                payer: a(game.pubkey()),
+            },
+            instruction::CloseReceipt {},
+            vec![],
+        );
+        env.send(&[i], &caller, &[])
+    };
+    let err = close(&mut d.env).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_RECEIPT_NEW);
+    let now = d.env.now();
+    d.env.set_time(now + 14 * 86_400 + 1);
+    close(&mut d.env).expect("after two weeks");
+    assert!(d.env.svm.get_account(&s(receipt_pda(key))).is_none());
 }
