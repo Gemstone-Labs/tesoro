@@ -3,6 +3,7 @@ import { alertsJob } from "./alerts-job.ts";
 import { awayCleanup } from "./away.ts";
 import { backingHygiene } from "./backing.ts";
 import { bridgeJob } from "./bridge.ts";
+import { historyJob } from "./history.ts";
 import { loadPayer, settings, shortKey } from "./env.ts";
 import { Health, startHealthServer, startWatchdog } from "./health.ts";
 import { matchHygiene } from "./matches.ts";
@@ -26,6 +27,8 @@ async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>) {
   const jobs: [string, (c: Ctx) => Promise<number>][] = [
     ...(priceJobEnabled() ? ([["price", priceJob]] as [string, (c: Ctx) => Promise<number>][]) : []),
     ["match", matchHygiene],
+    // After the Match job, so a settle that just started is in the records; before notify, which announces from them.
+    ["history", historyJob],
     ["backing", backingHygiene],
     ["away", awayCleanup],
     ["bridge", bridgeJob],

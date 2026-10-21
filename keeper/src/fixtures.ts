@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { DISC, LINE_LEN, POT_AT, STORE_HEADER, type StoreLine } from "./kit.ts";
 
 /** Account bytes of a line store (tests): `bodyAt` is 8 for a basket or spill and `POT_AT` for a Pot. */
@@ -109,4 +109,64 @@ export function ixNameOf(core: anchor.Program<any>, ix: { data: Buffer | Uint8Ar
   const d = Buffer.from(ix.data).subarray(0, 8);
   const hit = (core.idl as any).instructions.find((i: any) => Buffer.from(i.discriminator).equals(d));
   return hit ? hit.name : "?";
+}
+
+// ---- Core events in transactions (tests) --------------------------------------------------------------------------
+
+import { eventAuthority } from "./kit.ts";
+import { loadIdl } from "./runtime.ts";
+
+const coreRaw = loadIdl("tesoro_core");
+const rawCoder = new anchor.BorshCoder(coreRaw);
+const EVENT_TAG = Buffer.from("e445a52e51cb9a1d", "hex");
+export const CORE_PROGRAM = new PublicKey(coreRaw.address);
+
+/** The data of one event-CPI exactly as core emits it: tag, event discriminator, Borsh body (snake_case fields). */
+export function eventData(name: string, body: Record<string, unknown>): Buffer {
+  const wire = (v: unknown): unknown => (typeof v === "bigint" ? new anchor.BN(v.toString()) : Array.isArray(v) ? v.map(wire) : v);
+  const bytes = rawCoder.types.encode(name, Object.fromEntries(Object.entries(body).map(([k, v]) => [k, wire(v)])));
+  const disc = Buffer.from(coreRaw.events.find((e: any) => e.name === name).discriminator);
+  return Buffer.concat([EVENT_TAG, disc, bytes]);
+}
+
+/** A `getTransaction` answer whose inner instructions are core's event-CPIs (or any other program's, with `programId`). */
+export function eventTx(o: { slot?: number; blockTime?: number; events: { name: string; body: Record<string, unknown>; programId?: PublicKey }[]; failed?: boolean }) {
+  const keys = [Keypair.generate().publicKey, eventAuthority, CORE_PROGRAM];
+  const extra: PublicKey[] = [];
+  const instructions = o.events.map((e) => {
+    let pi = 2;
+    if (e.programId) {
+      extra.push(e.programId);
+      pi = keys.length + extra.length - 1;
+    }
+    return { programIdIndex: pi, accounts: [1], data: anchor.utils.bytes.bs58.encode(eventData(e.name, e.body)) };
+  });
+  return {
+    slot: o.slot ?? 1,
+    blockTime: o.blockTime ?? 1_800_000_000,
+    meta: { err: o.failed ? { InstructionError: [0, "Custom"] } : null, innerInstructions: [{ index: 0, instructions }] },
+    transaction: { message: { staticAccountKeys: [...keys, ...extra] } },
+  };
+}
+
+/** A scripted connection for the event scan: `txs` is newest first, as the RPC lists them. */
+export function scriptedConn(txs: { signature: string; tx: ReturnType<typeof eventTx> | null }[]) {
+  const calls = { list: 0, get: [] as string[] };
+  return {
+    calls,
+    async getSignaturesForAddress(_addr: PublicKey, opts: { before?: string; until?: string; limit?: number } = {}) {
+      calls.list++;
+      let list = txs;
+      if (opts.before) list = list.slice(list.findIndex((t) => t.signature === opts.before) + 1);
+      if (opts.until) {
+        const at = list.findIndex((t) => t.signature === opts.until);
+        if (at >= 0) list = list.slice(0, at);
+      }
+      return list.slice(0, opts.limit ?? 1000).map((t) => ({ signature: t.signature, slot: t.tx?.slot ?? 0, blockTime: t.tx?.blockTime ?? null, err: t.tx?.meta.err ?? null, memo: null, confirmationStatus: "confirmed" as const }));
+    },
+    async getTransaction(signature: string) {
+      calls.get.push(signature);
+      return txs.find((t) => t.signature === signature)?.tx ?? null;
+    },
+  };
 }
