@@ -275,21 +275,57 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 .vg-piece.exposed .vg-coin3d { filter: drop-shadow(0 0 max(1.5px, calc(var(--w) * 0.03)) rgba(255, 74, 44, 0.95)) drop-shadow(0 0 calc(var(--w) * 0.12) rgba(255, 60, 30, 0.6)); }
 .vg-piece.exposed .vg-face { box-shadow: 0 0 0 max(1.5px, calc(var(--w) * 0.03)) #ff5a3c; }
 .vg-piece.exposed.sel .vg-coin3d { filter: drop-shadow(0 0 max(1.5px, calc(var(--w) * 0.03)) rgba(255, 74, 44, 0.95)) drop-shadow(0 0 calc(var(--w) * 0.18) rgba(255, 60, 30, 0.7)); }
-/* a hop: the piece lifts and grows, its shadow lets go of it, it arcs over the squares between and settles on landing */
-.vg-piece.hop { z-index: 34; transition-timing-function: cubic-bezier(0.4, 0.1, 0.5, 1); }
-.vg-piece.hop .vg-pb { animation: vg-hop var(--hop-ms, 600ms) ease-in-out both; }
-.vg-piece.hop .vg-sh { animation: vg-hop-sh var(--hop-ms, 600ms) ease-in-out both; }
+/* a hop: the ground path is a constant-speed slide (linear left/top transition); the lift is a parabola
+   sampled below, so rise and fall are symmetric and soft at the top. The shadow stays on the ground:
+   it cancels the lift, shrinks and fades as the piece rises. */
+.vg-piece.hop { z-index: 34; transition-timing-function: linear; }
+.vg-piece.hop .vg-pb { animation: vg-hop var(--hop-ms, 600ms) linear both; }
+.vg-piece.hop .vg-sh { animation: vg-hop-sh var(--hop-ms, 600ms) linear both; }
 @keyframes vg-hop {
-  0% { transform: translateY(0) scale(1); }
-  18% { transform: translateY(-14%) scale(1.12); }
-  50% { transform: translateY(-46%) scale(1.5); }
-  80% { transform: translateY(-4%) scale(1.06); }
-  90% { transform: translateY(1%) scale(0.96, 0.92); }
-  100% { transform: translateY(0) scale(1); }
+  0% { transform: translateY(-0.00%) scale(1.000) }
+  5% { transform: translateY(-6.84%) scale(1.038) }
+  10% { transform: translateY(-12.96%) scale(1.072) }
+  15% { transform: translateY(-18.36%) scale(1.102) }
+  20% { transform: translateY(-23.04%) scale(1.128) }
+  25% { transform: translateY(-27.00%) scale(1.150) }
+  30% { transform: translateY(-30.24%) scale(1.168) }
+  35% { transform: translateY(-32.76%) scale(1.182) }
+  40% { transform: translateY(-34.56%) scale(1.192) }
+  45% { transform: translateY(-35.64%) scale(1.198) }
+  50% { transform: translateY(-36.00%) scale(1.200) }
+  55% { transform: translateY(-35.64%) scale(1.198) }
+  60% { transform: translateY(-34.56%) scale(1.192) }
+  65% { transform: translateY(-32.76%) scale(1.182) }
+  70% { transform: translateY(-30.24%) scale(1.168) }
+  75% { transform: translateY(-27.00%) scale(1.150) }
+  80% { transform: translateY(-23.04%) scale(1.128) }
+  85% { transform: translateY(-18.36%) scale(1.102) }
+  90% { transform: translateY(-12.96%) scale(1.072) }
+  95% { transform: translateY(-6.84%) scale(1.038) }
+  100% { transform: translateY(-0.00%) scale(1.000) }
 }
 @keyframes vg-hop-sh {
-  0%, 100% { transform: translate(0, 0) scale(1); opacity: 1; }
-  50% { transform: translate(-6%, 60%) scale(0.72); opacity: 0.32; }
+  0% { transform: translateY(0.00%) scale(1.000); opacity: 1.000; filter: blur(calc(var(--w) * 0.050)); }
+  5% { transform: translateY(8.00%) scale(0.918); opacity: 0.962; filter: blur(calc(var(--w) * 0.058)); }
+  10% { transform: translateY(15.16%) scale(0.849); opacity: 0.928; filter: blur(calc(var(--w) * 0.064)); }
+  15% { transform: translateY(21.48%) scale(0.792); opacity: 0.898; filter: blur(calc(var(--w) * 0.070)); }
+  20% { transform: translateY(26.96%) scale(0.745); opacity: 0.872; filter: blur(calc(var(--w) * 0.076)); }
+  25% { transform: translateY(31.59%) scale(0.707); opacity: 0.850; filter: blur(calc(var(--w) * 0.080)); }
+  30% { transform: translateY(35.38%) scale(0.676); opacity: 0.832; filter: blur(calc(var(--w) * 0.084)); }
+  35% { transform: translateY(38.33%) scale(0.654); opacity: 0.818; filter: blur(calc(var(--w) * 0.086)); }
+  40% { transform: translateY(40.44%) scale(0.638); opacity: 0.808; filter: blur(calc(var(--w) * 0.088)); }
+  45% { transform: translateY(41.70%) scale(0.628); opacity: 0.802; filter: blur(calc(var(--w) * 0.090)); }
+  50% { transform: translateY(42.12%) scale(0.625); opacity: 0.800; filter: blur(calc(var(--w) * 0.090)); }
+  55% { transform: translateY(41.70%) scale(0.628); opacity: 0.802; filter: blur(calc(var(--w) * 0.090)); }
+  60% { transform: translateY(40.44%) scale(0.638); opacity: 0.808; filter: blur(calc(var(--w) * 0.088)); }
+  65% { transform: translateY(38.33%) scale(0.654); opacity: 0.818; filter: blur(calc(var(--w) * 0.086)); }
+  70% { transform: translateY(35.38%) scale(0.676); opacity: 0.832; filter: blur(calc(var(--w) * 0.084)); }
+  75% { transform: translateY(31.59%) scale(0.707); opacity: 0.850; filter: blur(calc(var(--w) * 0.080)); }
+  80% { transform: translateY(26.96%) scale(0.745); opacity: 0.872; filter: blur(calc(var(--w) * 0.076)); }
+  85% { transform: translateY(21.48%) scale(0.792); opacity: 0.898; filter: blur(calc(var(--w) * 0.070)); }
+  90% { transform: translateY(15.16%) scale(0.849); opacity: 0.928; filter: blur(calc(var(--w) * 0.064)); }
+  95% { transform: translateY(8.00%) scale(0.918); opacity: 0.962; filter: blur(calc(var(--w) * 0.058)); }
+  100% { transform: translateY(0.00%) scale(1.000); opacity: 1.000; filter: blur(calc(var(--w) * 0.050)); }
 }
 .vg-piece.fresh .vg-art, .vg-piece.fresh .vg-was { animation: vg-morph 0.7s ease-out; }
 @keyframes vg-morph { 0% { transform: scale(0.55); filter: brightness(2.2); } 60% { transform: scale(1.12); filter: brightness(1.4); } 100% { transform: none; filter: none; } }
