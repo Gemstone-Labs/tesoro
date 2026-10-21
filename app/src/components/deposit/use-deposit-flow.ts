@@ -8,6 +8,7 @@ import { runPackDeposit, type DepositPhase, type DepositProgress } from "@/lib/d
 import type { DepositIntent } from "@/lib/deposit/bus";
 import { plainError } from "@/lib/errors";
 import { confirmDepositAck, readDepositAckCache, writeDepositAckCache } from "./ack";
+import { confirmThenPay } from "@/lib/deposit/confirm-ack";
 
 export type DepositStep = "packs" | "ack" | "working" | "done" | "error";
 
@@ -101,16 +102,14 @@ export function useDepositFlow(intent: DepositIntent | null) {
     if (!signer || !authority || !picked) return;
     setAckBusy(true);
     setAckError(null);
-    try {
-      await confirmDepositAck(signer, auth.getAccessToken);
-    } catch (e) {
-      setAckBusy(false);
-      setAckError(plainError(e));
-      return;
-    }
-    if (ackChecked) writeDepositAckCache(authority);
+    const failed = await confirmThenPay({
+      confirm: () => confirmDepositAck(signer, auth.getAccessToken),
+      dontShowAgain: ackChecked,
+      rememberDontShow: () => writeDepositAckCache(authority),
+      pay: () => void pay(picked),
+    });
     setAckBusy(false);
-    void pay(picked);
+    if (failed) setAckError(plainError(failed.error));
   }, [auth.signer, auth.getAccessToken, authority, picked, ackChecked, pay]);
 
   const retry = useCallback(() => {
