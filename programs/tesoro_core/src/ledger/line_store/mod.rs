@@ -26,7 +26,8 @@
 //! | 72 | `sponsored_lamports` u64 (sponsored rent, set by the caller) |
 //! | 80 | `ticket_need` u64 (Gemas the open Entry Ticket still has to stage, set by the draw module) |
 //! | 88 | `room_reserved` u32 (spill slots reserved for Matches in flight, set by the instruction layer) |
-//! | 92 | 36 reserved bytes, zero |
+//! | 92 | `first` u32: slots before the first line (lines start at slot `first`; zero when none) |
+//! | 96 | 32 reserved bytes, zero |
 //!
 //! Lines follow, `LINE_LEN` = 144 bytes each, sorted ascending by [`LineKey`]:
 //! (side, `due_at`, source, class, tranche). See [`Line`] for the line layout.
@@ -67,6 +68,7 @@ const H_RESERVED_TOTAL: usize = 64;
 const H_SPONSORED: usize = 72;
 const H_TICKET_NEED: usize = 80;
 const H_ROOM_RESERVED: usize = 88;
+const H_FIRST: usize = 92;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineStoreError {
@@ -231,6 +233,9 @@ pub fn required_len(lines: usize) -> usize {
 /// The sorted line array over a body slice. `T` is `&[u8]` for reads, `&mut [u8]` for edits.
 pub struct LineStore<T> {
     data: T,
+    /// `first` and `len` of the header, read once: only this wrapper changes them while it lives.
+    first: usize,
+    len: usize,
 }
 
 impl<T: AsRef<[u8]>> LineStore<T> {
@@ -240,8 +245,10 @@ impl<T: AsRef<[u8]>> LineStore<T> {
         if raw.len() < HEADER_LEN || raw[H_VERSION] != BASKET_VERSION {
             return Err(LineStoreError::BadStore);
         }
-        let store = LineStore { data };
-        if store.len() > store.capacity() {
+        let first = u32::from_le_bytes(arr(&raw[H_FIRST..H_FIRST + 4])) as usize;
+        let len = u32::from_le_bytes(arr(&raw[H_LEN..H_LEN + 4])) as usize;
+        let store = LineStore { data, first, len };
+        if store.first().saturating_add(store.len()) > store.capacity() {
             return Err(LineStoreError::BadStore);
         }
         Ok(store)
@@ -299,9 +306,15 @@ impl<T: AsRef<[u8]>> LineStore<T> {
         u32::from_le_bytes(arr(&self.raw()[H_ROOM_RESERVED..H_ROOM_RESERVED + 4]))
     }
 
+    /// Free slots before the first line. Taking lines off the front (the draw) and putting them
+    /// back (cancel, settle) moves this number, not the other lines.
+    pub fn first(&self) -> usize {
+        self.first
+    }
+
     /// Used lines.
     pub fn len(&self) -> usize {
-        u32::from_le_bytes(arr(&self.raw()[H_LEN..H_LEN + 4])) as usize
+        self.len
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
@@ -315,8 +328,12 @@ impl<T: AsRef<[u8]>> LineStore<T> {
         required_len(self.len())
     }
 
+    fn slot(i: usize) -> usize {
+        HEADER_LEN + i * LINE_LEN
+    }
+
     fn line_raw(&self, idx: usize) -> &[u8] {
-        let at = HEADER_LEN + idx * LINE_LEN;
+        let at = Self::slot(self.first() + idx);
         &self.raw()[at..at + LINE_LEN]
     }
 
@@ -332,15 +349,65 @@ impl<T: AsRef<[u8]>> LineStore<T> {
         (0..self.len()).map(move |i| Line::decode(self.line_raw(i)))
     }
 
-    /// Binary search. `Ok(index)` if the key exists, `Err(insert_index)` otherwise.
+    /// How the stored key of line `idx` compares with `key`, read straight from the bytes: no
+    /// key is built, so a probe of the binary search costs a few comparisons.
+    fn cmp_at(&self, idx: usize, key: &LineKey) -> core::cmp::Ordering {
+        use core::cmp::Ordering::Equal;
+        let at = Self::slot(self.first + idx);
+        // only the key fields: 43 bytes
+        let raw = &self.raw()[at..at + 43];
+        let by_side = raw[0].cmp(&key.side);
+        if by_side != Equal {
+            return by_side;
+        }
+        let due = i64::from_le_bytes(arr(&raw[3..11]));
+        let by_due = due.cmp(&key.due_at);
+        if by_due != Equal {
+            return by_due;
+        }
+        let by_source = raw[11..43].cmp(&key.source[..]);
+        if by_source != Equal {
+            return by_source;
+        }
+        raw[1].cmp(&key.class).then(raw[2].cmp(&key.tranche))
+    }
+
+    /// `Ok(index)` if the key exists, `Err(insert_index)` otherwise. Lines are credited and taken
+    /// at the two ends far more often than in the middle (the draw takes the front, a won line
+    /// sorts last), so the search first gallops a few steps from the front and checks the last
+    /// line, then bisects what is left: O(log n) in the worst case, a handful of probes at the ends.
     pub fn find(&self, key: &LineKey) -> Result<usize, usize> {
-        let (mut lo, mut hi) = (0usize, self.len());
+        use core::cmp::Ordering::{Equal, Greater, Less};
+        let n = self.len();
+        let (mut lo, mut hi) = (0usize, n);
+        // gallop from the front: probes 0, 1, 3, 7
+        let mut step = 0usize;
+        while step < 3 && lo < hi {
+            let probe = (lo + (1usize << step) - 1).min(hi - 1);
+            match self.cmp_at(probe, key) {
+                Equal => return Ok(probe),
+                Greater => {
+                    hi = probe;
+                    break;
+                }
+                Less => lo = probe + 1,
+            }
+            step += 1;
+        }
+        // the last line: a won line, or anything after every line
+        if lo < hi {
+            match self.cmp_at(hi - 1, key) {
+                Equal => return Ok(hi - 1),
+                Less => return Err(hi),
+                Greater => hi -= 1,
+            }
+        }
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
-            match Line::decode_key(self.line_raw(mid)).cmp(key) {
-                core::cmp::Ordering::Less => lo = mid + 1,
-                core::cmp::Ordering::Greater => hi = mid,
-                core::cmp::Ordering::Equal => return Ok(mid),
+            match self.cmp_at(mid, key) {
+                Less => lo = mid + 1,
+                Greater => hi = mid,
+                Equal => return Ok(mid),
             }
         }
         Err(lo)
@@ -420,6 +487,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
     }
 
     fn set_len(&mut self, n: usize) {
+        self.len = n;
         self.raw_mut()[H_LEN..H_LEN + 4].copy_from_slice(&(n as u32).to_le_bytes());
     }
 
@@ -434,6 +502,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
     }
     pub fn set_ticket_need(&mut self, v: u64) {
         self.put_u64(H_TICKET_NEED, v);
+    }
+    fn set_first(&mut self, v: usize) {
+        self.first = v;
+        self.raw_mut()[H_FIRST..H_FIRST + 4].copy_from_slice(&(v as u32).to_le_bytes());
     }
     pub fn set_room_reserved(&mut self, v: u32) {
         self.raw_mut()[H_ROOM_RESERVED..H_ROOM_RESERVED + 4].copy_from_slice(&v.to_le_bytes());
@@ -458,13 +530,32 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
 
     /// Insert a line at its sorted place and return its index.
     pub fn insert(&mut self, line: &Line) -> Result<usize, LineStoreError> {
-        Self::check_line(line)?;
         let at = match self.find(&line.key()) {
             Ok(_) => return Err(LineStoreError::Duplicate),
             Err(at) => at,
         };
+        self.insert_at(at, line)?;
+        Ok(at)
+    }
+
+    /// Insert a line at index `at`, which a `find` for its key returned as `Err(at)`: the caller
+    /// has already searched, so the search is not repeated; the two neighbours are checked, so a
+    /// wrong `at` can never break the order.
+    pub fn insert_at(&mut self, at: usize, line: &Line) -> Result<(), LineStoreError> {
+        Self::check_line(line)?;
         let len = self.len();
-        if len == self.capacity() {
+        if at > len {
+            return Err(LineStoreError::Unsorted);
+        }
+        let key = line.key();
+        use core::cmp::Ordering::{Greater, Less};
+        if (at > 0 && self.cmp_at(at - 1, &key) != Less)
+            || (at < len && self.cmp_at(at, &key) != Greater)
+        {
+            return Err(LineStoreError::Unsorted);
+        }
+        let (first, cap) = (self.first(), self.capacity());
+        if len == cap {
             return Err(LineStoreError::Full);
         }
         let bucket = Self::bucket_at(line);
@@ -472,13 +563,29 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
             .u64_at(bucket)
             .checked_add(line.amount)
             .ok_or(LineStoreError::Overflow)?;
-        let from = HEADER_LEN + at * LINE_LEN;
-        let end = HEADER_LEN + len * LINE_LEN;
-        self.raw_mut().copy_within(from..end, from + LINE_LEN);
-        line.encode(&mut self.raw_mut()[from..from + LINE_LEN]);
+        let room_back = cap - first - len;
+        // shift the shorter side into a free slot next to it
+        let use_front = first > 0 && (room_back == 0 || at <= len - at);
+        let slot = if use_front {
+            if at > 0 {
+                self.raw_mut().copy_within(
+                    Self::slot(first)..Self::slot(first + at),
+                    Self::slot(first - 1),
+                );
+            }
+            self.set_first(first - 1);
+            first - 1 + at
+        } else {
+            self.raw_mut().copy_within(
+                Self::slot(first + at)..Self::slot(first + len),
+                Self::slot(first + at + 1),
+            );
+            first + at
+        };
+        line.encode(&mut self.raw_mut()[Self::slot(slot)..Self::slot(slot + 1)]);
         self.set_len(len + 1);
         self.put_u64(bucket, total);
-        Ok(at)
+        Ok(())
     }
 
     /// Remove and return the line at `idx`; later lines shift down.
@@ -490,13 +597,43 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
             .checked_sub(line.amount)
             .ok_or(LineStoreError::BadStore)?;
         let len = self.len();
-        let from = HEADER_LEN + idx * LINE_LEN;
-        let end = HEADER_LEN + len * LINE_LEN;
-        self.raw_mut().copy_within(from + LINE_LEN..end, from);
-        self.raw_mut()[end - LINE_LEN..end].fill(0);
+        let first = self.first();
+        if idx < len / 2 {
+            // the front part is shorter: move it one slot towards the back, free the first slot
+            if idx > 0 {
+                self.raw_mut().copy_within(
+                    Self::slot(first)..Self::slot(first + idx),
+                    Self::slot(first + 1),
+                );
+            }
+            self.raw_mut()[Self::slot(first)..Self::slot(first + 1)].fill(0);
+            self.set_first(if len == 1 { 0 } else { first + 1 });
+        } else {
+            self.raw_mut().copy_within(
+                Self::slot(first + idx + 1)..Self::slot(first + len),
+                Self::slot(first + idx),
+            );
+            self.raw_mut()[Self::slot(first + len - 1)..Self::slot(first + len)].fill(0);
+            if len == 1 {
+                self.set_first(0);
+            }
+        }
         self.set_len(len - 1);
         self.put_u64(bucket, total);
         Ok(line)
+    }
+
+    /// Moves the lines to the start of the body (`first` becomes 0), so the body can be cut to
+    /// `shrinkable_len`.
+    pub fn compact(&mut self) {
+        let (first, len) = (self.first(), self.len());
+        if first == 0 {
+            return;
+        }
+        self.raw_mut()
+            .copy_within(Self::slot(first)..Self::slot(first + len), Self::slot(0));
+        self.raw_mut()[Self::slot(len)..Self::slot(first + len)].fill(0);
+        self.set_first(0);
     }
 
     pub fn remove(&mut self, key: &LineKey) -> Result<Line, LineStoreError> {
@@ -519,7 +656,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
             .ok_or(LineStoreError::BadStore)?
             .checked_add(line.amount)
             .ok_or(LineStoreError::Overflow)?;
-        let from = HEADER_LEN + idx * LINE_LEN;
+        let from = Self::slot(self.first() + idx);
         line.encode(&mut self.raw_mut()[from..from + LINE_LEN]);
         self.put_u64(bucket, total);
         Ok(())

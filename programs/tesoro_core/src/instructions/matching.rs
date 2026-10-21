@@ -31,8 +31,9 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
 /// Lines an entry may use and still be drawn in one transaction (more needs an Entry Ticket).
-/// Measured: `tests/matching.rs`, "the per-transaction line cap".
-pub const MAX_DIRECT_LINES: usize = 12;
+/// Moving a line is in-place work (no account per line), so the cap is compute, not transaction
+/// size: measured in `tests/integration.rs`, "the per-transaction line cap".
+pub const MAX_DIRECT_LINES: usize = 16;
 /// Steps one chunk may run.
 pub const MAX_CHUNK_STEPS: u8 = 12;
 /// A settlement receipt may be closed (rent back) this long after it was written.

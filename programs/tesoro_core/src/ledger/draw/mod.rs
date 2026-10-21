@@ -55,7 +55,8 @@ use super::Key;
 /// Lines in one Ticket / Pot page: as many as fit the 10,240-byte limit of creating an account
 /// from a program, so a layout change of the line record resizes pages by itself.
 pub const PAGE_LINES: usize = (10_240 - HEADER_LEN) / LINE_LEN;
-/// Lines one transaction may move (draw or stage). Ticket 09 replaces this with the measured cap.
+/// Lines one transaction may move in the pure tests. The program's measured caps are
+/// `instructions::matching::MAX_DIRECT_LINES` and `instructions::ticket::MAX_STAGE_OPS`.
 pub const MAX_DRAW_LINES: usize = 12;
 /// Open Offers one Account may have.
 pub const MAX_OPEN_OFFERS: u32 = 8;
@@ -420,17 +421,28 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
 
     /// Put a line back or credit it: merge into the basket line with the same key, else insert
     /// into the basket if it has room, else merge into / insert in the spill. `SpillFull` (and
-    /// nothing changed) when there is no room anywhere.
+    /// nothing changed) when there is no room anywhere. Each store is searched once.
     pub fn put(&mut self, books: &mut dyn SourceBooks, line: &Line) -> DrawResult<Placed> {
-        if self.basket.find(&line.key()).is_ok() || self.basket.len() < self.basket.capacity() {
-            put_line(self.basket, books, line)?;
+        let key = line.key();
+        let found = self.basket.find(&key);
+        if let Ok(idx) = found {
+            merge_into(self.basket, idx, books, line)?;
             return Ok(Placed::Basket);
         }
-        if put_line(self.spill, books, line)? {
-            Ok(Placed::Spill)
-        } else {
-            Err(DrawError::SpillFull)
+        if let Err(at) = found {
+            if self.basket.len() < self.basket.capacity() {
+                self.basket.insert_at(at, line)?;
+                return Ok(Placed::Basket);
+            }
         }
+        match self.spill.find(&key) {
+            Ok(idx) => merge_into(self.spill, idx, books, line)?,
+            Err(at) if self.spill.len() < self.spill.capacity() => {
+                self.spill.insert_at(at, line)?
+            }
+            Err(_) => return Err(DrawError::SpillFull),
+        }
+        Ok(Placed::Spill)
     }
 
     /// Move up to `max` lines from the spill into the basket while it has room or a line to merge
@@ -568,6 +580,23 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
     }
 }
 
+/// Merge `line` into the line at `idx` of `dst` (the same key) through the Source's book.
+fn merge_into<B: Bytes>(
+    dst: &mut LineStore<B>,
+    idx: usize,
+    books: &mut dyn SourceBooks,
+    line: &Line,
+) -> DrawResult<()> {
+    let mut d = dst
+        .get(idx)
+        .ok_or(DrawError::Store(LineStoreError::NotFound))?;
+    let mut s = *line;
+    let (book, history) = books.book_with_history(&line.source)?;
+    book.transfer(&mut s, &mut d, line.amount, &*history)?;
+    dst.set_line(idx, &d)?;
+    Ok(())
+}
+
 /// Place `line` in `dst`: merge into the line with the same key (through the Source's book) or
 /// insert it. `Ok(false)` when there is no room; nothing changed then.
 fn put_line<B: Bytes>(
@@ -577,20 +606,14 @@ fn put_line<B: Bytes>(
 ) -> DrawResult<bool> {
     match dst.find(&line.key()) {
         Ok(idx) => {
-            let mut d = dst
-                .get(idx)
-                .ok_or(DrawError::Store(LineStoreError::NotFound))?;
-            let mut s = *line;
-            let (book, history) = books.book_with_history(&line.source)?;
-            book.transfer(&mut s, &mut d, line.amount, &*history)?;
-            dst.set_line(idx, &d)?;
+            merge_into(dst, idx, books, line)?;
             Ok(true)
         }
-        Err(_) => {
+        Err(at) => {
             if dst.len() >= dst.capacity() {
                 return Ok(false);
             }
-            dst.insert(line)?;
+            dst.insert_at(at, line)?;
             Ok(true)
         }
     }

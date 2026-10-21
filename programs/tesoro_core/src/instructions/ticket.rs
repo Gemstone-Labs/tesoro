@@ -392,10 +392,14 @@ pub struct StageEntry<'info> {
     pub ticket: UncheckedAccount<'info>,
 }
 
+/// Staging operations (one line pulled or returned) one transaction may run.
+pub const MAX_STAGE_OPS: u8 = 32;
+
 pub(crate) fn stage_entry<'info>(
     ctx: Context<'_, '_, 'info, 'info, StageEntry<'info>>,
     max_ops: u8,
 ) -> Result<()> {
+    let max_ops = max_ops.clamp(1, MAX_STAGE_OPS);
     let ticket_info = ctx.accounts.ticket.to_account_info();
     let (mut t, extra) = load_ticket(&ticket_info)?;
     require_keys_eq!(

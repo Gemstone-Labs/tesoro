@@ -27,6 +27,7 @@ const GAME: APk = APk::new_from_array([9; 32]);
 const GAME_SLOT: u64 = 100;
 const LISTED_FOR_EVER: i64 = 4_000_000_000;
 const ENTRY: u64 = 1_000;
+const MATCH_NEEDS_TICKET: u32 = 6405;
 const SOL: u64 = 1_000_000_000;
 
 fn a(p: Pk) -> APk {
@@ -113,6 +114,12 @@ fn ix(
     }
 }
 
+fn bincode_len(tx: &solana_sdk::transaction::VersionedTransaction) -> usize {
+    solana_sdk::transaction::VersionedTransaction::try_from(tx.clone())
+        .map(|t| t.message.serialize().len() + 1 + 64 * t.signatures.len())
+        .unwrap_or(0)
+}
+
 fn rem(k: APk) -> AccountMeta {
     AccountMeta::new(s(k), false)
 }
@@ -134,6 +141,7 @@ struct Env {
     studio: Person,
     matches: Vec<MRef>,
     pot_nonce: u64,
+    person_seed: u8,
     last_cu: u64,
     /// Serialized size in bytes of the last transaction as a legacy transaction.
     last_size: usize,
@@ -191,6 +199,7 @@ impl Env {
             studio: placeholder(Keypair::new()),
             matches: Vec::new(),
             pot_nonce: 1_000,
+            person_seed: 0,
             last_cu: 0,
             last_size: 0,
             last_logs: Vec::new(),
@@ -343,7 +352,9 @@ impl Env {
     }
 
     fn person(&mut self) -> Person {
-        let kp = Keypair::new();
+        // fixed keys, so the address derivations (and their compute cost) repeat run to run
+        self.person_seed += 1;
+        let kp = Keypair::new_from_array([self.person_seed; 32]);
         self.svm
             .airdrop(&kp.pubkey(), 1_000 * SOL)
             .expect("airdrop");
@@ -616,6 +627,377 @@ impl Env {
             .entry_limit
     }
 
+    // --- Forged Sources and lines, for the budget tests -------------------------------------
+
+    /// A Source with its Position and book, none of them reachable by an Advance: the lines issued
+    /// from it behave like any other (the book is real), and a fee cut on them can sync.
+    fn forge_source(&mut self, tag: u8, index: u32) -> APk {
+        let position = pda(&[POSITION_SEED, &[7], &[tag; 32]]);
+        let owner = [tag; 32];
+        let mut pos = tesoro_core::ledger::Position::new(
+            owner,
+            SourceChain::Solana,
+            [tag; 32],
+            9,
+            SOL,
+            1_000,
+        )
+        .expect("position");
+        pos.advances = index + 1;
+        let state = PositionState {
+            bump: 255,
+            position_id: [tag; 32],
+            inner: pos,
+        };
+        self.put_account(position, &state, PositionState::SPACE);
+        let source = source_pda(position, index);
+        let src_state = SourceState {
+            bump: APk::find_program_address(
+                &[SOURCE_SEED, position.as_ref(), &index.to_le_bytes()],
+                &tesoro_core::ID,
+            )
+            .1,
+            inner: tesoro_core::ledger::Source {
+                position: position.to_bytes(),
+                owner,
+                index,
+                horizon_months: 1,
+                unit_num: 1,
+                unit_den: 1,
+                issued: 0,
+                returned: 0,
+                redeemed: 0,
+                yield_units: 0,
+                redeemed_units: 0,
+                due_at: 0,
+            },
+        };
+        self.put_account(source, &src_state, SourceState::SPACE);
+        let payer = Keypair::new();
+        self.svm.airdrop(&payer.pubkey(), 5 * SOL).unwrap();
+        let init = ix(
+            accounts::InitSourceBook {
+                payer: a(payer.pubkey()),
+                source,
+                book: book_address(&source).0,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::InitSourceBook {},
+            vec![],
+        );
+        self.send(&[init], &payer, &[]).expect("source book");
+        source
+    }
+
+    fn put_account<T: anchor_lang::AccountSerialize>(&mut self, k: APk, v: &T, len: usize) {
+        let mut buf = Vec::new();
+        v.try_serialize(&mut buf).expect("serialize");
+        buf.resize(len, 0);
+        self.svm
+            .set_account(
+                s(k),
+                solana_sdk::account::Account {
+                    lamports: self.svm.minimum_balance_for_rent_exemption(len),
+                    data: buf,
+                    owner: s(tesoro_core::ID),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("set account");
+    }
+
+    /// Grows the Account's basket until it holds `lines` lines.
+    fn grow_basket_to(&mut self, p: &Person, lines: usize) {
+        loop {
+            let d = self
+                .svm
+                .get_account(&s(basket_address(&p.account).0))
+                .expect("basket")
+                .data;
+            let cap = tesoro_core::ledger::line_store::LineStore::new(&d[DISC..])
+                .expect("basket")
+                .capacity();
+            if cap >= lines {
+                return;
+            }
+            let n = (lines - cap).min(MAX_GROW_LINES);
+            let grow = ix(
+                accounts::GrowStore {
+                    payer: p.key,
+                    account: p.account,
+                    basket: basket_address(&p.account).0,
+                    spill: spill_address(&p.account).0,
+                    system_program: anchor_lang::system_program::ID,
+                },
+                instruction::GrowStore {
+                    which: tesoro_core::StoreKind::Basket,
+                    extra_lines: n as u32,
+                },
+                vec![],
+            );
+            self.send(&[grow], &p.kp, &[]).expect("grow basket");
+        }
+    }
+
+    /// Issues `amount` Gemas of each Source as one own General line (due at `due(i)`) into the
+    /// Player's basket, through the Source's real book.
+    fn give_lines(&mut self, p: &Person, sources: &[APk], amount: u64, due: impl Fn(usize) -> i64) {
+        use tesoro_core::ledger::book::checkpoint::NoCheckpoints;
+        use tesoro_core::ledger::book::SourceBook;
+        use tesoro_core::ledger::line_store::LineStore;
+        for (i, src) in sources.iter().enumerate() {
+            let mut book = read_book(&self.svm, *src);
+            let mut line =
+                SourceBook::blank_line(SIDE_OWN, due(i), src.to_bytes(), CLASS_GENERAL, 0);
+            book.issue(&mut line, amount, &NoCheckpoints)
+                .expect("issue");
+            common::econ::write_book(&mut self.svm, *src, &book);
+            let store = basket_address(&p.account).0;
+            let mut acc = self.svm.get_account(&s(store)).expect("basket");
+            LineStore::new(&mut acc.data[DISC..])
+                .expect("basket")
+                .insert(&line)
+                .expect("room in the basket");
+            self.svm.set_account(s(store), acc).expect("set basket");
+        }
+    }
+
+    /// Sizes of `ix` sent alone as a legacy transaction and as a v0 transaction with a lookup
+    /// table holding every account that is not a signer: (legacy bytes, v0 bytes, accounts).
+    fn tx_sizes(&self, ix: &Instruction, payer: &Keypair) -> (usize, usize, usize) {
+        use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
+        let legacy = Transaction::new_with_payer(&[ix.clone()], Some(&payer.pubkey()));
+        let legacy_len = legacy.message.serialize().len() + 1 + 64;
+        let table: Vec<Pk> = ix
+            .accounts
+            .iter()
+            .filter(|m| !m.is_signer)
+            .map(|m| m.pubkey)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let alt = AddressLookupTableAccount {
+            key: Pk::new_unique(),
+            addresses: table,
+        };
+        let msg = v0::Message::try_compile(
+            &payer.pubkey(),
+            &[ix.clone()],
+            &[alt],
+            self.svm.latest_blockhash(),
+        )
+        .expect("compile v0");
+        let v0_len = VersionedMessage::V0(msg).serialize().len() + 1 + 64;
+        (legacy_len, v0_len, ix.accounts.len())
+    }
+
+    /// Sends `ixs` as a v0 transaction whose lookup table holds every non-signer account (the
+    /// way the relayer sends big chunks). Returns the transaction's size in bytes.
+    fn send_v0(
+        &mut self,
+        ixs: &[Instruction],
+        payer: &Keypair,
+    ) -> Result<usize, litesvm::types::FailedTransactionMetadata> {
+        use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
+        use solana_sdk::transaction::VersionedTransaction;
+        let table: Vec<Pk> = ixs
+            .iter()
+            .flat_map(|i| i.accounts.iter())
+            .filter(|m| !m.is_signer)
+            .map(|m| m.pubkey)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        // the account the runtime reads: 56 bytes of meta, then the addresses
+        let alt_key = Pk::new_unique();
+        let mut data = vec![0u8; 56];
+        data[0..4].copy_from_slice(&1u32.to_le_bytes());
+        data[4..12].copy_from_slice(&u64::MAX.to_le_bytes());
+        for k in &table {
+            data.extend_from_slice(k.as_ref());
+        }
+        self.svm
+            .set_account(
+                alt_key,
+                solana_sdk::account::Account {
+                    lamports: 10 * SOL,
+                    data,
+                    owner: "AddressLookupTab1e1111111111111111111111111"
+                        .parse()
+                        .expect("alt program"),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("lookup table");
+        self.svm.warp_to_slot(10);
+        self.svm.expire_blockhash();
+        let alt = AddressLookupTableAccount {
+            key: alt_key,
+            addresses: table,
+        };
+        let msg =
+            v0::Message::try_compile(&payer.pubkey(), ixs, &[alt], self.svm.latest_blockhash())
+                .expect("compile v0");
+        let tx =
+            VersionedTransaction::try_new(VersionedMessage::V0(msg), &[payer]).expect("sign v0");
+        let size = bincode_len(&tx);
+        match self.svm.send_transaction(tx) {
+            Ok(meta) => {
+                self.last_cu = meta.compute_units_consumed;
+                self.last_events = meta
+                    .inner_instructions
+                    .iter()
+                    .flatten()
+                    .map(|i| i.instruction.data.clone())
+                    .collect();
+                self.last_logs = meta.logs;
+                Ok(size)
+            }
+            Err(e) => {
+                self.last_cu = e.meta.compute_units_consumed;
+                Err(e)
+            }
+        }
+    }
+
+    // --- Tickets -----------------------------------------------------------------------------
+
+    /// Opens an Entry Ticket with room for `lines` lines (the spill gets the room first).
+    fn open_ticket(
+        &mut self,
+        p: &Person,
+        nonce: u64,
+        entry: u64,
+        lines: u32,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        self.ensure_spill(&p.kp, p.account, lines as usize);
+        let open = ix(
+            accounts::OpenTicket {
+                payer: p.key,
+                authority: p.key,
+                requester: p.account,
+                owner: p.account,
+                basket: basket_address(&p.account).0,
+                spill: spill_address(&p.account).0,
+                ticket: ticket_pda(p.account, nonce),
+                offer: None,
+                sponsor: None,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::OpenTicket {
+                nonce,
+                kind: tesoro_core::TicketKindArg::Entry,
+                game: GAME,
+                target: entry,
+                lines,
+            },
+            vec![],
+        );
+        self.send(&[open], &p.kp, &[])
+    }
+
+    fn stage(
+        &mut self,
+        signer: &Keypair,
+        owner: &Person,
+        nonce: u64,
+        max_ops: u8,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let books = self.books_of(owner.account);
+        self.stage_with(signer, owner, nonce, max_ops, books)
+    }
+
+    fn stage_with(
+        &mut self,
+        signer: &Keypair,
+        owner: &Person,
+        nonce: u64,
+        max_ops: u8,
+        books: Vec<AccountMeta>,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let i = ix(
+            accounts::StageEntry {
+                signer: a(signer.pubkey()),
+                owner: owner.account,
+                basket: basket_address(&owner.account).0,
+                spill: spill_address(&owner.account).0,
+                ticket: ticket_pda(owner.account, nonce),
+            },
+            instruction::StageEntry { max_ops },
+            books,
+        );
+        self.send(&[i], signer, &[])
+    }
+
+    fn cancel_ticket(
+        &mut self,
+        signer: &Keypair,
+        owner: &Person,
+        nonce: u64,
+        max_lines: u8,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let books = self.books_of(owner.account);
+        self.cancel_ticket_with(signer, owner, nonce, max_lines, books)
+    }
+
+    fn cancel_ticket_with(
+        &mut self,
+        signer: &Keypair,
+        owner: &Person,
+        nonce: u64,
+        max_lines: u8,
+        books: Vec<AccountMeta>,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let i = ix(
+            accounts::CancelTicket {
+                signer: a(signer.pubkey()),
+                owner: owner.account,
+                basket: basket_address(&owner.account).0,
+                spill: spill_address(&owner.account).0,
+                ticket: ticket_pda(owner.account, nonce),
+                offer: None,
+            },
+            instruction::CancelTicket { max_lines },
+            books,
+        );
+        self.send(&[i], signer, &[])
+    }
+
+    fn close_ticket(
+        &mut self,
+        caller: &Keypair,
+        owner: &Person,
+        nonce: u64,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let i = ix(
+            accounts::CloseTicket {
+                caller: a(caller.pubkey()),
+                ticket: ticket_pda(owner.account, nonce),
+                payer: owner.key,
+                sponsor: None,
+            },
+            instruction::CloseTicket {},
+            vec![],
+        );
+        self.send(&[i], caller, &[])
+    }
+
+    fn ticket_state(&self, owner: &Person, nonce: u64) -> tesoro_core::ledger::draw::TicketState {
+        let d = self
+            .svm
+            .get_account(&s(ticket_pda(owner.account, nonce)))
+            .expect("ticket")
+            .data;
+        match d[8 + 3] {
+            0 => tesoro_core::ledger::draw::TicketState::Open,
+            1 => tesoro_core::ledger::draw::TicketState::Cancelling,
+            2 => tesoro_core::ledger::draw::TicketState::Closed,
+            _ => tesoro_core::ledger::draw::TicketState::Cancelled,
+        }
+    }
+
     // --- Matches on baskets, Tickets and chunks ---------------------------------------------
 
     fn counters_next(&self, account: APk) -> u64 {
@@ -694,6 +1076,18 @@ impl Env {
     }
 
     /// The Match state of the local id `id`.
+    /// Gemas the Entry Ticket has staged so far (its Pot store's totals).
+    fn load_ticket_staged(&self, p: &Person, nonce: u64) -> u64 {
+        let d = self
+            .svm
+            .get_account(&s(ticket_pda(p.account, nonce)))
+            .expect("ticket")
+            .data;
+        let st = tesoro_core::ledger::line_store::LineStore::new(&d[tesoro_core::pots::POT_AT..])
+            .expect("store");
+        st.own_total() + st.won_total()
+    }
+
     fn mstate(&self, id: u64) -> MatchState {
         self.load::<MatchState>(self.mref(id).key)
     }
@@ -785,9 +1179,10 @@ impl Env {
         };
         let key = pda(&[MATCH_SEED, p.account.as_ref(), &n.to_le_bytes()]);
         let backer = backing.map(|(_, b)| b);
-        self.ensure_spill(&p.kp, p.account, 16);
+        let room = 16 + 2 * pot_lines as usize;
+        self.ensure_spill(&p.kp, p.account, room);
         if let Some(b) = backer {
-            self.ensure_spill(&p.kp, b, 16);
+            self.ensure_spill(&p.kp, b, room);
         }
         let open = ix(
             accounts::OpenMatch {
@@ -870,11 +1265,12 @@ impl Env {
         let m = self.mstate(id);
         let opener = APk::new_from_array(m.inner.a.player);
         let opener_funder = APk::new_from_array(m.inner.a.funder);
+        let room = 16 + 2 * pot_lines as usize + 2 * m.inner.pot_lines[0] as usize;
         for who in [p.account, opener, opener_funder] {
-            self.ensure_spill(&p.kp, who, 16);
+            self.ensure_spill(&p.kp, who, room);
         }
         if let Some(b) = backer {
-            self.ensure_spill(&p.kp, b, 16);
+            self.ensure_spill(&p.kp, b, room);
         }
         let join = ix(
             accounts::JoinMatch {
@@ -1052,34 +1448,25 @@ impl Env {
         out
     }
 
-    /// Everything a chunk of this Match may touch.
-    fn chunk_remaining(&self, id: u64) -> Vec<AccountMeta> {
+    /// Everything the next `steps` steps of this Match touch: the baskets and spills of the
+    /// Accounts credited, and for the Sources those steps reach, the book (and pages), the
+    /// Source and its Position. The client works this out with `MatchRecord::sources_ahead`.
+    fn chunk_remaining(&self, id: u64, steps: u8) -> Vec<AccountMeta> {
         let mut out = vec![];
         for o in self.match_owners(id) {
             out.push(rem(basket_address(&o).0));
             out.push(rem(spill_address(&o).0));
         }
-        let mut sources: Vec<APk> = vec![];
-        for side in 0..2 {
-            let pot = self.mstate(id).pots[side];
-            if pot == APk::default() {
-                continue;
-            }
-            for l in self.pot_lines(pot) {
-                let k = APk::new_from_array(l.source);
-                if !sources.contains(&k) {
-                    sources.push(k);
-                }
-            }
-        }
-        for o in self.match_owners(id) {
-            for src in self.sources_in(o) {
-                if !sources.contains(&src) {
-                    sources.push(src);
-                }
-            }
-        }
-        for src in sources {
+        let m = self.mstate(id);
+        let pots: tesoro_core::ledger::lifecycle::Pots = [0, 1].map(|side| {
+            (m.pots[side] != APk::default()).then(|| {
+                let d = self.svm.get_account(&s(m.pots[side])).expect("pot").data;
+                tesoro_core::ledger::draw::PotPages::open(d[tesoro_core::pots::POT_AT..].to_vec())
+                    .expect("pot")
+            })
+        });
+        for src in m.inner.sources_ahead(&pots, steps as usize) {
+            let src = APk::new_from_array(src);
             out.extend(book_metas(&self.svm, src));
             out.push(AccountMeta::new_readonly(s(src), false));
             let position = APk::new_from_array(self.load::<SourceState>(src).inner.position);
@@ -1108,7 +1495,7 @@ impl Env {
                 program: tesoro_core::ID,
             },
             instruction::MatchChunk { max_steps },
-            self.chunk_remaining(id),
+            self.chunk_remaining(id, max_steps),
         )
     }
 
@@ -1120,7 +1507,7 @@ impl Env {
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
         let payer = self.admin.insecure_clone();
         let i = self.chunk_ix(a(payer.pubkey()), id, steps);
-        self.send(&[i], &payer, &[])
+        self.send_v0(&[i], &payer).map(drop)
     }
 
     fn stage_of(&self, id: u64) -> tesoro_core::ledger::lifecycle::Stage {
@@ -3883,4 +4270,246 @@ fn hashing_the_largest_game_program_fits_one_transaction() {
         .expect("refresh at the size cap");
     eprintln!("CU refresh_listing at the size cap {}", d.env.last_cu);
     assert!(d.env.last_cu < 1_400_000);
+}
+
+// --- Budgets: what a line costs, and how many fit one transaction ---------------------------
+
+fn person_with_lines(env: &mut Env, k: usize, tag: u8, entry: u64) -> (Person, Vec<APk>) {
+    let p = env.person();
+    env.grow_basket_to(&p, k + 4);
+    let sources: Vec<APk> = (0..k)
+        .map(|i| env.forge_source(tag.wrapping_add(i as u8), 0))
+        .collect();
+    env.give_lines(&p, &sources, entry / k as u64, |i| i as i64);
+    (p, sources)
+}
+
+#[test]
+fn the_per_transaction_line_cap_is_compute_not_accounts() {
+    // Moving a line is in-place work: no account per line, so the transaction does not grow with
+    // the number of lines, and the cap is set by compute alone (200,000 CU by default).
+    println!("lines | open_match CU | stage CU | stage tx bytes");
+    for k in [1usize, 2, 4, 5, 10, 20, 25, 50] {
+        let mut env = Env::new();
+        let (p, _) = person_with_lines(&mut env, k, 100, 2_500);
+        env.open_ticket(&p, 5, 2_500, k as u32 + 1).expect("ticket");
+        let kp = p.kp.insecure_clone();
+        // a transaction stages at most MAX_STAGE_OPS lines; the rest follow in the next one
+        let mut worst = 0;
+        let mut size = 0;
+        for _ in 0..3 {
+            env.stage_with(&kp, &p, 5, 255, vec![]).expect("stage");
+            worst = worst.max(env.last_cu);
+            size = size.max(env.last_size);
+            let t = env.load_ticket_staged(&p, 5);
+            if t == 2_500 {
+                break;
+            }
+        }
+        let open_cu = if k <= 10 {
+            let (q, _) = person_with_lines(&mut env, k, 160, 2_500);
+            env.open_match_ix(
+                &q,
+                2_500,
+                0,
+                9_000,
+                false,
+                0,
+                k as u32 + 1,
+                ticket_pda(q.account, 9_000),
+                vec![],
+                None,
+            )
+            .expect("direct draw");
+            env.last_cu
+        } else {
+            // more lines than one transaction draws: the program says so
+            let (q, _) = person_with_lines(&mut env, k, 160, 2_500);
+            let err = env
+                .open_match_ix(
+                    &q,
+                    2_500,
+                    0,
+                    9_000,
+                    false,
+                    0,
+                    18,
+                    ticket_pda(q.account, 9_000),
+                    vec![],
+                    None,
+                )
+                .unwrap_err();
+            assert_eq!(custom_code(&err), MATCH_NEEDS_TICKET, "{k} lines");
+            0
+        };
+        println!("{k:>5} | {open_cu:>13} | {worst:>8} | {size}");
+        assert!(
+            worst < 130_000,
+            "{k} lines: a staging transaction stays under budget"
+        );
+        assert!(
+            open_cu < 120_000,
+            "{k} lines: a direct draw stays under budget"
+        );
+        assert!(size < 400, "a staging transaction has no account per line");
+    }
+}
+
+#[test]
+fn a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table() {
+    // Worst case: every credit merges into a line of the same Source (its book swaps in), and
+    // the fee cuts sync Sources. The client loads only the Sources of the next steps.
+    println!("sources | start CU | chunk CU (12 steps) | accounts | legacy bytes | v0 bytes");
+    for k in [4usize, 5, 8, 10] {
+        let mut env = Env::new();
+        let alice = env.person();
+        let bob = env.person();
+        for p in [&alice, &bob] {
+            env.grow_basket_to(p, 2 * k + 8);
+        }
+        let sources: Vec<APk> = (0..k).map(|i| env.forge_source(100 + i as u8, 0)).collect();
+        env.give_lines(&alice, &sources, 1_000 / k as u64, |i| i as i64);
+        env.give_lines(&bob, &sources, 1_000 / k as u64, |i| i as i64);
+        env.give_lines(&bob, &sources, 4, |i| i as i64 + 1_000);
+        env.give_lines(&alice, &sources, 4, |i| i as i64 + 1_000);
+        let m = env
+            .open_match_ix(
+                &alice,
+                1_000,
+                0,
+                9_001,
+                false,
+                0,
+                k as u32 + 1,
+                ticket_pda(alice.account, 9_001),
+                env.books_of(alice.account),
+                None,
+            )
+            .expect("open");
+        env.join_match_ix(
+            &bob,
+            m,
+            9_002,
+            k as u32 + 1,
+            ticket_pda(bob.account, 9_002),
+            env.books_of(bob.account),
+            None,
+        )
+        .expect("join");
+        let game = env.game_auth.insecure_clone();
+        env.settle_start(&game, m, MatchResult::Opener)
+            .expect("start");
+        let start_cu = env.last_cu;
+        let mut worst = (0, 0, 0, 0);
+        while env.stage_of(m) != Stage::Closed {
+            let payer = env.admin.insecure_clone();
+            let probe = env.chunk_ix(a(payer.pubkey()), m, 12);
+            let (legacy, v0, n) = env.tx_sizes(&probe, &payer);
+            env.chunk(m, 12).expect("chunk");
+            if env.last_cu > worst.0 {
+                worst = (env.last_cu, n, legacy, v0);
+            }
+        }
+        println!(
+            "{k:>7} | {start_cu:>8} | {:>19} | {:>8} | {:>12} | {}",
+            worst.0, worst.1, worst.2, worst.3
+        );
+        assert!(
+            worst.0 < 140_000,
+            "a 12-step chunk stays well under 200,000 CU"
+        );
+        assert!(worst.1 <= 64, "a chunk locks at most 64 accounts");
+        assert!(
+            worst.3 <= 1_232,
+            "as a v0 transaction with a lookup table it fits"
+        );
+        assert!(start_cu < 80_000);
+        env.close_match(m).expect("close");
+    }
+}
+
+#[test]
+fn a_thousand_line_basket_costs_within_ten_percent_of_eight_lines() {
+    println!("basket lines | open CU | join CU | chunk CU (12 steps) | stage CU (8 lines)");
+    let mut rows = vec![];
+    for dust in [0usize, 992] {
+        let mut env = Env::new();
+        let alice = env.person();
+        let bob = env.person();
+        let k = 8usize;
+        let sources: Vec<APk> = (0..k).map(|i| env.forge_source(100 + i as u8, 0)).collect();
+        env.grow_basket_to(&alice, k + 4);
+        env.grow_basket_to(&bob, k + 4);
+        env.give_lines(&alice, &sources, 125, |i| i as i64);
+        env.give_lines(&bob, &sources, 125, |i| i as i64);
+        give_dust(&mut env, &alice, dust);
+        env.open_ticket(&alice, 4, 1_000, 9).expect("ticket");
+        env.stage_with(&alice.kp.insecure_clone(), &alice, 4, 20, vec![])
+            .expect("stage");
+        let stage_cu = env.last_cu;
+        env.cancel_ticket_with(&alice.kp.insecure_clone(), &alice, 4, 20, vec![])
+            .expect("cancel");
+        let m = env
+            .open_match_ix(
+                &alice,
+                1_000,
+                0,
+                9_001,
+                false,
+                0,
+                9,
+                ticket_pda(alice.account, 9_001),
+                vec![],
+                None,
+            )
+            .expect("open");
+        let open_cu = env.last_cu;
+        env.join_match_ix(
+            &bob,
+            m,
+            9_002,
+            9,
+            ticket_pda(bob.account, 9_002),
+            vec![],
+            None,
+        )
+        .expect("join");
+        let join_cu = env.last_cu;
+        let game = env.game_auth.insecure_clone();
+        env.settle_start(&game, m, MatchResult::Opener)
+            .expect("start");
+        env.chunk(m, 12).expect("chunk");
+        let chunk_cu = env.last_cu;
+        println!(
+            "{:>12} | {open_cu:>7} | {join_cu:>7} | {chunk_cu:>19} | {stage_cu:>8}",
+            dust + 8
+        );
+        rows.push([open_cu, join_cu, chunk_cu, stage_cu]);
+    }
+    for (i, what) in ["open", "join", "chunk", "stage"].iter().enumerate() {
+        let (small, big) = (rows[0][i] as f64, rows[1][i] as f64);
+        assert!(big <= small * 1.10, "{what}: {big} against {small}");
+    }
+}
+
+/// `n` dust lines (1 Gema each, of Sources that do not exist) behind everything else in the basket
+/// (due far in the future), standing in for a long-time Player's collection of old Advances.
+fn give_dust(env: &mut Env, p: &Person, n: usize) {
+    use tesoro_core::ledger::book::SourceBook;
+    use tesoro_core::ledger::line_store::LineStore;
+    env.grow_basket_to(p, n + 40);
+    let store = basket_address(&p.account).0;
+    let mut acc = env.svm.get_account(&s(store)).expect("basket");
+    {
+        let mut st = LineStore::new(&mut acc.data[DISC..]).expect("basket");
+        for i in 0..n {
+            let mut key = [0u8; 32];
+            key[..8].copy_from_slice(&(i as u64 + 1).to_le_bytes());
+            let mut line =
+                SourceBook::blank_line(SIDE_OWN, 1_000_000 + i as i64, key, CLASS_GENERAL, 0);
+            line.amount = 1;
+            st.insert(&line).expect("room");
+        }
+    }
+    env.svm.set_account(s(store), acc).expect("set basket");
 }

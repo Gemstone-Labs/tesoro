@@ -412,6 +412,13 @@ pub(crate) fn shrink_store(
         StoreKind::Basket => ctx.accounts.basket.to_account_info(),
         StoreKind::Spill => ctx.accounts.spill.to_account_info(),
     };
+    {
+        // the lines must start at the first slot before the tail is cut
+        let mut data = info.try_borrow_mut_data()?;
+        LineStore::new(&mut data[DISC..])
+            .map_err(store_err)?
+            .compact();
+    }
     let (lines, sponsored) = {
         let data = info.try_borrow_data()?;
         let store = LineStore::new(&data[DISC..]).map_err(store_err)?;
