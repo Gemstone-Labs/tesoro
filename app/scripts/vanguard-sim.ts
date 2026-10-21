@@ -1,5 +1,5 @@
 /**
- * Plays seeded Vanguard Matches between two copies of the practice bot and prints the Match length report.
+ * Plays seeded Vanguard Matches between practice bots (standard, fortress, and the version-5 plain bot for comparison) and prints the balance report.
  *
  *   pnpm --filter @tesoro/keeper exec tsx ../app/scripts/vanguard-sim.ts [--seed 1] [--count 3000] [--chain-ms 500]
  *     [--think-min 2000] [--think-max 3000] [--write ../docs/games/vanguard.md]
@@ -8,7 +8,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { DEFAULT_PACE, aggregate, renderReport, runBatch, type Pace } from "../src/games/vanguard/sim/simulate";
+import { DEFAULT_PACE, renderReport, runStudy, type Pace } from "../src/games/vanguard/sim/simulate";
 
 const args = process.argv.slice(2);
 const num = (name: string, fallback: number) => {
@@ -24,11 +24,9 @@ const pace: Pace = { thinkMinMs: num("think-min", DEFAULT_PACE.thinkMinMs), thin
 if (!Number.isInteger(count) || count < 1) throw new Error("--count needs a positive whole number");
 
 const started = Date.now();
-const real = runBatch({ seed, count, pace });
-const probe = runBatch({ seed, count, pace, capMoves: 3000, capMs: 6 * 3600_000 });
-const report = renderReport(aggregate(real, pace), { seed, count, pace }, aggregate(probe, pace));
+const report = renderReport(runStudy({ seed, count, pace }), { seed, count, pace });
 console.log(report);
-console.error(`${count * 2} Matches in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+console.error(`${count * 5} Matches in ${((Date.now() - started) / 1000).toFixed(1)} s`);
 
 const out = args.indexOf("--write");
 if (out >= 0) {
