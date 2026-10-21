@@ -2722,15 +2722,18 @@ fn a_sponsored_order_costs_the_player_nothing_and_the_sponsor_gets_its_rent_back
         vec![],
     );
     env.send(&[init], &admin, &[]).unwrap();
-    env.svm
-        .airdrop(&s(sponsor_address().0), 5 * SOL)
-        .unwrap();
-    let rent = env.svm.minimum_balance_for_rent_exemption(InstantOrderState::SPACE);
+    env.svm.airdrop(&s(sponsor_address().0), 5 * SOL).unwrap();
+    let rent = env
+        .svm
+        .minimum_balance_for_rent_exemption(InstantOrderState::SPACE);
 
     // With the sponsor accounts only the sponsor's relayer may pay; without them only the holder.
     let stranger = env.person();
-    let no_sponsor = env.request_ix_paid_by(&bob, pos, source, 1_500, 7 * DAY, 1, stranger.key, false);
-    let err = env.send(&[no_sponsor], &stranger.kp, &[&bob.kp]).unwrap_err();
+    let no_sponsor =
+        env.request_ix_paid_by(&bob, pos, source, 1_500, 7 * DAY, 1, stranger.key, false);
+    let err = env
+        .send(&[no_sponsor], &stranger.kp, &[&bob.kp])
+        .unwrap_err();
     assert_eq!(code(&err), 6000, "no sponsor: only the holder pays");
     let wrong = env.request_ix_paid_by(&bob, pos, source, 1_500, 7 * DAY, 1, stranger.key, true);
     let err = env.send(&[wrong], &stranger.kp, &[&bob.kp]).unwrap_err();
@@ -2740,7 +2743,8 @@ fn a_sponsored_order_costs_the_player_nothing_and_the_sponsor_gets_its_rent_back
     let ix = env.request_ix_paid_by(&bob, pos, source, 1_500, 7 * DAY, 1, rkey, true);
     let (bob_before, relayer_before) = (env.lamports(bob.key), env.lamports(rkey));
     let sponsor_before = env.lamports(sponsor_address().0);
-    env.send(&[ix], &relayer, &[&bob.kp]).expect("sponsored request");
+    env.send(&[ix], &relayer, &[&bob.kp])
+        .expect("sponsored request");
     let order = env.order_address(&bob, 1);
     let state = env.load::<InstantOrderState>(order);
     assert_eq!(state.payer, rkey);
@@ -2749,7 +2753,10 @@ fn a_sponsored_order_costs_the_player_nothing_and_the_sponsor_gets_its_rent_back
     // The relayer fronted the rent and was made whole (only the two-signature fee is its own).
     assert_eq!(env.lamports(rkey), relayer_before - 10_000);
     assert_eq!(env.lamports(sponsor_address().0), sponsor_before - rent);
-    assert_eq!(env.load::<SponsorState>(sponsor_address().0).outstanding, rent);
+    assert_eq!(
+        env.load::<SponsorState>(sponsor_address().0).outstanding,
+        rent
+    );
 
     // Closing without the sponsor account cannot strand its rent.
     let cancel = env.return_order_ix_for(&bob, &bob, source, 1, false, rkey, false);

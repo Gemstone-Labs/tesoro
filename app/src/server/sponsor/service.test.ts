@@ -336,8 +336,9 @@ describe("a Backing Ticket signed by the Requester alone (ticket 18b)", () => {
     const { s, backer, ixs } = await pair({ gemas: 0n });
     const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
     await expect(s.sponsor.submit(signedBy(built, []), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
-    await expect(s.sponsor.submit(signedBy(built, [backer]), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
     const tx = VersionedTransaction.deserialize(Buffer.from(signedBy(built, [s.player]), "base64"));
+    tx.signatures[1] = nacl.sign.detached(tx.message.serialize(), backer.secretKey);
+    await expect(s.sponsor.submit(Buffer.from(tx.serialize()).toString("base64"), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
     tx.signatures[1] = nacl.sign.detached(Buffer.from("something else"), s.player.secretKey);
     await expect(s.sponsor.submit(Buffer.from(tx.serialize()).toString("base64"), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
     expect(s.sent).toHaveLength(0);
