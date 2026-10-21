@@ -40,6 +40,9 @@ export interface MatchRunStartedRecord {
   asset: number;
   openedAt: number;
   ts: number;
+  /** Each side's Player share of a Backing, in bps (0 for an unbacked side). */
+  aShareBps: number;
+  bShareBps: number;
 }
 export interface MatchWonRecord {
   type: "won";
@@ -99,6 +102,8 @@ function toRecord(name: string, d: any): MatchRecord | null {
         asset: d.asset,
         openedAt: num(d.opened_at),
         ts: num(d.ts),
+        aShareBps: d.a_share_bps,
+        bShareBps: d.b_share_bps,
       };
     case "MatchWon":
       return {

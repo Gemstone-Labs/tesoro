@@ -2,10 +2,8 @@ import { matchKeyOf } from "./match-key";
 import type { MatchRecord, MatchRunStartedRecord } from "./events";
 import type { Rpc } from "./rpc";
 
-/** What the keeper knows about a Match that the events do not carry; read from MatchState / the Game's account before it closes. */
+/** What the keeper reads from the Game's own account (the Block Puzzle Session); core's records do not carry it. */
 export interface MatchDetail {
-  /** Each side's Player share of a Backing, in bps (0 for an unbacked side). */
-  shares?: [number, number];
   /** Block Puzzle only: [side A score, side B score]. */
   scores?: [number, number] | null;
 }
@@ -25,9 +23,11 @@ type Party = { account: string; role: "player" | "backer"; side: 0 | 1; result: 
  * Each side's Player, and the Backer who funded it, with the result and Gema change after Fees. The rule
  * of `backedSplit` in lib/chain/ledger.ts: the surplus is the loser's entry minus Fees, the Player takes
  * their share of it and the Backer the rest; a backed loss costs the Player 0 and the Backer the entry.
- * Draws and every refund move 0 (a no-show's small fee is not shown in history).
+ * Draws and refunds move 0, except a no-show: each side pays the Platform Fee, the Backer's when the entry is backed.
  */
-export function partiesOf(s: MatchRunStartedRecord, shares: [number, number] = [0, 0]): Party[] {
+export function partiesOf(s: MatchRunStartedRecord): Party[] {
+  const shares = [s.aShareBps, s.bShareBps];
+  const noShowFee = s.kind === 1 ? Math.floor(s.fees[0] / 2) : 0;
   const sides = [
     { player: s.aPlayer, funder: s.aFunder },
     ...(s.bPlayer ? [{ player: s.bPlayer, funder: s.bFunder ?? s.bPlayer }] : []),
@@ -47,12 +47,12 @@ export function partiesOf(s: MatchRunStartedRecord, shares: [number, number] = [
       role: "player",
       side: seat,
       result,
-      delta: result === "won" ? gain[0] : backed ? 0 : -loss,
+      delta: result === "won" ? gain[0] : backed ? 0 : -loss - noShowFee,
       backing_other: backed ? side.funder : null,
       share_bps: backed ? shares[seat] : null,
     });
     if (backed) {
-      out.push({ account: side.funder, role: "backer", side: seat, result, delta: result === "won" ? gain[1] : -loss, backing_other: side.player, share_bps: shares[seat] });
+      out.push({ account: side.funder, role: "backer", side: seat, result, delta: result === "won" ? gain[1] : -loss - noShowFee, backing_other: side.player, share_bps: shares[seat] });
     }
   });
   return out;
@@ -83,7 +83,7 @@ export function payloadOf(r: MatchRecord, ctx: IngestContext): Record<string, un
         opened_at: r.openedAt,
         ts: r.ts,
         scores: d?.scores ?? null,
-        parties: partiesOf(r, d?.shares),
+        parties: partiesOf(r),
       };
     }
     case "won":

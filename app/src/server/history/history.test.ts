@@ -47,6 +47,7 @@ interface Seed {
   points?: number;
   challenge?: boolean;
   asset?: number;
+  shares?: [number, number];
 }
 
 function instructionsFor(s: Seed): InnerInstruction[] {
@@ -58,6 +59,7 @@ function instructionsFor(s: Seed): InnerInstruction[] {
       opener: pk(s.opener), n: bn(s.n), game: pk(s.game), kind, winner: kind === 0 ? s.winner! : 255, entry: bn(s.entry),
       fees: fees.map(bn), a_player: pk(s.a[0]), a_funder: pk(s.a[1]), b_player: s.b ? pk(s.b[0]) : zero, b_funder: s.b ? pk(s.b[1]) : zero,
       challenge: s.challenge ?? false, asset: s.asset ?? 0, opened_at: bn(s.at), ts: bn(s.at + 600),
+      a_share_bps: s.shares?.[0] ?? 0, b_share_bps: s.shares?.[1] ?? 0,
     }),
   ];
   if (kind === 0) {
@@ -83,7 +85,7 @@ describe("Match history from core events", () => {
 
   // 25 Matches for ALICE (opener or joiner), a backed one, a Block Puzzle one with scores, a draw, a refund.
   const seeds: Seed[] = [];
-  const detail: Record<string, { shares?: [number, number]; scores?: [number, number] }> = {};
+  const detail: Record<string, { scores?: [number, number] }> = {};
 
   beforeAll(async () => {
     ({ rpc } = await testDb());
@@ -97,10 +99,8 @@ describe("Match history from core events", () => {
       });
     }
     // Backed: CARL plays with ERIN's Gemas at a 40% share, wins against ALICE; and loses to DANA.
-    seeds.push({ opener: CARL, n: 1, game: GAME.holdem, entry: 1000, at: T0 + 30_000, a: [CARL, ERIN], b: [ALICE, ALICE], winner: 0 });
-    detail[keyOf(CARL, 1)] = { shares: [4000, 0] };
-    seeds.push({ opener: DANA, n: 1, game: GAME.holdem, entry: 1000, at: T0 + 31_000, a: [DANA, DANA], b: [CARL, ERIN], winner: 0 });
-    detail[keyOf(DANA, 1)] = { shares: [0, 4000] };
+    seeds.push({ opener: CARL, n: 1, game: GAME.holdem, entry: 1000, at: T0 + 30_000, a: [CARL, ERIN], b: [ALICE, ALICE], winner: 0, shares: [4000, 0] });
+    seeds.push({ opener: DANA, n: 1, game: GAME.holdem, entry: 1000, at: T0 + 31_000, a: [DANA, DANA], b: [CARL, ERIN], winner: 0, shares: [0, 4000] });
     // Trading Duel with an asset, Block Puzzle with scores, a draw and a cancelled (never joined) Match.
     seeds.push({ opener: ALICE, n: 100, game: GAME.td, entry: 500, at: T0 + 32_000, a: [ALICE, ALICE], b: [BOB, BOB], winner: 0, asset: 2, challenge: true });
     seeds.push({ opener: BOB, n: 101, game: GAME.bp, entry: 500, at: T0 + 33_000, a: [BOB, BOB], b: [ALICE, ALICE], winner: 1 });
@@ -215,6 +215,24 @@ describe("Match history from core events", () => {
     const recent = await recentWins(rpc, { since: (T0 + 31_000) * 1000, limit: 50 });
     expect(recent.map((w) => w.id).sort()).toEqual([keyOf(DANA, 1), keyOf(BOB, 101), keyOf(ALICE, 100)].sort());
     expect(recent.every((w) => w.at >= (T0 + 31_000) * 1000)).toBe(true);
+  });
+
+  it("charges each side the Platform Fee of a no-show, to the Backer when the entry is backed", async () => {
+    const { rpc: fresh } = await testDb();
+    const fee = 10; // 200 bps of a 500 entry, per side
+    const seed: Seed = { opener: ALICE, n: 7, game: GAME.holdem, entry: 500, at: T0, a: [ALICE, ALICE], b: [CARL, ERIN], kind: 1, fees: [2 * fee, 0, 0], shares: [0, 4000] };
+    await ingestMatchRecords(fresh, decodeMatchRecords(instructionsFor(seed)), ctx());
+    const alice = (await accountHistory(fresh, ALICE, 1, 10)).rows[0];
+    const carl = (await accountHistory(fresh, CARL, 1, 10)).rows[0];
+    const erin = (await accountHistory(fresh, ERIN, 1, 10)).rows[0];
+    expect(alice).toMatchObject({ result: "refunded", delta: -fee });
+    expect(carl).toMatchObject({ role: "player", delta: 0 });
+    expect(erin).toMatchObject({ role: "backer", delta: -fee });
+  });
+
+  it("takes Backing shares from the start record, not from the keeper", async () => {
+    const recs = decodeMatchRecords(instructionsFor({ opener: CARL, n: 9, game: GAME.holdem, entry: 1000, at: T0, a: [CARL, ERIN], b: [ALICE, ALICE], winner: 0, shares: [4000, 0] }));
+    expect(recs.find((r) => r.type === "start")).toMatchObject({ aShareBps: 4000, bShareBps: 0 });
   });
 
   it("serves each Player's record for the Backing board", async () => {
