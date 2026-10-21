@@ -91,11 +91,17 @@ export type Seat = 0 | 1;
 
 /** A Match is named by its MatchState address. */
 export type MatchKey = PublicKey;
-/** What the older callers still hold: a client-built Match id, which names nothing any more. */
+/**
+ * What the readers not yet moved (ticket 21) still hold: a client-built Match id. It maps to the
+ * pre-upgrade address `["match", id]`, which no Match of the new core lives at, so it only serves
+ * code that reads old data.
+ */
 export type LegacyMatchId = bigint;
 const keyOf = (m: MatchKey | LegacyMatchId): PublicKey => {
-  if (typeof m === "bigint") throw new Error("Matches are named by their MatchState address now (economy upgrade); this caller still holds a client-built id");
-  return m;
+  if (typeof m !== "bigint") return m;
+  const id = Buffer.alloc(8);
+  id.writeBigUInt64LE(m);
+  return PublicKey.findProgramAddressSync([Buffer.from("match"), id], TESORO_CORE_PROGRAM_ID)[0];
 };
 /** Legacy transactions hold 1232 bytes. */
 const TX_BYTES = 1232;

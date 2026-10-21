@@ -1165,7 +1165,7 @@ fn the_settle_record_is_an_event_cpi_that_logs_cannot_forge() {
         .inner_instructions
         .iter()
         .flatten()
-        .filter(|i| i.instruction.data.starts_with(&tag))
+        .filter(|i| i.instruction.data.starts_with(tag))
         .filter(|i| i.instruction.data[8..].starts_with(record))
         .collect();
     assert_eq!(inner.len(), 1, "one settle record as an inner instruction");
