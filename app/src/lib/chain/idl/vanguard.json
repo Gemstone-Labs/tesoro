@@ -640,7 +640,12 @@
               },
               {
                 "kind": "account",
-                "path": "tesoro_match.id",
+                "path": "tesoro_match.inner.id.opener",
+                "account": "MatchState"
+              },
+              {
+                "kind": "account",
+                "path": "tesoro_match.inner.id.n",
                 "account": "MatchState"
               }
             ],
@@ -951,8 +956,8 @@
                 ]
               },
               {
-                "kind": "arg",
-                "path": "match_id"
+                "kind": "account",
+                "path": "tesoro_match"
               }
             ]
           }
@@ -997,12 +1002,7 @@
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": [
-        {
-          "name": "match_id",
-          "type": "u64"
-        }
-      ]
+      "args": []
     },
     {
       "name": "deal",
@@ -1252,7 +1252,7 @@
               },
               {
                 "kind": "arg",
-                "path": "match_id"
+                "path": "tesoro_match"
               }
             ]
           }
@@ -1718,8 +1718,8 @@
       ],
       "args": [
         {
-          "name": "match_id",
-          "type": "u64"
+          "name": "tesoro_match",
+          "type": "pubkey"
         }
       ]
     },
@@ -1746,6 +1746,10 @@
       "accounts": [
         {
           "name": "caller",
+          "docs": [
+            "Pays the settlement receipt's rent in tesoro_core."
+          ],
+          "writable": true,
           "signer": true
         },
         {
@@ -1788,7 +1792,12 @@
               },
               {
                 "kind": "account",
-                "path": "tesoro_match.id",
+                "path": "tesoro_match.inner.id.opener",
+                "account": "MatchState"
+              },
+              {
+                "kind": "account",
+                "path": "tesoro_match.inner.id.n",
                 "account": "MatchState"
               }
             ],
@@ -1995,6 +2004,144 @@
                 ]
               }
             ]
+          }
+        },
+        {
+          "name": "game_program",
+          "address": "TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tesoro_match"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
           }
         },
         {
@@ -3748,40 +3895,6 @@
       }
     },
     {
-      "name": "FeeTerms",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "platform_bps",
-            "type": "u16"
-          },
-          {
-            "name": "studio_bps",
-            "type": "u16"
-          },
-          {
-            "name": "platform_recipient",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "studio_recipient",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          }
-        ]
-      }
-    },
-    {
       "name": "GameRecord",
       "docs": [
         "One Game. Registered once by whoever controls its program (see `registry`); changed only by",
@@ -3872,6 +3985,15 @@
                 32
               ]
             }
+          },
+          {
+            "name": "listing_epoch",
+            "docs": [
+              "Counts the builds the admin approved: bumped by `list_game` only when it sets a different",
+              "hash, never by `refresh_listing`. A Match remembers the epoch it opened under, so a moved",
+              "deploy slot with the same epoch is the same build."
+            ],
+            "type": "u32"
           }
         ]
       }
@@ -3901,15 +4023,16 @@
       }
     },
     {
-      "name": "Line",
+      "name": "MatchId",
       "docs": [
-        "A slice of Gemas of one Source moving into a Pot or a reservation."
+        "A Match id: the opener's Account and its counter value. Never reused: the counter only grows",
+        "and Accounts can't be closed and re-created."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "source",
+            "name": "opener",
             "type": {
               "array": [
                 "u8",
@@ -3918,17 +4041,59 @@
             }
           },
           {
-            "name": "amount",
+            "name": "n",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "Match",
+      "name": "MatchMeta",
+      "docs": [
+        "What a Match carries explicitly now that the id is only a counter."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "challenge",
+            "type": "bool"
+          },
+          {
+            "name": "asset",
+            "type": "u8"
+          },
+          {
+            "name": "listed",
+            "docs": [
+              "The Game's listed status when the Match opened (an unlisted Game earns no Points)."
+            ],
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchRecord",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "defined": {
+                "name": "MatchId"
+              }
+            }
+          },
+          {
+            "name": "meta",
+            "type": {
+              "defined": {
+                "name": "MatchMeta"
+              }
+            }
+          },
           {
             "name": "game",
             "type": {
@@ -3939,33 +4104,57 @@
             }
           },
           {
+            "name": "settle_authority",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "deploy_slot",
+            "docs": [
+              "The Game program's deploy slot when the Match opened."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "terms",
+            "type": {
+              "defined": {
+                "name": "Terms"
+              }
+            }
+          },
+          {
             "name": "entry",
             "type": "u64"
           },
           {
-            "name": "fees",
-            "docs": [
-              "Fee terms snapshotted when the Match opened."
-            ],
-            "type": {
-              "defined": {
-                "name": "FeeTerms"
-              }
-            }
+            "name": "opened_at",
+            "type": "i64"
           },
           {
-            "name": "status",
-            "type": {
-              "defined": {
-                "name": "MatchStatus"
-              }
-            }
+            "name": "deadline",
+            "docs": [
+              "After this time anyone may refund the Match as abandoned (extendable, never past the",
+              "absolute deadline)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "deadline_abs",
+            "docs": [
+              "Settlement must start before this; fixed at open."
+            ],
+            "type": "i64"
           },
           {
             "name": "a",
             "type": {
               "defined": {
-                "name": "Side"
+                "name": "Party"
               }
             }
           },
@@ -3974,23 +4163,49 @@
             "type": {
               "option": {
                 "defined": {
-                  "name": "Side"
+                  "name": "Party"
                 }
               }
             }
           },
           {
-            "name": "deadline",
+            "name": "pot_lines",
             "docs": [
-              "After this time anyone may refund the Match as abandoned / no-show."
+              "Lines each side's Pot held when it was put in (the Pot never gains lines)."
             ],
-            "type": "i64"
+            "type": {
+              "array": [
+                "u32",
+                2
+              ]
+            }
+          },
+          {
+            "name": "stage",
+            "type": {
+              "defined": {
+                "name": "Stage"
+              }
+            }
+          },
+          {
+            "name": "run",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "Run"
+                }
+              }
+            }
           }
         ]
       }
     },
     {
       "name": "MatchState",
+      "docs": [
+        "A Match. The Pots (the Tickets' lines) live in the two Ticket accounts named in `pots`."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -3999,14 +4214,10 @@
             "type": "u8"
           },
           {
-            "name": "id",
-            "type": "u64"
-          },
-          {
             "name": "inner",
             "type": {
               "defined": {
-                "name": "Match"
+                "name": "MatchRecord"
               }
             }
           },
@@ -4018,32 +4229,133 @@
             "type": "bool"
           },
           {
-            "name": "deploy_slot",
+            "name": "listing_epoch",
             "docs": [
-              "The Game program's deploy slot when the Match opened (zero if it could not be read or the",
-              "program cannot be upgraded)."
+              "`GameRecord.listing_epoch` when the Match opened."
             ],
-            "type": "u64"
+            "type": "u32"
+          },
+          {
+            "name": "payer",
+            "docs": [
+              "Who paid the rent of this account; it goes back there when the Match is closed."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pots",
+            "docs": [
+              "The Ticket account that is each side's Pot (the default key until the side joined)."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
           }
         ]
       }
     },
     {
-      "name": "MatchStatus",
+      "name": "Party",
+      "docs": [
+        "One entrant. `funder == player` unless the entry is Backed; then `share_bps` is the Player's",
+        "share of the surplus from the accepted Offer."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "funder",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "share_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Phase",
+      "docs": [
+        "A phase of a run. A Win is `Cuts(loser) -> Back(winner) -> Surplus`, a No-show is",
+        "`Cuts(0) -> Cuts(1) -> Back(0) -> Back(1)`, a refund is `Back(0) [-> Back(1)]`."
+      ],
       "type": {
         "kind": "enum",
         "variants": [
           {
-            "name": "Open"
+            "name": "Cuts",
+            "fields": [
+              "u8"
+            ]
           },
           {
-            "name": "Active"
+            "name": "Back",
+            "fields": [
+              "u8"
+            ]
           },
           {
-            "name": "Settled"
+            "name": "Surplus",
+            "fields": [
+              {
+                "name": "from",
+                "type": "u8"
+              },
+              {
+                "name": "to",
+                "type": "u8"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Receipt",
+      "docs": [
+        "The settlement receipt written when the Match enters Settling or Refunding: the outcome is",
+        "frozen in core from then on. Tables read its existence as proof their result slot is spent."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "defined": {
+                "name": "MatchId"
+              }
+            }
           },
           {
-            "name": "Refunded"
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "RunKind"
+              }
+            }
+          },
+          {
+            "name": "at",
+            "type": "i64"
           }
         ]
       }
@@ -4076,6 +4388,140 @@
                 35
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Run",
+      "docs": [
+        "The frozen plan and its cursor. Fixed size: it does not grow with the Pot, so the Match record",
+        "stays one small account whatever the number of lines. Which line a fee is cut from is not",
+        "listed up front: the cut walks the loser's Pot lines in order from the cursor, which only moves",
+        "forward, so a replayed or interleaved chunk continues exactly where the last one stopped."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "RunKind"
+              }
+            }
+          },
+          {
+            "name": "receipt",
+            "type": {
+              "defined": {
+                "name": "Receipt"
+              }
+            }
+          },
+          {
+            "name": "fees",
+            "docs": [
+              "Platform, Studio, Leaderboard totals in Gemas (a No-show: Platform only, both sides)."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
+          },
+          {
+            "name": "phases",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Phase"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "n_phases",
+            "type": "u8"
+          },
+          {
+            "name": "phase_i",
+            "type": "u8"
+          },
+          {
+            "name": "line_i",
+            "type": "u32"
+          },
+          {
+            "name": "cut_left",
+            "docs": [
+              "Fee Gemas still to cut from each side's lines, per class."
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    3
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "player_left",
+            "docs": [
+              "Gemas of the surplus still owed to the Player (Backed winner), frozen at the start."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "chunks",
+            "type": "u32"
+          },
+          {
+            "name": "steps",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RunKind",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Win",
+            "fields": [
+              {
+                "name": "winner",
+                "type": "u8"
+              }
+            ]
+          },
+          {
+            "name": "NoShow"
+          },
+          {
+            "name": "Draw"
+          },
+          {
+            "name": "Cancelled"
+          },
+          {
+            "name": "Abandoned"
+          },
+          {
+            "name": "GameUpgraded"
+          },
+          {
+            "name": "ByGame"
           }
         ]
       }
@@ -4154,45 +4600,67 @@
       }
     },
     {
-      "name": "Side",
+      "name": "Stage",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Settling"
+          },
+          {
+            "name": "Refunding"
+          },
+          {
+            "name": "Closed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Terms",
       "docs": [
-        "One entrant. `funder == player` unless the entry is backed; then `share_bps` is the Player's",
-        "share of the surplus from the accepted Offer."
+        "Fee terms snapshotted when the Match opened. The Leaderboard Fee is read when settling starts."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "player",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "funder",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "share_bps",
+            "name": "platform_bps",
             "type": "u16"
           },
           {
-            "name": "lines",
+            "name": "studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_owner",
+            "docs": [
+              "`None`: Tesoro's own Studio Fee, a Source counter. `Some(account)`: an outside studio,",
+              "paid as a fee line in its basket."
+            ],
             "type": {
-              "vec": {
-                "defined": {
-                  "name": "Line"
-                }
+              "option": {
+                "array": [
+                  "u8",
+                  32
+                ]
               }
             }
+          },
+          {
+            "name": "studio_priority",
+            "docs": [
+              "The Game was listed when the Match opened: its Studio Fee is a senior fee class, repaid",
+              "right after the Platform Fee. Otherwise it is paid as ordinary won Gemas into the",
+              "recipient's basket (`studio_owner` must then be set)."
+            ],
+            "type": "bool"
           }
         ]
       }

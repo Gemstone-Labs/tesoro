@@ -940,7 +940,6 @@
         },
         {
           "name": "backer_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -958,6 +957,76 @@
               {
                 "kind": "account",
                 "path": "backer_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backer_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backer_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "counters",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backer_account"
               }
             ]
           }
@@ -1215,6 +1284,136 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "cancel_ticket",
+      "discriminator": [
+        216,
+        28,
+        247,
+        206,
+        195,
+        171,
+        100,
+        143
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "signer": true
+        },
+        {
+          "name": "owner",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ticket",
+          "writable": true
+        },
+        {
+          "name": "offer",
+          "docs": [
+            "The Offer of a Backing Ticket: required to finish cancelling one, so the Offer is free again."
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "offer.inner.backer",
+                "account": "OfferState"
+              },
+              {
+                "kind": "account",
+                "path": "offer.nonce",
+                "account": "OfferState"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "max_lines",
+          "type": "u8"
+        }
+      ]
     },
     {
       "name": "cash_in_fee",
@@ -1687,6 +1886,100 @@
       "args": []
     },
     {
+      "name": "close_match",
+      "docs": [
+        "Closes a finished Match and returns the rents."
+      ],
+      "discriminator": [
+        79,
+        174,
+        36,
+        80,
+        233,
+        185,
+        176,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "match_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.id.opener",
+                "account": "MatchState"
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.id.n",
+                "account": "MatchState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_payer",
+          "writable": true
+        },
+        {
+          "name": "pot_a",
+          "writable": true
+        },
+        {
+          "name": "pot_a_payer",
+          "writable": true
+        },
+        {
+          "name": "pot_b",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "pot_b_payer",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "close_pair",
       "docs": [
         "Returns the rent of an opener-to-joiner pair counter after its window."
@@ -1746,6 +2039,55 @@
           "type": "pubkey"
         }
       ]
+    },
+    {
+      "name": "close_receipt",
+      "discriminator": [
+        126,
+        254,
+        244,
+        203,
+        124,
+        164,
+        134,
+        89
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "receipt.match_key",
+                "account": "SettlementReceipt"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true
+        }
+      ],
+      "args": []
     },
     {
       "name": "close_season",
@@ -1812,6 +2154,55 @@
                   111,
                   110,
                   115
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_ticket",
+      "discriminator": [
+        66,
+        209,
+        114,
+        197,
+        75,
+        27,
+        182,
+        117
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "ticket",
+          "writable": true
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
                 ]
               }
             ]
@@ -2009,7 +2400,6 @@
         },
         {
           "name": "backer_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -2049,6 +2439,76 @@
                   105,
                   111,
                   110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backer_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backer_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backer_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "counters",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114,
                   115
                 ]
               },
@@ -2417,7 +2877,6 @@
         },
         {
           "name": "backer_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -2436,6 +2895,76 @@
                 "kind": "account",
                 "path": "backer_account.authority",
                 "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backer_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backer_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "counters",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backer_account"
               }
             ]
           }
@@ -2555,27 +3084,6 @@
           "signer": true
         },
         {
-          "name": "game_record",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103,
-                  97,
-                  109,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "match_state.inner.game",
-                "account": "MatchState"
-              }
-            ]
-          }
-        },
-        {
           "name": "match_state",
           "writable": true,
           "pda": {
@@ -2592,7 +3100,12 @@
               },
               {
                 "kind": "account",
-                "path": "match_state.id",
+                "path": "match_state.inner.id.opener",
+                "account": "MatchState"
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.id.n",
                 "account": "MatchState"
               }
             ]
@@ -4452,6 +4965,107 @@
       ]
     },
     {
+      "name": "grow_ticket",
+      "discriminator": [
+        201,
+        250,
+        73,
+        223,
+        254,
+        178,
+        84,
+        96
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ticket",
+          "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "extra_lines",
+          "type": "u32"
+        }
+      ]
+    },
+    {
       "name": "harvest",
       "docs": [
         "Anyone: the ready part of a Source's Leaderboard counter goes into the prize escrow."
@@ -5704,6 +6318,10 @@
     },
     {
       "name": "join_match",
+      "docs": [
+        "Joins an Open Match with an equal entry (backed with an accepted Offer in the optional",
+        "accounts)."
+      ],
       "discriminator": [
         244,
         8,
@@ -5716,13 +6334,16 @@
       ],
       "accounts": [
         {
-          "name": "player_authority",
+          "name": "payer",
           "writable": true,
           "signer": true
         },
         {
+          "name": "player_authority",
+          "signer": true
+        },
+        {
           "name": "player_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -5740,6 +6361,31 @@
               {
                 "kind": "account",
                 "path": "player_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "counters",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
               }
             ]
           }
@@ -5773,6 +6419,55 @@
           }
         },
         {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true
+        },
+        {
           "name": "match_state",
           "writable": true,
           "pda": {
@@ -5789,7 +6484,12 @@
               },
               {
                 "kind": "account",
-                "path": "match_state.id",
+                "path": "match_state.inner.id.opener",
+                "account": "MatchState"
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.id.n",
                 "account": "MatchState"
               }
             ]
@@ -5824,6 +6524,14 @@
           }
         },
         {
+          "name": "opener_spill",
+          "writable": true
+        },
+        {
+          "name": "opener_funder_spill",
+          "writable": true
+        },
+        {
           "name": "pair",
           "writable": true,
           "pda": {
@@ -5845,161 +6553,6 @@
               {
                 "kind": "account",
                 "path": "player_account"
-              }
-            ]
-          }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "join_match_backed",
-      "discriminator": [
-        21,
-        44,
-        85,
-        237,
-        180,
-        213,
-        220,
-        187
-      ],
-      "accounts": [
-        {
-          "name": "player_authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "player_account",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "player_authority"
-              }
-            ]
-          }
-        },
-        {
-          "name": "protections",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  101,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  115
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "player_account"
-              }
-            ]
-          }
-        },
-        {
-          "name": "offer",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  111,
-                  102,
-                  102,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "offer.inner.backer",
-                "account": "OfferState"
-              },
-              {
-                "kind": "account",
-                "path": "offer.nonce",
-                "account": "OfferState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "backer_account",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "backer_account.authority",
-                "account": "TesoroAccount"
-              }
-            ]
-          }
-        },
-        {
-          "name": "backer_protections",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  101,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  115
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "backer_account"
               }
             ]
           }
@@ -6032,88 +6585,75 @@
           "name": "program_data"
         },
         {
-          "name": "match_state",
+          "name": "offer",
+          "docs": [
+            "The accepted Offer, when the entry is backed."
+          ],
           "writable": true,
+          "optional": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  109,
-                  97,
-                  116,
-                  99,
-                  104
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "match_state.id",
-                "account": "MatchState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "opener_protections",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
                   111,
-                  116,
+                  102,
+                  102,
                   101,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  115
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "match_state.inner.a.player",
-                "account": "MatchState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "pair",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  97,
-                  105,
                   114
                 ]
               },
               {
                 "kind": "account",
-                "path": "match_state.inner.a.player",
-                "account": "MatchState"
+                "path": "offer.inner.backer",
+                "account": "OfferState"
               },
               {
                 "kind": "account",
-                "path": "player_account"
+                "path": "offer.nonce",
+                "account": "OfferState"
               }
             ]
           }
+        },
+        {
+          "name": "backer_account",
+          "optional": true
+        },
+        {
+          "name": "backer_counters",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "backer_protections",
+          "optional": true
+        },
+        {
+          "name": "backer_basket",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "backer_spill",
+          "writable": true,
+          "optional": true
         },
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "pot_nonce",
+          "type": "u64"
+        },
+        {
+          "name": "pot_lines",
+          "type": "u32"
+        }
+      ]
     },
     {
       "name": "list_game",
@@ -6199,6 +6739,103 @@
               32
             ]
           }
+        }
+      ]
+    },
+    {
+      "name": "match_chunk",
+      "docs": [
+        "Runs up to `max_steps` steps of a Settling or Refunding Match (anyone)."
+      ],
+      "discriminator": [
+        205,
+        13,
+        99,
+        127,
+        83,
+        25,
+        99,
+        68
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "match_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.id.opener",
+                "account": "MatchState"
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.id.n",
+                "account": "MatchState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot_a",
+          "writable": true
+        },
+        {
+          "name": "pot_b",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "max_steps",
+          "type": "u8"
         }
       ]
     },
@@ -6309,6 +6946,13 @@
     },
     {
       "name": "open_match",
+      "docs": [
+        "Opens a Match for `game` at `entry`. `n` is the opener's next Match id; `pot` is a fresh",
+        "address (the entry is drawn here, into a new account of `pot_lines` lines at",
+        "`[\"ticket\", funder, pot_nonce]`) or a complete Entry Ticket. With an accepted Offer in the",
+        "optional accounts, the Backer's Gemas fund the entry. `challenge` and `asset` are carried",
+        "in the Match record, since the id no longer encodes them."
+      ],
       "discriminator": [
         208,
         231,
@@ -6321,8 +6965,12 @@
       ],
       "accounts": [
         {
-          "name": "player_authority",
+          "name": "payer",
           "writable": true,
+          "signer": true
+        },
+        {
+          "name": "player_authority",
           "signer": true
         },
         {
@@ -6338,6 +6986,25 @@
                   102,
                   105,
                   103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "economy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
                 ]
               }
             ]
@@ -6371,7 +7038,6 @@
         },
         {
           "name": "player_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -6389,6 +7055,31 @@
               {
                 "kind": "account",
                 "path": "player_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "counters",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
               }
             ]
           }
@@ -6420,6 +7111,55 @@
               }
             ]
           }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true
         },
         {
           "name": "match_state",
@@ -6437,147 +7177,23 @@
                 ]
               },
               {
-                "kind": "arg",
-                "path": "match_id"
-              }
-            ]
-          }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "match_id",
-          "type": "u64"
-        },
-        {
-          "name": "game",
-          "type": "pubkey"
-        },
-        {
-          "name": "entry",
-          "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "open_match_backed",
-      "discriminator": [
-        0,
-        221,
-        66,
-        22,
-        148,
-        131,
-        186,
-        30
-      ],
-      "accounts": [
-        {
-          "name": "player_authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "game_record",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103,
-                  97,
-                  109,
-                  101
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "game"
-              }
-            ]
-          }
-        },
-        {
-          "name": "game_program"
-        },
-        {
-          "name": "program_data"
-        },
-        {
-          "name": "player_account",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "player_authority"
-              }
-            ]
-          }
-        },
-        {
-          "name": "protections",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  101,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  115
-                ]
-              },
-              {
                 "kind": "account",
                 "path": "player_account"
+              },
+              {
+                "kind": "arg",
+                "path": "n"
               }
             ]
           }
         },
         {
           "name": "offer",
+          "docs": [
+            "The accepted Offer, when the entry is backed."
+          ],
           "writable": true,
+          "optional": true,
           "pda": {
             "seeds": [
               {
@@ -6605,77 +7221,26 @@
         },
         {
           "name": "backer_account",
+          "optional": true
+        },
+        {
+          "name": "backer_counters",
           "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "backer_account.authority",
-                "account": "TesoroAccount"
-              }
-            ]
-          }
+          "optional": true
         },
         {
           "name": "backer_protections",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  101,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  115
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "backer_account"
-              }
-            ]
-          }
+          "optional": true
         },
         {
-          "name": "match_state",
+          "name": "backer_basket",
           "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  116,
-                  99,
-                  104
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "match_id"
-              }
-            ]
-          }
+          "optional": true
+        },
+        {
+          "name": "backer_spill",
+          "writable": true,
+          "optional": true
         },
         {
           "name": "system_program",
@@ -6684,16 +7249,32 @@
       ],
       "args": [
         {
-          "name": "match_id",
-          "type": "u64"
-        },
-        {
           "name": "game",
           "type": "pubkey"
         },
         {
           "name": "entry",
           "type": "u64"
+        },
+        {
+          "name": "n",
+          "type": "u64"
+        },
+        {
+          "name": "pot_nonce",
+          "type": "u64"
+        },
+        {
+          "name": "challenge",
+          "type": "bool"
+        },
+        {
+          "name": "asset",
+          "type": "u8"
+        },
+        {
+          "name": "pot_lines",
+          "type": "u32"
         }
       ]
     },
@@ -7226,6 +7807,235 @@
         {
           "name": "shares",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "open_ticket",
+      "discriminator": [
+        154,
+        120,
+        166,
+        69,
+        155,
+        111,
+        27,
+        207
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "requester",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "docs": [
+            "The Account whose lines are staged: the Requester's own (Entry) or the Backer's (Backing)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ticket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  99,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "offer",
+          "docs": [
+            "The accepted Offer a Backing Ticket is for."
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "offer.inner.backer",
+                "account": "OfferState"
+              },
+              {
+                "kind": "account",
+                "path": "offer.nonce",
+                "account": "OfferState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u64"
+        },
+        {
+          "name": "kind",
+          "type": {
+            "defined": {
+              "name": "TicketKindArg"
+            }
+          }
+        },
+        {
+          "name": "game",
+          "type": "pubkey"
+        },
+        {
+          "name": "target",
+          "type": "u64"
+        },
+        {
+          "name": "lines",
+          "type": "u32"
         }
       ]
     },
@@ -8521,6 +9331,9 @@
     },
     {
       "name": "refund_match",
+      "docs": [
+        "Starts refunding an Open or Active Match; the chunks follow."
+      ],
       "discriminator": [
         70,
         82,
@@ -8534,6 +9347,14 @@
       "accounts": [
         {
           "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the receipt's rent (refundable to it 14 days later)."
+          ],
+          "writable": true,
           "signer": true
         },
         {
@@ -8558,6 +9379,12 @@
           }
         },
         {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
           "name": "match_state",
           "writable": true,
           "pda": {
@@ -8574,8 +9401,37 @@
               },
               {
                 "kind": "account",
-                "path": "match_state.id",
+                "path": "match_state.inner.id.opener",
                 "account": "MatchState"
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.id.n",
+                "account": "MatchState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
               }
             ]
           }
@@ -8611,6 +9467,42 @@
               }
             ]
           }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": []
@@ -11304,6 +12196,10 @@
     },
     {
       "name": "settle_match",
+      "docs": [
+        "Starts settling an Active Match (Game authority): freezes the outcome and the fees, writes",
+        "the receipt, emits the records. The payouts follow in `match_chunk`."
+      ],
       "discriminator": [
         71,
         124,
@@ -11317,6 +12213,14 @@
       "accounts": [
         {
           "name": "game_authority",
+          "signer": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the receipt's rent (refundable to it 14 days later)."
+          ],
+          "writable": true,
           "signer": true
         },
         {
@@ -11359,6 +12263,12 @@
           }
         },
         {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
           "name": "match_state",
           "writable": true,
           "pda": {
@@ -11375,11 +12285,76 @@
               },
               {
                 "kind": "account",
-                "path": "match_state.id",
+                "path": "match_state.inner.id.opener",
+                "account": "MatchState"
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.id.n",
                 "account": "MatchState"
               }
             ]
           }
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -11515,6 +12490,104 @@
         {
           "name": "keep_free",
           "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "stage_entry",
+      "discriminator": [
+        245,
+        131,
+        110,
+        237,
+        129,
+        36,
+        101,
+        138
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "signer": true
+        },
+        {
+          "name": "owner",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ticket",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "max_ops",
+          "type": "u8"
         }
       ]
     },
@@ -13431,6 +14504,19 @@
   ],
   "accounts": [
     {
+      "name": "AccountCounters",
+      "discriminator": [
+        252,
+        188,
+        225,
+        16,
+        33,
+        213,
+        76,
+        163
+      ]
+    },
+    {
       "name": "BasketHead",
       "discriminator": [
         137,
@@ -13717,6 +14803,19 @@
       ]
     },
     {
+      "name": "SettlementReceipt",
+      "discriminator": [
+        52,
+        249,
+        252,
+        121,
+        4,
+        232,
+        187,
+        4
+      ]
+    },
+    {
       "name": "SourceAuthority",
       "discriminator": [
         115,
@@ -13818,6 +14917,19 @@
         217,
         197,
         178
+      ]
+    },
+    {
+      "name": "TicketHead",
+      "discriminator": [
+        0,
+        160,
+        251,
+        77,
+        58,
+        28,
+        126,
+        167
       ]
     },
     {
@@ -14028,6 +15140,32 @@
         217,
         84,
         96
+      ]
+    },
+    {
+      "name": "MatchChunkDone",
+      "discriminator": [
+        249,
+        220,
+        188,
+        112,
+        128,
+        235,
+        80,
+        10
+      ]
+    },
+    {
+      "name": "MatchRunStarted",
+      "discriminator": [
+        148,
+        211,
+        235,
+        194,
+        249,
+        215,
+        71,
+        68
       ]
     },
     {
@@ -14333,98 +15471,228 @@
   "errors": [
     {
       "code": 6000,
-      "name": "NothingToResize",
-      "msg": "the store is already at the size you asked for"
+      "name": "Unauthorized",
+      "msg": "signer is not authorised"
     },
     {
       "code": 6001,
-      "name": "StoreAtMaximum",
-      "msg": "the store would go over its maximum number of lines"
+      "name": "GameNotRegistered",
+      "msg": "game is not registered"
     },
     {
       "code": 6002,
-      "name": "GrowTooLarge",
-      "msg": "one call adds at most 71 lines"
+      "name": "GameRegistryFull",
+      "msg": "game registry is full"
     },
     {
       "code": 6003,
-      "name": "SponsorPaused",
-      "msg": "sponsoring is paused"
+      "name": "InvalidAccount",
+      "msg": "account does not match"
     },
     {
       "code": 6004,
-      "name": "NotSponsorRelayer",
-      "msg": "only the sponsor's relayer authorises sponsored rent"
+      "name": "BadRemainingAccounts",
+      "msg": "wrong number of remaining accounts"
     },
     {
       "code": 6005,
-      "name": "AccountSponsorCap",
-      "msg": "this Account is at its cap of sponsored rent"
+      "name": "DuplicateAccount",
+      "msg": "the same account was supplied twice"
     },
     {
       "code": 6006,
-      "name": "TotalSponsorCap",
-      "msg": "the sponsor is at its total cap of sponsored rent"
+      "name": "NotWritable",
+      "msg": "account must be writable"
     },
     {
       "code": 6007,
-      "name": "SponsorShort",
-      "msg": "the sponsor does not hold enough SOL"
+      "name": "InvalidPool",
+      "msg": "pool is not the canonical sim_lst pool"
     },
     {
       "code": 6008,
-      "name": "CapBelowOutstanding",
-      "msg": "the sponsor's caps cannot be below what is already outstanding"
+      "name": "InvalidMint",
+      "msg": "mint is not the sim_lst pool's simSOL mint"
     },
     {
       "code": 6009,
-      "name": "BadStore",
-      "msg": "the basket or spill account is malformed"
+      "name": "NativePosition",
+      "msg": "native Positions are opened and driven only by the native instructions"
     },
     {
       "code": 6010,
-      "name": "FeeCounterOnly",
-      "msg": "a basket and a spill hold no Platform or Leaderboard line: those live in the Source's book"
+      "name": "NotNativePosition",
+      "msg": "position is not a native Position"
     },
     {
       "code": 6011,
-      "name": "BadSourceBook",
-      "msg": "account is not a Source book of this program"
+      "name": "StalePrice",
+      "msg": "price is stale or not set"
     },
     {
       "code": 6012,
-      "name": "BadCheckpointPage",
-      "msg": "account is not a checkpoint page of a supplied Source book"
+      "name": "BridgedSource",
+      "msg": "Gemas of an EVM-sourced Advance are redeemed through the bridge"
     },
     {
       "code": 6013,
-      "name": "DuplicateBook",
-      "msg": "the same book or page was supplied twice"
+      "name": "InvalidProfileName",
+      "msg": "a name is 3 to 20 letters, digits, spaces, dots, underscores or dashes, with no space at either end"
     },
     {
       "code": 6014,
-      "name": "BookMissing",
-      "msg": "a line needs the book of its Source"
+      "name": "InvalidAvatar",
+      "msg": "avatar is not one of the available pictures"
     },
     {
       "code": 6015,
-      "name": "AccountNotWritable",
-      "msg": "the supplied accounts must be writable"
+      "name": "EvmNotLinked",
+      "msg": "the EVM address is not linked to this Account through the bridge"
     },
     {
       "code": 6016,
-      "name": "WrongPage",
-      "msg": "the page number is not the next one for this class"
+      "name": "LeaderboardOff",
+      "msg": "the leaderboard is not set up"
     },
     {
       "code": 6017,
-      "name": "BookExists",
-      "msg": "the Source book already exists for this Source"
+      "name": "TreasuryShort",
+      "msg": "the treasury cannot pay this instant redeem now"
     },
     {
       "code": 6018,
-      "name": "Ledger",
-      "msg": "the ledger refused the operation"
+      "name": "SourceRequired",
+      "msg": "the open Advance's Source must be supplied"
+    },
+    {
+      "code": 6019,
+      "name": "CompanyNotSet",
+      "msg": "the Treasury has no company wallet set"
+    },
+    {
+      "code": 6020,
+      "name": "BadPriceFeed",
+      "msg": "the price feed account is not the mapped Pyth feed, or is not a verified price update"
+    },
+    {
+      "code": 6021,
+      "name": "PriceTooUncertain",
+      "msg": "the price feed's confidence interval is too wide to issue Gemas on"
+    },
+    {
+      "code": 6022,
+      "name": "OnchainPriceRequired",
+      "msg": "this asset is priced from its on-chain feed; use the on-chain Advance"
+    },
+    {
+      "code": 6023,
+      "name": "InviteRequired",
+      "msg": "creating an Account needs an Invite"
+    },
+    {
+      "code": 6024,
+      "name": "InviteKeyMissing",
+      "msg": "an Invite key is needed to turn the Invite gate on"
+    },
+    {
+      "code": 6025,
+      "name": "StakeTokenInactive",
+      "msg": "this staking token is not the one new Positions open with"
+    },
+    {
+      "code": 6026,
+      "name": "StakeCeilingNotSet",
+      "msg": "the Advance APY ceiling is not set"
+    },
+    {
+      "code": 6027,
+      "name": "NotStakePosition",
+      "msg": "position is not a staking-token Position"
+    },
+    {
+      "code": 6028,
+      "name": "BadStakePoolAccount",
+      "msg": "the stake pool account is not the custody's pool, is not owned by a stake pool program, or is not its token's pool"
+    },
+    {
+      "code": 6029,
+      "name": "OracleLocked",
+      "msg": "the oracle key can no longer register Positions, report yield or price Advances"
+    },
+    {
+      "code": 6030,
+      "name": "NotOldWorld",
+      "msg": "this account is not of the retired world, so it cannot be retired"
+    },
+    {
+      "code": 6031,
+      "name": "GameProofInvalid",
+      "msg": "the Game program is not a live program of a loader the registry understands"
+    },
+    {
+      "code": 6032,
+      "name": "NotGameControl",
+      "msg": "the signer does not control the Game program"
+    },
+    {
+      "code": 6033,
+      "name": "StudioFeeTooHigh",
+      "msg": "a Studio Fee is at most 10%"
+    },
+    {
+      "code": 6034,
+      "name": "StudioRecipientReserved",
+      "msg": "the Studio recipient may not be the Pool, the Treasury or the platform recipient"
+    },
+    {
+      "code": 6035,
+      "name": "NoPendingChange",
+      "msg": "no change is waiting for this Game"
+    },
+    {
+      "code": 6036,
+      "name": "ChangeDelayNotElapsed",
+      "msg": "a change to a Game applies 7 days after it is proposed"
+    },
+    {
+      "code": 6037,
+      "name": "GameNotListed",
+      "msg": "this Game is not listed, or was upgraded since the admin approved it"
+    },
+    {
+      "code": 6038,
+      "name": "PairLimitReached",
+      "msg": "these two Accounts have started too many Matches together today"
+    },
+    {
+      "code": 6039,
+      "name": "PairWindowOpen",
+      "msg": "this pair counter is still inside its 24-hour window"
+    },
+    {
+      "code": 6040,
+      "name": "CodeHashMismatch",
+      "msg": "the program's executable does not hash to the value given"
+    },
+    {
+      "code": 6041,
+      "name": "CodeChanged",
+      "msg": "the program's executable differs from the approved build; the admin must approve it again"
+    },
+    {
+      "code": 6042,
+      "name": "ListingCurrent",
+      "msg": "the listing already matches the program's deploy slot"
+    },
+    {
+      "code": 6043,
+      "name": "NotListed",
+      "msg": "the Game is not listed, so there is nothing to refresh"
+    },
+    {
+      "code": 6044,
+      "name": "ProgramTooLarge",
+      "msg": "the program is too large to hash in one transaction"
     }
   ],
   "types": [
@@ -14455,6 +15723,34 @@
           {
             "name": "won_reserved",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AccountCounters",
+      "docs": [
+        "What an Account has counted: the id of its next Match, how many of its Matches are open, how",
+        "many Offers it has open. Created with the first Match or Offer; never closed."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "next_match",
+            "type": "u64"
+          },
+          {
+            "name": "open_matches",
+            "type": "u32"
+          },
+          {
+            "name": "open_offers",
+            "type": "u32"
           }
         ]
       }
@@ -15095,40 +16391,6 @@
       }
     },
     {
-      "name": "FeeTerms",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "platform_bps",
-            "type": "u16"
-          },
-          {
-            "name": "studio_bps",
-            "type": "u16"
-          },
-          {
-            "name": "platform_recipient",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "studio_recipient",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          }
-        ]
-      }
-    },
-    {
       "name": "GameRecord",
       "docs": [
         "One Game. Registered once by whoever controls its program (see `registry`); changed only by",
@@ -15542,30 +16804,6 @@
       }
     },
     {
-      "name": "Line",
-      "docs": [
-        "A slice of Gemas of one Source moving into a Pot or a reservation."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "source",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "amount",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "LineRef",
       "docs": [
         "Names one line of a Source in an Account's basket or spill: the rest of its key is the Source."
@@ -15596,10 +16834,115 @@
       }
     },
     {
-      "name": "Match",
+      "name": "MatchChunkDone",
+      "docs": [
+        "One chunk of a run did work. Stable ids: the Match id and the chunk number."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "opener",
+            "type": "pubkey"
+          },
+          {
+            "name": "n",
+            "type": "u64"
+          },
+          {
+            "name": "chunk_no",
+            "type": "u32"
+          },
+          {
+            "name": "steps",
+            "type": "u32"
+          },
+          {
+            "name": "done",
+            "type": "bool"
+          },
+          {
+            "name": "blocked",
+            "docs": [
+              "A step could not run (missing account or room); nothing was skipped."
+            ],
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchId",
+      "docs": [
+        "A Match id: the opener's Account and its counter value. Never reused: the counter only grows",
+        "and Accounts can't be closed and re-created."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "opener",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "n",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchMeta",
+      "docs": [
+        "What a Match carries explicitly now that the id is only a counter."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenge",
+            "type": "bool"
+          },
+          {
+            "name": "asset",
+            "type": "u8"
+          },
+          {
+            "name": "listed",
+            "docs": [
+              "The Game's listed status when the Match opened (an unlisted Game earns no Points)."
+            ],
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchRecord",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "defined": {
+                "name": "MatchId"
+              }
+            }
+          },
+          {
+            "name": "meta",
+            "type": {
+              "defined": {
+                "name": "MatchMeta"
+              }
+            }
+          },
           {
             "name": "game",
             "type": {
@@ -15610,33 +16953,57 @@
             }
           },
           {
+            "name": "settle_authority",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "deploy_slot",
+            "docs": [
+              "The Game program's deploy slot when the Match opened."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "terms",
+            "type": {
+              "defined": {
+                "name": "Terms"
+              }
+            }
+          },
+          {
             "name": "entry",
             "type": "u64"
           },
           {
-            "name": "fees",
-            "docs": [
-              "Fee terms snapshotted when the Match opened."
-            ],
-            "type": {
-              "defined": {
-                "name": "FeeTerms"
-              }
-            }
+            "name": "opened_at",
+            "type": "i64"
           },
           {
-            "name": "status",
-            "type": {
-              "defined": {
-                "name": "MatchStatus"
-              }
-            }
+            "name": "deadline",
+            "docs": [
+              "After this time anyone may refund the Match as abandoned (extendable, never past the",
+              "absolute deadline)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "deadline_abs",
+            "docs": [
+              "Settlement must start before this; fixed at open."
+            ],
+            "type": "i64"
           },
           {
             "name": "a",
             "type": {
               "defined": {
-                "name": "Side"
+                "name": "Party"
               }
             }
           },
@@ -15645,17 +17012,40 @@
             "type": {
               "option": {
                 "defined": {
-                  "name": "Side"
+                  "name": "Party"
                 }
               }
             }
           },
           {
-            "name": "deadline",
+            "name": "pot_lines",
             "docs": [
-              "After this time anyone may refund the Match as abandoned / no-show."
+              "Lines each side's Pot held when it was put in (the Pot never gains lines)."
             ],
-            "type": "i64"
+            "type": {
+              "array": [
+                "u32",
+                2
+              ]
+            }
+          },
+          {
+            "name": "stage",
+            "type": {
+              "defined": {
+                "name": "Stage"
+              }
+            }
+          },
+          {
+            "name": "run",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "Run"
+                }
+              }
+            }
           }
         ]
       }
@@ -15673,28 +17063,127 @@
           },
           {
             "name": "Draw"
+          },
+          {
+            "name": "NoShow"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchRunStarted",
+      "docs": [
+        "Settling or Refunding started: the outcome and the fees are frozen. Start record of a run."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "opener",
+            "type": "pubkey"
+          },
+          {
+            "name": "n",
+            "type": "u64"
+          },
+          {
+            "name": "game",
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "docs": [
+              "0 win, 1 no-show, 2 draw, 3 cancelled, 4 abandoned, 5 game upgraded, 6 refunded by game."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "winner",
+            "docs": [
+              "Index of the winning side (0 opened, 1 joined); 255 when there is none."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "entry",
+            "type": "u64"
+          },
+          {
+            "name": "fees",
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
+          },
+          {
+            "name": "a_player",
+            "type": "pubkey"
+          },
+          {
+            "name": "a_funder",
+            "type": "pubkey"
+          },
+          {
+            "name": "b_player",
+            "type": "pubkey"
+          },
+          {
+            "name": "b_funder",
+            "type": "pubkey"
+          },
+          {
+            "name": "challenge",
+            "type": "bool"
+          },
+          {
+            "name": "asset",
+            "type": "u8"
+          },
+          {
+            "name": "opened_at",
+            "type": "i64"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
           }
         ]
       }
     },
     {
       "name": "MatchSettled",
+      "docs": [
+        "The run is complete: every obligation is a durable basket or spill line."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "match_id",
+            "name": "opener",
+            "type": "pubkey"
+          },
+          {
+            "name": "n",
             "type": "u64"
           },
           {
-            "name": "result",
+            "name": "kind",
             "type": "u8"
+          },
+          {
+            "name": "chunks",
+            "type": "u32"
           }
         ]
       }
     },
     {
       "name": "MatchState",
+      "docs": [
+        "A Match. The Pots (the Tickets' lines) live in the two Ticket accounts named in `pots`."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -15703,14 +17192,10 @@
             "type": "u8"
           },
           {
-            "name": "id",
-            "type": "u64"
-          },
-          {
             "name": "inner",
             "type": {
               "defined": {
-                "name": "Match"
+                "name": "MatchRecord"
               }
             }
           },
@@ -15722,39 +17207,30 @@
             "type": "bool"
           },
           {
-            "name": "deploy_slot",
-            "docs": [
-              "The Game program's deploy slot when the Match opened (zero if it could not be read or the",
-              "program cannot be upgraded)."
-            ],
-            "type": "u64"
-          },
-          {
             "name": "listing_epoch",
             "docs": [
               "`GameRecord.listing_epoch` when the Match opened."
             ],
             "type": "u32"
-          }
-        ]
-      }
-    },
-    {
-      "name": "MatchStatus",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "Open"
           },
           {
-            "name": "Active"
+            "name": "payer",
+            "docs": [
+              "Who paid the rent of this account; it goes back there when the Match is closed."
+            ],
+            "type": "pubkey"
           },
           {
-            "name": "Settled"
-          },
-          {
-            "name": "Refunded"
+            "name": "pots",
+            "docs": [
+              "The Ticket account that is each side's Pot (the default key until the side joined)."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
           }
         ]
       }
@@ -15763,13 +17239,22 @@
       "name": "MatchWon",
       "docs": [
         "A Match was won. The Player is the Account that played (a Backer's win is the Player's for",
-        "points). Every season standing is the sum of these events, so anyone can recompute it."
+        "points). Every season standing is the sum of these events, so anyone can recompute it. Written",
+        "by event-CPI when the outcome is frozen (the start of Settling), so it cannot be forged by",
+        "another program's log: readers check the program id of the inner instruction."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "match_id",
+            "name": "opener",
+            "docs": [
+              "The opener's Account and its counter value: the Match id."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "n",
             "type": "u64"
           },
           {
@@ -15795,7 +17280,7 @@
           {
             "name": "pool_fee",
             "docs": [
-              "Gemas this Match paid into the Leaderboard Pool."
+              "Gemas this Match pays into the Leaderboard Pool."
             ],
             "type": "u64"
           },
@@ -15810,11 +17295,21 @@
           {
             "name": "loser",
             "docs": [
-              "The Account that played on the losing side (the opponent of `player`); all zeroes if that",
-              "seat was empty. Last field, so events from before it was added are the same bytes minus",
-              "these 32 and read as having no known opponent (ADR 0012)."
+              "The Account that played on the losing side (the opponent of `player`)."
             ],
             "type": "pubkey"
+          },
+          {
+            "name": "challenge",
+            "type": "bool"
+          },
+          {
+            "name": "asset",
+            "type": "u8"
+          },
+          {
+            "name": "opened_at",
+            "type": "i64"
           }
         ]
       }
@@ -16059,17 +17554,12 @@
             }
           },
           {
-            "name": "lines",
+            "name": "ticket_open",
             "docs": [
-              "The Backer's reserved Gemas."
+              "A Backing Ticket is staging this Offer's lines: it cannot be cancelled or expired until",
+              "the Ticket is cancelled or consumed."
             ],
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "ReservedLine"
-                }
-              }
-            }
+            "type": "bool"
           }
         ]
       }
@@ -16279,6 +17769,77 @@
           {
             "name": "count",
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Party",
+      "docs": [
+        "One entrant. `funder == player` unless the entry is Backed; then `share_bps` is the Player's",
+        "share of the surplus from the accepted Offer."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "funder",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "share_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Phase",
+      "docs": [
+        "A phase of a run. A Win is `Cuts(loser) -> Back(winner) -> Surplus`, a No-show is",
+        "`Cuts(0) -> Cuts(1) -> Back(0) -> Back(1)`, a refund is `Back(0) [-> Back(1)]`."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Cuts",
+            "fields": [
+              "u8"
+            ]
+          },
+          {
+            "name": "Back",
+            "fields": [
+              "u8"
+            ]
+          },
+          {
+            "name": "Surplus",
+            "fields": [
+              {
+                "name": "from",
+                "type": "u8"
+              },
+              {
+                "name": "to",
+                "type": "u8"
+              }
+            ]
           }
         ]
       }
@@ -16990,6 +18551,38 @@
       }
     },
     {
+      "name": "Receipt",
+      "docs": [
+        "The settlement receipt written when the Match enters Settling or Refunding: the outcome is",
+        "frozen in core from then on. Tables read its existence as proof their result slot is spent."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "defined": {
+                "name": "MatchId"
+              }
+            }
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "RunKind"
+              }
+            }
+          },
+          {
+            "name": "at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Redeemed",
       "docs": [
         "The seam for `PayYield`: source-chain units owed to the redeeming Account's address there."
@@ -17148,34 +18741,6 @@
       }
     },
     {
-      "name": "ReservedLine",
-      "docs": [
-        "Reservation of a Backer's Gemas for an Offer; `is_own` keeps the own-first classes intact."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "source",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "is_own",
-            "type": "bool"
-          },
-          {
-            "name": "amount",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "RouteLedger",
       "type": {
         "kind": "struct",
@@ -17238,6 +18803,140 @@
               "Lifetime shares moved from `pool_owed` into the escrow."
             ],
             "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Run",
+      "docs": [
+        "The frozen plan and its cursor. Fixed size: it does not grow with the Pot, so the Match record",
+        "stays one small account whatever the number of lines. Which line a fee is cut from is not",
+        "listed up front: the cut walks the loser's Pot lines in order from the cursor, which only moves",
+        "forward, so a replayed or interleaved chunk continues exactly where the last one stopped."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "RunKind"
+              }
+            }
+          },
+          {
+            "name": "receipt",
+            "type": {
+              "defined": {
+                "name": "Receipt"
+              }
+            }
+          },
+          {
+            "name": "fees",
+            "docs": [
+              "Platform, Studio, Leaderboard totals in Gemas (a No-show: Platform only, both sides)."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
+          },
+          {
+            "name": "phases",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Phase"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "n_phases",
+            "type": "u8"
+          },
+          {
+            "name": "phase_i",
+            "type": "u8"
+          },
+          {
+            "name": "line_i",
+            "type": "u32"
+          },
+          {
+            "name": "cut_left",
+            "docs": [
+              "Fee Gemas still to cut from each side's lines, per class."
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    3
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "player_left",
+            "docs": [
+              "Gemas of the surplus still owed to the Player (Backed winner), frozen at the start."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "chunks",
+            "type": "u32"
+          },
+          {
+            "name": "steps",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RunKind",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Win",
+            "fields": [
+              {
+                "name": "winner",
+                "type": "u8"
+              }
+            ]
+          },
+          {
+            "name": "NoShow"
+          },
+          {
+            "name": "Draw"
+          },
+          {
+            "name": "Cancelled"
+          },
+          {
+            "name": "Abandoned"
+          },
+          {
+            "name": "GameUpgraded"
+          },
+          {
+            "name": "ByGame"
           }
         ]
       }
@@ -17409,43 +19108,31 @@
       }
     },
     {
-      "name": "Side",
+      "name": "SettlementReceipt",
       "docs": [
-        "One entrant. `funder == player` unless the entry is backed; then `share_bps` is the Player's",
-        "share of the surplus from the accepted Offer."
+        "Written when a Match enters Settling or Refunding: proof, in core, that its outcome is frozen",
+        "and its table's result slot is spent. Refundable to whoever paid it."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "player",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            "name": "bump",
+            "type": "u8"
           },
           {
-            "name": "funder",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            "name": "match_key",
+            "type": "pubkey"
           },
           {
-            "name": "share_bps",
-            "type": "u16"
+            "name": "payer",
+            "type": "pubkey"
           },
           {
-            "name": "lines",
+            "name": "receipt",
             "type": {
-              "vec": {
-                "defined": {
-                  "name": "Line"
-                }
+              "defined": {
+                "name": "Receipt"
               }
             }
           }
@@ -17733,6 +19420,29 @@
       }
     },
     {
+      "name": "Stage",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Settling"
+          },
+          {
+            "name": "Refunding"
+          },
+          {
+            "name": "Closed"
+          }
+        ]
+      }
+    },
+    {
       "name": "StakeApyCeilingSet",
       "type": {
         "kind": "struct",
@@ -17972,6 +19682,49 @@
       }
     },
     {
+      "name": "Terms",
+      "docs": [
+        "Fee terms snapshotted when the Match opened. The Leaderboard Fee is read when settling starts."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "platform_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_owner",
+            "docs": [
+              "`None`: Tesoro's own Studio Fee, a Source counter. `Some(account)`: an outside studio,",
+              "paid as a fee line in its basket."
+            ],
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "studio_priority",
+            "docs": [
+              "The Game was listed when the Match opened: its Studio Fee is a senior fee class, repaid",
+              "right after the Platform Fee. Otherwise it is paid as ordinary won Gemas into the",
+              "recipient's basket (`studio_owner` must then be set)."
+            ],
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
       "name": "TesoroAccount",
       "type": {
         "kind": "struct",
@@ -18006,6 +19759,48 @@
                 "name": "Account"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TicketHead",
+      "docs": [
+        "The zero-copy head: a plain byte array (alignment 1, no padding) that gives Anchor the",
+        "discriminator and owner check."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raw",
+            "type": {
+              "array": [
+                "u8",
+                160
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TicketKindArg",
+      "docs": [
+        "Which Ticket to open."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Entry"
+          },
+          {
+            "name": "Backing"
           }
         ]
       }
