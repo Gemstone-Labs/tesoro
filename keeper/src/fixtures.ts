@@ -170,3 +170,21 @@ export function scriptedConn(txs: { signature: string; tx: ReturnType<typeof eve
     },
   };
 }
+
+/** A stand-in for `ctx.core` whose `account.<name>.fetch / fetchNullable` read from `accounts` (tests); `methods` and `coder` are real. */
+export function chainOf(core: anchor.Program<any>, accounts: Map<string, Buffer>) {
+  const account = new Proxy(
+    {},
+    {
+      get: (_t, name: string) => ({
+        fetchNullable: async (addr: PublicKey) => (accounts.has(addr.toBase58()) ? core.coder.accounts.decode(name, accounts.get(addr.toBase58())!) : null),
+        fetch: async (addr: PublicKey) => {
+          const data = accounts.get(addr.toBase58());
+          if (!data) throw new Error(`Account does not exist ${addr.toBase58()}`);
+          return core.coder.accounts.decode(name, data);
+        },
+      }),
+    },
+  );
+  return { methods: core.methods, coder: core.coder, programId: core.programId, account } as any;
+}

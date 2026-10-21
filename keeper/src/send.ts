@@ -4,23 +4,25 @@ import { pollConfirm } from "./runtime.ts";
 /** A transaction is at most this many bytes on the wire. */
 export const MAX_TX_BYTES = 1232;
 
+type Signer = Pick<Keypair, "publicKey" | "secretKey">;
+
 export interface SendOpts {
   /** Compute unit limit (a ComputeBudget instruction is added when set). */
   units?: number;
   /** Address lookup tables to compile with. */
   tables?: AddressLookupTableAccount[];
+  /** Further signers (an authority that is not the fee payer). */
+  signers?: Signer[];
 }
-
-type Signer = Pick<Keypair, "publicKey" | "secretKey">;
 
 export function compile(payer: PublicKey, blockhash: string, ixs: TransactionInstruction[], opts: SendOpts = {}): VersionedTransaction {
   const all = opts.units ? [ComputeBudgetProgram.setComputeUnitLimit({ units: opts.units }), ...ixs] : ixs;
   return new VersionedTransaction(new TransactionMessage({ payerKey: payer, recentBlockhash: blockhash, instructions: all }).compileToV0Message(opts.tables));
 }
 
-/** Serialized size in bytes with one signature, as the network counts it. */
+/** Serialized size in bytes with every signature, as the network counts it. */
 export function wireSize(payer: PublicKey, ixs: TransactionInstruction[], opts: SendOpts = {}): number {
-  return compile(payer, PublicKey.default.toBase58(), ixs, opts).serialize().length;
+  return compile(payer, PublicKey.default.toBase58(), ixs, opts).serialize().length + 64 * (opts.signers?.length ?? 0);
 }
 
 /** True when `ixs` fit one transaction. */
@@ -52,7 +54,7 @@ export async function lookupTables(conn: Connection, env: NodeJS.ProcessEnv = pr
 export async function sendIxs(conn: Connection, payer: Signer, ixs: TransactionInstruction[], opts: SendOpts = {}): Promise<string> {
   const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
   const tx = compile(payer.publicKey, blockhash, ixs, opts);
-  tx.sign([payer as Keypair]);
+  tx.sign([payer, ...(opts.signers ?? [])] as Keypair[]);
   const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" });
   const res = await pollConfirm(conn, { signature: sig, lastValidBlockHeight });
   if (res.value.err) throw new Error(`transaction ${sig} failed: ${JSON.stringify(res.value.err)}`);

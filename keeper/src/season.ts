@@ -1,18 +1,24 @@
 import anchor from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
-import { keypairSigner } from "../../app/src/games/block-puzzle/chain.ts";
-import { CONFIG, POOL_ACCOUNT, fetchLeaderboardTerms, fetchSeasonRecord, fetchSeasonWins, seasonPda, seasonWindowPda, type SeasonRecord } from "../../app/src/lib/chain/leaderboard.ts";
-import { PRIZE_PLACES, payoutOpensAt, seasonAt, seasonEnd, standings, type Standing, type Win } from "../../app/src/lib/chain/season.ts";
+import { PublicKey, type Keypair } from "@solana/web3.js";
+import { PAYOUT_WINDOW_SECS, PRIZE_BPS, PRIZE_PLACES, payoutOpensAt, seasonAt, seasonEnd, seasonStart, standings, type Standing, type Win } from "../../app/src/lib/chain/season.ts";
 import { act, log, type Ctx } from "./act.ts";
+import { closeSeasonIx, fundSeasonPrizeNativeIx, fundSeasonPrizeStakeIx, growStoreIx, paySeasonRankIx, recordSeasonIx, type Core } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
+import { seasonWinsFromChain } from "./events-scan.ts";
+import { basketOf, decodeStore, economyAddress, keyOf, pda, prizeSourceOf, seasonAddress, slack, spillOf } from "./kit.ts";
 import { oracleKey } from "./price.ts";
+import { sendIxs, type SendOpts } from "./send.ts";
+import { poolIsStale, updateStakePoolBalanceIx } from "./stake-pool-update.ts";
+import { SIM_SOL_MINT, connReader, type Reader } from "./supply.ts";
 
 /** A season is recorded this long after it ends, so settlements that were still landing at the boundary are in. */
 const GRACE_SECS = Number(process.env.KEEPER_SEASON_GRACE_SECS ?? 10 * 60);
 /** How many finished seasons back the job looks for one that is unrecorded or part paid. */
 const LOOKBACK = 4;
-/** A season with no wins is looked at again this often (scanning the pool history costs RPC calls). */
+/** A season with no wins is looked at again this often (scanning the event history costs RPC calls). */
 const EMPTY_RECHECK_MS = 30 * 60_000;
+/** (rank, line) payments sent in one transaction. */
+const STEPS_PER_TX = Number(process.env.KEEPER_SEASON_STEPS_PER_TX ?? 3);
 
 const emptyAt = new Map<number, number>();
 
@@ -24,172 +30,271 @@ export function seasonsToCheck(nowSecs: number, graceSecs = GRACE_SECS, lookback
   return out;
 }
 
-/** The ranks that are paid: the top `PRIZE_PLACES` of the table. */
 /** record_season's points argument: one u64 per ranked Player, in rank order. */
 export const seasonPoints = (table: Standing[]) => table.map((t) => new anchor.BN(t.points));
 
+/** The ranks that are paid: the top `PRIZE_PLACES` of the table. */
 export const topRanks = (wins: Win[]): Standing[] => standings(wins).slice(0, PRIZE_PLACES);
 
-/**
- * What to do with a recorded season at `nowSecs`: the ranks to pay now (unpaid, not voided), or when the payout window
- * ends. Read from the chain every pass, so a restart picks up exactly where it was. `recordedAt` null is a season
- * recorded before the window existed; the program cannot pay those (no window account), so the job leaves them.
- */
-export function payPlan(
-  rec: { count: number; paidMask: number; voidedMask: number; recordedAt: number | null },
-  nowSecs: number,
-): { kind: "legacy" } | { kind: "wait"; until: number } | { kind: "pay"; ranks: number[] } {
-  if (rec.recordedAt === null) return { kind: "legacy" };
-  const until = payoutOpensAt(rec.recordedAt);
-  if (nowSecs < until) return { kind: "wait", until };
-  const ranks: number[] = [];
-  for (let r = 0; r < rec.count; r++) if (!(rec.paidMask & (1 << r)) && !(rec.voidedMask & (1 << r))) ranks.push(r);
-  return { kind: "pay", ranks };
-}
+// ---- A recorded Season ---------------------------------------------------------------------------------------------
 
-export interface PoolHolding {
-  pubkey: PublicKey;
+/** One line of the frozen budget: Gemas of one prize Source (or Pool line), each rank taking its share of every line. */
+export interface BudgetLine {
   source: PublicKey;
   amount: bigint;
+  paid: bigint;
 }
+
+export interface SeasonRecord {
+  number: number;
+  count: number;
+  winners: PublicKey[];
+  points: bigint[];
+  lines: BudgetLine[];
+  /** Per rank: how many budget lines it has been paid. */
+  cursor: number[];
+  recordedAt: number;
+  voidedMask: number;
+  closed: boolean;
+}
+
+/** A decoded `SeasonState` as the keeper reads it. */
+export function seasonOf(account: any): SeasonRecord {
+  const s = account.inner;
+  const big = (v: { toString(): string }) => BigInt(v.toString());
+  const count = Number(s.count);
+  return {
+    number: Number(s.number),
+    count,
+    winners: (s.winners as number[][]).slice(0, count).map((w) => keyOf(w)),
+    points: (s.points as { toString(): string }[]).slice(0, count).map(big),
+    lines: (s.lines as any[]).map((l) => ({ source: keyOf(l.source), amount: big(l.amount), paid: big(l.paid) })),
+    cursor: (s.cursor as number[]).slice(0, PRIZE_PLACES).map(Number),
+    recordedAt: Number(s.window.recordedAt.toString()),
+    voidedMask: Number(s.window.voidedMask),
+    closed: !!s.closed,
+  };
+}
+
+export async function readSeason(core: Core, n: number): Promise<SeasonRecord | null> {
+  const account = await core.account.seasonState.fetchNullable(seasonAddress(n));
+  return account ? seasonOf(account) : null;
+}
+
+/** Gemas of budget line `line` that rank `rank` is paid (the program's rule: the same share of every line). */
+export const rankShare = (line: BudgetLine, rank: number): bigint => (line.amount * BigInt(PRIZE_BPS[rank])) / 10_000n;
+/** What a rank is paid in all, counting the lines already paid. */
+export const rankTotal = (rec: SeasonRecord, rank: number): bigint => rec.lines.reduce((sum, l) => sum + rankShare(l, rank), 0n);
+
+export interface PayStep {
+  rank: number;
+  line: number;
+}
+
+export type PayPlan = { kind: "wait"; until: number } | { kind: "pay"; steps: PayStep[] } | { kind: "close" } | { kind: "done" };
 
 /**
- * The pool Holdings that pay `amount`, as `pay_season_rank` wants them: non-empty, ascending by Source, each
- * drained but the last. Null when the pool does not hold `amount`.
+ * What to do with a recorded season at `nowSecs`: the (rank, line) steps to pay now (rank by rank, each rank's lines in
+ * order, voided ranks skipped), when the payout window opens, or the final close. Read from the chain every pass, so a
+ * restart picks up exactly where it was.
  */
-export function prizeHoldings(holdings: PoolHolding[], amount: bigint): PoolHolding[] | null {
-  const sorted = holdings.filter((h) => h.amount > 0n).sort((a, b) => Buffer.compare(a.source.toBuffer(), b.source.toBuffer()));
-  const out: PoolHolding[] = [];
-  let left = amount;
-  for (const h of sorted) {
-    if (left === 0n) break;
-    out.push(h);
-    left -= h.amount < left ? h.amount : left;
+export function payPlan(rec: SeasonRecord, nowSecs: number): PayPlan {
+  if (rec.closed) return { kind: "done" };
+  const until = payoutOpensAt(rec.recordedAt);
+  if (nowSecs < until) return { kind: "wait", until };
+  const steps: PayStep[] = [];
+  for (let rank = 0; rank < rec.count; rank++) {
+    if (rec.voidedMask & (1 << rank)) continue;
+    for (let line = rec.cursor[rank]; line < rec.lines.length; line++) steps.push({ rank, line });
   }
-  return left === 0n ? out : null;
+  return steps.length ? { kind: "pay", steps } : { kind: "close" };
 }
 
-/** The pool after paying `amount` the way `prizeHoldings` picks it: lets one pass pay rank after rank from one read. */
-export function afterPrize(holdings: PoolHolding[], amount: bigint): PoolHolding[] {
-  const taken = new Map<string, bigint>();
-  let left = amount;
-  for (const h of prizeHoldings(holdings, amount) ?? []) {
-    const take = h.amount < left ? h.amount : left;
-    taken.set(h.pubkey.toBase58(), take);
-    left -= take;
-  }
-  return holdings.map((h) => ({ ...h, amount: h.amount - (taken.get(h.pubkey.toBase58()) ?? 0n) }));
+const extraSigner = (ctx: Ctx, authority: Keypair): Keypair[] => (authority.publicKey.equals(ctx.payer.publicKey) ? [] : [authority]);
+
+// ---- Who signs -----------------------------------------------------------------------------------------------------
+
+/** The key that the Economy settings name as the Season keeper, when this process holds it (the keeper payer or the oracle key). */
+export function seasonSigner(seasonKeeper: PublicKey, candidates: (Keypair | null)[]): Keypair | null {
+  return candidates.find((k): k is Keypair => !!k && k.publicKey.equals(seasonKeeper)) ?? null;
 }
 
-// HoldingState: disc 8, bump 1, account 32, then inner { source 32, is_own 1, amount 8, reserved 8 }.
-const HOLDING_ACCOUNT_AT = 9;
-
-async function poolHoldings(ctx: Ctx): Promise<PoolHolding[]> {
-  const rows: any[] = await ctx.core.account.holdingState.all([{ memcmp: { offset: HOLDING_ACCOUNT_AT, bytes: POOL_ACCOUNT.toBase58() } }]);
-  return rows.map((r) => ({ pubkey: r.publicKey as PublicKey, source: new PublicKey(r.account.inner.source), amount: BigInt(r.account.inner.amount.toString()) }));
+/** What the job reaches the outside through: tests replace it. */
+export interface SeasonDeps {
+  read: Reader;
+  send(ixs: Parameters<typeof sendIxs>[2], opts: SendOpts): Promise<string>;
+  /** Every Match won in season `n`, from core's events. */
+  wins(n: number): Promise<Win[]>;
+  /** The current epoch (stake pools are judged by it). */
+  epoch(): Promise<bigint>;
+  /** Keys this process can sign a Season step with. */
+  candidates(): (Keypair | null)[];
 }
 
-async function record(ctx: Ctx, n: number, table: Standing[], signer: ReturnType<typeof keypairSigner>): Promise<boolean> {
+export const realSeasonDeps = (ctx: Ctx): SeasonDeps => ({
+  read: connReader(ctx.conn),
+  send: (ixs, opts) => sendIxs(ctx.conn, ctx.payer, ixs, opts),
+  wins: (n) => seasonWinsFromChain(ctx.conn, n, seasonStart(n), seasonEnd(n)),
+  epoch: async () => BigInt((await ctx.conn.getEpochInfo("confirmed")).epoch),
+  candidates: () => [ctx.payer, oracleKey()],
+});
+
+// ---- Funding the routes' prizes ----------------------------------------------------------------------------------------
+
+export interface RouteFacts {
+  custody: PublicKey;
+  kind: "native" | "stake";
+  pool: PublicKey;
+  mint: PublicKey;
+  escrowEnabled: boolean;
+  lastFunded: number;
+}
+
+/** Reads the custody a route names (a native custody or a stake custody, told apart by the account's discriminator). */
+export async function readRoute(core: Core, read: Reader, custody: PublicKey): Promise<RouteFacts | null> {
+  const [info] = await read.many([custody]);
+  if (!info) return null;
+  const disc = (name: string) => Buffer.from((core.coder.accounts as any).accountDiscriminator(name));
+  const head = info.data.subarray(0, 8);
+  const isNative = head.equals(disc("nativeCustody"));
+  const isStake = head.equals(disc("stakeCustody"));
+  if (!isNative && !isStake) return null;
+  const c: any = core.coder.accounts.decode(isNative ? "nativeCustody" : "stakeCustody", info.data);
+  return { custody, kind: isNative ? "native" : "stake", pool: keyOf(c.pool), mint: keyOf(c.mint), escrowEnabled: !!c.route.escrowEnabled, lastFunded: Number(c.route.lastFunded) };
+}
+
+/** Routes whose prize must be funded before season `n` can be recorded: escrow on and not yet funded for `n`. */
+export const routesToFund = (routes: RouteFacts[], n: number) => routes.filter((r) => r.escrowEnabled && r.lastFunded < n);
+
+async function fundRoute(ctx: Ctx, d: SeasonDeps, route: RouteFacts, n: number, authority: Keypair, pool: PublicKey): Promise<boolean> {
   const subject = `season=${n}`;
-  const what = `record_season (${table.length} ranked: ${table.map((t) => `${shortKey(new PublicKey(t.account))} ${t.points}`).join(", ")})`;
+  const what = `fund_season_prize (${route.kind} ${shortKey(route.custody)})`;
   const r = await act(ctx, "season", subject, what, async () => {
-    const ix = await ctx.core.methods
-      .recordSeason(n, seasonPoints(table))
-      .accountsPartial({ authority: signer.publicKey, config: CONFIG, poolAccount: POOL_ACCOUNT, season: seasonPda(n), seasonWindow: seasonWindowPda(n), systemProgram: SystemProgram.programId })
-      .remainingAccounts(table.map((t) => ({ pubkey: new PublicKey(t.account), isSigner: false, isWritable: false })))
-      .instruction();
-    return ctx.bp.sendBase(signer, [ix]);
+    const ixs = [];
+    if (route.kind === "stake") {
+      const [info] = await d.read.many([route.pool]);
+      if (info && poolIsStale(info, await d.epoch())) ixs.push(updateStakePoolBalanceIx(route.pool, info));
+      const price: any = await ctx.core.account.onchainPrice.fetch(pda("onchain_price", route.mint.toBuffer()));
+      ixs.push(await fundSeasonPrizeStakeIx(ctx.core, { authority: authority.publicKey, season: n, custody: route.custody, mint: route.mint, stakePool: route.pool, priceFeed: keyOf(price.feed), poolAccount: pool, prizeSource: prizeSourceOf(route.custody, n) }));
+    } else {
+      ixs.push(await fundSeasonPrizeNativeIx(ctx.core, { authority: authority.publicKey, season: n, custody: route.custody, pool: route.pool, priceFeed: pda("price", SIM_SOL_MINT.toBuffer()), poolAccount: pool, prizeSource: prizeSourceOf(route.custody, n) }));
+    }
+    return d.send(ixs, { units: 400_000, signers: extraSigner(ctx, authority) });
   });
   return r.ok;
 }
 
-async function payRank(ctx: Ctx, rec: SeasonRecord, rank: number, pool: PoolHolding[], signer: ReturnType<typeof keypairSigner>): Promise<boolean> {
-  const winner = new PublicKey(rec.winners[rank]);
-  const amount = rec.amounts[rank];
-  const subject = `season=${rec.number}`;
-  const holdings = amount > 0n ? prizeHoldings(pool, amount) : [];
-  if (!holdings) {
-    log("season", subject, `WARN rank ${rank + 1}: the pool holds less than ${amount} Gemas in whole Holdings; not paid`);
-    return false;
-  }
-  const what = `pay_season_rank ${rank + 1} -> ${shortKey(winner)} ${amount} Gemas over ${holdings.length} Source(s)`;
-  const r = await act(ctx, "season", subject, what, async () => {
-    const ixs: TransactionInstruction[] = [];
-    const theirs: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
-    for (const h of holdings) {
-      const holding = PublicKey.findProgramAddressSync([Buffer.from("holding"), winner.toBuffer(), h.source.toBuffer()], ctx.core.programId)[0];
-      theirs.push({ pubkey: holding, isSigner: false, isWritable: true });
-      if (!(await ctx.conn.getAccountInfo(holding))) {
-        ixs.push(
-          await ctx.core.methods
-            .openHolding()
-            .accountsPartial({ payer: signer.publicKey, account: winner, source: h.source, holding, systemProgram: SystemProgram.programId })
-            .instruction(),
-        );
-      }
-    }
-    ixs.push(
-      await ctx.core.methods
-        .paySeasonRank(rank)
-        .accountsPartial({ authority: signer.publicKey, config: CONFIG, season: seasonPda(rec.number), seasonWindow: seasonWindowPda(rec.number), poolAccount: POOL_ACCOUNT, winnerAccount: winner })
-        .remainingAccounts([...holdings.map((h) => ({ pubkey: h.pubkey, isSigner: false, isWritable: true })), ...theirs])
-        .instruction(),
-    );
-    return ctx.bp.sendBase(signer, ixs);
+// ---- Recording and paying ----------------------------------------------------------------------------------------------
+
+async function record(ctx: Ctx, d: SeasonDeps, n: number, table: Standing[], authority: Keypair, pool: PublicKey, routes: PublicKey[]): Promise<boolean> {
+  const what = `record_season (${table.length} ranked: ${table.map((t) => `${shortKey(t.account)} ${t.points}`).join(", ")})`;
+  const r = await act(ctx, "season", `season=${n}`, what, async () => {
+    const ix = await recordSeasonIx(ctx.core, { authority: authority.publicKey, number: n, points: table.map((t) => BigInt(t.points)), poolAccount: pool, ranked: table.map((t) => new PublicKey(t.account)), routes });
+    return d.send([ix], { units: 400_000, signers: extraSigner(ctx, authority) });
   });
   return r.ok;
 }
+
+/** Slots a winner's Account needs for one rank's prize: one line per budget line, held in basket or spill. */
+export const slotsNeeded = (rec: SeasonRecord, rank: number) => rec.lines.filter((l) => rankShare(l, rank) > 0n).length;
+
+async function payBatch(ctx: Ctx, d: SeasonDeps, rec: SeasonRecord, steps: PayStep[], authority: Keypair, pool: PublicKey): Promise<boolean> {
+  const subject = `season=${rec.number}`;
+  const label = steps.map((s) => `rank ${s.rank + 1}/line ${s.line + 1}`).join(", ");
+  const r = await act(ctx, "season", subject, `pay_season_rank ${label}`, async () => {
+    const ixs = [];
+    // A prize line needs a slot in the winner's basket or spill: make one before the payment, never fail for want of it.
+    const done = new Set<number>();
+    for (const s of steps) {
+      if (done.has(s.rank)) continue;
+      done.add(s.rank);
+      const winner = rec.winners[s.rank];
+      const [b, sp] = await d.read.many([basketOf(winner), spillOf(winner)]);
+      if (!b || !sp) continue;
+      const room = slack(decodeStore(b.data), decodeStore(sp.data));
+      const need = slotsNeeded(rec, s.rank);
+      if (room < need) ixs.push(await growStoreIx(ctx.core, { payer: ctx.payer.publicKey, account: winner, which: "spill", extra: need - room }));
+    }
+    for (const s of steps) {
+      ixs.push(await paySeasonRankIx(ctx.core, { authority: authority.publicKey, season: seasonAddress(rec.number), poolAccount: pool, winnerAccount: rec.winners[s.rank], prizeSource: rec.lines[s.line].source, rank: s.rank, line: s.line }));
+    }
+    return d.send(ixs, { units: 300_000 + 100_000 * steps.length, signers: extraSigner(ctx, authority) });
+  });
+  return r.ok;
+}
+
+/** Splits `items` into groups of at most `n`. */
+export const groupsOf = <T>(items: T[], n: number): T[][] => Array.from({ length: Math.ceil(items.length / n) }, (_, i) => items.slice(i * n, (i + 1) * n));
 
 /**
- * Job 7: Leaderboard seasons. For a season that ended (plus a grace period), recomputes the table from the pool's
- * `MatchWon` history and records the top ten with `record_season`, then, once the 48-hour payout window has passed (ADR 0012), pays each unpaid,
- * unvoided rank with `pay_season_rank` (one per transaction; Gemas keep their Source). Signed by the oracle key, which `Config.oracle_authority` allows.
- * Both steps are idempotent: a recorded season is never recomputed, a paid rank never paid twice.
+ * Job 7: Leaderboard seasons (spec "Season order"). For a season that ended (plus a grace period): fund the prize of every
+ * route with its escrow on, record the ranking from core's `MatchWon` events with `record_season` (which freezes the
+ * budget), then, once the 48-hour window has passed (ADR 0012), pay every unpaid, unvoided rank line by line
+ * with `pay_season_rank`, and finally `close_season`. Signed by the Season keeper the Economy settings name (the keeper
+ * payer or the oracle key, whichever the settings point at). Every step is idempotent: the chain says what is left.
  */
-export async function seasonJob(ctx: Ctx): Promise<number> {
-  const terms = await fetchLeaderboardTerms(ctx.conn, true);
-  if (!terms.recipient) {
+export async function seasonJob(ctx: Ctx, d: SeasonDeps = realSeasonDeps(ctx)): Promise<number> {
+  const config: any = await ctx.core.account.config.fetch(pda("config"));
+  const pool = keyOf(config.poolAccount);
+  if (pool.equals(PublicKey.default)) {
     log("season", "-", "leaderboard not set up (Config has no pool): nothing to do");
     return 0;
   }
-  const key = oracleKey();
-  if (!key) {
-    log("season", "-", "SKIP: oracle keypair not found (KEEPER_ORACLE_SECRET_KEY / KEEPER_ORACLE / ~/.config/tesoro/oracle.json)");
+  const economy: any = await ctx.core.account.economyConfig.fetchNullable(economyAddress);
+  if (!economy) {
+    log("season", "-", "SKIP: the Economy settings do not exist yet (set_economy)");
     return 0;
   }
-  const signer = keypairSigner(key);
+  const authority = seasonSigner(keyOf(economy.seasonKeeper), d.candidates());
+  if (!authority) {
+    log("season", "-", `SKIP: this keeper holds neither its payer nor the oracle key as the Season keeper ${shortKey(keyOf(economy.seasonKeeper))}`);
+    return 0;
+  }
+  const routeKeys = (economy.routes as PublicKey[]).map(keyOf).filter((k) => !k.equals(PublicKey.default));
   let actions = 0;
   for (const n of seasonsToCheck(ctx.now)) {
-    let rec = await fetchSeasonRecord(ctx.conn, n);
+    const subject = `season=${n}`;
+    let rec = await readSeason(ctx.core, n);
     if (!rec) {
       if (Date.now() - (emptyAt.get(n) ?? 0) < EMPTY_RECHECK_MS) continue;
-      const table = topRanks(await fetchSeasonWins(ctx.conn, n));
+      const table = topRanks(await d.wins(n));
       if (!table.length) {
         emptyAt.set(n, Date.now());
-        log("season", `season=${n}`, "no wins: nothing to rank, the pool carries over");
+        log("season", subject, "no wins: nothing to rank, the pool carries over");
         continue;
       }
-      if (!(await record(ctx, n, table, signer))) continue;
+      const routes = (await Promise.all(routeKeys.map((k) => readRoute(ctx.core, d.read, k)))).filter((r): r is RouteFacts => !!r);
+      let funded = true;
+      for (const route of routesToFund(routes, n)) {
+        if (await fundRoute(ctx, d, route, n, authority, pool)) actions++;
+        else funded = false;
+      }
+      if (!funded) continue;
+      if (!(await record(ctx, d, n, table, authority, pool, routeKeys))) continue;
       actions++;
-      rec = await fetchSeasonRecord(ctx.conn, n);
+      rec = await readSeason(ctx.core, n);
       if (!rec) continue;
     }
     const plan = payPlan(rec, ctx.now);
-    if (plan.kind !== "pay") {
-      const why = plan.kind === "wait" ? `payout window open until ${new Date(plan.until * 1000).toISOString()}: the admin can still void a rank` : "recorded before the payout window existed: not paid by the keeper";
-      log("season", `season=${n}`, `${rec.count} ranked, pool ${rec.poolTotal} Gemas, ${why}`);
+    if (plan.kind === "done") continue;
+    if (plan.kind === "wait") {
+      log("season", subject, `${rec.count} ranked, payout window open until ${new Date(plan.until * 1000).toISOString()}: the admin can still void a rank`);
       continue;
     }
-    // One read per pass: a list read right after a payment can still show the Holdings it drained.
-    let pool = await poolHoldings(ctx);
+    if (plan.kind === "close") {
+      const r = await act(ctx, "season", subject, "close_season (every rank paid or voided)", async () => d.send([await closeSeasonIx(ctx.core, { season: seasonAddress(n) })], {}));
+      actions += +r.ok;
+      continue;
+    }
     let paid = 0;
-    for (const rank of plan.ranks) {
-      if (!(await payRank(ctx, rec, rank, pool, signer))) break;
-      pool = afterPrize(pool, rec.amounts[rank]);
-      paid++;
+    for (const group of groupsOf(plan.steps, STEPS_PER_TX)) {
+      if (!(await payBatch(ctx, d, rec, group, authority, pool))) break;
+      paid += group.length;
     }
     actions += paid;
-    log("season", `season=${n}`, `${rec.count} ranked, pool ${rec.poolTotal} Gemas, ${paid} paid this pass, ${rec.voidedMask.toString(2)} voided mask`);
+    log("season", subject, `${rec.count} ranked, ${paid} of ${plan.steps.length} payment step(s) sent this pass`);
   }
   return actions;
 }
+
+export { PAYOUT_WINDOW_SECS, seasonStart };
