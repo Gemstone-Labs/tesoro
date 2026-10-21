@@ -27,7 +27,7 @@ function played(n: number) {
   let g: Game = g0;
   const events: GameEvent[] = [];
   for (let i = 0; i < n; i++) {
-    const m = botMove(g, seeded(i + 1));
+    const m = botMove(g, seeded(i + 1), "plain");
     if (!m) break;
     const r = ok(move(g, { id: m.id, to: m.to, at: g0.startedAt + 1000 * (i + 1) }));
     g = r.game;

@@ -1,5 +1,5 @@
-import { CAP_MS, MOVE_CAP, STORM_WINDOW, TURN_MS, move, newGame, seeded, startTwoStep, timeout, type Army, type EndReason, type Game, type GameEvent, type Square } from "../rules";
-import { botMove } from "../practice/bot";
+import { CAP_MS, MOVE_CAP, STORM_WINDOW, TURN_MS, newGame, seeded, startTwoStep, timeout, type Army, type EndReason, type Game, type GameEvent, type Square } from "../rules";
+import { applyBot, botMove } from "../practice/bot";
 
 /** How long one action takes on a real clock. Thinking and chain time are script parameters; animation comes from the board. */
 export interface Pace {
@@ -22,6 +22,8 @@ export function animationMs(events: GameEvent[]): number {
       const wins = e.outcome === "win" || e.outcome === "defuse" || e.outcome === "truck";
       ms += toEdge + (e.flash.length ? 820 : 0) + 200 + 300 + (wins ? 160 : 0);
     } else if (e.kind === "spotted" || e.kind === "raid") ms += 500;
+    else if (e.kind === "blast" || e.kind === "rescue") ms += 900; // placeholders until ticket 02 builds the animations
+    else if (e.kind === "dug_in" || e.kind === "switched") ms += 300;
     else if (e.kind === "storm") ms += 3500;
   }
   return ms;
@@ -113,9 +115,9 @@ export function runMatch(seed: number, o: MatchOptions = {}): MatchRow {
         wall += pace.chainMs;
       }
     }
-    const r = move(g, { id: m.id, to: m.to, at: T0 + wall });
+    const r = applyBot(g, m, T0 + wall);
     if (!r.ok) {
-      fail(`bot move refused (${r.reason})`);
+      fail(`bot action refused (${r.reason})`);
       break;
     }
     g = r.game;

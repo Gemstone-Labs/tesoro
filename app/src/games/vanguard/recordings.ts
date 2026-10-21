@@ -207,7 +207,7 @@ function botMatch(seed: number): Recording {
       if (!res.ok) break;
       continue;
     }
-    const m = botMove(rec.g, rng);
+    const m = botMove(rec.g, rng, "plain");
     if (!m) break;
     t = Math.min(rec.deadline, t + 1 + Math.floor(rng() * 4));
     if (m.twoStep && !rec.twoStep(t).ok) break;
@@ -292,7 +292,7 @@ function timeouts(): Recording[] {
         t = rec.deadline + 1;
         rec.timeout(t);
       } else {
-        const m = botMove(rec.g, seeded(seed + t));
+        const m = botMove(rec.g, seeded(seed + t), "plain");
         t = rec.deadline;
         if (m) rec.move(m.id, [m.to.r, m.to.c], t);
       }
@@ -310,7 +310,7 @@ function timeouts(): Recording[] {
 function deadlineEdges(): Recording {
   const rec = new Rec("clock: edges of the deadline and of the grace", ["clock", "deadline", "grace"], newGame(seeded(21), START_SEC * 1000, "us", CHAIN_CLOCK));
   const s = START_SEC;
-  const m1 = botMove(rec.g, seeded(1))!;
+  const m1 = botMove(rec.g, seeded(1), "plain")!;
   const o = CHAIN_CLOCK.openingGraceMs / 1000; // the opening turn only: the first mover is still loading
   rec.timeout(s + 5); // inside the turn
   rec.timeout(s + 6); // the usual deadline (turn + grace) has passed, the opening grace has not: not yet
@@ -318,10 +318,10 @@ function deadlineEdges(): Recording {
   rec.timeout(s + o + 6); // exactly at the opening deadline: not yet
   rec.move(m1.id, [m1.to.r, m1.to.c], s + o + 7); // one second late
   rec.move(m1.id, [m1.to.r, m1.to.c], s + o + 6); // exactly at the edge: accepted
-  const m2 = botMove(rec.g, seeded(2))!;
+  const m2 = botMove(rec.g, seeded(2), "plain")!;
   rec.move(m2.id, [m2.to.r, m2.to.c], s + o + 13); // one second after the new deadline: no opening grace any more
   rec.timeout(s + o + 13); // the turn passes
-  const m3 = botMove(rec.g, seeded(3))!;
+  const m3 = botMove(rec.g, seeded(3), "plain")!;
   rec.move(m3.id, [m3.to.r, m3.to.c], s + o + 18); // inside the grace window
   return rec.done();
 }

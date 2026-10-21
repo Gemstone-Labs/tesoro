@@ -91,7 +91,7 @@ export function lookGame(b: Battle, own: ArmyAccount | null, seat: number): Game
   const side = mySide(b, seat);
   const mine = ownArmy(b, own, seat);
   const turn: Army = b.turn === 0 ? "us" : "it";
-  const g = startGame([], { startedAt: b.startedAt * 1000, stormAt: 0, stormSeed: 0, first: turn, clock: CHAIN_CLOCK });
+  const g = startGame([], { startedAt: b.startedAt * 1000, stormAt: 0, stormSeed: 0, first: turn, clock: CHAIN_CLOCK, version: b.rulesVersion });
   const pieces: Piece[] = [];
   for (let id = 0; id < b.sq.length; id++) {
     if (b.sq[id] === NO_SQUARE) continue;

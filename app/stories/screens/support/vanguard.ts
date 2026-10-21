@@ -47,7 +47,7 @@ export function theirMove(): Partial<VanguardView> {
   const g0 = freshGame(7, T0());
   const piece = g0.pieces.find((p) => p.army === "us" && targets(g0, p).length)!;
   const r1 = ok(move(g0, { id: piece.id, to: targets(g0, piece)[0], at: g0.startedAt + 1000 }));
-  const m = botMove(r1.game, seeded(5))!;
+  const m = botMove(r1.game, seeded(5), "plain")!;
   const r2 = ok(move(r1.game, { id: m.id, to: m.to, at: g0.startedAt + 2000 }));
   const history: GameEvent[] = [...r1.events];
   return { ...live(chainState(r1.game, g0, history)), later: { afterMs: 1500, battle: chainState(r2.game, g0, [...history, ...r2.events]).battle } } as Partial<VanguardView>;
@@ -79,7 +79,7 @@ export function yourAttack(): Partial<VanguardView> {
 /** The Dust Storm blows at the end of their turn: a moment later the Battle shows the drifted pieces. */
 export function storm(): Partial<VanguardView> {
   const g0 = { ...freshGame(7, T0()), stormAt: 1, turn: "it" as const, turnNo: 0 };
-  const m = botMove(g0, seeded(3))!;
+  const m = botMove(g0, seeded(3), "plain")!;
   const r = ok(move(g0, { id: m.id, to: m.to, at: g0.startedAt + 1000 }));
   return { ...live(chainState(g0, g0, [])), later: { afterMs: 1500, battle: chainState(r.game, g0, r.events).battle } } as Partial<VanguardView>;
 }
@@ -111,7 +111,7 @@ export function endTimeouts(): Partial<VanguardView> {
 /** You play the Italian Army: the board is turned so your own army is at the bottom; the US Army moves first, and a moment later its move slides in. */
 export function asItaly(): Partial<VanguardView> {
   const g0 = freshGame(7, T0());
-  const m = botMove(g0, seeded(5))!;
+  const m = botMove(g0, seeded(5), "plain")!;
   const r = ok(move(g0, { id: m.id, to: m.to, at: g0.startedAt + 1000 }));
   const first = chainState(g0, g0, [], { usSeat: 1 });
   const next = chainState(r.game, g0, r.events, { usSeat: 1 });
