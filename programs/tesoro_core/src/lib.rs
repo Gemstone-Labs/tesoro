@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use anchor_lang::prelude::*;
 
 pub mod books;

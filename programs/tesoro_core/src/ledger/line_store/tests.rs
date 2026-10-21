@@ -404,7 +404,6 @@ fn run_ops(seed: u64, ops: u64) {
                 let used = m.lines.len();
                 let keep = used + r.below((m.cap - used) as u64 + 1) as usize;
                 // the instruction compacts the lines to the first slot before cutting the tail
-                drop(s);
                 LineStore::new(&mut buf[..]).unwrap().compact();
                 let s = LineStore::new(&buf[..]).unwrap();
                 assert!(s.shrinkable_len() <= required_len(keep));

@@ -452,9 +452,6 @@ impl OfferState {
         + 4
         + ledger::MAX_APPLICANTS * 32
         + 1;
-    /// The length of an Offer written before Offers reserved an amount (they carried up to 8
-    /// reserved lines). Such an account belongs to the retired world.
-    pub const LEGACY_SPACE: usize = 799;
 }
 
 /// The one custody of every native Position (ADR 0010): a single simSOL vault holding their

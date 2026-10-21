@@ -17,9 +17,6 @@ fn akey(i: usize) -> Key {
 fn pkey(p: usize) -> Key {
     [50 + p as u8; 32]
 }
-fn rkey(r: usize) -> Key {
-    [100 + r as u8; 32]
-}
 fn skey(p: usize, idx: u32) -> Key {
     let mut k = [0u8; 32];
     k[0] = ((p * 37 + idx as usize * 11) % 251) as u8;

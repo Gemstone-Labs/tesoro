@@ -13,7 +13,7 @@ use solana_sdk::transaction::Transaction;
 use tesoro_core::instructions::MatchResult;
 use tesoro_core::ledger::book::fp_ceil;
 use tesoro_core::ledger::line_store::{CLASS_GENERAL, CLASS_LEADERBOARD, CLASS_PLATFORM, SIDE_OWN};
-use tesoro_core::ledger::{CoreError, MatchStatus, Outcome, SourceChain};
+use tesoro_core::ledger::{CoreError, SourceChain};
 use tesoro_core::state::*;
 use tesoro_core::storage::*;
 use tesoro_core::{accounts, instruction, LineRef};
@@ -115,9 +115,8 @@ fn ix(
 }
 
 fn bincode_len(tx: &solana_sdk::transaction::VersionedTransaction) -> usize {
-    solana_sdk::transaction::VersionedTransaction::try_from(tx.clone())
-        .map(|t| t.message.serialize().len() + 1 + 64 * t.signatures.len())
-        .unwrap_or(0)
+    let t = tx.clone();
+    t.message.serialize().len() + 1 + 64 * t.signatures.len()
 }
 
 fn rem(k: APk) -> AccountMeta {
@@ -524,15 +523,6 @@ impl Env {
         }
     }
 
-    fn overwrite<T: anchor_lang::AccountSerialize>(&mut self, k: APk, v: &T, len: usize) {
-        let mut buf = Vec::new();
-        v.try_serialize(&mut buf).expect("serialize");
-        buf.resize(len, 0);
-        let mut acct = self.svm.get_account(&s(k)).expect("account");
-        acct.data = buf;
-        self.svm.set_account(s(k), acct).expect("set account");
-    }
-
     /// The owner's own General line of the Source, to name in Redeem and return_own.
     fn line(&self, source: APk, side: u8) -> LineRef {
         LineRef {
@@ -772,7 +762,7 @@ impl Env {
     /// table holding every account that is not a signer: (legacy bytes, v0 bytes, accounts).
     fn tx_sizes(&self, ix: &Instruction, payer: &Keypair) -> (usize, usize, usize) {
         use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
-        let legacy = Transaction::new_with_payer(&[ix.clone()], Some(&payer.pubkey()));
+        let legacy = Transaction::new_with_payer(std::slice::from_ref(ix), Some(&payer.pubkey()));
         let legacy_len = legacy.message.serialize().len() + 1 + 64;
         let table: Vec<Pk> = ix
             .accounts
@@ -788,7 +778,7 @@ impl Env {
         };
         let msg = v0::Message::try_compile(
             &payer.pubkey(),
-            &[ix.clone()],
+            std::slice::from_ref(ix),
             &[alt],
             self.svm.latest_blockhash(),
         )
@@ -963,17 +953,6 @@ impl Env {
         self.send(&[i], signer, &[])
     }
 
-    fn stage(
-        &mut self,
-        signer: &Keypair,
-        owner: &Person,
-        nonce: u64,
-        max_ops: u8,
-    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        let books = self.books_of(owner.account);
-        self.stage_with(signer, owner, nonce, max_ops, books)
-    }
-
     fn stage_with(
         &mut self,
         signer: &Keypair,
@@ -994,17 +973,6 @@ impl Env {
             books,
         );
         self.send(&[i], signer, &[])
-    }
-
-    fn cancel_ticket(
-        &mut self,
-        signer: &Keypair,
-        owner: &Person,
-        nonce: u64,
-        max_lines: u8,
-    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        let books = self.books_of(owner.account);
-        self.cancel_ticket_with(signer, owner, nonce, max_lines, books)
     }
 
     fn cancel_ticket_with(
@@ -1308,16 +1276,7 @@ impl Env {
         self.join_match_ix(p, id, nonce, 4, pot, remaining, None)
     }
 
-    fn join_match_ticket(
-        &mut self,
-        p: &Person,
-        id: u64,
-        ticket_nonce: u64,
-    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        let pot = ticket_pda(p.account, ticket_nonce);
-        self.join_match_ix(p, id, ticket_nonce, 1, pot, vec![], None)
-    }
-
+    #[allow(clippy::too_many_arguments)]
     fn join_match_ix(
         &mut self,
         p: &Person,
@@ -1543,14 +1502,6 @@ impl Env {
         out
     }
 
-    fn pot_lines(&self, pot: APk) -> Vec<tesoro_core::ledger::line_store::Line> {
-        let d = self.svm.get_account(&s(pot)).expect("pot").data;
-        tesoro_core::ledger::line_store::LineStore::new(&d[tesoro_core::pots::POT_AT..])
-            .expect("pot store")
-            .lines()
-            .collect()
-    }
-
     fn chunk_ix(&self, caller: APk, id: u64, max_steps: u8) -> Instruction {
         let m = self.mstate(id);
         ix(
@@ -1687,26 +1638,22 @@ struct Duel {
     bob: Person,
     a_position: APk,
     a_source: APk,
-    a_holding: APk,
     b_source: APk,
-    b_holding: APk,
 }
 
 fn duel() -> Duel {
     let mut env = Env::new();
     let alice = env.person();
     let bob = env.person();
-    let (a_position, a_source, a_holding) = env.stake(&alice, 1);
-    let (_, b_source, b_holding) = env.stake(&bob, 2);
+    let (a_position, a_source, _) = env.stake(&alice, 1);
+    let (_, b_source, _) = env.stake(&bob, 2);
     Duel {
         env,
         alice,
         bob,
         a_position,
         a_source,
-        a_holding,
         b_source,
-        b_holding,
     }
 }
 
@@ -2920,29 +2867,6 @@ impl Env {
         let admin = self.admin.insecure_clone();
         self.send(&[init], &admin, &[]).expect("init leaderboard");
     }
-
-    /// Pool Holdings of `candidates` that hold Gemas, ascending by Source (the canonical order).
-    fn pool_sources(&self, candidates: &[APk]) -> Vec<(APk, u64)> {
-        let mut out: Vec<(APk, u64)> = candidates
-            .iter()
-            .filter(|src| {
-                self.svm
-                    .get_account(&s(holding_pda(pool_pda(), **src)))
-                    .is_some()
-            })
-            .map(|src| {
-                (
-                    *src,
-                    self.load::<HoldingState>(holding_pda(pool_pda(), *src))
-                        .inner
-                        .amount,
-                )
-            })
-            .filter(|(_, n)| *n > 0)
-            .collect();
-        out.sort_by_key(|(src, _)| *src);
-        out
-    }
 }
 
 #[test]
@@ -2996,28 +2920,6 @@ fn leaderboard_fee_fills_the_pool() {
         .expect("draw");
     assert_eq!(d.env.counter_amount(d.a_source, CLASS_LEADERBOARD), 10);
     assert_eq!(d.env.counter_amount(d.b_source, CLASS_LEADERBOARD), 20);
-}
-
-fn decode_b64(s: &str) -> Vec<u8> {
-    let val = |c: u8| match c {
-        b'A'..=b'Z' => c - b'A',
-        b'a'..=b'z' => c - b'a' + 26,
-        b'0'..=b'9' => c - b'0' + 52,
-        b'+' => 62,
-        _ => 63,
-    } as u32;
-    let mut out = Vec::new();
-    let (mut acc, mut bits) = (0u32, 0);
-    for c in s.bytes().take_while(|c| *c != b'=') {
-        acc = (acc << 6) | val(c);
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-            acc &= (1 << bits) - 1;
-        }
-    }
-    out
 }
 
 // --- Break and Self-Exclusion ---------------------------------------------------------------------

@@ -634,7 +634,7 @@ fn offers_retire_when_old_sized_and_only_then() {
         &mut env.svm,
         long,
         tesoro_core::ID,
-        with_disc(OfferState::DISCRIMINATOR, OfferState::LEGACY_SPACE),
+        with_disc(OfferState::DISCRIMINATOR, 799),
     );
     env.retire_offer(long).expect("offer with reserved lines");
     assert!(env.gone(long));

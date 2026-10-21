@@ -404,14 +404,12 @@ pub(crate) fn retire_offer<'info>(
     ctx: Context<'_, '_, 'info, 'info, RetireOffer<'info>>,
 ) -> Result<()> {
     let offer = ctx.accounts.offer.to_account_info();
-    let legacy_long = offer.owner == &crate::ID
+    // Every earlier Offer layout had another length (shorter, or longer with reserved lines).
+    let other_layout = offer.owner == &crate::ID
         && offer.try_borrow_data().is_ok_and(|d| {
-            d.len() == OfferState::LEGACY_SPACE && d[..8] == *OfferState::DISCRIMINATOR
+            d.len() >= 8 && d.len() != OfferState::SPACE && d[..8] == *OfferState::DISCRIMINATOR
         });
-    require!(
-        legacy_long || is_stale(&offer, OfferState::DISCRIMINATOR, OfferState::SPACE),
-        TesoroError::NotOldWorld
-    );
+    require!(other_layout, TesoroError::NotOldWorld);
     close_to(&offer, &ctx.accounts.admin.to_account_info())?;
     emit!(OldAccountRetired {
         kind: RETIRED_OFFER,

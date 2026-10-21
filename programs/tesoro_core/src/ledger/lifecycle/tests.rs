@@ -846,7 +846,7 @@ fn a_fee_credit_that_finds_no_room_undoes_the_cut_to_the_books() {
     let mut w = World::new(&mut rng);
     // the outside studio's basket is full and its spill has no slot
     for i in 0..8 {
-        w.give(OUTSIDE as u8, SIDE_OWN, 200 + i, 100, false, 1);
+        w.give(OUTSIDE, SIDE_OWN, 200 + i, 100, false, 1);
     }
     let cap = LineStore::new(w.accts[&key(OUTSIDE)].spill.as_slice())
         .unwrap()

@@ -1075,13 +1075,12 @@ pub(crate) fn refund_match(ctx: Context<RefundMatch>) -> Result<()> {
         Pubkey::find_program_address(&[ACCOUNT_SEED, caller.as_ref()], &crate::ID).0;
     let by = if caller.to_bytes() == m.settle_authority {
         RefundBy::Game(m.settle_authority)
-    } else if open && opener_wallet_account.to_bytes() == m.a.player {
-        RefundBy::Opener(m.a.player)
     } else if open
-        && match &ctx.accounts.opener_protections {
-            Some(p) => is_away(&p.to_account_info())?,
-            None => false,
-        }
+        && (opener_wallet_account.to_bytes() == m.a.player
+            || match &ctx.accounts.opener_protections {
+                Some(p) => is_away(&p.to_account_info())?,
+                None => false,
+            })
     {
         RefundBy::Opener(m.a.player)
     } else {
