@@ -1,12 +1,15 @@
-/** Asks the open Wallet page to show its Get Gemas sheet (the top bar's Gemas pill on /wallet). */
+import type { DepositIntent } from "@/lib/deposit/bus";
+
+/** Asks the open Advanced Vault to show its Get Gemas sheet (the Vault's Get Gemas button, the top bar's Gemas pill). */
 const bus = new EventTarget();
 const EVENT = "get-gemas";
 
-export function requestGetGemas() {
-  bus.dispatchEvent(new Event(EVENT));
+export function requestGetGemas(intent: DepositIntent | null = null) {
+  bus.dispatchEvent(new CustomEvent<DepositIntent | null>(EVENT, { detail: intent }));
 }
 
-export function onGetGemas(cb: () => void) {
-  bus.addEventListener(EVENT, cb);
-  return () => bus.removeEventListener(EVENT, cb);
+export function onGetGemas(cb: (intent: DepositIntent | null) => void) {
+  const on = (e: Event) => cb((e as CustomEvent<DepositIntent | null>).detail ?? null);
+  bus.addEventListener(EVENT, on);
+  return () => bus.removeEventListener(EVENT, on);
 }

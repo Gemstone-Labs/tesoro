@@ -14,16 +14,20 @@ const listeners = new Set<() => void>();
 
 /**
  * Simple or Advanced for the signed-in Account, remembered per Account in this browser. Renders the default first and
- * reads the saved choice after mount, so server and browser markup match.
+ * reads the saved choice after mount (`resolved` turns true then), so server and browser markup match.
  */
-export function useViewMode(): { mode: ViewMode; setMode: (mode: ViewMode) => void } {
+export function useViewMode(): { mode: ViewMode; setMode: (mode: ViewMode) => void; resolved: boolean } {
   const auth = useAuth();
   const authority = auth.signer?.publicKey.toBase58() ?? null;
   const linked = auth.linked.length;
   const [mode, setLocal] = useState<ViewMode>(() => defaultViewMode(linked));
+  const [resolved, setResolved] = useState(false);
 
   useEffect(() => {
-    const read = () => setLocal(resolveViewMode(authority, linked));
+    const read = () => {
+      setLocal(resolveViewMode(authority, linked));
+      setResolved(true);
+    };
     read();
     listeners.add(read);
     return () => void listeners.delete(read);
@@ -37,5 +41,5 @@ export function useViewMode(): { mode: ViewMode; setMode: (mode: ViewMode) => vo
     },
     [authority],
   );
-  return { mode, setMode };
+  return { mode, setMode, resolved };
 }
