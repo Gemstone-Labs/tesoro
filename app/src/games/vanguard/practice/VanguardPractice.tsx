@@ -5,11 +5,13 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { Button, Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../../fx";
-import { CAP_MS, NAMES, ROSTER, TURN_MS, move, newGame, rankOf, seeded, startTwoStep, targets, timeout, type Depot, type Game, type GameEvent, type Refusal, type Result, type Rng, type Square } from "../rules";
+import { CAP_MS, NAMES, TURN_MS, act, move, newGame, rankOf, seeded, startTwoStep, targets, timeout, type Army, type Depot, type Game, type GameEvent, type Rank, type Refusal, type Result, type Rng, type Square } from "../rules";
 import { PRACTICE_COUNTDOWN } from "../clock";
 import { VanguardScreen, type TurnInfo } from "../VanguardScreen";
-import { VanguardBoard, type HitSide, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
-import { applyBot, botMove } from "./bot";
+import { VanguardBoard, type HitSide, type Mark, type Preview, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
+import { RulesSheet } from "../RulesSheet";
+import { blastSquares, canSwitch, changeLines, isJump, observe, powerBlockedLine, powerFor, rosterView, type Ledger } from "../powers-ui";
+import { applyBot, botMove, type Policy } from "./bot";
 import "../vanguard.css";
 
 export interface VanguardPracticeProps {
@@ -25,6 +27,12 @@ export interface VanguardPracticeProps {
   twoStep?: number;
   /** Change the opening position (stories: put pieces in contact). */
   prepare?: (g: Game) => Game;
+  /** The bot's style (stories: the fortress bot digs in at once). */
+  policy?: Policy;
+  /** Who moves first (stories: let the bot go first). */
+  first?: Army;
+  /** What you were already shown of Italy's pieces (stories: the roster strip). */
+  seen?: Ledger;
 }
 
 const REFUSAL_LINE: Record<Refusal, string> = {
@@ -43,8 +51,21 @@ const slideMs = (a: Square, b: Square) => Math.min(380, 140 + (Math.abs(a.r - b.
 
 /** What the US Player sees: own faces always, Italian faces only once known. */
 function shownFrom(g: Game): ShownPiece[] {
-  return g.pieces.map((p) => ({ id: p.id, army: p.army, rank: rankOf(g, p), r: p.r, c: p.c, up: p.army === "us" || p.known }));
+  // a private change is shown to its owner; both armies' changes are shown once the Match is over
+  return g.pieces.map((p) => ({
+    id: p.id,
+    army: p.army,
+    rank: rankOf(g, p),
+    r: p.r,
+    c: p.c,
+    up: p.army === "us" || p.known,
+    changed: p.army === "us" || g.winner ? g.changed[p.id] : undefined,
+    exposed: p.army === "us" && p.known && !g.winner,
+  }));
 }
+
+/** A rank in a line of text: the Spy by name. */
+const rk = (r: Rank) => (r === "1" ? "Spy" : r === "B" ? "Landmine" : r);
 
 const END_LINE = {
   truck: { us: "You captured Italy's Truck.", it: "Italy captured your Truck." },
@@ -67,14 +88,14 @@ export function VanguardPractice(props: VanguardPracticeProps) {
   return inBrowser ? <PracticeMatch {...props} /> : null;
 }
 
-function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep = 0, prepare }: VanguardPracticeProps) {
+function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep = 0, prepare, policy = "standard", first = "us", seen }: VanguardPracticeProps) {
   // one random source per mount: seeded in stories, so the setup and the bot repeat
   const [rng] = useState<Rng>(() => (seed === undefined ? Math.random : seeded(seed)));
   const fresh = useCallback(() => {
-    const g = newGame(rng, Date.now());
+    const g = newGame(rng, Date.now(), first);
     const ready = { ...g, stormAt: stormAt ?? g.stormAt, twoStep: { us: twoStep, it: 0 } };
     return prepare ? prepare(ready) : ready;
-  }, [rng, stormAt, twoStep, prepare]);
+  }, [rng, stormAt, twoStep, prepare, first]);
   const [game, setGame] = useState<Game>(fresh);
   const gameRef = useRef(game);
   const [pieces, setPieces] = useState<ShownPiece[]>(() => shownFrom(game));
@@ -82,6 +103,15 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
   const [fx, setFx] = useState<ShownFx[]>([]);
   const [storm, setStorm] = useState<ShownStorm | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
+  /** Blast or Rescue waiting for its confirm tap. */
+  const [armed, setArmed] = useState<"blast" | "rescue" | null>(null);
+  /** Become a Spy is on for this action. */
+  const [spyOn, setSpyOn] = useState(false);
+  const [spyWarn, setSpyWarn] = useState(false);
+  const spyWarned = useRef(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [ledger, setLedger] = useState<Ledger>(() => seen ?? {});
+  const ledgerRef = useRef(ledger);
   const [say, setSay] = useState("Your move. Tap a piece.");
   const [started, setStarted] = useState(instant);
   const [busy, setBusy] = useState(false);
@@ -109,9 +139,22 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
   const animate = useCallback(async (events: GameEvent[], g: Game) => {
     setBusy(true);
     setSelected(null);
+    setArmed(null);
+    setSpyOn(false);
+    setSpyWarn(false);
     const before = gameRef.current;
     const name = (id: number) => before.pieces.find((p) => p.id === id);
     let line = "";
+    // your General of the Army became a Spy (secret: the rules emit no event for a face-down one)
+    for (const [k, c] of Object.entries(g.changed)) {
+      const id = Number(k);
+      if (before.changed[id] || c !== "spy" || name(id)?.army !== "us") continue;
+      patch(id, { rank: "1", changed: "spy", fresh: true });
+      sfx("check");
+      shout("Now a Spy");
+      setSay("Your 10 is a Spy for good.");
+      await wait(600);
+    }
     for (const e of events) {
       if (e.kind === "move") {
         const ms = slideMs(e.from, e.to);
@@ -133,7 +176,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
           // the defender was hit on the side facing the attacker; the attacker on its leading side
           const toward: HitSide = dc > 0 ? "left" : dc < 0 ? "right" : dr > 0 ? "top" : "bottom";
           const away: HitSide = ({ left: "right", right: "left", top: "bottom", bottom: "top" } as const)[toward];
-          flashIt.forEach((id) => patch(id, { up: true, hitFrom: id === e.def ? toward : away }));
+          flashIt.forEach((id) => patch(id, { up: true, rank: rankOf(g, name(id)!), hitFrom: id === e.def ? toward : away }));
           sfx("flip");
           await wait(820); // long enough to read the face before it falls
         }
@@ -151,13 +194,86 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
           await wait(160);
         }
         const mine = a.army === "us";
+        // the ranks they fought as: a switched 10 fights, and dies, as a Spy
+        const ar = rk(rankOf(g, a));
+        const dd = rk(rankOf(g, d));
         line =
           e.outcome === "truck" ? (mine ? "Supply Truck captured!" : "Italy took your Truck.")
-          : e.outcome === "mine" ? (mine ? `Landmine! Your ${NAMES[a.rank]} is lost.` : "Italy hit your Landmine.")
+          : e.outcome === "mine" ? (mine ? `Landmine! Your ${ar} is lost.` : "Italy hit your Landmine.")
           : e.outcome === "defuse" ? (mine ? "Your Engineer cleared a Landmine." : "Italy cleared your Landmine.")
-          : e.outcome === "tie" ? `Both ${NAMES[a.rank]}s fall.`
-          : mine ? (attWins ? `Your ${a.rank} beat their ${d.rank}.` : `Your ${a.rank} lost.`)
-          : attWins ? `Italy took your ${d.rank}.` : `Your ${d.rank} held.`;
+          : e.outcome === "tie" ? `Both ${ar}s fall.`
+          : mine ? (attWins ? `Your ${ar} beat their ${dd}.` : `Your ${ar} lost.`)
+          : attWins ? `Italy took your ${dd}.` : `Your ${dd} held.`;
+      } else if (e.kind === "blast") {
+        const eng = name(e.id)!;
+        const mine = eng.army === "us";
+        if (!mine) {
+          patch(e.id, { up: true, rank: "3", hitFrom: "top" });
+          sfx("flip");
+          await wait(700);
+        }
+        addFx("mine", e.at.r + 0.5, e.at.c + 0.5, 3.6);
+        sfx("blast");
+        shout("Engineer blast!", mine ? "plain" : "warn");
+        patch(e.id, { gone: true });
+        await wait(260);
+        const turned = e.shown.filter((s) => name(s.id)?.army === "it" && !name(s.id)!.known);
+        e.shown.forEach((s) => {
+          const q = name(s.id);
+          if (!q) return;
+          if (q.army === "us") return patch(s.id, { exposed: true });
+          if (q.known) return;
+          const dr = Math.sign(q.r - e.at.r);
+          const dc = Math.sign(q.c - e.at.c);
+          patch(s.id, { up: true, rank: s.rank, hitFrom: dc > 0 ? "left" : dc < 0 ? "right" : dr > 0 ? "top" : "bottom" });
+        });
+        if (turned.length) sfx("flip");
+        const own = e.shown.filter((s) => name(s.id)?.army === "us").length;
+        line = mine ? (turned.length ? `Blast showed ${turned.length} Italian ${turned.length === 1 ? "piece" : "pieces"}.` : "Blast: nothing hidden nearby.") : `Italy's Blast showed ${own} of your ${own === 1 ? "piece" : "pieces"}.`;
+        await wait(turned.length ? 820 : 300);
+      } else if (e.kind === "rescue") {
+        const col = name(e.colonel)!;
+        const mine = col.army === "us";
+        if (!mine) {
+          patch(e.colonel, { up: true, rank: "8", hitFrom: "top" });
+          sfx("flip");
+          await wait(700);
+        }
+        addFx("mine", e.to.r + 0.5, e.to.c + 0.5, 2.8);
+        sfx("blast");
+        patch(e.colonel, { gone: true });
+        await wait(300);
+        addFx("dust", e.from.r + 0.5, e.from.c + 0.5, 2.4);
+        sfx("wind");
+        patch(e.truck, { r: e.to.r, c: e.to.c, ms: 700, fly: true, ...(mine ? {} : { up: true, rank: "F" as Rank, hitFrom: "bottom" as HitSide }) });
+        shout("Truck rescued!", mine ? "plain" : "warn");
+        await wait(720);
+        addFx("dust", e.to.r + 0.5, e.to.c + 0.5, 2.4);
+        patch(e.truck, { fly: false });
+        line = mine ? "Truck rescued: it jumped to your Colonel's square." : "Italy rescued its Truck. It is face up now.";
+        await wait(300);
+      } else if (e.kind === "dug_in") {
+        if (e.army === "us") {
+          const id = Object.keys(g.changed).map(Number).find((k) => g.changed[k] === "dug" && !before.changed[k] && name(k)?.army === "us");
+          if (id !== undefined) patch(id, { rank: "B", changed: "dug", fresh: true });
+          shout("Dug in");
+          line = "Your Major is a Landmine now.";
+        } else {
+          if (e.id !== undefined) patch(e.id, { rank: "B", fresh: true });
+          shout("A Major dug in", "warn");
+          line = "A Major dug in. You can't tell which.";
+        }
+        sfx("knock");
+        await wait(650);
+      } else if (e.kind === "switched") {
+        // a face-up 10 switching is public (an own one was handled above)
+        if (name(e.id)?.army === "it") {
+          patch(e.id, { rank: "1", fresh: true });
+          shout("Their 10 became a Spy", "warn");
+          line = "Italy's 10 became a Spy.";
+          sfx("check");
+          await wait(600);
+        }
       } else if (e.kind === "spotted") {
         const p = name(e.id) ?? g.pieces.find((x) => x.id === e.id)!;
         patch(e.id, { up: true, hitFrom: "bottom" });
@@ -190,6 +306,8 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     }
     setPieces(shownFrom(g));
     setDepots(g.depots);
+    ledgerRef.current = observe(ledgerRef.current, events, before, g);
+    setLedger(ledgerRef.current);
     commit(freshClock(g));
     if (g.winner) {
       sfx(g.winner === "us" ? "win" : "lose");
@@ -214,7 +332,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     if (game.turn === "it") {
       const id = setTimeout(() => {
         let g = gameRef.current;
-        const m = botMove(g, rng);
+        const m = botMove(g, rng, policy);
         if (!m) return apply(timeout(g, Math.max(stamp(g), g.deadline + 1)));
         if (m.twoStep) {
           const s = startTwoStep(g, stamp(g));
@@ -229,7 +347,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     const fireAt = Math.min(game.deadline, game.startedAt + CAP_MS) + 1;
     const id = setTimeout(() => apply(timeout(gameRef.current, Math.max(Date.now(), fireAt))), Math.max(0, fireAt - Date.now()));
     return () => clearTimeout(id);
-  }, [started, busy, game, clock, apply, rng, stamp]);
+  }, [started, busy, game, clock, apply, rng, stamp, policy]);
 
   // tick the ring
   useEffect(() => {
@@ -250,20 +368,51 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
 
   const yourTurn = started && !busy && !game.winner && game.turn === "us";
   const sel = selected === null ? null : game.pieces.find((p) => p.id === selected) ?? null;
-  const marks = yourTurn && sel ? targets(game, sel) : [];
+  const power = yourTurn && sel ? powerFor(game, sel) : null;
+  const marks: Mark[] = yourTurn && sel && !armed ? targets(game, sel).map((m) => ({ ...m, jump: isJump(rankOf(game, sel), sel, m) })) : [];
+  const truck = sel && armed === "rescue" ? game.pieces.find((p) => p.army === "us" && p.rank === "F") : undefined;
+  const preview: Preview | null = !sel || !armed ? null : armed === "blast" ? { kind: "blast", squares: blastSquares(sel) } : truck ? { kind: "rescue", from: truck, to: sel } : null;
 
+  const choose = (id: number | null) => {
+    setSelected(id);
+    setArmed(null);
+    setSpyOn(false);
+    setSpyWarn(false);
+  };
   const onPiece = (id: number) => {
     if (!yourTurn) return;
     const p = game.pieces.find((x) => x.id === id);
     if (!p || p.army !== "us") return;
-    if (selected === id) return setSelected(null);
-    setSelected(id);
+    if (selected === id) return choose(null);
+    choose(id);
     const t = targets(game, p);
-    if (!t.length) setSay(p.rank === "B" ? "Landmines never move." : p.rank === "F" && p.fuel >= 3 ? "Truck out of fuel." : p.rank === "F" ? "Truck can't move twice running." : "Nowhere to go.");
+    const rank = rankOf(game, p);
+    if (!t.length && !powerFor(game, p)) setSay(rank === "B" ? "Landmines never move." : rank === "F" && p.fuel >= 3 ? "Truck out of fuel." : rank === "F" ? "Truck can't move twice running." : "Nowhere to go.");
+    else setSay(powerBlockedLine(game, p) || (powerFor(game, p) ? "Move it, or use its power." : canSwitch(game, p) ? "Move it, or Become a Spy first." : "Pick a marked square."));
   };
   const onMark = (sq: Square) => {
     if (!yourTurn || selected === null) return;
-    apply(move(game, { id: selected, to: sq, at: stamp(game) }));
+    apply(move(game, { id: selected, to: sq, at: stamp(game), switch: spyOn }));
+  };
+  const pressPower = () => {
+    if (!yourTurn || !sel || !power) return;
+    if (power.preview && armed !== power.kind) {
+      setArmed(power.kind as "blast" | "rescue");
+      setSay(power.kind === "blast" ? "Blast shows the outlined squares to both sides. Confirm it." : "The Truck jumps here. Confirm it.");
+      return;
+    }
+    apply(act(game, { kind: power.kind, id: sel.id, at: stamp(game) }));
+  };
+  const toggleSpy = () => {
+    if (spyOn) return setSpyOn(false);
+    if (!spyWarned.current) return setSpyWarn(true);
+    setSpyOn(true);
+  };
+  const confirmSpy = () => {
+    spyWarned.current = true;
+    setSpyWarn(false);
+    setSpyOn(true);
+    setSay("Become a Spy is on. Now make your move.");
   };
   const useTwoStep = () => {
     if (!yourTurn) return;
@@ -277,7 +426,11 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     commit(g);
     setPieces(shownFrom(g));
     setDepots(g.depots);
-    setSelected(null);
+    choose(null);
+    spyWarned.current = false;
+    ledgerRef.current = seen ?? {};
+    setLedger(ledgerRef.current);
+    setRulesOpen(false);
     setStarted(instant);
     setSay("New setup.");
   };
@@ -312,18 +465,32 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     yourTurn,
     moved: game.movedThisTurn.length > 0,
     onUse: useTwoStep,
+    power: power ? { label: power.label, hint: power.hint, armed: armed === power.kind, onPress: pressPower, onCancel: () => setArmed(null) } : null,
+    spy: yourTurn && sel && canSwitch(game, sel) ? { on: spyOn, warning: spyWarn, onToggle: toggleSpy, onConfirm: confirmSpy, onDismiss: () => setSpyWarn(false) } : null,
   };
   const won = game.winner === "us";
-  // casualty tracking: every Italian piece that leaves the board was shown to you, so what is left per rank is known
-  const alive = (rank: string) => game.pieces.filter((p) => p.army === "it" && p.rank === rank).length;
+  // the strip counts what you were shown (dead pieces included) and Italy's public Dig in count, never the hidden board
+  const rv = rosterView(game, ledger);
   const roster = (
     <div className="vg-roster" role="list" aria-label="Italian pieces still on the board, by rank">
-      {ROSTER.map(([rank, n]) => (
-        <span key={rank} role="listitem" className={alive(rank) === 0 ? "out" : ""} aria-label={`${NAMES[rank]}: ${alive(rank)} of ${n} left`}>
+      {rv.cells.map(({ rank, of, left }) => (
+        <span
+          key={rank}
+          role="listitem"
+          className={`${left === 0 ? "out" : ""}${rank === "10" && rv.tenOrSpy ? " maybe" : ""}`}
+          aria-label={`${NAMES[rank]}: ${left} of ${of} left${rank === "10" && rv.tenOrSpy ? ", may be a Spy now" : ""}${rank === "B" && rv.digs ? `, plus ${rv.digs} dug in` : ""}`}
+        >
           <b>{rank}</b>
-          {alive(rank)}/{n}
+          {left}/{of}
+          {rank === "B" && rv.digs > 0 && <i className="vg-dug">+{rv.digs}</i>}
         </span>
       ))}
+      {(rv.tenOrSpy || rv.digs > 0) && (
+        <span className="vg-notes" role="note">
+          {rv.tenOrSpy && <em>10 or Spy?</em>}
+          {rv.digs > 0 && <em>{rv.digs === 1 ? "A Major dug in" : `${rv.digs} Majors dug in`}</em>}
+        </span>
+      )}
     </div>
   );
   return (
@@ -333,6 +500,9 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
           <div className="vg-bar">
             <Label>Practice · Vanguard</Label>
             <span className="vg-bar-tools">
+              <button type="button" className="vg-link" onClick={() => setRulesOpen((o) => !o)} aria-expanded={rulesOpen}>
+                Ranks
+              </button>
               <MuteToggle />
               <FullScreenToggle />
             </span>
@@ -345,7 +515,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
         say={say}
         stage={
         <div className="vg-stage">
-          <VanguardBoard pieces={pieces} depots={depots} selected={selected} marks={marks} fx={fx} storm={storm} locked={!yourTurn} onPiece={onPiece} onMark={onMark} />
+          <VanguardBoard pieces={spyOn && selected !== null ? pieces.map((p) => (p.id === selected ? { ...p, rank: "1", changed: "spy" } : p)) : pieces} depots={depots} selected={selected} marks={marks} preview={preview} fx={fx} storm={storm} locked={!yourTurn} onPiece={onPiece} onMark={onMark} />
           {!started && (
             <Countdown
               {...PRACTICE_COUNTDOWN}
@@ -356,6 +526,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
               }}
             />
           )}
+          {rulesOpen && <RulesSheet onClose={() => setRulesOpen(false)} />}
           {call && <Callout key={call.key} text={call.text} tone={call.tone} duration={1300} onDone={() => setCall(null)} className="vg-call" />}
           {game.winner && (
             <div className="cut cut-frame vg-end" role="dialog" aria-label="Match over">
@@ -366,6 +537,15 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
                 <div><dt>Your pieces left</dt><dd>{count("us")}</dd></div>
                 <div><dt>Italian pieces beaten</dt><dd>{20 - count("it")}</dd></div>
               </dl>
+              {changeLines(game).length > 0 && (
+                <ul className="vg-end-changes" aria-label="Changed pieces">
+                  {changeLines(game).map((c) => (
+                    <li key={c.id}>
+                      {c.army === "us" ? "Yours" : "Italy's"}: {c.text}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <p className="note">Practice: nothing was staked and no Gemas moved.</p>
               <div className="vg-end-actions">
                 <Button onClick={again}>Play again</Button>
