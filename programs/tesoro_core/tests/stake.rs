@@ -919,6 +919,75 @@ impl Env {
         gemas_in(&self.svm, treasury_account(), source)
     }
 
+    /// The Platform recipient as a Person (its token account created empty).
+    fn platform_person(&mut self) -> Person {
+        let config = self.load::<Config>(pda(&[CONFIG_SEED]));
+        let account = config.platform_recipient;
+        let key = self.load::<TesoroAccount>(account).authority;
+        let p = Person {
+            kp: Keypair::new(),
+            key,
+            account,
+            token: get_associated_token_address(&key, &self.mint),
+        };
+        self.set_tokens(&p, 0);
+        p
+    }
+
+    fn set_studio(&mut self, recipient: APk) -> Result<(), Failed> {
+        let admin = self.admin.insecure_clone();
+        let set = tix(
+            accounts::SetTesoroStudio {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                recipient_account: recipient,
+            },
+            instruction::SetTesoroStudio {},
+            vec![],
+        );
+        self.send(&[set], &admin, &[])
+    }
+
+    fn cash_in_ix(&self, pos: Pos, source: APk, class: u8, to: &Person) -> Instruction {
+        let mut remaining = self.kind_paying(to.token);
+        remaining.extend(book_metas(&self.svm, source));
+        tix(
+            accounts::CashInFee {
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                recipient_account: to.account,
+                position: pos.position,
+                source,
+            },
+            instruction::CashInFee { class },
+            remaining,
+        )
+    }
+
+    fn cash_in(
+        &mut self,
+        payer: &Keypair,
+        pos: Pos,
+        source: APk,
+        class: u8,
+        to: &Person,
+    ) -> Result<(), Failed> {
+        let ix = self.cash_in_ix(pos, source, class, to);
+        self.send(&[ix], payer, &[])
+    }
+
+    /// What a fee counter can cash in now, in Gemas, and the shares that pays.
+    fn covered_fee(&self, source: APk, class: u8) -> (u64, u64) {
+        let (book, _, ck) = self.synced(source);
+        let Some(counter) = econ::counter(&self.svm, source, class) else {
+            return (0, 0);
+        };
+        let k = book.redeemable(&book.peek(&counter, &ck).unwrap()).unwrap();
+        let shares = book.redeem_shares_of(&counter, k, &ck).unwrap();
+        (k, shares as u64)
+    }
+
     fn fund_treasury(&mut self, tokens: u64) {
         let admin = self.admin.insecure_clone();
         let admin_token = get_associated_token_address(&a(admin.pubkey()), &self.mint);
@@ -1469,6 +1538,93 @@ fn growth_since_open_is_the_staking_rate_ratio_and_pays_the_token() {
     assert_eq!(env.token_balance(env.vault()), 10 * SOL - got);
     // The Position's custody bookkeeping follows the vault: paid shares leave its custody.
     assert_eq!(env.position(pos).paid_shares, got);
+}
+
+#[test]
+fn anyone_cashes_in_the_covered_platform_and_studio_fees_and_only_those() {
+    let mut env = Env::new();
+    let alice = env.holder(10 * SOL);
+    let platform = env.platform_person();
+    let studio = env.holder(0);
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_stake(&alice, pos, 12).unwrap();
+    // A settled Match cut 400 Platform and 300 Studio Gemas out of Alice's Advance.
+    for (class, k) in [(0u8, 400u64), (1, 300)] {
+        econ::fee_cut(
+            &mut env.svm,
+            source,
+            alice.account,
+            CLASS_GENERAL,
+            0,
+            class,
+            k,
+        );
+    }
+    let payer = env.holder(0);
+    // Nothing is covered yet, and the Studio recipient is not set: nothing can be cashed in.
+    let err = env
+        .cash_in(&payer.kp, pos, source, 0, &platform)
+        .unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::ZeroAmount));
+    assert!(env.cash_in(&payer.kp, pos, source, 1, &studio).is_err());
+    // Yield lands until the Platform Fee is covered and the Studio Fee only in part.
+    let mut total = 1_300_000_000_000u64;
+    loop {
+        total += 100_000_000;
+        env.set_total(total);
+        let (p, _) = env.covered_fee(source, 0);
+        let (st, _) = env.covered_fee(source, 1);
+        if p == 400 && st > 0 {
+            assert!(st < 300, "the Studio Fee is partly covered");
+            break;
+        }
+        assert!(total < 1_500_000_000_000, "never reached");
+    }
+    // The Studio recipient is the admin's setting: unset, nobody is paid.
+    let err = env.cash_in(&payer.kp, pos, source, 1, &studio).unwrap_err();
+    assert_eq!(code(&err), ERR_UNAUTHORIZED);
+    env.set_studio(studio.account).expect("studio recipient");
+    // The fee must go to its own recipient, never to the caller's pick.
+    let err = env.cash_in(&payer.kp, pos, source, 0, &studio).unwrap_err();
+    assert_eq!(code(&err), ERR_UNAUTHORIZED);
+    // A class that is not Platform or Studio is refused (Leaderboard has `harvest`).
+    assert!(env.cash_in(&payer.kp, pos, source, 2, &platform).is_err());
+    assert!(env.cash_in(&payer.kp, pos, source, 3, &platform).is_err());
+
+    let (p_gemas, p_shares) = env.covered_fee(source, 0);
+    let (s_gemas, s_shares) = env.covered_fee(source, 1);
+    assert_eq!(p_gemas, 400);
+    assert!(p_shares > 0 && s_shares > 0);
+    env.cash_in(&payer.kp, pos, source, 0, &platform)
+        .expect("platform");
+    env.cash_in(&payer.kp, pos, source, 1, &studio)
+        .expect("studio");
+    assert_eq!(env.token_balance(platform.token), p_shares);
+    assert_eq!(env.token_balance(studio.token), s_shares);
+    let platform_left = econ::counter(&env.svm, source, 0).unwrap();
+    let studio_left = econ::counter(&env.svm, source, 1).unwrap();
+    assert_eq!(platform_left.amount, 400 - p_gemas);
+    assert_eq!(
+        studio_left.amount,
+        300 - s_gemas,
+        "only the covered part left"
+    );
+    env.check_vault();
+    // A second call pays nothing and moves nothing.
+    for (class, to) in [(0u8, &platform), (1, &studio)] {
+        let before = env.token_balance(to.token);
+        assert!(env.cash_in(&payer.kp, pos, source, class, to).is_err());
+        assert_eq!(env.token_balance(to.token), before);
+    }
+    env.check_vault();
+    // More yield covers the rest of the Studio Fee, and it is paid then, never twice.
+    env.set_total(1_700_000_000_000);
+    let (rest, _) = env.covered_fee(source, 1);
+    assert_eq!(rest, studio_left.amount);
+    env.cash_in(&payer.kp, pos, source, 1, &studio)
+        .expect("rest");
+    assert_eq!(econ::counter(&env.svm, source, 1).unwrap().amount, 0);
+    env.check_vault();
 }
 
 #[test]

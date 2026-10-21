@@ -738,10 +738,13 @@ pub struct EconomyConfig {
     pub pool_share: ledger::PoolShare,
     /// Custodies whose prize escrow `record_season` waits for (zero = unused slot).
     pub routes: [Pubkey; MAX_ROUTES],
+    /// The Account that receives the Studio Fee counters of Tesoro's own Games (`cash_in_fee`);
+    /// zero until the admin names it.
+    pub tesoro_studio: Pubkey,
 }
 
 impl EconomyConfig {
-    pub const SPACE: usize = 8 + 1 + 32 + 32 + 1 + (2 + 4 + 2) + 32 * MAX_ROUTES;
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 1 + (2 + 4 + 2) + 32 * MAX_ROUTES + 32;
 
     pub fn fill_authority(&self, admin: &Pubkey) -> ledger::FillAuthority {
         ledger::FillAuthority {

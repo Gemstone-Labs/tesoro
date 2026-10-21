@@ -1,5 +1,7 @@
 # Tesoro takes a 20% Yield Fee and sells Instant Redeem at 65% from a Treasury
 
+> Superseded in part by ADR 0013: half of the 20% Yield Fee is owed to the Leaderboard Pool (once realised, protected from Treasury spending), Instant Redeem is an order Tesoro fills (not an automatic payout), and its fee is a flat 25% (Players get 75%, as already shipped; the 65% in the title is the original figure). The 20% rate, the Treasury as counterparty and the rest stand.
+
 > Superseded in part by ADR 0010: the fee is a running claim (not minted at accrue), the Treasury can be withdrawn, and the EVM `treasuryIn` mirror becomes the Treasury balance carried by each Yield Report. Fee rates and sizing stand.
 
 > Amended by economy-upgrade ticket 26 (2026-10-20): on real-LST EVM vaults the Treasury is held in shares, spends only realised fees, and counts what unlocked Gema holders are owed in shares (no cushion); see `docs/cross-chain.md` "Treasury in shares".

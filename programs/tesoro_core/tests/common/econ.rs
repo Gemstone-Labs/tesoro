@@ -252,3 +252,33 @@ pub fn move_lines_to_spill(svm: &mut LiteSVM, account: APk) {
         }
     });
 }
+
+/// Moves `k` Gemas of the prize line `key` (a prize Source's won line) from one basket to
+/// another, as a Season payout does (test setup only).
+pub fn move_prize(svm: &mut LiteSVM, key: &LineKey, from: APk, to: APk, k: u64) {
+    let from_basket = basket_address(&from).0;
+    let mut taken = None;
+    write_store(svm, from_basket, |st| {
+        let idx = st.find(key).expect("prize line");
+        let mut line = st.get(idx).expect("line");
+        line.amount -= k;
+        taken = Some(line);
+        if line.amount == 0 {
+            st.remove_at(idx).unwrap();
+        } else {
+            st.set_line(idx, &line).unwrap();
+        }
+    });
+    let mut moved = taken.expect("line");
+    moved.amount = k;
+    write_store(svm, basket_address(&to).0, |st| match st.find(key) {
+        Ok(i) => {
+            let mut l = st.get(i).unwrap();
+            l.amount += k;
+            st.set_line(i, &l).unwrap();
+        }
+        Err(_) => {
+            st.insert(&moved).unwrap();
+        }
+    });
+}

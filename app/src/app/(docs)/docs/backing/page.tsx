@@ -29,7 +29,7 @@ export default function Page() {
         items={[
           { title: "Request", body: <>A Player lists a public Request for a game and an entry size. It shows their real Match record, always with the sample size, for example &ldquo;1 of 1 won (100%)&rdquo;. A Request carries no split.</> },
           { title: "Offer", body: <>A Backer answers with an Offer: the game, the entry, and the Player&apos;s share of the surplus (10% to 90%). A Backer can also post a public Offer that Players apply to, then accept one applicant.</> },
-          { title: "Reservation", body: <>Creating an Offer reserves the entry from the Backer&apos;s own Gemas. They stay in the balance but cannot be spent. Cancelling, or letting the Offer expire, releases them.</> },
+          { title: "Reservation", body: <>Creating an Offer reserves an <i>amount</i> of the Backer&apos;s own Gemas. They stay in the balance but cannot be spent. Cancelling, or letting the Offer expire, releases them. The actual Gemas are chosen by the program when the Match opens, by the same rule as any entry: fast ones first (see <Link href="/docs/gemas#own-first">Gemas</Link>). Only Listed Games can be Backed.</> },
           { title: "Accept", body: <>The other side accepts. Requests and Offers last 24 hours, and an accepted Backing has 24 hours to be used.</> },
           { title: "Play", body: <>The Player enters through the Queue or a Challenge link with the Backer&apos;s reserved Gemas. Once the Match starts, the Backing cannot be revoked.</> },
         ]}

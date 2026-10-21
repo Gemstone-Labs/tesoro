@@ -85,11 +85,11 @@ _Avoid_: level, round, puzzle
 In UI copy the Seed is never named: Players see "the same pieces" (Block Puzzle).
 
 **Match**:
-A head-to-head contest between two players with equal Gema entries (100, 500 or 1,000 on mainnet; 500, 1,000 or 2,500 in test mode), settled once: the winner takes the Pot minus Fees; a draw, abandonment or no-show refunds both entries.
+A head-to-head contest between two players with equal Gema entries (100, 500 or 1,000 on mainnet; 500, 1,000 or 2,500 in test mode), settled once: the winner takes the Pot minus Fees; a draw or an abandoned Match refunds both entries; a no-show (both Players checked in, then neither acted) settles as a draw minus each side's Platform Fee. No Match can start settling more than 7 days after it opened: after that, only a refund is possible, in any Game.
 _Avoid_: game (the catalogue title), bet, wager, contest
 
 **Pot**:
-The Gemas entered into one Match, held in escrow until settlement. The winner receives the loser's actual Gemas, each keeping its Source. An entry always draws on the entrant's own-Sourced Gemas before Gemas they won.
+The Gemas entered into one Match, held in escrow until settlement. The winner receives the loser's actual Gemas, each keeping its Source. The program, never the app, chooses which Gemas an entry uses: the entrant's own-Sourced Gemas first, then won Gemas whose planned repayment date is earliest (see **Entry draw**).
 _Avoid_: prize pool, jackpot (the Leaderboard Pool is a different thing)
 
 **Queue**:
@@ -100,6 +100,10 @@ _Avoid_: lobby, matchmaking pool
 A Match opened by one Player for a specific opponent through a link, outside the Queue.
 _Avoid_: invite, private table, duel
 
+**Table**:
+A seat for a Match that Hold'em, Trading Duel and Vanguard keep ready on MagicBlock between Matches. A Match is bound to exactly one Table, which shows nothing from the Match before. Players never set a Table up or pay for one; Tesoro does, once per Table, and each Game has a capped number of them. Block Puzzle has no Tables yet.
+_Avoid_: room, lobby, server
+
 **Chips**:
 In-match score units in Hold'em with no value outside the Match: the stack a Player bets with at the table. (Trading Duel scores points, which work the same way.) Gemas enter a Match once and leaves once; Chips are only the scorekeeping in between.
 _Avoid_: in-game Gemas, bets
@@ -109,19 +113,19 @@ Tesoro's fixed share of every Pot on every game, taken in Gemas at settlement. O
 _Avoid_: rake, commission, house edge
 
 **Yield Fee**:
-Tesoro's 20% of every increment of yield a Lock earns (SOL, ETH and HYPE alike), taken before the yield counts toward paying back, redemption or free yield. Never charged on a Locked amount.
+20% of every increment of yield a Lock earns (SOL, ETH and HYPE alike), taken before the yield counts toward paying back, redemption or free yield. Never charged on a Locked amount. Half is Tesoro's revenue and half is owed to the Leaderboard Pool; both halves count only once the fee is realised (a Lock's fee is realised when the Lock is Unlocked).
 _Avoid_: performance fee, staking commission, interest
 
 **Studio Fee**:
-The additional share of the Pot a game's studio sets for itself on top of the Platform Fee, taken in Gemas at settlement.
+The additional share of the Pot a game's studio sets for itself on top of the Platform Fee, taken in Gemas at settlement. At most 10% of the Pot.
 _Avoid_: developer cut, revenue share
 
 **Leaderboard Fee**:
-A fixed share of every Pot on every game (1% at launch), taken in Gemas at settlement on top of the Platform Fee and the Studio Fee, and paid into the Leaderboard Pool. A draw or a refund pays none. It is Tesoro's way of funding the prizes, not revenue.
+A fixed share of every Pot on every game (1% at launch), taken in Gemas at settlement on top of the Platform Fee and the Studio Fee, and paid into the Leaderboard Pool. A draw or a refund pays none. It is Tesoro's way of funding the prizes, not revenue. Its Gemas are repaid third in the **Payout order**.
 _Avoid_: tournament fee, jackpot contribution, rake
 
 **Leaderboard Pool**:
-The Gemas collected from Leaderboard Fees, held by a Tesoro Account that no person controls and paid out to the top Players of each Season. Gemas in it keep their Source. Not a Pot: a Pot belongs to one Match.
+The prize money of the Leaderboard: the Gemas collected from Leaderboard Fees plus half the Yield Fee, held by a Tesoro Account that no person controls and paid out to the top Players of each Season. Gemas from Leaderboard Fees keep their Source. The Yield Fee half arrives as **prize Gemas**, each backed by staking tokens set aside for them, so prizes can be Redeemed at once. Every rank is paid the same mix of coins (SOL, ETH, HYPE) from a budget frozen when the Season is recorded. Not a Pot: a Pot belongs to one Match.
 _Avoid_: prize fund, jackpot, treasury (a Treasury is Tesoro's own holdings)
 
 **Season**:
@@ -133,8 +137,12 @@ What a won Match earns its Player in a Season: one point for every 100 Gemas of 
 _Avoid_: score (a game's own result), XP, rank
 
 **Studio**:
-The maker of a game listed on Tesoro. Tesoro's own games have Tesoro as their Studio.
+The maker of a game. Anyone who controls a game's program can register it, so the game can use Gemas. Tesoro's own games have Tesoro as their Studio. A Studio is **listed** when Tesoro has accepted its game (see **Listing**) and **unlisted** otherwise.
 _Avoid_: developer, partner, publisher
+
+**Listing** (a **Listed Game** is one whose listing is in force):
+Tesoro's acceptance of a Game: free to apply, $500 a year once accepted, tied to the exact build Tesoro approved. Only a Listed Game earns Points, gets sponsored SOL costs, has its Studio Fee repaid ahead of other holders (second in the **Payout order**) and can be Backed. Unlisted Games still work, but do none of those. An upgrade of the Game to different code ends its listing until Tesoro approves the new build; a Match opened before the upgrade can then only be refunded.
+_Avoid_: whitelist, verification, certification
 
 ### Backing
 
@@ -147,7 +155,7 @@ A Player's public listing asking to be backed for a game and entry size, shown w
 _Avoid_: application, ask, listing
 
 **Offer**:
-A Backer's terms for a Backing: game, entry and the Player's share of the surplus. Either directed at a Request (the Player accepts) or public (Players apply and the Backer accepts one). Either way the Backer chooses whom they back and the Player consents to the terms.
+A Backer's terms for a Backing: game, entry and the Player's share of the surplus. Either directed at a Request (the Player accepts) or public (Players apply and the Backer accepts one). Either way the Backer chooses whom they back and the Player consents to the terms. An Offer holds back an amount of the Backer's Gemas, not particular Gemas; the Gemas are drawn by the **Entry draw** when the backed Match opens. Only Listed Games can be Backed.
 _Avoid_: bid, proposal, deal
 
 **Backer**:
@@ -161,15 +169,38 @@ _Avoid_: user, gamer, backee
 ### Redemption
 
 **Redeem**:
-To turn Gemas into their Source asset, possible only as far as the Source Lock's yield has actually been Earned. Winning Gemas never shortens the winner's own lock. Won Gemas can instead be Instant Redeemed.
+To turn Gemas into their Source asset, possible only as far as the Source Lock's yield has actually been Earned and has reached those Gemas by the **Payout order**. Winning Gemas never shortens the winner's own lock. Won Gemas can instead be Instant Redeemed. What a Player can Redeem never goes down unless they Redeem or spend it: another holder's Redeem, the Lock owner's Extend, a new fee or an Instant Redeem cannot lower it.
 _Avoid_: withdraw, cash out, claim
 
+**Redeem now** (an amount, not an action):
+What a Player's Gemas on one chain can be Redeemed for at full value at this moment. The Wallet shows it per chain, with an estimated "ready by" date for the rest.
+_Avoid_: available balance
+
+**Payout order**:
+The order in which yield that lands on a Source repays that Source's Gemas. Only yield that lands after a Gema exists counts for it.
+1. the Platform Fee Gemas;
+2. the Studio Fee Gemas of Listed Games;
+3. the Leaderboard Fee Gemas;
+4. all other Gemas of the Source, in proportion to what is still unpaid;
+5. Gemas added by each Extend, one tranche at a time, after everything issued before them, so an Extend never slows an earlier holder.
+
+A Gema keeps its place for life: moving, betting or winning it changes neither its class nor its tranche. The order only changes who is paid first; the Lock's Left to pay back and Unlock Estimate do not change. One Match's fees turn into SOL in weeks instead of up to 12 months.
+_Avoid_: priority queue, waterfall, seniority
+
+**Entry draw**:
+The program's rule for which Gemas an entry uses: the entrant's own-Sourced Gemas first, then won Gemas in order of planned repayment date, earliest first (the date the Gemas' Lock is projected to finish paying them back). Nobody can choose a different order. The Gemas an opponent wins from you are therefore your fastest ones.
+_Avoid_: coin selection, lot picking
+
+**Entry Ticket**:
+A half-built entry. When an entry needs more Gemas lines than one transaction fits, the app stages the lines into an Entry Ticket over several transactions and then opens or joins the Match with it. While a Ticket is open the Player's other entries wait; the Player can cancel it, and it expires back to the Player's Gemas untouched. A Player whose free Gemas cover an entry can always enter.
+_Avoid_: batch, partial entry
+
 **Instant Redeem**:
-Turning won Gemas into their Source asset now, before the Source's yield has landed, for 75% of their value, while the Treasury of that asset holds enough to pay it. The Treasury pays it and takes the Gemas; Tesoro keeps the other 25% (the **Instant Redeem Fee**). Only free Gemas the holder won whose yield has not landed yet (landed Gemas are Redeemed at full value), never their own-Sourced ones; what the Source Lock has left to pay back, and its counts, are untouched.
-_Avoid_: early withdrawal, cash out, sell
+Selling won Gemas to Tesoro's Treasury for their Source asset before the Source's yield has landed, for 75% of their value at the moment of the fill; Tesoro keeps the other 25% (the **Instant Redeem Fee**). It is an order: the Player requests it, the Gemas wait in the order and cannot be played, and Tesoro fills it, in full or in part, while the Treasury of that asset can pay. The Player may cancel an unfilled order at any time, and an order that nobody fills expires and returns the Gemas. Only free Gemas the holder won whose yield has not landed yet are sold; landed Gemas are Redeemed at full value, never at 75%. Own-Sourced Gemas are never sold. What the Source Lock has left to pay back, and its counts, are untouched.
+_Avoid_: early withdrawal, cash out, sell (as the action name)
 
 **Treasury**:
-Tesoro's own holdings and revenue, one per asset (on Solana, and inside each EVM vault). It collects the Yield Fee, pays Instant Redeems while it holds enough, is refilled when the Gemas it bought are redeemed at full value, and Tesoro may withdraw from it at any time. In an ETH or HYPE vault it is held in the staking token's shares and spends only fees already realised (a Lock's fee counts once the Lock is Unlocked), never what Gema holders of an unlocked Lock are still owed. Not the Leaderboard Pool, and not a Lock.
+Tesoro's own holdings and revenue, one per asset (on Solana, and inside each EVM vault). It collects Tesoro's half of the Yield Fee, fills Instant Redeem orders while it holds enough, is refilled when the Gemas it bought are redeemed at full value, and Tesoro may withdraw from it at any time. It is held in the staking token's shares and spends only fees already realised (a Lock's fee counts once the Lock is Unlocked), never what Gema holders of an unlocked Lock are still owed and never the Pool's half. Holders carry a slash of the staking token as if they held it themselves; the Treasury does not insure them. Not the Leaderboard Pool, and not a Lock.
 _Avoid_: reserve, vault (a Lock's custody), pool
 
 **Yield Report**:
