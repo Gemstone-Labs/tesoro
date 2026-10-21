@@ -16,6 +16,7 @@
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 16px;
   padding: 14px 16px; background: var(--surface);
 }
+.vt-dep > h3, .vt-dep > p { grid-column: 1; }
 .vt-dep h3 { font-size: var(--fs-16); font-weight: 800; }
 .vt-dep .meta { margin: 0; }
 .vt-dep-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: var(--fs-14); }

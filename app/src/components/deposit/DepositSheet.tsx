@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth/context";
 import { SIM_MONTH_MIN } from "@/lib/chain/native";
 import { backLink } from "@/lib/deposit/back-link";
 import { onDeposit, type DepositIntent } from "@/lib/deposit/bus";
+import { DEPOSIT_ACK_TITLE } from "@/lib/deposit/acknowledgment";
 import { PACK_MONTHS } from "@/lib/deposit/packs";
 import { CLUSTER } from "@/lib/cluster-settings";
 import { writeViewMode } from "@/lib/deposit/view-mode";
@@ -62,7 +63,7 @@ export function DepositSheet({ open, onClose, intent }: { open: boolean; onClose
   };
 
   return (
-    <Sheet open={open} onClose={onClose} title={step === "ack" ? "Before you deposit" : "Get Gemas"} className="dep-sheet">
+    <Sheet open={open} onClose={onClose} title={step === "ack" ? DEPOSIT_ACK_TITLE : "Get Gemas"} className="dep-sheet">
       {step === "packs" && (
         <PacksView
           quotes={flow.quotes}

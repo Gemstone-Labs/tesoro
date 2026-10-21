@@ -73,3 +73,5 @@ dialog.sheet.dep-sheet { max-width: 860px; }
   .dep-tag { left: 14px; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) { .dep-done-fig { animation: none; } }
+.dep-play { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
+.dep-play i { font-style: normal; }

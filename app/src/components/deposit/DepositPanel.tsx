@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { Info } from "lucide-react";
 import { Busy, Button, CheckIcon, GemaAmount, GemaMark } from "@/components/ui";
-import { DEPOSIT_ACK_CONFIRM, DEPOSIT_ACK_POINTS, DEPOSIT_ACK_TITLE } from "@/lib/deposit/acknowledgment";
+import { DEPOSIT_ACK_CONFIRM, DEPOSIT_ACK_POINTS } from "@/lib/deposit/acknowledgment";
 import { PACK_MONTHS, type DepositPack, type DepositPackId, type PackQuote } from "@/lib/deposit/packs";
 import { fmtGemas, fmtUsd } from "@/lib/format";
 import "./deposit.css";
@@ -118,7 +118,6 @@ export function AckView({ pack, checked, onChecked, busy, error, onConfirm, onBa
   return (
     <div className="dep dep-ack">
       <p className="dep-pack-line">{pack.name} pack · {fmtUsd(pack.usd)}</p>
-      <h3>{DEPOSIT_ACK_TITLE}</h3>
       <ul>
         {DEPOSIT_ACK_POINTS.map((p) => (
           <li key={p}>
@@ -187,13 +186,15 @@ export function DoneView({ gemas, back, onDone, testMode, hours }: {
       <div className="dep-actions">
         {back && (
           <Button variant="money" size="lg" block href={back.href} onClick={onDone}>
-            {back.label}
-            {back.need > 0 && (
-              <>
-                {" · "}
-                <GemaMark size={18} /> {fmtGemas(back.need)}
-              </>
-            )}
+            <span className="dep-play">
+              {back.label}
+              {back.need > 0 && (
+                <>
+                  <i aria-hidden="true">·</i>
+                  <GemaMark size={18} /> {fmtGemas(back.need)}
+                </>
+              )}
+            </span>
           </Button>
         )}
         <Button block variant={back ? "neutral" : "money"} size={back ? "md" : "lg"} onClick={onDone}>
