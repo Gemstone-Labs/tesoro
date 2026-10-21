@@ -1,0 +1,44 @@
+/* The Vault: Gemas, deposits, winnings. */
+.vt { display: grid; gap: 20px; max-width: 980px; }
+.vt-head { align-items: center; }
+.vt-view { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: var(--fs-13); color: var(--fg-2); }
+.vt-section { display: grid; gap: 10px; }
+.vt-section > h2 { font-size: var(--fs-18); font-weight: 900; }
+
+.vt-gemas { padding: 22px 22px 20px; display: grid; gap: 6px; }
+.vt-gemas h2 { font-size: var(--fs-13); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.vt-gemas-fig { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: clamp(40px, 5vw, 64px); font-weight: 900; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.vt-gemas-fig small { font-size: var(--fs-16); font-weight: 700; color: var(--fg-2); letter-spacing: 0; }
+
+.vt-list { display: grid; gap: 8px; }
+.vt-dep {
+  --edge: var(--edge-1);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 16px;
+  padding: 14px 16px; background: var(--surface);
+}
+.vt-dep h3 { font-size: var(--fs-16); font-weight: 800; }
+.vt-dep .meta { margin: 0; }
+.vt-dep-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: var(--fs-14); }
+.vt-dep-state svg { width: 16px; height: 16px; flex: none; }
+.vt-dep.late .vt-dep-state { color: var(--warn); }
+.vt-dep-side { grid-column: 2; grid-row: 1 / span 3; display: grid; justify-items: end; gap: 6px; }
+
+.vt-wins { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.vt-win { --edge: var(--edge-1); display: grid; gap: 8px; align-content: start; padding: 16px; background: var(--surface); }
+.vt-win.now { --edge: var(--edge-em); }
+.vt-win h3 { font-size: var(--fs-13); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.vt-win p { margin: 0; }
+.vt-win .gema-amount { font-size: 28px; font-weight: 900; }
+
+.vt-empty { --edge: var(--edge-1); display: grid; gap: 12px; justify-items: start; padding: 22px; background: var(--surface); }
+.vt-empty p { margin: 0; max-width: 52ch; }
+.vt-notice { margin: 0; }
+.vt-foot { display: grid; gap: 6px; }
+.vt-foot p { margin: 0; }
+
+@media (max-width: 639px) {
+  .vt-wins { grid-template-columns: 1fr; }
+  .vt-dep { grid-template-columns: 1fr; }
+  .vt-dep-side { grid-column: 1; grid-row: auto; justify-items: stretch; }
+  .vt-dep-side .btn { width: 100%; }
+}
