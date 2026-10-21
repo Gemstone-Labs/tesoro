@@ -43,6 +43,7 @@
     "viem": "^2.57.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
     "@storybook/addon-docs": "10.6.1",
     "@storybook/nextjs-vite": "10.6.1",
     "@types/node": "^20",

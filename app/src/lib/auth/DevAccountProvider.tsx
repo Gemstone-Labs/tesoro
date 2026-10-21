@@ -7,7 +7,7 @@
  * The key lives in the browser: never point this at anything with value.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Keypair, type Transaction } from "@solana/web3.js";
+import { Keypair, VersionedTransaction, type Transaction } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
 import { AccountSheet } from "@/components/shell/AccountSheet";
@@ -93,6 +93,11 @@ function DevBridge({ children }: { children: ReactNode }) {
       signTransaction: async (tx: Transaction) => {
         tx.partialSign(keypair);
         return tx;
+      },
+      signSerialized: async (raw) => {
+        const tx = VersionedTransaction.deserialize(raw);
+        tx.sign([keypair]);
+        return tx.serialize();
       },
       signMessage: async (m) => nacl.sign.detached(m, keypair.secretKey),
     };
