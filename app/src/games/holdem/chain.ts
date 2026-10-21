@@ -136,7 +136,6 @@ export function cardName(card: number): string {
 
 export interface Table {
   address: PublicKey;
-  matchId: bigint;
   tesoroMatch: PublicKey;
   /** seat 0 opened the tesoro_core Match, seat 1 joined */
   players: [PublicKey, PublicKey];
@@ -179,7 +178,6 @@ export function decodeTable(address: PublicKey, m: any): Table {
   const committed = pair(m.committed);
   return {
     address,
-    matchId: big(m.matchId),
     tesoroMatch: m.tesoroMatch,
     players: m.players,
     speed: m.speed,

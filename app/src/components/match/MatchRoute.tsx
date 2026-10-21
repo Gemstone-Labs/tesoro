@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { HoldemMatchView } from "@/games/holdem/HoldemMatchView";
 import { TradingDuelMatchView } from "@/games/trading-duel/TradingDuelMatchView";
 import { VanguardMatchView } from "@/games/vanguard/VanguardMatchView";
-import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import { getChain } from "@/lib/chain/client";
+import { matchAddressOf } from "@/lib/chain/match-id";
 import { gameOf } from "@/lib/chain/read";
 import { PublicKey } from "@solana/web3.js";
 import { useAccount } from "@/lib/account";
@@ -25,8 +25,9 @@ export function MatchRoute({ matchId }: { matchId: string }) {
     let live = true;
     void (async () => {
       try {
-        const state: any = await getChain().core.account.matchState.fetchNullable(BlockPuzzleChain.addresses(BigInt(matchId)).match);
-        // No Match: Block Puzzle's view says so. A program this app does not play is shown as such, never as Block Puzzle.
+        const address = matchAddressOf(matchId);
+        const state: any = address ? await getChain().core.account.matchState.fetchNullable(address) : null;
+        // No Match (or a key that names none): Block Burst's view says so. A program this app does not play is shown as such, never as Block Puzzle.
         const g = state ? gameOf(new PublicKey(Uint8Array.from(state.inner.game))) : "block-puzzle";
         if (live) setGame(g ?? "unknown");
       } catch {

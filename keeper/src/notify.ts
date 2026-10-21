@@ -4,7 +4,6 @@ import type { GameId } from "../../app/src/lib/mock/types.ts";
 import { gameOfProgram } from "../../app/src/lib/chain/games.ts";
 import { backedSplit, feeGemas } from "../../app/src/lib/chain/ledger.ts";
 import { fetchLeaderboardTerms } from "../../app/src/lib/chain/leaderboard.ts";
-import { matchOpenedAt } from "../../app/src/lib/chain/match-id.ts";
 import { leaderboardBpsFor } from "../../app/src/lib/chain/season.ts";
 import { log, type Ctx } from "./act.ts";
 import { pk } from "./runtime.ts";
@@ -106,7 +105,8 @@ export async function notifyJob(ctx: Ctx, env: NodeJS.ProcessEnv = process.env):
     const id = BigInt(account.id.toString());
     const game = gameOfKey(pk(account.inner.game));
     if (!game || pushed.has(id.toString())) continue;
-    const opened = matchOpenedAt(id, game);
+    // `inner.openedAt` is unix seconds; ticket 19 moves this job to the history events
+    const opened = Number(account.inner.openedAt?.toString() ?? 0) * 1000;
     if (Date.now() - opened > WINDOW_MS) continue;
     if (looked++ >= PER_PASS) break;
     try {

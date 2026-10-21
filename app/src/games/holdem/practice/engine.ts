@@ -53,7 +53,6 @@ export function shuffled(random: () => number = Math.random): number[] {
 export function newPractice(now: number, random?: () => number): Practice {
   const table: Table = {
     address: key(3),
-    matchId: 0n,
     tesoroMatch: key(4),
     players: PLAYERS,
     speed: 1,

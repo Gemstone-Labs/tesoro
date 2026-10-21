@@ -10,8 +10,10 @@ import type { ChainMatch } from "./read";
 export interface PlayerAccount {
   /** A TesoroAccount exists at the address. */
   exists: boolean;
-  /** Every Match the Account played, as that Account sees it (seat, Backing), newest first. */
+  /** The Matches the Account has live on chain (open, active, settling), as that Account sees them, newest first. */
   played: ChainMatch[];
+  /** Every finished Match the Account played, newest first: from the Match history, or from `played` where no history exists (a dev machine). */
+  rows: PlayedRow[];
   /** Its live Requests (open, not expired). */
   requests: ChainRequest[];
 }
@@ -34,6 +36,14 @@ export function playedRows(played: ChainMatch[]): PlayedRow[] {
     rows.push({ ...row, backerDelta: backer });
   }
   return rows.sort((a, b) => b.at - a.at);
+}
+
+/** The rows of a Player's finished Matches from the Match history: the Matches it played, with the Backer's result on a backed one. */
+export function playedRowsFromHistory(history: HistoryRow[]): PlayedRow[] {
+  return history
+    .filter((r) => r.role === "player")
+    .map((r) => ({ ...r, backerDelta: r.backing ? (r.backerDelta ?? 0) : null }))
+    .sort((a, b) => b.at - a.at);
 }
 
 export interface PlayerSummary {
@@ -69,6 +79,12 @@ export interface PlayerSummary {
 
 export function playerSummary(played: ChainMatch[]): PlayerSummary {
   const rows = playedRows(played);
+  const finished = played.filter((m) => m.seat !== null && (m.status === "settled" || m.status === "refunded")).length;
+  return summaryOfRows(rows, finished - rows.length);
+}
+
+/** The summary of finished-Match rows; `notRead` counts Matches whose result could not be read (none, from the history). */
+export function summaryOfRows(rows: PlayedRow[], notRead = 0): PlayerSummary {
   const decided = rows.filter((r) => r.result === "won" || r.result === "lost");
   const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
   const gains = (xs: number[]) => sum(xs.filter((x) => x > 0));
@@ -82,11 +98,10 @@ export function playerSummary(played: ChainMatch[]): PlayerSummary {
 
   const scores = rows.filter((r) => r.game === "block-puzzle" && r.scores).map((r) => r.scores![0]);
   const times = rows.map((r) => r.at);
-  const finished = played.filter((m) => m.seat !== null && (m.status === "settled" || m.status === "refunded")).length;
   return {
     record: { matches: decided.length, wins: decided.filter((r) => r.result === "won").length },
     undecided: rows.length - decided.length,
-    notRead: finished - rows.length,
+    notRead,
     won: gains(deltas),
     lost: losses(deltas),
     net: sum(deltas),

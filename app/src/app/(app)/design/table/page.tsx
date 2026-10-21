@@ -21,7 +21,6 @@ export default function TablePreview() {
   }, []);
   const table: Table = {
     address: pk("11111111111111111111111111111111"),
-    matchId: 784592n,
     tesoroMatch: pk("11111111111111111111111111111111"),
     players: [pk("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"), pk("4rG3LUgjMq1a7vJq2sTqkQmZ8m4wq2pVbR8vN3Ykq7Xd")],
     speed: SPEED_TURBO,

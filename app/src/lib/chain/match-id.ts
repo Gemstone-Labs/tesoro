@@ -1,16 +1,25 @@
-import type { GameId } from "../mock/types";
+import { PublicKey } from "@solana/web3.js";
+import { matchPda } from "./basket";
+import { matchKeyOf, parseMatchKey } from "../../server/history/match-key";
 
 /**
- * When a Match was opened, in ms since the epoch. Every Game's id embeds the opening time: Block
- * Puzzle and Hold'em as `ms * 2 + challenge`, Trading Duel as `ms * 8 + asset * 2 + challenge`
- * (the asset is bits 1 and 2, see games/trading-duel/chain.ts).
+ * A Match is named by its opener's Account and the opener's counter value, `<opener>-<n>` in URLs and the
+ * history tables (the key never contains anything but base58 and one "-"). Everything else a Match used to
+ * hide in its id (Challenge, Trading Duel asset, opening time) is a field of `MatchState`.
  */
-export function matchOpenedAt(id: bigint, game: GameId | null): number {
-  return Number(game === "trading-duel" ? id >> 3n : id >> 1n);
-}
+export { matchKeyOf, parseMatchKey };
+export type { MatchKey } from "../../server/history/match-key";
 
-/** Trading Duel's asset index (0 SOL, 1 ETH, 2 HYPE) in a Match id: bits 1 and 2. */
-export const assetIndexOf = (id: bigint): number => Number((id >> 1n) & 3n);
+/** The on-chain address of the Match a URL segment or table key names, or null when it is not a Match key. */
+export function matchAddressOf(key: string): PublicKey | null {
+  const k = parseMatchKey(key);
+  if (!k) return null;
+  try {
+    return matchPda(new PublicKey(k.opener), k.n);
+  } catch {
+    return null;
+  }
+}
 
 /** Asset query values of `/play/*?asset=`, by asset index. */
 export const ASSET_PARAMS = ["sol", "eth", "hype"] as const;

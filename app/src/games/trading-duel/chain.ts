@@ -109,7 +109,6 @@ const big = (n: anchor.BN) => BigInt(n.toString());
 
 export interface Duel {
   address: PublicKey;
-  matchId: bigint;
   tesoroMatch: PublicKey;
   /** seat 0 opened the tesoro_core Match, seat 1 joined */
   players: [PublicKey, PublicKey];
@@ -159,7 +158,6 @@ export function decodeTrack(t: any): Track {
 export function decodeDuel(address: PublicKey, d: any): Duel {
   return {
     address,
-    matchId: big(d.matchId),
     tesoroMatch: d.tesoroMatch,
     players: d.players,
     asset: ASSETS[d.asset] ?? ASSETS[0],

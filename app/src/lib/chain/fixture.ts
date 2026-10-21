@@ -6,7 +6,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { DEV_WALLET } from "./config";
 import type { BackingBoard, ChainRequest } from "./backing";
-import type { PlayerAccount } from "./player-account";
+import { playedRows, type PlayerAccount } from "./player-account";
 import type { AccountSnapshot, ChainHolding, ChainMatch, ChainPosition } from "./read";
 import type { GameId } from "../mock/types";
 import type { SettledMatch } from "./recent";
@@ -22,7 +22,8 @@ export function demoMode(): boolean {
 
 const key = (seed: number) => PublicKey.findProgramAddressSync([Buffer.from(`demo-${seed}`)], PublicKey.default)[0];
 const ago = (mins: number) => Date.now() - mins * 60_000;
-const idAt = (ms: number) => BigInt(ms) << 1n;
+/** A demo Match key: the opener is a demo Account, the counter is the opening time. */
+const idAt = (ms: number) => `${key(3).toBase58()}-${ms}`;
 
 export function match(
   game: GameId,
@@ -32,14 +33,19 @@ export function match(
   scores: [number, number],
   me = key(1).toBase58(),
 ): ChainMatch {
-  // Trading Duel ids carry the asset in bits 1 and 2 (ETH here): ms * 8 + 1 * 2.
-  const id = game === "trading-duel" ? (BigInt(ago(mins)) << 3n) + 2n : idAt(ago(mins));
+  const openedAt = ago(mins);
   const them = key(2 + mins).toBase58();
   return {
-    id,
+    id: idAt(openedAt),
+    opener: key(3).toBase58(),
+    n: BigInt(openedAt),
     game,
     address: key(100 + mins),
     status: "settled",
+    running: null,
+    openedAt,
+    // Trading Duel demo Matches trade ETH.
+    asset: game === "trading-duel" ? 1 : 0,
     entry,
     seat: 0,
     opponent: them,
@@ -191,9 +197,12 @@ export const DEMO_NO_ACCOUNT = key(999).toBase58();
 
 /** Any Player's Account as others see it. The signed-in demo Account shows its own Matches; every other key gets the same varied history. */
 export function demoPlayerAccount(address: string): PlayerAccount {
-  if (address === DEMO_NO_ACCOUNT) return { exists: false, played: [], requests: [] };
-  if (address === DEMO_NEW_ACCOUNT) return { exists: true, played: [], requests: [] };
-  if (address === key(1).toBase58()) return { exists: true, played: demoSnapshot(address).matches, requests: [] };
+  if (address === DEMO_NO_ACCOUNT) return { exists: false, played: [], rows: [], requests: [] };
+  if (address === DEMO_NEW_ACCOUNT) return { exists: true, played: [], rows: [], requests: [] };
+  if (address === key(1).toBase58()) {
+    const played = demoSnapshot(address).matches;
+    return { exists: true, played, rows: playedRows(played), requests: [] };
+  }
   const m = (game: GameId, entry: number, win: boolean, mins: number, scores: [number, number] = [0, 0]) =>
     match(game, entry, win, mins, scores, address);
   const [backerA, backerB] = [key(801).toBase58(), key(802).toBase58()];
@@ -212,5 +221,5 @@ export function demoPlayerAccount(address: string): PlayerAccount {
       m(i % 3 === 0 ? "holdem" : "block-puzzle", [500, 1000, 2500][i % 3], i % 5 !== 2, 1500 + i * 97, [120 + ((i * 7) % 40), 80 + ((i * 11) % 50)]),
     ),
   ];
-  return { exists: true, played, requests: demoBoard().requests.filter((r) => r.player === address) };
+  return { exists: true, played, rows: playedRows(played), requests: demoBoard().requests.filter((r) => r.player === address) };
 }
