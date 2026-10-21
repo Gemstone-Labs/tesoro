@@ -11,7 +11,7 @@ import { AssetPicker, BustCard, Button, EntryPicker } from "@/components/ui";
 import { gameQuery, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
-import { accountHistory } from "@/lib/chain/history";
+import { PLAYED, accountHistory } from "@/lib/chain/history";
 import { useTopScoresToday } from "@/lib/chain/useRecentSettled";
 import { estimatedWin } from "@/lib/chain/ledger";
 import { fmtGemas } from "@/lib/format";
@@ -65,7 +65,7 @@ export function GamePage({ game }: { game: GameId }) {
   const copy = COPY[game];
   const name = GAME_NAMES[game];
 
-  const history = useMemo(() => (onChain && snapshot ? accountHistory(snapshot.matches, snapshot.funded).filter((r) => r.game === game) : []), [onChain, snapshot, game]);
+  const history = useMemo(() => (onChain && snapshot ? accountHistory(snapshot.matches, snapshot.funded).filter((r) => r.game === game && PLAYED.includes(r.result)) : []), [onChain, snapshot, game]);
   const mine = history.slice(0, 3);
   const scores = top.data ?? [];
 

@@ -3,13 +3,13 @@
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
+import { GameTabs, HistoryPages, ResultFilter, gameFilter, historyHref, resultCounts } from "@/components/match/MatchHistory";
 import { MatchBanner } from "@/components/match/MatchBanner";
 import { AssetPicker, Bust, Button, EntryPicker, Label, Sheet, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
-import { historyPage } from "@/lib/chain/history";
+import { RESULTS, historyPage, resultFilter } from "@/lib/chain/history";
 import { backingLine, playedRows, playerSummary, signed, type PlayedRow, type PlayerAccount, type PlayerSummary } from "@/lib/chain/player-account";
 import { timeLeft } from "@/lib/chain/useBackingBoard";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
@@ -68,7 +68,9 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
   const rows = useMemo(() => playedRows(data.played), [data.played]);
   const summary = useMemo(() => playerSummary(data.played), [data.played]);
   const game = gameFilter(params.get("game"));
-  const shown = game ? rows.filter((r) => r.game === game) : rows;
+  const results = resultFilter(params.get("result"));
+  const ofGame = game ? rows.filter((r) => r.game === game) : rows;
+  const shown = ofGame.filter((r) => results.includes(r.result));
   const view = historyPage(shown, Number(params.get("page") ?? 1));
   const base = `/account/${address}`;
 
@@ -134,10 +136,16 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
         <section className="pa-history" aria-labelledby="pa-matches">
           <header className="mh-head">
             <h2 id="pa-matches" className="h-section">Match history</h2>
-            {rows.length > 0 && <GameTabs base={base} game={game} />}
+            {rows.length > 0 && <GameTabs base={base} game={game} results={results} />}
+            <ResultFilter base={base} game={game} results={results} counts={resultCounts(ofGame)} />
           </header>
-          {shown.length === 0 ? (
+          {ofGame.length === 0 ? (
             rows.length > 0 && <p className="pa-none">No finished {game ? GAME_NAMES[game] : ""} Matches yet.</p>
+          ) : shown.length === 0 ? (
+            <div className="mh-state">
+              <p>No {game ? `${GAME_NAMES[game]} ` : ""}Matches with these results.</p>
+              <Button size="sm" href={historyHref(base, game, 1, RESULTS)}>Show all results</Button>
+            </div>
           ) : (
             <>
               <div className="mb-list" role="list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`}>
@@ -147,7 +155,7 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
                   </div>
                 ))}
               </div>
-              <HistoryPages base={base} game={game} page={view.page} pages={view.pages} total={shown.length} />
+              <HistoryPages base={base} game={game} results={results} page={view.page} pages={view.pages} total={shown.length} />
             </>
           )}
           {summary.notRead > 0 && (
