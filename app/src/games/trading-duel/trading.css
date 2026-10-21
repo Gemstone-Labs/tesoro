@@ -6,9 +6,6 @@
 .td-card { --edge: var(--edge-1); background: var(--surface); padding: 14px 16px; display: grid; gap: 10px; }
 .td-banner { padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; }
 .td-banner-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.td-pick { display: flex; flex-wrap: wrap; gap: 8px; }
-.td-pick button { --edge: var(--edge-2); padding: 8px 14px; border: 0; background: #141a20; color: var(--fg); font-weight: 700; font-size: var(--fs-14); }
-.td-pick button[aria-pressed="true"] { background: #eef0e9; color: #0a0d0f; }
 .td-sigs, .td-note { width: 100%; max-width: 1240px; margin-inline: auto; }
 .td-sigs summary { cursor: pointer; }
 .td-sigs { gap: 6px; }

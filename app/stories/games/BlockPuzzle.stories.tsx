@@ -30,7 +30,7 @@ const meta = {
 } satisfies Meta;
 export default meta;
 
-/** Practice: nothing staked, a fresh random set of pieces each time. Press Start practice. */
+/** Practice: nothing staked, a fresh random set of pieces each time. It counts 3-2-1 and starts as soon as it opens. */
 export const Practice: StoryObj = { render: () => <BlockPuzzleGame /> };
 
 /** A Match run on a fixed set of pieces; change the seed in Controls to get another set. Drag a piece onto the board, or tap a piece then a cell. */
