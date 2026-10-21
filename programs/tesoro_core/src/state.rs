@@ -1156,6 +1156,9 @@ pub struct MatchRunStarted {
     pub asset: u8,
     pub opened_at: i64,
     pub ts: i64,
+    /// Each side's Player share of a Backing, in bps (0 for an unbacked side).
+    pub a_share_bps: u16,
+    pub b_share_bps: u16,
 }
 
 /// One chunk of a run did work. Stable ids: the Match id and the chunk number.

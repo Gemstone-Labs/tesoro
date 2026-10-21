@@ -2373,6 +2373,32 @@ fn backing_win_returns_backer_entry_then_splits_and_player_has_no_debt() {
 }
 
 #[test]
+fn the_start_record_carries_both_sides_backing_shares_so_history_needs_no_match_state() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 4_000, None);
+    b.accept_public(offer, request);
+    let id = b.open_backed(offer, 500).expect("backed entry");
+    b.d.env.join_match(&b.d.bob, id).map(|_| ()).expect("join");
+    let game = b.d.env.game_auth.insecure_clone();
+    b.d.env
+        .settle_start(&game, id, MatchResult::Opener)
+        .expect("start");
+    let started: Vec<MatchRunStarted> = b
+        .d
+        .env
+        .start_events
+        .iter()
+        .filter_map(|e| decode_event(e))
+        .collect();
+    assert_eq!(started.len(), 1);
+    assert_eq!(
+        (started[0].a_share_bps, started[0].b_share_bps),
+        (4_000, 0)
+    );
+}
+
+#[test]
 fn backing_loss_costs_the_backer_the_entry_and_nothing_more() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
