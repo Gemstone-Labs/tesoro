@@ -1,34 +1,70 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Info } from "lucide-react";
 import "./tip.css";
 
 type Align = "start" | "center" | "end";
 
-/** An ⓘ that explains a figure: opens on hover or focus, and on tap (phones). */
+/**
+ * An ⓘ that explains a figure: shows above the icon on hover or focus, and stays open on tap (phones). The bubble is
+ * drawn at the page level so the card's cut corners can't clip it.
+ */
 export function InfoTip({ label, children, align = "center" }: { label: string; children: ReactNode; align?: Align }) {
   const id = useId();
-  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLButtonElement>(null);
+  const [at, setAt] = useState<{ top: number; x: number } | null>(null);
+  const [pinned, setPinned] = useState(false);
+  const show = () => {
+    const r = ref.current?.getBoundingClientRect();
+    if (r) setAt({ top: r.top - 8, x: align === "start" ? r.left : align === "end" ? r.right : r.left + r.width / 2 });
+  };
+  const hide = () => {
+    setAt(null);
+    setPinned(false);
+  };
+  useEffect(() => {
+    if (!at) return;
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    return () => {
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("resize", hide);
+    };
+  }, [at]);
+  const shift = align === "start" ? "0" : align === "end" ? "-100%" : "-50%";
   return (
-    <span className={`tip tip-${align}`} onMouseLeave={() => setOpen(false)}>
+    <span className="tip">
       <button
+        ref={ref}
         type="button"
         className="tip-btn"
         aria-label={label}
         aria-describedby={id}
-        aria-expanded={open}
+        aria-expanded={!!at}
+        onMouseEnter={show}
+        onMouseLeave={() => !pinned && setAt(null)}
+        onFocus={show}
+        onBlur={hide}
         onClick={(e) => {
           e.stopPropagation();
-          setOpen((o) => !o);
+          if (pinned) hide();
+          else {
+            show();
+            setPinned(true);
+          }
         }}
-        onBlur={() => setOpen(false)}
       >
         <Info size={15} aria-hidden="true" />
       </button>
-      <span role="tooltip" id={id} className={`tip-bubble below${open ? " open" : ""}`}>
-        {children}
-      </span>
+      {typeof document !== "undefined" &&
+        createPortal(
+          <span role="tooltip" id={id} className={`tip-bubble fixed${at ? " open" : ""}`} style={at ? { top: at.top, left: at.x, transform: `translate(${shift}, -100%)` } : undefined}>
+            {children}
+          </span>,
+          document.body,
+        )}
     </span>
   );
 }
