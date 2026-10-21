@@ -326,7 +326,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     </div>
   );
   return (
-    <Arena game="vanguard" autoFull={started && !game.winner}>
+    <Arena game="vanguard" autoFull={!game.winner}>
       <VanguardScreen
         bar={
           <div className="vg-bar">
