@@ -696,7 +696,7 @@ impl Army {
 
     /// Take the Truck's fuel and last-moved turn and every rank back from the engine. All thirty rank bytes are
     /// written every time, from masks: a live piece keeps the code the engine holds for it (a Dig in or a switch
-    /// changes it), a dead piece keeps the code it had, so the end reveal and the owner's badge survive a death.
+    /// changes it), a dead piece keeps the code it had (plus a change made in its last action), so the end reveal and the owner's badge survive a death.
     pub fn absorb(&mut self, g: &Game) {
         let Some(side) = side_from(self.side) else {
             return;
@@ -708,8 +708,19 @@ impl Army {
             // Select the Truck's fuel without branching on a rank.
             let m = engine::ct::mask(engine::ct::eq(p.rank as u64, TRUCK as u64));
             self.fuel = (p.fuel & m) | (self.fuel & !m);
+            // A dead piece keeps the code it had, except that a change made in this very action (a switch, then a lost
+            // attack) is written back from `changed`, so the record and the end mask survive the death.
+            let old = self.ranks[i];
+            let changed = ((g.changed >> (base + i)) & 1) as u8;
+            let switched = changed & engine::ct::eq(old as u64, engine::GENERAL_OF_THE_ARMY as u64);
+            let dug_in = changed & engine::ct::eq(old as u64, engine::MAJOR as u64);
+            let dead_code = engine::ct::pick(
+                switched,
+                engine::SWITCHED,
+                engine::ct::pick(dug_in, engine::DUG_IN, old),
+            );
             let live = engine::ct::mask(1 ^ engine::ct::eq(p.rank as u64, 0));
-            self.ranks[i] = (p.rank & live) | (self.ranks[i] & !live);
+            self.ranks[i] = (p.rank & live) | (dead_code & !live);
         }
     }
 

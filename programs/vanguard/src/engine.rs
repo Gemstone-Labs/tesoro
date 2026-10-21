@@ -509,6 +509,12 @@ pub(crate) mod ct {
     }
 }
 
+/// 1 when `x` is not zero, else 0, from arithmetic only (see `ct`).
+#[inline(always)]
+fn nonzero(x: u64) -> u8 {
+    1 ^ ct::eq(x, 0)
+}
+
 /// Combat value: 0 for the Landmine and the Truck.
 fn value(rank: u8) -> u8 {
     rank * ct::lt(rank as u64, BOMB as u64)
@@ -1019,6 +1025,12 @@ impl Game {
     /// Whether `army` has any legal move. Only the army's own thirty slots can move, and two squares per line
     /// decide it. Same work whatever the layout, no early exit.
     pub fn any_move(&self, army: Army, moved: u64, two_step_active: bool) -> bool {
+        self.any_move_mask(army, moved, two_step_active) != 0
+    }
+
+    /// `any_move` as a 0/1 byte built from arithmetic only, so a caller that combines it with other hidden predicates
+    /// (`has_action`) never turns a hidden count into a branch before the public result is known.
+    pub fn any_move_mask(&self, army: Army, moved: u64, two_step_active: bool) -> u8 {
         let base = if army == Army::Us { 30 } else { 0 };
         let mut count: u16 = 0;
         for id in base..base + 30 {
@@ -1026,7 +1038,7 @@ impl Game {
                 .piece_scan::<EXISTS_DEPTH>(id, army, moved, two_step_active, NO_PIECE)
                 .0;
         }
-        count > 0
+        nonzero(count as u64)
     }
 
     /// Whether `army` has any legal move at the start of its turn.
@@ -1042,6 +1054,13 @@ impl Game {
     /// Whether `army` has a Blast, a Rescue or a Dig in: a live Engineer, a live Colonel with its Truck on the board,
     /// or a live Major that has not dug in. Counts over the thirty slots with masks, whatever the layout.
     pub fn has_power(&self, army: Army) -> bool {
+        self.has_power_mask(army) != 0
+    }
+
+    /// `has_power` as a 0/1 byte. Every count is turned into a flag with arithmetic (`nonzero`), never a comparison:
+    /// a comparison of a hidden count is a jump on SBF, and the jump costs one instruction more or less (a dug-in Major
+    /// is no Major, which would show in the compute of the opponent's next resolve).
+    pub fn has_power_mask(&self, army: Army) -> u8 {
         let base = if army == Army::Us { 30 } else { 0 };
         let (mut engineers, mut colonels, mut trucks, mut majors) = (0u16, 0u16, 0u16, 0u16);
         for p in &self.pieces[base..base + 30] {
@@ -1052,17 +1071,18 @@ impl Game {
             trucks += is(TRUCK) as u16;
             majors += is(MAJOR) as u16;
         }
-        let rescue = ((colonels != 0) as u16) & ((trucks != 0) as u16);
-        let v6 = (self.version >= 6) as u16;
-        v6 & (((engineers != 0) as u16) | rescue | ((majors != 0) as u16)) != 0
+        let rescue = nonzero(colonels as u64) & nonzero(trucks as u64);
+        let v6 = (self.version >= 6) as u8;
+        v6 & (nonzero(engineers as u64) | rescue | nonzero(majors as u64))
     }
 
     /// Whether `army` has any move, Blast, Rescue or Dig in at the start of its turn. The "no legal move" ending uses
-    /// this one; Passing does not count as an action.
+    /// this one; Passing does not count as an action. The two halves are combined as masks and only the final public
+    /// answer becomes a `bool`.
     pub fn has_action(&self, army: Army) -> bool {
-        let m = self.has_moves(army);
-        let p = self.has_power(army);
-        m | p
+        let m = self.any_move_mask(army, 0, false);
+        let p = self.has_power_mask(army);
+        (m | p) != 0
     }
 
     /// Higher total of surviving ranks wins (Landmines and the Truck count 0), then more pieces, else a draw.
@@ -1280,7 +1300,7 @@ impl Game {
             trucks += ct::eq(p.rank as u64, TRUCK as u64) as u16;
         }
         let colonel = ct::eq(eff(self.pieces[id].rank) as u64, COLONEL as u64);
-        (colonel & (trucks != 0) as u8) != 0
+        (colonel & nonzero(trucks as u64)) != 0
     }
 
     /// Blast with Engineer `id` at time `at`. Counts as a move and passes the turn.

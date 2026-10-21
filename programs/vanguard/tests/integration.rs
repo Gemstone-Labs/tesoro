@@ -4671,3 +4671,149 @@ fn compute_of_the_new_declares_and_resolves_has_headroom_in_the_client_budgets()
         );
     }
 }
+
+// --- The next turn must not show what the last one hid; a death keeps its change ----------------------
+
+/// US: Major 71, Colonel 72, Recon 74, General of the Army 95, Truck 96 (no Engineer, so the Major is the only thing
+/// that gives the Major's side a Dig in, and the Colonel and the Truck the only Rescue). Italy: Colonel 2, Recon 4,
+/// General of the Army 5, Truck 6, Bomb 7.
+fn lean_layout() -> Vec<LayoutPiece> {
+    vec![
+        lp(Side::Us, 7, 71),
+        lp(Side::Us, 8, 72),
+        lp(Side::Us, RECON, 74),
+        lp(Side::Us, GENERAL_OF_THE_ARMY, 95),
+        lp(Side::Us, TRUCK, 96),
+        lp(Side::It, 8, 2),
+        lp(Side::It, RECON, 4),
+        lp(Side::It, GENERAL_OF_THE_ARMY, 5),
+        lp(Side::It, TRUCK, 6),
+        lp(Side::It, BOMB, 7),
+    ]
+}
+
+/// Alice acts (declare + resolve), then Bob moves his Recon; returns the public bytes after Bob's resolve and the
+/// compute of Bob's whole turn, optionally with Bob's resolve under a compute limit.
+fn next_turn(
+    alice: &dyn Fn(&Env, APk) -> Instruction,
+    limit: Option<u32>,
+) -> Result<(Vec<u8>, u64, u64), ()> {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&lean_layout(), 0);
+    for seat in 0..2 {
+        env.patch_army(seat, |v| v.reserved = [0x40 + seat as u8; 32]);
+    }
+    env.set_time(T0 + 2);
+    let ix = alice(&env, env.alice.key);
+    env.act(0, ix).expect("alice acts");
+    let after_alice = (env.declare_cu, env.resolve_cu);
+    let bob = env.player(1);
+    let mv = env.move_ix(bob.key, 4, 14);
+    env.send(&[budget(), mv], &bob.kp, &[])
+        .expect("bob declares");
+    env.next_slot();
+    let r = env.resolve_ix(bob.key);
+    let mut ixs = vec![r];
+    if let Some(l) = limit {
+        let mut data = vec![2u8];
+        data.extend_from_slice(&l.to_le_bytes());
+        ixs.insert(0, Instruction { data, ..budget() });
+    }
+    env.send(&ixs, &bob.kp, &[]).map_err(|_| ())?;
+    Ok((bytes_of_battle(&env), env.last_cu, after_alice.1))
+}
+
+fn next_turn_variants() -> OneByteFree {
+    let major = id_of(71) % 30 + 1;
+    let ten = SLOT_US_GOTA + 1;
+    vec![
+        ("plain pass", Box::new(|e, k| e.pass_ix(k, 0, 0))),
+        (
+            "face-down dig in",
+            Box::new(move |e, k| e.pass_ix(k, major, 0)),
+        ),
+        (
+            "invalid dig in (the Colonel)",
+            Box::new(|e, k| e.pass_ix(k, id_of(72) % 30 + 1, 0)),
+        ),
+        (
+            "invalid dig in (nothing there)",
+            Box::new(|e, k| e.pass_ix(k, 29, 0)),
+        ),
+        ("pass + switch", Box::new(move |e, k| e.pass_ix(k, 0, ten))),
+        (
+            "dig in + switch",
+            Box::new(move |e, k| e.pass_ix(k, major, ten)),
+        ),
+    ]
+}
+
+#[test]
+fn the_opponents_next_resolve_costs_the_same_whatever_the_last_turn_hid() {
+    let variants = next_turn_variants();
+    let base = next_turn(&*variants[0].1, None).expect("baseline");
+    for (name, make) in &variants {
+        let got = next_turn(&**make, None).expect(name);
+        assert_eq!(got.0, base.0, "{name}: public bytes after the next turn");
+        assert_eq!(got.1, base.1, "{name}: the next turn's compute, exactly");
+        assert_eq!(got.2, base.2, "{name}: this turn's compute, exactly");
+    }
+    // the same with the Bob's resolve held to exactly what it needs: succeed at the measured amount, fail one below,
+    // identically for every hidden variant
+    let with_limit = next_turn(&*variants[0].1, Some(1_400_000))
+        .expect("limit")
+        .1 as u32;
+    for (name, make) in &variants {
+        assert!(
+            next_turn(&**make, Some(with_limit)).is_ok(),
+            "{name}: at the measured limit"
+        );
+        assert!(
+            next_turn(&**make, Some(with_limit - 1)).is_err(),
+            "{name}: one below it"
+        );
+    }
+}
+
+#[test]
+fn a_switch_that_dies_with_its_attack_keeps_its_change_in_the_army_and_the_end_mask() {
+    let mut env = power_env(0);
+    let p = env.player(0);
+    // an Italian Recon stands next to the US General of the Army at 95; the switched 10 plays as a Spy and loses
+    tele(&mut env, 4, 85);
+    let attack = env.move_ix_switch(p.key, id_of(95), 85, SLOT_US_GOTA + 1);
+    env.act(0, attack).expect("switch and attack");
+    let b = env.battle();
+    assert_eq!(
+        b.sq[id_of(95) as usize],
+        vanguard::NO_SQ,
+        "the switched 10 died"
+    );
+    assert_eq!(
+        b.shown[id_of(95) as usize],
+        SPY,
+        "shown as the Spy it fought as"
+    );
+    assert_eq!(
+        env.army(0).ranks[SLOT_US_GOTA as usize],
+        engine::SWITCHED,
+        "the owner's record keeps the change"
+    );
+    // another resolve (Italy moves), then the Match ends by timeouts
+    let bob = env.player(1);
+    let mv = env.move_ix(bob.key, 2, 12);
+    env.act(1, mv).expect("italy moves");
+    assert_eq!(env.army(0).ranks[SLOT_US_GOTA as usize], engine::SWITCHED);
+    env.patch_battle(|b| b.timeouts = [2, 0]);
+    let pass = env.pass_ix(p.key, 0, 0);
+    env.act(0, pass).expect("third missed turn");
+    let b = env.battle();
+    assert_eq!(b.status, vanguard::STATUS_OVER);
+    let mask = u64::from_le_bytes(b.reserved[..8].try_into().unwrap());
+    assert_eq!(
+        mask,
+        1u64 << id_of(95),
+        "the dead switched 10 is in the end mask"
+    );
+}
