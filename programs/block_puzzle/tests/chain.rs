@@ -37,6 +37,57 @@ fn s(p: APk) -> Pk {
 fn core_pda(seeds: &[&[u8]]) -> APk {
     APk::find_program_address(seeds, &tesoro_core::ID).0
 }
+
+/// The Game's record in tesoro_core, and the loader accounts `open_match` reads its deploy slot from.
+fn game_record_pda() -> APk {
+    APk::find_program_address(&[GAME_SEED, block_puzzle::ID.as_ref()], &tesoro_core::ID).0
+}
+fn program_data_pda() -> APk {
+    APk::find_program_address(
+        &[block_puzzle::ID.as_ref()],
+        &anchor_lang::solana_program::bpf_loader_upgradeable::ID,
+    )
+    .0
+}
+
+/// ComputeBudget `SetComputeUnitLimit`: `list_game` hashes the whole game program.
+fn cu_limit(units: u32) -> Instruction {
+    let mut data = vec![2u8];
+    data.extend_from_slice(&units.to_le_bytes());
+    Instruction {
+        program_id: s(APk::from_str_const(
+            "ComputeBudget111111111111111111111111111111",
+        )),
+        accounts: vec![],
+        data,
+    }
+}
+
+/// Makes `key` the upgrade authority of the Game program loaded into `svm` and returns the slot the
+/// loader recorded for its deployment; here: the hash tesoro_core approves (SHA-256 of the
+/// executable without trailing zeros).
+fn control_program(svm: &mut LiteSVM, program: APk, key: APk) -> [u8; 32] {
+    let pd = s(APk::find_program_address(
+        &[program.as_ref()],
+        &anchor_lang::solana_program::bpf_loader_upgradeable::ID,
+    )
+    .0);
+    let mut acct = svm.get_account(&pd).expect("program data");
+    acct.data[12] = 1;
+    acct.data[13..45].copy_from_slice(key.as_ref());
+    let code = &acct.data[45..];
+    let end = code.iter().rposition(|b| *b != 0).map_or(0, |i| i + 1);
+    let hash = solana_sdk::hash::hash(&code[..end]).to_bytes();
+    svm.set_account(pd, acct).expect("set program data");
+    hash
+}
+fn pair_pda(opener: APk, joiner: APk) -> APk {
+    APk::find_program_address(
+        &[PAIR_SEED, opener.as_ref(), joiner.as_ref()],
+        &tesoro_core::ID,
+    )
+    .0
+}
 fn bp_pda(seeds: &[&[u8]]) -> APk {
     APk::find_program_address(seeds, &block_puzzle::ID).0
 }
@@ -171,18 +222,40 @@ impl Env {
                 vec![],
             ),
         );
+        let ctl = Keypair::new();
+        let hash = control_program(&mut env.svm, block_puzzle::ID, a(ctl.pubkey()));
+        let register = core_ix(
+            tesoro_core::accounts::RegisterGame {
+                payer: a(admin.pubkey()),
+                control: a(ctl.pubkey()),
+                config,
+                game_program: block_puzzle::ID,
+                program_data: program_data_pda(),
+                studio_recipient: studio.0,
+                game_record: game_record_pda(),
+                system_program: anchor_lang::system_program::ID,
+            },
+            tesoro_core::instruction::RegisterGame {
+                settle_authority: authority(),
+                studio_bps: 300,
+            },
+            vec![],
+        );
+        env.send(&[register], &admin, &[&ctl])
+            .expect("register game");
         env.send_core_admin(
             &admin,
             core_ix(
-                tesoro_core::accounts::RegisterGame {
+                tesoro_core::accounts::ListGame {
                     admin: a(admin.pubkey()),
                     config,
-                    studio_recipient: studio.0,
+                    game_record: game_record_pda(),
+                    game_program: block_puzzle::ID,
+                    program_data: program_data_pda(),
                 },
-                tesoro_core::instruction::RegisterGame {
-                    game: block_puzzle::ID,
-                    authority: authority(),
-                    studio_bps: 300,
+                tesoro_core::instruction::ListGame {
+                    listed_until: 4_000_000_000,
+                    approved_hash: hash,
                 },
                 vec![],
             ),
@@ -193,7 +266,8 @@ impl Env {
     }
 
     fn send_core_admin(&mut self, payer: &Keypair, ix: Instruction) {
-        self.send(&[ix], payer, &[]).expect("core admin ix");
+        self.send(&[cu_limit(1_400_000), ix], payer, &[])
+            .expect("core admin ix");
     }
 
     fn set_clock(&mut self, unix_timestamp: i64, slot: u64) {
@@ -386,6 +460,9 @@ impl Env {
             tesoro_core::accounts::OpenMatch {
                 player_authority: alice.key,
                 config: core_pda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
+                game_program: block_puzzle::ID,
+                program_data: program_data_pda(),
                 player_account: alice.account,
                 protections: core_pda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
                 match_state: match_pda(id),
@@ -414,6 +491,8 @@ impl Env {
                 protections: core_pda(&[PROTECTIONS_SEED, bob.account.as_ref()]),
                 match_state: match_pda(id),
                 opener_protections: core_pda(&[PROTECTIONS_SEED, self.opener_account(id).as_ref()]),
+                pair: pair_pda(self.opener_account(id), bob.account),
+                system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::JoinMatch {},
             vec![rem(bob.holding)],
@@ -433,7 +512,7 @@ impl Env {
                 board_0: board_pda(session, 0),
                 vault: vault_pda(session),
                 authority: authority(),
-                config: core_pda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
                 tesoro_core_program: tesoro_core::ID,
                 system_program: anchor_lang::system_program::ID,
             },
@@ -455,7 +534,7 @@ impl Env {
                 account_b: bob.account,
                 board_1: board_pda(session, 1),
                 authority: authority(),
-                config: core_pda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
                 tesoro_core_program: tesoro_core::ID,
                 system_program: anchor_lang::system_program::ID,
             },
@@ -472,7 +551,7 @@ impl Env {
         let mut metas = to_metas(
             tesoro_core::accounts::RefundMatch {
                 caller: a(payer.pubkey()),
-                config: core_pda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
                 match_state: match_pda(id),
                 opener_protections: None,
             }
@@ -614,6 +693,7 @@ impl Env {
             board_1: self.board(id, 1),
             authority: authority_key,
             config: core_pda(&[CONFIG_SEED]),
+            game_record: game_record_pda(),
             match_state: match_pda(id),
             tesoro_core_program: tesoro_core::ID,
         }
@@ -954,7 +1034,7 @@ fn a_match_nobody_joins_is_refunded_to_the_opener_after_they_played() {
         let mut metas = to_metas(
             tesoro_core::accounts::RefundMatch {
                 caller,
-                config: core_pda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
                 match_state: match_pda(id),
                 opener_protections: None,
             }
@@ -992,7 +1072,7 @@ fn the_opener_can_cancel_an_unjoined_match_at_once() {
     let mut metas = to_metas(
         tesoro_core::accounts::RefundMatch {
             caller: alice.key,
-            config: core_pda(&[CONFIG_SEED]),
+            game_record: game_record_pda(),
             match_state: match_pda(id),
             opener_protections: None,
         }
@@ -1304,6 +1384,7 @@ fn only_the_registered_authority_settles() {
         tesoro_core::accounts::SettleMatch {
             game_authority: alice.key,
             config: core_pda(&[CONFIG_SEED]),
+            game_record: game_record_pda(),
             match_state: match_pda(id),
         },
         tesoro_core::instruction::SettleMatch {

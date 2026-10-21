@@ -1313,6 +1313,26 @@
           }
         },
         {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game"
+              }
+            ]
+          }
+        },
+        {
           "name": "backer_account",
           "writable": true,
           "pda": {
@@ -1452,6 +1472,26 @@
                   105,
                   103
                 ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game"
               }
             ]
           }
@@ -1840,19 +1880,22 @@
           "signer": true
         },
         {
-          "name": "config",
+          "name": "game_record",
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
+                  103,
+                  97,
+                  109,
+                  101
                 ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.game",
+                "account": "MatchState"
               }
             ]
           }
@@ -4782,6 +4825,7 @@
       "accounts": [
         {
           "name": "player_authority",
+          "writable": true,
           "signer": true
         },
         {
@@ -4886,6 +4930,36 @@
               }
             ]
           }
+        },
+        {
+          "name": "pair",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  105,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.a.player",
+                "account": "MatchState"
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
@@ -4905,6 +4979,7 @@
       "accounts": [
         {
           "name": "player_authority",
+          "writable": true,
           "signer": true
         },
         {
@@ -5038,6 +5113,33 @@
           }
         },
         {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.game",
+                "account": "MatchState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
           "name": "match_state",
           "writable": true,
           "pda": {
@@ -5087,6 +5189,36 @@
               }
             ]
           }
+        },
+        {
+          "name": "pair",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  105,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.a.player",
+                "account": "MatchState"
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
@@ -5233,6 +5365,32 @@
           }
         },
         {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
           "name": "player_account",
           "writable": true,
           "pda": {
@@ -5361,6 +5519,32 @@
               }
             ]
           }
+        },
+        {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
         },
         {
           "name": "player_account",
@@ -7225,19 +7409,22 @@
           "signer": true
         },
         {
-          "name": "config",
+          "name": "game_record",
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
+                  103,
+                  97,
+                  109,
+                  101
                 ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.game",
+                "account": "MatchState"
               }
             ]
           }
@@ -7302,6 +7489,10 @@
     },
     {
       "name": "register_game",
+      "docs": [
+        "Registers a Game. Signed by the control of its program (upgrade authority, or the program's",
+        "`[\"tesoro-register\"]` PDA once immutable). The Game id is the `game_program` account."
+      ],
       "discriminator": [
         122,
         44,
@@ -7314,15 +7505,19 @@
       ],
       "accounts": [
         {
-          "name": "admin",
-          "signer": true,
-          "relations": [
-            "config"
-          ]
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "control",
+          "docs": [
+            "The upgrade authority, or the Game program's `[\"tesoro-register\"]` PDA once it is immutable."
+          ],
+          "signer": true
         },
         {
           "name": "config",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -7338,6 +7533,12 @@
               }
             ]
           }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
         },
         {
           "name": "studio_recipient",
@@ -7362,67 +7563,41 @@
               }
             ]
           }
-        }
-      ],
-      "args": [
-        {
-          "name": "game",
-          "type": "pubkey"
         },
         {
-          "name": "authority",
-          "type": "pubkey"
-        },
-        {
-          "name": "studio_bps",
-          "type": "u16"
-        }
-      ]
-    },
-    {
-      "name": "remove_game",
-      "discriminator": [
-        208,
-        12,
-        103,
-        49,
-        155,
-        37,
-        215,
-        223
-      ],
-      "accounts": [
-        {
-          "name": "admin",
-          "signer": true,
-          "relations": [
-            "config"
-          ]
-        },
-        {
-          "name": "config",
+          "name": "game_record",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
+                  103,
+                  97,
+                  109,
+                  101
                 ]
+              },
+              {
+                "kind": "account",
+                "path": "game_program"
               }
             ]
           }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
-          "name": "game",
+          "name": "settle_authority",
           "type": "pubkey"
+        },
+        {
+          "name": "studio_bps",
+          "type": "u16"
         }
       ]
     },
@@ -9947,6 +10122,27 @@
           }
         },
         {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.game",
+                "account": "MatchState"
+              }
+            ]
+          }
+        },
+        {
           "name": "match_state",
           "writable": true,
           "pda": {
@@ -12015,6 +12211,439 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "apply_game_change",
+      "discriminator": [
+        219,
+        231,
+        117,
+        168,
+        62,
+        248,
+        67,
+        147
+      ],
+      "accounts": [
+        {
+          "name": "control",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "game_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_program"
+              }
+            ]
+          }
+        },
+        {
+          "name": "studio_recipient",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "studio_recipient.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "refresh_listing",
+      "docs": [
+        "Anyone: moves the approved slot forward when the program's bytes still hash to the",
+        "approved build."
+      ],
+      "discriminator": [
+        84,
+        213,
+        200,
+        188,
+        142,
+        240,
+        12,
+        30
+      ],
+      "accounts": [
+        {
+          "name": "game_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_record.game",
+                "account": "GameRecord"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "propose_game_change",
+      "docs": [
+        "Proposes new settle authority and Studio terms; they apply 7 days later."
+      ],
+      "discriminator": [
+        210,
+        221,
+        122,
+        118,
+        134,
+        181,
+        79,
+        75
+      ],
+      "accounts": [
+        {
+          "name": "control",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "game_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_program"
+              }
+            ]
+          }
+        },
+        {
+          "name": "studio_recipient",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "studio_recipient.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "settle_authority",
+          "type": "pubkey"
+        },
+        {
+          "name": "studio_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "cancel_game_change",
+      "discriminator": [
+        57,
+        40,
+        182,
+        86,
+        245,
+        94,
+        208,
+        233
+      ],
+      "accounts": [
+        {
+          "name": "control",
+          "signer": true
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "game_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_program"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "list_game",
+      "docs": [
+        "Admin: lists a Game until a time for the build that hashes to `approved_hash` (or unlists",
+        "it with 0)."
+      ],
+      "discriminator": [
+        250,
+        150,
+        54,
+        108,
+        200,
+        41,
+        114,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_record.game",
+                "account": "GameRecord"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        }
+      ],
+      "args": [
+        {
+          "name": "listed_until",
+          "type": "i64"
+        },
+        {
+          "name": "approved_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "close_pair",
+      "docs": [
+        "Returns the rent of an opener-to-joiner pair counter after its window."
+      ],
+      "discriminator": [
+        45,
+        8,
+        194,
+        47,
+        65,
+        139,
+        172,
+        120
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "pair",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  105,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "opener"
+              },
+              {
+                "kind": "arg",
+                "path": "joiner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "opener",
+          "type": "pubkey"
+        },
+        {
+          "name": "joiner",
+          "type": "pubkey"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -12406,6 +13035,32 @@
         7,
         255,
         18
+      ]
+    },
+    {
+      "name": "PairState",
+      "discriminator": [
+        229,
+        212,
+        222,
+        222,
+        191,
+        128,
+        176,
+        235
+      ]
+    },
+    {
+      "name": "GameRecord",
+      "discriminator": [
+        28,
+        157,
+        20,
+        4,
+        219,
+        32,
+        208,
+        147
       ]
     }
   ],
@@ -12995,6 +13650,76 @@
       "code": 6030,
       "name": "NotOldWorld",
       "msg": "this account is not of the retired world, so it cannot be retired"
+    },
+    {
+      "code": 6031,
+      "name": "GameProofInvalid",
+      "msg": "the Game program is not a live program of a loader the registry understands"
+    },
+    {
+      "code": 6032,
+      "name": "NotGameControl",
+      "msg": "the signer does not control the Game program"
+    },
+    {
+      "code": 6033,
+      "name": "StudioFeeTooHigh",
+      "msg": "a Studio Fee is at most 10%"
+    },
+    {
+      "code": 6034,
+      "name": "StudioRecipientReserved",
+      "msg": "the Studio recipient may not be the Pool, the Treasury or the platform recipient"
+    },
+    {
+      "code": 6035,
+      "name": "NoPendingChange",
+      "msg": "no change is waiting for this Game"
+    },
+    {
+      "code": 6036,
+      "name": "ChangeDelayNotElapsed",
+      "msg": "a change to a Game applies 7 days after it is proposed"
+    },
+    {
+      "code": 6037,
+      "name": "GameNotListed",
+      "msg": "this Game is not listed, or was upgraded since the admin approved it"
+    },
+    {
+      "code": 6038,
+      "name": "PairLimitReached",
+      "msg": "these two Accounts have started too many Matches together today"
+    },
+    {
+      "code": 6039,
+      "name": "PairWindowOpen",
+      "msg": "this pair counter is still inside its 24-hour window"
+    },
+    {
+      "code": 6040,
+      "name": "CodeHashMismatch",
+      "msg": "the program's executable does not hash to the value given"
+    },
+    {
+      "code": 6041,
+      "name": "CodeChanged",
+      "msg": "the program's executable differs from the approved build; the admin must approve it again"
+    },
+    {
+      "code": 6042,
+      "name": "ListingCurrent",
+      "msg": "the listing already matches the program's deploy slot"
+    },
+    {
+      "code": 6043,
+      "name": "NotListed",
+      "msg": "the Game is not listed, so there is nothing to refresh"
+    },
+    {
+      "code": 6044,
+      "name": "ProgramTooLarge",
+      "msg": "the program is too large to hash in one transaction"
     }
   ],
   "types": [
@@ -13243,11 +13968,14 @@
             "type": "pubkey"
           },
           {
-            "name": "games",
+            "name": "legacy_games",
+            "docs": [
+              "Unused since the per-Game records; its bytes stay so older accounts keep their layout."
+            ],
             "type": {
               "vec": {
                 "defined": {
-                  "name": "GameEntry"
+                  "name": "LegacyGameEntry"
                 }
               }
             }
@@ -13565,39 +14293,6 @@
                 32
               ]
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "GameEntry",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "game",
-            "docs": [
-              "Identity of the Game (its program id)."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "authority",
-            "docs": [
-              "Only this key may settle the Game's Matches (a PDA of the Game program, or a server key)."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "studio_bps",
-            "type": "u16"
-          },
-          {
-            "name": "studio_recipient",
-            "docs": [
-              "`TesoroAccount` that receives the Studio Fee."
-            ],
-            "type": "pubkey"
           }
         ]
       }
@@ -14059,6 +14754,28 @@
                 "name": "Match"
               }
             }
+          },
+          {
+            "name": "listed",
+            "docs": [
+              "The Game was listed when the Match opened: only then does a win earn Points."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "deploy_slot",
+            "docs": [
+              "The Game program's deploy slot when the Match opened (zero if it could not be read or the",
+              "program cannot be upgraded)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "listing_epoch",
+            "docs": [
+              "`GameRecord.listing_epoch` when the Match opened."
+            ],
+            "type": "u32"
           }
         ]
       }
@@ -16491,6 +17208,164 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameRecord",
+      "docs": [
+        "One Game. Registered once by whoever controls its program (see `registry`); changed only by",
+        "that same control, after `GAME_CHANGE_DELAY_SECS`. Listing is written by the admin."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "game",
+            "docs": [
+              "The Game program's id."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "settle_authority",
+            "docs": [
+              "Only this key may settle the Game's Matches (a PDA of the Game program, or a server key)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_recipient",
+            "docs": [
+              "`TesoroAccount` that receives the Studio Fee."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_at",
+            "docs": [
+              "Unix time a proposed change was made; zero while none is waiting."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "pending_by",
+            "docs": [
+              "The control key that proposed it. Applying needs the same key to be in control still."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_settle_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "pending_studio_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "listed_until",
+            "docs": [
+              "The Game counts as listed until this unix time (admin). Zero: never listed."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "approved_slot",
+            "docs": [
+              "The deploy slot the admin approved. A program upgraded since has a different slot and",
+              "counts as unlisted until the admin approves again."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "approved_hash",
+            "docs": [
+              "SHA-256 of the approved build's executable bytes without trailing zeros (`registry::code_hash`).",
+              "A moved slot keeps the listing only through `refresh_listing`, which proves the bytes are these."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "listing_epoch",
+            "docs": [
+              "Counts the builds the admin approved: bumped by `list_game` only when it sets a different",
+              "hash, never by `refresh_listing`. A Match remembers the epoch it opened under, so a moved",
+              "deploy slot with the same epoch is the same build."
+            ],
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PairState",
+      "docs": [
+        "How many Matches one opener-to-joiner pair has started in the current window."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "payer",
+            "docs": [
+              "Who paid the counter's rent (the joiner's wallet); `close_pair` returns it there."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "window_start",
+            "type": "i64"
+          },
+          {
+            "name": "count",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LegacyGameEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_recipient",
+            "type": "pubkey"
           }
         ]
       }

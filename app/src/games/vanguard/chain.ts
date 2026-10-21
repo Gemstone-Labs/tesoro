@@ -35,6 +35,7 @@ import {
   type PlayerSigner,
 } from "../holdem/chain";
 import { STATUS, decodeArmy, decodeBattle, type ArmyAccount, type Battle } from "./decode";
+import { gameRecordPda } from "../../lib/chain/game-record";
 
 export { keypairSigner, tesoroAccountPda, tesoroMatchPda, type PlayerSigner };
 
@@ -237,7 +238,7 @@ export class VanguardChain {
       .accountsPartial({
         creator: creator.publicKey,
         tesoroMatch: tesoroMatchPda(matchId),
-        config: tesoroConfigPda(),
+        gameRecord: gameRecordPda(VANGUARD_PROGRAM_ID),
         vanguardConfig: ad.config,
         accountA: tesoroAccountPda(seatA),
         accountB: tesoroAccountPda(seatB),
@@ -324,6 +325,7 @@ export class VanguardChain {
         battle: ad.battle,
         tesoroMatch: tesoroMatchPda(matchId),
         config: tesoroConfigPda(),
+        gameRecord: gameRecordPda(VANGUARD_PROGRAM_ID),
         authority: ad.authority,
         tesoroProgram: TESORO_CORE_PROGRAM_ID,
       } as any)

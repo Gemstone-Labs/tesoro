@@ -3,6 +3,7 @@ import { BN } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import type { GameId } from "@/lib/mock/types";
+import { gameAccounts, gameRecordPda, pairPda } from "./game-record";
 import { protectionsPda } from "./native";
 import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
@@ -318,7 +319,7 @@ export async function postRequest(signer: ChainSigner, game: GameId, entry: numb
   const address = PublicKey.findProgramAddressSync([Buffer.from("request"), snap.accountKey.toBuffer(), n.toArrayLike(Buffer, "le", 8)], chain.core.programId)[0];
   const ix = await chain.core.methods
     .createRequest(n, GAME_IDS[game], new BN(entry))
-    .accountsPartial({ playerAuthority: signer.publicKey, config: config(), playerAccount: snap.accountKey, protections: protectionsPda(snap.accountKey), request: address, systemProgram: SystemProgram.programId })
+    .accountsPartial({ playerAuthority: signer.publicKey, config: config(), gameRecord: gameRecordPda(GAME_IDS[game]), playerAccount: snap.accountKey, protections: protectionsPda(snap.accountKey), request: address, systemProgram: SystemProgram.programId })
     .instruction();
   return { address, sig: await chain.sendBase(signer, [ix]) };
 }
@@ -348,7 +349,7 @@ export async function postOffer(
   const address = PublicKey.findProgramAddressSync([Buffer.from("offer"), snap.accountKey.toBuffer(), n.toArrayLike(Buffer, "le", 8)], chain.core.programId)[0];
   const ix = await chain.core.methods
     .createOffer(n, GAME_IDS[a.game], new BN(a.entry), a.shareBps, a.request ?? null)
-    .accountsPartial({ backerAuthority: signer.publicKey, config: config(), backerAccount: snap.accountKey, offer: address, systemProgram: SystemProgram.programId })
+    .accountsPartial({ backerAuthority: signer.publicKey, config: config(), gameRecord: gameRecordPda(GAME_IDS[a.game]), backerAccount: snap.accountKey, offer: address, systemProgram: SystemProgram.programId })
     .remainingAccounts(metas(holdings))
     .instruction();
   return { address, sig: await chain.sendBase(signer, [ix]) };
@@ -476,6 +477,7 @@ async function openBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
     .accountsPartial({
       playerAuthority: signer.publicKey,
       config: a.config,
+      ...gameAccounts(GAME_IDS[offer.game]),
       playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey),
       protections: protectionsPda(BlockPuzzleChain.coreAccount(signer.publicKey)),
       offer: offer.address,
@@ -493,17 +495,21 @@ async function openBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
 async function joinBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
   const chain = getChain();
   const backerAccount = backerAccountOf(offer);
+  const joiner = BlockPuzzleChain.coreAccount(signer.publicKey);
   const ix = await chain.core.methods
     .joinMatchBacked()
     .accountsPartial({
       playerAuthority: signer.publicKey,
-      playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey),
+      ...gameAccounts(GAME_IDS[offer.game]),
+      playerAccount: joiner,
       protections: protectionsPda(BlockPuzzleChain.coreAccount(signer.publicKey)),
       offer: offer.address,
       backerAccount,
       backerProtections: protectionsPda(backerAccount),
       matchState: BlockPuzzleChain.addresses(id).match,
       openerProtections: await chain.openerProtections(id),
+      pair: pairPda(await chain.openerAccount(id), joiner),
+      systemProgram: SystemProgram.programId,
     })
     .remainingAccounts(metas(offerHoldings(backerAccount, offer.lines)))
     .instruction();

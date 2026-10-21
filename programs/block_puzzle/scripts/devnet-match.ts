@@ -26,6 +26,7 @@ import {
   type Move,
 } from "../../../app/src/games/block-puzzle/chain";
 import { planEntry } from "../../../app/src/lib/chain/ledger";
+import { gameAccounts, gameRecordPda } from "../../../app/src/lib/chain/game-record";
 import { apply, dims, fitsAt, handBase, newState, pieceAt, replay, SIZE, HAND } from "../../../app/src/games/block-puzzle/engine";
 
 const HERE = __dirname;
@@ -105,12 +106,13 @@ async function setupCore() {
       .instruction();
     rec("initialize_config (admin = deployer, oracle = ~/.config/tesoro/oracle.json)", await chain.sendBase(S.d, [ix]), "base");
   }
-  const cfg: any = await core.account.config.fetch(config);
-  const registered = cfg.games.some((g: any) => g.game.equals(BLOCK_PUZZLE_PROGRAM_ID) && g.authority.equals(authority));
+  const registered = await exists(gameRecordPda(BLOCK_PUZZLE_PROGRAM_ID));
   if (!registered) {
+    // The deployer is the program's upgrade authority, which is what tesoro_core checks.
+    const g = gameAccounts(BLOCK_PUZZLE_PROGRAM_ID);
     const ix = await core.methods
-      .registerGame(BLOCK_PUZZLE_PROGRAM_ID, authority, 300)
-      .accountsPartial({ admin: deployer.publicKey, config, studioRecipient: deployerAccount })
+      .registerGame(authority, 300)
+      .accountsPartial({ payer: deployer.publicKey, control: deployer.publicKey, config, gameProgram: g.gameProgram, programData: g.programData, studioRecipient: deployerAccount, gameRecord: g.gameRecord })
       .instruction();
     rec("register_game (block_puzzle, authority = [authority] PDA)", await chain.sendBase(S.d, [ix]), "base");
   }

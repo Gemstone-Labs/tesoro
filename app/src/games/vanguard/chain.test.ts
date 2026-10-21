@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import vanguardIdl from "../../lib/chain/idl/vanguard.json";
 import { CU, VANGUARD_PROGRAM_ID, VanguardChain, addresses, keypairSigner } from "./chain";
-import { tesoroConfigPda } from "../holdem/chain";
+import { gameRecordPda } from "../../lib/chain/game-record";
 
 type Sent = { step: string; ixs: TransactionInstruction[] };
 
@@ -161,9 +161,9 @@ describe("base-layer instructions", () => {
     const ix = sent[0].ixs[0];
     expect(ix.programId.equals(VANGUARD_PROGRAM_ID)).toBe(true);
     expect(keys(ix)).toContain(addresses(ID).battle.toBase58());
-    // The program's own config is passed next to tesoro_core's, and they are different accounts.
+    // The program's own config is passed next to the Game's record in tesoro_core, and they are different accounts.
     expect(keys(ix)).toContain(addresses(ID).config.toBase58());
-    expect(keys(ix)).toContain(tesoroConfigPda().toBase58());
+    expect(keys(ix)).toContain(gameRecordPda(VANGUARD_PROGRAM_ID).toBase58());
     expect(ix.data.readBigUInt64LE(8)).toBe(ID);
   });
 });

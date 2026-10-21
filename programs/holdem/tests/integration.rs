@@ -34,6 +34,57 @@ fn s(p: APk) -> Pk {
 fn tpda(seeds: &[&[u8]]) -> APk {
     APk::find_program_address(seeds, &tesoro_core::ID).0
 }
+
+/// The Game's record in tesoro_core, and the loader accounts `open_match` reads its deploy slot from.
+fn game_record_pda() -> APk {
+    APk::find_program_address(&[GAME_SEED, holdem::ID.as_ref()], &tesoro_core::ID).0
+}
+fn program_data_pda() -> APk {
+    APk::find_program_address(
+        &[holdem::ID.as_ref()],
+        &anchor_lang::solana_program::bpf_loader_upgradeable::ID,
+    )
+    .0
+}
+
+/// ComputeBudget `SetComputeUnitLimit`: `list_game` hashes the whole game program.
+fn cu_limit(units: u32) -> Instruction {
+    let mut data = vec![2u8];
+    data.extend_from_slice(&units.to_le_bytes());
+    Instruction {
+        program_id: s(APk::from_str_const(
+            "ComputeBudget111111111111111111111111111111",
+        )),
+        accounts: vec![],
+        data,
+    }
+}
+
+/// Makes `key` the upgrade authority of the Game program loaded into `svm`, as the Game's studio
+/// would hold it, and returns the hash tesoro_core approves: SHA-256 of the executable without
+/// trailing zeros.
+fn control_program(svm: &mut LiteSVM, program: APk, key: APk) -> [u8; 32] {
+    let pd = s(APk::find_program_address(
+        &[program.as_ref()],
+        &anchor_lang::solana_program::bpf_loader_upgradeable::ID,
+    )
+    .0);
+    let mut acct = svm.get_account(&pd).expect("program data");
+    acct.data[12] = 1;
+    acct.data[13..45].copy_from_slice(key.as_ref());
+    let code = &acct.data[45..];
+    let end = code.iter().rposition(|b| *b != 0).map_or(0, |i| i + 1);
+    let hash = solana_sdk::hash::hash(&code[..end]).to_bytes();
+    svm.set_account(pd, acct).expect("set program data");
+    hash
+}
+fn pair_pda(opener: APk, joiner: APk) -> APk {
+    APk::find_program_address(
+        &[PAIR_SEED, opener.as_ref(), joiner.as_ref()],
+        &tesoro_core::ID,
+    )
+    .0
+}
 fn hpda(seeds: &[&[u8]]) -> APk {
     APk::find_program_address(seeds, &holdem::ID).0
 }
@@ -399,21 +450,45 @@ impl Env {
         let admin = env.admin.insecure_clone();
         env.send(&[init], &admin, &[]).expect("init config");
         // The Game authority is the holdem PDA, not a keypair.
+        let ctl = Keypair::new();
+        let hash = control_program(&mut env.svm, holdem::ID, a(ctl.pubkey()));
         let register = ix(
             tesoro_core::ID,
             tesoro_core::accounts::RegisterGame {
-                admin: a(admin.pubkey()),
+                payer: a(admin.pubkey()),
+                control: a(ctl.pubkey()),
                 config: tpda(&[CONFIG_SEED]),
+                game_program: holdem::ID,
+                program_data: program_data_pda(),
                 studio_recipient: env.studio.account,
+                game_record: game_record_pda(),
+                system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::RegisterGame {
-                game: holdem::ID,
-                authority: authority_pda(),
+                settle_authority: authority_pda(),
                 studio_bps: 300,
             },
             vec![],
         );
-        env.send(&[register], &admin, &[]).expect("register game");
+        env.send(&[register], &admin, &[&ctl])
+            .expect("register game");
+        let list = ix(
+            tesoro_core::ID,
+            tesoro_core::accounts::ListGame {
+                admin: a(admin.pubkey()),
+                config: tpda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
+                game_program: holdem::ID,
+                program_data: program_data_pda(),
+            },
+            tesoro_core::instruction::ListGame {
+                listed_until: 4_000_000_000,
+                approved_hash: hash,
+            },
+            vec![],
+        );
+        env.send(&[cu_limit(1_400_000), list], &admin, &[])
+            .expect("list game");
 
         env.alice = env.person();
         env.bob = env.person();
@@ -430,6 +505,9 @@ impl Env {
             tesoro_core::accounts::OpenMatch {
                 player_authority: alice.key,
                 config: tpda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
+                game_program: holdem::ID,
+                program_data: program_data_pda(),
                 player_account: alice.account,
                 protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
                 match_state: tmatch_pda(self.id),
@@ -451,6 +529,8 @@ impl Env {
                 protections: tpda(&[PROTECTIONS_SEED, bob.account.as_ref()]),
                 match_state: tmatch_pda(self.id),
                 opener_protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
+                pair: pair_pda(alice.account, bob.account),
+                system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::JoinMatch {},
             vec![rem(self.b_holding)],
@@ -465,7 +545,7 @@ impl Env {
             holdem::accounts::CreateMatch {
                 creator,
                 tesoro_match: tmatch_pda(self.id),
-                config: tpda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
                 account_a: self.alice.account,
                 account_b: self.bob.account,
                 authority: authority_pda(),
@@ -601,6 +681,7 @@ impl Env {
                 game_match: ad.game_match,
                 tesoro_match: tmatch_pda(self.id),
                 config: tpda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
                 authority: authority_pda(),
                 tesoro_program: tesoro_core::ID,
             },
@@ -789,7 +870,7 @@ fn f03_a_live_table_cannot_be_refunded_from_tesoro_core_after_an_hour() {
         tesoro_core::ID,
         tesoro_core::accounts::RefundMatch {
             caller: a(caller.pubkey()),
-            config: tpda(&[CONFIG_SEED]),
+            game_record: game_record_pda(),
             match_state: tmatch_pda(env.id),
             opener_protections: None,
         },
@@ -819,7 +900,7 @@ fn create_match_pushes_the_refund_deadline_a_full_table_window_out() {
         tesoro_core::ID,
         tesoro_core::accounts::RefundMatch {
             caller: a(caller.pubkey()),
-            config: tpda(&[CONFIG_SEED]),
+            game_record: game_record_pda(),
             match_state: tmatch_pda(env.id),
             opener_protections: None,
         },
@@ -888,6 +969,9 @@ fn only_active_matches_may_be_bound() {
         tesoro_core::accounts::OpenMatch {
             player_authority: env.alice.key,
             config: tpda(&[CONFIG_SEED]),
+            game_record: game_record_pda(),
+            game_program: holdem::ID,
+            program_data: program_data_pda(),
             player_account: env.alice.account,
             protections: tpda(&[PROTECTIONS_SEED, env.alice.account.as_ref()]),
             match_state: tmatch_pda(1),
@@ -1084,6 +1168,7 @@ fn finalize_rejects_a_live_match_and_a_foreign_tesoro_match() {
             game_match: ad.game_match,
             tesoro_match: tmatch_pda(2),
             config: tpda(&[CONFIG_SEED]),
+            game_record: game_record_pda(),
             authority: authority_pda(),
             tesoro_program: tesoro_core::ID,
         },
@@ -1106,6 +1191,7 @@ fn only_the_holdem_authority_pda_settles_and_the_registered_key_is_the_pda() {
         tesoro_core::accounts::SettleMatch {
             game_authority: a(intruder.pubkey()),
             config: tpda(&[CONFIG_SEED]),
+            game_record: game_record_pda(),
             match_state: tmatch_pda(1),
         },
         tesoro_core::instruction::SettleMatch {
@@ -1115,11 +1201,8 @@ fn only_the_holdem_authority_pda_settles_and_the_registered_key_is_the_pda() {
     );
     let err = env.send(&[settle], &intruder, &[]).unwrap_err();
     assert_eq!(custom_code(&err), 6000);
-    let config = env.load::<Config>(tpda(&[CONFIG_SEED]));
-    assert_eq!(
-        config.game(&holdem::ID).expect("registered").authority,
-        authority_pda()
-    );
+    let record = env.load::<GameRecord>(game_record_pda());
+    assert_eq!(record.settle_authority, authority_pda());
 }
 
 #[test]

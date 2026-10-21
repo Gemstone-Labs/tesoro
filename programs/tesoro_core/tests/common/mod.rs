@@ -82,4 +82,97 @@ pub fn init_treasury_ix(admin: APk, yield_fee_bps: u16, instant_fee_bps: u16) ->
     }
 }
 
+// ---- Game registry fixtures ----
+
+pub const UPGRADEABLE_LOADER: &str = "BPFLoaderUpgradeab1e11111111111111111111111";
+
+pub fn program_data_address(program: Pk) -> Pk {
+    let loader: Pk = UPGRADEABLE_LOADER.parse().expect("loader id");
+    Pk::find_program_address(&[program.as_ref()], &loader).0
+}
+
+/// Writes an upgradeable-loader Program account and its ProgramData, as the loader lays them out.
+/// `authority: None` is a program that can no longer be upgraded.
+pub fn forge_upgradeable_program(svm: &mut LiteSVM, program: Pk, authority: Option<Pk>, slot: u64) {
+    let loader: Pk = UPGRADEABLE_LOADER.parse().expect("loader id");
+    let pd = program_data_address(program);
+    let mut prog = 2u32.to_le_bytes().to_vec();
+    prog.extend_from_slice(pd.as_ref());
+    svm.set_account(
+        program,
+        Account {
+            lamports: 1_000_000_000,
+            data: prog,
+            owner: loader,
+            executable: true,
+            rent_epoch: 0,
+        },
+    )
+    .expect("program");
+    set_program_data(svm, program, authority, slot);
+}
+
+/// Rewrites the ProgramData of a forged program (an upgrade or an authority change).
+pub fn set_program_data(svm: &mut LiteSVM, program: Pk, authority: Option<Pk>, slot: u64) {
+    set_program_code(svm, program, authority, slot, &[0xAB; 64]);
+}
+
+/// ProgramData with these executable bytes after the 45-byte header.
+pub fn set_program_code(
+    svm: &mut LiteSVM,
+    program: Pk,
+    authority: Option<Pk>,
+    slot: u64,
+    code: &[u8],
+) {
+    let loader: Pk = UPGRADEABLE_LOADER.parse().expect("loader id");
+    let mut data = 3u32.to_le_bytes().to_vec();
+    data.extend_from_slice(&slot.to_le_bytes());
+    match authority {
+        Some(k) => {
+            data.push(1);
+            data.extend_from_slice(k.as_ref());
+        }
+        None => {
+            data.push(0);
+            data.extend_from_slice(&[0; 32]);
+        }
+    }
+    data.extend_from_slice(code);
+    svm.set_account(
+        program_data_address(program),
+        Account {
+            lamports: 10_000_000_000,
+            data,
+            owner: loader,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .expect("program data");
+}
+
+/// What the loader's `ExtendProgram` does: appends zeros and moves the slot, nothing else.
+pub fn extend_program(svm: &mut LiteSVM, program: Pk, slot: u64, extra: usize) {
+    let pd = program_data_address(program);
+    let mut acct = svm.get_account(&pd).expect("program data");
+    acct.data[4..12].copy_from_slice(&slot.to_le_bytes());
+    acct.data.extend(std::iter::repeat_n(0u8, extra));
+    svm.set_account(pd, acct).expect("extend");
+}
+
+/// The admin's off-chain hash: SHA-256 of the executable bytes without trailing zeros.
+pub fn code_hash(svm: &LiteSVM, program: Pk) -> [u8; 32] {
+    let acct = svm
+        .get_account(&program_data_address(program))
+        .expect("program data");
+    let code = &acct.data[45..];
+    let end = code.iter().rposition(|b| *b != 0).map_or(0, |i| i + 1);
+    solana_sdk::hash::hash(&code[..end]).to_bytes()
+}
+
+pub fn game_record(game: APk) -> APk {
+    pda(&[GAME_SEED, game.as_ref()])
+}
+
 pub mod econ;

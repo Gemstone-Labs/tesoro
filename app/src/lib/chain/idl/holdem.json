@@ -612,18 +612,53 @@
           }
         },
         {
-          "name": "config",
+          "name": "game_record",
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  99,
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  174,
+                  96,
+                  200,
+                  103,
+                  127,
+                  104,
+                  62,
+                  170,
+                  232,
+                  90,
+                  29,
+                  158,
+                  38,
+                  83,
+                  120,
+                  138,
+                  228,
+                  74,
+                  166,
+                  86,
+                  92,
+                  73,
                   111,
-                  110,
+                  43,
+                  52,
+                  38,
+                  103,
+                  98,
+                  92,
                   102,
-                  105,
-                  103
+                  245,
+                  169
                 ]
               }
             ],
@@ -1739,6 +1774,96 @@
           }
         },
         {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  174,
+                  96,
+                  200,
+                  103,
+                  127,
+                  104,
+                  62,
+                  170,
+                  232,
+                  90,
+                  29,
+                  158,
+                  38,
+                  83,
+                  120,
+                  138,
+                  228,
+                  74,
+                  166,
+                  86,
+                  92,
+                  73,
+                  111,
+                  43,
+                  52,
+                  38,
+                  103,
+                  98,
+                  92,
+                  102,
+                  245,
+                  169
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
           "name": "authority",
           "pda": {
             "seeds": [
@@ -2432,6 +2557,19 @@
       ]
     },
     {
+      "name": "GameRecord",
+      "discriminator": [
+        28,
+        157,
+        20,
+        4,
+        219,
+        32,
+        208,
+        147
+      ]
+    },
+    {
       "name": "Hole",
       "discriminator": [
         14,
@@ -2673,11 +2811,14 @@
             "type": "pubkey"
           },
           {
-            "name": "games",
+            "name": "legacy_games",
+            "docs": [
+              "Unused since the per-Game records; its bytes stay so older accounts keep their layout."
+            ],
             "type": {
               "vec": {
                 "defined": {
-                  "name": "GameEntry"
+                  "name": "LegacyGameEntry"
                 }
               }
             }
@@ -2834,39 +2975,6 @@
                 32
               ]
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "GameEntry",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "game",
-            "docs": [
-              "Identity of the Game (its program id)."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "authority",
-            "docs": [
-              "Only this key may settle the Game's Matches (a PDA of the Game program, or a server key)."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "studio_bps",
-            "type": "u16"
-          },
-          {
-            "name": "studio_recipient",
-            "docs": [
-              "`TesoroAccount` that receives the Studio Fee."
-            ],
-            "type": "pubkey"
           }
         ]
       }
@@ -3089,6 +3197,101 @@
       }
     },
     {
+      "name": "GameRecord",
+      "docs": [
+        "One Game. Registered once by whoever controls its program (see `registry`); changed only by",
+        "that same control, after `GAME_CHANGE_DELAY_SECS`. Listing is written by the admin."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "game",
+            "docs": [
+              "The Game program's id."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "settle_authority",
+            "docs": [
+              "Only this key may settle the Game's Matches (a PDA of the Game program, or a server key)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_recipient",
+            "docs": [
+              "`TesoroAccount` that receives the Studio Fee."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_at",
+            "docs": [
+              "Unix time a proposed change was made; zero while none is waiting."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "pending_by",
+            "docs": [
+              "The control key that proposed it. Applying needs the same key to be in control still."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_settle_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "pending_studio_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "listed_until",
+            "docs": [
+              "The Game counts as listed until this unix time (admin). Zero: never listed."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "approved_slot",
+            "docs": [
+              "The deploy slot the admin approved. A program upgraded since has a different slot and",
+              "counts as unlisted until the admin approves again."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "approved_hash",
+            "docs": [
+              "SHA-256 of the approved build's executable bytes without trailing zeros (`registry::code_hash`).",
+              "A moved slot keeps the listing only through `refresh_listing`, which proves the bytes are these."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Hole",
       "docs": [
         "Hidden. Readable only by its Player through the permission program."
@@ -3124,6 +3327,30 @@
                 2
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LegacyGameEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_recipient",
+            "type": "pubkey"
           }
         ]
       }
@@ -3237,6 +3464,21 @@
                 "name": "Match"
               }
             }
+          },
+          {
+            "name": "listed",
+            "docs": [
+              "The Game was listed when the Match opened: only then does a win earn Points."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "deploy_slot",
+            "docs": [
+              "The Game program's deploy slot when the Match opened (zero if it could not be read or the",
+              "program cannot be upgraded)."
+            ],
+            "type": "u64"
           }
         ]
       }

@@ -5,12 +5,14 @@ use crate::util::*;
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
-#[instruction(nonce: u64)]
+#[instruction(nonce: u64, game: Pubkey)]
 pub struct CreateRequest<'info> {
     #[account(mut)]
     pub player_authority: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,
+    #[account(seeds = [GAME_SEED, game.as_ref()], bump = game_record.bump)]
+    pub game_record: Box<Account<'info, GameRecord>>,
     #[account(
         seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
         bump = player_account.bump
@@ -39,10 +41,6 @@ pub(crate) fn create_request(
     game: Pubkey,
     entry: u64,
 ) -> Result<()> {
-    require!(
-        ctx.accounts.config.game(&game).is_some(),
-        TesoroError::GameNotRegistered
-    );
     require_can_play(&ctx.accounts.protections.to_account_info())?;
     let request = &mut ctx.accounts.request;
     request.bump = ctx.bumps.request;
@@ -109,12 +107,14 @@ pub(crate) fn clear_request(ctx: Context<ClearRequest>) -> Result<()> {
 /// Holdings, own-sourced first, then won, each ascending by Source address.
 /// `directed_request` makes it a directed Offer; `None` makes it public.
 #[derive(Accounts)]
-#[instruction(nonce: u64)]
+#[instruction(nonce: u64, game: Pubkey)]
 pub struct CreateOffer<'info> {
     #[account(mut)]
     pub backer_authority: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,
+    #[account(seeds = [GAME_SEED, game.as_ref()], bump = game_record.bump)]
+    pub game_record: Box<Account<'info, GameRecord>>,
     #[account(
         mut,
         seeds = [ACCOUNT_SEED, backer_authority.key().as_ref()],
@@ -147,10 +147,6 @@ pub(crate) fn create_offer<'info>(
     player_share_bps: u16,
     directed_request: Option<Pubkey>,
 ) -> Result<()> {
-    require!(
-        ctx.accounts.config.game(&game).is_some(),
-        TesoroError::GameNotRegistered
-    );
     let backer = ctx.accounts.backer_account.key();
     count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
     let mut holdings = load_holdings(&backer, ctx.remaining_accounts)?;

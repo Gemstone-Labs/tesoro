@@ -3,7 +3,11 @@ use crate::ledger::{FeeTerms, LeaderboardTerms};
 use crate::state::*;
 use anchor_lang::prelude::*;
 
-fn validate_fees(platform_bps: u16, studio_bps: u16, leaderboard_bps: u16) -> Result<()> {
+pub(crate) fn validate_fees(
+    platform_bps: u16,
+    studio_bps: u16,
+    leaderboard_bps: u16,
+) -> Result<()> {
     let fees = FeeTerms {
         platform_bps,
         studio_bps,
@@ -51,7 +55,7 @@ pub(crate) fn initialize_config(
     config.oracle_authority = oracle_authority;
     config.platform_bps = platform_bps;
     config.platform_recipient = ctx.accounts.platform_recipient.key();
-    config.games = Vec::new();
+    config.legacy_games = Vec::new();
     config.leaderboard_bps = 0;
     config.pool_account = Pubkey::default();
     config.leaderboard_since = 0;
@@ -84,17 +88,9 @@ pub(crate) fn update_config(
     oracle_authority: Pubkey,
     platform_bps: u16,
 ) -> Result<()> {
-    let max_studio = ctx
-        .accounts
-        .config
-        .games
-        .iter()
-        .map(|g| g.studio_bps)
-        .max()
-        .unwrap_or(0);
     validate_fees(
         platform_bps,
-        max_studio,
+        MAX_STUDIO_BPS,
         ctx.accounts.config.leaderboard_bps,
     )?;
     let config = &mut ctx.accounts.config;
@@ -124,67 +120,6 @@ pub struct SetAdmin<'info> {
 pub(crate) fn set_admin(ctx: Context<SetAdmin>, new_admin: Pubkey) -> Result<()> {
     ctx.accounts.config.admin = new_admin;
     Ok(())
-}
-
-#[derive(Accounts)]
-pub struct RegisterGame<'info> {
-    pub admin: Signer<'info>,
-    #[account(
-        mut,
-        seeds = [CONFIG_SEED],
-        bump = config.bump,
-        has_one = admin @ TesoroError::Unauthorized
-    )]
-    pub config: Box<Account<'info, Config>>,
-    #[account(
-        seeds = [ACCOUNT_SEED, studio_recipient.authority.as_ref()],
-        bump = studio_recipient.bump
-    )]
-    pub studio_recipient: Account<'info, TesoroAccount>,
-}
-
-/// Registers a Game or replaces its entry.
-pub(crate) fn register_game(
-    ctx: Context<RegisterGame>,
-    game: Pubkey,
-    authority: Pubkey,
-    studio_bps: u16,
-) -> Result<()> {
-    let platform_bps = ctx.accounts.config.platform_bps;
-    let leaderboard_bps = ctx.accounts.config.leaderboard_bps;
-    validate_fees(platform_bps, studio_bps, leaderboard_bps)?;
-    let entry = GameEntry {
-        game,
-        authority,
-        studio_bps,
-        studio_recipient: ctx.accounts.studio_recipient.key(),
-    };
-    let games = &mut ctx.accounts.config.games;
-    match games.iter_mut().find(|g| g.game == game) {
-        Some(existing) => *existing = entry,
-        None => {
-            require!(games.len() < MAX_GAMES, TesoroError::GameRegistryFull);
-            games.push(entry);
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn remove_game(ctx: Context<RemoveGame>, game: Pubkey) -> Result<()> {
-    ctx.accounts.config.games.retain(|g| g.game != game);
-    Ok(())
-}
-
-#[derive(Accounts)]
-pub struct RemoveGame<'info> {
-    pub admin: Signer<'info>,
-    #[account(
-        mut,
-        seeds = [CONFIG_SEED],
-        bump = config.bump,
-        has_one = admin @ TesoroError::Unauthorized
-    )]
-    pub config: Box<Account<'info, Config>>,
 }
 
 /// Sets up the Leaderboard on a Config that predates it, or changes its fee: extends the Config
@@ -227,17 +162,9 @@ pub(crate) fn init_leaderboard(ctx: Context<InitLeaderboard>, leaderboard_bps: u
         pool.evm_address = [0; 20];
         pool.inner = Default::default();
     }
-    let max_studio = ctx
-        .accounts
-        .config
-        .games
-        .iter()
-        .map(|g| g.studio_bps)
-        .max()
-        .unwrap_or(0);
     validate_fees(
         ctx.accounts.config.platform_bps,
-        max_studio,
+        MAX_STUDIO_BPS,
         leaderboard_bps,
     )?;
     let pool_key = ctx.accounts.pool_account.key();

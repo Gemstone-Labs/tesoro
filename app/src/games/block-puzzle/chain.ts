@@ -17,6 +17,7 @@
  * Scores are never sent: the program replays the moves with the same engine as `./engine.ts`.
  */
 import { protectionsPda } from "../../lib/chain/native";
+import { gameAccounts, gameRecordPda, pairPda } from "../../lib/chain/game-record";
 import { NO_LEADERBOARD, fetchLeaderboardTerms, type LeaderboardTerms } from "../../lib/chain/leaderboard";
 import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
 import {
@@ -266,6 +267,7 @@ export class BlockPuzzleChain {
       .accountsPartial({
         playerAuthority: signer.publicKey,
         config: a.config,
+        ...gameAccounts(game),
         playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey),
         matchState: a.match,
         systemProgram: SystemProgram.programId,
@@ -279,20 +281,35 @@ export class BlockPuzzleChain {
 
   /** The Protections address of the Account that opened the Match (a Player on a Break or Self-Excluded cannot be joined or kept waiting). */
   async openerProtections(matchId: bigint): Promise<PublicKey> {
+    return protectionsPda(await this.openerAccount(matchId));
+  }
+
+  /** The record of the Game the Match was opened for (refunds go through whichever Game it is). */
+  async gameRecordOf(matchId: bigint): Promise<PublicKey> {
     const m = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
-    return protectionsPda(new PublicKey(Uint8Array.from(m.inner.a.player)));
+    return gameRecordPda(m.inner.game);
+  }
+
+  /** The Account that opened the Match. */
+  async openerAccount(matchId: bigint): Promise<PublicKey> {
+    const m = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
+    return new PublicKey(Uint8Array.from(m.inner.a.player));
   }
 
   /** Seat 1 joins with an equal entry; for Block Puzzle also binds to the Session (one transaction). */
   async joinMatch(signer: ChainSigner, matchId: bigint, holdings: PublicKey[], game: PublicKey = BLOCK_PUZZLE_PROGRAM_ID) {
     const a = BlockPuzzleChain.addresses(matchId);
+    const opener = await this.openerAccount(matchId);
+    const joiner = BlockPuzzleChain.coreAccount(signer.publicKey);
     const ix = await this.core.methods
       .joinMatch()
       .accountsPartial({
         playerAuthority: signer.publicKey,
-        playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey),
+        playerAccount: joiner,
         matchState: a.match,
-        openerProtections: await this.openerProtections(matchId),
+        openerProtections: protectionsPda(opener),
+        pair: pairPda(opener, joiner),
+        systemProgram: SystemProgram.programId,
       })
       .remainingAccounts(holdings.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true })))
       .instruction();
@@ -316,7 +333,7 @@ export class BlockPuzzleChain {
         board0: a.boards[0],
         vault: a.vault,
         authority: a.authority,
-        config: a.config,
+        gameRecord: gameRecordPda(BLOCK_PUZZLE_PROGRAM_ID),
         tesoroCoreProgram: TESORO_CORE_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
@@ -335,7 +352,7 @@ export class BlockPuzzleChain {
         accountB,
         board1: a.boards[1],
         authority: a.authority,
-        config: a.config,
+        gameRecord: gameRecordPda(BLOCK_PUZZLE_PROGRAM_ID),
         tesoroCoreProgram: TESORO_CORE_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
@@ -532,7 +549,7 @@ export class BlockPuzzleChain {
     const remaining = await this.payoutAccounts(caller, matchId, "draw");
     const ix = await this.core.methods
       .refundMatch()
-      .accountsPartial({ caller: caller.publicKey, config: a.config, matchState: a.match, openerProtections: await this.openerProtections(matchId) })
+      .accountsPartial({ caller: caller.publicKey, gameRecord: await this.gameRecordOf(matchId), matchState: a.match, openerProtections: await this.openerProtections(matchId) })
       .remainingAccounts(remaining)
       .instruction();
     return this.sendBase(caller, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);
@@ -558,6 +575,7 @@ export class BlockPuzzleChain {
       board1: a.boards[1],
       authority: a.authority,
       config: a.config,
+      gameRecord: gameRecordPda(BLOCK_PUZZLE_PROGRAM_ID),
       matchState: a.match,
       tesoroCoreProgram: TESORO_CORE_PROGRAM_ID,
     };

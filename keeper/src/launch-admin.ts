@@ -4,6 +4,7 @@
  * `keeper/scripts/launch-admin.ts` prints the plan and, only with `--execute`, sends the steps one single key signs.
  */
 import anchor, { type Idl } from "@coral-xyz/anchor";
+import { createHash } from "node:crypto";
 import { PublicKey, TransactionInstruction, type AccountMeta } from "@solana/web3.js";
 import coreIdl from "../../app/src/lib/chain/idl/tesoro_core.json" with { type: "json" };
 import { PROGRAMS, type ProgramName } from "./mainnet-keys.ts";
@@ -83,6 +84,21 @@ const pda = (programId: PublicKey, seeds: (Buffer | Uint8Array)[]) => PublicKey.
 export const configPda = (core: PublicKey) => pda(core, [Buffer.from("config")]);
 export const coreAccountPda = (core: PublicKey, authority: PublicKey) => pda(core, [Buffer.from("account"), authority.toBuffer()]);
 export const gameAuthorityPda = (game: PublicKey) => pda(game, [Buffer.from("authority")]);
+/** The upgradeable loader and a program's ProgramData, which tesoro_core reads to prove control and the deploy slot. */
+export const gameRecordPda = (core: PublicKey, game: PublicKey) => pda(core, [Buffer.from("game"), game.toBuffer()]);
+export const UPGRADEABLE_LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+export const programDataPda = (game: PublicKey) => pda(UPGRADEABLE_LOADER, [game.toBuffer()]);
+
+/**
+ * The hash `list_game` checks on chain: SHA-256 of a program's executable bytes without trailing zeros, from its ProgramData
+ * account data (45-byte header first). `ExtendProgram` appends zeros, so they are not part of the build.
+ */
+export function codeHash(programData: Uint8Array): string {
+  const code = Buffer.from(programData).subarray(45);
+  let end = code.length;
+  while (end > 0 && code[end - 1] === 0) end--;
+  return createHash("sha256").update(code.subarray(0, end)).digest("hex");
+}
 
 /**
  * One tesoro_core instruction: account order, signer and writable flags come from the IDL; `accounts` names the ones the
@@ -128,6 +144,12 @@ export interface GameInput {
   /** Wallet that owns the Studio's Account (it must exist before register_game: `create_account` by that wallet). */
   studio: PublicKey;
   studioBps: number;
+  /** The Game program's upgrade authority, who alone may register it (default: the admin). */
+  control?: PublicKey;
+  /** Hex SHA-256 of the build the admin approves (`codeHash` below, or `register-game.ts --hash`). Without it the Game is registered but not listed. */
+  approvedHash?: string;
+  /** Unix time the listing ends. Needed with `approvedHash`. */
+  listedUntil?: number;
 }
 
 export interface LaunchInput {
@@ -325,16 +347,35 @@ export function buildLaunchPlan(input: LaunchInput): PlanStep[] {
     for (const g of games) {
       const gameId = ids[g.name];
       const authority = gameAuthorityPda(gameId);
+      const control = g.control ?? admin;
+      const game = coreIx(core, "register_game", { payer: control, control, game_program: gameId, program_data: programDataPda(gameId), studio_recipient: coreAccountPda(core, g.studio) }, { settle_authority: authority, studio_bps: g.studioBps });
       add({
         name: "games",
         title: `tesoro_core: register_game ${g.name} (Studio Fee ${g.studioBps} bps)`,
-        ...adminSigns(),
+        signer: control,
         why:
-          `Game program ${gameId.toBase58()}, settlement authority = its ["authority"] PDA ${authority.toBase58()}. Studio recipient = the Account of ${g.studio.toBase58()} ` +
-          `(${coreAccountPda(core, g.studio).toBase58()}); that wallet must have called create_account first. Platform + Studio + Leaderboard fees are capped at 50% together.`,
-        ixs: [coreIx(core, "register_game", { admin, studio_recipient: coreAccountPda(core, g.studio) }, { game: gameId, authority, studio_bps: g.studioBps })],
-        check: "Config.games lists the Game with this fee and recipient",
+          `Game program ${gameId.toBase58()}, settle authority = its ["authority"] PDA ${authority.toBase58()}. Signed by the program's upgrade authority ${control.toBase58()} (tesoro_core reads it from ProgramData), not by the admin. ` +
+          `Studio recipient = the Account of ${g.studio.toBase58()} (${coreAccountPda(core, g.studio).toBase58()}); that wallet must have called create_account first, and it may not be the Pool, the Treasury or the Platform recipient. ` +
+          `Studio Fee is at most 10%; Platform + Studio + Leaderboard fees are capped at 50% together. Registering does not list the Game; later changes wait 7 days.`,
+        ixs: [game],
+        check: `Game record ["game", ${gameId.toBase58()}] exists with this fee and recipient`,
       });
+      if (g.approvedHash !== undefined) {
+        if (!g.listedUntil) throw new Error(`${g.name}: a listing needs a listed-until time`);
+        if (!/^[0-9a-f]{64}$/.test(g.approvedHash)) throw new Error(`${g.name}: the approved hash is 64 hex characters`);
+        add({
+          name: "games",
+          title: `tesoro_core: list_game ${g.name} (until ${new Date(g.listedUntil * 1000).toISOString().slice(0, 10)}, build ${g.approvedHash.slice(0, 12)})`,
+          ...adminSigns(),
+          why:
+            `Lists the Game for the build whose executable hashes to ${g.approvedHash}; tesoro_core hashes the deployed program and refuses if it differs, then records its deploy slot. ` +
+            "If the program is upgraded the Game is unlisted until the admin approves the new build; if only the slot moves (ExtendProgram) anyone can call refresh_listing to restore it.",
+          ixs: [
+            coreIx(core, "list_game", { admin, game_record: gameRecordPda(core, gameId), game_program: gameId, program_data: programDataPda(gameId) }, { listed_until: new BN(g.listedUntil), approved_hash: [...Buffer.from(g.approvedHash, "hex")] }),
+          ],
+          check: `Game record listed_until ${g.listedUntil}, approved_hash ${g.approvedHash}`,
+        });
+      }
     }
   }
 

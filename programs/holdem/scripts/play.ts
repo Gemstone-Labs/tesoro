@@ -8,6 +8,7 @@
  *   ... play.ts idle     # a Player goes idle: auto-folds, then forfeits after three misses
  */
 import * as anchor from "@coral-xyz/anchor";
+import { gameAccounts, pairPda } from "../../../app/src/lib/chain/game-record";
 import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import fs from "fs";
 import os from "os";
@@ -128,11 +129,12 @@ async function setup() {
   const cfgInfo = await base.getAccountInfo(tesoroConfigPda());
   const cfg: any = tesoro.coder.accounts.decode("config", cfgInfo!.data);
   const auth = addresses(1).authority;
-  const entry = cfg.games.find((g: any) => g.game.equals(HOLDEM_PROGRAM_ID));
-  if (!entry || !entry.authority.equals(auth)) {
+  const g = gameAccounts(HOLDEM_PROGRAM_ID);
+  if (!(await base.getAccountInfo(g.gameRecord))) {
+    // The deployer is the program's upgrade authority, which is what tesoro_core checks.
     const ix = await tesoro.methods
-      .registerGame(HOLDEM_PROGRAM_ID, auth, 300)
-      .accountsPartial({ admin: deployer.publicKey, config: tesoroConfigPda(), studioRecipient: cfg.platformRecipient } as any)
+      .registerGame(auth, 300)
+      .accountsPartial({ payer: deployer.publicKey, control: deployer.publicKey, config: tesoroConfigPda(), gameProgram: g.gameProgram, programData: g.programData, studioRecipient: cfg.platformRecipient, gameRecord: g.gameRecord } as any)
       .instruction();
     await sendBase("register_game holdem (authority = PDA)", [ix], [deployer]);
   }
@@ -207,6 +209,7 @@ async function openMatch(entry: number) {
     .accountsPartial({
       playerAuthority: k0.publicKey,
       config: tesoroConfigPda(),
+      ...gameAccounts(HOLDEM_PROGRAM_ID),
       playerAccount: tesoroAccountPda(k0.publicKey),
       matchState: tesoroMatchPda(matchId),
     } as any)
@@ -219,6 +222,8 @@ async function openMatch(entry: number) {
       playerAuthority: k1.publicKey,
       playerAccount: tesoroAccountPda(k1.publicKey),
       matchState: tesoroMatchPda(matchId),
+      pair: pairPda(tesoroAccountPda(k0.publicKey), tesoroAccountPda(k1.publicKey)),
+      systemProgram: SystemProgram.programId,
     } as any)
     .remainingAccounts([{ pubkey: h1, isSigner: false, isWritable: true }])
     .instruction();

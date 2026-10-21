@@ -13,21 +13,51 @@ pub enum MatchResult {
     Draw,
 }
 
-fn game_entry<'a>(config: &'a Config, game: &Pubkey) -> Result<&'a GameEntry> {
-    config
-        .game(game)
-        .ok_or_else(|| error!(TesoroError::GameNotRegistered))
+/// Whether the Game counts as listed right now, and its deploy slot. A program upgraded since the
+/// admin approved it is unlisted. While the admin's listing is in force, a program that cannot be
+/// read (closed, wrong accounts) is an error, not "unlisted": otherwise an opener could pass junk
+/// to strip the Points from a Match their opponent is about to join.
+fn listing(
+    record: &GameRecord,
+    game_program: &AccountInfo,
+    program_data: &AccountInfo,
+) -> Result<(bool, u64)> {
+    let now = now()?;
+    match crate::instructions::registry::read_deploy(game_program, program_data) {
+        Ok(deploy) => Ok((record.is_listed(now, Some(deploy.slot)), deploy.slot)),
+        Err(_) => {
+            require!(record.listed_until <= now, TesoroError::GameProofInvalid);
+            Ok((false, 0))
+        }
+    }
+}
+
+/// Counts a Match started by this opener-to-joiner pair.
+fn record_pair(pair: &mut Account<PairState>, bump: u8, payer: Pubkey, now: i64) -> Result<()> {
+    if pair.window_start == 0 && pair.count == 0 {
+        pair.bump = bump;
+        pair.payer = payer;
+    }
+    require!(pair.record(now), TesoroError::PairLimitReached);
+    Ok(())
 }
 
 /// `remaining_accounts` are the entrant's Holdings, own-sourced first, then won, each ascending
 /// by Source address (see docs/tesoro-core.md).
 #[derive(Accounts)]
-#[instruction(match_id: u64)]
+#[instruction(match_id: u64, game: Pubkey)]
 pub struct OpenMatch<'info> {
     #[account(mut)]
     pub player_authority: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,
+    #[account(seeds = [GAME_SEED, game.as_ref()], bump = game_record.bump)]
+    pub game_record: Box<Account<'info, GameRecord>>,
+    /// CHECK: the Game program; the loader state is read by `listing`.
+    #[account(address = game)]
+    pub game_program: UncheckedAccount<'info>,
+    /// CHECK: the program's ProgramData; `listing` derives and checks it.
+    pub program_data: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
@@ -60,11 +90,13 @@ pub(crate) fn open_match<'info>(
 ) -> Result<()> {
     let (fees, entries) = {
         let config = &ctx.accounts.config;
-        (
-            config.fee_terms(game_entry(config, &game)?),
-            config.entries(),
-        )
+        (ctx.accounts.game_record.fee_terms(config), config.entries())
     };
+    let (listed, deploy_slot) = listing(
+        &ctx.accounts.game_record,
+        &ctx.accounts.game_program.to_account_info(),
+        &ctx.accounts.program_data.to_account_info(),
+    )?;
     let player = ctx.accounts.player_account.key();
     count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
     let mut holdings = load_holdings(&player, ctx.remaining_accounts)?;
@@ -82,11 +114,15 @@ pub(crate) fn open_match<'info>(
     state.bump = ctx.bumps.match_state;
     state.id = match_id;
     state.inner = m;
+    state.listed = listed;
+    state.deploy_slot = deploy_slot;
+    state.listing_epoch = ctx.accounts.game_record.listing_epoch;
     Ok(())
 }
 
 #[derive(Accounts)]
 pub struct JoinMatch<'info> {
+    #[account(mut)]
     pub player_authority: Signer<'info>,
     #[account(
         mut,
@@ -113,11 +149,26 @@ pub struct JoinMatch<'info> {
         bump
     )]
     pub opener_protections: UncheckedAccount<'info>,
+    #[account(
+        init_if_needed,
+        payer = player_authority,
+        space = PairState::SPACE,
+        seeds = [PAIR_SEED, match_state.inner.a.player.as_ref(), player_account.key().as_ref()],
+        bump
+    )]
+    pub pair: Account<'info, PairState>,
+    pub system_program: Program<'info, System>,
 }
 
 pub(crate) fn join_match<'info>(
     ctx: Context<'_, '_, 'info, 'info, JoinMatch<'info>>,
 ) -> Result<()> {
+    record_pair(
+        &mut ctx.accounts.pair,
+        ctx.bumps.pair,
+        ctx.accounts.player_authority.key(),
+        now()?,
+    )?;
     let player = ctx.accounts.player_account.key();
     let entry = ctx.accounts.match_state.inner.entry;
     require_can_play(&ctx.accounts.opener_protections.to_account_info())?;
@@ -141,12 +192,19 @@ pub(crate) fn join_match<'info>(
 /// Enters a Match with a Backer's Gemas (an accepted Offer). `remaining_accounts` are the
 /// Backer's reserved Holdings, in the Offer's line order. The Player is never debited.
 #[derive(Accounts)]
-#[instruction(match_id: u64)]
+#[instruction(match_id: u64, game: Pubkey)]
 pub struct OpenMatchBacked<'info> {
     #[account(mut)]
     pub player_authority: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,
+    #[account(seeds = [GAME_SEED, game.as_ref()], bump = game_record.bump)]
+    pub game_record: Box<Account<'info, GameRecord>>,
+    /// CHECK: the Game program; the loader state is read by `listing`.
+    #[account(address = game)]
+    pub game_program: UncheckedAccount<'info>,
+    /// CHECK: the program's ProgramData; `listing` derives and checks it.
+    pub program_data: UncheckedAccount<'info>,
     #[account(
         seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
         bump = player_account.bump
@@ -196,11 +254,14 @@ pub(crate) fn open_match_backed<'info>(
 ) -> Result<()> {
     let (fees, entries) = {
         let config = &ctx.accounts.config;
-        (
-            config.fee_terms(game_entry(config, &game)?),
-            config.entries(),
-        )
+        (ctx.accounts.game_record.fee_terms(config), config.entries())
     };
+    let (listed, deploy_slot) = listing(
+        &ctx.accounts.game_record,
+        &ctx.accounts.game_program.to_account_info(),
+        &ctx.accounts.program_data.to_account_info(),
+    )?;
+    require!(listed, TesoroError::GameNotListed);
     require_can_play(&ctx.accounts.protections.to_account_info())?;
     require_can_play(&ctx.accounts.backer_protections.to_account_info())?;
     let side = consume_offer(
@@ -217,11 +278,15 @@ pub(crate) fn open_match_backed<'info>(
     state.bump = ctx.bumps.match_state;
     state.id = match_id;
     state.inner = m;
+    state.listed = listed;
+    state.deploy_slot = deploy_slot;
+    state.listing_epoch = ctx.accounts.game_record.listing_epoch;
     Ok(())
 }
 
 #[derive(Accounts)]
 pub struct JoinMatchBacked<'info> {
+    #[account(mut)]
     pub player_authority: Signer<'info>,
     #[account(
         seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
@@ -253,6 +318,13 @@ pub struct JoinMatchBacked<'info> {
         bump
     )]
     pub backer_protections: UncheckedAccount<'info>,
+    #[account(seeds = [GAME_SEED, match_state.inner.game.as_ref()], bump = game_record.bump)]
+    pub game_record: Box<Account<'info, GameRecord>>,
+    /// CHECK: the Game program the Match was opened for; the loader state is read by `listing`.
+    #[account(address = Pubkey::new_from_array(match_state.inner.game))]
+    pub game_program: UncheckedAccount<'info>,
+    /// CHECK: the program's ProgramData; `listing` derives and checks it.
+    pub program_data: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [MATCH_SEED, &match_state.id.to_le_bytes()],
@@ -265,11 +337,42 @@ pub struct JoinMatchBacked<'info> {
         bump
     )]
     pub opener_protections: UncheckedAccount<'info>,
+    #[account(
+        init_if_needed,
+        payer = player_authority,
+        space = PairState::SPACE,
+        seeds = [PAIR_SEED, match_state.inner.a.player.as_ref(), player_account.key().as_ref()],
+        bump
+    )]
+    pub pair: Account<'info, PairState>,
+    pub system_program: Program<'info, System>,
 }
 
 pub(crate) fn join_match_backed<'info>(
     ctx: Context<'_, '_, 'info, 'info, JoinMatchBacked<'info>>,
 ) -> Result<()> {
+    // A backer's Gemas follow only a Game that is still the one the admin approved: if the program
+    // was upgraded after the Match opened, the Match is refunded, not joined.
+    let (listed, slot) = listing(
+        &ctx.accounts.game_record,
+        &ctx.accounts.game_program.to_account_info(),
+        &ctx.accounts.program_data.to_account_info(),
+    )?;
+    require!(
+        listed
+            && ctx.accounts.match_state.listed
+            && ctx
+                .accounts
+                .game_record
+                .same_build(&ctx.accounts.match_state, slot),
+        TesoroError::GameNotListed
+    );
+    record_pair(
+        &mut ctx.accounts.pair,
+        ctx.bumps.pair,
+        ctx.accounts.player_authority.key(),
+        now()?,
+    )?;
     let (game, entry) = {
         let m = &ctx.accounts.match_state.inner;
         (Pubkey::new_from_array(m.game), m.entry)
@@ -317,6 +420,8 @@ pub struct SettleMatch<'info> {
     pub game_authority: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,
+    #[account(seeds = [GAME_SEED, match_state.inner.game.as_ref()], bump = game_record.bump)]
+    pub game_record: Box<Account<'info, GameRecord>>,
     #[account(
         mut,
         seeds = [MATCH_SEED, &match_state.id.to_le_bytes()],
@@ -330,9 +435,8 @@ pub(crate) fn settle_match<'info>(
     result: MatchResult,
 ) -> Result<()> {
     let game = Pubkey::new_from_array(ctx.accounts.match_state.inner.game);
-    let entry = game_entry(&ctx.accounts.config, &game)?;
     require_keys_eq!(
-        entry.authority,
+        ctx.accounts.game_record.settle_authority,
         ctx.accounts.game_authority.key(),
         TesoroError::Unauthorized
     );
@@ -361,7 +465,11 @@ pub(crate) fn settle_match<'info>(
                 entry: m.entry,
                 player: Pubkey::new_from_array(side.player),
                 funder: Pubkey::new_from_array(side.funder),
-                points: ledger::points_for_win(m.entry),
+                points: if ctx.accounts.match_state.listed {
+                    ledger::points_for_win(m.entry)
+                } else {
+                    0
+                },
                 pool_fee: m.leaderboard_due(&lb).map_err(core_err)?,
                 season: ledger::season_at(ts).unwrap_or(0),
                 ts,
@@ -386,8 +494,8 @@ pub(crate) fn settle_match<'info>(
 #[derive(Accounts)]
 pub struct RefundMatch<'info> {
     pub caller: Signer<'info>,
-    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
-    pub config: Box<Account<'info, Config>>,
+    #[account(seeds = [GAME_SEED, match_state.inner.game.as_ref()], bump = game_record.bump)]
+    pub game_record: Box<Account<'info, GameRecord>>,
     #[account(
         mut,
         seeds = [MATCH_SEED, &match_state.id.to_le_bytes()],
@@ -408,12 +516,7 @@ pub(crate) fn refund_match<'info>(
 ) -> Result<()> {
     let caller = ctx.accounts.caller.key();
     let m = &ctx.accounts.match_state.inner;
-    let game = Pubkey::new_from_array(m.game);
-    let is_game = ctx
-        .accounts
-        .config
-        .game(&game)
-        .is_some_and(|g| g.authority == caller);
+    let is_game = ctx.accounts.game_record.settle_authority == caller;
     let is_opener = m.status == MatchStatus::Open && {
         let (opener, _) =
             Pubkey::find_program_address(&[ACCOUNT_SEED, caller.as_ref()], &crate::ID);
@@ -440,8 +543,8 @@ pub(crate) fn refund_match<'info>(
 #[derive(Accounts)]
 pub struct ExtendMatchDeadline<'info> {
     pub game_authority: Signer<'info>,
-    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
-    pub config: Box<Account<'info, Config>>,
+    #[account(seeds = [GAME_SEED, match_state.inner.game.as_ref()], bump = game_record.bump)]
+    pub game_record: Box<Account<'info, GameRecord>>,
     #[account(
         mut,
         seeds = [MATCH_SEED, &match_state.id.to_le_bytes()],
@@ -454,10 +557,8 @@ pub(crate) fn extend_match_deadline(
     ctx: Context<ExtendMatchDeadline>,
     new_deadline: i64,
 ) -> Result<()> {
-    let game = Pubkey::new_from_array(ctx.accounts.match_state.inner.game);
-    let entry = game_entry(&ctx.accounts.config, &game)?;
     require_keys_eq!(
-        entry.authority,
+        ctx.accounts.game_record.settle_authority,
         ctx.accounts.game_authority.key(),
         TesoroError::Unauthorized
     );
@@ -466,4 +567,32 @@ pub(crate) fn extend_match_deadline(
         .inner
         .extend_deadline(now()?, new_deadline)
         .map_err(core_err)
+}
+
+/// Returns the rent of a pair counter once its window has ended. Anyone may call; the rent goes
+/// back to whoever paid it.
+#[derive(Accounts)]
+#[instruction(opener: Pubkey, joiner: Pubkey)]
+pub struct ClosePair<'info> {
+    pub caller: Signer<'info>,
+    #[account(
+        mut,
+        close = payer,
+        seeds = [PAIR_SEED, opener.as_ref(), joiner.as_ref()],
+        bump = pair.bump
+    )]
+    pub pair: Account<'info, PairState>,
+    /// CHECK: receives the rent; must be the key that paid for the counter.
+    #[account(mut, address = pair.payer)]
+    pub payer: UncheckedAccount<'info>,
+}
+
+pub(crate) fn close_pair(ctx: Context<ClosePair>, _opener: Pubkey, _joiner: Pubkey) -> Result<()> {
+    let ended = ctx
+        .accounts
+        .pair
+        .window_start
+        .saturating_add(PAIR_WINDOW_SECS);
+    require!(now()? >= ended, TesoroError::PairWindowOpen);
+    Ok(())
 }

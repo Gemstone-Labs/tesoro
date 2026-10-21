@@ -34,6 +34,7 @@ import {
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { fetchLeaderboardTerms } from "../../lib/chain/leaderboard";
 import { COLUMNS, type Track } from "./grid";
+import { gameRecordPda } from "../../lib/chain/game-record";
 
 export { keypairSigner, type PlayerSigner } from "../holdem/chain";
 
@@ -306,6 +307,7 @@ export class TradingDuelChain {
       .accountsPartial({
         creator: creator.publicKey,
         tesoroMatch: tesoroMatchPda(matchId),
+        gameRecord: gameRecordPda(TRADING_DUEL_PROGRAM_ID),
         accountA: tesoroAccountPda(seatA),
         accountB: tesoroAccountPda(seatB),
         authority: ad.authority,
@@ -379,6 +381,7 @@ export class TradingDuelChain {
         duel: ad.duel,
         tesoroMatch: tesoroMatchPda(matchId),
         config: tesoroConfigPda(),
+        gameRecord: gameRecordPda(TRADING_DUEL_PROGRAM_ID),
         authority: ad.authority,
         tesoroProgram: TESORO_CORE_PROGRAM_ID,
       } as any)

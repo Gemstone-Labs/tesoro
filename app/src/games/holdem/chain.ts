@@ -32,6 +32,7 @@ import {
   permissionPdaFromAccount,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import nacl from "tweetnacl";
+import { gameRecordPda } from "../../lib/chain/game-record";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { baseRpc } from "../../lib/chain/rpc-config";
 import { NO_LEADERBOARD, fetchLeaderboardTerms, type LeaderboardTerms } from "../../lib/chain/leaderboard";
@@ -465,6 +466,7 @@ export class HoldemChain {
       .accountsPartial({
         creator: creator.publicKey,
         tesoroMatch: tesoroMatchPda(matchId),
+        gameRecord: gameRecordPda(HOLDEM_PROGRAM_ID),
         accountA: tesoroAccountPda(seatA),
         accountB: tesoroAccountPda(seatB),
         authority: ad.authority,
@@ -557,6 +559,7 @@ export class HoldemChain {
         gameMatch: ad.gameMatch,
         tesoroMatch: tesoroMatchPda(matchId),
         config: tesoroConfigPda(),
+        gameRecord: gameRecordPda(HOLDEM_PROGRAM_ID),
         authority: ad.authority,
         tesoroProgram: TESORO_CORE_PROGRAM_ID,
       } as any)
