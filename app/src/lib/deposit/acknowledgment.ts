@@ -1,6 +1,6 @@
 /**
  * What a Player confirms before their first deposit (founders, 2026-10-21). Stored server-side with its version;
- * a new version asks again. Founders review this wording before mainnet.
+ * a new version asks again. Every "I understand" records it; the Player may tick "Don't show this again" to skip the step next time. Founders review this wording before mainnet.
  */
 export const DEPOSIT_ACK_VERSION = "2026-10-21";
 
@@ -14,3 +14,4 @@ export const DEPOSIT_ACK_POINTS: readonly string[] = [
 ];
 
 export const DEPOSIT_ACK_CONFIRM = "I understand";
+export const DEPOSIT_ACK_SKIP = "Don't show this again";

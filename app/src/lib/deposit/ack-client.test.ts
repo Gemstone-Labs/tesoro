@@ -15,8 +15,8 @@ const blocked = {
   },
 };
 
-describe("deposit acknowledgment cache", () => {
-  it("remembers per Account under the current version", () => {
+describe("deposit acknowledgment skip (\"Don't show this again\")", () => {
+  it("is off until the Player ticked the box, then remembered per Account under the current version", () => {
     const s = memory();
     expect(readDepositAckCache("a", s)).toBe(false);
     writeDepositAckCache("a", s);
