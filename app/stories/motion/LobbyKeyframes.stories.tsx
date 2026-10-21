@@ -55,7 +55,7 @@ const specs: Spec[] = [
     fill: "both",
     stage: (s) => (
       <div style={{ display: "grid", gap: 8, justifyItems: "start" }}>
-        <b style={{ ...s, fontSize: 26 }}>Block Puzzle</b>
+        <b style={{ ...s, fontSize: 26 }}>Block Burst</b>
         <span style={{ ...stagger(s, 70), fontSize: 13, color: "var(--fg-2)" }}>Same pieces · 90 seconds</span>
         <span style={{ ...stagger(s, 140), fontSize: 13 }}>Entry 1,000</span>
         <span className="cut cut-btn btn money" style={stagger(s, 210)}>Play now</span>

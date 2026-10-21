@@ -5,7 +5,7 @@ import { TradingDuelPractice } from "@/games/trading-duel/practice/TradingDuelPr
 import { gameFromParam } from "@/lib/game-params";
 import { VanguardPractice } from "@/games/vanguard/practice/VanguardPractice";
 
-/** Practice, nothing staked: Block Puzzle with a random Seed, or `?game=holdem` / `?game=trading-duel` / `?game=vanguard` against a local bot. */
+/** Practice, nothing staked: Block Burst with a random Seed, or `?game=holdem` / `?game=trading-duel` / `?game=vanguard` against a local bot. */
 export default async function Practice({ searchParams }: PageProps<"/play/practice">) {
   const game = gameFromParam((await searchParams).game);
   switch (game) {

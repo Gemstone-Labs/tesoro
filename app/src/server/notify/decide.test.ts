@@ -19,13 +19,13 @@ describe("who is emailed about a settled Match", () => {
     const d = decide(event(), prefs, 0);
     expect(d.emails).toHaveLength(1);
     expect(d.emails[0].to).toBe("p@example.com");
-    expect(d.emails[0].subject).toBe("You won your Block Puzzle Match");
-    expect(d.emails[0].text).toContain("You won your Block Puzzle Match and 980 Gemas. The Pot was 2,000 Gemas.");
+    expect(d.emails[0].subject).toBe("You won your Block Burst Match");
+    expect(d.emails[0].text).toContain("You won your Block Burst Match and 980 Gemas. The Pot was 2,000 Gemas.");
   });
 
   it("says a loss and a draw in their own words", () => {
-    expect(decide(event({ result: "lost", gemas: 1000 }), prefs, 0).emails[0].text).toContain("lost your Block Puzzle Match and 1,000 Gemas");
-    expect(decide(event({ result: "draw", gemas: 0 }), prefs, 0).emails[0].subject).toBe("Your Block Puzzle Match was a draw");
+    expect(decide(event({ result: "lost", gemas: 1000 }), prefs, 0).emails[0].text).toContain("lost your Block Burst Match and 1,000 Gemas");
+    expect(decide(event({ result: "draw", gemas: 0 }), prefs, 0).emails[0].subject).toBe("Your Block Burst Match was a draw");
   });
 
   it("sends nothing without an address, to an unverified address, or with notifications off", () => {

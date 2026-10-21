@@ -26,7 +26,7 @@ describe("matchStanding", () => {
     expect(matchStanding(table, T + 24 * 3600).kind).toBe("delayed");
   });
 
-  it("Block Puzzle is live until the later submission deadline plus the grace, then delayed", () => {
+  it("Block Burst is live until the later submission deadline plus the grace, then delayed", () => {
     const by = T + SETTLE_GRACE_SECS;
     expect(matchStanding(bp(), by - 1).kind).toBe("live");
     expect(matchStanding(bp(), by)).toEqual({ kind: "delayed", refundBy: T + 3600, refundOpen: false });

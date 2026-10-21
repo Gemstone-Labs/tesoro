@@ -7,7 +7,7 @@ const ME = "Me111111111111111111111111111111111111111111";
 const BACKER = "BackerKey1111111111111111111111111111111111";
 const PLAYER = "PlayerKey1111111111111111111111111111111111";
 
-/** A settled Block Puzzle Match this Account played from seat 0, backed by BACKER at 40%. */
+/** A settled Block Burst Match this Account played from seat 0, backed by BACKER at 40%. */
 function backedPlayed(won: boolean): ChainMatch {
   const m = match("block-puzzle", 1000, won, 5, [120, 80]);
   return { ...m, sides: [{ player: ME, funder: BACKER, shareBps: 4000 }, m.sides[1]], backing: { seat: 0, player: ME, funder: BACKER, shareBps: 4000 } };

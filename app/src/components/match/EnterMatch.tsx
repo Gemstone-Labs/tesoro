@@ -28,7 +28,7 @@ export type EnterKind =
   | { kind: "challenge-new"; entry: number; game?: GameId; asset?: 0 | 1 | 2; backing?: string; /** A Rematch: the opponent of the Match being replayed. */ opponent?: string }
   | { kind: "challenge-join"; id: string; backing?: string };
 
-/** What the Queue says once a seat is open: Block Puzzle is played while it waits, the others start when someone joins. */
+/** What the Queue says once a seat is open: Block Burst is played while it waits, the others start when someone joins. */
 const OPENED_LINE: Record<GameId, string> = {
   "block-puzzle": "Match opened. You'll be paired while you play.",
   holdem: "Entered the Queue.",

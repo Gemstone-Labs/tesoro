@@ -20,7 +20,7 @@ import { winCardData, type WinCardData } from "@/lib/win-card";
 /** Raw decoded accounts, each null when it does not exist. */
 export interface WinDeps {
   matchState(id: bigint): Promise<any | null>;
-  /** The Session of a Block Puzzle Match, or the finished table of a Hold'em or Trading Duel one. */
+  /** The Session of a Block Burst Match, or the finished table of a Hold'em or Trading Duel one. */
   gameAccount(id: bigint, game: GameId): Promise<any | null>;
   profile(account: PublicKey): Promise<any | null>;
 }

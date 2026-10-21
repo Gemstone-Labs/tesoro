@@ -27,7 +27,7 @@ const deps = (over: Partial<WinDeps> = {}): WinDeps => ({
 });
 
 describe("loadWin", () => {
-  it("loads a won, settled Block Puzzle Match with the winner's Profile", async () => {
+  it("loads a won, settled Block Burst Match with the winner's Profile", async () => {
     expect(await loadWin(7n, deps())).toMatchObject({ id: "7", game: "block-puzzle", entry: 1000, name: "Ana", avatar: 5 });
   });
   it("takes the winner of the second seat", async () => {

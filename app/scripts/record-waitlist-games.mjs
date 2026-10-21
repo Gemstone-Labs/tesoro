@@ -25,7 +25,7 @@ mkdirSync(OUT, { recursive: true });
 const sleep = (page, ms) => page.waitForTimeout(ms);
 const until = (t0, ms) => Date.now() - t0 < ms;
 
-/** Block Puzzle: tap a piece, then board cells until it lands (as the landing recorder does). */
+/** Block Burst: tap a piece, then board cells until it lands (as the landing recorder does). */
 async function blockPuzzle(page, ms) {
   await page.getByRole("button", { name: "Start practice" }).click();
   await page.waitForSelector(".bp-slot:not(:disabled)", { timeout: 20000 });

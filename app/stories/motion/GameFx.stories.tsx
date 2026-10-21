@@ -75,7 +75,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Block Puzzle arena: violet and sky at the edges. Every cue, burst, shake, callout and the 3-2-1 countdown. */
+/** Block Burst arena: violet and sky at the edges. Every cue, burst, shake, callout and the 3-2-1 countdown. */
 export const BlockPuzzle: Story = {};
 export const Holdem: Story = { args: { game: "holdem" } };
 export const Trading: Story = { args: { game: "trading-duel" } };

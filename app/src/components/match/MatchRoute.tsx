@@ -26,7 +26,7 @@ export function MatchRoute({ matchId }: { matchId: string }) {
     void (async () => {
       try {
         const state: any = await getChain().core.account.matchState.fetchNullable(BlockPuzzleChain.addresses(BigInt(matchId)).match);
-        // No Match: Block Puzzle's view says so. A program this app does not play is shown as such, never as Block Puzzle.
+        // No Match: Block Burst's view says so. A program this app does not play is shown as such, never as Block Burst.
         const g = state ? gameOf(new PublicKey(Uint8Array.from(state.inner.game))) : "block-puzzle";
         if (live) setGame(g ?? "unknown");
       } catch {

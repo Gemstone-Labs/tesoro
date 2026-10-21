@@ -18,7 +18,7 @@ export default function Page() {
 ]} />}>
       <p>
         A Match&apos;s result must reach the Solana settlement program without trusting a Studio server&apos;s signature, and some of its state must stay hidden:
-        the Hold&apos;em deck, a Player&apos;s hole cards, a Block Puzzle run, a Trading Duel pick. ADR 0003 decides that each Game is a Solana program whose
+        the Hold&apos;em deck, a Player&apos;s hole cards, a Block Burst run, a Trading Duel pick. ADR 0003 decides that each Game is a Solana program whose
         Match state is delegated to a <b>MagicBlock Private Ephemeral Rollup</b>, which runs in an Intel TDX trusted execution environment (TEE).
       </p>
 
@@ -47,7 +47,7 @@ export default function Page() {
       <DataTable
         head={["Game", "Hidden", "How it is hidden", "What becomes public"]}
         rows={[
-          ["Block Puzzle", "The Seed, then each Player's Board (moves)", "A SeedVault with a permission that has zero members. The Seed is written there only by the VRF callback and copied into a Player's own Board by begin_run, in the transaction that starts their 90 s clock. Each Board's only member is its Player.", "After seal and commit: both Boards. The SeedVault is wiped."],
+          ["Block Burst", "The Seed, then each Player's Board (moves)", "A SeedVault with a permission that has zero members. The Seed is written there only by the VRF callback and copied into a Player's own Board by begin_run, in the transaction that starts their 90 s clock. Each Board's only member is its Player.", "After seal and commit: both Boards. The SeedVault is wiped."],
           ["Hold'em", "The Deck and each Player's hole cards", "Deck: zero-member permission. Hole accounts: readable by their Player. The seed of a hand folds both Players' fresh secrets and the VRF output.", "Board cards as dealt; hole cards only at a showdown. close_match wipes the Deck and Holes before committing."],
           ["Trading Duel", "Each Player's Book: picks for columns that have not locked", "Book readable only by its Player. When a column locks, both picks for it are copied into the public Duel.", "As columns lock: both picks. After the Match is committed: both full Books."],
         ]}
@@ -62,7 +62,7 @@ export default function Page() {
 
       <H3 id="score-is-replay">Score is a replay, never reported</H3>
       <p>
-        No Block Puzzle instruction takes a score. <code>play</code> feeds each <code>(piece, x, y)</code> to the deterministic engine on the Board&apos;s own state,
+        No Block Burst instruction takes a score. <code>play</code> feeds each <code>(piece, x, y)</code> to the deterministic engine on the Board&apos;s own state,
         illegal moves revert the batch, and the packed move log is stored so anyone can re-verify. A bit-exact TypeScript port of the engine
         (<code>app/src/games/block-puzzle/engine.ts</code>) lets the app preview the same result.
       </p>
@@ -78,7 +78,7 @@ export default function Page() {
 
       <H2 id="liveness">Liveness</H2>
       <p>
-        Clocks live in the programs: Block Puzzle 90 s per run, a Queue window of 24 hours for an opener and a joiner window of 24 hours; Hold&apos;em 30 s per action and 60 s
+        Clocks live in the programs: Block Burst 90 s per run, a Queue window of 24 hours for an opener and a joiner window of 24 hours; Hold&apos;em 30 s per action and 60 s
         to contribute entropy, with three missed turns in a row a forfeit; Trading Duel a two-and-a-half-minute grid; Vanguard 5 s per move and a 15 minute limit on the whole Battle. <code>claim_timeout</code>, <code>seal</code>,{" "}
         <code>commit_boards</code>, <code>finalize</code> and <code>settle</code> can be sent by anyone, and the keeper sends them when no Player does.
       </p>

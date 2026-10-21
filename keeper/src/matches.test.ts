@@ -28,7 +28,7 @@ describe("Hold'em table on the base layer (SP-05)", () => {
   });
 });
 
-describe("Block Puzzle Queue window", () => {
+describe("Block Burst Queue window", () => {
   it("holds an unjoined Match for 24 h from open_session, and an older one for its 1 h", () => {
     const opened = 1000;
     const deadline = opened + DAY;

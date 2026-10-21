@@ -25,7 +25,7 @@ interface Base {
   id: string;
   authority: string;
 }
-/** Block Puzzle: you played first and your opponent has now played too. */
+/** Block Burst: you played first and your opponent has now played too. */
 export interface OpponentPlayedEvent extends Base {
   kind: "opponent-played";
   matchId: string;
@@ -109,7 +109,7 @@ export interface Decision {
   skipped?: "no-address" | "unverified" | "off";
 }
 
-const GAMES: Record<GameId, string> = { "block-puzzle": "Block Puzzle", holdem: "Hold'em", "trading-duel": "Trading Duel", vanguard: "Vanguard" };
+const GAMES: Record<GameId, string> = { "block-puzzle": "Block Burst", holdem: "Hold'em", "trading-duel": "Trading Duel", vanguard: "Vanguard" };
 const gemas = (n: number) => `${n.toLocaleString("en-US")} Gemas`;
 
 const ordinal = (n: number) => `${n}${["th", "st", "nd", "rd"][n % 100 >= 11 && n % 100 <= 13 ? 0 : n % 10 < 4 ? n % 10 : 0]}`;

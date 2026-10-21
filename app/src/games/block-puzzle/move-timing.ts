@@ -1,5 +1,5 @@
 /**
- * Per-move timing of a Block Puzzle Board, for bot review (ADR 0012).
+ * Per-move timing of a Block Burst Board, for bot review (ADR 0012).
  *
  * The program records, for each logged move, the Clock slots between `begin_run` and the
  * transaction that carried it. Moves are sent in batches (up to MAX_PLAY_BATCH per transaction),

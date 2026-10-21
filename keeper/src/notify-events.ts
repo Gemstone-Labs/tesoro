@@ -22,7 +22,7 @@ export type Fact = { account: string } & (
 
 /** Matches whose refund deadline passed longer ago than this are not announced (a restart does not replay old history). */
 const WINDOW_SECS = 3 * 24 * 3600;
-/** Block Puzzle Matches whose Session and Boards are read per pass. */
+/** Block Burst Matches whose Session and Boards are read per pass. */
 const BP_PER_PASS = 15;
 const EVENTS_PER_PUSH = 50;
 
@@ -35,7 +35,7 @@ export interface MatchFacts {
   entry: number;
   /** TesoroAccount keys of the Players. */
   players: string[];
-  /** Block Puzzle Session deadlines, when read. */
+  /** Block Burst Session deadlines, when read. */
   session: { deadline: number; openerDeadline: number } | null;
 }
 
@@ -55,7 +55,7 @@ export interface BoardFacts {
   sealed: boolean;
 }
 
-/** Block Puzzle: the opener played first and the joiner has played now. Only for an Active Match with a joined Session. */
+/** Block Burst: the opener played first and the joiner has played now. Only for an Active Match with a joined Session. */
 export function opponentPlayedFact(m: { id: bigint; opener: string }, joined: boolean, boards: [BoardFacts, BoardFacts]): Fact | null {
   const played = (b: BoardFacts) => b.delegated || b.sealed;
   if (!joined || !played(boards[0]) || !played(boards[1])) return null;
@@ -194,7 +194,7 @@ async function matchesFacts(ctx: Ctx): Promise<Fact[]> {
     if (st === "active" && game === "block-puzzle") bp.push({ id, opener: players[0] });
     else facts.push(...matchFacts({ ...base, session: null }, ctx.now));
   }
-  // Block Puzzle: its Session gives the Delayed deadlines, and Session + Boards say whether the opponent has played.
+  // Block Burst: its Session gives the Delayed deadlines, and Session + Boards say whether the opponent has played.
   for (const m of bp.slice(0, BP_PER_PASS)) {
     const row = all.find((r) => BigInt(r.account.id.toString()) === m.id)!;
     const a = BlockPuzzleChain.addresses(m.id);
@@ -265,7 +265,7 @@ async function seasonPaidFacts(ctx: Ctx): Promise<Fact[]> {
 }
 
 /**
- * Job: tells the app server about Matches that are Delayed or refunded, an opponent's Block Puzzle run, Offers made and
+ * Job: tells the app server about Matches that are Delayed or refunded, an opponent's Block Burst run, Offers made and
  * accepted, Debt cleared and Season prizes, so it can email the Players (and calls its daily digest once a day).
  * The server holds the once-only record per fact; `told` just stops this process asking again. Each source is
  * read once per pass and one failing source does not stop the others.

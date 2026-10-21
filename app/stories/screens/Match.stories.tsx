@@ -23,7 +23,7 @@ const signedOut = (s: Story): Story => ({ ...s, parameters: { ...s.parameters, a
 
 const route = (m: ChainMatch) => ({ nextjs: { navigation: { pathname: `/play/match/${m.id}` } } });
 
-/** Block Puzzle: the Match view reads the Match and the Player's run. */
+/** Block Burst: the Match view reads the Match and the Player's run. */
 function blockPuzzle(state: MatchState, run: ScreenData["run"], o: Parameters<typeof chainMatch>[2] = {}, extra: Partial<Story> = {}): Story {
   const m = chainMatch("block-puzzle", state, o);
   return { render: () => <MatchView matchId={m.id.toString()} />, parameters: { ...route(m), spectated: m, screen: { run } }, ...extra };
@@ -46,7 +46,7 @@ function vanguard(state: MatchState, view: ScreenData["vanguard"], o: Parameters
 
 const phone = (s: Story): Story => ({ ...s, globals: { viewport: { value: "phone390", isRotated: false } } });
 
-/* Block Puzzle */
+/* Block Burst */
 
 /** Your run is in and nobody has joined yet. */
 export const BlockPuzzleWaitingForOpponent = blockPuzzle("open", { stage: "finished" });

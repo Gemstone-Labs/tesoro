@@ -112,7 +112,7 @@ function LossStanding() {
   return <p className="mr-copy">Losses earn no points{rank ? <>; you are still <Link href="/leaderboard">{ordinal(rank)} this Season</Link></> : null}.</p>;
 }
 
-/** "New best" beside a Block Puzzle score that beats every earlier finished Match of this Account. */
+/** "New best" beside a Block Burst score that beats every earlier finished Match of this Account. */
 function NewBest({ score, matchId }: { score: number; matchId?: string }) {
   const { snapshot } = useAccount();
   if (!snapshot?.matchesLoaded) return null;

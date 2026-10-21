@@ -36,7 +36,7 @@ export default function Page() {
         head={["Entry", "Points for a win"]}
         rows={ENTRY_SIZES.map((e) => [`${fmtGemas(e)} Gemas`, String(e / 100)])}
       />
-      <p>Losses, draws and refunds earn nothing. The game does not matter: a win in Block Puzzle, Hold&apos;em, Trading Duel or Vanguard counts the same at the same entry.</p>
+      <p>Losses, draws and refunds earn nothing. The game does not matter: a win in Block Burst, Hold&apos;em, Trading Duel or Vanguard counts the same at the same entry.</p>
       <p>
         When a <Link href="/docs/backing">Backer</Link> funds the entry, the points go to the Player who played, not to the Backer. If two Players finish
         on the same points, the one who won first that week ranks higher. Only your first 3 wins against the same opponent in a season earn points;

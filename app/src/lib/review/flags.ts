@@ -1,6 +1,6 @@
 /**
  * Suspicious-play flags for the admin review page (ticket 32). Pure rules over public chain data:
- * a Season's wins (with the loser named) and, for Block Puzzle, each run's batch cadence.
+ * a Season's wins (with the loser named) and, for Block Burst, each run's batch cadence.
  * Flags only point a human at an Account. Voiding stays a decision for the founders (ADR 0012).
  */
 import type { Win } from "../chain/season";
@@ -99,7 +99,7 @@ export function timingFlags(season: number, runs: RunBatches[]): Flag[] {
     const fast = list.filter((x) => x.fast).length;
     const uniform = list.filter((x) => x.uniform).length;
     const parts = [fast && `${fast} too fast for a person (under ${HUMAN_FLOOR_SLOTS_PER_MOVE * ROLLUP_SLOT_MS} ms a move)`, uniform && `${uniform} with near-identical gaps between moves`].filter(Boolean);
-    out.push({ kind: "timing", season, account, summary: `${list.length} Block Puzzle runs look scripted: ${parts.join(", ")}.`, matchIds: list.map((x) => x.id) });
+    out.push({ kind: "timing", season, account, summary: `${list.length} Block Burst runs look scripted: ${parts.join(", ")}.`, matchIds: list.map((x) => x.id) });
   }
   return out.sort((a, b) => b.matchIds.length - a.matchIds.length || (a.account < b.account ? -1 : 1));
 }

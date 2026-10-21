@@ -6,7 +6,7 @@ import { inLanding, landingParameters } from "./support";
 const games: LandingGame[] = [
   {
     id: "block-puzzle",
-    name: "Block Puzzle",
+    name: "Block Burst",
     note: "Play anytime, 90 s",
     body: "Play when you like. You and your opponent get the same pieces; the higher score wins.",
     facts: [["Pace", "Play anytime"], ["Pieces", "Same for both Players"], ["Length", "90 s"], ["Moves", "Private"]],

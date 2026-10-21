@@ -20,7 +20,7 @@
 
 1. **Lock.** A SOL, ETH or HYPE liquid staking token, for a 1–12 month Length.
 2. **Take an Advance.** 80% of the Lock's projected yield, paid now as **Gemas** ($0.01 each at issuance).
-3. **Play Matches.** Win your opponent's Gemas in Block Puzzle, Buckshot Hold'em or Trading Duel.
+3. **Play Matches.** Win your opponent's Gemas in Block Burst, Buckshot Hold'em or Trading Duel.
 4. **Yield settles everything.** Earned yield repays your Advance automatically. Winners Redeem Gemas as the loser's yield lands, or Instant Redeem them now for 75%.
 
 Tesoro earns a Platform Fee on Matches, a 20% Yield Fee and the Instant Redeem Fee. Nothing is ever charged on what you lock. The full rules are in the app's [Docs](https://www.playtesoro.com/docs).

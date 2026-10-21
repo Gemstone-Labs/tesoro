@@ -7,7 +7,7 @@
  *     [--rpc <url>] [--cluster test|mainnet] [--validator <TEE validator>] [--oracle-queue <queue>] [--dry-run]
  *
  * `--validator` defaults to the cluster's TEE validator; `--oracle-queue` to MagicBlock's devnet VRF queue (the one
- * Hold'em and Block Puzzle use), so it is required on mainnet.
+ * Hold'em and Block Burst use), so it is required on mainnet.
  */
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import anchor from "@coral-xyz/anchor";

@@ -380,5 +380,5 @@ const meta = {
 export default meta;
 
 export const Keyframes: StoryObj = {
-  render: () => <Lab specs={specs} intro="Block Puzzle, Hold'em and Trading Duel feel effects (with the shared callout and countdown), the Position opening steps and the Backing drawer." />,
+  render: () => <Lab specs={specs} intro="Block Burst, Hold'em and Trading Duel feel effects (with the shared callout and countdown), the Position opening steps and the Backing drawer." />,
 };

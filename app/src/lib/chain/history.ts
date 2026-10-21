@@ -16,7 +16,7 @@ export interface HistoryRow {
   delta: number;
   /** The other party of a Backing: the Backer when this Account played backed, the Player when it backed. */
   backing: { other: string; shareBps: number } | null;
-  /** Block Puzzle only: [this side's score, the opponent's]. */
+  /** Block Burst only: [this side's score, the opponent's]. */
   scores: [number, number] | null;
   /** TesoroAccount key of whoever played against this side, when anyone did. */
   opp: string | null;

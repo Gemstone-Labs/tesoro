@@ -13,7 +13,7 @@ const row = (hoursAgo: number, game: SettledCandidate["game"], over: Partial<Set
 
 describe("pickSettled", () => {
   it("filters by game and time before cutting to the limit", () => {
-    // 60 Hold'em Matches settled in the last hour, then three Block Puzzle Matches earlier today.
+    // 60 Hold'em Matches settled in the last hour, then three Block Burst Matches earlier today.
     const holdem = Array.from({ length: 60 }, (_, i) => row(i / 60, "holdem"));
     const bp = [row(3, "block-puzzle"), row(10, "block-puzzle"), row(23, "block-puzzle")];
     const picked = pickSettled([...holdem, ...bp, row(25, "block-puzzle")], { game: "block-puzzle", since: NOW - 24 * HOUR, limit: 40 });
