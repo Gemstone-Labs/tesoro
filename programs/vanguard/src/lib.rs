@@ -34,7 +34,7 @@ use ephemeral_rollups_sdk::{
 };
 use tesoro_core::{
     instructions::MatchResult,
-    ledger::MatchStatus,
+    ledger::lifecycle::Stage,
     state::{
         Config, GameRecord, MatchState, TesoroAccount, ACCOUNT_SEED,
         CONFIG_SEED as CORE_CONFIG_SEED, GAME_SEED, MATCH_SEED as CORE_MATCH_SEED,
@@ -145,11 +145,10 @@ pub mod vanguard {
 
     /// Base layer. Binds a new Battle to an Active tesoro_core Match of this Game and pre-funds the ephemeral
     /// permission rent of each account. Either Player may create it.
-    pub fn create_match(ctx: Context<CreateMatch>, match_id: u64) -> Result<()> {
+    pub fn create_match(ctx: Context<CreateMatch>) -> Result<()> {
         let tesoro = &ctx.accounts.tesoro_match;
-        require!(tesoro.id == match_id, VanguardError::BadTesoroMatch);
         require!(
-            tesoro.inner.status == MatchStatus::Active
+            tesoro.inner.stage() == Stage::Active
                 && tesoro.inner.game == ID.to_bytes()
                 && tesoro.inner.a.player == ctx.accounts.account_a.key().to_bytes()
                 && tesoro
@@ -200,7 +199,6 @@ pub mod vanguard {
                 ctx.accounts.tesoro_program.to_account_info(),
                 tesoro_core::cpi::accounts::ExtendMatchDeadline {
                     game_authority: ctx.accounts.authority.to_account_info(),
-                    game_record: ctx.accounts.game_record.to_account_info(),
                     match_state: ctx.accounts.tesoro_match.to_account_info(),
                 },
                 signer_seeds,
@@ -213,7 +211,7 @@ pub mod vanguard {
         ctx.accounts.battle.load_init()?.init(NewBattle {
             bump: ctx.bumps.battle,
             authority_bump: ctx.bumps.authority,
-            match_id,
+            match_id: tesoro.inner.id.n,
             tesoro_match: ctx.accounts.tesoro_match.key(),
             players,
             start_deadline: now
@@ -229,7 +227,7 @@ pub mod vanguard {
     }
 
     /// Base layer. Delegates the Battle, the Secret and both Armies to the configured TEE validator.
-    pub fn delegate_match(ctx: Context<DelegateMatch>, match_id: u64) -> Result<()> {
+    pub fn delegate_match(ctx: Context<DelegateMatch>, tesoro_match: Pubkey) -> Result<()> {
         // Permissionless, so only a Battle that has not started may be delegated: once it is committed back,
         // delegating it again would leave `finalize` unable to read it.
         {
@@ -254,7 +252,7 @@ pub mod vanguard {
         let battle_key = ctx.accounts.battle.key();
         ctx.accounts.delegate_battle(
             &ctx.accounts.payer,
-            &[BATTLE_SEED, &match_id.to_le_bytes()],
+            &[BATTLE_SEED, tesoro_match.as_ref()],
             config()?,
         )?;
         ctx.accounts.delegate_secret(
@@ -300,7 +298,7 @@ pub mod vanguard {
 
         let (players, match_id, battle_bump) = {
             let b = ctx.accounts.battle.load()?;
-            (b.players, b.match_id.to_le_bytes(), b.bump)
+            (b.players, b.tesoro_match.to_bytes(), b.bump)
         };
         let battle_key = ctx.accounts.battle.key();
         let player_member = |pubkey: Pubkey| Member {
@@ -647,7 +645,7 @@ pub mod vanguard {
                 VanguardError::MatchNotOver
             );
             require!(battle.permissioned != 0, VanguardError::WrongPhase);
-            (battle.match_id.to_le_bytes(), battle.bump)
+            (battle.tesoro_match.to_bytes(), battle.bump)
         };
         let battle_key = ctx.accounts.battle.key();
         ctx.accounts.secret.wipe();
@@ -754,7 +752,7 @@ pub mod vanguard {
             require!(b.finalized == 0, VanguardError::AlreadyFinalized);
             (b.status, b.winner, b.start_deadline, b.authority_bump)
         };
-        if ctx.accounts.tesoro_match.inner.status != MatchStatus::Active {
+        if ctx.accounts.tesoro_match.inner.stage() != Stage::Active {
             ctx.accounts.battle.load_mut()?.finalized = 1;
             return Ok(());
         }
@@ -776,9 +774,16 @@ pub mod vanguard {
                 ctx.accounts.tesoro_program.to_account_info(),
                 tesoro_core::cpi::accounts::RefundMatch {
                     caller: ctx.accounts.authority.to_account_info(),
+                    payer: ctx.accounts.caller.to_account_info(),
                     game_record: ctx.accounts.game_record.to_account_info(),
+                    game_program: ctx.accounts.game_program.to_account_info(),
+                    program_data: ctx.accounts.program_data.to_account_info(),
                     match_state: ctx.accounts.tesoro_match.to_account_info(),
+                    receipt: ctx.accounts.receipt.to_account_info(),
                     opener_protections: None,
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                    event_authority: ctx.accounts.event_authority.to_account_info(),
+                    program: ctx.accounts.tesoro_program.to_account_info(),
                 },
                 signer_seeds,
             )
@@ -789,9 +794,16 @@ pub mod vanguard {
                 ctx.accounts.tesoro_program.to_account_info(),
                 tesoro_core::cpi::accounts::SettleMatch {
                     game_authority: ctx.accounts.authority.to_account_info(),
+                    payer: ctx.accounts.caller.to_account_info(),
                     config: ctx.accounts.config.to_account_info(),
                     game_record: ctx.accounts.game_record.to_account_info(),
+                    game_program: ctx.accounts.game_program.to_account_info(),
+                    program_data: ctx.accounts.program_data.to_account_info(),
                     match_state: ctx.accounts.tesoro_match.to_account_info(),
+                    receipt: ctx.accounts.receipt.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                    event_authority: ctx.accounts.event_authority.to_account_info(),
+                    program: ctx.accounts.tesoro_program.to_account_info(),
                 },
                 signer_seeds,
             )
@@ -986,13 +998,12 @@ pub struct SetConfig<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(match_id: u64)]
 pub struct CreateMatch<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
     #[account(
         mut,
-        seeds = [CORE_MATCH_SEED, &tesoro_match.id.to_le_bytes()],
+        seeds = [CORE_MATCH_SEED, tesoro_match.inner.id.opener.as_ref(), &tesoro_match.inner.id.n.to_le_bytes()],
         bump = tesoro_match.bump,
         seeds::program = tesoro_core::ID
     )]
@@ -1022,7 +1033,7 @@ pub struct CreateMatch<'info> {
     pub authority: UncheckedAccount<'info>,
     #[account(
         init, payer = creator, space = 8 + core::mem::size_of::<Battle>(),
-        seeds = [BATTLE_SEED, &match_id.to_le_bytes()], bump
+        seeds = [BATTLE_SEED, tesoro_match.key().as_ref()], bump
     )]
     pub battle: AccountLoader<'info, Battle>,
     #[account(
@@ -1046,12 +1057,12 @@ pub struct CreateMatch<'info> {
 
 #[delegate]
 #[derive(Accounts)]
-#[instruction(match_id: u64)]
+#[instruction(tesoro_match: Pubkey)]
 pub struct DelegateMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     /// CHECK: Battle PDA to delegate
-    #[account(mut, del, seeds = [BATTLE_SEED, &match_id.to_le_bytes()], bump)]
+    #[account(mut, del, seeds = [BATTLE_SEED, tesoro_match.as_ref()], bump)]
     pub battle: AccountInfo<'info>,
     /// CHECK: Secret PDA to delegate
     #[account(mut, del, seeds = [SECRET_SEED, battle.key().as_ref()], bump)]
@@ -1072,7 +1083,7 @@ pub struct DelegateMatch<'info> {
 pub struct InitPermissions<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
+    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.tesoro_match.to_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
     #[account(seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
     pub secret: Box<Account<'info, Secret>>,
@@ -1106,7 +1117,7 @@ pub struct InitPermissions<'info> {
 #[derive(Accounts)]
 pub struct ContributeEntropy<'info> {
     pub player: Signer<'info>,
-    #[account(seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
+    #[account(seeds = [BATTLE_SEED, &battle.load()?.tesoro_match.to_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
     #[account(mut, seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
     pub secret: Box<Account<'info, Secret>>,
@@ -1117,7 +1128,7 @@ pub struct ContributeEntropy<'info> {
 pub struct RequestVrf<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
+    #[account(seeds = [BATTLE_SEED, &battle.load()?.tesoro_match.to_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
     #[account(mut, seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
     pub secret: Box<Account<'info, Secret>>,
@@ -1131,14 +1142,14 @@ pub struct RequestVrf<'info> {
 pub struct VrfCallbackStore<'info> {
     #[account(mut, seeds = [SECRET_SEED, secret.battle.as_ref()], bump = secret.bump)]
     pub secret: Box<Account<'info, Secret>>,
-    #[account(address = secret.battle, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
+    #[account(address = secret.battle, seeds = [BATTLE_SEED, &battle.load()?.tesoro_match.to_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
 }
 
 #[derive(Accounts)]
 pub struct Deal<'info> {
     pub payer: Signer<'info>,
-    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
+    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.tesoro_match.to_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
     #[account(mut, seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
     pub secret: Box<Account<'info, Secret>>,
@@ -1151,21 +1162,21 @@ pub struct Deal<'info> {
 #[derive(Accounts)]
 pub struct Declare<'info> {
     pub player: Signer<'info>,
-    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
+    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.tesoro_match.to_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
 }
 
 #[derive(Accounts)]
 pub struct StartTwoStep<'info> {
     pub player: Signer<'info>,
-    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
+    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.tesoro_match.to_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
 }
 
 #[derive(Accounts)]
 pub struct ClaimTimeout<'info> {
     pub caller: Signer<'info>,
-    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
+    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.tesoro_match.to_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
     #[account(seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
     pub secret: Box<Account<'info, Secret>>,
@@ -1174,7 +1185,7 @@ pub struct ClaimTimeout<'info> {
 #[derive(Accounts)]
 pub struct Resolve<'info> {
     pub caller: Signer<'info>,
-    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
+    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.tesoro_match.to_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
     #[account(mut, seeds = [ARMY_SEED, battle.key().as_ref(), &[0]], bump = army_0.bump)]
     pub army_0: Box<Account<'info, Army>>,
@@ -1189,7 +1200,7 @@ pub struct Resolve<'info> {
 pub struct CloseMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
+    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.tesoro_match.to_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
     #[account(mut, seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
     pub secret: Box<Account<'info, Secret>>,
@@ -1222,7 +1233,7 @@ pub struct CloseMatch<'info> {
 pub struct CloseUnstarted<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
+    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.tesoro_match.to_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
     #[account(mut, seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
     pub secret: Box<Account<'info, Secret>>,
@@ -1234,13 +1245,15 @@ pub struct CloseUnstarted<'info> {
 
 #[derive(Accounts)]
 pub struct Finalize<'info> {
+    /// Pays the settlement receipt's rent in tesoro_core.
+    #[account(mut)]
     pub caller: Signer<'info>,
-    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
+    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.tesoro_match.to_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
     #[account(
         mut,
         address = battle.load()?.tesoro_match,
-        seeds = [CORE_MATCH_SEED, &tesoro_match.id.to_le_bytes()],
+        seeds = [CORE_MATCH_SEED, tesoro_match.inner.id.opener.as_ref(), &tesoro_match.inner.id.n.to_le_bytes()],
         bump = tesoro_match.bump,
         seeds::program = tesoro_core::ID
     )]
@@ -1256,5 +1269,22 @@ pub struct Finalize<'info> {
     /// CHECK: the registered Game authority; signs the CPI with its stored canonical bump.
     #[account(seeds = [AUTHORITY_SEED], bump = battle.load()?.authority_bump)]
     pub authority: UncheckedAccount<'info>,
+    /// CHECK: this Game's own program account (tesoro_core reads its deploy slot).
+    #[account(address = crate::ID)]
+    pub game_program: UncheckedAccount<'info>,
+    /// CHECK: this program's ProgramData, checked by tesoro_core.
+    pub program_data: UncheckedAccount<'info>,
+    /// CHECK: the settlement receipt, created by tesoro_core at `["settled", match]`.
+    #[account(
+        mut,
+        seeds = [b"settled", tesoro_match.key().as_ref()],
+        bump,
+        seeds::program = tesoro_core::ID
+    )]
+    pub receipt: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+    /// CHECK: tesoro_core's event authority PDA.
+    #[account(seeds = [b"__event_authority"], bump, seeds::program = tesoro_core::ID)]
+    pub event_authority: UncheckedAccount<'info>,
     pub tesoro_program: Program<'info, tesoro_core::program::TesoroCore>,
 }

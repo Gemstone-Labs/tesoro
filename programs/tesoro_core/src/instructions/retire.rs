@@ -383,9 +383,8 @@ pub(crate) fn retire_request(ctx: Context<RetireRequest>) -> Result<()> {
     Ok(())
 }
 
-/// Closes an Offer shorter than the current layout, or an Offer of the current layout that
-/// reserves from at least one Source and whose every Source is gone (the Source of line `i` is
-/// remaining account `i`). It holds no money of its own: the reservation lived in the Holdings.
+/// Closes an Offer of the retired world: shorter than the current layout, or the longer one that
+/// carried reserved lines. It holds no money of its own: the reservation lived in the Holdings.
 #[derive(Accounts)]
 pub struct RetireOffer<'info> {
     #[account(mut)]
@@ -405,26 +404,12 @@ pub(crate) fn retire_offer<'info>(
     ctx: Context<'_, '_, 'info, 'info, RetireOffer<'info>>,
 ) -> Result<()> {
     let offer = ctx.accounts.offer.to_account_info();
-    if !is_stale(&offer, OfferState::DISCRIMINATOR, OfferState::SPACE) {
-        require!(offer.owner == &crate::ID, TesoroError::NotOldWorld);
-        let state = {
-            let data = offer.try_borrow_data()?;
-            OfferState::try_deserialize(&mut &data[..])?
-        };
-        let lines = &state.inner.lines;
-        require!(!lines.is_empty(), TesoroError::NotOldWorld);
-        require!(
-            ctx.remaining_accounts.len() == lines.len(),
-            TesoroError::BadRemainingAccounts
-        );
-        for (line, source) in lines.iter().zip(ctx.remaining_accounts) {
-            require!(
-                source.key.to_bytes() == line.source,
-                TesoroError::InvalidAccount
-            );
-            require!(is_gone(source), TesoroError::NotOldWorld);
-        }
-    }
+    // Every earlier Offer layout had another length (shorter, or longer with reserved lines).
+    let other_layout = offer.owner == &crate::ID
+        && offer.try_borrow_data().is_ok_and(|d| {
+            d.len() >= 8 && d.len() != OfferState::SPACE && d[..8] == *OfferState::DISCRIMINATOR
+        });
+    require!(other_layout, TesoroError::NotOldWorld);
     close_to(&offer, &ctx.accounts.admin.to_account_info())?;
     emit!(OldAccountRetired {
         kind: RETIRED_OFFER,

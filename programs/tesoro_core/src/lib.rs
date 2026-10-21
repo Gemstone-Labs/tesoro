@@ -1,9 +1,12 @@
+#![allow(clippy::too_many_arguments)]
+
 use anchor_lang::prelude::*;
 
 pub mod books;
 pub mod error;
 pub mod instructions;
 pub mod ledger;
+pub mod pots;
 pub mod pyth;
 pub mod registry;
 pub mod state;
@@ -716,39 +719,63 @@ pub mod tesoro_core {
 
     // --- Matches ----------------------------------------------------------------------------
 
+    /// Opens a Match for `game` at `entry`. `n` is the opener's next Match id; `pot` is a fresh
+    /// address (the entry is drawn here, into a new account of `pot_lines` lines at
+    /// `["ticket", funder, pot_nonce]`) or a complete Entry Ticket. With an accepted Offer in the
+    /// optional accounts, the Backer's Gemas fund the entry. `challenge` and `asset` are carried
+    /// in the Match record, since the id no longer encodes them.
+    #[allow(clippy::too_many_arguments)]
     pub fn open_match<'info>(
         ctx: Context<'_, '_, 'info, 'info, OpenMatch<'info>>,
-        match_id: u64,
         game: Pubkey,
         entry: u64,
+        n: u64,
+        pot_nonce: u64,
+        challenge: bool,
+        asset: u8,
+        pot_lines: u32,
     ) -> Result<()> {
-        instructions::matching::open_match(ctx, match_id, game, entry)
+        instructions::matching::open_match(
+            ctx, game, entry, n, pot_nonce, challenge, asset, pot_lines,
+        )
     }
 
-    pub fn join_match<'info>(ctx: Context<'_, '_, 'info, 'info, JoinMatch<'info>>) -> Result<()> {
-        instructions::matching::join_match(ctx)
+    /// Joins an Open Match with an equal entry (backed with an accepted Offer in the optional
+    /// accounts).
+    pub fn join_match<'info>(
+        ctx: Context<'_, '_, 'info, 'info, JoinMatch<'info>>,
+        pot_nonce: u64,
+        pot_lines: u32,
+    ) -> Result<()> {
+        instructions::matching::join_match(ctx, pot_nonce, pot_lines)
     }
 
-    pub fn open_match_backed<'info>(
-        ctx: Context<'_, '_, 'info, 'info, OpenMatchBacked<'info>>,
-        match_id: u64,
-        game: Pubkey,
-        entry: u64,
-    ) -> Result<()> {
-        instructions::matching::open_match_backed(ctx, match_id, game, entry)
-    }
-
-    pub fn join_match_backed<'info>(
-        ctx: Context<'_, '_, 'info, 'info, JoinMatchBacked<'info>>,
-    ) -> Result<()> {
-        instructions::matching::join_match_backed(ctx)
-    }
-
-    pub fn settle_match<'info>(
-        ctx: Context<'_, '_, 'info, 'info, SettleMatch<'info>>,
-        result: MatchResult,
-    ) -> Result<()> {
+    /// Starts settling an Active Match (Game authority): freezes the outcome and the fees, writes
+    /// the receipt, emits the records. The payouts follow in `match_chunk`.
+    pub fn settle_match(ctx: Context<SettleMatch>, result: MatchResult) -> Result<()> {
         instructions::matching::settle_match(ctx, result)
+    }
+
+    /// Starts refunding an Open or Active Match; the chunks follow.
+    pub fn refund_match(ctx: Context<RefundMatch>) -> Result<()> {
+        instructions::matching::refund_match(ctx)
+    }
+
+    /// Runs up to `max_steps` steps of a Settling or Refunding Match (anyone).
+    pub fn match_chunk<'info>(
+        ctx: Context<'_, '_, 'info, 'info, MatchChunk<'info>>,
+        max_steps: u8,
+    ) -> Result<()> {
+        instructions::matching::match_chunk(ctx, max_steps)
+    }
+
+    /// Closes a finished Match and returns the rents.
+    pub fn close_match<'info>(ctx: Context<'_, '_, 'info, 'info, CloseMatch<'info>>) -> Result<()> {
+        instructions::matching::close_match(ctx)
+    }
+
+    pub fn close_receipt(ctx: Context<CloseReceipt>) -> Result<()> {
+        instructions::matching::close_receipt(ctx)
     }
 
     pub fn extend_match_deadline(
@@ -758,10 +785,39 @@ pub mod tesoro_core {
         instructions::matching::extend_match_deadline(ctx, new_deadline)
     }
 
-    pub fn refund_match<'info>(
-        ctx: Context<'_, '_, 'info, 'info, RefundMatch<'info>>,
+    // --- Tickets ---------------------------------------------------------------------------
+
+    pub fn open_ticket(
+        ctx: Context<OpenTicket>,
+        nonce: u64,
+        kind: TicketKindArg,
+        game: Pubkey,
+        target: u64,
+        lines: u32,
     ) -> Result<()> {
-        instructions::matching::refund_match(ctx)
+        instructions::ticket::open_ticket(ctx, nonce, kind, game, target, lines)
+    }
+
+    pub fn grow_ticket(ctx: Context<GrowTicket>, extra_lines: u32) -> Result<()> {
+        instructions::ticket::grow_ticket(ctx, extra_lines)
+    }
+
+    pub fn stage_entry<'info>(
+        ctx: Context<'_, '_, 'info, 'info, StageEntry<'info>>,
+        max_ops: u8,
+    ) -> Result<()> {
+        instructions::ticket::stage_entry(ctx, max_ops)
+    }
+
+    pub fn cancel_ticket<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CancelTicket<'info>>,
+        max_lines: u8,
+    ) -> Result<()> {
+        instructions::ticket::cancel_ticket(ctx, max_lines)
+    }
+
+    pub fn close_ticket(ctx: Context<CloseTicket>) -> Result<()> {
+        instructions::ticket::close_ticket(ctx)
     }
 
     // --- Backing ----------------------------------------------------------------------------
@@ -779,8 +835,8 @@ pub mod tesoro_core {
         instructions::backing::cancel_request(ctx)
     }
 
-    pub fn create_offer<'info>(
-        ctx: Context<'_, '_, 'info, 'info, CreateOffer<'info>>,
+    pub fn create_offer(
+        ctx: Context<CreateOffer>,
         nonce: u64,
         game: Pubkey,
         entry: u64,
@@ -813,15 +869,11 @@ pub mod tesoro_core {
         instructions::backing::accept_applicant(ctx)
     }
 
-    pub fn cancel_offer<'info>(
-        ctx: Context<'_, '_, 'info, 'info, CancelOffer<'info>>,
-    ) -> Result<()> {
+    pub fn cancel_offer(ctx: Context<CancelOffer>) -> Result<()> {
         instructions::backing::cancel_offer(ctx)
     }
 
-    pub fn expire_offer<'info>(
-        ctx: Context<'_, '_, 'info, 'info, ExpireOffer<'info>>,
-    ) -> Result<()> {
+    pub fn expire_offer(ctx: Context<ExpireOffer>) -> Result<()> {
         instructions::backing::expire_offer(ctx)
     }
 

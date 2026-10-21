@@ -19,8 +19,12 @@ use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
 use tesoro_core::instructions::MatchResult;
-use tesoro_core::ledger::{MatchStatus, Outcome, SourceChain};
+use tesoro_core::ledger::lifecycle::Stage;
+use tesoro_core::ledger::SourceChain;
 use tesoro_core::state::*;
+
+#[path = "../../tesoro_core/tests/common/flow.rs"]
+mod flow;
 
 const SOL: u64 = 1_000_000_000;
 const T0: i64 = 1_000_000;
@@ -78,24 +82,11 @@ fn control_program(svm: &mut LiteSVM, program: APk, key: APk) -> [u8; 32] {
     svm.set_account(pd, acct).expect("set program data");
     hash
 }
-fn pair_pda(opener: APk, joiner: APk) -> APk {
-    APk::find_program_address(
-        &[PAIR_SEED, opener.as_ref(), joiner.as_ref()],
-        &tesoro_core::ID,
-    )
-    .0
-}
 fn hpda(seeds: &[&[u8]]) -> APk {
     APk::find_program_address(seeds, &holdem::ID).0
 }
 fn account_pda(auth: APk) -> APk {
     tpda(&[ACCOUNT_SEED, auth.as_ref()])
-}
-fn holding_pda(account: APk, source: APk) -> APk {
-    tpda(&[HOLDING_SEED, account.as_ref(), source.as_ref()])
-}
-fn tmatch_pda(id: u64) -> APk {
-    tpda(&[MATCH_SEED, &id.to_le_bytes()])
 }
 fn authority_pda() -> APk {
     hpda(&[holdem::AUTHORITY_SEED])
@@ -107,8 +98,8 @@ struct Addrs {
     hole_0: APk,
     hole_1: APk,
 }
-fn addrs(id: u64) -> Addrs {
-    let game_match = hpda(&[holdem::MATCH_SEED, &id.to_le_bytes()]);
+fn addrs(tesoro_match: APk) -> Addrs {
+    let game_match = hpda(&[holdem::MATCH_SEED, tesoro_match.as_ref()]);
     Addrs {
         game_match,
         deck: hpda(&[holdem::DECK_SEED, game_match.as_ref()]),
@@ -138,10 +129,6 @@ fn ix(
         accounts: metas,
         data: data.data(),
     }
-}
-
-fn rem(k: APk) -> AccountMeta {
-    AccountMeta::new(s(k), false)
 }
 
 type Failed = litesvm::types::FailedTransactionMetadata;
@@ -182,11 +169,11 @@ struct Env {
     studio: Person,
     alice: Person,
     bob: Person,
-    a_holding: APk,
-    b_holding: APk,
     a_source: APk,
     b_source: APk,
-    id: u64,
+    /// The tesoro_core Match the table is bound to.
+    tmatch: APk,
+    mref: Option<flow::MatchRef>,
     now: i64,
     last_cu: u64,
 }
@@ -254,7 +241,7 @@ impl Env {
     }
 
     /// Position + Advance: 75_000 Gemas of the staker's own Source.
-    fn stake(&mut self, p: &Person, id: u8) -> (APk, APk) {
+    fn stake(&mut self, p: &Person, id: u8) -> APk {
         let position = tpda(&[POSITION_SEED, &[0], &[id; 32]]);
         let asset = APk::new_unique();
         let open = ix(
@@ -279,7 +266,6 @@ impl Env {
         let oracle = self.oracle.insecure_clone();
         self.send(&[open], &oracle, &[]).expect("open position");
         let source = tpda(&[SOURCE_SEED, position.as_ref(), &0u32.to_le_bytes()]);
-        let holding = holding_pda(p.account, source);
         let advance = ix(
             tesoro_core::ID,
             tesoro_core::accounts::TakeAdvance {
@@ -311,30 +297,7 @@ impl Env {
         );
         put_core_treasury(&mut self.svm);
         self.send(&[advance], &oracle, &[&p.kp]).expect("advance");
-        self.open_holding(p.account, source);
-        forge_holding_amount(&mut self.svm, p.account, source);
-        (source, holding)
-    }
-
-    fn open_holding(&mut self, account: APk, source: APk) {
-        let holding = holding_pda(account, source);
-        if self.svm.get_account(&s(holding)).is_some() {
-            return;
-        }
-        let open = ix(
-            tesoro_core::ID,
-            tesoro_core::accounts::OpenHolding {
-                payer: a(self.admin.pubkey()),
-                account,
-                source,
-                holding,
-                system_program: anchor_lang::system_program::ID,
-            },
-            tesoro_core::instruction::OpenHolding {},
-            vec![],
-        );
-        let admin = self.admin.insecure_clone();
-        self.send(&[open], &admin, &[]).expect("open holding");
+        source
     }
 
     fn load<T: AccountDeserialize>(&self, k: APk) -> T {
@@ -364,30 +327,110 @@ impl Env {
     }
 
     fn game_match(&self) -> GameMatch {
-        self.load(addrs(self.id).game_match)
+        self.load(addrs(self.tmatch).game_match)
     }
 
     fn patch_match(&mut self, f: impl FnOnce(&mut GameMatch)) {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         let mut m = self.game_match();
         f(&mut m);
         self.store(ad.game_match, &m, holdem::ID);
     }
 
     fn patch_deck(&mut self, f: impl FnOnce(&mut Deck)) {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         let mut d: Deck = self.load(ad.deck);
         f(&mut d);
         self.store(ad.deck, &d, holdem::ID);
     }
 
     fn gemas(&self, p: &Person) -> u64 {
-        let acct = self.load::<TesoroAccount>(p.account).inner;
-        acct.own_total + acct.won_total
+        flow::gemas(&self.svm, p.account)
     }
 
-    fn tesoro_status(&self) -> MatchStatus {
-        self.load::<MatchState>(tmatch_pda(self.id)).inner.status
+    fn tesoro_status(&self) -> Stage {
+        self.load::<MatchState>(self.tmatch).inner.stage()
+    }
+
+    /// Platform Fee Gemas in the Sources' counters.
+    fn platform_fees(&self) -> u64 {
+        [self.a_source, self.b_source]
+            .into_iter()
+            .map(|src| {
+                let d = self
+                    .svm
+                    .get_account(&s(tesoro_core::storage::book_address(&src).0))
+                    .expect("book")
+                    .data;
+                tesoro_core::storage::counter_get(
+                    &d,
+                    tesoro_core::ledger::line_store::CLASS_PLATFORM,
+                )
+                .map_or(0, |l| l.amount)
+            })
+            .sum()
+    }
+
+    /// Fee-class Gemas (the Studio Fee) in the studio's basket.
+    fn studio_fees(&self) -> u64 {
+        let d = self
+            .svm
+            .get_account(&s(tesoro_core::storage::basket_address(
+                &self.studio.account,
+            )
+            .0))
+            .expect("basket")
+            .data;
+        tesoro_core::ledger::line_store::LineStore::new(&d[tesoro_core::storage::DISC..])
+            .expect("store")
+            .fee_total()
+    }
+
+    fn receipt(&self) -> APk {
+        tpda(&[b"settled", self.tmatch.as_ref()])
+    }
+
+    /// `refund_match` by `caller` (any key may try; the rules decide).
+    fn core_refund_ix(&self, caller: APk) -> Instruction {
+        ix(
+            tesoro_core::ID,
+            tesoro_core::accounts::RefundMatch {
+                caller,
+                payer: caller,
+                game_record: game_record_pda(),
+                game_program: holdem::ID,
+                program_data: program_data_pda(),
+                match_state: self.tmatch,
+                receipt: self.receipt(),
+                opener_protections: None,
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
+                program: tesoro_core::ID,
+            },
+            tesoro_core::instruction::RefundMatch {},
+            vec![],
+        )
+    }
+
+    fn core_settle_ix(&self, signer: APk, result: MatchResult) -> Instruction {
+        ix(
+            tesoro_core::ID,
+            tesoro_core::accounts::SettleMatch {
+                game_authority: signer,
+                payer: signer,
+                config: tpda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
+                game_program: holdem::ID,
+                program_data: program_data_pda(),
+                match_state: self.tmatch,
+                receipt: self.receipt(),
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
+                program: tesoro_core::ID,
+            },
+            tesoro_core::instruction::SettleMatch { result },
+            vec![],
+        )
     }
 
     /// The tesoro_core Match is opened and joined for entry 1_000, then the holdem table created.
@@ -419,11 +462,10 @@ impl Env {
             studio: placeholder(Keypair::new()),
             alice: placeholder(Keypair::new()),
             bob: placeholder(Keypair::new()),
-            a_holding: APk::default(),
-            b_holding: APk::default(),
             a_source: APk::default(),
             b_source: APk::default(),
-            id: 1,
+            tmatch: APk::default(),
+            mref: None,
             now: T0,
             last_cu: 0,
         };
@@ -449,6 +491,7 @@ impl Env {
         );
         let admin = env.admin.insecure_clone();
         env.send(&[init], &admin, &[]).expect("init config");
+        flow::set_economy(&mut env.svm, &admin);
         // The Game authority is the holdem PDA, not a keypair.
         let ctl = Keypair::new();
         let hash = control_program(&mut env.svm, holdem::ID, a(ctl.pubkey()));
@@ -493,58 +536,33 @@ impl Env {
         env.alice = env.person();
         env.bob = env.person();
         let (alice, bob) = (dup(&env.alice), dup(&env.bob));
-        (env.a_source, env.a_holding) = env.stake(&alice, 1);
-        (env.b_source, env.b_holding) = env.stake(&bob, 2);
+        env.a_source = env.stake(&alice, 1);
+        env.b_source = env.stake(&bob, 2);
         env
     }
 
     fn open_and_join(&mut self, entry: u64) {
         let (alice, bob) = (dup(&self.alice), dup(&self.bob));
-        let open = ix(
-            tesoro_core::ID,
-            tesoro_core::accounts::OpenMatch {
-                player_authority: alice.key,
-                config: tpda(&[CONFIG_SEED]),
-                game_record: game_record_pda(),
-                game_program: holdem::ID,
-                program_data: program_data_pda(),
-                player_account: alice.account,
-                protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
-                match_state: tmatch_pda(self.id),
-                system_program: anchor_lang::system_program::ID,
-            },
-            tesoro_core::instruction::OpenMatch {
-                match_id: self.id,
-                game: holdem::ID,
-                entry,
-            },
-            vec![rem(self.a_holding)],
-        );
-        self.send(&[open], &alice.kp, &[]).expect("open match");
-        let join = ix(
-            tesoro_core::ID,
-            tesoro_core::accounts::JoinMatch {
-                player_authority: bob.key,
-                player_account: bob.account,
-                protections: tpda(&[PROTECTIONS_SEED, bob.account.as_ref()]),
-                match_state: tmatch_pda(self.id),
-                opener_protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
-                pair: pair_pda(alice.account, bob.account),
-                system_program: anchor_lang::system_program::ID,
-            },
-            tesoro_core::instruction::JoinMatch {},
-            vec![rem(self.b_holding)],
-        );
-        self.send(&[join], &bob.kp, &[]).expect("join match");
+        let m = flow::open_match(&mut self.svm, &alice.kp, holdem::ID, entry, 1, false, 0)
+            .expect("open match");
+        flow::join_match(&mut self.svm, &bob.kp, &m, holdem::ID, 2).expect("join match");
+        self.tmatch = m.key;
+        self.mref = Some(m);
+    }
+
+    fn run_settlement(&mut self) {
+        let m = self.mref.expect("a Match");
+        let caller = self.oracle.insecure_clone();
+        flow::run_chunks(&mut self.svm, &caller, &m);
     }
 
     fn create_ix(&self, creator: APk, speed: u8) -> Instruction {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         ix(
             holdem::ID,
             holdem::accounts::CreateMatch {
                 creator,
-                tesoro_match: tmatch_pda(self.id),
+                tesoro_match: self.tmatch,
                 game_record: game_record_pda(),
                 account_a: self.alice.account,
                 account_b: self.bob.account,
@@ -556,10 +574,7 @@ impl Env {
                 tesoro_program: tesoro_core::ID,
                 system_program: anchor_lang::system_program::ID,
             },
-            holdem::instruction::CreateMatch {
-                match_id: self.id,
-                speed,
-            },
+            holdem::instruction::CreateMatch { speed },
             vec![],
         )
     }
@@ -591,7 +606,7 @@ impl Env {
     }
 
     fn deal(&mut self) -> Result<(), Failed> {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         let payer = self.alice.kp.insecure_clone();
         let deal = ix(
             holdem::ID,
@@ -609,7 +624,7 @@ impl Env {
     }
 
     fn act(&mut self, seat: usize, action: Action) -> Result<(), Failed> {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         let (kp, key) = if seat == 0 {
             (self.alice.kp.insecure_clone(), self.alice.key)
         } else {
@@ -631,7 +646,7 @@ impl Env {
     }
 
     fn claim_timeout(&mut self, caller: &Keypair) -> Result<(), Failed> {
-        let ad = addrs(self.id);
+        let ad = addrs(self.tmatch);
         let claim = ix(
             holdem::ID,
             holdem::accounts::ClaimTimeout {
@@ -647,48 +662,41 @@ impl Env {
         self.send(&[claim], caller, &[])
     }
 
-    fn payout_metas(&mut self, refund: bool) -> Vec<AccountMeta> {
-        let mut m = self.load::<MatchState>(tmatch_pda(self.id)).inner;
-        let payouts = if refund {
-            m.refund(i64::MAX, true).expect("refund")
-        } else {
-            let winner = self.game_match().winner;
-            m.settle(Outcome::Winner(winner)).expect("settle")
-        };
-        let mut metas = Vec::new();
-        for p in payouts {
-            let recipient = APk::new_from_array(p.recipient);
-            let source = APk::new_from_array(p.source);
-            self.open_holding(recipient, source);
-            metas.push(rem(recipient));
-            metas.push(rem(holding_pda(recipient, source)));
-        }
-        metas
-    }
-
-    fn finalize(&mut self, refund: bool) -> Result<(), Failed> {
-        let remaining = self.payout_metas(refund);
-        self.finalize_with(remaining)
+    /// Starts the settlement or refund by `finalize` and runs its chunks.
+    fn finalize(&mut self, _refund: bool) -> Result<(), Failed> {
+        self.finalize_with(vec![])?;
+        self.run_settlement();
+        Ok(())
     }
 
     fn finalize_with(&mut self, remaining: Vec<AccountMeta>) -> Result<(), Failed> {
-        let ad = addrs(self.id);
         let caller = self.oracle.insecure_clone();
-        let finalize = ix(
+        let finalize = self.finalize_ix(self.tmatch, remaining);
+        self.send(&[finalize], &caller, &[])
+    }
+
+    fn finalize_ix(&self, tesoro_match: APk, remaining: Vec<AccountMeta>) -> Instruction {
+        let ad = addrs(self.tmatch);
+        let caller = self.oracle.insecure_clone();
+        ix(
             holdem::ID,
             holdem::accounts::Finalize {
                 caller: a(caller.pubkey()),
                 game_match: ad.game_match,
-                tesoro_match: tmatch_pda(self.id),
+                tesoro_match,
                 config: tpda(&[CONFIG_SEED]),
                 game_record: game_record_pda(),
                 authority: authority_pda(),
+                game_program: holdem::ID,
+                program_data: program_data_pda(),
+                receipt: tpda(&[b"settled", self.tmatch.as_ref()]),
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
                 tesoro_program: tesoro_core::ID,
             },
             holdem::instruction::Finalize {},
             remaining,
-        );
-        self.send(&[finalize], &caller, &[])
+        )
     }
 }
 
@@ -724,7 +732,7 @@ fn permission_pda(target: APk) -> APk {
 #[test]
 fn f01_delegation_is_pinned_to_the_tee_validator() {
     let mut env = ready(0);
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     let dlp = sdk_key(ephemeral_rollups_sdk::id());
     let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
     let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &holdem::ID);
@@ -757,7 +765,9 @@ fn f01_delegation_is_pinned_to_the_tee_validator() {
                 delegation_program: dlp,
                 system_program: anchor_lang::system_program::ID,
             },
-            holdem::instruction::DelegateMatch { match_id: env.id },
+            holdem::instruction::DelegateMatch {
+                tesoro_match: env.tmatch,
+            },
             vec![],
         );
         let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
@@ -778,7 +788,7 @@ fn f01_delegation_is_pinned_to_the_tee_validator() {
 fn g01_a_table_that_has_been_played_cannot_be_delegated_again() {
     let mut env = ready(0);
     env.patch_match(|m| m.status = holdem::STATUS_OVER);
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     let dlp = sdk_key(ephemeral_rollups_sdk::id());
     let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
     let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &holdem::ID);
@@ -810,7 +820,9 @@ fn g01_a_table_that_has_been_played_cannot_be_delegated_again() {
             delegation_program: dlp,
             system_program: anchor_lang::system_program::ID,
         },
-        holdem::instruction::DelegateMatch { match_id: env.id },
+        holdem::instruction::DelegateMatch {
+            tesoro_match: env.tmatch,
+        },
         vec![],
     );
     let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
@@ -826,7 +838,7 @@ fn g01_a_table_that_has_been_played_cannot_be_delegated_again() {
 #[test]
 fn f02_a_prefunded_permission_address_is_not_a_permission() {
     let mut env = ready(0);
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     for target in [ad.game_match, ad.deck, ad.hole_0, ad.hole_1] {
         env.svm
             .airdrop(&s(permission_pda(target)), 1_000_000)
@@ -864,25 +876,14 @@ fn f02_a_prefunded_permission_address_is_not_a_permission() {
 fn f03_a_live_table_cannot_be_refunded_from_tesoro_core_after_an_hour() {
     let mut env = ready(0);
     env.set_time(T0 + tesoro_core::ledger::MATCH_TIMEOUT_SECS + 1);
-    let remaining = env.payout_metas(true);
     let caller = env.bob.kp.insecure_clone();
-    let refund = ix(
-        tesoro_core::ID,
-        tesoro_core::accounts::RefundMatch {
-            caller: a(caller.pubkey()),
-            game_record: game_record_pda(),
-            match_state: tmatch_pda(env.id),
-            opener_protections: None,
-        },
-        tesoro_core::instruction::RefundMatch {},
-        remaining,
-    );
+    let refund = env.core_refund_ix(a(caller.pubkey()));
     let err = env.send(&[refund], &caller, &[]).unwrap_err();
     assert_eq!(
         custom_code(&err),
         tesoro_core::error::CORE_ERROR_OFFSET + tesoro_core::ledger::CoreError::NotExpired.code()
     );
-    assert_eq!(env.tesoro_status(), MatchStatus::Active);
+    assert_eq!(env.tesoro_status(), Stage::Active);
 }
 
 /// The table plays in the rollup, where tesoro_core cannot be called, so the single push at
@@ -891,22 +892,11 @@ fn f03_a_live_table_cannot_be_refunded_from_tesoro_core_after_an_hour() {
 #[test]
 fn create_match_pushes_the_refund_deadline_a_full_table_window_out() {
     let mut env = ready(0);
-    let deadline = env.load::<MatchState>(tmatch_pda(env.id)).inner.deadline;
+    let deadline = env.load::<MatchState>(env.tmatch).inner.deadline;
     assert_eq!(deadline, T0 + holdem::TABLE_WINDOW_SECS);
     env.set_time(deadline - 1);
-    let remaining = env.payout_metas(true);
     let caller = env.bob.kp.insecure_clone();
-    let refund = ix(
-        tesoro_core::ID,
-        tesoro_core::accounts::RefundMatch {
-            caller: a(caller.pubkey()),
-            game_record: game_record_pda(),
-            match_state: tmatch_pda(env.id),
-            opener_protections: None,
-        },
-        tesoro_core::instruction::RefundMatch {},
-        remaining,
-    );
+    let refund = env.core_refund_ix(a(caller.pubkey()));
     let err = env
         .send(std::slice::from_ref(&refund), &caller, &[])
         .unwrap_err();
@@ -917,7 +907,8 @@ fn create_match_pushes_the_refund_deadline_a_full_table_window_out() {
     env.set_time(deadline);
     env.send(&[refund], &caller, &[])
         .expect("anyone refunds once the table window is over");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
+    env.run_settlement();
+    assert_eq!(env.tesoro_status(), Stage::Closed);
 }
 
 #[test]
@@ -945,16 +936,16 @@ fn create_match_binds_the_tesoro_match_and_rejects_impostors() {
     env.create(1).expect("create");
     let m = env.game_match();
     assert_eq!(m.players, [env.alice.key, env.bob.key]);
-    assert_eq!(m.tesoro_match, tmatch_pda(1));
+    assert_eq!(m.tesoro_match, env.tmatch);
     assert_eq!(m.status, holdem::STATUS_CREATED);
     assert_eq!(m.speed, 1);
     assert_eq!(m.start_deadline, T0 + holdem::START_WINDOW_SECS);
     let (_, bump) = APk::find_program_address(&[holdem::AUTHORITY_SEED], &holdem::ID);
     assert_eq!(m.authority_bump, bump);
     // The hidden accounts exist and are empty.
-    let deck: Deck = env.load(addrs(1).deck);
+    let deck: Deck = env.load(addrs(env.tmatch).deck);
     assert_eq!(deck.cards, [0; 52]);
-    let hole: Hole = env.load(addrs(1).hole_1);
+    let hole: Hole = env.load(addrs(env.tmatch).hole_1);
     assert_eq!((hole.player, hole.cards), (env.bob.key, [0, 0]));
 }
 
@@ -962,29 +953,10 @@ fn create_match_binds_the_tesoro_match_and_rejects_impostors() {
 fn only_active_matches_may_be_bound() {
     let mut env = Env::new();
     let alice = env.alice.kp.insecure_clone();
-    // Open a tesoro Match for a different (unregistered-here) game id is impossible, so make the
-    // Match unjoined instead: only Active Matches may be bound.
-    let open = ix(
-        tesoro_core::ID,
-        tesoro_core::accounts::OpenMatch {
-            player_authority: env.alice.key,
-            config: tpda(&[CONFIG_SEED]),
-            game_record: game_record_pda(),
-            game_program: holdem::ID,
-            program_data: program_data_pda(),
-            player_account: env.alice.account,
-            protections: tpda(&[PROTECTIONS_SEED, env.alice.account.as_ref()]),
-            match_state: tmatch_pda(1),
-            system_program: anchor_lang::system_program::ID,
-        },
-        tesoro_core::instruction::OpenMatch {
-            match_id: 1,
-            game: holdem::ID,
-            entry: 1_000,
-        },
-        vec![rem(env.a_holding)],
-    );
-    env.send(&[open], &alice, &[]).expect("open only");
+    // Make the Match unjoined: only Active Matches may be bound.
+    let m =
+        flow::open_match(&mut env.svm, &alice, holdem::ID, 1_000, 1, false, 0).expect("open only");
+    env.tmatch = m.key;
     // Bob has not joined: `account_b` cannot match `b.player`.
     let create = env.create_ix(env.alice.key, 0);
     let err = env.send(&[create], &alice, &[]).unwrap_err();
@@ -1007,7 +979,7 @@ fn deal_needs_entropy_and_vrf_then_deals_distinct_cards_and_opens_betting() {
     env.ready_deck();
     env.deal().expect("deal");
 
-    let ad = addrs(1);
+    let ad = addrs(env.tmatch);
     let deck: Deck = env.load(ad.deck);
     let h0: Hole = env.load(ad.hole_0);
     let h1: Hole = env.load(ad.hole_1);
@@ -1035,7 +1007,7 @@ fn different_entropy_gives_a_different_shuffle() {
     let mut a_env = ready(0);
     a_env.start_in_rollup();
     a_env.deal().expect("deal");
-    let first: Deck = a_env.load(addrs(1).deck);
+    let first: Deck = a_env.load(addrs(a_env.tmatch).deck);
 
     let mut b_env = ready(0);
     b_env.patch_match(|m| m.start(T0).expect("start"));
@@ -1047,7 +1019,7 @@ fn different_entropy_gives_a_different_shuffle() {
         d.vrf = [2; 32];
     });
     b_env.deal().expect("deal");
-    let second: Deck = b_env.load(addrs(1).deck);
+    let second: Deck = b_env.load(addrs(b_env.tmatch).deck);
     assert_ne!(first.cards, second.cards);
 }
 
@@ -1072,7 +1044,7 @@ fn only_the_player_to_act_may_act_and_rules_are_enforced_on_chain() {
     env.act(1, Action::Check).expect("check");
     assert_eq!(env.game_match().phase, holdem::PHASE_FLOP);
     let board = env.game_match().board;
-    let deck: Deck = env.load(addrs(1).deck);
+    let deck: Deck = env.load(addrs(env.tmatch).deck);
     assert_eq!(
         board[..3],
         deck.cards[4..7],
@@ -1086,7 +1058,7 @@ fn a_stranger_cannot_act() {
     let mut env = ready(0);
     env.start_in_rollup();
     env.deal().expect("deal");
-    let ad = addrs(1);
+    let ad = addrs(env.tmatch);
     let stranger = Keypair::new();
     env.svm
         .airdrop(&stranger.pubkey(), 10 * SOL)
@@ -1125,9 +1097,9 @@ fn shove_and_call_settles_the_tesoro_match_to_the_winner_by_pda_authority() {
     assert!(m.last_board.iter().all(|c| *c < 52), "the runout is public");
 
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-    let (platform_before, studio_before) = (env.gemas(&env.platform), env.gemas(&env.studio));
+    let studio_before = env.studio_fees();
     env.finalize(false).expect("finalize settles via CPI");
-    assert_eq!(env.tesoro_status(), MatchStatus::Settled);
+    assert_eq!(env.tesoro_status(), Stage::Closed);
     assert!(env.game_match().finalized);
 
     // Entries are already escrowed. Pot 2,000; fees 200 + 300 bps = 40 + 60, taken from the loser's
@@ -1138,8 +1110,10 @@ fn shove_and_call_settles_the_tesoro_match_to_the_winner_by_pda_authority() {
     } else {
         assert_eq!((alice, bob), (before.0, before.1 + 1_900));
     }
-    assert_eq!(env.gemas(&env.platform), platform_before + 40);
-    assert_eq!(env.gemas(&env.studio), studio_before + 60);
+    // the Platform Fee lands in the loser's Source's counter, the Studio Fee as a fee line in the
+    // studio's basket (the Game was listed when the Match opened)
+    assert_eq!(env.platform_fees(), 40);
+    assert_eq!(env.studio_fees(), studio_before + 60);
 
     // Settles exactly once.
     let err = env.finalize_with(vec![]).unwrap_err();
@@ -1156,25 +1130,11 @@ fn finalize_rejects_a_live_match_and_a_foreign_tesoro_match() {
     // Still live: nothing to settle.
     let err = env.finalize_with(vec![]).unwrap_err();
     assert_eq!(custom_code(&err), hcode(holdem::HoldemError::MatchNotOver));
-    assert_eq!(env.tesoro_status(), MatchStatus::Active);
+    assert_eq!(env.tesoro_status(), Stage::Active);
 
     // A different tesoro Match cannot be substituted.
-    let ad = addrs(1);
     let caller = env.oracle.insecure_clone();
-    let finalize = ix(
-        holdem::ID,
-        holdem::accounts::Finalize {
-            caller: a(caller.pubkey()),
-            game_match: ad.game_match,
-            tesoro_match: tmatch_pda(2),
-            config: tpda(&[CONFIG_SEED]),
-            game_record: game_record_pda(),
-            authority: authority_pda(),
-            tesoro_program: tesoro_core::ID,
-        },
-        holdem::instruction::Finalize {},
-        vec![],
-    );
+    let finalize = env.finalize_ix(APk::new_unique(), vec![]);
     assert!(env.send(&[finalize], &caller, &[]).is_err());
 }
 
@@ -1186,19 +1146,7 @@ fn only_the_holdem_authority_pda_settles_and_the_registered_key_is_the_pda() {
     env.svm
         .airdrop(&intruder.pubkey(), 10 * SOL)
         .expect("airdrop");
-    let settle = ix(
-        tesoro_core::ID,
-        tesoro_core::accounts::SettleMatch {
-            game_authority: a(intruder.pubkey()),
-            config: tpda(&[CONFIG_SEED]),
-            game_record: game_record_pda(),
-            match_state: tmatch_pda(1),
-        },
-        tesoro_core::instruction::SettleMatch {
-            result: MatchResult::Opener,
-        },
-        vec![],
-    );
+    let settle = env.core_settle_ix(a(intruder.pubkey()), MatchResult::Opener);
     let err = env.send(&[settle], &intruder, &[]).unwrap_err();
     assert_eq!(custom_code(&err), 6000);
     let record = env.load::<GameRecord>(game_record_pda());
@@ -1219,7 +1167,7 @@ fn no_show_before_the_start_deadline_refunds_both_entries() {
     assert_eq!(custom_code(&err), hcode(holdem::HoldemError::NotTimedOut));
     env.set_time(T0 + holdem::START_WINDOW_SECS + 1);
     env.finalize(true).expect("no-show refund via tesoro_core");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
+    assert_eq!(env.tesoro_status(), Stage::Closed);
     assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
     assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
 }
@@ -1243,7 +1191,7 @@ fn a_player_who_never_contributes_entropy_cancels_hand_one_and_both_are_refunded
 
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
     env.finalize(true).expect("refund");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
+    assert_eq!(env.tesoro_status(), Stage::Closed);
     assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
     assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
 }
@@ -1280,7 +1228,7 @@ fn an_idle_player_is_auto_checked_or_folded_then_forfeits_after_three_misses() {
 
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
     env.finalize(false).expect("finalize forfeit");
-    assert_eq!(env.tesoro_status(), MatchStatus::Settled);
+    assert_eq!(env.tesoro_status(), Stage::Closed);
     assert_eq!(env.gemas(&env.alice), before.0);
     assert_eq!(env.gemas(&env.bob), before.1 + 1_900);
 }
@@ -1328,7 +1276,7 @@ fn a_whole_match_of_short_hands_conserves_chips_and_settles_once() {
     }
     assert_eq!(env.game_match().status, holdem::STATUS_OVER);
     env.finalize(false).expect("finalize");
-    assert_eq!(env.tesoro_status(), MatchStatus::Settled);
+    assert_eq!(env.tesoro_status(), Stage::Closed);
 }
 
 /// CU readings (run with `--nocapture`).
@@ -1420,45 +1368,4 @@ fn tesoro_core_treasury() -> anchor_lang::prelude::Pubkey {
         &tesoro_core::ID,
     )
     .0
-}
-
-/// Matching reads Holdings until ticket 09 moves it onto baskets: give the Advance's owner a
-/// Holding of the new Source with the Gemas the Advance issued (the basket holds them too).
-fn forge_holding_amount(svm: &mut litesvm::LiteSVM, account: APk, source: APk) {
-    use anchor_lang::{AccountDeserialize, AccountSerialize};
-    let issued = {
-        let acc = svm.get_account(&s(source)).expect("source");
-        SourceState::try_deserialize(&mut acc.data.as_slice())
-            .expect("source")
-            .inner
-            .issued
-    };
-    let hk = holding_pda(account, source);
-    let mut h = {
-        let acc = svm.get_account(&s(hk)).expect("holding");
-        HoldingState::try_deserialize(&mut acc.data.as_slice()).expect("holding")
-    };
-    let mut acct = {
-        let acc = svm.get_account(&s(account)).expect("account");
-        TesoroAccount::try_deserialize(&mut acc.data.as_slice()).expect("account")
-    };
-    h.inner.credit(&mut acct.inner, issued).expect("credit");
-    for (k, buf) in [
-        (hk, {
-            let mut b = Vec::new();
-            h.try_serialize(&mut b).unwrap();
-            b.resize(HoldingState::SPACE, 0);
-            b
-        }),
-        (account, {
-            let mut b = Vec::new();
-            acct.try_serialize(&mut b).unwrap();
-            b.resize(TesoroAccount::SPACE, 0);
-            b
-        }),
-    ] {
-        let mut acc = svm.get_account(&s(k)).expect("account");
-        acc.data = buf;
-        svm.set_account(s(k), acc).expect("set");
-    }
 }

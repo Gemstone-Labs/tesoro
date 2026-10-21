@@ -14,8 +14,10 @@ pub mod prize;
 pub mod registry;
 pub mod retire;
 pub mod season;
+pub mod settlement;
 pub mod source_auth;
 pub mod stake;
+pub mod ticket;
 pub mod treasury;
 
 pub use admin::*;
@@ -36,4 +38,5 @@ pub use retire::*;
 pub use season::*;
 pub use source_auth::*;
 pub use stake::*;
+pub use ticket::*;
 pub use treasury::*;

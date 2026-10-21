@@ -80,8 +80,6 @@ impl Default for Track {
 pub struct Duel {
     pub bump: u8,
     pub authority_bump: u8,
-    /// Same id as the tesoro_core Match this Game settles. Bits 1 and 2 are the asset.
-    pub match_id: u64,
     pub tesoro_match: Pubkey,
     /// Seat 0 opened the tesoro_core Match, seat 1 joined.
     pub players: [Pubkey; 2],
@@ -114,7 +112,6 @@ impl Default for Duel {
         Self {
             bump: 0,
             authority_bump: 0,
-            match_id: 0,
             tesoro_match: Pubkey::default(),
             players: [Pubkey::default(); 2],
             asset: 0,

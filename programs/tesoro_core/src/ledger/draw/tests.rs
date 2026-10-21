@@ -273,7 +273,8 @@ fn a_ticket_stages_in_steps_and_its_pages_become_the_pot() {
         }
     }
     assert!(steps > 1);
-    let pot = w.run(|p, _| t.consume(p, &key(GAME), entry)).unwrap();
+    w.run(|p, _| t.consume(p, &key(GAME), entry)).unwrap();
+    let pot = t.into_pot();
     assert_eq!(w.b().flags(), 0);
     assert_eq!(w.b().ticket_need(), 0);
     assert_eq!(pot.total(), entry);
@@ -336,7 +337,8 @@ fn bypass_stage_fast_then_enter_slow_is_refused_and_restaging_fixes_it() {
     );
     let s = w.run(|p, books| t.stage(p, books, 12, true)).unwrap();
     assert!(s.ready && s.returned >= 1);
-    let pot = w.run(|p, _| t.consume(p, &key(GAME), 300)).unwrap();
+    w.run(|p, _| t.consume(p, &key(GAME), 300)).unwrap();
+    let pot = t.into_pot();
     assert_eq!(
         pot_amounts(&pot),
         vec![(SIDE_WON, 10, 3, 3, 200), (SIDE_WON, 50, 1, 3, 100)]
@@ -469,7 +471,8 @@ fn gaps_1_a_player_with_gemas_only_in_the_spill_enters_without_claiming() {
     w.pots.push(pot);
     let mut t = open_ticket(&mut w, 400);
     stage_all(&mut w, &mut t);
-    let pot = w.run(|p, _| t.consume(p, &key(GAME), 400)).unwrap();
+    w.run(|p, _| t.consume(p, &key(GAME), 400)).unwrap();
+    let pot = t.into_pot();
     assert_eq!(pot.total(), 400);
     w.pots.push(pot);
     w.check(&[]);
@@ -522,7 +525,8 @@ fn gaps_2_restage_after_faster_gemas_refilled_a_full_basket_never_strands() {
             Err(e) => panic!("{e:?}"),
         }
     }
-    let pot = w.run(|p, _| t.consume(p, &key(GAME), 200)).unwrap();
+    w.run(|p, _| t.consume(p, &key(GAME), 200)).unwrap();
+    let pot = t.into_pot();
     assert_eq!(
         pot_amounts(&pot),
         vec![(SIDE_WON, 1, 0, 3, 100), (SIDE_WON, 2, 1, 3, 100)]
@@ -552,7 +556,8 @@ fn gaps_3_a_backing_ticket_never_blocks_the_backers_own_entries() {
     w.pots.push(pot);
     let mut t = open_ticket(&mut w, 100);
     stage_all(&mut w, &mut t);
-    let pot = w.run(|p, _| t.consume(p, &key(GAME), 100)).unwrap();
+    w.run(|p, _| t.consume(p, &key(GAME), 100)).unwrap();
+    let pot = t.into_pot();
     w.pots.push(pot);
     // no second Backing Ticket, no new Offer while it is open
     assert_eq!(
@@ -1094,7 +1099,10 @@ impl Sim {
         }
         let target = t.target;
         let kind = t.kind;
-        let r = self.w.run(|p, _| t.consume(p, &key(GAME), target));
+        let r = self
+            .w
+            .run(|p, _| t.consume(p, &key(GAME), target))
+            .map(|()| t.clone().into_pot());
         if r.as_ref().err() == Some(&DrawError::FasterGemasAvailable) {
             COV[C_REFUSED_FASTER].fetch_add(1, Relaxed);
         }

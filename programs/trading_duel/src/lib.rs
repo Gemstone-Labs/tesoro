@@ -30,7 +30,7 @@ use ephemeral_rollups_sdk::{
 };
 use tesoro_core::{
     instructions::MatchResult,
-    ledger::MatchStatus,
+    ledger::lifecycle::Stage,
     state::{Config, GameRecord, MatchState, TesoroAccount, ACCOUNT_SEED, CONFIG_SEED, GAME_SEED},
 };
 
@@ -108,9 +108,9 @@ fn eng<T>(r: core::result::Result<T, EngineError>) -> Result<T> {
     r.map_err(|e| error!(DuelError::from(e)))
 }
 
-/// Asset of a Match id: bits 1 and 2 (bit 0 is the app's Challenge marker). Only 0 (SOL), 1 (ETH) and 2 (HYPE) are valid.
-pub fn asset_of(match_id: u64) -> Result<u8> {
-    let asset = ((match_id >> ASSET_SHIFT) & ASSET_MASK) as u8;
+/// The asset a Match plays on: carried explicitly in the tesoro_core Match record (`meta.asset`).
+/// Only 0 (SOL), 1 (ETH) and 2 (HYPE) are valid.
+pub fn check_asset(asset: u8) -> Result<u8> {
     require!((asset as usize) < FEEDS.len(), DuelError::InvalidAsset);
     Ok(asset)
 }
@@ -188,13 +188,12 @@ pub mod trading_duel {
 
     /// Base layer. Binds a Duel to an Active tesoro_core Match of this Game and pre-funds the
     /// ephemeral permission rent of its three accounts. Either Player may create it. The asset is
-    /// read from the Match id.
-    pub fn create_match(ctx: Context<CreateMatch>, match_id: u64) -> Result<()> {
-        let asset = asset_of(match_id)?;
+    /// read from the tesoro_core Match record.
+    pub fn create_match(ctx: Context<CreateMatch>) -> Result<()> {
         let tesoro = &ctx.accounts.tesoro_match;
-        require!(tesoro.id == match_id, DuelError::BadTesoroMatch);
+        let asset = check_asset(tesoro.inner.meta.asset)?;
         require!(
-            tesoro.inner.status == MatchStatus::Active
+            tesoro.inner.stage() == Stage::Active
                 && tesoro.inner.game == ID.to_bytes()
                 && tesoro.inner.a.player == ctx.accounts.account_a.key().to_bytes()
                 && tesoro
@@ -242,7 +241,6 @@ pub mod trading_duel {
                 ctx.accounts.tesoro_program.to_account_info(),
                 tesoro_core::cpi::accounts::ExtendMatchDeadline {
                     game_authority: ctx.accounts.authority.to_account_info(),
-                    game_record: ctx.accounts.game_record.to_account_info(),
                     match_state: ctx.accounts.tesoro_match.to_account_info(),
                 },
                 signer_seeds,
@@ -256,7 +254,6 @@ pub mod trading_duel {
         **duel = Duel {
             bump: ctx.bumps.duel,
             authority_bump: ctx.bumps.authority,
-            match_id,
             tesoro_match: ctx.accounts.tesoro_match.key(),
             players,
             asset,
@@ -287,7 +284,7 @@ pub mod trading_duel {
     }
 
     /// Base layer. Delegates the Duel and both Books to the TEE validator.
-    pub fn delegate_match(ctx: Context<DelegateMatch>, match_id: u64) -> Result<()> {
+    pub fn delegate_match(ctx: Context<DelegateMatch>, tesoro_match: Pubkey) -> Result<()> {
         // Permissionless, so only a Duel that has not started may be delegated: once it is
         // committed back, delegating it again would leave `finalize` unable to read it.
         {
@@ -302,7 +299,7 @@ pub mod trading_duel {
         let duel_key = ctx.accounts.duel.key();
         ctx.accounts.delegate_duel(
             &ctx.accounts.payer,
-            &[DUEL_SEED, &match_id.to_le_bytes()],
+            &[DUEL_SEED, tesoro_match.as_ref()],
             config()?,
         )?;
         ctx.accounts.delegate_book_0(
@@ -340,7 +337,7 @@ pub mod trading_duel {
 
         let players = duel.players;
         let duel_key = duel.key();
-        let match_id = duel.match_id.to_le_bytes();
+        let tesoro_match = duel.tesoro_match;
         let duel_bump = duel.bump;
         let player_member = |pubkey: Pubkey| Member {
             flags: READ_FLAGS,
@@ -355,7 +352,7 @@ pub mod trading_duel {
                 is_private: false,
                 members: vec![],
             },
-            &[DUEL_SEED, &match_id, &[duel_bump]],
+            &[DUEL_SEED, tesoro_match.as_ref(), &[duel_bump]],
             false,
         )?;
         create_permission(
@@ -471,7 +468,7 @@ pub mod trading_duel {
             DuelError::MatchNotOver
         );
         let duel_key = ctx.accounts.duel.key();
-        let match_id = ctx.accounts.duel.match_id.to_le_bytes();
+        let tesoro_match = ctx.accounts.duel.tesoro_match;
         ctx.accounts.duel.exit(&ID)?;
         ctx.accounts.book_0.exit(&ID)?;
         ctx.accounts.book_1.exit(&ID)?;
@@ -480,7 +477,7 @@ pub mod trading_duel {
             &*ctx.accounts,
             &ctx.accounts.duel.to_account_info(),
             &ctx.accounts.duel_permission,
-            &[DUEL_SEED, &match_id, &[ctx.accounts.duel.bump]],
+            &[DUEL_SEED, tesoro_match.as_ref(), &[ctx.accounts.duel.bump]],
         )?;
         close_permission(
             &*ctx.accounts,
@@ -546,7 +543,7 @@ pub mod trading_duel {
     /// Base layer, permissionless. Settles the tesoro_core Match from the committed result by CPI,
     /// signing as this Game's `authority` PDA: the winner takes the Pot minus fees. A draw, a
     /// cancelled Match, or one never started before its start deadline refunds both entries.
-    /// `remaining_accounts` are the payout accounts tesoro_core expects.
+    /// Only starts the settlement in tesoro_core; its chunks follow.
     pub fn finalize<'info>(ctx: Context<'_, '_, 'info, 'info, Finalize<'info>>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let (status, winner, start_deadline, authority_bump) = {
@@ -572,9 +569,16 @@ pub mod trading_duel {
                 ctx.accounts.tesoro_program.to_account_info(),
                 tesoro_core::cpi::accounts::RefundMatch {
                     caller: ctx.accounts.authority.to_account_info(),
+                    payer: ctx.accounts.caller.to_account_info(),
                     game_record: ctx.accounts.game_record.to_account_info(),
+                    game_program: ctx.accounts.game_program.to_account_info(),
+                    program_data: ctx.accounts.program_data.to_account_info(),
                     match_state: ctx.accounts.tesoro_match.to_account_info(),
+                    receipt: ctx.accounts.receipt.to_account_info(),
                     opener_protections: None,
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                    event_authority: ctx.accounts.event_authority.to_account_info(),
+                    program: ctx.accounts.tesoro_program.to_account_info(),
                 },
                 signer_seeds,
             )
@@ -585,9 +589,16 @@ pub mod trading_duel {
                 ctx.accounts.tesoro_program.to_account_info(),
                 tesoro_core::cpi::accounts::SettleMatch {
                     game_authority: ctx.accounts.authority.to_account_info(),
+                    payer: ctx.accounts.caller.to_account_info(),
                     config: ctx.accounts.config.to_account_info(),
                     game_record: ctx.accounts.game_record.to_account_info(),
+                    game_program: ctx.accounts.game_program.to_account_info(),
+                    program_data: ctx.accounts.program_data.to_account_info(),
                     match_state: ctx.accounts.tesoro_match.to_account_info(),
+                    receipt: ctx.accounts.receipt.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                    event_authority: ctx.accounts.event_authority.to_account_info(),
+                    program: ctx.accounts.tesoro_program.to_account_info(),
                 },
                 signer_seeds,
             )
@@ -711,13 +722,12 @@ impl_permission_accounts!(InitPermissions);
 impl_permission_accounts!(CloseMatch);
 
 #[derive(Accounts)]
-#[instruction(match_id: u64)]
 pub struct CreateMatch<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
     #[account(
         mut,
-        seeds = [tesoro_core::state::MATCH_SEED, &tesoro_match.id.to_le_bytes()],
+        seeds = [tesoro_core::state::MATCH_SEED, tesoro_match.inner.id.opener.as_ref(), &tesoro_match.inner.id.n.to_le_bytes()],
         bump = tesoro_match.bump,
         seeds::program = tesoro_core::ID
     )]
@@ -745,7 +755,7 @@ pub struct CreateMatch<'info> {
     pub authority: UncheckedAccount<'info>,
     #[account(
         init, payer = creator, space = 8 + Duel::INIT_SPACE,
-        seeds = [DUEL_SEED, &match_id.to_le_bytes()], bump
+        seeds = [DUEL_SEED, tesoro_match.key().as_ref()], bump
     )]
     pub duel: Account<'info, Duel>,
     #[account(
@@ -764,12 +774,12 @@ pub struct CreateMatch<'info> {
 
 #[delegate]
 #[derive(Accounts)]
-#[instruction(match_id: u64)]
+#[instruction(tesoro_match: Pubkey)]
 pub struct DelegateMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     /// CHECK: Duel PDA to delegate
-    #[account(mut, del, seeds = [DUEL_SEED, &match_id.to_le_bytes()], bump)]
+    #[account(mut, del, seeds = [DUEL_SEED, tesoro_match.as_ref()], bump)]
     pub duel: AccountInfo<'info>,
     /// CHECK: Book PDA (seat 0) to delegate
     #[account(mut, del, seeds = [BOOK_SEED, duel.key().as_ref(), &[0]], bump)]
@@ -785,7 +795,7 @@ pub struct DelegateMatch<'info> {
 pub struct InitPermissions<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut, seeds = [DUEL_SEED, &duel.match_id.to_le_bytes()], bump = duel.bump)]
+    #[account(mut, seeds = [DUEL_SEED, duel.tesoro_match.as_ref()], bump = duel.bump)]
     pub duel: Account<'info, Duel>,
     #[account(mut, seeds = [BOOK_SEED, duel.key().as_ref(), &[0]], bump = book_0.bump)]
     pub book_0: Box<Account<'info, Book>>,
@@ -816,7 +826,7 @@ pub struct InitPermissions<'info> {
 #[derive(Accounts)]
 pub struct SetPick<'info> {
     pub player: Signer<'info>,
-    #[account(seeds = [DUEL_SEED, &duel.match_id.to_le_bytes()], bump = duel.bump)]
+    #[account(seeds = [DUEL_SEED, duel.tesoro_match.as_ref()], bump = duel.bump)]
     pub duel: Account<'info, Duel>,
     #[account(
         mut,
@@ -831,7 +841,7 @@ pub struct SetPick<'info> {
 #[derive(Accounts)]
 pub struct EndMatch<'info> {
     pub caller: Signer<'info>,
-    #[account(mut, seeds = [DUEL_SEED, &duel.match_id.to_le_bytes()], bump = duel.bump)]
+    #[account(mut, seeds = [DUEL_SEED, duel.tesoro_match.as_ref()], bump = duel.bump)]
     pub duel: Account<'info, Duel>,
     #[account(seeds = [BOOK_SEED, duel.key().as_ref(), &[0]], bump = book_0.bump)]
     pub book_0: Box<Account<'info, Book>>,
@@ -843,7 +853,7 @@ pub struct EndMatch<'info> {
 #[derive(Accounts)]
 pub struct Sample<'info> {
     pub caller: Signer<'info>,
-    #[account(mut, seeds = [DUEL_SEED, &duel.match_id.to_le_bytes()], bump = duel.bump)]
+    #[account(mut, seeds = [DUEL_SEED, duel.tesoro_match.as_ref()], bump = duel.bump)]
     pub duel: Account<'info, Duel>,
     #[account(seeds = [BOOK_SEED, duel.key().as_ref(), &[0]], bump = book_0.bump)]
     pub book_0: Box<Account<'info, Book>>,
@@ -856,7 +866,7 @@ pub struct Sample<'info> {
 #[derive(Accounts)]
 pub struct ClaimTimeout<'info> {
     pub caller: Signer<'info>,
-    #[account(mut, seeds = [DUEL_SEED, &duel.match_id.to_le_bytes()], bump = duel.bump)]
+    #[account(mut, seeds = [DUEL_SEED, duel.tesoro_match.as_ref()], bump = duel.bump)]
     pub duel: Account<'info, Duel>,
 }
 
@@ -865,7 +875,7 @@ pub struct ClaimTimeout<'info> {
 pub struct CloseMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut, seeds = [DUEL_SEED, &duel.match_id.to_le_bytes()], bump = duel.bump)]
+    #[account(mut, seeds = [DUEL_SEED, duel.tesoro_match.as_ref()], bump = duel.bump)]
     pub duel: Account<'info, Duel>,
     #[account(mut, seeds = [BOOK_SEED, duel.key().as_ref(), &[0]], bump = book_0.bump)]
     pub book_0: Box<Account<'info, Book>>,
@@ -893,7 +903,7 @@ pub struct CloseMatch<'info> {
 pub struct CloseUnstarted<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut, seeds = [DUEL_SEED, &duel.match_id.to_le_bytes()], bump = duel.bump)]
+    #[account(mut, seeds = [DUEL_SEED, duel.tesoro_match.as_ref()], bump = duel.bump)]
     pub duel: Account<'info, Duel>,
     #[account(mut, seeds = [BOOK_SEED, duel.key().as_ref(), &[0]], bump = book_0.bump)]
     pub book_0: Box<Account<'info, Book>>,
@@ -903,13 +913,15 @@ pub struct CloseUnstarted<'info> {
 
 #[derive(Accounts)]
 pub struct Finalize<'info> {
+    /// Pays the settlement receipt's rent in tesoro_core.
+    #[account(mut)]
     pub caller: Signer<'info>,
-    #[account(mut, seeds = [DUEL_SEED, &duel.match_id.to_le_bytes()], bump = duel.bump)]
+    #[account(mut, seeds = [DUEL_SEED, duel.tesoro_match.as_ref()], bump = duel.bump)]
     pub duel: Account<'info, Duel>,
     #[account(
         mut,
         address = duel.tesoro_match,
-        seeds = [tesoro_core::state::MATCH_SEED, &tesoro_match.id.to_le_bytes()],
+        seeds = [tesoro_core::state::MATCH_SEED, tesoro_match.inner.id.opener.as_ref(), &tesoro_match.inner.id.n.to_le_bytes()],
         bump = tesoro_match.bump,
         seeds::program = tesoro_core::ID
     )]
@@ -925,5 +937,22 @@ pub struct Finalize<'info> {
     /// CHECK: the registered Game authority; signs the CPI with its stored canonical bump.
     #[account(seeds = [AUTHORITY_SEED], bump = duel.authority_bump)]
     pub authority: UncheckedAccount<'info>,
+    /// CHECK: this Game's own program account (tesoro_core reads its deploy slot).
+    #[account(address = crate::ID)]
+    pub game_program: UncheckedAccount<'info>,
+    /// CHECK: this program's ProgramData, checked by tesoro_core.
+    pub program_data: UncheckedAccount<'info>,
+    /// CHECK: the settlement receipt, created by tesoro_core at `["settled", match]`.
+    #[account(
+        mut,
+        seeds = [b"settled", tesoro_match.key().as_ref()],
+        bump,
+        seeds::program = tesoro_core::ID
+    )]
+    pub receipt: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+    /// CHECK: tesoro_core's event authority PDA.
+    #[account(seeds = [b"__event_authority"], bump, seeds::program = tesoro_core::ID)]
+    pub event_authority: UncheckedAccount<'info>,
     pub tesoro_program: Program<'info, tesoro_core::program::TesoroCore>,
 }

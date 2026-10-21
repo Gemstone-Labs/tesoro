@@ -194,6 +194,13 @@ fn remove_zeroes_the_vacated_slot_and_shrink_len_tracks_used_lines() {
             .unwrap();
     }
     s.remove_at(0).unwrap();
+    // taking the first line leaves a free slot before the others instead of moving them
+    assert_eq!(s.first(), 1);
+    assert!(s.data[HEADER_LEN..HEADER_LEN + LINE_LEN]
+        .iter()
+        .all(|b| *b == 0));
+    s.compact();
+    assert_eq!(s.first(), 0);
     assert_eq!(s.shrinkable_len(), required_len(2));
     assert_eq!(s.remove_at(2), Err(LineStoreError::NotFound));
     assert!(s.data[HEADER_LEN + 2 * LINE_LEN..].iter().all(|b| *b == 0));
@@ -396,6 +403,9 @@ fn run_ops(seed: u64, ops: u64) {
             _ => {
                 let used = m.lines.len();
                 let keep = used + r.below((m.cap - used) as u64 + 1) as usize;
+                // the instruction compacts the lines to the first slot before cutting the tail
+                LineStore::new(&mut buf[..]).unwrap().compact();
+                let s = LineStore::new(&buf[..]).unwrap();
                 assert!(s.shrinkable_len() <= required_len(keep));
                 buf.truncate(required_len(keep));
                 m.cap = keep;

@@ -27,3 +27,6 @@ tesoro_core = { path = "../tesoro_core", features = ["cpi"] }
 serde_json = "1"
 litesvm = "=0.11.0"
 solana-sdk = "3.0.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

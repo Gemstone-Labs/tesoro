@@ -52,13 +52,13 @@ fn ledger_err(e: DrawError) -> Error {
 }
 
 /// Lamports a store must receive to be rent exempt at `new_len` bytes.
-fn top_up(info: &AccountInfo, new_len: usize) -> Result<u64> {
+pub(crate) fn top_up(info: &AccountInfo, new_len: usize) -> Result<u64> {
     Ok(Rent::get()?
         .minimum_balance(new_len)
         .saturating_sub(info.lamports()))
 }
 
-fn move_lamports(from: &AccountInfo, to: &AccountInfo, n: u64) -> Result<()> {
+pub(crate) fn move_lamports(from: &AccountInfo, to: &AccountInfo, n: u64) -> Result<()> {
     let f = from
         .lamports()
         .checked_sub(n)
@@ -412,6 +412,13 @@ pub(crate) fn shrink_store(
         StoreKind::Basket => ctx.accounts.basket.to_account_info(),
         StoreKind::Spill => ctx.accounts.spill.to_account_info(),
     };
+    {
+        // the lines must start at the first slot before the tail is cut
+        let mut data = info.try_borrow_mut_data()?;
+        LineStore::new(&mut data[DISC..])
+            .map_err(store_err)?
+            .compact();
+    }
     let (lines, sponsored) = {
         let data = info.try_borrow_data()?;
         let store = LineStore::new(&data[DISC..]).map_err(store_err)?;
