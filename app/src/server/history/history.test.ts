@@ -1,6 +1,6 @@
 import { BN, BorshCoder, type Idl } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
-import { beforeAll, describe, expect, it } from "vitest";
+import { vi, beforeAll, describe, expect, it } from "vitest";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { backedSplit, feeGemas } from "@/lib/chain/ledger";
 import { historyPage } from "@/lib/chain/history";
@@ -11,6 +11,9 @@ import { matchKeyOf, parseMatchKey } from "./match-key";
 import { accountHistory, matchPage, playerForms, recentWins, seasonWins, winCard } from "./reads";
 import { testDb } from "./test-db";
 import type { Rpc } from "./rpc";
+
+// A fresh in-process Postgres takes several seconds to start when the machine is busy.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const CORE = (coreIdl as { address: string }).address;
 const coder = new BorshCoder(coreIdl as Idl);

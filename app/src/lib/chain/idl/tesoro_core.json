@@ -916,7 +916,31 @@
         },
         {
           "name": "owner_wallet",
+          "docs": [
+            "when the order is finished."
+          ],
           "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -2853,7 +2877,31 @@
         },
         {
           "name": "owner_wallet",
+          "docs": [
+            "when the order is finished."
+          ],
           "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -3787,7 +3835,31 @@
         },
         {
           "name": "owner_wallet",
+          "docs": [
+            "when the order is finished."
+          ],
           "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "position",
@@ -9588,8 +9660,16 @@
       ],
       "accounts": [
         {
-          "name": "holder_authority",
+          "name": "payer",
+          "docs": [
+            "Pays the order's rent: the holder, or with the sponsor accounts the relayer, made whole",
+            "from the sponsor at once (a Player with no SOL can still sell)."
+          ],
           "writable": true,
+          "signer": true
+        },
+        {
+          "name": "holder_authority",
           "signer": true
         },
         {
@@ -9716,6 +9796,27 @@
               {
                 "kind": "arg",
                 "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
               }
             ]
           }
@@ -16397,7 +16498,8 @@
       "docs": [
         "An open Instant Redeem order (ticket 07's `InstantOrder` on chain): the unsold Gemas sit in",
         "`line`, off the owner's basket, until a fill buys them, the owner cancels or the order expires.",
-        "Seeds `[\"instant\", holder account, nonce LE]`; the owner pays the rent and gets it back."
+        "Seeds `[\"instant\", holder account, nonce LE]`; the owner pays the rent and gets it back, or the",
+        "sponsor does for a Player with no SOL (it is repaid first)."
       ],
       "type": {
         "kind": "struct",
@@ -16459,6 +16561,18 @@
           {
             "name": "paid_shares",
             "type": "u128"
+          },
+          {
+            "name": "payer",
+            "docs": [
+              "Who paid the order's rent and gets it back at the close: the seller, or the sponsor's",
+              "relayer (then `sponsored_lamports` of it return to the sponsor first)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "sponsored_lamports",
+            "type": "u64"
           }
         ]
       }

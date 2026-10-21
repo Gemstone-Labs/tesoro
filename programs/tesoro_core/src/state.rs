@@ -744,7 +744,8 @@ impl EconomyConfig {
 
 /// An open Instant Redeem order (ticket 07's `InstantOrder` on chain): the unsold Gemas sit in
 /// `line`, off the owner's basket, until a fill buys them, the owner cancels or the order expires.
-/// Seeds `["instant", holder account, nonce LE]`; the owner pays the rent and gets it back.
+/// Seeds `["instant", holder account, nonce LE]`; the owner pays the rent and gets it back, or the
+/// sponsor does for a Player with no SOL (it is repaid first).
 #[account]
 pub struct InstantOrderState {
     pub bump: u8,
@@ -761,10 +762,15 @@ pub struct InstantOrderState {
     pub sold: u64,
     pub redeemed_while_open: u64,
     pub paid_shares: u128,
+    /// Who paid the order's rent and gets it back at the close: the seller, or the sponsor's
+    /// relayer (then `sponsored_lamports` of it return to the sponsor first).
+    pub payer: Pubkey,
+    pub sponsored_lamports: u64,
 }
 
 impl InstantOrderState {
-    pub const SPACE: usize = 8 + 1 + 8 + 32 + 32 + ledger::LINE_LEN + 8 + 8 + 8 + 8 + 8 + 16;
+    pub const SPACE: usize =
+        8 + 1 + 8 + 32 + 32 + ledger::LINE_LEN + 8 + 8 + 8 + 8 + 8 + 16 + 32 + 8;
 
     /// The Source whose Gemas the order holds.
     pub fn line_source(&self) -> Pubkey {

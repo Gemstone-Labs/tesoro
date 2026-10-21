@@ -2235,6 +2235,10 @@ impl Env {
         gemas_in(&self.svm, treasury_account(), source)
     }
 
+    fn lamports(&self, k: APk) -> u64 {
+        self.svm.get_balance(&s(k)).unwrap_or(0)
+    }
+
     fn order_address(&self, p: &Person, nonce: u64) -> APk {
         pda(&[INSTANT_ORDER_SEED, p.account.as_ref(), &nonce.to_le_bytes()])
     }
@@ -2248,10 +2252,27 @@ impl Env {
         ttl: i64,
         nonce: u64,
     ) -> Instruction {
+        self.request_ix_paid_by(p, pos, source, sell, ttl, nonce, p.key, false)
+    }
+
+    /// `payer` pays the order's rent; `sponsored` passes the sponsor account.
+    #[allow(clippy::too_many_arguments)]
+    fn request_ix_paid_by(
+        &self,
+        p: &Person,
+        pos: Pos,
+        source: APk,
+        sell: u64,
+        ttl: i64,
+        nonce: u64,
+        payer: APk,
+        sponsored: bool,
+    ) -> Instruction {
         let mut remaining = self.kind_paying(pos, p.token);
         remaining.extend(book_metas(&self.svm, source));
         tix(
             accounts::RequestInstantRedeem {
+                payer,
                 holder_authority: p.key,
                 holder_account: p.account,
                 basket: self.basket(p),
@@ -2259,6 +2280,7 @@ impl Env {
                 position: pos.position,
                 source,
                 order: self.order_address(p, nonce),
+                sponsor: sponsored.then(|| sponsor_address().0),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::RequestInstantRedeem {
@@ -2307,6 +2329,7 @@ impl Env {
                 treasury_spill: spill_address(&treasury_account()).0,
                 order: self.order_address(seller, nonce),
                 owner_wallet: seller.key,
+                sponsor: None,
                 position: pos.position,
                 source,
             },
@@ -2336,13 +2359,29 @@ impl Env {
         nonce: u64,
         expire: bool,
     ) -> Instruction {
+        self.return_order_ix_for(signer, seller, source, nonce, expire, seller.key, false)
+    }
+
+    /// `payer` is who paid the order's rent; `sponsored` passes the sponsor account.
+    #[allow(clippy::too_many_arguments)]
+    fn return_order_ix_for(
+        &self,
+        signer: &Person,
+        seller: &Person,
+        source: APk,
+        nonce: u64,
+        expire: bool,
+        payer: APk,
+        sponsored: bool,
+    ) -> Instruction {
         let accounts = accounts::ReturnInstantRedeem {
             signer: signer.key,
             owner_account: seller.account,
             basket: self.basket(seller),
             spill: self.spill(seller),
             order: self.order_address(seller, nonce),
-            owner_wallet: seller.key,
+            owner_wallet: payer,
+            sponsor: sponsored.then(|| sponsor_address().0),
         };
         let remaining = book_metas(&self.svm, source);
         if expire {
@@ -2654,6 +2693,82 @@ fn an_instant_redeem_is_an_order_the_treasury_fills_at_75_percent() {
     );
     assert!(remaining > 0);
     env.check_invariants(&[pos]);
+}
+
+#[test]
+fn a_sponsored_order_costs_the_player_nothing_and_the_sponsor_gets_its_rent_back() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let bob = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 12).unwrap();
+    env.give_won(&alice, &bob, source, 2_000);
+    let relayer = Keypair::new();
+    env.svm.airdrop(&relayer.pubkey(), 10 * SOL).unwrap();
+    let admin = env.admin.insecure_clone();
+    let init = tix(
+        accounts::InitSponsor {
+            admin: a(admin.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            sponsor: sponsor_address().0,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::InitSponsor {
+            relayer: a(relayer.pubkey()),
+            per_account_cap: SOL,
+            total_cap: 10 * SOL,
+            pages_cap: SOL,
+        },
+        vec![],
+    );
+    env.send(&[init], &admin, &[]).unwrap();
+    env.svm.airdrop(&s(sponsor_address().0), 5 * SOL).unwrap();
+    let rent = env
+        .svm
+        .minimum_balance_for_rent_exemption(InstantOrderState::SPACE);
+
+    // With the sponsor accounts only the sponsor's relayer may pay; without them only the holder.
+    let stranger = env.person();
+    let no_sponsor =
+        env.request_ix_paid_by(&bob, pos, source, 1_500, 7 * DAY, 1, stranger.key, false);
+    let err = env
+        .send(&[no_sponsor], &stranger.kp, &[&bob.kp])
+        .unwrap_err();
+    assert_eq!(code(&err), 6000, "no sponsor: only the holder pays");
+    let wrong = env.request_ix_paid_by(&bob, pos, source, 1_500, 7 * DAY, 1, stranger.key, true);
+    let err = env.send(&[wrong], &stranger.kp, &[&bob.kp]).unwrap_err();
+    assert_eq!(code(&err), 6304, "only the sponsor's relayer");
+
+    let rkey = a(relayer.pubkey());
+    let ix = env.request_ix_paid_by(&bob, pos, source, 1_500, 7 * DAY, 1, rkey, true);
+    let (bob_before, relayer_before) = (env.lamports(bob.key), env.lamports(rkey));
+    let sponsor_before = env.lamports(sponsor_address().0);
+    env.send(&[ix], &relayer, &[&bob.kp])
+        .expect("sponsored request");
+    let order = env.order_address(&bob, 1);
+    let state = env.load::<InstantOrderState>(order);
+    assert_eq!(state.payer, rkey);
+    assert_eq!(state.sponsored_lamports, rent);
+    assert_eq!(env.lamports(bob.key), bob_before, "the Player paid nothing");
+    // The relayer fronted the rent and was made whole (only the two-signature fee is its own).
+    assert_eq!(env.lamports(rkey), relayer_before - 10_000);
+    assert_eq!(env.lamports(sponsor_address().0), sponsor_before - rent);
+    assert_eq!(
+        env.load::<SponsorState>(sponsor_address().0).outstanding,
+        rent
+    );
+
+    // Closing without the sponsor account cannot strand its rent.
+    let cancel = env.return_order_ix_for(&bob, &bob, source, 1, false, rkey, false);
+    let err = env.send(&[cancel], &bob.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), 6307);
+
+    // With it the rent goes back to the sponsor and the Player's Gemas come back.
+    let cancel = env.return_order_ix_for(&bob, &bob, source, 1, false, rkey, true);
+    env.send(&[cancel], &bob.kp, &[]).expect("cancel");
+    assert_eq!(env.lamports(sponsor_address().0), sponsor_before);
+    assert_eq!(env.load::<SponsorState>(sponsor_address().0).outstanding, 0);
+    assert_eq!(env.gemas(&bob, source), 2_000);
 }
 
 #[test]
