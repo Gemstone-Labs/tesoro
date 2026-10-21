@@ -258,7 +258,7 @@ A Game is one `["game", program_id]` record. `Config.games` is no longer read or
 
 ## Economy upgrade (ADR 0013)
 
-One `tesoro_core` upgrade changes how Gemas are stored, repaid, bet, paid out and counted. Everything below is new or replaces the older sections. Built so far: the ledger (pure Rust) and its instructions for baskets, Positions, Advances, Redeem, Treasury, Instant Redeem orders, prizes, Seasons and the registry. Matching on baskets and Tickets (ticket 09) and fee cash-in (ticket 11b) are described from the spec and marked.
+One `tesoro_core` upgrade changes how Gemas are stored, repaid, bet, paid out and counted. Everything below is new or replaces the older sections. Built so far: the ledger (pure Rust) and its instructions for baskets, Positions, Advances, Redeem, Treasury, Instant Redeem orders, prizes, Seasons and the registry. Matching on baskets and Tickets (ticket 09) is described from the spec and marked.
 
 ### Exact bookkeeping per line
 
@@ -328,9 +328,11 @@ Code: `ledger/instant/`, `instructions/instant.rs`.
 
 `spendable_shares` is the single figure for Treasury withdrawals, Instant Redeem fills and prize funding (see above). The stake custody counts only realised fee shares as spendable (the finding of ticket 26: open Locks' fees were counted before). On Unlock, a stake owner's payout is `custody shares - paid - owed - fee`, and the fee is taken only from what is above the owner's Principal. The Treasury is also refilled when it redeems the Gemas it bought (`redeem_treasury`). `Unlock` needs the `EconomyConfig` account, so `set_economy` runs in the same batch as the upgrade. Every stake payout needs a fresh stake pool (`UpdateStakePoolBalance`, which anyone can call; the keeper does).
 
-### Fee cash-in (ticket 11b, not built)
+### Fee cash-in (ticket 11b)
 
-The Platform and Studio counters on a Source are repaid by the Payout order but belong to nobody until a permissionless `cash_in_fee` per Source pays each recipient (Platform from Config, Studio from the Game's record) the covered part in shares, once, idempotently, never negative, refused on prize Sources. On EVM Sources it uses the bridge's batch path. Recheck this section when 11b merges.
+The Platform and Studio counters on a Source are repaid by the Payout order but belong to nobody until `cash_in_fee(class)` pays them out. It is permissionless, one call per Source and class (0 Platform, 1 Studio), and redeems the counter's ready Gemas as the shares they were worth when the yield landed (holders-carry-slashes rule). Platform pays `Config.platform_recipient`. Studio pays the Account named by the admin's `set_tesoro_studio`: a Source has one Studio counter for all of Tesoro's own Games, so the recipient is a setting (outside studios get fee lines in their baskets, never a counter). The recipient must be the passed Account and its wallet needs a token account for the asset. A second call with nothing newly covered fails with `ZeroAmount` and moves nothing; the counter never goes negative. Prize Sources have no `SourceState`, so they cannot be named. The Leaderboard counter is harvested, not cashed in.
+
+On EVM Sources the Solana side is `cash_in_fee_from_source(class, min_units)`, signed by the chain's registered source authority (the bridge). It debits the counter, adds the units to `Source.redeemed_units` and emits `FeeCashedIn{source, class, recipient, gemas, shares, units}`; the bridge pays that recipient's linked EVM address in the same transaction. `min_units` is the bridge's batch minimum: a smaller cash-in fails and changes nothing.
 
 ### Game registry and listing
 
@@ -343,6 +345,5 @@ See "Game registry and listing" above. Changes made after it was first written:
 ### Recheck when these merge
 
 - Ticket 09 (matching): the "Match lifecycle" and "Entry Tickets" bullets above; the line cap; instruction names; compute numbers; Match ids and the `MatchWon` event fields (`challenge`, `asset`, `opened_at` explicit); the per-Account Match cap; `open_backing` authorisation.
-- Ticket 11b (fee cash-in): the section above.
 - Tickets 12 to 15 (Games), 16 and 17 (bridge and vaults): `docs/cross-chain.md` "Economy upgrade on the bridge and vaults".
 - Ticket 08z (Holdings removal): drop `HoldingState`, `open_holding` and the Holding rows and text from this file.

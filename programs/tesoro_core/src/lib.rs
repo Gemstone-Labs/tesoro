@@ -162,6 +162,30 @@ pub mod tesoro_core {
         instructions::prize::harvest(ctx)
     }
 
+    /// Admin: the Account that receives the Studio Fee counters of Tesoro's own Games.
+    pub fn set_tesoro_studio(ctx: Context<SetTesoroStudio>) -> Result<()> {
+        instructions::fee::set_tesoro_studio(ctx)
+    }
+
+    /// Anyone: the covered Platform (0) or Studio (1) fee of a native or stake Source is paid to
+    /// its recipient.
+    pub fn cash_in_fee<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CashInFee<'info>>,
+        class: u8,
+    ) -> Result<()> {
+        instructions::fee::cash_in_fee(ctx, class)
+    }
+
+    /// The EVM twin of `cash_in_fee`, signed by the chain's source authority (the bridge), which
+    /// pays the recipient on that chain.
+    pub fn cash_in_fee_from_source<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CashInFeeFromSource<'info>>,
+        class: u8,
+        min_units: u64,
+    ) -> Result<()> {
+        instructions::fee::cash_in_fee_from_source(ctx, class, min_units)
+    }
+
     pub fn fund_season_prize_native(
         ctx: Context<FundSeasonPrizeNative>,
         season: u32,
