@@ -2,7 +2,8 @@ import { PublicKey } from "@solana/web3.js";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import type { AdminOrder } from "@/server/admin/orders";
 import { getChain } from "./client";
-import { decodeOrder, fillInstantRedeemIxs } from "./instant-order";
+import { TESORO_CORE } from "./basket";
+import { decodeOrder, fillInstantRedeemIxs, instantOrderPda } from "./instant-order";
 import { sourceAccounts } from "./redeem";
 
 /**
@@ -15,7 +16,10 @@ export async function fillOrder(signer: ChainSigner, order: Pick<AdminOrder, "ad
   const conn = getChain().base;
   const info = await conn.getAccountInfo(new PublicKey(order.address));
   if (!info) throw new Error("This order is gone: it was filled, cancelled or closed.");
-  const decoded = decodeOrder(new PublicKey(order.address), info.data);
+  const address = new PublicKey(order.address);
+  if (!info.owner.equals(TESORO_CORE)) throw new Error("This is not an Instant Redeem order.");
+  const decoded = decodeOrder(address, info.data);
+  if (!instantOrderPda(decoded.account, decoded.nonce).equals(address)) throw new Error("This is not an Instant Redeem order.");
   if (gemas > decoded.line.amount) throw new Error(`Only ${decoded.line.amount} Gemas are still on offer.`);
   const { accounts, create } = await sourceAccounts(conn, decoded.source, [], signer.publicKey);
   const fill = fillInstantRedeemIxs({
