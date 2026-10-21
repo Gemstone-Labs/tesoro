@@ -28,6 +28,7 @@ export function applyBot(g: Game, m: BotAction, at: number): Result {
  */
 export function botMove(g: Game, rng: Rng, policy: "plain"): BotMove | null;
 export function botMove(g: Game, rng?: Rng, policy?: Policy): BotAction | null;
+export function botMove(g: Game, rng: Rng, policy: Policy | "plain"): BotAction | null;
 export function botMove(g: Game, rng: Rng = Math.random, policy: Policy | "plain" = "standard"): BotAction | null {
   const army: Army = g.turn;
   const mine = g.pieces.filter((p) => p.army === army);
