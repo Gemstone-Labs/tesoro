@@ -7,7 +7,7 @@ import { NAMES, ROSTER, act, onBoard, rankOf, type Army, type Game, type GameEve
 
 /** One line per rank for the in-game rules sheet. */
 export const POWER_LINES: [Rank, string][] = [
-  ["10", "Become a Spy: turns into a Spy for good, free with any action. Secret."],
+  ["10", "Become a Spy: turns into a Spy for good, free with your move. Secret."],
   ["9", "Steps one square, or jumps straight across a wadi."],
   ["8", "Rescue: blows up, and your Supply Truck jumps onto its square."],
   ["7", "Dig in: turns into a Landmine for good. Secret."],
@@ -39,7 +39,7 @@ export interface PowerOption {
   label: string;
   /** One line under it. */
   hint: string;
-  /** Blast and Rescue preview what they do and wait for a second tap; Dig in goes at once. */
+  /** Blast and Rescue draw what they will do while the piece is selected (no extra tap); Dig in has nothing to draw. */
   preview: boolean;
 }
 
@@ -114,13 +114,11 @@ export interface RosterView {
   cells: RosterCell[];
   /** The 10 has not been seen and may be a Spy now: the strip says "10 or Spy?". */
   tenOrSpy: boolean;
-  /** Majors the enemy dug in (public). */
-  digs: number;
 }
 
 /**
- * The enemy strip, from what the viewer was shown only: distinct shown pieces (dead ones included), the public Dig in
- * counter, and the 10's identity when it is unproven. It never reads a rank that was not shown.
+ * The enemy strip, from what the viewer was shown only: distinct shown pieces (dead ones included) and the 10's
+ * identity when it is unproven. A Dig in is secret and never counted here. It never reads a rank that was not shown.
  */
 export function rosterView(game: Game, ledger: Ledger, foe: Army = "it"): RosterView {
   const alive = new Set(game.pieces.filter((p) => p.army === foe).map((p) => p.id));
@@ -137,7 +135,7 @@ export function rosterView(game: Game, ledger: Ledger, foe: Army = "it"): Roster
     const of = rank === "1" && switched ? n + 1 : n;
     return { rank, of, left: Math.max(0, of - deadAs(rank)) };
   });
-  return { cells, tenOrSpy: !game.winner && !tenSeen && !switched && tenLeft === 1, digs: game.digs[foe] };
+  return { cells, tenOrSpy: !game.winner && !tenSeen && !switched && tenLeft === 1 };
 }
 
 export interface ChangeLine {

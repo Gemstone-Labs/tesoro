@@ -76,7 +76,7 @@ const put = (g: Game, army: "us" | "it", rank: Rank, r: number, c: number, nth =
 };
 const base = { instant: true, clock: false } as const;
 
-/** Select the Engineer at (6,4) and press Blast: the 8 squares are outlined; confirm to see the hidden pieces around it turn over and yours shown to the enemy. */
+/** Select the Engineer at (6,4) and the 8 squares are outlined; tap Blast to see the hidden pieces around it turn over and yours shown to the enemy. */
 export const PowerBlast: Story = {
   args: {
     ...base,
@@ -92,7 +92,7 @@ export const PowerBlast: Story = {
   },
 };
 
-/** Select the Colonel at (6,4) and press Rescue: the arrow shows the Truck flying in from the corner. */
+/** Select the Colonel at (6,4) and the arrow shows the Truck flying in from the corner; tap Rescue to send it. */
 export const PowerRescue: Story = {
   args: {
     ...base,
@@ -105,10 +105,10 @@ export const PowerRescue: Story = {
   },
 };
 
-/** Select a Major and press Dig in: it turns into a Landmine for good, with a small 7 badge for you. */
+/** Select a Major and tap Dig in: it turns into a Landmine for good, with a small 7 badge for you. */
 export const PowerDigIn: Story = { args: { ...base, prepare: (g) => put(put(g, "us", "7", 6, 4), "us", "7", 6, 5, 1) } };
 
-/** The bot goes first with the fortress policy: its Major digs in beside its Truck. You get "A Major dug in" and a +1 on the Landmine count, no piece marked. */
+/** The bot goes first with the fortress policy: its Major digs in beside its Truck. You see nothing: no callout, no log line, no count (a Dig in is secret). */
 export const PowerDigInOpponent: Story = {
   args: {
     ...base,
@@ -118,7 +118,7 @@ export const PowerDigInOpponent: Story = {
   },
 };
 
-/** Select your General of the Army (6,4), next to a shown Italian 10: turn on Become a Spy (the first time asks to confirm: it is one way), then attack. */
+/** Select your General of the Army (6,4), next to a shown Italian 10: tap Become a Spy (one tap, no confirm: it shows as a Spy at once), then attack. */
 export const PowerBecomeSpy: Story = { args: { ...base, prepare: (g) => put(put(g, "us", "10", 6, 4), "it", "10", 5, 4, 0, { known: true }) } };
 
 /** Jump marks: a Lieutenant (6,4) over a piece, a General (6,2) across the wadi, a Sergeant (7,0) on its diagonals, a Captain (6,6) in 8 directions. */
@@ -136,7 +136,7 @@ export const PowerJumps: Story = {
   },
 };
 
-/** The roster strip when the Italian 10 has never been shown ("10 or Spy?") and a Major has dug in. */
+/** The roster strip when the Italian 10 has never been shown ("10 or Spy?"). A Major digging in changes nothing here. */
 export const RosterUncertain: Story = {
   args: { ...base, prepare: (g) => ({ ...g, digs: { ...g.digs, it: 1 } }) },
 };
@@ -210,3 +210,7 @@ export const Reveal: StoryObj = {
 
 export const PhonePractice = phone({ args: { instant: true, clock: true } });
 export const PhoneNoClock = phone({ args: { instant: true, clock: false } });
+
+/** Own pieces the enemy has seen face up (a Truck that was Spotted, a Colonel shown by a Blast) glow red round the rim; open Ranks for the legend. */
+export const SeenByEnemy: Story = { args: { ...base, prepare: (g) => put(put(g, "us", "F", 7, 4, 0, { known: true }), "us", "8", 6, 4, 0, { known: true }) } };
+export const PhoneSeenByEnemy = phone({ ...SeenByEnemy });

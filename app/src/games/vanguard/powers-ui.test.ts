@@ -82,15 +82,14 @@ describe("the enemy roster strip", () => {
     const v = rosterView(board, {});
     expect(v.cells.map((c) => `${c.rank}${c.left}/${c.of}`).join(" ")).toBe("101/1 91/1 81/1 72/2 62/2 52/2 42/2 32/2 23/3 11/1 B2/2 F1/1");
     expect(v.tenOrSpy).toBe(true);
-    expect(v.digs).toBe(0);
   });
   it("counts shown pieces that left the board, and not the pieces that are only face up", () => {
     const after = { ...board, pieces: board.pieces.filter((p) => p.id !== 2) };
     const l: Ledger = { 2: ["7"], 3: ["7"] };
     expect(cell(after, l, "7").left).toBe(1); // 3 is shown but still on the board
   });
-  it("shows the Dig in counter from the public count only", () => {
-    expect(rosterView({ ...board, digs: { us: 0, it: 1 } }, {}).digs).toBe(1);
+  it("never shows a Dig in: the strip is the same whatever the enemy has dug in", () => {
+    expect(rosterView({ ...board, digs: { us: 0, it: 2 } }, {})).toEqual(rosterView(board, {}));
   });
   it("a switched 10 that dies shows as a Spy: the Spy is gone and the 10 is still unproven", () => {
     const after = { ...board, pieces: board.pieces.filter((p) => p.id !== 0), changed: { 0: "spy" as const } };

@@ -24,12 +24,14 @@ export interface ShownPiece {
   drift?: boolean;
   /** The owner's private rank change: a dug-in Major (drawn as a Landmine with a Major badge) or a General of the Army turned Spy. Only ever set for the viewer's own pieces, or for all of them once the Match is over. */
   changed?: Change;
-  /** Own piece the enemy has seen face up (a Blast, a Spotted Truck): a small eye mark. */
+  /** Own piece the enemy has seen face up (a Blast, a Spotted Truck): a red glow round its rim. */
   exposed?: boolean;
   /** Just changed: the face pulses once. */
   fresh?: boolean;
   /** In the air (the Truck on a Rescue). */
   fly?: boolean;
+  /** Hopping to its square (a Lieutenant's jump, a General's wadi crossing): lifts, arcs over, lands, in `ms`. */
+  hop?: boolean;
 }
 
 /** A mark on the board: a square the selected piece can go to; `jump` marks get an arc from the piece. */
@@ -118,13 +120,14 @@ export const Marker = memo(function Marker({ p, selected, target = false, onTap,
     left: `calc(var(--vg-sq) * ${p.c})`,
     top: `calc(var(--vg-sq) * ${p.r})`,
     transitionDuration: `${p.ms ?? 0}ms`,
+    "--hop-ms": `${p.ms ?? 0}ms`,
   } as CSSProperties;
   const was = p.changed === "dug" ? "7" : p.changed === "spy" ? "10" : null;
   const label = shownUp && p.rank ? `${p.army === "us" ? "US" : "Italian"} ${p.rank} ${NAMES[p.rank]}${was ? `, was ${NAMES[was]}` : ""}${p.exposed ? ", seen by the enemy" : ""}` : `${ARMY_NAME[p.army]} hidden piece`;
   return (
     <button
       type="button"
-      className={`vg-piece ${p.army}${selected ? " sel" : ""}${target ? " tgt" : ""}${p.gone ? " gone" : ""}${p.drift ? " drift" : ""}${p.fly ? " fly" : ""}${p.fresh ? " fresh" : ""}`}
+      className={`vg-piece ${p.army}${selected ? " sel" : ""}${target ? " tgt" : ""}${p.gone ? " gone" : ""}${p.drift ? " drift" : ""}${p.fly ? " fly" : ""}${p.hop ? " hop" : ""}${shownUp && p.exposed ? " exposed" : ""}${p.fresh ? " fresh" : ""}`}
       style={style}
       aria-label={label}
       aria-pressed={selected || undefined}
@@ -151,7 +154,6 @@ export const Marker = memo(function Marker({ p, selected, target = false, onTap,
                 <span className="vg-art" style={{ backgroundImage: face(p.army, shownUp && p.rank ? p.rank : "back") }} />
                 {shownUp && <span className="vg-rk">{p.rank}</span>}
                 {shownUp && was && <span className="vg-was">{was}</span>}
-                {shownUp && p.exposed && <span className="vg-eye" />}
               </span>
               <span className="vg-gloss" />
             </span>
