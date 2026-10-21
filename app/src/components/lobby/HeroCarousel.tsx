@@ -27,7 +27,7 @@ interface Slide {
 
 /** The featured Games. Entry, Queue and Challenge live on each Game's page; the hero only leads there. */
 export const SLIDES: Slide[] = [
-  { game: "vanguard", title: "Vanguard", sub: "Strategy · 5-second turns · hidden ranks", image: art.vanguardHero },
+  { game: "vanguard", title: "Vanguard", sub: "Strategy · 10-second turns · hidden ranks", image: art.vanguardHero },
   { game: "holdem", title: "Buckshot Hold'em", sub: "Real-time · 2 players", image: art.holdemHero, long: true },
   { game: "trading-duel", title: "Trading Duel", sub: "Live price · 2.5 minutes · most hits wins", image: art.tradingDuelHero },
   { game: "block-puzzle", title: "Block Puzzle", sub: "Same pieces · 90 seconds · higher score wins", image: art.blockPuzzleHero },

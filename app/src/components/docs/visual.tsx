@@ -496,7 +496,7 @@ export function GameCards() {
     { slug: "block-puzzle", name: "Block Puzzle", facts: ["Same pieces for both", "90 second run", "Play when you like"] },
     { slug: "holdem", name: "Buckshot Hold'em", facts: ["Heads-up, real time", "1,500 Chips each", "30 s per action"] },
     { slug: "trading-duel", name: "Trading Duel", facts: ["2.5 minutes, live price", "12 columns, 100 points a hit", "SOL, ETH or HYPE"] },
-    { slug: "vanguard", name: "Vanguard", facts: ["Blitz Stratego, hidden ranks", "5 seconds a move", "Capture the Supply Truck"] },
+    { slug: "vanguard", name: "Vanguard", facts: ["Blitz Stratego, hidden ranks", "10 seconds a move", "Capture the Supply Truck"] },
   ];
   return (
     <ul className="dx-games">

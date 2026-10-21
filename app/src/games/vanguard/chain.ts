@@ -95,7 +95,7 @@ async function withRetry<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
   }
 }
 
-/** A rollup blockhash is reused for this long, so a 5-second turn does not spend a round trip on one. */
+/** A rollup blockhash is reused for this long, so a short turn does not spend a round trip on one. */
 const BLOCKHASH_TTL_MS = 20_000;
 
 export class VanguardChain {

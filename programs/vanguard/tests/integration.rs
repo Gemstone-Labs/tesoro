@@ -1280,7 +1280,7 @@ fn deal_draws_the_armies_into_the_private_accounts_and_nothing_hidden_into_the_b
         assert_eq!(b.started_at, T0 + 30);
         assert_eq!(
             b.deadline,
-            T0 + 30 + 6 + OPENING_GRACE_SECS,
+            T0 + 30 + engine::TURN_SECS + engine::GRACE_SECS + OPENING_GRACE_SECS,
             "the opening turn has extra seconds: the first mover has not loaded their Army yet"
         );
         assert_eq!(b.shown, [0; PIECE_SLOTS], "no rank is public at the start");
@@ -1692,7 +1692,11 @@ fn moves_write_no_logs_and_two_step_turns_work() {
     let b = env.battle();
     assert_eq!(b.turn, 0, "the second step is still Alice's");
     assert_eq!(b.steps_left, 1);
-    assert_eq!(b.deadline, T0 + 3 + 6, "each step gets a full turn");
+    assert_eq!(
+        b.deadline,
+        T0 + 3 + engine::TURN_SECS + engine::GRACE_SECS,
+        "each step gets a full turn"
+    );
     env.mv(0, id_of(95), 85)
         .expect("second step with another piece");
     assert_eq!(env.battle().turn, 1);
@@ -2883,7 +2887,7 @@ fn the_clock_is_decided_at_the_declare_and_the_next_deadline_counts_from_the_res
     assert_eq!(b.sq[id_of(70) as usize], 60);
     assert_eq!(
         b.deadline,
-        deadline + engine::RESOLVE_SLACK_SECS + 6,
+        deadline + engine::RESOLVE_SLACK_SECS + engine::TURN_SECS + engine::GRACE_SECS,
         "a stalled resolve is counted from the declare plus the slack, with no extra grace"
     );
     // One second past the edge is refused at the declare.
@@ -3008,7 +3012,10 @@ fn the_opening_grace_is_consumed_exactly_once() {
     env.set_time(T0 + 30);
     env.deal().expect("deal");
     let opening = env.battle().deadline;
-    assert_eq!(opening, T0 + 30 + 6 + OPENING_GRACE_SECS);
+    assert_eq!(
+        opening,
+        T0 + 30 + engine::TURN_SECS + engine::GRACE_SECS + OPENING_GRACE_SECS
+    );
     let us = if env.battle().side_of_seat(0) == Some(Side::Us) {
         0
     } else {
@@ -3040,7 +3047,7 @@ fn the_opening_grace_is_consumed_exactly_once() {
     env.resolve(&caller).expect("delayed resolve");
     assert_eq!(
         env.battle().deadline,
-        opening + engine::RESOLVE_SLACK_SECS + 6
+        opening + engine::RESOLVE_SLACK_SECS + engine::TURN_SECS + engine::GRACE_SECS
     );
 }
 

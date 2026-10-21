@@ -5,7 +5,7 @@
  */
 import { PublicKey } from "@solana/web3.js";
 import { NO_SQUARE, type ArmyAccount, type Battle, type RingRecord } from "./decode";
-import { CHAIN_CLOCK, DEPOTS, newGame, seeded, startIndex, type Game, type GameEvent, type Rank } from "./rules";
+import { CHAIN_CLOCK, DEPOTS, RULES_VERSION, TURN_MS, newGame, seeded, startIndex, type Game, type GameEvent, type Rank } from "./rules";
 
 const CODE: Record<Rank, number> = { "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, B: 11, F: 12 };
 const OUTCOME = ["win", "lose", "tie", "mine", "defuse", "truck"] as const;
@@ -124,14 +124,14 @@ export function chainState(game: Game, start: Game, history: GameEvent[], o: { u
     timeouts: [game.timeouts.us, game.timeouts.it],
     depotClaimed: [game.depots.find((d) => d.raider === "us")?.claimed ? 1 : 0, game.depots.find((d) => d.raider === "it")?.claimed ? 1 : 0],
     layoutVersion: 2,
-    rulesVersion: 4,
+    rulesVersion: RULES_VERSION,
     setupDeadline: 0,
     capDeadline: 0,
     payer: key(11),
     oracleQueue: key(12),
     moveCap: 200,
     capSecs: 900,
-    turnSecs: 5,
+    turnSecs: TURN_MS / 1000,
     graceSecs: 1,
     openingGraceSecs: 10,
     resolveSlackSecs: 2,
@@ -159,7 +159,7 @@ export function chainState(game: Game, start: Game, history: GameEvent[], o: { u
   return { battle, armies };
 }
 
-/** A fresh Match on the chain clock: the US Army to move, 5 seconds a turn. */
+/** A fresh Match on the chain clock: the US Army to move, 10 seconds a turn. */
 export function freshGame(seed = 7, at = Date.now()): Game {
   return newGame(seeded(seed), at, "us", CHAIN_CLOCK);
 }

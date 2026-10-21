@@ -92,7 +92,7 @@ export default function Page() {
       </p>
       <ul>
         <li>Your pieces&apos; ranks are visible only to you. An enemy piece shows its rank only once it has fought, and a piece that loses an attack is never shown.</li>
-        <li>You have 5 seconds for each move. Three missed turns in a row lose the Match.</li>
+        <li>You have 10 seconds for each move. Three missed turns in a row lose the Match.</li>
         <li>A Dust Storm blows once per Match and shifts one row or column of the board a square. Raiding the enemy depot earns a Two-Step Turn.</li>
         <li>Every Match ends: after the time or move limit, the higher total of surviving ranks wins, then the higher piece count. An exact tie is a draw, and a draw refunds both entries.</li>
       </ul>

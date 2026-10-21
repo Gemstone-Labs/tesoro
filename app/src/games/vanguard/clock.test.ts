@@ -4,13 +4,20 @@ import { PRACTICE_COUNTDOWN, START_COUNTDOWN, claimDue, getReadyLeft, missedLabe
 import { OPENING_GRACE_MS } from "./rules";
 
 const T0 = 1_760_000_000_000;
-const base = { status: 2, deadline: 0, startedAt: 1_760_000_000, startDeadline: 1_760_000_300, entropyDeadline: 0, turn: 0, turnNo: 3, moves: 3, stepsLeft: 1, twoStepActive: 0, eventSeq: 5 } as unknown as Battle;
+const base = { status: 2, deadline: 0, startedAt: 1_760_000_000, startDeadline: 1_760_000_300, entropyDeadline: 0, turn: 0, turnNo: 3, moves: 3, stepsLeft: 1, twoStepActive: 0, eventSeq: 5, turnSecs: 10, graceSecs: 1, openingGraceSecs: 10 } as unknown as Battle;
+/** A Match created before turns went to 10 seconds: it keeps the clock stored in its Battle. */
+const fiveSecond = { ...base, turnSecs: 5 } as Battle;
 
 describe("when a client may ask the program to pass a turn", () => {
-  it("waits out the 5 second turn, the 1 second grace and a margin, counted from when the turn was first seen", () => {
-    expect(claimDue(base, T0, T0 + 5_000)).toBe(false);
-    expect(claimDue(base, T0, T0 + 6_000)).toBe(false);
-    expect(claimDue(base, T0, T0 + 7_000)).toBe(true);
+  it("waits out the 10 second turn, the 1 second grace and a margin, counted from when the turn was first seen", () => {
+    expect(claimDue(base, T0, T0 + 10_000)).toBe(false);
+    expect(claimDue(base, T0, T0 + 11_000)).toBe(false);
+    expect(claimDue(base, T0, T0 + 12_000)).toBe(true);
+  });
+
+  it("times a Match by the clock stored in its Battle, so one created with 5 second turns keeps them", () => {
+    expect(claimDue(fiveSecond, T0, T0 + 6_000)).toBe(false);
+    expect(claimDue(fiveSecond, T0, T0 + 7_000)).toBe(true);
   });
 
   it("claims the time cap once 15 minutes have passed since the start", () => {
@@ -47,27 +54,32 @@ describe("turnKey", () => {
 describe("the opening turn", () => {
   const opening = { ...base, turnNo: 0, moves: 0 } as Battle;
 
-  it("has the opening grace before its 5 seconds start, in the ring and in the claim", () => {
+  it("has the opening grace before its 10 seconds start, in the ring and in the claim", () => {
     expect(ringStart(base, T0)).toBe(T0);
     expect(ringStart(opening, T0)).toBe(T0 + 10_000);
-    expect(claimDue(opening, T0, T0 + 7_000)).toBe(false);
-    expect(claimDue(opening, T0, T0 + 16_000)).toBe(false);
-    expect(claimDue(opening, T0, T0 + 17_000)).toBe(true);
+    expect(claimDue(opening, T0, T0 + 12_000)).toBe(false);
+    expect(claimDue(opening, T0, T0 + 21_000)).toBe(false);
+    expect(claimDue(opening, T0, T0 + 22_000)).toBe(true);
   });
 });
 
-describe("the 5 second ring", () => {
-  it("is full when the turn is seen and empty after 5 seconds", () => {
+describe("the turn ring", () => {
+  it("is full when the turn is seen and empty after 10 seconds", () => {
     expect(ringLeft(base, T0, T0)).toBe(1);
-    expect(ringLeft(base, T0, T0 + 2_500)).toBe(0.5);
-    expect(ringLeft(base, T0, T0 + 5_000)).toBe(0);
-    expect(ringLeft(base, T0, T0 + 9_000)).toBe(0);
+    expect(ringLeft(base, T0, T0 + 5_000)).toBe(0.5);
+    expect(ringLeft(base, T0, T0 + 10_000)).toBe(0);
+    expect(ringLeft(base, T0, T0 + 14_000)).toBe(0);
   });
 
-  it("stays full through the opening grace, then runs the 5 seconds", () => {
+  it("runs 5 seconds on a Match created with 5 second turns", () => {
+    expect(ringLeft(fiveSecond, T0, T0 + 2_500)).toBe(0.5);
+    expect(ringLeft(fiveSecond, T0, T0 + 5_000)).toBe(0);
+  });
+
+  it("stays full through the opening grace, then runs the 10 seconds", () => {
     const opening = { ...base, turnNo: 0, moves: 0 } as Battle;
     expect(ringLeft(opening, T0, T0 + 9_000)).toBe(1);
-    expect(ringLeft(opening, T0, T0 + 12_500)).toBe(0.5);
+    expect(ringLeft(opening, T0, T0 + 15_000)).toBe(0.5);
   });
 });
 

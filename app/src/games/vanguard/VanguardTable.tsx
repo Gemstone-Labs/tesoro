@@ -7,9 +7,9 @@ import { art } from "@/lib/art";
 import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../fx";
 import { STATUS, rankOfCode, type ArmyAccount, type Battle } from "./decode";
 import { catchUp, pendingOf, turnLine } from "./catchup";
-import { NAMES, ROSTER, TURN_MS, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
+import { NAMES, ROSTER, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
 import { endLine } from "./end";
-import { START_COUNTDOWN, getReadyLeft, isOpening, missedLabel, ringLeft, ringStart, turnKey } from "./clock";
+import { START_COUNTDOWN, getReadyLeft, isOpening, missedLabel, ringLeft, ringStart, turnKey, turnMsOf } from "./clock";
 import { VanguardScreen, type TurnInfo } from "./VanguardScreen";
 import { VanguardBoard, type ShownFx, type ShownPiece, type ShownStorm } from "./VanguardBoard";
 import { depotsFor, enemyLeft, fromView, hitSide, indexOf, lookGame, opposite, piecesLeft, shownPieces, toView } from "./view";
@@ -228,7 +228,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
     const loop = () => {
       const t = Date.now();
       setNow(t);
-      const left = Math.ceil((ringStart(battle, turnSeenAt) + TURN_MS - t) / 1000);
+      const left = Math.ceil((ringStart(battle, turnSeenAt) + turnMsOf(battle) - t) / 1000);
       if (battle.turn === (side === "us" ? 0 : 1) && left <= 2 && left > 0 && left !== lastSec) sfx("tick");
       lastSec = left;
       raf = requestAnimationFrame(loop);

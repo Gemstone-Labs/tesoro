@@ -10,18 +10,18 @@ export type Army = "us" | "it";
 export type Rank = "10" | "9" | "8" | "7" | "6" | "5" | "4" | "3" | "2" | "1" | "B" | "F";
 
 export const SIZE = 10;
-export const TURN_MS = 5000;
+export const TURN_MS = 10_000;
 /** How long a turn lasts and how much extra time the chain gives for network delay. */
 export interface ClockConfig { turnMs: number; graceMs: number; openingGraceMs: number; resolveSlackMs: number }
 /** Bump with the program's RULES_VERSION when a rule changes. */
-export const RULES_VERSION = 4;
+export const RULES_VERSION = 5;
 /** Extra time on the chain's opening turn only: the deal starts the first mover's clock before they have loaded their Army (the program has the same number, OPENING_GRACE_SECS). */
 export const OPENING_GRACE_MS = 10_000;
 /** A resolve held back after its declare buys no more than this much time: the next deadline counts from min(resolve, declare + this) (the program has the same number, RESOLVE_SLACK_SECS). */
 export const RESOLVE_SLACK_MS = 2000;
-/** Practice has no network: the turn ends exactly when the 5 seconds do. */
+/** Practice has no network: the turn ends exactly when the 10 seconds do. */
 export const PRACTICE_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 0, openingGraceMs: 0, resolveSlackMs: 0 };
-/** On the chain a move is accepted until 5 s + 1 s of grace after the turn started; the program has the same two numbers (GRACE_SECS). */
+/** On the chain a move is accepted until 10 s + 1 s of grace after the turn started; the program has the same two numbers (GRACE_SECS). */
 export const CHAIN_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 1000, openingGraceMs: OPENING_GRACE_MS, resolveSlackMs: RESOLVE_SLACK_MS };
 export const TRUCK_FUEL = 3;
 export const MOVE_CAP = 200;

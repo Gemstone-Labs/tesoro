@@ -18,14 +18,14 @@ use anchor_lang::solana_program::hash::hashv;
 
 /// Bump when a rule changes; the recordings and the app change with it. Each Battle stores the version it was
 /// created under.
-pub const RULES_VERSION: u8 = 4;
+pub const RULES_VERSION: u8 = 5;
 
 pub const SIZE: usize = 10;
 pub const SQUARES: usize = SIZE * SIZE;
 /// One slot per start square: Italy rows 0-2, US rows 7-9.
 pub const PIECE_SLOTS: usize = 60;
 pub const ARMY_PIECES: usize = 20;
-pub const TURN_SECS: i64 = 5;
+pub const TURN_SECS: i64 = 10;
 /// Extra seconds on every deadline for network delay. Ticket 01's latency spike may change it.
 pub const GRACE_SECS: i64 = 1;
 /// Extra seconds on the opening turn only: `deal` starts the first mover's clock before they have loaded their
@@ -310,7 +310,7 @@ pub struct Clock {
     pub resolve_slack_secs: i64,
 }
 
-/// The chain's clock: 5 s plus the grace, and the opening turn's extra.
+/// The chain's clock: 10 s plus the grace, and the opening turn's extra.
 pub const CHAIN_CLOCK: Clock = Clock {
     turn_secs: TURN_SECS,
     grace_secs: GRACE_SECS,

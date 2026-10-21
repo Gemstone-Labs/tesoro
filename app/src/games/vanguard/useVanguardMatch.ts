@@ -25,7 +25,7 @@ export interface VanguardView {
   battle: Battle | null;
   /** Your own Army, read with your TEE token. */
   army: ArmyAccount | null;
-  /** When this client first saw the current turn (ms): the 5 second countdown runs from here. */
+  /** When this client first saw the current turn (ms): the turn countdown runs from here. */
   turnSeenAt: number;
   note: string;
   error: string | null;

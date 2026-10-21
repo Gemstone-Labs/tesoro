@@ -17,7 +17,7 @@ export interface VanguardPracticeProps {
   seed?: number;
   /** Skip the get-ready countdown. */
   instant?: boolean;
-  /** Turn clock on (the real 5 seconds); off for a calm look around. */
+  /** Turn clock on (the real 10 seconds); off for a calm look around. */
   clock?: boolean;
   /** Blow the Dust Storm on this turn instead of a random one. */
   stormAt?: number;
@@ -54,7 +54,7 @@ const END_LINE = {
 } as const;
 
 /**
- * Vanguard practice: you play the US against a local bot, on the real rules (rules.ts) with the 5-second
+ * Vanguard practice: you play the US against a local bot, on the real rules (rules.ts) with the 10-second
  * turn clock. Nothing is staked, there is no wallet and no chain.
  */
 export function VanguardPractice(props: VanguardPracticeProps) {
@@ -193,7 +193,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     if (g.winner) {
       sfx(g.winner === "us" ? "win" : "lose");
     } else if (line) setSay(line);
-    // every move gets a fresh 5 seconds, each step of a Two-Step Turn included (founder 2026-10-19)
+    // every move gets a fresh 10 seconds, each step of a Two-Step Turn included (founder 2026-10-19)
     setBusy(false);
   }, [addFx, commit, freshClock, patch, shout]);
 
@@ -207,7 +207,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     else commit(r.game);
   }, [animate, commit]);
 
-  // the clock: Italy thinks for a beat, then moves; your turn times out after 5 seconds
+  // the clock: Italy thinks for a beat, then moves; your turn times out after 10 seconds
   useEffect(() => {
     if (!started || busy || game.winner) return;
     if (game.turn === "it") {

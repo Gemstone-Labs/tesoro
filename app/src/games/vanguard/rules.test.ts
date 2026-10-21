@@ -239,22 +239,22 @@ describe("piece numbers", () => {
 
 describe("turn clock", () => {
   it("the chain clock adds one second of grace to every deadline and ten to the opening turn, Practice adds none", () => {
-    expect(PRACTICE_CLOCK).toEqual({ turnMs: 5000, graceMs: 0, openingGraceMs: 0, resolveSlackMs: 0 });
-    expect(CHAIN_CLOCK).toEqual({ turnMs: 5000, graceMs: 1000, openingGraceMs: OPENING_GRACE_MS, resolveSlackMs: 2000 });
+    expect(PRACTICE_CLOCK).toEqual({ turnMs: 10_000, graceMs: 0, openingGraceMs: 0, resolveSlackMs: 0 });
+    expect(CHAIN_CLOCK).toEqual({ turnMs: 10_000, graceMs: 1000, openingGraceMs: OPENING_GRACE_MS, resolveSlackMs: 2000 });
     expect(OPENING_GRACE_MS).toBe(10_000);
     const layout = [{ army: "us" as const, rank: "5" as const, r: 9, c: 0 }, { army: "it" as const, rank: "4" as const, r: 0, c: 9 }];
     const g = startGame(layout, { startedAt: T0, stormAt: 99, stormSeed: 1, first: "us", clock: CHAIN_CLOCK });
-    expect(g.deadline).toBe(T0 + 16000);
-    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 16000 }).ok).toBe(true);
-    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 16001 })).toEqual({ ok: false, reason: "turn_expired" });
+    expect(g.deadline).toBe(T0 + 21000);
+    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 21000 }).ok).toBe(true);
+    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 21001 })).toEqual({ ok: false, reason: "turn_expired" });
     const m = move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 2000 });
     if (!m.ok) throw new Error(m.reason);
-    expect(m.game.deadline).toBe(T0 + 8000);
-    expect(timeout(g, T0 + 16000)).toEqual({ ok: false, reason: "turn_not_expired" });
-    const t = timeout(g, T0 + 17000);
+    expect(m.game.deadline).toBe(T0 + 13000);
+    expect(timeout(g, T0 + 21000)).toEqual({ ok: false, reason: "turn_not_expired" });
+    const t = timeout(g, T0 + 22000);
     if (!t.ok) throw new Error(t.reason);
-    expect(t.game.deadline).toBe(T0 + 23000);
-    expect(startGame(layout, { startedAt: T0, stormAt: 99, stormSeed: 1, first: "us" }).deadline).toBe(T0 + 5000);
+    expect(t.game.deadline).toBe(T0 + 33000);
+    expect(startGame(layout, { startedAt: T0, stormAt: 99, stormSeed: 1, first: "us" }).deadline).toBe(T0 + 10_000);
   });
   it("on the chain the next deadline counts from the resolve, but a held-back resolve gains at most the slack", () => {
     const g = game([P(1, "us", "5", 9, 0), P(2, "it", "4", 0, 9)], { clock: { ...PRACTICE_CLOCK, resolveSlackMs: 2000 } });

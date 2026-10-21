@@ -51,7 +51,7 @@ export interface MatchRow {
   stormFired: boolean;
   stormShifted: number;
   twoStepsSpent: number;
-  /** Actions whose think + chain + the opponent's animation would have passed a 5 s turn clock that is not rebased. */
+  /** Actions whose think + chain + the opponent's animation would have passed the turn clock that is not rebased. */
   lateWithoutRebase: number;
 }
 

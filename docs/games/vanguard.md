@@ -46,7 +46,6 @@ The storm turn is drawn from turns 10 to 18 (a turn is one side's go). It fired 
 ### Flags
 
 - No threshold crossed: the cap decides at most 5% and the first mover wins at most 55%.
-- With a turn clock that keeps running during animations, 2.6 actions per Match would pass the 5 s turn after thinking, chain time and the opponent's animation. The practice screen rebases the clock after each animation; the on-chain clock does not.
 
 ### Proposal (the rules are unchanged)
 

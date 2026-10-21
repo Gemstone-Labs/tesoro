@@ -113,7 +113,7 @@ function details(m: StageInfo): { icon: LucideIcon; title: string; text: string 
     "block-puzzle": "You and your opponent get the same pieces, 90 seconds each, one after the other. Nobody sees a move until both runs are closed.",
     holdem: "1,500 Chips each, blinds rise every hand, 30 seconds per action. Your cards stay hidden from your opponent, and from us.",
     "trading-duel": "Pick a box in each of 12 columns; the live line passing through it scores 100 points. More points takes the Pot. Your picks stay hidden until each column locks.",
-    vanguard: "Blitz Stratego: 20 pieces each, 5 seconds a move, capture the enemy Supply Truck to win. Only you can see your pieces' ranks; an enemy piece shows its rank only once it has fought.",
+    vanguard: "Blitz Stratego: 20 pieces each, 10 seconds a move, capture the enemy Supply Truck to win. Only you can see your pieces' ranks; an enemy piece shows its rank only once it has fought.",
   }[m.game];
   out.push({ icon: GAME_ICON[m.game], title: "The game", text: play });
   if (m.deadline && (m.kind === "waiting" || m.kind === "waiting-run"))

@@ -47,9 +47,9 @@ const COPY: Record<GameId, { tag: string; sub: string[]; how: string; steps: str
   },
   vanguard: {
     tag: "Head-to-head · Real-time",
-    sub: ["Real-time · 5 seconds a move · capture the enemy Supply Truck", "Your pieces' ranks stay hidden from your opponent until they fight"],
+    sub: ["Real-time · 10 seconds a move · capture the enemy Supply Truck", "Your pieces' ranks stay hidden from your opponent until they fight"],
     how: "Blitz Stratego on a desert board.",
-    steps: ["20 pieces each on a 10×10 board, ranks hidden", "5 seconds a move; capture the Supply Truck to win", "The winner takes the Pot minus Fees; a draw refunds both"],
+    steps: ["20 pieces each on a 10×10 board, ranks hidden", "10 seconds a move; capture the Supply Truck to win", "The winner takes the Pot minus Fees; a draw refunds both"],
     hero: art.vanguardHero,
   },
 };
