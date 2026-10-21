@@ -4,6 +4,8 @@ dialog.sheet.dep-sheet.ack { max-width: 720px; }
 dialog.sheet.dep-sheet.done, dialog.sheet.dep-sheet.working { max-width: 640px; }
 dialog.sheet.dep-sheet.packs .sheet-head h2 { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: clamp(34px, 4vw, 52px); letter-spacing: 0.005em; line-height: 1; }
 .dep { display: grid; gap: 18px; }
+/* Simple | Advanced (ViewToggle): on the Vault under the balance card, and at the top of both Get Gemas modals */
+.view-rail { width: min(100%, 300px); }
 
 /* ack and done draw their own big title: the sheet's one stays for screen readers, the close button floats */
 .dep-sheet.ack .sheet-in, .dep-sheet.done .sheet-in, .dep-sheet.working .sheet-in { position: relative; }

@@ -6,8 +6,7 @@
 .wl-part { display: contents; }
 /* the toggle sits close to the card above and the section below; the sections under it keep the page's gap */
 .vt-below { display: flex; flex-direction: column; gap: var(--section-gap); margin-top: calc(16px - var(--section-gap)); min-width: 0; }
-.vt-below > .vt-rail { margin-bottom: calc(16px - var(--section-gap)); }
-.vt-rail { align-self: flex-start; width: min(100%, 300px); }
+.vt-below > .view-rail { align-self: flex-start; margin-bottom: calc(16px - var(--section-gap)); }
 
 .vt-deposits, .vt-empty { --edge: var(--edge-1); display: grid; gap: 14px; padding: 22px 24px; background: var(--surface); align-content: start; }
 .vt-deposits > h2, .vt-empty > h2 { font-size: clamp(26px, 2.4vw, 34px); }

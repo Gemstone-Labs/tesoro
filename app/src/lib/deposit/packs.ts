@@ -46,28 +46,38 @@ export interface PackQuote {
   lockLamports: bigint;
   /** The checkout fee, US dollars. */
   feeUsd: number;
-  /** Gemas the Advance issues for that Lock. */
+  /** Gemas the pack promises: the Lock is sized so the Advance issues exactly this many (one more at most). */
   gemas: number;
 }
 
-/** A pack's Gemas, exactly as the Advance sizes them: the 12-month projected yield of the Lock, net of the Yield Fee. */
+/**
+ * The fewest lamports whose Advance issues `gemas`, with headroom: the Advance is taken at the on-chain price when the
+ * transaction lands, and a small tick down between sizing and landing must not floor it to one Gema less. The headroom is
+ * half a Gema or 0.035% of the Gemas, whichever is more (under one Gema for every pack, so it never issues two extra).
+ */
+export function lamportsForGemas(gemas: bigint, m: PackMarket, months: number = PACK_MONTHS): bigint {
+  const issued = (lamports: bigint) => quoteNativeAdvance(lamports, m.apyBps, months, m.priceMicroUsd, m.yieldFeeBps).gemas;
+  // Thousandths of a Gema to size for.
+  const milli = gemas * 1_000n + (gemas * 35n > 50_000n ? (gemas * 35n) / 100n : 500n);
+  // gemas = lamports * apy * months * (1 - fee) / (BPS * BPS * 12) * price / 1e13, solved for lamports and rounded up.
+  const num = milli * 10n ** 13n * 10_000n * 10_000n * 12n;
+  const den = 1_000n * m.priceMicroUsd * BigInt(m.apyBps) * BigInt(months) * BigInt(10_000 - m.yieldFeeBps);
+  if (den <= 0n) return 0n;
+  let lamports = (num + den - 1n) / den;
+  // The two floors inside the Advance can still leave it short of the whole number: step up until it isn't.
+  while (issued(lamports) < gemas) lamports += lamports / 1_000_000n + 1n;
+  return lamports;
+}
+
+/**
+ * A pack's Gemas: the whole number its dollars are worth at 12 months of yield net of the Yield Fee, and the Lock that
+ * issues exactly that. When the dollars fall a little short of that Lock, Tesoro covers the dust (cents) at the deposit.
+ */
 export function quotePack(pack: DepositPack, m: PackMarket, checkoutFeeBps: number): PackQuote {
   const feeUsd = (pack.usd * checkoutFeeBps) / 10_000;
   const usd = pack.usd - feeUsd;
-  const gemasFor = (lamports: bigint) => quoteNativeAdvance(lamports, m.apyBps, PACK_MONTHS, m.priceMicroUsd, m.yieldFeeBps).gemas;
-  // The dollar-to-SOL step and the Advance both round down, so $100 at 7% lands on 559, not 560. Lock the few extra
-  // lamports (a fraction of a cent) that reach the whole number the dollars are worth.
-  const target = BigInt(Math.round((usd * m.apyBps * (10_000 - m.yieldFeeBps) * PACK_MONTHS) / 12 / 10_000 / 10_000 / 0.01));
-  let lockLamports = usdToLamports(usd, m.priceMicroUsd);
-  let gemas = gemasFor(lockLamports);
-  if (gemas < target) {
-    const step = lockLamports / 100_000n + 1n;
-    for (let i = 0; i < 64 && gemas < target; i++) {
-      lockLamports += step;
-      gemas = gemasFor(lockLamports);
-    }
-  }
-  return { pack, lockLamports, feeUsd, gemas: Number(gemas) };
+  const gemas = Math.round((usd * m.apyBps * (10_000 - m.yieldFeeBps) * PACK_MONTHS) / 12 / 10_000 / 10_000 / 0.01);
+  return { pack, lockLamports: lamportsForGemas(BigInt(gemas), m), feeUsd, gemas };
 }
 
 /** The pack to highlight for a Player sent from a game: the smallest that covers what they're short, else the largest. */

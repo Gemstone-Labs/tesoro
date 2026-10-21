@@ -27,7 +27,6 @@ export interface PacksViewProps {
   /** The fee taken from the deposit, percent; 0 hides the line. */
   feePct: number;
   onPick: (id: DepositPackId) => void;
-  onAdvanced?: () => void;
 }
 
 const FEATURED: DepositPackId = "player";
@@ -41,7 +40,7 @@ function Note({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   );
 }
 
-export function PacksView({ quotes, highlight, canPay, testMode, feePct, onPick, onAdvanced }: PacksViewProps) {
+export function PacksView({ quotes, highlight, canPay, testMode, feePct, onPick }: PacksViewProps) {
   return (
     <div className="dep">
       <div className="dep-packs" role="group" aria-label="Deposit packs">
@@ -61,7 +60,7 @@ export function PacksView({ quotes, highlight, canPay, testMode, feePct, onPick,
               <p className="dep-gemas">
                 <b>
                   <GemaMark size={26} />
-                  {ready ? `≈ ${fmtGemas(q.gemas)}` : "—"}
+                  {ready ? fmtGemas(q.gemas) : "—"}
                 </b>
                 <span>Gemas</span>
               </p>
@@ -88,10 +87,7 @@ export function PacksView({ quotes, highlight, canPay, testMode, feePct, onPick,
           ) : canPay ? (
             "Card, Apple Pay or Google Pay"
           ) : (
-            <>
-              Prefer to use crypto?{" "}
-              <button type="button" className="dep-link" onClick={onAdvanced}>Open the Advanced view</button>.
-            </>
+            "Prefer to use crypto? Switch to Advanced at the top."
           )}
         </Note>
       </ul>
@@ -157,7 +153,7 @@ export function WorkingView({ pack, gemas, phase, testMode, hours }: { pack: Dep
       <Image className="dep-art" src={packArt(pack.id)} width={512} height={512} alt="" sizes="180px" priority />
       <p className="dep-work-title" aria-hidden="true">Adding your deposit</p>
       <p className="dep-work-pack">
-        {pack.name} pack · Deposit {fmtUsd(pack.usd)} · ≈ {fmtGemas(gemas)} Gemas
+        {pack.name} pack · Deposit {fmtUsd(pack.usd)} · {fmtGemas(gemas)} Gemas
       </p>
       <ol className="dep-work-steps" aria-label="Progress">
         {steps.map((s) => (

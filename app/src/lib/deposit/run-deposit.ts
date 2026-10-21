@@ -18,8 +18,9 @@ interface Deps {
 const live: Deps = { get checkout() { return activeCheckout(); }, openLock: openPackLock };
 
 /**
- * One deposit: the checkout puts the SOL in the wallet, then the Lock opens. After a failed try, call it again with the same
- * `progress`: if the SOL had arrived, only the Lock is retried.
+ * One deposit: the checkout puts the SOL in the wallet, then the Lock opens for the Gemas the pack promised. The Lock is
+ * sized again on the price at that moment, and the checkout covers the few lamports the payment left short. After a failed
+ * try, call it again with the same `progress`: if the SOL had arrived, only the Lock is retried.
  */
 export async function runPackDeposit(
   ctx: CheckoutContext,
@@ -35,5 +36,6 @@ export async function runPackDeposit(
     progress.funded = true;
   }
   onPhase("adding");
-  return deps.openLock(ctx, { amountLamports: quote.lockLamports });
+  const checkout = deps.checkout;
+  return deps.openLock(ctx, { gemas: quote.gemas, fund: (lamports) => checkout.fund(ctx, lamports) });
 }

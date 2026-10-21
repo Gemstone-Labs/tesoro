@@ -10,7 +10,8 @@ import { useViewMode } from "@/lib/deposit/use-view-mode";
 import { requestGetGemas } from "@/lib/get-gemas";
 import { WalletView } from "../wallet/WalletView";
 import { SimpleVault } from "./SimpleVault";
-import { VaultHeader, ViewToggle } from "./VaultHeader";
+import { ViewToggle } from "@/components/deposit/ViewToggle";
+import { VaultHeader } from "./VaultHeader";
 import "./vault.css";
 
 export default function VaultPage() {

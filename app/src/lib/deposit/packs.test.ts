@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { quoteNativeAdvance } from "@/lib/chain/native";
-import { DEPOSIT_PACKS, PACK_MONTHS, packFor, quotePack, usdToLamports, type PackMarket } from "./packs";
+import { DEPOSIT_PACKS, PACK_MONTHS, lamportsForGemas, packFor, quotePack, usdToLamports, type PackMarket } from "./packs";
 
 const m: PackMarket = { priceMicroUsd: 110_000_000n, apyBps: 700, yieldFeeBps: 2_000 };
 
@@ -22,14 +22,36 @@ describe("deposit packs", () => {
     expect(q.gemas).toBe(560);
   });
 
-  it("lands on the round number for every pack and price, locking at most a cent more", () => {
+  it("lands on the round number for every pack and price; the dust Tesoro adds stays under 20 cents", () => {
     for (const priceMicroUsd of [110_000_000n, 187_340_000n, 93_123_457n]) {
       const mk = { ...m, priceMicroUsd };
       expect(DEPOSIT_PACKS.map((p) => quotePack(p, mk, 0).gemas)).toEqual([560, 1_400, 2_800]);
       for (const p of DEPOSIT_PACKS) {
         const extra = quotePack(p, mk, 0).lockLamports - usdToLamports(p.usd, priceMicroUsd);
-        expect(extra * priceMicroUsd).toBeLessThan(10_000n * 1_000_000_000n); // under $0.01
+        expect(extra * priceMicroUsd).toBeLessThan(200_000n * 1_000_000_000n); // under $0.20
       }
+    }
+  });
+
+  it("never issues a Gema less than promised when the price ticks down a little before the deposit lands", () => {
+    // The founder paid $250, saw 1,400 and got 1,399: the Lock was sized exactly on the line.
+    for (const priceMicroUsd of [110_000_000n, 187_340_000n, 93_123_457n]) {
+      for (const p of DEPOSIT_PACKS) {
+        const q = quotePack(p, { ...m, priceMicroUsd }, 0);
+        const ticked = (priceMicroUsd * 99_970n) / 100_000n; // 0.03% lower when the Advance is taken
+        const issued = (price: bigint) => Number(quoteNativeAdvance(q.lockLamports, 700, 12, price, 2_000).gemas);
+        expect(issued(ticked)).toBeGreaterThanOrEqual(q.gemas);
+        expect(issued(priceMicroUsd)).toBeLessThanOrEqual(q.gemas + 1);
+      }
+    }
+  });
+
+  it("sizes a Lock for a number of Gemas, with room for a small price tick", () => {
+    for (const target of [1n, 560n, 1_400n, 2_800n, 12_345n]) {
+      const lamports = lamportsForGemas(target, m);
+      const at = (l: bigint, price = m.priceMicroUsd) => quoteNativeAdvance(l, 700, 12, price, 2_000).gemas;
+      expect(at(lamports)).toBeGreaterThanOrEqual(target);
+      expect(at(lamports, (m.priceMicroUsd * 99_970n) / 100_000n)).toBeGreaterThanOrEqual(target);
     }
   });
 
@@ -37,7 +59,8 @@ describe("deposit packs", () => {
     const free = quotePack(DEPOSIT_PACKS[2], m, 0);
     const fee = quotePack(DEPOSIT_PACKS[2], m, 100);
     expect(fee.feeUsd).toBe(5);
-    expect(fee.lockLamports).toBe(usdToLamports(495, m.priceMicroUsd));
+    expect(fee.gemas).toBe(2_772);
+    expect(fee.lockLamports).toBeGreaterThanOrEqual(usdToLamports(495, m.priceMicroUsd));
     expect(fee.gemas).toBeLessThan(free.gemas);
   });
 

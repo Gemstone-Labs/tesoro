@@ -16,7 +16,17 @@ describe("running a pack deposit", () => {
     expect(out.gemas).toBe(560);
     expect(phases).toEqual(["paying", "adding"]);
     expect(fund).toHaveBeenCalledWith(ctx, 900_000_000n);
-    expect(openLock).toHaveBeenCalledWith(ctx, { amountLamports: 900_000_000n });
+    expect(openLock).toHaveBeenCalledWith(ctx, { gemas: 560, fund: expect.any(Function) });
+  });
+
+  it("lets the Lock ask the checkout for the last few lamports it sizes on the fresh price", async () => {
+    const fund = vi.fn(async () => undefined);
+    const openLock = vi.fn(async (_c: CheckoutContext, o: { gemas: number; fund: (l: bigint) => Promise<void> }) => {
+      await o.fund(900_000_123n);
+      return lock;
+    });
+    await runPackDeposit(ctx, quote, { funded: false }, () => undefined, { checkout: { id: "test", feeBps: 0, fund } as DepositCheckout, openLock });
+    expect(fund).toHaveBeenLastCalledWith(ctx, 900_000_123n);
   });
 
   it("retries only the deposit when the money already arrived", async () => {
