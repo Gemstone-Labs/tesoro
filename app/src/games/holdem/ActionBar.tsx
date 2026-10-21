@@ -89,21 +89,24 @@ export function ActionBar({
   }, []);
 
   const passText = facing ? `Call ${chips(lg.toCall)}` : "Check";
+  // The pressed button says it is sending, so the bar never grows a status line.
+  const sending = busy && busy !== "claim_timeout" ? (busy.startsWith("fold") ? "fold" : busy.startsWith("check") || busy.startsWith("call") ? "pass" : "raise") : null;
+  const label = (which: typeof sending, text: string) => (sending === which ? "Sending…" : text);
   const raiseText = !inRange && raiseOk ? `${verb} to ${text === "" ? "…" : chips(typed)}` : allInRaise && raiseOk ? `All-in ${chips(value)}` : `${verb} to ${chips(value)}`;
 
   return (
     <div className={`cut cut-frame hdx-actions${open ? " raise-open" : ""}`} role="group" aria-label="Actions">
       <div className="hdx-btns">
-        <button type="button" className="cut cut-btn hdx-btn" disabled={!enabled} onClick={act.fold}>
-          <span>Fold</span>
+        <button type="button" className={`cut cut-btn hdx-btn${sending === "fold" ? " sending" : ""}`} disabled={!enabled} onClick={act.fold}>
+          <span>{label("fold", "Fold")}</span>
           <kbd aria-hidden="true">F</kbd>
         </button>
-        <button type="button" className="cut cut-btn hdx-btn primary" disabled={!enabled} onClick={act.pass} aria-label={passText}>
-          <span>{passText}</span>
+        <button type="button" className={`cut cut-btn hdx-btn primary${sending === "pass" ? " sending" : ""}`} disabled={!enabled} onClick={act.pass} aria-label={passText}>
+          <span>{label("pass", passText)}</span>
           <kbd aria-hidden="true">C</kbd>
         </button>
-        <button type="button" className="cut cut-btn hdx-btn" disabled={!canSendRaise} onClick={act.raise} aria-label={raiseText}>
-          <span>{raiseText}</span>
+        <button type="button" className={`cut cut-btn hdx-btn${sending === "raise" ? " sending" : ""}`} disabled={!canSendRaise} onClick={act.raise} aria-label={raiseText}>
+          <span>{label("raise", raiseText)}</span>
           <kbd aria-hidden="true">R</kbd>
         </button>
       </div>
@@ -159,7 +162,9 @@ export function ActionBar({
           </div>
         </div>
       </div>
-      {busy && busy !== "claim_timeout" && <span className="hd-hint meta">Sending {busy.split(" ")[0]}…</span>}
+      <span className="sr-only" role="status">
+        {sending ? `Sending ${busy?.split(" ")[0]}` : ""}
+      </span>
     </div>
   );
 }

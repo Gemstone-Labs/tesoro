@@ -212,6 +212,7 @@
 .hdx-btn.primary { background: #eef0e9; color: #0a0d0f; }
 .hdx-btn.primary:hover { background: #fff !important; }
 .hdx-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.hdx-btn.sending:disabled { opacity: 1; cursor: progress; font-size: var(--fs-14); }
 .hdx-btn.primary:focus-visible::after { --t: 1px; --r: 2px; background: #0a0d0f; }
 .hdx-raise { display: grid; gap: 12px; align-items: center; }
 .hdx-raise-in { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -227,7 +228,6 @@
 .hd-preset { padding: 12px 4px; font-size: var(--fs-15); font-weight: 700; background: #141a20; border: 1px solid var(--line-2); color: var(--fg); }
 .hd-preset:hover:not(:disabled) { background: #1c242c; }
 .hd-preset:disabled { opacity: 0.4; }
-.hd-hint { grid-column: 1 / -1; }
 
 /* neutral range (Chips are not Gemas: the emerald slider is for Gema amounts only) */
 .hd-range { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; background: transparent; margin: 0; }
@@ -248,7 +248,9 @@
 .hdx-more { display: none; }
 @media (max-width: 1023px) {
   .hdx-actions { position: sticky; z-index: 20; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); padding: 10px 12px; gap: 8px; max-height: 60dvh; overflow-y: auto; }
-  .hdx-btn { min-height: 54px; }
+  /* tall enough for two lines, so a label that wraps ("Raise to / 1,000") never changes the bar's height */
+  .hdx-btn { min-height: 60px; line-height: 1.1; }
+  .hdx-btns { grid-template-columns: minmax(0, 1fr) repeat(2, minmax(0, 1.2fr)); }
   .hdx-more { display: block; padding: 8px 4px; font-size: var(--fs-13); }
   .hdx-raise { display: none; }
   .hdx-actions.raise-open .hdx-raise { display: grid; }
