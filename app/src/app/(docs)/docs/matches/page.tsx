@@ -26,6 +26,41 @@ export default function Page() {
         Only the Game&apos;s own program can settle its Matches. {BRAND.name} never decides a result by hand. See <Link href="/docs/fairness">Fairness and
         privacy</Link>.
       </p>
+      <p>
+        <b>No Match can start settling more than 7 days after it opened, in any Game.</b> After that, only a refund is possible, and anyone can run it, so
+        a Game can never hold your Gemas forever. A big Pot is settled or refunded in steps that anyone can continue. The refund and settlement of a Match put
+        your exact Gemas back where they belong, and a settlement is never blocked because your storage is full: what does not fit waits for you in a spill and is playable
+        at once. If a Game is upgraded to different code after your Match opened, only a refund can follow, so a new version never decides a Match that began under
+        old code.
+      </p>
+      <p>
+        If both Players check in on a live table and then neither acts within the no-show window, the Match settles as a draw minus each side&apos;s Platform
+        Fee. A Match that never started refunds exactly.
+      </p>
+
+      <H2 id="listed">Listed Games</H2>
+      <p>
+        Anyone who controls a Game&apos;s program can register it, so it can use Gemas. {BRAND.name} <b>lists</b> the Games it accepts: applying is free, and a
+        listing costs $500 a year once accepted. A listing is tied to the exact build {BRAND.name} approved. Only a Listed Game:
+      </p>
+      <ul>
+        <li>earns <Link href="/docs/leaderboard">Points</Link>;</li>
+        <li>gets its Studio Fee repaid ahead of other holders (see <Link href="/docs/fees#payout-order">Who is paid first</Link>);</li>
+        <li>can be <Link href="/docs/backing">Backed</Link>;</li>
+        <li>has its network costs paid by {BRAND.name} (see <Link href="/docs/fees#network-costs">Network costs</Link>).</li>
+      </ul>
+      <p>
+        {BRAND.name}&apos;s four Games are Listed. A Game stops being listed when its code changes to a build {BRAND.name} has not approved; extending the size of
+        the same program does not unlist it. A Game&apos;s record can be changed only by whoever controls its program, after a 7-day wait, and a Studio Fee is never
+        more than 10% of the Pot. Unlisted Games still work, but they run under their own Studio, outside {BRAND.name}&apos;s control.
+      </p>
+
+      <H2 id="tables">Tables</H2>
+      <p>
+        Hold&apos;em, Trading Duel and Vanguard play at a <b>Table</b> that is kept ready between Matches, so a Match starts fast and costs almost nothing to set up.
+        A Table shows nothing from the Match before it: no old cards, picks, moves or secrets. Your Match is tied to exactly one Table, and your result is kept
+        there until the ledger has settled it. If the network that runs the Tables is down, your entry is refundable on Solana after the Match&apos;s deadline.
+      </p>
 
       <PayoutBar />
 

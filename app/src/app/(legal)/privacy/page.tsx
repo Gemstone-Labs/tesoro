@@ -41,6 +41,9 @@ export default function Privacy() {
           rows={[
             ["Email address", "The waitlist, your Invite, notification settings, or sign-in by email.", "To sign you in, send your Invite and the notices you asked for, and run the waitlist."],
             ["Wallet addresses and on-chain activity", "Your wallets and the blockchains. Public.", "To run your Account: Locks, Gemas, Matches, payouts, Seasons."],
+            ["Match history", "Public records the ledger writes when a Match settles, copied into our database.", "To show your Matches, win cards, recent wins and Backings fast, and to rebuild them if the database is lost. The same facts stay public on chain."],
+            ["Sponsored-cost records", "Our server, when we pay a network cost for you.", "To enforce limits per Account and in total, and to keep the sponsoring budget safe from abuse."],
+            ["Game listing applications", "A Studio that applies to list a Game.", "To review the application and run the listing."],
             ["Profile name and picture", "You choose them. Public, kept on chain.", "To show you to other Players."],
             ["18+ confirmation", "You tell us once, before your first Match.", "To record that you said you are at least 18. Self-declared; we do not check your age."],
             ["Protections and fair-play records", "Your Entry Limit, Break, Self-Exclusion, and signals used to find bots and multiple Accounts.", "To enforce your limits and our fair-play rules."],

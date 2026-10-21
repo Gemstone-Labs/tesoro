@@ -108,6 +108,8 @@ The app opens HYPE Positions from the Wallet's HYPE tab and tracks them like ETH
 
 ## Yield Fee, Instant Redeem and the vault Treasury (2026-10-12, ADR 0007)
 
+> ADR 0013 changed the Instant Redeem path: it is an order that Tesoro fills. `instant_redeem_to_evm` below is now the **fill** (see "Economy upgrade on the bridge and vaults"). The Yield Fee is split with the Leaderboard Pool once realised.
+
 **EVM vault** (ADR 0010, computed never cranked): a Position's Accrued Yield is `Principal x (growth since open - 1)` minus the Yield Fee (`feeBps` fixed per Position at open, default 2000, cap 5000, admin setter for new Positions). SimLST: growth = `1 + apyBps x elapsed x speedup / year` with `apyBps`/`speedup` read at open; the SimLST rate stays flat and shares are minted only when a payout needs them (PayYield, PayInstant, `withdrawTreasury`). Real LST: gross = held shares x rate + paid out - Principal, so shares already paid out stop earning; the Treasury claim uses the same share totals (O(1)). SimLST vaults keep the Treasury as a running claim in underlying computed from vault totals (`treasuryBalance()` = open Positions' fees + realised fees at Unlock + funding and refills - withdrawals - Instant payouts). Real-LST vaults hold the Treasury in LST shares (`treasuryShares`, see "Treasury in shares" below); `withdrawTreasury(amount, to)` is owner-only in both. `reportYield(id)` is permissionless and sends `YieldAccrued(cumulative, treasuryBalance, instantPaid, reportTime)` at that block (101 bytes: header 45 | cumulative u128 | treasuryBalance u128 | instantPaid u128 | reportTime u64, where `instantPaid` is the vault's cumulative Instant Redeem payouts and `reportTime` its `block.timestamp`). `MSG_PAY_INSTANT` pays the holder from the Treasury; one the Treasury cannot cover reverts (`InsufficientTreasury`) and is not marked handled, so the same message pays once the Treasury holds enough (audit 2026-10-16, B-1: the earlier refuse-and-refund design had no receiver on Solana, so the holder lost the Gemas). Redeliver it from LayerZero Scan or with `lzReceive` once the Yield Fee or `fundTreasury` has refilled the Treasury; the owner must not `withdrawTreasury` below what Solana has recorded as Instant Redeem payouts. A `PayYield` whose `to == address(this)` books into the Treasury (the refill). New vaults come from `script/deploy-oapp.sh`, then `SimLST.setMinter(newVault)`; the constructor is unchanged. Older vaults are abandoned.
 
 **`tesoro_bridge` state**
@@ -267,3 +269,31 @@ The real output also prints each Solana instruction (program, account count, dat
 - Create the Safes, deploy the vault or the bridge, hold any key, or send an EVM transaction.
 - Set `rate_bps` or `decimals` for you: both are required arguments (18 decimals for wstETH and kHYPE).
 - Check that a Safe exists on HyperEVM mainnet (open item in `docs/mainnet-keys.md`).
+
+## Economy upgrade on the bridge and vaults (ADR 0013)
+
+What is built, what is specified, and what to recheck when each ticket merges.
+
+### Built
+
+- **Vault Treasury in shares (ticket 26).** Real-LST vaults hold the Treasury in shares and spend only realised fees; holders of unlocked Locks are owed shares fixed at the Unlock rate (D1, D2, D3). See "Treasury in shares" above. The Yield Report format (101 bytes) is unchanged.
+- **Bridge on baskets (ticket 11).** `redeem_to_evm(line, gemas)` and `redeem_treasury_to_evm(line, gemas)` name a basket line (`LineRef`). `apply_yield` forwards the Source book and checkpoint pages to `tesoro_core`, which lands the yield in the Payout order and records the shares it is worth.
+- **Instant Redeem is an order.** The seller calls `request_instant_redeem` on `tesoro_core`; the Gemas wait in the order. `instant_redeem_to_evm(gemas)` is now the fill: the signer is the store admin, it needs the order account and the owner's wallet, and its budget is the vault Treasury's `available()` (passed as `available_shares`, trusted because the signer must be the chain's registered `SourceAuthority`). The payout is 75% of the value at fill time, sent by the existing `PayInstant` message. A fill is refused (`BridgedSource`) while the order holds repaid Gemas: the Player cancels and uses `redeem_to_evm`. Test: `an_order_with_repaid_gemas_is_not_filled_through_the_bridge`.
+- **No change to the wire format.** `PositionLocked`, `YieldAccrued`, `Unlock`, `PayYield` and `PayInstant` keep their sizes.
+
+### Specified, not built (tickets 16 and 17)
+
+Recheck this section against the code when they merge.
+
+- **Prize escrow in each vault.** One per new mainnet vault (devnet vaults get it at their next deploy). At Season end, under the vault's D1 rule, the vault moves the Pool's realised half of its Yield Fee, in shares, into the escrow, and only if the vault stays solvent. It reports the moved shares in a new `escrowed` field of the Yield Report. Its solvency check counts escrow moves separately from yield. The slots `poolOwedShares` and `reservedShares` already sit in the `spendable` formula (ticket 26); ticket 17 fills them.
+- **Cash-in batches for Leaderboard Gemas on ETH and HYPE Sources.** A state machine:
+  1. Solana marks immutable batches in transit, with route-scoped ids, each naming Locks and amounts.
+  2. The vault executes a batch, reserving each named Lock's covered yield until acknowledged. A Lock that cannot pay (it Unlocked) pays the rest and reports a partial result.
+  3. The vault stores a persistent execution receipt and can regenerate its acknowledgement.
+  4. Solana reconciles batch by batch, never by "latest report only".
+
+  Only acknowledged shares count for prize issuance. A batch is never released on timeout while its message could still execute.
+- **Fee cash-in on EVM (ticket 11b plus 16).** Platform and Studio fee cash-ins use the same batches, need a registered EVM recipient and a minimum batch size.
+- **`PayPrize` message.** Bound to chain, vault, asset, prize Source, recipient, share quantity and a unique payout id. It debits only the escrow and works with an empty Treasury. Outstanding payouts stay reserved until executed. Only prize Redeem can move tokens out of an escrow.
+- **Redeem cost.** The app shows the gas and bridge cost of a small ETH or HYPE Redeem before the Player confirms, and "Redeem small leftovers" tidies tiny lines.
+- **Deploy.** Each EVM Treasury is funded at launch (runbook), because open Locks' fees are not spendable until they Unlock.

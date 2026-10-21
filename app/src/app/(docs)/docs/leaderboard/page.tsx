@@ -21,6 +21,11 @@ export default function Page() {
         Every Match in every Game pays a <b>Leaderboard Fee of 1%</b> of the Pot into the <b>Leaderboard Pool</b>. It is charged on top of the
         Platform Fee and the Studio Fee (see <Link href="/docs/fees">Fees</Link>), taken from the loser&apos;s Gemas like the other two. Draws and refunds take no Fees, so they add nothing to the Pool.
       </p>
+      <p>
+        The Pool also receives <b>half of the Yield Fee</b>: 10% of the yield Locks earn, on every chain. It counts only once the fee is realised, the same
+        rule as {BRAND.name}&apos;s own half, and it arrives as <b>prize Gemas</b>. Each prize Gema is backed by staking tokens set aside for it, so a prize is
+        fully backed and can be Redeemed at once. Only prize Redeem can move those tokens, and a prize Gema is never issued before its tokens are in place.
+      </p>
 
       <H2 id="seasons">Seasons</H2>
       <p>
@@ -54,7 +59,13 @@ export default function Page() {
       </p>
       <p>
         Prizes are paid in Gemas, each keeping the coin it came from, shortly after the season ends. The ranking is recorded on chain before anything is
-        paid.
+        paid, together with a <b>budget fixed at that moment</b>: the Pool&apos;s Gemas set aside for the Season, which a later Season cannot promise again.
+        Every rank gets <b>the same mix of coins</b> (SOL, ETH and HYPE), in its share of the budget. Shares are rounded down and the leftovers roll
+        into the next season. Payout is done rank by rank and can be continued by anyone, so one failed step never blocks or changes the others.
+      </p>
+      <p>
+        Points count only for Matches of <Link href="/docs/matches#listed">Listed Games</Link>. The ranking is built only from events the ledger program itself
+        wrote, so nobody can forge a win.
       </p>
 
       <H2 id="where">Where to see it</H2>
