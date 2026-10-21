@@ -70,10 +70,9 @@ describe("the Army decoder", () => {
 });
 
 // Rust-written records of the powers (kinds 8-12); the chain client ticket teaches the decoder and drops this filter.
-const POWER_EVENTS = ["blast", "rescue", "dug_in", "pass", "switched"];
 
 describe("event records", () => {
-  it.each(golden.events.filter((ev) => !POWER_EVENTS.includes(ev.event.kind)).map((ev, i) => [ev.event.kind + " #" + i, ev] as const))("decodes %s", (_name, ev) => {
+  it.each(golden.events.map((ev, i) => [ev.event.kind + " #" + i, ev] as const))("decodes %s", (_name, ev) => {
     const raw = bytes(ev.bytes);
     const rec = { seq: new DataView(raw.buffer, raw.byteOffset).getUint32(0, true), kind: raw[4], data: Array.from(raw.slice(5, 40)) };
     expect(rec.seq).toBe(ev.seq);
@@ -133,7 +132,10 @@ describe("the account tails the layout table does not name", () => {
     expect(Array.from(a.sealKey)).toEqual(Array.from({ length: 32 }, (_, i) => 0xa0 + i));
     expect(a.moves).toBe(golden.army.expected.moves);
     expect(hexOf(Uint8Array.from(a.ranks))).toBe(golden.army.expected.ranks);
-    expect(Array.from(decodeArmy(armyBytes()).sealKey)).toEqual(Array(32).fill(0)); // wiped: no key
+    // the Rust golden Army carries the known key 0xA0..0xBF (programs/vanguard/tests/golden.rs)
+    expect(hexOf(decodeArmy(armyBytes()).sealKey)).toBe(golden.army.expected.reserved);
+    raw.fill(0, layout.army.size - 32);
+    expect(Array.from(decodeArmy(raw).sealKey)).toEqual(Array(32).fill(0)); // wiped: no key
   });
 
   it("decodes the private rank codes of a dug-in Major and a switched General in the owner's Army", () => {
@@ -146,8 +148,11 @@ describe("the account tails the layout table does not name", () => {
 
   it("decodes the end mask as a little-endian u64, bit = piece id, and it is zero before the Match ends", () => {
     const raw = battleBytes();
-    expect(decodeBattle(raw).endMask).toBe(0n);
+    // the Rust golden Battle carries a known end mask (bits 0, 5, 31, 55)
+    expect(decodeBattle(raw).endMask).toBe(BigInt(golden.battle.expected.endMask));
     const at = layout.battle.size - 31;
+    new DataView(raw.buffer, raw.byteOffset).setBigUint64(at, 0n, true);
+    expect(decodeBattle(raw).endMask).toBe(0n);
     const mask = (1n << 5n) | (1n << 41n) | (1n << 59n);
     new DataView(raw.buffer, raw.byteOffset).setBigUint64(at, mask, true);
     expect(decodeBattle(raw).endMask).toBe(mask);
