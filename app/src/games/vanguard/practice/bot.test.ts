@@ -9,7 +9,7 @@ function game(pieces: Piece[], over: Partial<Game> = {}): Game {
   return {
     pieces, depots: DEPOTS.map((d) => ({ ...d })), turn: "us", turnNo: 0, moves: 0, twoStep: { us: 0, it: 0 }, stepsLeft: 1, twoStepActive: false,
     timeouts: { us: 0, it: 0 }, truckTurn: { us: -9, it: -9 }, movedThisTurn: [], startedAt: T0, clock: PRACTICE_CLOCK, deadline: T0 + TURN_MS, stormAt: 999,
-    stormSeed: 7, stormDone: true, eventSeq: 0, winner: null, reason: null, version: RULES_VERSION, changed: {}, digs: { us: 0, it: 0 }, ...over,
+    stormSeed: 7, stormDone: true, eventSeq: 0, winner: null, reason: null, version: RULES_VERSION, changed: {}, ...over,
   };
 }
 const FAR = P(90, "it", "2", 0, 9);
@@ -34,7 +34,7 @@ function playOut(seed: number, policies: [Policy, Policy] = ["standard", "standa
       if (!s.ok) throw new Error(s.reason);
       g = s.game;
     }
-    const mover = g.pieces.find((p) => p.id === m.id)!;
+    const mover = m.kind === "pass" ? undefined : g.pieces.find((p) => p.id === m.id);
     const r = applyBot(g, m, at);
     if (!r.ok) throw new Error(`seed ${seed}: bot action ${m.kind} refused (${r.reason})`);
     if (tally) count(tally, mover, r.events, g);
@@ -47,10 +47,10 @@ function playOut(seed: number, policies: [Policy, Policy] = ["standard", "standa
   }
   return g;
 }
-function count(t: Tally, mover: Piece, events: GameEvent[], before: Game) {
+function count(t: Tally, mover: Piece | undefined, events: GameEvent[], before: Game) {
   for (const e of events) t.events[e.kind] = (t.events[e.kind] ?? 0) + 1;
   const e = events.find((x) => x.kind === "move" || x.kind === "attack");
-  if (!e || (e.kind !== "move" && e.kind !== "attack")) return;
+  if (!mover || !e || (e.kind !== "move" && e.kind !== "attack")) return;
   const dr = Math.abs(e.to.r - e.from.r);
   const dc = Math.abs(e.to.c - e.from.c);
   const rank = before.changed[mover.id] === "spy" ? "1" : mover.rank;
@@ -60,7 +60,25 @@ function count(t: Tally, mover: Piece, events: GameEvent[], before: Game) {
   if (rank === "6" && dr && dc) t.king++;
 }
 
+const dugIn = (g: Game, army: "us" | "it") => g.pieces.filter((p) => p.army === army && g.changed[p.id] === "dug").length;
+
 describe("practice bot", () => {
+  describe("pass", () => {
+    it("passes when every move is a known loss and it has not missed a turn yet", () => {
+      const boxed = game([P(1, "us", "3", 9, 0), P(2, "it", "9", 8, 0, { known: true }), P(3, "us", "B", 9, 1), P(4, "us", "B", 8, 1), P(5, "it", "F", 0, 0)]);
+      expect(botMove(boxed, seeded(1))).toMatchObject({ kind: "pass" });
+      expect(botMove({ ...boxed, timeouts: { us: 1, it: 0 } }, seeded(1))).toMatchObject({ kind: "move" });
+      expect(botMove(boxed, seeded(1), "plain")).toMatchObject({ kind: "move" });
+      const r = applyBot(boxed, { kind: "pass", twoStep: false, switch: false }, T0 + 1);
+      expect(r.ok && r.game.timeouts.us).toBe(1);
+    });
+    it("never passes inside a Two-Step Turn or on a version 5 Battle", () => {
+      const boxed = game([P(1, "us", "3", 9, 0), P(2, "it", "9", 8, 0, { known: true }), P(3, "us", "B", 9, 1), P(4, "us", "B", 8, 1), P(5, "it", "F", 0, 0)]);
+      expect(botMove({ ...boxed, version: 5 }, seeded(1))?.kind).not.toBe("pass");
+      expect(botMove({ ...boxed, twoStepActive: true }, seeded(1))?.kind).not.toBe("pass");
+    });
+  });
+
   it("plays whole Matches to an end without a single refused action", () => {
     for (let seed = 1; seed <= 25; seed++) {
       const g = playOut(seed);
@@ -74,7 +92,7 @@ describe("practice bot", () => {
     for (let seed = 1; seed <= 150; seed++) playOut(seed, ["standard", "standard"], t);
     expect(t.events.blast).toBeGreaterThan(0);
     expect(t.events.rescue).toBeGreaterThan(0);
-    expect(t.events.dug_in ?? 0).toBeGreaterThan(0);
+    expect(t.events.pass ?? 0).toBeGreaterThan(0); // a face-down Dig in is a pass event
     expect(t.dug).toBeGreaterThan(0);
     expect(t.jump).toBeGreaterThan(0);
     expect(t.cross).toBeGreaterThan(0);
@@ -183,7 +201,7 @@ describe("practice bot", () => {
     it("walks both Majors to its Truck and digs them in around it", () => {
       const rng = seeded(11);
       let g = game([P(1, "us", "7", 7, 2), P(2, "us", "7", 7, 7), P(3, "us", "F", 9, 5), P(4, "us", "5", 7, 5), P(5, "it", "2", 0, 9), P(6, "it", "3", 0, 0)], { stormDone: true });
-      for (let i = 0; i < 80 && g.digs.us < 2 && !g.winner; i++) {
+      for (let i = 0; i < 80 && dugIn(g, "us") < 2 && !g.winner; i++) {
         const m = botMove(g, rng, g.turn === "us" ? "fortress" : "standard");
         if (!m) break;
         if (m.twoStep) {
@@ -194,7 +212,7 @@ describe("practice bot", () => {
         if (!r.ok) throw new Error(r.reason);
         g = r.game;
       }
-      expect(g.digs.us).toBe(2);
+      expect(dugIn(g, "us")).toBe(2);
       const truck = g.pieces.find((p) => p.id === 3)!;
       for (const id of [1, 2]) {
         const p = g.pieces.find((x) => x.id === id)!;
@@ -207,7 +225,7 @@ describe("practice bot", () => {
       for (let seed = 1; seed <= 25; seed++) {
         const g = playOut(seed, ["fortress", "standard"]);
         expect(g.winner).not.toBeNull();
-        dug += g.digs.us;
+        dug += dugIn(g, "us");
       }
       expect(dug).toBeGreaterThan(0);
     }, 60_000);

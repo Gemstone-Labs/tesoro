@@ -17,6 +17,12 @@ export interface SpyInfo {
   onPress: () => void;
 }
 
+/** Pass the turn on purpose: one tap, like the powers. Three missed turns in a row lose; `warn` is the line shown once only one is left. */
+export interface PassInfo {
+  onPress: () => void;
+  warn: string | null;
+}
+
 export interface TurnInfo {
   /** Whose turn it is, in words ("Your turn", "Italy's turn", "Two-Step · 1 left"); empty before the Match starts and after it ends. */
   label: string;
@@ -31,6 +37,8 @@ export interface TurnInfo {
   onUse: () => void;
   power?: PowerInfo | null;
   spy?: SpyInfo | null;
+  /** Offered on your turn outside a Two-Step Turn. */
+  pass?: PassInfo | null;
 }
 
 /** Where the Two-Step Turn button is and what it tells you: next to whose turn it is, never tucked in a seat bar. */
@@ -45,7 +53,7 @@ export function TurnBox({ turn }: { turn: TurnInfo }) {
   }
   const showButton = turn.label !== "" && banked > 0 && !active;
   const ready = showButton && yourTurn && !moved;
-  const { power, spy } = turn;
+  const { power, spy, pass } = turn;
   const twoHint = !showButton ? "" : !yourTurn ? "Banked. Press it on your turn to move twice." : moved ? "Press it before your first step." : "Press it to move twice this turn.";
   const hint = yourTurn && power ? power.hint : yourTurn && spy ? (spy.on ? "One way: it stays a Spy." : "Free with your move. One way: it stays a Spy.") : twoHint;
   // nothing to say before the Match starts or after it ends: no empty box
@@ -68,7 +76,13 @@ export function TurnBox({ turn }: { turn: TurnInfo }) {
           {spy.on ? "Undo Spy" : "Become a Spy"}
         </button>
       )}
+      {yourTurn && pass && (
+        <button type="button" className="vg-power vg-pass" onClick={pass.onPress}>
+          Pass
+        </button>
+      )}
       {hint && <small className="vg-hint">{hint}</small>}
+      {yourTurn && pass?.warn && <small className="vg-hint vg-pass-warn" role="status">{pass.warn}</small>}
     </div>
   );
 }
