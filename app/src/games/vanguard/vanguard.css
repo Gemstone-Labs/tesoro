@@ -33,6 +33,7 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 .vg-two.earned { animation: vg-two-earned 0.9s ease-out 3; }
 @keyframes vg-two-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(232, 190, 110, 0.5); } 50% { box-shadow: 0 0 0 7px rgba(232, 190, 110, 0); } }
 @keyframes vg-two-earned { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 236, 170, 0.9); } 40% { transform: scale(1.08); box-shadow: 0 0 0 12px rgba(255, 236, 170, 0); } 100% { transform: scale(1); } }
+.vg-two { min-height: 44px; }
 .vg-two:focus-visible { outline: 2px solid var(--fg, #fff); outline-offset: 2px; }
 .vg-missed { margin-left: auto; font: 600 12px/1 var(--f-mono); letter-spacing: 0.04em; color: var(--fg-2, #9aa4ad); white-space: nowrap; }
 .vg-missed.last { color: var(--warn, #f2a63b); }
@@ -254,4 +255,67 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 
 @media (prefers-reduced-motion: reduce) {
   .vg-say { animation: none !important; }
+}
+/* ---- Rank powers ---- */
+/* jump marks: the dot is a ring, and an arc runs from the piece over what it jumps */
+.vg-over { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; overflow: visible; }
+.vg-arc { fill: none; stroke: #ffe9a8; stroke-width: 2.5px; stroke-linecap: round; stroke-dasharray: 5 5; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.8)); animation: vg-arc-run 0.9s linear infinite; }
+@keyframes vg-arc-run { to { stroke-dashoffset: -20; } }
+.vg-mark.jump { background: radial-gradient(circle, rgba(255, 236, 170, 0.9) 0 9%, rgba(255, 236, 170, 0) 11%, rgba(255, 236, 170, 0) 26%, rgba(255, 236, 170, 0.85) 28% 33%, rgba(255, 236, 170, 0) 35%); }
+.vg-mark.jump.atk { background: none; }
+.vg-rescue-arrow { fill: none; stroke: #a8f0b4; stroke-width: 4px; stroke-linecap: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.9)); stroke-dasharray: 7 6; animation: vg-arc-run 0.7s linear infinite; }
+.vg-head { fill: #a8f0b4; stroke: #1c3a22; stroke-width: 1; }
+/* a Blast previews the 8 squares it will show */
+.vg-pv { position: absolute; z-index: 9; width: var(--vg-sq); height: var(--vg-sq); box-sizing: border-box; pointer-events: none; border: 3px dashed #ffd36a; background: rgba(255, 211, 106, 0.16); box-shadow: inset 0 0 0 1px rgba(40, 20, 0, 0.7), 0 0 0 1px rgba(40, 20, 0, 0.7); animation: vg-pv 0.9s ease-in-out infinite alternate; }
+@keyframes vg-pv { from { background: rgba(255, 211, 106, 0.08); } to { background: rgba(255, 211, 106, 0.28); } }
+
+/* the owner's badges: the old rank in a small brass disc at the bottom right; the eye = the enemy has seen this piece */
+.vg-was { --b: max(18px, calc(var(--w) * 0.27)); position: absolute; right: 2%; bottom: 4%; width: var(--b); height: var(--b); display: grid; place-items: center; border-radius: 50%; background: var(--army); border: 1.5px solid #f4e8c8; color: #fff6dc; font: 800 calc(var(--b) * 0.62) / 1 var(--f-display); letter-spacing: -0.02em; }
+.vg-eye { position: absolute; right: 14%; top: 14%; width: max(13px, calc(var(--w) * 0.2)); height: max(8px, calc(var(--w) * 0.11)); border-radius: 50% / 90%; background: #f4e8c8; border: 1.5px solid #7b1f12; }
+.vg-eye::after { content: ""; position: absolute; left: 50%; top: 50%; width: 40%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; background: #b32a14; }
+.vg-piece.fresh .vg-art, .vg-piece.fresh .vg-was { animation: vg-morph 0.7s ease-out; }
+@keyframes vg-morph { 0% { transform: scale(0.55); filter: brightness(2.2); } 60% { transform: scale(1.12); filter: brightness(1.4); } 100% { transform: none; filter: none; } }
+/* the Rescued Truck flies: up, over, down */
+.vg-piece.fly { z-index: 33; }
+.vg-piece.fly .vg-pb { animation: vg-fly 0.7s ease-in-out; }
+@keyframes vg-fly { 0%, 100% { transform: translateY(0) scale(1); } 45% { transform: translateY(-34%) scale(1.45); } }
+.vg-fx.dust { mix-blend-mode: normal; -webkit-mask-image: radial-gradient(circle, #000 30%, transparent 68%); mask-image: radial-gradient(circle, #000 30%, transparent 68%); background-image: url(/art/vanguard/fx-dust-alpha.webp); background-size: 260% 100%; background-position: 40% 50%; }
+
+/* power button, Become a Spy toggle and its warning, next to the Two-Step button */
+.vg-power, .vg-spy-t, .vg-link { min-height: 44px; font: 800 15px/1 var(--f-display); letter-spacing: 0.08em; text-transform: uppercase; border-radius: 3px; padding: 0 16px; cursor: pointer; white-space: nowrap; }
+.vg-power { border: 1px solid #5a1d0e; background: linear-gradient(#f2a265, #c4552a 55%, #9b3a1b); color: #2a0c04; text-shadow: 0 1px 0 rgba(255, 220, 190, 0.5); box-shadow: inset 0 1px 0 rgba(255, 226, 200, 0.7), 0 2px 0 #3a1608; }
+.vg-power.armed { background: linear-gradient(#ffe08a, #f0b43c 55%, #c98a1d); border-color: #5a3a0a; color: #2a1706; animation: vg-two-pulse 1.4s ease-in-out infinite; }
+.vg-power:focus-visible, .vg-spy-t:focus-visible, .vg-link:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.vg-spy-t { border: 1px solid #b88a3c; background: rgba(12, 9, 6, 0.6); color: #f6d98e; display: inline-flex; align-items: center; gap: 8px; }
+.vg-spy-t::before { content: ""; width: 30px; height: 16px; border-radius: 8px; background: #3a2a14 radial-gradient(circle at 8px 50%, #d8c293 0 6px, transparent 7px); box-shadow: inset 0 0 0 1px #6b4a22; transition: background-position 0.15s; }
+.vg-spy-t[aria-pressed="true"] { background: rgba(232, 190, 110, 0.2); border-color: #f6d98e; }
+.vg-spy-t[aria-pressed="true"]::before { background: #7a5a1e radial-gradient(circle at 22px 50%, #fff1cc 0 6px, transparent 7px); }
+.vg-link { border: 0; background: none; color: #f6d98e; text-decoration: underline; padding: 0 8px; font-weight: 700; }
+.vg-warn { flex-basis: 100%; display: grid; gap: 8px; margin: 2px 0 0; padding: 10px 12px; border-radius: 3px; background: rgba(120, 30, 12, 0.35); box-shadow: inset 0 0 0 1px #b8502c; color: #ffe2cf; font-size: 14px; line-height: 1.35; }
+.vg-warn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* enemy roster: notes row, dug-in count, the 10's open question */
+.vg-roster span.maybe { box-shadow: 0 0 0 1px #060302, inset 0 0 0 1px #f6d98e, inset 0 0 8px rgba(0, 0, 0, 0.6); border-style: dashed; }
+.vg-roster .vg-dug { color: #ffb48a; font-weight: 700; }
+.vg-roster .vg-notes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px 12px; justify-content: center; padding: 2px 0 0; background: none; box-shadow: none; font: 600 12px/1.3 var(--f-mono); color: #f6d98e; }
+.vg-screen .vg-roster span.vg-notes { background: none; box-shadow: none; }
+
+/* in-game rules sheet and the end panel's changed pieces */
+.vg-rules { position: absolute; z-index: 65; inset: 3% 3% auto; overflow-y: auto; padding: 16px 16px 14px; display: grid; gap: 8px; align-content: start; background: rgba(12, 9, 6, 0.96); }
+.vg-rules h3 { margin: 0; font: 800 22px/1 var(--f-display); text-transform: uppercase; letter-spacing: 0.06em; color: #f6d98e; }
+.vg-rules ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.vg-rules li { display: grid; grid-template-columns: 34px 1fr; gap: 8px; align-items: center; font-size: 14px; line-height: 1.3; }
+.vg-rules li b { display: grid; place-items: center; height: 30px; border-radius: 3px; background: rgba(154, 117, 54, 0.22); font: 800 16px/1 var(--f-display); color: #f9e6b0; }
+.vg-rules .vg-rules-name { color: #f6d98e; font-weight: 700; }
+.vg-end-changes { margin: 2px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; font-size: 13px; color: var(--fg-2, #c8b88a); }
+
+@media (max-width: 520px) {
+  .vg-power, .vg-spy-t { flex: 1 1 auto; justify-content: center; }
+  .vg-roster span { font-size: 10px; }
+  .vg-rules { inset: 1% 2% auto; padding: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vg-arc, .vg-rescue-arrow, .vg-pv, .vg-power.armed, .vg-piece.fresh .vg-art, .vg-piece.fresh .vg-was, .vg-piece.fly .vg-pb { animation: none; }
+  .vg-pv { background: rgba(255, 211, 106, 0.22); }
+  .vg-piece.fly .vg-pb { transform: scale(1.3); }
 }

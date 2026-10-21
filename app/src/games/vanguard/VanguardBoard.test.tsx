@@ -43,3 +43,23 @@ describe("VanguardBoard Dust Storm", () => {
     expect(h).toMatch(/<span class="vg-storm-clip"[^>]*><span class="vg-storm vg-st-row"/);
   });
 });
+
+describe("VanguardBoard powers", () => {
+  const draw = (extra: Partial<Parameters<typeof VanguardBoard>[0]>) =>
+    renderToStaticMarkup(<VanguardBoard pieces={[mine]} depots={[]} selected={1} marks={[]} fx={[]} storm={null} locked={false} onPiece={() => undefined} onMark={() => undefined} {...extra} />);
+  it("draws an arc from the piece to a jump mark, and none for an ordinary step", () => {
+    expect(draw({ marks: [{ r: 3, c: 4, attack: false, jump: true }] })).toMatch(/class="vg-arc"/);
+    expect(draw({ marks: [{ r: 4, c: 4, attack: false }] })).not.toMatch(/vg-arc/);
+  });
+  it("outlines a Blast's squares and draws the Rescue arrow", () => {
+    const squares = [{ r: 4, c: 4 }, { r: 4, c: 5 }];
+    expect(draw({ preview: { kind: "blast", squares } }).match(/class="vg-pv"/g)).toHaveLength(2);
+    expect(draw({ preview: { kind: "rescue", from: { r: 9, c: 9 }, to: { r: 5, c: 4 } } })).toMatch(/vg-rescue-arrow/);
+  });
+  it("badges a dug-in Major with its old rank for the owner, and an exposed piece with the eye", () => {
+    const h = draw({ pieces: [{ ...mine, rank: "B", changed: "dug", exposed: true }] });
+    expect(h).toContain('<span class="vg-was">7</span>');
+    expect(h).toContain("vg-eye");
+    expect(h).toContain("was Major");
+  });
+});
