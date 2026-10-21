@@ -53,6 +53,7 @@ impl OpenBatch<'_> {
         batch.peer_address = params.peer_address;
         batch.id = id;
         batch.bump = ctx.bumps.batch;
+        batch.rent_payer = ctx.accounts.payer.key();
         batch.kind = params.kind;
         emit!(BatchOpened {
             eid: params.eid,

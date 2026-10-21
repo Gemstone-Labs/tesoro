@@ -34,6 +34,8 @@ pub struct Batch {
     pub peer_address: [u8; 32],
     pub id: u64,
     pub bump: u8,
+    /// Whoever paid the account's rent; `close_batch` returns it there once the batch is Done.
+    pub rent_payer: Pubkey,
     /// 0 Platform, 1 Studio, 2 Leaderboard (core fee class).
     pub kind: u8,
     pub state: u8,
@@ -120,6 +122,7 @@ mod tests {
             peer_address: [0; 32],
             id: 1,
             bump: 0,
+            rent_payer: Pubkey::default(),
             kind,
             state: BATCH_OPEN,
             recipient: [0; 20],
