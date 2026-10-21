@@ -73,10 +73,11 @@ describe("the preview line", () => {
   it("says how many batches and how many Gemas are fast, and warns when a Ticket is needed", () => {
     const s = stores([lineOf({ source: srcA, amount: 300n, dueAt: 900n }), lineOf({ source: srcB, amount: 200n, dueAt: 100n })]);
     const text = describeEntry(previewEntry(s, 350n), 500);
-    expect(text.headline).toMatch(/2 batches of Gemas, fastest first/);
+    expect(text.headline).toMatch(/own Gemas first, then the fastest/);
     expect(text.detail).toBe("200 of 350 Gemas are from Locks that repay soon.");
     const many = stores(Array.from({ length: 40 }, (_, i) => lineOf({ source: srcA, amount: 10n, dueAt: BigInt(i) })));
     expect(describeEntry(previewEntry(many, 300n), 0).headline).toMatch(/prepared in 1 step first/);
+    expect(describeEntry(previewEntry(many, 300n), 0).headline).not.toMatch(/batch|line/i);
   });
 });
 

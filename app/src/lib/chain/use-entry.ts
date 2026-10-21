@@ -84,8 +84,8 @@ export function useOpenTickets(account: PublicKey | null): OpenTicketsState {
 export function describeEntry(p: EntryPreview, fastBy: number): { headline: string; detail: string | null } {
   const fast = p.gemasDueBy(fastBy);
   const headline = p.needsTicket
-    ? `Your entry uses ${p.lineCount} batches of Gemas, so it is prepared in ${p.stageTxs} step${p.stageTxs === 1 ? "" : "s"} first.`
-    : `Your entry uses ${p.lineCount} batch${p.lineCount === 1 ? "" : "es"} of Gemas, fastest first.`;
+    ? `Your entry is prepared in ${p.stageTxs} step${p.stageTxs === 1 ? "" : "s"} first.`
+    : "Your entry uses your own Gemas first, then the fastest.";
   const detail = p.entry > 0n && fast > 0n ? `${fast} of ${p.entry} Gemas are from Locks that repay soon.` : null;
   return { headline, detail };
 }

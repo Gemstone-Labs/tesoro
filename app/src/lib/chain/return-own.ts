@@ -43,8 +43,8 @@ export function returnOwnIx(owner: PublicKey, h: Target, amount: bigint, book: P
   );
 }
 
-/** Returns `amount` Gemas of one line to its Position. The relayer's allow-list has no row for it yet, so the Player pays the fee. */
+/** Returns `amount` Gemas of one line to its Position. Sponsored when the relayer can pay. */
 export async function returnOwn(signer: ChainSigner, getToken: GetToken, h: Target, amount: bigint): Promise<string> {
   const { accounts, create } = await sourceAccounts(getChain().base, h.source, h.accounts, signer.publicKey);
-  return exitSend(signer, getToken, [...create, returnOwnIx(signer.publicKey, h, amount, accounts)], { sponsor: false });
+  return exitSend(signer, getToken, [...create, returnOwnIx(signer.publicKey, h, amount, accounts)]);
 }

@@ -105,6 +105,13 @@ export const ROWS: Readonly<Record<string, Row>> = {
   cancel_request: { class: "exit", relayer: [], cu: 100_000, playerSigns: true },
   cancel_instant_redeem: { class: "exit", relayer: ["owner_wallet"], cu: 400_000, extra: 12, playerSigns: true },
   expire_instant_redeem: { class: "exit", relayer: ["owner_wallet"], cu: 400_000, extra: 12, playerSigns: true },
+  // The beginner pack and "return Gemas": the Player's own rent (Position, Source, book) stays the Player's, so the relayer only
+  // pays the fee. They need an existing Account (the Account's own rent is the Player's too, see create_account).
+  return_own: { class: "exit", relayer: [], cu: 400_000, extra: 12, playerSigns: true },
+  open_native_position: { class: "admission", relayer: [], cu: 300_000, playerSigns: true },
+  open_stake_position: { class: "admission", relayer: [], cu: 300_000, playerSigns: true },
+  take_native_advance: { class: "admission", relayer: [], cu: 600_000, extra: 12, playerSigns: true },
+  take_stake_advance: { class: "admission", relayer: [], cu: 600_000, extra: 12, playerSigns: true },
   // A sponsored order: the relayer fronts the rent as `payer` and the sponsor pays it back in the same instruction;
   // closing the order (cancel, expire or a fill) returns it to the sponsor first. Needs the sponsor account.
   request_instant_redeem: { class: "admission", relayer: ["payer"], cu: 400_000, extra: 12, playerSigns: true, spend: () => ({ refundable: ORDER_RENT, sunk: 0n }) },
@@ -120,6 +127,9 @@ export const TX_SHAPES: readonly (readonly string[])[] = [
   // A Backing Ticket: the Requester opens it and stages the Backer's lines in the same transaction. The accepted Offer is
   // the Backer's consent: stage_entry of a Backing Ticket takes any signer, so the Requester is the only one.
   ["open_ticket", "stage_entry"],
+  // The beginner pack (`openAndAdvance`): open the Position and take its Advance in one transaction.
+  ["open_native_position", "take_native_advance"],
+  ["open_stake_position", "take_stake_advance"],
 ];
 
 /** A Game's instructions: the relayer is never an account of one, and only the Player signs. */
@@ -135,7 +145,7 @@ interface IdlAccount {
   writable?: boolean;
   signer?: boolean;
   optional?: boolean;
-  pda?: { seeds: { kind: string; value?: number[]; path?: string }[] };
+  pda?: { seeds: { kind: string; value?: number[]; path?: string }[]; program?: { kind: string; value?: number[] } };
 }
 interface IdlIx {
   name: string;
@@ -195,7 +205,10 @@ function expectedPda(acc: IdlAccount, ix: IdlIx, byName: Map<string, PublicKey>,
       seeds.push(b);
     } else return null;
   }
-  return PublicKey.findProgramAddressSync(seeds, CORE_ID)[0];
+  // A PDA of another program (the sim_lst Pool) names it as a constant.
+  const other = acc.pda.program;
+  if (other && other.kind !== "const") return null;
+  return PublicKey.findProgramAddressSync(seeds, other ? new PublicKey(Uint8Array.from(other.value ?? [])) : CORE_ID)[0];
 }
 
 function planCore(ixs: Ix[], relayer: PublicKey): Plan {

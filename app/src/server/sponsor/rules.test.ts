@@ -120,6 +120,7 @@ describe("the Player's own exits and orders (ticket 18b)", () => {
     redeem: playerIx.redeem,
     redeem_prize: playerIx.redeemPrize,
     unlock: playerIx.unlock,
+    return_own: playerIx.returnOwn,
     cancel_instant_redeem: (a: typeof player) => playerIx.cancelInstantRedeem(a),
     expire_instant_redeem: (a: typeof player) => playerIx.expireInstantRedeem(a),
     cancel_offer: (a: typeof player) => playerIx.cancelOffer(a),
@@ -152,6 +153,21 @@ describe("the Player's own exits and orders (ticket 18b)", () => {
     expect(plan([ix]).names).toEqual(["redeem"]);
     ix.keys.push({ pubkey: key(), isSigner: true, isWritable: false });
     refused([ix], "bad-accounts");
+  });
+  it("the beginner pack (open + Advance) is one admission signed by the Player, the relayer only pays the fee", async () => {
+    for (const [open, take] of [
+      [playerIx.openNativePosition, playerIx.takeNativeAdvance],
+      [playerIx.openStakePosition, playerIx.takeStakeAdvance],
+    ] as const) {
+      const p = plan([await open(player), await take(player)]);
+      expect(p.class).toBe("admission");
+      expect(p.playerSigns).toBe(true);
+      expect(p.signers.map((k) => k.toBase58())).toEqual([player.toBase58()]);
+      expect(p.spend).toEqual({ refundable: 0n, sunk: 0n });
+    }
+    // other pairings and a lone relayer-owned instruction are not on the list
+    refused([await playerIx.openNativePosition(player), await playerIx.takeStakeAdvance(player)], "bad-shape");
+    refused([await playerIx.takeNativeAdvance(relayer)], "relayer-in-accounts");
   });
   it("request_instant_redeem: the holder pays, or the relayer pays and the sponsor repays it", async () => {
     const own = plan([await playerIx.requestInstantRedeem(player)]);
