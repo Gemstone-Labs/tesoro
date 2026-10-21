@@ -931,6 +931,8 @@ fn started_event(m: &MatchState, kind: RunKind, fees: [u64; 3], ts: i64) -> Matc
         asset: r.meta.asset,
         opened_at: r.opened_at,
         ts,
+        a_share_bps: r.a.share_bps,
+        b_share_bps: r.b.map_or(0, |b| b.share_bps),
     }
 }
 

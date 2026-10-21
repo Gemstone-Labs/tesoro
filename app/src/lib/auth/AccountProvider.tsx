@@ -196,6 +196,8 @@ function PrivyBridge({ children }: { children: ReactNode }) {
         );
         return Transaction.from(signedTransaction);
       },
+      signSerialized: async (transaction: Uint8Array) =>
+        (await signingTimeout(signTransaction({ transaction, wallet, chain: "solana:devnet", options: { uiOptions } }))).signedTransaction,
       signMessage: async (message: Uint8Array) => (await signingTimeout(signMessage({ message, wallet, options: { uiOptions } }))).signature,
     };
   }, [solana, solanaWallets, signTransaction, signMessage]);
