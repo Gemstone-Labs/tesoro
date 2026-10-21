@@ -8,6 +8,7 @@ import type { MatchRunStartedRecord } from "../../app/src/server/history/events.
 import type { Rpc } from "../../app/src/server/history/rpc.ts";
 import { log, type Ctx } from "./act.ts";
 import { collectSignatures, pooled, transactionRecords, type ScanConn, type TxRecords } from "./events-scan.ts";
+import { notePair } from "./sweeps.ts";
 
 // ---- Where the scan stands -----------------------------------------------------------------------------------------
 
@@ -73,9 +74,13 @@ export const databaseSink = (rpc: Rpc, detail?: (matchKey: string) => MatchDetai
 export const startedRuns: { start: MatchRunStartedRecord; blockTime: number | null }[] = [];
 const QUEUE_CAP = 500;
 
-/** Remembers the run starts of a transaction for the notify job. Never throws, so the e-mail side cannot hold the scan. */
+/** Remembers the run starts of a transaction for the notify job (and the pairs the sweep job may close). Never throws, so the e-mail side cannot hold the scan. */
 export const notifySink: Sink = async (tx) => {
-  for (const r of tx.records) if (r.type === "start") startedRuns.push({ start: r, blockTime: tx.blockTime });
+  for (const r of tx.records) {
+    if (r.type !== "start") continue;
+    startedRuns.push({ start: r, blockTime: tx.blockTime });
+    if (r.bPlayer) notePair(r.aPlayer, r.bPlayer);
+  }
   while (startedRuns.length > QUEUE_CAP) startedRuns.shift();
 };
 

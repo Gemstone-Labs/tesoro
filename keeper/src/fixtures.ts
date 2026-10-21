@@ -95,12 +95,13 @@ export async function accountBytes(core: anchor.Program<any>, name: string, over
   return await core.coder.accounts.encode(key, value);
 }
 
-/** A Source book account (tests): classes 0.. with the given closed-segment counts (4 + extensions). */
-export function bookBytes(cks: number[]): Buffer {
+/** A Source book account (tests): classes 0.. with the given closed-segment counts (4 + extensions) and fee counter amounts. */
+export function bookBytes(cks: number[], counters: [bigint, bigint, bigint] = [0n, 0n, 0n]): Buffer {
   const classes = cks.length;
   const buf = Buffer.alloc(8 + 40 + 3 * 144 + 82 + classes * 128);
   buf[8 + 40 + 3 * 144 + 81] = classes - 4;
   cks.forEach((ck, c) => buf.writeUInt32LE(ck, 8 + 40 + 3 * 144 + 82 + c * 128 + 120));
+  counters.forEach((amount, c) => buf.writeBigUInt64LE(amount, 8 + 40 + c * 144 + 43));
   return buf;
 }
 
