@@ -28,7 +28,7 @@ export function boardAddresses(matchId: string): PublicKey[] {
 }
 
 /**
- * The batch cadence of each Block Puzzle run, from the Boards the programs keep on the base layer.
+ * The batch cadence of each Block Burst run, from the Boards the programs keep on the base layer.
  * Boards from before the move-timing upgrade carry no slots and are skipped.
  */
 async function loadRuns(conn: Connection, matchIds: string[]): Promise<RunBatches[]> {
@@ -55,7 +55,7 @@ async function loadRuns(conn: Connection, matchIds: string[]): Promise<RunBatche
 let conn: Connection | null = null;
 const connection = () => (conn ??= new Connection(baseRpc(process.env.TESORO_BASE_RPC), { commitment: "confirmed" }));
 
-/** Public chain reads for the given Seasons: their wins and the Block Puzzle runs of those Matches. */
+/** Public chain reads for the given Seasons: their wins and the Block Burst runs of those Matches. */
 export async function loadSeasons(seasons: number[]): Promise<SeasonInput[]> {
   const c = connection();
   return Promise.all(

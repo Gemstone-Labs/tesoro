@@ -94,7 +94,7 @@ interface PlayerForm {
 }
 const noForm = (): PlayerForm => ({ record: { matches: 0, wins: 0 }, pnl: [] });
 
-/** Wins, settled count and Gema change per Player over all Matches, from Block Puzzle Sessions, Hold'em tables and Trading Duels. */
+/** Wins, settled count and Gema change per Player over all Matches, from Block Burst Sessions, Hold'em tables and Trading Duels. */
 async function fetchRecords(players: Set<string>): Promise<Map<string, PlayerForm>> {
   const chain = getChain();
   const rows: any[] = await chain.core.account.matchState.all();
@@ -447,7 +447,7 @@ async function requireBacking(signer: ChainSigner, address: string, game: GameId
 const backerAccountOf = (o: ChainOffer) => new PublicKey(o.backer);
 
 /**
- * The async Block Puzzle client opens (and joins) its Session in the same transaction as the core
+ * The async Block Burst client opens (and joins) its Session in the same transaction as the core
  * instruction. When the client has those builders, bundle them; the earlier flow starts the
  * Session after pairing and needs nothing here.
  */

@@ -24,7 +24,7 @@ describe("lobby plays", () => {
     expect(playAgainTarget(row({ opp: null }))).toEqual({ href: "/play/queue?entry=500", sameOpponent: false });
   });
 
-  it("reads last result and best Block Puzzle score per game", () => {
+  it("reads last result and best Block Burst score per game", () => {
     const f = gameFacts([row({ at: 2, result: "lost", scores: [90, 100] }), row({ at: 1, scores: [140, 80] }), row({ game: "holdem", at: 3, result: "draw" })]);
     expect(f["block-puzzle"]).toEqual({ last: "lost", best: 140 });
     expect(f.holdem).toEqual({ last: "draw", best: null });

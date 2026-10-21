@@ -1,5 +1,5 @@
 /**
- * On-chain client for Block Puzzle Matches (programs/block_puzzle + programs/tesoro_core).
+ * On-chain client for Block Burst Matches (programs/block_puzzle + programs/tesoro_core).
  *
  * IDL-based: pass the two IDLs (`target/idl/block_puzzle.json`, `target/idl/tesoro_core.json`).
  * Needs `@coral-xyz/anchor`, `@solana/web3.js`, `@magicblock-labs/ephemeral-rollups-sdk` and
@@ -251,7 +251,7 @@ export class BlockPuzzleChain {
 
   // ---- tesoro_core: create and join ---------------------------------------------------------
 
-  /** Seat 0 opens a Match; for Block Puzzle also its Session (one transaction). `holdings`: own-sourced first, then won (see tesoro-core.md). */
+  /** Seat 0 opens a Match; for Block Burst also its Session (one transaction). `holdings`: own-sourced first, then won (see tesoro-core.md). */
   async openMatch(signer: ChainSigner, matchId: bigint, entry: number, holdings: PublicKey[], game: PublicKey = BLOCK_PUZZLE_PROGRAM_ID) {
     const a = BlockPuzzleChain.addresses(matchId);
     const ix = await this.core.methods
@@ -276,7 +276,7 @@ export class BlockPuzzleChain {
     return protectionsPda(new PublicKey(Uint8Array.from(m.inner.a.player)));
   }
 
-  /** Seat 1 joins with an equal entry; for Block Puzzle also binds to the Session (one transaction). */
+  /** Seat 1 joins with an equal entry; for Block Burst also binds to the Session (one transaction). */
   async joinMatch(signer: ChainSigner, matchId: bigint, holdings: PublicKey[], game: PublicKey = BLOCK_PUZZLE_PROGRAM_ID) {
     const a = BlockPuzzleChain.addresses(matchId);
     const ix = await this.core.methods

@@ -33,8 +33,8 @@ export const Families: Story = {
 const SCALE: { cls: string; title: string; note: string; node: React.ReactNode }[] = [
   { cls: "page-title", title: ".page-title", note: "Page titles. 32 to 44 px, fluid.", node: <h1 className="page-title">Your Wallet</h1> },
   { cls: "h-section", title: ".h-section", note: "Section headers. 30 to 48 px, fluid.", node: <h2 className="h-section">Play now</h2> },
-  { cls: "display", title: ".display", note: "The same face for anything else that needs it; set the size yourself.", node: <span className="display" style={{ fontSize: 56 }}>Block Puzzle</span> },
-  { cls: "row-title", title: ".row-title", note: "Plain list rows keep Schibsted; a Row with a Game sets its title in the display face.", node: <span className="row-title">Block Puzzle · 1,000 entry</span> },
+  { cls: "display", title: ".display", note: "The same face for anything else that needs it; set the size yourself.", node: <span className="display" style={{ fontSize: 56 }}>Block Burst</span> },
+  { cls: "row-title", title: ".row-title", note: "Plain list rows keep Schibsted; a Row with a Game sets its title in the display face.", node: <span className="row-title">Block Burst · 1,000 entry</span> },
   { cls: "body", title: "Body (14 px)", note: "The page default.", node: <p>Gemas you win are pending until the Lock they came from pays out.</p> },
   { cls: "label", title: ".label", note: "Small uppercase captions.", node: <span className="label">Redeemable now</span> },
   { cls: "meta", title: ".meta", note: "Secondary text. 12.5 px, --fg-2.", node: <span className="meta">12 Matches · 58% won</span> },

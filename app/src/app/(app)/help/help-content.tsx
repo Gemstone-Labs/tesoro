@@ -92,7 +92,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         ),
       },
       {
-        q: "How does Block Puzzle work?",
+        q: "How does Block Burst work?",
         a: (
           <>
             <p>
@@ -392,7 +392,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "My opponent never showed up",
         a: (
           <p>
-            A no-show refunds both entries. In Block Puzzle, once the Queue window ends you can cancel and get your entry back from the
+            A no-show refunds both entries. In Block Burst, once the Queue window ends you can cancel and get your entry back from the
             Match&apos;s page. In Hold&apos;em, claim the timeout when your opponent&apos;s clock runs out.
           </p>
         ),

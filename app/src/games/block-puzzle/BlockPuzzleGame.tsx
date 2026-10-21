@@ -103,7 +103,7 @@ const RING_R = 54;
 const RING_C = 2 * Math.PI * RING_R;
 
 /**
- * The Block Puzzle play screen: a slim bar (score, 90 s ring, combo and lines, entry and pot) over the
+ * The Block Burst play screen: a slim bar (score, 90 s ring, combo and lines, entry and pot) over the
  * centred board and tray; recent clears show on the game-over card. No character anywhere on it. `matchPanel` is the Match status the
  * caller owns (who we wait for); without a `run` this is practice.
  */
@@ -454,7 +454,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       style={hinting && previewInfo ? ({ "--hk": BLOCK_HEX[previewInfo.color] } as React.CSSProperties) : undefined}
       ref={boardRef}
       role="grid"
-      aria-label="Block Puzzle board, 8 by 8"
+      aria-label="Block Burst board, 8 by 8"
       onPointerLeave={() => !dragMeta.current && setPreview(null)}
     >
       {Array.from({ length: 64 }, (_, i) => {
@@ -539,7 +539,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       </header>
 
       <section className="bpx-mid" aria-label="Board">
-        <h1 className="sr-only">Block Puzzle</h1>
+        <h1 className="sr-only">Block Burst</h1>
       <div className="bp-stage">
         {board}
         {(phase === "count" || goOn) && (

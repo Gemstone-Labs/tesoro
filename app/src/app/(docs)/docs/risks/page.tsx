@@ -39,7 +39,7 @@ export default function Page() {
         <li><b>Redeem now is limited by {BRAND.name}&apos;s holdings.</b> It pays from {BRAND.name}&apos;s own balance for that asset. When the balance is short, the request is refused until it is topped up or refilled, and you can always wait for a normal Redeem instead.</li>
         <li><b>Many small batches.</b> An entry draws on Gemas from at most 8 different Advances. If your Gemas are spread over more, redeem some small balances first.</li>
         <li><b>You can lose your entry.</b> Every Match is a contest of skill against another Player, and you can lose what you enter. A Backer can lose the whole entry they fund.</li>
-        <li><b>Skill is not luck-free.</b> Block Puzzle shares the same pieces between Players, but Hold&apos;em has chance in every hand.</li>
+        <li><b>Skill is not luck-free.</b> Block Burst shares the same pieces between Players, but Hold&apos;em has chance in every hand.</li>
       </ul>
 
       <H2 id="trust">Who you trust</H2>

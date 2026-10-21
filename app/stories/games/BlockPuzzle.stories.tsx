@@ -25,7 +25,7 @@ function Match({ seed }: { seed: number }) {
 }
 
 const meta = {
-  title: "Games/Block Puzzle",
+  title: "Games/Block Burst",
   parameters: { layout: "padded", shell: "app" },
 } satisfies Meta;
 export default meta;
@@ -113,7 +113,7 @@ function Frozen({ moves, title }: { moves: number; title: string }) {
         </header>
         <section className="bpx-mid" style={{ maxWidth: "100%" }} aria-label="Board">
           <div className="bp-stage">
-            <div className="bp-board" role="img" aria-label="Block Puzzle board">
+            <div className="bp-board" role="img" aria-label="Block Burst board">
               {Array.from({ length: SIZE * SIZE }, (_, i) => {
                 const on = (st.occ >> BigInt(i)) & 1n;
                 const gem = (st.gems >> BigInt(i)) & 1n;

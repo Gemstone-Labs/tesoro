@@ -107,10 +107,10 @@ export async function fetchSettled(q: SettledQuery): Promise<SettledMatch[]> {
 /** The newest `limit` settled Matches with a winner, any game (the Lobby ticker). */
 export const fetchRecentSettled = (limit = 8) => fetchSettled({ limit });
 
-/** Most Block Puzzle Matches read for one day's top scores. */
+/** Most Block Burst Matches read for one day's top scores. */
 export const TOP_SCAN_LIMIT = 150;
 
-/** The best winning Block Puzzle scores of the last 24 hours. */
+/** The best winning Block Burst scores of the last 24 hours. */
 export async function fetchTopScoresToday(now = Date.now()): Promise<[string, number][]> {
   return topScores(await fetchSettled({ game: "block-puzzle", since: now - 24 * 60 * 60 * 1000, limit: TOP_SCAN_LIMIT }));
 }

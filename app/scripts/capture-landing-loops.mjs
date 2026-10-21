@@ -153,7 +153,7 @@ const PICK_EVERY_MS = 10000;
  * Each loop is cropped to the game itself: from the top of `from` to the bottom of `to`, plus PAD.
  * `width` scales the crop down (the screen is dense and the line moves all the time, so full size encodes large).
  * `poster` is where in the recording (0 to 1) the still comes from; the default is the last frame.
- * `speed` plays the recording faster: the script finds each Block Puzzle placement by trial, slower than a Player.
+ * `speed` plays the recording faster: the script finds each Block Burst placement by trial, slower than a Player.
  */
 const LOOPS = [
   { name: "block-puzzle", route: "/play/practice?dev=demo", prep: startBlockPuzzle, from: ".fx-arena", to: ".fx-arena", pad: 0, act: playBlockPuzzle, speed: 1.7, width: 900, poster: 0.62 },

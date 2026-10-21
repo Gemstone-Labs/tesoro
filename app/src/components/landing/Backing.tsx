@@ -10,7 +10,7 @@ import { Picture } from "./Picture";
 /** Two more Requests peeking from behind the Offer card, so it reads as one of many on the board. Illustrative. */
 const PEEKS = [
   { avatar: art.avatars[4], name: "Quartz Axolotl", game: "Hold'em", entry: 2500 },
-  { avatar: art.avatars[8], name: "Topaz Lion", game: "Block Puzzle", entry: 500 },
+  { avatar: art.avatars[8], name: "Topaz Lion", game: "Block Burst", entry: 500 },
 ];
 
 export function Backing() {

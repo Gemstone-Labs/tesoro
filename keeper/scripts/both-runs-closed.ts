@@ -1,5 +1,5 @@
 /**
- * Devnet fixture for the keeper: plays a Block Puzzle Match up to "both runs closed" and stops, so the
+ * Devnet fixture for the keeper: plays a Block Burst Match up to "both runs closed" and stops, so the
  * keeper (not a Player client) does `seal` + `commit_boards` + `settle`.
  *
  *   pnpm --filter @tesoro/keeper exec tsx scripts/both-runs-closed.ts

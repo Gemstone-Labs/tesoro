@@ -1,5 +1,5 @@
 /**
- * Block Puzzle engine: exact port of programs/block_puzzle/src/engine.rs.
+ * Block Burst engine: exact port of programs/block_puzzle/src/engine.rs.
  * Rules, PRNG and scoring are documented there. Any change must land in both
  * files and regenerate programs/block_puzzle/tests/vectors.json.
  */

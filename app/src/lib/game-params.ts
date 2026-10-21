@@ -4,7 +4,7 @@ import { ASSET_PARAMS, assetIndexFromParam } from "./chain/match-id";
 type Param = string | string[] | undefined;
 const first = (v: Param) => (Array.isArray(v) ? v[0] : v);
 
-/** The `?game=` of a play link; Block Puzzle when absent or unknown. */
+/** The `?game=` of a play link; Block Burst when absent or unknown. */
 export function gameFromParam(v: Param): GameId {
   const g = first(v);
   return g === "holdem" || g === "trading-duel" ? g : "block-puzzle";
@@ -14,7 +14,7 @@ export function gameFromParam(v: Param): GameId {
 export const assetFromParam = (v: Param): 0 | 1 | 2 => assetIndexFromParam(first(v));
 
 /**
- * The query prefix a play link carries for a Game: "" for Block Puzzle, `game=holdem&`, or
+ * The query prefix a play link carries for a Game: "" for Block Burst, `game=holdem&`, or
  * `game=trading-duel&asset=eth&`. Always ends with `&` when not empty, so `entry=` can follow.
  */
 export function gameQuery(game: GameId, asset?: number | null): string {

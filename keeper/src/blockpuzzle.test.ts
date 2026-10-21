@@ -44,7 +44,7 @@ function stubCtx(id: bigint, perms: [boolean, boolean, boolean], failPermission 
   return { ctx, calls };
 }
 
-describe("Block Puzzle permissions (OC-11)", () => {
+describe("Block Burst permissions (OC-11)", () => {
   it("creates a permission missing after an earlier delegate, before seal + commit_boards", async () => {
     // The old keeper delegated and created the permission in one step: once the Board was delegated it never
     // retried, and sealAndCommit (commit_boards closes all three permissions) kept failing.

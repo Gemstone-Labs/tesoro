@@ -27,7 +27,7 @@ export function historyHref(base: string, game: GameId | null, page: number, res
   return s ? `${base}?${s}` : base;
 }
 
-/** All / Block Puzzle / Hold'em over a Match history. */
+/** All / Block Burst / Hold'em over a Match history. */
 export function GameTabs({ base, game, results = PLAYED }: { base: string; game: GameId | null; results?: readonly MatchResult[] }) {
   return (
     <nav className="mh-tabs" aria-label="Game">

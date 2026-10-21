@@ -5,7 +5,7 @@ import { GameSelect, type LandingGame } from "./GameSelect";
 const GAMES: LandingGame[] = [
   {
     id: "block-puzzle",
-    name: "Block Puzzle",
+    name: "Block Burst",
     note: "Play anytime, 90 s",
     body: "Play when you like. You and your opponent get the same pieces; the higher score wins.",
     facts: [

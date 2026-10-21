@@ -36,7 +36,7 @@ export const Delayed: Story = {
 export const Delayed1440: Story = { ...Delayed, globals: { viewport: { value: "desktop1440", isRotated: false } } };
 export const Delayed390: Story = { ...Delayed, globals: { viewport: { value: "phone390", isRotated: false } } };
 
-/** The Player's own Block Puzzle run is not played yet (the Board is probed): the card says Play your run and when the window closes. */
+/** The Player's own Block Burst run is not played yet (the Board is probed): the card says Play your run and when the window closes. */
 export const PlayYourRun: Story = {
   args: { matches: [chainMatch("block-puzzle", "active"), chainMatch("holdem", "active", { entry: 2500 })] },
 };

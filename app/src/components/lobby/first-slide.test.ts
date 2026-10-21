@@ -12,7 +12,7 @@ describe("firstSlideGame", () => {
     expect(firstSlideGame({ "block-puzzle": [], holdem: [], "trading-duel": [seat("a")] }, GAMES)).toBe("trading-duel");
     expect(firstSlideGame({ "block-puzzle": [seat("a")], holdem: [seat("b")], "trading-duel": [] }, GAMES)).toBe("block-puzzle");
   });
-  it("falls back to Block Puzzle when no Queue has anyone", () => {
+  it("falls back to Block Burst when no Queue has anyone", () => {
     expect(firstSlideGame({ "block-puzzle": [], holdem: [], "trading-duel": [] }, GAMES)).toBe("block-puzzle");
   });
   it("falls back to the first slide, whichever Game leads", () => {

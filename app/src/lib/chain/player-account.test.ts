@@ -78,7 +78,7 @@ describe("playerSummary", () => {
     expect(s.backings).toMatchObject({ backers: 2, ahead: 1 });
   });
 
-  it("splits the record by game and keeps the best Block Puzzle score", () => {
+  it("splits the record by game and keeps the best Block Burst score", () => {
     const holdem = (won: boolean, mins: number) => match("holdem", 500, won, mins, [0, 0]);
     const s = playerSummary([win(1), loss(2), match("block-puzzle", 1000, true, 3, [171, 55]), holdem(true, 4), draw(5)]);
     expect(s.byGame).toEqual([

@@ -31,11 +31,11 @@ export function playAgainTarget(r: HistoryRow): { href: string; sameOpponent: bo
 export interface GameFacts {
   /** Result of the Player's latest decided Match of the Game. */
   last: MatchResult;
-  /** Block Puzzle only: the highest score the Player reached in a finished Match. */
+  /** Block Burst only: the highest score the Player reached in a finished Match. */
   best: number | null;
 }
 
-/** Per Game, the Player's last result and best Block Puzzle score; Games never played are absent. */
+/** Per Game, the Player's last result and best Block Burst score; Games never played are absent. */
 export function gameFacts(rows: HistoryRow[]): Partial<Record<GameId, GameFacts>> {
   const out: Partial<Record<GameId, GameFacts>> = {};
   for (const r of [...rows].sort((a, b) => b.at - a.at)) {

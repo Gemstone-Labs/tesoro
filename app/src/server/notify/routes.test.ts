@@ -126,7 +126,7 @@ describe("settled Match push", () => {
     expect(first.outcomes).toEqual(["sent"]);
     expect(second.outcomes).toEqual(["duplicate"]);
     expect(sender.sent).toHaveLength(1);
-    expect(sender.sent[0].text).toContain("You won your Block Puzzle Match and 980 Gemas");
+    expect(sender.sent[0].text).toContain("You won your Block Burst Match and 980 Gemas");
   });
 
   it("tells the winner and the loser separately and skips Players with no address", async () => {
@@ -140,7 +140,7 @@ describe("settled Match push", () => {
       ],
     });
     expect((await settled(deps, body)).outcomes).toEqual(["sent", "skipped"]);
-    expect(sender.sent[0].subject).toBe("You lost your Block Puzzle Match");
+    expect(sender.sent[0].subject).toBe("You lost your Block Burst Match");
   });
 
   it("sends at most 5 emails a day and holds the rest for the digest", async () => {

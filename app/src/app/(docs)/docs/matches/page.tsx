@@ -19,7 +19,7 @@ export default function Page() {
         rows={[
           ["A Player wins", "The winner gets their own entry back plus the loser's Gemas, minus Fees (see Fees). Fees come out of the loser's Gemas, so a winner always gets their own entry back whole."],
           ["Draw", "Both entries go back to the Players unchanged."],
-          ["No-show or abandoned Match", "Both entries are refunded. A Match that nobody joins can be cancelled by its opener at any time, and anyone can refund it after the Queue window: 24 hours for Block Puzzle, one hour for the live games."],
+          ["No-show or abandoned Match", "Both entries are refunded. A Match that nobody joins can be cancelled by its opener at any time, and anyone can refund it after the Queue window: 24 hours for Block Burst, one hour for the live games."],
         ]}
       />
       <p>
@@ -32,7 +32,7 @@ export default function Page() {
       <H2 id="finding-a-match">Finding an opponent</H2>
       <ul>
         <li>
-          <b>Queue.</b> The waiting line for one game at one entry size. You are paired with the next entrant. In Block Puzzle you can play before an
+          <b>Queue.</b> The waiting line for one game at one entry size. You are paired with the next entrant. In Block Burst you can play before an
           opponent is paired.
         </li>
         <li>
@@ -44,7 +44,7 @@ export default function Page() {
         </li>
       </ul>
 
-      <H2 id="block-puzzle">Block Puzzle</H2>
+      <H2 id="block-puzzle">Block Burst</H2>
       <p>
         An asynchronous puzzle. You and your opponent get <b>the same pieces</b>, so your scores are directly comparable, but you do not have to play at
         the same time. Each run lasts 90 seconds. The higher score wins; equal scores are a draw.
@@ -56,7 +56,7 @@ export default function Page() {
         <li>If you are first, you have a one-hour Queue window for an opponent to join. After someone joins, they have 24 hours to play their run; if they never begin, you win by forfeit.</li>
       </ul>
 
-      <Shot name="block-puzzle" url={`${BRAND.domain}/play/…`} alt="A Block Puzzle run: the board, the three pieces and the score" caption="A Block Puzzle run. Both Players get the same pieces." />
+      <Shot name="block-puzzle" url={`${BRAND.domain}/play/…`} alt="A Block Burst run: the board, the three pieces and the score" caption="A Block Burst run. Both Players get the same pieces." />
 
       <H2 id="holdem">Buckshot Hold&apos;em</H2>
       <p>

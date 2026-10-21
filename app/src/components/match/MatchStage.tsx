@@ -24,7 +24,7 @@ export interface StageInfo {
   opponent: string | null;
   /** Trading Duel asset symbol. */
   asset?: string;
-  /** Block Puzzle: your score, once the run is over. */
+  /** Block Burst: your score, once the run is over. */
   score?: number | null;
   /** The busy line while the chain works. */
   step?: string;

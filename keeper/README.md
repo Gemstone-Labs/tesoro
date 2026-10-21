@@ -27,8 +27,8 @@ The last job of each pass (`src/alerts.ts`, `src/alerts-job.ts`) emails both fou
 
 ## Jobs
 
-1. **Match hygiene** (every Match in tesoro_core that is not Settled or Refunded; Block Puzzle in `src/blockpuzzle.ts`, Hold'em in `src/matches.ts`)
-   - Block Puzzle (open_session / join_session flow; the Seed lives in a SeedVault in the TEE, so the keeper never needs it):
+1. **Match hygiene** (every Match in tesoro_core that is not Settled or Refunded; Block Burst in `src/blockpuzzle.ts`, Hold'em in `src/matches.ts`)
+   - Block Burst (open_session / join_session flow; the Seed lives in a SeedVault in the TEE, so the keeper never needs it):
      - Open Match nobody joined, Queue window (1 h) over: `refund_match`. Its opener Board and SeedVault stay delegated (the rollup cannot see the base Match).
      - Joined on tesoro_core but not bound to the Session (an older client): `join_session`, inside the Match's 1 h window; after it, `refund_match`.
      - Both Boards in the rollup: a free simulation of `seal` (works from a non-member) says whether both runs are closed. If so, or if both deadlines passed, `seal` + `commit_boards` in the TEE, then `settle` on the base layer (one pass). Otherwise it logs when the deadlines fall.
@@ -48,7 +48,7 @@ The last job of each pass (`src/alerts.ts`, `src/alerts-job.ts`) emails both fou
    - The two sends pay the LayerZero fee in SOL from the keeper payer: the fee is quoted by simulating `quote_send`, refused above `--max-lz-fee-sol`, and counted against `--max-lz-sol-per-hour`. Every base transaction is simulated first, so a step that would fail is logged as `wait: ... would fail (...)` and costs nothing.
 6. **EVM yield: no job.** An ETH or HYPE Position's Debt is computed by the vault (ADR 0010); anyone may call `reportYield(id)` on the vault (the Player's app does when they want Debt lowered) and the bridge job below applies the arrived report. The keeper holds no EVM sending key; `KEEPER_EVM_PRIVATE_KEY` only names an address whose balance the alerts watch.
 
-Fixture: `pnpm --filter @tesoro/keeper exec tsx scripts/both-runs-closed.ts` plays a real devnet Block Puzzle Match up to "both runs closed" (test wallets from `~/.config/tesoro/block-puzzle-testers.json`) and stops, so the keeper does the seal, commit and settle.
+Fixture: `pnpm --filter @tesoro/keeper exec tsx scripts/both-runs-closed.ts` plays a real devnet Block Burst Match up to "both runs closed" (test wallets from `~/.config/tesoro/block-puzzle-testers.json`) and stops, so the keeper does the seal, commit and settle.
 
 ## Admin scripts
 
@@ -60,8 +60,8 @@ The keeper imports the app's IDL-based clients (`app/src/games/*/chain.ts`) and 
 
 ## Limits
 
-- Private rollup state (Block Puzzle Boards, Hold'em tables) is unreadable to the keeper; it uses simulations and program-enforced clocks to decide. If the rollup rejects simulation from a non-member, the keeper waits for the deadline paths.
-- Block Puzzle Matches are settled by the Player clients when they can; the keeper is the fallback. The forfeited-Board path (`delegate_*` + permission for a Player who never delegated) needs a 24 h wait (opener: 1 h) and is implemented from the app's `bringForfeitedBoardsIn` and the program, but not yet exercised on devnet.
+- Private rollup state (Block Burst Boards, Hold'em tables) is unreadable to the keeper; it uses simulations and program-enforced clocks to decide. If the rollup rejects simulation from a non-member, the keeper waits for the deadline paths.
+- Block Burst Matches are settled by the Player clients when they can; the keeper is the fallback. The forfeited-Board path (`delegate_*` + permission for a Player who never delegated) needs a 24 h wait (opener: 1 h) and is implemented from the app's `bringForfeitedBoardsIn` and the program, but not yet exercised on devnet.
 - Wallet-signed steps stay with the user: `create_account`, `link_evm`, `take_advance` (owner + oracle), `redeem_to_evm` and `unlock`. Once they exist, the keeper does everything after them.
 - `init_position` (the inbox record that must exist before `openPosition`) is not pre-created by the keeper; the app does it.
 

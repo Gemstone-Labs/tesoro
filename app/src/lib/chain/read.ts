@@ -42,7 +42,7 @@ export interface ChainMatch {
   fees: { platformBps: number; studioBps: number; leaderboardBps: number };
   /** Hold'em: the winning seat of a settled table (null for a refund or while unsettled). */
   winner: "opener" | "joiner" | null;
-  /** Block Puzzle: set as soon as the Match is opened (the opener plays before anyone is paired). */
+  /** Block Burst: set as soon as the Match is opened (the opener plays before anyone is paired). */
   session: {
     settled: boolean;
     joined: boolean;
