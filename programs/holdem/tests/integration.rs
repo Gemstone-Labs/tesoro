@@ -491,6 +491,7 @@ impl Env {
         );
         let admin = env.admin.insecure_clone();
         env.send(&[init], &admin, &[]).expect("init config");
+        flow::set_economy(&mut env.svm, &admin);
         // The Game authority is the holdem PDA, not a keypair.
         let ctl = Keypair::new();
         let hash = control_program(&mut env.svm, holdem::ID, a(ctl.pubkey()));

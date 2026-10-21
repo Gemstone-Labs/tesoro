@@ -62,6 +62,26 @@ fn send(svm: &mut LiteSVM, payer: &Keypair, ixs: &[Instruction]) -> Result<(), F
     svm.send_transaction(tx).map(drop)
 }
 
+/// The economy settings a Match reads when it opens (the admin sets them once, before launch).
+pub fn set_economy(svm: &mut LiteSVM, admin: &Keypair) {
+    let set = ix(
+        tesoro_core::accounts::SetEconomy {
+            admin: a(admin.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            economy: pda(&[ECONOMY_SEED]),
+            system_program: anchor_lang::system_program::ID,
+        },
+        tesoro_core::instruction::SetEconomy {
+            season_keeper: APk::default(),
+            fill_keeper: APk::default(),
+            keeper_fills: false,
+            routes: [APk::default(); MAX_ROUTES],
+        },
+        vec![],
+    );
+    send(svm, admin, &[set]).expect("set economy");
+}
+
 /// A Match, as the Game suites hold it.
 #[derive(Clone, Copy, Debug)]
 pub struct MatchRef {
@@ -215,6 +235,7 @@ pub fn open_match(
             payer: authority,
             player_authority: authority,
             config: pda(&[CONFIG_SEED]),
+            economy: pda(&[ECONOMY_SEED]),
             game_record: game_record(game),
             game_program: game,
             program_data: program_data(game),

@@ -96,23 +96,37 @@ fn listing(
 
 /// The slot the Game's build is judged by when a Match settles or is refunded: the Match's own
 /// while the build is the one it opened under (including a program only extended), else the
-/// current one, which differs.
+/// current one, which differs. A ProgramData that is not the program's own is refused: it must
+/// not read as "the Game was upgraded" and let anyone refund a healthy Match.
 fn judged_slot(
     record: &GameRecord,
     m: &MatchState,
     game_program: &AccountInfo,
     program_data: &AccountInfo,
-) -> u64 {
+) -> Result<u64> {
     match crate::instructions::registry::read_deploy(game_program, program_data) {
-        Ok(deploy) => {
-            if record.same_build(m, deploy.slot) {
-                m.inner.deploy_slot
+        Ok(deploy) => Ok(if record.same_build(m, deploy.slot) {
+            m.inner.deploy_slot
+        } else {
+            deploy.slot
+        }),
+        Err(_) => {
+            let own_program_data = Pubkey::find_program_address(
+                &[game_program.key.as_ref()],
+                &crate::registry::LOADER_UPGRADEABLE,
+            )
+            .0;
+            require!(
+                game_program.owner != &crate::registry::LOADER_UPGRADEABLE
+                    || *program_data.key == own_program_data,
+                TesoroError::GameProofInvalid
+            );
+            Ok(if m.inner.deploy_slot == 0 {
+                0
             } else {
-                deploy.slot
-            }
+                u64::MAX
+            })
         }
-        Err(_) if m.inner.deploy_slot == 0 => 0,
-        Err(_) => u64::MAX,
     }
 }
 
@@ -126,11 +140,23 @@ fn record_pair(pair: &mut Account<PairState>, bump: u8, payer: Pubkey, now: i64)
     Ok(())
 }
 
-fn terms_of(config: &Config, game_record: &GameRecord, listed: bool) -> Terms {
+/// Fee terms of a Match. A listed Game whose Studio recipient is Tesoro's own studio pays its
+/// Studio Fee into the Source's Studio counter (`studio_owner: None`, cashed in by `cash_in_fee`);
+/// any other listed Game's Studio Fee is a Studio-class line in the recipient's basket, and an
+/// unlisted Game's is ordinary won Gemas.
+fn terms_of(
+    config: &Config,
+    economy: &EconomyConfig,
+    game_record: &GameRecord,
+    listed: bool,
+) -> Terms {
+    let tesoro_own = listed
+        && economy.tesoro_studio != Pubkey::default()
+        && game_record.studio_recipient == economy.tesoro_studio;
     Terms {
         platform_bps: config.platform_bps,
         studio_bps: game_record.studio_bps,
-        studio_owner: Some(game_record.studio_recipient.to_bytes()),
+        studio_owner: (!tesoro_own).then(|| game_record.studio_recipient.to_bytes()),
         studio_priority: listed,
     }
 }
@@ -298,6 +324,8 @@ pub struct OpenMatch<'info> {
     pub player_authority: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,
+    #[account(seeds = [ECONOMY_SEED], bump = economy.bump)]
+    pub economy: Box<Account<'info, EconomyConfig>>,
     #[account(seeds = [GAME_SEED, game.as_ref()], bump = game_record.bump)]
     pub game_record: Box<Account<'info, GameRecord>>,
     /// CHECK: the Game program; the loader state is read by `listing`.
@@ -548,7 +576,12 @@ pub(crate) fn open_match<'info>(
         let config = &ctx.accounts.config;
         (
             config.entries(),
-            terms_of(config, &ctx.accounts.game_record, listed),
+            terms_of(
+                config,
+                &ctx.accounts.economy,
+                &ctx.accounts.game_record,
+                listed,
+            ),
         )
     };
     let rec = MatchRecord::open(
@@ -950,7 +983,7 @@ pub(crate) fn settle_match(ctx: Context<SettleMatch>, result: MatchResult) -> Re
         &ctx.accounts.match_state,
         &ctx.accounts.game_program.to_account_info(),
         &ctx.accounts.program_data.to_account_info(),
-    );
+    )?;
     let outcome = match result {
         MatchResult::Opener => Outcome::Winner(0),
         MatchResult::Joiner => Outcome::Winner(1),
@@ -1068,7 +1101,7 @@ pub(crate) fn refund_match(ctx: Context<RefundMatch>) -> Result<()> {
         &ctx.accounts.match_state,
         &ctx.accounts.game_program.to_account_info(),
         &ctx.accounts.program_data.to_account_info(),
-    );
+    )?;
     let m = &ctx.accounts.match_state.inner;
     let open = m.stage() == Stage::Open;
     let opener_wallet_account =

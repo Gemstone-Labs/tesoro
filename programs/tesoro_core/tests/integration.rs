@@ -12,7 +12,9 @@ use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
 use tesoro_core::instructions::MatchResult;
 use tesoro_core::ledger::book::fp_ceil;
-use tesoro_core::ledger::line_store::{CLASS_GENERAL, CLASS_LEADERBOARD, CLASS_PLATFORM, SIDE_OWN};
+use tesoro_core::ledger::line_store::{
+    CLASS_GENERAL, CLASS_LEADERBOARD, CLASS_PLATFORM, CLASS_STUDIO, SIDE_OWN,
+};
 use tesoro_core::ledger::{CoreError, SourceChain};
 use tesoro_core::state::*;
 use tesoro_core::storage::*;
@@ -1226,6 +1228,7 @@ impl Env {
                 payer: p.key,
                 player_authority: p.key,
                 config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
                 game_record,
                 game_program,
                 program_data,
@@ -1408,7 +1411,17 @@ impl Env {
         caller: &Keypair,
         id: u64,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        let (game_record, game_program, program_data) = self.game_accounts();
+        let (_, _, program_data) = self.game_accounts();
+        self.refund_start_with(caller, id, program_data)
+    }
+
+    fn refund_start_with(
+        &mut self,
+        caller: &Keypair,
+        id: u64,
+        program_data: APk,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let (game_record, game_program, _) = self.game_accounts();
         let key = self.match_key(id);
         let refund = ix(
             accounts::RefundMatch {
@@ -5024,6 +5037,109 @@ fn an_unlisted_games_studio_fee_is_ordinary_gemas_not_a_senior_fee() {
         "won Gemas in the studio's basket"
     );
     assert_eq!(d.env.counter_amount(d.b_source, CLASS_PLATFORM), 40);
+}
+
+/// Names the Account that receives the Studio Fee of Tesoro's own Games.
+fn set_tesoro_studio(env: &mut Env, recipient: APk) {
+    let admin = env.admin.insecure_clone();
+    let set = ix(
+        accounts::SetTesoroStudio {
+            admin: a(admin.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            economy: pda(&[ECONOMY_SEED]),
+            recipient_account: recipient,
+        },
+        instruction::SetTesoroStudio {},
+        vec![],
+    );
+    env.send(&[set], &admin, &[]).expect("set tesoro studio");
+}
+
+#[test]
+fn a_listed_tesoro_game_pays_its_studio_fee_into_the_source_counter_and_cash_in_pays_tesoro_studio()
+{
+    let mut d = duel();
+    let studio = d.env.studio.account;
+    set_tesoro_studio(&mut d.env, studio);
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(d.env.mstate(m).listed);
+    // 3% of the 2,000 Pot comes off Bob's lines into his Source's Studio counter, no basket line
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_STUDIO), 60);
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_PLATFORM), 40);
+    assert_eq!(d.env.fee_gemas(&d.env.studio), 0);
+    assert_eq!(d.env.total_gemas(&d.env.studio), 0);
+    // conservation: every Gema of Bob's Source is somewhere
+    let held: u64 = [&d.alice, &d.bob, &d.env.platform, &d.env.studio]
+        .iter()
+        .map(|p| d.env.holding_amount(p, d.b_source))
+        .sum::<u64>()
+        + d.env.counter_amount(d.b_source, CLASS_STUDIO)
+        + d.env.counter_amount(d.b_source, CLASS_PLATFORM);
+    assert_eq!(held, 75_000);
+    // yield covers the counter, anyone cashes it in, and only to the Tesoro studio
+    let oracle = d.env.oracle.insecure_clone();
+    let b_position = position_pda(2);
+    d.env
+        .yield_to(&oracle, b_position, Some(d.b_source), 1, 6 * SOL)
+        .expect("yield");
+    let cash = |d: &Duel, to: APk| {
+        let remaining = book_metas(&d.env.svm, d.b_source);
+        ix(
+            accounts::CashInFee {
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                recipient_account: to,
+                position: b_position,
+                source: d.b_source,
+            },
+            instruction::CashInFee {
+                class: CLASS_STUDIO,
+            },
+            remaining,
+        )
+    };
+    let bob = d.bob.kp.insecure_clone();
+    let wrong = cash(&d, d.alice.account);
+    assert!(d.env.send(&[wrong], &bob, &[]).is_err());
+    let right = cash(&d, studio);
+    d.env.send(&[right], &bob, &[]).expect("cash in");
+    assert_eq!(
+        d.env.counter_amount(d.b_source, CLASS_STUDIO),
+        0,
+        "paid out in full"
+    );
+}
+
+#[test]
+fn a_listed_outside_studios_fee_stays_a_studio_class_line_in_its_basket() {
+    let mut d = duel();
+    // the admin names someone else as Tesoro's studio: this Game's studio is an outside one
+    let other = d.env.platform.account;
+    set_tesoro_studio(&mut d.env, other);
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(d.env.mstate(m).listed);
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_STUDIO), 0);
+    assert_eq!(d.env.fee_gemas(&d.env.studio), 60);
+}
+
+#[test]
+fn junk_program_data_cannot_make_anyone_refund_an_active_match_as_upgraded() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, ENTRY).unwrap();
+    d.env.join_match(&d.bob, m).unwrap();
+    let stranger = d.env.person();
+    let kp = stranger.kp.insecure_clone();
+    for junk in [APk::new_unique(), d.alice.account, game_record_of_game()] {
+        assert!(
+            d.env.refund_start_with(&kp, m, junk).is_err(),
+            "a healthy Active Match is not refundable by a stranger"
+        );
+        assert_eq!(d.env.stage_of(m), Stage::Active);
+    }
+}
+
+fn game_record_of_game() -> APk {
+    common::game_record(GAME)
 }
 
 #[test]

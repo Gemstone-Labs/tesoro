@@ -223,6 +223,7 @@ impl Env {
                 vec![],
             ),
         );
+        flow::set_economy(&mut env.svm, &admin);
         let ctl = Keypair::new();
         let hash = control_program(&mut env.svm, block_puzzle::ID, a(ctl.pubkey()));
         let register = core_ix(
