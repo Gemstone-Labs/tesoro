@@ -403,7 +403,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       if (!p || id === null) throw new Error("Not ready");
       try {
         const vg = getVanguard();
-        await vg.movePiece(p, id, piece, to);
+        await vg.movePiece(p, id, piece, to, { expectedSeq: 0, sealedSwitch: 0 }); // ticket 07 seals this with the Army key
         // Applying it needs a later slot: try right away, the poll keeps trying if this misses.
         for (let i = 0; i < 4; i++) {
           if (await vg.resolve(p, id).then(() => true, () => false)) break;

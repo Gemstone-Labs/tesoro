@@ -408,10 +408,16 @@ export class VanguardChain {
    * checks only public state now; the rank rules and the fight are applied by `resolve` in a later slot, and a move
    * the rank rules refuse costs the turn. A declare cannot be taken back. Send `resolve` as soon as it lands.
    */
-  async movePiece(player: PlayerSigner, matchId: bigint | number, piece: number, to: number): Promise<string> {
+  async movePiece(
+    player: PlayerSigner,
+    matchId: bigint | number,
+    piece: number,
+    to: number,
+    seal: { expectedSeq: number; sealedSwitch: number },
+  ): Promise<string> {
     const ad = addresses(matchId);
     const ix = await this.program.methods
-      .movePiece(piece, to)
+      .movePiece(piece, to, seal.expectedSeq, seal.sealedSwitch)
       .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
       .instruction();
     return this.sendTee("move_piece", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
