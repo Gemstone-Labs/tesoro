@@ -145,6 +145,65 @@ pub enum BasketError {
     Ledger,
 }
 
+/// Errors of Tickets, Pots and the Match lifecycle (tickets 09). Their own range.
+#[error_code(offset = 6400)]
+pub enum MatchError {
+    #[msg("the spill has no free slots to reserve: grow it first")]
+    RoomNotReserved,
+    #[msg("this Account already has the most Matches open at once")]
+    TooManyOpenMatches,
+    #[msg("the Ticket is not this Account's, Game or entry size")]
+    TicketMismatch,
+    #[msg("the Ticket has not staged the whole entry yet")]
+    TicketNotComplete,
+    #[msg("faster Gemas arrived since the Ticket staged: stage again")]
+    FasterGemasAvailable,
+    #[msg("this entry needs more lines than one transaction moves: use an Entry Ticket")]
+    NeedsTicket,
+    #[msg("the Ticket's storage is full: grow it")]
+    TicketStorageFull,
+    #[msg("only the owner stages an Entry Ticket")]
+    NotTicketOwner,
+    #[msg("only the owner cancels a Ticket before it expires")]
+    TicketNotExpired,
+    #[msg("a Ticket of this kind is already open on this basket")]
+    TicketAlreadyOpen,
+    #[msg("the Ticket's storage and spill room were not reserved")]
+    StorageNotReserved,
+    #[msg("the Ticket is not open")]
+    TicketNotOpen,
+    #[msg("the Pot still holds Gemas")]
+    PotNotEmpty,
+    #[msg("the Match is not closed: its run is not finished")]
+    MatchNotClosed,
+    #[msg("this is not the Pot of the Match")]
+    WrongPot,
+    #[msg("the Backing's accounts do not match the Offer")]
+    BadBacking,
+    #[msg("the Offer has a Backing Ticket open: cancel that first")]
+    OfferHasTicket,
+    #[msg("settlement can only start before the Match's absolute deadline")]
+    PastAbsoluteDeadline,
+    #[msg("the Game was upgraded since the Match opened: it can only be refunded")]
+    GameUpgraded,
+    #[msg("the Match record and its Pots disagree")]
+    Inconsistent,
+    #[msg("the Match has no joiner yet")]
+    NotJoined,
+    #[msg("the run is not finished: more chunks are needed")]
+    RunUnfinished,
+    #[msg("a settlement receipt can be closed 14 days after it was written")]
+    ReceiptTooNew,
+    #[msg("an account that must be supplied for this chunk is missing")]
+    AccountMissing,
+    #[msg("the Match is not in the state this instruction needs")]
+    WrongStage,
+    #[msg("the Offer cannot be used: it is not accepted, or not by this Player")]
+    OfferNotUsable,
+    #[msg("this Account already has the most Offers open at once")]
+    TooManyOffers,
+}
+
 pub fn core_err(e: CoreError) -> Error {
     Error::from(AnchorError {
         error_name: e.name().to_string(),

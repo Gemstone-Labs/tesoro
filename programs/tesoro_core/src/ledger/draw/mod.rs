@@ -488,6 +488,21 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
         amount: u64,
         max_lines: usize,
     ) -> DrawResult<PotPages> {
+        let mut pot = PotPages::new(owner);
+        self.draw_direct_into(books, &mut pot, amount, max_lines)?;
+        Ok(pot)
+    }
+
+    /// [`Pool::draw_direct`] into a Pot that already exists (an account's store, on chain).
+    /// Nothing changes in the pool when it fails before the first line moves; a failure after
+    /// that (a full Pot) fails the whole instruction, which the caller does not catch.
+    pub fn draw_direct_into<T: PotBacking>(
+        &mut self,
+        books: &mut dyn SourceBooks,
+        pot: &mut PotPages<T>,
+        amount: u64,
+        max_lines: usize,
+    ) -> DrawResult<()> {
         if self.entry_ticket_open() {
             return Err(DrawError::TicketOpen);
         }
@@ -495,14 +510,13 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
         if plan.len() > max_lines {
             return Err(DrawError::NeedsTicket);
         }
-        let mut pot = PotPages::new(owner);
         let mut left = amount;
         while left > 0 {
             let l = self.take_front(books, left)?;
             left -= l.amount;
             pot.push_joined(books, l)?;
         }
-        Ok(pot)
+        Ok(())
     }
 
     /// Draw a Backer's reserved amount when the backed Match opens (direct). The reservation
@@ -515,6 +529,19 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
         amount: u64,
         max_lines: usize,
     ) -> DrawResult<PotPages> {
+        let mut pot = PotPages::new(owner);
+        self.draw_backing_direct_into(books, &mut pot, amount, max_lines)?;
+        Ok(pot)
+    }
+
+    /// [`Pool::draw_backing_direct`] into an existing Pot.
+    pub fn draw_backing_direct_into<T: PotBacking>(
+        &mut self,
+        books: &mut dyn SourceBooks,
+        pot: &mut PotPages<T>,
+        amount: u64,
+        max_lines: usize,
+    ) -> DrawResult<()> {
         if self.backing_ticket_open() {
             return Err(DrawError::TicketOpen);
         }
@@ -530,7 +557,6 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
         if plan.len() > max_lines {
             return Err(DrawError::NeedsTicket);
         }
-        let mut pot = PotPages::new(owner);
         let mut left = amount;
         while left > 0 {
             let l = self.take_front(books, left)?;
@@ -538,7 +564,7 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
             pot.push_joined(books, l)?;
         }
         self.basket.set_reserved_total(reserved - amount);
-        Ok(pot)
+        Ok(())
     }
 }
 
@@ -664,6 +690,11 @@ impl<B: PotBacking> PotPages<B> {
 
     pub fn store(&self) -> &LineStore<B> {
         &self.store
+    }
+
+    /// The underlying buffer (an account's data, on chain).
+    pub fn bytes_mut(&mut self) -> &mut B {
+        self.store.bytes_mut()
     }
 
     pub fn len(&self) -> usize {

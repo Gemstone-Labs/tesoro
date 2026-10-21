@@ -310,6 +310,7 @@ fn terms(studio_outside: bool, pb: u16, sb: u16) -> Terms {
         platform_bps: pb,
         studio_bps: sb,
         studio_owner: studio_outside.then(|| key(OUTSIDE)),
+        studio_priority: true,
     }
 }
 

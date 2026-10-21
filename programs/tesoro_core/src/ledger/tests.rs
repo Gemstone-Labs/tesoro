@@ -48,95 +48,23 @@ struct World {
     holdings: BTreeMap<(usize, usize), Holding>,
     matches: Vec<Match>,
     requests: Vec<Request>,
-    offers: Vec<Offer>,
     now: i64,
 }
 
 #[derive(Clone, Debug)]
 enum Op {
-    Advance {
-        a: usize,
-        horizon: u8,
-        price: u64,
-    },
-    Extend {
-        a: usize,
-        extra: u8,
-    },
-    Yield {
-        a: usize,
-        pct: u16,
-    },
-    Return {
-        a: usize,
-        pct: u8,
-    },
-    ReturnForeign {
-        a: usize,
-        s: usize,
-    },
-    Redeem {
-        a: usize,
-        s: usize,
-        pct: u8,
-    },
-    OpenMatch {
-        a: usize,
-        e: usize,
-    },
-    JoinMatch {
-        a: usize,
-        m: usize,
-    },
-    Settle {
-        m: usize,
-        outcome: u8,
-    },
-    Refund {
-        m: usize,
-        force: bool,
-    },
-    Time {
-        dt: i64,
-    },
-    Request {
-        a: usize,
-        e: usize,
-    },
-    Offer {
-        a: usize,
-        e: usize,
-        share: u16,
-        directed: Option<usize>,
-    },
-    AcceptDirected {
-        o: usize,
-    },
-    Apply {
-        o: usize,
-        r: usize,
-    },
-    AcceptApplicant {
-        o: usize,
-        r: usize,
-    },
-    CancelOffer {
-        o: usize,
-    },
-    ExpireOffer {
-        o: usize,
-    },
-    Backed {
-        o: usize,
-    },
-    BackedFlow {
-        player: usize,
-        backer: usize,
-        e: usize,
-        share: u16,
-        opp: usize,
-        outcome: u8,
-    },
+    Advance { a: usize, horizon: u8, price: u64 },
+    Extend { a: usize, extra: u8 },
+    Yield { a: usize, pct: u16 },
+    Return { a: usize, pct: u8 },
+    ReturnForeign { a: usize, s: usize },
+    Redeem { a: usize, s: usize, pct: u8 },
+    OpenMatch { a: usize, e: usize },
+    JoinMatch { a: usize, m: usize },
+    Settle { m: usize, outcome: u8 },
+    Refund { m: usize, force: bool },
+    Time { dt: i64 },
+    Request { a: usize, e: usize },
 }
 
 fn op_strategy() -> impl Strategy<Value = Op> {
@@ -154,16 +82,6 @@ fn op_strategy() -> impl Strategy<Value = Op> {
         2 => (0usize..8, any::<bool>()).prop_map(|(m, force)| Op::Refund { m, force }),
         1 => (0i64..(2 * 86_400)).prop_map(|dt| Op::Time { dt }),
         2 => (a.clone(), 0usize..3).prop_map(|(a, e)| Op::Request { a, e }),
-        3 => (a.clone(), 0usize..3, 0u16..=10_000, prop::option::of(0usize..12))
-            .prop_map(|(a, e, share, directed)| Op::Offer { a, e, share, directed }),
-        2 => (0usize..6).prop_map(|o| Op::AcceptDirected { o }),
-        2 => (0usize..6, 0usize..6).prop_map(|(o, r)| Op::Apply { o, r }),
-        2 => (0usize..6, 0usize..6).prop_map(|(o, r)| Op::AcceptApplicant { o, r }),
-        1 => (0usize..6).prop_map(|o| Op::CancelOffer { o }),
-        1 => (0usize..6).prop_map(|o| Op::ExpireOffer { o }),
-        4 => (0usize..6).prop_map(|o| Op::Backed { o }),
-        6 => (a.clone(), a.clone(), 0usize..3, 0u16..=10_000, a.clone(), 0u8..3)
-            .prop_map(|(player, backer, e, share, opp, outcome)| Op::BackedFlow { player, backer, e, share, opp, outcome }),
     ]
 }
 
@@ -196,7 +114,6 @@ fn world_strategy() -> impl Strategy<Value = World> {
             holdings: BTreeMap::new(),
             matches: Vec::new(),
             requests: Vec::new(),
-            offers: Vec::new(),
             now: 1_000,
         }
     })
@@ -533,127 +450,6 @@ impl World {
                 }
                 self.requests.push(r);
             }
-            Op::Offer {
-                a,
-                e,
-                share,
-                directed,
-            } => {
-                if self.offers.len() >= 12 {
-                    return Err(());
-                }
-                let entry = LADDER[e];
-                let sis = self.draw_list(a, entry).ok_or(())?;
-                let kind = match directed {
-                    Some(r) => OfferKind::Directed(rkey(r)),
-                    None => OfferKind::Public,
-                };
-                let now = self.now;
-                let offer = self
-                    .with_holdings(a, &sis, |acct, hs| {
-                        Offer::create(akey(a), GAME, entry, &LADDER, share, kind, now, acct, hs)
-                    })
-                    .map_err(|_| ())?;
-                self.offers.push(offer);
-            }
-            Op::AcceptDirected { o } => {
-                let o = self.pick(o, |w| (0..w.offers.len()).collect())?;
-                let OfferKind::Directed(rk) = self.offers[o].kind else {
-                    return Err(());
-                };
-                let r = (rk[0] - 100) as usize;
-                let now = self.now;
-                let req = self.requests.get_mut(r).ok_or(())?;
-                self.offers[o]
-                    .accept_directed(req, rk, now)
-                    .map_err(|_| ())?;
-            }
-            Op::Apply { o, r } => {
-                let o = self.pick(o, |w| (0..w.offers.len()).collect())?;
-                let r = self.pick(r, |w| (0..w.requests.len()).collect())?;
-                let now = self.now;
-                self.offers[o]
-                    .apply(&self.requests[r], rkey(r), now)
-                    .map_err(|_| ())?;
-            }
-            Op::AcceptApplicant { o, r } => {
-                let o = self.pick(o, |w| (0..w.offers.len()).collect())?;
-                let r = self.pick(r, |w| (0..w.requests.len()).collect())?;
-                let now = self.now;
-                let req = &mut self.requests[r];
-                self.offers[o]
-                    .accept_applicant(req, rkey(r), now)
-                    .map_err(|_| ())?;
-            }
-            Op::CancelOffer { o } => {
-                let o = self.pick(o, |w| (0..w.offers.len()).collect())?;
-                let b = acct_of(&self.offers[o].backer);
-                let sis = self.line_sources(o);
-                let mut offer = self.offers[o].clone();
-                self.with_holdings(b, &sis, |acct, hs| offer.cancel(acct, hs))
-                    .map_err(|_| ())?;
-                self.offers[o] = offer;
-            }
-            Op::ExpireOffer { o } => {
-                let o = self.pick(o, |w| (0..w.offers.len()).collect())?;
-                let b = acct_of(&self.offers[o].backer);
-                let sis = self.line_sources(o);
-                let now = self.now;
-                let mut offer = self.offers[o].clone();
-                self.with_holdings(b, &sis, |acct, hs| offer.expire(now, acct, hs))
-                    .map_err(|_| ())?;
-                self.offers[o] = offer;
-            }
-            Op::BackedFlow {
-                player,
-                backer,
-                e,
-                share,
-                opp,
-                outcome,
-            } => {
-                // Request, directed Offer, acceptance, backed entry, an opponent joins, settle.
-                let r = self.requests.len();
-                let o = self.offers.len();
-                self.apply(&Op::Request { a: player, e })?;
-                self.apply(&Op::Offer {
-                    a: backer,
-                    e,
-                    share,
-                    directed: Some(r),
-                })?;
-                self.apply(&Op::AcceptDirected { o })?;
-                self.apply(&Op::Backed { o })?;
-                self.apply(&Op::JoinMatch { a: opp, m: 0 })?;
-                self.apply(&Op::Settle { m: 0, outcome })?;
-            }
-            Op::Backed { o } => {
-                let o = self.pick(o, |w| (0..w.offers.len()).collect())?;
-                let offer = self.offers[o].clone();
-                let player = acct_of(&offer.player.ok_or(())?);
-                let b = acct_of(&offer.backer);
-                let sis = self.line_sources(o);
-                let now = self.now;
-                let mut offer_mut = offer.clone();
-                let side = self
-                    .with_holdings(b, &sis, |acct, hs| {
-                        offer_mut.consume(akey(player), GAME, offer.entry, now, acct, hs)
-                    })
-                    .map_err(|_| ())?;
-                self.offers[o] = offer_mut;
-                let open = self
-                    .matches
-                    .iter()
-                    .position(|m| m.status == MatchStatus::Open && m.entry == offer.entry);
-                match open {
-                    Some(i) => self.matches[i].join(side, now).map_err(|_| ())?,
-                    None => {
-                        let m = Match::open(GAME, offer.entry, &LADDER, fees(), side, now)
-                            .map_err(|_| ())?;
-                        self.matches.push(m);
-                    }
-                }
-            }
         }
         Ok(())
     }
@@ -664,14 +460,6 @@ impl World {
             return Err(());
         }
         Ok(v[i % v.len()])
-    }
-
-    fn line_sources(&self, o: usize) -> Vec<usize> {
-        self.offers[o]
-            .lines
-            .iter()
-            .map(|l| self.source_index(&l.source))
-            .collect()
     }
 
     fn assert_final(&mut self, m: usize) {
@@ -1146,76 +934,6 @@ fn backing_win_returns_entry_then_splits_and_loss_costs_the_entry() {
     assert_eq!(to(akey(1)), 500 + 450);
 }
 
-#[test]
-fn offers_expire_and_cannot_be_revoked_after_match_start() {
-    let mut acct = Account::default();
-    let mut h = Holding::new([3; 32], true);
-    h.credit(&mut acct, 2_500).unwrap();
-    let mut hs = [h];
-    let mut offer = Offer::create(
-        akey(2),
-        GAME,
-        500,
-        &LADDER,
-        5_000,
-        OfferKind::Public,
-        0,
-        &mut acct,
-        &mut hs,
-    )
-    .unwrap();
-    assert_eq!((hs[0].reserved, acct.own_reserved), (500, 500));
-    let mut req = Request::new(akey(0), GAME, 500, &LADDER, 0).unwrap();
-    offer.apply(&req, rkey(0), 10).unwrap();
-    assert_eq!(
-        offer.apply(&req, rkey(0), 11),
-        Err(CoreError::AlreadyApplied)
-    );
-    offer.accept_applicant(&mut req, rkey(0), 20).unwrap();
-    // Wrong Player cannot use it.
-    assert_eq!(
-        offer
-            .consume(akey(1), GAME, 500, 30, &mut acct, &mut hs)
-            .unwrap_err(),
-        CoreError::NotParty
-    );
-    let side = offer
-        .consume(akey(0), GAME, 500, 30, &mut acct, &mut hs)
-        .unwrap();
-    assert_eq!(side.funder, akey(2));
-    assert_eq!(
-        (hs[0].amount, hs[0].reserved, acct.own_total),
-        (2_000, 0, 2_000)
-    );
-    assert_eq!(
-        offer.cancel(&mut acct, &mut hs),
-        Err(CoreError::InvalidStatus)
-    );
-    // A fresh Offer expires after 24h and releases.
-    let mut o2 = Offer::create(
-        akey(2),
-        GAME,
-        500,
-        &LADDER,
-        5_000,
-        OfferKind::Public,
-        0,
-        &mut acct,
-        &mut hs,
-    )
-    .unwrap();
-    assert_eq!(
-        o2.expire(BACKING_TTL_SECS - 1, &mut acct, &mut hs),
-        Err(CoreError::NotExpired)
-    );
-    o2.expire(BACKING_TTL_SECS, &mut acct, &mut hs).unwrap();
-    assert_eq!(hs[0].reserved, 0);
-    assert_eq!(
-        o2.accept_applicant(&mut req, rkey(0), BACKING_TTL_SECS + 1),
-        Err(CoreError::InvalidStatus)
-    );
-}
-
 // --- Many-Source entries -------------------------------------------------------------------
 
 /// A holder with the given own and won balances, one Holding per Source (distinct keys from
@@ -1379,51 +1097,6 @@ fn eight_holdings_enter_and_a_ninth_is_refused() {
     // own_free = 620 > 500, so 300 + 200 from the two big ones; the small ones stay.
     let lines = draw_entry(&mut acct, &mut pick, 500).unwrap();
     assert_eq!(lines.iter().map(|l| l.amount).sum::<u64>(), 500);
-}
-
-#[test]
-fn a_backed_entry_over_eight_sources_settles_with_bounded_payouts() {
-    let (mut acct, mut hs) = holder(&[63; 8], &[], 1);
-    let mut offer = Offer::create(
-        akey(2),
-        GAME,
-        500,
-        &LADDER,
-        4_000,
-        OfferKind::Public,
-        0,
-        &mut acct,
-        &mut hs,
-    )
-    .unwrap();
-    assert_eq!(hs.iter().filter(|h| h.reserved > 0).count(), 8);
-    let mut req = Request::new(akey(0), GAME, 500, &LADDER, 0).unwrap();
-    offer.apply(&req, rkey(0), 10).unwrap();
-    offer.accept_applicant(&mut req, rkey(0), 20).unwrap();
-    let a_side = offer
-        .consume(akey(0), GAME, 500, 30, &mut acct, &mut hs)
-        .unwrap();
-    assert_eq!(a_side.lines.len(), 8);
-    let mut m = Match::open(GAME, 500, &LADDER, fees(), a_side, 30).unwrap();
-    let b = side(
-        akey(1),
-        akey(1),
-        0,
-        &[
-            (80, 60),
-            (81, 60),
-            (82, 60),
-            (83, 60),
-            (84, 60),
-            (85, 60),
-            (86, 60),
-            (87, 80),
-        ],
-    );
-    m.join(b, 31).unwrap();
-    let payouts = m.settle(Outcome::Winner(0)).unwrap();
-    assert_eq!(payouts.iter().map(|p| p.amount).sum::<u64>(), 1_000);
-    assert!(payouts.len() <= 2 * MAX_ENTRY_SOURCES + 3);
 }
 
 const POOL: usize = 3;

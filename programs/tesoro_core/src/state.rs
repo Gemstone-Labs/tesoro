@@ -2,7 +2,7 @@
 //! Ledger identities (`Key`) are the addresses of the PDAs below; `Account` (CONTEXT.md) is
 //! `TesoroAccount` on chain because `Account` is Anchor's wrapper type.
 
-use crate::ledger::{self, Holding, Key, Match, Offer, Position, Request, Source};
+use crate::ledger::{self, Holding, Key, Offer, Position, Request, Source};
 use anchor_lang::prelude::*;
 
 pub const CONFIG_SEED: &[u8] = b"config";
@@ -10,7 +10,16 @@ pub const ACCOUNT_SEED: &[u8] = b"account";
 pub const POSITION_SEED: &[u8] = b"position";
 pub const SOURCE_SEED: &[u8] = b"source";
 pub const HOLDING_SEED: &[u8] = b"holding";
+/// A Match: `["match", opener Account, counter as u64 LE]`. The counter lives in the opener's
+/// `AccountCounters` and only grows, so no id is ever reused.
 pub const MATCH_SEED: &[u8] = b"match";
+/// An Account's counters (next Match id, open Matches, open Offers): `["counters", account]`.
+pub const COUNTERS_SEED: &[u8] = b"counters";
+/// An Entry or Backing Ticket, and later the Pot of the side that used it:
+/// `["ticket", account, nonce as u64 LE]`.
+pub const TICKET_SEED: &[u8] = b"ticket";
+/// The settlement receipt of a Match: `["settled", match]`.
+pub const RECEIPT_SEED: &[u8] = crate::ledger::lifecycle::RECEIPT_SEED;
 pub const REQUEST_SEED: &[u8] = b"request";
 pub const OFFER_SEED: &[u8] = b"offer";
 pub const NATIVE_SEED: &[u8] = b"native";
@@ -136,7 +145,7 @@ impl GameRecord {
     /// The Game program is still the build a Match opened under: the deploy slot is unchanged, or
     /// it moved (ExtendProgram) and `refresh_listing` proved the same bytes in the same epoch.
     pub fn same_build(&self, m: &MatchState, current_slot: u64) -> bool {
-        current_slot == m.deploy_slot
+        current_slot == m.inner.deploy_slot
             || (current_slot == self.approved_slot && self.listing_epoch == m.listing_epoch)
     }
 
@@ -350,24 +359,62 @@ impl HoldingState {
     pub const SPACE: usize = 8 + 1 + 32 + 32 + 1 + 8 + 8;
 }
 
-const SIDE: usize = 32 + 32 + 2 + 4 + ledger::MAX_ENTRY_SOURCES * 40;
+/// The most Matches one Account may have open at once (an Open, Active, Settling or Refunding
+/// Match counts until it is closed). Idle Matches cannot hold tables for free.
+pub const MAX_OPEN_MATCHES: u32 = 8;
 
+/// What an Account has counted: the id of its next Match, how many of its Matches are open, how
+/// many Offers it has open. Created with the first Match or Offer; never closed.
+#[account]
+pub struct AccountCounters {
+    pub bump: u8,
+    pub next_match: u64,
+    pub open_matches: u32,
+    pub open_offers: u32,
+}
+
+impl AccountCounters {
+    pub const SPACE: usize = 8 + 1 + 8 + 4 + 4;
+}
+
+/// A Match. The Pots (the Tickets' lines) live in the two Ticket accounts named in `pots`.
 #[account]
 pub struct MatchState {
     pub bump: u8,
-    pub id: u64,
-    pub inner: Match,
+    pub inner: ledger::lifecycle::MatchRecord,
     /// The Game was listed when the Match opened: only then does a win earn Points.
     pub listed: bool,
-    /// The Game program's deploy slot when the Match opened (zero if it could not be read or the
-    /// program cannot be upgraded).
-    pub deploy_slot: u64,
     /// `GameRecord.listing_epoch` when the Match opened.
     pub listing_epoch: u32,
+    /// Who paid the rent of this account; it goes back there when the Match is closed.
+    pub payer: Pubkey,
+    /// The Ticket account that is each side's Pot (the default key until the side joined).
+    pub pots: [Pubkey; 2],
 }
 
 impl MatchState {
-    pub const SPACE: usize = 8 + 1 + 8 + 32 + 8 + 68 + 1 + SIDE + 1 + SIDE + 8 + 1 + 8 + 4;
+    /// Largest Borsh size of `MatchRecord` (a Match with a joiner and a run in progress), checked
+    /// by a unit test.
+    pub const RECORD_LEN: usize = 486;
+    pub const SPACE: usize = 8 + 1 + Self::RECORD_LEN + 1 + 4 + 32 + 64;
+
+    pub fn id(&self) -> ledger::lifecycle::MatchId {
+        self.inner.id
+    }
+}
+
+/// Written when a Match enters Settling or Refunding: proof, in core, that its outcome is frozen
+/// and its table's result slot is spent. Refundable to whoever paid it.
+#[account]
+pub struct SettlementReceipt {
+    pub bump: u8,
+    pub match_key: Pubkey,
+    pub payer: Pubkey,
+    pub receipt: ledger::lifecycle::Receipt,
+}
+
+impl SettlementReceipt {
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 50;
 }
 
 #[account]
@@ -404,8 +451,10 @@ impl OfferState {
         + 33
         + 4
         + ledger::MAX_APPLICANTS * 32
-        + 4
-        + ledger::MAX_ENTRY_SOURCES * 41;
+        + 1;
+    /// The length of an Offer written before Offers reserved an amount (they carried up to 8
+    /// reserved lines). Such an account belongs to the retired world.
+    pub const LEGACY_SPACE: usize = 799;
 }
 
 /// The one custody of every native Position (ADR 0010): a single simSOL vault holding their
@@ -1044,23 +1093,71 @@ pub struct PriceSet {
 }
 
 /// A Match was won. The Player is the Account that played (a Backer's win is the Player's for
-/// points). Every season standing is the sum of these events, so anyone can recompute it.
+/// points). Every season standing is the sum of these events, so anyone can recompute it. Written
+/// by event-CPI when the outcome is frozen (the start of Settling), so it cannot be forged by
+/// another program's log: readers check the program id of the inner instruction.
 #[event]
 pub struct MatchWon {
-    pub match_id: u64,
+    /// The opener's Account and its counter value: the Match id.
+    pub opener: Pubkey,
+    pub n: u64,
     pub game: Pubkey,
     pub entry: u64,
     pub player: Pubkey,
     pub funder: Pubkey,
     pub points: u64,
-    /// Gemas this Match paid into the Leaderboard Pool.
+    /// Gemas this Match pays into the Leaderboard Pool.
     pub pool_fee: u64,
     pub season: u32,
     pub ts: i64,
-    /// The Account that played on the losing side (the opponent of `player`); all zeroes if that
-    /// seat was empty. Last field, so events from before it was added are the same bytes minus
-    /// these 32 and read as having no known opponent (ADR 0012).
+    /// The Account that played on the losing side (the opponent of `player`).
     pub loser: Pubkey,
+    pub challenge: bool,
+    pub asset: u8,
+    pub opened_at: i64,
+}
+
+/// Settling or Refunding started: the outcome and the fees are frozen. Start record of a run.
+#[event]
+pub struct MatchRunStarted {
+    pub opener: Pubkey,
+    pub n: u64,
+    pub game: Pubkey,
+    /// 0 win, 1 no-show, 2 draw, 3 cancelled, 4 abandoned, 5 game upgraded, 6 refunded by game.
+    pub kind: u8,
+    /// Index of the winning side (0 opened, 1 joined); 255 when there is none.
+    pub winner: u8,
+    pub entry: u64,
+    pub fees: [u64; 3],
+    pub a_player: Pubkey,
+    pub a_funder: Pubkey,
+    pub b_player: Pubkey,
+    pub b_funder: Pubkey,
+    pub challenge: bool,
+    pub asset: u8,
+    pub opened_at: i64,
+    pub ts: i64,
+}
+
+/// One chunk of a run did work. Stable ids: the Match id and the chunk number.
+#[event]
+pub struct MatchChunkDone {
+    pub opener: Pubkey,
+    pub n: u64,
+    pub chunk_no: u32,
+    pub steps: u32,
+    pub done: bool,
+    /// A step could not run (missing account or room); nothing was skipped.
+    pub blocked: bool,
+}
+
+/// The run is complete: every obligation is a durable basket or spill line.
+#[event]
+pub struct MatchSettled {
+    pub opener: Pubkey,
+    pub n: u64,
+    pub kind: u8,
+    pub chunks: u32,
 }
 
 #[event]
@@ -1083,12 +1180,6 @@ pub struct SeasonPrizePaid {
     pub rank: u8,
     pub account: Pubkey,
     pub amount: u64,
-}
-
-#[event]
-pub struct MatchSettled {
-    pub match_id: u64,
-    pub result: u8,
 }
 
 /// Number of animal-head avatars the app ships (`app/src/lib/art.ts`). `AvatarChoice::Animal(i)` takes `i` in `0..AVATAR_COUNT`.

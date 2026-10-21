@@ -52,13 +52,13 @@ fn ledger_err(e: DrawError) -> Error {
 }
 
 /// Lamports a store must receive to be rent exempt at `new_len` bytes.
-fn top_up(info: &AccountInfo, new_len: usize) -> Result<u64> {
+pub(crate) fn top_up(info: &AccountInfo, new_len: usize) -> Result<u64> {
     Ok(Rent::get()?
         .minimum_balance(new_len)
         .saturating_sub(info.lamports()))
 }
 
-fn move_lamports(from: &AccountInfo, to: &AccountInfo, n: u64) -> Result<()> {
+pub(crate) fn move_lamports(from: &AccountInfo, to: &AccountInfo, n: u64) -> Result<()> {
     let f = from
         .lamports()
         .checked_sub(n)

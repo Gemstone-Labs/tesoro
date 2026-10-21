@@ -76,6 +76,8 @@ pub enum LifecycleError {
     Math,
     /// The plan and the Pot disagree: a bug or a corrupt account.
     Inconsistent(&'static str),
+    /// An account the step needs (a Source, its Position, a basket) was not supplied.
+    MissingAccount,
     Draw(DrawError),
     Book(BookError),
 }
@@ -167,10 +169,19 @@ pub struct Terms {
     /// `None`: Tesoro's own Studio Fee, a Source counter. `Some(account)`: an outside studio,
     /// paid as a fee line in its basket.
     pub studio_owner: Option<Key>,
+    /// The Game was listed when the Match opened: its Studio Fee is a senior fee class, repaid
+    /// right after the Platform Fee. Otherwise it is paid as ordinary won Gemas into the
+    /// recipient's basket (`studio_owner` must then be set).
+    pub studio_priority: bool,
 }
 
 impl Terms {
     fn validate(&self, leaderboard_bps: u16) -> LcResult<()> {
+        if !self.studio_priority && self.studio_owner.is_none() && self.studio_bps > 0 {
+            return Err(LifecycleError::Inconsistent(
+                "a plain Studio Fee needs a recipient",
+            ));
+        }
         let total = self.platform_bps as u32 + self.studio_bps as u32 + leaderboard_bps as u32;
         if total > MAX_TOTAL_FEE_BPS as u32 {
             return Err(LifecycleError::FeeTooHigh);
@@ -998,6 +1009,13 @@ fn cut_step<B: PotBacking>(
     } else {
         None
     };
+    if class == CLASS_STUDIO && !terms.studio_priority {
+        // no priority: the Studio Fee is ordinary won Gemas for the recipient
+        let to = owner.ok_or(LifecycleError::Inconsistent(
+            "a plain Studio Fee needs a recipient",
+        ))?;
+        return pay_plain(p, at, w, &to, &orig, k);
+    }
     w.sync_source(&orig.source)?;
     w.books().snapshot(&orig.source)?;
     let mut src = orig;
@@ -1014,6 +1032,38 @@ fn cut_step<B: PotBacking>(
         src.uncovered = 0;
     }
     p.set(at, &src)?;
+    Ok(())
+}
+
+/// Moves `k` Gemas of the Pot line at `at` to `to` as ordinary won Gemas (the whole line, or a part).
+fn pay_plain<B: PotBacking>(
+    p: &mut PotPages<B>,
+    at: usize,
+    w: &mut dyn Settlement,
+    to: &Key,
+    orig: &Line,
+    k: u64,
+) -> LcResult<()> {
+    if k == orig.amount {
+        let mut won = *orig;
+        won.side = SIDE_WON;
+        w.credit(to, &won)?;
+        p.set(at, &emptied(orig))?;
+        return Ok(());
+    }
+    w.books().snapshot(&orig.source)?;
+    let mut rest = *orig;
+    let mut part =
+        SourceBook::blank_line(SIDE_WON, orig.due_at, orig.source, orig.class, orig.tranche);
+    {
+        let (book, history) = w.books().book_with_history(&orig.source)?;
+        book.transfer(&mut rest, &mut part, k, &*history)?;
+    }
+    if let Err(e) = w.credit(to, &part) {
+        w.books().rollback(&orig.source)?;
+        return Err(e);
+    }
+    p.set(at, &rest)?;
     Ok(())
 }
 

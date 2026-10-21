@@ -1,6 +1,9 @@
-use crate::error::{core_err, TesoroError};
+use crate::error::{core_err, MatchError, TesoroError};
+use crate::instructions::economy::with_pool;
+use crate::instructions::ticket::ticket_err;
 use crate::ledger::{self, OfferKind, OfferStatus};
 use crate::state::*;
+use crate::storage::*;
 use crate::util::*;
 use anchor_lang::prelude::*;
 
@@ -103,9 +106,9 @@ pub(crate) fn clear_request(ctx: Context<ClearRequest>) -> Result<()> {
     ctx.accounts.request.inner.cancel().map_err(core_err)
 }
 
-/// Creates an Offer and reserves the Backer's entry. `remaining_accounts` are the Backer's
-/// Holdings, own-sourced first, then won, each ascending by Source address.
-/// `directed_request` makes it a directed Offer; `None` makes it public.
+/// Creates an Offer and reserves the Backer's entry: an *amount* of Gemas held by the slowest
+/// lines of the Backer's basket and spill (nothing is moved). `directed_request` makes it a
+/// directed Offer; `None` makes it public.
 #[derive(Accounts)]
 #[instruction(nonce: u64, game: Pubkey)]
 pub struct CreateOffer<'info> {
@@ -116,7 +119,6 @@ pub struct CreateOffer<'info> {
     #[account(seeds = [GAME_SEED, game.as_ref()], bump = game_record.bump)]
     pub game_record: Box<Account<'info, GameRecord>>,
     #[account(
-        mut,
         seeds = [ACCOUNT_SEED, backer_authority.key().as_ref()],
         bump = backer_account.bump
     )]
@@ -129,6 +131,26 @@ pub struct CreateOffer<'info> {
     )]
     pub protections: UncheckedAccount<'info>,
     #[account(
+        mut,
+        seeds = [BASKET_SEED, backer_account.key().as_ref()],
+        bump = basket.load()?.raw[STORE_BUMP_AT]
+    )]
+    pub basket: AccountLoader<'info, BasketHead>,
+    #[account(
+        mut,
+        seeds = [SPILL_SEED, backer_account.key().as_ref()],
+        bump = spill.load()?.raw[STORE_BUMP_AT]
+    )]
+    pub spill: AccountLoader<'info, SpillHead>,
+    #[account(
+        init_if_needed,
+        payer = backer_authority,
+        space = AccountCounters::SPACE,
+        seeds = [COUNTERS_SEED, backer_account.key().as_ref()],
+        bump
+    )]
+    pub counters: Account<'info, AccountCounters>,
+    #[account(
         init,
         payer = backer_authority,
         space = OfferState::SPACE,
@@ -139,8 +161,8 @@ pub struct CreateOffer<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub(crate) fn create_offer<'info>(
-    ctx: Context<'_, '_, 'info, 'info, CreateOffer<'info>>,
+pub(crate) fn create_offer(
+    ctx: Context<CreateOffer>,
     nonce: u64,
     game: Pubkey,
     entry: u64,
@@ -149,27 +171,33 @@ pub(crate) fn create_offer<'info>(
 ) -> Result<()> {
     let backer = ctx.accounts.backer_account.key();
     count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
-    let mut holdings = load_holdings(&backer, ctx.remaining_accounts)?;
     let kind = match directed_request {
         Some(r) => OfferKind::Directed(r.to_bytes()),
         None => OfferKind::Public,
     };
-    let now = now()?;
-    let sizes = ctx.accounts.config.entries();
-    let acct = &mut ctx.accounts.backer_account.inner;
-    let created = with_holdings(&mut holdings, |hs| {
-        ledger::Offer::create(
-            backer.to_bytes(),
-            game.to_bytes(),
-            entry,
-            &sizes,
-            player_share_bps,
-            kind,
-            now,
-            acct,
-            hs,
-        )
-    })?;
+    let created = ledger::Offer::create(
+        backer.to_bytes(),
+        game.to_bytes(),
+        entry,
+        &ctx.accounts.config.entries(),
+        player_share_bps,
+        kind,
+        now()?,
+    )
+    .map_err(core_err)?;
+    let counters = &mut ctx.accounts.counters;
+    if counters.bump == 0 {
+        counters.bump = ctx.bumps.counters;
+    }
+    let open = counters.open_offers;
+    with_pool(
+        &ctx.accounts.basket.to_account_info(),
+        &ctx.accounts.spill.to_account_info(),
+        |pool| pool.reserve_offer(entry, open).map_err(ticket_err),
+    )?;
+    counters.open_offers = open
+        .checked_add(1)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
     let offer = &mut ctx.accounts.offer;
     offer.bump = ctx.bumps.offer;
     offer.nonce = nonce;
@@ -304,17 +332,34 @@ pub(crate) fn accept_applicant(ctx: Context<AcceptApplicant>) -> Result<()> {
         .map_err(core_err)
 }
 
-/// The Backer withdraws an Offer that has not been used to start a Match. `remaining_accounts`:
-/// the Backer's reserved Holdings in the Offer's line order.
+/// The Backer withdraws an Offer that has not been used to start a Match; the reservation is
+/// released. Refused while a Backing Ticket is staging its lines (cancel that first).
 #[derive(Accounts)]
 pub struct CancelOffer<'info> {
     pub backer_authority: Signer<'info>,
     #[account(
-        mut,
         seeds = [ACCOUNT_SEED, backer_authority.key().as_ref()],
         bump = backer_account.bump
     )]
     pub backer_account: Account<'info, TesoroAccount>,
+    #[account(
+        mut,
+        seeds = [BASKET_SEED, backer_account.key().as_ref()],
+        bump = basket.load()?.raw[STORE_BUMP_AT]
+    )]
+    pub basket: AccountLoader<'info, BasketHead>,
+    #[account(
+        mut,
+        seeds = [SPILL_SEED, backer_account.key().as_ref()],
+        bump = spill.load()?.raw[STORE_BUMP_AT]
+    )]
+    pub spill: AccountLoader<'info, SpillHead>,
+    #[account(
+        mut,
+        seeds = [COUNTERS_SEED, backer_account.key().as_ref()],
+        bump = counters.bump
+    )]
+    pub counters: Account<'info, AccountCounters>,
     #[account(
         mut,
         seeds = [OFFER_SEED, offer.inner.backer.as_ref(), &offer.nonce.to_le_bytes()],
@@ -351,16 +396,34 @@ fn reopen_accepted_request(
     Ok(())
 }
 
-pub(crate) fn cancel_offer<'info>(
-    ctx: Context<'_, '_, 'info, 'info, CancelOffer<'info>>,
+/// Releases the Offer's reserved amount and counts it closed.
+fn release_offer(
+    basket: &AccountInfo,
+    spill: &AccountInfo,
+    counters: &mut AccountCounters,
+    entry: u64,
 ) -> Result<()> {
-    let mut holdings = load_holdings(&ctx.accounts.backer_account.key(), ctx.remaining_accounts)?;
-    let acct = &mut ctx.accounts.backer_account.inner;
+    with_pool(basket, spill, |pool| {
+        pool.release_offer(entry).map_err(ticket_err)
+    })?;
+    counters.open_offers = counters.open_offers.saturating_sub(1);
+    Ok(())
+}
+
+pub(crate) fn cancel_offer(ctx: Context<CancelOffer>) -> Result<()> {
     let offer = &mut ctx.accounts.offer.inner;
+    require!(!offer.ticket_open, MatchError::OfferHasTicket);
     let accepted = (offer.status == OfferStatus::Accepted)
         .then_some(offer.request)
         .flatten();
-    with_holdings(&mut holdings, |hs| offer.cancel(acct, hs))?;
+    let entry = offer.entry;
+    offer.cancel().map_err(core_err)?;
+    release_offer(
+        &ctx.accounts.basket.to_account_info(),
+        &ctx.accounts.spill.to_account_info(),
+        &mut ctx.accounts.counters,
+        entry,
+    )?;
     reopen_accepted_request(accepted, &mut ctx.accounts.request)
 }
 
@@ -369,12 +432,29 @@ pub(crate) fn cancel_offer<'info>(
 pub struct ExpireOffer<'info> {
     pub caller: Signer<'info>,
     #[account(
-        mut,
         seeds = [ACCOUNT_SEED, backer_account.authority.as_ref()],
         bump = backer_account.bump,
         constraint = backer_account.key().to_bytes() == offer.inner.backer @ TesoroError::InvalidAccount
     )]
     pub backer_account: Account<'info, TesoroAccount>,
+    #[account(
+        mut,
+        seeds = [BASKET_SEED, backer_account.key().as_ref()],
+        bump = basket.load()?.raw[STORE_BUMP_AT]
+    )]
+    pub basket: AccountLoader<'info, BasketHead>,
+    #[account(
+        mut,
+        seeds = [SPILL_SEED, backer_account.key().as_ref()],
+        bump = spill.load()?.raw[STORE_BUMP_AT]
+    )]
+    pub spill: AccountLoader<'info, SpillHead>,
+    #[account(
+        mut,
+        seeds = [COUNTERS_SEED, backer_account.key().as_ref()],
+        bump = counters.bump
+    )]
+    pub counters: Account<'info, AccountCounters>,
     #[account(
         mut,
         seeds = [OFFER_SEED, offer.inner.backer.as_ref(), &offer.nonce.to_le_bytes()],
@@ -397,13 +477,10 @@ pub struct ExpireOffer<'info> {
     pub backer_protections: Option<UncheckedAccount<'info>>,
 }
 
-pub(crate) fn expire_offer<'info>(
-    ctx: Context<'_, '_, 'info, 'info, ExpireOffer<'info>>,
-) -> Result<()> {
-    let mut holdings = load_holdings(&ctx.accounts.backer_account.key(), ctx.remaining_accounts)?;
+pub(crate) fn expire_offer(ctx: Context<ExpireOffer>) -> Result<()> {
     let now = now()?;
-    let acct = &mut ctx.accounts.backer_account.inner;
     let offer = &mut ctx.accounts.offer.inner;
+    require!(!offer.ticket_open, MatchError::OfferHasTicket);
     let accepted = (offer.status == OfferStatus::Accepted)
         .then_some(offer.request)
         .flatten();
@@ -411,12 +488,18 @@ pub(crate) fn expire_offer<'info>(
         Some(p) => is_away(&p.to_account_info())?,
         None => false,
     };
-    with_holdings(&mut holdings, |hs| {
-        if backer_away {
-            offer.cancel(acct, hs)
-        } else {
-            offer.expire(now, acct, hs)
-        }
-    })?;
+    let entry = offer.entry;
+    if backer_away {
+        offer.cancel()
+    } else {
+        offer.expire(now)
+    }
+    .map_err(core_err)?;
+    release_offer(
+        &ctx.accounts.basket.to_account_info(),
+        &ctx.accounts.spill.to_account_info(),
+        &mut ctx.accounts.counters,
+        entry,
+    )?;
     reopen_accepted_request(accepted, &mut ctx.accounts.request)
 }

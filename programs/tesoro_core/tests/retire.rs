@@ -21,7 +21,7 @@ use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
 use tesoro_core::ledger::{
-    self, Holding, Offer, OfferKind, OfferStatus, Request, RequestStatus, ReservedLine, Source,
+    self, Holding, Offer, OfferKind, OfferStatus, Request, RequestStatus, Source,
 };
 use tesoro_core::state::*;
 use tesoro_core::{accounts, instruction};
@@ -315,9 +315,9 @@ impl Env {
         )
     }
 
-    fn retire_offer(&mut self, offer: APk, sources: &[APk]) -> Result<(), Failed> {
+    fn retire_offer(&mut self, offer: APk) -> Result<(), Failed> {
         let admin = self.admin.insecure_clone();
-        let mut i = ix(
+        let i = ix(
             accounts::RetireOffer {
                 admin: a(admin.pubkey()),
                 config: pda(&[CONFIG_SEED]),
@@ -325,9 +325,6 @@ impl Env {
             },
             instruction::RetireOffer {},
         );
-        for k in sources {
-            i.accounts.push(AccountMeta::new_readonly(s(*k), false));
-        }
         self.send(&[i], &[&admin])
     }
 
@@ -618,8 +615,33 @@ fn a_source_of_a_current_position_is_refused_and_so_are_its_holdings() {
     assert_eq!(env.account_totals(acct).own_total, 100);
 }
 
-fn offer_with_lines(sources: &[APk]) -> OfferState {
-    OfferState {
+#[test]
+fn offers_retire_when_old_sized_and_only_then() {
+    let mut env = Env::new();
+    let stale = APk::new_unique();
+    put(
+        &mut env.svm,
+        stale,
+        tesoro_core::ID,
+        with_disc(OfferState::DISCRIMINATOR, OLD_OFFER_LEN),
+    );
+    env.retire_offer(stale).expect("old-sized offer");
+    assert!(env.gone(stale));
+
+    // the layout that carried reserved lines
+    let long = APk::new_unique();
+    put(
+        &mut env.svm,
+        long,
+        tesoro_core::ID,
+        with_disc(OfferState::DISCRIMINATOR, OfferState::LEGACY_SPACE),
+    );
+    env.retire_offer(long).expect("offer with reserved lines");
+    assert!(env.gone(long));
+
+    // a live Offer of the current layout is not the old world
+    let live = APk::new_unique();
+    let state = OfferState {
         bump: 255,
         nonce: 1,
         inner: Offer {
@@ -634,63 +656,17 @@ fn offer_with_lines(sources: &[APk]) -> OfferState {
             player: None,
             request: None,
             applicants: vec![],
-            lines: sources
-                .iter()
-                .map(|k| ReservedLine {
-                    source: k.to_bytes(),
-                    is_own: true,
-                    amount: 10,
-                })
-                .collect(),
+            ticket_open: false,
         },
-    }
-}
-
-#[test]
-fn offers_retire_when_old_sized_or_when_every_reserved_source_is_gone() {
-    let mut env = Env::new();
-    let stale = APk::new_unique();
+    };
     put(
         &mut env.svm,
-        stale,
+        live,
         tesoro_core::ID,
-        with_disc(OfferState::DISCRIMINATOR, OLD_OFFER_LEN),
-    );
-    env.retire_offer(stale, &[]).expect("old-sized offer");
-    assert!(env.gone(stale));
-
-    let (s1, s2, offer) = (APk::new_unique(), APk::new_unique(), APk::new_unique());
-    put(&mut env.svm, s1, tesoro_core::ID, vec![0u8; 142]);
-    put(
-        &mut env.svm,
-        offer,
-        tesoro_core::ID,
-        serialized(&offer_with_lines(&[s1, s2]), OfferState::SPACE),
+        serialized(&state, OfferState::SPACE),
     );
     let err = env
-        .retire_offer(offer, &[s1, s2])
-        .expect_err("s1 still there");
-    assert_eq!(custom_code(&err), NOT_OLD_WORLD);
-    env.svm
-        .set_account(s(s1), Account::default())
-        .expect("close s1");
-    assert!(
-        env.retire_offer(offer, &[s1]).is_err(),
-        "one account per line"
-    );
-    env.retire_offer(offer, &[s1, s2])
-        .expect("all sources gone");
-    assert!(env.gone(offer));
-
-    let empty = APk::new_unique();
-    put(
-        &mut env.svm,
-        empty,
-        tesoro_core::ID,
-        serialized(&offer_with_lines(&[]), OfferState::SPACE),
-    );
-    let err = env
-        .retire_offer(empty, &[])
+        .retire_offer(live)
         .expect_err("nothing proves it is old");
     assert_eq!(custom_code(&err), NOT_OLD_WORLD);
 }
