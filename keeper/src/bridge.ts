@@ -7,7 +7,6 @@ import {
   STORE,
   applyLockedIx,
   applyYieldIx,
-  bridgePositionPda,
   corePositionPda,
   coreSourcePda,
   disc,

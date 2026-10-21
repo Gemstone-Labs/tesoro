@@ -17,7 +17,6 @@ import { settleMatches, viewOf, type MatchView } from "./settle.ts";
 
 const EPHEMERAL_VAULT = new PublicKey("MagicVau1t999999999999999999999999999999999");
 const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
-const status = (o: object) => Object.keys(o)[0];
 
 /** Job 1: Match hygiene for every open or active Match in tesoro_core. Returns the number of actions taken. */
 export async function matchHygiene(ctx: Ctx): Promise<number> {
