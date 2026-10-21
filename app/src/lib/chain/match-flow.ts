@@ -10,6 +10,7 @@ import { DrawError } from "./draw";
 import { openEntry, joinEntry } from "./entry-flow";
 import { readEntryStores, type BackingRef } from "./entry";
 import { entryError } from "./entry-errors";
+import type { StagedEntry } from "./ticket";
 import { matchKeyOf } from "./match-id";
 import { queueEntry, type Entered, type QueueDeps } from "./queue";
 import { fetchAccountState, fetchMatch, listLiveMatchIds, listQueueMatchIds, type AccountSnapshot, type ChainMatch } from "./read";
@@ -117,9 +118,11 @@ export async function enterQueue(
   backing?: BackingRef,
   /** After a definite failure: false when the entry can no longer be used (a spent Offer). */
   canRetry?: () => Promise<boolean>,
+  /** Progress of a long entry prepared in steps (an Entry Ticket). */
+  onStaged?: (s: StagedEntry) => void,
 ): Promise<Entered> {
   const snap = await ensureReady(signer, getToken);
-  const common = { signer, getToken, game, entry, backing, onStep };
+  const common = { signer, getToken, game, entry, backing, onStep, onStaged };
   return queueEntry({
     ...queueDeps(signer, snap.accountKey, game, entry, asset),
     join: (key) => joinEntry({ ...common, key }),
@@ -130,10 +133,10 @@ export async function enterQueue(
 }
 
 /** Challenge: open a Match only reachable through its link. Resolves with the Match key. */
-export async function createChallenge(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", asset: 0 | 1 | 2 = 0, onStep?: (s: string) => void, backing?: BackingRef): Promise<string> {
+export async function createChallenge(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", asset: 0 | 1 | 2 = 0, onStep?: (s: string) => void, backing?: BackingRef, onStaged?: (s: StagedEntry) => void): Promise<string> {
   await ensureReady(signer, getToken, onStep);
   onStep?.("Opening your Challenge…");
-  return (await openEntry({ signer, getToken, game, entry, backing, onStep, challenge: true, asset: game === "trading-duel" ? asset : 0 })).key;
+  return (await openEntry({ signer, getToken, game, entry, backing, onStep, onStaged, challenge: true, asset: game === "trading-duel" ? asset : 0 })).key;
 }
 
 export class ChallengeError extends Error {
@@ -150,14 +153,14 @@ export class ChallengeError extends Error {
 }
 
 /** Opening a Challenge link joins it. Already-joined participants just continue to the Match. */
-export async function joinChallenge(signer: ChainSigner, key: string, getToken: GetToken, backing?: BackingRef): Promise<void> {
+export async function joinChallenge(signer: ChainSigner, key: string, getToken: GetToken, backing?: BackingRef, onStaged?: (s: StagedEntry) => void): Promise<void> {
   const snap = await ensureReady(signer, getToken);
   const m = await fetchMatch(key, snap.accountKey);
   if (!m) throw new ChallengeError("missing");
   if (!m.challenge) throw new ChallengeError("not-challenge");
   if (m.seat !== null) return;
   if (m.status !== "open") throw new ChallengeError("taken");
-  await joinEntry({ signer, getToken, game: m.game, entry: m.entry, backing, key });
+  await joinEntry({ signer, getToken, game: m.game, entry: m.entry, backing, key, onStaged });
 }
 
 // ---- Match orchestration --------------------------------------------------------------------

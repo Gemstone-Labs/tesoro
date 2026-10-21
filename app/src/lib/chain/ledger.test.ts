@@ -12,7 +12,6 @@ const src = (over: Partial<SourceMath> = {}): SourceMath => ({
   unitDen: 150_000_000n,
   ...over,
 });
-const key = (n: number) => Uint8Array.from({ length: 32 }, () => n);
 
 describe("source math", () => {
   it("has full Debt and nothing redeemable before any yield", () => {

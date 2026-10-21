@@ -1,4 +1,4 @@
-import { BN, BorshInstructionCoder, type Idl } from "@coral-xyz/anchor";
+import { BorshInstructionCoder, type Idl } from "@coral-xyz/anchor";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import coreIdl from "./idl/tesoro_core.json";
@@ -19,6 +19,7 @@ import {
   studioRemaining,
   mayPayYourself,
 } from "./entry";
+import { describeEntry } from "./use-entry";
 import { SponsorError } from "./sponsor-client";
 import { planTransaction } from "@/server/sponsor/rules";
 import { cancelTicketIx, closeTicketIx, openTicketIx, stageEntryIx, decodeTicket, stagedEntryState } from "./ticket";
@@ -68,11 +69,21 @@ describe("previewEntry", () => {
   });
 });
 
+describe("the preview line", () => {
+  it("says how many batches and how many Gemas are fast, and warns when a Ticket is needed", () => {
+    const s = stores([lineOf({ source: srcA, amount: 300n, dueAt: 900n }), lineOf({ source: srcB, amount: 200n, dueAt: 100n })]);
+    const text = describeEntry(previewEntry(s, 350n), 500);
+    expect(text.headline).toMatch(/2 batches of Gemas, fastest first/);
+    expect(text.detail).toBe("200 of 350 Gemas are from Locks that repay soon.");
+    const many = stores(Array.from({ length: 40 }, (_, i) => lineOf({ source: srcA, amount: 10n, dueAt: BigInt(i) })));
+    expect(describeEntry(previewEntry(many, 300n), 0).headline).toMatch(/prepared in 1 step first/);
+  });
+});
+
 describe("open_match", () => {
   const player = k();
   const payer = k();
   const account = PublicKey.findProgramAddressSync([Buffer.from("account"), player.toBuffer()], new PublicKey(coreIdl.address))[0];
-  const game = new PublicKey("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE");
 
   it("names every account of the IDL in order, the Player and payer sign, and carries the explicit fields", () => {
     const pot = freshPot(account, 3);
@@ -159,7 +170,7 @@ describe("join_match and the holds", () => {
     const relayer = k();
     const ixs = growSpillIxs(relayer, { account: opener, extraLines: 150 });
     expect(ixs).toHaveLength(3);
-    const decoded = ixs.map((ix) => (coder.decode(ix.data) as { data: { extra_lines: number; which: object } }).data);
+    const decoded = ixs.map((ix) => (coder.decode(ix.data) as unknown as { data: { extra_lines: number; which: object } }).data);
     expect(decoded.map((d) => d.extra_lines)).toEqual([MAX_GROW_LINES, MAX_GROW_LINES, 150 - 2 * MAX_GROW_LINES]);
     expect(Object.keys(decoded[0].which)).toEqual(["Spill"]);
     const spec = idlIx("grow_store_sponsored");

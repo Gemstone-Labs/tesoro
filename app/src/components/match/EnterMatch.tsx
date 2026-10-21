@@ -8,6 +8,7 @@ import { useQueue } from "@/components/lobby/useQueue";
 import { useAccount } from "@/lib/account";
 import { estimatedWin } from "@/lib/chain/ledger";
 import { entryError } from "@/lib/chain/entry-errors";
+import type { StagedEntry } from "@/lib/chain/ticket";
 import { chainShortfall, checkGemas } from "@/lib/chain/fresh-gemas";
 import { BackingError, createChallengeBacked, enterQueueBacked, joinChallengeBacked } from "@/lib/chain/backing";
 import { ChallengeError, EntryError, QueueUnconfirmedError, createChallenge, enterQueue, joinChallenge, type Entered } from "@/lib/chain/match-flow";
@@ -133,6 +134,8 @@ export function EnterMatch(props: EnterKind) {
     void (async () => {
       try {
         setStatus("Checking your Account…");
+        // A long entry is prepared in steps: say how far along it is.
+        const onStaged = (t: StagedEntry) => setStatus(`Preparing your entry: ${fmtGemas(Number(t.staged))} of ${fmtGemas(Number(t.target))} Gemas ready.`);
         const entered = (r: Entered, opened: string) => {
           if (r.via === "existing") return setExisting(r.id);
           setStatus(r.via === "joined" ? "Opponent found." : opened);
@@ -150,14 +153,14 @@ export function EnterMatch(props: EnterKind) {
           await joinChallengeBacked(signer, props.backing, props.id, auth.getAccessToken);
           router.replace(`/play/match/${props.id}`);
         } else if (props.kind === "queue") {
-          const r = await enterQueue(signer, props.entry, auth.getAccessToken, props.game, setStatus, asset);
+          const r = await enterQueue(signer, props.entry, auth.getAccessToken, props.game, setStatus, asset, undefined, undefined, onStaged);
           entered(r, OPENED_LINE[game]);
         } else if (props.kind === "challenge-new") {
-          const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game, asset, setStatus);
+          const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game, asset, setStatus, undefined, onStaged);
           router.replace(`/play/match/${id}`);
         } else {
           setStatus("Joining the Challenge…");
-          await joinChallenge(signer, props.id, auth.getAccessToken);
+          await joinChallenge(signer, props.id, auth.getAccessToken, undefined, onStaged);
           router.replace(`/play/match/${props.id}`);
         }
       } catch (e) {
