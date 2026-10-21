@@ -2,6 +2,7 @@ use super::*;
 use crate::ledger::book::{fp, SourceBook};
 use crate::ledger::draw::{grow_spill_body, spill_body, DrawResult, MemBooks, Pool};
 use crate::ledger::line_store::{required_len, LineStore, CLASS_EXTENSION_BASE, CLASS_GENERAL};
+use crate::ledger::line_store::{CLASS_LEADERBOARD, CLASS_PLATFORM};
 
 fn key(n: u8) -> Key {
     [n; 32]
@@ -232,6 +233,78 @@ impl Settlement for World {
     }
 }
 
+/// A Match record with its two Pots, the way the tests drive it.
+#[derive(Clone, PartialEq, Debug)]
+struct Rec {
+    rec: MatchRecord,
+    pots: Pots,
+}
+
+impl std::ops::Deref for Rec {
+    type Target = MatchRecord;
+    fn deref(&self) -> &MatchRecord {
+        &self.rec
+    }
+}
+
+impl std::ops::DerefMut for Rec {
+    fn deref_mut(&mut self) -> &mut MatchRecord {
+        &mut self.rec
+    }
+}
+
+impl Rec {
+    #[allow(clippy::too_many_arguments)]
+    fn open(
+        id: MatchId,
+        meta: MatchMeta,
+        game: Key,
+        authority: Key,
+        slot: u64,
+        terms: Terms,
+        entry: u64,
+        sizes: &[u64],
+        a: Party,
+        pot_a: PotPages,
+        now: i64,
+    ) -> LcResult<Rec> {
+        let rec = MatchRecord::open(
+            id, meta, game, authority, slot, terms, entry, sizes, a, &pot_a, now,
+        )?;
+        Ok(Rec {
+            rec,
+            pots: [Some(pot_a), None],
+        })
+    }
+
+    fn join(&mut self, b: Party, pot_b: PotPages, now: i64) -> LcResult<()> {
+        self.rec.join(b, &pot_b, now)?;
+        self.pots[1] = Some(pot_b);
+        Ok(())
+    }
+
+    fn chunk(&mut self, w: &mut dyn Settlement, steps: u32) -> LcResult<ChunkReport> {
+        self.rec.chunk(&mut self.pots, w, steps)
+    }
+
+    fn remaining(&self) -> u64 {
+        pots_total(&self.pots)
+    }
+
+    fn pot(&self, side: u8) -> &PotPages {
+        self.pots[side as usize].as_ref().expect("pot")
+    }
+
+    fn pot_opt(&self, side: u8) -> Option<&PotPages> {
+        self.pots[side as usize].as_ref()
+    }
+
+    fn close(self) -> LcResult<Closure> {
+        let left = pots_total(&self.pots);
+        self.rec.close(left)
+    }
+}
+
 fn terms(studio_outside: bool, pb: u16, sb: u16) -> Terms {
     Terms {
         platform_bps: pb,
@@ -277,9 +350,9 @@ fn open_with(
     a: Party,
     lines: &[(u8, u8, u64)],
     now: i64,
-) -> MatchRecord {
+) -> Rec {
     let pa = pot(w, a.funder[0], lines);
-    let rec = MatchRecord::open(
+    let rec = Rec::open(
         mid,
         MatchMeta::default(),
         key(GAME),
@@ -297,13 +370,13 @@ fn open_with(
     rec
 }
 
-fn join_with(w: &mut World, rec: &mut MatchRecord, b: Party, lines: &[(u8, u8, u64)], now: i64) {
+fn join_with(w: &mut World, rec: &mut Rec, b: Party, lines: &[(u8, u8, u64)], now: i64) {
     let pb = pot(w, b.funder[0], lines);
     rec.join(b, pb, now).unwrap();
     w.reserve(rec);
 }
 
-fn run_all(w: &mut World, rec: &mut MatchRecord, steps: u32) -> Vec<ChunkReport> {
+fn run_all(w: &mut World, rec: &mut Rec, steps: u32) -> Vec<ChunkReport> {
     w.cur = Some(rec.id);
     let mut out = vec![];
     for _ in 0..1000 {
@@ -374,10 +447,11 @@ fn match_ids_come_from_a_counter_that_only_grows() {
 }
 
 #[test]
-fn a_win_cuts_the_fees_from_as_few_loser_lines_as_possible_largest_first() {
+fn a_win_cuts_the_fees_from_the_losers_lines_in_line_order_class_by_class() {
     let mut rng = Rng(7);
     let mut w = World::new(&mut rng);
-    // loser lines 5, 8, 60, 20, 7 = 100; Platform 5% of 200 = 10, Studio 3% = 6, Leaderboard 1% = 2
+    // loser lines (in line order) 5, 7, 8, 60, 20 = 100; Platform 5% of 200 = 10, Studio 3% = 6,
+    // Leaderboard 1% = 2
     let t = terms(false, 500, 300);
     let mut rec = open_with(
         &mut w,
@@ -403,20 +477,59 @@ fn a_win_cuts_the_fees_from_as_few_loser_lines_as_possible_largest_first() {
     );
     rec.start_settle(20, &key(AUTH), SLOT, Outcome::Winner(0), 100)
         .unwrap();
-    let run = rec.run().unwrap();
-    assert_eq!(run.fees, [10, 6, 2]);
-    // 18 Gemas in total: the 60 line alone covers them
-    let lines: std::collections::BTreeSet<u32> = run.cuts.iter().map(|c| c.line).collect();
-    assert_eq!(lines.len(), 1, "{:?}", run.cuts);
-    let classes: Vec<u8> = run.cuts.iter().map(|c| c.class).collect();
-    assert_eq!(
-        classes,
-        vec![CLASS_PLATFORM, CLASS_STUDIO, CLASS_LEADERBOARD]
-    );
+    assert_eq!(rec.run().unwrap().fees, [10, 6, 2]);
     run_all(&mut w, &mut rec, 2);
-    let f = fees(&w, rec.id);
-    assert_eq!(f.values().sum::<u64>(), 18);
+    // Platform takes the first 10 Gemas of the loser's lines: 5 of line 0, 5 of line 1; Studio the
+    // next 6: the last 2 of line 1 and 4 of line 2; Leaderboard the next 2 of line 2
+    let cuts: Vec<(u8, Key, u64)> =
+        w.ev.iter()
+            .filter_map(|e| match e {
+                Ev::Fee {
+                    class, src, amount, ..
+                } => Some((*class, *src, *amount)),
+                _ => None,
+            })
+            .collect();
+    assert_eq!(
+        cuts,
+        vec![
+            (CLASS_PLATFORM, key(100), 5),
+            (CLASS_PLATFORM, key(100), 5),
+            (CLASS_STUDIO, key(100), 2),
+            (CLASS_STUDIO, key(101), 4),
+            (CLASS_LEADERBOARD, key(101), 2),
+        ]
+    );
     assert_eq!(rec.remaining(), 0);
+}
+
+#[test]
+fn the_record_has_one_size_whatever_the_number_of_lines() {
+    use anchor_lang::AnchorSerialize;
+    let mut rng = Rng(70);
+    let mut w = World::new(&mut rng);
+    let mut sizes = vec![];
+    for (n, lines) in [(0u64, 1usize), (1, 50)] {
+        let each = 100 / lines as u64;
+        let many: Vec<(u8, u8, u64)> = (0..lines)
+            .map(|i| (100 + (i % 4) as u8, (i / 4) as u8, each))
+            .collect();
+        let mut rec = open_with(
+            &mut w,
+            id(1, n),
+            terms(false, 500, 300),
+            100,
+            party(1, 1, 0),
+            &many,
+            0,
+        );
+        join_with(&mut w, &mut rec, party(2, 2, 0), &many, 5);
+        let open_len = rec.rec.try_to_vec().unwrap().len();
+        rec.start_settle(6, &key(AUTH), SLOT, Outcome::Winner(0), 100)
+            .unwrap();
+        sizes.push((open_len, rec.rec.try_to_vec().unwrap().len()));
+    }
+    assert_eq!(sizes[0], sizes[1]);
 }
 
 #[test]
@@ -624,14 +737,14 @@ fn no_show_charges_the_platform_fee_once_per_side_and_returns_the_rest() {
         .unwrap();
     run_all(&mut w, &mut rec, 4);
     let f = fees(&w, rec.id);
-    // 5% of each 100-Gema entry, from the largest line of each side
+    // 5% of each 100-Gema entry, from the first line of each side
     assert_eq!(f.values().sum::<u64>(), 10);
     assert!(f.keys().all(|(c, _, _)| *c == CLASS_PLATFORM));
-    assert_eq!(f[&(CLASS_PLATFORM, None, key(101))], 5);
+    assert_eq!(f[&(CLASS_PLATFORM, None, key(100))], 5);
     assert_eq!(f[&(CLASS_PLATFORM, None, key(102))], 5);
     let c = credits(&w, rec.id);
-    assert_eq!(c[&(key(1), key(100), CLASS_GENERAL)], 30);
-    assert_eq!(c[&(key(1), key(101), CLASS_GENERAL)], 65);
+    assert_eq!(c[&(key(1), key(100), CLASS_GENERAL)], 25);
+    assert_eq!(c[&(key(1), key(101), CLASS_GENERAL)], 70);
     assert_eq!(c[&(key(2), key(102), CLASS_GENERAL)], 95);
 }
 
@@ -697,7 +810,7 @@ fn without_reserved_room_a_chunk_blocks_changes_nothing_and_resumes_after_growth
     let _ = a;
     let t = terms(false, 0, 0);
     let pa = pot(&mut w, 1, &[(101, 0, 50), (102, 0, 50)]);
-    let mut rec = MatchRecord::open(
+    let mut rec = Rec::open(
         id(1, 0),
         MatchMeta::default(),
         key(GAME),
@@ -724,6 +837,70 @@ fn without_reserved_room_a_chunk_blocks_changes_nothing_and_resumes_after_growth
     let r = rec.chunk(&mut w, 5).unwrap();
     assert!(r.done && r.steps == 2 && r.blocked.is_none());
     assert_eq!(credits(&w, rec.id).values().sum::<u64>(), 100);
+}
+
+#[test]
+fn a_fee_credit_that_finds_no_room_undoes_the_cut_to_the_books() {
+    let mut rng = Rng(17);
+    let mut w = World::new(&mut rng);
+    // the outside studio's basket is full and its spill has no slot
+    for i in 0..8 {
+        w.give(OUTSIDE as u8, SIDE_OWN, 200 + i, 100, false, 1);
+    }
+    let cap = LineStore::new(w.accts[&key(OUTSIDE)].spill.as_slice())
+        .unwrap()
+        .capacity();
+    let used = LineStore::new(w.accts[&key(OUTSIDE)].spill.as_slice())
+        .unwrap()
+        .len();
+    assert_eq!(cap, used, "no free spill slot");
+    let mut rec = open_with(
+        &mut w,
+        id(1, 0),
+        terms(true, 0, 500),
+        100,
+        party(1, 1, 0),
+        &[(100, 0, 100)],
+        0,
+    );
+    join_with(&mut w, &mut rec, party(2, 2, 0), &[(102, 0, 100)], 5);
+    // `open_with` reserved the studio's room: take it away again, as if it never had any
+    let free_before = LineStore::new(w.accts[&key(OUTSIDE)].spill.as_slice())
+        .unwrap()
+        .capacity();
+    assert!(free_before > cap);
+    w.accts.get_mut(&key(OUTSIDE)).unwrap().spill = {
+        let mut sp = spill_body(key(OUTSIDE), 0).unwrap();
+        let lines = LineStore::new(w.accts[&key(OUTSIDE)].spill.as_slice())
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>();
+        grow_spill_body(&mut sp, lines.len());
+        let mut st = LineStore::new(sp.as_mut_slice()).unwrap();
+        for l in &lines {
+            st.insert(l).unwrap();
+        }
+        sp
+    };
+    rec.start_settle(6, &key(AUTH), SLOT, Outcome::Winner(0), 0)
+        .unwrap();
+    w.cur = Some(rec.id);
+    let book_before = w.books[&key(102)].clone();
+    let before = rec.clone();
+    let lines_before = w.lines_of(&key(OUTSIDE));
+    let e = rec.chunk(&mut w, 3).unwrap_err();
+    assert_eq!(e, LifecycleError::Draw(DrawError::SpillFull));
+    assert_eq!(rec, before, "the record did not move");
+    assert_eq!(
+        w.books[&key(102)],
+        book_before,
+        "the Source's book is as before the cut"
+    );
+    assert_eq!(w.lines_of(&key(OUTSIDE)), lines_before);
+    // with room, the same chunk goes through
+    w.grow_spill(&key(OUTSIDE), 3);
+    let reports = run_all(&mut w, &mut rec, 3);
+    assert!(reports.last().unwrap().done);
 }
 
 #[test]
@@ -760,7 +937,7 @@ type HolderMap = BTreeMap<(Key, Key, u8), u64>;
 type FeeMap = BTreeMap<(u8, Option<Key>, Key), u64>;
 
 struct Tracked {
-    rec: MatchRecord,
+    rec: Rec,
     started: Option<(HolderMap, FeeMap)>,
     finished: bool,
     snapshot_after_done: Option<(Vec<Line>, usize)>,
@@ -772,24 +949,55 @@ fn add(m: &mut HolderMap, who: Key, l: &Line, amount: u64) {
     }
 }
 
+/// The spec's cut rule, written out on its own: the fees of a side come off its Pot lines in line
+/// order, Platform first, then Studio, then Leaderboard, each class taking from the first line that
+/// still has Gemas.
+fn walk_cuts(lines: &[Line], needs: [u64; 3]) -> Vec<(u8, usize, u64)> {
+    let mut out = vec![];
+    let mut left: Vec<u64> = lines.iter().map(|l| l.amount).collect();
+    for (class, mut need) in needs.into_iter().enumerate() {
+        for (i, avail) in left.iter_mut().enumerate() {
+            let take = need.min(*avail);
+            if take > 0 {
+                out.push((class as u8, i, take));
+                *avail -= take;
+                need -= take;
+            }
+        }
+        assert_eq!(need, 0, "the lines cover the fees");
+    }
+    out
+}
+
 /// What every account and fee sink must have received, worked out from the Pot lines before the
-/// start and the cuts the run froze, by the spec's rules and nothing else.
-fn expected(before: &MatchRecord, run: &Run) -> (HolderMap, FeeMap) {
+/// start by the spec's rules and nothing else.
+fn expected(before: &Rec, run: &Run) -> (HolderMap, FeeMap) {
     let mut holders = HolderMap::new();
     let mut fee_map = FeeMap::new();
-    let lines: [Vec<Line>; 2] = [before.pot(0).lines(), before.pot(1).lines()];
+    let lines: [Vec<Line>; 2] = [
+        before.pot(0).lines(),
+        before.pots[1].as_ref().map_or(vec![], |p| p.lines()),
+    ];
     let mut cut = [vec![0u64; lines[0].len()], vec![0u64; lines[1].len()]];
-    for c in &run.cuts {
-        let l = &lines[c.side as usize][c.line as usize];
-        cut[c.side as usize][c.line as usize] += c.k;
-        let owner = (c.class == CLASS_STUDIO)
-            .then_some(before.terms.studio_owner)
-            .flatten();
-        *fee_map.entry((c.class, owner, l.source)).or_insert(0) += c.k;
+    let mut plans: Vec<(usize, [u64; 3])> = vec![];
+    match run.kind {
+        RunKind::Win { winner } => plans.push((1 - winner as usize, run.fees)),
+        RunKind::NoShow => {
+            let each = run.fees[0] / 2;
+            plans.push((0, [each, 0, 0]));
+            plans.push((1, [each, 0, 0]));
+        }
+        _ => {}
     }
-    for s in 0..2usize {
-        for (i, l) in lines[s].iter().enumerate() {
-            assert!(cut[s][i] <= l.amount);
+    for (side, needs) in plans {
+        for (class, i, k) in walk_cuts(&lines[side], needs) {
+            cut[side][i] += k;
+            let owner = (class == CLASS_STUDIO)
+                .then_some(before.terms.studio_owner)
+                .flatten();
+            *fee_map
+                .entry((class, owner, lines[side][i].source))
+                .or_insert(0) += k;
         }
     }
     let party = |s: usize| if s == 0 { Some(before.a) } else { before.b };
@@ -827,20 +1035,6 @@ fn expected(before: &MatchRecord, run: &Run) -> (HolderMap, FeeMap) {
         }
     }
     (holders, fee_map)
-}
-
-fn min_lines(amounts: &[u64], need: u64) -> usize {
-    let mut v = amounts.to_vec();
-    v.sort_by(|a, b| b.cmp(a));
-    let (mut sum, mut n) = (0u64, 0usize);
-    for a in v {
-        if sum >= need {
-            break;
-        }
-        sum += a;
-        n += 1;
-    }
-    n
 }
 
 struct Sim {
@@ -930,7 +1124,7 @@ impl Sim {
             .w
             .pool(&fk, |p, books| p.draw_direct(books, fk, entry, 1000))
             .unwrap();
-        let rec = MatchRecord::open(
+        let rec = Rec::open(
             mid,
             MatchMeta::default(),
             key(GAME),
@@ -984,7 +1178,10 @@ impl Sim {
             return;
         }
         let a = self.ms[i].rec.a;
-        let selfmatch = b.player == a.player || b.funder == a.funder || b.player == a.funder;
+        let selfmatch = b.player == a.player
+            || b.funder == a.funder
+            || b.player == a.funder
+            || b.funder == a.player;
         let expired = self.now >= self.ms[i].rec.deadline;
         let pot_b = self
             .w
@@ -1082,21 +1279,17 @@ impl Sim {
                         }
                     }
                 }
-                Self::check_cuts(&pre, &run);
+                Self::check_fees(&pre, &run);
                 t.started = Some(expected(&pre, &run));
             }
         }
     }
 
-    /// The fees are exactly the spec's amounts and come from the fewest lines.
-    fn check_cuts(pre: &MatchRecord, run: &Run) {
+    /// The fees are exactly the spec's amounts.
+    fn check_fees(pre: &Rec, run: &Run) {
         let pot2 = pre.entry as u128 * 2;
         match run.kind {
-            RunKind::Win { winner } => {
-                let lo = 1 - winner;
-                let total: u64 = run.fees.iter().sum();
-                let cut_sum: u64 = run.cuts.iter().map(|c| c.k).sum();
-                assert_eq!(cut_sum, total);
+            RunKind::Win { .. } => {
                 assert_eq!(
                     run.fees[0] as u128,
                     pot2 * pre.terms.platform_bps as u128 / 10_000
@@ -1105,30 +1298,14 @@ impl Sim {
                     run.fees[1] as u128,
                     pot2 * pre.terms.studio_bps as u128 / 10_000
                 );
-                let amounts: Vec<u64> = pre.pot(lo).lines().iter().map(|l| l.amount).collect();
-                let used: std::collections::BTreeSet<u32> =
-                    run.cuts.iter().map(|c| c.line).collect();
-                assert_eq!(
-                    used.len(),
-                    min_lines(&amounts, total),
-                    "not the fewest lines"
-                );
-                // classes never go backwards
-                let cl: Vec<u8> = run.cuts.iter().map(|c| c.class).collect();
-                assert!(cl.windows(2).all(|w| w[0] <= w[1]));
+                assert_eq!(run.fees_left(), run.fees.iter().sum::<u64>());
             }
             RunKind::NoShow => {
                 let each = (pre.entry as u128 * pre.terms.platform_bps as u128 / 10_000) as u64;
-                for s in 0..2u8 {
-                    let amounts: Vec<u64> = pre.pot(s).lines().iter().map(|l| l.amount).collect();
-                    let cuts: Vec<&FeeCut> = run.cuts.iter().filter(|c| c.side == s).collect();
-                    assert_eq!(cuts.iter().map(|c| c.k).sum::<u64>(), each);
-                    let used: std::collections::BTreeSet<u32> =
-                        cuts.iter().map(|c| c.line).collect();
-                    assert_eq!(used.len(), min_lines(&amounts, each));
-                }
+                assert_eq!(run.fees, [2 * each, 0, 0]);
+                assert_eq!(run.fees_left(), 2 * each);
             }
-            _ => assert!(run.cuts.is_empty()),
+            _ => assert_eq!(run.fees_left(), 0),
         }
     }
 
@@ -1342,8 +1519,11 @@ impl Sim {
         }
         for t in &self.ms {
             for s in 0..2u8 {
-                t.rec.pot(s).check().unwrap();
-                for l in t.rec.pot(s).lines() {
+                let Some(pot) = t.rec.pot_opt(s) else {
+                    continue;
+                };
+                pot.check().unwrap();
+                for l in pot.lines() {
                     by_src.entry(l.source).or_default().push(l);
                 }
             }
@@ -1485,7 +1665,7 @@ fn room_plan_adds_up_when_the_outside_studio_also_plays() {
     let mut t = terms(true, 200, 300);
     t.studio_owner = Some(key(1));
     let pa = pot(&mut w, 1, &[(100, 0, 60), (101, 0, 40)]);
-    let same = MatchRecord::open(
+    let same = Rec::open(
         id(1, 1),
         MatchMeta::default(),
         key(GAME),

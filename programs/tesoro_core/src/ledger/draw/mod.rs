@@ -130,6 +130,19 @@ pub trait SourceBooks {
         &mut self,
         source: &Key,
     ) -> DrawResult<(&mut SourceBook, &mut dyn CheckpointStore)>;
+
+    /// Remember the Source's book as it is, so a step that fails half way can undo what it did to
+    /// it (`rollback`). Closed-segment records already written are not undone: writing a record
+    /// is idempotent, so the retry writes the same one. The default does nothing, for books that
+    /// only exist inside one step.
+    fn snapshot(&mut self, _source: &Key) -> DrawResult<()> {
+        Ok(())
+    }
+
+    /// Put the Source's book back as `snapshot` left it.
+    fn rollback(&mut self, _source: &Key) -> DrawResult<()> {
+        Ok(())
+    }
 }
 
 /// Source books with their histories in memory (tests and off-chain code).
@@ -138,6 +151,7 @@ pub trait SourceBooks {
 pub struct MemBooks {
     pub map: BTreeMap<Key, SourceBook>,
     pub ck: BTreeMap<Key, super::book::checkpoint::MemCheckpoints>,
+    saved: Option<(Key, SourceBook)>,
 }
 
 #[cfg(not(target_os = "solana"))]
@@ -201,6 +215,27 @@ impl SourceBooks for MemBooks {
             .get_mut(source)
             .ok_or(DrawError::Book(BookError::NoSuchClass))?;
         Ok((book, ck))
+    }
+
+    fn snapshot(&mut self, source: &Key) -> DrawResult<()> {
+        let book = self
+            .map
+            .get(source)
+            .ok_or(DrawError::Book(BookError::NoSuchClass))?;
+        self.saved = Some((*source, book.clone()));
+        Ok(())
+    }
+
+    fn rollback(&mut self, source: &Key) -> DrawResult<()> {
+        match self.saved.take() {
+            Some((k, book)) if k == *source => {
+                self.map.insert(k, book);
+                Ok(())
+            }
+            _ => Err(DrawError::Book(BookError::Corrupt(
+                "rollback without snapshot",
+            ))),
+        }
     }
 }
 
@@ -536,38 +571,103 @@ fn put_line<B: Bytes>(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Pages: Ticket storage that becomes the Pot
+// Pots: Ticket storage that becomes the Pot
 // ---------------------------------------------------------------------------------------------
 
-/// A side's lines in paged storage, ascending by key and dense. A Ticket's pages become the
-/// side's Pot pages without copying a line.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PotPages {
-    pages: Vec<Vec<u8>>,
+/// Bytes a Pot can live in. A `Vec<u8>` grows by itself (tests, off-chain code); an account's data
+/// cannot, so a push into a full Pot account fails with [`DrawError::TicketStorageFull`] and the
+/// instruction layer grows the account (reserved rent) first.
+pub trait PotBacking: Bytes {
+    /// Make the buffer at least `len` bytes long. `false` when it cannot grow.
+    fn grow_to(&mut self, len: usize) -> bool;
+}
+
+impl PotBacking for Vec<u8> {
+    fn grow_to(&mut self, len: usize) -> bool {
+        if self.len() < len {
+            self.resize(len, 0);
+        }
+        true
+    }
+}
+
+/// A side's lines in one sorted store, ascending by key. A Ticket's store becomes the side's Pot
+/// without copying a line: the same account is first the Ticket's staging area, then the Pot, so
+/// open and join stay one bounded transaction whatever the number of lines.
+///
+/// (The spec calls this paged storage. One growable account does the same job: account data is
+/// mapped into the program, not copied, so a 4,096-line Pot costs no more to reach one line of
+/// than a 10-line one. Growing it takes the same +10 KB steps pages would.)
+pub struct PotPages<B: PotBacking = Vec<u8>> {
+    store: LineStore<B>,
     owner: Key,
 }
 
-impl PotPages {
+impl<B: PotBacking + Clone> Clone for PotPages<B> {
+    fn clone(&self) -> Self {
+        PotPages {
+            store: LineStore::new(self.store.bytes().clone()).expect("a valid pot stays valid"),
+            owner: self.owner,
+        }
+    }
+}
+
+impl<B: PotBacking> core::fmt::Debug for PotPages<B> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "PotPages({} lines, {} Gemas)", self.len(), self.total())
+    }
+}
+
+impl<B: PotBacking + Clone> Eq for PotPages<B> {}
+
+impl<B: PotBacking + Clone> PartialEq for PotPages<B> {
+    fn eq(&self, other: &Self) -> bool {
+        self.owner == other.owner && self.lines() == other.lines()
+    }
+}
+
+impl PotPages<Vec<u8>> {
+    /// An empty in-memory Pot that grows as lines are pushed.
     pub fn new(owner: Key) -> PotPages {
         PotPages {
-            pages: Vec::new(),
+            store: LineStore::new(fresh_body(owner, 0).expect("an empty body is valid"))
+                .expect("fresh body"),
             owner,
         }
     }
+}
 
-    fn page(&self, i: usize) -> DrawResult<LineStore<&[u8]>> {
-        Ok(LineStore::new(self.pages[i].as_slice())?)
+impl<B: PotBacking> PotPages<B> {
+    /// Wrap bytes that already hold a Pot.
+    pub fn open(bytes: B) -> DrawResult<PotPages<B>> {
+        let store = LineStore::new(bytes)?;
+        let owner = store.account();
+        Ok(PotPages { store, owner })
     }
 
-    pub fn page_count(&self) -> usize {
-        self.pages.len()
+    /// Format `bytes` as an empty Pot for `owner` and wrap it.
+    pub fn init(bytes: B, owner: Key, bump: u8) -> DrawResult<PotPages<B>> {
+        Ok(PotPages {
+            store: LineStore::init(bytes, owner, bump)?,
+            owner,
+        })
+    }
+
+    pub fn owner(&self) -> Key {
+        self.owner
+    }
+
+    /// Lines the buffer holds now.
+    pub fn capacity(&self) -> usize {
+        self.store.capacity()
+    }
+
+    pub fn store(&self) -> &LineStore<B> {
+        &self.store
     }
 
     pub fn len(&self) -> usize {
-        self.pages
-            .iter()
-            .map(|p| LineStore::new(p.as_slice()).map_or(0, |s| s.len()))
-            .sum()
+        self.store.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -576,47 +676,29 @@ impl PotPages {
 
     /// Total Gemas.
     pub fn total(&self) -> u64 {
-        self.pages
-            .iter()
-            .filter_map(|p| LineStore::new(p.as_slice()).ok())
-            .map(|s| {
-                s.own_total()
-                    .saturating_add(s.won_total())
-                    .saturating_add(s.fee_total())
-            })
-            .fold(0u64, |a, v| a.saturating_add(v))
+        self.store
+            .own_total()
+            .saturating_add(self.store.won_total())
+            .saturating_add(self.store.fee_total())
     }
 
     pub fn lines(&self) -> Vec<Line> {
-        self.pages
-            .iter()
-            .filter_map(|p| LineStore::new(p.as_slice()).ok())
-            .flat_map(|s| s.lines().collect::<Vec<_>>())
-            .collect()
+        self.store.lines().collect()
     }
 
-    /// The line at position `i` (pages are dense, so `i` maps to a page and a slot).
     pub fn get(&self, i: usize) -> Option<Line> {
-        let page = self.pages.get(i / PAGE_LINES)?;
-        LineStore::new(page.as_slice()).ok()?.get(i % PAGE_LINES)
+        self.store.get(i)
     }
 
     /// Overwrite the line at position `i` with an updated copy of the same key (settlement
     /// shrinks lines in place; an emptied line keeps its slot so positions never move).
     pub fn set(&mut self, i: usize, line: &Line) -> DrawResult<()> {
-        let page = self
-            .pages
-            .get_mut(i / PAGE_LINES)
-            .ok_or(DrawError::Store(LineStoreError::NotFound))?;
-        let mut s = LineStore::new(page.as_mut_slice())?;
-        s.set_line(i % PAGE_LINES, line)?;
+        self.store.set_line(i, line)?;
         Ok(())
     }
 
     pub fn last_line(&self) -> Option<Line> {
-        let p = self.pages.last()?;
-        let s = LineStore::new(p.as_slice()).ok()?;
-        s.get(s.len().checked_sub(1)?)
+        self.store.get(self.store.len().checked_sub(1)?)
     }
 
     /// Append a line whose key is above every line so far.
@@ -627,19 +709,13 @@ impl PotPages {
         {
             return Err(DrawError::Store(LineStoreError::Unsorted));
         }
-        let need_page = match self.pages.last() {
-            None => true,
-            Some(p) => {
-                let s = LineStore::new(p.as_slice())?;
-                s.len() == s.capacity()
+        if self.store.len() == self.store.capacity() {
+            let want = required_len(self.store.capacity() + PAGE_LINES);
+            if !self.store.bytes_mut().grow_to(want) || self.store.len() == self.store.capacity() {
+                return Err(DrawError::TicketStorageFull);
             }
-        };
-        if need_page {
-            self.pages.push(fresh_body(self.owner, PAGE_LINES)?);
         }
-        let at = self.pages.len() - 1;
-        let mut s = LineStore::new(self.pages[at].as_mut_slice())?;
-        s.insert(line)?;
+        self.store.insert(line)?;
         Ok(())
     }
 
@@ -658,38 +734,15 @@ impl PotPages {
 
     /// Remove and return the last (slowest) line.
     pub fn pop_last(&mut self) -> DrawResult<Option<Line>> {
-        let Some(at) = self.pages.len().checked_sub(1) else {
+        let Some(n) = self.store.len().checked_sub(1) else {
             return Ok(None);
         };
-        let mut s = LineStore::new(self.pages[at].as_mut_slice())?;
-        let n = s.len();
-        let line = if n == 0 {
-            None
-        } else {
-            Some(s.remove_at(n - 1)?)
-        };
-        if s.is_empty() {
-            self.pages.pop();
-        }
-        Ok(line)
+        Ok(Some(self.store.remove_at(n)?))
     }
 
-    /// Integrity: every page valid, keys ascending across pages, pages dense.
+    /// Integrity: valid store, keys ascending, header totals equal the lines.
     pub fn check(&self) -> DrawResult<()> {
-        let mut prev: Option<LineKey> = None;
-        for i in 0..self.pages.len() {
-            let s = self.page(i)?;
-            s.check()?;
-            if s.is_empty() || (i + 1 < self.pages.len() && s.len() != s.capacity()) {
-                return Err(DrawError::Store(LineStoreError::BadStore));
-            }
-            for l in s.lines() {
-                if prev.is_some_and(|p| p >= l.key()) {
-                    return Err(DrawError::Store(LineStoreError::Unsorted));
-                }
-                prev = Some(l.key());
-            }
-        }
+        self.store.check()?;
         Ok(())
     }
 }
@@ -737,8 +790,7 @@ pub struct CancelStep {
     pub done: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ticket {
+pub struct Ticket<T: PotBacking = Vec<u8>> {
     pub account: Key,
     pub game: Key,
     pub nonce: u64,
@@ -754,10 +806,67 @@ pub struct Ticket {
     pub line_cap: usize,
     /// Backing only: reservation not yet staged.
     pub reserved_left: u64,
-    pub pages: PotPages,
+    pub pages: PotPages<T>,
 }
 
-impl Ticket {
+impl<T: PotBacking + Clone> Clone for Ticket<T> {
+    fn clone(&self) -> Self {
+        Ticket {
+            account: self.account,
+            game: self.game,
+            nonce: self.nonce,
+            kind: self.kind,
+            state: self.state,
+            target: self.target,
+            expires_at: self.expires_at,
+            storage_reserved: self.storage_reserved,
+            line_cap: self.line_cap,
+            reserved_left: self.reserved_left,
+            pages: self.pages.clone(),
+        }
+    }
+}
+
+impl<T: PotBacking> core::fmt::Debug for Ticket<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "Ticket({:?} {:?} target {} staged {})",
+            self.kind,
+            self.state,
+            self.target,
+            self.pages.total()
+        )
+    }
+}
+
+impl Ticket<Vec<u8>> {
+    /// Open an Entry Ticket with in-memory storage.
+    pub fn open_entry<B: Bytes, S: Bytes>(
+        pool: &mut Pool<B, S>,
+        game: Key,
+        nonce: u64,
+        entry: u64,
+        expires_at: i64,
+    ) -> DrawResult<Ticket> {
+        let pages = PotPages::new(pool.basket.account());
+        Self::open_entry_in(pool, game, nonce, entry, expires_at, pages)
+    }
+
+    /// Open a Backing Ticket with in-memory storage.
+    pub fn open_backing<B: Bytes, S: Bytes>(
+        pool: &mut Pool<B, S>,
+        game: Key,
+        nonce: u64,
+        amount: u64,
+        expires_at: i64,
+    ) -> DrawResult<Ticket> {
+        let pages = PotPages::new(pool.basket.account());
+        Self::open_backing_in(pool, game, nonce, amount, expires_at, pages)
+    }
+}
+
+impl<T: PotBacking> Ticket<T> {
     fn begin<B: Bytes, S: Bytes>(
         pool: &Pool<B, S>,
         kind: TicketKind,
@@ -765,7 +874,8 @@ impl Ticket {
         nonce: u64,
         target: u64,
         expires_at: i64,
-    ) -> Ticket {
+        pages: PotPages<T>,
+    ) -> Ticket<T> {
         let account = pool.basket.account();
         let lines = pool.basket.len().saturating_add(pool.spill.len());
         Ticket {
@@ -779,18 +889,20 @@ impl Ticket {
             storage_reserved: false,
             line_cap: lines.saturating_add(2),
             reserved_left: 0,
-            pages: PotPages::new(account),
+            pages,
         }
     }
 
-    /// Open an Entry Ticket. The only condition is that the free Gemas cover the entry.
-    pub fn open_entry<B: Bytes, S: Bytes>(
+    /// Open an Entry Ticket staging into `pages`. The only condition is that the free Gemas cover
+    /// the entry.
+    pub fn open_entry_in<B: Bytes, S: Bytes>(
         pool: &mut Pool<B, S>,
         game: Key,
         nonce: u64,
         entry: u64,
         expires_at: i64,
-    ) -> DrawResult<Ticket> {
+        pages: PotPages<T>,
+    ) -> DrawResult<Ticket<T>> {
         if entry == 0 {
             return Err(DrawError::ZeroAmount);
         }
@@ -800,22 +912,31 @@ impl Ticket {
         if entry > pool.free() {
             return Err(DrawError::InsufficientGemas);
         }
-        let t = Self::begin(pool, TicketKind::Entry, game, nonce, entry, expires_at);
+        let t = Self::begin(
+            pool,
+            TicketKind::Entry,
+            game,
+            nonce,
+            entry,
+            expires_at,
+            pages,
+        );
         pool.basket
             .set_flags(pool.basket.flags() | FLAG_TICKET_OPEN);
         pool.basket.set_ticket_need(entry);
         Ok(t)
     }
 
-    /// Open a Backing Ticket for an accepted Offer of `amount` (already reserved). It uses its
-    /// own flag: the Backer's entries are not affected.
-    pub fn open_backing<B: Bytes, S: Bytes>(
+    /// Open a Backing Ticket for an accepted Offer of `amount` (already reserved), staging into
+    /// `pages`. It uses its own flag: the Backer's entries are not affected.
+    pub fn open_backing_in<B: Bytes, S: Bytes>(
         pool: &mut Pool<B, S>,
         game: Key,
         nonce: u64,
         amount: u64,
         expires_at: i64,
-    ) -> DrawResult<Ticket> {
+        pages: PotPages<T>,
+    ) -> DrawResult<Ticket<T>> {
         if amount == 0 {
             return Err(DrawError::ZeroAmount);
         }
@@ -825,7 +946,15 @@ impl Ticket {
         if amount > pool.basket.reserved_total() {
             return Err(DrawError::ReservationShort);
         }
-        let mut t = Self::begin(pool, TicketKind::Backing, game, nonce, amount, expires_at);
+        let mut t = Self::begin(
+            pool,
+            TicketKind::Backing,
+            game,
+            nonce,
+            amount,
+            expires_at,
+            pages,
+        );
         t.reserved_left = amount;
         pool.basket
             .set_flags(pool.basket.flags() | FLAG_BACKING_OPEN);
@@ -985,13 +1114,14 @@ impl Ticket {
         Ok(())
     }
 
-    /// `open_match` / `join_match`: consume the complete Ticket. Its pages become the Pot pages.
+    /// `open_match` / `join_match`: consume the complete Ticket. Its store becomes the Pot
+    /// (`into_pot` hands it over; nothing is copied).
     pub fn consume<B: Bytes, S: Bytes>(
         &mut self,
         pool: &mut Pool<B, S>,
         game: &Key,
         entry: u64,
-    ) -> DrawResult<PotPages> {
+    ) -> DrawResult<()> {
         if self.state != TicketState::Open {
             return Err(DrawError::NotOpen);
         }
@@ -1009,10 +1139,12 @@ impl Ticket {
         if self.kind == TicketKind::Entry {
             pool.basket.set_ticket_need(0);
         }
-        Ok(core::mem::replace(
-            &mut self.pages,
-            PotPages::new(self.account),
-        ))
+        Ok(())
+    }
+
+    /// The staged lines, once the Ticket is consumed.
+    pub fn into_pot(self) -> PotPages<T> {
+        self.pages
     }
 
     /// Start cancelling: the owner at any time, anyone once the deadline passed. One-way.

@@ -251,6 +251,11 @@ impl<T: AsRef<[u8]>> LineStore<T> {
         self.data.as_ref()
     }
 
+    /// The underlying buffer.
+    pub fn bytes(&self) -> &T {
+        &self.data
+    }
+
     fn u64_at(&self, at: usize) -> u64 {
         u64::from_le_bytes(arr(&self.raw()[at..at + 8]))
     }
@@ -403,6 +408,11 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
 
     fn raw_mut(&mut self) -> &mut [u8] {
         self.data.as_mut()
+    }
+
+    /// The underlying buffer, to grow it (the caller keeps it a valid store).
+    pub fn bytes_mut(&mut self) -> &mut T {
+        &mut self.data
     }
 
     fn put_u64(&mut self, at: usize, v: u64) {

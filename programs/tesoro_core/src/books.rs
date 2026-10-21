@@ -249,6 +249,34 @@ impl<'a, 'info> OnchainBooks<'a, 'info> {
 }
 
 impl SourceBooks for OnchainBooks<'_, '_> {
+    /// Writes the decoded book into its account without letting go of it, so `rollback` can
+    /// re-decode exactly this state.
+    fn snapshot(&mut self, source: &Key) -> DrawResult<()> {
+        self.entry(source)?;
+        if let (Some(idx), Some(book)) = (self.current, self.book.as_ref()) {
+            let mut data = self.entries[idx]
+                .info
+                .try_borrow_mut_data()
+                .map_err(|_| DrawError::Book(BookError::Corrupt("source book account")))?;
+            book.encode(&mut data[BOOK_AT..]).map_err(book_err)?;
+        }
+        Ok(())
+    }
+
+    /// Drops what was done to the decoded book since `snapshot`: the next use decodes the account
+    /// again.
+    fn rollback(&mut self, source: &Key) -> DrawResult<()> {
+        let idx = self
+            .entries
+            .iter()
+            .position(|e| e.source == *source)
+            .ok_or(DrawError::Book(BookError::NoSuchClass))?;
+        if self.current == Some(idx) {
+            self.current = None;
+        }
+        Ok(())
+    }
+
     fn book_mut(&mut self, source: &Key) -> DrawResult<&mut SourceBook> {
         Ok(self.entry(source)?.0)
     }
