@@ -53,8 +53,20 @@ export interface PackQuote {
 /** A pack's Gemas, exactly as the Advance sizes them: the 12-month projected yield of the Lock, net of the Yield Fee. */
 export function quotePack(pack: DepositPack, m: PackMarket, checkoutFeeBps: number): PackQuote {
   const feeUsd = (pack.usd * checkoutFeeBps) / 10_000;
-  const lockLamports = usdToLamports(pack.usd - feeUsd, m.priceMicroUsd);
-  const { gemas } = quoteNativeAdvance(lockLamports, m.apyBps, PACK_MONTHS, m.priceMicroUsd, m.yieldFeeBps);
+  const usd = pack.usd - feeUsd;
+  const gemasFor = (lamports: bigint) => quoteNativeAdvance(lamports, m.apyBps, PACK_MONTHS, m.priceMicroUsd, m.yieldFeeBps).gemas;
+  // The dollar-to-SOL step and the Advance both round down, so $100 at 7% lands on 559, not 560. Lock the few extra
+  // lamports (a fraction of a cent) that reach the whole number the dollars are worth.
+  const target = BigInt(Math.round((usd * m.apyBps * (10_000 - m.yieldFeeBps) * PACK_MONTHS) / 12 / 10_000 / 10_000 / 0.01));
+  let lockLamports = usdToLamports(usd, m.priceMicroUsd);
+  let gemas = gemasFor(lockLamports);
+  if (gemas < target) {
+    const step = lockLamports / 100_000n + 1n;
+    for (let i = 0; i < 64 && gemas < target; i++) {
+      lockLamports += step;
+      gemas = gemasFor(lockLamports);
+    }
+  }
   return { pack, lockLamports, feeUsd, gemas: Number(gemas) };
 }
 

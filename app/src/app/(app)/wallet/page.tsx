@@ -21,7 +21,7 @@ import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables, ethYieldWaiting } from "./EthPositions";
 import { vaultsOn, type EthVault } from "@/lib/chain/eth";
-import { OpenPanel, OpenFormView, NoPositions, OpenIntentContext, type OpenIntent } from "./OpenPanel";
+import { OpenPanel, OpenFormView, OpenIntentContext, type OpenIntent } from "./OpenPanel";
 import { ChainPockets, NextRedeem, type Pocket, type PocketSource } from "./ChainPockets";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
@@ -186,7 +186,6 @@ export default function Wallet() {
     .map((chain) => ({ chain, nextRedeemAt: nextRedeemAt(chain), ...chainTiles(chain), ...(onChain && snapshot ? chainGemas(snapshot.holdings, chain) : mockGemas(holdings, chain)), fetchYield: onChain && ethYieldWaiting(snapshot?.holdings ?? [], chain).length > 0 }))
     .filter((p) => p.positions.length > 0 || p.closed.length > 0 || p.gemas > 0);
   const hasPositions = pockets.some((p) => p.positions.length > 0 || p.closed.length > 0);
-  const noPositions = pockets.length === 0 && !loading;
   const heroNext = pockets.filter((p) => p.gemas > p.redeemable && p.nextRedeemAt).reduce<number | null>((m, p) => (m === null || p.nextRedeemAt! < m ? p.nextRedeemAt! : m), null);
   const openPosition = () => auth.gate("get Gemas", () => openTab(tab));
 
@@ -197,7 +196,7 @@ export default function Wallet() {
           <h1 className="page-title">Wallet</h1>
           <p className="page-sub">1 Gema = $0.01 · <ViewSwitchLink to="simple" className="wl-link" /></p>
         </div>
-        {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Get Gemas</Button>}
+        <Button variant="money" size="lg" onClick={openPosition}>Get Gemas</Button>
       </header>
 
       <section className={`cut cut-frame facet-panel wl-hero${heroOpen ? " open" : ""}`} aria-label="Balance">
@@ -259,7 +258,6 @@ export default function Wallet() {
           </p>
         )}
         {pockets.length > 0 && <ChainPockets pockets={pockets} onRedeem={openRedeem} />}
-        {noPositions && <NoPositions onOpen={openPosition} />}
         {onChain && <EthOps />}
       </section>
 

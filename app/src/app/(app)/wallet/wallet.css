@@ -140,35 +140,6 @@
 .wl-faucet b { color: var(--fg); }
 
 
-/* no Positions yet: one card carries the invitation, how Gemas work and the action */
-.wl-empty {
-  --edge: var(--edge-1); background: var(--surface); padding: 0 20px;
-  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 18px;
-  grid-template-areas: "lead lead" "steps steps" "bust cta";
-}
-.wl-empty-bust { grid-area: bust; align-self: end; width: 104px; margin-bottom: -1px; }
-.wl-empty-lead { grid-area: lead; padding: 22px 0 18px; }
-.wl-empty-lead b { display: block; font-size: var(--fs-20); font-weight: 800; }
-.wl-empty-lead p { color: var(--fg-2); font-size: var(--fs-15); margin-top: 4px; }
-.wl-empty > .btn { grid-area: cta; margin: 18px 0; }
-.wl-steps { grid-area: steps; list-style: none; margin: 0; padding: 18px 0; border-block: 1px solid var(--line); display: grid; gap: 14px 24px; }
-.wl-steps li { display: flex; align-items: flex-start; gap: 12px; }
-.wl-steps li > span { flex: none; min-width: 16px; font-family: var(--f-display); font-weight: 800; font-size: 34px; line-height: 0.92; color: var(--fg-2); }
-.wl-steps b { display: block; font-size: var(--fs-15); }
-.wl-steps p { color: var(--fg-2); font-size: var(--fs-14); margin-top: 2px; }
-@media (min-width: 640px) {
-  .wl-empty { padding: 0 28px; }
-  .wl-empty > .btn { justify-self: start; }
-  .wl-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .wl-steps li + li { border-left: 1px solid var(--line); padding-left: 24px; }
-}
-@media (min-width: 1180px) {
-  .wl-empty { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 28px; padding: 0 32px 0 20px; grid-template-areas: "bust lead cta" "bust steps steps"; }
-  .wl-empty-bust { width: 200px; }
-  .wl-empty-lead { padding: 26px 0 20px; }
-  .wl-empty > .btn { margin: 0; }
-  .wl-steps { padding: 18px 0 24px; border-bottom: 0; }
-}
 .wl-actions .btn { min-height: 44px; }
 .wl-tile.skel { min-height: 236px; align-content: start; }
 

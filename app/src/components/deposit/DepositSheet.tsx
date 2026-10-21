@@ -60,9 +60,7 @@ export function DepositSheet({ open, onClose, intent }: { open: boolean; onClose
         />
       )}
       {step === "ack" && picked && (
-        <AckView
-          quote={picked}
-          dontShow={flow.ack.dontShow}
+        <AckView dontShow={flow.ack.dontShow}
           onDontShow={flow.ack.setDontShow}
           busy={flow.ack.busy}
           error={flow.ack.error}

@@ -7,7 +7,6 @@ import { NATIVE_MARKET } from "../wallet/support";
 
 const quotes = DEPOSIT_PACKS.map((p) => quotePack(p, packMarket(NATIVE_MARKET)!, 0));
 const pack = DEPOSIT_PACKS[1];
-const quote = quotes[1];
 
 function Frame({ title = "Get Gemas", step = "packs", children }: { title?: string; step?: DepositStep; children: React.ReactNode }) {
   return (
@@ -43,14 +42,14 @@ export const PriceNotReady: Story = { render: () => packs({ quotes: null }) };
 export const Acknowledgment: Story = {
   render: () => (
     <Frame title="Before you deposit" step="ack">
-      <AckView quote={quote} dontShow={false} onDontShow={() => {}} busy={false} error={null} onConfirm={() => {}} />
+      <AckView dontShow={false} onDontShow={() => {}} busy={false} error={null} onConfirm={() => {}} />
     </Frame>
   ),
 };
 export const AcknowledgmentFailed: Story = {
   render: () => (
     <Frame title="Before you deposit" step="ack">
-      <AckView quote={quote} dontShow onDontShow={() => {}} busy={false} error="That didn’t go through. Try again in a moment." onConfirm={() => {}} />
+      <AckView dontShow onDontShow={() => {}} busy={false} error="That didn’t go through. Try again in a moment." onConfirm={() => {}} />
     </Frame>
   ),
 };

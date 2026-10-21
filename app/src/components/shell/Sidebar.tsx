@@ -25,7 +25,7 @@ export const NAV: NavItem[] = [LOBBY, PLAY, BACKING, BOARD, WALLET];
 /** The sidebar, in labelled groups. */
 const GROUPS: { title: string; items: NavItem[] }[] = [
   { title: "Play", items: [LOBBY, PLAY, MATCHES] },
-  { title: "Money", items: [BACKING, WALLET] },
+  { title: "Money", items: [WALLET, BACKING] },
   { title: "Season", items: [BOARD] },
 ];
 

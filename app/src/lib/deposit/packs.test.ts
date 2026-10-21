@@ -18,9 +18,19 @@ describe("deposit packs", () => {
   it("issues what the Advance rule gives for the Lock: 12 months of yield at 80%", () => {
     const q = quotePack(DEPOSIT_PACKS[0], m, 0);
     expect(q.gemas).toBe(Number(quoteNativeAdvance(q.lockLamports, 700, 12, m.priceMicroUsd, 2_000).gemas));
-    // $100 at 7% for a year, 80% of it, $0.01 a Gema: about 560.
-    expect(q.gemas).toBeGreaterThanOrEqual(555);
-    expect(q.gemas).toBeLessThanOrEqual(560);
+    // $100 at 7% for a year, 80% of it, $0.01 a Gema: 560.
+    expect(q.gemas).toBe(560);
+  });
+
+  it("lands on the round number for every pack and price, locking at most a cent more", () => {
+    for (const priceMicroUsd of [110_000_000n, 187_340_000n, 93_123_457n]) {
+      const mk = { ...m, priceMicroUsd };
+      expect(DEPOSIT_PACKS.map((p) => quotePack(p, mk, 0).gemas)).toEqual([560, 1_400, 2_800]);
+      for (const p of DEPOSIT_PACKS) {
+        const extra = quotePack(p, mk, 0).lockLamports - usdToLamports(p.usd, priceMicroUsd);
+        expect(extra * priceMicroUsd).toBeLessThan(10_000n * 1_000_000_000n); // under $0.01
+      }
+    }
   });
 
   it("takes the checkout fee from the deposit before locking", () => {

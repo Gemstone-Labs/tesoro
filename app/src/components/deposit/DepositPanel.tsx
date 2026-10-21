@@ -111,53 +111,35 @@ const PLACEHOLDER: PackQuote[] = [
   { pack: { id: "pro", name: "Pro", usd: 500 }, lockLamports: 0n, feeUsd: 0, gemas: 0 },
 ];
 
-/** "Before you deposit": the wording on the left, the chosen pack on the right. Confirming always records it. */
-export function AckView({ quote, dontShow, onDontShow, busy, error, onConfirm }: {
-  quote: PackQuote;
+/** "Before you deposit": the four points, numbered, then "Don't show this again" and "I understand". Confirming always records it. */
+export function AckView({ dontShow, onDontShow, busy, error, onConfirm }: {
   dontShow: boolean;
   onDontShow: (v: boolean) => void;
   busy: boolean;
   error: string | null;
   onConfirm: () => void;
 }) {
-  const { pack, gemas } = quote;
   return (
     <div className="dep-ack">
-      <div className="dep-ack-main">
-        <p className="dep-ack-title" aria-hidden="true">{DEPOSIT_ACK_TITLE}</p>
-        <div className="dep-ack-points">
-          {DEPOSIT_ACK_POINTS.map((p) => (
-            <p key={p}>{p}</p>
-          ))}
-        </div>
-        {error && <p className="status err" role="alert">{error}</p>}
-        <div className="dep-ack-foot">
-          <label className="dep-check">
-            <input type="checkbox" checked={dontShow} onChange={(e) => onDontShow(e.target.checked)} />
-            <span>{DEPOSIT_ACK_SKIP}</span>
-          </label>
-          <Button variant="money" size="lg" block disabled={busy} onClick={onConfirm}>
-            {busy ? "Saving…" : DEPOSIT_ACK_CONFIRM}
-          </Button>
-        </div>
+      <p className="dep-ack-title" aria-hidden="true">{DEPOSIT_ACK_TITLE}</p>
+      <ol className="dep-ack-points">
+        {DEPOSIT_ACK_POINTS.map((p, i) => (
+          <li key={p}>
+            <span className="cut cut-chip dep-ack-num" aria-hidden="true">{i + 1}</span>
+            <p>{p}</p>
+          </li>
+        ))}
+      </ol>
+      {error && <p className="status err" role="alert">{error}</p>}
+      <div className="dep-ack-foot">
+        <label className="dep-check">
+          <input type="checkbox" checked={dontShow} onChange={(e) => onDontShow(e.target.checked)} />
+          <span>{DEPOSIT_ACK_SKIP}</span>
+        </label>
+        <Button variant="silver" size="lg" disabled={busy} onClick={onConfirm}>
+          {busy ? "Saving…" : DEPOSIT_ACK_CONFIRM}
+        </Button>
       </div>
-      <aside className="dep-ack-pack" aria-label="Your pack">
-        <Image className="dep-art" src={packArt(pack.id)} width={512} height={512} alt="" sizes="(max-width: 639px) 80px, 260px" />
-        <div className="dep-ack-sum">
-          <h3 className="dep-name">{pack.name}</h3>
-          <p className="dep-gemas">
-            <b>
-              <GemaMark size={22} />
-              ≈ {fmtGemas(gemas)}
-            </b>
-            <span>Gemas</span>
-          </p>
-        </div>
-        <p className="dep-ack-pay">
-          <span>Deposit</span>
-          <b>{fmtUsd(pack.usd)}</b>
-        </p>
-      </aside>
     </div>
   );
 }
@@ -206,12 +188,12 @@ export function DoneView({ gemas, packId, back, onDone, testMode, hours }: {
         <span className="sr-only">{fmtGemas(gemas)} Gemas added</span>
       </h3>
       <p className="dep-done-ready" role="status">
-        <span className="dep-done-check" aria-hidden="true"><CheckIcon /></span> Your Gemas are ready
+        <span className="cut cut-chip dep-done-check" aria-hidden="true"><CheckIcon /></span> Your Gemas are ready
       </p>
-      <Image className="dep-art" src={packArt(packId)} width={512} height={512} alt="" sizes="(max-width: 639px) 200px, 300px" priority />
+      <Image className="dep-art" src={packArt(packId)} width={512} height={512} alt="" sizes="(max-width: 639px) 280px, 440px" priority />
       <div className="dep-actions">
-        <Button variant="money" size="lg" block href={play.href} onClick={onDone}>{play.label}</Button>
-        <button type="button" className="dep-done-quiet" onClick={onDone}>Done</button>
+        <Button variant="silver" size="lg" block href={play.href} onClick={onDone}>{play.label}</Button>
+        <Button variant="neutral" onClick={onDone}>Done</Button>
       </div>
       {testMode && <TestModeLine hours={hours} />}
     </div>
