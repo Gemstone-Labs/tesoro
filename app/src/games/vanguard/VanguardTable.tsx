@@ -342,7 +342,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
   );
 
   return (
-    <Arena game="vanguard">
+    <Arena game="vanguard" autoFull={!ended}>
       <VanguardScreen
         bar={
           <div className="vg-bar">
