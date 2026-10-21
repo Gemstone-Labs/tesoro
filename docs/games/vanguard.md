@@ -1,12 +1,156 @@
-# Vanguard: Game doc
+# Vanguard: Game program
 
-> **DRAFT.** The bot simulation report below was regenerated for the powers (RULES_VERSION 6). Ticket 12 writes the rest of this doc (rules, program, client, evidence).
+Program `vanguard` `TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH` (Solana devnet, upgradeable). Blitz Stratego on a 10x10 board, the US Army against the Royal Italian Army, in a MagicBlock Private Ephemeral Rollup (TEE). Each Player gets 20 hidden pieces and 10 seconds a move; capturing the enemy Supply Truck wins the Pot minus Fees through tesoro_core, and a draw or a cancelled Match refunds both entries.
 
-Vanguard is Tesoro's fourth Game: blitz Stratego on a 10x10 board, US Army against the Royal Italian Army. Rules in TypeScript: `app/src/games/vanguard/rules.ts`.
+Code: `programs/vanguard/src/{lib,state,engine}.rs`. Rules in TypeScript: `app/src/games/vanguard/rules.ts`. Client: `app/src/games/vanguard/chain.ts`. Registered in tesoro_core with studio_bps 300 and the `["authority"]` PDA (see `docs/addresses.md`); no tesoro_core change was needed, as for Hold'em.
+
+The rules are `RULES_VERSION` 6: every rank has a power, a Player may pass, and two powers are sealed. The rules exist twice, in TypeScript (Practice, the bot, the app) and in Rust (the program). Both are tested against one set of shared recordings, so they cannot drift. The program on devnet still runs version 5 until the upgrade described under "Verification and status".
+
+## Rules
+
+- Two Players, equal entry, paired through the Queue or a Challenge link. Your side (US Army or Royal Italian Army) is drawn at random, and so is the first mover.
+- Each Army has 20 pieces: General of the Army (1), General (1), Colonel (1), Major (2), Captain (2), Lieutenant (2), Sergeant (2), Engineer (2), Recon (3), Spy (1), Landmine (2) and the Supply Truck (1). Pieces are dealt at random into the Player's three back rows; Landmines and the Truck never start on the front row, and no Landmine starts next to the Player's own depot.
+- The two wadis (columns 3-4 and 7-8 of board rows 5-6) are impassable, except where a power says otherwise.
+- A turn is 10 seconds. The program accepts a move until one second after the clock ends, and the first turn gets 10 extra seconds because the deal starts it before the Player has loaded their Army.
+- **Fights.** Moving onto an enemy piece attacks it. The higher rank wins; equal ranks both leave the board. The Spy beats the General of the Army (10) when it attacks, and loses when the 10 attacks it. A Landmine beats every attacker and stays, so every piece, the Engineer included, loses to one. A piece that loses an attack is not shown; a piece that wins or ties is shown face up for good. Moving onto the Truck captures it and ends the Match.
+- **The Truck** moves one square, three times in all (its fuel), and never in two of its own turns in a row. After its third drive it is shown to the enemy.
+- **Depots.** Each Army's depot sits in its own base and is raided by the other Army. A one-square step onto the enemy depot (straight or diagonal) claims it once per Match and banks a Two-Step Turn. Jumps, wadi crossings, Recon runs, Rescues and the Dust Storm never claim a depot.
+- **Two-Step Turn.** Spend a banked one at the start of a turn, before moving, for two steps in the same turn. Each step is one square for every piece: a one-square diagonal for the Sergeant, any of 8 directions for the Captain, no Jumps, no wadi crossings, no runs. The Truck makes at most one of the two steps. Blast, Rescue, Dig in and Pass can't be used inside a Two-Step Turn; Become a Spy can, on either step. A Two-Step Turn ends early when no one-square step is left, and a Blast that is still possible does not keep it open.
+- **Dust Storm.** Once per Match, on a turn between the 10th and the 18th, a random row or column holding at least two pieces drifts one square in a random direction. Pieces nearest the edge move first; a piece that would leave the board, enter a wadi or bump another piece stays put. The storm is blind to rank, so a dug-in Major drifts like any Landmine. A storm never claims a depot. The line and direction are drawn when the storm fires, not before.
+- **Missed turns.** A turn that ends with no action, and every Pass, counts as a missed turn. Three in a row lose the Match; any move, Blast or Rescue resets the count.
+- **Ending.** The Match ends when a Truck is captured, when a side has no move and no power left at the start of its turn (it loses), after three missed turns, or at the safety cap: 200 moves or 15 minutes from the start, whichever comes first. At the cap the higher total of surviving ranks wins, then the higher piece count; an exact tie is a draw. Ranks count as they are at the end: a dug-in Major counts 0 (it is a Landmine) and a switched General of the Army counts 1. Landmines and the Truck count 0. A Pass is not a move toward the 200; Blast and Rescue are.
+
+### Powers
+
+Every rank has a power. A "step" is one square straight.
+
+| Rank | Name | Power |
+|---|---|---|
+| 1 | Spy | Beats the 10 when it attacks. Loses when the 10 attacks it. |
+| 2 | Recon | Runs any distance in a straight line, stopped by the first piece (which it may attack) and by wadis. |
+| 3 | Engineer | **Blast.** Blows itself up: it leaves the board and is shown. Every piece on the up to 8 squares around it turns face up for good, the enemy's to the blaster and the blaster's own to the enemy. Nothing is hurt. Uses the turn. The Engineer no longer clears Landmines. |
+| 4 | Sergeant | Slides like a chess bishop: diagonals only, any distance, stopped by the first piece (which it may attack) and by wadis. Never moves straight. |
+| 5 | Lieutenant | **Jump.** Besides its step, it may jump one neighbouring piece (either Army, Landmines and Trucks included) straight up, down, left or right and land on the square right behind it, which must be empty (a move) or hold an enemy (an attack). It can't jump a wadi or land on one. |
+| 6 | Captain | Moves one square in any of 8 directions, like a chess king. |
+| 7 | Major | **Dig in.** Turns itself into a Landmine for good: it never moves again and beats any attacker. Sealed (see below), and it counts as a Pass. |
+| 8 | Colonel | **Rescue.** Blows itself up (it leaves the board and is shown) and the Player's Supply Truck jumps from anywhere on the board onto its square. Everyone sees where the Truck went. Costs no fuel, works whatever fuel the Truck has left (a Truck with no fuel can be Rescued but still can't drive), works with the Colonel standing next to the Truck, and doesn't count as a Truck drive for the "never two turns in a row" rule. The Truck's trail starts over on its new square and it stays face up. Uses the turn. |
+| 9 | General | Besides its step, it may jump straight across a wadi onto the first square beyond (empty, or an enemy to attack). A jump from beside a wadi that crosses no wadi square is refused. |
+| 10 | General of the Army | **Become a Spy.** Turns into a Spy (1) for good, so it can beat the enemy 10 without trading. Free: it doesn't use the turn; the Player switches and then makes their action in the same turn. One way only. Sealed (see below). |
+| B | Landmine | Never moves. |
+| F | Supply Truck | Moves one square, three times, with the rest rule above. |
+
+Diagonal moves may slip past canyon corners and between two pieces touching at the corners, as in chess: only the squares a piece lands on or passes through block it. Every Jump and wadi crossing obeys the shuttle rule like any other voluntary move.
+
+A piece that is already face up may use a secret power in the open: a Blast-revealed Major that digs in, or a revealed 10 that switches, shows its new face and the table names it.
+
+### Pass
+
+A Player may pass a turn on purpose. A Pass counts as a missed turn, so three in a row (Passes and timeouts mixed) lose the Match, as timeouts do. It can't be used inside a Two-Step Turn or after a first step, and it doesn't count as a move toward the 200. A side with no move and no Blast, Rescue or Dig in loses at once; Passing doesn't count as an action for that.
+
+**A face-down Dig in is a Pass in public.** It is the same instruction, carrying a sealed byte that names the Major to dig in, or nothing. Both count as a missed turn, so no counter tells the two apart. A Dig in with a sealed byte that names no Major able to dig in is just a Pass. A face-up Major's Dig in is named in the open but still counts the same way.
+
+## What is public and what is private
+
+| Information | During the Match | After `close_match` |
+|---|---|---|
+| Piece positions, who moved where, whose turn, clocks, depots claimed, Two-Step Turns banked, missed turns, the storm | public | public |
+| The rank of a piece that has not fought, blasted or been rescued | readable only by its Player | public (the end reveal shows every piece) |
+| That a piece changed rank (Dug in Major, switched 10) | readable only by its owner, unless the piece was already face up | public through the end mask |
+| A Blast: the Engineer and every piece around it, with their ranks | public | public |
+| A Rescue: the Colonel, the Truck and both squares | public | public |
+
+The hidden ranks live in each Player's own `Army` account, which only that Player's token can read. The public `Battle` account holds only what has been shown. `close_match` wipes the Armies' key and change codes before committing them to the base layer, and a test checks the committed bytes.
+
+### Inherent deductions
+
+These follow from the rules and are not hidden. A Player or a spectator can draw them from the public moves:
+
+- a diagonal run longer than one square is a Sergeant;
+- a one-square diagonal is a Sergeant or a Captain;
+- a jump over a piece is a Lieutenant;
+- a wadi crossing is a General;
+- a Blast or Rescue shows the piece that did it, and after a Rescue the Truck is known;
+- a turn in which no piece moves and a missed turn is counted is a Pass or a Dig in, and nothing tells the two apart (a Dig in by a face-up Major is named in the open);
+- a Spy beating a 10 may be the switched 10, and two Spies shown means the 10 switched;
+- a side ending its turn means it still had an action.
+
+The deal keeps Landmines off the squares next to a depot, but that no longer holds for the whole Match: a dug-in Major can put a Landmine there.
+
+## Sealed powers (Dig in, Become a Spy)
+
+The chain shows each declared action in the open: the piece number and the target square are public on purpose, because moves show on the board anyway. Ranks stay secret because they live only in the Armies. A secret power must not name its piece in the open, so its bytes are sealed with a one-time pad.
+
+**Key.** At `deal`, each Army gets a fresh 32-byte key in its `reserved` field, readable only by its Player. It comes from a SHA-256 counter-mode stream of the setup seed (labels `seal-key-us` and `seal-key-it`), independent of the layout, side and storm streams.
+
+**Pad.** `pad = SHA-256("vanguard-seal-v1" || key(32) || battle(32) || seat(1) || seq(u32 LE) || field(1))[0]`, where `seq` is the Battle's `action_seq` at the declare, `field` is 1 for the Dig in slot and 2 for the switch, and `sealed = plaintext ^ pad`. One plaintext is sealed per (key, seq, field), once.
+
+- Switch plaintext: 0 for no switch, otherwise the army slot plus one of the General of the Army. Any other value, or a slot that is not the live unswitched 10, does nothing.
+- Dig in plaintext (on `pass` only): 0 for a plain Pass, otherwise the army slot plus one of the Major (1 to 30). Anything else is a plain Pass.
+- `move_piece`, `blast` and `rescue` always carry the sealed switch byte, and `pass` always carries both, even for "nothing", so the presence of a byte says nothing.
+
+**Stale and retried intents.** Every declare carries `expected_seq`, public and signed, and is refused with `StaleSeq` unless it equals `action_seq`, so a payload sealed for an older seq can never decode as garbage. The client keeps the sealed bytes it built for each seq and resends exactly those on a retry; it never seals a second plaintext under the same seq, and changing one's mind after a failed send means waiting for the next turn. The program can't see failed sends, so this rule is the client's, with a test.
+
+**Authentication.** The Player's signature and the frozen pending intent authenticate the bytes: nobody else can declare for a seat, and `resolve` takes no payload. Each of the 256 values of a sealed byte decodes to something defined, with no panics, no unchecked indexing and no secret-dependent error, even under signer impersonation in simulation. Unsealing, the switch and the Dig in check run as masks with no branch on hidden values; the public state, the errors and the compute are identical whether or not a hidden change happened.
+
+**After the Match.** `close_match` commits the Match and makes its transaction history public; the setup seed becomes recoverable from it, so anyone can rebuild the key and every pad. That is the same moment the end reveal shows every piece.
+
+**Where changes are remembered.** The Army's rank bytes take two private codes: 13 for a dug-in Major (plays as a Landmine) and 14 for a switched General of the Army (plays as a Spy). Ranks of dead pieces are never cleared, so the end reveal and the owner's badge survive death and reloads. The Battle keeps an 8-byte end mask (a bit per piece id) in its reserved bytes, written only at the end, that marks every piece whose rank changed, dead ones included, so the end panel says "Major, dug in" and "General of the Army, now a Spy". The account layout is unchanged (`LAYOUT_VERSION` 2).
+
+## Flow
+
+| Step | Layer | Instruction | Who |
+|---|---|---|---|
+| open / join | base | tesoro_core `open_match`, `join_match` (game = this program id) | the two Players |
+| bind | base | `create_match` | either Player |
+| delegate | base | `delegate_match` | anyone |
+| permissions | TEE | `init_permissions` | anyone |
+| entropy + VRF | TEE | `contribute_entropy`, `request_vrf`; the callback `vrf_callback_store` only stores the output | each Player, then anyone |
+| deal | TEE | `deal` once the output arrived (sets up both Armies and their keys) | anyone |
+| move | TEE | `move_piece(piece, to, expected_seq, sealed_switch)` | the Player to move |
+| powers | TEE | `blast(piece, expected_seq, sealed_switch)`, `rescue(piece, expected_seq, sealed_switch)`, `pass(expected_seq, sealed_slot, sealed_switch)` | the Player to move |
+| Two-Step Turn | TEE | `start_two_step` (public, no sealed field) | the Player to move |
+| apply | TEE | `resolve` (no arguments; applies the pending declare in a later slot) | anyone |
+| clock | TEE | `claim_timeout` (a missed turn, or the safety cap) | anyone |
+| commit | TEE | `close_match` (wipes keys and change codes, closes permissions, commit + undelegate) | anyone |
+| settle | base | `finalize` (CPI `settle_match`, or `refund_match` for a draw or cancel) | anyone |
+
+A move is two steps: the Player declares it (public geometry checks: the turn, the clock, `expected_seq`, the deal slot, nothing pending, and a target on any line some rank could move along) and any account calls `resolve` in a later slot, which checks the piece's real rank. The split exists so the program never answers "is this rank allowed to go there?" in the declare, where a simulation could leak it. `move_piece`'s public check admits straight and diagonal lines, one square of 8, a straight jump over an occupied neighbour and a straight wadi crossing; the resolve decides.
+
+A declared action the rules refuse (a Blast by a non-Engineer, a bad move) costs the turn as a missed turn at resolve and drops its switch. A broken or cheating client is the only source of these. An invalid switch does nothing and is never reported.
+
+Declares are refused (`IllegalMove`) for Blast, Rescue and Pass inside a Two-Step Turn, after a first step, and on a Battle with `rules_version` other than 6.
+
+## Events
+
+The Battle keeps a ring of 16 event records, read by clients and spectators. Kinds added with the powers: `blast` (the Engineer, the square, and up to 8 piece/rank pairs), `rescue` (Colonel, Truck, from, to), `dug_in` (face-up Major only), `pass` (every Pass and every face-down Dig in, identical), `switched` (face-up 10 only). A face-down Dig in and a Pass emit exactly the same records, and a face-down switch emits nothing. A client must read at least every two actions so a record is not overwritten before it is read.
+
+## Compute
+
+Measured on compiled SBF in LiteSVM, whole instructions. A declare is about 4,000 to 5,100 compute units. `resolve` is roughly flat, because it does constant-work scans so it never branches on a hidden rank: about 130,000 to 148,500 on every board, with the worst case (a dense dealt board on a Dust Storm turn) at 148,483. Blast, Rescue, Pass and Dig in resolves cost 130,000 to 138,000, and a Dig in costs the same as a Pass to the unit. The client budgets are 40,000 for a declare and 200,000 for a resolve (the worst case times 1.3 is 193,000). The runtime limit is 1,400,000 per instruction, and the design's own ceiling is 600,000.
+
+## Wind-down of older rules
+
+A Battle created on rules version 5 (the earlier Vanguard) keeps its old rules: four-direction steps, Engineers that defuse Landmines, no powers, no Pass. Before the upgrade to version 6 the keeper lets every Battle finish. After it, `claim_timeout` on any Battle whose `rules_version` is not 6 and that is Created, Setup or Live (any pending state) clears the pending action and cancels it at once, no deadline needed, so the normal `close_match` and `finalize` refund it in full and no rollup account stays delegated. Over version 5 Battles still close, finalize and decode, and their `defuse` events still decode for Match history. The app decodes both versions; `defuse` stays in the decoder for that reason only.
+
+## Verification and status
+
+- `cargo test -p vanguard`: engine unit tests, the pad's published known answers, a golden test that pins the account layouts and the event bytes, replay of the shared recordings (305 recordings, about 8,900 actions, 260 random positions with every piece's legal targets checked), and LiteSVM tests against the real `vanguard.so` and `tesoro_core.so`: every instruction, all 256 values of each sealed byte for both seats, stale `expected_seq`, a Dig in against a Pass against an invalid Dig in under tight compute limits (same public bytes, same compute, same result), signer impersonation in simulation, a hidden change leaving the opponent's next resolve identical, committed Army bytes holding no key or codes, and the wind-down of a version 5 Battle in every lifecycle state.
+- `app/src/games/vanguard`: the TypeScript rules and bot (every power, Pass, the endings, the cap tiebreak with changed ranks), the seal known answers and retry ledger, the chain decoders, the owner's badge after a reload, the roster strip after a ring wrap, and the end-panel marks.
+- LiteSVM has no delegation or permission programs, so `close_match` and `init_permissions` are stood in for by their outputs.
+- Devnet: the earlier version 5 program was driven end to end on devnet with a real Match. The version 6 upgrade and its evidence are pending: a QA Match where one side digs in and switches while the opponent's token and an outsider read and list everything they can during the live Match, and the committed Army bytes read after the Match.
+- Findings that shape the sealing: while the accounts are delegated, the rollup's transaction history for them reads empty to every token, and it opens at `close_match`. Public `move_piece` arguments are readable during the Match, which is why the switch byte is sealed.
+
+## Known limits
+
+- The pad is a one-byte one-time pad: it is perfect secrecy only while one plaintext per (key, seq, field) is ever sent. The client's retry rule is the guard; the program can't see failed sends, and a new tab with cleared storage could seal a second plaintext under the same seq.
+- The inherent deductions above are not hidden, and Sergeants, Lieutenants and Generals reveal themselves when they use their power. The Dust Storm and the sealed powers keep some fog.
+- A Truck whose three neighbours are Landmines or wadis can only be reached by a Lieutenant jump; once the enemy has no live Lieutenant left it can't be captured and the safety cap decides. The bot simulation below tracks how often that happens.
+- Ranks are checked in `resolve` in a later slot than the declare, so a refused move costs the turn.
+- Programs are devnet only.
 
 ## Bot simulation report
 
-Regenerate with `pnpm --filter @tesoro/keeper exec tsx ../app/scripts/vanguard-sim.ts --seed 1 --count 3000 --write ../docs/games/vanguard.md` (about 2.5 minutes: five runs of 3000 Matches). Same seed and count give the same report. `--chain-ms` replaces the assumed 0.5 s once ticket 01 has measured the rollup.
+Regenerate with `pnpm --filter @tesoro/keeper exec tsx ../app/scripts/vanguard-sim.ts --seed 1 --count 3000 --write ../docs/games/vanguard.md` (about 2.5 minutes: five runs of 3000 Matches). Same seed and count give the same report. `--chain-ms` replaces the assumed 0.5 s.
 
 <!-- sim-report:start -->
 

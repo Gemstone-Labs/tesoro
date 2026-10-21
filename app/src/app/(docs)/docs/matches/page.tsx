@@ -92,10 +92,31 @@ export default function Page() {
       </p>
       <ul>
         <li>Your pieces&apos; ranks are visible only to you. An enemy piece shows its rank only once it has fought, and a piece that loses an attack is never shown.</li>
-        <li>You have 10 seconds for each move. Three missed turns in a row lose the Match.</li>
-        <li>A Dust Storm blows once per Match and shifts one row or column of the board a square. Raiding the enemy depot earns a Two-Step Turn.</li>
-        <li>Every Match ends: after the time or move limit, the higher total of surviving ranks wins, then the higher piece count. An exact tie is a draw, and a draw refunds both entries.</li>
+        <li>You have 10 seconds for each move. A missed turn, or a Pass on purpose, counts as one; three in a row lose the Match, and any move resets the count.</li>
+        <li>A Dust Storm blows once per Match and shifts one row or column of the board a square. Raiding the enemy depot with a one-square step earns a Two-Step Turn: two single-square steps in one turn.</li>
+        <li>A Landmine beats every attacker and stays. Engineers no longer clear them.</li>
+        <li>Every Match ends: after the time or move limit, the higher total of surviving ranks wins, then the higher piece count. A Major that dug in counts as a Landmine (0) and a General of the Army that became a Spy counts 1. An exact tie is a draw, and a draw refunds both entries.</li>
       </ul>
+      <p>Every rank has a power:</p>
+      <DataTable
+        head={["Rank", "Power"]}
+        rows={[
+          ["Spy", "Beats the 10 when it attacks."],
+          ["Recon", "Runs any distance in a straight line."],
+          ["Engineer", "Blast: blows up and turns every piece around it face up, yours and theirs."],
+          ["Sergeant", "Slides diagonally any distance, never straight."],
+          ["Lieutenant", "Jump: hops one piece in a straight line onto the empty or enemy square behind it."],
+          ["Captain", "Steps one square in any of 8 directions."],
+          ["Major", "Dig in: becomes a Landmine for good. Your opponent can't tell which piece."],
+          ["Colonel", "Rescue: blows up, and your Supply Truck jumps onto its square."],
+          ["General", "Steps one square, or jumps straight across a wadi."],
+          ["General of the Army", "Become a Spy: turns into a Spy for good, free with your move. Your opponent can't tell."],
+        ]}
+      />
+      <p>
+        A Dig in counts as a Pass, so it looks like one to your opponent. Blast, Rescue, Dig in and Pass use your turn and can&apos;t be used inside a Two-Step Turn.
+        The <Link href="/docs/fairness#hidden-information">hidden information</Link> note says what stays secret.
+      </p>
 
       <H3 id="chips">Chips are not Gemas</H3>
       <p>
