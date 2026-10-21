@@ -24,6 +24,15 @@ pub struct SetPeerConfig<'info> {
         bump
     )]
     pub vault_treasury: Account<'info, VaultTreasury>,
+    /// The vault's batch and prize-escrow route (its terms are set with `set_route`).
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + VaultRoute::INIT_SPACE,
+        seeds = [ROUTE_SEED, &params.remote_eid.to_be_bytes(), &params.peer_address],
+        bump
+    )]
+    pub route: Account<'info, VaultRoute>,
     #[account(seeds = [STORE_SEED], bump = store.bump)]
     pub store: Account<'info, Store>,
     pub system_program: Program<'info, System>,
@@ -43,6 +52,10 @@ impl SetPeerConfig<'_> {
         treasury.eid = params.remote_eid;
         treasury.peer_address = params.peer_address;
         treasury.bump = ctx.bumps.vault_treasury;
+        let route = &mut ctx.accounts.route;
+        route.eid = params.remote_eid;
+        route.peer_address = params.peer_address;
+        route.bump = ctx.bumps.route;
         Ok(())
     }
 }

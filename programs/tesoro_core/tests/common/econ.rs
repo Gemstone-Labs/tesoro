@@ -35,16 +35,10 @@ pub struct SvmPages<'a> {
 impl CheckpointStore for SvmPages<'_> {
     fn get(&self, class: u8, idx: u32) -> Option<Checkpoint> {
         let page_no = idx / PAGE_RECORDS;
-        let acc = self
-            .svm
-            .get_account(&s(ckpt_address(&self.source, class, page_no).0))?;
-        let view = PageView::new(
-            &acc.data[CKPT_PAGE_AT..],
-            &self.source.to_bytes(),
-            class,
-            page_no,
-        )
-        .ok()?;
+        let acc = self.svm.get_account(&s(ckpt_address(&self.source, class, page_no).0))?;
+        let view =
+            PageView::new(&acc.data[CKPT_PAGE_AT..], &self.source.to_bytes(), class, page_no)
+                .ok()?;
         view.get(idx % PAGE_RECORDS).ok()?
     }
 
@@ -54,9 +48,7 @@ impl CheckpointStore for SvmPages<'_> {
 }
 
 pub fn read_book(svm: &LiteSVM, source: APk) -> SourceBook {
-    let acc = svm
-        .get_account(&s(book_address(&source).0))
-        .expect("book account");
+    let acc = svm.get_account(&s(book_address(&source).0)).expect("book account");
     SourceBook::decode(&acc.data[BOOK_AT..]).expect("book")
 }
 
@@ -90,10 +82,7 @@ pub fn book_metas(svm: &LiteSVM, source: APk) -> Vec<AccountMeta> {
 
 pub fn read_lines(svm: &LiteSVM, store: APk) -> Vec<Line> {
     let acc = svm.get_account(&s(store)).expect("store");
-    LineStore::new(&acc.data[DISC..])
-        .expect("store")
-        .lines()
-        .collect()
+    LineStore::new(&acc.data[DISC..]).expect("store").lines().collect()
 }
 
 /// The line of `account` (basket first, then spill) for a Source, side, class and tranche.
@@ -152,25 +141,19 @@ pub fn win(svm: &mut LiteSVM, source: APk, from: APk, to: APk, class: u8, tranch
     let mut src = find_line(svm, from, source, SIDE_OWN, class, tranche)
         .or_else(|| find_line(svm, from, source, SIDE_WON, class, tranche))
         .expect("source line");
-    let from_store = if read_lines(svm, from_basket)
-        .iter()
-        .any(|l| l.key() == src.key())
-    {
+    let from_store = if read_lines(svm, from_basket).iter().any(|l| l.key() == src.key()) {
         from_basket
     } else {
         spill_address(&from).0
     };
     let mut dst = SourceBook::blank_line(SIDE_WON, src.due_at, src.source, src.class, src.tranche);
-    let existing = read_lines(svm, to_basket)
-        .into_iter()
-        .find(|l| l.key() == dst.key());
+    let existing = read_lines(svm, to_basket).into_iter().find(|l| l.key() == dst.key());
     if let Some(l) = existing {
         dst = l;
     }
     {
         let pages = SvmPages { svm, source };
-        book.transfer(&mut src, &mut dst, k, &pages)
-            .expect("transfer");
+        book.transfer(&mut src, &mut dst, k, &pages).expect("transfer");
     }
     let key: LineKey = src.key();
     write_store(svm, from_store, |st| {
@@ -185,7 +168,7 @@ pub fn win(svm: &mut LiteSVM, source: APk, from: APk, to: APk, class: u8, tranch
         Ok(i) => st.set_line(i, &dst).unwrap(),
         Err(_) => {
             st.insert(&dst).unwrap();
-        }
+        },
     });
     write_book(svm, source, &book);
 }
@@ -204,10 +187,7 @@ pub fn fee_cut(
     let mut book = read_book(svm, source);
     let from_basket = basket_address(&from).0;
     let mut src = find_line(svm, from, source, SIDE_OWN, class, tranche).expect("line");
-    let store = if read_lines(svm, from_basket)
-        .iter()
-        .any(|l| l.key() == src.key())
-    {
+    let store = if read_lines(svm, from_basket).iter().any(|l| l.key() == src.key()) {
         from_basket
     } else {
         spill_address(&from).0
@@ -216,8 +196,7 @@ pub fn fee_cut(
         .unwrap_or_else(|| SourceBook::blank_line(SIDE_OWN, 0, source.to_bytes(), fee_class, 0));
     {
         let mut pages = SvmPages { svm, source };
-        book.cut_fee(&mut src, &mut cnt, k, &mut pages)
-            .expect("cut_fee");
+        book.cut_fee(&mut src, &mut cnt, k, &mut pages).expect("cut_fee");
     }
     let key = src.key();
     write_store(svm, store, |st| {
@@ -250,5 +229,35 @@ pub fn move_lines_to_spill(svm: &mut LiteSVM, account: APk) {
         for l in &lines {
             st.insert(l).unwrap();
         }
+    });
+}
+
+/// Moves `k` Gemas of the prize line `key` (a prize Source's won line) from one basket to
+/// another, as a Season payout does (test setup only).
+pub fn move_prize(svm: &mut LiteSVM, key: &LineKey, from: APk, to: APk, k: u64) {
+    let from_basket = basket_address(&from).0;
+    let mut taken = None;
+    write_store(svm, from_basket, |st| {
+        let idx = st.find(key).expect("prize line");
+        let mut line = st.get(idx).expect("line");
+        line.amount -= k;
+        taken = Some(line);
+        if line.amount == 0 {
+            st.remove_at(idx).unwrap();
+        } else {
+            st.set_line(idx, &line).unwrap();
+        }
+    });
+    let mut moved = taken.expect("line");
+    moved.amount = k;
+    write_store(svm, basket_address(&to).0, |st| match st.find(key) {
+        Ok(i) => {
+            let mut l = st.get(i).unwrap();
+            l.amount += k;
+            st.set_line(i, &l).unwrap();
+        },
+        Err(_) => {
+            st.insert(&moved).unwrap();
+        },
     });
 }
