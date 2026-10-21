@@ -492,6 +492,11 @@ pub(crate) mod ct {
     pub fn lt(a: u64, b: u64) -> u8 {
         (opaque(a).wrapping_sub(b) >> 63) as u8
     }
+    /// 1 when `x` is not zero, else 0.
+    #[inline(always)]
+    pub fn nonzero_u8(x: u8) -> u8 {
+        1 ^ eq(x as u64, 0)
+    }
     /// All ones when `c` is 1, all zeros when it is 0. Opaque, so a select built from it stays a mask and is not
     /// folded back into a jump.
     #[inline(always)]
@@ -1578,8 +1583,9 @@ impl Game {
         self.pieces[i].fuel += truck;
         let last = &mut self.truck_turn[army.idx()];
         *last = ct::pick32(truck, self.turn_no as i32, *last);
-        let spent = (truck & (1 ^ ct::lt(self.pieces[i].fuel as u64, TRUCK_FUEL as u64))) != 0;
-        self.pieces[i].known |= spent;
+        // Kept as a 0/1 byte until the one public test below: a `bool` made here is a jump on SBF, and the jump would
+        // skip an instruction for a Truck with fuel left.
+        let spent = truck & (1 ^ ct::lt(self.pieces[i].fuel as u64, TRUCK_FUEL as u64));
         let cell = self.cells[to as usize];
         if cell == 0 {
             self.land(i, to);
@@ -1623,11 +1629,13 @@ impl Game {
                 return;
             }
         }
-        let alive = self.pieces[i].rank != 0;
-        // Public: a Truck's last tank shows it to the other side.
-        if spent & alive {
+        let alive_flag = ct::nonzero_u8(self.pieces[i].rank);
+        // Public: a Truck's last tank shows it to the other side (a dead piece's `known` is never read).
+        if (spent & alive_flag) != 0 {
+            self.pieces[i].known = true;
             self.push(out, Event::Spotted { id });
         }
+        let alive = alive_flag != 0;
         // a one-square step onto the enemy's depot claims it, once per Match
         let a = army.idx();
         if DEPOT_SQ[a] == to && !self.depot_claimed[a] && step && alive && self.pieces[i].sq == to {

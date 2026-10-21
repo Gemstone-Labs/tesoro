@@ -4697,7 +4697,7 @@ fn lean_layout() -> Vec<LayoutPiece> {
 fn next_turn(
     alice: &dyn Fn(&Env, APk) -> Instruction,
     limit: Option<u32>,
-) -> Result<(Vec<u8>, u64, u64), ()> {
+) -> Result<(Vec<u8>, u64, u64, [u8; 30]), Failed> {
     let mut env = ready();
     env.start_in_rollup(1);
     env.stage(&lean_layout(), 0);
@@ -4720,8 +4720,13 @@ fn next_turn(
         data.extend_from_slice(&l.to_le_bytes());
         ixs.insert(0, Instruction { data, ..budget() });
     }
-    env.send(&ixs, &bob.kp, &[]).map_err(|_| ())?;
-    Ok((bytes_of_battle(&env), env.last_cu, after_alice.1))
+    env.send(&ixs, &bob.kp, &[])?;
+    Ok((
+        bytes_of_battle(&env),
+        env.last_cu,
+        after_alice.1,
+        env.army(0).ranks,
+    ))
 }
 
 fn next_turn_variants() -> OneByteFree {
@@ -4752,15 +4757,33 @@ fn next_turn_variants() -> OneByteFree {
 #[test]
 fn the_opponents_next_resolve_costs_the_same_whatever_the_last_turn_hid() {
     let variants = next_turn_variants();
+    // (Major dug in, 10 switched) per variant, as the owner's Army must show afterwards
+    let transformed = [
+        (false, false),
+        (true, false),
+        (false, false),
+        (false, false),
+        (false, true),
+        (true, true),
+    ];
+    let (major, ten) = (id_of(71) as usize % 30, SLOT_US_GOTA as usize);
     let base = next_turn(&*variants[0].1, None).expect("baseline");
-    for (name, make) in &variants {
+    for ((name, make), (dug, switched)) in variants.iter().zip(transformed) {
         let got = next_turn(&**make, None).expect(name);
+        assert_eq!(
+            (
+                got.3[major] == engine::DUG_IN,
+                got.3[ten] == engine::SWITCHED
+            ),
+            (dug, switched),
+            "{name}: the hidden change happened (or not) in the owner's Army"
+        );
         assert_eq!(got.0, base.0, "{name}: public bytes after the next turn");
         assert_eq!(got.1, base.1, "{name}: the next turn's compute, exactly");
         assert_eq!(got.2, base.2, "{name}: this turn's compute, exactly");
     }
-    // the same with the Bob's resolve held to exactly what it needs: succeed at the measured amount, fail one below,
-    // identically for every hidden variant
+    // Bob's resolve held to exactly what it needs: it succeeds at the measured amount and runs out one below, the
+    // same for every hidden variant
     let with_limit = next_turn(&*variants[0].1, Some(1_400_000))
         .expect("limit")
         .1 as u32;
@@ -4769,10 +4792,72 @@ fn the_opponents_next_resolve_costs_the_same_whatever_the_last_turn_hid() {
             next_turn(&**make, Some(with_limit)).is_ok(),
             "{name}: at the measured limit"
         );
-        assert!(
-            next_turn(&**make, Some(with_limit - 1)).is_err(),
-            "{name}: one below it"
+        let err = next_turn(&**make, Some(with_limit - 1)).expect_err(name);
+        assert!(is_budget_exceeded(&err), "{name}: one below it: {err:?}");
+    }
+}
+
+/// The program ran out of compute: LiteSVM reports it as `ProgramFailedToComplete` with the meter message in the log.
+fn is_budget_exceeded(err: &Failed) -> bool {
+    use solana_sdk::instruction::InstructionError;
+    use solana_sdk::transaction::TransactionError;
+    matches!(
+        err.err,
+        TransactionError::InstructionError(
+            _,
+            InstructionError::ProgramFailedToComplete
+                | InstructionError::ComputationalBudgetExceeded
+        )
+    ) && err
+        .meta
+        .logs
+        .iter()
+        .any(|l| l.contains("exceeded CUs meter"))
+}
+
+/// A Truck that attacks something stronger and dies: whatever fuel it had (the third drive would have shown it), the
+/// public bytes, the whole-resolve compute and the point where the budget runs out are the same.
+#[test]
+fn a_losing_truck_attack_costs_the_same_whatever_the_fuel_it_had() {
+    let run = |fuel: u8, limit: Option<u32>| -> Result<(Vec<u8>, u64), Failed> {
+        let mut env = ready();
+        env.start_in_rollup(1);
+        env.stage(&step_layout(TRUCK, BOMB), 0);
+        tele(&mut env, 5, 60);
+        env.patch_army(0, |v| v.fuel = fuel);
+        env.set_time(T0 + 2);
+        let p = env.player(0);
+        let mv = env.move_ix(p.key, id_of(70), 60);
+        env.send(&[budget(), mv], &p.kp, &[]).expect("declare");
+        env.next_slot();
+        let r = env.resolve_ix(p.key);
+        let mut ixs = vec![r];
+        if let Some(l) = limit {
+            let mut data = vec![2u8];
+            data.extend_from_slice(&l.to_le_bytes());
+            ixs.insert(0, Instruction { data, ..budget() });
+        }
+        env.send(&ixs, &p.kp, &[])?;
+        assert_eq!(
+            env.battle().sq[id_of(70) as usize],
+            vanguard::NO_SQ,
+            "the Truck died"
         );
+        assert!(!event_kinds(&env).contains(&vanguard::EVENT_SPOTTED));
+        Ok((bytes_of_battle(&env), env.last_cu))
+    };
+    let base = run(0, None).expect("fuel 0");
+    for fuel in [1u8, 2] {
+        assert_eq!(run(fuel, None).expect("runs"), base, "fuel {fuel}");
+    }
+    let at = run(0, Some(1_400_000)).expect("limit").1 as u32;
+    for fuel in [0u8, 1, 2] {
+        assert!(
+            run(fuel, Some(at)).is_ok(),
+            "fuel {fuel} at the measured limit"
+        );
+        let err = run(fuel, Some(at - 1)).expect_err("one below");
+        assert!(is_budget_exceeded(&err), "fuel {fuel}: {err:?}");
     }
 }
 

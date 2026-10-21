@@ -7,6 +7,7 @@
       "moves": 110,
       "player": 42,
       "ranks": 75,
+      "reserved": 112,
       "seat": 41,
       "side": 74,
       "truckTurn": 106
@@ -35,6 +36,7 @@
       "moves": 62,
       "openingGraceSecs": 1446,
       "oracleQueue": 1408,
+      "padA": 1453,
       "payer": 1376,
       "pendingKind": 1449,
       "pendingPiece": 1450,
@@ -45,6 +47,7 @@
       "permissioned": 1345,
       "players": 736,
       "reason": 1347,
+      "reserved": 1489,
       "resolveSlackSecs": 1488,
       "ring": 64,
       "rulesVersion": 1359,
