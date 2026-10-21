@@ -97,6 +97,19 @@ export const fillInstantRedeemIx = (
 export const harvestIx = (core: Core, o: { position: PublicKey; source: PublicKey; remaining: AccountMeta[] }): Promise<TransactionInstruction> =>
   core.methods.harvest().accountsPartial({ position: o.position, source: o.source }).remainingAccounts(o.remaining).instruction();
 
+/** A line of a basket as the instructions name it. */
+export interface LineRefArg {
+  side: number;
+  dueAt: bigint;
+  cls: number;
+  tranche: number;
+}
+const lineRef = (l: LineRefArg) => ({ side: l.side, dueAt: new BN(l.dueAt.toString()), class: l.cls, tranche: l.tranche });
+
+/** The Treasury Account redeems `amount` repaid Gemas of one of its lines (Solana Sources; EVM ones go through the bridge). */
+export const redeemTreasuryIx = (core: Core, o: { line: LineRefArg; amount: bigint; position: PublicKey; source: PublicKey; remaining: AccountMeta[] }): Promise<TransactionInstruction> =>
+  core.methods.redeemTreasury(lineRef(o.line), new BN(o.amount.toString())).accountsPartial({ position: o.position, source: o.source }).remainingAccounts(o.remaining).instruction();
+
 export const cashInFeeIx = (core: Core, o: { cls: number; recipientAccount: PublicKey; position: PublicKey; source: PublicKey; remaining: AccountMeta[] }): Promise<TransactionInstruction> =>
   core.methods.cashInFee(o.cls).accountsPartial({ recipientAccount: o.recipientAccount, position: o.position, source: o.source }).remainingAccounts(o.remaining).instruction();
 

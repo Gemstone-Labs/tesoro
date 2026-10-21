@@ -21,12 +21,14 @@ import {
 } from "./lz.ts";
 import { simulate } from "./tee.ts";
 import { treasuryAccountPda } from "../../app/src/lib/chain/native.ts";
+import anchor from "@coral-xyz/anchor";
+import { bridgeDisc, decodeClaim, type ClaimRow } from "./bridge-ix.ts";
+import { connReader, supplySources } from "./supply.ts";
 
 const status = (o: object) => Object.keys(o)[0];
 
 // Account sizes: 8-byte discriminator + `InitSpace` of the Anchor account (bridge/programs/tesoro_bridge/src/state).
 const BRIDGE_POSITION_SIZE = 8 + 164 + 16 + 16 + 8; // `treasury_balance`, `instant_paid` (u128 each) and `report_time` (u64) sit at the end
-const CLAIM_SIZE = 8 + 121;
 
 export interface BridgePosition {
   key: PublicKey;
@@ -39,14 +41,6 @@ export interface BridgePosition {
   lastYieldSeq: bigint;
   appliedYieldSeq: bigint;
   unlockSent: boolean;
-}
-interface Claim {
-  key: PublicKey;
-  holderAccount: PublicKey;
-  source: PublicKey;
-  position: PublicKey;
-  unitsTotal: bigint;
-  unitsSent: bigint;
 }
 
 export function readBridgePosition(key: PublicKey, d: Buffer): BridgePosition {
@@ -66,18 +60,6 @@ export function readBridgePosition(key: PublicKey, d: Buffer): BridgePosition {
   rd(8);
   const unlockSent = rd(1)[0] === 1;
   return { key, eid, positionId, lastInSeq, lockedSeq, ownerEvm, opened, lastYieldSeq, appliedYieldSeq, unlockSent };
-}
-
-function readClaim(key: PublicKey, d: Buffer): Claim {
-  const k = (o: number) => new PublicKey(d.subarray(o, o + 32));
-  return {
-    key,
-    holderAccount: k(8),
-    source: k(40),
-    position: k(72),
-    unitsTotal: d.readBigUInt64LE(112),
-    unitsSent: d.readBigUInt64LE(120),
-  };
 }
 
 /** `<vault 0x…4 chars>#<vault position id>` for log lines. */
@@ -108,8 +90,10 @@ export async function fetchBridgePositions(ctx: Ctx): Promise<BridgePosition[]> 
  * The two sends cost a LayerZero fee in SOL from the keeper payer: capped per message and per hour.
  */
 export async function bridgeJob(ctx: Ctx): Promise<number> {
-  const [positions, claimAccts] = await Promise.all([fetchBridgePositions(ctx), ctx.conn.getProgramAccounts(BRIDGE, { filters: [{ dataSize: CLAIM_SIZE }] })]);
-  const claims = claimAccts.map((a) => readClaim(a.pubkey, a.account.data));
+  const byDisc = async (disc: Buffer): Promise<ClaimRow[]> =>
+    (await ctx.conn.getProgramAccounts(BRIDGE, { filters: [{ memcmp: { offset: 0, bytes: anchor.utils.bytes.bs58.encode(disc) } }] })).map((a) => decodeClaim(a.pubkey, Buffer.from(a.account.data)));
+  // Claim and InstantClaim have the same size, so they are told apart by their discriminator, never by size.
+  const [positions, claims, instantClaims] = await Promise.all([fetchBridgePositions(ctx), byDisc(bridgeDisc.claim), byDisc(bridgeDisc.instantClaim)]);
   let actions = 0;
   let waiting = 0;
 
@@ -159,7 +143,10 @@ export async function bridgeJob(ctx: Ctx): Promise<number> {
 
       // Delivered YieldAccrued newer than the one applied.
       if (p.lastYieldSeq > p.appliedYieldSeq) {
-        const ixs = withCu(400_000, applyYieldIx(p.eid, p.positionId, debtFree ? null : coreSourcePda(cpKey, Number(open))));
+        const openSource = debtFree ? null : coreSourcePda(cpKey, Number(open));
+        // Core lands the yield in the Source's book: it comes with the book and its checkpoint pages.
+        const books = openSource ? (await supplySources(ctx.core, connReader(ctx.conn), [{ source: openSource, cut: false }])).metas : [];
+        const ixs = withCu(400_000, applyYieldIx(p.eid, p.positionId, openSource, books));
         const err = await simulate(ctx.conn, ctx.payer, ixs);
         if (err) {
           waiting++;
@@ -197,7 +184,7 @@ export async function bridgeJob(ctx: Ctx): Promise<number> {
   for (const c of claims) {
     if (c.unitsTotal <= c.unitsSent) continue;
     const p = byPosition.get(c.position.toBase58());
-    const subject = `claim=${shortKey(c.key)}`;
+    const subject = `claim=${shortKey(c.address)}`;
     try {
       if (!p || !p.opened) {
         log("bridge", subject, "SKIP: claim's Position is not opened on the bridge");
@@ -220,7 +207,7 @@ export async function bridgeJob(ctx: Ctx): Promise<number> {
             meta(corePositionPda(p.eid, p.positionId)),
             meta(c.holderAccount),
             meta(evmLink),
-            meta(c.key, false, true),
+            meta(c.address, false, true),
             meta(ENDPOINT_SETTINGS),
             meta(SystemProgram.programId),
             ...send,
@@ -233,7 +220,43 @@ export async function bridgeJob(ctx: Ctx): Promise<number> {
     }
   }
 
-  log("bridge", "-", `${positions.length} bridge Position(s), ${claims.length} claim(s), ${waiting} waiting, ${actions} action(s), LayerZero fees ${(ctx.lz.spentLastHour() / 1e9).toFixed(5)} SOL this hour`);
+  for (const c of instantClaims) {
+    if (c.unitsTotal <= c.unitsSent) continue;
+    const p = byPosition.get(c.position.toBase58());
+    const subject = `instant=${shortKey(c.address)}`;
+    try {
+      if (!p || !p.opened) {
+        log("bridge", subject, "SKIP: the Instant Redeem's Position is not opened on the bridge");
+        continue;
+      }
+      const holder: any = await ctx.core.account.tesoroAccount.fetchNullable(c.holderAccount);
+      if (!holder) continue;
+      const evmLink = evmLinkPda(Uint8Array.from(holder.evmAddress));
+      actions += await lzSend(ctx, `${subject} ${label(p.eid, p.positionId)}`, p.eid, p.positionId, 5, `send_pay_instant (${c.unitsTotal - c.unitsSent} units)`, (fee, send) =>
+        new TransactionInstruction({
+          programId: BRIDGE,
+          keys: [
+            meta(ctx.payer.publicKey, true, true),
+            meta(peerPda(p.eid, p.positionId)),
+            meta(STORE),
+            meta(p.key, false, true),
+            meta(corePositionPda(p.eid, p.positionId)),
+            meta(c.holderAccount),
+            meta(evmLink),
+            meta(c.address, false, true),
+            meta(ENDPOINT_SETTINGS),
+            meta(SystemProgram.programId),
+            ...send,
+          ],
+          data: Buffer.concat([disc("send_pay_instant"), sendParams(p.eid, p.positionId, fee)]),
+        }),
+      );
+    } catch (e) {
+      log("bridge", subject, `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+    }
+  }
+
+  log("bridge", "-", `${positions.length} bridge Position(s), ${claims.length} claim(s), ${instantClaims.length} instant claim(s), ${waiting} waiting, ${actions} action(s), LayerZero fees ${(ctx.lz.spentLastHour() / 1e9).toFixed(5)} SOL this hour`);
   return actions;
 }
 
