@@ -57,7 +57,7 @@ export function PacksView({ quotes, highlight, canPay, testMode, feePct, onPick,
             >
               {tag && <span className={`dep-tag${highlight === id ? " hot" : ""}`}>{tag}</span>}
               <h3 className="dep-name">{q.pack.name}</h3>
-              <Image className="dep-art" src={packArt(id)} width={512} height={512} alt="" sizes="(max-width: 639px) 96px, 220px" />
+              <Image className="dep-art" src={packArt(id)} width={512} height={512} alt="" sizes="(max-width: 639px) 96px, 280px" loading="eager" />
               <p className="dep-gemas">
                 <b>
                   <GemaMark size={26} />

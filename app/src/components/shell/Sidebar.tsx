@@ -33,8 +33,10 @@ const VAULT: NavItem = { href: "/vault", label: "Vault", Icon: Wallet };
 
 /** The money page of the Player's view: the Vault in Simple, the Wallet in Advanced. */
 export function useNavItems(): { nav: NavItem[]; groups: typeof GROUPS } {
+  const path = usePathname() ?? "";
   const simple = useViewMode().mode === "simple";
-  const money = simple ? VAULT : WALLET;
+  // The page you're on wins (someone can open /wallet in Simple, or /vault in Advanced); elsewhere, the view decides.
+  const money = isHere(path, WALLET.href) ? WALLET : isHere(path, VAULT.href) ? VAULT : simple ? VAULT : WALLET;
   return {
     nav: NAV.map((n) => (n === WALLET ? money : n)),
     groups: GROUPS.map((g) => ({ ...g, items: g.items.map((n) => (n === WALLET ? money : n)) })),
