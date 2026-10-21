@@ -25,10 +25,19 @@ export function wireSize(payer: PublicKey, ixs: TransactionInstruction[], opts: 
   return compile(payer, PublicKey.default.toBase58(), ixs, opts).serialize().length + 64 * (opts.signers?.length ?? 0);
 }
 
-/** True when `ixs` fit one transaction. */
+/** A transaction locks at most this many accounts. */
+export const MAX_ACCOUNTS = 64;
+
+/** Accounts a compiled transaction names, counting those read through lookup tables. */
+export function accountCount(payer: PublicKey, ixs: TransactionInstruction[], opts: SendOpts = {}): number {
+  const m = compile(payer, PublicKey.default.toBase58(), ixs, opts).message;
+  return m.staticAccountKeys.length + m.addressTableLookups.reduce((n, l) => n + l.writableIndexes.length + l.readonlyIndexes.length, 0);
+}
+
+/** True when `ixs` fit one transaction: at most 1,232 bytes and 64 accounts. */
 export const fits = (payer: PublicKey, ixs: TransactionInstruction[], opts: SendOpts = {}) => {
   try {
-    return wireSize(payer, ixs, opts) <= MAX_TX_BYTES;
+    return wireSize(payer, ixs, opts) <= MAX_TX_BYTES && accountCount(payer, ixs, opts) <= MAX_ACCOUNTS;
   } catch {
     return false;
   }
