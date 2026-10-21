@@ -89,7 +89,7 @@ export interface Game {
   /** Steps still to make this turn: 1 normally, 2 in a Two-Step Turn (each a one-square step). */
   stepsLeft: number;
   twoStepActive: boolean;
-  /** Timed-out turns in a row per army. */
+  /** Missed turns in a row per army: timed-out turns, passes and Dig ins. A move, Blast or Rescue resets it. */
   timeouts: Record<Army, number>;
   /** The turn number each army last moved its Truck on. */
   truckTurn: Record<Army, number>;
@@ -107,8 +107,6 @@ export interface Game {
    * which piece; the end of the Match shows all of them. Dead pieces stay in it.
    */
   changed: Record<number, Change>;
-  /** Successful Dig ins per army (public, for the opponent's roster strip). */
-  digs: Record<Army, number>;
   /** Turn on which the Dust Storm blows (once per Match). */
   stormAt: number;
   /** Seeds the storm's line and direction, which are drawn when it fires. */
@@ -145,8 +143,10 @@ export type GameEventBody =
   | { kind: "blast"; id: number; at: Square; shown: { id: number; rank: Rank }[] }
   /** A Colonel blew itself up (shown) and the Truck jumped from `from` onto its square `to`. */
   | { kind: "rescue"; colonel: number; truck: number; from: Square; to: Square }
-  /** A Major dug in. A face-down one is never named; a face-up one is (F1). */
-  | { kind: "dug_in"; army: Army; id?: number }
+  /** A face-up Major dug in (F1). A face-down one's Dig in is a plain `pass`, never named. */
+  | { kind: "dug_in"; army: Army; id: number }
+  /** An army passed its turn on purpose. A face-down Dig in produces exactly this event and nothing else. */
+  | { kind: "pass"; army: Army }
   /** A face-up General of the Army became a Spy (F1). A face-down one switches with no event. */
   | { kind: "switched"; id: number }
   | { kind: "raid"; army: Army; at: Square }
@@ -247,7 +247,6 @@ export function startGame(layout: LayoutPiece[], o: StartOptions): Game {
     deadline: turnEnd({ clock }, o.startedAt) + clock.openingGraceMs,
     version: o.version ?? RULES_VERSION,
     changed: {},
-    digs: { us: 0, it: 0 },
     stormAt: o.stormAt,
     stormSeed: o.stormSeed,
     stormDone: false,
@@ -419,7 +418,7 @@ export interface MoveAction {
   switch?: boolean;
 }
 
-/** Blast, Rescue or Dig in with piece `id`. Each passes the turn. */
+/** Blast, Rescue or Dig in with piece `id`. Each passes the turn. A Dig in is a pass (see `pass`). */
 export interface ActAction {
   kind: PowerKind;
   id: number;
@@ -508,8 +507,9 @@ export function move(g00: Game, a: MoveAction): Result {
   return endTurn(g, events, false);
 }
 
-/** Blast, Rescue or Dig in. Not allowed inside a Two-Step Turn. Counts as a move for the cap and the missed-turn count. */
+/** Blast or Rescue (a Dig in is a pass). Not allowed inside a Two-Step Turn. Counts as a move for the cap and resets the missed-turn count. */
 export function act(g00: Game, a: ActAction): Result {
+  if (a.kind === "dig_in") return pass(g00, { at: a.at, resolvedAt: a.resolvedAt, switch: a.switch, digIn: a.id });
   const late = clockRefusal(g00, a.at);
   if (late) return { ok: false, reason: late };
   const sw = applySwitch(g00, a.switch);
@@ -525,12 +525,7 @@ export function act(g00: Game, a: ActAction): Result {
   const me = pieces.find((q) => q.id === a.id)!;
   const from = { r: me.r, c: me.c };
 
-  if (a.kind === "dig_in") {
-    g.changed = { ...g.changed, [me.id]: "dug" };
-    g.digs = { ...g.digs, [army]: g.digs[army] + 1 };
-    events.push(me.known ? { kind: "dug_in", army, id: me.id } : { kind: "dug_in", army });
-    g.pieces = pieces;
-  } else if (a.kind === "blast") {
+  if (a.kind === "blast") {
     // the 8 squares around the Engineer in a fixed scan order; edges never wrap and wadi squares hold nothing
     const shown: { id: number; rank: Rank }[] = [];
     for (let dr = -1; dr <= 1; dr++) {
@@ -555,6 +550,45 @@ export function act(g00: Game, a: ActAction): Result {
     g.pieces = pieces.filter((q) => q.id !== me.id);
   }
   g.deadline = turnEnd(g, countedAt(g, a.at, a.resolvedAt ?? a.at));
+  return endTurn(g, events, false);
+}
+
+/** Pass the turn on purpose, optionally digging a Major in. `digIn` is the piece number a Dig in names; it is a sealed byte on the chain. */
+export interface PassAction {
+  at: number;
+  resolvedAt?: number;
+  /** Become a Spy first (free, with any action). */
+  switch?: boolean;
+  /** Dig this piece in. Anything that is not a live, undug Major of the side to play is ignored: the instruction is then a plain pass. */
+  digIn?: number;
+}
+
+/**
+ * Pass the turn. It is a missed turn (timeouts, passes and Dig ins mix: three in a row lose with the `timeouts` reason), not a move
+ * for the 200-move cap. A face-down Dig in is the same instruction and shows nothing more in public, so the missed-turn count cannot
+ * tell the two apart; a face-up Major's Dig in is named in the open (F1). Refused inside a Two-Step Turn and on a version 5 Battle.
+ */
+export function pass(g00: Game, a: PassAction): Result {
+  const late = clockRefusal(g00, a.at);
+  if (late) return { ok: false, reason: late };
+  if (g00.version < 6 || g00.twoStepActive || g00.movedThisTurn.length) return { ok: false, reason: "illegal_move" };
+  const sw = applySwitch(g00, a.switch);
+  let g0 = sw.game;
+  const events: GameEventBody[] = [...sw.events];
+  const army = g0.turn;
+  const major = a.digIn === undefined ? undefined : g0.pieces.find((p) => p.id === a.digIn && p.army === army && rankOf(g0, p) === "7");
+  if (major) {
+    g0 = { ...g0, changed: { ...g0.changed, [major.id]: "dug" } };
+    if (major.known) events.push({ kind: "dug_in", army, id: major.id });
+  }
+  events.push({ kind: "pass", army });
+  const n = g0.timeouts[army] + 1;
+  const g: Game = { ...g0, timeouts: { ...g0.timeouts, [army]: n }, deadline: turnEnd(g0, countedAt(g0, a.at, a.resolvedAt ?? a.at)) };
+  if (n >= TIMEOUTS_TO_LOSE) {
+    const winner = enemy(army);
+    events.push({ kind: "end", winner, reason: "timeouts" });
+    return done(finish(g, winner, "timeouts"), events);
+  }
   return endTurn(g, events, false);
 }
 

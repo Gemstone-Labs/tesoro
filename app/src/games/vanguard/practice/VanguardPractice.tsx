@@ -6,8 +6,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { Button, Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../../fx";
-import { CAP_MS, NAMES, TURN_MS, act, move, newGame, rankOf, seeded, startTwoStep, targets, timeout, type Army, type Depot, type Game, type GameEvent, type Rank, type Refusal, type Result, type Rng, type Square } from "../rules";
-import { PRACTICE_COUNTDOWN } from "../clock";
+import { CAP_MS, NAMES, TURN_MS, TIMEOUTS_TO_LOSE, act, move, newGame, pass, rankOf, seeded, startTwoStep, targets, timeout, type Army, type Depot, type Game, type GameEvent, type Rank, type Refusal, type Result, type Rng, type Square } from "../rules";
+import { PRACTICE_COUNTDOWN, missedLabel } from "../clock";
 import { VanguardScreen, type TurnInfo } from "../VanguardScreen";
 import { VanguardBoard, type HitSide, type Mark, type Preview, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
 import { RulesSheet } from "../RulesSheet";
@@ -47,6 +47,7 @@ const REFUSAL_LINE: Record<Refusal, string> = {
   no_two_step: "No Two-Step Turn left.",
 };
 
+const PASS_WARNING = "Pass again or miss once more and you lose.";
 const wait = (ms: number) => new Promise<void>((ok) => setTimeout(ok, prefersReducedMotion() ? 0 : ms));
 /** A Lieutenant's jump or a General's wadi crossing is a hop: lift, arc over the squares between, land. */
 const HOP_MS = 620;
@@ -260,17 +261,21 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
         line = mine ? "Truck rescued: it jumped to your Colonel's square." : "Italy rescued its Truck. It is face up now.";
         await wait(300);
       } else if (e.kind === "dug_in") {
-        // a Dig in is secret: only its owner is told. A piece already shown face up changes where everyone can see it, quietly.
-        if (e.army === "us") {
+        // only a face-up Major's Dig in is named (F1): everyone sees its new face. The owner's own is handled with the pass below.
+        if (e.army === "it") patch(e.id, { rank: "B", fresh: true });
+      } else if (e.kind === "pass") {
+        // a pass and a face-down Dig in are the same event: the opponent reads "Italy passed." for both, and only the owner is told which
+        if (e.army === "it") line = "Italy passed.";
+        else {
           const id = Object.keys(g.changed).map(Number).find((k) => g.changed[k] === "dug" && !before.changed[k] && name(k)?.army === "us");
-          if (id !== undefined) patch(id, { rank: "B", changed: "dug", fresh: true });
-          shout("Dug in");
-          line = "Your Major is a Landmine now.";
-          sfx("knock");
-          await wait(650);
-        } else {
-          if (e.id !== undefined) patch(e.id, { rank: "B", fresh: true });
-          line = "Italy moved.";
+          if (id === undefined) line = "You passed.";
+          else {
+            patch(id, { rank: "B", changed: "dug", fresh: true });
+            shout("Dug in");
+            line = "Your Major is a Landmine now.";
+            sfx("knock");
+            await wait(650);
+          }
         }
       } else if (e.kind === "switched") {
         // a face-up 10 switching is public (an own one was handled above)
@@ -407,6 +412,10 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     setSpyOn(!spyOn);
     setSay(spyOn ? "Spy taken back." : "One way: it stays a Spy.");
   };
+  const onPass = () => {
+    if (!yourTurn) return;
+    apply(pass(game, { at: stamp(game), switch: spyOn }));
+  };
   const closeRules = useCallback(() => setRulesOpen(false), []);
   const useTwoStep = () => {
     if (!yourTurn) return;
@@ -446,6 +455,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
           <b>{a === "us" ? "You" : "Bot"}</b>
           <small>{a === "us" ? "US Army" : "Royal Italian Army"} · {count(a)} of 20</small>
         </span>
+        {missedLabel(game.timeouts[a]) && <span className={`vg-missed${game.timeouts[a] >= 2 ? " last" : ""}`}>{missedLabel(game.timeouts[a])}</span>}
         {a === "it" && game.twoStep.it > 0 && <span className="vg-tok">Two-Step ×{game.twoStep.it}</span>}
       </div>
     );
@@ -460,6 +470,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     onUse: useTwoStep,
     power: power ? { label: power.label, hint: power.hint, onPress: pressPower } : null,
     spy: yourTurn && sel && canSwitch(game, sel) ? { on: spyOn, onPress: toggleSpy } : null,
+    pass: yourTurn && !game.twoStepActive && !game.movedThisTurn.length ? { onPress: onPass, warn: game.timeouts.us >= TIMEOUTS_TO_LOSE - 1 ? PASS_WARNING : null } : null,
   };
   const won = game.winner === "us";
   // the strip counts what you were shown (dead pieces included), never the hidden board; a Dig in is secret and not counted

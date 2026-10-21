@@ -30,7 +30,6 @@ function game(pieces: Piece[], over: Partial<Game> = {}): Game {
     reason: null,
     version: RULES_VERSION,
     changed: {},
-    digs: { us: 0, it: 0 },
     ...over,
   };
 }

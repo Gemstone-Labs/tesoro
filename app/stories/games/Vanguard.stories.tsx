@@ -138,7 +138,7 @@ export const PowerJumps: Story = {
 
 /** The roster strip when the Italian 10 has never been shown ("10 or Spy?"). A Major digging in changes nothing here. */
 export const RosterUncertain: Story = {
-  args: { ...base, prepare: (g) => ({ ...g, digs: { ...g.digs, it: 1 } }) },
+  args: { ...base, prepare: (g) => ({ ...g, changed: { ...g.changed, [g.pieces.find((p) => p.army === "it" && p.rank === "7")!.id]: "dug" as const } }) },
 };
 
 /** Two Spies shown: the strip knows the 10 switched, so no question. */

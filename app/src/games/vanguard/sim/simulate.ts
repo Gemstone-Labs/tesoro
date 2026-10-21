@@ -24,6 +24,7 @@ export function animationMs(events: GameEvent[]): number {
     } else if (e.kind === "spotted" || e.kind === "raid") ms += 500;
     else if (e.kind === "blast" || e.kind === "rescue") ms += 900; // placeholders until ticket 02 builds the animations
     else if (e.kind === "dug_in" || e.kind === "switched") ms += 300;
+    // a pass plays no beat: the turn just changes hands
     else if (e.kind === "storm") ms += 3500;
   }
   return ms;
@@ -46,10 +47,11 @@ export interface MatchOptions {
 }
 
 /** What a Match counted of each power: the five new actions plus the new movement patterns. */
-export const POWERS = ["dig_in", "blast", "rescue", "switch", "sergeant_run", "captain_diagonal", "lieutenant_jump", "general_crossing"] as const;
+export const POWERS = ["pass", "dig_in", "blast", "rescue", "switch", "sergeant_run", "captain_diagonal", "lieutenant_jump", "general_crossing"] as const;
 export type PowerName = (typeof POWERS)[number];
 export const POWER_LABEL: Record<PowerName, string> = {
-  dig_in: "Dig in (Major)",
+  pass: "Pass (a missed turn)",
+  dig_in: "Dig in (Major, a pass too)",
   blast: "Blast (Engineer)",
   rescue: "Rescue (Colonel)",
   switch: "Become a Spy (General of the Army)",

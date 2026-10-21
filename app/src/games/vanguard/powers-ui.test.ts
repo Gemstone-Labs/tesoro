@@ -27,7 +27,6 @@ const game = (pieces: Piece[], over: Partial<Game> = {}): Game => ({
   reason: null,
   version: RULES_VERSION,
   changed: {},
-  digs: { us: 0, it: 0 },
   ...over,
 });
 const ev = (e: GameEventBody) => ({ ...e, seq: 0 }) as GameEvent;
@@ -89,7 +88,7 @@ describe("the enemy roster strip", () => {
     expect(cell(after, l, "7").left).toBe(1); // 3 is shown but still on the board
   });
   it("never shows a Dig in: the strip is the same whatever the enemy has dug in", () => {
-    expect(rosterView({ ...board, digs: { us: 0, it: 2 } }, {})).toEqual(rosterView(board, {}));
+    expect(rosterView({ ...board, changed: { 5: "dug", 6: "dug" } }, {})).toEqual(rosterView(board, {}));
   });
   it("a switched 10 that dies shows as a Spy: the Spy is gone and the 10 is still unproven", () => {
     const after = { ...board, pieces: board.pieces.filter((p) => p.id !== 0), changed: { 0: "spy" as const } };
@@ -133,7 +132,7 @@ describe("observe", () => {
     expect(l).toEqual({ 0: ["3"], 1: ["5"] });
   });
   it("records a Rescue and a face-up switch and dig in, but not a hidden dig in", () => {
-    const l = observe({ 1: ["5"] }, [ev({ kind: "rescue", colonel: 0, truck: 2, from: { r: 0, c: 4 }, to: { r: 3, c: 3 } }), ev({ kind: "switched", id: 1 }), ev({ kind: "dug_in", army: "it" })], b, b);
+    const l = observe({ 1: ["5"] }, [ev({ kind: "rescue", colonel: 0, truck: 2, from: { r: 0, c: 4 }, to: { r: 3, c: 3 } }), ev({ kind: "switched", id: 1 }), ev({ kind: "pass", army: "it" })], b, b);
     expect(l).toEqual({ 0: ["8"], 2: ["F"], 1: ["5", "1"] });
   });
   it("is the same ledger when a move is replayed twice", () => {

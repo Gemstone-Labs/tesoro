@@ -29,7 +29,6 @@ function game(pieces: Piece[], over: Partial<Game> = {}): Game {
     reason: null,
     version: RULES_VERSION,
     changed: {},
-    digs: { us: 0, it: 0 },
     ...over,
   };
 }
@@ -358,18 +357,17 @@ describe("Rescue", () => {
 
 describe("Dig in", () => {
   const g0 = () => game([P(1, "us", "7", 7, 0), P(2, "us", "7", 7, 1), P(3, "us", "6", 8, 0), IT]);
-  it("turns a Major into a Landmine for good and passes the turn, with a public counter", () => {
+  it("turns a Major into a Landmine for good and passes the turn, as a missed turn that is not a move", () => {
     const r = doAct(g0(), "dig_in", 1);
     expect(r.game.changed).toEqual({ 1: "dug" });
-    expect(r.game.digs).toEqual({ us: 1, it: 0 });
+    expect(r.game.timeouts).toEqual({ us: 1, it: 0 });
     expect(rankOf(r.game, r.game.pieces.find((p) => p.id === 1)!)).toBe("B");
     expect(r.game.turn).toBe("it");
-    expect(r.game.moves).toBe(1);
+    expect(r.game.moves).toBe(0);
   });
-  it("a face-down Major digs in secretly: the event names the army, never the piece", () => {
-    const e = doAct(g0(), "dig_in", 1).events.find((x) => x.kind === "dug_in");
-    expect(e).toEqual(expect.objectContaining({ kind: "dug_in", army: "us" }));
-    expect(e).not.toHaveProperty("id");
+  it("a face-down Major digs in secretly: no dug_in event, only the pass every pass makes", () => {
+    const r = doAct(g0(), "dig_in", 1);
+    expect(r.events.map((x) => x.kind)).toEqual(["pass", "turn"]);
   });
   it("a face-up Major digs in in the open and the event names it (F1)", () => {
     const g = game([P(1, "us", "7", 7, 0, { known: true }), IT]);
@@ -394,13 +392,15 @@ describe("Dig in", () => {
     }
     expect(moved).toBeGreaterThan(0);
   });
-  it("refuses a piece that is not a live undug Major", () => {
+  it("a piece that is not a live undug Major makes a plain pass, never a refusal", () => {
     const g = g0();
-    expect(refused(act(g, { kind: "dig_in", id: 3, at: at(g) }))).toBe("illegal_move");
-    expect(refused(act(g, { kind: "dig_in", id: 77, at: at(g) }))).toBe("no_such_piece");
-    expect(refused(act(g, { kind: "dig_in", id: 90, at: at(g) }))).toBe("not_your_turn");
+    for (const id of [3, 77, 90]) {
+      const r = doAct(g, "dig_in", id);
+      expect(r.game.changed).toEqual({});
+      expect(r.game.timeouts.us).toBe(1);
+    }
     const dug = game([P(1, "us", "7", 7, 0), IT], { changed: { 1: "dug" } });
-    expect(refused(act(dug, { kind: "dig_in", id: 1, at: at(dug) }))).toBe("illegal_move");
+    expect(doAct(dug, "dig_in", 1).game.timeouts.us).toBe(1);
   });
   it("is refused inside a Two-Step Turn", () => {
     const g = { ...g0(), twoStep: { us: 1, it: 0 } };

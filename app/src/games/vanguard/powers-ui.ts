@@ -99,7 +99,7 @@ export function observe(ledger: Ledger, events: GameEvent[], before: Game, after
       see(e.truck, "F");
     } else if (e.kind === "spotted") see(e.id, "F");
     else if (e.kind === "switched") see(e.id, "1");
-    else if (e.kind === "dug_in" && e.id !== undefined) see(e.id, "B");
+    else if (e.kind === "dug_in") see(e.id, "B");
   }
   return next;
 }
