@@ -1,23 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getHoldem } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import {
-  HOLDEM_PROGRAM_ID,
+  NO_WINNER,
   PHASE,
-  SPEED_TURBO,
   STATUS,
-  addresses,
-  decodeTable,
+  TABLE_PHASE,
+  canFinalizeTable,
+  tableOf,
   type Action,
+  type Assignment,
   type PlayerSigner,
   type Table,
 } from "./chain";
-import { commitPhase, isCommitPending, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
+import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
 
 /** Where a Hold'em Match is in its life, read from chain. */
@@ -56,11 +56,13 @@ const now = () => Date.now();
 
 /** A key that changes whenever anything a Player can see changes. */
 function tableKey(t: Table): string {
-  return [t.status, t.handNo, t.phase, t.toAct, t.deadline, t.stacks, t.bets, t.committed, t.board, t.lastHand.handNo, t.winner, t.missed].join("|");
+  return [t.status, t.tablePhase, t.seatsOpen, t.checkedIn, t.dirty, t.reqPending, t.vrfReady, t.handNo, t.phase, t.toAct, t.deadline, t.stacks, t.bets, t.committed, t.board, t.lastHand.handNo, t.winner, t.missed].join("|");
 }
 
 /** How long the Player who does not settle at once waits before settling a still-open Match. */
 const FINALIZE_GRACE_MS = 20_000;
+/** How long the Player who does not act at once waits before doing a step either Player may do. */
+const GRACE_MS = 15_000;
 
 /**
  * Drives one Hold'em Match for one Player: reads the table from the private rollup, and does
@@ -92,15 +94,15 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
   const holeHand = useRef(-1);
   const activeSince = useRef(0);
   const closingSince = useRef(0);
-  const lastClose = useRef(0);
+  const lastCommit = useRef(0);
   const commitSince = useRef(0);
-  const closeFailures = useRef(0);
+  const commitFailures = useRef(0);
   const contributedHand = useRef(0);
   const contributedAt = useRef(0);
   const lastVrf = useRef(0);
   const settledSeen = useRef(false);
   const finalRead = useRef(false);
-  const delegated = useRef(false);
+  const assignRef = useRef<Assignment | null>(null);
   const failures = useRef(0);
 
   const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
@@ -133,10 +135,36 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
 
   // -- the driver (sequential; one step per tick) --------------------------------------------
 
+  /**
+   * Settles from the committed table once base has the result. One Player settles at once (the winner; seat 0 for a refund), the
+   * other waits and settles only if the Match is still open then, so the loser of a race does not burn a fee.
+   */
+  const settle = useCallback(
+    async (a: Assignment, seat: 0 | 1, t: Table | null) => {
+      if (!p || !signer || id === null) return;
+      const hd = getHoldem();
+      if (!closingSince.current) closingSince.current = now();
+      const refund = !t || t.status === STATUS.cancelled || t.winner === NO_WINNER;
+      const mine = refund ? seat === 0 : t!.winner === seat;
+      if (!mine && now() - closingSince.current < FINALIZE_GRACE_MS) return;
+      const base = await hd.readTableOnBase(a);
+      if (!base || !canFinalizeTable(base, a, Date.now() / 1000)) return;
+      setView((v) => (v.commit ? { ...v, commit: null } : v));
+      try {
+        await hd.finalize(p, a);
+      } catch (e) {
+        // The other Player may have settled it in the same moment.
+        const again = await fetchMatch(id, BlockPuzzleChain.coreAccount(signer.publicKey));
+        if (again && (again.status === "settled" || again.status === "refunded")) return;
+        if (++failures.current >= 3) throw e;
+      }
+    },
+    [p, signer, id],
+  );
+
   const step = useCallback(async () => {
     if (!p || !signer || id === null || mk === null) return;
     const hd = getHoldem();
-    const ad = addresses(mk!);
     const me = BlockPuzzleChain.coreAccount(signer.publicKey);
     const m = await fetchMatch(id, me);
     setView((v) => ({ ...v, match: m, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
@@ -150,7 +178,8 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
       setStage("settled");
       if (!finalRead.current) {
         finalRead.current = true;
-        const t = await hd.readTableOnBase(mk!);
+        const a = await hd.readAssignment(mk!);
+        const t = a ? await hd.readTableOnBase(a) : null;
         if (t) setView((v) => ({ ...v, table: t }));
       }
       if (!settledSeen.current) {
@@ -161,130 +190,109 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
       return;
     }
 
-    // Active: the table has to exist, live on the rollup, and be started.
+    // Active: the operator binds the Match to a table; then the table begins it, seats the Players and both check in.
     if (!activeSince.current) activeSince.current = now();
-    // The joiner sets the table up; the opener steps in if that stalls.
+    // The joiner does the steps either Player may do; the opener steps in if that stalls.
     const late = now() - activeSince.current >= (seat === 1 ? 0 : 12_000);
-    const info = await hd.base.getAccountInfo(ad.gameMatch);
+    const a = await hd.readAssignment(mk!);
+    if (!a) return setStage("setup", "Setting up the Match");
+    assignRef.current = a;
+    const t = await hd.readTable(p, a);
+    if (!t) return setStage("setup", "Setting up the Match");
+    if (!tableOf(a, t)) {
+      // The table has been wiped for its next Match: the result lives in the committed ring.
+      setStage("closing", "Paying out the Pot");
+      return settle(a, seat, null);
+    }
+    applyTable(t);
+    const nowS = Date.now() / 1000;
 
-    if (!info) {
-      setStage("setup", "Setting up the Match");
-      if (!late) return;
-      const opponentAccount = m.opponent;
-      if (!opponentAccount) return;
-      const { PublicKey } = await import("@solana/web3.js");
-      const core = (await import("@/lib/chain/client")).getChain().core;
-      const opp: any = await core.account.tesoroAccount.fetch(new PublicKey(opponentAccount));
-      const [a, b] = seat === 0 ? [signer.publicKey, opp.authority] : [opp.authority, signer.publicKey];
-      await hd.createTable(p, mk!, a, b, SPEED_TURBO);
+    if (t.tablePhase === TABLE_PHASE.idle) {
+      setStage("setup", "Starting the Match");
+      if (late && nowS <= a.startDeadline) await hd.beginMatch(p, a).catch(() => undefined);
       return;
     }
-
-    if (info.owner.equals(HOLDEM_PROGRAM_ID)) {
-      const t = decodeTable(ad.gameMatch, hd.program.coder.accounts.decode("gameMatch", info.data));
-      if (t.status === STATUS.created) {
-        setStage("setup", "Creating your session");
-        if (!late) return;
-        await hd.delegateTable(p, mk!);
+    if (t.tablePhase === TABLE_PHASE.waiting) {
+      if (nowS > t.startDeadline) {
+        // Never both checked in: record the refund so both entries come back.
+        setStage("setup", "The Match was never started: cancelling");
+        if (seat === 1 || now() - activeSince.current > GRACE_MS) await hd.expireStart(p, a).catch(() => undefined);
         return;
       }
-      // Committed back after the Match ended: settle.
-      delegated.current = false;
-      setView((v) => ({ ...v, table: t }));
-      setStage("closing", "Paying out the Pot");
-      setView((v) => (v.commit ? { ...v, commit: null } : v));
-      if (!closingSince.current) closingSince.current = now();
-      // One Player settles at once (the winner; seat 0 for a cancelled table). The other waits and
-      // settles only if the Match is still open then, so the loser of a race does not burn a fee.
-      const mine = t.status === STATUS.cancelled ? seat === 0 : t.winner === seat;
-      if (!mine && now() - closingSince.current < FINALIZE_GRACE_MS) return;
-      try {
-        await hd.finalize(p, mk!);
-      } catch (e) {
-        // The other Player may have settled it in the same moment.
-        const again = await fetchMatch(id, me);
-        if (again && (again.status === "settled" || again.status === "refunded")) return;
-        if (++failures.current >= 3) throw e;
+      if (!t.seatsOpen) {
+        setStage("setup", "Creating your session");
+        if (late) await hd.seatPlayers(p, a).catch(() => undefined);
+        return;
       }
+      if (!t.checkedIn[seat]) {
+        setStage("setup", "Joining the Match");
+        await hd.checkIn(p, a);
+        return;
+      }
+      setStage("setup", "Waiting for your opponent");
       return;
     }
 
-    if (!info.owner.equals(DELEGATION_PROGRAM_ID)) return;
-    delegated.current = true;
-    const t = await hd.readTable(p, mk!);
-    if (!t) return setStage("setup", "Creating your session");
-    applyTable(t);
-
-    if (t.status === STATUS.created) {
-      setStage("setup", "Starting the Match");
-      if (!late) return;
-      try {
-        await hd.start(p, mk!);
-      } catch (e) {
-        if ((await hd.readTable(p, mk!))?.status === STATUS.created) throw e;
-      }
-      return;
-    }
-
-    if (t.status === STATUS.live) {
+    if (t.tablePhase === TABLE_PHASE.live) {
       setStage("live");
-      if (t.phase === PHASE.shuffle) await shuffle(t, seat);
+      if (t.phase === PHASE.shuffle) await shuffle(a, t, seat);
       return;
     }
 
-    // Over or cancelled: wipe the hidden accounts and commit everything back.
+    // Over: commit the public result, then settle from the committed ring.
     setStage("closing", "Saving the result");
     if (!closingSince.current) closingSince.current = now();
-    const mine = t.status === STATUS.cancelled ? seat === 0 : t.winner === seat;
-    if (!mine && now() - closingSince.current < 15_000) return;
+    const refund = t.status === STATUS.cancelled || t.winner === NO_WINNER;
+    const mine = refund ? seat === 0 : t.winner === seat;
+    if (t.dirty) {
+      if (!mine && now() - closingSince.current < 15_000) return;
+      if (now() - lastCommit.current < 10_000) return;
+      lastCommit.current = now();
+      try {
+        await hd.commitTable(p, a);
+        commitFailures.current = 0;
+      } catch (e) {
+        // The other Player committed first, or the commit is already in flight: only other errors count.
+        if (!/NotDirty/.test(String(e)) && ++commitFailures.current >= 3) throw e;
+        if (!/NotDirty/.test(String(e))) return;
+      }
+      if (!commitSince.current) commitSince.current = now();
+      setCommitPending(id, true);
+      setView((v) => ({ ...v, commit: { phase: "sending", won: mine } }));
+      return;
+    }
     if (commitSince.current) {
       const phase = commitPhase(commitSince.current, now());
       setView((v) => (v.commit?.phase === phase && v.commit.won === mine ? v : { ...v, commit: { phase, won: mine }, error: null }));
-      return;
     }
-    if (now() - lastClose.current < 30_000) return;
-    lastClose.current = now();
-    try {
-      await hd.closeMatch(p, mk!);
-    } catch (e) {
-      // The other Player closed it first, or the commit is already in flight: only other errors count.
-      if (!isCommitPending(e) && ++closeFailures.current >= 3) throw e;
-      if (!isCommitPending(e)) return;
-    }
-    commitSince.current = now();
-    setCommitPending(id, true);
-    setView((v) => ({ ...v, commit: { phase: "sending", won: mine } }));
+    await settle(a, seat, t);
 
-    async function shuffle(tb: Table, s: 0 | 1) {
+    async function shuffle(ref: Assignment, tb: Table, s: 0 | 1) {
       if (!p || id === null) return;
+      // The secret is sent once per hand: a retry would send a second one, so the seat is asked first.
       if (contributedHand.current !== tb.handNo) {
-        try {
-          await hd.contributeEntropy(p, mk!, false);
-        } catch (e) {
-          if (!/AlreadyContributed/.test(String(e))) throw e;
+        if (!(await hd.hasContributed(p, ref, s))) {
+          await hd.contributeEntropy(p, ref, s, false);
         }
         contributedHand.current = tb.handNo;
         contributedAt.current = now();
-        lastVrf.current = 0;
         return;
       }
-      // Seat 1 asks for the VRF output and deals; seat 0 only steps in if that stalls.
-      if (s === 0 && now() - contributedAt.current < 6_000) return;
-      if (now() - lastVrf.current > 15_000) {
+      if (tb.vrfReady) {
+        await hd.deal(p, ref).catch(() => undefined);
+        return;
+      }
+      // The request is made once per hand (the program refuses a second one): seat 1 asks, seat 0 only if that stalls.
+      if (!tb.reqPending && (s === 1 || now() - contributedAt.current > 6_000) && now() - lastVrf.current > 5_000) {
+        lastVrf.current = now();
         try {
-          await hd.requestVrf(p, mk!);
-          lastVrf.current = now();
+          await hd.requestVrf(p, ref);
         } catch {
-          // Refused until both secrets are in.
+          // Refused until the other Player's secret is in, or the other Player asked first.
         }
       }
-      try {
-        await hd.deal(p, mk!);
-      } catch {
-        // Refused until the VRF output has arrived, or the other Player dealt first.
-      }
     }
-  }, [p, signer, id, mk, setStage, applyTable, onSettled]);
+  }, [p, signer, id, mk, setStage, applyTable, onSettled, settle]);
 
   const tick = useCallback(async () => {
     if (working.current) return;
@@ -317,15 +325,16 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
     let busy = false;
     const poll = async () => {
       const seat = seatRef.current;
-      if (busy || stop || seat === null || !delegated.current || !["live", "closing", "setup"].includes(stage.current)) return;
+      const a = assignRef.current;
+      if (busy || stop || seat === null || !a || !["live", "closing", "setup"].includes(stage.current)) return;
       busy = true;
       try {
         const hd = getHoldem();
-        const t = await hd.readTable(p, mk!);
-        if (!t || stop) return;
+        const t = await hd.readTable(p, a);
+        if (!t || stop || !tableOf(a, t)) return;
         applyTable(t);
         if (t.phase >= PHASE.preflop && t.phase <= PHASE.river && holeHand.current !== t.handNo) {
-          const h = await hd.readOwnHole(p, mk!, seat);
+          const h = await hd.readOwnHole(p, a, seat);
           if (h && !stop) {
             holeHand.current = h.handNo;
             setView((v) => ({ ...v, hole: h }));
@@ -353,8 +362,9 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
         const sig = await fn();
         // Rollup steps were logged by the client; this catches base-layer ones (refund).
         if (sig) addSig(label, sig, "base");
-        if (p && id !== null) {
-          const t = await getHoldem().readTable(p, mk!);
+        const a = assignRef.current;
+        if (p && id !== null && a) {
+          const t = await getHoldem().readTable(p, a);
           if (t) applyTable(t);
         }
       } catch (e) {
@@ -363,11 +373,11 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
         patch({ busy: null });
       }
     },
-    [p, id, mk, patch, addSig, applyTable],
+    [p, id, patch, addSig, applyTable],
   );
 
-  const act = useCallback((a: Action, label: string) => run(label, () => getHoldem().act(p!, mk!, a)), [p, mk, run]);
-  const claimTimeout = useCallback(() => run("claim_timeout", () => getHoldem().claimTimeout(p!, mk!)), [p, mk, run]);
+  const act = useCallback((action: Action, label: string) => run(label, () => getHoldem().act(p!, assignRef.current!, action)), [p, run]);
+  const claimTimeout = useCallback(() => run("claim_timeout", () => getHoldem().claimTimeout(p!, assignRef.current!)), [p, run]);
 
   return { view, act, claimTimeout, tick, run };
 }

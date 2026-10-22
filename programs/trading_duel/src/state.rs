@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-pub use table_kit::{Ring, Slot};
+pub use table_kit::{CommitGuard, Ring, Slot};
 
 pub const CONFIG_SEED: &[u8] = b"config";
 pub const SPONSOR_SEED: &[u8] = b"sponsor";
@@ -183,6 +183,8 @@ pub struct Table {
     pub winner: u8,
     /// Results of finished Matches, kept until tesoro_core has frozen them.
     pub ring: Ring,
+    /// When the table may be committed again if a commit was lost on its way to base.
+    pub commit: CommitGuard,
 }
 
 impl Table {
@@ -213,16 +215,18 @@ impl Table {
             scores: [0; 2],
             winner: NO_WINNER,
             ring: Ring::default(),
+            commit: CommitGuard::default(),
         }
     }
 
-    /// Forgets the finished Match and moves to the next epoch. The ring stays.
+    /// Forgets the finished Match and moves to the next epoch. The ring and the commit guard stay.
     pub fn reset(&mut self) -> Option<()> {
         let epoch = self.epoch.checked_add(1)?;
-        let ring = self.ring;
+        let (ring, commit) = (self.ring, self.commit);
         *self = Self::new(self.bump, self.generation, self.index);
         self.epoch = epoch;
         self.ring = ring;
+        self.commit = commit;
         Some(())
     }
 }

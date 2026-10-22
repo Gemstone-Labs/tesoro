@@ -3,6 +3,7 @@ import { settledPda } from "../../app/src/games/holdem/chain.ts";
 import { PHASE, SLOT, configPda, sponsorPda, tablePda, type Table } from "../../app/src/games/trading-duel/chain.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { shortKey } from "./env.ts";
+import { needsRecommit } from "./recommit.ts";
 
 /**
  * Trading Duel table upkeep (entry points for the table scheduler, ticket 19t).
@@ -23,6 +24,8 @@ export interface TableFacts {
   doneSlots: { index: number; match: string; receiptOld: boolean }[];
   /** The Match on the table was refunded by tesoro_core (its receipt is old enough) before the table finished it. */
   matchFrozen: boolean;
+  /** A Done result in the ring that base's copy does not show, old enough that its commit is probably lost, and the wait since the last try has passed. */
+  recommit: boolean;
 }
 
 export type TableStep = { do: "commit_table" | "close_seats" | "reset_table" | "release_slot" | "void_table" | "wait"; why: string; slot?: { index: number; match: string } };
@@ -35,6 +38,7 @@ export function tableStep(f: TableFacts): TableStep {
   const free = f.doneSlots.find((s) => s.receiptOld);
   if (free) return { do: "release_slot", why: `tesoro_core froze ${shortKey(new PublicKey(free.match))}`, slot: { index: free.index, match: free.match } };
   if ((f.phase === PHASE.waiting || f.phase === PHASE.live) && f.matchFrozen) return { do: "void_table", why: "tesoro_core already refunded the Match the table is on" };
+  if (f.recommit) return { do: "commit_table", why: "a result is in the ring but not on base: its commit was probably lost, repeating it" };
   if (f.phase !== PHASE.over) return { do: "wait", why: `table phase ${f.phase}` };
   if (f.dirty) return { do: "commit_table", why: "the result is not committed yet" };
   if (f.seatsOpen) return { do: "close_seats", why: "Match over, Books still open" };
@@ -43,7 +47,7 @@ export function tableStep(f: TableFacts): TableStep {
 }
 
 /** Rollup facts for one table; `receiptAge(match)` is the age in seconds of tesoro_core's settlement receipt, or `null` if there is none. */
-export function tableFacts(t: Table, nowS: number, receiptAge: (match: PublicKey) => number | null): TableFacts {
+export function tableFacts(t: Table, nowS: number, receiptAge: (match: PublicKey) => number | null, base: Table | null = null, lastRecommit = 0): TableFacts {
   const doneSlots = t.ring
     .map((s, index) => ({ s, index }))
     .filter(({ s }) => s.state === SLOT.done)
@@ -56,6 +60,7 @@ export function tableFacts(t: Table, nowS: number, receiptAge: (match: PublicKey
     sinceOver: t.phase === PHASE.over ? Math.max(0, Math.floor(nowS - t.overAt)) : 0,
     doneSlots,
     matchFrozen: onMatch && (receiptAge(t.tesoroMatch) ?? -1) >= 60,
+    recommit: needsRecommit(t, base, nowS, lastRecommit),
   };
 }
 
@@ -72,6 +77,8 @@ export async function tablesOf(ctx: Ctx): Promise<{ generation: number; indexes:
   const cfg: any = await (ctx.duel.program.account as any).tableConfig.fetch(configPda());
   return { generation: cfg.generation, indexes: Array.from({ length: cfg.maxTables }, (_, i) => i) };
 }
+
+const lastRecommit = new Map<string, number>();
 
 /**
  * One maintenance step per table. Returns the number of actions taken. Tables that were never created or are not readable
@@ -97,8 +104,10 @@ export async function maintainTables(ctx: Ctx): Promise<number> {
     for (const key of [t.tesoroMatch, ...t.ring.filter((s) => s.state === SLOT.done).map((s) => s.tesoroMatch)]) {
       if (!ages.has(key.toBase58())) ages.set(key.toBase58(), await receiptAgeOf(ctx, key, ctx.now));
     }
-    const step = tableStep(tableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null));
+    const base = await ctx.duel.readTableOnBase(ref).catch(() => null);
+    const step = tableStep(tableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit.get(subject) ?? 0));
     if (step.do === "wait") continue;
+    if (step.why.includes("probably lost")) lastRecommit.set(subject, ctx.now);
     const sig = (fn: () => Promise<string>) => act(ctx, "match", subject, `${step.do} (${step.why})`, fn);
     let r;
     if (step.do === "release_slot") r = await sig(() => ctx.duel.releaseSlot(ctx.hsigner, address, step.slot!.index, new PublicKey(step.slot!.match)));

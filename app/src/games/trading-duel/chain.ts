@@ -462,7 +462,7 @@ export class TradingDuelChain {
   }
 
   /** The table as the base layer last saw it (what the last commit left): the result ring `finalize` reads. */
-  async readTableOnBase(a: Assignment): Promise<Table | null> {
+  async readTableOnBase(a: TableRef): Promise<Table | null> {
     const address = tablePda(a.generation, a.index);
     const info = await this.base.getAccountInfo(address);
     if (!info || (!info.owner.equals(DELEGATION_PROGRAM_ID) && !info.owner.equals(TRADING_DUEL_PROGRAM_ID))) return null;

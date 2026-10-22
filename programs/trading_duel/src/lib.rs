@@ -148,6 +148,7 @@ impl From<KitError> for DuelError {
             KitError::BadTable => DuelError::BadTable,
             KitError::BadFeeVault => DuelError::BadFeeVault,
             KitError::Overflow => DuelError::Overflow,
+            KitError::CommitNotDue => DuelError::NotDirty,
         }
     }
 }
@@ -692,6 +693,7 @@ pub mod trading_duel {
         table.phase = PHASE_OVER;
         table.over_at = now;
         table.dirty = true;
+        table.commit.on_result();
         Ok(())
     }
 
@@ -708,19 +710,23 @@ pub mod trading_duel {
         table.phase = PHASE_OVER;
         table.over_at = now;
         table.dirty = true;
+        table.commit.on_result();
         Ok(())
     }
 
-    /// Rollup, permissionless. Commits the finished table to Solana, paid by the Sponsor. It
-    /// works once per result (the table is `dirty` until then), so nobody can drain the Sponsor
-    /// by committing again and again.
+    /// Rollup, permissionless. Commits the finished table to Solana, paid by the Sponsor. The
+    /// first commit of a result is owed once (the table is `dirty` until then). A commit can be
+    /// lost on its way to base without the rollup noticing, so it may be repeated while the ring
+    /// holds a young Done result, with a wait that doubles from two minutes to an hour (see
+    /// `table_kit::CommitGuard`); nobody can drain the Sponsor by calling it again and again.
     pub fn commit_table(ctx: Context<CommitTable>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
-        require!(
-            table.phase == PHASE_OVER && table.dirty,
-            DuelError::NotDirty
-        );
+        kit(table
+            .commit
+            .allow(table.phase == PHASE_OVER && table.dirty, &table.ring, now))?;
         table.dirty = false;
+        table.commit.record(now);
         table.exit(&ID)?;
         let bump = [ctx.accounts.sponsor.bump];
         sponsor_commit(

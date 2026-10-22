@@ -6,15 +6,18 @@
 //! * [`receipt_at`], [`match_state_gone`]: the only evidence that frees a ring slot.
 //! * [`read_table`]: how base-layer code reads a table that MagicBlock still holds.
 //! * [`sponsor_commit`]: the commit, paid by a delegated Sponsor PDA.
+//! * [`CommitGuard`]: when a commit is owed and when a lost one may be repeated.
 //! * [`open_private_seat`], [`close_private_seat`]: hidden seat data in ephemeral accounts.
 //!
 //! The protocol is described in `.scratch/economy-upgrade` notes `table-protocol.md`.
 
+pub mod commit;
 pub mod ring;
 pub mod seat;
 pub mod sponsor;
 
 use anchor_lang::prelude::*;
+pub use commit::*;
 use ephemeral_rollups_sdk::consts::MAGIC_PROGRAM_ID;
 pub use ring::*;
 pub use seat::*;
@@ -43,6 +46,8 @@ pub enum KitError {
     /// The fee vault is not the TEE validator's.
     BadFeeVault,
     Overflow,
+    /// No first commit is owed and no repeat is due (nothing unconfirmed, or the wait has not passed).
+    CommitNotDue,
 }
 
 /// The settlement receipt `tesoro_core` writes when a Match enters Settling or Refunding, as

@@ -1768,7 +1768,9 @@ dependencies = [
  "anchor-lang",
  "ephemeral-rollups-sdk",
  "litesvm",
+ "serde_json",
  "solana-sdk",
+ "table_kit",
  "tesoro_core",
 ]
 

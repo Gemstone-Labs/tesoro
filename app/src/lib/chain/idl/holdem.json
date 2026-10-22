@@ -27,53 +27,40 @@
           "signer": true
         },
         {
-          "name": "game_match",
+          "name": "table",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  109,
-                  97,
                   116,
-                  99,
-                  104
+                  97,
+                  98,
+                  108,
+                  101
                 ]
               },
               {
                 "kind": "account",
-                "path": "game_match.tesoro_match",
-                "account": "GameMatch"
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
               }
             ]
           }
         },
         {
-          "name": "deck",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  99,
-                  107
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_match"
-              }
-            ]
-          }
+          "name": "hole_0",
+          "writable": true
         },
         {
-          "name": "hole_0"
-        },
-        {
-          "name": "hole_1"
+          "name": "hole_1",
+          "writable": true
         }
       ],
       "args": [
@@ -88,468 +75,45 @@
       ]
     },
     {
-      "name": "claim_timeout",
+      "name": "assign_match",
       "docs": [
-        "Rollup, permissionless. Once the current deadline has passed: an idle Player is checked",
-        "(or folded when facing a bet); missing entropy cancels hand one (no-show, both entries",
-        "refunded) or forfeits a later hand; three missed turns in a row forfeit the Match."
+        "Base, operator. Binds an Active tesoro_core Match of this Game to a table and its current",
+        "epoch, once. The Players and the speed are copied from the Match, the start deadline is",
+        "fixed here, and the Match's refund timer is held past the whole table window."
       ],
       "discriminator": [
-        130,
-        234,
-        45,
-        53,
-        120,
-        90,
-        86,
-        178
-      ],
-      "accounts": [
-        {
-          "name": "caller",
-          "signer": true
-        },
-        {
-          "name": "game_match",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  116,
-                  99,
-                  104
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_match.tesoro_match",
-                "account": "GameMatch"
-              }
-            ]
-          }
-        },
-        {
-          "name": "deck",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  99,
-                  107
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_match"
-              }
-            ]
-          }
-        },
-        {
-          "name": "hole_0"
-        },
-        {
-          "name": "hole_1"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "close_match",
-      "docs": [
-        "Rollup. After the Match is over (or cancelled): wipes the hidden accounts, closes their",
-        "permissions and commits + undelegates everything back to the base layer. Whatever is in",
-        "state at commit becomes public, hence the wipe."
-      ],
-      "discriminator": [
-        79,
-        174,
-        36,
-        80,
-        233,
-        185,
-        176,
-        239
-      ],
-      "accounts": [
-        {
-          "name": "payer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "game_match",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  116,
-                  99,
-                  104
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_match.tesoro_match",
-                "account": "GameMatch"
-              }
-            ]
-          }
-        },
-        {
-          "name": "deck",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  99,
-                  107
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_match"
-              }
-            ]
-          }
-        },
-        {
-          "name": "hole_0",
-          "writable": true
-        },
-        {
-          "name": "hole_1",
-          "writable": true
-        },
-        {
-          "name": "deck_permission",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  101,
-                  114,
-                  109,
-                  105,
-                  115,
-                  115,
-                  105,
-                  111,
-                  110,
-                  58
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "deck"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                136,
-                161,
-                10,
-                196,
-                33,
-                152,
-                1,
-                214,
-                246,
-                106,
-                29,
-                60,
-                6,
-                152,
-                192,
-                102,
-                169,
-                175,
-                212,
-                217,
-                180,
-                252,
-                231,
-                71,
-                151,
-                141,
-                209,
-                5,
-                168,
-                212,
-                103,
-                82
-              ]
-            }
-          }
-        },
-        {
-          "name": "hole_0_permission",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  101,
-                  114,
-                  109,
-                  105,
-                  115,
-                  115,
-                  105,
-                  111,
-                  110,
-                  58
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "hole_0"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                136,
-                161,
-                10,
-                196,
-                33,
-                152,
-                1,
-                214,
-                246,
-                106,
-                29,
-                60,
-                6,
-                152,
-                192,
-                102,
-                169,
-                175,
-                212,
-                217,
-                180,
-                252,
-                231,
-                71,
-                151,
-                141,
-                209,
-                5,
-                168,
-                212,
-                103,
-                82
-              ]
-            }
-          }
-        },
-        {
-          "name": "hole_1_permission",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  101,
-                  114,
-                  109,
-                  105,
-                  115,
-                  115,
-                  105,
-                  111,
-                  110,
-                  58
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "hole_1"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                136,
-                161,
-                10,
-                196,
-                33,
-                152,
-                1,
-                214,
-                246,
-                106,
-                29,
-                60,
-                6,
-                152,
-                192,
-                102,
-                169,
-                175,
-                212,
-                217,
-                180,
-                252,
-                231,
-                71,
-                151,
-                141,
-                209,
-                5,
-                168,
-                212,
-                103,
-                82
-              ]
-            }
-          }
-        },
-        {
-          "name": "permission_program",
-          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
-        },
-        {
-          "name": "ephemeral_vault",
-          "writable": true,
-          "address": "MagicVau1t999999999999999999999999999999999"
-        },
-        {
-          "name": "magic_program",
-          "address": "Magic11111111111111111111111111111111111111"
-        },
-        {
-          "name": "magic_context",
-          "writable": true,
-          "address": "MagicContext1111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "contribute_entropy",
-      "docs": [
-        "Rollup. A Player folds a fresh secret into this hand's Deck entropy. The secret only ever",
-        "exists in this transaction (inside the TEE) and in the private Deck."
-      ],
-      "discriminator": [
-        226,
-        50,
-        83,
+        195,
+        128,
+        179,
+        141,
         148,
-        208,
-        127,
-        106,
-        222
+        120,
+        135,
+        51
       ],
       "accounts": [
         {
-          "name": "player",
+          "name": "operator",
+          "writable": true,
           "signer": true
         },
         {
-          "name": "game_match",
+          "name": "config",
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  109,
-                  97,
-                  116,
                   99,
-                  104
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
                 ]
-              },
-              {
-                "kind": "account",
-                "path": "game_match.tesoro_match",
-                "account": "GameMatch"
               }
             ]
           }
-        },
-        {
-          "name": "deck",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  99,
-                  107
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_match"
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
-        {
-          "name": "secret",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "create_match",
-      "docs": [
-        "Base layer. Binds a new table to an Active tesoro_core Match of this Game and pre-funds",
-        "the ephemeral permission rent of each hidden account. Either Player may create it."
-      ],
-      "discriminator": [
-        107,
-        2,
-        184,
-        145,
-        70,
-        142,
-        17,
-        165
-      ],
-      "accounts": [
-        {
-          "name": "creator",
-          "writable": true,
-          "signer": true
         },
         {
           "name": "tesoro_match",
@@ -575,96 +139,6 @@
                 "kind": "account",
                 "path": "tesoro_match.inner.id.n",
                 "account": "MatchState"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                139,
-                232,
-                217,
-                200,
-                195,
-                196,
-                42,
-                210,
-                40,
-                249,
-                196,
-                130,
-                26,
-                66,
-                171,
-                32,
-                36,
-                239,
-                175,
-                140,
-                108,
-                61,
-                148,
-                110,
-                71,
-                7,
-                159,
-                115,
-                202,
-                186,
-                136,
-                218
-              ]
-            }
-          }
-        },
-        {
-          "name": "game_record",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103,
-                  97,
-                  109,
-                  101
-                ]
-              },
-              {
-                "kind": "const",
-                "value": [
-                  174,
-                  96,
-                  200,
-                  103,
-                  127,
-                  104,
-                  62,
-                  170,
-                  232,
-                  90,
-                  29,
-                  158,
-                  38,
-                  83,
-                  120,
-                  138,
-                  228,
-                  74,
-                  166,
-                  86,
-                  92,
-                  73,
-                  111,
-                  43,
-                  52,
-                  38,
-                  103,
-                  98,
-                  92,
-                  102,
-                  245,
-                  169
-                ]
               }
             ],
             "program": {
@@ -850,8 +324,128 @@
           }
         },
         {
-          "name": "game_match",
+          "name": "assignment",
           "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  115,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tesoro_match"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tesoro_program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "generation",
+          "type": "u16"
+        },
+        {
+          "name": "index",
+          "type": "u16"
+        },
+        {
+          "name": "epoch",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "begin_match",
+      "docs": [
+        "Rollup, permissionless. Starts the Assignment's Match on its table: only if the table is",
+        "Idle at exactly the assigned epoch with seats, the tesoro_core Match is still Active and a",
+        "ring slot is free. Everything about the Match comes from the Assignment, never from the",
+        "caller. It only reserves the slot; the Match starts when both Players have checked in."
+      ],
+      "discriminator": [
+        30,
+        230,
+        183,
+        200,
+        11,
+        146,
+        125,
+        126
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "assignment",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  115,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "assignment.tesoro_match",
+                "account": "Assignment"
+              }
+            ]
+          }
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tesoro_match",
           "pda": {
             "seeds": [
               {
@@ -866,28 +460,156 @@
               },
               {
                 "kind": "account",
-                "path": "tesoro_match"
+                "path": "tesoro_match.inner.id.opener",
+                "account": "MatchState"
+              },
+              {
+                "kind": "account",
+                "path": "tesoro_match.inner.id.n",
+                "account": "MatchState"
               }
-            ]
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
           }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "check_in",
+      "docs": [
+        "Rollup. A Player checks in. When both have, the Match starts: equal Chips, first hand,",
+        "blinds posted."
+      ],
+      "discriminator": [
+        209,
+        253,
+        4,
+        217,
+        250,
+        241,
+        207,
+        50
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "signer": true
         },
         {
-          "name": "deck",
+          "name": "table",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  100,
-                  101,
-                  99,
-                  107
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
                 ]
               },
               {
                 "kind": "account",
-                "path": "game_match"
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_timeout",
+      "docs": [
+        "Rollup, permissionless. Once the current deadline has passed: an idle Player is checked",
+        "(or folded when facing a bet); missing entropy cancels hand one (no-show, both entries",
+        "refunded) or forfeits a later hand; an answer that never comes ends the hand in a refund;",
+        "three missed turns in a row forfeit the Match."
+      ],
+      "discriminator": [
+        130,
+        234,
+        45,
+        53,
+        120,
+        90,
+        86,
+        178
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
               }
             ]
           }
@@ -899,10 +621,265 @@
         {
           "name": "hole_1",
           "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_assignment",
+      "docs": [
+        "Base, permissionless. Closes an Assignment once tesoro_core has frozen its Match (the",
+        "receipt exists) or the Match account is gone; the rent goes back to whoever paid it."
+      ],
+      "discriminator": [
+        180,
+        122,
+        187,
+        197,
+        166,
+        152,
+        1,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
         },
         {
-          "name": "tesoro_program",
-          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+          "name": "assignment",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  115,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "assignment.tesoro_match",
+                "account": "Assignment"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "receipt"
+        },
+        {
+          "name": "match_state"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "commit_table",
+      "docs": [
+        "Rollup, permissionless. Commits the finished table to Solana, paid by the Sponsor. The",
+        "first commit of a result is owed once (the table is `dirty` until then). A commit can be",
+        "lost on its way to base without the rollup noticing, so it may be repeated while the ring",
+        "holds a young Done result, with a wait that doubles from two minutes to an hour (see",
+        "`table_kit::CommitGuard`); nobody can drain the Sponsor by calling it again and again.",
+        "Only the public table is ever committed."
+      ],
+      "discriminator": [
+        136,
+        45,
+        98,
+        44,
+        165,
+        128,
+        228,
+        243
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_fee_vault",
+          "writable": true
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "contribute_entropy",
+      "docs": [
+        "Rollup. A Player folds a fresh secret into this hand. It goes into the Player's own Hole",
+        "only, and the public table is not written, so the transaction touches nothing both Players",
+        "can read. The secret is spent at the deal and may not repeat."
+      ],
+      "discriminator": [
+        226,
+        50,
+        83,
+        148,
+        208,
+        127,
+        106,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "hole",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "secret",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_fuel",
+      "docs": [
+        "Base, operator. Creates a reserve the operator later empties into the Sponsor."
+      ],
+      "discriminator": [
+        82,
+        113,
+        189,
+        193,
+        159,
+        137,
+        154,
+        157
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "fuel",
+          "writable": true
         },
         {
           "name": "system_program",
@@ -911,16 +888,173 @@
       ],
       "args": [
         {
-          "name": "speed",
+          "name": "n",
           "type": "u8"
+        },
+        {
+          "name": "lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_sponsor",
+      "docs": [
+        "Base, operator. Creates the Sponsor that pays commits; `lamports` is its first balance."
+      ],
+      "discriminator": [
+        13,
+        118,
+        139,
+        130,
+        225,
+        182,
+        191,
+        42
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_table",
+      "docs": [
+        "Base, operator. Creates a table of the current generation, funded for its seats' rent."
+      ],
+      "discriminator": [
+        214,
+        142,
+        131,
+        250,
+        242,
+        83,
+        135,
+        185
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "generation"
+              },
+              {
+                "kind": "arg",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "generation",
+          "type": "u16"
+        },
+        {
+          "name": "index",
+          "type": "u16"
         }
       ]
     },
     {
       "name": "deal",
       "docs": [
-        "Rollup. Shuffles from `H(entropy || vrf || hand)`, deals two cards to each Hole account",
-        "and opens preflop betting. Anyone may call it once the VRF output is in."
+        "Rollup, permissionless. Once the answer is in: derives the seed, draws the nine cards,",
+        "writes each Player's hole cards and their shares of the board, zeroes every secret and",
+        "half, and opens preflop betting. The seed and the deck are never stored."
       ],
       "discriminator": [
         128,
@@ -938,45 +1072,29 @@
           "signer": true
         },
         {
-          "name": "game_match",
+          "name": "table",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  109,
-                  97,
                   116,
-                  99,
-                  104
+                  97,
+                  98,
+                  108,
+                  101
                 ]
               },
               {
                 "kind": "account",
-                "path": "game_match.tesoro_match",
-                "account": "GameMatch"
-              }
-            ]
-          }
-        },
-        {
-          "name": "deck",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  99,
-                  107
-                ]
+                "path": "table.generation",
+                "account": "Table"
               },
               {
                 "kind": "account",
-                "path": "game_match"
+                "path": "table.index",
+                "account": "Table"
               }
             ]
           }
@@ -993,181 +1111,46 @@
       "args": []
     },
     {
-      "name": "delegate_match",
+      "name": "delegate_fuel",
       "docs": [
-        "Base layer. Delegates the table and its hidden accounts to the TEE validator."
+        "Base, operator. Delegates a fuel reserve."
       ],
       "discriminator": [
-        30,
-        116,
-        9,
-        69,
-        147,
         61,
-        133,
-        238
+        213,
+        181,
+        49,
+        144,
+        165,
+        105,
+        215
       ],
       "accounts": [
         {
-          "name": "payer",
+          "name": "operator",
           "writable": true,
           "signer": true
         },
         {
-          "name": "buffer_game_match",
-          "writable": true,
+          "name": "config",
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  102,
-                  102,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_match"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                174,
-                96,
-                200,
-                103,
-                127,
-                104,
-                62,
-                170,
-                232,
-                90,
-                29,
-                158,
-                38,
-                83,
-                120,
-                138,
-                228,
-                74,
-                166,
-                86,
-                92,
-                73,
-                111,
-                43,
-                52,
-                38,
-                103,
-                98,
-                92,
-                102,
-                245,
-                169
-              ]
-            }
-          }
-        },
-        {
-          "name": "delegation_record_game_match",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  108,
-                  101,
-                  103,
-                  97,
-                  116,
-                  105,
-                  111,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_match"
-              }
-            ],
-            "program": {
-              "kind": "account",
-              "path": "delegation_program"
-            }
-          }
-        },
-        {
-          "name": "delegation_metadata_game_match",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  108,
-                  101,
-                  103,
-                  97,
-                  116,
-                  105,
+                  99,
                   111,
                   110,
-                  45,
-                  109,
-                  101,
-                  116,
-                  97,
-                  100,
-                  97,
-                  116,
-                  97
+                  102,
+                  105,
+                  103
                 ]
-              },
-              {
-                "kind": "account",
-                "path": "game_match"
-              }
-            ],
-            "program": {
-              "kind": "account",
-              "path": "delegation_program"
-            }
-          }
-        },
-        {
-          "name": "game_match",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  116,
-                  99,
-                  104
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "tesoro_match"
               }
             ]
           }
         },
         {
-          "name": "buffer_deck",
+          "name": "buffer_fuel",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1184,7 +1167,7 @@
               },
               {
                 "kind": "account",
-                "path": "deck"
+                "path": "fuel"
               }
             ],
             "program": {
@@ -1227,7 +1210,7 @@
           }
         },
         {
-          "name": "delegation_record_deck",
+          "name": "delegation_record_fuel",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1248,7 +1231,7 @@
               },
               {
                 "kind": "account",
-                "path": "deck"
+                "path": "fuel"
               }
             ],
             "program": {
@@ -1258,7 +1241,7 @@
           }
         },
         {
-          "name": "delegation_metadata_deck",
+          "name": "delegation_metadata_fuel",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1288,7 +1271,7 @@
               },
               {
                 "kind": "account",
-                "path": "deck"
+                "path": "fuel"
               }
             ],
             "program": {
@@ -1298,294 +1281,7 @@
           }
         },
         {
-          "name": "deck",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  99,
-                  107
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_match"
-              }
-            ]
-          }
-        },
-        {
-          "name": "buffer_hole_0",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  117,
-                  102,
-                  102,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "hole_0"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                174,
-                96,
-                200,
-                103,
-                127,
-                104,
-                62,
-                170,
-                232,
-                90,
-                29,
-                158,
-                38,
-                83,
-                120,
-                138,
-                228,
-                74,
-                166,
-                86,
-                92,
-                73,
-                111,
-                43,
-                52,
-                38,
-                103,
-                98,
-                92,
-                102,
-                245,
-                169
-              ]
-            }
-          }
-        },
-        {
-          "name": "delegation_record_hole_0",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  108,
-                  101,
-                  103,
-                  97,
-                  116,
-                  105,
-                  111,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "hole_0"
-              }
-            ],
-            "program": {
-              "kind": "account",
-              "path": "delegation_program"
-            }
-          }
-        },
-        {
-          "name": "delegation_metadata_hole_0",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  108,
-                  101,
-                  103,
-                  97,
-                  116,
-                  105,
-                  111,
-                  110,
-                  45,
-                  109,
-                  101,
-                  116,
-                  97,
-                  100,
-                  97,
-                  116,
-                  97
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "hole_0"
-              }
-            ],
-            "program": {
-              "kind": "account",
-              "path": "delegation_program"
-            }
-          }
-        },
-        {
-          "name": "hole_0",
-          "writable": true
-        },
-        {
-          "name": "buffer_hole_1",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  117,
-                  102,
-                  102,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "hole_1"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                174,
-                96,
-                200,
-                103,
-                127,
-                104,
-                62,
-                170,
-                232,
-                90,
-                29,
-                158,
-                38,
-                83,
-                120,
-                138,
-                228,
-                74,
-                166,
-                86,
-                92,
-                73,
-                111,
-                43,
-                52,
-                38,
-                103,
-                98,
-                92,
-                102,
-                245,
-                169
-              ]
-            }
-          }
-        },
-        {
-          "name": "delegation_record_hole_1",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  108,
-                  101,
-                  103,
-                  97,
-                  116,
-                  105,
-                  111,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "hole_1"
-              }
-            ],
-            "program": {
-              "kind": "account",
-              "path": "delegation_program"
-            }
-          }
-        },
-        {
-          "name": "delegation_metadata_hole_1",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  108,
-                  101,
-                  103,
-                  97,
-                  116,
-                  105,
-                  111,
-                  110,
-                  45,
-                  109,
-                  101,
-                  116,
-                  97,
-                  100,
-                  97,
-                  116,
-                  97
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "hole_1"
-              }
-            ],
-            "program": {
-              "kind": "account",
-              "path": "delegation_program"
-            }
-          }
-        },
-        {
-          "name": "hole_1",
+          "name": "fuel",
           "writable": true
         },
         {
@@ -1607,19 +1303,503 @@
       ],
       "args": [
         {
-          "name": "tesoro_match",
-          "type": "pubkey"
+          "name": "n",
+          "type": "u8"
         }
       ]
     },
     {
+      "name": "delegate_sponsor",
+      "docs": [
+        "Base, operator. Delegates the Sponsor, once."
+      ],
+      "discriminator": [
+        103,
+        51,
+        15,
+        141,
+        25,
+        188,
+        197,
+        245
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "sponsor"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                174,
+                96,
+                200,
+                103,
+                127,
+                104,
+                62,
+                170,
+                232,
+                90,
+                29,
+                158,
+                38,
+                83,
+                120,
+                138,
+                228,
+                74,
+                166,
+                86,
+                92,
+                73,
+                111,
+                43,
+                52,
+                38,
+                103,
+                98,
+                92,
+                102,
+                245,
+                169
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "sponsor"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "sponsor"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "validator",
+          "optional": true
+        },
+        {
+          "name": "owner_program",
+          "address": "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "delegate_table",
+      "docs": [
+        "Base, operator. Delegates a table to the TEE validator, once."
+      ],
+      "discriminator": [
+        161,
+        66,
+        67,
+        113,
+        58,
+        219,
+        238,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                174,
+                96,
+                200,
+                103,
+                127,
+                104,
+                62,
+                170,
+                232,
+                90,
+                29,
+                158,
+                38,
+                83,
+                120,
+                138,
+                228,
+                74,
+                166,
+                86,
+                92,
+                73,
+                111,
+                43,
+                52,
+                38,
+                103,
+                98,
+                92,
+                102,
+                245,
+                169
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "generation"
+              },
+              {
+                "kind": "arg",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "validator",
+          "optional": true
+        },
+        {
+          "name": "owner_program",
+          "address": "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "generation",
+          "type": "u16"
+        },
+        {
+          "name": "index",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "expire_start",
+      "docs": [
+        "Rollup, permissionless. A table whose Players did not both check in before the start",
+        "deadline records a refund, so the Match can be settled from the ring like any other."
+      ],
+      "discriminator": [
+        99,
+        133,
+        37,
+        248,
+        47,
+        63,
+        197,
+        37
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "finalize",
       "docs": [
-        "Base layer, permissionless. Settles the tesoro_core Match from the committed result by CPI,",
-        "signing as this Game's `authority` PDA: the winner takes the Pot minus fees. A cancelled",
-        "Match, or one never started before its start deadline, refunds both entries.",
-        "This only STARTS the settlement in tesoro_core; the payouts follow in `match_chunk` calls",
-        "anyone may make."
+        "Base, permissionless. Settles the tesoro_core Match from the result in the committed",
+        "table's ring, by CPI signed by this Game's `authority` PDA. Without a result it refunds",
+        "only when the table has demonstrably moved past the Assignment's epoch without the Match.",
+        "Only starts the settlement in tesoro_core; its chunks follow."
       ],
       "discriminator": [
         171,
@@ -1641,27 +1821,33 @@
           "signer": true
         },
         {
-          "name": "game_match",
-          "writable": true,
+          "name": "assignment",
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  109,
                   97,
-                  116,
-                  99,
-                  104
+                  115,
+                  115,
+                  105,
+                  103,
+                  110
                 ]
               },
               {
                 "kind": "account",
-                "path": "game_match.tesoro_match",
-                "account": "GameMatch"
+                "path": "assignment.tesoro_match",
+                "account": "Assignment"
               }
             ]
           }
+        },
+        {
+          "name": "table",
+          "docs": [
+            "program) and contents are checked in `finalize`."
+          ]
         },
         {
           "name": "tesoro_match",
@@ -2040,68 +2226,51 @@
       "args": []
     },
     {
-      "name": "init_permissions",
+      "name": "init_seats",
       "docs": [
-        "Rollup. Creates the four ephemeral permissions (the table is visible to both Players,",
-        "each Hole account only to its Player, the Deck to nobody) and starts the Match: equal",
-        "Chips, first hand, blinds posted."
+        "Rollup, permissionless, once per table. Creates the two Hole seats as ephemeral accounts",
+        "behind private permissions with no member. The table pays the rent. They are never",
+        "closed while the table runs."
       ],
       "discriminator": [
-        247,
-        240,
-        133,
-        29,
-        26,
-        176,
-        185,
-        61
+        14,
+        174,
+        114,
+        182,
+        201,
+        101,
+        198,
+        211
       ],
       "accounts": [
         {
-          "name": "payer",
-          "writable": true,
+          "name": "caller",
           "signer": true
         },
         {
-          "name": "game_match",
+          "name": "table",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  109,
-                  97,
                   116,
-                  99,
-                  104
+                  97,
+                  98,
+                  108,
+                  101
                 ]
               },
               {
                 "kind": "account",
-                "path": "game_match.tesoro_match",
-                "account": "GameMatch"
-              }
-            ]
-          }
-        },
-        {
-          "name": "deck",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  99,
-                  107
-                ]
+                "path": "table.generation",
+                "account": "Table"
               },
               {
                 "kind": "account",
-                "path": "game_match"
+                "path": "table.index",
+                "account": "Table"
               }
             ]
           }
@@ -2113,136 +2282,6 @@
         {
           "name": "hole_1",
           "writable": true
-        },
-        {
-          "name": "match_permission",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  101,
-                  114,
-                  109,
-                  105,
-                  115,
-                  115,
-                  105,
-                  111,
-                  110,
-                  58
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_match"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                136,
-                161,
-                10,
-                196,
-                33,
-                152,
-                1,
-                214,
-                246,
-                106,
-                29,
-                60,
-                6,
-                152,
-                192,
-                102,
-                169,
-                175,
-                212,
-                217,
-                180,
-                252,
-                231,
-                71,
-                151,
-                141,
-                209,
-                5,
-                168,
-                212,
-                103,
-                82
-              ]
-            }
-          }
-        },
-        {
-          "name": "deck_permission",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  101,
-                  114,
-                  109,
-                  105,
-                  115,
-                  115,
-                  105,
-                  111,
-                  110,
-                  58
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "deck"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                136,
-                161,
-                10,
-                196,
-                33,
-                152,
-                1,
-                214,
-                246,
-                106,
-                29,
-                60,
-                6,
-                152,
-                192,
-                102,
-                169,
-                175,
-                212,
-                217,
-                180,
-                252,
-                231,
-                71,
-                151,
-                141,
-                209,
-                5,
-                168,
-                212,
-                103,
-                82
-              ]
-            }
-          }
         },
         {
           "name": "hole_0_permission",
@@ -2496,10 +2535,145 @@
       ]
     },
     {
+      "name": "refill_sponsor",
+      "docs": [
+        "Rollup, operator. Moves lamports from a fuel reserve into the Sponsor."
+      ],
+      "discriminator": [
+        212,
+        210,
+        18,
+        240,
+        37,
+        50,
+        86,
+        2
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "fuel",
+          "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "release_slot",
+      "docs": [
+        "Rollup, permissionless. Frees a Done ring slot once tesoro_core has frozen its Match (the",
+        "receipt, read a minute after it was written), or once the Match account itself has been",
+        "gone for 15 days. A missing or doubtful read keeps the slot."
+      ],
+      "discriminator": [
+        100,
+        59,
+        168,
+        161,
+        243,
+        243,
+        157,
+        33
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "receipt"
+        },
+        {
+          "name": "match_state"
+        }
+      ],
+      "args": [
+        {
+          "name": "index",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "request_vrf",
       "docs": [
-        "Rollup. Requests VRF randomness from the delegated oracle queue; the oracle calls back",
-        "into `vrf_callback_shuffle` inside the rollup. May be repeated until the output arrives."
+        "Rollup, permissionless. Asks the oracle for this hand's randomness, once. The program",
+        "chooses the input: the table, the Match, the epoch, the hand, the request number and the",
+        "hashes of both frozen secrets. The answer is accepted only for this request."
       ],
       "discriminator": [
         5,
@@ -2518,46 +2692,38 @@
           "signer": true
         },
         {
-          "name": "game_match",
+          "name": "table",
+          "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  109,
-                  97,
                   116,
-                  99,
-                  104
+                  97,
+                  98,
+                  108,
+                  101
                 ]
               },
               {
                 "kind": "account",
-                "path": "game_match.tesoro_match",
-                "account": "GameMatch"
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
               }
             ]
           }
         },
         {
-          "name": "deck",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  99,
-                  107
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_match"
-              }
-            ]
-          }
+          "name": "hole_0"
+        },
+        {
+          "name": "hole_1"
         },
         {
           "name": "oracle_queue",
@@ -2597,17 +2763,620 @@
           "address": "11111111111111111111111111111111"
         }
       ],
+      "args": []
+    },
+    {
+      "name": "reset_table",
+      "docs": [
+        "Rollup, permissionless. Wipes the finished Match from the public table and moves to the",
+        "next epoch. Needs the result committed (`dirty` cleared), the seats wiped and a short",
+        "delay for clients to read the final board. The ring is kept."
+      ],
+      "discriminator": [
+        190,
+        10,
+        56,
+        248,
+        93,
+        247,
+        245,
+        251
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "retire_seats",
+      "docs": [
+        "Rollup, operator only. Retires a table's seats: closes both Holes and their permissions",
+        "and returns the rent to the table. Only an idle table with blank seats; this is the one",
+        "place a seat's history may open, and nothing a Player can call reaches it."
+      ],
+      "discriminator": [
+        3,
+        235,
+        166,
+        62,
+        151,
+        214,
+        212,
+        197
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "hole_0",
+          "writable": true
+        },
+        {
+          "name": "hole_1",
+          "writable": true
+        },
+        {
+          "name": "hole_0_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_0"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "hole_1_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_1"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "seat_players",
+      "docs": [
+        "Rollup, permissionless. Hands both seats to the Match's Players: each seat must be blank,",
+        "then it is stamped with its Player and its permission member is swapped from nobody to",
+        "that Player. Only before play begins; never on a Player's call into a live Match."
+      ],
+      "discriminator": [
+        12,
+        38,
+        115,
+        74,
+        25,
+        229,
+        220,
+        62
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "hole_0",
+          "writable": true
+        },
+        {
+          "name": "hole_1",
+          "writable": true
+        },
+        {
+          "name": "hole_0_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_0"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "hole_1_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_1"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "set_config",
+      "docs": [
+        "Base, upgrade authority only. Names the operator, the current table generation (which may",
+        "only rise) and how many tables a generation may have."
+      ],
+      "discriminator": [
+        108,
+        158,
+        154,
+        175,
+        212,
+        98,
+        52,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program",
+          "address": "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
       "args": [
         {
-          "name": "client_seed",
-          "type": "u8"
+          "name": "operator",
+          "type": "pubkey"
+        },
+        {
+          "name": "generation",
+          "type": "u16"
+        },
+        {
+          "name": "max_tables",
+          "type": "u16"
         }
       ]
     },
     {
+      "name": "void_table",
+      "docs": [
+        "Rollup, permissionless. A table whose Match tesoro_core has already frozen (it refunded,",
+        "say after an outage) before the table produced a result is given up: the reserved slot is",
+        "freed and the table moves to Over, ready to wipe its seats and reset."
+      ],
+      "discriminator": [
+        79,
+        183,
+        225,
+        24,
+        240,
+        49,
+        250,
+        149
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "receipt"
+        },
+        {
+          "name": "match_state"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "vrf_callback_shuffle",
       "docs": [
-        "Rollup. VRF callback: the output is written only into the private Deck."
+        "Rollup. VRF callback: splits the oracle's output into a half per Hole. Accepted only for",
+        "the one outstanding request of the current epoch and hand, named by its marker address,",
+        "and only once."
       ],
       "discriminator": [
         143,
@@ -2629,26 +3398,46 @@
           "signer": true
         },
         {
-          "name": "deck",
+          "name": "table",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  100,
-                  101,
-                  99,
-                  107
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
                 ]
               },
               {
                 "kind": "account",
-                "path": "deck.game_match",
-                "account": "Deck"
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
               }
             ]
           }
+        },
+        {
+          "name": "hole_0",
+          "writable": true
+        },
+        {
+          "name": "hole_1",
+          "writable": true
+        },
+        {
+          "name": "request",
+          "docs": [
+            "one outstanding request. The account itself need not exist."
+          ]
         }
       ],
       "args": [
@@ -2662,9 +3451,226 @@
           }
         }
       ]
+    },
+    {
+      "name": "wipe_seats",
+      "docs": [
+        "Rollup, permissionless. Once the Match is over (or voided): zeroes both seats and swaps",
+        "their permission members to nobody, so nothing the Players could read is left and the",
+        "seats are never without a private permission. The next `seat_players` hands them on."
+      ],
+      "discriminator": [
+        80,
+        156,
+        240,
+        63,
+        232,
+        138,
+        47,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "hole_0",
+          "writable": true
+        },
+        {
+          "name": "hole_1",
+          "writable": true
+        },
+        {
+          "name": "hole_0_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_0"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "hole_1_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_1"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        }
+      ],
+      "args": []
     }
   ],
   "accounts": [
+    {
+      "name": "Assignment",
+      "discriminator": [
+        106,
+        201,
+        110,
+        51,
+        89,
+        170,
+        73,
+        31
+      ]
+    },
     {
       "name": "Config",
       "discriminator": [
@@ -2679,29 +3685,16 @@
       ]
     },
     {
-      "name": "Deck",
+      "name": "Fuel",
       "discriminator": [
-        192,
-        215,
-        78,
-        133,
-        216,
-        161,
-        59,
-        154
-      ]
-    },
-    {
-      "name": "GameMatch",
-      "discriminator": [
-        87,
-        187,
-        102,
-        98,
-        236,
-        52,
-        127,
-        39
+        5,
+        57,
+        10,
+        107,
+        149,
+        19,
+        213,
+        157
       ]
     },
     {
@@ -2744,6 +3737,45 @@
       ]
     },
     {
+      "name": "Sponsor",
+      "discriminator": [
+        19,
+        128,
+        115,
+        109,
+        118,
+        109,
+        66,
+        213
+      ]
+    },
+    {
+      "name": "Table",
+      "discriminator": [
+        34,
+        100,
+        138,
+        97,
+        236,
+        129,
+        230,
+        112
+      ]
+    },
+    {
+      "name": "TableConfig",
+      "discriminator": [
+        170,
+        18,
+        158,
+        124,
+        72,
+        3,
+        198,
+        193
+      ]
+    },
+    {
       "name": "TesoroAccount",
       "discriminator": [
         50,
@@ -2776,7 +3808,7 @@
     {
       "code": 6003,
       "name": "AlreadyDealt",
-      "msg": "Deck already dealt"
+      "msg": "The hand is already dealt, or its randomness already requested"
     },
     {
       "code": 6004,
@@ -2862,6 +3894,111 @@
       "code": 6020,
       "name": "PermissionNotReady",
       "msg": "A permission for this account is missing or is not a real permission"
+    },
+    {
+      "code": 6021,
+      "name": "NotUpgradeAuthority",
+      "msg": "Only the upgrade authority may do this"
+    },
+    {
+      "code": 6022,
+      "name": "NotOperator",
+      "msg": "Only the operator may do this"
+    },
+    {
+      "code": 6023,
+      "name": "BadConfig",
+      "msg": "Invalid configuration"
+    },
+    {
+      "code": 6024,
+      "name": "BadTableSlot",
+      "msg": "That table index or generation is not allowed"
+    },
+    {
+      "code": 6025,
+      "name": "NotAssigned",
+      "msg": "The Assignment names another table, generation or epoch"
+    },
+    {
+      "code": 6026,
+      "name": "SeatsNotOpen",
+      "msg": "The seats are not open"
+    },
+    {
+      "code": 6027,
+      "name": "SeatsOpen",
+      "msg": "The seats are already open or still open"
+    },
+    {
+      "code": 6028,
+      "name": "SeatsMissing",
+      "msg": "The table has no seats yet"
+    },
+    {
+      "code": 6029,
+      "name": "SeatNotBlank",
+      "msg": "A seat still holds data from an earlier Match"
+    },
+    {
+      "code": 6030,
+      "name": "RingFull",
+      "msg": "The result ring is full"
+    },
+    {
+      "code": 6031,
+      "name": "NoResult",
+      "msg": "The ring has no result for this Match and epoch"
+    },
+    {
+      "code": 6032,
+      "name": "NoReceipt",
+      "msg": "The evidence that frees the slot is missing or too recent"
+    },
+    {
+      "code": 6033,
+      "name": "BadSlot",
+      "msg": "The ring slot is not in the state this needs"
+    },
+    {
+      "code": 6034,
+      "name": "NotDirty",
+      "msg": "The table has no result to commit"
+    },
+    {
+      "code": 6035,
+      "name": "NotCommitted",
+      "msg": "The table result has not been committed yet"
+    },
+    {
+      "code": 6036,
+      "name": "ResetTooEarly",
+      "msg": "The table is not ready to be reset"
+    },
+    {
+      "code": 6037,
+      "name": "BadTable",
+      "msg": "Not the table of this Assignment, or not a valid table"
+    },
+    {
+      "code": 6038,
+      "name": "BadFeeVault",
+      "msg": "Not the TEE validator's fee vault"
+    },
+    {
+      "code": 6039,
+      "name": "StartWindowPassed",
+      "msg": "The start deadline has passed"
+    },
+    {
+      "code": 6040,
+      "name": "SecretReused",
+      "msg": "That secret was already used at this seat"
+    },
+    {
+      "code": 6041,
+      "name": "StaleRequest",
+      "msg": "The randomness answer is not for the current request"
     }
   ],
   "types": [
@@ -2891,6 +4028,93 @@
                 "type": "u64"
               }
             ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Assignment",
+      "docs": [
+        "The write-once binding of one tesoro_core Match to one table and one epoch. Created on base by",
+        "the operator, read by the table in the rollup and by `finalize` on base."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "tesoro_match",
+            "type": "pubkey"
+          },
+          {
+            "name": "generation",
+            "type": "u16"
+          },
+          {
+            "name": "index",
+            "type": "u16"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "players",
+            "docs": [
+              "Seat 0 opened the tesoro_core Match, seat 1 joined (the Players' authorities)."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
+            "name": "speed",
+            "docs": [
+              "`SPEED_STANDARD` or `SPEED_TURBO`, from the Match's `meta.asset`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "start_deadline",
+            "docs": [
+              "Unix time by which both Players must have checked in."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "payer",
+            "docs": [
+              "Who paid this account's rent; it goes back there when the Assignment is closed."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CommitGuard",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tries",
+            "docs": [
+              "Commits sent since the last result landed."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "last_at",
+            "docs": [
+              "Rollup time of the latest one."
+            ],
+            "type": "i64"
           }
         ]
       }
@@ -2992,10 +4216,10 @@
       }
     },
     {
-      "name": "Deck",
+      "name": "Fuel",
       "docs": [
-        "Hidden. Zero-member permission: nobody but the program reads it. Reshuffled every hand from",
-        "fresh Player secrets and a fresh VRF output."
+        "A delegated lamport reserve the operator empties into the Sponsor inside the rollup (a base",
+        "transfer to a delegated account is not seen there)."
       ],
       "type": {
         "kind": "struct",
@@ -3005,59 +4229,8 @@
             "type": "u8"
           },
           {
-            "name": "game_match",
-            "type": "pubkey"
-          },
-          {
-            "name": "hand_no",
-            "docs": [
-              "The hand this deck state belongs to; a stale value means \"reset on first use\"."
-            ],
-            "type": "u32"
-          },
-          {
-            "name": "entropy",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "contributed",
-            "type": {
-              "array": [
-                "bool",
-                2
-              ]
-            }
-          },
-          {
-            "name": "vrf_seen",
-            "type": "bool"
-          },
-          {
-            "name": "vrf",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "dealt",
-            "type": "bool"
-          },
-          {
-            "name": "cards",
-            "type": {
-              "array": [
-                "u8",
-                52
-              ]
-            }
+            "name": "n",
+            "type": "u8"
           }
         ]
       }
@@ -3065,26 +4238,11 @@
     {
       "name": "GameMatch",
       "docs": [
-        "The public table. Readable by both Players; holds no hidden card."
+        "The public part of a Match, played on a table. Readable by anyone; holds no hidden card."
       ],
       "type": {
         "kind": "struct",
         "fields": [
-          {
-            "name": "bump",
-            "type": "u8"
-          },
-          {
-            "name": "authority_bump",
-            "docs": [
-              "Canonical bump of the `authority` PDA, stored so settlement never re-derives it."
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "tesoro_match",
-            "type": "pubkey"
-          },
           {
             "name": "players",
             "docs": [
@@ -3106,13 +4264,6 @@
             "type": "u8"
           },
           {
-            "name": "finalized",
-            "docs": [
-              "Set on the base layer once tesoro_core has been settled or refunded."
-            ],
-            "type": "bool"
-          },
-          {
             "name": "winner",
             "docs": [
               "Winning seat when `status == STATUS_OVER`, else `NO_WINNER`."
@@ -3120,8 +4271,11 @@
             "type": "u8"
           },
           {
-            "name": "start_deadline",
-            "type": "i64"
+            "name": "no_show",
+            "docs": [
+              "Both Players checked in and neither took part in the first hand: a no-show, not a refund."
+            ],
+            "type": "bool"
           },
           {
             "name": "hand_no",
@@ -3214,6 +4368,13 @@
           {
             "name": "deadline",
             "type": "i64"
+          },
+          {
+            "name": "extensions",
+            "docs": [
+              "Times the shuffle clock was extended this hand while both Players were ready."
+            ],
+            "type": "u8"
           },
           {
             "name": "missed",
@@ -3379,7 +4540,15 @@
     {
       "name": "Hole",
       "docs": [
-        "Hidden. Readable only by its Player through the permission program."
+        "One Player's hidden seat: an ephemeral account (rollup-only, never committed) behind a private",
+        "permission, created once with the table and kept for its life. Between Matches the data is",
+        "zeroed and the permission's member is swapped to nobody and then to the next Player; the",
+        "account and its permission are never closed or left without a private permission while a",
+        "Match may be live.",
+        "",
+        "It holds this Player's own secret and one half of the VRF output until `deal`, then the",
+        "Player's two hole cards and their share of each board card. Neither Hole alone says anything",
+        "about the board, the shuffle or the other Hole."
       ],
       "type": {
         "kind": "struct",
@@ -3389,16 +4558,77 @@
             "type": "u8"
           },
           {
-            "name": "game_match",
+            "name": "table",
             "type": "pubkey"
           },
           {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
             "name": "player",
+            "docs": [
+              "The Player who may read this seat now; default while the seat is wiped."
+            ],
             "type": "pubkey"
           },
           {
             "name": "hand_no",
+            "docs": [
+              "The hand the contribution below belongs to."
+            ],
             "type": "u32"
+          },
+          {
+            "name": "contributed",
+            "type": "bool"
+          },
+          {
+            "name": "secret",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "last_secret_hash",
+            "docs": [
+              "Hash of the last secret this seat took, to refuse a repeated secret. Zero when wiped."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "half_set",
+            "type": "bool"
+          },
+          {
+            "name": "half",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "ext_entropy",
+            "docs": [
+              "Reserved for entropy a future confidential source may write; mixed into the seed. Zero",
+              "today, and no instruction writes it."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "dealt",
@@ -3410,6 +4640,18 @@
               "array": [
                 "u8",
                 2
+              ]
+            }
+          },
+          {
+            "name": "shares",
+            "docs": [
+              "This seat's XOR share of each board card; the two seats' shares combine to the card."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                5
               ]
             }
           }
@@ -3797,6 +5039,27 @@
       }
     },
     {
+      "name": "Ring",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slots",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Slot"
+                  }
+                },
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "RoomHold",
       "docs": [
         "Slots of one Account's stores held for a Match."
@@ -3955,6 +5218,58 @@
       }
     },
     {
+      "name": "Slot",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "state",
+            "type": "u8"
+          },
+          {
+            "name": "match_key",
+            "docs": [
+              "The tesoro_core Match this slot belongs to."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "docs": [
+              "The table epoch the Match ran in."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "at",
+            "docs": [
+              "Rollup clock when the result was written."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Sponsor",
+      "docs": [
+        "A program-owned lamport holder, delegated once, that pays the commits as the fee payer."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "Stage",
       "type": {
         "kind": "enum",
@@ -3973,6 +5288,193 @@
           },
           {
             "name": "Closed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Table",
+      "docs": [
+        "A persistent table. Delegated once and never undelegated in normal running; only this public",
+        "account is ever committed to Solana. Its two `Hole` seats are rollup-only accounts that live as",
+        "long as the table does."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "generation",
+            "type": "u16"
+          },
+          {
+            "name": "index",
+            "type": "u16"
+          },
+          {
+            "name": "epoch",
+            "docs": [
+              "Rises at every reset; a Match is bound to one epoch."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "phase",
+            "type": "u8"
+          },
+          {
+            "name": "seats_created",
+            "docs": [
+              "The two Hole seats exist (created once, kept for the table's life)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "seats_open",
+            "docs": [
+              "The seats belong to the current Match's Players."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "dirty",
+            "docs": [
+              "The result is in and not yet committed."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "tesoro_match",
+            "docs": [
+              "The Match on the table (default key while Idle)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "slot",
+            "docs": [
+              "Its ring slot."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "start_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "checked_in",
+            "type": {
+              "array": [
+                "bool",
+                2
+              ]
+            }
+          },
+          {
+            "name": "over_at",
+            "type": "i64"
+          },
+          {
+            "name": "vrf_nonce",
+            "docs": [
+              "Counts VRF requests on this table, never reset. The callback of request `n` must name the",
+              "address `[\"vrfreq\", table, n]`, so an answer to any other request is refused."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "req_nonce",
+            "docs": [
+              "The number of the latest request."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "req_pending",
+            "docs": [
+              "A VRF request is outstanding."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "req_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "req_hand",
+            "type": "u32"
+          },
+          {
+            "name": "req_at",
+            "type": "i64"
+          },
+          {
+            "name": "vrf_ready",
+            "docs": [
+              "The answer arrived and waits for `deal`."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "game",
+            "type": {
+              "defined": {
+                "name": "GameMatch"
+              }
+            }
+          },
+          {
+            "name": "ring",
+            "docs": [
+              "Results of finished Matches, kept until tesoro_core has frozen them."
+            ],
+            "type": {
+              "defined": {
+                "name": "Ring"
+              }
+            }
+          },
+          {
+            "name": "commit",
+            "docs": [
+              "When the table may be committed again if a commit was lost on its way to base."
+            ],
+            "type": {
+              "defined": {
+                "name": "CommitGuard"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TableConfig",
+      "docs": [
+        "Game-wide settings. The upgrade authority names the operator (the key that creates tables and",
+        "assigns Matches), the current table generation (which may only rise) and the table cap."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "operator",
+            "type": "pubkey"
+          },
+          {
+            "name": "generation",
+            "type": "u16"
+          },
+          {
+            "name": "max_tables",
+            "type": "u16"
           }
         ]
       }

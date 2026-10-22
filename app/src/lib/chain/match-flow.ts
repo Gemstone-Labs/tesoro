@@ -22,6 +22,12 @@ import { BRAND } from "../brand";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * What the Match records as `meta.asset`: the Trading Duel asset, and for Hold'em the speed (1, turbo: the 5-level sit-and-go
+ * every Hold'em Match plays). Other Games ignore it.
+ */
+export const matchAsset = (game: string, asset: number): number => (game === "trading-duel" ? asset : game === "holdem" ? 1 : 0);
+
 export { GAME_IDS } from "./games";
 
 /**
@@ -159,7 +165,7 @@ export async function enterQueue(
   return queueEntry({
     ...queueDeps(signer, snap.accountKey, game, entry, asset),
     join: (key) => joinEntry({ ...common, key }),
-    open: () => openEntry({ ...common, challenge: false, asset: game === "trading-duel" ? asset : 0 }),
+    open: () => openEntry({ ...common, challenge: false, asset: matchAsset(game, asset) }),
     canRetry,
     onStep,
   });
@@ -169,7 +175,7 @@ export async function enterQueue(
 export async function createChallenge(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", asset: 0 | 1 | 2 = 0, onStep?: (s: string) => void, backing?: BackingRef, onStaged?: (s: StagedEntry) => void): Promise<string> {
   await ensureReady(signer, getToken, onStep);
   onStep?.("Opening your Challenge…");
-  return (await openEntry({ signer, getToken, game, entry, backing, onStep, onStaged, challenge: true, asset: game === "trading-duel" ? asset : 0 })).key;
+  return (await openEntry({ signer, getToken, game, entry, backing, onStep, onStaged, challenge: true, asset: matchAsset(game, asset) })).key;
 }
 
 export class ChallengeError extends Error {
