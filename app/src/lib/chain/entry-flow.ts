@@ -116,7 +116,7 @@ export async function joinEntry(a: EntryArgs & { key: string }): Promise<string>
   const read = new Map((await Promise.all(accounts.map((k) => readEntryStores(k)))).map((s) => [s.account.toBase58(), s]));
   const needs = joinGrowPlan(facts, pot.lines, me, funder, (k) => read.get(k.toBase58()));
   const relayer = await relayerKey();
-  const join = joinMatchIx({ payer: relayer ?? a.signer.publicKey, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio)] });
+  const join = joinMatchIx({ payer: relayer ?? a.signer.publicKey, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio, ref)] });
 
   // Grows need the relayer to sign, so they only travel in the sponsored transaction; sized to what it carries.
   if (relayer && !withSession(a.game)) {
@@ -125,7 +125,7 @@ export async function joinEntry(a: EntryArgs & { key: string }): Promise<string>
     for (const grows of earlier) await sendEntryTx(a.signer, a.getToken, async () => grows).catch(() => undefined);
     const r = await sendEntryTx(a.signer, a.getToken, async (payer, sponsored) => {
       if (sponsored) return main;
-      return [joinMatchIx({ payer, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio)] })];
+      return [joinMatchIx({ payer, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio, ref)] })];
     });
     return r.sig;
   }
@@ -133,7 +133,7 @@ export async function joinEntry(a: EntryArgs & { key: string }): Promise<string>
     a.signer,
     a.getToken,
     async (payer) => {
-      const ixs = [joinMatchIx({ payer, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio)] })];
+      const ixs = [joinMatchIx({ payer, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio, ref)] })];
       if (withSession(a.game)) ixs.push(await getChain().joinSessionIx(payer, a.key, me));
       return ixs;
     },
