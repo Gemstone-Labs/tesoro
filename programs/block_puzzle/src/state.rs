@@ -453,7 +453,7 @@ pub fn seed_hash(seed: u64, tesoro_match: &Pubkey, epoch: u64) -> [u8; 32] {
 /// The zero-member hidden account that holds the Seed from the callback until the table is
 /// reset. Nobody can read it; `begin` copies the Seed to a Board once the run has started.
 #[account]
-#[derive(InitSpace, PartialEq, Eq)]
+#[derive(InitSpace, PartialEq, Eq, Debug)]
 pub struct Vault {
     pub bump: u8,
     pub table: Pubkey,
@@ -487,7 +487,7 @@ impl Vault {
 /// It holds the Player's board, the Seed (from `begin`), the true score and move count, and the
 /// move log with the landing slot of every move.
 #[account]
-#[derive(InitSpace, PartialEq, Eq)]
+#[derive(InitSpace, PartialEq, Eq, Debug)]
 pub struct Board {
     pub bump: u8,
     pub table: Pubkey,
