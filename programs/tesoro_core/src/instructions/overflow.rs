@@ -14,8 +14,9 @@
 //!   slots the Match may need (see [`cover_room`]); a Season payout creates it in the same
 //!   transaction as the payout. The payer is kept in the head.
 //! * `claim_overflow` is permissionless: it moves lines into the owner's stores while there is room,
-//!   and closes the record, returning the rent to its payer, once it is empty. An empty record (the
-//!   Match needed none) is closed the same way.
+//!   and closes the record, returning the rent to its payer, once it is empty. A Match's record
+//!   closes only after the Match is closed (its account is named in the remaining accounts), so
+//!   an unused record is swept after `close_match`.
 //! * Credits to the caller's own Account (Redeem, Instant Redeem, return, Offers) do not use it:
 //!   the caller can make room, and the instruction fails with `SpillFull`, state unchanged.
 
@@ -352,6 +353,17 @@ fn close_record<'info>(record: &AccountInfo<'info>, payer: &AccountInfo<'info>) 
     Ok(())
 }
 
+/// Whether the Match an `OVERFLOW_MATCH` record belongs to is closed: its account (named among
+/// `infos`) no longer belongs to this program. Not named means not proven, so not closed.
+fn match_is_closed(id: &[u8; 40], infos: &[AccountInfo]) -> bool {
+    let (address, _) =
+        Pubkey::find_program_address(&[MATCH_SEED, &id[..32], &id[32..40]], &crate::ID);
+    infos
+        .iter()
+        .find(|i| *i.key == address)
+        .is_some_and(|i| *i.owner != crate::ID || i.data_is_empty())
+}
+
 /// Moves up to `max` lines of an overflow record into its owner's stores, in the record's order,
 /// while there is room, and closes the record once it is empty (rent to its payer). Anyone may
 /// call it. The Source books of lines that merge into a line the owner holds are remaining
@@ -422,7 +434,11 @@ pub(crate) fn claim_overflow<'info>(
         },
     )?;
     books.flush()?;
-    if left == 0 {
+    // A Match's record is still a place for its chunks to write until the Match is closed: closing
+    // it early would let anyone undo the hold the studio's join paid for. It closes once the Match
+    // account is gone (the caller names that account among the remaining ones).
+    let may_close = kind != OVERFLOW_MATCH || match_is_closed(&id, ctx.remaining_accounts);
+    if left == 0 && may_close {
         close_record(&record, &ctx.accounts.payer.to_account_info())?;
     }
     emit!(OverflowClaimed {

@@ -5562,7 +5562,15 @@ fn an_outside_studios_fee_line_has_its_slot_held_and_cannot_be_crowded_out() {
 // --- Ticket 09c: a credit that finds no room lands in an overflow record ----------------------------
 
 impl Env {
-    fn claim_overflow_ix(&self, owner: APk, record: APk, payer: APk, max: u8) -> Instruction {
+    /// `closing` names the Match account: a Match's record is only closed once that Match is gone.
+    fn claim_overflow_ix(
+        &self,
+        owner: APk,
+        record: APk,
+        payer: APk,
+        max: u8,
+        closing: Option<u64>,
+    ) -> Instruction {
         ix(
             accounts::ClaimOverflow {
                 account: owner,
@@ -5572,7 +5580,10 @@ impl Env {
                 payer,
             },
             instruction::ClaimOverflow { max },
-            vec![],
+            closing
+                .map(|id| rem(self.match_key(id)))
+                .into_iter()
+                .collect(),
         )
     }
 
@@ -5621,6 +5632,16 @@ fn an_outside_studio_at_its_maximum_gets_its_fee_line_in_an_overflow_record_and_
         bob_before - d.env.lamports(d.bob.key) >= rent,
         "the joiner paid it"
     );
+    // nobody can close the empty record while the Match is open (the studio's guarantee)
+    let early = d
+        .env
+        .claim_overflow_ix(studio, record, d.bob.key, 0, Some(m));
+    let griefer = d.env.admin.insecure_clone();
+    d.env.send(&[early], &griefer, &[]).expect("early claim");
+    assert!(
+        d.env.svm.get_account(&s(record)).is_some(),
+        "an open Match keeps its record"
+    );
     // the Match settles and closes with nobody's help: the studio's fee lands in the record
     let game = d.env.game_auth.insecure_clone();
     d.env
@@ -5637,7 +5658,9 @@ fn an_outside_studio_at_its_maximum_gets_its_fee_line_in_an_overflow_record_and_
     assert_eq!(lines[0].amount, 60, "3% of the 2,000 Pot");
     // no room yet: a claim moves nothing and the record stays
     let caller = d.env.admin.insecure_clone();
-    let claim = d.env.claim_overflow_ix(studio, record, d.bob.key, 4);
+    let claim = d
+        .env
+        .claim_overflow_ix(studio, record, d.bob.key, 4, Some(m));
     d.env
         .send(&[claim], &caller, &[])
         .expect("claim, nothing fits");
@@ -5646,9 +5669,20 @@ fn an_outside_studio_at_its_maximum_gets_its_fee_line_in_an_overflow_record_and_
     let grow = d.env.grow_spill_ix(a(caller.pubkey()), studio, 1);
     d.env.send(&[grow], &caller, &[]).expect("grow");
     let bob_mid = d.env.lamports(d.bob.key);
-    let claim = d.env.claim_overflow_ix(studio, record, d.bob.key, 4);
+    let claim = d
+        .env
+        .claim_overflow_ix(studio, record, d.bob.key, 4, Some(m));
     d.env.send(&[claim], &caller, &[]).expect("claim");
     assert_eq!(d.env.fee_gemas(&studio_person), 60);
+    assert!(
+        d.env.svm.get_account(&s(record)).is_some(),
+        "the Match is still open: its record stays, empty"
+    );
+    d.env.close_match(m).expect("close");
+    let claim = d
+        .env
+        .claim_overflow_ix(studio, record, d.bob.key, 4, Some(m));
+    d.env.send(&[claim], &caller, &[]).expect("sweep");
     assert!(
         d.env.svm.get_account(&s(record)).is_none(),
         "the record is closed"
@@ -5695,10 +5729,15 @@ fn a_backers_share_with_no_hold_and_full_stores_lands_in_an_overflow_record() {
     b.d.env.send(&[grow], &caller, &[]).expect("grow");
     let claim =
         b.d.env
-            .claim_overflow_ix(carol.account, record, b.dave.key, 4);
+            .claim_overflow_ix(carol.account, record, b.dave.key, 4, Some(id));
     // the line has its own Source: the claim needs no book unless it merges
     b.d.env.send(&[claim], &caller, &[]).expect("claim");
     assert_eq!(b.d.env.gemas_of(&b.carol, b.d.b_source), 270);
+    b.d.env.close_match(id).expect("close");
+    let claim =
+        b.d.env
+            .claim_overflow_ix(carol.account, record, b.dave.key, 4, Some(id));
+    b.d.env.send(&[claim], &caller, &[]).expect("sweep");
     assert!(b.d.env.svm.get_account(&s(record)).is_none());
 }
 

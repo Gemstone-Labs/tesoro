@@ -5,6 +5,7 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { Budget, type Ctx } from "./act.ts";
 import { chainOf, ixNameOf, storeBytes } from "./fixtures.ts";
 import { OVERFLOW_MATCH, OVERFLOW_SEASON, basketOf, matchOverflowId, overflowAddress, seasonOverflowId, spillOf } from "./kit.ts";
+import { matchAddress } from "./kit.ts";
 import { OVERFLOW_STORE_AT, claimStep, overflowJob, overflowRowOf, type OverflowDeps } from "./overflow.ts";
 import { loadIdl } from "./runtime.ts";
 import type { Info } from "./supply.ts";
@@ -45,6 +46,14 @@ describe("what to do with a record", () => {
     assert.equal(r.owner.toBase58(), owner.toBase58());
     assert.equal(r.lines.length, 2);
     assert.equal(r.lines[0].amount, 5n);
+  });
+  it("names the Match account of a Match record, so the claim can close it once the Match is gone", () => {
+    const opener = k();
+    const id = Buffer.alloc(40);
+    opener.toBuffer().copy(id, 0);
+    id.writeBigUInt64LE(7n, 32);
+    const r = overflowRowOf(k(), recordBytes({ payer: other, kind: OVERFLOW_MATCH, id, owner, lines: [] }));
+    assert.equal(r.match?.toBase58(), matchAddress({ opener, n: 7n }).toBase58());
   });
   it("claims an empty record or one with room, grows only for a prize the keeper paid, else waits", () => {
     assert.equal(claimStep(row(other, 0), 0, keeper).kind, "claim");

@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { act, log, type Ctx } from "./act.ts";
 import { claimOverflowIx, growStoreIx } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
-import { basketOf, decodeStore, keyOf, slack, spillOf, type StoreLine } from "./kit.ts";
+import { OVERFLOW_MATCH, basketOf, decodeStore, keyOf, matchAddress, slack, spillOf, type StoreLine } from "./kit.ts";
 import { connLister, type Lister } from "./lists.ts";
 import { sendIxs, type SendOpts } from "./send.ts";
 import { connReader, supplySources, type Reader } from "./supply.ts";
@@ -20,6 +20,8 @@ export interface OverflowRow {
   kind: number;
   /** The Account the lines belong to. */
   owner: PublicKey;
+  /** The Match account of a Match record: naming it lets the claim close the record once the Match is gone. */
+  match: PublicKey | null;
   lines: StoreLine[];
 }
 
@@ -27,7 +29,9 @@ export interface OverflowRow {
 export function overflowRowOf(address: PublicKey, data: Uint8Array): OverflowRow {
   const buf = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
   const store = decodeStore(data, OVERFLOW_STORE_AT);
-  return { address, payer: new PublicKey(buf.subarray(8, 40)), kind: buf[40], owner: store.account, lines: store.lines() };
+  const kind = buf[40];
+  const match = kind === OVERFLOW_MATCH ? matchAddress({ opener: new PublicKey(buf.subarray(41, 73)), n: buf.readBigUInt64LE(73) }) : null;
+  return { address, payer: new PublicKey(buf.subarray(8, 40)), kind, owner: store.account, match, lines: store.lines() };
 }
 
 export type ClaimStep = { kind: "claim" } | { kind: "grow" } | { kind: "wait" };
@@ -82,7 +86,7 @@ export async function overflowJob(ctx: Ctx, d: OverflowDeps = realOverflowDeps(c
     const lines = row.lines.slice(0, CLAIM_LINES);
     const supply = await supplySources(ctx.core, d.read, lines.map((l) => ({ source: keyOf(l.source), cut: false })));
     const r = await act(ctx, "overflow", subject, `claim_overflow (${row.lines.length} line(s), rent to ${shortKey(row.payer)})`, async () =>
-      d.send([await claimOverflowIx(ctx.core, { account: row.owner, record: row.address, payer: row.payer, max: CLAIM_LINES, remaining: supply.metas })], { units: 400_000 }),
+      d.send([await claimOverflowIx(ctx.core, { account: row.owner, record: row.address, payer: row.payer, max: CLAIM_LINES, remaining: [...supply.metas, ...(row.match ? [{ pubkey: row.match, isSigner: false, isWritable: false }] : [])] })], { units: 400_000 }),
     );
     actions += +r.ok;
   }

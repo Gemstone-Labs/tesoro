@@ -1,6 +1,6 @@
 import "./polyfill";
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { BASKET_VERSION, DISC, basketPda, decodeStore, spillPda } from "./basket";
+import { BASKET_VERSION, DISC, basketPda, decodeStore, matchPda, spillPda } from "./basket";
 import { coreIx, metaOf } from "./core-ix";
 
 /**
@@ -30,6 +30,8 @@ export interface WaitingRecord {
   /** Who paid the record's rent; the claim returns it there. */
   payer: PublicKey;
   kind: number;
+  /** The Match account of a Match record: a claim names it so the record closes once the Match is gone. */
+  match: PublicKey | null;
   gemas: bigint;
   lines: number;
   /** The Sources of the lines: a claim that merges into a line the owner holds needs their books. */
@@ -52,6 +54,7 @@ export function decodeOverflowRecord(address: PublicKey, data: Uint8Array): Wait
       owner: store.header.account,
       payer: new PublicKey(data.slice(DISC, DISC + 32)),
       kind: data[DISC + 32],
+      match: data[DISC + 32] === OVERFLOW_KINDS.match ? matchPda(new PublicKey(data.slice(DISC + 33, DISC + 65)), new DataView(data.buffer, data.byteOffset + DISC + 65, 8).getBigUint64(0, true)) : null,
       gemas: store.lines.reduce((t, l) => t + l.amount, 0n),
       lines: store.lines.length,
       sources: [...new Map(store.lines.map((l) => [l.source.toBase58(), l.source])).values()],
@@ -68,11 +71,11 @@ export const waitingGemas = (records: readonly Pick<WaitingRecord, "gemas">[]): 
  * `claim_overflow`: moves up to `CLAIM_LINES` lines of the record into the owner's stores. `books` are the Source books (and
  * checkpoint pages) of lines that merge into a line the owner already holds.
  */
-export function claimOverflowIx(record: Pick<WaitingRecord, "address" | "owner" | "payer">, books: PublicKey[] = []): TransactionInstruction {
+export function claimOverflowIx(record: Pick<WaitingRecord, "address" | "owner" | "payer" | "match">, books: PublicKey[] = []): TransactionInstruction {
   return coreIx(
     "claim_overflow",
     { account: record.owner, basket: basketPda(record.owner), spill: spillPda(record.owner), record: record.address, payer: record.payer },
     { max: CLAIM_LINES },
-    books.map((k) => metaOf(k, true)),
+    [...books.map((k) => metaOf(k, true)), ...(record.match ? [metaOf(record.match, false)] : [])],
   );
 }

@@ -49,5 +49,9 @@ describe("overflow records", () => {
     for (const want of [k(7), basketPda(k(7)), spillPda(k(7)), k(1), k(8), book]) expect(keys).toContain(want.toBase58());
     expect(ix.keys.some((m) => m.isSigner)).toBe(false);
     expect(ix.data.subarray(8)[0]).toBe(CLAIM_LINES);
+    // a Match record names its Match, so the claim can close the record once the Match is gone
+    expect(rec.match).not.toBeNull();
+    expect(keys).toContain(rec.match!.toBase58());
+    expect(decodeOverflowRecord(k(1), record(k(7), k(8), 1, []))!.match).toBeNull();
   });
 });
