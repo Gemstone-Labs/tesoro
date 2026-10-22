@@ -248,7 +248,7 @@ pub enum Event {
         to: u8,
     },
     /// `flash` holds the pieces whose face is shown to the other side (`NO_PIECE` pads): the beaten piece,
-    /// both in a tie, a Landmine that went off. A winning defender stays hidden.
+    /// both in a tie, a Landmine that went off and the attacker it killed. A winning defender stays hidden.
     Attack {
         att: u8,
         def: u8,
@@ -537,10 +537,15 @@ const OUTCOMES: [Outcome; 6] = [
 /// Who wins when `a` attacks `d`, both as the ranks they play as (see `eff`). Branch-free: every pair of ranks runs
 /// the same instructions, so the work of a fight says nothing about the ranks beyond the outcome, which is published
 /// anyway (the winning attacker in particular stays hidden, so a Spy that wins must cost what any other winner
-/// costs). From rules version 6 attacking a Landmine is always `Mine`; before it the Engineer defused one.
+/// costs). From rules version 6 attacking a Landmine is always `Mine` (before it the Engineer defused one), and a
+/// Spy beats a General of the Army whichever of the two attacks.
 pub fn fight(a: u8, d: u8, version: u8) -> Outcome {
     let spy_kills = ct::eq(a as u64, SPY as u64) & ct::eq(d as u64, GENERAL_OF_THE_ARMY as u64);
-    let wins = spy_kills | ct::lt(value(d) as u64, value(a) as u64);
+    // from version 6 the Spy also beats a 10 that attacks it
+    let spy_holds = ct::eq(a as u64, GENERAL_OF_THE_ARMY as u64)
+        & ct::eq(d as u64, SPY as u64)
+        & (1 ^ ct::lt(version as u64, 6));
+    let wins = spy_kills | (ct::lt(value(d) as u64, value(a) as u64) & (1 ^ spy_holds));
     let mut code = ct::pick(wins, 0, 1);
     code = ct::pick(ct::eq(a as u64, d as u64), 2, code);
     let engineer = ct::eq(a as u64, ENGINEER as u64) & ct::lt(version as u64, 6);
@@ -1595,7 +1600,7 @@ impl Game {
             let d = did as usize;
             let outcome = fight(eff(rank), eff(self.pieces[d].rank), self.version);
             let flash = match outcome {
-                Outcome::Tie => [id, did],
+                Outcome::Tie | Outcome::Mine => [id, did],
                 Outcome::Lose => [id, NO_PIECE],
                 _ => [did, NO_PIECE],
             };
@@ -2830,12 +2835,15 @@ mod tests {
         g.turn = Army::Us;
         g.move_piece(59, 89, 1, true, &mut out).unwrap();
         assert_eq!(g.changed, 0);
-        // the 10 attacks a switched 10: it wins and the loser is shown as a Spy
+        // the 10 attacks a switched 10: the Spy beats it whichever attacks, and stays a switched 10
         let mut g = base();
         g.apply_switch(true, &mut out);
         g.turn = Army::It;
         g.move_piece(1, 85, 1, false, &mut out).unwrap();
-        assert_eq!((g.pieces[30].rank, g.fallen[30]), (0, SPY));
+        assert_eq!(
+            (g.pieces[30].rank, g.pieces[1].rank, g.fallen[1]),
+            (SWITCHED, 0, GENERAL_OF_THE_ARMY)
+        );
         // two switched 10s tie
         let mut g = base();
         g.apply_switch(true, &mut out);
@@ -2894,11 +2902,20 @@ mod tests {
             }
         } else if a == d {
             Outcome::Tie
+        } else if a == GENERAL_OF_THE_ARMY && d == SPY && version >= 6 {
+            Outcome::Lose
         } else if (a == SPY && d == GENERAL_OF_THE_ARMY) || value(a) > value(d) {
             Outcome::Win
         } else {
             Outcome::Lose
         }
+    }
+
+    #[test]
+    fn from_version_6_a_spy_also_beats_a_ten_that_attacks_it() {
+        assert_eq!(fight(GENERAL_OF_THE_ARMY, SPY, 6), Outcome::Lose);
+        assert_eq!(fight(SPY, GENERAL_OF_THE_ARMY, 6), Outcome::Win);
+        assert_eq!(fight(GENERAL_OF_THE_ARMY, SPY, 5), Outcome::Win);
     }
 
     #[test]

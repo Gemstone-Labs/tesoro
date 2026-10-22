@@ -16,7 +16,7 @@ export const POWER_LINES: [Rank, string][] = [
   ["4", "Slides diagonally any distance, never straight."],
   ["3", "Blast: blows up and shows the 8 squares around it to both sides."],
   ["2", "Runs any distance in a straight line."],
-  ["1", "Beats the 10 when it attacks."],
+  ["1", "Beats the 10, whichever of the two attacks."],
   ["B", "Never moves. Beats every attacker and stays."],
   ["F", "Capture it to win. Moves one square, 3 times."],
 ];

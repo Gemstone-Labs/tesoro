@@ -950,7 +950,7 @@ function switches(): Recording[] {
     out.push(rec.done());
   }
   {
-    const rec = begin("switch: a switched 10 beats the 10 it attacks in the same action, and loses to the 10 that attacks it", ["switch", "switch-attack"], [["us", "10", 6, 0], ["it", "10", 5, 0], ["it", "2", 1, 9]], { dummies: true });
+    const rec = begin("switch: a switched 10 beats the 10 it attacks in the same action, and beats the 10 that attacks it", ["switch", "switch-attack"], [["us", "10", 6, 0], ["it", "10", 5, 0], ["it", "2", 1, 9]], { dummies: true });
     const T = rec.at(6, 0);
     rec.go(T, 1, (x) => x.attack, true);
     out.push(rec.done());

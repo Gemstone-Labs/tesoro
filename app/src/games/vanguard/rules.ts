@@ -135,7 +135,7 @@ export type GameEventBody =
       from: Square;
       to: Square;
       outcome: Outcome;
-      /** Pieces whose face is flashed to the other side: the beaten piece, both in a tie, a Landmine that went off. Other winners stay hidden. */
+      /** Pieces whose face is flashed to the other side: the beaten piece, both in a tie, a Landmine that went off and the piece it killed. Other winners stay hidden. */
       flash: number[];
     }
   | { kind: "spotted"; id: number }
@@ -279,6 +279,8 @@ export function fight(a: Rank, d: Rank, version = RULES_VERSION): Outcome {
   if (d === "B") return a === "3" && version < 6 ? "defuse" : "mine";
   if (a === d) return "tie";
   if (a === "1" && d === "10") return "win";
+  // from rules version 6 the Spy also beats a 10 that attacks it (founder 2026-10-22)
+  if (a === "10" && d === "1" && version >= 6) return "lose";
   return value(a) > value(d) ? "win" : "lose";
 }
 
@@ -474,8 +476,9 @@ export function move(g00: Game, a: MoveAction): Result {
     events.push({ kind: "move", id, from, to: { r, c } });
   } else {
     const outcome = fight(rankOf(g0, me), rankOf(g0, def), g0.version);
-    // a blown Landmine is revealed for good (founder 2026-10-19); otherwise only the beaten piece is flashed
-    const flash = outcome === "tie" ? [me.id, def.id] : outcome === "lose" ? [me.id] : [def.id];
+    // the beaten piece is flashed; a Landmine that goes off is revealed for good (founder 2026-10-19) and, like any piece
+    // that dies attacking, the attacker it killed is flashed too (founder 2026-10-22)
+    const flash = outcome === "tie" || outcome === "mine" ? [me.id, def.id] : outcome === "lose" ? [me.id] : [def.id];
     if (outcome === "mine") def.known = true;
     events.push({ kind: "attack", att: me.id, def: def.id, from, to: { r, c }, outcome, flash });
     if (outcome === "win" || outcome === "defuse" || outcome === "truck") {

@@ -12,7 +12,7 @@ The rules are `RULES_VERSION` 6: every rank has a power, and two powers are seal
 - Each Army has 20 pieces: General of the Army (1), General (1), Colonel (1), Major (2), Captain (2), Lieutenant (2), Sergeant (2), Engineer (2), Recon (3), Spy (1), Landmine (2) and the Supply Truck (1). Pieces are dealt at random into the Player's three back rows; Landmines and the Truck never start on the front row, and no Landmine starts next to the Player's own depot.
 - The two wadis (columns 3-4 and 7-8 of board rows 5-6) are impassable, except where a power says otherwise.
 - A turn is 10 seconds. The program accepts a move until one second after the clock ends, and the first turn gets 10 extra seconds because the deal starts it before the Player has loaded their Army.
-- **Fights.** Moving onto an enemy piece attacks it. The higher rank wins; equal ranks both leave the board. The Spy beats the General of the Army (10) when it attacks, and loses when the 10 attacks it. A Landmine beats every attacker and stays, so every piece, the Engineer included, loses to one. A piece that loses an attack is not shown; a piece that wins or ties is shown face up for good. Moving onto the Truck captures it and ends the Match.
+- **Fights.** Moving onto an enemy piece attacks it. The higher rank wins; equal ranks both leave the board. The Spy beats the General of the Army (10) whichever of the two attacks (founder, 2026-10-22). A Landmine beats every attacker and stays, so every piece, the Engineer included, loses to one. The piece that loses a fight is shown to the other side as it leaves the board, an attacker killed by a Landmine included; the Landmine that went off is shown face up for good; a defender that wins stays hidden. Moving onto the Truck captures it and ends the Match.
 - **The Truck** moves one square, three times in all (its fuel), and never in two of its own turns in a row. After its third drive it is shown to the enemy.
 - **Depots.** Each Army's depot sits in its own base and is raided by the other Army. A one-square step onto the enemy depot (straight or diagonal) claims it once per Match and banks a Two-Step Turn. Jumps, wadi crossings, Recon runs, Rescues and the Dust Storm never claim a depot.
 - **Two-Step Turn.** Spend a banked one at the start of a turn, before moving, for two steps in the same turn. Each step is one square for every piece: a one-square diagonal for the Sergeant, any of 8 directions for the Captain, no Jumps, no wadi crossings, no runs. The Truck makes at most one of the two steps. Blast, Rescue, Dig in and Pass can't be used inside a Two-Step Turn; Become a Spy can, on either step. A Two-Step Turn ends early when no one-square step is left, and a Blast that is still possible does not keep it open.
@@ -26,7 +26,7 @@ Every rank has a power. A "step" is one square straight.
 
 | Rank | Name | Power |
 |---|---|---|
-| 1 | Spy | Beats the 10 when it attacks. Loses when the 10 attacks it. |
+| 1 | Spy | Beats the 10, whichever of the two attacks. |
 | 2 | Recon | Runs any distance in a straight line, stopped by the first piece (which it may attack) and by wadis. |
 | 3 | Engineer | **Blast.** Blows itself up: it leaves the board and is shown. Every piece on the up to 8 squares around it turns face up for good, the enemy's to the blaster and the blaster's own to the enemy. Nothing is hurt. Uses the turn. The Engineer no longer clears Landmines. |
 | 4 | Sergeant | Slides like a chess bishop: diagonals only, any distance, stopped by the first piece (which it may attack) and by wadis. Never moves straight. |
