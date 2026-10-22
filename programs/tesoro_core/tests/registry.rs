@@ -137,6 +137,7 @@ impl Env {
                     config: pda(&[CONFIG_SEED]),
                     pool_authority: pda(&[LEADERBOARD_SEED]),
                     pool_account: account_pda(pda(&[LEADERBOARD_SEED])),
+                    treasury: common::treasury(),
                     system_program: anchor_lang::system_program::ID,
                 },
                 instruction::InitLeaderboard {
@@ -571,6 +572,7 @@ fn a_recipient_that_became_reserved_during_the_wait_cannot_be_applied() {
                 admin: a(admin.pubkey()),
                 config: pda(&[CONFIG_SEED]),
                 platform_recipient: other,
+                treasury: common::treasury(),
             },
             instruction::UpdateConfig {
                 oracle_authority: APk::new_unique(),

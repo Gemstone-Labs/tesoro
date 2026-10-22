@@ -68,6 +68,25 @@ abstract contract EscrowBase is Test {
         }
     }
 
+    /// A holder cash-out that takes a Yield Fee: half of the payable yield, 20% of that as fee, half the fee to the Pool.
+    function _cashOut(uint64 id, uint64 seq) internal returns (uint256 fee, uint256 pool) {
+        uint128 amt = uint128(vault.payableYield(id) / 2);
+        fee = amt / 5;
+        pool = fee / 2;
+        _recv(
+            abi.encodePacked(
+                uint8(4),
+                lz.eid(),
+                _key(id),
+                seq,
+                bytes32(uint256(uint160(address(0x2222)))),
+                amt,
+                uint128(fee),
+                uint128(pool)
+            )
+        );
+    }
+
     function _one(uint64 id, uint128 units) internal pure returns (uint64[] memory ids, uint128[] memory us) {
         ids = new uint64[](1);
         us = new uint128[](1);
@@ -251,7 +270,14 @@ abstract contract EscrowBase is Test {
         assertGt(landed, 0);
         // a holder tries to take the newly landed yield: the pending batch comes first
         bytes memory pay = abi.encodePacked(
-            uint8(4), lz.eid(), _key(id), uint64(1), bytes32(uint256(uint160(winner))), uint128(landed)
+            uint8(4),
+            lz.eid(),
+            _key(id),
+            uint64(1),
+            bytes32(uint256(uint160(winner))),
+            uint128(landed),
+            uint128(0),
+            uint128(0)
         );
         vm.prank(address(lz));
         vm.expectPartialRevert(PositionVault.ExceedsAccruedYield.selector);
@@ -557,37 +583,44 @@ contract PrizeEscrowRealTest is EscrowBase {
 
     // ---- real-LST only: the Pool's half, funded into the escrow
 
-    function test_unlockSplitsTheRealisedFeeHalfToTheTreasuryHalfToThePool() public {
+    function test_cashOutSplitsTheFeeToTheTreasuryAndThePoolAndUnlockTakesNone() public {
         uint64 id = _open(10 ether);
-        tok.setRate(1.32e18); // gross 1.2 on Pu 12, fee 0.24
+        tok.setRate(1.32e18); // yield 1.2 on Pu 12
         _recv(_unlock(id, 1));
-        uint256 feeShares = uint256(0.24 ether) * 1e18 / 1.32e18;
-        assertApproxEqAbs(vault.poolOwedShares(), feeShares / 2, 2);
-        assertApproxEqAbs(vault.treasuryBalance(), 0.12 ether, 4);
+        assertEq(vault.poolOwedShares(), 0, "Unlock owes the Pool nothing");
+        assertApproxEqAbs(vault.treasuryBalance(), 0, 4, "and gives the Treasury nothing");
+        uint64 id2 = _open(10 ether);
+        tok.setRate(1.5e18);
+        (uint256 fee, uint256 pool) = _cashOut(id2, 1);
+        assertApproxEqAbs(vault.poolOwedShares() * 1.5e18 / 1e18, pool, 4);
+        assertApproxEqAbs(vault.treasuryBalance(), fee - pool, 4);
         assertGe(vault.treasuryShares(), vault.owedShares() + vault.poolOwedShares());
     }
 
-    function test_theTreasuryCannotWithdrawOrInstantRedeemThePoolsHalf() public {
+    function test_theTreasuryCannotWithdrawOrInstantRedeemThePoolsPart() public {
         uint64 id = _open(10 ether);
         tok.setRate(1.32e18);
-        _recv(_unlock(id, 1));
+        _cashOut(id, 1);
+        _recv(_unlock(id, 2));
         uint256 pool = vault.poolOwedShares();
+        assertGt(pool, 1000);
         vault.withdrawTreasury(vault.treasuryBalance(), address(0xC0FFEE));
         assertEq(vault.poolOwedShares(), pool);
         assertLe(vault.treasuryBalance(), 2, "only share dust is left");
         // Instant Redeem cannot reach it either: ask for half of what the Pool is owed
         bytes memory instant = abi.encodePacked(
-            uint8(5), lz.eid(), _key(id), uint64(2), bytes32(uint256(uint160(winner))), uint128(pool / 2)
+            uint8(5), lz.eid(), _key(id), uint64(3), bytes32(uint256(uint160(winner))), uint128(pool / 2)
         );
         vm.prank(address(lz));
         vm.expectPartialRevert(PositionVault.InsufficientTreasury.selector);
         vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), instant, address(0), "");
     }
 
-    function test_fundPrizeEscrowMovesThePoolsRealisedHalfAndOnlyAdminOrKeeperMay() public {
+    function test_fundPrizeEscrowMovesThePoolsPartAndOnlyAdminOrKeeperMay() public {
         uint64 id = _open(10 ether);
         tok.setRate(1.32e18);
-        _recv(_unlock(id, 1));
+        _cashOut(id, 1);
+        _recv(_unlock(id, 2));
         uint256 pool = vault.poolOwedShares();
         uint256 spendable = vault.spendableTreasuryShares();
         uint256 t = vault.treasuryShares();
@@ -616,7 +649,8 @@ contract PrizeEscrowRealTest is EscrowBase {
     function test_aSlashAfterFundingIsCarriedByThePrizeSharesNeverByTheTreasuryOrPositions() public {
         uint64 id = _open(10 ether);
         tok.setRate(1.32e18);
-        _recv(_unlock(id, 1));
+        _cashOut(id, 1);
+        _recv(_unlock(id, 2));
         vault.fundPrizeEscrow(0);
         uint256 esc = vault.escrowShares();
         uint256 spendable = vault.spendableTreasuryShares();
@@ -633,7 +667,8 @@ contract PrizeEscrowRealTest is EscrowBase {
         tok.setRate(1.32e18);
         (uint64[] memory ids, uint128[] memory us) = _one(id, uint128(vault.payableYield(id) / 2));
         _recv(_batch(1, 2, address(0), ids, us));
-        _recv(_unlock(id, 1));
+        _cashOut(id, 1);
+        _recv(_unlock(id, 2));
         vault.fundPrizeEscrow(0);
         _recv(_prize(1, address(tok), winner, uint128(vault.escrowShares() / 2)));
         _recv(_unlock(id2, 1));
@@ -681,10 +716,12 @@ contract PrizeEscrowSimTest is EscrowBase {
         vault.fundTreasury(shares);
     }
 
-    function test_simPoolOwesHalfTheFeesAndFundsTheEscrowByMinting() public {
-        _open(10 ether);
+    function test_simPoolOwesWhatSolanaNamedAndFundsTheEscrowByMinting() public {
+        uint64 id = _open(10 ether);
         _earn();
+        (, uint256 pool) = _cashOut(id, 1);
         uint256 owed = vault.poolOwedUnits();
+        assertEq(owed, pool);
         assertGt(owed, 0);
         uint256 treasury = vault.treasuryBalance();
         uint256 supply = lst.totalSupply();
@@ -696,8 +733,9 @@ contract PrizeEscrowSimTest is EscrowBase {
     }
 
     function test_simEscrowIsNotSpentByTreasuryWithdrawals() public {
-        _open(10 ether);
+        uint64 id = _open(10 ether);
         _earn();
+        _cashOut(id, 1);
         vault.fundPrizeEscrow(0);
         uint256 esc = vault.escrowShares();
         _fundTreasury(1 ether);

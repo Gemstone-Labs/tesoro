@@ -1,10 +1,11 @@
 //! Instant Redeem orders (spec "Instant Redeem is an order that Tesoro fills", ticket 07 on chain).
 //!
-//! * `request_instant_redeem`: the holder puts won Gemas into an order PDA. The line's repaid
-//!   Gemas are simply Redeemed at full value; the unpaid ones wait in the order (keeping their
-//!   class and tranche) and cannot be played while it is open.
+//! * `request_instant_redeem`: the holder puts won or own Gemas into an order PDA. The line's
+//!   repaid Gemas are simply Redeemed (less the Yield Fee); the unpaid ones wait in the order
+//!   (keeping their class and tranche) and cannot be played while it is open.
 //! * `fill_instant_redeem`: the fill authority (the admin, or the keeper while its rule is on)
-//!   buys all or part of the order at 75% of the Gemas' value at the moment of the fill, from the
+//!   buys all or part of the order at the Gemas' value at the moment of the fill less the Yield
+//!   Fee and the Instant Redeem Fee (60% at launch, one floor), from the
 //!   route's `spendable_shares` only (never what holders, the Pool or reservations are owed). The
 //!   Treasury's basket takes the Gemas with the seller's class and tranche.
 //! * `cancel_instant_redeem` (the seller, any time) and `expire_instant_redeem` (anyone, after the
@@ -154,25 +155,19 @@ pub(crate) fn request_instant_redeem<'info>(
     if let Some(r) = &requested.redeemed {
         require!(!reported, TesoroError::BridgedSource);
         let paid = u64::try_from(r.shares).map_err(|_| core_err(CoreError::Math))?;
-        let tag = kind.custody_kind();
-        ledger::economy::debit_paid_shares(&mut a.position.inner, tag, kind.route_mut(), paid)
-            .map_err(core_err)?;
-        let units = u64::try_from(
-            rates
-                .rate
-                .units_for_shares(u128::from(paid))
-                .map_err(core_err)?,
-        )
-        .map_err(|_| core_err(CoreError::Math))?;
-        a.source.inner.redeemed = a
-            .source
-            .inner
-            .redeemed
-            .checked_add(r.gemas)
-            .ok_or_else(|| core_err(CoreError::Math))?;
-        a.source.inner.redeemed_units = a.source.inner.redeemed_units.saturating_add(units);
+        // The ready part is an ordinary Redeem: it pays the Yield Fee (red-team #3).
+        let out = account_cash_out(
+            &mut a.position,
+            &mut a.source,
+            &mut kind,
+            &rates,
+            requested.order.line.class,
+            r.gemas,
+            paid,
+            Cashing::Holder,
+        )?;
         books.flush()?;
-        kind.pay_shares(&position_key, paid, 0)?;
+        kind.pay_shares(&position_key, out.payout_shares, 0)?;
         kind.exit()?;
     } else {
         books.flush()?;
@@ -302,6 +297,7 @@ pub(crate) fn fill_instant_redeem<'info>(
                 shares: value,
                 gemas,
             },
+            yield_fee_bps: a.source.inner.yield_fee_bps,
             fees_outstanding,
             outstanding,
             pay: PayMode::Now,
@@ -334,19 +330,18 @@ pub(crate) fn fill_instant_redeem<'info>(
     };
     if let Some(r) = &filled.redeemed {
         let paid = u64::try_from(r.shares).map_err(|_| core_err(CoreError::Math))?;
-        let tag = kind.custody_kind();
-        ledger::economy::debit_paid_shares(&mut a.position.inner, tag, kind.route_mut(), paid)
-            .map_err(core_err)?;
-        let units = u64::try_from(
-            rates
-                .rate
-                .units_for_shares(u128::from(paid))
-                .map_err(core_err)?,
-        )
-        .map_err(|_| core_err(CoreError::Math))?;
-        a.source.inner.redeemed = a.source.inner.redeemed.saturating_add(r.gemas);
-        a.source.inner.redeemed_units = a.source.inner.redeemed_units.saturating_add(units);
-        kind.pay_shares(&position_key, paid, 0)?;
+        // Gemas that repaid while the order waited: an ordinary Redeem, Yield Fee and all.
+        let out = account_cash_out(
+            &mut a.position,
+            &mut a.source,
+            &mut kind,
+            &rates,
+            order.line.class,
+            r.gemas,
+            paid,
+            Cashing::Holder,
+        )?;
+        kind.pay_shares(&position_key, out.payout_shares, 0)?;
     }
     let payout = u64::try_from(filled.payout_shares).map_err(|_| core_err(CoreError::Math))?;
     match (&kind, treasury_vault) {
@@ -492,6 +487,7 @@ pub(crate) fn fill_instant_redeem_from_source<'info>(
                 shares: value,
                 gemas,
             },
+            yield_fee_bps: a.source.inner.yield_fee_bps,
             fees_outstanding,
             outstanding,
             pay: PayMode::Now,

@@ -580,6 +580,7 @@ impl Env {
                 book: book_address(&source).0,
                 basket: self.basket(p),
                 spill: self.spill(p),
+                economy: pda(&[ECONOMY_SEED]),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::TakeNativeAdvance {
@@ -871,9 +872,7 @@ impl Env {
         let pos_key = APk::new_from_array(stored.position);
         let mut position = self.load::<PositionState>(pos_key).inner;
         let pool = self.load::<sim_lst::Pool>(self.pool);
-        let net = native::position_accrued(&position, pool.speedup, self.now())
-            .unwrap()
-            .net;
+        let net = native::position_accrued(&position, pool.speedup, self.now()).unwrap();
         let rate = ShareRate::native(sim_lst::current_rate(&pool, self.now()).unwrap()).unwrap();
         let mut book = read_book(&self.svm, source);
         let mut ck = self.mem_pages(source);
@@ -902,8 +901,8 @@ impl Env {
         gemas_in(&self.svm, p.account, source)
     }
 
-    /// Net Accrued Yield of a Position now.
-    fn accrued(&self, pos: Pos) -> ledger::AccruedYield {
+    /// Accrued Yield of a Position now (gross: the Yield Fee waits for the cash-out).
+    fn accrued(&self, pos: Pos) -> u64 {
         let pool = self.load::<sim_lst::Pool>(self.pool);
         native::position_accrued(&self.position(pos), pool.speedup, self.now()).unwrap()
     }
@@ -993,13 +992,10 @@ fn open_moves_simsol_into_the_shared_vault_and_records_the_position() {
     assert_eq!(position.opened_at, T0 + MONTH);
     assert_eq!(position.custody_shares, 10 * SOL);
     assert_eq!(position.owner, alice.account.to_bytes());
-    let totals = env.custody().totals();
-    assert_eq!(totals.principal, 14 * SOL as u128);
-    let w = 14 * SOL as u128 * 700 * YIELD_FEE_BPS as u128;
-    assert_eq!(totals.fee_weight, w);
-    assert_eq!(totals.fee_weight_time, w * (T0 + MONTH) as u128);
+    let custody = env.custody();
+    assert_eq!(custody.principal, 14 * SOL as u128);
     assert_eq!(position.yield_fee_bps, YIELD_FEE_BPS);
-    assert_eq!(totals.open_positions, 2);
+    assert_eq!(custody.open_positions, 2);
     // The vault is owned by the custody PDA, not by a staker.
     let vault =
         spl_token::state::Account::unpack(&env.svm.get_account(&s(pos.vault)).unwrap().data)
@@ -1014,10 +1010,10 @@ fn advance_is_priced_by_the_feed_and_owner_signs_alone() {
     let alice = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 1).expect("advance");
-    // 10 SOL at 7% for one month = 0.058333333 SOL, 80% of it after the Yield Fee = 0.046666666
-    // SOL = 699 Gemas (floored) at $150.
-    assert_eq!(env.gemas(&alice, source), 699);
-    assert_eq!(env.debt(source), 699);
+    // 10 SOL at 7% for one month = 0.058333333 SOL = 874 Gemas (floored) at $150: the whole
+    // yield (ticket 31; the Yield Fee is taken at cash-out).
+    assert_eq!(env.gemas(&alice, source), 874);
+    assert_eq!(env.debt(source), 874);
     // A second Advance is refused while Debt is open.
     let again = env.advance_native(&alice, pos, 1).unwrap_err();
     assert_eq!(
@@ -1031,9 +1027,9 @@ fn an_advance_below_the_players_floor_is_refused_and_nothing_moves() {
     let mut env = Env::new();
     let alice = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
-    // The quote said 699 (see above). The price drops 1% before the Advance lands: about 693.
+    // The quote said 874 (see above). The price drops 1% before the Advance lands: about 865.
     env.set_price(PRICE * 99 / 100).unwrap();
-    let (short, _) = env.advance_ix_min(&alice, pos, 1, 699);
+    let (short, _) = env.advance_ix_min(&alice, pos, 1, 874);
     let err = env.send(&[short], &alice.kp, &[]).unwrap_err();
     assert_eq!(code(&err), ERR_ADVANCE_BELOW_MINIMUM);
     assert_eq!(env.position(pos).advances, 0, "no Advance was opened");
@@ -1045,9 +1041,9 @@ fn an_advance_below_the_players_floor_is_refused_and_nothing_moves() {
     );
     // Back at the quoted price the same floor is met exactly.
     env.set_price(PRICE).unwrap();
-    let (ok, source) = env.advance_ix_min(&alice, pos, 1, 699);
+    let (ok, source) = env.advance_ix_min(&alice, pos, 1, 874);
     env.send(&[ok], &alice.kp, &[]).expect("floor met");
-    assert_eq!(env.gemas(&alice, source), 699);
+    assert_eq!(env.gemas(&alice, source), 874);
 }
 
 #[test]
@@ -1057,15 +1053,15 @@ fn an_extend_below_the_players_floor_is_refused() {
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 1).unwrap();
     let before = env.gemas(&alice, source);
-    // One more month at the Source's own price mints 699 or 700 (two floors); 701 is out of reach.
+    // One more month at the Source's own price mints 874 or 875 (two floors); 876 is out of reach.
     let err = env
-        .extend_native_min(&alice, pos, source, 1, 701)
+        .extend_native_min(&alice, pos, source, 1, 876)
         .unwrap_err();
     assert_eq!(code(&err), ERR_ADVANCE_BELOW_MINIMUM);
     assert_eq!(env.gemas(&alice, source), before);
-    env.extend_native_min(&alice, pos, source, 1, 699)
+    env.extend_native_min(&alice, pos, source, 1, 874)
         .expect("floor met");
-    assert!(env.gemas(&alice, source) >= before + 699);
+    assert!(env.gemas(&alice, source) >= before + 874);
 }
 
 #[test]
@@ -1099,6 +1095,7 @@ fn only_the_owner_takes_an_advance() {
             book: book_address(&source).0,
             basket: env.basket(&mallory),
             spill: env.spill(&mallory),
+            economy: pda(&[ECONOMY_SEED]),
             system_program: anchor_lang::system_program::ID,
         },
         instruction::TakeNativeAdvance {
@@ -1132,7 +1129,7 @@ fn a_donation_to_the_vault_repays_nothing_and_never_leaves_with_the_owner() {
         data,
     };
     env.send(&[donate], &donor.kp, &[]).expect("donate");
-    assert_eq!(env.debt(source), 699, "a top-up must not repay Debt");
+    assert_eq!(env.debt(source), 874, "a top-up must not repay Debt");
     env.advance(MONTH);
     assert_eq!(env.debt(source), 0);
     env.unlock(&alice, pos).expect("unlock");
@@ -1152,11 +1149,11 @@ fn debt_falls_with_the_clock_and_reaches_zero_at_the_horizon_with_no_crank() {
     let alice = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 1).unwrap();
-    assert_eq!(env.debt(source), 699);
+    assert_eq!(env.debt(source), 874);
 
     env.advance(300);
     let half = env.debt(source);
-    assert!(half > 0 && half < 699, "debt {half}");
+    assert!(half > 0 && half < 874, "debt {half}");
     assert_eq!(env.stored(source).yield_units, 0, "nothing was recorded");
 
     env.advance(MONTH);
@@ -1181,22 +1178,30 @@ fn redeem_mints_exactly_the_yield_paid_and_never_touches_principal() {
     env.advance(MONTH);
     let supply = env.supply();
     let vault = env.token_balance(pos.vault);
-    env.redeem(&alice, pos, source, 699).expect("redeem all");
+    env.redeem(&alice, pos, source, 874).expect("redeem all");
 
-    // 699 Gemas = 46_600_000 lamports of SOL, minted as the simSOL shares they were worth when
-    // their yield landed (the same instant here), rounded down.
+    // 874 Gemas = 58_266_666 lamports of SOL, worth the simSOL shares their yield was worth when it
+    // landed (the same instant here), rounded down. The holder is paid 80% of them (one floor);
+    // the Yield Fee stays with the Treasury, half of it owed to the Pool (ticket 31).
     let paid = env.token_balance(alice.token);
-    let expected = native::shares_for_units_floor(46_600_000, env.rate()).unwrap();
+    let shares = native::shares_for_units_floor(58_266_666, env.rate()).unwrap();
+    let expected = shares * 8_000 / 10_000;
     assert!(
         paid <= expected && expected - paid <= 1,
         "paid {paid} expected {expected}"
     );
-    assert_eq!(env.supply() - supply, paid, "minted exactly at payout");
+    assert_eq!(env.supply() - supply, paid, "only the payout is minted");
+    let route = env.custody().route;
+    let fee = route.treasury_shares;
+    assert!(fee as u64 + paid <= shares && shares - (fee as u64 + paid) <= 1);
+    assert_eq!(route.pool_owed, fee / 2);
+    let stored = env.stored(source);
+    assert!(stored.fee_units > 0 && stored.pool_units <= stored.fee_units / 2 + 1);
     assert_eq!(env.token_balance(pos.vault), vault, "Principal untouched");
     assert_eq!(env.gemas(&alice, source), 0);
     let stored = env.stored(source);
-    assert_eq!(stored.redeemed, 699);
-    assert!(stored.redeemed_units <= 46_600_000 && 46_600_000 - stored.redeemed_units <= 2);
+    assert_eq!(stored.redeemed, 874);
+    assert!(stored.redeemed_units <= 58_266_666 && 58_266_666 - stored.redeemed_units <= 2);
     assert_eq!(
         stored.yield_units, 0,
         "the book records coverage, not the Source"
@@ -1213,7 +1218,7 @@ fn nothing_is_minted_until_a_payout() {
     let supply = env.supply();
     env.advance(10 * MONTH);
     assert_eq!(env.supply(), supply);
-    assert!(env.accrued(pos).net > 0);
+    assert!(env.accrued(pos) > 0);
 }
 
 #[test]
@@ -1224,7 +1229,7 @@ fn payouts_are_bounded_by_accrued_yield() {
     let source = env.advance_native(&alice, pos, 1).unwrap();
     env.advance(300);
     let redeemable = env.redeemable(&alice, source, SIDE_OWN);
-    assert!(redeemable > 0 && redeemable < 699);
+    assert!(redeemable > 0 && redeemable < 874);
     let err = env.redeem(&alice, pos, source, redeemable + 1).unwrap_err();
     assert_eq!(code(&err), core_code(ledger::CoreError::ExceedsRedeemable));
     env.redeem(&alice, pos, source, redeemable).unwrap();
@@ -1238,7 +1243,7 @@ fn payouts_are_bounded_by_accrued_yield() {
     // What was paid is shares of what landed: never more units than the yield accrued, at the
     // rate the shares were minted at (a share is worth a little more later).
     let minted = env.token_balance(alice.token);
-    let landed = native::shares_for_units_floor(env.accrued(pos).net, 1_000_000_000).unwrap();
+    let landed = native::shares_for_units_floor(env.accrued(pos), 1_000_000_000).unwrap();
     assert!(minted <= landed, "minted {minted} landed {landed}");
 }
 
@@ -1269,7 +1274,7 @@ fn redeem_needs_the_native_accounts_and_pays_only_the_holder() {
     );
     let err = env.send(&[bare], &alice.kp, &[]).unwrap_err();
     assert_eq!(code(&err), ERR_BAD_REMAINING);
-    assert_eq!(env.gemas(&alice, source), 699);
+    assert_eq!(env.gemas(&alice, source), 874);
 
     // The destination must belong to the holder.
     env.faucet(&mallory).unwrap();
@@ -1284,7 +1289,7 @@ fn redeem_needs_the_native_accounts_and_pays_only_the_holder() {
     let mut fake_program = env.redeem_to_ix(&alice, pos, source, 100, alice.token);
     fake_program.accounts[13].pubkey = s(anchor_lang::system_program::ID);
     assert!(env.send(&[fake_program], &alice.kp, &[]).is_err());
-    assert_eq!(env.gemas(&alice, source), 699);
+    assert_eq!(env.gemas(&alice, source), 874);
 }
 
 #[test]
@@ -1300,7 +1305,8 @@ fn a_non_owner_holder_redeems_won_gemas_with_no_crank() {
     let bob_before = env.token_balance(bob.token);
     env.redeem(&bob, pos, source, 100).expect("bob redeems");
     let units = env.stored(source).units_for(100).unwrap();
-    let expected = native::shares_for_units_floor(units, env.rate()).unwrap();
+    // Bob is paid the shares less the 20% Yield Fee (one floor).
+    let expected = native::shares_for_units_floor(units, env.rate()).unwrap() * 8_000 / 10_000;
     let got = env.token_balance(bob.token) - bob_before;
     assert!(
         got.abs_diff(expected) <= 1,
@@ -1330,13 +1336,14 @@ fn unlock_needs_zero_debt_and_pays_principal_plus_free_yield_with_no_crank() {
     let err = env.send(&[without], &alice.kp, &[]).unwrap_err();
     assert_eq!(code(&err), ERR_SOURCE_REQUIRED);
 
-    env.redeem(&alice, pos, source, 699).unwrap();
+    env.redeem(&alice, pos, source, 874).unwrap();
     let before = env.token_balance(alice.token);
     let supply = env.supply();
-    let net = env.accrued(pos);
     // What the book will hand the owner as free yield: the coverage no holder is owed.
     let (book, _, _) = env.synced(source);
     let pocket = (book.owner_shares >> 32) as u64;
+    // The free yield pays the Yield Fee as it leaves (ticket 31).
+    let pocket_fee = pocket - pocket * 8_000 / 10_000;
     assert!(
         pocket > 0,
         "the first month earned a little more than the Advance needed"
@@ -1351,30 +1358,22 @@ fn unlock_needs_zero_debt_and_pays_principal_plus_free_yield_with_no_crank() {
         (position.held_shares >> 32, position.free_shares >> 32),
         (0, 0)
     );
-    // Principal from the vault, free yield minted: exactly that and no more.
+    // Principal from the vault, free yield less the fee minted: exactly that and no more.
     let got = env.token_balance(alice.token) - before;
-    assert_eq!(got, 10 * SOL + pocket);
-    assert_eq!(env.supply() - supply, pocket);
+    assert_eq!(got, 10 * SOL + pocket - pocket_fee);
+    assert_eq!(env.supply() - supply, pocket - pocket_fee);
     assert_eq!(env.token_balance(pos.vault), 0);
     // The book gave its pocket away once.
     let after = read_book(&env.svm, source);
     assert_eq!((after.owner_shares, after.owner_fp), (0, 0));
-    // Totals: the Position left and its Yield Fee is booked.
-    let totals = env.custody().totals();
-    assert_eq!(
-        (
-            totals.principal,
-            totals.fee_weight_time,
-            totals.open_positions
-        ),
-        (0, 0, 0)
-    );
-    assert_eq!(totals.realised_fee, net.fee as u128);
-    // D1: the fee is realised now, half of it owed to the Pool.
-    let route = env.custody().route;
-    let fee_shares = native::shares_for_units_floor(net.fee, env.rate()).unwrap();
-    assert_eq!(route.treasury_shares, fee_shares as u128);
-    assert_eq!(route.pool_owed, (fee_shares / 2) as u128);
+    // The Position left the custody.
+    let custody = env.custody();
+    assert_eq!((custody.principal, custody.open_positions), (0, 0));
+    // The fees realised so far: Alice's Redeem of her 874 Gemas, then her free yield at Unlock,
+    // each split with the Pool at the Source's 50%.
+    let route = custody.route;
+    assert!(route.treasury_shares >= pocket_fee as u128);
+    assert!(route.pool_owed * 2 <= route.treasury_shares);
     assert_eq!(
         route.owed_shares, 0,
         "Alice redeemed every Gema before unlocking"
@@ -1391,14 +1390,19 @@ fn unlock_with_no_advance_pays_all_the_accrued_yield() {
     let alice = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
     env.advance(MONTH);
-    let net = env.accrued(pos);
+    let accrued = env.accrued(pos);
     let before = env.token_balance(alice.token);
     env.unlock(&alice, pos).unwrap();
     let got = env.token_balance(alice.token) - before;
+    // All of it is free yield, which pays the 20% Yield Fee as it leaves (one floor).
+    let free = native::shares_for_units_floor(accrued, env.rate()).unwrap();
+    assert_eq!(got, 10 * SOL + free * 8_000 / 10_000);
+    let route = env.custody().route;
     assert_eq!(
-        got,
-        10 * SOL + native::shares_for_units_floor(net.net, env.rate()).unwrap()
+        route.treasury_shares,
+        u128::from(free - free * 8_000 / 10_000)
     );
+    assert_eq!(route.pool_owed, route.treasury_shares / 2);
 }
 
 #[test]
@@ -1415,15 +1419,17 @@ fn gemas_still_redeem_after_unlock_from_the_closed_source() {
     assert!(owed > 0);
     env.advance(10 * MONTH);
     let supply = env.supply();
-    env.redeem(&alice, pos, source, 699)
+    env.redeem(&alice, pos, source, 874)
         .expect("redeem after unlock");
-    let expected = native::shares_for_units_floor(46_600_000, rate_then).unwrap();
+    let owed_for_them = native::shares_for_units_floor(58_266_666, rate_then).unwrap();
     let minted = env.supply() - supply;
+    let paid = owed - env.custody().route.owed_shares;
     assert!(
-        minted <= expected && expected - minted <= 1,
-        "the closed Source pays the shares it owed (minted {minted}, owed {expected}), not more"
+        paid <= owed_for_them as u128 && owed_for_them as u128 - paid <= 1,
+        "the closed Source pays the shares it owed (paid {paid}, owed {owed_for_them}), not more"
     );
-    assert_eq!(env.custody().route.owed_shares, owed - minted as u128);
+    // An unlocked holder pays the Yield Fee too: 80% minted, the fee joins the Treasury.
+    assert_eq!(minted as u128, paid * 8_000 / 10_000);
 }
 
 #[test]
@@ -1433,7 +1439,7 @@ fn a_second_advance_after_debt_zero_counts_only_yield_after_it_opened() {
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let first = env.advance_native(&alice, pos, 1).unwrap();
     env.advance(3 * MONTH);
-    let net = env.accrued(pos).net;
+    let net = env.accrued(pos);
 
     let second = env.advance_native(&alice, pos, 2).expect("second advance");
     let p = env.position(pos);
@@ -1487,17 +1493,17 @@ fn returning_own_gemas_cancels_debt_and_frees_the_surplus_yield() {
     assert_eq!(env.debt(source), 0);
     let p = env.position(pos);
     assert_eq!(p.open_advance, None);
-    assert_eq!(p.applied_net, env.accrued(pos).net);
+    assert_eq!(p.applied_net, env.accrued(pos));
     assert!(
         p.free_shares > 0,
         "the released coverage is the owner's free yield"
     );
     assert_eq!(env.stored(source).returned, issued);
-    // Unlock pays it once.
+    // Unlock pays it once, less the Yield Fee.
     let supply = env.supply();
     let free = p.free_shares >> 32;
     env.unlock(&alice, pos).expect("unlock after returning");
-    assert_eq!((env.supply() - supply) as u128, free);
+    assert_eq!((env.supply() - supply) as u128, free * 8_000 / 10_000);
 }
 
 #[test]
@@ -1517,64 +1523,10 @@ fn only_the_owner_unlocks() {
     assert_eq!(env.token_balance(pos.vault), 10 * SOL);
 }
 
-// --- Pool totals ----------------------------------------------------------------------------
+// --- Yield Fee snapshot -------------------------------------------------------------------
 
-#[test]
-fn pool_totals_stay_within_the_proven_bound_of_the_per_position_fees() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let bob = env.staker();
-    let carol = env.staker();
-    let a = env.open(&alice, 10 * SOL).unwrap();
-    env.advance(200);
-    let b = env.open(&bob, 4 * SOL).unwrap();
-    env.advance(300);
-    let c = env.open(&carol, SOL + 777).unwrap();
-    env.advance(2_345);
-
-    let claim = |env: &Env, realised: u64, locked: &[Pos]| {
-        let sum: u64 = locked.iter().map(|p| env.accrued(*p).fee).sum::<u64>() + realised;
-        let earned = env
-            .custody()
-            .totals()
-            .earned_fee(env.now(), sim_lst::DEFAULT_SPEEDUP)
-            .unwrap();
-        let n = locked.len() as u64;
-        assert!(earned <= sum, "claim {earned} above the sum of fees {sum}");
-        assert!(
-            sum <= earned + 2 * n + 2,
-            "claim {earned} below sum {sum} by more than the proven bound"
-        );
-        earned
-    };
-    claim(&env, 0, &[a, b, c]);
-
-    // Bob unlocks; his fee is realised exactly and the claim does not drop.
-    let before = claim(&env, 0, &[a, b, c]);
-    let bob_fee = env.accrued(b).fee;
-    env.unlock(&bob, b).unwrap();
-    assert_eq!(env.custody().totals().realised_fee, bob_fee as u128);
-    let after = claim(&env, bob_fee, &[a, c]);
-    assert!(
-        after + 4 >= before,
-        "unlock moved the claim from {before} to {after}"
-    );
-    env.check_invariants(&[a, b, c]);
-
-    env.advance(10_000);
-    claim(&env, bob_fee, &[a, c]);
-    let (a_fee, c_fee) = (env.accrued(a).fee, env.accrued(c).fee);
-    env.unlock(&alice, a).unwrap();
-    env.unlock(&carol, c).unwrap();
-    let t = env.custody().totals();
-    assert_eq!(
-        (t.principal, t.fee_weight_time, t.open_positions),
-        (0, 0, 0)
-    );
-    assert_eq!(t.realised_fee, (bob_fee + a_fee + c_fee) as u128);
-}
-
-// A fee change applies only to Positions opened afterwards (the Yield Fee is fixed at open).
+// A fee change applies only to Advances opened afterwards: each Source keeps the Yield Fee and the
+// Pool's share it was opened with (ticket 31, red-team #10).
 #[test]
 fn a_fee_change_never_applies_backwards() {
     let mut env = Env::new();
@@ -1583,35 +1535,34 @@ fn a_fee_change_never_applies_backwards() {
     let a = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, a, 1).unwrap();
     env.advance(300);
-    let a_before = env.accrued(a);
     let debt_before = env.debt(source);
     env.init_treasury(1_000, INSTANT_FEE_BPS).unwrap();
-    assert_eq!(env.accrued(a), a_before, "the past yield did not move");
-    assert_eq!(env.debt(source), debt_before);
-    assert_eq!(env.position(a).yield_fee_bps, 2_000);
+    assert_eq!(env.debt(source), debt_before, "the Debt did not move");
+    let stored = env.stored(source);
+    assert_eq!((stored.yield_fee_bps, stored.pool_bps), (2_000, 5_000));
 
     env.advance(100);
     let b = env.open(&bob, 4 * SOL).unwrap();
     assert_eq!(env.position(b).yield_fee_bps, 1_000);
+    let bs = env.advance_native(&bob, b, 1).unwrap();
+    assert_eq!(env.stored(bs).yield_fee_bps, 1_000);
+    // The Advance is repaid at its Horizon: Gemas are the whole yield, whatever the fee.
     env.advance(2_000);
-    let sum = env.accrued(a).fee + env.accrued(b).fee;
-    let earned = env
-        .custody()
-        .totals()
-        .earned_fee(env.now(), sim_lst::DEFAULT_SPEEDUP)
-        .unwrap();
-    assert!(earned <= sum, "claim {earned} above fee(A)+fee(B) {sum}");
-    assert!(
-        sum <= earned + 2 * 2 + 2,
-        "claim {earned} too far below {sum}"
-    );
-    // The Advance is still repaid at its Horizon at A's own 20%.
     assert_eq!(env.debt(source), 0);
-    // Unlock books each Position's own fee exactly.
-    let (fa, fb) = (env.accrued(a).fee, env.accrued(b).fee);
-    env.unlock(&alice, a).unwrap();
-    env.unlock(&bob, b).unwrap();
-    assert_eq!(env.custody().totals().realised_fee, (fa + fb) as u128);
+}
+
+#[test]
+fn an_advance_is_sized_on_the_whole_yield() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    // 10 SOL at 7% for one month at $150: 0.0583 SOL = $8.74 = 874 Gemas (was 874 net of 20%).
+    let issued = env.stored(source).issued;
+    let principal = env.position(pos).principal;
+    let expect = (principal as u128 * 700 / (10_000 * 12)) * PRICE as u128 / 10u128.pow(13);
+    assert_eq!(issued as u128, expect);
+    assert_eq!(issued, 874);
 }
 
 // --- Validation -----------------------------------------------------------------------------
@@ -1668,7 +1619,7 @@ fn a_fake_pool_cannot_speed_up_or_stall_the_yield() {
     let mut unlock = env.unlock_ix(&alice, pos, alice.token);
     unlock.accounts[6].pubkey = s(fake);
     assert!(env.send(&[unlock], &alice.kp, &[]).is_err());
-    let mut redeem = env.redeem_to_ix(&alice, pos, source, 699, alice.token);
+    let mut redeem = env.redeem_to_ix(&alice, pos, source, 874, alice.token);
     redeem.accounts[8].pubkey = s(fake);
     assert!(env.send(&[redeem], &alice.kp, &[]).is_err());
 }
@@ -1860,7 +1811,7 @@ proptest! {
             // shares the net Accrued Yield was worth at the rate the Position opened at (the
             // rate only grows).
             let minted = env.supply() - base_supply;
-            let landed = native::shares_for_units_floor(env.accrued(pos).net, rate_open).unwrap();
+            let landed = native::shares_for_units_floor(env.accrued(pos), rate_open).unwrap();
             prop_assert!(minted <= landed + 2, "minted {} landed {}", minted, landed);
             prop_assert!(env.debt(source) <= env.stored(source).issued);
             env.check_invariants(&[pos]);
@@ -1876,7 +1827,7 @@ fn cu_profile_redeem_and_unlock() {
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 1).unwrap();
     env.advance(MONTH);
-    env.redeem(&alice, pos, source, 699).unwrap();
+    env.redeem(&alice, pos, source, 874).unwrap();
     let redeem = env.last_cu;
     env.unlock(&alice, pos).unwrap();
     println!("CU redeem: {redeem}; unlock: {}", env.last_cu);
@@ -2255,7 +2206,7 @@ impl Env {
                 }
             }
         }
-        ledger::economy::sync_source(&mut position, &stored, &mut book, acc.net, &rate, &mut ck)
+        ledger::economy::sync_source(&mut position, &stored, &mut book, acc, &rate, &mut ck)
             .unwrap();
         let Some(counter) = econ::counter(&self.svm, source, class) else {
             return 0;
@@ -2376,6 +2327,27 @@ impl Env {
         nonce: u64,
     ) -> Result<APk, Failed> {
         let ix = self.request_ix(p, pos, source, sell, 7 * DAY, nonce);
+        self.send(&[ix], &p.kp, &[])
+            .map(|_| self.order_address(p, nonce))
+    }
+
+    /// The owner sells Gemas of their own line (founder, 2026-10-22: Instant works on own Gemas).
+    fn request_own(
+        &mut self,
+        p: &Person,
+        pos: Pos,
+        source: APk,
+        sell: u64,
+        nonce: u64,
+    ) -> Result<APk, Failed> {
+        let mut ix = self.request_ix(p, pos, source, sell, 7 * DAY, nonce);
+        ix.data = instruction::RequestInstantRedeem {
+            line: self.line(source, SIDE_OWN),
+            sell,
+            ttl_secs: 7 * DAY,
+            nonce,
+        }
+        .data();
         self.send(&[ix], &p.kp, &[])
             .map(|_| self.order_address(p, nonce))
     }
@@ -2507,22 +2479,22 @@ impl Env {
 }
 
 #[test]
-fn a_native_advance_is_80_percent_of_projected_yield() {
+fn a_native_advance_is_the_whole_projected_yield() {
     let mut env = Env::new();
     let alice = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 3).unwrap();
-    // 10 SOL at 7% over 3 months = 0.175 SOL gross; 80% of it = 0.14 SOL; at $150 = $21 = 2,100.
-    assert_eq!(env.gemas(&alice, source), 2_100);
-    assert_eq!(env.load::<SourceState>(source).inner.issued, 2_100);
+    // 10 SOL at 7% over 3 months = 0.175 SOL; at $150 = $26.25 = 2,625 (ticket 31: no fee factor).
+    assert_eq!(env.gemas(&alice, source), 2_625);
+    assert_eq!(env.load::<SourceState>(source).inner.issued, 2_625);
     // The Gemas are one General line of the owner's own side, due at the planned repayment date,
     // and the Source has its book.
     let line = find_line(&env.svm, alice.account, source, SIDE_OWN, CLASS_GENERAL, 0).unwrap();
-    assert_eq!(line.amount, 2_100);
+    assert_eq!(line.amount, 2_625);
     assert_eq!(line.due_at, T0 + 3 * MONTH);
     assert_eq!(env.stored(source).due_at, T0 + 3 * MONTH);
     let book = read_book(&env.svm, source);
-    assert_eq!(fp_ceil(book.uncovered_total()), 2_100);
+    assert_eq!(fp_ceil(book.uncovered_total()), 2_625);
 }
 
 #[test]
@@ -2570,7 +2542,75 @@ fn common_init_treasury(env: &Env, admin: APk) -> Instruction {
     )
 }
 
-/// D1: the fee of an open Position is not the Treasury's until the Position unlocks.
+impl Env {
+    fn set_platform_fee(&mut self, platform_bps: u16) -> Result<(), Failed> {
+        let admin = self.admin.insecure_clone();
+        let config = self.load::<Config>(pda(&[CONFIG_SEED]));
+        let update = tix(
+            accounts::UpdateConfig {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                platform_recipient: config.platform_recipient,
+                treasury: common::treasury(),
+            },
+            instruction::UpdateConfig {
+                oracle_authority: a(self.oracle.pubkey()),
+                platform_bps,
+            },
+            vec![],
+        );
+        self.send(&[update], &admin, &[])
+    }
+
+    fn set_leaderboard_fee(&mut self, leaderboard_bps: u16) -> Result<(), Failed> {
+        let admin = self.admin.insecure_clone();
+        let init = tix(
+            accounts::InitLeaderboard {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                pool_authority: pda(&[LEADERBOARD_SEED]),
+                pool_account: self.pool_account(),
+                treasury: common::treasury(),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::InitLeaderboard { leaderboard_bps },
+            vec![],
+        );
+        self.send(&[init], &admin, &[])
+    }
+}
+
+/// Studio Fee Gemas skip the Yield Fee, so routing Gemas through a Studio must cost more in Platform
+/// and Leaderboard Fees than it saves: `yield_fee x 10% <= platform + leaderboard` (red-team 31 #4).
+/// Every setter of those rates refuses a change that breaks it.
+#[test]
+fn fees_that_would_pay_to_launder_gemas_through_a_studio_are_refused() {
+    // Platform 2%, no Leaderboard yet, Yield Fee 20%: 20% x 10% = 2%, cost equals saving.
+    let mut env = Env::new();
+    let laundering = 6000 + TesoroError::StudioFeeLaundering as u32;
+    let err = env.init_treasury(2_001, INSTANT_FEE_BPS).unwrap_err();
+    assert_eq!(code(&err), laundering);
+    let err = env.set_platform_fee(199).unwrap_err();
+    assert_eq!(code(&err), laundering);
+    // A 1% Leaderboard Fee raises the cost: a 30% Yield Fee fits, then neither fee can drop.
+    env.set_leaderboard_fee(100).unwrap();
+    env.init_treasury(3_000, INSTANT_FEE_BPS).unwrap();
+    let err = env.set_leaderboard_fee(99).unwrap_err();
+    assert_eq!(code(&err), laundering);
+    let err = env.set_platform_fee(199).unwrap_err();
+    assert_eq!(code(&err), laundering);
+    let err = env.init_treasury(3_001, INSTANT_FEE_BPS).unwrap_err();
+    assert_eq!(code(&err), laundering);
+    // Nothing moved.
+    assert_eq!(env.treasury().yield_fee_bps, 3_000);
+    let config = env.load::<Config>(pda(&[CONFIG_SEED]));
+    assert_eq!((config.platform_bps, config.leaderboard_bps), (200, 100));
+    // Raising a cost is always fine.
+    env.set_platform_fee(300).unwrap();
+}
+
+/// The Yield Fee is the Treasury's only once yield is cashed out (ticket 31): an open Position's
+/// growing yield is not spendable; its free yield's fee is, once it unlocks.
 #[test]
 fn an_open_positions_fee_is_not_spendable_until_it_is_realised() {
     let mut env = Env::new();
@@ -2579,8 +2619,8 @@ fn an_open_positions_fee_is_not_spendable_until_it_is_realised() {
     env.set_company(company.key).unwrap();
     let pos = env.open(&alice, 10 * SOL).unwrap();
     env.advance(MONTH);
-    // A fee is earned (the live claim shows it) but nothing is realised, so nothing is spendable.
-    assert!(env.accrued(pos).fee > 0);
+    // Yield accrues but nothing has been cashed out, so nothing is spendable.
+    assert!(env.accrued(pos) > 0);
     assert_eq!(env.route().spendable(), 0);
     let err = env.withdraw(company.token, 1_000).unwrap_err();
     assert_eq!(code(&err), core_code(ledger::CoreError::OverSpendable));
@@ -2589,10 +2629,11 @@ fn an_open_positions_fee_is_not_spendable_until_it_is_realised() {
         10 * SOL,
         "only the faucet's simSOL"
     );
-    // Unlock realises it: half is Tesoro's to spend, half is owed to the Pool.
-    let fee = env.accrued(pos).fee;
+    // Unlock cashes out the free yield: its fee is realised, half Tesoro's to spend, half owed to
+    // the Pool.
+    let free = native::shares_for_units_floor(env.accrued(pos), env.rate()).unwrap();
     env.unlock(&alice, pos).unwrap();
-    let fee_shares = native::shares_for_units_floor(fee, env.rate()).unwrap() as u128;
+    let fee_shares = u128::from(free - free * 8_000 / 10_000);
     let route = env.route();
     assert_eq!(route.treasury_shares, fee_shares);
     assert_eq!(route.pool_owed, fee_shares / 2);
@@ -2681,10 +2722,10 @@ fn funding_is_spendable_and_owes_the_pool_nothing() {
     assert!(env.route().spendable() < 3 * SOL as u128 - SOL as u128 + 2);
 }
 
-/// The whole Instant Redeem path: request, a partial fill at 75% of the value at fill from the
-/// spendable shares, cancel of the rest, and the Treasury redeeming what it bought at full value.
+/// The whole Instant Redeem path: request, a partial fill at 60% of the value at fill (the Yield
+/// Fee, then the 25% Instant fee, one floor) from the spendable shares, cancel of the rest.
 #[test]
-fn an_instant_redeem_is_an_order_the_treasury_fills_at_75_percent() {
+fn an_instant_redeem_is_an_order_the_treasury_fills_at_60_percent() {
     let mut env = Env::new();
     let alice = env.staker();
     let bob = env.staker();
@@ -2695,18 +2736,21 @@ fn an_instant_redeem_is_an_order_the_treasury_fills_at_75_percent() {
     env.give_won(&alice, &bob, source, 2_000);
     env.advance(3 * MONTH);
     let supply = env.supply();
-    // Bob offers all 2,000: the repaid quarter is simply Redeemed at full value, the rest waits.
+    // Bob offers 1,500: the repaid quarter is simply Redeemed (less the Yield Fee), the rest waits.
     let order = env.request(&bob, pos, source, 1_500, 1).expect("request");
     let state = env.load::<InstantOrderState>(order);
     let repaid = 2_000 - 1_500 - env.gemas(&bob, source);
     assert_eq!(state.requested, 1_500);
     assert_eq!(state.owner, bob.key);
     let redeemed_shares = env.token_balance(bob.token) - 10 * SOL;
-    assert!(
-        redeemed_shares > 0,
-        "the repaid part pays at full value at once"
-    );
+    assert!(redeemed_shares > 0, "the repaid part pays at once");
     assert_eq!(env.supply() - supply, redeemed_shares);
+    // ... less the Yield Fee, like any Redeem (red-team #3): the fee is the Treasury's now.
+    let after_request = env.route();
+    let fee = after_request.treasury_shares - (5 * SOL) as u128;
+    assert!(fee > 0);
+    assert!(u128::from(redeemed_shares) * 2_500 / 10_000 <= fee + 1);
+    assert_eq!(after_request.pool_owed, fee / 2);
     assert_eq!(
         env.gemas(&bob, source),
         500 - repaid,
@@ -2724,7 +2768,7 @@ fn an_instant_redeem_is_an_order_the_treasury_fills_at_75_percent() {
     let err = env.send(&[ix], &mallory.kp, &[]).unwrap_err();
     assert_eq!(code(&err), core_code(ledger::CoreError::NotFillAuthority));
 
-    // A partial fill: 75% of the value of 600 Gemas at this instant, paid from the Treasury.
+    // A partial fill: 60% of the value of 600 Gemas at this instant, paid from the Treasury.
     let rate = env.rate();
     let units = env.stored(source).units_for(600).unwrap();
     let value = native::shares_for_units_floor(units, rate).unwrap();
@@ -2737,12 +2781,16 @@ fn an_instant_redeem_is_an_order_the_treasury_fills_at_75_percent() {
     let waited = order_state.redeemed_while_open;
     assert_eq!(order_state.sold, 600);
     let payout = order_state.paid_shares;
-    assert!(payout > 0 && payout <= value as u128 * 7_500 / 10_000 + 1);
-    assert!(payout * 10_000 >= (value as u128 - 4) * 7_500);
+    assert!(payout > 0 && payout <= value as u128 * 6_000 / 10_000 + 1);
+    assert!(payout * 10_000 >= (value as u128 - 4) * 6_000);
     assert!(paid >= payout as u64, "{paid} {payout} waited {waited}");
     assert_eq!(env.treasury_gemas(source), 600);
     let route = env.route();
-    assert_eq!(route.treasury_shares, route_before.treasury_shares - payout);
+    // The payout left; any ready part Redeemed at the fill paid its Yield Fee in.
+    assert!(route.treasury_shares + payout >= route_before.treasury_shares);
+    if waited == 0 {
+        assert_eq!(route.treasury_shares, route_before.treasury_shares - payout);
+    }
     // The Treasury's basket kept the seller's class and tranche.
     let bought = find_line(
         &env.svm,
@@ -2878,7 +2926,7 @@ fn a_fill_cannot_spend_more_than_the_treasury_may_and_an_order_expires() {
 }
 
 #[test]
-fn the_treasury_redeems_what_it_bought_at_full_value_and_refills_its_vault() {
+fn the_treasury_redeems_what_it_bought_and_owes_the_pool_its_share() {
     let mut env = Env::new();
     let alice = env.staker();
     let bob = env.staker();
@@ -2889,7 +2937,7 @@ fn the_treasury_redeems_what_it_bought_at_full_value_and_refills_its_vault() {
     env.request(&bob, pos, source, 3_000, 1).unwrap();
     env.fill(&bob, pos, source, 1, 3_000).expect("fill all");
     let vault_before = env.token_balance(env.treasury_vault());
-    let t_before = env.route().treasury_shares;
+    let route_before = env.route();
     // Yield lands as time passes; anyone may redeem for the Treasury, paying the vault.
     env.advance(12 * MONTH);
     let payer = env.person();
@@ -2911,13 +2959,97 @@ fn the_treasury_redeems_what_it_bought_at_full_value_and_refills_its_vault() {
         .expect("redeem treasury");
     let refill = env.token_balance(env.treasury_vault()) - vault_before;
     assert!(refill > 0);
+    let route = env.route();
+    assert_eq!(
+        route.treasury_shares,
+        route_before.treasury_shares + refill as u128,
+        "every share of the refill is the Treasury's"
+    );
+    // Not exempt (red-team #4): the Pool is owed its half of the Yield Fee plus one fifth of the
+    // 25% Instant fee on the value after the Yield Fee (founder: $8.00 -> $1.00 + $0.40 per 1,000).
+    let paid = u128::from(refill);
+    let after_fee = paid * 8_000 / 10_000;
+    let fee = paid - after_fee;
+    let pool = fee * 5_000 / 10_000 + after_fee * 500 / 10_000;
+    assert_eq!(route.pool_owed - route_before.pool_owed, pool);
+    assert_eq!(env.treasury_gemas(source), 3_000 - ready);
+}
+
+#[test]
+fn an_owner_can_cash_out_their_own_gemas_instantly() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    env.fund_treasury(5 * SOL).unwrap();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 12).unwrap();
+    let own = env.gemas(&alice, source);
+    let order = env
+        .request_own(&alice, pos, source, 1_000, 1)
+        .expect("own Gemas are for sale");
+    let state = env.load::<InstantOrderState>(order);
+    let line = ledger::line_store::Line::decode(&state.line);
+    assert_eq!((line.amount, line.side), (1_000, SIDE_OWN));
+    assert_eq!(env.gemas(&alice, source), own - 1_000);
+    let rate = env.rate();
+    let units = env.stored(source).units_for(1_000).unwrap();
+    let value = native::shares_for_units_floor(units, rate).unwrap();
+    let before = env.token_balance(alice.token);
+    env.fill(&alice, pos, source, 1, 1_000).expect("fill");
+    let paid = env.token_balance(alice.token) - before;
+    assert!(
+        paid as u128 <= value as u128 * 6_000 / 10_000 + 1,
+        "{paid} of {value}"
+    );
+    assert!(paid as u128 * 10_000 >= (value as u128 - 4) * 6_000);
+    // The Treasury holds the owner's Gemas now, still on the own side of the Source.
+    let bought = find_line(
+        &env.svm,
+        treasury_account(),
+        source,
+        SIDE_OWN,
+        CLASS_GENERAL,
+        0,
+    )
+    .unwrap();
+    assert_eq!(bought.amount, 1_000);
+    env.check_invariants(&[pos]);
+}
+
+/// Return then Unlock does not get around the fee (red-team #1/#2): the ready part `return_own`
+/// releases comes back as free yield and pays the Yield Fee at Unlock, once.
+#[test]
+fn returning_own_gemas_then_unlocking_pays_the_fee_once() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    env.advance(MONTH);
+    let all = env.gemas(&alice, source);
+    env.return_own(&alice, pos, source, all)
+        .expect("return all");
     assert_eq!(
         env.route().treasury_shares,
-        t_before + refill as u128,
-        "a refill is the Treasury's own"
+        0,
+        "returning cashes nothing out"
     );
-    assert_eq!(env.route().pool_owed, 0, "never a Yield Fee");
-    assert_eq!(env.treasury_gemas(source), 3_000 - ready);
+    let free = (env.position(pos).free_shares >> 32) as u64;
+    assert!(free > 0);
+    let before = env.token_balance(alice.token);
+    let supply = env.supply();
+    env.unlock(&alice, pos).expect("unlock");
+    let got = env.token_balance(alice.token) - before;
+    let fee = free - free * 8_000 / 10_000;
+    // Principal back from the vault, the free yield minted less its fee.
+    assert!(
+        got >= 10 * SOL + free - fee && got <= 10 * SOL + free - fee + 1,
+        "{got}"
+    );
+    assert!(env.supply() - supply <= free - fee + 1);
+    let route = env.route();
+    assert!(
+        route.treasury_shares >= u128::from(fee) && route.treasury_shares <= u128::from(fee) + 1
+    );
+    assert_eq!(route.pool_owed, route.treasury_shares / 2);
 }
 
 // --- On-chain prices (ADR 0011) -------------------------------------------------------------
@@ -3019,6 +3151,7 @@ impl Env {
                 book: book_address(&source).0,
                 basket: self.basket(p),
                 spill: self.spill(p),
+                economy: pda(&[ECONOMY_SEED]),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::TakeNativeAdvanceOnchain {
@@ -3070,11 +3203,11 @@ fn a_self_excluded_owner_takes_no_feed_priced_advance() {
 fn a_fresh_feed_prices_the_advance() {
     let (mut env, alice, pos, feed) = priced_env();
     let source = env.advance_onchain(&alice, pos, feed, 1).expect("advance");
-    // 10 SOL at 7% for a month, 80% after the Yield Fee, at the feed's $150: the same 699 Gemas
+    // 10 SOL at 7% for a month, the whole yield, at the feed's $150: the same 874 Gemas
     // the keeper-priced Advance gives at $150.
-    assert_eq!(env.gemas(&alice, source), 699);
+    assert_eq!(env.gemas(&alice, source), 874);
     assert_eq!(env.load::<SourceState>(source).inner.unit_den, 150_000_000);
-    assert_eq!(env.debt(source), 699);
+    assert_eq!(env.debt(source), 874);
 }
 
 #[test]
@@ -3093,7 +3226,7 @@ fn a_second_feed_priced_advance_closes_the_repaid_one() {
     put_feed(&mut env, feed, PYTH_SOL_USD, FEED_150, 5_000_000, now);
     let mut bare = env.advance_onchain_ix(&alice, pos, feed, 1);
     // The previous Source, its book and its pages are the remaining accounts: leave them out.
-    bare.accounts.truncate(12);
+    bare.accounts.truncate(13);
     let err = env.send(&[bare], &alice.kp, &[]).unwrap_err();
     assert_eq!(code(&err), ERR_SOURCE_REQUIRED);
 }
@@ -3106,7 +3239,7 @@ fn the_exponent_and_a_non_round_price_convert_to_micro_usd() {
     put_feed(&mut env, feed, PYTH_SOL_USD, 10_322_918_088, 3_356_136, now);
     let source = env.advance_onchain(&alice, pos, feed, 1).unwrap();
     assert_eq!(env.load::<SourceState>(source).inner.unit_den, 103_229_180);
-    assert_eq!(env.gemas(&alice, source), 481);
+    assert_eq!(env.gemas(&alice, source), 602);
 }
 
 #[test]
@@ -3275,6 +3408,7 @@ fn evm_advance_ix(
                 book: book_address(&source).0,
                 basket: basket_address(&p.account).0,
                 spill: spill_address(&p.account).0,
+                economy: pda(&[ECONOMY_SEED]),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::TakeAdvanceOnchain {
@@ -3296,6 +3430,7 @@ fn evm_advance_ix(
                 book: book_address(&source).0,
                 basket: basket_address(&p.account).0,
                 spill: spill_address(&p.account).0,
+                economy: pda(&[ECONOMY_SEED]),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::TakeAdvance {
@@ -3340,8 +3475,8 @@ fn once_mapped_the_oracle_cannot_name_the_price_of_an_evm_advance() {
     env.send(&[priced], &oracle, &[&alice.kp])
         .expect("feed price");
     let source = pda(&[SOURCE_SEED, position.as_ref(), &0u32.to_le_bytes()]);
-    // 10 ETH at 4% for 3 months = 0.1 ETH, 80% = 0.08 ETH at $3,000 = 24,000 cents.
-    assert_eq!(env.load::<SourceState>(source).inner.issued, 24_000);
+    // 10 ETH at 4% for 3 months = 0.1 ETH at $3,000 = 30,000 cents.
+    assert_eq!(env.load::<SourceState>(source).inner.issued, 30_000);
 }
 
 #[test]
@@ -3373,10 +3508,20 @@ fn a_native_sources_covered_fees_go_to_their_recipients() {
     );
     assert!(p > 0 && p <= 300, "{p}");
     let before = env.token_balance(platform.token);
+    let route_before = env.route();
+    let supply = env.supply();
     env.cash_in(&payer.kp, pos, source, 0, &platform)
         .expect("platform");
     assert!(env.token_balance(platform.token) > before);
     assert_eq!(econ::counter(&env.svm, source, 0).unwrap().amount, 300 - p);
+    // Fee classes are exempt from the Yield Fee (founder, 2026-10-22): the whole value is minted
+    // to the recipient and nothing joins the Treasury or the Pool.
+    assert_eq!(
+        env.token_balance(platform.token) - before,
+        env.supply() - supply
+    );
+    assert_eq!(env.route(), route_before);
+    assert_eq!(env.stored(source).fee_units, 0);
     let _ = st;
     // The Studio Fee goes to the Studio recipient and only there.
     env.advance(MONTH);
@@ -3589,6 +3734,7 @@ impl Env {
                 config: pda(&[CONFIG_SEED]),
                 pool_authority: pda(&[LEADERBOARD_SEED]),
                 pool_account: self.pool_account(),
+                treasury: common::treasury(),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::InitLeaderboard {
@@ -4020,6 +4166,9 @@ fn funding_arriving_mid_payout_does_not_change_a_recorded_budget() {
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 1).unwrap();
     env.advance(MONTH + 1);
+    // The Pool's share of a Yield Fee comes from a cash-out (ticket 31): the Advance is redeemed.
+    let all = env.gemas(&alice, source);
+    env.redeem(&alice, pos, source, all).unwrap();
     env.unlock(&alice, pos).unwrap();
     env.set_time(SEASON_1_START + SEASON_SECS + 5);
     env.set_price(PRICE).unwrap();
@@ -4035,8 +4184,11 @@ fn funding_arriving_mid_payout_does_not_change_a_recorded_budget() {
     env.set_time(SEASON_1_START + SEASON_SECS + 10);
     env.set_price(PRICE).unwrap();
     let pos2 = env.open(&carol, 10 * SOL).unwrap();
-    env.advance_native(&carol, pos2, 1).unwrap();
+    let carol_source = env.advance_native(&carol, pos2, 1).unwrap();
     env.advance(MONTH + 1);
+    // The Pool's share of a Yield Fee comes from a cash-out (ticket 31): the Advance is redeemed.
+    let all = env.gemas(&carol, carol_source);
+    env.redeem(&carol, pos2, carol_source, all).unwrap();
     env.unlock(&carol, pos2).unwrap();
     env.set_time(SEASON_1_START + 2 * SEASON_SECS + 5);
     env.set_price(PRICE).unwrap();
@@ -4065,8 +4217,11 @@ fn a_voided_rank_is_not_paid_and_closing_releases_the_rest() {
     let bob = env.staker();
     let carol = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
-    env.advance_native(&alice, pos, 1).unwrap();
+    let alice_source = env.advance_native(&alice, pos, 1).unwrap();
     env.advance(MONTH + 1);
+    // The Pool's share of a Yield Fee comes from a cash-out (ticket 31): the Advance is redeemed.
+    let all = env.gemas(&alice, alice_source);
+    env.redeem(&alice, pos, alice_source, all).unwrap();
     env.unlock(&alice, pos).unwrap();
     env.set_time(SEASON_1_START + SEASON_SECS + 5);
     env.set_price(PRICE).unwrap();
@@ -4121,8 +4276,11 @@ fn a_season_prize_for_a_winner_with_full_stores_lands_in_an_overflow_record() {
     let alice = env.staker();
     let bob = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
-    env.advance_native(&alice, pos, 1).unwrap();
+    let alice_source = env.advance_native(&alice, pos, 1).unwrap();
     env.advance(MONTH + 1);
+    // The Pool's share of a Yield Fee comes from a cash-out (ticket 31): the Advance is redeemed.
+    let all = env.gemas(&alice, alice_source);
+    env.redeem(&alice, pos, alice_source, all).unwrap();
     env.unlock(&alice, pos).unwrap();
     env.set_time(SEASON_1_START + SEASON_SECS + 5);
     env.set_price(PRICE).unwrap();
@@ -4205,8 +4363,11 @@ fn funding_a_prize_into_a_full_pool_lands_in_an_overflow_record() {
     env.set_escrow(true);
     let alice = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
-    env.advance_native(&alice, pos, 1).unwrap();
+    let alice_source = env.advance_native(&alice, pos, 1).unwrap();
     env.advance(MONTH + 1);
+    // The Pool's share of a Yield Fee comes from a cash-out (ticket 31): the Advance is redeemed.
+    let all = env.gemas(&alice, alice_source);
+    env.redeem(&alice, pos, alice_source, all).unwrap();
     env.unlock(&alice, pos).unwrap();
     env.set_time(SEASON_1_START + SEASON_SECS + 5);
     env.set_price(PRICE).unwrap();
@@ -4234,4 +4395,83 @@ fn funding_a_prize_into_a_full_pool_lands_in_an_overflow_record() {
         0,
         "not in the Pool's stores yet"
     );
+}
+
+/// Red-team 31 #2: Return Own then Unlock splits the fee on the released yield at the Pool share the
+/// Advance snapshotted, not the share in force at Unlock.
+#[test]
+fn return_then_unlock_uses_the_snapshotted_pool_share() {
+    let mut env = Env::with_start(SEASON_1_START + 10);
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    assert_eq!(env.stored(source).pool_bps, 5_000);
+    // The admin announces a Pool share of 0 from Season 2.
+    let admin = env.admin.insecure_clone();
+    let set = tix(
+        accounts::SetPrizeShare {
+            admin: a(admin.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            economy: pda(&[ECONOMY_SEED]),
+        },
+        instruction::SetPrizeShare {
+            from_season: 2,
+            bps: 0,
+        },
+        vec![],
+    );
+    env.send(&[set], &admin, &[])
+        .expect("announce a 0% Pool share");
+    env.set_time(SEASON_1_START + SEASON_SECS + 10);
+    env.set_price(PRICE).unwrap();
+    let all = env.gemas(&alice, source);
+    env.return_own(&alice, pos, source, all).expect("return");
+    let free = (env.position(pos).free_shares >> 32) as u64;
+    env.unlock(&alice, pos).expect("unlock");
+    let fee = u128::from(free - free * 8_000 / 10_000);
+    let route = env.route();
+    assert!(route.treasury_shares >= fee && route.treasury_shares <= fee + 1);
+    assert_eq!(
+        route.pool_owed,
+        route.treasury_shares / 2,
+        "the Advance's 50%, not the live 0%"
+    );
+}
+
+/// The ready part of an Instant Redeem is an ordinary Redeem (red-team 31 #5): the seller gets
+/// exactly floor(80%) of the shares redeemed, the Treasury the rest, at the request and at the fill.
+#[test]
+fn the_ready_part_of_an_instant_redeem_pays_the_yield_fee() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let bob = env.staker();
+    env.fund_treasury(5 * SOL).unwrap();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 12).unwrap();
+    env.give_won(&alice, &bob, source, 2_000);
+    env.advance(3 * MONTH);
+    let before = env.token_balance(bob.token);
+    let route = env.route();
+    let order = env.request(&bob, pos, source, 1_000, 1).expect("request");
+    let got = u128::from(env.token_balance(bob.token) - before);
+    let fee = env.route().treasury_shares - route.treasury_shares;
+    assert!(got > 0, "part of the line was ready");
+    assert_eq!(got, (got + fee) * 8_000 / 10_000, "seller {got}, fee {fee}");
+    assert_eq!(env.route().pool_owed - route.pool_owed, fee / 2);
+    // More repays while the order waits; the fill Redeems that part first, with the same fee.
+    env.advance(3 * MONTH);
+    let before = env.token_balance(bob.token);
+    let route = env.route();
+    env.fill(&bob, pos, source, 1, 100).expect("fill");
+    let state = env.load::<InstantOrderState>(order);
+    assert!(state.redeemed_while_open > 0, "part repaid while it waited");
+    let ready = u128::from(env.token_balance(bob.token) - before) - state.paid_shares;
+    let fee = env.route().treasury_shares + state.paid_shares - route.treasury_shares;
+    assert!(ready > 0);
+    assert_eq!(
+        ready,
+        (ready + fee) * 8_000 / 10_000,
+        "seller {ready}, fee {fee}"
+    );
+    env.check_invariants(&[pos]);
 }

@@ -223,7 +223,11 @@ contract PositionVaultOApp is PositionVault, OApp {
         if (msgType == MSG_UNLOCK) {
             if (message.length != 61) revert InvalidMessageLength();
             _receive(abi.encode(msgType, chain, id, seq));
-        } else if (msgType == MSG_PAY_YIELD || msgType == MSG_PAY_INSTANT) {
+        } else if (msgType == MSG_PAY_YIELD) {
+            // header 45 | to 32 | amount u128 | fee u128 | pool u128
+            if (message.length != 125) revert InvalidMessageLength();
+            _receivePayYield(chain, id, seq, message);
+        } else if (msgType == MSG_PAY_INSTANT) {
             if (message.length != 93) revert InvalidMessageLength();
             bytes32 to = bytes32(message[45:77]);
             uint256 amount = uint128(bytes16(message[77:93]));
@@ -231,6 +235,21 @@ contract PositionVaultOApp is PositionVault, OApp {
         } else {
             revert InvalidMessageType();
         }
+    }
+
+    function _receivePayYield(uint32 chain, uint64 id, uint64 seq, bytes calldata message) internal {
+        _receive(
+            abi.encode(
+                MSG_PAY_YIELD,
+                chain,
+                id,
+                seq,
+                bytes32(message[45:77]),
+                uint256(uint128(bytes16(message[77:93]))),
+                uint256(uint128(bytes16(message[93:109]))),
+                uint256(uint128(bytes16(message[109:125])))
+            )
+        );
     }
 
     function _receivePrize(uint32 chain, uint64 payoutId, bytes calldata message) internal {

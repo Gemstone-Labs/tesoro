@@ -163,6 +163,9 @@ pub struct TakeNativeAdvanceOnchain<'info> {
     /// CHECK: the owner's spill, checked by its seeds.
     #[account(mut, seeds = [SPILL_SEED, owner_account.key().as_ref()], bump)]
     pub spill: UncheckedAccount<'info>,
+    /// The Pool's share of the Yield Fee in force, snapshotted into the new Source (ticket 31).
+    #[account(seeds = [ECONOMY_SEED], bump = economy.bump)]
+    pub economy: Box<Account<'info, EconomyConfig>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -178,7 +181,7 @@ pub(crate) fn take_native_advance_onchain<'info>(
     let ts = now()?;
     let price = a.onchain_price.read(&a.price_feed.to_account_info(), ts)?;
     let rates = native_rates(&a.position.inner, &a.pool)?;
-    let fee = a.position.inner.yield_fee_bps;
+    let fee = FeeSnapshot::now(a.position.inner.yield_fee_bps, &a.economy)?;
     let (basket, spill) = (a.basket.to_account_info(), a.spill.to_account_info());
     begin_advance(
         NewAdvance {
@@ -265,6 +268,9 @@ pub struct TakeAdvanceOnchain<'info> {
     /// CHECK: the owner's spill, checked by its seeds.
     #[account(mut, seeds = [SPILL_SEED, owner_account.key().as_ref()], bump)]
     pub spill: UncheckedAccount<'info>,
+    /// The Pool's share of the Yield Fee in force, snapshotted into the new Source (ticket 31).
+    #[account(seeds = [ECONOMY_SEED], bump = economy.bump)]
+    pub economy: Box<Account<'info, EconomyConfig>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -286,7 +292,7 @@ pub(crate) fn take_advance_onchain<'info>(
         .onchain_price
         .read(&a.price_feed.to_account_info(), now()?)?;
     let rates = reported_rates(&a.position.inner);
-    let fee = a.treasury.yield_fee_bps;
+    let fee = FeeSnapshot::now(a.treasury.yield_fee_bps, &a.economy)?;
     let (basket, spill) = (a.basket.to_account_info(), a.spill.to_account_info());
     begin_advance(
         NewAdvance {

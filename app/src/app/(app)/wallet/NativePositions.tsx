@@ -29,7 +29,7 @@ import {
   type NativeInfo,
   type NativeMarket,
 } from "@/lib/chain/native";
-import { advanceUnits, netApyPct } from "@/lib/chain/yield";
+import { advanceUnits, cashOut } from "@/lib/chain/yield";
 import { cancelInstantRedeem, requestInstantRedeem } from "@/lib/chain/instant-order";
 import { extendAdvance, friendlyError, setExtendLimit, getTestSimSol, openPositionWithAdvance, openStakePositionWithAdvance, redeemNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
 import { quoteDepositSol } from "@/lib/chain/stake-pool";
@@ -41,6 +41,7 @@ import type { Chain } from "@/lib/mock";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { NOTHING_REDEEMABLE_YET, ethRedeemables, ethYieldWaiting, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { useInstantRedeem } from "./instant";
+import { allocate } from "./pick-amount";
 import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type RedeemPayout } from "./MoneySheets";
 import { GemasLabel } from "./AdvanceQuote";
 import { AdvanceFormView, AdvanceTakenNote } from "./AdvanceSheet";
@@ -176,12 +177,12 @@ function StakeOpenForm({ market, loading, onDone }: { market: NativeMarket | nul
   const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - PRICE_QUOTE_MARGIN_SECS;
   const { yieldFeeBps } = ratesOf(market?.treasury);
   const apyBps = stake?.sizingBps ?? 0;
-  const quote = market && stake && priceOk && apyBps > 0 ? quoteNativeAdvance(principal, apyBps, months, market.price!.microUsd, yieldFeeBps) : null;
+  const quote = market && stake && priceOk && apyBps > 0 ? quoteNativeAdvance(principal, apyBps, months, market.price!.microUsd) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   const estimate =
     stake && quote && shares > 0n && gemas > 0
       ? unlockEstimateMs({
-          clock: { principal, rateBps: apyBps, yieldFeeBps, openedAt: Math.floor(now / 1000), stakeRateOpen: stake.rate },
+          clock: { principal, rateBps: apyBps, openedAt: Math.floor(now / 1000), stakeRateOpen: stake.rate },
           speedup: 1,
           appliedNet: 0n,
           source: { issued: quote.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: market!.price!.microUsd },
@@ -284,7 +285,7 @@ function SimOpenForm({ market, loading, onDone }: { market: NativeMarket | null;
     const floor3 = (n: number) => Math.floor(n * 1000) / 1000;
     const short = intent?.need ? intent.need - held.available : 0;
     if (short > 0 && priceOk) {
-      const perSol = quoteNativeAdvance(sharesValue(BigInt(LAMPORTS), rate), market.pool.apyBps, months, market.price!.microUsd, yieldFeeBps).gemas;
+      const perSol = quoteNativeAdvance(sharesValue(BigInt(LAMPORTS), rate), market.pool.apyBps, months, market.price!.microUsd).gemas;
       const sol = perSol > 0n ? Math.ceil((short / Number(perSol)) * 1.02 * 1000) / 1000 : balance;
       seed = String(sol <= balance ? sol : floor3(balance));
     } else if (!intent) {
@@ -295,12 +296,12 @@ function SimOpenForm({ market, loading, onDone }: { market: NativeMarket | null;
   const amount = Number(text);
   const shares = market && Number.isFinite(amount) && amount > 0 ? BigInt(Math.round(amount * LAMPORTS)) : 0n;
   const principal = market ? sharesValue(shares, rate) : 0n;
-  const quote = market && priceOk ? quoteNativeAdvance(principal, market.pool.apyBps, months, market.price!.microUsd, yieldFeeBps) : null;
+  const quote = market && priceOk ? quoteNativeAdvance(principal, market.pool.apyBps, months, market.price!.microUsd) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   // A fresh Position's Debt is the whole Advance: the Estimate is when its Accrued Yield covers it.
   const estimate = market && quote && shares > 0n && gemas > 0
     ? unlockEstimateMs({
-        clock: { principal, rateBps: market.pool.apyBps, yieldFeeBps, openedAt: Math.floor(now / 1000) },
+        clock: { principal, rateBps: market.pool.apyBps, openedAt: Math.floor(now / 1000) },
         speedup: speedupOf(market.pool),
         appliedNet: 0n,
         source: { issued: quote.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: market.price!.microUsd },
@@ -427,8 +428,7 @@ export function NativePositionCard({
       principal={`${fmtSol(info.principalLamports, 3)} SOL`}
       debt={!src ? null : debt > 0n ? `${fmtGemas(Number(debt))} Gemas` : "0"}
       debtAsset={debt > 0n ? `${fmtSol(debtSol, 3)} SOL` : undefined}
-      apy={`${netApyPct(info.rateBps, yieldFeeBps).toFixed(1)}%`}
-      yieldFeeBps={yieldFeeBps}
+      apy={`${(info.rateBps / 100).toFixed(1)}%`}
       unlockAt={estimate}
       now={now}
       series={series}
@@ -491,9 +491,9 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
   const real = info.stakeRateOpen > 0n;
   // On mainnet the Advance is sized on the pool's recent growth under the admin's ceiling, not on the rate the Position opened with.
   const rateBps = real ? (market?.stake?.sizingBps ?? 0) : info.rateBps;
-  const quote = priceOk && rateBps > 0 ? quoteNativeAdvance(info.principalLamports, rateBps, months, market!.price!.microUsd, yieldFeeBps) : null;
+  const quote = priceOk && rateBps > 0 ? quoteNativeAdvance(info.principalLamports, rateBps, months, market!.price!.microUsd) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
-  // Simulated: the Advance is the Horizon's projected yield net of the Yield Fee, so yield repays it in exactly the Horizon. Real: an estimate from the pool's recent growth.
+  // Simulated: the Advance is the Horizon's whole projected yield, so yield repays it in exactly the Horizon. Real: an estimate from the pool's recent growth.
   const growth = stakeGrowthOf(market);
   const unlock =
     gemas <= 0
@@ -594,9 +594,9 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
   const pool = market?.pool ?? null;
   const yieldFeeBps = info.yieldFeeBps;
   const rateBps = info.stakeRateOpen > 0n ? (market?.stake?.sizingBps ?? 0) : info.rateBps;
-  const quote = quoteExtendAdvance(info.principalLamports, rateBps, source.math, source.horizonMonths, months, yieldFeeBps);
+  const quote = quoteExtendAdvance(info.principalLamports, rateBps, source.math, source.horizonMonths, months);
   const gemas = Number(quote.gemas);
-  const addedYield = advanceUnits(info.principalLamports, rateBps, source.horizonMonths + months, yieldFeeBps) - advanceUnits(info.principalLamports, rateBps, source.horizonMonths, yieldFeeBps);
+  const addedYield = advanceUnits(info.principalLamports, rateBps, source.horizonMonths + months) - advanceUnits(info.principalLamports, rateBps, source.horizonMonths);
   const unlock = gemas > 0 ? unlockEstimateMs({ clock: clockOf(info), speedup: speedupOf(pool), appliedNet: info.appliedNet, source: quote.extended, nowMs: now, stake: stakeGrowthOf(market) }) : null;
   const title = `${fmtSol(info.principalLamports, 3)} SOL Lock`;
 
@@ -679,29 +679,32 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
       asset: "SOL" as const,
       from: from(h),
       gemas: Number(h.redeemable),
+      // What the holder is paid: the shares the Gemas are worth, less the Source's Yield Fee (one floor, as on chain).
       amount: h.stakeMint && snapshot?.market?.stake
-        ? Number(tokensForUnits((h.redeemable * h.unitNum) / h.unitDen, snapshot.market.stake.rate)) / LAMPORTS
+        ? Number(cashOut(tokensForUnits((h.redeemable * h.unitNum) / h.unitDen, snapshot.market.stake.rate), h.yieldFeeBps, 0).payout) / LAMPORTS
         : pool && !h.stakeMint
-          ? Number(redeemPayoutShares(h, h.redeemable, rateAt(pool))) / LAMPORTS
+          ? Number(cashOut(redeemPayoutShares(h, h.redeemable, rateAt(pool)), h.yieldFeeBps, 0).payout) / LAMPORTS
           : null,
       token: h.stakeMint ? (snapshot?.market?.stake?.token.symbol ?? tokenSymbol(h.stakeMint)) : "test SOL",
       later: false,
+      yieldFeeBps: h.yieldFeeBps,
     })),
     ...ethRows.map((h) => ({
       key: h.key,
       asset: h.asset,
       from: from(h),
       gemas: Number(h.redeemable),
-      amount: gemasInAsset(h.redeemable, h),
+      amount: (gemasInAsset(h.redeemable, h) * (10_000 - h.yieldFeeBps)) / 10_000,
       token: h.asset,
       later: true,
+      yieldFeeBps: h.yieldFeeBps,
     })),
   ];
 
   const { offer: instant, orders, freshPlan, reloadOrders } = useInstantRedeem(asset);
 
   /** Offers every won line that is waiting on yield: one order each, bought by Tesoro when it can. */
-  const redeemNow = async () => {
+  const redeemNow = async (pick: number) => {
     if (!auth.signer) return;
     setBusy(true);
     setError(null);
@@ -710,10 +713,14 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
       const fresh = await freshPlan(signer.publicKey);
       if (fresh.length === 0) {
         await refresh();
-        throw new Error("Yield landed while you were confirming, so none of these Gemas are waiting any more. Redeem them at full value instead.");
+        throw new Error("Yield landed while you were confirming, so none of these Gemas are waiting any more. Redeem them as their yield lands instead.");
       }
-      for (const p of fresh) sigs.current.push(await requestInstantRedeem(signer, auth.getAccessToken, p.holding, p.gemas));
-      setDone({ gemas: fresh.reduce((sum, p) => sum + Number(p.gemas), 0), later: fresh.some((p) => !p.holding.native), instant: true, receipts: sigs.current.map((sig) => ({ label: "Offered for sale", sig })) });
+      // The fresh plan lists the lines in the same order as the sheet; the pick is split over them the same way.
+      const parts = allocate(fresh.map((p) => ({ gemas: Number(p.gemas) })), pick).map(BigInt);
+      const chosen = fresh.map((p, i) => ({ ...p, gemas: parts[i] })).filter((p) => p.gemas > 0n);
+      if (chosen.length === 0) throw new Error("Pick how many Gemas to offer.");
+      for (const p of chosen) sigs.current.push(await requestInstantRedeem(signer, auth.getAccessToken, p.holding, p.gemas));
+      setDone({ gemas: chosen.reduce((sum, p) => sum + Number(p.gemas), 0), later: chosen.some((p) => !p.holding.native), instant: true, receipts: sigs.current.map((sig) => ({ label: "Offered for sale", sig })) });
       await Promise.all([refresh(), reloadOrders()]);
     } catch (e) {
       setError(friendlyError(e));
@@ -741,18 +748,26 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     }
   };
 
-  const redeem = async () => {
+  const redeem = async (pick: number) => {
     if (!auth.signer) return;
-    const gemas = payouts.reduce((s, p) => s + p.gemas, 0);
+    const gemas = Math.min(pick, payouts.reduce((s, p) => s + p.gemas, 0));
+    // The pick is split over the lines in the order the sheet lists them: SOL lines, then ETH and HYPE lines.
+    const split = allocate(payouts, pick);
+    const parts = new Map(payouts.map((p, i) => [p.key, split[i]]));
     setBusy(true);
     setError(null);
     try {
-      for (const h of rows) sigs.current.push(await redeemNative(auth.signer, auth.getAccessToken, h, h.redeemable));
+      for (const h of rows) {
+        const part = parts.get(h.key) ?? 0;
+        if (part > 0) sigs.current.push(await redeemNative(auth.signer, auth.getAccessToken, h, BigInt(part)));
+      }
       let ethGemas = 0;
       let ethCount = 0;
-      if (ethRows.length > 0 || ethWaiting.length > 0) {
+      const wantsEth = ethRows.some((h) => (parts.get(h.key) ?? 0) > 0) || (ethRows.length === 0 && ethWaiting.length > 0);
+      if (wantsEth) {
         if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
-        const r = await redeemEthHoldings(ethCtx, snapshot?.holdings ?? [], setNote);
+        const limits = ethRows.length > 0 ? new Map(ethRows.map((h) => [h.key, BigInt(parts.get(h.key) ?? 0)])) : undefined;
+        const r = await redeemEthHoldings(ethCtx, snapshot?.holdings ?? [], setNote, limits);
         ethGemas = Number(r.gemas);
         ethCount = r.count;
       }
@@ -760,7 +775,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
         await refresh();
         throw new Error(NOTHING_REDEEMABLE_YET);
       }
-      setDone({ gemas: rows.reduce((s, h) => s + Number(h.redeemable), 0) + ethGemas || gemas, later: ethCount > 0, receipts: sigs.current.map((sig) => ({ label: "Redeemed", sig })) });
+      setDone({ gemas: rows.reduce((s, h) => s + (parts.get(h.key) ?? 0), 0) + ethGemas || gemas, later: ethCount > 0, receipts: sigs.current.map((sig) => ({ label: "Redeemed", sig })) });
       await refresh();
     } catch (e) {
       setError(friendlyError(e));
@@ -770,5 +785,5 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     }
   };
 
-  return <RedeemExchange payouts={payouts} instant={instant} busy={busy} busyNote={note} yieldCheck={ethWaiting.length > 0 ? [...new Set(ethWaiting.map((h) => h.asset))].join(" and ") : null} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={() => void redeem()} onInstant={() => void redeemNow()} onCancelOrder={(k) => void cancelOrder(k)} onClose={onClose} />;
+  return <RedeemExchange payouts={payouts} instant={instant} busy={busy} busyNote={note} yieldCheck={ethWaiting.length > 0 ? [...new Set(ethWaiting.map((h) => h.asset))].join(" and ") : null} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={(g) => void redeem(g)} onInstant={(g) => void redeemNow(g)} onCancelOrder={(k) => void cancelOrder(k)} onClose={onClose} />;
 }

@@ -131,7 +131,6 @@ pub(crate) fn init_native_custody(ctx: Context<InitNativeCustody>) -> Result<()>
     a.custody.pool = a.pool.key();
     a.custody.mint = a.mint.key();
     a.custody.vault = a.vault.key();
-    a.custody.set_totals(ledger::PoolTotals::default());
     a.custody.route = ledger::RouteLedger::default();
     Ok(())
 }
@@ -245,11 +244,7 @@ pub(crate) fn open_native_position(
     a.position.inner.custody_shares = lst_amount;
     a.position.inner.yield_fee_bps = a.treasury.yield_fee_bps;
 
-    let mut totals = a.custody.totals();
-    totals
-        .add_position(principal, ts, rate_bps, a.treasury.yield_fee_bps)
-        .map_err(core_err)?;
-    a.custody.set_totals(totals);
+    a.custody.add_position(principal)?;
 
     emit!(NativePositionOpened {
         position: position_key,
@@ -326,6 +321,9 @@ pub struct TakeNativeAdvance<'info> {
     /// CHECK: the owner's spill, checked by its seeds.
     #[account(mut, seeds = [SPILL_SEED, owner_account.key().as_ref()], bump)]
     pub spill: UncheckedAccount<'info>,
+    /// The Pool's share of the Yield Fee in force, snapshotted into the new Source (ticket 31).
+    #[account(seeds = [ECONOMY_SEED], bump = economy.bump)]
+    pub economy: Box<Account<'info, EconomyConfig>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -347,7 +345,7 @@ pub(crate) fn take_native_advance<'info>(
         TesoroError::StalePrice
     );
     let rates = native_rates(&a.position.inner, &a.pool)?;
-    let fee = a.position.inner.yield_fee_bps;
+    let fee = FeeSnapshot::now(a.position.inner.yield_fee_bps, &a.economy)?;
     let (basket, spill) = (a.basket.to_account_info(), a.spill.to_account_info());
     begin_advance(
         NewAdvance {
@@ -446,7 +444,6 @@ pub(crate) fn extend_native_advance<'info>(
         .record_extend(ts, extra_months)
         .map_err(core_err)?;
     let rates = native_rates(&a.position.inner, &a.pool)?;
-    let fee = a.position.inner.yield_fee_bps;
     extend_open_advance(
         ExtendAccounts {
             position: &mut a.position,
@@ -459,7 +456,6 @@ pub(crate) fn extend_native_advance<'info>(
         &rates,
         remaining,
         extra_months,
-        fee,
         min_gemas,
     )
 }

@@ -188,16 +188,10 @@ describe("native instructions", () => {
 });
 
 describe("native math", () => {
-  it("sizes an Advance like the program (5 SOL, 7%, 1 month, $150)", () => {
-    const q = quoteNativeAdvance(5_000_000_000n, 700, 1, 150_000_000n, 0);
+  it("sizes an Advance like the program on the whole yield (5 SOL, 7%, 1 month, $150)", () => {
+    const q = quoteNativeAdvance(5_000_000_000n, 700, 1, 150_000_000n);
     expect(q.projectedUnits).toBe(29_166_666n);
     expect(q.gemas).toBe(437n);
-  });
-
-  it("is 80% of that after the Yield Fee, and still repaid in 10 minutes per month", () => {
-    const q = quoteNativeAdvance(5_000_000_000n, 700, 1, 150_000_000n);
-    expect(q.projectedUnits).toBe(23_333_333n);
-    expect(q.gemas).toBe(349n);
   });
 
   it("keeps the rate constant: yield is per Position, not in the rate", () => {
@@ -205,7 +199,7 @@ describe("native math", () => {
     expect(rateAt(pool)).toBe(pool.baseRate);
   });
 
-  const source = { issued: 349n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: 150_000_000n };
+  const source = { issued: 437n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: 150_000_000n };
   const principal = 5_000_000_000n;
   const T0 = 1_800_000_000;
   const info = (over: Partial<NativeInfo> = {}): NativeInfo => ({
@@ -223,7 +217,7 @@ describe("native math", () => {
     freeYieldClaimed: 0n,
     advances: 1,
     openAdvance: 0,
-    source: { key: owner, index: 0, horizonMonths: 1, math: source },
+    source: { key: owner, index: 0, horizonMonths: 1, math: source, fees: null },
     ...over,
   });
 
@@ -231,7 +225,7 @@ describe("native math", () => {
     const i = info();
     const debt0 = debtGemasAt(i, 4380, T0 * 1000);
     const debt5 = debtGemasAt(i, 4380, (T0 + 300) * 1000);
-    expect(debt0).toBe(349n);
+    expect(debt0).toBe(437n);
     expect(debt5 < debt0).toBe(true);
     // A 1-month Advance is repaid in 10 minutes.
     const at = unlockEstimateMs({ clock: clockOf(i), speedup: 4380, appliedNet: 0n, source, nowMs: T0 * 1000 })!;
@@ -242,19 +236,19 @@ describe("native math", () => {
   });
 
   it("counts only yield after the checkpoint toward the open Advance, and the rest as free yield", () => {
-    // Net yield at 1,200 s, 5 SOL, 7%, fee 20%: gross 58,333,333, fee 11,666,666, net 46,666,667.
+    // Yield at 1,200 s, 5 SOL, 7%: 58,333,333 (gross: the Yield Fee waits for the cash-out). The 437 Gemas need 29,133,334.
     const now = T0 + 1200;
     const i = info();
     const cur = nativeNow(i, 4380, now);
-    expect(cur.accrued).toBe(46_666_667n);
+    expect(cur.accrued).toBe(58_333_333n);
     expect(cur.debtGemas).toBe(0n);
-    expect(cur.freeUnits).toBe(46_666_667n - 23_266_667n);
+    expect(cur.freeUnits).toBe(58_333_333n - 29_133_334n);
     // Yield that accrued before an Advance (applied_net) never repays it.
     const later = nativeNow(info({ appliedNet: 30_000_000n }), 4380, now);
     expect(later.debtGemas).toBeGreaterThan(0n);
     // A closed Source keeps its stored yield for late Redeems.
-    const closed = info({ openAdvance: null, source: { key: owner, index: 0, horizonMonths: 1, math: { ...source, yieldUnits: 23_266_667n } } });
-    expect(sourceAtClock({ ...clockOf(closed), appliedNet: 0n, openAdvance: null }, 0, closed.source!.math, 4380, now).yieldUnits).toBe(23_266_667n);
+    const closed = info({ openAdvance: null, source: { key: owner, index: 0, horizonMonths: 1, math: { ...source, yieldUnits: 29_133_334n }, fees: null } });
+    expect(sourceAtClock({ ...clockOf(closed), appliedNet: 0n, openAdvance: null }, 0, closed.source!.math, 4380, now).yieldUnits).toBe(29_133_334n);
     expect(nativeNow(closed, 4380, now).debtGemas).toBe(0n);
   });
 
@@ -301,21 +295,21 @@ describe("native math", () => {
 describe("extend an Advance", () => {
   const price = 150_000_000n;
   const principal = 5_000_000_000n;
-  const first = quoteNativeAdvance(principal, 700, 3, price, 2000);
+  const first = quoteNativeAdvance(principal, 700, 3, price);
   const source = { issued: first.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: price };
 
   it("mints the added months at the current fee when the fee changed since the Advance", () => {
-    const quote = quoteExtendAdvance(principal, 700, source, 3, 3, 0);
-    const size = (months: number) => quoteNativeAdvance(principal, 700, months, price, 0).gemas;
+    const quote = quoteExtendAdvance(principal, 700, source, 3, 3);
+    const size = (months: number) => quoteNativeAdvance(principal, 700, months, price).gemas;
     expect(quote.gemas).toBe(size(6) - size(3));
     expect(quote.gemas).toBeGreaterThan(0n);
   });
 
   it("mints the added months at an unchanged fee, so two extensions equal one", () => {
-    const once = quoteExtendAdvance(principal, 700, source, 3, 6, 2000);
-    expect(once.gemas).toBe(quoteNativeAdvance(principal, 700, 9, price, 2000).gemas - first.gemas);
-    const a = quoteExtendAdvance(principal, 700, source, 3, 3, 2000);
-    const b = quoteExtendAdvance(principal, 700, a.extended, 6, 3, 2000);
+    const once = quoteExtendAdvance(principal, 700, source, 3, 6);
+    expect(once.gemas).toBe(quoteNativeAdvance(principal, 700, 9, price).gemas - first.gemas);
+    const a = quoteExtendAdvance(principal, 700, source, 3, 3);
+    const b = quoteExtendAdvance(principal, 700, a.extended, 6, 3);
     expect(a.gemas + b.gemas).toBe(once.gemas);
     expect(b.extended.issued).toBe(source.issued + once.gemas);
   });

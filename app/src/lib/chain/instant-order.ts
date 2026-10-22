@@ -12,7 +12,7 @@ import type { ChainHolding } from "./read";
 import { NATIVE_ROUTE_AT } from "./fees";
 import { exitSend, sourceAccounts } from "./redeem";
 import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
-import { RATE_SCALE, TESORO_CORE_ID, accountPda, createSimSolAtaIx, lineArg, meta, nativePayingAccounts, pda, s, simSolAta, treasuryAccountPda, treasuryPda, treasuryVaultPda, nativeKindAccounts, CONFIG } from "./native";
+import { RATE_SCALE, TESORO_CORE_ID, accountPda, createSimSolAtaIx, economyPda, lineArg, meta, nativePayingAccounts, pda, s, simSolAta, treasuryAccountPda, treasuryPda, treasuryVaultPda, nativeKindAccounts, CONFIG } from "./native";
 import { JITOSOL, stakePayingAccounts, stakeRateRemaining, stakeTokenOf, type StakeToken } from "./stake";
 import { createAtaIdempotentIx, tokenAta } from "./stake-pool";
 
@@ -35,7 +35,6 @@ export const instantOrderPda = (account: PublicKey, nonce: bigint | number) => {
   n.writeBigUInt64LE(BigInt(nonce));
   return pda([s("instant"), account.toBuffer(), n]);
 };
-export const economyPda = () => pda([s("economy")]);
 export const sponsorPdaKey = () => pda([s("sponsor")]);
 
 // ---- Orders ------------------------------------------------------------------------------------------

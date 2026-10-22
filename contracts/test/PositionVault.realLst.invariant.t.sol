@@ -85,15 +85,22 @@ contract RealLstHandler is Test {
         uint64 id = ids[idx % ids.length];
         uint256 t = vault.treasuryBalance();
         uint256 amount = overshoot ? t + bound(pct, 1, 1 ether) : t * bound(pct, 0, 100) / 100;
-        _deliver(abi.encode(uint8(5), CHAIN, id, ++nextSeq[id], bytes32(uint256(uint160(redeemer))), amount));
+        _deliver(
+            abi.encode(
+                uint8(5), CHAIN, id, ++nextSeq[id], bytes32(uint256(uint160(redeemer))), amount, uint256(0), uint256(0)
+            )
+        );
     }
 
-    function payYield(uint256 idx, uint256 pct, bool toVault) external {
+    function payYield(uint256 idx, uint256 pct, bool toVault, uint8 feePct, uint8 poolPct) external {
         if (ids.length == 0) return;
         uint64 id = ids[idx % ids.length];
         uint256 amount = vault.unreservedYield(id) * bound(pct, 0, 100) / 100;
         address to = toVault ? address(vault) : redeemer;
-        bool ok = _deliver(abi.encode(uint8(4), CHAIN, id, ++nextSeq[id], bytes32(uint256(uint160(to))), amount));
+        uint256 fee = amount * bound(feePct, 0, 100) / 100;
+        uint256 pool = (toVault ? amount : fee) * bound(poolPct, 0, 100) / 100;
+        bool ok =
+            _deliver(abi.encode(uint8(4), CHAIN, id, ++nextSeq[id], bytes32(uint256(uint160(to))), amount, fee, pool));
         // a refill to the vault moves the Position's shares out just like a payout to a player
         if (ok && amount > 0 && !vault.getPosition(id).unlocked) paidOut[id] = true;
     }
@@ -237,7 +244,18 @@ contract RealLstHandler is Test {
             uint256 amount = vault.unreservedYield(id);
             if (amount == 0) continue;
             ok = ok
-                && _deliver(abi.encode(uint8(4), CHAIN, id, ++nextSeq[id], bytes32(uint256(uint160(redeemer))), amount));
+                && _deliver(
+                    abi.encode(
+                        uint8(4),
+                        CHAIN,
+                        id,
+                        ++nextSeq[id],
+                        bytes32(uint256(uint160(redeemer))),
+                        amount,
+                        uint256(0),
+                        uint256(0)
+                    )
+                );
         }
         vm.revertToState(snap);
         return ok;

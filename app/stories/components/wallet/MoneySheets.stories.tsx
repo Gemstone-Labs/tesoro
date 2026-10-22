@@ -102,7 +102,7 @@ const withMarket = (snapshot: (a: string) => AccountSnapshot, market: Partial<No
   return { ...s, market: { ...s.market!, ...market } };
 };
 
-/** Won SOL Gemas sold now: 75% in simSOL in the same transaction, the 25% Tesoro keeps said plainly, and the most the treasury can pay. */
+/** Won and own SOL Gemas sold now: 60% of their value in test SOL in the same transaction, the 25% Tesoro keeps said plainly, and the most the treasury can pay. */
 export const RedeemNowSol: Story = {
   decorators: [withSigner],
   parameters: { data: { snapshot: onlySol } },
@@ -159,8 +159,12 @@ export const RedeemNowEvmTreasuryShort: Story = {
 };
 
 const offer = (orders: NonNullable<InstantOffer["orders"]>): InstantOffer => ({
-  rows: [{ key: "a", asset: "SOL", from: "Won · 7zr1…qh7M", gemas: 1500, amount: 0.075, token: "test SOL", later: false }],
+  rows: [
+    { key: "a", asset: "SOL", from: "Won · 7zr1…qh7M", gemas: 1500, amount: 0.075, token: "test SOL", later: false, yieldFeeBps: 2000 },
+    { key: "b", asset: "SOL", from: "Your SOL deposit", gemas: 1000, amount: 0.05, token: "test SOL", later: false, yieldFeeBps: 2000 },
+  ],
   feePct: 25,
+  yieldFeePct: 20,
   available: [{ asset: "SOL", amount: 2.4, token: "test SOL" }],
   unavailable: null,
   orders,
@@ -184,4 +188,35 @@ export const InstantRedeemPartlyBought: Story = {
 /** Right after the request was sent. */
 export const InstantRedeemSent: Story = {
   render: () => exchange(offer([]), { gemas: 1500, later: false, instant: true, receipts: [{ label: "Offered for sale", sig: "5Kd3aXpQ9TqLm2VnYbT6uJc8HsRfE3aZoNqXd5iWcTYPLm2VnYbT6uJc8HsRfE3aZoNqXd5i" }] }),
+};
+
+const redeemRows = [
+  { key: "a", asset: "SOL" as const, from: "Your SOL Lock", gemas: 1200, amount: 0.06, token: "test SOL", later: false, yieldFeeBps: 2000 },
+  { key: "b", asset: "SOL" as const, from: "Won · 7zr1…qh7M", gemas: 800, amount: 0.04, token: "test SOL", later: false, yieldFeeBps: 2000 },
+];
+const picker = (instant: InstantOffer | null = null) => (
+  <div style={{ maxWidth: 480, margin: "24px auto", padding: "0 16px" }}>
+    <RedeemExchange payouts={redeemRows} instant={instant} busy={false} error={null} done={null} canSign onRedeem={() => {}} onInstant={() => {}} onClose={() => {}} />
+  </div>
+);
+
+/** Choose how many Gemas to Redeem: the rows and the payout follow the number, whole lines first. */
+export const RedeemPickAmount: Story = {
+  render: () => picker(),
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body);
+    await userEvent.click(await body.findByRole("button", { name: "50%" }));
+    await body.findByText(/after the 20% Yield Fee/);
+  },
+};
+
+/** The same pick on the Redeem now side, with an own-Gemas line in the offer. */
+export const RedeemNowPickAmount: Story = {
+  render: () => picker(offer([])),
+  play: async (ctx) => {
+    await openRedeemNow(ctx);
+    const body = within(ctx.canvasElement.ownerDocument.body);
+    await userEvent.click(await body.findByRole("button", { name: "50%" }));
+    await body.findByText(/Yield Fee and 25% fee/);
+  },
 };

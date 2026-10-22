@@ -6,11 +6,13 @@ import { Receipts, type Receipt } from "@/components/match/Receipts";
 import { gemasToAsset } from "@/lib/advance";
 import { redeemableOf, useAccount } from "@/lib/account";
 import { INSTANT_UNAVAILABLE_TITLE } from "@/lib/chain/fees";
+import { DEFAULT_YIELD_FEE_BPS, REDEEM_PAYOUT_PCT } from "@/lib/chain/yield";
 import { friendlyError } from "@/lib/chain/native-flow";
 import type { ChainPosition } from "@/lib/chain/read";
 import { returnOwn, returnRows } from "@/lib/chain/return-own";
 import { fmtAsset, fmtGemas, fmtUsd, gemasToUsd } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
+import { allocate, clampPick, scaled } from "./pick-amount";
 import "./money-sheets.css";
 import { BRAND } from "@/lib/brand";
 
@@ -35,7 +37,12 @@ export type RedeemPayout = {
   token: string;
   /** Pays on the Source's own chain a few minutes after the Solana step (ETH and HYPE). */
   later: boolean;
+  /** The Yield Fee this line's Gemas pay when cashed out, in bps (0 for fee and prize Gemas). Defaults to the launch rate. */
+  yieldFeeBps?: number;
 };
+
+/** What a line's Gemas are worth in dollars after its Yield Fee. */
+const afterYieldFee = (r: RedeemPayout, gemas = r.gemas) => (gemasToUsd(gemas) * (10_000 - (r.yieldFeeBps ?? DEFAULT_YIELD_FEE_BPS))) / 10_000;
 
 export type RedeemDone = { gemas: number; later: boolean; receipts: Receipt[]; instant?: boolean; cancelled?: boolean };
 
@@ -59,8 +66,10 @@ export type InstantOffer = {
   /** Orders already waiting for Tesoro; the Player can cancel them. */
   orders?: OpenOrderRow[];
   rows: InstantRow[];
-  /** What Tesoro keeps for paying now, in percent. */
+  /** What Tesoro keeps for paying now, in percent (taken after the Yield Fee). */
   feePct: number;
+  /** The Yield Fee every cash-out pays, in percent. */
+  yieldFeePct: number;
   /** The most each asset can be paid right now, null when not read yet. */
   available: { asset: Chain; amount: number | null; token: string }[];
   /** Plain reason Redeem now cannot be used, shown instead of the rows. */
@@ -82,13 +91,17 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
   error: string | null;
   done: RedeemDone | null;
   canSign: boolean;
-  onRedeem: () => void;
-  onInstant?: () => void;
+  /** Redeem this many Gemas, split over the lines in the order `payouts` lists them. */
+  onRedeem: (gemas: number) => void;
+  /** Offer this many pending Gemas, split over the lines in the order `instant.rows` lists them. */
+  onInstant?: (gemas: number) => void;
   /** Takes an open order's unsold Gemas back. */
   onCancelOrder?: (key: string) => void;
   onClose: () => void;
 }) {
   const [now, setNow] = useState(false);
+  /** The Gemas the Player typed for each side; null = all of them. */
+  const [picks, setPicks] = useState<{ redeem: number | null; now: number | null }>({ redeem: null, now: null });
   if (done) {
     return (
       <div className="mx">
@@ -106,7 +119,7 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
       <b>Waiting on yield</b>
       <p className="meta">Your won {yieldCheck} Gemas become redeemable as their Lock earns yield, and that yield only reaches {BRAND.name} when you ask. Get the latest yield first (usually a minute or two); whatever it covers is redeemed straight after, and if it covers nothing yet you are told.</p>
       {error && <p className="status err" role="alert">{error}</p>}
-      {busy ? <Busy>{busyNote ?? "Getting the latest yield…"}</Busy> : <Button variant="money" size="lg" block disabled={!canSign} onClick={onRedeem}>Get the latest yield and redeem</Button>}
+      {busy ? <Busy>{busyNote ?? "Getting the latest yield…"}</Busy> : <Button variant="money" size="lg" block disabled={!canSign} onClick={() => onRedeem(Number.MAX_SAFE_INTEGER)}>Get the latest yield and redeem</Button>}
     </div>
   ) : null;
   if (payouts.length === 0 && !instant) {
@@ -122,8 +135,15 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
   }
 
   const showInstant = now && instant !== null;
-  const shown = showInstant ? instant.rows : payouts;
-  const total = shown.reduce((s, p) => s + p.gemas, 0);
+  const available = showInstant ? instant.rows : payouts;
+  const max = available.reduce((s, p) => s + p.gemas, 0);
+  const side = showInstant ? "now" : "redeem";
+  const total = clampPick(picks[side] ?? max, max);
+  const parts = allocate(available, total);
+  const shown = available.flatMap((p, i) => (parts[i] > 0 ? [{ ...p, gemas: parts[i], amount: scaled(p.amount, p.gemas, parts[i]) }] : []));
+  const redeemFeePct = (shown[0]?.yieldFeeBps ?? DEFAULT_YIELD_FEE_BPS) / 100;
+  const setPick = (v: number) => setPicks((cur) => ({ ...cur, [side]: clampPick(v, max) }));
+  const afterFees = shown.reduce((s, p) => s + afterYieldFee(p), 0) * (showInstant ? (100 - instant.feePct) / 100 : 1);
   const groups = (["SOL", "ETH", "HYPE"] as Chain[])
     .map((asset) => ({ asset, rows: shown.filter((p) => p.asset === asset) }))
     .filter((g) => g.rows.length > 0);
@@ -135,18 +155,18 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
           <span className="pick-thumb" aria-hidden="true" />
           <label>
             <input type="radio" name="mx-when" checked={!now} onChange={() => setNow(false)} />
-            <span className="cut">Redeem <small>full value, as yield lands</small></span>
+            <span className="cut">Redeem <small>{REDEEM_PAYOUT_PCT}% of the value, as yield lands</small></span>
           </label>
           <label>
             <input type="radio" name="mx-when" checked={now} onChange={() => setNow(true)} />
-            <span className="cut">Redeem now <small>{100 - instant.feePct}% of the value, when {BRAND.name} buys</small></span>
+            <span className="cut">Redeem now <small>{Math.round(REDEEM_PAYOUT_PCT * (100 - instant.feePct)) / 100}% of the value, when {BRAND.name} buys</small></span>
           </label>
         </fieldset>
       )}
       {showInstant && (instant.unavailable || shown.length === 0) ? (
         <div className="mx-empty">
           <b>{INSTANT_UNAVAILABLE_TITLE}</b>
-          <p className="meta">{instant.unavailable ?? "None of your won Gemas are waiting on yield. Redeem them at full value."}</p>
+          <p className="meta">{instant.unavailable ?? "None of your won Gemas are waiting on yield. Redeem them as their yield lands."}</p>
           <Button block onClick={onClose}>Close</Button>
         </div>
       ) : shown.length === 0 && yieldPanel && !showInstant ? (
@@ -162,12 +182,31 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
       <>
       <div className="mx-pair">
         <div className="mx-panel cut">
-          <div className="mx-head"><span className="label">You give</span><span className="meta">{showInstant ? "Won, still pending" : "All redeemable"}</span></div>
-          <div className="mx-fig"><GemaMark size={30} glint /><b>{fmtGemas(total)}</b><span>Gemas</span></div>
+          <div className="mx-head"><span className="label">You give</span><span className="meta">{fmtGemas(max)} {showInstant ? "still pending" : "redeemable"}</span></div>
+          <label className="mx-fig mx-input">
+            <GemaMark size={30} glint />
+            <input
+              inputMode="numeric"
+              aria-label={showInstant ? "Gemas to offer" : "Gemas to redeem"}
+              value={fmtGemas(total)}
+              onChange={(e) => setPick(Number(e.target.value.replace(/\D/g, "")) || 0)}
+            />
+            <span>Gemas</span>
+          </label>
+          <div className="mx-quick">
+            {[0.25, 0.5, 0.75, 1].map((q) => {
+              const v = Math.floor(max * q);
+              return (
+                <button key={q} type="button" className="cut" aria-pressed={total === v} onClick={() => setPick(v)}>
+                  {q === 1 ? "Max" : `${q * 100}%`}
+                </button>
+              );
+            })}
+          </div>
         </div>
         <span className="mx-arrow cut" aria-hidden="true"><ArrowDown /></span>
         <div className="mx-panel get cut">
-          <div className="mx-head"><span className="label">You get{showInstant ? " when bought" : ""}</span><span className="meta">{showInstant ? `${100 - instant.feePct}% of ${fmtUsd(gemasToUsd(total))}` : `${fmtUsd(gemasToUsd(total))} at issuance`}</span></div>
+          <div className="mx-head"><span className="label">You get{showInstant ? " when bought" : ""}</span><span className="meta">{showInstant ? `${fmtUsd(afterFees)} after the ${instant.yieldFeePct}% Yield Fee and ${instant.feePct}% fee` : redeemFeePct > 0 ? `${fmtUsd(afterFees)} after the ${redeemFeePct}% Yield Fee` : fmtUsd(afterFees)}</span></div>
           {groups.map(({ asset, rows }) => {
             const priced = rows.every((r) => r.amount !== null);
             const amount = rows.reduce((s, r) => s + (r.amount ?? 0), 0);
@@ -186,7 +225,7 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
       </div>
       {showInstant && (
         <p className="mx-fee">
-          Only won Gemas still waiting on yield are offered: {BRAND.name} keeps {instant.feePct}% for paying you now and collects the yield later. Gemas whose yield has landed are redeemed at full value as soon as you ask. This is a request: you are paid when {BRAND.name} buys it.
+          Only Gemas still waiting on yield are offered, yours or won. You are paid after the {instant.yieldFeePct}% Yield Fee, and {BRAND.name} keeps another {instant.feePct}% for paying you now and collects the yield later. Gemas whose yield has landed are redeemed normally as soon as you ask. This is a request: you are paid when {BRAND.name} buys it.
         </p>
       )}
       <details className="mx-from">
@@ -231,7 +270,7 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
       {busy ? (
         <Busy>{busyNote ?? "Paying out your Gemas…"}</Busy>
       ) : (
-        <Button variant="money" size="lg" block disabled={!canSign} onClick={showInstant ? onInstant : onRedeem}>
+        <Button variant="money" size="lg" block disabled={!canSign || total <= 0} onClick={() => (showInstant ? onInstant?.(total) : onRedeem(total))}>
           {showInstant ? "Offer for sale" : "Redeem"} <GemaAmount value={total} size="md" />
         </Button>
       )}
@@ -356,7 +395,7 @@ export function RedeemSheet({ open, onClose }: { open: boolean; onClose: () => v
       asset: h.source.chain,
       from: h.own ? `Your ${h.source.asset} Lock` : `Won · ${h.source.owner}`,
       gemas: redeemableOf(h),
-      amount: gemasToAsset(redeemableOf(h), h.source.asset),
+      amount: (gemasToAsset(redeemableOf(h), h.source.asset) * REDEEM_PAYOUT_PCT) / 100,
       token: h.source.chain === "SOL" ? "test SOL" : h.source.asset,
       later: h.source.chain !== "SOL",
     }));
@@ -369,7 +408,7 @@ export function RedeemSheet({ open, onClose }: { open: boolean; onClose: () => v
         error={null}
         done={done}
         canSign
-        onRedeem={() => setDone({ gemas: total, later: payouts.some((p) => p.later), receipts: [] })}
+        onRedeem={(gemas) => setDone({ gemas: Math.min(gemas, total), later: payouts.some((p) => p.later), receipts: [] })}
         onClose={() => { setDone(null); onClose(); }}
       />
     </Sheet>

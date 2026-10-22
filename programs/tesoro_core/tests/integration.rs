@@ -500,6 +500,7 @@ impl Env {
                 book: book_address(&source).0,
                 basket: basket_address(&p.account).0,
                 spill: spill_address(&p.account).0,
+                economy: pda(&[ECONOMY_SEED]),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::TakeAdvance {
@@ -679,6 +680,10 @@ impl Env {
                 yield_units: 0,
                 redeemed_units: 0,
                 due_at: 0,
+                yield_fee_bps: 0,
+                pool_bps: 0,
+                fee_units: 0,
+                pool_units: 0,
             },
         };
         self.put_account(source, &src_state, SourceState::SPACE);
@@ -2920,6 +2925,7 @@ impl Env {
                 config: pda(&[CONFIG_SEED]),
                 pool_authority: pda(&[LEADERBOARD_SEED]),
                 pool_account: pool_pda(),
+                treasury: common::treasury(),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::InitLeaderboard {

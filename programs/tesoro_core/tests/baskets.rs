@@ -359,6 +359,10 @@ impl Env {
                 yield_units: 0,
                 redeemed_units: 0,
                 due_at: 0,
+                yield_fee_bps: 0,
+                pool_bps: 0,
+                fee_units: 0,
+                pool_units: 0,
             },
         };
         let mut data = Vec::new();

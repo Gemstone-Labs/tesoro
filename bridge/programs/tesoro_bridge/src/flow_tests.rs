@@ -591,6 +591,7 @@ impl Env {
                 basket: basket_address(&self.owner_account).0,
                 spill: spill_address(&self.owner_account).0,
                 protections: core_pda(&[PROTECTIONS_SEED, self.owner_account.as_ref()]),
+                economy: core_pda(&[ECONOMY_SEED]),
                 system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::TakeAdvance {
@@ -737,24 +738,25 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
     let err = env.apply_locked(id).expect_err("a Position opens once");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::AlreadyOpened)));
 
-    // Advance (oracle price): 5% of 1 ETH over 3 months = 0.0125 ETH, 80% of it after the Yield
-    // Fee = 0.01 ETH = $30 = 3,000 Gemas.
+    // Advance (oracle price): 5% of 1 ETH over 3 months = 0.0125 ETH = $37.50 = 3,750 Gemas (the
+    // whole yield; the Yield Fee is taken at cash-out, ticket 31).
     env.take_advance(id);
     let source_key = core_pda(&[SOURCE_SEED, env.core_position(id).as_ref(), &0u32.to_le_bytes()]);
-    assert_eq!(econ::gemas_in(&env.svm, env.owner_account, source_key), 3_000);
-    assert_eq!(env.debt(source_key), 3_000);
+    assert_eq!(econ::gemas_in(&env.svm, env.owner_account, source_key), 3_750);
+    assert_eq!(env.debt(source_key), 3_750);
 
     // No yield reported yet.
     let err = env.apply_yield(id, true).expect_err("nothing to apply");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::NothingToApply)));
 
-    // Half of the projected net yield arrives (the vault reports yield after its Yield Fee): Debt
-    // halves.
+    // 0.005 ETH of gross yield arrives (the vault reports gross yield): it repays 1,500 Gemas.
     env.receive_yield(id, 2, 5_000_000_000_000_000, 0, 0);
     env.apply_yield(id, false).expect_err("the open Advance's Source is required");
     env.apply_yield(id, true).expect("apply yield");
-    assert_eq!(env.debt(source_key), 1_500);
-    assert_eq!(env.redeemable(env.owner_account, source_key, SIDE_OWN), 1_500);
+    assert_eq!(env.debt(source_key), 2_250);
+    // The book rounds an unpaid amount up when it touches a line: ready may sit one Gema under.
+    let ready = env.redeemable(env.owner_account, source_key, SIDE_OWN);
+    assert!((1_499..=1_500).contains(&ready), "ready {ready}");
     let err = env.apply_yield(id, true).expect_err("applied once");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::NothingToApply)));
 
@@ -781,7 +783,7 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
         assert_eq!(custom_code(&err), Some(6012), "BridgedSource");
         assert_eq!(
             econ::gemas_in(&env.svm, env.owner_account, source_key),
-            3_000,
+            3_750,
             "nothing was burned"
         );
     }
@@ -824,15 +826,24 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
     // 1,000 Gemas at $3,000 per ETH = $10 = 0.003333... ETH, floored to whole wei.
     assert_eq!(claim.units_total, 3_333_333_333_333_333);
     assert_eq!(claim.units_sent, 0);
+    // The Yield Fee rides with the claim (ticket 31): the vault pays 80% (one floor) and keeps the
+    // rest for the Treasury, half of it owed to the Pool.
+    let payout = (u128::from(claim.units_total) * 8_000 / 10_000) as u64;
+    assert_eq!(claim.fee_total, claim.units_total - payout);
+    assert_eq!(claim.pool_total, claim.fee_total / 2);
+    assert_eq!(
+        (source.inner.fee_units, source.inner.pool_units),
+        (claim.fee_total, claim.pool_total)
+    );
     assert_eq!(claim.position, env.core_position(id));
 
-    redeem(&mut env, 500).expect("redeem the rest of what is redeemable");
+    redeem(&mut env, ready - 1_000).expect("redeem the rest of what is redeemable");
     let claim: Claim = env.load(claim_key);
-    assert_eq!(claim.gemas_total, 1_500);
+    assert_eq!(claim.gemas_total, ready);
     redeem(&mut env, 1).expect_err("nothing redeemable beyond accrued yield");
 
     // Gemas holders are credited nothing on Solana: the Gemas are burned by the redeem.
-    assert_eq!(econ::gemas_in(&env.svm, env.owner_account, source_key), 3_000 - 1_500);
+    assert_eq!(econ::gemas_in(&env.svm, env.owner_account, source_key), 3_750 - ready);
 }
 
 #[test]
@@ -1151,10 +1162,15 @@ impl Env {
     }
 }
 
-/// What a filled order pays: the Gemas' value in source units less the Instant Redeem Fee.
+/// What a filled order pays: the Gemas' value in source units less the 20% Yield Fee and the
+/// Instant Redeem Fee, one floor (ticket 31).
 fn instant_payout(units: u64) -> u64 {
-    (u128::from(units) * u128::from(10_000 - tesoro_core::ledger::INSTANT_REDEEM_FEE_BPS) / 10_000)
-        as u64
+    tesoro_core::ledger::instant_payout(
+        u128::from(units),
+        2_000,
+        tesoro_core::ledger::INSTANT_REDEEM_FEE_BPS,
+    )
+    .expect("payout") as u64
 }
 
 #[test]
@@ -1217,11 +1233,11 @@ fn instant_redeem_is_capped_by_the_mirror_of_the_vault_treasury() {
         .expect_err("not admin");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::Unauthorized)));
 
-    // The owner's own Gemas never redeem instantly.
+    // The owner may sell their own Gemas too (founder, 2026-10-22).
     let owner = env.owner.insecure_clone();
     let owner_account = env.owner_account;
     env.request_instant_line(id, &owner, owner_account, source, 10, 9, SIDE_OWN)
-        .expect_err("own Gemas");
+        .expect("own Gemas are for sale");
 }
 
 #[test]
@@ -1267,13 +1283,20 @@ fn the_treasury_redeems_what_it_bought_into_a_claim_paid_to_the_vault() {
     // Nothing has accrued: the Treasury waits like every other holder.
     redeem(&mut env, 1).expect_err("not redeemable yet");
 
-    // All the net yield lands: the Treasury redeems its 1,000 Gemas at full value.
-    env.receive_yield(id, 3, 10_000_000_000_000_000, ETH, 0);
+    // All the yield lands: the Treasury redeems its 1,000 Gemas.
+    env.receive_yield(id, 3, 12_500_000_000_000_000, ETH, 0);
     env.apply_yield(id, true).expect("apply yield");
     redeem(&mut env, 1_000).expect("treasury redeems");
     let claim: Claim = env.load(claim_key);
     assert_eq!(claim.holder_account, treasury_account);
-    assert_eq!(claim.units_total, 3_333_333_333_333_333, "full value, not 75%");
+    assert_eq!(claim.units_total, 3_333_333_333_333_333, "every unit is the Treasury's");
+    // Not exempt (red-team #4): the vault keeps it all, and the Pool is owed its half of the
+    // Yield Fee plus a fifth of the 25% Instant fee on the value after the Yield Fee.
+    let total = u128::from(claim.units_total);
+    let after_fee = total * 8_000 / 10_000;
+    let fee = total - after_fee;
+    assert_eq!(u128::from(claim.fee_total), fee);
+    assert_eq!(u128::from(claim.pool_total), fee / 2 + after_fee * 500 / 10_000);
     assert_eq!(econ::gemas_in(&env.svm, treasury_account, source), 0);
     // The Treasury Account is the one whose PayYield goes to the vault itself.
     let treasury_state: TesoroAccount = env.load(treasury_account);
@@ -1289,12 +1312,12 @@ fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
     let (bob, bob_account, source) = env.winner_with(id, 1_000);
     // Only Gemas whose yield has not landed can be redeemed instantly: the Report's Treasury is
     // mirrored first and the yield is applied afterwards.
-    env.receive_yield(id, 2, 10_000_000_000_000_000, ETH, 0);
+    env.receive_yield(id, 2, 12_500_000_000_000_000, ETH, 0);
     env.sync_treasury(id).expect("sync");
     env.request_instant(id, &bob, bob_account, source, 400, 1).expect("order");
     env.fill_instant(id, &bob, bob_account, source, 1, 400).expect("fill 400");
     env.apply_yield(id, true).expect("apply yield");
-    // Bob redeems his other 600 at full value through the normal path.
+    // Bob redeems his other 600 through the normal path (paid less the Yield Fee on EVM).
     let claim = bridge_pda(&[CLAIM_SEED, bob_account.as_ref(), source.as_ref()]);
     let mut redeem = ix(
         crate::ID,
@@ -1505,6 +1528,7 @@ impl Env {
                     config: core_pda(&[CONFIG_SEED]),
                     pool_authority: core_pda(&[LEADERBOARD_SEED]),
                     pool_account: self.pool_account(),
+                    treasury: core_pda(&[TREASURY_SEED]),
                     system_program: anchor_lang::system_program::ID,
                 },
                 tesoro_core::instruction::InitLeaderboard { leaderboard_bps: 100 },

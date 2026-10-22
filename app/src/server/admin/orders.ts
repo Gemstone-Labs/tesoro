@@ -98,9 +98,9 @@ function syncedBook(book: SourceBookView, pos: any, src: any, pool: PoolParams |
   const p = pos.inner;
   const native = enumKey(p.sourceChain) === "solana" && (key(p.sourceAsset).equals(SIM_SOL_MINT) || big(p.stakeRateOpen ?? 0) !== 0n);
   if (!native || p.openAdvance !== src.inner.index || enumKey(p.status) !== "locked") return book;
-  const clock = clockOf({ principalLamports: big(p.principal), rateBps: p.rateBps, yieldFeeBps: p.yieldFeeBps, openedAt: Number(big(p.openedAt)), stakeRateOpen: big(p.stakeRateOpen ?? 0) });
+  const clock = clockOf({ principalLamports: big(p.principal), rateBps: p.rateBps, openedAt: Number(big(p.openedAt)), stakeRateOpen: big(p.stakeRateOpen ?? 0) });
   const stake = stakeRate ? { rateNow: stakeRate, atSec: nowSec, apyBps: p.rateBps } : undefined;
-  const net = positionAccrued(clock, pool?.speedup ?? 1, nowSec, stake).net;
+  const net = positionAccrued(clock, pool?.speedup ?? 1, nowSec, stake);
   const applied = big(p.appliedNet);
   return syncPreview(book, net > applied ? net - applied : 0n, { unitNum: big(src.inner.unitNum), unitDen: big(src.inner.unitDen) });
 }

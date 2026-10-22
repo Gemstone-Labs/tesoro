@@ -9,7 +9,7 @@ import { TESORO_CORE_ID, meta, parseSource, pda, rdU32, rdU64, s, sourcePda, u64
 import { unitsToRepay, type SourceMath } from "./ledger";
 import { basketPda, spillPda, type LineRef } from "./basket";
 import { coreIx } from "./core-ix";
-import { DEFAULT_YIELD_FEE_BPS, accruedYield, advanceUnits, netOfYieldFee } from "./yield";
+import { DEFAULT_YIELD_FEE_BPS, accruedYield, advanceUnits, cashOut } from "./yield";
 
 /**
  * EVM Positions (Ethereum Hoodi and HyperEVM testnet) on the Solana ledger, over LayerZero V2. Accounts and wire
@@ -152,7 +152,7 @@ export const vaultAbi = parseAbi([
   "function rateSource() view returns (address)",
   "function accruedYield(uint64) view returns (uint256)",
   "function payableYield(uint64) view returns (uint256)",
-  "function getPosition(uint64) view returns ((address owner, uint256 principalShares, uint256 principalUnderlying, uint256 openRate, uint256 paidUnderlying, uint256 frozenAccrued, uint256 a, uint256 b, uint256 d, uint256 heldShares, uint256 apyBps, uint256 speedup, uint64 openTime, uint64 outSeq, uint64 inSeq, uint16 feeBps, uint8 horizonMonths, bool unlocked))",
+  "function getPosition(uint64) view returns ((address owner, uint256 principalShares, uint256 principalUnderlying, uint256 openRate, uint256 paidUnderlying, uint256 frozenAccrued, uint256 a, uint256 b, uint256 d, uint256 heldShares, uint256 apyBps, uint256 speedup, uint64 openTime, uint64 outSeq, uint64 inSeq, uint8 horizonMonths, bool unlocked))",
   "function treasuryBalance() view returns (uint256)",
   "function reportedAccrued(uint64) view returns (uint256)",
   "error YieldBelowReported(uint256 accrued, uint256 reported)",
@@ -605,19 +605,17 @@ export interface VaultPosition {
   paidUnderlying: bigint;
   /** Accrued Yield frozen at Unlock (the formula stops there). */
   frozenAccrued: bigint;
-  /** The Yield Fee this Position opened with (basis points, fixed per Position). */
-  feeBps: number;
   openTime: bigint;
   horizonMonths: number;
   unlocked: boolean;
   /**
-   * Accrued Yield right now by the vault's formula (underlying wei, net of the Yield Fee, cumulative: includes what was
+   * Accrued Yield right now by the vault's formula (underlying wei, gross: the Yield Fee is taken at cash-out; cumulative: includes what was
    * paid out). Computed on read, never recorded; Solana only learns it from a Yield Report.
    */
   accrued: bigint;
 }
 
-type VaultPositionRaw = Omit<VaultPosition, "accrued" | "feeBps" | "horizonMonths"> & { feeBps: number | bigint; horizonMonths: number | bigint };
+type VaultPositionRaw = Omit<VaultPosition, "accrued" | "horizonMonths"> & { horizonMonths: number | bigint };
 
 export async function fetchVaultPosition(vault: string, id: bigint): Promise<VaultPosition | null> {
   const c = evmClient(netOfVault(vault));
@@ -635,7 +633,6 @@ export async function fetchVaultPosition(vault: string, id: bigint): Promise<Vau
     heldShares: p.heldShares,
     paidUnderlying: p.paidUnderlying,
     frozenAccrued: p.frozenAccrued,
-    feeBps: Number(p.feeBps),
     openTime: p.openTime,
     horizonMonths: Number(p.horizonMonths),
     unlocked: p.unlocked,
@@ -652,9 +649,9 @@ export const withHeadroom = (fee: bigint) => (fee * (100n + LZ_FEE_HEADROOM_PCT)
 
 // ---- Math ---------------------------------------------------------------------------------------
 
-/** Advance sizing as `Position::open_advance`: the projected yield net of the Yield Fee, floored to whole Gemas ($0.01 each). */
-export function quoteEthAdvance(principalWei: bigint, rateBps: number, months: number, priceMicroUsd: bigint, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) {
-  const projectedUnits = advanceUnits(principalWei, rateBps, months, yieldFeeBps);
+/** Advance sizing as `Position::open_advance`: the whole projected yield (ticket 31), floored to whole Gemas ($0.01 each). */
+export function quoteEthAdvance(principalWei: bigint, rateBps: number, months: number, priceMicroUsd: bigint) {
+  const projectedUnits = advanceUnits(principalWei, rateBps, months);
   const gemas = (projectedUnits * priceMicroUsd) / 10n ** BigInt(ETH_DECIMALS + 4);
   return { projectedUnits, gemas };
 }
@@ -688,7 +685,6 @@ export function ethUnlockEstimateMs(args: {
   position: Pick<VaultPosition, "heldShares" | "principalUnderlying" | "paidUnderlying" | "accrued">;
   rate: SimRate;
   nowMs: number;
-  yieldFeeBps?: number;
 }): number | null {
   const { source, position, rate, nowMs } = args;
   if (!source || position.heldShares === 0n) return null;
@@ -697,22 +693,20 @@ export function ethUnlockEstimateMs(args: {
   if (have >= needed) return nowMs;
   // Yield is linear on the Position's own Principal (docs/yield-model.md): accrued(t) = accrued_now + per_second * t.
   const window = 1_000_000n;
-  const perWindow = netOfYieldFee(
-    accruedYield({
-      principal: position.principalUnderlying,
-      rateBps: Number(rate.apyBps),
-      elapsedSec: window,
-      speedup: rate.speedup,
-    }),
-    args.yieldFeeBps ?? DEFAULT_YIELD_FEE_BPS,
-  );
+  const perWindow = accruedYield({
+    principal: position.principalUnderlying,
+    rateBps: Number(rate.apyBps),
+    elapsedSec: window,
+    speedup: rate.speedup,
+  });
   if (perWindow === 0n) return null;
   const seconds = ((needed - have) * window + perWindow - 1n) / perWindow;
   return nowMs + Number(seconds) * 1000;
 }
 
-/** ETH base units a redeem of `gemas` pays (floor, as the program computes it). */
-export const redeemPayoutWei = (source: SourceMath, gemas: bigint) => (gemas * source.unitNum) / source.unitDen;
+/** ETH base units a redeem of `gemas` pays: their value (floor, as the program computes it) less the Yield Fee (one floor). */
+export const redeemPayoutWei = (source: SourceMath, gemas: bigint, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) =>
+  cashOut((gemas * source.unitNum) / source.unitDen, yieldFeeBps, 0).payout;
 
 export const fmtEth = (wei: bigint | number, digits = 4) =>
   (Number(wei) / 1e18).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });

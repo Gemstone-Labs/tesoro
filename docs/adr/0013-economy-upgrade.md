@@ -88,3 +88,13 @@ Each item replaced a line of the first draft of this ADR.
 - Open founder items: the loader's extend behaviour on mainnet is covered by the hash, not confirmed; the Instant Redeem budget and an automatic filler wait for the cofounder talk; Block Puzzle on tables needs its own decision.
 
 Details: `docs/tesoro-core.md`, `docs/cross-chain.md`, `CONTEXT.md`. The spec (`.scratch/economy-upgrade/spec.md`) is the local build record.
+
+## Amendment: the Yield Fee at cash-out (ticket 31, founder 2026-10-22)
+
+- Gemas are 100% of the yield: an Advance is sized on gross yield and Accrued Yield is gross. Packs become 700 / 1,750 / 3,500 Gemas.
+- The 20% Yield Fee (10% Tesoro, 10% Pool) is taken once, when yield is cashed out: Redeem, the ready part of an Instant Redeem, the Treasury redeeming Gemas it bought, and the owner's free yield at Unlock (so Return then Unlock still pays it). Exempt: fee-class Gemas (Platform, Studio, Leaderboard), prize Gemas, and everything Tesoro receives. `0.2 x max Studio Fee < Platform + Leaderboard` keeps the Studio exemption from paying for laundering.
+- Instant Redeem pays the value after the Yield Fee less 25% (60% of face at launch, one floor) and works on own Gemas; Tesoro's fill policy is the cap. One fifth of the Instant Redeem Fee is the Pool's, owed when the Treasury redeems the bought Gemas.
+- Each Source snapshots the Yield Fee and the Pool's share when its Advance opens. EVM vaults report gross yield; PayYield carries the fee and the Pool's part.
+- A staking-token Unlock whose custody falls short of the owner's Principal and free yield (holders' landed shares grew with the pool) is covered by the fee on the free yield first, then topped up by the Treasury from spendable shares; Unlock never fails.
+- This replaces "10% owed to the Pool once realised" (realised at Unlock) and "the Player gets 75% of the value at fill time" above.
+

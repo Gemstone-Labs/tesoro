@@ -9,8 +9,8 @@ import {
 } from "@solana/web3.js";
 import { CLUSTER } from "../cluster-settings";
 import { debtGemas, sourceView, unitsToRepayTotal, type SourceMath } from "./ledger";
-import { parseFeeMinted, parseNativeRoute, parsePoolTotals, parseTreasury, parseVaultShares, type RouteView, type TreasuryRates } from "./fees";
-import { DEFAULT_YIELD_FEE_BPS, SPEEDUP, advanceUnits, positionAccrued, secondsUntilNet, type PoolTotals, type PositionClock, type StakeGrowth } from "./yield";
+import { parseNativeRoute, parseTreasury, parseVaultShares, type RouteView, type TreasuryRates } from "./fees";
+import { SPEEDUP, advanceUnits, positionAccrued, secondsUntilNet, type PositionClock, type StakeGrowth } from "./yield";
 import type { StakeMarket } from "./stake";
 import { coreIx } from "./core-ix";
 import { basketPda, bookPda, spillPda, type LineRef } from "./basket";
@@ -91,6 +91,8 @@ export const yieldConfigPda = () => pda([s("yield_config")], SIM_LST_ID);
 
 /** tesoro_core `["treasury"]`: Tesoro's Yield Fee and Instant Redeem rates, and the owner of the Treasury Account and vault. */
 export const treasuryPda = () => pda([s("treasury")]);
+/** The economy settings (`["economy"]`): the Pool's share of the Yield Fee a new Source snapshots, the fill and Season keepers. */
+export const economyPda = () => pda([s("economy")]);
 /** The treasury simSOL token account: collects the Yield Fee, pays Instant Redeems. */
 export const treasuryVaultPda = () => pda([s("treasury_vault")]);
 export const treasuryAccountPda = () => pda([s("account"), treasuryPda().toBuffer()]);
@@ -265,8 +267,9 @@ export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advan
       pool: POOL,
       source,
       book: bookPda(source),
-    basket: basketPda(accountPda(owner)),
+      basket: basketPda(accountPda(owner)),
       spill: spillPda(accountPda(owner)),
+      economy: economyPda(),
     },
     { horizon_months: months, min_gemas: minGemas },
     prev ? [meta(sourcePda(position, prev.index)), ...writable(prev.accounts)] : [],
@@ -478,19 +481,19 @@ export function rateAt(p: PoolParams): bigint {
 /** SOL base units a simSOL amount is worth at `rate`. */
 export const sharesValue = (shares: bigint, rate: bigint) => (shares * rate) / RATE_SCALE;
 
-/** Advance sizing exactly as `Position::open_advance`: the projected yield net of the Yield Fee, floored to whole Gemas. */
-export function quoteNativeAdvance(principalLamports: bigint, rateBps: number, months: number, priceMicroUsd: bigint, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) {
-  const projectedUnits = advanceUnits(principalLamports, rateBps, months, yieldFeeBps);
+/** Advance sizing exactly as `Position::open_advance`: the whole projected yield (ticket 31), floored to whole Gemas. */
+export function quoteNativeAdvance(principalLamports: bigint, rateBps: number, months: number, priceMicroUsd: bigint) {
+  const projectedUnits = advanceUnits(principalLamports, rateBps, months);
   const gemas = (projectedUnits * priceMicroUsd) / 10n ** 13n;
   return { projectedUnits, gemas };
 }
 
 /**
  * Extending an Advance by `extraMonths`, as `Position::extend_advance`: the Gemas minted are
- * `size(h + extra) - size(h)` at the Source's own price and the current Yield Fee, so a fee change since the Advance never skews the quote.
+ * `size(h + extra) - size(h)` at the Source's own price.
  */
-export function quoteExtendAdvance(principalLamports: bigint, rateBps: number, source: SourceMath, horizonMonths: number, extraMonths: number, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) {
-  const size = (months: number) => (advanceUnits(principalLamports, rateBps, months, yieldFeeBps) * source.unitDen) / source.unitNum;
+export function quoteExtendAdvance(principalLamports: bigint, rateBps: number, source: SourceMath, horizonMonths: number, extraMonths: number) {
+  const size = (months: number) => (advanceUnits(principalLamports, rateBps, months) * source.unitDen) / source.unitNum;
   const gemas = size(horizonMonths + extraMonths) - size(horizonMonths);
   return { gemas, extended: { ...source, issued: source.issued + gemas } };
 }
@@ -499,10 +502,9 @@ export function quoteExtendAdvance(principalLamports: bigint, rateBps: number, s
 export const speedupOf = (pool: Pick<PoolParams, "speedup"> | null | undefined): number => pool?.speedup ?? Number(SPEEDUP);
 
 /** A native Position's yield clock: what it fixed at open. */
-export const clockOf = (info: Pick<NativeInfo, "principalLamports" | "rateBps" | "yieldFeeBps" | "openedAt"> & { stakeRateOpen?: bigint }): PositionClock => ({
+export const clockOf = (info: Pick<NativeInfo, "principalLamports" | "rateBps" | "openedAt"> & { stakeRateOpen?: bigint }): PositionClock => ({
   principal: info.principalLamports,
   rateBps: info.rateBps,
-  yieldFeeBps: info.yieldFeeBps,
   openedAt: info.openedAt,
   stakeRateOpen: info.stakeRateOpen,
 });
@@ -519,7 +521,7 @@ export interface NativeFacts extends PositionClock {
 
 /** A Source of a native Position as it stands at `nowSec` (the open Advance derived from the clock, a closed one as stored). */
 export function sourceAtClock(facts: NativeFacts, index: number, math: SourceMath, speedup: number, nowSec: number, stake?: StakeGrowth): SourceMath {
-  return sourceView(facts, index, math, positionAccrued(facts, speedup, nowSec, stake).net);
+  return sourceView(facts, index, math, positionAccrued(facts, speedup, nowSec, stake));
 }
 
 /** The pool's `speedup` from the raw sim_lst Pool account data (what `marketFrom` reads). */
@@ -527,7 +529,7 @@ export const poolSpeedup = (data: Uint8Array): number => rdU32(data, 92);
 
 /** A native Position at one moment, derived from the clock exactly as the program does (`position_accrued`, `source_view`). */
 export interface NativeNow {
-  /** Net Accrued Yield since open (frozen at the last settled amount once Unlocked), source-asset units. */
+  /** Accrued Yield since open (frozen at the last settled amount once Unlocked), source-asset units. */
   accrued: bigint;
   /** The latest Advance's Source with the yield it counts now; null before the first Advance. */
   source: SourceMath | null;
@@ -542,7 +544,7 @@ export function nativeNow(info: NativeInfo, speedup: number, nowSec: number, sta
     const stored = info.source?.math ?? null;
     return { accrued: info.appliedNet, source: stored, debtGemas: stored ? debtGemas(stored) : 0n, freeUnits: sat(info.freeYield, info.freeYieldClaimed) };
   }
-  const net = positionAccrued(clockOf(info), speedup, nowSec, stake).net;
+  const net = positionAccrued(clockOf(info), speedup, nowSec, stake);
   const src = info.source;
   const view = src ? sourceView(info, src.index, src.math, net) : null;
   const counted = sat(net, info.appliedNet);
@@ -553,14 +555,14 @@ export function nativeNow(info: NativeInfo, speedup: number, nowSec: number, sta
 const sat = (a: bigint, b: bigint) => (a > b ? a - b : 0n);
 
 /**
- * Unlock Estimate (ms since epoch): when the Position's net Accrued Yield past `appliedNet` covers everything `source`
+ * Unlock Estimate (ms since epoch): when the Position's Accrued Yield past `appliedNet` covers everything `source`
  * still owes. Null when it cannot be projected (nothing earning). An estimate, never a promise: it moves with the pool's speedup.
  */
 export function unlockEstimateMs(args: { clock: PositionClock; speedup: number; appliedNet: bigint; source: SourceMath | null; nowMs: number; stake?: StakeGrowth }): number | null {
   const { clock, speedup, appliedNet, source, nowMs, stake } = args;
   if (!source) return null;
   const target = appliedNet + unitsToRepayTotal(source);
-  if (positionAccrued(clock, speedup, Math.floor(nowMs / 1000), stake).net >= target) return nowMs;
+  if (positionAccrued(clock, speedup, Math.floor(nowMs / 1000), stake) >= target) return nowMs;
   const at = secondsUntilNet(clock, speedup, target, stake);
   return at === null ? null : Math.max(nowMs, at * 1000);
 }
@@ -591,8 +593,6 @@ export interface NativeMarket {
   treasury: TreasuryRates | null;
   /** simSOL the treasury vault holds to pay Instant Redeems; null while there is no Treasury. */
   treasuryShares: bigint | null;
-  /** What the earned, unminted Yield Fee is computed from; null while there is no Treasury or shared custody. */
-  treasuryClaim: { totals: PoolTotals; feeMinted: bigint } | null;
   /** The Treasury's shares on the shared custody's route (Instant Redeem fills pay from `spendable`); null before the custody exists. */
   treasuryRoute?: RouteView | null;
   /** Mainnet: the staking token, its pool and the custody read; null on a simulated market, where `pool` is the sim_lst pool. */
@@ -610,11 +610,11 @@ export interface NativeInfo {
   status: "locked" | "unlocked";
   principalLamports: bigint;
   rateBps: number;
-  /** The Yield Fee in basis points, fixed on the Position at open. */
+  /** The Yield Fee in basis points, fixed on the Position at open: charged on its free yield at Unlock. */
   yieldFeeBps: number;
   /** Unix seconds the Position opened: its Accrued Yield counts from here. */
   openedAt: number;
-  /** Net Accrued Yield already settled (consumed by closed Advances or banked as free yield). */
+  /** Accrued Yield already settled (consumed by closed Advances or banked as free yield). */
   appliedNet: bigint;
   /** Banked free yield and how much of it was paid out, source-asset units. */
   freeYield: bigint;
@@ -622,7 +622,7 @@ export interface NativeInfo {
   advances: number;
   openAdvance: number | null;
   /** The latest Advance's Source as stored (kept after Debt reaches zero; its yield counts only through `nativeNow`), null before the first Advance. */
-  source: { key: PublicKey; index: number; horizonMonths: number; math: SourceMath } | null;
+  source: { key: PublicKey; index: number; horizonMonths: number; math: SourceMath; fees: SourceFees | null } | null;
 }
 
 /** The accounts `marketFrom` reads, in order: pool, price feed, the wallet's simSOL token account, Treasury, Treasury vault, shared custody. */
@@ -640,15 +640,11 @@ export function marketFrom([pool, feed, ata, treasuryInfo, treasuryVault, custod
   if (ata) simSol = rdU64(ata.data, 64);
   const price = parseSolPrice(feed);
   const treasury = treasuryInfo && treasuryInfo.owner.equals(TESORO_CORE_ID) ? parseTreasury(treasuryInfo.data) : null;
-  const totals = custodyInfo && custodyInfo.owner.equals(TESORO_CORE_ID) ? parsePoolTotals(custodyInfo.data) : null;
-  const feeMinted = treasuryInfo && treasury ? parseFeeMinted(treasuryInfo.data) : null;
-  const claim = totals && feeMinted !== null ? { totals, feeMinted } : null;
   return {
     pool: { baseRate: rdU64(d, 72), baseTs: Number(rdI64(d, 80)), apyBps: rdU32(d, 88), speedup: rdU32(d, 92) },
     price,
     simSol,
     treasury,
-    treasuryClaim: claim,
     treasuryRoute: custodyInfo && custodyInfo.owner.equals(TESORO_CORE_ID) ? parseNativeRoute(custodyInfo.data) : null,
     stake: null,
     treasuryShares: treasury ? (treasuryVault && parseVaultShares(treasuryVault.data)) ?? 0n : null,
@@ -671,7 +667,17 @@ export function parseSource(key: PublicKey, data: Buffer) {
     unitNum,
     unitDen,
   };
-  return { key, index, horizonMonths, math };
+  // After the five counters and `due_at`: the Yield Fee terms the Source keeps for life (ticket 31).
+  const feesAt = o + 48;
+  const fees: SourceFees | null =
+    data.length >= feesAt + 4 ? { yieldFeeBps: rdU16(data, feesAt), poolBps: rdU16(data, feesAt + 2) } : null;
+  return { key, index, horizonMonths, math, fees };
+}
+
+/** The Yield Fee a Source's Gemas pay when cashed out, and the Pool's share of it (`Source.yield_fee_bps`, `pool_bps`). */
+export interface SourceFees {
+  yieldFeeBps: number;
+  poolBps: number;
 }
 
 /** Reads a native Position with its latest Source. Null when it is not a native Position. */

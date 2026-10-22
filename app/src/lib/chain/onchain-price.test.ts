@@ -43,9 +43,9 @@ describe("Pyth push feeds", () => {
     expect(parsePythPrice(null, "SOL")).toBeNull();
   });
 
-  it("sizes an Advance on the feed price like the program (12 SOL, 7%, a month, 80% -> 840 Gemas at $150)", () => {
+  it("sizes an Advance on the feed price like the program (12 SOL, 7%, a month -> 1,050 Gemas at $150)", () => {
     const price = parsePythPrice(image("SOL", 15_000_000_000n, 0n, 1_000), "SOL")!;
-    expect(quoteNativeAdvance(12_000_000_000n, 700, 1, price.microUsd).gemas).toBe(840n);
+    expect(quoteNativeAdvance(12_000_000_000n, 700, 1, price.microUsd).gemas).toBe(1050n);
   });
 });
 

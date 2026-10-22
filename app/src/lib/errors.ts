@@ -10,7 +10,7 @@ export const RETRY = "That didn’t go through. Try again in a moment.";
 export const UNCONFIRMED = "Sent, but not confirmed yet. Wait a moment and check before trying again.";
 
 /** The program refused an Instant Redeem because the Treasury holds less than the payout (tesoro_core TreasuryShort, 6017 = 0x1781). */
-export const INSTANT_UNAVAILABLE = `Instant Redeem unavailable right now. ${BRAND.name}'s Treasury cannot pay it at the moment. Redeem at full value as the yield lands, or try again later.`;
+export const INSTANT_UNAVAILABLE = `Instant Redeem unavailable right now. ${BRAND.name}'s Treasury cannot pay it at the moment. Redeem as the yield lands, or try again later.`;
 
 export const PRICE_MOVED = "The price moved while you were confirming, so the Advance would have issued fewer Gemas than shown. Nothing was taken. Try again.";
 

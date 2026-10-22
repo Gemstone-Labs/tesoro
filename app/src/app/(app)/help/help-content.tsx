@@ -3,14 +3,14 @@ import type { ReactNode } from "react";
 import { fmtGemas } from "@/lib/format";
 import { ENTRY_SIZES } from "@/lib/cluster-settings";
 import { fmtEntryList } from "@/lib/format";
-import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
+import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT, REDEEM_PAYOUT_PCT, YIELD_FEE_PCT } from "@/lib/chain/yield";
 import { BRAND } from "@/lib/brand";
 
 export const STEPS: { title: string; text: string; href: string; cta: string }[] = [
   { title: "Get Gemas", text: "Lock a staking token in your Wallet. What you lock is never played.", href: "/wallet", cta: "Wallet" },
-  { title: "Take an Advance", text: "Get 80% of its projected yield for 1–12 months upfront, as Gemas.", href: "/wallet", cta: "Wallet" },
+  { title: "Take an Advance", text: "Get its projected yield for 1–12 months upfront, as Gemas.", href: "/wallet", cta: "Wallet" },
   { title: "Play a Match", text: "Pick a game and an entry. Win the Pot minus Fees.", href: "/play", cta: "Play" },
-  { title: "Redeem", text: `Turn Gemas into the coin they came from as its yield lands, or now for ${INSTANT_PAYOUT_PCT}%.`, href: "/wallet", cta: "Wallet" },
+  { title: "Redeem", text: `Turn Gemas into the coin they came from as its yield lands (${REDEEM_PAYOUT_PCT}% of their value), or now for ${INSTANT_PAYOUT_PCT}%.`, href: "/wallet", cta: "Wallet" },
 ];
 
 export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[] = [
@@ -32,8 +32,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "Where do my Gemas come from?",
         a: (
           <p>
-            Get Gemas in your <Link href="/wallet">Wallet</Link> by locking a staking token, then take an Advance: 80% of the Lock&apos;s
-            projected yield over a Length of 1 to 12 months (the yield after {BRAND.name}&apos;s 20% Yield Fee), paid upfront as Gemas.
+            Get Gemas in your <Link href="/wallet">Wallet</Link> by locking a staking token, then take an Advance: the Lock&apos;s
+            projected yield over a Length of 1 to 12 months, paid upfront as Gemas. {BRAND.name}&apos;s {YIELD_FEE_PCT}% Yield Fee comes out later, when you cash Gemas out.
           </p>
         ),
       },
@@ -152,8 +152,9 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "What is the Yield Fee?",
         a: (
           <p>
-            {BRAND.name} keeps 20% of the yield your Lock earns, on SOL, ETH and HYPE alike. Your Lock keeps the other 80%, and your Advance is
-            sized on that 80%, so it is still repaid in the same time and your Unlock Estimate does not change. See <Link href="/docs/fees">Fees</Link>.
+            {BRAND.name} keeps {YIELD_FEE_PCT}% of the value of Gemas when they are cashed out, on SOL, ETH and HYPE alike. Your Advance is the whole projected yield, so it
+            is repaid in the Length you picked and your Unlock Estimate does not change. A Redeem pays {REDEEM_PAYOUT_PCT}% of the Gemas&apos; value: 1,000 Gemas worth $10.00 pay $8.00. Gemas
+            that pay a fee or a prize are not charged it again. See <Link href="/docs/fees">Fees</Link>.
           </p>
         ),
       },
@@ -161,7 +162,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "Is what I lock ever charged?",
         a: (
           <p>
-            No. The Yield Fee is taken from yield only, and no fee of any kind touches what you lock. It stays locked until your Advance is paid back, then
+            No. The Yield Fee is taken from Gemas when you cash them out, and no fee of any kind touches what you lock. It stays locked until your Advance is paid back, then
             it is yours to Unlock.
           </p>
         ),
@@ -171,7 +172,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <p>
             Yes. Redeem now pays you {INSTANT_PAYOUT_PCT}% of the Gemas&apos; value in the coin they came from today, instead of waiting for that Lock&apos;s yield to
-            land. It works for Gemas you won in SOL, ETH or HYPE. Your own Gemas cannot be redeemed this way.
+            land. It works for Gemas you won in SOL, ETH or HYPE, and for your own Gemas too. You choose how many.
           </p>
         ),
       },
@@ -179,8 +180,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: `Why only ${INSTANT_PAYOUT_PCT}% when I redeem now?`,
         a: (
           <p>
-            Because {BRAND.name} pays you today and waits for the yield itself. It takes your Gemas, keeps {INSTANT_FEE_PCT}% for the wait and the risk, and redeems the
-            Gemas at full value later. If you can wait, a normal Redeem pays 100%. If {BRAND.name}&apos;s balance for that asset is short, Instant Redeem is
+            Because {BRAND.name} pays you today and waits for the yield itself. It takes your Gemas, keeps {INSTANT_FEE_PCT}% of what a Redeem would pay for the wait and the risk, and redeems the
+            Gemas later. A normal Redeem pays {REDEEM_PAYOUT_PCT}% of the value (after the {YIELD_FEE_PCT}% Yield Fee), so if you can wait you get more: 1,000 Gemas pay $8.00 later or $6.00 now. If {BRAND.name}&apos;s balance for that asset is short, Instant Redeem is
             refused and nothing moves.
           </p>
         ),

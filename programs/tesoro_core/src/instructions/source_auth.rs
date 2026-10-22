@@ -180,8 +180,9 @@ pub(crate) fn apply_yield_from_source<'info>(
 
 /// `redeem` for Gemas of an EVM-sourced Advance, signed by the holder and by the registered source
 /// authority of the Position's chain (the bridge), which records the payout owed on that chain in
-/// the same transaction (it reads `Source::redeemed_units`, the units the shares paid are worth:
-/// for these Sources a share is one unit). Plain `redeem` refuses these Sources. Remaining
+/// the same transaction (it reads the deltas of `Source::redeemed_units`, the units the shares
+/// paid are worth: for these Sources a share is one unit, and of `fee_units`/`pool_units`, the
+/// Yield Fee the vault keeps and the Pool's part of it). Plain `redeem` refuses these Sources. Remaining
 /// accounts: the Source's book and checkpoint pages.
 #[derive(Accounts)]
 pub struct RedeemFromSource<'info> {
@@ -244,6 +245,7 @@ pub(crate) fn redeem_from_source<'info>(
                 &source_key,
                 &key,
                 amount,
+                Cashing::Holder,
             )
         },
     )?;

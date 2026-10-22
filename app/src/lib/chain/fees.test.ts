@@ -3,9 +3,7 @@ import {
   DEFAULT_RATES,
   NATIVE_CUSTODY_LEN,
   TREASURY_LEN,
-  parseFeeMinted,
-  parsePoolTotals,
-  treasuryBalanceUnits,
+  parseNativeRoute,
   VAULT_TREASURY_LEN,
   instantPayoutFor,
   maxInstantGemas,
@@ -29,25 +27,29 @@ const sol = { unitNum: 10n ** 13n, unitDen: 150_000_000n };
 /** ETH at $3,180 (18 decimals): 1 Gema = 10^22 / 3,180,000,000 wei. */
 const eth = { unitNum: 10n ** 22n, unitDen: 3_180_000_000n };
 
-describe("Instant Redeem payout (tesoro_core instant_redeem)", () => {
-  it("floors the Gemas' value, then takes the payout share of it, floored again", () => {
-    // 1,000 Gemas = $10 = 66,666,666.67 lamports -> 66,666,666 -> 43,333,332.9 -> 43,333,332
-    expect(instantPayoutFor(sol, 1_000n, 3_500)).toBe(43_333_332n);
-    expect(instantPayoutFor(sol, 1_000n, 0)).toBe(66_666_666n);
-    expect(instantPayoutFor({ unitNum: 5n, unitDen: 3n }, 3n, 3_500)).toBe(3n);
-    expect(instantPayoutFor({ unitNum: 1n, unitDen: 0n }, 3n, 3_500)).toBe(0n);
+/** Launch rates: the 25% Instant Redeem Fee is taken after the 20% Yield Fee (ticket 31). */
+const IF = 2_500;
+const YF = 2_000;
+
+describe("Instant Redeem payout (tesoro_core instant_payout)", () => {
+  it("floors the Gemas' value, then pays it after both fees with one floor", () => {
+    // 1,000 Gemas = $10 = 66,666,666.67 lamports -> 66,666,666 -> x 0.8 x 0.75 = 39,999,999.6 -> 39,999,999
+    expect(instantPayoutFor(sol, 1_000n, IF, YF)).toBe(39_999_999n);
+    expect(instantPayoutFor(sol, 1_000n, 0, 0)).toBe(66_666_666n);
+    expect(instantPayoutFor({ unitNum: 5n, unitDen: 3n }, 3n, IF, YF)).toBe(3n);
+    expect(instantPayoutFor({ unitNum: 1n, unitDen: 0n }, 3n, IF, YF)).toBe(0n);
   });
 
   it("inverts exactly: the most Gemas a payout limit allows, and no more", () => {
     for (const source of [sol, eth, { unitNum: 7n, unitDen: 3n }, { unitNum: 1n, unitDen: 1n }]) {
       for (const cap of [1n, 2n, 9n, 649n, 650n, 651n, 43_333_332n, 43_333_333n, 10n ** 12n]) {
-        const g = maxInstantGemas(source, cap, 3_500);
-        expect(instantPayoutFor(source, g, 3_500), `${source.unitNum}/${source.unitDen} cap ${cap}`).toBeLessThanOrEqual(cap);
-        expect(instantPayoutFor(source, g + 1n, 3_500), `${source.unitNum}/${source.unitDen} cap ${cap} +1`).toBeGreaterThan(cap);
+        const g = maxInstantGemas(source, cap, IF, YF);
+        expect(instantPayoutFor(source, g, IF, YF), `${source.unitNum}/${source.unitDen} cap ${cap}`).toBeLessThanOrEqual(cap);
+        expect(instantPayoutFor(source, g + 1n, IF, YF), `${source.unitNum}/${source.unitDen} cap ${cap} +1`).toBeGreaterThan(cap);
       }
     }
-    expect(maxInstantGemas(sol, 0n, 3_500)).toBe(0n);
-    expect(maxInstantGemas({ unitNum: 0n, unitDen: 1n }, 5n, 3_500)).toBe(0n);
+    expect(maxInstantGemas(sol, 0n, IF, YF)).toBe(0n);
+    expect(maxInstantGemas({ unitNum: 0n, unitDen: 1n }, 5n, IF, YF)).toBe(0n);
   });
 
   it("covers the treasury vault in simSOL the way the program does: shares floor(payout * 1e9 / rate) must fit", () => {
@@ -69,21 +71,21 @@ describe("planInstant", () => {
   ];
 
   it("sells every free Gema while the treasuries can pay", () => {
-    const plan = planInstant(rows, new Map([["SOL", 10n ** 12n], ["0xvault", 10n ** 21n]]), 3_500);
+    const plan = planInstant(rows, new Map([["SOL", 10n ** 12n], ["0xvault", 10n ** 21n]]), IF, YF);
     expect(plan.map((l) => [l.key, l.gemas])).toEqual([["a", 100_000n], ["b", 50_000n], ["c", 1_000n]]);
-    expect(plan[0].payout).toBe(instantPayoutFor(sol, 100_000n, 3_500));
+    expect(plan[0].payout).toBe(instantPayoutFor(sol, 100_000n, IF, YF));
   });
 
   it("stops at the treasury's limit and leaves the rest to the next holding of the same treasury", () => {
-    const cap = instantPayoutFor(sol, 120_000n, 3_500);
-    const plan = planInstant(rows, new Map([["SOL", cap]]), 3_500);
-    expect(plan.map((l) => [l.key, l.gemas])).toEqual([["a", 100_000n], ["b", maxInstantGemas(sol, cap - plan[0].payout, 3_500)]]);
+    const cap = instantPayoutFor(sol, 120_000n, IF, YF);
+    const plan = planInstant(rows, new Map([["SOL", cap]]), IF, YF);
+    expect(plan.map((l) => [l.key, l.gemas])).toEqual([["a", 100_000n], ["b", maxInstantGemas(sol, cap - plan[0].payout, IF, YF)]]);
     expect(plan.reduce((s, l) => s + l.payout, 0n)).toBeLessThanOrEqual(cap);
   });
 
   it("sells nothing from a treasury that is missing or empty", () => {
-    expect(planInstant(rows, new Map(), 3_500)).toEqual([]);
-    expect(planInstant(rows, new Map([["SOL", 0n]]), 3_500)).toEqual([]);
+    expect(planInstant(rows, new Map(), IF, YF)).toEqual([]);
+    expect(planInstant(rows, new Map([["SOL", 0n]]), IF, YF)).toEqual([]);
   });
 });
 
@@ -184,30 +186,20 @@ describe("instantUnavailable", () => {
   });
 });
 
-describe("Treasury balance by math (ADR 0010)", () => {
-  it("reads fee_minted from the Treasury and the totals from the shared custody", () => {
+describe("Treasury and custody layouts (ticket 31: no fee claim on open Positions)", () => {
+  it("keeps the Treasury's size: the retired fee counter stays in place", () => {
     const t = Buffer.alloc(TREASURY_LEN);
-    t.writeBigUInt64LE(777n, 8 + 3 + 2 + 2 + 64);
-    expect(parseFeeMinted(t)).toBe(777n);
-    expect(parseFeeMinted(t.subarray(1))).toBeNull();
-    const c = Buffer.alloc(NATIVE_CUSTODY_LEN);
-    const o = 8 + 2 + 96 + 16;
-    c.writeBigUInt64LE(5n, o); // fee_weight
-    c.writeBigUInt64LE(6n, o + 16); // fee_weight_time
-    c.writeBigUInt64LE(9n, o + 32); // realised_fee
-    c.writeBigUInt64LE(2n, o + 48); // open_positions
-    expect(parsePoolTotals(c)).toEqual({ feeWeight: 5n, feeWeightTime: 6n, realisedFee: 9n, openPositions: 2n });
-    expect(parsePoolTotals(c.subarray(1))).toBeNull();
+    t.writeUInt16LE(2_000, 11);
+    t.writeUInt16LE(2_500, 13);
+    expect(TREASURY_LEN).toBe(8 + 3 + 2 + 2 + 32 + 32 + 3 * 8 + 8 + 32);
+    expect(parseTreasury(t)).toEqual({ yieldFeeBps: 2_000, instantFeeBps: 2_500 });
+    expect(parseTreasury(Buffer.alloc(TREASURY_LEN - 8))).toBeNull();
   });
 
-  it("is the unminted fee earned plus the vault's simSOL, never negative", () => {
-    // One 10 SOL Position at 4.95%, fee 20%, opened at t0: after one sim month (600 s) the Rust ledger asserts 8,249,998 earned.
-    const t0 = 1_800_000_000;
-    const w = 10_000_000_000n * 495n * 2_000n;
-    const totals = { feeWeight: w, feeWeightTime: w * BigInt(t0), realisedFee: 0n, openPositions: 1n };
-    const base = { totals, vaultShares: 3_000_000n, rate: 1_000_000_000n, speedup: 4380 };
-    expect(treasuryBalanceUnits({ ...base, feeMinted: 0n, nowSec: t0 + 600 })).toBe(8_249_998n + 3_000_000n);
-    expect(treasuryBalanceUnits({ ...base, feeMinted: 3_000_000n, nowSec: t0 + 600 })).toBe(8_249_998n - 3_000_000n + 3_000_000n);
-    expect(treasuryBalanceUnits({ ...base, feeMinted: 99_000_000n, nowSec: t0 + 600 })).toBe(3_000_000n);
+  it("reads the route after the custody's principal, its retired fee totals and open-Position count", () => {
+    const c = Buffer.alloc(NATIVE_CUSTODY_LEN);
+    c.writeBigUInt64LE(77n, 8 + 2 + 96 + 64 + 8);
+    expect(parseNativeRoute(c)?.treasuryShares).toBe(77n);
+    expect(parseNativeRoute(c.subarray(1))).toBeNull();
   });
 });
