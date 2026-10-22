@@ -16,7 +16,11 @@ export async function flowEntry(onStep?: (s: string) => void): Promise<real.Ente
   return { id: f.match!.id, via: f.entered! };
 }
 
-export const enterQueue = (...a: Parameters<typeof real.enterQueue>) => (flowFrame() ? flowEntry(a[4]) : real.enterQueue(...a));
+export const enterQueue = async (...a: Parameters<typeof real.enterQueue>): Promise<real.Entered> => {
+  if (flowFrame()) return flowEntry(a[4]);
+  if (screenData().entered === "existing") return { id: 3581887481018n, via: "existing" };
+  return real.enterQueue(...a);
+};
 export const createChallenge = async (...a: Parameters<typeof real.createChallenge>) => (flowFrame() ? (await flowEntry(a[5])).id : real.createChallenge(...a));
 export const joinChallenge = async (...a: Parameters<typeof real.joinChallenge>) => (flowFrame() ? void (await flowEntry()) : real.joinChallenge(...a));
 
@@ -34,7 +38,10 @@ export const prepareRun = (_signer: unknown, _id: bigint, _seat: unknown, onStep
   });
 };
 export const runSubmitter = () => ({ push() {}, finish: async () => {}, error: null }) as unknown as RunSubmitter;
-export const trySettle = async () => ({ outcome: "waiting-opponent" as const });
+export const trySettle = async () => {
+  const error = screenData().run?.settleError;
+  return error ? { outcome: "failed" as const, error } : { outcome: "waiting-opponent" as const };
+};
 export const canClaimTimeout = async () => !!screenData().run?.timeout;
 export const claimTimeout = async () => "demo-claim";
 export const refundMatch = async () => "demo-refund";

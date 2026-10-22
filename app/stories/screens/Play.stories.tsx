@@ -10,7 +10,7 @@ import { HoldemPractice } from "@/games/holdem/practice/HoldemPractice";
 import { TradingDuelPractice } from "@/games/trading-duel/practice/TradingDuelPractice";
 
 const route = (pathname: string, query: Record<string, string> = {}) => ({ nextjs: { navigation: { pathname, query } } });
-import { withScreen } from "./support/screen";
+import { demoKey, withScreen } from "./support/screen";
 import { withSigner } from "./support/signer";
 
 const meta = {
@@ -63,3 +63,26 @@ export const ChallengeCreate: Story = { render: () => <EnterMatch kind="challeng
 export const ChallengeCreateFailed: Story = { ...ChallengeCreate, decorators: [withSigner] };
 export const ChallengeJoin: Story = { render: () => <EnterMatch kind="challenge-join" id="3581887481018" />, parameters: route("/play/challenge/3581887481018") };
 
+/** A game page while you are on a Break: the notice replaces Play now and Challenge a friend; Practice stays. */
+export const BlockPuzzleOnABreak: Story = { ...BlockPuzzle, parameters: { ...route("/play/block-puzzle"), screen: { away: "break" } } };
+
+/** A game page while Self-Excluded: the Self-Exclusion notice replaces Play now. */
+export const HoldemSelfExcluded: Story = { ...Holdem, parameters: { ...route("/play/holdem"), screen: { away: "self-exclusion" } } };
+
+/** Entering the Queue while you still have an unfinished Match: it says to finish that one, with Continue. */
+export const QueueUnfinishedMatch: Story = { ...Queue, decorators: [withSigner], parameters: { ...route("/play/queue", { entry: "1000" }), screen: { entered: "existing" } } };
+
+/** Entering before the 18+ confirmation is given: the confirmation card asks first. */
+export const QueueAgeConfirmation: Story = { ...Queue, decorators: [withSigner], parameters: { ...route("/play/queue", { entry: "1000" }), screen: { age: "ask" } } };
+
+/** A Rematch: the opponent's seat shows the Player you faced and the line says same opponent, Game and entry. */
+export const ChallengeRematch: Story = {
+  render: () => <EnterMatch kind="challenge-new" entry={1000} game="block-puzzle" opponent={demoKey(61)} />,
+  parameters: route("/play/challenge", { entry: "1000" }),
+};
+
+/** An Account that does not exist yet: the entry says we create it as part of this step. */
+export const QueueFirstTime: Story = {
+  ...Queue,
+  parameters: { ...route("/play/queue", { entry: "1000" }), data: { snapshot: (a: string) => ({ ...demo(a), exists: false }) } },
+};
