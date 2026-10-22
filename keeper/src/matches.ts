@@ -5,7 +5,7 @@ import { HOLDEM_PROGRAM_ID } from "../../app/src/games/holdem/chain.ts";
 import { holdem } from "./holdem.ts";
 import { shortKey } from "./env.ts";
 import { log, type Ctx } from "./act.ts";
-import { blockPuzzle } from "./blockpuzzle.ts";
+import { blockBurst } from "./burst.ts";
 import { tradingDuel } from "./duel.ts";
 import { vanguard } from "./vanguard.ts";
 import { VANGUARD_PROGRAM_ID } from "../../app/src/games/vanguard/chain.ts";
@@ -34,7 +34,7 @@ export async function matchHygiene(ctx: Ctx): Promise<number> {
     const game = pk(account.inner.game);
     const subject = `match=${matchLabel(view.ref)}`;
     try {
-      if (game.equals(BLOCK_PUZZLE_PROGRAM_ID)) actions += await blockPuzzle(ctx, `${view.ref.opener.toBase58()}-${view.ref.n}`, account.inner, st, subject);
+      if (game.equals(BLOCK_PUZZLE_PROGRAM_ID)) actions += await blockBurst(ctx, id, account.inner, st, subject);
       else if (game.equals(HOLDEM_PROGRAM_ID)) actions += await holdem(ctx, id, account.inner, st, subject);
       else if (game.equals(TRADING_DUEL_PROGRAM_ID)) actions += await tradingDuel(ctx, id, account.inner, st, subject);
       else if (game.equals(VANGUARD_PROGRAM_ID)) actions += await vanguard(ctx, id, account.inner, st, subject);

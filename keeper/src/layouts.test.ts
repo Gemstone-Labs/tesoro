@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { OUTCOME, PHASE, SLOT, STATUS, decodeAssignment, decodeBook, decodeDuel, decodeTable, canFinalizeTable, slotOf } from "../../app/src/games/trading-duel/chain.ts";
+import { OUTCOME as BB_OUTCOME, REASON as BB_REASON, TABLE_PHASE as BB_PHASE, decodeTable as decodeBurstTable, runLogOf as burstRunLog } from "../../app/src/games/block-puzzle/live-chain.ts";
 import { decodeMatchRecords } from "../../app/src/server/history/events.ts";
 import { decodeBatch, decodeClaim, decodePayout, decodeRoute } from "./bridge-ix.ts";
 import { counterAmounts } from "./counters.ts";
@@ -21,6 +22,7 @@ const load = (name: string): Record<string, Buffer> => Object.fromEntries(Object
 const core = load("core-layouts");
 const bridge = load("bridge-layouts");
 const duelFx = load("trading-duel-layouts");
+const burstFx = load("block-puzzle-layouts");
 // the coder the keeper really uses (camelCase fields)
 const coder = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {})).coder.accounts;
 const keyOf = (n: number) => {
@@ -167,5 +169,20 @@ describe("Trading Duel accounts written by trading_duel", () => {
     assert.deepEqual([b.seat, b.pickCount, b.picks[2], b.picks[11]], [1, 2, 6, -3]);
     const c: any = duelCoder.decode("tableConfig", duelFx.table_config);
     assert.deepEqual([c.generation, c.maxTables], [1, 4]);
+  });
+});
+
+describe("Block Burst accounts written by block_puzzle", () => {
+  const coder = new anchor.Program(loadIdl("block_puzzle"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {})).coder.accounts;
+  it("a running table and its Done result with the run log, through the keeper's decoder", () => {
+    const t = decodeBurstTable(keyOf(1), coder.decode("table", burstFx.table));
+    assert.deepEqual([t.generation, t.index, t.epoch, t.phase, t.startSlot, t.seedReady], [1, 3, 7, BB_PHASE.getReady, 51900, true]);
+    const log = burstRunLog(t, keyOf(9), 6)!;
+    assert.deepEqual([log.scores, log.counts, log.reason], [[18, 77], [3, 4], BB_REASON.played]);
+    assert.equal(t.ring[1].outcome, BB_OUTCOME.win1);
+  });
+  it("a closed table says why", () => {
+    const t = decodeBurstTable(keyOf(1), coder.decode("table", burstFx.closed_table));
+    assert.deepEqual([t.phase, t.reason, t.outcome], [BB_PHASE.closed, BB_REASON.absent, BB_OUTCOME.win0]);
   });
 });

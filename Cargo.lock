@@ -740,7 +740,9 @@ dependencies = [
  "ephemeral-rollups-sdk",
  "litesvm",
  "proptest",
+ "serde_json",
  "solana-sdk",
+ "table_kit",
  "tesoro_core",
 ]
 
