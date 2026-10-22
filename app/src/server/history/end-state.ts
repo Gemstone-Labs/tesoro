@@ -1,7 +1,7 @@
 import type { Rpc } from "./rpc";
 
 /**
- * The public end state of a finished table Match, as the keeper stores it (migration 0010). Every field is public at Match end;
+ * The public end state of a finished table Match, as the keeper stores it (migration 0011). Every field is public at Match end;
  * hidden seat data (Hold'em hole cards that were not shown, a Player's unlocked picks) never goes in. JSON only: no bigint, no bytes.
  */
 export type EndState =

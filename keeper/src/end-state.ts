@@ -9,7 +9,7 @@ import { log } from "./act.ts";
 import { historyRpc } from "./history.ts";
 
 /**
- * The public end state of a finished table Match, kept in the Match history (migration 0010) because the next Match on the
+ * The public end state of a finished table Match, kept in the Match history (migration 0011) because the next Match on the
  * table replaces it (on base at its commit, in the rollup at the reset).
  *
  * One pure function per Game turns the table into JSON. ONLY what is public at Match end goes in: never a seat account, never
