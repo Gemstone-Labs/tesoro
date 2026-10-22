@@ -93,6 +93,33 @@ pub(crate) fn with_pool<R>(
     f(&mut pool)
 }
 
+/// [`with_pool`] for a holder of slots (an Entry Ticket, a Match): `hold` is its share of the
+/// spill header's `room_reserved`. The lines `f` puts back may use it, each new slot paying it
+/// down; every whole line `f` takes off the pool frees a slot, which becomes part of the hold (the
+/// header grows by the same number), so what left the pool can always come back.
+pub(crate) fn with_pool_hold<R>(
+    basket: &AccountInfo,
+    spill: &AccountInfo,
+    hold: &mut u32,
+    f: impl FnOnce(&mut Pool<&mut [u8], &mut [u8]>) -> Result<R>,
+) -> Result<R> {
+    with_pool(basket, spill, |pool| {
+        pool.set_hold(*hold);
+        let out = f(pool)?;
+        let freed = pool.freed_to_hold();
+        let held = pool.spill.room_reserved();
+        pool.spill.set_room_reserved(
+            held.checked_add(freed)
+                .ok_or(ProgramError::ArithmeticOverflow)?,
+        );
+        *hold = pool
+            .hold_left()
+            .checked_add(freed)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        Ok(out)
+    })
+}
+
 // ---------------------------------------------------------------------------------------------
 // The rate of the moment
 // ---------------------------------------------------------------------------------------------

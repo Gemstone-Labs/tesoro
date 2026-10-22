@@ -27,10 +27,11 @@
 //! * **Same code as at open.** If the Game's program was redeployed since the Match opened, only
 //!   a refund can start, and anyone may start it.
 //! * **Room.** Every credit goes through `Pool::put` (basket, then the Account's spill). The
-//!   rent for the spill slots a Match may need is reserved when it opens and joins
-//!   ([`MatchRecord::room_plan`]), so a chunk can never fail for lack of room. If it ever did,
-//!   the failing step changes nothing, the chunk reports it in `blocked`, and the instruction
-//!   layer grows the spill and calls again; nothing is skipped.
+//!   slots an entry freed are held for its lines (a refund can always come back), and the slots
+//!   the other side's lines can need ([`MatchRecord::room_plan`], an upper bound per Account) are
+//!   held too wherever the stores have room when the Match is joined. A credit that finds no
+//!   slot changes nothing: the chunk reports it in `blocked`, the room is made (a store grows,
+//!   or the Account spends) and the chunk is called again; nothing is skipped.
 //! * **Ids** come from the opener's Account and a counter that never resets ([`MatchCounter`]).
 //!
 //! Not here (ticket 09 wires it): authorities and signatures, the account layout, event-CPI
@@ -543,10 +544,11 @@ impl MatchRecord {
         Ok(())
     }
 
-    /// Spill slots to have reserved, per Account that can be credited, for settle or refund to
-    /// be unable to fail for lack of room. Call at open and again after join; reserve the
-    /// difference. Every credit is one line, so the bound is the Pot's lines plus the two lines
-    /// a split (Backed surplus, or the cut of a line shared by two fees) can add.
+    /// Slots, per Account that can be credited, that settle or refund can need at most. Every
+    /// credit is one line, so the bound is the Pot's lines plus the two lines a split (Backed
+    /// surplus, or the cut of a line shared by two fees) can add. The instruction layer holds
+    /// what it can of it when the Match is joined; the part of an entry's own return that its
+    /// freed slots cover is held at open whatever the stores hold.
     pub fn room_plan(&self) -> BTreeMap<Key, usize> {
         let n = self.pot_lines[0] as usize + self.pot_lines[1] as usize + 2;
         let mut out = BTreeMap::new();

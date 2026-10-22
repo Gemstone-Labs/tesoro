@@ -5079,28 +5079,6 @@
           }
         },
         {
-          "name": "spill",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  112,
-                  105,
-                  108,
-                  108
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
           "name": "ticket",
           "writable": true
         },
@@ -6596,7 +6574,15 @@
           }
         },
         {
+          "name": "opener_basket",
+          "writable": true
+        },
+        {
           "name": "opener_spill",
+          "writable": true
+        },
+        {
+          "name": "opener_funder_basket",
           "writable": true
         },
         {
@@ -17147,6 +17133,24 @@
                 2
               ]
             }
+          },
+          {
+            "name": "room",
+            "docs": [
+              "Slots held in Accounts' stores for the lines this Match will credit (`room_reserved` of",
+              "each spill counts them). Every credit that takes a new slot pays the holder's share down;",
+              "`close_match` hands back what is left."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "RoomHold"
+                  }
+                },
+                5
+              ]
+            }
           }
         ]
       }
@@ -18652,6 +18656,30 @@
           {
             "name": "amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RoomHold",
+      "docs": [
+        "Slots of one Account's stores held for a Match."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "account",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "left",
+            "type": "u32"
           }
         ]
       }
