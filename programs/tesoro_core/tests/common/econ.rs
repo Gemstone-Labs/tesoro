@@ -142,6 +142,24 @@ fn write_store(svm: &mut LiteSVM, store: APk, f: impl FnOnce(&mut LineStore<&mut
     svm.set_account(addr, acc).expect("set store");
 }
 
+/// Fills a store to its capacity with dust (one Gema each, won, due far away, from Sources no
+/// book exists for): it takes room and nothing else (test setup only).
+pub fn fill_with_dust(svm: &mut LiteSVM, store: APk) {
+    use tesoro_core::ledger::line_store::CLASS_GENERAL;
+    write_store(svm, store, |st| {
+        let mut i = st.len() as u64;
+        while st.len() < st.capacity() {
+            i += 1;
+            let mut src = [0xEEu8; 32];
+            src[..8].copy_from_slice(&i.to_le_bytes());
+            let mut line =
+                SourceBook::blank_line(SIDE_WON, 10_000_000 + i as i64, src, CLASS_GENERAL, 0);
+            line.amount = 1;
+            st.insert(&line).expect("room for dust");
+        }
+    });
+}
+
 /// What a won Match does to the baskets: moves `k` Gemas of `source` (own side, `class`,
 /// `tranche`) from `from` to `to` as won Gemas, with their proportional repaid part, through the
 /// book. (Settlement in ticket 09 does exactly this through `transfer`.)

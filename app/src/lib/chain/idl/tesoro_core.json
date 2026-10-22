@@ -1739,6 +1739,108 @@
       ]
     },
     {
+      "name": "claim_overflow",
+      "docs": [
+        "Anyone moves up to `max` lines of an overflow record into the owner's stores; an empty",
+        "record is closed and its rent goes back to its payer. Source books are remaining accounts."
+      ],
+      "discriminator": [
+        92,
+        228,
+        225,
+        255,
+        227,
+        52,
+        34,
+        102
+      ],
+      "accounts": [
+        {
+          "name": "account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "record",
+          "writable": true
+        },
+        {
+          "name": "payer",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "max",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "claim_spill",
       "docs": [
         "Anyone moves up to `max` spill lines into the basket. Source books are remaining accounts."
@@ -8010,6 +8112,7 @@
       "accounts": [
         {
           "name": "authority",
+          "writable": true,
           "signer": true
         },
         {
@@ -15212,6 +15315,19 @@
       ]
     },
     {
+      "name": "OverflowClaimed",
+      "discriminator": [
+        58,
+        90,
+        117,
+        6,
+        228,
+        238,
+        31,
+        202
+      ]
+    },
+    {
       "name": "PositionUnlocked",
       "discriminator": [
         174,
@@ -16758,6 +16874,13 @@
               "A step could not run (missing account or room); nothing was skipped."
             ],
             "type": "bool"
+          },
+          {
+            "name": "overflowed",
+            "docs": [
+              "Credits this chunk wrote into overflow records instead of the Accounts' stores."
+            ],
+            "type": "u32"
           }
         ]
       }
@@ -17659,6 +17782,36 @@
                 32
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "OverflowClaimed",
+      "docs": [
+        "Lines moved out of an overflow record into their owner's stores."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "account",
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "moved",
+            "type": "u32"
+          },
+          {
+            "name": "left",
+            "docs": [
+              "Lines still waiting in the record; zero means it was closed and its rent returned."
+            ],
+            "type": "u32"
           }
         ]
       }

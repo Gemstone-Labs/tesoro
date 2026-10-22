@@ -1164,6 +1164,18 @@ pub struct MatchChunkDone {
     pub done: bool,
     /// A step could not run (missing account or room); nothing was skipped.
     pub blocked: bool,
+    /// Credits this chunk wrote into overflow records instead of the Accounts' stores.
+    pub overflowed: u32,
+}
+
+/// Lines moved out of an overflow record into their owner's stores.
+#[event]
+pub struct OverflowClaimed {
+    pub account: Pubkey,
+    pub kind: u8,
+    pub moved: u32,
+    /// Lines still waiting in the record; zero means it was closed and its rent returned.
+    pub left: u32,
 }
 
 /// The run is complete: every obligation is a durable basket or spill line.

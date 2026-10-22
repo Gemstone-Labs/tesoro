@@ -284,6 +284,8 @@ fn fresh_body(owner: Key, capacity: usize) -> DrawResult<Vec<u8>> {
 pub enum Placed {
     Basket,
     Spill,
+    /// No slot in either store: the line waits in an overflow record until room is made.
+    Overflow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -684,7 +686,7 @@ fn merge_into<B: Bytes>(
 
 /// Place `line` in `dst`: merge into the line with the same key (through the Source's book) or
 /// insert it. `Ok(false)` when there is no room; nothing changed then.
-fn put_line<B: Bytes>(
+pub fn put_line<B: Bytes>(
     dst: &mut LineStore<B>,
     books: &mut dyn SourceBooks,
     line: &Line,
@@ -927,6 +929,10 @@ pub struct CancelStep {
     pub lines_to_basket: usize,
     pub lines_to_spill: usize,
     pub done: bool,
+    /// A line found no slot: it and the lines before it stay in the Ticket (its own account is
+    /// their overflow record, the rent already paid) until room is made and the cancel is called
+    /// again. Everything returned before it is final.
+    pub blocked: bool,
 }
 
 pub struct Ticket<T: PotBacking = Vec<u8>> {
@@ -1329,9 +1335,14 @@ impl<T: PotBacking> Ticket<T> {
             let Some(line) = self.pages.last_line() else {
                 break;
             };
-            match pool.put(books, &line)? {
-                Placed::Basket => step.lines_to_basket += 1,
-                Placed::Spill => step.lines_to_spill += 1,
+            match pool.put(books, &line) {
+                Ok(Placed::Basket) => step.lines_to_basket += 1,
+                Ok(Placed::Spill | Placed::Overflow) => step.lines_to_spill += 1,
+                Err(DrawError::SpillFull) => {
+                    step.blocked = true;
+                    break;
+                }
+                Err(e) => return Err(e),
             }
             if self.kind == TicketKind::Backing {
                 let r = pool

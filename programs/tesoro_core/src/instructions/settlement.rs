@@ -41,6 +41,12 @@ pub struct ChainSettlement<'info> {
     synced: Vec<Key>,
     /// Slots held for the Match's credits, per Account (`MatchState::room`).
     holds: Vec<(Key, u32)>,
+    /// The overflow records among the accounts: (owner, kind, id, account).
+    records: Vec<(Key, u8, [u8; 40], &'info AccountInfo<'info>)>,
+    /// The Match being settled: its overflow records are the ones credits fall back to.
+    match_seed: Option<[u8; 40]>,
+    /// Credits written to an overflow record so far.
+    overflowed: u32,
 }
 
 fn disc_is(info: &AccountInfo, disc: &[u8]) -> bool {
@@ -90,6 +96,30 @@ impl<'info> ChainSettlement<'info> {
             );
             list.push((owner, info));
         }
+        let mut records = Vec::new();
+        for info in infos {
+            if !disc_is(info, OverflowHead::DISCRIMINATOR) {
+                continue;
+            }
+            require!(
+                info.is_writable,
+                crate::error::BasketError::AccountNotWritable
+            );
+            let data = info.try_borrow_data()?;
+            let (_, kind, id) = crate::instructions::overflow::head_of(&data)
+                .ok_or_else(|| error!(crate::error::MatchError::OverflowRecordInvalid))?;
+            let owner = LineStore::new(&data[OVERFLOW_STORE_AT..])
+                .map_err(|_| error!(crate::error::MatchError::OverflowRecordInvalid))?
+                .account();
+            drop(data);
+            crate::instructions::overflow::check_record(
+                info,
+                &Pubkey::new_from_array(owner),
+                kind,
+                &id,
+            )?;
+            records.push((owner, kind, id, info));
+        }
         let mut stores = Vec::new();
         for (owner, basket) in baskets {
             if let Some((_, spill)) = spills.iter().find(|(o, _)| *o == owner) {
@@ -106,7 +136,21 @@ impl<'info> ChainSettlement<'info> {
             stores,
             synced: Vec::new(),
             holds: Vec::new(),
+            records,
+            match_seed: None,
+            overflowed: 0,
         })
+    }
+
+    /// Names the Match being settled: a credit that finds no slot falls back to the Account's
+    /// overflow record for this Match, when one was passed.
+    pub fn set_match(&mut self, id: &crate::ledger::lifecycle::MatchId) {
+        self.match_seed = Some(id.seed());
+    }
+
+    /// Credits that went to overflow records.
+    pub fn overflowed(&self) -> u32 {
+        self.overflowed
     }
 
     /// The slots the Match holds in each Account's stores: a credit that needs a new slot uses
@@ -134,6 +178,25 @@ impl<'info> ChainSettlement<'info> {
 
     fn find(&self, key: &Pubkey) -> Option<&'info AccountInfo<'info>> {
         self.infos.iter().find(|i| i.key == key)
+    }
+
+    /// Writes `line` into `owner`'s overflow record for this Match, if one was passed and has a
+    /// free slot; otherwise the credit stays blocked (`SpillFull`), nothing changed.
+    fn credit_overflow(&mut self, owner: &Key, line: &Line) -> LcResult<Placed> {
+        let full = LifecycleError::Draw(DrawError::SpillFull);
+        let seed = self.match_seed.ok_or(full)?;
+        let record = self
+            .records
+            .iter()
+            .find(|(o, k, id, _)| o == owner && *k == OVERFLOW_MATCH && *id == seed)
+            .map(|(_, _, _, info)| *info)
+            .ok_or(full)?;
+        if crate::instructions::overflow::put_in_record(record, &mut self.books, line)? {
+            self.overflowed += 1;
+            Ok(Placed::Overflow)
+        } else {
+            Err(full)
+        }
     }
 
     /// The rates of the moment for `position`, from the kind's accounts among the supplied ones.
@@ -229,11 +292,18 @@ impl<'info> Settlement for ChainSettlement<'info> {
         let mut pool = Pool::new(&mut basket, &mut spill);
         let share = self.holds.iter_mut().find(|(k, _)| k == owner);
         pool.set_hold(share.as_ref().map_or(0, |(_, l)| *l));
-        let placed = pool.put(&mut self.books, line)?;
-        if let Some((_, left)) = share {
-            *left = pool.hold_left();
+        let placed = pool.put(&mut self.books, line);
+        if placed.is_ok() {
+            if let Some((_, left)) = share {
+                *left = pool.hold_left();
+            }
         }
-        Ok(placed)
+        drop(b);
+        drop(s);
+        match placed {
+            Err(DrawError::SpillFull) => self.credit_overflow(owner, line),
+            other => Ok(other?),
+        }
     }
 
     fn credit_fee(&mut self, class: u8, owner: Option<&Key>, line: &Line) -> LcResult<()> {
