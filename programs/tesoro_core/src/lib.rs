@@ -394,8 +394,9 @@ pub mod tesoro_core {
         ctx: Context<'_, '_, 'info, 'info, TakeAdvance<'info>>,
         horizon_months: u8,
         price_micro_usd: u64,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::position::take_advance(ctx, horizon_months, price_micro_usd)
+        instructions::position::take_advance(ctx, horizon_months, price_micro_usd, min_gemas)
     }
 
     pub fn apply_yield<'info>(
@@ -449,8 +450,9 @@ pub mod tesoro_core {
     pub fn take_native_advance<'info>(
         ctx: Context<'_, '_, 'info, 'info, TakeNativeAdvance<'info>>,
         horizon_months: u8,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::native::take_native_advance(ctx, horizon_months)
+        instructions::native::take_native_advance(ctx, horizon_months, min_gemas)
     }
 
     /// Admin: where an asset's Advances read their USD price on mainnet (a Pyth push feed).
@@ -474,23 +476,26 @@ pub mod tesoro_core {
     pub fn take_native_advance_onchain<'info>(
         ctx: Context<'_, '_, 'info, 'info, TakeNativeAdvanceOnchain<'info>>,
         horizon_months: u8,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::onchain_price::take_native_advance_onchain(ctx, horizon_months)
+        instructions::onchain_price::take_native_advance_onchain(ctx, horizon_months, min_gemas)
     }
 
     /// `take_advance` priced from the asset's Pyth feed instead of a price the oracle names.
     pub fn take_advance_onchain<'info>(
         ctx: Context<'_, '_, 'info, 'info, TakeAdvanceOnchain<'info>>,
         horizon_months: u8,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::onchain_price::take_advance_onchain(ctx, horizon_months)
+        instructions::onchain_price::take_advance_onchain(ctx, horizon_months, min_gemas)
     }
 
     pub fn extend_native_advance<'info>(
         ctx: Context<'_, '_, 'info, 'info, ExtendNativeAdvance<'info>>,
         extra_months: u8,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::native::extend_native_advance(ctx, extra_months)
+        instructions::native::extend_native_advance(ctx, extra_months, min_gemas)
     }
 
     pub fn set_extend_limit(ctx: Context<SetExtendLimit>, months: u8) -> Result<()> {
@@ -543,15 +548,17 @@ pub mod tesoro_core {
     pub fn take_stake_advance<'info>(
         ctx: Context<'_, '_, 'info, 'info, TakeStakeAdvance<'info>>,
         horizon_months: u8,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::stake::take_stake_advance(ctx, horizon_months)
+        instructions::stake::take_stake_advance(ctx, horizon_months, min_gemas)
     }
 
     pub fn extend_stake_advance<'info>(
         ctx: Context<'_, '_, 'info, 'info, ExtendStakeAdvance<'info>>,
         extra_months: u8,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::stake::extend_stake_advance(ctx, extra_months)
+        instructions::stake::extend_stake_advance(ctx, extra_months, min_gemas)
     }
 
     /// Admin: tops up the Treasury with `shares` of the staking token (its own funding).

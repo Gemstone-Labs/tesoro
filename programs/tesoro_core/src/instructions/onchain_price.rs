@@ -169,6 +169,7 @@ pub struct TakeNativeAdvanceOnchain<'info> {
 pub(crate) fn take_native_advance_onchain<'info>(
     mut ctx: Context<'_, '_, 'info, 'info, TakeNativeAdvanceOnchain<'info>>,
     horizon_months: u8,
+    min_gemas: u64,
 ) -> Result<()> {
     require_can_advance(&ctx.accounts.protections.to_account_info())?;
     let remaining = ctx.remaining_accounts;
@@ -194,6 +195,7 @@ pub(crate) fn take_native_advance_onchain<'info>(
         horizon_months,
         price,
         fee,
+        min_gemas,
     )
 }
 
@@ -269,6 +271,7 @@ pub struct TakeAdvanceOnchain<'info> {
 pub(crate) fn take_advance_onchain<'info>(
     mut ctx: Context<'_, '_, 'info, 'info, TakeAdvanceOnchain<'info>>,
     horizon_months: u8,
+    min_gemas: u64,
 ) -> Result<()> {
     let remaining = ctx.remaining_accounts;
     let (source_bump, book_bump) = (ctx.bumps.source, ctx.bumps.book);
@@ -300,5 +303,6 @@ pub(crate) fn take_advance_onchain<'info>(
         horizon_months,
         price,
         fee,
+        min_gemas,
     )
 }

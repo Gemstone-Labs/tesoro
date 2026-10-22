@@ -488,6 +488,7 @@ impl Env {
             instruction::TakeAdvance {
                 horizon_months: horizon,
                 price_micro_usd: price,
+                min_gemas: 1,
             },
             remaining,
         );

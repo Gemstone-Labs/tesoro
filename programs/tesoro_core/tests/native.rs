@@ -46,6 +46,8 @@ const ERR_INVALID_MINT: u32 = 6008;
 const ERR_NATIVE_POSITION: u32 = 6009;
 const ERR_NOT_NATIVE: u32 = 6010;
 const ERR_STALE_PRICE: u32 = 6011;
+const ERR_ADVANCE_BELOW_MINIMUM: u32 = anchor_lang::error::ERROR_CODE_OFFSET
+    + tesoro_core::error::TesoroError::AdvanceBelowMinimum as u32;
 const ERR_SOURCE_REQUIRED: u32 = 6018;
 const ERR_BAD_PRICE_FEED: u32 = 6020;
 const ERR_PRICE_UNCERTAIN: u32 = 6021;
@@ -552,6 +554,16 @@ impl Env {
     }
 
     fn advance_ix(&self, p: &Person, pos: Pos, months: u8) -> (Instruction, APk) {
+        self.advance_ix_min(p, pos, months, 1)
+    }
+
+    fn advance_ix_min(
+        &self,
+        p: &Person,
+        pos: Pos,
+        months: u8,
+        min_gemas: u64,
+    ) -> (Instruction, APk) {
         let position = self.position(pos);
         let source = self.source(pos, position.advances);
         let advance = tix(
@@ -570,6 +582,7 @@ impl Env {
             },
             instruction::TakeNativeAdvance {
                 horizon_months: months,
+                min_gemas,
             },
             self.prev_tail(pos),
         );
@@ -663,6 +676,17 @@ impl Env {
         source: APk,
         extra_months: u8,
     ) -> Result<(), Failed> {
+        self.extend_native_min(p, pos, source, extra_months, 1)
+    }
+
+    fn extend_native_min(
+        &mut self,
+        p: &Person,
+        pos: Pos,
+        source: APk,
+        extra_months: u8,
+        min_gemas: u64,
+    ) -> Result<(), Failed> {
         let extend = tix(
             accounts::ExtendNativeAdvance {
                 owner_authority: p.key,
@@ -676,7 +700,10 @@ impl Env {
                 extend_limit: self.extend_limit(p),
                 system_program: anchor_lang::system_program::ID,
             },
-            instruction::ExtendNativeAdvance { extra_months },
+            instruction::ExtendNativeAdvance {
+                extra_months,
+                min_gemas,
+            },
             book_metas(&self.svm, source),
         );
         self.send(&[extend], &p.kp, &[])?;
@@ -998,6 +1025,48 @@ fn advance_is_priced_by_the_feed_and_owner_signs_alone() {
 }
 
 #[test]
+fn an_advance_below_the_players_floor_is_refused_and_nothing_moves() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    // The quote said 699 (see above). The price drops 1% before the Advance lands: about 693.
+    env.set_price(PRICE * 99 / 100).unwrap();
+    let (short, _) = env.advance_ix_min(&alice, pos, 1, 699);
+    let err = env.send(&[short], &alice.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_ADVANCE_BELOW_MINIMUM);
+    assert_eq!(env.position(pos).advances, 0, "no Advance was opened");
+    // A floor of zero is refused too: every caller names one.
+    let (zero, _) = env.advance_ix_min(&alice, pos, 1, 0);
+    assert_eq!(
+        code(&env.send(&[zero], &alice.kp, &[]).unwrap_err()),
+        ERR_ADVANCE_BELOW_MINIMUM
+    );
+    // Back at the quoted price the same floor is met exactly.
+    env.set_price(PRICE).unwrap();
+    let (ok, source) = env.advance_ix_min(&alice, pos, 1, 699);
+    env.send(&[ok], &alice.kp, &[]).expect("floor met");
+    assert_eq!(env.gemas(&alice, source), 699);
+}
+
+#[test]
+fn an_extend_below_the_players_floor_is_refused() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    let before = env.gemas(&alice, source);
+    // One more month at the Source's own price mints 699 or 700 (two floors); 701 is out of reach.
+    let err = env
+        .extend_native_min(&alice, pos, source, 1, 701)
+        .unwrap_err();
+    assert_eq!(code(&err), ERR_ADVANCE_BELOW_MINIMUM);
+    assert_eq!(env.gemas(&alice, source), before);
+    env.extend_native_min(&alice, pos, source, 1, 699)
+        .expect("floor met");
+    assert!(env.gemas(&alice, source) >= before + 699);
+}
+
+#[test]
 fn stale_price_blocks_an_advance() {
     let mut env = Env::new();
     let alice = env.staker();
@@ -1030,7 +1099,10 @@ fn only_the_owner_takes_an_advance() {
             spill: env.spill(&mallory),
             system_program: anchor_lang::system_program::ID,
         },
-        instruction::TakeNativeAdvance { horizon_months: 1 },
+        instruction::TakeNativeAdvance {
+            horizon_months: 1,
+            min_gemas: 1,
+        },
         vec![],
     );
     let err = env.send(&[advance], &mallory.kp, &[]).unwrap_err();
@@ -2949,6 +3021,7 @@ impl Env {
             },
             instruction::TakeNativeAdvanceOnchain {
                 horizon_months: months,
+                min_gemas: 1,
             },
             self.prev_tail(pos),
         )
@@ -3202,7 +3275,10 @@ fn evm_advance_ix(
                 spill: spill_address(&p.account).0,
                 system_program: anchor_lang::system_program::ID,
             },
-            instruction::TakeAdvanceOnchain { horizon_months: 3 },
+            instruction::TakeAdvanceOnchain {
+                horizon_months: 3,
+                min_gemas: 1,
+            },
             vec![],
         ),
         None => tix(
@@ -3223,6 +3299,7 @@ fn evm_advance_ix(
             instruction::TakeAdvance {
                 horizon_months: 3,
                 price_micro_usd: price,
+                min_gemas: 1,
             },
             vec![rem(onchain_price_pda(asset), false)],
         ),

@@ -372,6 +372,7 @@ impl Env {
             tesoro_core::instruction::TakeAdvance {
                 horizon_months: 6,
                 price_micro_usd: 150_000_000,
+                min_gemas: 1,
             },
             vec![AccountMeta::new_readonly(
                 s(APk::find_program_address(

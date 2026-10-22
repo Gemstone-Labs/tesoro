@@ -682,6 +682,7 @@ pub(crate) fn begin_advance<'a, 'info>(
     horizon_months: u8,
     price_micro_usd: u64,
     yield_fee_bps: u16,
+    min_gemas: u64,
 ) -> Result<()> {
     use ledger::book::checkpoint::NoCheckpoints;
     use ledger::book::{ClassArray, SourceBook};
@@ -726,6 +727,7 @@ pub(crate) fn begin_advance<'a, 'info>(
             yield_fee_bps,
         )
         .map_err(core_err)?;
+    require_min_gemas(src.issued, min_gemas)?;
     src.due_at =
         ledger::economy::planned_due_at(now()?, horizon_months, rates.speedup).map_err(core_err)?;
     let source_key = a.source.key();
@@ -765,6 +767,18 @@ pub(crate) fn begin_advance<'a, 'info>(
         horizon_months,
         price_micro_usd,
     });
+    Ok(())
+}
+
+/// The Player's floor on an Advance or Extend: the Gemas they were quoted. The price is read when
+/// the transaction lands, so a move after the quote refuses it instead of issuing fewer. Every
+/// caller names a floor; one Gema is the lowest.
+fn require_min_gemas(gemas: u64, min_gemas: u64) -> Result<()> {
+    require!(min_gemas > 0, TesoroError::AdvanceBelowMinimum);
+    if gemas < min_gemas {
+        msg!("advance issues {} gemas, minimum {}", gemas, min_gemas);
+        return err!(TesoroError::AdvanceBelowMinimum);
+    }
     Ok(())
 }
 
@@ -833,6 +847,7 @@ pub(crate) fn extend_open_advance<'a, 'info>(
     books_all: &'info [AccountInfo<'info>],
     extra_months: u8,
     yield_fee_bps: u16,
+    min_gemas: u64,
 ) -> Result<()> {
     let position_key = a.position.key();
     let source_key = a.source.key();
@@ -859,6 +874,7 @@ pub(crate) fn extend_open_advance<'a, 'info>(
         )
         .map_err(core_err)?
     };
+    require_min_gemas(minted, min_gemas)?;
     with_pool(&a.basket, &a.spill, |pool| {
         pool.put(&mut books, &line).map(drop).map_err(draw_err)
     })?;
