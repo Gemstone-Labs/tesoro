@@ -2,6 +2,7 @@ export * from "./primitives";
 export * from "./gema";
 export * from "./money";
 export * from "./inputs";
+export * from "./Select";
 export * from "./icons";
 export * from "./Character";
 export * from "./CountUp";

@@ -13,8 +13,6 @@
 .bk-tabs button:hover { color: var(--fg); }
 .bk-tools { display: flex; gap: 10px; align-items: center; padding-bottom: 8px; }
 .bk-sort { --c: 10px; --edge: var(--edge-1); display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; background: transparent; font-size: var(--fs-14); color: var(--fg-2); }
-.bk-sort select { background: transparent; border: 0; outline: 0; font-weight: 600; font-size: var(--fs-14); color: var(--fg); }
-.bk-sort select option { background: var(--surface); }
 
 /* cards: a calm grid, avatar, name, game and record, entry and Offer */
 .bk-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
