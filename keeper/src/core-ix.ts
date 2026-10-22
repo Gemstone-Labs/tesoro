@@ -52,6 +52,13 @@ export const growStoreIx = (core: Core, o: { payer: PublicKey; account: PublicKe
 export const claimSpillIx = (core: Core, o: { account: PublicKey; max: number; remaining?: AccountMeta[] }): Promise<TransactionInstruction> =>
   core.methods.claimSpill(o.max).accountsPartial({ account: o.account }).remainingAccounts(o.remaining ?? []).instruction();
 
+/**
+ * Moves up to `max` lines of an overflow record into its owner's stores and, once it is empty, closes it (the rent goes to
+ * `payer`, whoever paid it). The Source books of lines that merge into a line the owner holds are `remaining`.
+ */
+export const claimOverflowIx = (core: Core, o: { account: PublicKey; record: PublicKey; payer: PublicKey; max: number; remaining?: AccountMeta[] }): Promise<TransactionInstruction> =>
+  core.methods.claimOverflow(o.max).accountsPartial({ account: o.account, record: o.record, payer: o.payer }).remainingAccounts(o.remaining ?? []).instruction();
+
 /** Cancels an Entry or Backing Ticket (the owner at any time, anyone once it expired) and returns up to `maxLines` staged lines. */
 export const cancelTicketIx = (core: Core, o: { signer: PublicKey; owner: PublicKey; ticket: PublicKey; offer?: PublicKey | null; maxLines: number; remaining?: AccountMeta[] }): Promise<TransactionInstruction> =>
   core.methods
@@ -136,11 +143,12 @@ export const recordSeasonIx = (
 
 export const paySeasonRankIx = (
   core: Core,
-  o: { authority: PublicKey; season: PublicKey; poolAccount: PublicKey; winnerAccount: PublicKey; prizeSource: PublicKey; rank: number; line: number },
+  o: { authority: PublicKey; season: PublicKey; poolAccount: PublicKey; winnerAccount: PublicKey; prizeSource: PublicKey; rank: number; line: number; remaining?: AccountMeta[] },
 ): Promise<TransactionInstruction> =>
   core.methods
     .paySeasonRank(o.rank, o.line)
     .accountsPartial({ authority: o.authority, season: o.season, poolAccount: o.poolAccount, winnerAccount: o.winnerAccount, prizeSource: o.prizeSource })
+    .remainingAccounts(o.remaining ?? [])
     .instruction();
 
 export const closeSeasonIx = (core: Core, o: { season: PublicKey }): Promise<TransactionInstruction> => core.methods.closeSeason().accountsPartial({ season: o.season }).instruction();

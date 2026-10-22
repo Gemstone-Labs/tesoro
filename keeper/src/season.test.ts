@@ -232,4 +232,26 @@ describe("the season job", () => {
     await go();
     assert.deepEqual(sent, ["growStore+paySeasonRank"]);
   });
+  it("does not grow a winner whose stores are at the maximum: the prize goes to an overflow record", async () => {
+    const accounts = await world();
+    const full = Array.from({ length: 32_768 }, (_, i) => ({ amount: 1n, dueAt: BigInt(i) }));
+    accounts.set(basketOf(alice).toBase58(), storeBytes(full, { account: alice }));
+    accounts.set(spillOf(alice).toBase58(), storeBytes(full, { account: alice }));
+    const source = k();
+    accounts.set(
+      pda("season", Buffer.from([1, 0, 0, 0])).toBase58(),
+      await accountBytes(core, "SeasonState", {
+        inner: {
+          number: 1,
+          window: { number: 1, recordedAt: new anchor.BN(nowAt - PAYOUT_WINDOW_SECS - 10), voidedMask: 0 },
+          count: 1,
+          winners: [[...alice.toBytes()], ...Array(9).fill(Array(32).fill(0))],
+          lines: [{ side: 1, class: 3, tranche: 0, dueAt: new anchor.BN(0), source: [...source.toBytes()], amount: new anchor.BN(1000), paid: new anchor.BN(0) }],
+        },
+      }),
+    );
+    const { sent, go } = run(accounts, wins);
+    await go();
+    assert.deepEqual(sent, ["paySeasonRank"]);
+  });
 });

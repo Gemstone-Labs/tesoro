@@ -1,4 +1,5 @@
 import anchor from "@coral-xyz/anchor";
+import { createHash } from "node:crypto";
 import type { Connection, PublicKey } from "@solana/web3.js";
 import { CORE_ID } from "./kit.ts";
 import { loadIdl } from "./runtime.ts";
@@ -13,6 +14,8 @@ export type Lister = (account: string, opts?: { dataSlice?: { offset: number; le
 
 /** The 8-byte discriminator of an account type of tesoro_core (`Name` as in the IDL's `accounts`). */
 export function discriminatorOf(name: string): Buffer {
+  // Account types no instruction names are not in the IDL; Anchor's discriminator is the hash of the name.
+  if (name === "OverflowHead") return createHash("sha256").update(`account:${name}`).digest().subarray(0, 8);
   const hit = (loadIdl("tesoro_core").accounts as { name: string; discriminator: number[] }[]).find((a) => a.name === name);
   if (!hit) throw new Error(`tesoro_core has no account type ${name}`);
   return Buffer.from(hit.discriminator);
