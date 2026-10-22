@@ -95,12 +95,12 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <>
             <p>
-              You and your opponent get the same pieces and 90 seconds each; the higher score wins. Nobody can see the pieces before you press
-              Start, and your score is checked by replaying your moves, so it can&apos;t be faked.
+              You and your opponent play the same pieces at the same time for 90 seconds; the higher score wins. Nobody can see the pieces before
+              the countdown ends, and your score is checked by replaying your moves, so it can&apos;t be faked.
             </p>
             <p>
-              You don&apos;t have to play at the same time: you can play before an opponent is paired, and the next Player in the Queue gets the same pieces. If nobody joins
-              before the Queue window ends, you can cancel and get your entry back.
+              Stay on the page once you are paired: a Player who doesn&apos;t check in loses the Match. The full rules, including the 3 second
+              grace after time is up and what happens if the network stops, are in the <Link href="/docs/matches#block-puzzle">Docs</Link>.
             </p>
           </>
         ),
@@ -393,8 +393,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "My opponent never showed up",
         a: (
           <p>
-            A no-show refunds both entries. In Block Burst, once the Queue window ends you can cancel and get your entry back from the
-            Match&apos;s page. In Hold&apos;em, claim the timeout when your opponent&apos;s clock runs out.
+            A no-show refunds both entries. In Block Burst, a paired Player who doesn&apos;t check in loses the Match, so you win. In Hold&apos;em, claim
+            the timeout when your opponent&apos;s clock runs out.
           </p>
         ),
       },

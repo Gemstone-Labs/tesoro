@@ -78,9 +78,9 @@ export default function Page() {
 
       <H2 id="liveness">Liveness</H2>
       <p>
-        Clocks live in the programs: Block Burst 90 s per run, a Queue window of 24 hours for an opener and a joiner window of 24 hours; Hold&apos;em 30 s per action and 60 s
-        to contribute entropy, with three missed turns in a row a forfeit; Trading Duel a two-and-a-half-minute grid; Vanguard 10 s per move, three missed turns in a row a forfeit, and a 15 minute limit on the whole Battle. <code>claim_timeout</code>, <code>seal</code>,{" "}
-        <code>commit_boards</code>, <code>finalize</code> and <code>settle</code> can be sent by anyone, and the keeper sends them when no Player does.
+        Clocks live in the programs: Block Burst 60 s to check in, 60 s for the pieces, a 10 s countdown, a 90 s run and 3 s of grace; Hold&apos;em 30 s per action and 60 s
+        to contribute entropy, with three missed turns in a row a forfeit; Trading Duel a two-and-a-half-minute grid; Vanguard 10 s per move, three missed turns in a row a forfeit, and a 15 minute limit on the whole Battle. <code>claim_timeout</code>,{" "}
+        <code>close</code>, <code>finalize</code> and <code>settle</code> can be sent by anyone, and the keeper sends them when no Player does.
       </p>
 
       <Callout kind="warn" title="What this does and does not buy">

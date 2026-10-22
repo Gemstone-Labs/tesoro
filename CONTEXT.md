@@ -98,11 +98,11 @@ _Avoid_: Friend link (reads as a friend's link), invite link, referral link
 ### Play
 
 **Game**:
-A title in Tesoro's catalogue, made by a Studio. The catalogue is four Games: Buckshot Hold'em (heads-up poker, real-time), a block-placement puzzle (async), Trading Duel (real-time, two Players pick boxes on a price grid and score when the live price line passes through them, over two and a half minutes) and Vanguard (real-time blitz Stratego: hidden ranks, 10 seconds a move, every rank has a power, capture the enemy Supply Truck).
+A title in Tesoro's catalogue, made by a Studio. The catalogue is four Games: Buckshot Hold'em (heads-up poker, real-time), Block Burst (a live block-placement puzzle, two Players on the same pieces for 90 seconds), Trading Duel (real-time, two Players pick boxes on a price grid and score when the live price line passes through them, over two and a half minutes) and Vanguard (real-time blitz Stratego: hidden ranks, 10 seconds a move, every rank has a power, capture the enemy Supply Truck).
 _Avoid_: app, title, Match (a single contest)
 
 **Seed**:
-The shared generated setup both Players of an async Match play against, so their scores are directly comparable. A score counts only as the server's replay of the Player's inputs against the Seed.
+The shared pieces both Players of a Block Burst Match play at the same time, so their scores are directly comparable. A score counts only as the server's replay of the Player's inputs against the Seed.
 _Avoid_: level, round, puzzle
 In UI copy the Seed is never named: Players see "the same pieces" (Block Burst).
 
@@ -115,7 +115,7 @@ The Gemas entered into one Match, held in escrow until settlement. The winner re
 _Avoid_: prize pool, jackpot (the Leaderboard Pool is a different thing)
 
 **Queue**:
-The waiting line for one game at one entry size, where Players are paired with the next entrant. In the async game a Player may play before an opponent is paired, so an unpaired Block Burst entry waits 24 hours for an opponent before it can be refunded; a live-game entry (Hold'em, Trading Duel, Vanguard) waits 1 hour.
+The waiting line for one game at one entry size, where Players are paired with the next entrant. An entry that is not paired waits 1 hour before it can be refunded.
 _Avoid_: lobby, matchmaking pool
 
 **Challenge**:
@@ -123,7 +123,7 @@ A Match opened by one Player for a specific opponent through a link, outside the
 _Avoid_: invite, private table, duel
 
 **Table**:
-A seat for a Match that Hold'em, Trading Duel and Vanguard keep ready on MagicBlock between Matches. A Match is bound to exactly one Table, which shows nothing from the Match before. Players never set a Table up or pay for one; Tesoro does, once per Table, and each Game has a capped number of them. Block Burst has no Tables yet.
+A seat for a Match that Block Burst, Hold'em, Trading Duel and Vanguard keep ready on MagicBlock between Matches. A Match is bound to exactly one Table, which shows nothing from the Match before. Players never set a Table up or pay for one; Tesoro does, once per Table, and each Game has a capped number of them.
 _Avoid_: room, lobby, server
 
 **Chips**:
