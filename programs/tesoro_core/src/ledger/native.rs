@@ -149,31 +149,6 @@ pub fn unlock_native(
     Ok(payable)
 }
 
-/// `return_own` for a native Position: the Source is first brought to its derived state; when the
-/// return clears Debt the Advance closes as in [`close_open_advance`].
-pub fn return_own_native(
-    position: &mut Position,
-    source: &mut Source,
-    account: &mut Account,
-    holding: &mut Holding,
-    amount: u64,
-    net: u64,
-) -> CoreResult<()> {
-    let mut view = source_view(position, source, net)?;
-    let mut scratch = position.clone();
-    let (mut acct, mut hold) = (account.clone(), holding.clone());
-    return_own(&mut scratch, &mut view, &mut acct, &mut hold, amount)?;
-    let mut pos = position.clone();
-    if view.debt() == 0 && pos.open_advance == Some(view.index) {
-        close_open_advance(&mut pos, &mut view, net)?;
-    }
-    *position = pos;
-    *source = view;
-    *account = acct;
-    *holding = hold;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,10 +162,8 @@ mod tests {
     struct Model {
         position: Position,
         sources: Vec<Source>,
-        held: Vec<u64>,
         now: i64,
         free_paid: u64,
-        redeemed: u64,
     }
 
     impl Model {
@@ -202,10 +175,8 @@ mod tests {
             Some(Self {
                 position,
                 sources: vec![],
-                held: vec![],
                 now: T0,
                 free_paid: 0,
-                redeemed: 0,
             })
         }
 
@@ -234,30 +205,9 @@ mod tests {
                 .position
                 .open_advance([9; 32], months, 150_000_000, FEE)
             {
-                self.held.push(src.issued);
                 self.sources.push(src);
                 assert_eq!(self.sources.len(), n + 1);
             }
-        }
-
-        fn redeem(&mut self, i: usize, pct: u64) {
-            if i >= self.sources.len() {
-                return;
-            }
-            let mut src = self.view(i);
-            let mut account = Account::default();
-            let mut holding = Holding::new([9; 32], true);
-            holding.credit(&mut account, self.held[i]).unwrap();
-            let want = (src.redeemable_for(self.held[i]) as u128 * pct as u128 / 100) as u64;
-            if want == 0 {
-                return;
-            }
-            let Ok(units) = redeem(&mut src, &mut account, &mut holding, want) else {
-                return;
-            };
-            self.sources[i] = src;
-            self.held[i] -= want;
-            self.redeemed += units;
         }
 
         fn unlock(&mut self) {
@@ -286,7 +236,7 @@ mod tests {
                 self.position.free_yield,
                 net
             );
-            assert!(self.redeemed + self.free_paid <= net + 1);
+            assert!(self.free_paid <= net + 1);
             for (i, s) in self.sources.iter().enumerate() {
                 if self.position.open_advance != Some(s.index) {
                     assert_eq!(s.debt(), 0, "closed source {i} has debt");
@@ -299,8 +249,6 @@ mod tests {
     enum Op {
         Time(i64),
         Advance(u8),
-        Redeem(usize, u64),
-        Return(u64),
         Unlock,
     }
 
@@ -308,8 +256,6 @@ mod tests {
         prop_oneof![
             5 => (1i64..2_000).prop_map(Op::Time),
             2 => (1u8..=12).prop_map(Op::Advance),
-            4 => (0usize..4, 1u64..=100).prop_map(|(i, p)| Op::Redeem(i, p)),
-            1 => (1u64..=100).prop_map(Op::Return),
             1 => Just(Op::Unlock),
         ]
     }
@@ -329,26 +275,6 @@ mod tests {
                 match op {
                     Op::Time(dt) => m.now += dt,
                     Op::Advance(months) => m.advance(months),
-                    Op::Redeem(i, pct) => m.redeem(i, pct),
-                    Op::Return(pct) => {
-                        if let Some(i) = m.position.open_advance {
-                            let i = i as usize;
-                            let net = m.net();
-                            let view = m.view(i);
-                            let amt = (view.debt() as u128 * pct as u128 / 100) as u64;
-                            let mut account = Account::default();
-                            let mut holding = Holding::new([9; 32], true);
-                            holding.credit(&mut account, m.held[i]).unwrap();
-                            let mut src = m.sources[i].clone();
-                            if amt > 0
-                                && amt <= m.held[i]
-                                && return_own_native(&mut m.position, &mut src, &mut account, &mut holding, amt, net).is_ok()
-                            {
-                                m.sources[i] = src;
-                                m.held[i] -= amt;
-                            }
-                        }
-                    }
                     Op::Unlock => m.unlock(),
                 }
                 m.check();
@@ -415,21 +341,5 @@ mod tests {
             unlock_native(&mut m.position, None, net),
             Err(CoreError::PositionNotLocked)
         );
-    }
-
-    #[test]
-    fn a_closed_source_keeps_its_final_yield_for_late_redeems() {
-        let mut m = Model::new(10 * SOL, 495).unwrap();
-        m.advance(2);
-        m.now = T0 + 5_000;
-        m.unlock();
-        assert_eq!(m.position.status, PositionStatus::Unlocked);
-        m.now += 1_000_000;
-        let v = m.view(0);
-        assert_eq!(v.debt(), 0);
-        assert_eq!(v.yield_units, m.sources[0].yield_units);
-        m.redeem(0, 100);
-        assert!(m.redeemed > 0);
-        m.check();
     }
 }

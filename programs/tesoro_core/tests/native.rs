@@ -3857,7 +3857,7 @@ fn a_season_is_funded_recorded_and_paid_from_the_escrow() {
     assert_eq!(after.inner.shares, ps.inner.shares - expected as u128);
     assert_eq!(env.route().escrow_backing, after.inner.shares);
     let err = env.redeem_prize(&bob, prize, 1).unwrap_err();
-    assert_eq!(code(&err), core_code(ledger::CoreError::HoldingMismatch));
+    assert_eq!(code(&err), core_code(ledger::CoreError::LineMismatch));
     // Every other Redeem path refuses a prize Source: it has no book to ask.
     assert!(env.redeem_prize(&carol, prize, second + 1).is_err());
     env.redeem_prize(&carol, prize, second)

@@ -160,7 +160,6 @@ pub(crate) fn init_leaderboard(ctx: Context<InitLeaderboard>, leaderboard_bps: u
         pool.bump = ctx.bumps.pool_account;
         pool.authority = ctx.accounts.pool_authority.key();
         pool.evm_address = [0; 20];
-        pool.inner = Default::default();
     }
     validate_fees(
         ctx.accounts.config.platform_bps,

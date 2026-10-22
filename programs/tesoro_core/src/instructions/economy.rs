@@ -592,7 +592,7 @@ pub(crate) fn redeem_line<'a, 'info>(
     let rates = kind.rates(&position.inner)?;
     sync_in_books(books, position, source, source_key, &rates)?;
     let (at, idx, mut line) =
-        find_line(pool, key).ok_or_else(|| core_err(CoreError::HoldingMismatch))?;
+        find_line(pool, key).ok_or_else(|| core_err(CoreError::LineMismatch))?;
     if k > line.amount {
         return Err(core_err(CoreError::InsufficientGemas));
     }
@@ -892,7 +892,7 @@ pub(crate) fn return_own_line<'a, 'info>(
     rates: &Rates,
 ) -> Result<()> {
     let (at, idx, mut line) =
-        find_line(pool, key).ok_or_else(|| core_err(CoreError::HoldingMismatch))?;
+        find_line(pool, key).ok_or_else(|| core_err(CoreError::LineMismatch))?;
     if k > line.amount {
         return Err(core_err(CoreError::InsufficientGemas));
     }
