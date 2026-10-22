@@ -23,8 +23,10 @@ export type FriendNotice =
 
 export interface FriendsDeps {
   store: FriendsStore;
-  /** The Challenge Match if it is open with its second seat free, else null. */
+  /** The Challenge Match if it is open, before its deadline, with its second seat free, else null. */
   openChallenge: (matchId: string) => Promise<OpenChallenge | null>;
+  /** The same for many Matches in one read (the list); falls back to one read each. */
+  openChallenges?: (matchIds: string[]) => Promise<(OpenChallenge | null)[]>;
   /** Emails a Friend notice when the Player opted in. Never throws into the route. */
   notify?: (n: FriendNotice) => Promise<void>;
   now?: () => number;
@@ -33,12 +35,15 @@ export interface FriendsDeps {
   newToken?: () => string;
 }
 
-/** `__Host-` makes the browser keep it to this exact host over HTTPS; local http dev can't use it. */
-export const sessionCookieName = (production: boolean) => (production ? "__Host-tesoro-friends" : "tesoro-friends");
+/** `__Host-` keeps it to this exact host and needs HTTPS; plain http (local dev, a phone preview) uses the bare name. */
+export const sessionCookieName = (https: boolean) => (https ? "__Host-tesoro-friends" : "tesoro-friends");
 
-export function sessionCookie(name: string, token: string, maxAgeSecs: number, production: boolean): string {
-  return `${name}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSecs}${production ? "; Secure" : ""}`;
+export function sessionCookie(name: string, token: string, maxAgeSecs: number, https: boolean): string {
+  return `${name}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSecs}${https ? "; Secure" : ""}`;
 }
+
+/** Whether the browser reached us over HTTPS (Vercel and other proxies say so in x-forwarded-proto). */
+export const requestIsHttps = (request: Request) => (request.headers.get("x-forwarded-proto") ?? new URL(request.url).protocol.replace(":", "")).split(",")[0].trim() === "https";
 
 const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
 const sessionNonces = new NonceStore();
@@ -147,7 +152,7 @@ export async function handleFriends(deps: FriendsDeps, body: unknown, ctx: Frien
       return { result: r };
     }
     case "challenge": {
-      const matchId = typeof b.matchId === "string" && /^\d{1,20}$/.test(b.matchId) ? b.matchId : null;
+      const matchId = typeof b.matchId === "string" && /^\d{1,20}$/.test(b.matchId) && BigInt(b.matchId) < 2n ** 64n ? b.matchId : null;
       if (!matchId) throw new DemoHttpError(400, "bad-request", "Malformed request.");
       const to = account(b.to);
       const open = await deps.openChallenge(matchId);
@@ -171,13 +176,15 @@ export async function handleFriends(deps: FriendsDeps, body: unknown, ctx: Frien
 
 async function view(deps: FriendsDeps, me: string, now: number): Promise<FriendsView> {
   const list = await deps.store.list(me, now);
-  const challenges = (
-    await Promise.all(
-      list.challenges.map(async (c) => {
-        const open = await deps.openChallenge(c.matchId).catch(() => null);
-        return open && open.opener === c.from ? { ...c, game: open.game, entry: open.entry } : null;
-      }),
-    )
-  ).filter((c): c is NonNullable<typeof c> => c !== null);
+  const ids = list.challenges.map((c) => c.matchId);
+  const opens = ids.length
+    ? await (deps.openChallenges ?? ((xs: string[]) => Promise.all(xs.map((x) => deps.openChallenge(x).catch(() => null)))))(ids).catch(() => ids.map(() => null))
+    : [];
+  const challenges = list.challenges
+    .map((c, i) => {
+      const open = opens[i];
+      return open && open.opener === c.from ? { ...c, game: open.game, entry: open.entry } : null;
+    })
+    .filter((c): c is NonNullable<typeof c> => c !== null);
   return { me, ...list, challenges, badge: list.incoming.length + challenges.length + list.friends.filter((f) => f.isNew).length };
 }

@@ -5,7 +5,7 @@ import { accountKeyOf } from "../../lib/chain/account-key";
 import { newNonce, signedMessage } from "../../lib/chain/signed-request";
 import { DemoHttpError, type AuthEnv } from "../request-auth";
 import { MAX_FRIENDS, MAX_OUTGOING, pairOf } from "./rules";
-import { handleFriends, startSession, type FriendNotice, type FriendsDeps, type OpenChallenge } from "./routes";
+import { handleFriends, requestIsHttps, startSession, type FriendNotice, type FriendsDeps, type OpenChallenge } from "./routes";
 import { MemoryFriendsStore } from "./store";
 
 const NOW = 1_800_000_000_000;
@@ -297,5 +297,35 @@ describe("friend Challenges", () => {
     await a.call({ op: "challenge", matchId: "15", to: b.account });
     await b.call({ op: "remove", account: a.account });
     expect((await b.call({ op: "list" })).challenges).toEqual([]);
+  });
+});
+
+describe("request checks", () => {
+  it("refuses a Match id that is not a u64", async () => {
+    const w = world();
+    const a = await w.player();
+    expect(await code(a.call({ op: "challenge", matchId: "99999999999999999999", to: a.account }))).toBe("bad-request");
+    expect(await code(a.call({ op: "challenge", matchId: "12a", to: a.account }))).toBe("bad-request");
+  });
+
+  it("reads every listed Challenge in one batch when it can", async () => {
+    const w = world();
+    const [a, b] = [await w.player(), await w.player()];
+    await a.call({ op: "request", to: b.account });
+    await b.call({ op: "accept", from: a.account });
+    w.open.set("21", { game: "holdem", entry: 500, opener: a.account });
+    w.open.set("23", { game: "holdem", entry: 500, opener: a.account });
+    await a.call({ op: "challenge", matchId: "21", to: b.account });
+    await a.call({ op: "challenge", matchId: "23", to: b.account });
+    const batches: string[][] = [];
+    w.deps.openChallenges = async (ids) => (batches.push(ids), ids.map((id) => w.open.get(id) ?? null));
+    expect((await b.call({ op: "list" })).challenges.map((c: { matchId: string }) => c.matchId).sort()).toEqual(["21", "23"]);
+    expect(batches).toHaveLength(1);
+  });
+
+  it("knows HTTPS from the proxy header or the URL", () => {
+    expect(requestIsHttps(new Request("http://x/api", { headers: { "x-forwarded-proto": "https" } }))).toBe(true);
+    expect(requestIsHttps(new Request("https://x/api"))).toBe(true);
+    expect(requestIsHttps(new Request("http://localhost:3381/api"))).toBe(false);
   });
 });

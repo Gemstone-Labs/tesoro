@@ -98,6 +98,8 @@ export const supabaseFriendsStore: FriendsStore = {
     ]);
   },
   async createSession(tokenHash, s: FriendsSession, nonce) {
+    // Old sessions of this Account that have run out go when a new one starts.
+    await db().from("friend_sessions").delete().eq("account", s.account).lt("expires_at", new Date().toISOString());
     const { error } = await db()
       .from("friend_sessions")
       .insert({ token_hash: tokenHash, account: s.account, authority: s.authority, privy_sub: s.privySub, nonce, expires_at: iso(s.expiresAt) });

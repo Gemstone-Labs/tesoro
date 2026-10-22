@@ -10,6 +10,11 @@ export const metadata: Metadata = { title: `Add a friend · ${BRAND.name}`, robo
 /** A Player's add-me link: their calling card and Add friend. Unknown and reset codes look the same. */
 export default async function FriendLinkPage({ params }: PageProps<"/friend/[code]">) {
   const { code } = await params;
-  const owner = isLinkCode(code) ? await friendsStore().linkOwner(code).catch(() => null) : null;
+  let owner: string | null = null;
+  try {
+    if (isLinkCode(code)) owner = await friendsStore().linkOwner(code);
+  } catch (e) {
+    console.error("friend-link", e);
+  }
   return <FriendLinkCard code={code} owner={owner} />;
 }

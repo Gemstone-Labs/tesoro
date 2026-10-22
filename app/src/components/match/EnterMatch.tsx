@@ -6,6 +6,7 @@ import { Busy, Button, GemaAmount } from "@/components/ui";
 import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
 import { FriendPicker } from "@/components/friends/FriendPicker";
 import { useFriends } from "@/lib/friends/FriendsProvider";
+import { FriendsError } from "@/lib/friends/client";
 import { useQueue } from "@/components/lobby/useQueue";
 import { useAccount } from "@/lib/account";
 import { MAX_ENTRY_SOURCES, estimatedWin } from "@/lib/chain/ledger";
@@ -61,8 +62,23 @@ export function EnterMatch(props: EnterKind) {
   const [confirmed, setConfirmed] = useState(props.kind !== "challenge-new");
   const pickedName = usePlayerLabel(picked);
   const pickedFriend = picked !== null && friends.relation(picked) === "friend";
-  /** Shows the new Challenge to the picked Friend (their Friends page, an email if they opted in); the link works either way. */
-  const tellFriend = (id: bigint) => (pickedFriend && picked ? friends.act("challenge", { matchId: id.toString(), to: picked }).catch(() => undefined) : Promise.resolve());
+  /**
+   * Shows the new Challenge to the picked Player if they are a Friend (the server checks; their Friends page, an
+   * email if they opted in). The server reads the new Match from its own RPC, which can lag a moment behind:
+   * it retries a few times. The link works either way.
+   */
+  const tellFriend = async (id: bigint) => {
+    if (!picked) return;
+    for (let i = 0; i < 4; i++) {
+      try {
+        await friends.act("challenge", { matchId: id.toString(), to: picked });
+        return;
+      } catch (e) {
+        if (!(e instanceof FriendsError && e.code === "not-your-challenge")) return;
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+    }
+  };
   const [freshRead, setFreshRead] = useState<"ok" | "failed" | null>(null);
   const [ageServer, setAgeServer] = useState<boolean | null>(null);
   const [ageChecked, setAgeChecked] = useState(false);

@@ -126,6 +126,10 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
   // the wallet exists, once per Account; after a failure, the Friends page offers Try again.
   const tried = useRef<string | null>(null);
   useEffect(() => {
+    // Once the list is ready again, a later lost session (e.g. a failed token read on a poll) may start a new one.
+    if (st.status === "ready") tried.current = null;
+  }, [st.status]);
+  useEffect(() => {
     if (!me || !signer || st.of !== me || st.status !== "locked" || tried.current === me) return;
     tried.current = me;
     void unlock();
