@@ -21,8 +21,9 @@ describe("spectating a Vanguard Match", () => {
     expect(up.map((p) => [p.id, p.rank])).toEqual([[3, "7"]]);
   });
 
-  it("never reads an Army account: the only account read is the Battle", async () => {
+  it("never reads an Army account: the only account read is the table's Battle", async () => {
     const id = new PublicKey("SysvarRent111111111111111111111111111111111");
+    const ref = { generation: 0, index: 1 };
     const read: string[] = [];
     const conn = {
       getAccountInfo: async (k: PublicKey) => {
@@ -30,18 +31,24 @@ describe("spectating a Vanguard Match", () => {
         return null;
       },
     };
-    await readPublicBattle(conn as never, id);
-    const a = addresses(id);
+    await readPublicBattle(conn as never, ref, id);
+    const a = addresses(ref);
     expect(read).toEqual([a.battle.toBase58()]);
     expect(read).not.toContain(a.army0.toBase58());
     expect(read).not.toContain(a.army1.toBase58());
-    expect(read).not.toContain(a.secret.toBase58());
   });
 
   it("decodes a Battle owned by the delegation program or the game", async () => {
     const bytes = Buffer.from(golden.battle.bytes, "hex");
     const conn = { getAccountInfo: async () => ({ data: bytes, owner: new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"), lamports: 1, executable: false }) };
-    const b = await readPublicBattle(conn as never, PublicKey.default);
-    expect(b?.eventSeq).toBe(decodeBattle(bytes).eventSeq);
+    const decoded = decodeBattle(bytes);
+    const b = await readPublicBattle(conn as never, { generation: 0, index: 0 }, decoded.tesoroMatch);
+    expect(b?.eventSeq).toBe(decoded.eventSeq);
+  });
+
+  it("shows nothing of a table whose Battle belongs to another Match (the Battle is reused by every Match on its table)", async () => {
+    const bytes = Buffer.from(golden.battle.bytes, "hex");
+    const conn = { getAccountInfo: async () => ({ data: bytes, owner: new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"), lamports: 1, executable: false }) };
+    expect(await readPublicBattle(conn as never, { generation: 0, index: 0 }, new PublicKey("SysvarRent111111111111111111111111111111111"))).toBeNull();
   });
 });

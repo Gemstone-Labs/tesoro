@@ -27,7 +27,14 @@ export function VanguardSpectate({ m }: { m: ChainMatch }) {
     const conn = publicConnection();
     const read = async () => {
       try {
-        const b = finished ? await getVanguard().readBattleOnBase(m.address) : await readPublicBattle(conn, m.address);
+        const vg = getVanguard();
+        const a = await vg.readAssignment(m.address);
+        let b: Battle | null = null;
+        if (a) {
+          b = finished ? await vg.readBattleOnBase(a) : await readPublicBattle(conn, a, m.address);
+          // A finished Match whose table ran another Match since has no board on base any more.
+          if (b && !b.tesoroMatch.equals(m.address)) b = null;
+        }
         if (!live) return;
         setBattle(b);
         setHidden(!b);

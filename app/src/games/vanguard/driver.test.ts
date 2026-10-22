@@ -1,38 +1,31 @@
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it, vi } from "vitest";
-import { actionsDue, canDelegate, contributeBundled, readDue, tickDelayMs } from "./driver";
+import { actionsDue, contributeBundled, readDue, tickDelayMs } from "./driver";
 import { STATUS, type Battle } from "./decode";
 
 const battle = (over: Partial<Battle> = {}): Battle => ({ status: STATUS.live, startDeadline: 1000, pendingKind: 0, turnSecs: 10, graceSecs: 1, openingGraceSecs: 10, ...over }) as Battle;
 
-describe("a Battle is delegated only inside its start window", () => {
-  it("allows the last second and refuses the next", () => {
-    expect(canDelegate(battle({ startDeadline: 1000 }), 1000)).toBe(true);
-    expect(canDelegate(battle({ startDeadline: 1000 }), 1001)).toBe(false);
-  });
-});
-
 describe("the second contributor asks for the randomness in the same transaction", () => {
   const p = {} as never;
-  const m = new PublicKey("SysvarC1ock11111111111111111111111111111111");
+  const m = { generation: 0, index: 2 };
   const q = new PublicKey("SysvarRent111111111111111111111111111111111");
   it("sends one bundled transaction when it is the second", async () => {
     const vg = { contributeEntropy: vi.fn().mockResolvedValue("sig") };
-    await contributeBundled(vg, p, m, q);
-    expect(vg.contributeEntropy.mock.calls).toEqual([[p, m, true, q]]);
+    await contributeBundled(vg, p, m, 1, q);
+    expect(vg.contributeEntropy.mock.calls).toEqual([[p, m, 1, true, q]]);
   });
 
   it("falls back to a plain contribution when the other secret is not in yet", async () => {
     const vg = { contributeEntropy: vi.fn().mockRejectedValueOnce(new Error("EntropyIncomplete")).mockResolvedValue("sig") };
-    await contributeBundled(vg, p, m, q);
-    expect(vg.contributeEntropy.mock.calls.map((c) => c[2])).toEqual([true, false]);
+    await contributeBundled(vg, p, m, 0, q);
+    expect(vg.contributeEntropy.mock.calls.map((c) => c[3])).toEqual([true, false]);
   });
 
   it("treats an already-counted contribution as done and rethrows anything else", async () => {
     const done = { contributeEntropy: vi.fn().mockRejectedValue(new Error("AlreadyContributed")) };
-    await expect(contributeBundled(done, p, m)).resolves.toBeUndefined();
+    await expect(contributeBundled(done, p, m, 0)).resolves.toBeUndefined();
     const broken = { contributeEntropy: vi.fn().mockRejectedValue(new Error("network down")) };
-    await expect(contributeBundled(broken, p, m)).rejects.toThrow("network down");
+    await expect(contributeBundled(broken, p, m, 0)).rejects.toThrow("network down");
   });
 });
 

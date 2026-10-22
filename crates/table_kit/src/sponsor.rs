@@ -26,6 +26,29 @@ pub fn sponsor_commit<'info>(
     validator: &Pubkey,
     table: &AccountInfo<'info>,
 ) -> core::result::Result<(), Error> {
+    sponsor_commit_many(
+        sponsor,
+        sponsor_seeds,
+        magic_context,
+        magic_program,
+        fee_vault,
+        validator,
+        std::slice::from_ref(table),
+    )
+}
+
+/// Like [`sponsor_commit`] for a game whose public state spans several delegated accounts (a
+/// table and its public game body). Only public accounts may be passed: hidden seats are
+/// ephemeral and cannot be committed anyway.
+pub fn sponsor_commit_many<'info>(
+    sponsor: &AccountInfo<'info>,
+    sponsor_seeds: &[&[u8]],
+    magic_context: &AccountInfo<'info>,
+    magic_program: &AccountInfo<'info>,
+    fee_vault: &AccountInfo<'info>,
+    validator: &Pubkey,
+    accounts: &[AccountInfo<'info>],
+) -> core::result::Result<(), Error> {
     if fee_vault.key != &fee_vault_address(validator) {
         return Err(error!(ErrorCode::ConstraintAddress));
     }
@@ -35,7 +58,7 @@ pub fn sponsor_commit<'info>(
         magic_program.clone(),
     )
     .magic_fee_vault(fee_vault.clone())
-    .commit(std::slice::from_ref(table))
+    .commit(accounts)
     .build_and_invoke_signed(&[sponsor_seeds])?;
     Ok(())
 }
