@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Connection } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { TEE_RPC } from "@/games/holdem/chain";
-import { STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfIndex, decodeDuel, type Duel } from "@/games/trading-duel/chain";
+import { STATUS, TRADING_DUEL_PROGRAM_ID, assetOfIndex, decodeDuel, decodeTable, tablePda, type Duel } from "@/games/trading-duel/chain";
 import { COLUMNS, NO_PICK, lockAt } from "@/games/trading-duel/grid";
 import { getTradingDuel } from "@/lib/chain/client";
 import type { ChainMatch } from "@/lib/chain/read";
@@ -28,20 +28,26 @@ export function DuelSpectate({ m }: { m: ChainMatch }) {
     const read = async () => {
       const chain = getTradingDuel();
       try {
+        const a = await chain.readAssignment(m.address);
         if (finished) {
-          const d = await chain.readDuelOnBase(m.address);
+          const d = a ? await chain.readDuelOnBase(a) : null;
           if (live) setDuel(d);
           return;
         }
         if (m.status !== "active") return;
-        // The public Duel is readable on the rollup without a Player's token; if it is refused, say so.
-        const info = await new Connection(TEE_RPC, "confirmed").getAccountInfo(addresses(m.address).duel).catch(() => null);
-        if (!live) return;
-        if (info && (info.owner.equals(DELEGATION_PROGRAM_ID) || info.owner.equals(TRADING_DUEL_PROGRAM_ID))) {
-          setDuel(decodeDuel(addresses(m.address).duel, chain.program.coder.accounts.decode("duel", info.data)));
-          setHidden(false);
+        if (!a) {
+          if (live) setDuel(null);
         } else {
-          setHidden(true);
+          // The public table is readable on the rollup without a Player's token; if it is refused, say so.
+          const address = tablePda(a.generation, a.index);
+          const info = await new Connection(TEE_RPC, "confirmed").getAccountInfo(address).catch(() => null);
+          if (!live) return;
+          if (info && (info.owner.equals(DELEGATION_PROGRAM_ID) || info.owner.equals(TRADING_DUEL_PROGRAM_ID))) {
+            setDuel(decodeDuel(a, decodeTable(address, chain.program.coder.accounts.decode("table", info.data))));
+            setHidden(false);
+          } else {
+            setHidden(true);
+          }
         }
       } catch {
         if (live && !finished) setHidden(true);

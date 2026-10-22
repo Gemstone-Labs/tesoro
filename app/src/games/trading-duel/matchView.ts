@@ -76,3 +76,5 @@ export function gridInputs(duel: Duel, seat: 0 | 1, book: Book | null, pending: 
 
 /** The end of a Match in words: who won, or that it was a draw. */
 export const isDraw = (duel: Duel): boolean => duel.status === STATUS.over && duel.winner === DRAW;
+
+export { canFinalizeTable as canFinalize } from "./chain";

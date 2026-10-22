@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { OUTCOME, PHASE, SLOT, STATUS, decodeAssignment, decodeBook, decodeDuel, decodeTable, canFinalizeTable, slotOf } from "../../app/src/games/trading-duel/chain.ts";
 import { decodeMatchRecords } from "../../app/src/server/history/events.ts";
 import { decodeBatch, decodeClaim, decodePayout, decodeRoute } from "./bridge-ix.ts";
 import { counterAmounts } from "./counters.ts";
@@ -19,6 +20,7 @@ import { bookCheckpointCounts } from "./supply.ts";
 const load = (name: string): Record<string, Buffer> => Object.fromEntries(Object.entries(JSON.parse(readFileSync(new URL(`../fixtures/${name}.json`, import.meta.url), "utf8")) as Record<string, string>).map(([k, v]) => [k, Buffer.from(v, "hex")]));
 const core = load("core-layouts");
 const bridge = load("bridge-layouts");
+const duelFx = load("trading-duel-layouts");
 // the coder the keeper really uses (camelCase fields)
 const coder = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {})).coder.accounts;
 const keyOf = (n: number) => {
@@ -131,5 +133,39 @@ describe("bridge accounts written by tesoro_bridge", () => {
     assert.deepEqual([c.unitsTotal, c.unitsSent, c.holderAccount.toBase58()], [200n, 50n, new PublicKey(Buffer.alloc(32, 13)).toBase58()]);
     const i = decodeClaim(keyOf(1), bridge.instantClaim);
     assert.deepEqual([i.unitsTotal, i.unitsSent, i.position.toBase58()], [201n, 51n, new PublicKey(Buffer.alloc(32, 18)).toBase58()]);
+  });
+});
+
+// Trading Duel tables, through the same IDL coder the keeper's TradingDuelChain uses.
+describe("Trading Duel accounts written by trading_duel", () => {
+  const duelCoder = new anchor.Program(loadIdl("trading_duel"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {})).coder.accounts;
+
+  it("a table with its ring, and the Match's turn on it", () => {
+    const t = decodeTable(keyOf(1), duelCoder.decode("table", duelFx.table));
+    assert.deepEqual([t.generation, t.index, t.epoch, t.phase, t.seatsOpen, t.dirty, t.slot], [1, 3, 7, PHASE.live, true, true, 3]);
+    assert.deepEqual([t.startsAt, t.endsAt, t.overAt, t.scores, t.winner], [1000, 1150, 1151, [100, 200], 1]);
+    const done = slotOf(t, keyOf(9), 6)!;
+    assert.deepEqual([done.state, done.outcome, done.at], [SLOT.done, OUTCOME.win1, 1200]);
+    assert.equal(t.ring[3].state, SLOT.reserved);
+    const a = decodeAssignment(keyOf(5), duelCoder.decode("assignment", duelFx.assignment));
+    assert.deepEqual([a.generation, a.index, a.epoch, a.startDeadline], [1, 3, 7, 1300]);
+    assert.equal(decodeDuel(a, t)?.status, STATUS.live);
+    assert.equal(decodeDuel({ ...a, epoch: 6 }, t), null);
+  });
+
+  it("base's copy settles a Match with a Done result, or after the table moved past its epoch", () => {
+    const t = decodeTable(keyOf(1), duelCoder.decode("table", duelFx.table));
+    const a = decodeAssignment(keyOf(5), duelCoder.decode("assignment", duelFx.assignment));
+    assert.equal(canFinalizeTable(t, { ...a, tesoroMatch: keyOf(9), epoch: 6 }, 2000), true);
+    assert.equal(canFinalizeTable(t, a, 2000), false); // Reserved: still running
+    assert.equal(canFinalizeTable(t, { ...a, tesoroMatch: keyOf(8), epoch: 6 }, 1300), false);
+    assert.equal(canFinalizeTable(t, { ...a, tesoroMatch: keyOf(8), epoch: 6 }, 1301), true); // table epoch 7 > 6, no slot
+  });
+
+  it("a Book and the table config", () => {
+    const b = decodeBook(keyOf(60), duelCoder.decode("book", duelFx.book));
+    assert.deepEqual([b.seat, b.pickCount, b.picks[2], b.picks[11]], [1, 2, 6, -3]);
+    const c: any = duelCoder.decode("tableConfig", duelFx.table_config);
+    assert.deepEqual([c.generation, c.maxTables], [1, 4]);
   });
 });
