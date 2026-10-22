@@ -28,7 +28,7 @@ export const pairOf = (x: string, y: string): [string, string] => (x < y ? [x, y
 
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
-/** A Friend link code: 10 random base58 characters (~58 bits). */
+/** An add-me link code: 10 random base58 characters (~58 bits). */
 export function newLinkCode(): string {
   const out: string[] = [];
   while (out.length < 10) {

@@ -33,7 +33,7 @@ export interface FriendsStore {
   redeem(me: string, code: string, now: number): Promise<{ status: RedeemStatus; owner?: string }>;
   /** `toThisFriendToday`: friend Challenges from `from` to `to` in the last day, this one included. */
   challenge(from: string, to: string, matchId: string, now: number): Promise<{ status: ChallengeStatus; toThisFriendToday?: number }>;
-  /** My Friend link code, made with `newCode` the first time. */
+  /** My add-me link code, made with `newCode` the first time. */
   link(me: string, newCode: string): Promise<string>;
   resetLink(me: string, newCode: string): Promise<string>;
   linkOwner(code: string): Promise<string | null>;

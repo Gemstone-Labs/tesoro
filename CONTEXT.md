@@ -81,9 +81,9 @@ _Avoid_: follower, contact, buddy, invite
 One Player's ask to become Friends with another Account, which becomes a friendship only when the other Player accepts it.
 _Avoid_: invite (an Invite is the waitlist's way into mainnet)
 
-**Friend link**:
-A Player's own shareable link that makes whoever opens it and accepts their Friend, with no further step from the owner. The owner can reset it, which ends the old link.
-_Avoid_: invite link, referral link
+**Add-me link**:
+A Player's own shareable link that makes whoever opens it and accepts their Friend, with no further step from the owner. The owner can reset it, which ends the old link. Lower case mid-sentence ("your add-me link").
+_Avoid_: Friend link (reads as a friend's link), invite link, referral link
 
 ### Play
 

@@ -23,7 +23,7 @@ import "./friends.css";
 const PAGE = 20;
 const RESULT_WORD = { won: "Won", lost: "Lost", draw: "Draw" } as const;
 
-/** The signed-in Player's private Friends page: requests, Challenges for them, their Friends and their Friend link. */
+/** The signed-in Player's private Friends page: requests, Challenges for them, their Friends and their add-me link. */
 export function FriendsPage() {
   const { auth, snapshot } = useAccount();
   const friends = useFriends();
@@ -138,7 +138,7 @@ export function FriendsPage() {
       <section className="cut cut-card fr-section" aria-labelledby="fr-yours">
         <h2 id="fr-yours" className="fr-h">Your friends</h2>
         {sorted.length === 0 ? (
-          <p className="fr-empty">No Friends yet. Share your Friend link, or add Players from their Account page or after a Match.</p>
+          <p className="fr-empty">No Friends yet. Share your add-me link, or add Players from their Account page or after a Match.</p>
         ) : (
           <>
             <ul className="fr-list">
@@ -296,7 +296,7 @@ function FriendMenu({ account, name }: { account: string; name: string }) {
   );
 }
 
-/** Your Friend link with Copy and Reset link. */
+/** Your add-me link with Copy, and Reset link as a setting. */
 function FriendLink() {
   const friends = useFriends();
   const [code, setCode] = useState<string | null>(null);
@@ -340,7 +340,7 @@ function FriendLink() {
   };
   return (
     <div className="cut cut-card fr-link">
-      <span className="fr-link-label">Your Friend link</span>
+      <span className="fr-link-label">Your add-me link</span>
       <div className="fr-link-row">
         <span className="cut cut-chip fr-link-url mono">{url || "…"}</span>
         <Button size="sm" disabled={!code} onClick={copy} icon={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
@@ -354,9 +354,9 @@ function FriendLink() {
         </button>
       </div>
       <span className="sr-only" role="status">
-        {copied ? "Friend link copied" : ""}
+        {copied ? "Add-me link copied" : ""}
       </span>
-      <Sheet open={resetOpen} onClose={closeReset} title="Reset your Friend link?">
+      <Sheet open={resetOpen} onClose={closeReset} title="Reset your add-me link?">
         <div className="stack">
           <p className="meta fr-reset-text">
             You get a new link and the current one stops working: anyone who opens it sees that it no longer works. Your Friends stay your Friends. Do this if your link
