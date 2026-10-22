@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { AlertIcon, Button } from "@/components/ui";
 import { useAuth } from "@/lib/auth/context";
-import { notifyCall, type NotifyStatus } from "@/lib/chain/notify-client";
+import { notifyCall, notifyReady, type NotifyStatus } from "@/lib/chain/notify-client";
 import { plainError } from "@/lib/errors";
 import "./account.css";
 import { BRAND } from "@/lib/brand";
@@ -43,7 +43,9 @@ export function NotifySettingsView({ status, busy = null, error = null, draft, o
         </span>
         <small id="ns-hint" className="meta">
           {status === null
-            ? "Loading…"
+            ? error
+              ? null
+              : "Loading…"
             : status.email === null
               ? "Optional. We only use it to tell you how your Matches went. It is never public."
               : status.verified
@@ -79,10 +81,21 @@ export function NotifySettingsPanel() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
   const signer = auth.signer;
 
   useEffect(() => {
-    if (!signer) return;
+    let live = true;
+    notifyReady()
+      .then((r) => live && setReady(r))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!signer || !ready) return;
     let live = true;
     notifyCall("status", signer, auth.getAccessToken)
       .then((s) => {
@@ -94,7 +107,7 @@ export function NotifySettingsPanel() {
     return () => {
       live = false;
     };
-  }, [signer, auth.getAccessToken]);
+  }, [signer, ready, auth.getAccessToken]);
 
   async function run(what: string, step: "set-email" | "set-enabled", body: { email?: string; enabled?: number }) {
     if (!signer) return;
@@ -109,7 +122,7 @@ export function NotifySettingsPanel() {
     }
   }
 
-  if (!signer) return null;
+  if (!signer || !ready) return null;
   return (
     <NotifySettingsView
       status={status}

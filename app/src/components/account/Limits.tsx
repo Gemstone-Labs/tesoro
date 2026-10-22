@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ExtendLimitPanel } from "@/app/(app)/wallet/ExtendLimit";
-import { Button } from "@/components/ui";
+import { Button, Select } from "@/components/ui";
 import { fmtWhen } from "@/lib/format";
 import { entryLimitChange, entryLimitOptions, entryLimitSummary, entryPendingNote, type EntryLimitView } from "@/lib/chain/entry-limit";
 import type { ExtendLimitView } from "@/lib/chain/extend-limit";
@@ -117,13 +117,12 @@ function EntryLimitControl({ view, busy, onSet }: { view: EntryLimitView; busy: 
       <div className="field">
         <label className="label" htmlFor="entry-limit-pick">Change your limit</label>
         <div className="ext-limit-row">
-          <span className="cut cut-chip ctl">
-            <select id="entry-limit-pick" className="select" value={pick} onChange={(e) => setPicked(Number(e.target.value))}>
-              {entryLimitOptions(view).map((g) => (
-                <option key={g} value={g}>{g === 0 ? "No limit" : `${g.toLocaleString("en-US")} Gemas`}</option>
-              ))}
-            </select>
-          </span>
+          <Select
+            id="entry-limit-pick"
+            value={pick}
+            options={entryLimitOptions(view).map((g) => ({ value: g, label: g === 0 ? "No limit" : `${g.toLocaleString("en-US")} Gemas` }))}
+            onChange={setPicked}
+          />
           <Button size="sm" disabled={busy || change === "same"} onClick={() => { onSet(pick); setPicked(null); }}>{busy ? "Saving…" : "Set limit"}</Button>
         </div>
         <p className="adv-fee">{CHANGE_NOTE[change]}</p>
@@ -173,13 +172,7 @@ function AwayControl({
         <div className="field">
           <label className="label" htmlFor={id}>{inForce !== null ? "Make it longer" : `Start a ${name}`}</label>
           <div className="ext-limit-row">
-            <span className="cut cut-chip ctl">
-              <select id={id} className="select" value={pick ?? ""} onChange={(e) => setPicked(Number(e.target.value))}>
-                {options.map((n) => (
-                  <option key={n} value={n}>{label(n)}</option>
-                ))}
-              </select>
-            </span>
+            <Select id={id} value={pick ?? -1} options={options.map((n) => ({ value: n, label: label(n) }))} onChange={setPicked} />
             <Button size="sm" disabled={busy || pick === null} onClick={() => setConfirming(true)}>Continue</Button>
           </div>
           {pick !== null && <p className="adv-fee">Ends {fmtEnd(end(pick))}.</p>}

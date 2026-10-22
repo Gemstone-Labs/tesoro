@@ -66,14 +66,8 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
         {waiting && <p className="wl-count mono">{waiting}</p>}
         <p className="wl-more">
           <Link href="/welcome">How it works</Link>
-          <Link href="/docs">Docs</Link>
           <Link href="/terms">Terms</Link>
           <Link href="/privacy">Privacy</Link>
-          {OUTBOUND.x && (
-            <a href={OUTBOUND.x} target="_blank" rel="noopener">
-              @PlayTesoro on X
-            </a>
-          )}
         </p>
       </main>
     </div>

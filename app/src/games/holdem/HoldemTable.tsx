@@ -440,12 +440,6 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
             <ChipStack amount={g.amount} />
           </div>
         ))}
-        {!showLast && playing && lh.handNo > 0 && lh.result !== NO_WINNER && (
-          <p className="meta hd-last">
-            Hand {lh.handNo}: {lh.result === SPLIT ? "split pot" : lh.result === seat ? "you won" : "you lost"} · {chips(lh.pot)} Chips
-            {lh.showdown ? " at showdown" : lh.result === seat ? " (opponent folded)" : " (you folded)"}
-          </p>
-        )}
       </div>
 
       {!ended && (

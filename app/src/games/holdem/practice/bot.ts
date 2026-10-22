@@ -3,7 +3,7 @@
  * bets for value, calls on price, and bluffs now and then. Only ever picks a legal action.
  */
 import { NO_CARD, call, check, fold, raise, type Action, type Table } from "../chain";
-import { legalMoves } from "../rules";
+import { legalMoves, raisePresets } from "../rules";
 import { eval7 } from "./eval";
 
 /** Share of the pot this hand wins against one random hand, from `samples` random run-outs. */
@@ -40,8 +40,10 @@ export function botAction(t: Table, seat: number, hole: [number, number], random
 
   const raiseTo = (fraction: number): Action => {
     const target = BigInt(Math.round(current + (pot + toCall) * fraction));
-    const to = target < lg.minTo ? lg.minTo : target > lg.maxTo ? lg.maxTo : target;
-    return raise(to);
+    // Only the sizes a Player can pick: a raise-by preset or All-in, whichever is closest.
+    const sizes = [...raisePresets(t, seat).filter((p) => p.ok).map((p) => p.to), lg.maxTo];
+    const off = (to: bigint) => (to > target ? to - target : target - to);
+    return raise(sizes.reduce((best, to) => (off(to) < off(best) ? to : best)));
   };
   const passive = (): Action => (facing ? call() : check());
 

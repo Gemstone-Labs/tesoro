@@ -32,4 +32,19 @@ describe("Hold'em action bar", () => {
   it("leaves the buttons alone while claiming a timeout", () => {
     expect(buttons(bar("claim_timeout"))).not.toContain("Sending…");
   });
+
+  it("offers raise by 200 / 400 / 600 / 800 and All-in, with no typed amount or slider", () => {
+    const html = bar(null);
+    const presets = [...html.matchAll(/class="cut cut-chip hd-preset"[^>]*>([^<]*)/g)].map((m) => m[1]);
+    expect(presets).toEqual(["+200", "+400", "+600", "+800", "All-in "]);
+    expect(html).not.toContain("<input");
+    expect(html).toContain("Raise by");
+  });
+
+  it("starts on the smallest legal preset and names the raise-to it sends", () => {
+    // Hand 1 at 50/100: the small blind faces 100, so +200 raises to 300.
+    const html = bar(null);
+    expect(html).toMatch(/aria-pressed="true"[^>]*>\+200</);
+    expect(buttons(html)[2]).toBe("Raise to 300");
+  });
 });
