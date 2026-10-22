@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NO_CARD, PHASE, SPLIT, STATUS, call, check, fold, raise } from "../chain";
-import { legalMoves } from "../rules";
+import { legalMoves, raisePresets } from "../rules";
 import { botAction, equity } from "./bot";
 import { act, deal, newPractice, STARTING_CHIPS, type Practice } from "./engine";
 import { FLUSH, FULL_HOUSE, HIGH_CARD, PAIR, QUADS, STRAIGHT, STRAIGHT_FLUSH, TRIPS, TWO_PAIR, category, eval7 } from "./eval";
@@ -148,7 +148,7 @@ describe("practice bot", () => {
     expect(equity(hand("7d 2c") as [number, number], [], 400, rng(9))).toBeLessThan(0.4);
   });
 
-  it("plays whole Matches against itself with only legal actions, chips conserved", () => {
+  it("plays whole Matches against itself with only legal actions and preset raises, chips conserved", () => {
     for (let seed = 1; seed <= 20; seed++) {
       const r = rng(seed * 7919);
       let p = newPractice(0, r);
@@ -158,7 +158,12 @@ describe("practice bot", () => {
         else {
           const s = p.table.toAct;
           const h: [number, number] = s === 0 ? [p.deck[0], p.deck[2]] : [p.deck[1], p.deck[3]];
-          p = act(p, s, botAction(p.table, s, h, r), 0, r);
+          const a = botAction(p.table, s, h, r);
+          if ("raise" in a) {
+            const sizes = [...raisePresets(p.table, s).filter((x) => x.ok).map((x) => x.to), legalMoves(p.table, s).maxTo];
+            expect(sizes).toContain(BigInt(a.raise.to.toString()));
+          }
+          p = act(p, s, a, 0, r);
         }
         expect(total(p)).toBe(STARTING_CHIPS * 2n);
         steps++;
