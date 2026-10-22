@@ -453,4 +453,9 @@ describe("the rest of sign-up on the sponsor (ticket 18c)", () => {
     const capped = setup({ gemas: 0n, limits: { accountSunkTotal: 1_000_000 } });
     await expect(capped.sponsor.build(capped.player.publicKey, wire([linkEvmBridgeIx(capped.player.publicKey, capped.relayer.publicKey)]), "u")).rejects.toMatchObject({ code: "total-limit" });
   });
+  it("an Account gets one sponsored link_evm, not one per EVM address it sets", async () => {
+    const s = setup({ gemas: 0n });
+    await s.sponsor.build(s.player.publicKey, wire([linkEvmBridgeIx(s.player.publicKey, s.relayer.publicKey)]), "u");
+    await expect(s.sponsor.build(s.player.publicKey, wire([linkEvmBridgeIx(s.player.publicKey, s.relayer.publicKey)]), "u")).rejects.toMatchObject({ code: "link-limit" });
+  });
 });

@@ -43,6 +43,8 @@ export interface Limits {
   onboardPerDay: number;
   /** The day's count at which the relayer's operators are mailed (once a day). */
   onboardAlertAt: number;
+  /** Sponsored `link_evm` per Account, ever: its rent is never returned, and set_evm_address lets an Account link any number of addresses. */
+  linksPerAccount: number;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -59,6 +61,7 @@ export const DEFAULT_LIMITS: Limits = {
   onboardPerUser: 1,
   onboardPerDay: 500,
   onboardAlertAt: 400,
+  linksPerAccount: 1,
 };
 
 export interface Clock {
@@ -76,6 +79,7 @@ const k = {
   onboardUser: (u: string) => `onboard-user:${u}`,
   onboardDay: () => "onboard-day",
   onboardAlert: () => "onboard-alert",
+  link: (a: string) => `link:${a}`,
 };
 
 export interface Admission {
@@ -102,6 +106,7 @@ export async function admit(store: UsageStore, limits: Limits, plan: Plan, playe
   await take(k.account(player), 1, limits.accountPerDay, DAY, "account-limit", "Today's limit for free transactions is used up for this Account.");
   if (plan.pair) await take(k.pair(plan.pair.toBase58()), 1, limits.pairPerDay, DAY, "pair-limit", "These two Accounts have played enough Matches today.");
   await take(k.global(), 1, limits.globalPerDay, DAY, "global-limit", "Free transactions are paused for today.");
+  if (plan.names.includes("link_evm")) await take(k.link(player), 1, limits.linksPerAccount, LIFETIME, "link-limit", "This Account already got a free EVM link. Add some SOL to link another address.");
   const sunk = Number(plan.spend.sunk);
   await take(k.sunk(player), sunk, limits.accountSunkTotal, LIFETIME, "total-limit", "This Account has used all the free transactions it gets.");
   return { undo };
