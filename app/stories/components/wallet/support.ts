@@ -14,7 +14,6 @@ export const NATIVE_MARKET: NativeMarket = {
   simSol: 12_500_000_000n,
   treasury: { yieldFeeBps: 2000, instantFeeBps: 2500 },
   treasuryShares: 8_000_000_000n,
-  treasuryClaim: { totals: { feeWeight: 0n, feeWeightTime: 0n, realisedFee: 0n, openPositions: 0n }, feeMinted: 0n },
   stake: null,
 };
 
@@ -43,6 +42,7 @@ export function nativePosition(state: "debt" | "repaid" | "unlocked" = "debt"): 
       key: key(403),
       index: 0,
       horizonMonths: 3,
+      fees: { yieldFeeBps: 2000, poolBps: 5000 },
       math: { issued, returned, redeemed: 0n, yieldUnits: state === "unlocked" ? 2_000_000_000n : 0n, unitNum: 10_000_000_000_000n, unitDen: 110_000_000n },
     },
   };

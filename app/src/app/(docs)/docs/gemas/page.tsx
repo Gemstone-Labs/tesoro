@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
 import { Shot, SourceDiagram } from "@/components/docs/visual";
-import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
+import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT, REDEEM_PAYOUT_PCT, YIELD_FEE_PCT } from "@/lib/chain/yield";
 import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Gemas", alternates: { canonical: "/docs/gemas" } };
@@ -37,7 +37,7 @@ export default function Page() {
         more than the yield that exists.
       </p>
       <p>
-        <b>Redeem now</b> is the amount your Gemas on one chain can be Redeemed for at full value at this moment. It never goes down unless you Redeem or
+        <b>Redeem now</b> is the amount your Gemas on one chain can be Redeemed for at this moment, after the {YIELD_FEE_PCT}% Yield Fee. It never goes down unless you Redeem or
         spend those Gemas: another holder&apos;s Redeem, the Lock owner&apos;s Extend, a new fee or an Instant Redeem cannot lower it. For the rest the Wallet
         shows an estimated date it will be ready by. Which Gemas are repaid first is set by the{" "}
         <Link href="/docs/fees#payout-order">payout order</Link>.
@@ -63,15 +63,15 @@ export default function Page() {
 
       <H2 id="instant-redeem">Instant Redeem</H2>
       <p>
-        If you do not want to wait for a Lock&apos;s yield, you can ask for an <b>Instant Redeem</b> of Gemas you won. It is an order: you make the request, the Gemas
+        If you do not want to wait for a Lock&apos;s yield, you can ask for an <b>Instant Redeem</b> of Gemas you won or your own, as many as you choose. It is an order: you make the request, the Gemas
         wait in the order, and {BRAND.name} fills it. When it does you receive <b>{INSTANT_PAYOUT_PCT}%</b> of their value, counted at the moment of the fill, in the
-        coin they came from. {BRAND.name} keeps the other <b>{INSTANT_FEE_PCT}%</b>, takes the Gemas and waits for the yield itself, so you never have to.
+        coin they came from: the {YIELD_FEE_PCT}% Yield Fee comes out first and {BRAND.name} keeps <b>{INSTANT_FEE_PCT}%</b> of the rest, takes the Gemas and waits for the yield itself, so you never have to.
       </p>
       <ul>
-        <li>It works for SOL, ETH and HYPE Gemas you won. Your own Gemas, the ones from your own Locks, cannot be sold this way.</li>
-        <li>It is optional. A normal Redeem pays 100% once the yield has landed.</li>
+        <li>It works for SOL, ETH and HYPE Gemas, the ones you won and the ones from your own Locks.</li>
+        <li>It is optional. A normal Redeem pays {REDEEM_PAYOUT_PCT}% of the value once the yield has landed, so waiting pays more.</li>
         <li>{BRAND.name} may fill an order in full or in part, and not at once. While it waits, those Gemas cannot be played. You can cancel an unfilled order at any time, and an order nobody fills expires and gives your Gemas back unchanged.</li>
-        <li>It only sells Gemas whose yield has not landed yet. Any part that has already landed, including yield that lands while the order waits, is redeemed for you at full value.</li>
+        <li>It only sells Gemas whose yield has not landed yet. Any part that has already landed, including yield that lands while the order waits, is redeemed for you normally, at the {REDEEM_PAYOUT_PCT}% a Redeem pays.</li>
         <li>It is limited by what {BRAND.name} can spend for that asset. The Treasury never spends the Leaderboard Pool&apos;s share, or what holders of an unlocked Lock are still owed. If it cannot pay, the order simply waits.</li>
         <li>The Lock and what is left to pay back on it are untouched: {BRAND.name} simply becomes the holder of those Gemas.</li>
       </ul>

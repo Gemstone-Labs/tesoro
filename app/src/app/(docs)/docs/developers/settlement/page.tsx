@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, Code, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
 import { Sequence } from "@/components/docs/visual";
-import { INSTANT_FEE_PCT } from "@/lib/chain/yield";
+import { INSTANT_FEE_PCT, YIELD_FEE_PCT } from "@/lib/chain/yield";
 import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "How settlement works", alternates: { canonical: "/docs/developers/settlement" } };
@@ -82,7 +82,7 @@ export default function Page() {
         <li>They are taken in Gemas from the <b>loser&apos;s lines</b>, from as few lines as possible, largest first: Platform Fee first, then Studio Fee, then Leaderboard Fee, then (for a backed win) the Player&apos;s share of what remains. Each cut first syncs its Source, and the cut Gemas land in the fee counters of the Source (or in an outside studio&apos;s basket). The Payout order then repays them first.</li>
         <li>The Leaderboard Fee is paid to the Leaderboard Pool, a {BRAND.name} Account owned by the address <code>[&quot;leaderboard&quot;]</code>, as a fee-class line. Each decisive settlement also emits <code>MatchWon</code> (Player, loser, entry, points, season) as an event of the core program; the Season ranking reads only those. Points are 0 for a Match of an unlisted Game.</li>
         <li>Fees are floored, so the winner gets the dust. A Draw, abandonment or no-show takes none.</li>
-        <li>Match Fees are separate from {BRAND.name}&apos;s other two revenues, which never touch a Pot: the Yield Fee (20% of the yield every Lock earns) and the Instant Redeem Fee ({INSTANT_FEE_PCT}% of won Gemas redeemed early). Both are kept by the Treasury.</li>
+        <li>Match Fees are separate from {BRAND.name}&apos;s other two revenues, which never touch a Pot: the Yield Fee ({YIELD_FEE_PCT}% of the value of Gemas cashed out, split in half with the Leaderboard Pool) and the Instant Redeem Fee ({INSTANT_FEE_PCT}% of what a Redeem would pay, on Gemas sold early). The Yield Fee is taken at cash-out, not when yield accrues; Match Fee Gemas and prize Gemas pay none. The Treasury keeps both.</li>
       </ul>
 
       <H3 id="allocation">Entry draw and bounds</H3>

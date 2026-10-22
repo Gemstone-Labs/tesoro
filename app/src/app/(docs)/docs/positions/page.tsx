@@ -31,15 +31,15 @@ export default function Page() {
 
       <H2 id="advance">An Advance</H2>
       <p>
-        An <b>Advance</b> is Gemas issued upfront against the projected yield of your Lock over a <b>Length</b> of 1 to 12 months. It is 80% of
-        that projected yield, the yield left after {BRAND.name}&apos;s 20% Yield Fee:
+        An <b>Advance</b> is Gemas issued upfront against the projected yield of your Lock over a <b>Length</b> of 1 to 12 months. It is the whole
+        of that projected yield. {BRAND.name}&apos;s Yield Fee comes out later, when Gemas are cashed out, never when the Advance is issued:
       </p>
       <p>
-        <b>Advance = Locked amount × yearly rate × months ÷ 12 × 80%</b>, converted to dollars once at the issuance price and rounded down to whole Gemas at
+        <b>Advance = Locked amount × yearly rate × months ÷ 12</b>, converted to dollars once at the issuance price and rounded down to whole Gemas at
         $0.01 each.
       </p>
       <p>
-        Your Lock earns that same 80%, so the Advance is repaid in the Length you picked. The Yield Fee is taken from yield only, never from the
+        Your Lock earns that same yield, so the Advance is repaid in the Length you picked. The Yield Fee is taken from Gemas when they are cashed out, never from the
         Locked amount.
       </p>
       <p>A Lock holds at most one open Advance. You can take a new one when nothing is left to pay back.</p>
@@ -50,7 +50,7 @@ export default function Page() {
       </p>
       <ul>
         <li>
-          <b>The Lock&apos;s own yield.</b> All the yield it keeps (80% of what it earns) goes to paying it back first, automatically. There is no repay button and no way to skip it.
+          <b>The Lock&apos;s own yield.</b> All the yield it earns goes to paying it back first, automatically. There is no repay button and no way to skip it.
         </li>
         <li>
           <b>Returning your own unspent Gemas</b> from your Wallet, up to what is left to pay back.

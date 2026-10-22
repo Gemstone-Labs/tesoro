@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { Coins, Gem, Lock, RefreshCcw, Swords } from "lucide-react";
 import { FlowDiagram, Shot, StepGrid } from "@/components/docs/visual";
-import { INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
+import { INSTANT_PAYOUT_PCT, REDEEM_PAYOUT_PCT, YIELD_FEE_PCT } from "@/lib/chain/yield";
 import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: `How ${BRAND.name} works`, alternates: { canonical: "/docs/how-it-works" } };
@@ -17,10 +17,10 @@ export default function Page() {
       <StepGrid
         items={[
           { icon: Lock, tone: "emerald", title: "Get Gemas", body: <>Lock a staking token in your Wallet. What you lock is never played.</> },
-          { icon: Coins, tone: "emerald", title: "Take an Advance", body: <>Pick a Length of 1 to 12 months. You receive 80% of the Lock&apos;s projected yield over it, upfront. The other 20% is {BRAND.name}&apos;s Yield Fee.</> },
+          { icon: Coins, tone: "emerald", title: "Take an Advance", body: <>Pick a Length of 1 to 12 months. You receive the Lock&apos;s projected yield over it, upfront, as Gemas.</> },
           { icon: Gem, tone: "emerald", title: "Hold Gemas", body: <>The Advance arrives as Gemas, worth $0.01 each at the moment they are issued.</> },
           { icon: Swords, tone: "sapphire", title: "Play Matches", body: <>Enter {fmtEntryList(ENTRY_SIZES)} Gemas in a head-to-head game. The winner takes the Pot minus Fees.</> },
-          { icon: RefreshCcw, tone: "emerald", title: "Repay and Redeem", body: <>Your Lock&apos;s yield pays back the Advance on its own. Gemas you win turn into the coin they came from as the loser&apos;s yield lands, or right away for {INSTANT_PAYOUT_PCT}% of their value with Redeem now.</> },
+          { icon: RefreshCcw, tone: "emerald", title: "Repay and Redeem", body: <>Your Lock&apos;s yield pays back the Advance on its own. Gemas you win turn into the coin they came from as the loser&apos;s yield lands ({REDEEM_PAYOUT_PCT}% of their value after the Yield Fee), or right away for {INSTANT_PAYOUT_PCT}% of their value with Redeem now.</> },
         ]}
         result={{ title: "What you have at the end", body: <>Your coins back after Unlock, plus whatever you won and redeemed. Matches only ever risk the Gemas you enter.</> }}
       />
@@ -35,27 +35,26 @@ export default function Page() {
         head={["Step", "Working", "Result"]}
         rows={[
           ["Projected yield", "10 × 7% × 3 ÷ 12", "0.175 SOL"],
-          ["Your 80% (the Advance)", "0.175 × 80%", "0.14 SOL"],
-          ["Worth at issuance", "0.14 × $100", "$14"],
-          ["Gemas issued", "$14 ÷ $0.01", "1,400 Gemas"],
-          ["Left to pay back", "all of the Advance", "1,400 Gemas"],
+          ["Worth at issuance", "0.175 × $100", "$17.50"],
+          ["Gemas issued (the Advance)", "$17.50 ÷ $0.01", "1,750 Gemas"],
+          ["Left to pay back", "all of the Advance", "1,750 Gemas"],
         ]}
-        caption="Advance = Locked amount × yearly rate × months ÷ 12 × 80%, priced once and rounded down to whole Gemas"
+        caption="Advance = Locked amount × yearly rate × months ÷ 12, priced once and rounded down to whole Gemas"
       />
       <p>
         After that the dollar price is never used again. What is left to pay back is fixed in the Lock&apos;s own coin, so a later price move changes neither
         that nor what a Gema redeems for.
       </p>
       <p>
-        Your Lock earns 80% of its yield, the same share the Advance was sized on, so what is left to pay back still falls to zero by the end of the Length.
+        Your Lock earns the yield the Advance was sized on, so what is left to pay back still falls to zero by the end of the Length.
       </p>
 
       <H2 id="what-never-happens">What never happens</H2>
       <ul>
         <li>What you lock is never entered into a Match.</li>
         <li>What you lock never pays back an Advance. Adding more to a Lock does not pay it back either.</li>
-        <li>Nothing is ever charged on what you lock. {BRAND.name} earns a Platform Fee on Matches, a 20% Yield Fee on the yield your Lock earns, and a fee if you choose Redeem now (see <Link href="/docs/fees">Fees</Link>).</li>
-        <li>{BRAND.name} does not lend you money against what you lock. An Advance is your own projected yield, net of the Yield Fee, paid early.</li>
+        <li>Nothing is ever charged on what you lock. {BRAND.name} earns a Platform Fee on Matches, a {YIELD_FEE_PCT}% Yield Fee when Gemas are cashed out, and a fee if you choose Redeem now (see <Link href="/docs/fees">Fees</Link>).</li>
+        <li>{BRAND.name} does not lend you money against what you lock. An Advance is your own projected yield, paid early.</li>
       </ul>
 
       <H2 id="why-pvp-only">Why only head-to-head games</H2>

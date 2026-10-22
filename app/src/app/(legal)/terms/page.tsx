@@ -85,9 +85,10 @@ export default function Terms() {
             We may change which staking token and provider (for example Jito, Lido or Kinetiq) new Locks use. Existing Locks keep the token they started with.
           </li>
           <li>
-            We take a <b>Yield Fee</b> of 20% of the yield a Lock earns, before it counts toward paying back, redemption or free yield. We never charge it on a Locked amount.
-            Half of the Yield Fee is ours and half is owed to the Leaderboard Pool for Season prizes. Neither half counts as spendable until the fee is realised, which happens
-            when the Lock is unlocked. We do not spend the Pool&apos;s half, or what holders of an unlocked Lock are still owed.
+            We take a <b>Yield Fee</b> of 20% of yield when it is cashed out: when Gemas are Redeemed (you receive 80% of their value), when Gemas are sold by Instant Redeem, when we
+            redeem Gemas we bought, and on a Lock&apos;s free yield when it is unlocked. We take it once per cash-out and never on a Locked amount, on fee Gemas or on prize Gemas.
+            Half of the Yield Fee is ours and half is owed to the Leaderboard Pool for Season prizes, both counted when the cash-out happens. We do not spend the Pool&apos;s half, or
+            what holders of an unlocked Lock are still owed.
           </li>
         </ul>
       </Section>
@@ -111,10 +112,11 @@ export default function Terms() {
             Lock has left to pay back or the Unlock Estimate. The Fee Gemas we receive are therefore repaid before yours, and winners can wait longer for Gemas of Advances where fees were taken.
           </li>
           <li>
-            <b>Instant Redeem</b> is an order. You ask us to buy Gemas you won whose yield has not landed yet. The Gemas wait in the order and cannot be played. We may fill the order in full, in part
-            or not at all, by hand or by a rule we switch on, only while the Treasury for that asset has enough that we may spend. When we fill, you receive 75% of the value of the filled Gemas at
-            that moment and the other 25% is {BRAND.name}&apos;s fee. You may cancel an unfilled order at any time, and an order nobody fills expires and returns the Gemas unchanged. Yield that
-            landed on your Gemas, also while the order waits, is Redeemed for you at full value and is not sold. We never sell your own Gemas this way.
+            <b>Instant Redeem</b> is an order. You ask us to buy Gemas, won or your own, whose yield has not landed yet. The Gemas wait in the order and cannot be played. We may fill the order in
+            full, in part or not at all, by hand or by a rule we switch on, only while the Treasury for that asset has enough that we may spend. When we fill, the Yield Fee comes off the value of
+            the filled Gemas at that moment and then a 25% Instant Redeem Fee: you receive 60% of their value. One fifth of the Instant Redeem Fee is owed to the Leaderboard Pool and the rest is
+            {BRAND.name}&apos;s. You may cancel an unfilled order at any time, and an order nobody fills expires and returns the Gemas unchanged. Yield that landed on your Gemas, also while the
+            order waits, is Redeemed for you (less the Yield Fee) and is not sold.
           </li>
           <li>Won Gemas can wait a long time, or without an end date, if the yield of the loser&apos;s Lock collapses.</li>
           <li>Gemas can be used to play and redeem as described here. They cannot be sold to or bought from us for money, except through Instant Redeem as described above.</li>

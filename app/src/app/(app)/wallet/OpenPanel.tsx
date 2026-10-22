@@ -112,7 +112,7 @@ export function OpenFormView({
   estimate: string;
   /** What happens now, on the left of the Unlock line. */
   arrival?: string;
-  /** The Yield Fee the quote is net of (the launch rate while the Treasury is unread). */
+  /** The Yield Fee a later cash-out of these Gemas pays (the launch rate while the Treasury is unread). */
   yieldFeeBps?: number;
   details?: [string, ReactNode][];
   alerts?: ReactNode;

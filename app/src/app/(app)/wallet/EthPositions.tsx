@@ -11,7 +11,6 @@ import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { useAuth } from "@/lib/auth/context";
 import { playerPaysGas, type OpenCostQuote } from "@/lib/chain/eth-fee";
 import { useTreasuryRates } from "@/lib/chain/useTreasuryRates";
-import { netApyPct } from "@/lib/chain/yield";
 import { getChain } from "@/lib/chain/client";
 import { debtGemas, debtUnits } from "@/lib/chain/ledger";
 import {
@@ -264,7 +263,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   const rate = market ? simRateAt(market.rate) : WEI;
   const principal = stake ? stake.principalWei : underlyingOf(shares, rate);
   const apyBps = market ? market.apyBps : 500n;
-  const quote = price && principal > 0n && apyBps !== null ? quoteEthAdvance(principal, Number(apyBps), months, price.microUsd, yieldFeeBps) : null;
+  const quote = price && principal > 0n && apyBps !== null ? quoteEthAdvance(principal, Number(apyBps), months, price.microUsd) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   const estimate =
     quote && market && gemas > 0 && apyBps !== null
@@ -273,7 +272,6 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
           position: { heldShares: shares, principalUnderlying: principal, paidUnderlying: 0n, accrued: 0n },
           rate: { ...market.rate, apyBps },
           nowMs: now,
-          yieldFeeBps,
         })
       : null;
   const fee = market ? withHeadroom(market.quoteOpen) : 0n;
@@ -636,11 +634,11 @@ export function EthPositionCard({ position, market, label, compact }: { position
   const unreported = onChainDebt - projected;
   const locked = (state?.core?.status ?? position.status) === "locked";
   const { yieldFeeBps } = useTreasuryRates();
-  const estimate = rate && vp && src && onChainDebt > 0n ? ethUnlockEstimateMs({ source: src, position: vp, rate, nowMs: now, yieldFeeBps }) : null;
+  const estimate = rate && vp && src && onChainDebt > 0n ? ethUnlockEstimateMs({ source: src, position: vp, rate, nowMs: now }) : null;
   const mine = (snapshot?.holdings ?? []).filter((h) => h.position.equals(position.address));
   const holding = mine.find((h) => h.redeemable > 0n && state?.source && h.source.equals(state.source.key)) ?? mine.find((h) => h.redeemable > 0n) ?? mine.find((h) => h.pending > 0n);
   const redeemable = holding?.redeemable ?? 0n;
-  const payout = src && state?.source && holding?.source.equals(state.source.key) && redeemable > 0n ? redeemPayoutWei(src, redeemable) : 0n;
+  const payout = src && state?.source && holding?.source.equals(state.source.key) && redeemable > 0n ? redeemPayoutWei(src, redeemable, holding.yieldFeeBps) : 0n;
   // The claim is in the underlying asset; the vault pays it as simulated-token shares at its rate.
   const payoutShares = rate && payout > 0n ? (payout * WEI) / simRateAt(rate) : 0n;
   // Paid back by the vault's live yield counts: Unlock first fetches the latest yield so Solana sees it (ADR 0010).
@@ -696,8 +694,7 @@ export function EthPositionCard({ position, market, label, compact }: { position
       principal={`${fmtEth(position.principal * 1e18, 4)} ${net.native}`}
       debt={!src ? null : onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas` : "0"}
       debtAsset={onChainDebt > 0n ? `${fmtEth(debtWei, 4)} ${net.native}` : undefined}
-      apy={`${netApyPct(position.apy * 10_000, yieldFeeBps).toFixed(1)}%`}
-      yieldFeeBps={yieldFeeBps}
+      apy={`${(position.apy * 100).toFixed(1)}%`}
       unlockAt={estimate}
       now={now}
       series={series}
@@ -773,8 +770,10 @@ export async function freshenHoldings(ctx: EthCtx, holdings: ChainHolding[], act
 }
 
 /** Redeems every ETH- and HYPE-Sourced holding the Account has redeemable: `redeem_to_evm`, then a tracker per Position. */
-export async function redeemEthHoldings(ctx: EthCtx, holdings: ChainHolding[], onStatus?: (note: string | null) => void): Promise<{ count: number; gemas: bigint }> {
-  const rows = ethRedeemables(await freshenHoldings(ctx, holdings, "redeem", onStatus));
+export async function redeemEthHoldings(ctx: EthCtx, holdings: ChainHolding[], onStatus?: (note: string | null) => void, limits?: Map<string, bigint>): Promise<{ count: number; gemas: bigint }> {
+  const fresh = ethRedeemables(await freshenHoldings(ctx, holdings, "redeem", onStatus));
+  // With `limits` (the Player picked an amount) each line redeems at most its share, and a line without one is left alone.
+  const rows = (limits ? fresh.filter((h) => (limits.get(h.key) ?? 0n) > 0n) : fresh).map((h) => (limits ? { ...h, redeemable: limits.get(h.key)! < h.redeemable ? limits.get(h.key)! : h.redeemable } : h));
   if (rows.length === 0) return { count: 0, gemas: 0n };
   // A holder who won ETH- or HYPE-Sourced Gemas may never have opened an ETH Position: the bridge pays to the linked EVM address.
   await ensureEvmLinked(ctx);

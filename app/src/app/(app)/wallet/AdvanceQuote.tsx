@@ -11,16 +11,16 @@ export const monthsLabel = (m: number) => `${m} ${m === 1 ? "month" : "months"}`
 
 const pct = (bps: number) => `${bps / 100}%`;
 
-/** The Yield Fee in plain words: the Advance is the share of the yield Tesoro does not keep. */
+/** The Yield Fee in plain words: the Advance is all of the yield; the fee is taken when Gemas are cashed out (ticket 31). */
 export function YieldFeeNote({ yieldFeeBps = DEFAULT_YIELD_FEE_BPS }: { yieldFeeBps?: number }) {
   return (
     <p className="adv-fee">
-      {BRAND.name} keeps {pct(yieldFeeBps)} of your Lock&apos;s yield (the Yield Fee), so your Advance is {pct(10_000 - yieldFeeBps)} of it. What you lock is never touched.
+      Your Advance is all of your Lock&apos;s yield. {BRAND.name}&apos;s {pct(yieldFeeBps)} Yield Fee is taken only when Gemas are cashed out: a Redeem pays {pct(10_000 - yieldFeeBps)} of their value. What you lock is never touched.
     </p>
   );
 }
 
-/** Shared by Take an Advance and Open a Position: the yield over the Horizon (after the Yield Fee) flowing into "You get now". */
+/** Shared by Take an Advance and Open a Position: the yield over the Horizon flowing into "You get now". */
 export function YieldToGemas({ months, yieldText, gemas, yieldFeeBps, showFee = true }: { months: number; yieldText: string; gemas: number; yieldFeeBps?: number; showFee?: boolean }) {
   return (
     <>
