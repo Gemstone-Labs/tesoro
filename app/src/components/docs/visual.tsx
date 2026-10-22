@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight, ChevronRight } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { art } from "@/lib/art";
 
 /* Visual building blocks for the Docs: icon tiles, framed screenshots, art, step grids and the diagrams. All server components,
    all themed through the docs tokens, motion only under (prefers-reduced-motion: no-preference) in docs-visual.css. */
@@ -492,7 +493,7 @@ export function SourceDiagram() {
 
 /** The Games as art cards with their facts. */
 export function GameCards() {
-  const games = [
+  const games: { slug: keyof typeof art.thumb; name: string; facts: string[] }[] = [
     { slug: "block-puzzle", name: "Block Burst", facts: ["Same pieces for both", "90 second run", "Play when you like"] },
     { slug: "holdem", name: "Buckshot Hold'em", facts: ["Heads-up, real time", "1,500 Chips each", "30 s per action"] },
     { slug: "trading-duel", name: "Trading Duel", facts: ["2.5 minutes, live price", "12 columns, 100 points a hit", "SOL, ETH or HYPE"] },
@@ -503,7 +504,7 @@ export function GameCards() {
       {games.map((g) => (
         <li key={g.slug} className="cut cut-card">
           <span className="dx-games-art">
-            <Image src={`/art/final/${g.slug}-tile.webp`} alt="" width={384} height={384} sizes="(max-width: 599px) 90vw, 240px" />
+            <Image src={art.thumb[g.slug]} alt="" width={384} height={384} sizes="(max-width: 599px) 90vw, 240px" />
           </span>
           <b>{g.name}</b>
           <ul>

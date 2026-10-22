@@ -9,6 +9,7 @@ import Opening from "@/app/(app)/wallet/opening/page";
 import { writeViewMode } from "@/lib/deposit/view-mode";
 import { demoKey, withScreen, type ScreenData } from "./support/screen";
 import { withSigner } from "./support/signer";
+import { nativeSnapshot } from "../components/wallet/support";
 
 /** The Vault in its Advanced view (the old Wallet): the demo Account has chosen it. */
 const withAdvancedView: Decorator = (Story) => {
@@ -41,6 +42,60 @@ export const Loading: Story = { parameters: { data: { snapshot: null } } };
 export const LoadFailed: Story = { parameters: { data: { snapshotError: "Loading your Account took too long." } } };
 
 export const SignedOut: Story = { parameters: { auth: "signed-out" } };
+
+/** Some Gemas are held back for open Backing Offers: the "reserved for your Backing Offers" note sits above the cards. */
+export const GemasReservedForOffers: Story = {
+  parameters: {
+    data: {
+      snapshot: (a: string): AccountSnapshot => {
+        const s = demoSnapshot(a);
+        return { ...s, holdings: s.holdings.map((h, i) => (i === 0 ? { ...h, reserved: 1200n, free: h.amount - 1200n } : h)) };
+      },
+    },
+  },
+};
+
+/** Sent here by a game that needs 2,500 Gemas (`?open=1&game=holdem&need=2500`): the Get Gemas sheet opens with that context. */
+export const FromNotEnoughGemas: Story = { parameters: { screen: { search: "open=1&game=holdem&need=2500" } } };
+
+/** The Get Gemas sheet on its first tab, SOL. */
+export const OpenSolPosition: Story = {
+  play: async ({ canvasElement }) => {
+    const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Get Gemas/ })[0], { timeout: 10_000 });
+    await userEvent.click(open);
+  },
+};
+
+/** A Lock held natively on Solana: the SOL card shows the Lock with its Advance, Debt and Unlock Estimate. */
+export const NativeSolLock: Story = { parameters: { data: { snapshot: nativeSnapshot("debt") } } };
+
+/** Only Solana Gemas, none redeemable yet: the Redeem button is off and says "Nothing redeemable yet". */
+export const NothingRedeemableYet: Story = {
+  parameters: {
+    data: {
+      snapshot: (a: string): AccountSnapshot => {
+        const s = demoSnapshot(a);
+        const holdings = s.holdings.filter((h) => h.asset === "SOL").map((h) => ({ ...h, redeemable: 0n }));
+        return { ...s, holdings, ownTotal: holdings.reduce((t, h) => t + h.amount, 0n), wonTotal: 0n };
+      },
+    },
+  },
+};
+
+/** Won HYPE Gemas still pending: Redeem stays pressable and says "Redeem fetches the latest yield first". */
+export const RedeemFetchesYieldFirst: Story = {
+  parameters: {
+    data: {
+      snapshot: (a: string): AccountSnapshot => {
+        const s = demoSnapshot(a);
+        // Won HYPE Gemas from a vault Source, all still pending.
+        const hype = { vault: ETH_VAULTS[1].address, id: 2n };
+        return { ...s, holdings: s.holdings.map((h) => ({ ...h, redeemable: 0n, eth: h.asset === "HYPE" ? hype : h.eth })) };
+      },
+    },
+    screen: { eth: { advance: "open" } },
+  },
+};
 
 const ethPosition = (n: number, asset: "ETH" | "HYPE", principal: number, vault: string, paid = false): ChainPosition => ({
   address: new PublicKey(demoKey(900 + n)),
