@@ -5,7 +5,7 @@ import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getTradingDuel } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
-import { ASSETS, DRAW, STATUS, assetOfIndex, decodeDuel, type Assignment, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
+import { ASSETS, DRAW, PHASE, STATUS, assetOfIndex, decodeDuel, type Assignment, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
 import { addSighting, canFinalize, clockOffsetMs, dropPending, settlePending, type ClockSighting, type PendingPicks } from "./matchView";
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
@@ -222,6 +222,13 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
     const t = await td.readTable(p, a);
     if (!t) return setStage("setup", "Setting up the Match");
     const d = decodeDuel(a, t);
+    if (!d && t.phase === PHASE.idle && t.epoch === a.epoch) {
+      // Assigned, not begun: the table is Idle at the Match's epoch. Begin only inside the start window (the program refuses later).
+      if ((Date.now() + offsetRef.current) / 1000 > a.startDeadline) return setStage("setup", "The Match was never started: the entries come back soon");
+      setStage("setup", "Starting the Match");
+      if (late) await td.beginMatch(p, a).catch(() => undefined);
+      return;
+    }
     if (!d) {
       // The table has been wiped for its next Match: the result lives in the committed ring.
       setStage("closing", "Paying out the Pot");
@@ -235,11 +242,6 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
         // Never both checked in: record the refund so both entries come back.
         setStage("setup", "The Match was never started: cancelling");
         if (seat === 1 || now() - activeSince.current > GRACE_MS) await td.expireStart(p, a).catch(() => undefined);
-        return;
-      }
-      if (t.phase === 0) {
-        setStage("setup", "Starting the Match");
-        if (late) await td.beginMatch(p, a).catch(async () => undefined);
         return;
       }
       if (!t.seatsOpen) {
