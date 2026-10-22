@@ -218,11 +218,11 @@ export class Sponsor {
     if (plan.class === "admission") {
       if (await this.d.paused()) throw new DemoHttpError(503, "sponsor-paused", "Free transactions are paused. You can still play: pay the network fee from your own SOL.");
       // The Gemas that fund it must exist: the Player's own, or the Backer's when a Backer's lines are drawn.
-      for (const funder of plan.onboarding ? [] : plan.funders.length ? plan.funders : [accountPda(player)]) {
+      for (const funder of plan.onboarding || plan.noGemas ? [] : plan.funders.length ? plan.funders : [accountPda(player)]) {
         const basket = await this.d.chain.account(basketPda(funder));
         if (!basket || !basket.owner.equals(CORE_ID) || basketGemas(basket.data) === 0n) throw new DemoHttpError(403, "no-gemas", "Free transactions are for Accounts that hold Gemas.");
       }
-      if (plan.funders.length) await this.requireAccount(player);
+      if (plan.funders.length || plan.noGemas) await this.requireAccount(player);
       await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
       reserve = plan.names.some((n) => n === "open_match" || n === "join_match" || n === "open_ticket") ? this.d.limits.completionReserve : 0n;

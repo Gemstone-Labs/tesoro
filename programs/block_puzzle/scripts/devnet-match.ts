@@ -90,7 +90,7 @@ async function ensureAccount(signer: ReturnType<typeof keypairSigner>, label: st
   if (await exists(account)) return account;
   const ix = await core.methods
     .createAccount(Array(20).fill(0))
-    .accountsPartial({ authority: signer.publicKey, account, systemProgram: SystemProgram.programId })
+    .accountsPartial({ authority: signer.publicKey, payer: signer.publicKey, account, systemProgram: SystemProgram.programId })
     .instruction();
   rec(`create_account ${label}`, await chain.sendBase(signer, [ix]), "base");
   return account;

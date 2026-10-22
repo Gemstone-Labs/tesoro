@@ -4,9 +4,11 @@ import { TESORO_CORE_PROGRAM_ID, type ChainSigner } from "@/games/block-puzzle/c
 import { getChain } from "@/lib/chain/client";
 import { decodeAll } from "@/lib/chain/read";
 import { accountReady, createAccountIx } from "@/lib/chain/match-flow";
+import { sendSponsoredOrOwn } from "@/lib/chain/sponsored-or-own";
+import { sponsorPda } from "@/lib/chain/basket";
 import { accountExists } from "@/lib/chain/read";
 import { ensureSol, type GetToken } from "@/lib/chain/demo-client";
-import { coreAccountPda, evmLinkPda, fetchLinkState, linkEvmIx, linkMessage } from "@/lib/chain/eth";
+import { coreAccountPda, evmLinkPda, fetchLinkState, linkEvmIx, linkMessage, setEvmAddressIx } from "@/lib/chain/eth";
 import type { EvmSigner } from "@/lib/auth/types";
 import { avatarArg, profileFromChain } from "./codec";
 import type { AvatarPick, ProfileData } from "./display";
@@ -56,11 +58,17 @@ export async function fetchPlayerChainData(accounts: PublicKey[]): Promise<Playe
   });
 }
 
-export async function setProfileIx(authority: PublicKey, name: string, avatar: AvatarPick): Promise<TransactionInstruction> {
+/** Who pays the rent of a new Profile: the wallet, or the relayer with the sponsor account repaying it (ticket 18c). */
+export interface RentPayer {
+  payer?: PublicKey;
+  sponsored?: boolean;
+}
+
+export async function setProfileIx(authority: PublicKey, name: string, avatar: AvatarPick, pay: RentPayer = {}): Promise<TransactionInstruction> {
   const account = PublicKey.findProgramAddressSync([Buffer.from("account"), authority.toBuffer()], TESORO_CORE_PROGRAM_ID)[0];
   return getChain()
     .core.methods.setProfile(name, avatarArg(avatar))
-    .accountsPartial({ authority, account, profile: profilePda(account), systemProgram: SystemProgram.programId })
+    .accountsPartial({ authority, account, profile: profilePda(account), systemProgram: SystemProgram.programId, payer: pay.payer ?? authority, sponsor: pay.sponsored ? sponsorPda() : null })
     .instruction();
 }
 
@@ -78,11 +86,11 @@ export async function setNameWalletIx(authority: PublicKey, wallet: PublicKey | 
 const ZERO_ADDRESS = Array<number>(20).fill(0);
 
 /** `set_name_evm`: attaches an EVM address already linked to the Account in the bridge, or clears it (`evm` null). */
-export async function setNameEvmIx(authority: PublicKey, evm: string | null): Promise<TransactionInstruction> {
+export async function setNameEvmIx(authority: PublicKey, evm: string | null, pay: RentPayer = {}): Promise<TransactionInstruction> {
   const account = accountOf(authority);
   return getChain()
     .core.methods.setNameEvm(evm ? Array.from(Buffer.from(evm.slice(2), "hex")) : ZERO_ADDRESS)
-    .accountsPartial({ authority, account, profile: profilePda(account), evmLink: evm ? evmLinkPda(evm) : null, systemProgram: SystemProgram.programId })
+    .accountsPartial({ authority, account, profile: profilePda(account), evmLink: evm ? evmLinkPda(evm) : null, systemProgram: SystemProgram.programId, payer: pay.payer ?? authority, sponsor: pay.sponsored ? sponsorPda() : null })
     .instruction();
 }
 
@@ -95,7 +103,11 @@ export interface WalletNames {
   evm?: EvmSigner | null;
 }
 
-/** Sets the signed-in Account's Profile (and optionally the wallets whose names show) in one transaction; the Account is created in the same one when it does not exist yet. */
+/**
+ * Sets the signed-in Account's Profile (and optionally the wallets whose names show). Every step is its own transaction so
+ * the relayer can pay for it: the Account (when missing), the Profile, the EVM address, its link and its name. Only attaching
+ * a Solana wallet's name, which that wallet must co-sign, is paid by the wallet.
+ */
 export async function saveProfile(
   signer: ChainSigner,
   getToken: GetToken,
@@ -104,40 +116,44 @@ export async function saveProfile(
   wallets: WalletNames = {},
   onStep?: (s: string) => void,
 ): Promise<string> {
-  const hasAccount = await accountReady(signer, getToken, await accountExists(accountOf(signer.publicKey)));
-  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep?.("Adding SOL for network fees"));
-  onStep?.("Saving your profile");
-  const ixs: TransactionInstruction[] = [];
+  const me = signer.publicKey;
   const base = getChain().base;
-  if (!hasAccount) ixs.push(await createAccountIx(signer.publicKey));
-  ixs.push(await setProfileIx(signer.publicKey, name, avatar));
+  const fund = () => onStep?.("Adding SOL for network fees");
+  const hasAccount = await accountReady(signer, getToken, await accountExists(accountOf(me)));
+  if (!hasAccount) {
+    await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, fund);
+    await getChain().sendBase(signer, [await createAccountIx(me)]);
+  }
+  onStep?.("Saving your profile");
+  let last = await sendSponsoredOrOwn(signer, getToken, async (payer, sponsored) => [await setProfileIx(me, name, avatar, { payer, sponsored })], fund);
 
   if (wallets.evm !== undefined) {
-    if (wallets.evm === null) ixs.push(await setNameEvmIx(signer.publicKey, null));
-    else {
+    if (wallets.evm === null) {
+      last = await sendSponsoredOrOwn(signer, getToken, async (payer, sponsored) => [await setNameEvmIx(me, null, { payer, sponsored })], fund);
+    } else {
       const evm = wallets.evm;
       // The bridge keeps the proof that this address belongs to the Account: one signature from that wallet, once.
-      const state = await fetchLinkState(base, signer.publicKey, evm.address);
+      const state = await fetchLinkState(base, me, evm.address);
+      if (!state.addressSet) last = await sendSponsoredOrOwn(signer, getToken, async () => [setEvmAddressIx(me, evm.address)], fund);
       if (!state.linked) {
         onStep?.("Approve in your Ethereum wallet");
         await evm.prepare();
-        const signature = await evm.client.signMessage({ account: evm.account, message: linkMessage(coreAccountPda(signer.publicKey)) });
-        ixs.push(linkEvmIx(signer.publicKey, evm.address, signature));
+        const signature = await evm.client.signMessage({ account: evm.account, message: linkMessage(coreAccountPda(me)) });
+        last = await sendSponsoredOrOwn(signer, getToken, async (payer) => [linkEvmIx(me, evm.address, signature, payer)], fund);
       }
-      ixs.push(await setNameEvmIx(signer.publicKey, evm.address.toLowerCase()));
+      last = await sendSponsoredOrOwn(signer, getToken, async (payer, sponsored) => [await setNameEvmIx(me, evm.address.toLowerCase(), { payer, sponsored })], fund);
     }
   }
-  if (wallets.solana !== undefined) ixs.push(await setNameWalletIx(signer.publicKey, wallets.solana?.publicKey ?? null));
+  if (wallets.solana === undefined) return last;
 
-  if (!wallets.solana) return getChain().sendBase(signer, ixs);
-
-  // The attached Solana wallet co-signs, so nobody can show a name they do not own.
+  // The attached Solana wallet co-signs, so nobody can show a name they do not own. This one the wallet pays.
+  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, fund);
   onStep?.("Approve in your Solana wallet");
-  const tx = new Transaction().add(...ixs);
-  tx.feePayer = signer.publicKey;
+  const tx = new Transaction().add(await setNameWalletIx(me, wallets.solana?.publicKey ?? null));
+  tx.feePayer = me;
   const { blockhash, lastValidBlockHeight } = await base.getLatestBlockhash();
   tx.recentBlockhash = blockhash;
-  const cosigned = await wallets.solana.signTransaction(tx);
+  const cosigned = wallets.solana ? await wallets.solana.signTransaction(tx) : tx;
   return getChain().sendSigned(await signer.signTransaction(cosigned), lastValidBlockHeight);
 }
 

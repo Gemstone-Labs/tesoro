@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BN } from "@coral-xyz/anchor";
 import { SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
-import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, growIx, joinMatchIx, key, openMatchIx, playerIx } from "./fixtures";
+import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, growIx, linkEvmBridgeIx, signUpIx, joinMatchIx, key, openMatchIx, playerIx } from "./fixtures";
 import { CORE_ID, ORDER_RENT, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
 
 const relayer = key();
@@ -282,5 +282,48 @@ describe("a sponsored new Account (ticket 18c)", () => {
     const ix = await createAccountIx(relayer, player);
     ix.keys.push({ pubkey: key(), isSigner: false, isWritable: false });
     expect(() => planTransaction([ix], { ...ctx, inviteKey: invite })).toThrowError(expect.objectContaining({ code: "bad-accounts" }));
+  });
+});
+
+describe("the rest of sign-up (ticket 18c)", () => {
+  it("a Profile is a continue step the relayer fronts, with the sponsor attached", async () => {
+    expect(plan([await signUpIx.profile(relayer, player)])).toMatchObject({ names: ["set_profile"], class: "continue", onboarding: false });
+    expect(plan([await signUpIx.nameEvmCleared(relayer, player)])).toMatchObject({ names: ["set_name_evm"], class: "continue" });
+  });
+  it("the relayer is never the Profile's payer without the sponsor, and the wallet may pay itself", async () => {
+    refused([await signUpIx.profile(relayer, player, { sponsored: false })], "bad-accounts");
+    refused([await signUpIx.nameEvmCleared(relayer, player, { sponsored: false })], "bad-accounts");
+    expect(plan([await signUpIx.profile(relayer, player, { sponsored: false, payer: player })]).names).toEqual(["set_profile"]);
+  });
+  it("setting the EVM address costs the relayer only the fee", async () => {
+    expect(plan([await signUpIx.evmAddress(player)])).toMatchObject({ names: ["set_evm_address"], class: "continue" });
+  });
+  it("naming a Solana wallet needs a second signature and is not sponsored", async () => {
+    refused([await signUpIx.nameWallet(player)], "unknown-instruction");
+  });
+  it("link_evm is an admission without Gemas whose rent is the relayer's, counted as sunk", () => {
+    const p = plan([linkEvmBridgeIx(player, relayer)]);
+    expect(p).toMatchObject({ names: ["link_evm"], class: "admission", noGemas: true, playerSigns: true });
+    expect(p.spend.sunk).toBeGreaterThan(0n);
+    expect(p.signers.map((k) => k.toBase58())).toEqual([player.toBase58()]);
+  });
+  it("link_evm in any other shape is refused", () => {
+    const good = () => linkEvmBridgeIx(player, relayer);
+    const wrongPayer = good();
+    wrongPayer.keys[4] = { ...wrongPayer.keys[4], pubkey: key() };
+    refused([wrongPayer], "relayer-in-accounts");
+    const wrongLink = good();
+    wrongLink.keys[2] = { ...wrongLink.keys[2], pubkey: key() };
+    refused([wrongLink], "bad-account");
+    const wrongFlag = good();
+    wrongFlag.keys[0] = { ...wrongFlag.keys[0], isWritable: true };
+    refused([wrongFlag], "bad-flags");
+    const other = good();
+    other.data = new Uint8Array(other.data.length);
+    refused([other], "bad-shape");
+    refused([good(), good()], "bad-shape");
+    const wrongAccount = good();
+    wrongAccount.keys[1] = { ...wrongAccount.keys[1], pubkey: key() };
+    refused([wrongAccount], "bad-account");
   });
 });

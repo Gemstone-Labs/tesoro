@@ -291,10 +291,10 @@ export const setEvmAddressIx = (authority: PublicKey, evm: string) =>
   });
 
 /** Proves the EVM wallet controls `evm`: `signature` is its EIP-191 signature of `linkMessage(account)`. The bridge recovers the signer on chain. */
-export const linkEvmIx = (authority: PublicKey, evm: string, signature: Hex) =>
+export const linkEvmIx = (authority: PublicKey, evm: string, signature: Hex, payer: PublicKey = authority) =>
   new TransactionInstruction({
     programId: BRIDGE_ID,
-    keys: [meta(authority, true, true), meta(coreAccountPda(authority)), meta(evmLinkPda(evm), true), meta(SystemProgram.programId)],
+    keys: [meta(authority, false, true), meta(coreAccountPda(authority)), meta(evmLinkPda(evm), true), meta(SystemProgram.programId), meta(payer, true, true)],
     data: Buffer.concat([disc("link_evm"), hexBytes(evm, 20), hexBytes(signature, 65)]),
   });
 

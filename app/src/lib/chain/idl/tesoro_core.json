@@ -11156,7 +11156,6 @@
       "accounts": [
         {
           "name": "authority",
-          "writable": true,
           "signer": true
         },
         {
@@ -11213,6 +11212,32 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": [
@@ -11707,7 +11732,6 @@
       "accounts": [
         {
           "name": "authority",
-          "writable": true,
           "signer": true
         },
         {
@@ -11760,6 +11784,35 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the Profile's rent: the authority, or the sponsor's relayer (repaid in the instruction)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": [

@@ -1509,3 +1509,65 @@ fn a_sponsored_account_is_refused_without_the_sponsor_or_past_a_cap() {
     let e = env.create_sponsored(&second).unwrap_err();
     assert_eq!(custom_code(&e), TOTAL_SPONSOR_CAP);
 }
+
+#[test]
+fn a_sponsored_profile_costs_the_wallet_nothing_and_counts_against_the_cap() {
+    let mut env = Env::new();
+    env.init_sponsor(10 * SOL, 100 * SOL, SOL, 50 * SOL);
+    let relayer = env.relayer.insecure_clone();
+    let (_, permanent) = account_rents(&env);
+    let profile_rent = rent(&env, Profile::SPACE);
+    env.set_accounts_cap(permanent + profile_rent);
+    let wallet = Keypair::new();
+    env.create_sponsored(&wallet).unwrap();
+    let account = pda(&[ACCOUNT_SEED, a(wallet.pubkey()).as_ref()]);
+    let profile = pda(&[PROFILE_SEED, account.as_ref()]);
+    let ix_for = |payer: Pk, sponsored: bool, name: &str| {
+        ix(
+            accounts::SetProfile {
+                authority: a(wallet.pubkey()),
+                account,
+                profile,
+                system_program: anchor_lang::system_program::ID,
+                payer: a(payer),
+                sponsor: sponsored.then(|| sponsor_address().0),
+            },
+            instruction::SetProfile {
+                name: name.to_string(),
+                avatar: AvatarChoice::Default,
+            },
+        )
+    };
+
+    // the relayer cannot front it without the sponsor attached
+    let e = env
+        .send(
+            &[ix_for(relayer.pubkey(), false, "Ada")],
+            &[&relayer, &wallet],
+        )
+        .unwrap_err();
+    assert_eq!(custom_code(&e), PAYER_NEEDS_SPONSOR);
+
+    let before = env.sponsor().accounts_spent;
+    env.send(
+        &[ix_for(relayer.pubkey(), true, "Ada")],
+        &[&relayer, &wallet],
+    )
+    .expect("sponsored profile");
+    assert_eq!(env.sponsor().accounts_spent - before, profile_rent);
+    assert_eq!(env.svm.get_balance(&wallet.pubkey()).unwrap_or(0), 0);
+    assert_eq!(env.lamports(profile), profile_rent);
+
+    // a rename costs the sponsor nothing more
+    env.send(
+        &[ix_for(relayer.pubkey(), true, "Ada L")],
+        &[&relayer, &wallet],
+    )
+    .expect("rename");
+    assert_eq!(env.sponsor().accounts_spent - before, profile_rent);
+
+    // a second wallet finds the cap used up
+    let other = Keypair::new();
+    env.set_accounts_cap(permanent * 2 + profile_rent - 1);
+    env.create_sponsored(&other).unwrap_err();
+}

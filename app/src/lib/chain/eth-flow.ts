@@ -8,6 +8,7 @@ import { treasuryPda } from "./native";
 import { prevAdvanceOf, sourceAccounts } from "./redeem";
 import type { ChainHolding } from "./read";
 import { getChain } from "./client";
+import { sendSponsoredOrOwn } from "./sponsored-or-own";
 import { DemoError, type GetToken } from "./demo-client";
 import {
   ETH_VAULTS,
@@ -119,10 +120,10 @@ export async function ensureEvmLinked(ctx: EthCtx): Promise<string | null> {
     account: ctx.evm.account,
     message: linkMessage(coreAccountPda(ctx.signer.publicKey)),
   });
-  const ixs = [];
-  if (!state.addressSet) ixs.push(setEvmAddressIx(ctx.signer.publicKey, ctx.evm.address));
-  ixs.push(linkEvmIx(ctx.signer.publicKey, ctx.evm.address, signature));
-  return getChain().sendBase(ctx.signer, ixs);
+  // Each step alone, so the relayer can pay: a Player with only ETH or HYPE needs no SOL to link.
+  const me = ctx.signer.publicKey;
+  if (!state.addressSet) await sendSponsoredOrOwn(ctx.signer, ctx.getToken, async () => [setEvmAddressIx(me, ctx.evm.address)]);
+  return sendSponsoredOrOwn(ctx.signer, ctx.getToken, async (payer) => [linkEvmIx(me, ctx.evm.address, signature, payer)]);
 }
 
 // ---- Gas ------------------------------------------------------------------------------------------

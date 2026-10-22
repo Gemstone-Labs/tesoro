@@ -2,6 +2,7 @@
 import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
+import { linkEvmIx } from "@/lib/chain/eth";
 import { CORE_ID, type Ix } from "./rules";
 
 const provider = new AnchorProvider(
@@ -143,4 +144,20 @@ export async function createAccountIx(relayer: PublicKey, authority: PublicKey, 
   const ix = await coreIx("create_account", [Array(20).fill(0)], { authority, payer: opts.payer ?? relayer, sponsor: opts.sponsored === false ? null : sponsorPda });
   if (opts.invite) ix.keys.push({ pubkey: opts.invite, isSigner: true, isWritable: false });
   return ix;
+}
+
+/** The sign-up steps (ticket 18c): `set_profile` and `set_name_evm` (cleared) with the relayer or the wallet as payer. */
+export const signUpIx = {
+  profile: (relayer: PublicKey, authority: PublicKey, opts: { sponsored?: boolean; payer?: PublicKey } = {}) =>
+    coreIx("set_profile", ["Ada", { default: {} }], { authority, payer: opts.payer ?? relayer, sponsor: opts.sponsored === false ? null : sponsorPda }),
+  nameEvmCleared: (relayer: PublicKey, authority: PublicKey, opts: { sponsored?: boolean; payer?: PublicKey } = {}) =>
+    coreIx("set_name_evm", [Array(20).fill(0)], { authority, payer: opts.payer ?? relayer, sponsor: opts.sponsored === false ? null : sponsorPda, evmLink: null }),
+  evmAddress: (authority: PublicKey) => coreIx("set_evm_address", [Array(20).fill(0)], { authority }),
+  nameWallet: (authority: PublicKey) => coreIx("set_name_wallet", [], { authority, wallet: null }),
+};
+
+/** The bridge's `link_evm`, as the app builds it, with `payer` paying the rent. */
+export function linkEvmBridgeIx(authority: PublicKey, payer: PublicKey, evm = "0x" + "ab".repeat(20)): Ix {
+  const ix = linkEvmIx(authority, evm, ("0x" + "11".repeat(65)) as `0x${string}`, payer);
+  return { programId: ix.programId, keys: ix.keys, data: ix.data };
 }

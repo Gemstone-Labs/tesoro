@@ -1,7 +1,7 @@
 import { Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import nacl from "tweetnacl";
-import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, key, openMatchIx, playerIx } from "./fixtures";
+import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, key, linkEvmBridgeIx, signUpIx, openMatchIx, playerIx } from "./fixtures";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type WireIx } from "./service";
@@ -433,5 +433,24 @@ describe("a new Account on the sponsor (ticket 18c)", () => {
     const at = keys.findIndex((k) => k.equals(yes.inviteKey.publicKey));
     expect(nacl.sign.detached.verify(bytes, tx.signatures[at], yes.inviteKey.publicKey.toBytes())).toBe(true);
     expect(nacl.sign.detached.verify(bytes, tx.signatures[0], yes.relayer.publicKey.toBytes())).toBe(true);
+  });
+});
+
+describe("the rest of sign-up on the sponsor (ticket 18c)", () => {
+  it("a Profile for an Account with no Gemas is built and sent", async () => {
+    const s = setup({ gemas: 0n });
+    const b = await s.sponsor.build(s.player.publicKey, wire([await signUpIx.profile(s.relayer.publicKey, s.player.publicKey)]), "u");
+    expect(b.class).toBe("continue");
+    expect((await s.sponsor.submit(playerSigns(b, s.player), b.meta, b.mac)).signature).toBe("sig1");
+  });
+  it("link_evm needs the Account but not Gemas, and counts against the Account's limits", async () => {
+    const s = setup({ gemas: 0n });
+    const b = await s.sponsor.build(s.player.publicKey, wire([linkEvmBridgeIx(s.player.publicKey, s.relayer.publicKey)]), "u");
+    expect(b.class).toBe("admission");
+    await s.sponsor.submit(playerSigns(b, s.player), b.meta, b.mac);
+    const none = setup({ noAccount: true });
+    await expect(none.sponsor.build(none.player.publicKey, wire([linkEvmBridgeIx(none.player.publicKey, none.relayer.publicKey)]), "u")).rejects.toMatchObject({ code: "no-account" });
+    const capped = setup({ gemas: 0n, limits: { accountSunkTotal: 1_000_000 } });
+    await expect(capped.sponsor.build(capped.player.publicKey, wire([linkEvmBridgeIx(capped.player.publicKey, capped.relayer.publicKey)]), "u")).rejects.toMatchObject({ code: "total-limit" });
   });
 });
