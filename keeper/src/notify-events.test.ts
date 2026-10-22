@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { debtClearedFacts, digestDue, matchFacts, offerFacts, opponentPlayedFact, pushDigest, pushEvents, seasonFacts, seasonFactsInput, sendEvents, type MatchFacts, type OfferFacts } from "./notify-events.ts";
+import { debtClearedFacts, digestDue, matchFacts, offerFacts, pushDigest, pushEvents, seasonFacts, seasonFactsInput, sendEvents, type MatchFacts, type OfferFacts } from "./notify-events.ts";
 
 const NOW = 1_800_000_000;
-const base: MatchFacts = { id: 7n, game: "holdem", status: "active", deadline: NOW + 600, entry: 500, players: ["a", "b"], session: null };
+const base: MatchFacts = { id: 7n, game: "holdem", status: "active", deadline: NOW + 600, entry: 500, players: ["a", "b"] };
 
 describe("Match refunded and Delayed", () => {
   it("tells both Players of a refund", () => {
@@ -38,10 +38,10 @@ describe("Match refunded and Delayed", () => {
     assert.deepEqual(matchFacts({ ...vg, status: "refunded" }, NOW).map((x) => [x.kind, (x as any).game]), [["match-refunded", "vanguard"], ["match-refunded", "vanguard"]]);
   });
 
-  it("a Block Burst Match is Delayed after both Session deadlines plus the grace", () => {
-    const bp: MatchFacts = { ...base, game: "block-puzzle", deadline: NOW + 3000, session: { deadline: NOW + 100, openerDeadline: NOW + 50 } };
-    assert.deepEqual(matchFacts(bp, NOW + 200), []);
-    assert.equal(matchFacts(bp, NOW + 221)[0].kind, "match-delayed");
+  it("a Block Burst Match is Delayed only once its refund deadline is reached", () => {
+    const bp: MatchFacts = { ...base, game: "block-puzzle", deadline: NOW + 3000 };
+    assert.deepEqual(matchFacts(bp, NOW + 2999), []);
+    assert.equal(matchFacts(bp, NOW + 3000)[0].kind, "match-delayed");
   });
 
   it("an open, settled or very old Match says nothing", () => {
@@ -51,19 +51,6 @@ describe("Match refunded and Delayed", () => {
   });
 });
 
-describe("Block Burst opponent played", () => {
-  const played = { delegated: true, sealed: false };
-  const idle = { delegated: false, sealed: false };
-  it("tells the opener once both Boards have played", () => {
-    assert.deepEqual(opponentPlayedFact({ id: 9n, opener: "a" }, true, [played, played]), { account: "a", kind: "opponent-played", matchId: "9", game: "block-puzzle" });
-    assert.equal(opponentPlayedFact({ id: 9n, opener: "a" }, true, [played, { delegated: false, sealed: true }])?.kind, "opponent-played");
-  });
-  it("says nothing before the opponent joins or plays, or if the opener has not played", () => {
-    assert.equal(opponentPlayedFact({ id: 9n, opener: "a" }, false, [played, played]), null);
-    assert.equal(opponentPlayedFact({ id: 9n, opener: "a" }, true, [played, idle]), null);
-    assert.equal(opponentPlayedFact({ id: 9n, opener: "a" }, true, [idle, played]), null);
-  });
-});
 
 describe("Offers", () => {
   const offer: OfferFacts = { address: "O1", backer: "backer", game: "block-puzzle", entry: 1000, status: "open", expiresAt: NOW + 100, useBy: NOW + 200, request: "R1" };

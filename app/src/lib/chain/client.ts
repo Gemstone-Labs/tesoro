@@ -1,10 +1,12 @@
 import "./polyfill";
 import type { Idl } from "@coral-xyz/anchor";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
+import { BlockBurstChain } from "@/games/block-puzzle/live-chain";
 import { HoldemChain } from "@/games/holdem/chain";
 import { TradingDuelChain } from "@/games/trading-duel/chain";
 import { VanguardChain } from "@/games/vanguard/chain";
 import blockPuzzleIdl from "./idl/block_puzzle.json";
+import type { BlockPuzzle } from "./idl/block_puzzle.types";
 import holdemIdl from "./idl/holdem.json";
 import coreIdl from "./idl/tesoro_core.json";
 import tradingDuelIdl from "./idl/trading_duel.json";
@@ -31,7 +33,6 @@ export function getChain(): BlockPuzzleChain {
   if (!chain) {
     chain = new BlockPuzzleChain({
       base: new SplitConnection(BASE_RPC_URL, routeGpa, { commitment: "confirmed", fetch: browserFetch }),
-      blockPuzzleIdl: blockPuzzleIdl as Idl,
       coreIdl: coreIdl as Idl,
     });
   }
@@ -54,4 +55,11 @@ export function getTradingDuel(): TradingDuelChain {
 export function getVanguard(): VanguardChain {
   if (!vanguard) vanguard = new VanguardChain(vanguardIdl, coreIdl, { base: getChain().base });
   return vanguard;
+}
+
+/** The Block Burst client (the table on the private rollup and its Assignment), sharing the base-layer connection. */
+let burst: BlockBurstChain | null = null;
+export function getBurst(): BlockBurstChain {
+  if (!burst) burst = new BlockBurstChain(blockPuzzleIdl as unknown as BlockPuzzle, coreIdl, { base: getChain().base });
+  return burst;
 }

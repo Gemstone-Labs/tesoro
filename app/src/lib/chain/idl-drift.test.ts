@@ -6,7 +6,8 @@ import { describe, it } from "vitest";
 const root = join(process.cwd(), "..");
 
 describe("the app's copy of the program", () => {
-  const built = join(root, "target/idl/*.json");
+  // A glob never exists, so this once skipped on every machine: name a file the build always writes.
+  const built = join(root, "target/idl/tesoro_core.json");
 
   it.skipIf(!existsSync(built))("the app IDL is the one the program builds", () => {
     try {

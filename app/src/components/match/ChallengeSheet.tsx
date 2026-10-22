@@ -32,7 +32,6 @@ export function ChallengeSheet({ open, onClose, player, name }: { open: boolean;
           {friend
             ? `${name} sees your Challenge on their Friends page. You also get a link to send, and whoever opens it first joins. `
             : `${BRAND.name} cannot tell this Player about your Challenge. You get a link to send them yourself, and whoever opens it first joins. `}
-          {game === "block-puzzle" && "You play your run first, then get the link. "}
           Your entry goes in the Pot when you open it; if nobody joins, it is refunded.
         </p>
         <Button

@@ -115,7 +115,7 @@ The Gemas entered into one Match, held in escrow until settlement. The winner re
 _Avoid_: prize pool, jackpot (the Leaderboard Pool is a different thing)
 
 **Queue**:
-The waiting line for one game at one entry size, where Players are paired with the next entrant. An entry that is not paired waits 1 hour before it can be refunded.
+The waiting line for one game at one entry size, where Players are paired with the next entrant. An entry that is not paired waits 1 hour before it can be refunded. The opener of a Block Burst Queue Match tells the Queue their page is there (a presence lease); a Match whose opener has been gone for 30 seconds is skipped by the Queue and the Play now count (Challenges ignore it).
 _Avoid_: lobby, matchmaking pool
 
 **Challenge**:

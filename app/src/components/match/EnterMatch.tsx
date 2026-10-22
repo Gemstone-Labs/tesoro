@@ -38,9 +38,9 @@ export type EnterKind =
   | { kind: "challenge-new"; entry: number; game?: GameId; asset?: 0 | 1 | 2; backing?: string; /** A Rematch: the opponent of the Match being replayed. */ opponent?: string }
   | { kind: "challenge-join"; id: string; backing?: string };
 
-/** What the Queue says once a seat is open: Block Burst is played while it waits, the others start when someone joins. */
+/** What the Queue says once a seat is open: every Game starts when someone joins. */
 const OPENED_LINE: Record<GameId, string> = {
-  "block-puzzle": "Match opened. You'll be paired while you play.",
+  "block-puzzle": "Match opened. Stay on this page until someone joins.",
   holdem: "Entered the Queue.",
   "trading-duel": "Entered the Queue.",
   vanguard: "Entered the Queue.",
@@ -230,10 +230,8 @@ export function EnterMatch(props: EnterKind) {
         : waiting.length
           ? `${waiting.length} waiting at this entry: you take the oldest seat.`
           : here.backed
-            ? `${here.backed === 1 ? "The Player waiting at this entry is one you back" : "The Players waiting at this entry are ones you back"}, and you can't play someone you back. ${game === "block-puzzle" ? "You play now and are paired with someone else." : "You sit first and the Match starts when someone else joins."}`
-            : game === "block-puzzle"
-              ? "No one waiting yet: you play now and are paired when someone joins."
-              : `No one waiting yet: you sit first and the Match starts when someone joins${assetName ? ` (trading ${assetName})` : ""}.`;
+            ? `${here.backed === 1 ? "The Player waiting at this entry is one you back" : "The Players waiting at this entry are ones you back"}, and you can't play someone you back. You sit first and the Match starts when someone else joins.`
+            : `No one waiting yet: you sit first and the Match starts when someone joins${assetName ? ` (trading ${assetName})` : ""}.`;
   // The program's draw for this entry, from the Account already read (own Gemas first, the fastest first). A backed entry draws the Backer's Gemas, not shown here.
   const preview = useMemo(() => {
     if (!snapshot?.exists || props.kind === "challenge-join" || props.backing) return null;

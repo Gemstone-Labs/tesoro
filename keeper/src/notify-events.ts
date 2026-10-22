@@ -1,10 +1,8 @@
-import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain } from "../../app/src/games/block-puzzle/chain.ts";
 import { POSITION_SPACE } from "../../app/src/lib/chain/position-size.ts";
 import { delayedOf } from "../../app/src/lib/chain/match-status.ts";
 import { rankTotal, readSeason, seasonsToCheck, type SeasonRecord } from "./season.ts";
 import { matchKeyOf } from "../../app/src/server/history/match-key.ts";
 import { viewOf } from "./settle.ts";
-import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { PublicKey } from "@solana/web3.js";
 import { log, type Ctx } from "./act.ts";
 import { gameOfKey, postToApp, type GameId, type PushResult } from "./notify.ts";
@@ -12,7 +10,6 @@ import { pk } from "./runtime.ts";
 
 /** One fact for a Player's Account (`account` is a TesoroAccount key); the job turns it into the app's wire event with the wallet authority. */
 export type Fact = { account: string } & (
-  | { kind: "opponent-played"; matchId: string; game: GameId }
   | { kind: "match-delayed"; matchId: string; game: GameId; refundBy: number; refundOpen: boolean }
   | { kind: "match-refunded"; matchId: string; game: GameId; entry: number }
   | { kind: "offer-made"; offerId: string; game: GameId; entry: number }
@@ -24,7 +21,6 @@ export type Fact = { account: string } & (
 /** Matches whose refund deadline passed longer ago than this are not announced (a restart does not replay old history). */
 const WINDOW_SECS = 3 * 24 * 3600;
 /** Block Burst Matches whose Session and Boards are read per pass. */
-const BP_PER_PASS = 15;
 const EVENTS_PER_PUSH = 50;
 
 export interface MatchFacts {
@@ -37,8 +33,6 @@ export interface MatchFacts {
   entry: number;
   /** TesoroAccount keys of the Players. */
   players: string[];
-  /** Block Burst Session deadlines, when read. */
-  session: { deadline: number; openerDeadline: number } | null;
 }
 
 /** Refunded and Delayed Matches, for each Player. Delayed follows match-status's rule, so it agrees with the app. */
@@ -46,22 +40,9 @@ export function matchFacts(m: MatchFacts, nowSecs: number): Fact[] {
   if (nowSecs - m.deadline > WINDOW_SECS) return [];
   const matchId = m.id.toString();
   if (m.status === "refunded") return m.players.map((account) => ({ account, kind: "match-refunded", matchId, game: m.game, entry: m.entry }));
-  const late = delayedOf({ status: m.status, game: m.game, deadline: m.deadline, session: m.session as any }, nowSecs);
+  const late = delayedOf({ status: m.status, game: m.game, deadline: m.deadline }, nowSecs);
   if (!late) return [];
   return m.players.map((account) => ({ account, kind: "match-delayed", matchId, game: m.game, refundBy: m.deadline, refundOpen: late.refundOpen }));
-}
-
-export interface BoardFacts {
-  /** The Board is in the rollup (its Player began a run). */
-  delegated: boolean;
-  sealed: boolean;
-}
-
-/** Block Burst: the opener played first and the joiner has played now. Only for an Active Match with a joined Session. */
-export function opponentPlayedFact(m: { id: bigint | string; opener: string }, joined: boolean, boards: [BoardFacts, BoardFacts]): Fact | null {
-  const played = (b: BoardFacts) => b.delegated || b.sealed;
-  if (!joined || !played(boards[0]) || !played(boards[1])) return null;
-  return { account: m.opener, kind: "opponent-played", matchId: m.id.toString(), game: "block-puzzle" };
 }
 
 export interface OfferFacts {
@@ -193,7 +174,6 @@ async function authorityOf(ctx: Ctx, account: string): Promise<string | null> {
 async function matchesFacts(ctx: Ctx): Promise<Fact[]> {
   const all: any[] = await ctx.core.account.matchState.all();
   const facts: Fact[] = [];
-  const bp: { id: string; label: string; opener: string; row: any }[] = [];
   for (const { publicKey, account } of all) {
     const view = viewOf(publicKey, account);
     const game = gameOfKey(pk(account.inner.game));
@@ -205,30 +185,7 @@ async function matchesFacts(ctx: Ctx): Promise<Fact[]> {
     const label = matchKeyOf({ opener: view.ref.opener.toBase58(), n: view.ref.n });
     const players = [m.a, m.b].filter(Boolean).map((s: any) => pk(s.player).toBase58());
     const base = { id: label, game, status: st, deadline: Number(m.deadline.toString()), entry: Number(m.entry.toString()), players };
-    if (st === "active" && game === "block-puzzle") bp.push({ id: label, label, opener: players[0], row: account });
-    else facts.push(...matchFacts({ ...base, session: null }, ctx.now));
-  }
-  // Block Burst: its Session gives the Delayed deadlines, and Session + Boards say whether the opponent has played.
-  for (const m of bp.slice(0, BP_PER_PASS)) {
-    const a = BlockPuzzleChain.addresses(m.id);
-    const [sInfo, b0, b1] = await ctx.conn.getMultipleAccountsInfo([a.session, ...a.boards]);
-    let session: any = null;
-    try {
-      session = sInfo ? ctx.bp.bp.coder.accounts.decode("session", sInfo.data) : null;
-    } catch {}
-    const decodeBoard = (info: typeof b0) => {
-      try {
-        return info && info.owner.equals(BLOCK_PUZZLE_PROGRAM_ID) ? ctx.bp.bp.coder.accounts.decode("board", info.data) : null;
-      } catch {
-        return null;
-      }
-    };
-    const boardFacts = (info: typeof b0): BoardFacts => ({ delegated: !!info?.owner.equals(DELEGATION_PROGRAM_ID), sealed: !!decodeBoard(info)?.sealed });
-    const players = [m.row.inner.a, m.row.inner.b].filter(Boolean).map((s: any) => pk(s.player).toBase58());
-    const sess = session ? { deadline: Number(session.deadline.toString()), openerDeadline: Number(session.openerDeadline.toString()) } : null;
-    facts.push(...matchFacts({ id: m.label, game: "block-puzzle", status: "active", deadline: Number(m.row.inner.deadline.toString()), entry: Number(m.row.inner.entry.toString()), players, session: sess }, ctx.now));
-    const played = session && opponentPlayedFact({ id: m.label, opener: m.opener }, !!session.joined && !session.settled, [boardFacts(b0), boardFacts(b1)]);
-    if (played) facts.push(played);
+    facts.push(...matchFacts(base, ctx.now));
   }
   return facts;
 }

@@ -86,11 +86,16 @@ function PieceArt({ piece, cell }: { piece: Piece; cell: number }) {
   );
 }
 
-/** Wires a game to an on-chain Match: the Seed comes from the chain and every placement is reported. */
+/**
+ * Wires a game to an on-chain Match: the Seed comes from the chain and every placement is reported. The 90 s clock is the
+ * table's, not the page's: `remainingMs` is read from the rollup's slot clock.
+ */
 export interface MatchRun {
   seed: bigint;
-  /** `performance.now()` taken just before `begin_run` was sent: the 90 s clock counts from here. */
-  startedAt: number;
+  /** A run resumed after a reload: the engine state the chain holds (the Seed and the move log, replayed). */
+  resume?: State;
+  /** Milliseconds left of the run on the table's clock. */
+  remainingMs: () => number;
   entry: number;
   onMove: (move: { piece: number; x: number; y: number }) => void;
   onEnd: (final: { score: number; moves: number; reason: Reason }) => void;
@@ -170,7 +175,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
 
   const start = () => {
     const seed = run ? run.seed : randomSeed();
-    setGame({ st: newState(seed), colors: Array<number>(64).fill(NO_COLOR), lines: 0, gemsCleared: 0 });
+    setGame({ st: run?.resume ?? newState(seed), colors: Array<number>(64).fill(NO_COLOR), lines: 0, gemsCleared: 0 });
     setSel(0);
     setGhosts([]);
     setBestCombo(0);
@@ -184,9 +189,8 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
     setFocusCell(0);
     setAnnounce("");
     setCombo(0);
-    setRemaining(DURATION_MS);
+    setRemaining(run ? run.remainingMs() : DURATION_MS);
     if (run) {
-      endsAt.current = run.startedAt + DURATION_MS;
       setPhase("play");
       sfx("go");
       setMoment({ id: -1, text: "Go!", tone: "up" });
@@ -213,7 +217,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   useEffect(() => {
     if (phase !== "play") return;
     const t = setInterval(() => {
-      const left = endsAt.current - performance.now();
+      const left = runRef.current ? runRef.current.remainingMs() : endsAt.current - performance.now();
       if (left <= 0) {
         setRemaining(0);
         finish("time");
@@ -574,7 +578,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
                 ))}
               </ul>
               {run ? (
-                <p className="note">Run over. Sending it to the chain…</p>
+                <p className="note">Run over. Waiting for the clock.</p>
               ) : (
                 <>
                   <p className="note">Practice: nothing was staked and no Gemas moved.</p>

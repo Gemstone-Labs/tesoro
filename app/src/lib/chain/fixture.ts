@@ -61,7 +61,7 @@ export function match(
     winner: game !== "block-puzzle" ? (win ? "opener" : "joiner") : null,
     session:
       game === "block-puzzle"
-        ? { settled: true, joined: true, result: win ? "opener" : "joiner", scores: win ? scores : [scores[1], scores[0]], seed: 0n, openerDeadline: 0, deadline: 0 }
+        ? { settled: true, result: win ? "opener" : "joiner", scores: win ? scores : [scores[1], scores[0]], seed: 0n }
         : null,
   };
 }
