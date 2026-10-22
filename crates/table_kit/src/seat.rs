@@ -5,7 +5,9 @@
 use anchor_lang::prelude::*;
 use ephemeral_rollups_sdk::{
     access_control::{
-        instructions::{CloseEphemeralPermissionCpi, CreateEphemeralPermissionCpi},
+        instructions::{
+            CloseEphemeralPermissionCpi, CreateEphemeralPermissionCpi, UpdateEphemeralPermissionCpi,
+        },
         structs::{EphemeralMembersArgs, Member, TX_BALANCES_FLAG, TX_LOGS_FLAG, TX_MESSAGE_FLAG},
     },
     ephemeral_accounts::EphemeralAccount,
@@ -33,6 +35,33 @@ pub fn open_private_seat<'info>(
     space: u32,
     player: Pubkey,
 ) -> Result<()> {
+    create_hidden_seat(a, table_seeds, seat_seeds, space, Some(player))
+}
+
+fn member_args(player: Option<Pubkey>) -> EphemeralMembersArgs {
+    EphemeralMembersArgs {
+        is_private: true,
+        members: player
+            .map(|pubkey| Member {
+                flags: READ_FLAGS,
+                pubkey,
+            })
+            .into_iter()
+            .collect(),
+    }
+}
+
+/// Creates a seat that lives as long as its table: the account and a private permission whose
+/// only member is `player`, or nobody (`None`). Games with hidden information create their seats
+/// once, with no member, and then move them between Players with [`swap_seat_members`]; a seat
+/// is never closed while it may hold history that must stay private.
+pub fn create_hidden_seat<'info>(
+    a: &SeatAccounts<'_, 'info>,
+    table_seeds: &[&[u8]],
+    seat_seeds: &[&[u8]],
+    space: u32,
+    player: Option<Pubkey>,
+) -> Result<()> {
     EphemeralAccount::new(a.table, a.seat, a.vault)
         .with_signer_seeds(&[table_seeds, seat_seeds])
         .create(space)?;
@@ -43,13 +72,33 @@ pub fn open_private_seat<'info>(
         vault: a.vault.clone(),
         magic_program: a.magic_program.clone(),
         permission_program: a.permission_program.clone(),
-        args: EphemeralMembersArgs {
-            is_private: true,
-            members: vec![Member {
-                flags: READ_FLAGS,
-                pubkey: player,
-            }],
-        },
+        args: member_args(player),
+    }
+    .invoke_signed(&[table_seeds, seat_seeds])?;
+    Ok(())
+}
+
+/// Replaces the seat's permission members in place: the seat stays private at every moment. The
+/// caller has already zeroed the seat's data when it hands the seat on (zero the data, swap to
+/// `None`, then swap to the next Player), so that nothing the old Player could read survives and
+/// the permission never lapses. Visibility of a seat's past transactions follows its current
+/// members, so a seat's past is never exposed by this call.
+pub fn swap_seat_members<'info>(
+    a: &SeatAccounts<'_, 'info>,
+    table_seeds: &[&[u8]],
+    seat_seeds: &[&[u8]],
+    player: Option<Pubkey>,
+) -> Result<()> {
+    UpdateEphemeralPermissionCpi {
+        payer: a.table.clone(),
+        permissioned_account: a.seat.clone(),
+        permission: a.permission.clone(),
+        authority: a.seat.clone(),
+        vault: a.vault.clone(),
+        magic_program: a.magic_program.clone(),
+        permission_program: a.permission_program.clone(),
+        authority_is_signer: false,
+        args: member_args(player),
     }
     .invoke_signed(&[table_seeds, seat_seeds])?;
     Ok(())
