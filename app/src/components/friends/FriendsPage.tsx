@@ -301,7 +301,9 @@ function FriendLink() {
   const friends = useFriends();
   const [code, setCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
   useEffect(() => {
     let stopped = false;
     void friends.act("link").then(
@@ -319,10 +321,22 @@ function FriendLink() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
+  const closeReset = () => {
+    setResetOpen(false);
+    setResetError(null);
+  };
   const reset = async () => {
-    const r = await friends.act("reset-link");
-    setCode(r.code ?? null);
-    setConfirmReset(false);
+    setResetting(true);
+    setResetError(null);
+    try {
+      const r = await friends.act("reset-link");
+      setCode(r.code ?? null);
+      setResetOpen(false);
+    } catch (e) {
+      setResetError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setResetting(false);
+    }
   };
   return (
     <div className="cut cut-card fr-link">
@@ -332,20 +346,35 @@ function FriendLink() {
         <Button size="sm" disabled={!code} onClick={copy} icon={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
           {copied ? "Copied" : "Copy"}
         </Button>
-        {confirmReset ? (
-          <Button size="sm" onClick={() => void reset()}>
-            Reset? The old link stops working
-          </Button>
-        ) : (
-          <Button size="sm" disabled={!code} onClick={() => setConfirmReset(true)}>
-            Reset link
-          </Button>
-        )}
       </div>
-      <small className="fr-link-help">Anyone with this link can add you as a friend.</small>
+      <div className="fr-link-foot">
+        <small className="fr-link-help">Anyone with this link can add you as a friend.</small>
+        <button type="button" className="fr-link-reset" disabled={!code} onClick={() => setResetOpen(true)}>
+          Reset link
+        </button>
+      </div>
       <span className="sr-only" role="status">
         {copied ? "Friend link copied" : ""}
       </span>
+      <Sheet open={resetOpen} onClose={closeReset} title="Reset your Friend link?">
+        <div className="stack">
+          <p className="meta fr-reset-text">
+            You get a new link and the current one stops working: anyone who opens it sees that it no longer works. Your Friends stay your Friends. Do this if your link
+            went somewhere you didn’t mean it to.
+          </p>
+          {resetError && (
+            <p className="status err" role="alert">
+              {resetError}
+            </p>
+          )}
+          <div className="fr-reset-actions">
+            <Button onClick={closeReset}>Cancel</Button>
+            <Button disabled={resetting} onClick={() => void reset()}>
+              {resetting ? "Resetting…" : "Reset link"}
+            </Button>
+          </div>
+        </div>
+      </Sheet>
     </div>
   );
 }

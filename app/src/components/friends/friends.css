@@ -57,6 +57,15 @@
 .fr-link-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .fr-link-url { --c: 6px; flex: 1 1 220px; min-width: 0; padding: 8px 10px; background: var(--shell); font-size: var(--fs-14); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fr-link-help { color: var(--fg-2); font-size: var(--fs-13); }
+.fr-link-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 16px; flex-wrap: wrap; }
+/* a setting, not an action: quiet text, away from Copy */
+.fr-link-reset { all: unset; cursor: pointer; color: var(--fg-2); font-size: var(--fs-13); text-decoration: underline; text-underline-offset: 3px; }
+.fr-link-reset:hover { color: var(--fg); }
+.fr-link-reset:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.fr-link-reset:disabled { opacity: 0.5; cursor: default; }
+.fr-reset-text { font-size: var(--fs-15); line-height: 1.5; }
+.fr-reset-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.fr-reset-actions > .btn:last-child { background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
 
 /* Add friend (Account page, Match result) */
 .af { display: inline-grid; gap: 4px; justify-items: start; }
