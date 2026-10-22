@@ -19,7 +19,7 @@ export default function Page() {
         rows={[
           ["A Player wins", "The winner gets their own entry back plus the loser's Gemas, minus Fees (see Fees). Fees come out of the loser's Gemas, so a winner always gets their own entry back whole."],
           ["Draw", "Both entries go back to the Players unchanged."],
-          ["No-show or abandoned Match", "Both entries are refunded. A Match that nobody joins can be cancelled by its opener at any time, and anyone can refund it after the Queue window: 24 hours for Block Burst, one hour for the live games."],
+          ["No-show or abandoned Match", "Both entries are refunded. A Match that nobody joins can be cancelled by its opener at any time, and anyone can refund it after the Queue window of one hour."],
         ]}
       />
       <p>
@@ -57,7 +57,7 @@ export default function Page() {
 
       <H2 id="tables">Tables</H2>
       <p>
-        Hold&apos;em, Trading Duel and Vanguard play at a <b>Table</b> that is kept ready between Matches, so a Match starts fast and costs almost nothing to set up.
+        Block Burst, Hold&apos;em, Trading Duel and Vanguard play at a <b>Table</b> that is kept ready between Matches, so a Match starts fast and costs almost nothing to set up.
         A Table shows nothing from the Match before it: no old cards, picks, moves or secrets. Your Match is tied to exactly one Table, and your result is kept
         there until the ledger has settled it. If the network that runs the Tables is down, your entry is refundable on Solana after the Match&apos;s deadline.
       </p>
@@ -67,8 +67,7 @@ export default function Page() {
       <H2 id="finding-a-match">Finding an opponent</H2>
       <ul>
         <li>
-          <b>Queue.</b> The waiting line for one game at one entry size. You are paired with the next entrant. In Block Burst you can play before an
-          opponent is paired.
+          <b>Queue.</b> The waiting line for one game at one entry size. You are paired with the next entrant. You sit first, and the Match starts when someone joins.
         </li>
         <li>
           <b>Challenge.</b> Open a Match for a specific opponent and send them a link. The link is the only way a Challenge reaches them: {BRAND.name} does not
@@ -81,17 +80,24 @@ export default function Page() {
 
       <H2 id="block-puzzle">Block Burst</H2>
       <p>
-        An asynchronous puzzle. You and your opponent get <b>the same pieces</b>, so your scores are directly comparable, but you do not have to play at
-        the same time. Each run lasts 90 seconds. The higher score wins; equal scores are a draw.
+        A live puzzle. You and your opponent play <b>the same pieces at the same time</b>, so your scores are directly comparable. Each run lasts 90
+        seconds. The higher score wins.
       </p>
       <ul>
-        <li>The pieces are generated for the Match, and nobody, including you, can see them before your own run begins.</li>
+        <li>
+          <b>Before the run.</b> Once you are paired, you have 60 seconds to check in, then the pieces are drawn, then a 10 second countdown. Stay on the
+          page: a paired Player who does not check in loses the Match, and if neither does, both entries are refunded.
+        </li>
+        <li>The pieces are generated for the Match, and nobody, including you, can see them before the countdown ends.</li>
         <li>Your score is not something you report. It is what the game program calculates by replaying your moves, and an illegal move is rejected.</li>
-        <li>Your moves stay private until both runs are closed, so the second Player cannot copy the first.</li>
-        <li>If you are first, you have a one-hour Queue window for an opponent to join. After someone joins, they have 24 hours to play their run; if they never begin, you win by forfeit.</li>
+        <li>You see your opponent&apos;s last seen score and number of moves, not their board. In the last 10 seconds both scores show as ?, and the final scores appear together at the end.</li>
+        <li>A move counts if it reaches the Table within 3 seconds after time is up, to cover slow connections. Nothing later counts.</li>
+        <li>If you reload or lose connection, you come back to your board with the real time left. Moves that landed before you dropped still count.</li>
+        <li>Equal scores are a draw and both entries are refunded. If both Players made fewer than 5 moves and the scores are equal, it is a no-show and each side pays the Platform Fee.</li>
+        <li>If the network that runs the Tables stops during a run, the Match is void and both entries are refunded in full.</li>
       </ul>
 
-      <Shot name="block-puzzle" url={`${BRAND.domain}/play/…`} alt="A Block Burst run: the board, the three pieces and the score" caption="A Block Burst run. Both Players get the same pieces." />
+      <Shot name="block-puzzle" url={`${BRAND.domain}/play/…`} alt="A Block Burst run: the board, the three pieces and the score" caption="A Block Burst run. Both Players get the same pieces, at the same time." />
 
       <H2 id="holdem">Buckshot Hold&apos;em</H2>
       <p>
