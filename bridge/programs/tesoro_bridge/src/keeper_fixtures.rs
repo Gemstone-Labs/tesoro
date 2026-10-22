@@ -81,6 +81,10 @@ fn keeper_fixtures_match_the_program() {
         units_total: 200,
         units_sent: 50,
         bump: 252,
+        fee_total: 40,
+        fee_sent: 10,
+        pool_total: 20,
+        pool_sent: 5,
     };
     let instant = InstantClaim {
         holder_account: key(16),
@@ -100,7 +104,10 @@ fn keeper_fixtures_match_the_program() {
     ];
     let json = format!(
         "{{\n{}\n}}\n",
-        out.iter().map(|(k, v)| format!("  \"{k}\": \"{v}\"")).collect::<Vec<_>>().join(",\n")
+        out.iter()
+            .map(|(k, v)| format!("  \"{k}\": \"{v}\""))
+            .collect::<Vec<_>>()
+            .join(",\n")
     );
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../keeper/fixtures/bridge-layouts.json");
     if std::env::var("UPDATE_KEEPER_FIXTURES").is_ok() {
@@ -108,5 +115,8 @@ fn keeper_fixtures_match_the_program() {
         std::fs::write(path, &json).unwrap();
     }
     let on_disk = std::fs::read_to_string(path).unwrap_or_default();
-    assert_eq!(on_disk, json, "keeper/fixtures/bridge-layouts.json is stale: run with UPDATE_KEEPER_FIXTURES=1");
+    assert_eq!(
+        on_disk, json,
+        "keeper/fixtures/bridge-layouts.json is stale: run with UPDATE_KEEPER_FIXTURES=1"
+    );
 }

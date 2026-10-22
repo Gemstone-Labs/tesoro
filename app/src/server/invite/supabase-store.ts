@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { ClaimResult, InviteRow, InviteStore } from "./store";
+import type { ClaimResult, InviteLookup, InviteRow, InviteStore } from "./store";
 
 let client: SupabaseClient | undefined;
 
@@ -18,7 +18,7 @@ const fail = (what: string, error: { message: string } | null) => {
 };
 
 /** Postgres through the service role (migration 0003_invites.sql). */
-export const supabaseInviteStore: InviteStore = {
+export const supabaseInviteStore: InviteStore & InviteLookup = {
   async create(codeHash, email) {
     const { error } = await db().from("invites").insert({ code_hash: codeHash, email });
     fail("create", error);
@@ -36,6 +36,11 @@ export const supabaseInviteStore: InviteStore = {
     if (codeHashes.length === 0) return;
     const { error } = await db().from("invites").delete().in("code_hash", codeHashes).is("used_by_authority", null);
     fail("delete", error);
+  },
+  async redeemedBy(authority) {
+    const { count, error } = await db().from("invites").select("code_hash", { count: "exact", head: true }).eq("used_by_authority", authority);
+    fail("read", error);
+    return (count ?? 0) > 0;
   },
   async claim(codeHash, authority): Promise<ClaimResult> {
     // One statement: only an unused row matches, so two wallets cannot both win.

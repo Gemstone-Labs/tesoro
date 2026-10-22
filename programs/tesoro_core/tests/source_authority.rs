@@ -105,6 +105,25 @@ impl Env {
             &admin,
         )
         .expect("init treasury");
+        // A new Source snapshots the Pool's share of the Yield Fee from the economy settings.
+        env.send(
+            &[ix(
+                accounts::SetEconomy {
+                    admin: a(admin.pubkey()),
+                    config: pda(&[CONFIG_SEED]),
+                    economy: pda(&[ECONOMY_SEED]),
+                    system_program: anchor_lang::system_program::ID,
+                },
+                instruction::SetEconomy {
+                    season_keeper: APk::default(),
+                    fill_keeper: APk::default(),
+                    keeper_fills: false,
+                    routes: [APk::default(); MAX_ROUTES],
+                },
+            )],
+            &admin,
+        )
+        .expect("set economy");
         let owner = env.owner.insecure_clone();
         env.owner_account = env.create_account(&owner);
         env
@@ -157,6 +176,8 @@ impl Env {
                     spill: tesoro_core::storage::spill_address(&account).0,
                     invite_gate: invite_gate_pda(),
                     system_program: anchor_lang::system_program::ID,
+                    payer: key,
+                    sponsor: None,
                 },
                 instruction::CreateAccount {
                     evm_address: [0; 20],
@@ -416,6 +437,7 @@ fn cu_profile_apply_yield_from_source() {
             book: tesoro_core::storage::book_address(&source).0,
             basket: tesoro_core::storage::basket_address(&env.owner_account).0,
             spill: tesoro_core::storage::spill_address(&env.owner_account).0,
+            economy: pda(&[ECONOMY_SEED]),
             system_program: anchor_lang::system_program::ID,
         },
         instruction::TakeAdvance {

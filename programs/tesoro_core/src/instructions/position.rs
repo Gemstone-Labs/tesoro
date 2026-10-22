@@ -138,6 +138,9 @@ pub struct TakeAdvance<'info> {
     /// CHECK: the owner's spill, checked by its seeds.
     #[account(mut, seeds = [SPILL_SEED, owner_account.key().as_ref()], bump)]
     pub spill: UncheckedAccount<'info>,
+    /// The Pool's share of the Yield Fee in force, snapshotted into the new Source (ticket 31).
+    #[account(seeds = [ECONOMY_SEED], bump = economy.bump)]
+    pub economy: Box<Account<'info, EconomyConfig>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -166,7 +169,7 @@ pub(crate) fn take_advance<'info>(
     let (source_bump, book_bump) = (ctx.bumps.source, ctx.bumps.book);
     let a = &mut ctx.accounts;
     let rates = reported_rates(&a.position.inner);
-    let fee = a.treasury.yield_fee_bps;
+    let fee = FeeSnapshot::now(a.treasury.yield_fee_bps, &a.economy)?;
     let (basket, spill) = (a.basket.to_account_info(), a.spill.to_account_info());
     begin_advance(
         NewAdvance {
@@ -275,7 +278,7 @@ pub(crate) fn apply_reported_yield<'info>(
                     &mut position.inner,
                     &src.inner,
                     book,
-                    rates.net,
+                    rates.accrued,
                     &rates.rate,
                     ck,
                 )
@@ -285,7 +288,7 @@ pub(crate) fn apply_reported_yield<'info>(
                         &mut position.inner,
                         &src.inner,
                         book,
-                        rates.net,
+                        rates.accrued,
                         &rates.rate,
                         ck,
                     )
@@ -299,7 +302,7 @@ pub(crate) fn apply_reported_yield<'info>(
         }
         (Some(_), None) => return err!(TesoroError::InvalidAccount),
         (None, _) => {
-            ledger::economy::bank_free_yield(&mut position.inner, rates.net, &rates.rate)
+            ledger::economy::bank_free_yield(&mut position.inner, rates.accrued, &rates.rate)
                 .map_err(core_err)?;
         }
     }
@@ -377,7 +380,7 @@ pub(crate) fn return_own<'info>(
 }
 
 /// Redeem Gemas for their Source asset, up to the line's repaid part. Pays the shares they were
-/// worth when their yield landed. Emits `Redeemed`. Remaining accounts: the kind's accounts
+/// worth when their yield landed, less the Yield Fee (none on fee classes). Emits `Redeemed`. Remaining accounts: the kind's accounts
 /// (paying to the holder), then the Source's book and pages.
 #[derive(Accounts)]
 pub struct Redeem<'info> {
@@ -439,14 +442,16 @@ pub(crate) fn redeem<'info>(
                 &source_key,
                 &key,
                 amount,
+                Cashing::Holder,
             )
         },
     )?;
-    if out.shares == 0 {
+    // A Redeem too small to pay a share after the Yield Fee would burn the Gemas for nothing.
+    if out.payout_shares == 0 {
         return Err(ledger_zero_shares());
     }
     books.flush()?;
-    kind.pay_shares(&a.position.key(), out.shares as u64, 0)?;
+    kind.pay_shares(&a.position.key(), out.payout_shares, 0)?;
     kind.exit()?;
     emit!(Redeemed {
         position: a.position.key(),
@@ -529,7 +534,13 @@ pub(crate) fn unlock<'info>(ctx: Context<'_, '_, 'info, 'info, Unlock<'info>>) -
     let remaining = ctx.remaining_accounts;
     let a = ctx.accounts;
     let wallet = a.owner_authority.key();
-    let pool_bps = a.economy.pool_share.bps_now(now()?).map_err(core_err)?;
+    // The fee on the owner's free yield is split at the Pool share the latest Advance snapshotted;
+    // a Position that never took one uses the share in force (red-team 31 #2).
+    let pool_bps = if a.position.inner.advances > 0 {
+        a.position.inner.pool_bps
+    } else {
+        a.economy.pool_share.bps_now(now()?).map_err(core_err)?
+    };
     let (mut kind, rest) = KindCtx::load(&a.position.inner, remaining, PayTo::Wallet(&wallet))?;
     let position_key = a.position.key();
     unlock_position(&mut a.position, &mut kind, rest, pool_bps)?;
@@ -563,7 +574,7 @@ pub(crate) fn unlock_position<'info>(
                     &mut position.inner,
                     &src.inner,
                     book,
-                    rates.net,
+                    rates.accrued,
                     &rates.rate,
                     ck,
                 )
@@ -572,50 +583,34 @@ pub(crate) fn unlock_position<'info>(
             books.flush()?;
         }
         None => {
-            ledger::economy::bank_free_yield(&mut position.inner, rates.net, &rates.rate)
+            ledger::economy::bank_free_yield(&mut position.inner, rates.accrued, &rates.rate)
                 .map_err(core_err)?;
         }
     }
-    let before = position.inner.clone();
+    let principal = position.inner.principal;
     let custody_kind = kind.custody_kind();
-    let payout = ledger::economy::settle_unlock(
-        &mut position.inner,
-        custody_kind,
-        rates.fee_units,
-        &rates.rate,
-    )
-    .map_err(core_err)?;
+    let mut payout = ledger::economy::settle_unlock(&mut position.inner, custody_kind, &rates.rate)
+        .map_err(core_err)?;
     match kind {
         KindCtx::Native { custody, .. } => {
-            let mut totals = custody.totals();
-            totals
-                .remove_position(
-                    before.principal,
-                    before.opened_at,
-                    before.rate_bps,
-                    before.yield_fee_bps,
-                    rates.fee_units,
-                )
-                .map_err(core_err)?;
-            custody.set_totals(totals);
-            ledger::economy::route_after_unlock(&mut custody.route, &payout, pool_bps)
+            custody.remove_position(principal)?;
+            ledger::economy::route_after_unlock(&mut custody.route, &mut payout, pool_bps)
                 .map_err(core_err)?;
         }
         KindCtx::Stake { custody, .. } => {
-            let mut totals = custody.totals();
-            totals
-                .remove_position(
-                    before.custody_shares,
-                    before.principal,
-                    before.yield_fee_bps,
-                    payout.fee_shares,
-                )
-                .map_err(core_err)?;
-            custody.set_totals(totals);
-            ledger::economy::route_after_unlock(&mut custody.route, &payout, pool_bps)
+            custody.remove_position(principal)?;
+            ledger::economy::route_after_unlock(&mut custody.route, &mut payout, pool_bps)
                 .map_err(core_err)?;
         }
         KindCtx::Reported => {}
+    }
+    if payout.shortfall_shares > 0 || payout.gap_shares > 0 {
+        emit!(UnlockShortfall {
+            position: position_key,
+            shortfall_shares: payout.shortfall_shares,
+            topped_up_shares: payout.topped_up_shares,
+            gap_shares: payout.gap_shares,
+        });
     }
     kind.exit()?;
     kind.pay_custody(&position_key, payout.owner_shares)?;

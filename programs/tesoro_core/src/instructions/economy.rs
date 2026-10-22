@@ -127,10 +127,8 @@ pub(crate) fn with_pool_hold<R>(
 /// Everything the ledger needs to know about the moment, by kind of Position.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Rates {
-    /// Net Accrued Yield of the Position, source-asset units.
-    pub net: u64,
-    /// The Position's Yield Fee on its Accrued Yield, units.
-    pub fee_units: u64,
+    /// Accrued Yield of the Position, source-asset units: gross, all of it backs Gemas (ticket 31).
+    pub accrued: u64,
     pub rate: ShareRate,
     /// How much faster the planned-repayment clock runs than the wall clock.
     pub speedup: u32,
@@ -138,21 +136,19 @@ pub(crate) struct Rates {
 
 pub(crate) fn native_rates(position: &Position, pool: &SimPool) -> Result<Rates> {
     let ts = now()?;
-    let a = native::position_accrued(position, pool.speedup, ts).map_err(core_err)?;
+    let accrued = native::position_accrued(position, pool.speedup, ts).map_err(core_err)?;
     let rate = sim_lst::current_rate(pool, ts)?;
     Ok(Rates {
-        net: a.net,
-        fee_units: a.fee,
+        accrued,
         rate: ShareRate::native(rate).map_err(core_err)?,
         speedup: pool.speedup,
     })
 }
 
 pub(crate) fn stake_rates(position: &Position, rate: u64) -> Result<Rates> {
-    let a = ledger::stake_position_accrued(position, rate).map_err(core_err)?;
+    let accrued = ledger::stake_position_accrued(position, rate).map_err(core_err)?;
     Ok(Rates {
-        net: a.net,
-        fee_units: a.fee,
+        accrued,
         rate: ShareRate::stake(rate).map_err(core_err)?,
         speedup: 1,
     })
@@ -162,8 +158,7 @@ pub(crate) fn stake_rates(position: &Position, rate: u64) -> Result<Rates> {
 /// is one unit of the Source asset.
 pub(crate) fn reported_rates(position: &Position) -> Rates {
     Rates {
-        net: position.cumulative_yield,
-        fee_units: 0,
+        accrued: position.cumulative_yield,
         rate: ShareRate::reported(),
         speedup: 1,
     }
@@ -551,7 +546,7 @@ pub(crate) fn sync_in_books<'a, 'info>(
         &mut position.inner,
         &source.inner,
         book,
-        rates.net,
+        rates.accrued,
         &rates.rate,
         ck,
     )
@@ -595,16 +590,104 @@ pub(crate) fn store_line<B: ledger::draw::Bytes, S: ledger::draw::Bytes>(
     r.map_err(store_err)
 }
 
-/// What a Redeem of one line did.
+/// Who is cashing Gemas out, which decides the Yield Fee split (ticket 31).
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Cashing {
+    /// A holder (or an Instant seller's ready part): paid the shares less the Yield Fee; fee
+    /// classes are exempt.
+    Holder,
+    /// The Treasury Account redeeming Gemas it bought: it keeps every share, and the Pool is owed
+    /// its half of the Yield Fee plus its fifth of the Instant fee (red-team #4).
+    Treasury { instant_fee_bps: u16 },
+}
+
+/// What a cash-out of one line did.
+#[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct RedeemOut {
     pub gemas: u64,
+    /// Whole shares the book paid (for reported Sources, units).
     pub shares: u64,
+    /// Units those shares are worth.
     pub units: u64,
+    /// Whole shares the one cashing out receives: `shares` less the Yield Fee for a holder,
+    /// `shares` for the Treasury.
+    pub payout_shares: u64,
+}
+
+/// Accounts for `paid` shares a book paid on a line of `class` of `source`: the Position (or the
+/// route once Unlocked) gives them up, the Yield Fee joins the route as the Treasury's with the
+/// Pool's part owed, and the Source's counters grow. Reported Sources keep no route on Solana:
+/// the bridge reads the counters' deltas and the vault applies the same split.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn account_cash_out(
+    position: &mut PositionState,
+    source: &mut SourceState,
+    kind: &mut KindCtx<'_>,
+    rates: &Rates,
+    class: u8,
+    gemas: u64,
+    paid: u64,
+    who: Cashing,
+) -> Result<RedeemOut> {
+    let kind_tag = kind.custody_kind();
+    ledger::economy::debit_paid_shares(&mut position.inner, kind_tag, kind.route_mut(), paid)
+        .map_err(core_err)?;
+    let (yf, pool_bps) = ledger::exit_terms(&source.inner, class);
+    let split = match who {
+        Cashing::Holder => ledger::cash_out(u128::from(paid), yf, pool_bps),
+        // A fee-class line is exempt whoever holds it, the Instant part of the Pool's share too.
+        Cashing::Treasury { .. } if class < ledger::line_store::CLASS_GENERAL => {
+            ledger::cash_out(u128::from(paid), 0, 0)
+        }
+        Cashing::Treasury { instant_fee_bps } => {
+            ledger::treasury_cash_out(u128::from(paid), yf, pool_bps, instant_fee_bps)
+        }
+    }
+    .map_err(core_err)?;
+    if let Some(route) = kind.route_mut() {
+        match who {
+            Cashing::Holder => {
+                route
+                    .realise_yield_fee(split.fee, pool_bps)
+                    .map_err(core_err)?;
+            }
+            Cashing::Treasury { .. } => {
+                route.receive(u128::from(paid)).map_err(core_err)?;
+                route.owe_pool(split.pool).map_err(core_err)?;
+            }
+        }
+    }
+    let units_of = |shares: u128| -> Result<u64> {
+        u64::try_from(rates.rate.units_for_shares(shares).map_err(core_err)?)
+            .map_err(|_| core_err(CoreError::Math))
+    };
+    let units = units_of(u128::from(paid))?;
+    // The fee in units is what is left of `units` after the payout's units, so the vault's
+    // `amount - fee` is exactly the holder's payout.
+    let fee_units = units
+        .checked_sub(units_of(split.payout)?)
+        .ok_or_else(|| core_err(CoreError::Math))?;
+    let pool_units = units_of(split.pool)?;
+    let s = &mut source.inner;
+    let add = |a: u64, b: u64| a.checked_add(b).ok_or_else(|| core_err(CoreError::Math));
+    s.redeemed = add(s.redeemed, gemas)?;
+    s.redeemed_units = add(s.redeemed_units, units)?;
+    s.fee_units = add(s.fee_units, fee_units)?;
+    s.pool_units = add(s.pool_units, pool_units)?;
+    let payout = match who {
+        Cashing::Holder => split.payout,
+        Cashing::Treasury { .. } => u128::from(paid),
+    };
+    Ok(RedeemOut {
+        gemas,
+        shares: paid,
+        units,
+        payout_shares: u64::try_from(payout).map_err(|_| core_err(CoreError::Math))?,
+    })
 }
 
 /// Redeems `k` ready Gemas of the line `key` from `pool`: syncs the Source, takes the Gemas out of
-/// the line and accounts the shares they are paid (the Position's held shares while it is Locked,
-/// the route's owed shares once Unlocked). The caller pays the shares out.
+/// the line and accounts the cash-out ([`account_cash_out`]). The caller pays `payout_shares`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn redeem_line<'a, 'info>(
     pool: &mut Pool<&mut [u8], &mut [u8]>,
@@ -615,6 +698,7 @@ pub(crate) fn redeem_line<'a, 'info>(
     source_key: &Pubkey,
     key: &LineKey,
     k: u64,
+    who: Cashing,
 ) -> Result<RedeemOut> {
     let rates = kind.rates(&position.inner)?;
     sync_in_books(books, position, source, source_key, &rates)?;
@@ -632,31 +716,7 @@ pub(crate) fn redeem_line<'a, 'info>(
     let r = book.redeem(&mut line, k, &*ck).map_err(book_err)?;
     store_line(pool, at, idx, &line)?;
     let paid = u64::try_from(r.shares).map_err(|_| core_err(CoreError::Math))?;
-    let kind_tag = kind.custody_kind();
-    ledger::economy::debit_paid_shares(&mut position.inner, kind_tag, kind.route_mut(), paid)
-        .map_err(core_err)?;
-    let units = u64::try_from(
-        rates
-            .rate
-            .units_for_shares(u128::from(paid))
-            .map_err(core_err)?,
-    )
-    .map_err(|_| core_err(CoreError::Math))?;
-    source.inner.redeemed = source
-        .inner
-        .redeemed
-        .checked_add(k)
-        .ok_or_else(|| core_err(CoreError::Math))?;
-    source.inner.redeemed_units = source
-        .inner
-        .redeemed_units
-        .checked_add(units)
-        .ok_or_else(|| core_err(CoreError::Math))?;
-    Ok(RedeemOut {
-        gemas: k,
-        shares: paid,
-        units,
-    })
+    account_cash_out(position, source, kind, &rates, line.class, k, paid, who)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -708,7 +768,7 @@ pub(crate) fn begin_advance<'a, 'info>(
     books_tail: &'info [AccountInfo<'info>],
     horizon_months: u8,
     price_micro_usd: u64,
-    yield_fee_bps: u16,
+    fees: FeeSnapshot,
     min_gemas: u64,
 ) -> Result<()> {
     use ledger::book::checkpoint::NoCheckpoints;
@@ -729,7 +789,7 @@ pub(crate) fn begin_advance<'a, 'info>(
                 ledger::economy::prepare_advance(
                     &mut a.position.inner,
                     Some((&prev.inner, book, ck)),
-                    rates.net,
+                    rates.accrued,
                     &rates.rate,
                 )
                 .map_err(core_err)?;
@@ -739,7 +799,7 @@ pub(crate) fn begin_advance<'a, 'info>(
         None => ledger::economy::prepare_advance::<ClassArray, NoCheckpoints>(
             &mut a.position.inner,
             None,
-            rates.net,
+            rates.accrued,
             &rates.rate,
         )
         .map_err(core_err)?,
@@ -747,13 +807,11 @@ pub(crate) fn begin_advance<'a, 'info>(
     let mut src = a
         .position
         .inner
-        .open_advance(
-            position_key.to_bytes(),
-            horizon_months,
-            price_micro_usd,
-            yield_fee_bps,
-        )
+        .open_advance(position_key.to_bytes(), horizon_months, price_micro_usd)
         .map_err(core_err)?;
+    src.yield_fee_bps = fees.yield_fee_bps;
+    src.pool_bps = fees.pool_bps;
+    a.position.inner.pool_bps = fees.pool_bps;
     require_min_gemas(src.issued, min_gemas)?;
     src.due_at =
         ledger::economy::planned_due_at(now()?, horizon_months, rates.speedup).map_err(core_err)?;
@@ -795,6 +853,29 @@ pub(crate) fn begin_advance<'a, 'info>(
         price_micro_usd,
     });
     Ok(())
+}
+
+/// The Yield Fee terms a new Source keeps for life (ticket 31): the fee charged when its Gemas
+/// are cashed out and the Pool's share of it, both fixed when the Advance opens (red-team #10).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FeeSnapshot {
+    pub yield_fee_bps: u16,
+    pub pool_bps: u16,
+}
+
+impl FeeSnapshot {
+    /// `yield_fee_bps` (the Position's, or the Treasury's for a reported Position) with the Pool's
+    /// share in force now.
+    pub fn now(yield_fee_bps: u16, economy: &EconomyConfig) -> Result<Self> {
+        let pool_bps = economy.pool_share.bps_now(now()?).map_err(core_err)?;
+        if yield_fee_bps > ledger::MAX_YIELD_FEE_BPS || u128::from(pool_bps) > ledger::BPS {
+            return Err(core_err(CoreError::InvalidBps));
+        }
+        Ok(Self {
+            yield_fee_bps,
+            pool_bps,
+        })
+    }
 }
 
 /// The Player's floor on an Advance or Extend: the Gemas they were quoted. The price is read when
@@ -873,7 +954,6 @@ pub(crate) fn extend_open_advance<'a, 'info>(
     rates: &Rates,
     books_all: &'info [AccountInfo<'info>],
     extra_months: u8,
-    yield_fee_bps: u16,
     min_gemas: u64,
 ) -> Result<()> {
     let position_key = a.position.key();
@@ -893,9 +973,8 @@ pub(crate) fn extend_open_advance<'a, 'info>(
             source_key.to_bytes(),
             book,
             extra_months,
-            yield_fee_bps,
             rates.speedup,
-            rates.net,
+            rates.accrued,
             &rates.rate,
             ck,
         )
@@ -949,7 +1028,7 @@ pub(crate) fn return_own_line<'a, 'info>(
         book,
         &mut line,
         k,
-        rates.net,
+        rates.accrued,
         &rates.rate,
         ck,
     )

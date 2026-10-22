@@ -109,8 +109,11 @@ export interface ChainHolding {
   free: bigint;
   /** Gemas Redeem would pay now, with the Source's earned yield landed first. */
   redeemable: bigint;
-  /** Won Gemas Instant Redeem can sell: what is still waiting on yield once `redeemable` is redeemed in full. 0 for own Gemas. */
+  /** Gemas Instant Redeem can sell, won or own (founder, 2026-10-22): what is still waiting on yield once `redeemable` is redeemed in full. */
   pending: bigint;
+  /** The Yield Fee a cash-out of this line pays (0 for the fee classes) and the Pool's share of it: the Source's snapshot (ticket 31). */
+  yieldFeeBps: number;
+  poolBps: number;
   /** The Source's Debt in Gemas: what `return_own` can still cancel. */
   sourceDebt: bigint;
   /** The Source's price at its Advance: one Gema is `unitNum / unitDen` Source-asset base units (`unitDen` = price in micro-USD). */

@@ -104,7 +104,6 @@ pub(crate) fn set_stake_token(ctx: Context<SetStakeToken>) -> Result<()> {
         a.custody.mint = a.mint.key();
         a.custody.pool = a.stake_pool.key();
         a.custody.vault = a.vault.key();
-        a.custody.set_totals(ledger::StakeTotals::default());
         a.custody.route = ledger::RouteLedger::default();
     } else {
         require_keys_eq!(
@@ -268,11 +267,7 @@ pub(crate) fn open_stake_position(
     a.position.inner.yield_fee_bps = a.treasury.yield_fee_bps;
     a.position.inner.stake_rate_open = rate;
 
-    let mut totals = a.custody.totals();
-    totals
-        .add_position(shares, principal, a.treasury.yield_fee_bps)
-        .map_err(core_err)?;
-    a.custody.set_totals(totals);
+    a.custody.add_position(principal)?;
 
     emit!(StakePositionOpened {
         position: position_key,
@@ -354,6 +349,9 @@ pub struct TakeStakeAdvance<'info> {
     /// CHECK: the owner's spill, checked by its seeds.
     #[account(mut, seeds = [SPILL_SEED, owner_account.key().as_ref()], bump)]
     pub spill: UncheckedAccount<'info>,
+    /// The Pool's share of the Yield Fee in force, snapshotted into the new Source (ticket 31).
+    #[account(seeds = [ECONOMY_SEED], bump = economy.bump)]
+    pub economy: Box<Account<'info, EconomyConfig>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -385,7 +383,7 @@ pub(crate) fn take_stake_advance<'info>(
     let rate = read.rate().map_err(core_err)?;
     let apy = sizing(&read, &a.stake_config)?;
     let rates = stake_rates(&a.position.inner, rate)?;
-    let fee = a.position.inner.yield_fee_bps;
+    let fee = FeeSnapshot::now(a.position.inner.yield_fee_bps, &a.economy)?;
     a.position.inner.rate_bps = apy;
     let (basket, spill) = (a.basket.to_account_info(), a.spill.to_account_info());
     begin_advance(
@@ -485,7 +483,6 @@ pub(crate) fn extend_stake_advance<'info>(
     let rate = read.rate().map_err(core_err)?;
     let apy = sizing(&read, &a.stake_config)?;
     let rates = stake_rates(&a.position.inner, rate)?;
-    let fee = a.position.inner.yield_fee_bps;
     a.position.inner.rate_bps = apy;
     extend_open_advance(
         ExtendAccounts {
@@ -499,7 +496,6 @@ pub(crate) fn extend_stake_advance<'info>(
         &rates,
         remaining,
         extra_months,
-        fee,
         min_gemas,
     )
 }
@@ -571,6 +567,11 @@ pub(crate) fn init_treasury_stake(
     if yield_fee_bps > ledger::MAX_YIELD_FEE_BPS || instant_fee_bps > ledger::MAX_INSTANT_FEE_BPS {
         return Err(core_err(CoreError::InvalidBps));
     }
+    crate::instructions::admin::require_studio_exemption_safe(
+        yield_fee_bps,
+        ctx.accounts.config.platform_bps,
+        ctx.accounts.config.leaderboard_bps,
+    )?;
     let treasury_key = ctx.accounts.treasury.key();
     let account = &mut ctx.accounts.treasury_account;
     if account.authority == Pubkey::default() {

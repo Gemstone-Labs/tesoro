@@ -84,16 +84,14 @@ contract KHypeRateAdapterTest is Test {
         assertEq(vault.getPosition(id).principalUnderlying, 10.2 ether);
     }
 
-    function test_yieldFromRateGrowthWithTwentyPercentFeeAtTheSource() public {
+    function test_yieldFromRateGrowthIsReportedGross() public {
         uint64 id = _open(10 ether);
         kh.setRate(1.05e18);
-        assertApproxEqAbs(vault.accruedYield(id), 0.4 ether, 2, "Position keeps 80% of 0.5 HYPE");
-        assertEq(vault.treasuryBalance(), 0, "the fee of an open Position is not spendable");
+        assertApproxEqAbs(vault.accruedYield(id), 0.5 ether, 2, "all 0.5 HYPE is Gemas yield");
+        assertEq(vault.treasuryBalance(), 0, "open yield is not spendable");
         assertEq(kh.balanceOf(address(vault)), vault.getPosition(id).heldShares);
         ep.deliver(address(vault), abi.encode(uint8(3), CHAIN, id, uint64(1)));
-        assertApproxEqAbs(
-            vault.treasuryBalance(), 0.05 ether, 2, "Treasury gets 10% once the Position unlocks, the Pool 10%"
-        );
+        assertEq(vault.treasuryBalance(), 0, "Unlock takes no fee: it is charged when yield is cashed out");
     }
 
     function test_slashingLowersTheRateAndTheYieldFollowsItDown() public {
@@ -103,7 +101,7 @@ contract KHypeRateAdapterTest is Test {
         assertEq(vault.treasuryBalance(), 0, "no fee on a fall");
         assertEq(vault.accruedYield(id), 0);
         kh.setRate(1.05e18);
-        assertEq(vault.treasuryBalance(), 0, "open fees are never spendable");
+        assertEq(vault.treasuryBalance(), 0, "open yield is never spendable");
         assertGt(vault.accruedYield(id), 0);
     }
 
@@ -123,8 +121,8 @@ contract KHypeRateAdapterTest is Test {
         bytes memory m = lz.lastMessage();
         assertEq(m.length, 133);
         assertEq(uint8(m[0]), 2);
-        assertApproxEqAbs(uint128(bytes16(_slice(m, 45, 16))), 0.4 ether, 2);
-        assertEq(uint128(bytes16(_slice(m, 61, 16))), 0, "the open Position's fee is not in the Treasury figure");
+        assertApproxEqAbs(uint128(bytes16(_slice(m, 45, 16))), 0.5 ether, 2, "gross yield");
+        assertEq(uint128(bytes16(_slice(m, 61, 16))), 0, "the open Position's yield is not in the Treasury figure");
         assertEq(uint128(bytes16(_slice(m, 77, 16))), 0, "no Instant payout yet");
     }
 

@@ -28,23 +28,23 @@ fn locked_position() -> Position {
 fn advance_sizing_matches_glossary() {
     let mut p = locked_position();
     // Projected yield over 6 months: 5 SOL. At $150 => $750 => 75_000 Gemas.
-    let s = p.open_advance(pkey(0), 6, 150_000_000, 0).unwrap();
+    let s = p.open_advance(pkey(0), 6, 150_000_000).unwrap();
     assert_eq!(s.issued, 75_000);
     assert_eq!(p.open_advance, Some(0));
     assert_eq!(
-        p.open_advance(pkey(0), 6, 150_000_000, 0),
+        p.open_advance(pkey(0), 6, 150_000_000),
         Err(CoreError::AdvanceAlreadyOpen)
     );
     assert_eq!(
-        locked_position().open_advance(pkey(0), 0, 1, 0),
+        locked_position().open_advance(pkey(0), 0, 1),
         Err(CoreError::InvalidHorizon)
     );
     assert_eq!(
-        locked_position().open_advance(pkey(0), 13, 1, 0),
+        locked_position().open_advance(pkey(0), 13, 1),
         Err(CoreError::InvalidHorizon)
     );
     assert_eq!(
-        locked_position().open_advance(pkey(0), 6, 0, 0),
+        locked_position().open_advance(pkey(0), 6, 0),
         Err(CoreError::InvalidPrice)
     );
 }
@@ -52,97 +52,63 @@ fn advance_sizing_matches_glossary() {
 #[test]
 fn extend_mints_the_added_months_at_the_source_price() {
     let mut p = locked_position();
-    let mut s = p.open_advance(pkey(0), 6, 150_000_000, 0).unwrap();
+    let mut s = p.open_advance(pkey(0), 6, 150_000_000).unwrap();
     // The Player lost everything; yield has barely started.
     assert!(p.apply_yield(Some(&mut s), 1, 500_000_000).unwrap());
     let debt = s.debt();
     // 3 more months = half of the 6-month Advance: 37_500 Gemas at the same $150.
-    let minted = p.extend_advance(&mut s, 3, 0).unwrap();
+    let minted = p.extend_advance(&mut s, 3).unwrap();
     assert_eq!(minted, 37_500);
     assert_eq!((s.issued, s.horizon_months), (112_500, 9));
     assert_eq!(s.debt(), debt + 37_500);
     assert_eq!(s.unit_den, 150_000_000);
     assert_eq!(p.open_advance, Some(0));
     // Extending to the cap works, one more month does not.
-    assert_eq!(
-        p.extend_advance(&mut s, 4, 0),
-        Err(CoreError::InvalidHorizon)
-    );
-    assert!(p.extend_advance(&mut s, 3, 0).is_ok());
+    assert_eq!(p.extend_advance(&mut s, 4), Err(CoreError::InvalidHorizon));
+    assert!(p.extend_advance(&mut s, 3).is_ok());
     assert_eq!(s.horizon_months, 12);
-    assert_eq!(
-        p.extend_advance(&mut s, 1, 0),
-        Err(CoreError::InvalidHorizon)
-    );
+    assert_eq!(p.extend_advance(&mut s, 1), Err(CoreError::InvalidHorizon));
 }
 
 #[test]
-fn extend_is_net_of_the_yield_fee_and_matches_a_single_longer_advance() {
+fn extend_matches_a_single_longer_advance() {
     let mut a = locked_position();
-    let mut sa = a.open_advance(pkey(0), 4, 150_000_000, 2_000).unwrap();
-    a.extend_advance(&mut sa, 5, 2_000).unwrap();
+    let mut sa = a.open_advance(pkey(0), 4, 150_000_000).unwrap();
+    a.extend_advance(&mut sa, 5).unwrap();
     let mut b = locked_position();
-    let sb = b.open_advance(pkey(0), 9, 150_000_000, 2_000).unwrap();
+    let sb = b.open_advance(pkey(0), 9, 150_000_000).unwrap();
     assert_eq!(sa.issued, sb.issued);
-}
-
-#[test]
-fn extend_after_the_yield_fee_changed_mints_the_added_months_at_the_current_fee() {
-    let mut p = locked_position();
-    let mut s = p.open_advance(pkey(0), 6, 150_000_000, 0).unwrap();
-    assert_eq!(s.issued, 75_000);
-    // The fee rises to 20% after the Advance: 3 more months are 20% smaller, not an error.
-    let minted = p.extend_advance(&mut s, 3, 2_000).unwrap();
-    assert_eq!(minted, 30_000);
-    assert_eq!((s.issued, s.horizon_months), (105_000, 9));
-    // The fee falls back to 0: the added months are full size, never a negative mint.
-    let mut q = locked_position();
-    let mut t = q.open_advance(pkey(0), 6, 150_000_000, 2_000).unwrap();
-    assert_eq!(t.issued, 60_000);
-    assert_eq!(q.extend_advance(&mut t, 3, 0).unwrap(), 37_500);
 }
 
 #[test]
 fn extend_refuses_without_an_open_advance_other_sources_zero_debt_and_zero_months() {
     let mut p = locked_position();
-    let mut s = p.open_advance(pkey(0), 3, 150_000_000, 0).unwrap();
-    assert_eq!(
-        p.extend_advance(&mut s, 0, 0),
-        Err(CoreError::InvalidHorizon)
-    );
+    let mut s = p.open_advance(pkey(0), 3, 150_000_000).unwrap();
+    assert_eq!(p.extend_advance(&mut s, 0), Err(CoreError::InvalidHorizon));
     let mut other = s.clone();
     other.index = 7;
     assert_eq!(
-        p.extend_advance(&mut other, 1, 0),
+        p.extend_advance(&mut other, 1),
         Err(CoreError::SourceMismatch)
     );
-    let before = (p.clone(), s.clone());
-    assert_eq!(
-        p.extend_advance(&mut s, 1, 20_000),
-        Err(CoreError::InvalidBps)
-    );
-    assert_eq!(before, (p.clone(), s.clone()));
     // Repaid: the Advance closes and Extend has nothing to extend.
     assert!(p.apply_yield(Some(&mut s), 1, 9_000_000_000).unwrap());
     assert_eq!(s.debt(), 0);
-    assert_eq!(
-        p.extend_advance(&mut s, 1, 0),
-        Err(CoreError::NoOpenAdvance)
-    );
+    assert_eq!(p.extend_advance(&mut s, 1), Err(CoreError::NoOpenAdvance));
     // A Position that never took an Advance.
     let mut fresh = locked_position();
     let mut s2 = s.clone();
     s2.index = 0;
     assert_eq!(
-        fresh.extend_advance(&mut s2, 1, 0),
+        fresh.extend_advance(&mut s2, 1),
         Err(CoreError::NoOpenAdvance)
     );
     // Unlocked Positions refuse.
     let mut q = locked_position();
-    let mut sq = q.open_advance(pkey(0), 3, 150_000_000, 0).unwrap();
+    let mut sq = q.open_advance(pkey(0), 3, 150_000_000).unwrap();
     q.status = PositionStatus::Unlocked;
     assert_eq!(
-        q.extend_advance(&mut sq, 1, 0),
+        q.extend_advance(&mut sq, 1),
         Err(CoreError::PositionNotLocked)
     );
 }
@@ -150,23 +116,20 @@ fn extend_refuses_without_an_open_advance_other_sources_zero_debt_and_zero_month
 #[test]
 fn extend_with_debt_zero_but_open_is_refused() {
     let mut p = locked_position();
-    let mut s = p.open_advance(pkey(0), 3, 150_000_000, 0).unwrap();
+    let mut s = p.open_advance(pkey(0), 3, 150_000_000).unwrap();
     s.returned = s.issued;
     assert_eq!(s.debt(), 0);
-    assert_eq!(
-        p.extend_advance(&mut s, 1, 0),
-        Err(CoreError::AdvanceRepaid)
-    );
+    assert_eq!(p.extend_advance(&mut s, 1), Err(CoreError::AdvanceRepaid));
 }
 
 #[test]
 fn yield_repays_debt_then_unlocks_and_new_advance_needs_zero_debt() {
     let mut p = locked_position();
-    let mut s = p.open_advance(pkey(0), 6, 150_000_000, 0).unwrap();
+    let mut s = p.open_advance(pkey(0), 6, 150_000_000).unwrap();
     assert!(p.apply_yield(Some(&mut s), 1, 2_500_000_000).unwrap());
     assert_eq!(s.debt(), 37_500);
     assert_eq!(
-        p.open_advance(pkey(0), 3, 150_000_000, 0),
+        p.open_advance(pkey(0), 3, 150_000_000),
         Err(CoreError::AdvanceAlreadyOpen)
     );
     assert_eq!(p.unlock(), Err(CoreError::DebtOutstanding));
@@ -195,37 +158,24 @@ fn seasons_are_weeks_from_a_monday() {
     assert_eq!([500u64, 1_000, 2_500].map(points_for_win), [5, 10, 25]);
 }
 
-// --- Yield Fee ----------------------------------------------------------------------------------
+// --- Advance sizing (ticket 31: Gemas are 100% of the yield) -----------------------------------
 
 #[test]
-fn advance_is_net_of_the_yield_fee_and_repaid_at_the_horizon() {
+fn advance_is_the_whole_projected_yield_and_repaid_at_the_horizon() {
     let mut p = locked_position();
-    // Gross yield over 6 months: 5 SOL; net of the 20% Yield Fee: 4 SOL. At $150 => 60_000 Gemas.
-    let mut s = p.open_advance(pkey(0), 6, 150_000_000, 2_000).unwrap();
-    assert_eq!(s.issued, 60_000);
-    // The Position earns 80% of its gross yield; at the Horizon it has earned exactly the Advance.
+    // Gross yield over 6 months: 5 SOL. At $150 => 75,000 Gemas: the Yield Fee no longer shrinks
+    // the Advance; it is taken when the Gemas are cashed out.
+    let mut s = p.open_advance(pkey(0), 6, 150_000_000).unwrap();
+    assert_eq!(s.issued, 75_000);
     let gross_at_horizon = 5_000_000_000u64;
-    let (net, fee) = split_yield_fee(gross_at_horizon, 2_000).unwrap();
-    assert_eq!((net, fee), (4_000_000_000, 1_000_000_000));
-    let (half, _) = split_yield_fee(gross_at_horizon / 2, 2_000).unwrap();
-    assert!(p.apply_yield(Some(&mut s), 1, half).unwrap());
-    assert_eq!(s.debt(), 30_000, "half the Horizon repays half the Advance");
-    assert!(p.apply_yield(Some(&mut s), 2, net).unwrap());
+    assert!(p
+        .apply_yield(Some(&mut s), 1, gross_at_horizon / 2)
+        .unwrap());
+    assert_eq!(s.debt(), 37_500, "half the Horizon repays half the Advance");
+    assert!(p.apply_yield(Some(&mut s), 2, gross_at_horizon).unwrap());
     assert_eq!(s.debt(), 0);
     assert_eq!(p.free_yield, 0, "nothing left over at the Horizon");
     assert_eq!(p.open_advance, None);
-    assert_eq!(
-        locked_position().open_advance(pkey(0), 6, 150_000_000, MAX_YIELD_FEE_BPS + 1),
-        Err(CoreError::InvalidBps)
-    );
-}
-
-#[test]
-fn yield_fee_split_floors_the_fee() {
-    assert_eq!(split_yield_fee(9, 2_000).unwrap(), (8, 1));
-    assert_eq!(split_yield_fee(4, 2_000).unwrap(), (4, 0));
-    assert_eq!(split_yield_fee(1_000, 0).unwrap(), (1_000, 0));
-    assert_eq!(split_yield_fee(1, 5_001), Err(CoreError::InvalidBps));
 }
 
 // --- Extend Limit ------------------------------------------------------------------------------
@@ -353,15 +303,12 @@ fn the_limit_is_at_most_eleven_months() {
 #[test]
 fn the_twelve_month_horizon_still_caps_an_extend_inside_the_limit() {
     let mut p = locked_position();
-    let mut s = p.open_advance(pkey(0), 6, 150_000_000, 0).unwrap();
+    let mut s = p.open_advance(pkey(0), 6, 150_000_000).unwrap();
     p.apply_yield(Some(&mut s), 1, 500_000_000).unwrap();
     let mut l = ExtendLimit::default();
     l.set_limit(T, 11).unwrap();
     l.record_extend(T + DAY, 7).unwrap();
-    assert_eq!(
-        p.extend_advance(&mut s, 7, 0),
-        Err(CoreError::InvalidHorizon)
-    );
+    assert_eq!(p.extend_advance(&mut s, 7), Err(CoreError::InvalidHorizon));
 }
 
 // --- Entry Limit -------------------------------------------------------------------------------

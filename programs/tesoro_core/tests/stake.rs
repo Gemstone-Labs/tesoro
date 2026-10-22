@@ -398,6 +398,8 @@ impl Env {
                 spill: tesoro_core::storage::spill_address(&account).0,
                 invite_gate: invite_gate_pda(),
                 system_program: anchor_lang::system_program::ID,
+                payer: key,
+                sponsor: None,
             },
             instruction::CreateAccount {
                 evm_address: [0; 20],
@@ -647,9 +649,7 @@ impl Env {
         let mut position = self
             .load::<PositionState>(APk::new_from_array(stored.position))
             .inner;
-        let net = ledger::stake_position_accrued(&position, self.rate())
-            .unwrap()
-            .net;
+        let net = ledger::stake_position_accrued(&position, self.rate()).unwrap();
         let rate = ShareRate::stake(self.rate()).unwrap();
         let mut book = read_book(&self.svm, source);
         let mut ck = self.mem_pages(source);
@@ -701,6 +701,7 @@ impl Env {
                 book: book_address(&source).0,
                 basket: self.basket(p),
                 spill: self.spill(p),
+                economy: pda(&[ECONOMY_SEED]),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::TakeStakeAdvance {
@@ -1212,9 +1213,9 @@ fn invite_gate_pda() -> APk {
 
 /// Gemas an Advance of `months` is worth on `principal` lamports at `apy_bps`, $150 SOL and the
 /// 20% Yield Fee, as `Position::open_advance` floors it.
+/// Gemas of an Advance: the whole projected yield (ticket 31), at $150.
 fn gemas_for(principal: u64, apy_bps: u64, months: u64) -> u64 {
-    let units =
-        principal as u128 * apy_bps as u128 * months as u128 * 8_000 / (10_000u128 * 10_000 * 12);
+    let units = principal as u128 * apy_bps as u128 * months as u128 / (10_000u128 * 12);
     (units * 150_000_000 / 10u128.pow(13)) as u64
 }
 
@@ -1522,15 +1523,15 @@ fn growth_since_open_is_the_staking_rate_ratio_and_pays_the_token() {
     let alice = env.holder(10 * SOL);
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_stake(&alice, pos, 1).expect("advance");
-    // 13 SOL at 6.48% for a month, less the 20% fee, at $150.
+    // 13 SOL at 6.49% for a month, all of it (the fee waits for the cash-out), at $150.
     let issued = env.stored(source).issued;
     assert_eq!(issued, gemas_for(13 * SOL, 649, 1));
     assert_eq!(env.debt(source), issued, "nothing has grown yet");
 
-    // The pool's rate rises 1%: 13 SOL grew 0.13 SOL, 0.104 SOL after the fee, repaying Debt.
+    // The pool's rate rises 1%: 13 SOL grew 0.13 SOL, all of it repaying Debt.
     env.set_total(1_313_000_000_000);
-    let net = ledger::stake_position_accrued(&env.position(pos), env.rate()).unwrap();
-    assert_eq!((net.gross, net.net), (130_000_000, 104_000_000));
+    let accrued = ledger::stake_position_accrued(&env.position(pos), env.rate()).unwrap();
+    assert_eq!(accrued, 130_000_000);
     assert!(env.debt(source) < issued);
 
     // Redeem the Gemas that are covered: the payout is the tokens their yield was worth when it
@@ -1540,12 +1541,18 @@ fn growth_since_open_is_the_staking_rate_ratio_and_pays_the_token() {
     let before = env.token_balance(alice.token);
     env.redeem(&alice, pos, source, covered).expect("redeem");
     let units = env.stored(source).units_for(covered).unwrap();
-    let want = tokens_for(units, env.rate());
+    let shares = tokens_for(units, env.rate());
+    // The holder gets them less the 20% Yield Fee (ticket 31); the fee stays in the vault as the
+    // Treasury's.
+    let want = shares * 8_000 / 10_000;
     let got = env.token_balance(alice.token) - before;
     assert!(got.abs_diff(want) <= 2, "got {got} want {want}");
     assert_eq!(env.token_balance(env.vault()), 10 * SOL - got);
-    // The Position's custody bookkeeping follows the vault: paid shares leave its custody.
-    assert_eq!(env.position(pos).paid_shares, got);
+    // The Position's custody bookkeeping: every share the Redeem took leaves its custody, the fee
+    // part into the Treasury's.
+    let paid = env.position(pos).paid_shares;
+    assert!(paid.abs_diff(shares) <= 2, "paid {paid} shares {shares}");
+    assert_eq!(env.route().treasury_shares, u128::from(paid - got));
 }
 
 #[test]
@@ -1643,16 +1650,16 @@ fn unlock_returns_the_rest_of_the_custody_and_realises_the_fee() {
     // No Advance: everything accrued is free yield. Rate +10%.
     env.set_total(1_430_000_000_000);
     let rate = env.rate();
-    let net = ledger::stake_position_accrued(&env.position(pos), rate).unwrap();
-    assert_eq!(net.gross, 1_300_000_000);
-    assert_eq!(net.fee, 260_000_000);
+    let accrued = ledger::stake_position_accrued(&env.position(pos), rate).unwrap();
+    assert_eq!(accrued, 1_300_000_000);
     env.unlock(&alice, pos).expect("unlock");
     let paid = env.token_balance(alice.token);
-    // The owner gets the custody less the fee, in tokens.
-    let fee_tokens = tokens_for(net.fee, rate);
+    // The free yield pays the Yield Fee as it leaves (ticket 31): 20% of its tokens, one floor.
+    let free = tokens_for(accrued, rate);
+    let fee_tokens = free - free * 8_000 / 10_000;
     assert_eq!(paid, 10 * SOL - fee_tokens);
-    // The old rule (Principal plus free yield at today's rate) lands within a token unit.
-    let old = ledger::unlock_tokens(13 * SOL, net.net, 10 * SOL, rate).unwrap();
+    // Principal plus the free yield after the fee, at today's rate, within a token unit.
+    let old = ledger::unlock_tokens(13 * SOL, accrued * 8 / 10, 10 * SOL, rate).unwrap();
     assert!(paid.abs_diff(old) <= 1, "{paid} {old}");
     assert!(paid > 9_800_000_000 && paid < 9_850_000_000, "{paid}");
     // What stays in the vault is the Treasury's realised fee (and nothing else).
@@ -1660,7 +1667,6 @@ fn unlock_returns_the_rest_of_the_custody_and_realises_the_fee() {
     assert_eq!(left, fee_tokens);
     let c = env.custody();
     assert_eq!((c.open_positions, c.principal), (0, 0));
-    assert_eq!(c.realised_fee_shares as u64, fee_tokens);
     assert_eq!(c.route.treasury_shares, fee_tokens as u128);
     assert_eq!(c.route.pool_owed, (fee_tokens / 2) as u128);
     assert_eq!(env.spendable(), fee_tokens - fee_tokens / 2);
@@ -1707,9 +1713,7 @@ fn debt_clears_with_growth_alone_and_a_second_advance_does_not_count_old_yield()
     // Grow the rate until the first Advance is repaid (and then some).
     env.set_total(1_400_000_000_000);
     assert_eq!(env.debt(first), 0);
-    let net_before = ledger::stake_position_accrued(&env.position(pos), env.rate())
-        .unwrap()
-        .net;
+    let net_before = ledger::stake_position_accrued(&env.position(pos), env.rate()).unwrap();
     assert!(net_before > owed);
     let second = env.advance_stake(&alice, pos, 1).expect("second advance");
     assert_eq!(env.position(pos).open_advance, Some(1));
@@ -1881,6 +1885,7 @@ fn a_stake_position_prices_only_from_the_pyth_mapping() {
             book: book_address(&source).0,
             basket: env.basket(&alice),
             spill: env.spill(&alice),
+            economy: pda(&[ECONOMY_SEED]),
             system_program: anchor_lang::system_program::ID,
         },
         instruction::TakeNativeAdvance {
@@ -1911,6 +1916,7 @@ fn a_stake_position_prices_only_from_the_pyth_mapping() {
             book: book_address(&source).0,
             basket: env.basket(&alice),
             spill: env.spill(&alice),
+            economy: pda(&[ECONOMY_SEED]),
             system_program: anchor_lang::system_program::ID,
         },
         instruction::TakeAdvance {
@@ -2028,17 +2034,12 @@ fn treasury_env() -> (Env, Person, Person, Pos, APk) {
 }
 
 #[test]
-fn the_treasury_starts_empty_and_a_fee_is_not_its_own_until_the_position_unlocks() {
-    let (mut env, _alice, _bob, _pos, _source) = treasury_env();
+fn the_treasury_starts_empty_and_a_fee_is_not_its_own_until_yield_is_cashed_out() {
+    let (mut env, _alice, bob, _pos, source) = treasury_env();
     assert_eq!(env.spendable(), 0);
-    // 10% growth on 13 SOL: the live claim shows a fee, but nothing is realised.
+    // 10% growth on 13 SOL: yield lands, but nobody cashed out, so no fee is realised.
     env.set_total(1_430_000_000_000);
-    let live = env
-        .custody()
-        .totals()
-        .earned_fee_shares(env.rate())
-        .unwrap();
-    assert!(live > 0);
+    assert!(env.redeemable(&bob, source) > 0);
     assert_eq!(
         env.spendable(),
         0,
@@ -2059,12 +2060,9 @@ fn an_open_positions_fee_is_not_spendable_so_a_slash_cannot_leave_unlock_short()
     let company = env.person();
     env.set_tokens(&company, 0);
     env.set_company(company.key);
-    // The pool grows 10%: an open fee is earned but nothing is realised, because nobody unlocked.
+    // The pool grows 10%: yield accrues but nothing is realised, because nobody cashed out.
     env.set_total(1_430_000_000_000);
-    let rate = env.rate();
-    let live = env.custody().totals().earned_fee_shares(rate).unwrap();
-    let units = ledger::units_for_tokens(live, rate).unwrap();
-    let err = env.withdraw(company.token, units).unwrap_err();
+    let err = env.withdraw(company.token, 1_000_000).unwrap_err();
     assert_eq!(code(&err), core_code(ledger::CoreError::OverSpendable));
     assert_eq!(env.token_balance(company.token), 0);
     // The pool is then slashed below the rate Alice opened at.
@@ -2088,11 +2086,12 @@ fn after_unlock_the_treasury_spends_its_half_and_the_pool_half_is_protected() {
     env.set_company(company.key);
     env.set_total(1_430_000_000_000);
     let rate = env.rate();
-    let fee = ledger::stake_position_accrued(&env.position(pos), rate)
-        .unwrap()
-        .fee;
+    let free = tokens_for(
+        ledger::stake_position_accrued(&env.position(pos), rate).unwrap(),
+        rate,
+    );
     env.unlock(&alice, pos).unwrap();
-    let fee_tokens = tokens_for(fee, rate);
+    let fee_tokens = free - free * 8_000 / 10_000;
     let route = env.route();
     assert_eq!(route.treasury_shares, fee_tokens as u128);
     assert_eq!(
@@ -2190,10 +2189,10 @@ fn a_slash_between_landing_and_redeem_changes_the_value_not_the_number_of_shares
     let got = env.token_balance(bob.token) - before;
     // The shares are those the Gemas were worth at the landing, at the rate of the landing.
     let units = env.stored(source).units_for(ready).unwrap();
-    let want = tokens_for(units, rate_landed);
+    let want = tokens_for(units, rate_landed) * 8_000 / 10_000;
     assert!(
         got.abs_diff(want) <= 2,
-        "got {got} want {want}: shares are fixed at landing"
+        "got {got} want {want}: shares are fixed at landing (less the Yield Fee)"
     );
     env.check_vault();
 }
@@ -2232,11 +2231,14 @@ fn unlocked_holders_are_owed_shares_that_the_treasury_can_never_spend() {
     env.redeem(&bob, pos, source, ready).expect("late redeem");
     let paid = env.token_balance(bob.token);
     assert!(paid > 0 && (paid as u128) <= owed);
-    assert_eq!(env.route().owed_shares, owed - paid as u128);
+    // Bob's whole claim leaves `owed_shares`; he is paid it less the Yield Fee.
+    let claim = owed - env.route().owed_shares;
+    assert_eq!(paid as u128, claim * 8_000 / 10_000);
     env.check_vault();
 }
 
-/// A fill pays 75% of the value at fill from the spendable shares only, and a fill that would
+/// A fill pays 60% of the value at fill (the Yield Fee, then the 25% Instant fee) from the spendable
+/// shares only, and a fill that would
 /// need more than the Treasury may spend is refused.
 #[test]
 fn an_instant_redeem_fill_is_bounded_by_the_spendable_shares() {
@@ -2255,7 +2257,7 @@ fn an_instant_redeem_fill_is_bounded_by_the_spendable_shares() {
     let spend_before = env.spendable();
     env.fill(&bob, pos, source, 1, 400).expect("fill");
     let paid = env.token_balance(bob.token) - before;
-    let expect = value * 7_500 / 10_000;
+    let expect = value * 6_000 / 10_000;
     assert!(paid.abs_diff(expect) <= 2, "paid {paid} expect {expect}");
     assert_eq!(spend_before - env.spendable(), paid);
     assert_eq!(env.treasury_gemas(source), 400);
@@ -2359,14 +2361,15 @@ fn unlock_closes_a_repaid_advance_and_pays_in_the_token() {
     env.set_total(1_400_000_000_000);
     assert_eq!(env.debt(source), 0);
     assert_eq!(env.position(pos).open_advance, Some(0));
-    let rate = env.rate();
-    let net = ledger::stake_position_accrued(&env.position(pos), rate).unwrap();
     env.unlock(&alice, pos)
         .expect("unlock with the Source passed");
     assert_eq!(env.position(pos).open_advance, None);
-    // The owner gets the custody less the shares owed to holders and the fee.
+    // The owner gets the custody less the shares owed to holders and the fee on the free yield
+    // (the coverage landed in one step, so the custody is not short and the Treasury tops up
+    // nothing).
     let held = env.route().owed_shares as u64;
-    let fee = tokens_for(net.fee, rate);
+    let fee = (env.route().treasury_shares - env.route().owed_shares) as u64;
+    assert!(fee > 0, "the free yield beyond the Advance paid the fee");
     assert_eq!(env.token_balance(alice.token), 10 * SOL - held - fee);
     // The Gemas of the closed Source still redeem against the shares left for them.
     let gemas = env.gemas(&alice, source);
@@ -2406,4 +2409,39 @@ fn the_vault_returns_every_principal_and_the_treasury_keeps_its_fee() {
     // What remains is exactly the Treasury's realised fees.
     assert_eq!(left as u128, env.route().treasury_shares);
     assert_eq!(env.custody().open_positions, 0);
+}
+
+/// The ready part of an Instant Redeem is an ordinary Redeem (red-team 31 #5): the seller gets
+/// exactly floor(80%) of the shares redeemed, the Treasury the rest, at the request and at the fill.
+#[test]
+fn the_ready_part_of_an_instant_redeem_pays_the_yield_fee() {
+    let (mut env, _alice, bob, pos, source) = treasury_env();
+    env.fund_treasury(SOL);
+    env.set_total(1_365_000_000_000);
+    // The request first Redeems the line's ready part, then sells from the rest.
+    let ready = env.redeemable(&bob, source);
+    assert!(ready > 0 && ready < 1_000, "ready {ready}");
+    let route = env.route();
+    env.request(&bob, pos, source, 1_000 - ready, 1)
+        .expect("request");
+    let got = u128::from(env.token_balance(bob.token));
+    let fee = env.route().treasury_shares - route.treasury_shares;
+    assert!(got > 0, "part of the line was ready");
+    assert_eq!(got, (got + fee) * 8_000 / 10_000, "seller {got}, fee {fee}");
+    // More repays while the order waits; the fill Redeems that part first, with the same fee.
+    env.set_total(1_370_000_000_000);
+    let before = env.token_balance(bob.token);
+    let route = env.route();
+    env.fill(&bob, pos, source, 1, 10).expect("fill");
+    let state = env.load::<InstantOrderState>(env.order_address(&bob, 1));
+    assert!(state.redeemed_while_open > 0, "part repaid while it waited");
+    let ready = u128::from(env.token_balance(bob.token) - before) - state.paid_shares;
+    let fee = env.route().treasury_shares + state.paid_shares - route.treasury_shares;
+    assert!(ready > 0);
+    assert_eq!(
+        ready,
+        (ready + fee) * 8_000 / 10_000,
+        "seller {ready}, fee {fee}"
+    );
+    env.check_vault();
 }

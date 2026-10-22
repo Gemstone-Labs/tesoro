@@ -103,6 +103,8 @@ pub enum TesoroError {
         "the Advance would issue fewer Gemas than the minimum asked for (or the minimum is zero)"
     )]
     AdvanceBelowMinimum,
+    #[msg("the Platform and Leaderboard Fees must cost at least what the Yield Fee on a maximal Studio Fee would save")]
+    StudioFeeLaundering,
 }
 
 /// Errors of the economy storage layer (baskets, spills, the sponsor, Source books). Their own
@@ -147,6 +149,10 @@ pub enum BasketError {
     BookExists,
     #[msg("the ledger refused the operation")]
     Ledger,
+    #[msg("the sponsor is at its cap of rent it can never get back")]
+    AccountsSponsorCap,
+    #[msg("a payer other than the Account's own wallet needs the sponsor account")]
+    PayerNeedsSponsor,
 }
 
 /// Errors of Tickets, Pots and the Match lifecycle (tickets 09). Their own range.

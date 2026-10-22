@@ -24,7 +24,7 @@ import { CLUSTER } from "@/lib/cluster-settings";
 import { basketPda, bookPda, spillPda } from "@/lib/chain/basket";
 import { coreIx } from "@/lib/chain/core-ix";
 import { parseTreasury } from "@/lib/chain/fees";
-import { MAX_PRICE_AGE_SECS, PRICE_QUOTE_MARGIN_SECS, TESORO_CORE_ID, onchainPricePda, parsePythPrice, protectionsPda, pythFeedAddress, sourcePda, treasuryPda } from "@/lib/chain/native";
+import { MAX_PRICE_AGE_SECS, PRICE_QUOTE_MARGIN_SECS, TESORO_CORE_ID, economyPda, onchainPricePda, parsePythPrice, protectionsPda, pythFeedAddress, sourcePda, treasuryPda } from "@/lib/chain/native";
 import {
   BRIDGE_AUTHORITY,
   BRIDGE_ID,
@@ -563,6 +563,7 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
     book: bookPda(source),
     basket: basketPda(ownerAccount),
     spill: spillPda(ownerAccount),
+    economy: economyPda(),
   };
   const priceKey = onchainPricePda(new PublicKey(info.data.subarray(74, 106)));
   // The floor is the Gemas this quote shows: the program refuses the Advance rather than issue fewer. The Account re-quotes before it signs.
@@ -570,7 +571,7 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
   const rates = treasury && treasury.owner.equals(TESORO_CORE_ID) ? parseTreasury(treasury.data) : null;
   if (!rates) throw new DemoHttpError(503, "no-fees", "The fees could not be read right now. Try again in a minute.");
   const position = parseCorePosition(cp, info.data);
-  const minGemas = quoteEthAdvance(position.principalWei, position.rateBps, months, price.microUsd, rates.yieldFeeBps).gemas;
+  const minGemas = quoteEthAdvance(position.principalWei, position.rateBps, months, price.microUsd).gemas;
   if (minGemas <= 0n) throw new DemoHttpError(409, "too-small", "This Lock is too small for an Advance.");
   const ix = CLUSTER.priceSource === "onchain"
     ? coreIx("take_advance_onchain", { ...common, onchain_price: priceKey, price_feed: pythFeedAddress(asset) }, { horizon_months: months, min_gemas: minGemas })

@@ -4,7 +4,7 @@ import { key } from "./fixtures";
 import type { Plan } from "./rules";
 import { MemoryUsageStore } from "./store";
 
-const plan = (over: Partial<Plan> = {}): Plan => ({ kind: "core", names: ["open_match"], class: "admission", spend: { refundable: 10n, sunk: 100n }, cu: 1, obligations: [], pair: null, signers: [], playerSigns: false, funders: [], ...over });
+const plan = (over: Partial<Plan> = {}): Plan => ({ kind: "core", names: ["open_match"], class: "admission", spend: { refundable: 10n, sunk: 100n }, cu: 1, obligations: [], pair: null, signers: [], playerSigns: false, funders: [], onboarding: false, invite: false, noGemas: false, ...over });
 const limits = (over: Partial<Limits> = {}): Limits => ({ ...DEFAULT_LIMITS, ...over });
 const DAY = 24 * 3600 * 1000;
 const refusal = (p: Promise<unknown>, code: string) => expect(p).rejects.toMatchObject({ code });

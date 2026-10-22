@@ -22,6 +22,7 @@ pub mod protections;
 pub mod season;
 pub mod stake;
 pub mod stake_pool;
+pub mod yield_fee;
 pub mod yield_math;
 
 #[cfg(test)]
@@ -44,6 +45,9 @@ pub use protections::*;
 pub use season::*;
 pub use stake::*;
 pub use stake_pool::*;
+pub use yield_fee::{
+    cash_out, exit_terms, instant_payout, instant_pool_bps, treasury_cash_out, CashOut,
+};
 pub use yield_math::*;
 
 /// Identity of an Account, Position, Source, Game, ... (a Solana public key in the program).
@@ -199,16 +203,6 @@ pub(crate) fn mul_div_ceil(a: u128, b: u128, d: u128) -> CoreResult<u128> {
 
 pub(crate) fn to_u64(v: u128) -> CoreResult<u64> {
     u64::try_from(v).map_err(|_| CoreError::Math)
-}
-
-/// Splits a yield increment into what the Position keeps and the Yield Fee (floored, so rounding
-/// favours the Position). `fee_bps` above `MAX_YIELD_FEE_BPS` is refused.
-pub fn split_yield_fee(units: u64, fee_bps: u16) -> CoreResult<(u64, u64)> {
-    if fee_bps > MAX_YIELD_FEE_BPS {
-        return Err(CoreError::InvalidBps);
-    }
-    let fee = to_u64(mul_div_floor(units as u128, fee_bps as u128, BPS)?)?;
-    Ok((units.checked_sub(fee).ok_or(CoreError::Math)?, fee))
 }
 
 /// `entry` must be one of `sizes` (the Config's entry sizes).

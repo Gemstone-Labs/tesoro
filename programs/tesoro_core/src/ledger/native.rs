@@ -36,12 +36,12 @@ pub fn shares_value_ceil(shares: u64, rate: u64) -> CoreResult<u64> {
     to_u64(mul_div_ceil(shares as u128, rate as u128, RATE_SCALE)?)
 }
 
-/// Net Accrued Yield of a native Position at `now`. The Position's own `rate_bps`, `yield_fee_bps`
-/// and `opened_at` (all fixed at open) decide it; only `speedup` is read live from the sim_lst Pool
-/// (a devnet constant by founder decision).
-pub fn position_accrued(position: &Position, speedup: u32, now: i64) -> CoreResult<AccruedYield> {
+/// Accrued Yield of a native Position at `now`, gross (the Yield Fee is taken at cash-out). The
+/// Position's own `rate_bps` and `opened_at` (fixed at open) decide it; only `speedup` is read live
+/// from the sim_lst Pool (a devnet constant by founder decision).
+pub fn position_accrued(position: &Position, speedup: u32, now: i64) -> CoreResult<u64> {
     let growth = growth_since_open(position.rate_bps, position.opened_at, now, speedup)?;
-    accrued_yield_at(position.principal, growth, position.yield_fee_bps)
+    accrued_yield_at(position.principal, growth)
 }
 
 /// The Source as it stands at net Accrued Yield `net`: the open Advance gets its derived
@@ -157,7 +157,6 @@ mod tests {
     const OWNER: Key = [1; 32];
     const SOL: u64 = 1_000_000_000;
     const T0: i64 = 1_800_000_000;
-    const FEE: u16 = 2_000;
 
     struct Model {
         position: Position,
@@ -171,7 +170,6 @@ mod tests {
             let mut position =
                 Position::new(OWNER, SourceChain::Solana, [7; 32], 9, principal, apy).ok()?;
             position.opened_at = T0;
-            position.yield_fee_bps = FEE;
             Some(Self {
                 position,
                 sources: vec![],
@@ -181,9 +179,7 @@ mod tests {
         }
 
         fn net(&self) -> u64 {
-            position_accrued(&self.position, 4_380, self.now)
-                .unwrap()
-                .net
+            position_accrued(&self.position, 4_380, self.now).unwrap()
         }
 
         fn view(&self, i: usize) -> Source {
@@ -201,10 +197,7 @@ mod tests {
             if let (Some(i), Some(p)) = (idx, prev) {
                 self.sources[i as usize] = p;
             }
-            if let Ok(src) = self
-                .position
-                .open_advance([9; 32], months, 150_000_000, FEE)
-            {
+            if let Ok(src) = self.position.open_advance([9; 32], months, 150_000_000) {
                 self.sources.push(src);
                 assert_eq!(self.sources.len(), n + 1);
             }

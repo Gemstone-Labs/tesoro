@@ -3,7 +3,9 @@ import { PublicKey, SystemProgram, type TransactionInstruction } from "@solana/w
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, type ChainSigner, type Seat } from "@/games/block-puzzle/chain";
 import type { GameId } from "@/lib/mock/types";
+import { sponsorPda } from "./basket";
 import { getChain } from "./client";
+import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
 import { MIN_SOL_LAMPORTS } from "./config";
 import { ensureSol, type GetToken } from "./demo-client";
 import { DrawError } from "./draw";
@@ -46,8 +48,11 @@ export { DrawError as EntryError };
 
 export { QueueUnconfirmedError, type Entered } from "./queue";
 
-/** `create_account`: the wallet's TesoroAccount. */
-export const createAccountIx = (authority: PublicKey): Promise<TransactionInstruction> =>
+/**
+ * `create_account`: the wallet's TesoroAccount. The wallet pays its rent unless `payer` is the relayer and `sponsored` is set,
+ * in which case the sponsor repays the relayer in the same instruction (ticket 18c).
+ */
+export const createAccountIx = (authority: PublicKey, opts: { payer?: PublicKey; sponsored?: boolean } = {}): Promise<TransactionInstruction> =>
   getChain()
     .core.methods.createAccount(Array(20).fill(0))
     .accountsPartial({
@@ -56,8 +61,34 @@ export const createAccountIx = (authority: PublicKey): Promise<TransactionInstru
       basket: BlockPuzzleChain.basket(BlockPuzzleChain.coreAccount(authority)),
       spill: BlockPuzzleChain.spill(BlockPuzzleChain.coreAccount(authority)),
       systemProgram: SystemProgram.programId,
+      payer: opts.payer ?? authority,
+      sponsor: opts.sponsored ? sponsorPda() : null,
     })
     .instruction();
+
+/**
+ * Creates the Account on the sponsor's SOL when the wallet cannot pay its rent. True when it did; false means "carry on the
+ * usual way" (the wallet has the SOL, the wallet cannot take part, or the server will not sponsor it: paused, over a limit,
+ * one Account per user already given). Never throws a SponsorError.
+ */
+export async function createAccountSponsored(signer: ChainSigner, getToken: GetToken): Promise<boolean> {
+  if (!signer.signSerialized) return false;
+  if ((await getChain().base.getBalance(signer.publicKey)) >= MIN_SOL_LAMPORTS) return false;
+  try {
+    const { relayer, paused } = await sponsorStatus();
+    if (paused) return false;
+    await sponsoredSend(signer, getToken, [await createAccountIx(signer.publicKey, { payer: new PublicKey(relayer), sponsored: true })]);
+    return true;
+  } catch (e) {
+    if (e instanceof SponsorError) return false;
+    throw e;
+  }
+}
+
+/** Whether the wallet has its Account, creating it on the sponsor's SOL first when it has none and no SOL (see `createAccountSponsored`). */
+export async function accountReady(signer: ChainSigner, getToken: GetToken, existing: boolean): Promise<boolean> {
+  return existing || (await createAccountSponsored(signer, getToken));
+}
 
 /**
  * The Account exists and its state is fresh. SOL is only needed to create the Account (the Player pays that rent);
@@ -69,8 +100,10 @@ export async function ensureReady(signer: ChainSigner, getToken: GetToken, onSte
   let snap = await fetchAccountState(signer.publicKey, { fresh: true });
   if (!snap.exists) {
     onStep?.(`Creating your ${BRAND.name} Account…`);
-    await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
-    await getChain().sendBase(signer, [await createAccountIx(signer.publicKey)]);
+    if (!(await createAccountSponsored(signer, getToken))) {
+      await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
+      await getChain().sendBase(signer, [await createAccountIx(signer.publicKey)]);
+    }
     snap = await fetchAccountState(signer.publicKey, { fresh: true });
   }
   return snap;

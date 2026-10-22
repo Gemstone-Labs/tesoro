@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
-import { AddressLookupTableAccount, Connection, PublicKey } from "@solana/web3.js";
+import { AddressLookupTableAccount, Connection, Keypair, PublicKey } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { gameRecordPda, programDataPda } from "@/lib/chain/game-record";
 import { BRAND } from "@/lib/brand";
@@ -12,6 +12,8 @@ import { DemoHttpError } from "../request-auth";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
 import { CORE_ID } from "./rules";
 import { Sponsor, type ChainReads } from "./service";
+import { inviteKeypair } from "../invite/key";
+import { supabaseInviteStore } from "../invite/supabase-store";
 import { MemoryUsageStore, type UsageStore } from "./store";
 import { supabaseUsageStore } from "./supabase-store";
 
@@ -110,9 +112,22 @@ export function sponsor(): Sponsor {
       const sol = Number(balance) / Number(LAMPORTS);
       await Promise.all(to.map((addr) => sender.send({ to: addr, subject: `[${BRAND.name} alert] Relayer balance is low`, text: `The relayer ${relayer.publicKey.toBase58()} holds ${sol.toFixed(3)} SOL. Free transactions stop for new entries when the balance reaches the floor plus what is held for finishing Matches. Top it up.` })));
     },
+    // A sponsored new Account while the Invite gate is on is co-signed with the Invite key, for a wallet that redeemed an Invite.
+    invite: inviteFromEnv(),
+    alertOnboarding: async (used, max) => {
+      const sender = senderFromEnv();
+      const to = alertRecipients(process.env.ALERT_EMAILS);
+      if (!sender || !to.length) throw new Error("no sender or ALERT_EMAILS for the onboarding email");
+      await Promise.all(to.map((addr) => sender.send({ to: addr, subject: `[${BRAND.name} alert] Free new Accounts are filling up`, text: `${used} of today's ${max} free new Accounts are used. Past ${max} new Players pay for their own Account until tomorrow. Raise TESORO_SPONSOR_LIMITS onboardPerDay if this is real traffic, or look for abuse.` })));
+    },
     now: () => Date.now(),
   });
   return instance;
+}
+
+function inviteFromEnv(): { key: Keypair; redeemed(authority: string): Promise<boolean> } | undefined {
+  if (!process.env.INVITE_SECRET_KEY) return undefined;
+  return { key: inviteKeypair(process.env.INVITE_SECRET_KEY), redeemed: (authority) => supabaseInviteStore.redeemedBy(authority) };
 }
 
 /** No shared counters in production means no limits: refuse everything rather than sponsor without them. */

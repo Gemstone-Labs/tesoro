@@ -230,6 +230,8 @@ impl Env {
                 spill: tesoro_core::storage::spill_address(&account).0,
                 invite_gate: tesoro_core::state::invite_gate_pda(),
                 system_program: anchor_lang::system_program::ID,
+                payer: key,
+                sponsor: None,
             },
             tesoro_core::instruction::CreateAccount {
                 evm_address: [0; 20],
@@ -288,6 +290,7 @@ impl Env {
                 book: tesoro_core::storage::book_address(&source).0,
                 basket: tesoro_core::storage::basket_address(&p.account).0,
                 spill: tesoro_core::storage::spill_address(&p.account).0,
+                economy: tpda(&[ECONOMY_SEED]),
                 system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::TakeAdvance {
@@ -2432,7 +2435,7 @@ fn put_core_treasury(svm: &mut litesvm::LiteSVM) {
         instant_fee_bps: 3_500,
         account: Default::default(),
         vault: Default::default(),
-        fee_minted: 0,
+        retired_fee_minted: 0,
         instant_units: 0,
         funded_shares: 0,
         withdrawn_units: 0,

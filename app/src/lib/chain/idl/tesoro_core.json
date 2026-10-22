@@ -2096,7 +2096,10 @@
       "accounts": [
         {
           "name": "authority",
-          "writable": true,
+          "docs": [
+            "The wallet the Account belongs to. It signs but pays nothing: a wallet with no SOL can own an",
+            "Account whose rent the sponsor covers."
+          ],
           "signer": true
         },
         {
@@ -2198,6 +2201,36 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the rent: the authority itself, or (with `sponsor`) the sponsor's relayer, which is",
+            "repaid in the same instruction. Placed after the original accounts so their order is kept."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": [
@@ -5268,6 +5301,26 @@
               {
                 "kind": "account",
                 "path": "pool_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
               }
             ]
           }
@@ -10218,6 +10271,76 @@
       ]
     },
     {
+      "name": "set_accounts_cap",
+      "docs": [
+        "Admin only: the most the sponsor may spend on rent it can never get back, which is what a",
+        "sponsored `create_account` costs (ticket 18c). Zero turns that off."
+      ],
+      "discriminator": [
+        67,
+        122,
+        9,
+        247,
+        186,
+        183,
+        134,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "accounts_cap",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "set_admin",
       "discriminator": [
         251,
@@ -10813,7 +10936,6 @@
       "accounts": [
         {
           "name": "authority",
-          "writable": true,
           "signer": true
         },
         {
@@ -10870,6 +10992,32 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": [
@@ -11364,7 +11512,6 @@
       "accounts": [
         {
           "name": "authority",
-          "writable": true,
           "signer": true
         },
         {
@@ -11417,6 +11564,35 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the Profile's rent: the authority, or the sponsor's relayer (repaid in the instruction)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": [
@@ -12652,6 +12828,28 @@
           }
         },
         {
+          "name": "economy",
+          "docs": [
+            "The Pool's share of the Yield Fee in force, snapshotted into the new Source (ticket 31)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -12914,6 +13112,28 @@
               {
                 "kind": "account",
                 "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "economy",
+          "docs": [
+            "The Pool's share of the Yield Fee in force, snapshotted into the new Source (ticket 31)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
               }
             ]
           }
@@ -13211,6 +13431,28 @@
           }
         },
         {
+          "name": "economy",
+          "docs": [
+            "The Pool's share of the Yield Fee in force, snapshotted into the new Source (ticket 31)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -13480,6 +13722,28 @@
               {
                 "kind": "account",
                 "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "economy",
+          "docs": [
+            "The Pool's share of the Yield Fee in force, snapshotted into the new Source (ticket 31)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
               }
             ]
           }
@@ -13760,6 +14024,28 @@
           }
         },
         {
+          "name": "economy",
+          "docs": [
+            "The Pool's share of the Yield Fee in force, snapshotted into the new Source (ticket 31)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -13900,6 +14186,26 @@
                 "kind": "account",
                 "path": "platform_recipient.authority",
                 "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
               }
             ]
           }
@@ -15311,6 +15617,19 @@
       ]
     },
     {
+      "name": "UnlockShortfall",
+      "discriminator": [
+        3,
+        215,
+        85,
+        235,
+        10,
+        139,
+        138,
+        101
+      ]
+    },
+    {
       "name": "YieldApplied",
       "discriminator": [
         61,
@@ -15567,6 +15886,11 @@
       "code": 6045,
       "name": "AdvanceBelowMinimum",
       "msg": "the Advance would issue fewer Gemas than the minimum asked for (or the minimum is zero)"
+    },
+    {
+      "code": 6046,
+      "name": "StudioFeeLaundering",
+      "msg": "the Platform and Leaderboard Fees must cost at least what the Yield Fee on a maximal Studio Fee would save"
     }
   ],
   "types": [
@@ -17190,21 +17514,22 @@
           {
             "name": "principal",
             "docs": [
-              "`PoolTotals` (`ledger::yield_math`), updated only on open and unlock."
+              "Principal of the Locked native Positions, SOL units (informational)."
             ],
             "type": "u128"
           },
           {
-            "name": "fee_weight",
-            "type": "u128"
-          },
-          {
-            "name": "fee_weight_time",
-            "type": "u128"
-          },
-          {
-            "name": "realised_fee",
-            "type": "u128"
+            "name": "retired_fee_totals",
+            "docs": [
+              "The pooled fee totals of the old Yield Fee model, unused since ticket 31. Kept so an account",
+              "written before the upgrade still decodes every later field at its own offset."
+            ],
+            "type": {
+              "array": [
+                "u128",
+                3
+              ]
+            }
           },
           {
             "name": "open_positions",
@@ -17214,8 +17539,8 @@
             "name": "route",
             "docs": [
               "The Treasury's shares of this route: what it holds, what holders and the Pool are owed",
-              "(realised fees only, D1), the prize escrow. Simulated shares are minted at payout, so most",
-              "of these are virtual until paid."
+              "(Yield Fees realised at cash-out), the prize escrow. Simulated shares are minted at payout,",
+              "so most of these are virtual until paid."
             ],
             "type": {
               "defined": {
@@ -17957,6 +18282,14 @@
               "`custody_shares` stays what was deposited, so the pooled fee totals can be unwound exactly."
             ],
             "type": "u64"
+          },
+          {
+            "name": "pool_bps",
+            "docs": [
+              "The Pool's share of the Yield Fee the latest Advance snapshotted: the share the fee on the",
+              "owner's free yield uses at Unlock (red-team 31 #2). 0 before the first Advance."
+            ],
+            "type": "u16"
           }
         ]
       }
@@ -19070,6 +19403,37 @@
               "when the Advance is taken and moved by Extend: the fast-first key of its basket lines."
             ],
             "type": "i64"
+          },
+          {
+            "name": "yield_fee_bps",
+            "docs": [
+              "Yield Fee charged when this Source's Gemas are cashed out, fixed when the Advance opens",
+              "(ticket 31). Fee-class lines are exempt whatever this says."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "pool_bps",
+            "docs": [
+              "The Pool's share of that fee, fixed when the Advance opens (red-team #10)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "fee_units",
+            "docs": [
+              "Source-asset units of Yield Fee charged on this Source's cash-outs, cumulative (included in",
+              "`redeemed_units`). The bridge reads its delta to tell an EVM vault what to keep."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pool_units",
+            "docs": [
+              "Units of those cash-outs owed to the Leaderboard Pool, cumulative: its part of the Yield",
+              "Fee and, on the Treasury's redeems, its fifth of the Instant fee."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -19265,6 +19629,19 @@
           {
             "name": "pages_spent",
             "type": "u64"
+          },
+          {
+            "name": "accounts_cap",
+            "docs": [
+              "Most the sponsor may spend, over time, on the rent a sponsored `create_account` can never",
+              "get back (the Account itself and the fixed part of its basket and spill). Zero until the",
+              "admin sets it: until then `create_account` is not sponsored."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "accounts_spent",
+            "type": "u64"
           }
         ]
       }
@@ -19340,8 +19717,7 @@
       "name": "StakeCustody",
       "docs": [
         "The shared custody of one staking token. Every stake Position of that token holds its",
-        "`custody_shares` in `vault`; the totals behind the Treasury's Yield Fee claim change only on",
-        "open and unlock (`ledger::stake`). Seeds `[\"stake_custody\", mint]`; the vault is a token account",
+        "`custody_shares` in `vault`. Seeds `[\"stake_custody\", mint]`; the vault is a token account",
         "at `[\"stake_vault\", mint]` with this account as authority."
       ],
       "type": {
@@ -19372,19 +19748,23 @@
           },
           {
             "name": "principal",
+            "docs": [
+              "Principal of the Locked stake Positions, lamports (informational)."
+            ],
             "type": "u128"
           },
           {
-            "name": "fee_shares",
-            "type": "u128"
-          },
-          {
-            "name": "fee_principal",
-            "type": "u128"
-          },
-          {
-            "name": "realised_fee_shares",
-            "type": "u128"
+            "name": "retired_fee_totals",
+            "docs": [
+              "The pooled fee totals of the old Yield Fee model, unused since ticket 31. Kept so an account",
+              "written before the upgrade still decodes every later field at its own offset."
+            ],
+            "type": {
+              "array": [
+                "u128",
+                3
+              ]
+            }
           },
           {
             "name": "open_positions",
@@ -19650,12 +20030,12 @@
     {
       "name": "Treasury",
       "docs": [
-        "Tesoro's Treasury (CONTEXT.md): its Yield Fee on Solana-native Positions is computed from the",
-        "`NativeCustody` pool totals (ADR 0010) and minted lazily: its balance is the unminted fee",
-        "(`earned_fee - fee_minted`) plus the simSOL in `vault`. It pays Solana Instant Redeems and",
-        "`withdraw_treasury` from `vault` first, then by minting the shortfall out of the unminted fee, and holds the Gemas it bought in `account`, a",
+        "Tesoro's Treasury (CONTEXT.md). Its Yield Fee is taken when yield is cashed out (ticket 31) and",
+        "kept as the route's shares (`NativeCustody.route`; native shares are minted lazily). It pays",
+        "Solana Instant Redeems and `withdraw_treasury` from `vault` first, then by minting the",
+        "shortfall out of its route's virtual shares, and holds the Gemas it bought in `account`, a",
         "`TesoroAccount` whose authority is this PDA. Seeds `[\"treasury\"]`. Its fee rates apply on every",
-        "chain: `yield_fee_bps` sizes every Advance, and EVM vaults take the same fee at the source."
+        "chain: each new Source keeps `yield_fee_bps` as its cash-out fee."
       ],
       "type": {
         "kind": "struct",
@@ -19675,7 +20055,7 @@
           {
             "name": "yield_fee_bps",
             "docs": [
-              "Yield Fee, basis points of every yield increment (2,000 at launch)."
+              "Yield Fee, basis points of yield cashed out (2,000 at launch)."
             ],
             "type": "u16"
           },
@@ -19701,10 +20081,10 @@
             "type": "pubkey"
           },
           {
-            "name": "fee_minted",
+            "name": "retired_fee_minted",
             "docs": [
-              "SOL units of earned Yield Fee already minted out as simSOL (to a withdrawal or an Instant",
-              "Redeem payout). Never above `PoolTotals::earned_fee`; the difference is the unminted fee."
+              "The old model's minted-fee counter, unused since ticket 31. Kept so an account written before",
+              "the upgrade still decodes every later field at its own offset."
             ],
             "type": "u64"
           },
@@ -19774,6 +20154,36 @@
           },
           {
             "name": "minted_units",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UnlockShortfall",
+      "docs": [
+        "A stake Unlock found the custody short of the owner's Principal and free yield. A shortfall from",
+        "holders' landed shares growing with the pool is topped up by the Treasury from what it can spend",
+        "(founder, 2026-10-22: Tesoro covers it); a slash is the owner's (D2). `gap_shares` is what the",
+        "owner did not get. Unlock never fails."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "shortfall_shares",
+            "type": "u64"
+          },
+          {
+            "name": "topped_up_shares",
+            "type": "u64"
+          },
+          {
+            "name": "gap_shares",
             "type": "u64"
           }
         ]

@@ -24,7 +24,7 @@ export default function Page() {
 
       <H2 id="principal">What &ldquo;what you lock is never played&rdquo; means, and does not</H2>
       <p>
-        It means that no Match entry, Fee (including the Yield Fee, which is taken from yield only) or Backing ever draws on what you lock, and that it never pays back an Advance. The ledger is built and tested so
+        It means that no Match entry, Fee (including the Yield Fee, which is taken from Gemas when they are cashed out) or Backing ever draws on what you lock, and that it never pays back an Advance. The ledger is built and tested so
         that nothing reads your Locked amount after an Advance is sized. It does not mean what you lock is protected or risk-free. It is still:
       </p>
       <ul>

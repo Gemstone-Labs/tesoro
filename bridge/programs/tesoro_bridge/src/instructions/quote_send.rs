@@ -1,8 +1,8 @@
 use crate::*;
 use msg_codec::{
     encode_cash_in_batch, encode_pay_instant, encode_pay_prize, encode_pay_yield, encode_unlock,
-    BatchEntryWire, MAX_BATCH_ENTRIES, MSG_CASH_IN_BATCH, MSG_PAY_INSTANT, MSG_PAY_PRIZE,
-    MSG_PAY_YIELD, MSG_UNLOCK,
+    BatchEntryWire, YieldPayment, MAX_BATCH_ENTRIES, MSG_CASH_IN_BATCH, MSG_PAY_INSTANT,
+    MSG_PAY_PRIZE, MSG_PAY_YIELD, MSG_UNLOCK,
 };
 use oapp::endpoint::{
     instructions::QuoteParams, state::EndpointSettings, ENDPOINT_SEED, ID as ENDPOINT_ID,
@@ -27,7 +27,9 @@ impl QuoteSend<'_> {
         // Each outbound type has a fixed length, so a placeholder of the right type prices it.
         let message = match params.msg_type {
             MSG_UNLOCK => encode_unlock(params.dst_eid, [0u8; 32], 1),
-            MSG_PAY_YIELD => encode_pay_yield(params.dst_eid, [0u8; 32], 1, [0u8; 32], 0),
+            MSG_PAY_YIELD => {
+                encode_pay_yield(params.dst_eid, [0u8; 32], 1, [0u8; 32], YieldPayment::default())
+            },
             MSG_PAY_INSTANT => encode_pay_instant(params.dst_eid, [0u8; 32], 1, [0u8; 32], 0),
             // A full batch prices the largest one.
             MSG_CASH_IN_BATCH => {

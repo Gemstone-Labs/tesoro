@@ -1,5 +1,5 @@
 use crate::*;
-use msg_codec::{encode_pay_yield, pad_address, MSG_PAY_YIELD};
+use msg_codec::{encode_pay_yield, pad_address, YieldPayment, MSG_PAY_YIELD};
 use oapp::endpoint::{state::EndpointSettings, ENDPOINT_SEED, ID as ENDPOINT_ID};
 use tesoro_core::state::{
     PositionState, TesoroAccount, ACCOUNT_SEED, POSITION_SEED as CORE_POSITION_SEED,
@@ -79,15 +79,23 @@ impl SendPayYield<'_> {
             require!(ctx.accounts.evm_link.is_some(), BridgeError::EvmAddressMismatch);
             pad_address(&holder.evm_address)
         };
+        let fee = claim.fee_total.checked_sub(claim.fee_sent).ok_or(BridgeError::AmountOverflow)?;
+        let pool = claim
+            .pool_total
+            .checked_sub(claim.pool_sent)
+            .ok_or(BridgeError::AmountOverflow)?;
         claim.units_sent = claim.units_total;
+        claim.fee_sent = claim.fee_total;
+        claim.pool_sent = claim.pool_total;
         let seq = next_out_seq(position)?;
+        let pay = YieldPayment { amount: pending as u128, fee: fee as u128, pool: pool as u128 };
 
         lz_send(
             &ctx.accounts.store,
             &ctx.accounts.peer,
             ctx.remaining_accounts,
             params,
-            encode_pay_yield(params.eid, params.position_id, seq, to, pending as u128),
+            encode_pay_yield(params.eid, params.position_id, seq, to, pay),
         )?;
         emit!(MessageSent {
             dst_eid: params.eid,

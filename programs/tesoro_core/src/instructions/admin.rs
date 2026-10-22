@@ -3,6 +3,36 @@ use crate::ledger::{FeeTerms, LeaderboardTerms};
 use crate::state::*;
 use anchor_lang::prelude::*;
 
+/// The Studio Fee is exempt from the Yield Fee; routing Gemas through one must never pay
+/// (founder 2026-10-22, red-team 31 #4). Every setter of the Platform, Leaderboard or Yield Fee
+/// checks it at the largest Studio Fee a Game may set.
+pub(crate) fn require_studio_exemption_safe(
+    yield_fee_bps: u16,
+    platform_bps: u16,
+    leaderboard_bps: u16,
+) -> Result<()> {
+    require!(
+        crate::ledger::yield_fee::studio_exemption_safe(
+            yield_fee_bps,
+            platform_bps,
+            leaderboard_bps,
+            MAX_STUDIO_BPS
+        ),
+        TesoroError::StudioFeeLaundering
+    );
+    Ok(())
+}
+
+/// The Yield Fee of the Treasury at the `["treasury"]` PDA; 0 while it does not exist yet.
+pub(crate) fn treasury_yield_fee(info: &AccountInfo) -> Result<u16> {
+    if info.data_is_empty() {
+        return Ok(0);
+    }
+    require_keys_eq!(*info.owner, crate::ID, TesoroError::InvalidAccount);
+    let data = info.try_borrow_data()?;
+    Ok(Treasury::try_deserialize(&mut &data[..])?.yield_fee_bps)
+}
+
 pub(crate) fn validate_fees(
     platform_bps: u16,
     studio_bps: u16,
@@ -79,6 +109,9 @@ pub struct UpdateConfig<'info> {
         bump = platform_recipient.bump
     )]
     pub platform_recipient: Account<'info, TesoroAccount>,
+    /// CHECK: the Treasury PDA, read for its Yield Fee; may not exist yet.
+    #[account(seeds = [TREASURY_SEED], bump)]
+    pub treasury: UncheckedAccount<'info>,
 }
 
 /// Replaces the oracle authority and the Platform Fee terms. Matches already open keep the
@@ -91,6 +124,11 @@ pub(crate) fn update_config(
     validate_fees(
         platform_bps,
         MAX_STUDIO_BPS,
+        ctx.accounts.config.leaderboard_bps,
+    )?;
+    require_studio_exemption_safe(
+        treasury_yield_fee(&ctx.accounts.treasury)?,
+        platform_bps,
         ctx.accounts.config.leaderboard_bps,
     )?;
     let config = &mut ctx.accounts.config;
@@ -151,6 +189,9 @@ pub struct InitLeaderboard<'info> {
         bump
     )]
     pub pool_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Treasury PDA, read for its Yield Fee; may not exist yet.
+    #[account(seeds = [TREASURY_SEED], bump)]
+    pub treasury: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -164,6 +205,11 @@ pub(crate) fn init_leaderboard(ctx: Context<InitLeaderboard>, leaderboard_bps: u
     validate_fees(
         ctx.accounts.config.platform_bps,
         MAX_STUDIO_BPS,
+        leaderboard_bps,
+    )?;
+    require_studio_exemption_safe(
+        treasury_yield_fee(&ctx.accounts.treasury)?,
+        ctx.accounts.config.platform_bps,
         leaderboard_bps,
     )?;
     let pool_key = ctx.accounts.pool_account.key();

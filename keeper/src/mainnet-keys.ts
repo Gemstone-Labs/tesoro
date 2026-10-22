@@ -102,7 +102,7 @@ export function coreAccountPda(core: PublicKey, authority: PublicKey): PublicKey
 export function updateConfigIx(core: PublicKey, admin: PublicKey, oracle: PublicKey, platformBps: number, platformRecipient: PublicKey) {
   return new TransactionInstruction({
     programId: core,
-    keys: [meta(admin, true, false), meta(coreConfigPda(core), false, true), meta(platformRecipient, false, false)],
+    keys: [meta(admin, true, false), meta(coreConfigPda(core), false, true), meta(platformRecipient, false, false), meta(pda(core, [Buffer.from("treasury")]), false, false)],
     data: coder.encode("update_config", { oracle_authority: oracle, platform_bps: platformBps }),
   });
 }

@@ -71,8 +71,8 @@ const readStore = (info: Info): Store | null => {
 function syncedBook(book: SourceBookView, pos: any, srcState: any, speedup: number, nowSec: number, stake: ReturnType<typeof stakeGrowthOf>): SourceBookView {
   if (!isNativePosition(pos) || pos.inner.openAdvance !== srcState.inner.index || enumKey(pos.inner.status) !== "locked") return book;
   const p = pos.inner;
-  const clock = clockOf({ principalLamports: big(p.principal), rateBps: p.rateBps, yieldFeeBps: p.yieldFeeBps, openedAt: Number(big(p.openedAt)), stakeRateOpen: big(p.stakeRateOpen ?? 0) });
-  const net = positionAccrued(clock, speedup, nowSec, stake).net;
+  const clock = clockOf({ principalLamports: big(p.principal), rateBps: p.rateBps, openedAt: Number(big(p.openedAt)), stakeRateOpen: big(p.stakeRateOpen ?? 0) });
+  const net = positionAccrued(clock, speedup, nowSec, stake);
   const applied = big(p.appliedNet);
   const counted = net > applied ? net - applied : 0n;
   return syncPreview(book, counted, { unitNum: big(srcState.inner.unitNum), unitDen: big(srcState.inner.unitDen) });
@@ -229,7 +229,9 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
       reserved: 0n,
       free: line.amount,
       redeemable: ready,
-      pending: isOwn ? 0n : line.amount - ready,
+      pending: line.amount - ready,
+      yieldFeeBps: line.classId < 3 ? 0 : Number(state.inner.yieldFeeBps ?? 0),
+      poolBps: line.classId < 3 ? 0 : Number(state.inner.poolBps ?? 0),
       sourceDebt: debtGemasOf(book),
       unitNum: big(state.inner.unitNum),
       unitDen: big(state.inner.unitDen),

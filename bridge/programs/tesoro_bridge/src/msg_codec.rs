@@ -14,7 +14,10 @@ use crate::errors::BridgeError;
 //   1 PositionLocked (EVM -> Solana): owner [32] | asset [32] | principal u128 | horizon u8
 //   2 YieldAccrued   (EVM -> Solana): cumulative u128 | treasury_balance u128 | instant_paid u128 | report_time u64
 //   3 Unlock         (Solana -> EVM): amount u128 (always 0)
-//   4 PayYield       (Solana -> EVM): to [32] | amount u128
+//   4 PayYield       (Solana -> EVM): to [32] | amount u128 | fee u128 | pool u128
+//                    amount: units taken from the Position's yield; fee: the Yield Fee part of it
+//                    the vault keeps for the Treasury (0 for exempt cash-outs); pool: the part of
+//                    what the Treasury keeps that is owed to the Leaderboard Pool (ticket 31).
 //   5 PayInstant     (Solana -> EVM): to [32] | amount u128   paid from the vault's treasury
 //
 // Route messages (6-9) concern the vault, not one Position. Their header is the same 45 bytes with
@@ -26,7 +29,7 @@ use crate::errors::BridgeError;
 //   9 PayPrizeResult (EVM -> Solana): status u8 (1 paid, 2 rejected) | shares u128
 // See economy-notes/bridge-messages.md for what the vault must guarantee for each.
 //
-// `cumulative` is the Position's accrued yield net of the Yield Fee; `treasury_balance` is what the
+// `cumulative` is the Position's gross accrued yield (ticket 31: the Yield Fee is taken at cash-out); `treasury_balance` is what the
 // vault's treasury can pay now (it falls with Instant Redeem payouts and withdrawals); `instant_paid`
 // is the vault's cumulative Instant Redeem payouts at that same block; `report_time` is that block's
 // timestamp, which orders snapshots of the vault Treasury.
@@ -38,8 +41,8 @@ pub const YIELD_LEN_V1: usize = HEADER_LEN + 16 + 16 + 16 + 8;
 /// shares and in the Source asset's units at the time each share arrived.
 pub const YIELD_LEN: usize = YIELD_LEN_V1 + 16 + 16;
 pub const UNLOCK_LEN: usize = HEADER_LEN + 16;
-pub const PAY_YIELD_LEN: usize = HEADER_LEN + 32 + 16;
-pub const PAY_INSTANT_LEN: usize = PAY_YIELD_LEN;
+pub const PAY_YIELD_LEN: usize = HEADER_LEN + 32 + 16 + 16 + 16;
+pub const PAY_INSTANT_LEN: usize = HEADER_LEN + 32 + 16;
 
 pub const MSG_POSITION_LOCKED: u8 = 1;
 pub const MSG_YIELD_ACCRUED: u8 = 2;
@@ -115,14 +118,25 @@ pub fn encode_unlock(source_chain: u32, position_id: [u8; 32], seq: u64) -> Vec<
     buf
 }
 
+/// The amounts of one PayYield: see the module docs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct YieldPayment {
+    pub amount: u128,
+    pub fee: u128,
+    pub pool: u128,
+}
+
 pub fn encode_pay_yield(
     source_chain: u32,
     position_id: [u8; 32],
     seq: u64,
     to: [u8; 32],
-    amount: u128,
+    pay: YieldPayment,
 ) -> Vec<u8> {
-    encode_payment(MSG_PAY_YIELD, source_chain, position_id, seq, to, amount)
+    let mut buf = encode_payment(MSG_PAY_YIELD, source_chain, position_id, seq, to, pay.amount);
+    buf.extend_from_slice(&pay.fee.to_be_bytes());
+    buf.extend_from_slice(&pay.pool.to_be_bytes());
+    buf
 }
 
 pub fn encode_pay_instant(
@@ -558,13 +572,25 @@ mod tests {
 
     #[test]
     fn outbound_layout_matches_the_solidity_side() {
-        let pay = encode_pay_yield(40449, [2; 32], 5, pad_address(&[0xCC; 20]), 42);
+        let amounts = YieldPayment { amount: 42, fee: 8, pool: 4 };
+        let pay = encode_pay_yield(40449, [2; 32], 5, pad_address(&[0xCC; 20]), amounts);
         assert_eq!(pay.len(), PAY_YIELD_LEN);
+        assert_eq!(PAY_YIELD_LEN, 125);
         assert_eq!(pay[0], MSG_PAY_YIELD);
         assert_eq!(&pay[1..5], &40449u32.to_be_bytes());
         assert_eq!(&pay[37..45], &5u64.to_be_bytes());
         assert_eq!(&pay[45..77], &pad_address(&[0xCC; 20]));
         assert_eq!(&pay[77..93], &42u128.to_be_bytes());
+        assert_eq!(&pay[93..109], &8u128.to_be_bytes());
+        assert_eq!(&pay[109..125], &4u128.to_be_bytes());
+        // The same vector is checked by contracts/test/PositionVaultOApp.t.sol, so both sides agree
+        // on every byte.
+        let vector = "0400009e0102020202020202020202020202020202020202020202020202020202020202\
+                      020000000000000005000000000000000000000000cccccccccccccccccccccccccccccc\
+                      cccccccccc0000000000000000000000000000002a00000000000000000000000000000008\
+                      00000000000000000000000000000004";
+        let hex: String = pay.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, vector);
     }
 
     #[test]

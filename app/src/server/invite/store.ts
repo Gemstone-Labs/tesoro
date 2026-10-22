@@ -49,7 +49,13 @@ export interface InviteStore {
   claim(codeHash: string, authority: string): Promise<ClaimResult>;
 }
 
-export class MemoryInviteStore implements InviteStore {
+/** The lookup the relayer needs before it co-signs a new Account with the Invite key. */
+export interface InviteLookup {
+  /** Whether `authority` redeemed an Invite (any code is marked used by it). */
+  redeemedBy(authority: string): Promise<boolean>;
+}
+
+export class MemoryInviteStore implements InviteStore, InviteLookup {
   readonly rows = new Map<string, { email: string; usedBy: string | null; sentAt?: string | null }>();
   async forEmail(email: string): Promise<InviteRow[]> {
     return [...this.rows]
@@ -66,6 +72,9 @@ export class MemoryInviteStore implements InviteStore {
   async create(codeHash: string, email: string) {
     if (this.rows.has(codeHash)) throw new Error("Invite code already exists");
     this.rows.set(codeHash, { email, usedBy: null });
+  }
+  async redeemedBy(authority: string) {
+    return [...this.rows.values()].some((r) => r.usedBy === authority);
   }
   async claim(codeHash: string, authority: string): Promise<ClaimResult> {
     const r = this.rows.get(codeHash);

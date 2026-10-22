@@ -144,7 +144,7 @@ async function setup() {
     if (!(await base.getAccountInfo(account))) {
       const ix = await tesoro.methods
         .createAccount(Array(20).fill(0))
-        .accountsPartial({ authority: kp.publicKey, account } as any)
+        .accountsPartial({ authority: kp.publicKey, payer: kp.publicKey, account } as any)
         .instruction();
       await sendBase(`create_account p${i}`, [ix], [kp]);
     }

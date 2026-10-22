@@ -4,7 +4,7 @@ import { fmtGemas } from "@/lib/format";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { PayoutBar } from "@/components/docs/visual";
-import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
+import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT, REDEEM_PAYOUT_PCT, YIELD_FEE_PCT } from "@/lib/chain/yield";
 import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Fees", alternates: { canonical: "/docs/fees" } };
@@ -18,28 +18,26 @@ export default function Page() {
         head={["Fee", "Rate", "Taken from"]}
         rows={[
           ["Platform Fee", "2% of each Pot", "The loser's Gemas, when a Match settles."],
-          ["Yield Fee", "20% of the yield", `Yield your Locks earn, as it arrives. Never what you lock. Half is ${BRAND.name}'s revenue and half funds the Leaderboard prizes.`],
-          ["Instant Redeem Fee", `${INSTANT_FEE_PCT}% of the value`, "Won Gemas you choose to redeem before their yield has landed."],
+          ["Yield Fee", `${YIELD_FEE_PCT}% of the value`, `Gemas you cash out with Redeem. Never what you lock. Half is ${BRAND.name}'s revenue and half funds the Leaderboard prizes.`],
+          ["Instant Redeem Fee", `${INSTANT_FEE_PCT}% of what a Redeem pays`, "Gemas you choose to redeem before their yield has landed, after the Yield Fee."],
         ]}
         caption={`${BRAND.name}'s revenue`}
       />
 
       <H2 id="yield-fee">Yield Fee</H2>
       <p>
-        {BRAND.name} keeps <b>20% of the yield</b> every Lock earns, on every chain. Your Lock keeps the other 80%. The Advance is sized on that 80%
-        too, so it is still repaid in the same time and your Unlock Estimate does not move.
+        Gemas are <b>all of the yield</b> a Lock earns, so an Advance is the whole projected yield. {BRAND.name} keeps <b>{YIELD_FEE_PCT}% of the value of Gemas when you cash them out</b>, on every chain: a Redeem pays {REDEEM_PAYOUT_PCT}%, so 1,000 Gemas worth $10.00 pay $8.00. Your Advance is repaid in the same time and your Unlock Estimate does not move. Gemas that pay a Match Fee or a Season prize carry no Yield Fee, and nothing is taken when you Unlock.
       </p>
       <p>
-        The 20% is split in two: <b>10% of the yield is {BRAND.name}&apos;s</b> and <b>10% is owed to the Leaderboard Pool</b> as prizes (see{" "}
-        <Link href="/docs/leaderboard">Leaderboard</Link>). Neither half is counted or spent until the fee is realised, which happens when the Lock is
-        unlocked. {BRAND.name} never spends the Pool&apos;s half, and never spends what holders of an unlocked Lock are still owed.
+        The {YIELD_FEE_PCT}% is split in two: <b>{YIELD_FEE_PCT / 2}% of the value is {BRAND.name}&apos;s</b> and <b>{YIELD_FEE_PCT / 2}% is owed to the Leaderboard Pool</b> as prizes (see{" "}
+        <Link href="/docs/leaderboard">Leaderboard</Link>). Neither half is counted or spent before the cash-out that pays it. {BRAND.name} never spends the Pool&apos;s half, and never spends what holders of an unlocked Lock are still owed.
       </p>
 
       <H2 id="instant-redeem">Instant Redeem Fee</H2>
       <p>
         Gemas you won normally become redeemable as the yield behind them lands. <b>Instant Redeem</b> skips the wait: you ask {BRAND.name} to buy them, and
-        when it fills your request you get <b>{INSTANT_PAYOUT_PCT}%</b> of their value at that moment while {BRAND.name} keeps <b>{INSTANT_FEE_PCT}%</b>, then waits for
-        the yield itself. It is optional, only for Gemas you won, and only for the part whose yield has not landed yet. See{" "}
+        when it fills your request you get <b>{INSTANT_PAYOUT_PCT}%</b> of their value at that moment: the {YIELD_FEE_PCT}% Yield Fee comes out first, then {BRAND.name} keeps <b>{INSTANT_FEE_PCT}%</b> of what is left, and waits for
+        the yield itself (1,000 Gemas pay $6.00 now instead of $8.00 later). It is optional, works on Gemas you won and on your own, and only for the part whose yield has not landed yet. You choose how many. See{" "}
         <Link href="/docs/gemas#instant-redeem">Gemas</Link>.
       </p>
 

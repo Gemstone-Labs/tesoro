@@ -41,7 +41,7 @@ export const SolRepaid: Story = {
 /** A 3-month Advance as the program sized it (the shared fixture's issued count is arbitrary), so Extend quotes the real difference. */
 const extendable = () => {
   const info = nativePosition("debt").native!;
-  const issued = quoteNativeAdvance(info.principalLamports, info.rateBps, 3, info.source!.math.unitDen, 2000).gemas;
+  const issued = quoteNativeAdvance(info.principalLamports, info.rateBps, 3, info.source!.math.unitDen).gemas;
   return { ...info, source: { ...info.source!, math: { ...info.source!.math, issued, returned: issued / 2n } } };
 };
 /** Debt is open and the Horizon is under 12 months: Extend sits beside Refresh yield (NEXT_PUBLIC_EXTEND_ADVANCE=1). */

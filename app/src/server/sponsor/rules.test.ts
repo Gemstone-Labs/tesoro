@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BN } from "@coral-xyz/anchor";
 import { SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
-import { backingPairIx, chunkIx, coreIx, growIx, joinMatchIx, key, openMatchIx, playerIx } from "./fixtures";
+import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, growIx, linkEvmBridgeIx, signUpIx, joinMatchIx, key, openMatchIx, playerIx } from "./fixtures";
 import { CORE_ID, ORDER_RENT, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
 
 const relayer = key();
@@ -248,5 +248,82 @@ describe("a Backing Ticket opened and staged in one transaction", () => {
     const b = await backingPairIx(relayer);
     b.ixs[1].keys[0] = { pubkey: key(), isSigner: true, isWritable: false };
     refused(b.ixs, "bad-shape");
+  });
+});
+
+describe("a sponsored new Account (ticket 18c)", () => {
+  const invite = key();
+  it("a lone create_account with the relayer as payer and the sponsor attached is an onboarding admission", async () => {
+    const p = plan([await createAccountIx(relayer, player)]);
+    expect(p).toMatchObject({ names: ["create_account"], class: "admission", onboarding: true, invite: false });
+    expect(p.signers.map((k) => k.toBase58())).toEqual([player.toBase58()]);
+    expect(p.spend.refundable).toBeGreaterThan(0n);
+    expect(p.spend.sunk).toBeGreaterThan(0n);
+  });
+  it("the wallet paying for itself is the same shape with the relayer only on the fee", async () => {
+    const p = plan([await createAccountIx(relayer, player, { sponsored: false, payer: player })]);
+    expect(p.onboarding).toBe(true);
+  });
+  it("the relayer as payer without the sponsor account is refused: its rent would never come back", async () => {
+    refused([await createAccountIx(relayer, player, { sponsored: false })], "bad-accounts");
+  });
+  it("travels alone: nothing is paid for next to it", async () => {
+    refused([await createAccountIx(relayer, player), await growIx(relayer, accountOf(player))], "bad-shape");
+  });
+  it("the Invite key may co-sign, and only the key the server holds", async () => {
+    const withInvite = await createAccountIx(relayer, player, { invite });
+    expect(planTransaction([withInvite], { ...ctx, inviteKey: invite })).toMatchObject({ onboarding: true, invite: true });
+    expect(() => planTransaction([withInvite], ctx)).toThrowError(expect.objectContaining({ code: "bad-accounts" }));
+    expect(() => planTransaction([withInvite], { ...ctx, inviteKey: key() })).toThrowError(expect.objectContaining({ code: "bad-accounts" }));
+    const stranger = await createAccountIx(relayer, player, { invite: key() });
+    expect(() => planTransaction([stranger], { ...ctx, inviteKey: invite })).toThrowError(expect.objectContaining({ code: "bad-accounts" }));
+  });
+  it("any other extra account is refused", async () => {
+    const ix = await createAccountIx(relayer, player);
+    ix.keys.push({ pubkey: key(), isSigner: false, isWritable: false });
+    expect(() => planTransaction([ix], { ...ctx, inviteKey: invite })).toThrowError(expect.objectContaining({ code: "bad-accounts" }));
+  });
+});
+
+describe("the rest of sign-up (ticket 18c)", () => {
+  it("a Profile is a continue step the relayer fronts, with the sponsor attached", async () => {
+    expect(plan([await signUpIx.profile(relayer, player)])).toMatchObject({ names: ["set_profile"], class: "continue", onboarding: false });
+    expect(plan([await signUpIx.nameEvmCleared(relayer, player)])).toMatchObject({ names: ["set_name_evm"], class: "continue" });
+  });
+  it("the relayer is never the Profile's payer without the sponsor, and the wallet may pay itself", async () => {
+    refused([await signUpIx.profile(relayer, player, { sponsored: false })], "bad-accounts");
+    refused([await signUpIx.nameEvmCleared(relayer, player, { sponsored: false })], "bad-accounts");
+    expect(plan([await signUpIx.profile(relayer, player, { sponsored: false, payer: player })]).names).toEqual(["set_profile"]);
+  });
+  it("setting the EVM address costs the relayer only the fee", async () => {
+    expect(plan([await signUpIx.evmAddress(player)])).toMatchObject({ names: ["set_evm_address"], class: "continue" });
+  });
+  it("naming a Solana wallet needs a second signature and is not sponsored", async () => {
+    refused([await signUpIx.nameWallet(player)], "unknown-instruction");
+  });
+  it("link_evm is an admission without Gemas whose rent is the relayer's, counted as sunk", () => {
+    const p = plan([linkEvmBridgeIx(player, relayer)]);
+    expect(p).toMatchObject({ names: ["link_evm"], class: "admission", noGemas: true, playerSigns: true });
+    expect(p.spend.sunk).toBeGreaterThan(0n);
+    expect(p.signers.map((k) => k.toBase58())).toEqual([player.toBase58()]);
+  });
+  it("link_evm in any other shape is refused", () => {
+    const good = () => linkEvmBridgeIx(player, relayer);
+    const wrongPayer = good();
+    wrongPayer.keys[4] = { ...wrongPayer.keys[4], pubkey: key() };
+    refused([wrongPayer], "relayer-in-accounts");
+    const wrongLink = good();
+    wrongLink.keys[2] = { ...wrongLink.keys[2], pubkey: key() };
+    refused([wrongLink], "bad-account");
+    const wrongFlag = good();
+    wrongFlag.keys[0] = { ...wrongFlag.keys[0], isWritable: true };
+    refused([wrongFlag], "bad-flags");
+    const other = good();
+    other.data = new Uint8Array(other.data.length);
+    refused([other], "bad-shape");
+    refused([good(), good()], "bad-shape");
+    const wrongAccount = good();
+    wrongAccount.keys[1] = { ...wrongAccount.keys[1], pubkey: key() };
+    refused([wrongAccount], "bad-account");
   });
 });

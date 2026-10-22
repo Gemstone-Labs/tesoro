@@ -22,7 +22,7 @@ export default function Page() {
         Platform Fee and the Studio Fee (see <Link href="/docs/fees">Fees</Link>), taken from the loser&apos;s Gemas like the other two. Draws and refunds take no Fees, so they add nothing to the Pool.
       </p>
       <p>
-        The Pool also receives <b>half of the Yield Fee</b>: 10% of the yield Locks earn, on every chain. It counts only once the fee is realised, the same
+        The Pool also receives <b>half of the Yield Fee</b>: a tenth of the value of every Gema cashed out, on every chain. It counts only once the fee is taken at cash-out, the same
         rule as {BRAND.name}&apos;s own half, and it arrives as <b>prize Gemas</b>. Each prize Gema is backed by staking tokens set aside for it, so a prize is
         fully backed and can be Redeemed at once. Only prize Redeem can move those tokens, and a prize Gema is never issued before its tokens are in place.
       </p>

@@ -92,6 +92,23 @@ fn only_a_realised_fee_makes_the_pool_owed_anything() {
 }
 
 #[test]
+fn the_pools_instant_share_is_owed_from_shares_the_treasury_already_holds() {
+    let mut r = on();
+    r.receive(1_000).unwrap();
+    r.add_owed(900).unwrap();
+    r.owe_pool(60).unwrap();
+    assert_eq!(
+        (r.pool_owed, r.pool_realised_total, r.spendable()),
+        (60, 60, 40)
+    );
+    // Never more than the Treasury can spare: holders' claims come first.
+    let before = r.clone();
+    assert_eq!(r.owe_pool(41), Err(CoreError::OwedExceedsTreasury));
+    assert_eq!(r, before);
+    r.check(&[]).unwrap();
+}
+
+#[test]
 fn holders_and_reservations_are_never_spendable() {
     let mut r = RouteLedger::default();
     r.receive(1_000).unwrap();
