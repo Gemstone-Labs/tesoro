@@ -92,7 +92,67 @@ contract PositionVaultOAppTest is Test {
     }
 
     function _pay(uint64 id, uint64 seq, address to, uint128 amt) internal view returns (bytes memory) {
-        return abi.encodePacked(uint8(4), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), amt);
+        return abi.encodePacked(
+            uint8(4), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), uint128(amt), uint128(0), uint128(0)
+        );
+    }
+
+    function _payFee(uint64 id, uint64 seq, address to, uint128 amt, uint128 fee, uint128 pool)
+        internal
+        view
+        returns (bytes memory)
+    {
+        return abi.encodePacked(uint8(4), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), amt, fee, pool);
+    }
+
+    /// A cash-out that takes a Yield Fee puts that fee in the Treasury (the Treasury holds nothing else of yield).
+    function _earnFee(uint64 id) internal returns (uint256 fee) {
+        uint128 amt = uint128(vault.payableYield(id) / 2);
+        fee = amt / 5;
+        _recv(_payFee(id, 100, address(0xB0B), amt, uint128(fee), 0));
+    }
+
+    function test_pay_yield_is_125_bytes_and_a_wrong_length_is_refused() public {
+        uint64 id = _open(1e18);
+        vm.warp(block.timestamp + 600);
+        uint128 amt = uint128(vault.payableYield(id) / 2);
+        bytes memory m = _payFee(id, 1, redeemer, amt, amt / 5, amt / 10);
+        assertEq(m.length, 125, "header 45 | to 32 | amount 16 | fee 16 | pool 16");
+        _recv(m);
+        assertEq(lst.balanceOf(redeemer), amt - amt / 5);
+        assertEq(vault.realisedFees(), amt / 5);
+        assertEq(vault.poolOwedUnits(), amt / 10);
+        vm.expectRevert(PositionVaultOApp.InvalidMessageLength.selector);
+        _recv(abi.encodePacked(uint8(4), HOODI, _key(id), uint64(2), bytes32(uint256(uint160(redeemer))), amt));
+    }
+
+    /// The literal the bridge's Rust encoder is tested against: any change to the layout breaks both sides.
+    function test_pay_yield_layout_is_the_shared_literal() public {
+        address holder = address(bytes20(hex"cccccccccccccccccccccccccccccccccccccccc"));
+        bytes memory m = abi.encodePacked(
+            uint8(4),
+            uint32(40449),
+            bytes32(hex"0202020202020202020202020202020202020202020202020202020202020202"),
+            uint64(5),
+            bytes32(uint256(uint160(holder))),
+            uint128(42),
+            uint128(8),
+            uint128(4)
+        );
+        assertEq(m.length, 125);
+        assertEq(
+            m,
+            hex"0400009e0102020202020202020202020202020202020202020202020202020202020202020000000000000005000000000000000000000000cccccccccccccccccccccccccccccccccccccccc0000000000000000000000000000002a0000000000000000000000000000000800000000000000000000000000000004"
+        );
+
+        // The vault decodes the same field order: to, amount 42, fee 8, pool 4 (with this vault's own key).
+        uint64 id = _open(1e18);
+        vm.warp(block.timestamp + 600);
+        _recv(_payFee(id, 5, holder, 42, 8, 4));
+        assertEq(lst.balanceOf(holder), 34, "to gets amount - fee");
+        assertEq(vault.getPosition(id).paidUnderlying, 42, "amount");
+        assertEq(vault.realisedFees(), 8, "fee");
+        assertEq(vault.poolOwedUnits(), 4, "pool");
     }
 
     function test_open_sends_packed_position_locked_and_refunds_excess() public {
@@ -122,6 +182,7 @@ contract PositionVaultOAppTest is Test {
     function test_report_yield_sends_cumulative_accrued() public {
         uint64 id = _open(1e18);
         vm.warp(block.timestamp + 600);
+        _earnFee(id);
         uint256 accrued = vault.accruedYield(id);
         assertGt(accrued, 0);
         vault.reportYield{value: 0.0001 ether}(id);
@@ -155,6 +216,7 @@ contract PositionVaultOAppTest is Test {
     function test_pay_instant_pays_from_the_treasury() public {
         uint64 id = _open(1e18);
         vm.warp(block.timestamp + 600);
+        _earnFee(id);
         uint256 treasury = vault.treasuryBalance();
         assertGt(treasury, 1000);
         _recv(_instant(id, 1, redeemer, uint128(treasury / 2)));
@@ -177,6 +239,7 @@ contract PositionVaultOAppTest is Test {
     function test_withdraw_treasury_is_owner_only() public {
         uint64 id = _open(1e18);
         vm.warp(block.timestamp + 600);
+        _earnFee(id);
         uint256 treasury = vault.treasuryBalance();
         vm.prank(alice);
         vm.expectRevert();
@@ -195,9 +258,8 @@ contract PositionVaultOAppTest is Test {
     function test_treasury_admin_is_the_owner() public {
         vm.prank(alice);
         vm.expectRevert();
-        vault.setYieldFeeBps(100);
-        vault.setYieldFeeBps(100);
-        assertEq(vault.yieldFeeBps(), 100);
+        vault.setEscrowKeeper(alice);
+        vault.setEscrowKeeper(alice);
     }
 
     function test_quotes() public view {

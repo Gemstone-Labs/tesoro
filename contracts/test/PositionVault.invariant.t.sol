@@ -21,6 +21,7 @@ contract VaultHandler is Test {
     uint256 public ghostOwnerReleasedTotal;
     bool public seqWentBackwards;
     bool public claimUnderpaid;
+    uint256 public ghostFeesTaken; // fees named in PayYield messages that were applied
 
     constructor() {
         lst = new SimLST(address(this), "Simulated Staked ETH", "simETH");
@@ -52,25 +53,30 @@ contract VaultHandler is Test {
         vault.reportYield(ids[idx % ids.length]);
     }
 
-    function pay(uint256 idx, uint64 seq, uint256 amount, bool overshoot) external {
+    function pay(uint256 idx, uint64 seq, uint256 amount, bool overshoot, uint8 feePct, uint8 poolPct) external {
         if (ids.length == 0) return;
         uint64 id = ids[idx % ids.length];
         uint256 avail = vault.payableYield(id);
         amount = overshoot ? bound(amount, 0, avail * 2 + 1) : bound(amount, 0, avail);
         seq = uint64(bound(seq, 0, maxSeqSeen[id] + 3));
+        uint256 fee = (amount * bound(feePct, 0, 100)) / 100;
+        _pay(id, seq, amount, fee, (fee * bound(poolPct, 0, 100)) / 100);
+    }
+
+    function _pay(uint64 id, uint64 seq, uint256 amount, uint256 fee, uint256 pool) internal {
         uint64 before = vault.getPosition(id).inSeq;
         uint256 bal = lst.balanceOf(redeemer);
         uint256 paidBefore = vault.getPosition(id).paidUnderlying;
-        try ep.deliver(
-            address(vault), abi.encode(uint8(4), CHAIN, id, seq, bytes32(uint256(uint160(redeemer))), amount)
-        ) {}
-            catch {}
+        bytes memory m = abi.encode(uint8(4), CHAIN, id, seq, bytes32(uint256(uint160(redeemer))), amount, fee, pool);
+        try ep.deliver(address(vault), m) {} catch {}
         _track(id, before);
         uint256 got = lst.balanceOf(redeemer) - bal;
         ghostSharesToRedeemer += got;
         uint256 recorded = vault.getPosition(id).paidUnderlying - paidBefore;
         uint256 rate = lst.underlyingPerShare();
-        if (got * rate / 1e18 + rate / 1e18 + 1 < recorded) claimUnderpaid = true;
+        uint256 feeTaken = recorded == amount && amount > 0 ? fee : 0;
+        ghostFeesTaken += feeTaken;
+        if (got * rate / 1e18 + rate / 1e18 + 1 < recorded - feeTaken) claimUnderpaid = true;
     }
 
     function unlock(uint256 idx, uint64 seq) external {
@@ -116,17 +122,13 @@ contract PositionVaultInvariantTest is Test {
         }
     }
 
-    /// The Treasury claim never exceeds the fees of all Positions (open and closed) plus nothing else was credited.
-    function invariant_treasuryNeverAboveFees() public view {
+    /// The Treasury only ever holds fees taken at cash-out (nothing is credited here): Treasury plus Instant
+    /// payouts never exceed them, and the Pool's part is never more than the fees.
+    function invariant_treasuryNeverAboveFeesTakenAtCashOut() public view {
         PositionVault v = h.vault();
-        uint256 sum;
-        for (uint256 i = 0; i < h.idsLength(); i++) {
-            uint64 id = h.ids(i);
-            PositionVault.Position memory p = v.getPosition(id);
-            uint256 acc = v.accruedYield(id);
-            sum += p.unlocked ? (acc * p.feeBps) / (10_000 - p.feeBps) : acc * p.feeBps / (10_000 - p.feeBps);
-        }
-        assertLe(v.treasuryBalance() + v.instantPaid(), sum + h.idsLength() * 2 + 2);
+        assertEq(v.realisedFees(), h.ghostFeesTaken());
+        assertLe(v.treasuryBalance() + v.instantPaid() + v.poolOwedUnits(), v.realisedFees());
+        assertLe(v.poolOwedUnits(), v.realisedFees());
     }
 
     /// A Position's locked shares can be released to its owner at most once, and only at Unlock.
@@ -169,7 +171,9 @@ contract PositionVaultFuzzTest is Test {
 
         vm.warp(block.timestamp + bound(elapsed, 1, 2 hours));
         amount = bound(amount, 0, vault.payableYield(id));
-        bytes memory m = abi.encode(uint8(4), CHAIN, id, uint64(1), bytes32(uint256(uint160(address(0xBEEF)))), amount);
+        bytes memory m = abi.encode(
+            uint8(4), CHAIN, id, uint64(1), bytes32(uint256(uint160(address(0xBEEF)))), amount, uint256(0), uint256(0)
+        );
         ep.deliver(address(vault), m);
         uint256 paid = vault.getPosition(id).paidUnderlying;
         uint256 bal = lst.balanceOf(address(0xBEEF));
