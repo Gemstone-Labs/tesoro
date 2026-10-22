@@ -183,6 +183,13 @@ fn keeper_fixtures_match_the_program() {
     season.try_serialize(&mut raw).unwrap();
     out.push(("season".into(), hex(&raw)));
 
+    // The fullest Match, with its room holds.
+    let mut raw = Vec::new();
+    crate::state::tests::fullest_match_state()
+        .try_serialize(&mut raw)
+        .unwrap();
+    out.push(("match".into(), hex(&raw)));
+
     // Event-CPI payloads (the data after the 8-byte event tag).
     let started = MatchRunStarted {
         opener: Pubkey::new_from_array(key(40)),

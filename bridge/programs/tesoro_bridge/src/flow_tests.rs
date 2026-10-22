@@ -1007,7 +1007,6 @@ impl Env {
             tesoro_core::accounts::RequestInstantRedeem {
                 payer: a(holder.pubkey()),
                 holder_authority: a(holder.pubkey()),
-                payer: a(holder.pubkey()),
                 holder_account: account,
                 basket: basket_address(&account).0,
                 spill: spill_address(&account).0,

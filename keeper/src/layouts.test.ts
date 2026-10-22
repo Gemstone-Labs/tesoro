@@ -12,6 +12,7 @@ import { counterAmounts } from "./counters.ts";
 import { CORE_ID, decodeStore, decodeTicketHead, eventAuthority, POT_AT } from "./kit.ts";
 import { orderOf } from "./orders.ts";
 import { loadIdl } from "./runtime.ts";
+import { viewOf } from "./settle.ts";
 import { seasonOf } from "./season.ts";
 import { bookCheckpointCounts } from "./supply.ts";
 
@@ -73,6 +74,16 @@ describe("Borsh accounts written by tesoro_core, read through the IDL", () => {
     assert.deepEqual(s.points, [100n, 99n, 98n]);
     assert.deepEqual(s.cursor.slice(0, 3), [1, 0, 0]);
     assert.deepEqual(s.lines.map((l) => [l.source.toBase58(), l.amount, l.paid]), [[keyOf(30).toBase58(), 1000n, 250n], [keyOf(31).toBase58(), 2000n, 0n]]);
+  });
+});
+
+describe("a Match written by tesoro_core", () => {
+  it("room holds, payer and Pots are read where the program wrote them", () => {
+    const v = viewOf(keyOf(98), coder.decode("matchState", core.match));
+    assert.deepEqual(v.room.map((r) => [r.account.toBase58(), r.left]), [0, 1, 2, 3, 4].map((i) => [new PublicKey(Buffer.alloc(32, 40 + i)).toBase58(), 3 + i]));
+    assert.equal(v.stage, "settling");
+    assert.equal(v.ref.n, 2n ** 64n - 1n);
+    assert.equal(v.pots.length, 2);
   });
 });
 
