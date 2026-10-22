@@ -31,3 +31,6 @@ const withDisplayName = (from: string) => (from.includes("<") ? from : `${BRAND.
 export function senderFromEnv(env: NodeJS.ProcessEnv = process.env): EmailSender | null {
   return env.RESEND_API_KEY && env.NOTIFY_FROM ? new ResendSender(env.RESEND_API_KEY, withDisplayName(env.NOTIFY_FROM)) : null;
 }
+
+/** True when this server can send email, so the app shows the email settings. */
+export const emailReady = (env: NodeJS.ProcessEnv = process.env) => senderFromEnv(env) !== null;
