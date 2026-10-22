@@ -111,7 +111,6 @@
 .hd-bet { position: absolute; left: calc(50% + 126px); top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 8px; font-size: var(--fs-15); font-variant-numeric: tabular-nums; color: var(--fg); }
 .hd-bet-n { padding: 2px 8px; background: rgba(6, 12, 28, 0.7); }
 .hd-turn { font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--shell); background: var(--fg); padding: 1px 6px; }
-.hd-last { text-align: center; }
 .hd-handlabel {
   animation: hd-win-in 400ms ease both; --c: 7px; position: absolute; z-index: 3; left: calc(50% + 74px); top: 8px; padding: 5px 12px; white-space: nowrap; font-size: var(--fs-14); font-weight: 700; color: var(--fg);
   background: rgba(10, 16, 30, 0.9); --edge: rgba(190, 210, 255, 0.4);
@@ -288,14 +287,9 @@
   .hd-card.lg, .hd-flipc.lg { --w: clamp(54px, 6.8vh, 78px); }
 }
 
-/* Wide screens: the hand result sits in the empty left side of the table instead of under it, and the felt
-   takes the height left after the top bar, header and action bar, so the whole table fits one screen. */
+/* Wide screens: the felt takes the height left after the top bar, header and action bar, so the whole
+   table fits one screen. */
 @media (min-width: 1280px) {
-  .hdx-stage > .hd-last {
-    position: absolute; z-index: 2; left: 4.5%; top: 50%; transform: translateY(-50%); width: min(280px, 26%);
-    text-align: left; background: rgba(8, 14, 28, 0.88); border: 1px solid rgba(190, 210, 255, 0.22);
-  }
-  .hdx-stage > .hd-last { padding: 10px 12px; }
   .hdx-felt { min-height: 0; height: clamp(360px, calc(100dvh - 318px), 520px); }
   .hdx-actions { padding: 12px 16px; gap: 10px; }
   .hdx-btn { min-height: 56px; }
