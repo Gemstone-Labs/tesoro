@@ -163,6 +163,7 @@ impl From<KitError> for HoldemError {
             KitError::BadTable => HoldemError::BadTable,
             KitError::BadFeeVault => HoldemError::BadFeeVault,
             KitError::Overflow => HoldemError::Overflow,
+            KitError::CommitNotDue => HoldemError::NotDirty,
         }
     }
 }
@@ -237,6 +238,7 @@ fn conclude(table: &mut Table, now: i64) -> Result<()> {
     table.phase = TABLE_OVER;
     table.over_at = now;
     table.dirty = true;
+    table.commit.on_result();
     table.req_pending = false;
     table.vrf_ready = false;
     Ok(())
@@ -972,16 +974,20 @@ pub mod holdem {
     // Rollup: after the Match
     // ------------------------------------------------------------------------------------
 
-    /// Rollup, permissionless. Commits the finished table to Solana, paid by the Sponsor. It
-    /// works once per result (the table is `dirty` until then), so nobody can drain the Sponsor
-    /// by committing again and again. Only the public table is ever committed.
+    /// Rollup, permissionless. Commits the finished table to Solana, paid by the Sponsor. The
+    /// first commit of a result is owed once (the table is `dirty` until then). A commit can be
+    /// lost on its way to base without the rollup noticing, so it may be repeated while the ring
+    /// holds a young Done result, with a wait that doubles from two minutes to an hour (see
+    /// `table_kit::CommitGuard`); nobody can drain the Sponsor by calling it again and again.
+    /// Only the public table is ever committed.
     pub fn commit_table(ctx: Context<CommitTable>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
-        require!(
-            table.phase == TABLE_OVER && table.dirty,
-            HoldemError::NotDirty
-        );
+        kit(table
+            .commit
+            .allow(table.phase == TABLE_OVER && table.dirty, &table.ring, now))?;
         table.dirty = false;
+        table.commit.record(now);
         table.exit(&ID)?;
         let bump = [ctx.accounts.sponsor.bump];
         sponsor_commit(

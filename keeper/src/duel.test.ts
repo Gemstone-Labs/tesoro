@@ -71,7 +71,7 @@ describe("Trading Duel Match step: playing and committing", () => {
   });
 });
 
-const table = (over: Partial<TableFacts> = {}): TableFacts => ({ phase: PHASE.over, seatsOpen: false, dirty: false, sinceOver: 100, doneSlots: [], matchFrozen: false, ...over });
+const table = (over: Partial<TableFacts> = {}): TableFacts => ({ phase: PHASE.over, seatsOpen: false, dirty: false, sinceOver: 100, doneSlots: [], matchFrozen: false, recommit: false, ...over });
 
 describe("Trading Duel table upkeep", () => {
   it("moves a finished table along: commit, close the Books, wait out the delay, reset", () => {

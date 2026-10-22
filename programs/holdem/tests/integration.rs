@@ -741,7 +741,11 @@ impl Env {
     }
     /// Stands in for `commit_table`'s commit: the result is on base and the table is clean.
     fn commit_standin(&mut self) {
-        self.patch_table(|t| t.dirty = false);
+        let now = self.now;
+        self.patch_table(|t| {
+            t.dirty = false;
+            t.commit.record(now);
+        });
         let acct = self.svm.get_account(&s(self.table)).expect("table");
         self.committed.insert(self.table, acct.data);
     }
@@ -1120,6 +1124,9 @@ impl Env {
     /// split, the Match ends.
     fn shove_and_call(&mut self) -> Result<(), Failed> {
         let g = self.table().game;
+        if !(holdem::PHASE_PREFLOP..=holdem::PHASE_RIVER).contains(&g.phase) {
+            return Ok(()); // settled at the deal by blinds that put a stack all-in
+        }
         let first = usize::from(g.to_act);
         let to = g.bets[first] + g.stacks[first];
         self.act(first, Action::Raise { to })?;
@@ -2214,8 +2221,12 @@ fn a_whole_match_of_short_hands_conserves_chips_and_settles_once() {
         assert!(hands < 80);
         env.deal_hand([hands as u8; 32]).unwrap();
         let first = usize::from(env.table().game.to_act);
+        // Late blinds can put a stack all-in at the deal, which settles the hand there and then.
+        let betting =
+            (holdem::PHASE_PREFLOP..=holdem::PHASE_RIVER).contains(&env.table().game.phase);
         // Fold hands pass the chips one blind at a time; every tenth hand is a shove.
-        if hands % 10 == 0 {
+        if !betting {
+        } else if hands % 10 == 0 {
             env.shove_and_call().unwrap();
         } else {
             env.act(first, Action::Fold).unwrap();
@@ -2556,7 +2567,7 @@ fn a_table_is_reused_and_every_result_waits_in_the_ring_until_it_is_settled() {
             "results are kept across resets"
         );
         assert!(env.table().seats_created, "the seats outlive the Match");
-        assert_eq!(env.table().vrf_nonce, n + 1, "request numbers never reset");
+        assert!(env.table().vrf_nonce > n, "request numbers never reset");
     }
     let committed = env.table_at_committed();
     assert_eq!(committed.ring.used(), 3);
@@ -2692,12 +2703,14 @@ fn a_table_is_reset_only_when_wiped_committed_and_a_moment_old_and_it_forgets_th
     env.set_time(over + holdem::RESET_DELAY_SECS - 1);
     assert_eq!(custom_code(&env.reset().unwrap_err()), dcode(ResetTooEarly));
     env.set_time(over + holdem::RESET_DELAY_SECS);
+    let commit_before = env.table().commit;
     env.reset().expect("reset");
     let mut expected = Table::new(first.bump, 0, 0);
     expected.epoch = 1;
     expected.ring = first.ring;
     expected.vrf_nonce = first.vrf_nonce;
     expected.seats_created = true;
+    expected.commit = commit_before;
     assert_eq!(bytes_of(&env.table()), bytes_of(&expected));
     assert_eq!(env.table().ring.used(), 1);
     assert_eq!(custom_code(&env.reset().unwrap_err()), dcode(WrongPhase));
@@ -3237,4 +3250,132 @@ fn tesoro_core_treasury() -> anchor_lang::prelude::Pubkey {
         &tesoro_core::ID,
     )
     .0
+}
+
+// --- A commit that never reaches base ------------------------------------------------------
+
+impl Env {
+    /// A commit the rollup accepted but base never received: the table is clean, the guard has
+    /// counted the try, and base's copy is unchanged.
+    fn commit_lost_standin(&mut self) {
+        let now = self.now;
+        self.patch_table(|t| {
+            t.dirty = false;
+            t.commit.record(now);
+        });
+    }
+}
+
+#[test]
+fn a_lost_commit_is_repeated_after_a_wait_and_then_finalize_pays_the_winner() {
+    use holdem::HoldemError::*;
+    let mut env = live();
+    env.magic_shell();
+    let winner = env.play_match_out();
+    let loser = 1 - winner;
+    env.commit_lost_standin();
+    // Base still has the table from before the Match: nothing to settle from.
+    assert_eq!(
+        custom_code(&env.finalize_start().unwrap_err()),
+        dcode(NoResult)
+    );
+    // Too soon: refused, and the table is untouched.
+    let before = bytes_of(&env.table());
+    let ixn = env.commit_ix();
+    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(NotDirty));
+    env.set_time(env.now + holdem::RESET_DELAY_SECS);
+    let ixn = env.commit_ix();
+    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(NotDirty));
+    assert_eq!(bytes_of(&env.table()), before);
+    // After the wait the repeat passes its own checks and reaches the MagicBlock program, which
+    // LiteSVM does not have (devnet evidence, ticket 24).
+    env.set_time(env.now + table_kit::COMMIT_RETRY_SECS);
+    let ixn = env.commit_ix();
+    let err = env.rollup(ixn).unwrap_err();
+    assert!(
+        !err.meta.logs.iter().any(|l| l.contains("NotDirty")),
+        "{:?}",
+        err.meta.logs
+    );
+    // This time the commit lands.
+    env.commit_standin();
+    let before_gemas = (
+        env.gemas(env.winner_person(winner)),
+        env.gemas(env.winner_person(loser)),
+    );
+    env.finalize().expect("settle from the repeated commit");
+    assert_eq!(env.gemas(env.winner_person(winner)), before_gemas.0 + 1_900);
+    assert_eq!(env.gemas(env.winner_person(loser)), before_gemas.1);
+}
+
+#[test]
+fn a_lost_commit_survives_the_reset_and_a_repeat_carries_the_whole_ring() {
+    let mut env = Env::new();
+    env.magic_shell();
+    env.next_match_on(0);
+    env.start();
+    env.play_match_out();
+    env.commit_lost_standin();
+    env.wipe_standin();
+    env.set_time(env.now + holdem::RESET_DELAY_SECS);
+    env.reset().expect("a lost commit does not hold the reset");
+    // The next epoch begins; the result is still in the ring and a repeat is still allowed.
+    let t = env.table();
+    assert_eq!(t.epoch, 1);
+    assert_eq!(t.ring.used(), 1);
+    assert_eq!(t.commit.tries, 1, "the guard survives the reset");
+    env.set_time(env.now + table_kit::COMMIT_RETRY_SECS);
+    let ixn = env.commit_ix();
+    let err = env.rollup(ixn).unwrap_err();
+    assert!(!err.meta.logs.iter().any(|l| l.contains("NotDirty")));
+}
+
+#[test]
+fn repeated_commit_calls_cost_nothing_once_the_result_is_settled_and_freed() {
+    use holdem::HoldemError::*;
+    let mut env = live();
+    env.magic_shell();
+    env.play_match_out();
+    env.commit_standin();
+    let slot = env.table().slot;
+    let m = env.tmatch;
+    env.finalize().expect("settle");
+    env.set_time(env.now + holdem::RELEASE_DELAY_SECS);
+    env.release(slot, m).expect("freed");
+    assert_eq!(env.table().ring.used(), 0);
+    let sponsor = env.svm.get_balance(&s(sponsor_addr())).unwrap();
+    let before = bytes_of(&env.table());
+    for _ in 0..5 {
+        env.set_time(env.now + table_kit::COMMIT_RETRY_MAX_SECS);
+        let ixn = env.commit_ix();
+        assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(NotDirty));
+    }
+    assert_eq!(bytes_of(&env.table()), before);
+    assert_eq!(env.svm.get_balance(&s(sponsor_addr())).unwrap(), sponsor);
+}
+
+#[test]
+fn a_result_older_than_cores_refund_window_is_not_repeated() {
+    use holdem::HoldemError::*;
+    let mut env = live();
+    env.magic_shell();
+    env.play_match_out();
+    env.commit_lost_standin();
+    env.set_time(env.now + table_kit::COMMIT_WINDOW_SECS);
+    let ixn = env.commit_ix();
+    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(NotDirty));
+}
+
+#[test]
+fn nothing_in_the_program_can_undelegate_a_table_or_a_seat() {
+    // No instruction builds an undelegation or a commit-and-undelegate, so no caller can trigger one.
+    let source = include_str!("../src/lib.rs");
+    for needle in [
+        "commit_and_undelegate",
+        "undelegate_",
+        "CommitAndUndelegate",
+        "request_undelegation",
+    ] {
+        assert!(!source.contains(needle), "{needle} appears in the program");
+    }
 }

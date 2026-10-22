@@ -686,9 +686,12 @@
     {
       "name": "commit_table",
       "docs": [
-        "Rollup, permissionless. Commits the finished table to Solana, paid by the Sponsor. It",
-        "works once per result (the table is `dirty` until then), so nobody can drain the Sponsor",
-        "by committing again and again. Only the public table is ever committed."
+        "Rollup, permissionless. Commits the finished table to Solana, paid by the Sponsor. The",
+        "first commit of a result is owed once (the table is `dirty` until then). A commit can be",
+        "lost on its way to base without the rollup noticing, so it may be repeated while the ring",
+        "holds a young Done result, with a wait that doubles from two minutes to an hour (see",
+        "`table_kit::CommitGuard`); nobody can drain the Sponsor by calling it again and again.",
+        "Only the public table is ever committed."
       ],
       "discriminator": [
         136,
@@ -4095,6 +4098,28 @@
       }
     },
     {
+      "name": "CommitGuard",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tries",
+            "docs": [
+              "Commits sent since the last result landed."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "last_at",
+            "docs": [
+              "Rollup time of the latest one."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Config",
       "type": {
         "kind": "struct",
@@ -5409,6 +5434,17 @@
             "type": {
               "defined": {
                 "name": "Ring"
+              }
+            }
+          },
+          {
+            "name": "commit",
+            "docs": [
+              "When the table may be committed again if a commit was lost on its way to base."
+            ],
+            "type": {
+              "defined": {
+                "name": "CommitGuard"
               }
             }
           }

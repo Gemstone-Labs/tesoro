@@ -780,7 +780,11 @@ impl Env {
 
     /// Stands in for `commit_table`'s commit: the result is on base and the table is clean.
     fn commit_standin(&mut self) {
-        self.patch_table(|t| t.dirty = false);
+        let now = self.now;
+        self.patch_table(|t| {
+            t.dirty = false;
+            t.commit.record(now);
+        });
         let acct = self.svm.get_account(&s(self.table)).expect("table");
         self.committed.insert(self.table, acct.data);
     }
@@ -2076,11 +2080,13 @@ fn a_table_is_reset_only_when_closed_committed_and_a_moment_old_and_it_forgets_t
     env.set_time(over + trading_duel::RESET_DELAY_SECS - 1);
     assert_eq!(custom_code(&env.reset().unwrap_err()), dcode(ResetTooEarly));
     env.set_time(over + trading_duel::RESET_DELAY_SECS);
+    let commit_before = env.table().commit;
     env.reset().expect("reset");
     // Everything but identity, the epoch and the ring is wiped.
     let mut expected = Table::new(first.bump, 0, 0);
     expected.epoch = 1;
     expected.ring = first.ring;
+    expected.commit = commit_before;
     assert_eq!(bytes_of(&env.table()), bytes_of(&expected));
     assert_eq!(env.table().ring.used(), 1);
     // A table that is Idle cannot be reset again.
@@ -2453,4 +2459,93 @@ fn tesoro_core_treasury() -> anchor_lang::prelude::Pubkey {
         &tesoro_core::ID,
     )
     .0
+}
+
+// --- A commit that never reaches base ------------------------------------------------------
+
+impl Env {
+    /// A commit the rollup accepted but base never received: the table is clean, the guard has
+    /// counted the try, and base's copy is unchanged.
+    fn commit_lost_standin(&mut self) {
+        let now = self.now;
+        self.patch_table(|t| {
+            t.dirty = false;
+            t.commit.record(now);
+        });
+    }
+}
+
+#[test]
+fn a_lost_commit_is_repeated_after_a_wait_and_then_finalize_pays_the_winner() {
+    use trading_duel::DuelError::*;
+    let mut env = live();
+    env.magic_shell();
+    pick_all(&mut env, 0, 0);
+    play_flat(&mut env);
+    env.commit_lost_standin();
+    assert_eq!(
+        custom_code(&env.finalize_start().unwrap_err()),
+        dcode(NoResult)
+    );
+    let before = bytes_of(&env.table());
+    let ixn = env.commit_ix();
+    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(NotDirty));
+    env.set_time(env.now + trading_duel::RESET_DELAY_SECS);
+    let ixn = env.commit_ix();
+    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(NotDirty));
+    assert_eq!(bytes_of(&env.table()), before);
+    env.set_time(env.now + table_kit::COMMIT_RETRY_SECS);
+    let ixn = env.commit_ix();
+    let err = env.rollup(ixn).unwrap_err();
+    assert!(
+        !err.meta.logs.iter().any(|l| l.contains("NotDirty")),
+        "{:?}",
+        err.meta.logs
+    );
+    env.commit_standin();
+    let before_gemas = env.gemas(&env.alice);
+    env.finalize().expect("settle from the repeated commit");
+    assert_eq!(env.gemas(&env.alice), before_gemas + 1_900);
+}
+
+#[test]
+fn a_lost_commit_survives_the_reset() {
+    let mut env = live();
+    env.magic_shell();
+    pick_all(&mut env, 0, 0);
+    play_flat(&mut env);
+    env.commit_lost_standin();
+    env.close_seats_standin();
+    env.set_time(env.now + trading_duel::RESET_DELAY_SECS);
+    env.reset().expect("a lost commit does not hold the reset");
+    let t = env.table();
+    assert_eq!((t.epoch, t.ring.used(), t.commit.tries), (1, 1, 1));
+    env.set_time(env.now + table_kit::COMMIT_RETRY_SECS);
+    let ixn = env.commit_ix();
+    let err = env.rollup(ixn).unwrap_err();
+    assert!(!err.meta.logs.iter().any(|l| l.contains("NotDirty")));
+}
+
+#[test]
+fn repeated_commit_calls_cost_nothing_once_the_result_is_settled_and_freed() {
+    use trading_duel::DuelError::*;
+    let mut env = live();
+    env.magic_shell();
+    pick_all(&mut env, 0, 0);
+    play_flat(&mut env);
+    env.commit_standin();
+    let slot = env.table().slot;
+    let m = env.tmatch;
+    env.finalize().expect("settle");
+    env.set_time(env.now + trading_duel::RELEASE_DELAY_SECS);
+    env.release(slot, m).expect("freed");
+    let sponsor = env.svm.get_balance(&s(sponsor_addr())).unwrap();
+    let before = bytes_of(&env.table());
+    for _ in 0..5 {
+        env.set_time(env.now + table_kit::COMMIT_RETRY_MAX_SECS);
+        let ixn = env.commit_ix();
+        assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(NotDirty));
+    }
+    assert_eq!(bytes_of(&env.table()), before);
+    assert_eq!(env.svm.get_balance(&s(sponsor_addr())).unwrap(), sponsor);
 }

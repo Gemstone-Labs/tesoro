@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PHASE, TABLE_PHASE } from "../../app/src/games/holdem/chain.ts";
+import { needsRecommit } from "./recommit.ts";
 import { holdemStep, holdemTableStep, type HoldemFacts, type HoldemTableFacts } from "./holdem.ts";
 
 const facts = (over: Partial<HoldemFacts> = {}): HoldemFacts => ({
@@ -23,6 +24,7 @@ const tfacts = (over: Partial<HoldemTableFacts> = {}): HoldemTableFacts => ({
   sinceOver: 100,
   doneSlots: [],
   matchFrozen: false,
+  recommit: false,
   ...over,
 });
 const DAY = 86_400;
@@ -91,5 +93,28 @@ describe("Hold'em table upkeep", () => {
 
   it("does nothing for a table that is playing", () => {
     assert.equal(holdemTableStep(tfacts({ tablePhase: TABLE_PHASE.live })).do, "wait");
+  });
+});
+
+describe("A commit that never reached base", () => {
+  const key = (n: number) => ({ equals: (o: unknown) => o === key(n) || (o as { n?: number }).n === n, n }) as never;
+  const slot = (n: number, at: number) => ({ state: 2, tesoroMatch: key(n), epoch: 3, at });
+  it("repeats the commit for a result base does not show once it has waited, and not before", () => {
+    const live = { ring: [slot(1, 1000)] };
+    assert.equal(needsRecommit(live, { ring: [] }, 1119, 0), false);
+    assert.equal(needsRecommit(live, { ring: [] }, 1120, 0), true);
+    assert.equal(needsRecommit(live, null, 1120, 0), true);
+  });
+
+  it("leaves a result that base shows, a result already tried lately, and an empty ring alone", () => {
+    const live = { ring: [slot(1, 1000)] };
+    assert.equal(needsRecommit(live, { ring: [slot(1, 1000)] }, 5000, 0), false);
+    assert.equal(needsRecommit(live, { ring: [] }, 5000, 4950), false);
+    assert.equal(needsRecommit({ ring: [] }, { ring: [] }, 5000, 0), false);
+  });
+
+  it("puts the repeat before the table's usual steps", () => {
+    assert.equal(holdemTableStep(tfacts({ tablePhase: TABLE_PHASE.live, recommit: true })).do, "commit_table");
+    assert.equal(holdemTableStep(tfacts({ seatsOpen: true, recommit: true })).do, "commit_table");
   });
 });
