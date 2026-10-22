@@ -2,7 +2,6 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import type { Idl } from "@coral-xyz/anchor";
 import { BlockPuzzleChain, TESORO_CORE_PROGRAM_ID } from "@/games/block-puzzle/chain";
 import "@/lib/chain/polyfill";
-import blockPuzzleIdl from "@/lib/chain/idl/block_puzzle.json";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { baseRpc } from "@/lib/chain/rpc-config";
 import { profileFromChain } from "@/lib/identity/codec";
@@ -32,7 +31,7 @@ let conn: Connection | null = null;
 
 function chainDeps(): WinDeps {
   conn ??= new Connection(baseRpc(process.env.TESORO_BASE_RPC), { commitment: "confirmed" });
-  const core = new BlockPuzzleChain({ base: conn, blockPuzzleIdl: blockPuzzleIdl as Idl, coreIdl: coreIdl as Idl }).core;
+  const core = new BlockPuzzleChain({ base: conn, coreIdl: coreIdl as Idl }).core;
   return {
     card: (id) => readWinCard(supabaseRpc, id),
     profile: (account) => core.account.profile.fetchNullable(PublicKey.findProgramAddressSync([Buffer.from("profile"), account.toBuffer()], TESORO_CORE_PROGRAM_ID)[0]),

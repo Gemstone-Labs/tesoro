@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { filterByLease, freshLeases, startPresenceLoop } from "./presence";
 
-const reply = (body: unknown, ok = true) => vi.fn(async (..._a: unknown[]) => ({ ok, json: async () => body }) as Response);
+const reply = (body: unknown, ok = true) => vi.fn(async (...args: unknown[]) => (void args, ({ ok, json: async () => body }) as Response));
 
 describe("presence client", () => {
   it("returns the fresh set", async () => {

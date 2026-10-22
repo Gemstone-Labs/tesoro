@@ -12,7 +12,7 @@ export type QueueSeats = Record<GameId, QueueSeat[]>;
  * `match` key, or a failed lease check, is kept. Challenges are never in the Queue list.
  */
 export async function withoutAbsent(seats: QueueSeats): Promise<QueueSeats> {
-  const bb = seats["block-puzzle"] as (QueueSeat & { match?: string })[];
+  const bb = seats["block-puzzle"];
   const keys = bb.flatMap((s) => (s.match ? [s.match] : []));
   if (keys.length === 0) return seats;
   const kept = new Set(filterByLease(keys, await freshLeases(keys)));

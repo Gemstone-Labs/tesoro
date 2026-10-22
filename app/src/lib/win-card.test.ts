@@ -14,7 +14,7 @@ const match = (over: Partial<ChainMatch> = {}): ChainMatch =>
     sides: [side(A), side(B)],
     fees: { platformBps: 500, studioBps: 500, leaderboardBps: 100 },
     winner: null,
-    session: { settled: true, joined: true, result: "opener", scores: [10, 5], seed: 0n, openerDeadline: 0, deadline: 0 },
+    session: { settled: true, result: "opener", scores: [10, 5], seed: 0n },
     ...over,
   }) as ChainMatch;
 
@@ -40,15 +40,15 @@ describe("winCardFromRow", () => {
 describe("winningSeat", () => {
   it("is the winner of a settled Match", () => {
     expect(winningSeat(match())).toBe(0);
-    expect(winningSeat(match({ session: { settled: true, joined: true, result: "joiner", scores: [1, 2], seed: 0n, openerDeadline: 0, deadline: 0 } }))).toBe(1);
+    expect(winningSeat(match({ session: { settled: true, result: "joiner", scores: [1, 2], seed: 0n } }))).toBe(1);
     expect(winningSeat(match({ game: "holdem", session: null, winner: "joiner" }))).toBe(1);
   });
   it("is null for every Match without a winner", () => {
     expect(winningSeat(match({ status: "open" }))).toBeNull();
     expect(winningSeat(match({ status: "active" }))).toBeNull();
     expect(winningSeat(match({ status: "refunded" }))).toBeNull();
-    expect(winningSeat(match({ session: { settled: true, joined: true, result: "draw", scores: [1, 1], seed: 0n, openerDeadline: 0, deadline: 0 } }))).toBeNull();
-    expect(winningSeat(match({ session: { settled: false, joined: true, result: "opener", scores: [1, 0], seed: 0n, openerDeadline: 0, deadline: 0 } }))).toBeNull();
+    expect(winningSeat(match({ session: { settled: true, result: "draw", scores: [1, 1], seed: 0n } }))).toBeNull();
+    expect(winningSeat(match({ session: { settled: false, result: "opener", scores: [1, 0], seed: 0n } }))).toBeNull();
     expect(winningSeat(match({ game: "holdem", session: null, winner: null }))).toBeNull();
   });
 });

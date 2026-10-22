@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { debtClearedFacts, digestDue, matchFacts, offerFacts, pushDigest, pushEvents, seasonFacts, seasonFactsInput, sendEvents, type MatchFacts, type OfferFacts } from "./notify-events.ts";
 
 const NOW = 1_800_000_000;
-const base: MatchFacts = { id: 7n, game: "holdem", status: "active", deadline: NOW + 600, entry: 500, players: ["a", "b"], session: null };
+const base: MatchFacts = { id: 7n, game: "holdem", status: "active", deadline: NOW + 600, entry: 500, players: ["a", "b"] };
 
 describe("Match refunded and Delayed", () => {
   it("tells both Players of a refund", () => {
@@ -38,10 +38,10 @@ describe("Match refunded and Delayed", () => {
     assert.deepEqual(matchFacts({ ...vg, status: "refunded" }, NOW).map((x) => [x.kind, (x as any).game]), [["match-refunded", "vanguard"], ["match-refunded", "vanguard"]]);
   });
 
-  it("a Block Burst Match is Delayed after both Session deadlines plus the grace", () => {
-    const bp: MatchFacts = { ...base, game: "block-puzzle", deadline: NOW + 3000, session: { deadline: NOW + 100, openerDeadline: NOW + 50 } };
-    assert.deepEqual(matchFacts(bp, NOW + 200), []);
-    assert.equal(matchFacts(bp, NOW + 221)[0].kind, "match-delayed");
+  it("a Block Burst Match is Delayed only once its refund deadline is reached", () => {
+    const bp: MatchFacts = { ...base, game: "block-puzzle", deadline: NOW + 3000 };
+    assert.deepEqual(matchFacts(bp, NOW + 2999), []);
+    assert.equal(matchFacts(bp, NOW + 3000)[0].kind, "match-delayed");
   });
 
   it("an open, settled or very old Match says nothing", () => {

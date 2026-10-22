@@ -28,7 +28,9 @@ import { gameAccounts } from "../../lib/chain/game-record";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { baseRpc } from "../../lib/chain/rpc-config";
 import { type PlayerSigner, keypairSigner } from "../holdem/chain";
+import type { BlockPuzzle } from "../../lib/chain/idl/block_puzzle.types";
 import * as engine from "./engine";
+import { watchAccount } from "./table-feed";
 
 export { keypairSigner, type PlayerSigner };
 
@@ -52,6 +54,7 @@ export const SLOTS_PER_SEC = 100;
 export const CHECKIN_SECS = 60;
 export const SEED_SECS = 60;
 export const SEED_RETRY_SECS = 20;
+export const SEED_RETRY_SLOTS = SEED_RETRY_SECS * SLOTS_PER_SEC;
 export const MAX_SEED_REQUESTS = 3;
 export const GET_READY_SECS = 10;
 export const PLAY_SECS = 90;
@@ -471,7 +474,8 @@ async function withRetry<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
 
 export class BlockBurstChain {
   readonly base: Connection;
-  readonly program: anchor.Program<any>;
+  /** Typed from the generated IDL: a call to an instruction the program no longer has is a compile error. */
+  readonly program: anchor.Program<BlockPuzzle>;
   readonly tesoro: anchor.Program<any>;
   private readonly teeRpc: string;
   private readonly teeWs: string;
@@ -479,7 +483,7 @@ export class BlockBurstChain {
   /** Step logger; a UI may replace it while it is mounted. */
   onTx?: BlockBurstChainOptions["onTx"];
 
-  constructor(blockBurstIdl: any, tesoroIdl: any, opts: BlockBurstChainOptions = {}) {
+  constructor(blockBurstIdl: BlockPuzzle, tesoroIdl: any, opts: BlockBurstChainOptions = {}) {
     this.base = opts.base ?? defaultBaseConnection();
     this.teeRpc = opts.teeRpc ?? TEE_RPC;
     this.teeWs = opts.teeWs ?? TEE_WS;
@@ -598,6 +602,22 @@ export class BlockBurstChain {
     const info = await conn.getAccountInfo(address).catch(() => null);
     if (!info || (!info.owner.equals(DELEGATION_PROGRAM_ID) && !info.owner.equals(BLOCK_BURST_PROGRAM_ID))) return null;
     return decodeTable(address, this.program.coder.accounts.decode("table", info.data));
+  }
+
+  /**
+   * Follows the table through the Player's token: the websocket pushes each change and a read fills any silence (the table is
+   * silent by design from the freeze). Returns the stop function.
+   */
+  async watchTable(viewer: PlayerSigner, a: TableRef, onTable: (t: Table) => void, onError?: (e: unknown) => void): Promise<() => void> {
+    const address = tablePda(a.generation, a.index);
+    const conn = await this.teeConnection(viewer);
+    return watchAccount<Table>({
+      conn,
+      address,
+      decode: (info) => (info.owner.equals(DELEGATION_PROGRAM_ID) || info.owner.equals(BLOCK_BURST_PROGRAM_ID) ? decodeTable(address, this.program.coder.accounts.decode("table", info.data)) : null),
+      onValue: onTable,
+      onError,
+    });
   }
 
   /** The table as the base layer last saw it (what the last commit left): the result ring `finalize` reads, and the run logs. */

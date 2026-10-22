@@ -327,3 +327,23 @@ describe("the rest of sign-up (ticket 18c)", () => {
     refused([wrongAccount], "bad-account");
   });
 });
+
+describe("Block Burst Live (ticket 28)", () => {
+  it("a 0-SOL Player's open and join are both sponsored: the Session is gone, so nothing else travels with them", async () => {
+    expect(plan([await openMatchIx(relayer, player, game)]).names).toEqual(["open_match"]);
+    expect(plan([await joinMatchIx(relayer, player, game)]).names).toEqual(["join_match"]);
+  });
+  it("the Player's own refund is sponsored: the relayer pays the receipt, the Player signs as the caller", async () => {
+    const ix = await coreIx("refund_match", [], { caller: player, payer: relayer, gameProgram: game, programData: key(), gameRecord: key(), matchState: key(), openerProtections: null });
+    expect(plan([ix])).toMatchObject({ names: ["refund_match"], class: "exit" });
+  });
+  it("a listed Game's finalize, signed by the Player, is a game transaction; the relayer in its accounts is refused", () => {
+    const finalize = (extra: { pubkey: typeof relayer; isSigner: boolean; isWritable: boolean }[]) => ({
+      programId: game,
+      keys: [{ pubkey: player, isSigner: true, isWritable: true }, { pubkey: key(), isSigner: false, isWritable: true }, ...extra],
+      data: new Uint8Array([0xf2, 0x3c, 0x6e, 0xb6, 0x3a, 0x95, 0xd1, 0x9b]),
+    });
+    expect(plan([finalize([])])).toMatchObject({ kind: "game", class: "continue" });
+    refused([finalize([{ pubkey: relayer, isSigner: false, isWritable: true }])], "relayer-in-accounts");
+  });
+});

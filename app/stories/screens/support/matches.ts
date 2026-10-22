@@ -24,12 +24,12 @@ export function chainMatch(game: GameId, state: MatchState, o: { challenge?: boo
   const bp = game === "block-puzzle";
   const id = base.id;
   const session = (over: Partial<NonNullable<ChainMatch["session"]>>) =>
-    bp ? { settled: false, joined: false, result: "draw" as const, scores: [0, 0] as [number, number], seed: 0n, openerDeadline: secs() + 900, deadline: 0, ...over } : null;
+    bp ? { settled: false, result: "draw" as const, scores: [0, 0] as [number, number], seed: 0n, ...over } : null;
   let m: ChainMatch = { ...base, id, challenge: !!o.challenge };
-  if (state === "open") m = { ...m, status: "open", opponent: null, sides: [m.sides[0], null], winner: null, deadline: secs() + 3600, session: session({}) };
-  if (state === "active") m = { ...m, status: "active", winner: null, deadline: secs() + 3600, session: session({ joined: true, deadline: secs() + 900 }) };
-  if (state === "refunded") m = { ...m, status: "refunded", winner: null, session: session({ joined: true }) };
-  if (state === "draw") m = { ...m, session: session({ settled: true, joined: true, result: "draw", scores: [118, 118] }), winner: null, status: bp ? "settled" : "refunded" };
+  if (state === "open") m = { ...m, status: "open", opponent: null, sides: [m.sides[0], null], winner: null, deadline: secs() + 3600, session: null };
+  if (state === "active") m = { ...m, status: "active", winner: null, deadline: secs() + 3600, session: null };
+  if (state === "refunded") m = { ...m, status: "refunded", winner: null, session: null };
+  if (state === "draw") m = { ...m, session: session({ settled: true, result: "draw", scores: [118, 118] }), winner: null, status: bp ? "settled" : "refunded" };
   if (state === "won" || state === "lost") m = { ...m, id };
   if (state === "spectator") {
     const [a, b] = [demoKey(41), demoKey(42)];
@@ -76,7 +76,7 @@ export function holdemClock(turn: "opponent" | "opponent-late" | "mine-late"): P
 
 /** An Active Match past the time it should have settled; with `refundOpen` its refund deadline has passed too. */
 export function lateMatch(m: ChainMatch, refundOpen: boolean): ChainMatch {
-  return { ...m, deadline: secs() + (refundOpen ? -600 : 1800), session: m.session && { ...m.session, deadline: secs() - 900, openerDeadline: secs() - 900 } };
+  return { ...m, deadline: secs() + (refundOpen ? -600 : 1800) };
 }
 
 export function holdemOver(): Partial<HoldemView> {

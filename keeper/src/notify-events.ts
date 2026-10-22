@@ -33,8 +33,6 @@ export interface MatchFacts {
   entry: number;
   /** TesoroAccount keys of the Players. */
   players: string[];
-  /** Block Burst Session deadlines, when read. */
-  session: { deadline: number; openerDeadline: number } | null;
 }
 
 /** Refunded and Delayed Matches, for each Player. Delayed follows match-status's rule, so it agrees with the app. */
@@ -42,7 +40,7 @@ export function matchFacts(m: MatchFacts, nowSecs: number): Fact[] {
   if (nowSecs - m.deadline > WINDOW_SECS) return [];
   const matchId = m.id.toString();
   if (m.status === "refunded") return m.players.map((account) => ({ account, kind: "match-refunded", matchId, game: m.game, entry: m.entry }));
-  const late = delayedOf({ status: m.status, game: m.game, deadline: m.deadline, session: m.session as any }, nowSecs);
+  const late = delayedOf({ status: m.status, game: m.game, deadline: m.deadline }, nowSecs);
   if (!late) return [];
   return m.players.map((account) => ({ account, kind: "match-delayed", matchId, game: m.game, refundBy: m.deadline, refundOpen: late.refundOpen }));
 }
@@ -187,7 +185,7 @@ async function matchesFacts(ctx: Ctx): Promise<Fact[]> {
     const label = matchKeyOf({ opener: view.ref.opener.toBase58(), n: view.ref.n });
     const players = [m.a, m.b].filter(Boolean).map((s: any) => pk(s.player).toBase58());
     const base = { id: label, game, status: st, deadline: Number(m.deadline.toString()), entry: Number(m.entry.toString()), players };
-    facts.push(...matchFacts({ ...base, session: null }, ctx.now));
+    facts.push(...matchFacts(base, ctx.now));
   }
   return facts;
 }

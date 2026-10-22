@@ -8,16 +8,16 @@ import "@/games/block-puzzle/block-puzzle.css";
 const noop = () => undefined;
 
 function Match({ seed }: { seed: number }) {
-  const [run] = useState<MatchRun>(() => ({ seed: BigInt(seed), startedAt: performance.now(), entry: 1000, onMove: noop, onEnd: noop }));
+  const [run] = useState<MatchRun>(() => {
+    const t0 = performance.now();
+    return { seed: BigInt(seed), remainingMs: () => Math.max(0, 90_000 - (performance.now() - t0)), entry: 1000, onMove: noop, onEnd: noop };
+  });
   return (
     <BlockPuzzleGame
       run={run}
       matchPanel={
         <div className="bpx-status" role="status">
-          <p>Your opponent gets the same pieces · waiting to be paired</p>
-          <span className="bpx-finding">
-            <i className="bpx-spin" aria-hidden="true" /> Finding opponent…
-          </span>
+          <p>You both play the same pieces at the same time · higher score wins</p>
         </div>
       }
     />

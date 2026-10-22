@@ -92,8 +92,6 @@ function joinable(d: QueueDeps, m: ChainMatch, now: number): boolean {
     m.backerSeat === null &&
     m.deadline > now + MIN_LEFT_SECS &&
     (!d.entrant || !m.sides[0] || canJoinSeat(m.sides[0], d.entrant)) &&
-    // Block Burst: only Matches opened with their Session (this version of the app) can be joined.
-    (d.game !== "block-puzzle" || m.session !== null) &&
     // Trading Duel: the Queue is per asset, which the Match records (`meta.asset`).
     (d.game !== "trading-duel" || d.asset === undefined || m.asset === d.asset)
   );
