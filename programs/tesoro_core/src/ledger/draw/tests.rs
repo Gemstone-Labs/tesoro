@@ -1316,3 +1316,237 @@ fn fuzz_draw_tickets_offers_against_a_model() {
         assert!(*n > 0, "the fuzz never reached case {i}: {c:?}");
     }
 }
+
+/// The app previews an entry with a TypeScript port of `plan_draw` (`app/src/lib/chain/draw.ts`). This test builds a basket and a
+/// spill with the program's own code, records the raw accounts and the draws the program plans, and `app/src/lib/chain/draw.test.ts`
+/// decodes the same bytes and must plan the same draws. Run with `UPDATE_APP_FIXTURES=1` to rewrite the file after a change.
+#[test]
+fn app_draw_fixture_matches_plan_draw() {
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    let mut w = world(3);
+    w.credit(SIDE_WON, 5, 1, CLASS_GENERAL, 100);
+    w.credit(SIDE_WON, 2, 2, CLASS_GENERAL, 100);
+    w.credit(SIDE_OWN, 9, 3, CLASS_GENERAL, 100);
+    w.credit(SIDE_OWN, 1, 4, 1, 50); // Studio fee line: never drawn
+    w.credit(SIDE_OWN, 9, 0, CLASS_GENERAL, 40); // same due as another line: the Source breaks the tie
+    w.credit(SIDE_WON, 2, 3, CLASS_GENERAL, 60);
+    w.credit(SIDE_OWN, 30, 2, CLASS_EXTENSION_BASE, 25);
+    w.credit(SIDE_WON, 700, 1, CLASS_GENERAL, 300);
+    w.credit(SIDE_OWN, 3, 0, 0, 10); // Platform fee line
+    w.run(|p, _| p.reserve_offer(120, 0)).unwrap();
+    assert!(w.s().len() > 0, "the fixture must put lines in the spill");
+
+    let lines = |l: &[(LineKey, u64)]| {
+        l.iter()
+            .map(|(k, t)| {
+                format!(
+                    "{{\"side\":{},\"dueAt\":{},\"source\":\"{}\",\"class\":{},\"tranche\":{},\"take\":{}}}",
+                    k.side, k.due_at, hex(&k.source), k.class, k.tranche, t
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let free = w.free();
+    let mut cases = vec![];
+    for amount in [1u64, 100, 101, 250, 400, free] {
+        let steps = w.run_raw(|p, _| p.plan_draw(amount, free)).unwrap();
+        cases.push(format!(
+            "    {{\"amount\":{amount},\"steps\":[{}]}}",
+            lines(&steps)
+        ));
+    }
+    // accounts carry an 8-byte discriminator in front of the body
+    let account = |body: &[u8]| hex(&[&[0u8; 8][..], body].concat());
+    let json = format!(
+        "{{\n  \"free\": {free},\n  \"basket\": \"{}\",\n  \"spill\": \"{}\",\n  \"cases\": [\n{}\n  ]\n}}\n",
+        account(&w.basket),
+        account(&w.spill),
+        cases.join(",\n")
+    );
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../app/src/lib/chain/draw.fixtures.json"
+    );
+    if std::env::var("UPDATE_APP_FIXTURES").is_ok() {
+        std::fs::write(path, &json).unwrap();
+    }
+    let on_disk = std::fs::read_to_string(path).unwrap_or_default();
+    assert_eq!(
+        on_disk, json,
+        "app/src/lib/chain/draw.fixtures.json is stale: run with UPDATE_APP_FIXTURES=1"
+    );
+}
+
+// --- ticket 09b: holds ---------------------------------------------------------------------------
+
+/// A world whose basket holds `n` own lines of 10 Gemas, due 0..n, with no room to spare, and a
+/// spill of `spill_cap` slots.
+fn full_world(n: usize, spill_cap: usize) -> World {
+    let mut w = world(n);
+    grow_spill_body(&mut w.spill, spill_cap);
+    for i in 0..n as i64 {
+        w.credit(SIDE_OWN, i, (i % 5) as u8, CLASS_GENERAL, 10);
+    }
+    assert_eq!(w.b().len(), n);
+    w
+}
+
+fn other_line(w: &mut World, due: i64) -> Line {
+    let mut line = SourceBook::blank_line(SIDE_WON, due, key(4), CLASS_GENERAL, 0);
+    w.books.issue(&key(4), &mut line, 7).unwrap();
+    w.issued += 7;
+    line
+}
+
+#[test]
+fn a_whole_line_an_entry_takes_frees_a_slot_and_a_split_frees_none() {
+    let mut w = full_world(4, 0);
+    let (pot, freed) = w
+        .run_raw(|p, books| {
+            let pot = p.draw_direct(books, key(OWNER), 25, 12)?;
+            Ok((pot, p.freed()))
+        })
+        .unwrap();
+    // 10 + 10 whole, 5 split off the third
+    assert_eq!(pot.len(), 3);
+    assert_eq!(freed, 2);
+    w.pots.push(pot);
+    w.check(&[]);
+}
+
+#[test]
+fn a_hold_keeps_the_freed_slot_for_the_lines_that_come_back() {
+    let mut w = full_world(4, 0);
+    let pot = w
+        .run_raw(|p, books| p.draw_direct(books, key(OWNER), 20, 12))
+        .unwrap();
+    // the instruction layer turns the two freed slots into a hold on the spill header
+    LineStore::new(w.spill.as_mut_slice())
+        .unwrap()
+        .set_room_reserved(2);
+    // other credits cannot take them
+    let other = other_line(&mut w, 50);
+    assert_eq!(
+        w.run_raw(|p, books| p.put(books, &other)).unwrap_err(),
+        DrawError::SpillFull
+    );
+    // the entry's own lines can, and each one pays the hold down
+    for line in pot.lines() {
+        w.run_raw(|p, books| {
+            let held = p.spill.room_reserved();
+            p.set_hold(held);
+            p.put(books, &line)?;
+            Ok(())
+        })
+        .unwrap();
+    }
+    assert_eq!(w.s().room_reserved(), 0);
+    w.check(&[]);
+}
+
+#[test]
+fn a_put_with_a_hold_pays_the_hold_and_the_header_down() {
+    let mut w = full_world(4, 0);
+    let pot = w
+        .run_raw(|p, books| p.draw_direct(books, key(OWNER), 10, 12))
+        .unwrap();
+    LineStore::new(w.spill.as_mut_slice())
+        .unwrap()
+        .set_room_reserved(1);
+    let line = pot.lines()[0];
+    let left = w
+        .run_raw(|p, books| {
+            p.set_hold(1);
+            p.put(books, &line)?;
+            Ok((p.hold_left(), p.used()))
+        })
+        .unwrap();
+    assert_eq!(left, (0, 1));
+    assert_eq!(w.s().room_reserved(), 0);
+    assert_eq!(w.b().len(), 4);
+}
+
+#[test]
+fn credits_beyond_the_holds_still_land_while_there_is_free_room() {
+    let mut w = full_world(4, 3);
+    let pot = w
+        .run_raw(|p, books| p.draw_direct(books, key(OWNER), 10, 12))
+        .unwrap();
+    LineStore::new(w.spill.as_mut_slice())
+        .unwrap()
+        .set_room_reserved(1);
+    // free room: 1 (basket) + 3 (spill) = 4, held 1: three organic credits fit, the fourth does not
+    for due in 60..63 {
+        let line = other_line(&mut w, due);
+        w.run_raw(|p, books| p.put(books, &line)).unwrap();
+    }
+    let line = other_line(&mut w, 63);
+    assert_eq!(
+        w.run_raw(|p, books| p.put(books, &line)).unwrap_err(),
+        DrawError::SpillFull
+    );
+    // and the held slot is still there for the entry's line
+    let back = pot.lines()[0];
+    w.run_raw(|p, books| {
+        p.set_hold(1);
+        p.put(books, &back)
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_hold_slot_taken_while_a_merge_needs_none_stays_held() {
+    let mut w = full_world(4, 0);
+    let pot = w
+        .run_raw(|p, books| p.draw_direct(books, key(OWNER), 5, 12))
+        .unwrap();
+    // a split draw: the key is still in the basket, the line merges back without a slot
+    LineStore::new(w.spill.as_mut_slice())
+        .unwrap()
+        .set_room_reserved(0);
+    let line = pot.lines()[0];
+    let used = w
+        .run_raw(|p, books| {
+            p.set_hold(0);
+            p.put(books, &line)?;
+            Ok(p.used())
+        })
+        .unwrap();
+    assert_eq!(used, 0);
+}
+
+#[test]
+fn a_freed_slot_a_plain_put_used_in_the_same_step_is_not_held() {
+    let mut w = full_world(4, 0);
+    let (freed, to_hold, used) = w
+        .run_raw(|p, books| {
+            p.draw_direct(books, key(OWNER), 10, 12)?;
+            // a new key lands in the slot the draw just freed (no hold of its own, none held)
+            let line = other_line_for(books, 50);
+            p.put(books, &line)?;
+            Ok((p.freed(), p.freed_to_hold(), p.used()))
+        })
+        .unwrap();
+    assert_eq!((freed, used), (1, 1));
+    // the slot is taken: holding it would leave more held than free
+    assert_eq!(to_hold, 0);
+}
+
+#[test]
+fn a_freed_slot_nobody_used_is_held_in_full() {
+    let mut w = full_world(4, 0);
+    let to_hold = w
+        .run_raw(|p, books| {
+            p.draw_direct(books, key(OWNER), 20, 12)?;
+            Ok(p.freed_to_hold())
+        })
+        .unwrap();
+    assert_eq!(to_hold, 2);
+}
+
+fn other_line_for(books: &mut Books, due: i64) -> Line {
+    let mut line = SourceBook::blank_line(SIDE_WON, due, key(4), CLASS_GENERAL, 0);
+    books.issue(&key(4), &mut line, 7).unwrap();
+    line
+}

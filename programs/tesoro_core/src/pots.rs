@@ -189,7 +189,7 @@ impl HeadFields {
     }
 }
 
-fn write_head_fields(head: &mut [u8], f: &HeadFields, x: &TicketExtra) {
+pub(crate) fn write_head_fields(head: &mut [u8], f: &HeadFields, x: &TicketExtra) {
     head[H_BUMP] = x.bump;
     head[H_KIND] = kind_byte(f.kind);
     head[H_STATE] = state_byte(f.state);

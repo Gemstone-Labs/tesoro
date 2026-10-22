@@ -1,3 +1,4 @@
+import { matchPda } from "../../lib/chain/basket";
 import { ComputeBudgetProgram, Keypair, type TransactionInstruction } from "@solana/web3.js";
 import { permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { describe, expect, it } from "vitest";
@@ -22,13 +23,13 @@ function capture() {
 
 const keys = (ix: TransactionInstruction) => ix.keys.map((k) => k.pubkey.toBase58());
 const units = (ix: TransactionInstruction) => ix.data.readUInt32LE(1);
-const ID = 1_800_000_000_000n * 2n + 1n;
+const ID = matchPda(Keypair.generate().publicKey, 7n);
 
 describe("addresses", () => {
-  it("derives the Battle, Secret and both Armies from the Match id", () => {
+  it("derives the Battle, Secret and both Armies from the Match address", () => {
     const a = addresses(ID);
     expect(new Set([a.battle, a.secret, a.army0, a.army1, a.authority, a.config].map((k) => k.toBase58())).size).toBe(6);
-    expect(addresses(ID + 2n).battle.equals(a.battle)).toBe(false);
+    expect(addresses(matchPda(Keypair.generate().publicKey, 7n)).battle.equals(a.battle)).toBe(false);
   });
 });
 
@@ -164,6 +165,6 @@ describe("base-layer instructions", () => {
     // The program's own config is passed next to the Game's record in tesoro_core, and they are different accounts.
     expect(keys(ix)).toContain(addresses(ID).config.toBase58());
     expect(keys(ix)).toContain(gameRecordPda(VANGUARD_PROGRAM_ID).toBase58());
-    expect(ix.data.readBigUInt64LE(8)).toBe(ID);
+    expect(ix.data.length).toBe(8);
   });
 });

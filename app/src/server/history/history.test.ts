@@ -214,7 +214,7 @@ describe("Match history from core events", () => {
     expect(wins[0]).toMatchObject({ winner: ALICE, payout: 1000 - 60, scores: [480, 310], game: "block-puzzle", at: (T0 + 33_000) * 1000 });
     const bp = await recentWins(rpc, { game: "block-puzzle", limit: 50 });
     expect(bp.every((w) => w.game === "block-puzzle")).toBe(true);
-    expect(topScores(bp.map((w) => ({ ...w, id: 0n, game: "block-puzzle" as const })), 1)).toEqual([[ALICE, 480]]);
+    expect(topScores(bp.map((w) => ({ ...w, id: "x-0", game: "block-puzzle" as const })), 1)).toEqual([[ALICE, 480]]);
     const recent = await recentWins(rpc, { since: (T0 + 31_000) * 1000, limit: 50 });
     expect(recent.map((w) => w.id).sort()).toEqual([keyOf(DANA, 1), keyOf(BOB, 101), keyOf(ALICE, 100)].sort());
     expect(recent.every((w) => w.at >= (T0 + 31_000) * 1000)).toBe(true);

@@ -5,14 +5,19 @@ import { QueueUnconfirmedError, queueEntry, type QueueDeps } from "./queue";
 import type { ChainMatch } from "./read";
 
 const NOW = 1_800_000_000_000;
-const A = 100n;
-const B = 102n;
-const NEW = 900n;
+const A = "opener-100";
+const B = "opener-102";
+const NEW = "opener-900";
 
-function match(id: bigint, over: Partial<ChainMatch> = {}): ChainMatch {
+function match(id: string, over: Partial<ChainMatch> = {}): ChainMatch {
   return {
     id,
+    opener: "opener",
+    n: 0n,
     game: "block-puzzle",
+    running: null,
+    openedAt: NOW,
+    asset: 0,
     address: PublicKey.default,
     status: "open",
     entry: 500,
@@ -31,18 +36,18 @@ function match(id: bigint, over: Partial<ChainMatch> = {}): ChainMatch {
 }
 
 /** A devnet stand-in: Matches by id, the list read (stale on purpose) and recorded sends. */
-function world(opts: { list: bigint[]; matches: Map<bigint, ChainMatch>; settle?: TxOutcome }) {
+function world(opts: { list: string[]; matches: Map<string, ChainMatch>; settle?: TxOutcome }) {
   const calls: string[] = [];
   const deps: QueueDeps = {
     game: "block-puzzle",
     entry: 500,
     now: () => NOW,
     listCandidates: vi.fn(async () => opts.list),
-    readMatch: vi.fn(async (id: bigint) => opts.matches.get(id) ?? null),
-    join: vi.fn(async (id: bigint) => {
+    readMatch: vi.fn(async (id: string) => opts.matches.get(id) ?? null),
+    join: vi.fn(async (id: string) => {
       calls.push(`join ${id}`);
     }),
-    open: vi.fn(async (id: bigint) => {
+    open: vi.fn(async (id: string) => {
       calls.push(`open ${id}`);
     }),
     settle: vi.fn(async () => opts.settle ?? "unknown"),
@@ -90,7 +95,7 @@ describe("queueEntry (OC-04)", () => {
       [B, match(B)],
     ]);
     const { deps, calls } = world({ list: [A, B], matches });
-    deps.join = vi.fn(async (id: bigint) => {
+    deps.join = vi.fn(async (id: string) => {
       calls.push(`join ${id}`);
       if (id === A) throw new TxFailedError("sigA", { InstructionError: [0, { Custom: 6001 }] });
     });
@@ -104,7 +109,7 @@ describe("queueEntry (OC-04)", () => {
       [B, match(B)],
     ]);
     const { deps, calls } = world({ list: [A, B], matches, settle: "expired" });
-    deps.join = vi.fn(async (id: bigint) => {
+    deps.join = vi.fn(async (id: string) => {
       calls.push(`join ${id}`);
       if (id === A) {
         matches.set(A, match(A, { status: "active", opponent: "other" }));
@@ -141,14 +146,14 @@ describe("queueEntry (OC-04)", () => {
 
   it("stale candidates are re-read, tried ids are excluded, and a new Match opens only after the Active check", async () => {
     // The list keeps serving A and B (stale), but fresh reads show both already taken, and C fails.
-    const C = 104n;
+    const C = "opener-104";
     const matches = new Map([
       [A, match(A, { status: "active", opponent: "other" })],
       [B, match(B, { status: "active", opponent: "other" })],
       [C, match(C)],
     ]);
     const { deps, calls } = world({ list: [A, B, C], matches });
-    deps.join = vi.fn(async (id: bigint) => {
+    deps.join = vi.fn(async (id: string) => {
       calls.push(`join ${id}`);
       throw new TxFailedError(`sig${id}`, { InstructionError: [0, { Custom: 6001 }] });
     });
@@ -158,12 +163,12 @@ describe("queueEntry (OC-04)", () => {
   });
 
   it("skips Challenges, other entries, own Matches and Matches near their deadline on the fresh read", async () => {
-    const ids = [1n, 2n, 4n, 6n];
-    const matches = new Map<bigint, ChainMatch>([
-      [1n, match(1n, { challenge: true })],
-      [2n, match(2n, { entry: 1000 })],
-      [4n, match(4n, { seat: 0 })],
-      [6n, match(6n, { deadline: NOW / 1000 + 30 })],
+    const ids = ["m-1", "m-2", "m-4", "m-6"];
+    const matches = new Map<string, ChainMatch>([
+      ["m-1", match("m-1", { challenge: true })],
+      ["m-2", match("m-2", { entry: 1000 })],
+      ["m-4", match("m-4", { seat: 0 })],
+      ["m-6", match("m-6", { deadline: NOW / 1000 + 30 })],
     ]);
     const { deps, calls } = world({ list: ids, matches });
     await expect(queueEntry(deps)).resolves.toEqual({ id: NEW, via: "opened" });
@@ -180,9 +185,9 @@ describe("queueEntry (OC-04)", () => {
   });
 
   it("an open that timed out but landed returns the opened Match", async () => {
-    const matches = new Map<bigint, ChainMatch>();
+    const matches = new Map<string, ChainMatch>();
     const { deps } = world({ list: [], matches, settle: "unknown" });
-    deps.open = vi.fn(async (id: bigint) => {
+    deps.open = vi.fn(async (id: string) => {
       matches.set(id, match(id, { seat: 0 }));
       throw new TxUnconfirmedError("sigOpen", 1000);
     });
@@ -242,21 +247,21 @@ describe("txOutcome", () => {
 });
 
 describe("queueEntry for Trading Duel", () => {
-  const SOL = 8n * 1_000n; // asset bits 00
-  const ETH = SOL + 2n; // asset bits 01
-  const duelMatch = (id: bigint) => match(id, { game: "trading-duel", session: null });
+  const SOL = "opener-1";
+  const ETH = "opener-2";
+  const duelMatch = (id: string, asset: number) => match(id, { game: "trading-duel", session: null, asset });
 
-  it("joins only a Match of its own asset and opens one of that asset otherwise", async () => {
-    const matches = new Map([[SOL, duelMatch(SOL)]]);
+  it("joins only a Match of its own asset (the Match's `meta.asset`) and opens one of that asset otherwise", async () => {
+    const matches = new Map([[SOL, duelMatch(SOL, 0)]]);
     const w = world({ list: [SOL], matches });
-    const deps: QueueDeps = { ...w.deps, game: "trading-duel", asset: 1, newId: () => ETH + 8n };
+    const deps: QueueDeps = { ...w.deps, game: "trading-duel", asset: 1, newId: () => "opener-3" };
     const r = await queueEntry(deps);
-    expect(r).toEqual({ id: ETH + 8n, via: "opened" });
+    expect(r).toEqual({ id: "opener-3", via: "opened" });
     expect(w.calls).not.toContain(`join ${SOL}`);
   });
 
   it("joins an open Match of the same asset", async () => {
-    const matches = new Map([[ETH, duelMatch(ETH)]]);
+    const matches = new Map([[ETH, duelMatch(ETH, 1)]]);
     const w = world({ list: [ETH], matches });
     const r = await queueEntry({ ...w.deps, game: "trading-duel", asset: 1 });
     expect(r).toEqual({ id: ETH, via: "joined" });

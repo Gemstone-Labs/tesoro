@@ -74,7 +74,7 @@ export const applyLockedIx = (payer: PublicKey, eid: number, positionId: Uint8Ar
   });
 
 /** `openSource`: the Position's open Advance Source (writable), or null when it has none (Debt is zero). */
-export const applyYieldIx = (eid: number, positionId: Uint8Array, openSource: PublicKey | null) =>
+export const applyYieldIx = (eid: number, positionId: Uint8Array, openSource: PublicKey | null, remaining: AccountMeta[] = []) =>
   new TransactionInstruction({
     programId: BRIDGE,
     keys: [
@@ -86,36 +86,11 @@ export const applyYieldIx = (eid: number, positionId: Uint8Array, openSource: Pu
       meta(corePositionPda(eid, positionId), false, true),
       openSource ? meta(openSource, false, true) : meta(BRIDGE),
       meta(CORE),
+      // The open Advance's book and checkpoint pages: core lands the yield in them.
+      ...remaining,
     ],
     data: Buffer.concat([disc("apply_yield"), u32le(eid), Buffer.from(positionId)]),
   });
-
-/**
- * `redeem_treasury_to_evm`: the Treasury Account redeems Gemas of an ETH or HYPE Source it bought and the payout is
- * recorded in its Claim; `send_pay_yield` then pays that Claim into the vault's own treasury. Permissionless.
- */
-export const redeemTreasuryToEvmIx = (payer: PublicKey, eid: number, positionId: Uint8Array, source: PublicKey, gemas: bigint) => {
-  const treasury = corePda(Buffer.from("treasury"));
-  const account = corePda(Buffer.from("account"), treasury.toBuffer());
-  return new TransactionInstruction({
-    programId: BRIDGE,
-    keys: [
-      meta(payer, true, true),
-      meta(STORE),
-      meta(AUTHORITY),
-      meta(sourceAuthPda(eid)),
-      meta(treasury),
-      meta(account, false, true),
-      meta(corePositionPda(eid, positionId)),
-      meta(source, false, true),
-      meta(corePda(Buffer.from("holding"), account.toBuffer(), source.toBuffer()), false, true),
-      meta(pda([Buffer.from("claim"), account.toBuffer(), source.toBuffer()], BRIDGE), false, true),
-      meta(CORE),
-      meta(SystemProgram.programId),
-    ],
-    data: Buffer.concat([disc("redeem_treasury_to_evm"), u64le(gemas)]),
-  });
-};
 
 // ---- LayerZero sends (Solana to the EVM vault) ------------------------------------------------
 

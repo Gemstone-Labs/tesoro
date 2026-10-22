@@ -1,7 +1,6 @@
 import { fmtGemas } from "../format";
 import type { GameId, MatchResult } from "../mock/types";
 import { backerDelta, matchDelta, seatResult } from "./ledger";
-import { assetIndexOf, matchOpenedAt } from "./match-id";
 import type { ChainMatch } from "./read";
 
 /** One finished Match in an Account's history, as a Player or as the Backer who funded it. */
@@ -20,10 +19,12 @@ export interface HistoryRow {
   scores: [number, number] | null;
   /** TesoroAccount key of whoever played against this side, when anyone did. */
   opp: string | null;
-  /** Milliseconds since the epoch (Match ids embed their creation time). */
+  /** Milliseconds since the epoch the Match opened. */
   at: number;
-  /** Trading Duel only: the asset index the Match traded (0 SOL, 1 ETH, 2 HYPE), from its id. */
+  /** Trading Duel only: the asset index the Match traded (0 SOL, 1 ETH, 2 HYPE). */
   asset: number | null;
+  /** What the Backer of this Player's side gained (+) or lost (−); present on rows read from the Match history, null for an unbacked Match. */
+  backerDelta?: number | null;
 }
 
 /** The history row of a finished Match, or null while it is unfinished or its result is not read yet. */
@@ -45,7 +46,7 @@ export function historyRow(m: ChainMatch): HistoryRow | null {
   const backing = m.backing ? { other: role === "player" ? m.backing.funder : m.backing.player, shareBps: m.backing.shareBps } : null;
   const s = m.session;
   return {
-    id: m.id.toString(),
+    id: m.id,
     game: m.game,
     entry: m.entry,
     role,
@@ -54,8 +55,8 @@ export function historyRow(m: ChainMatch): HistoryRow | null {
     backing,
     scores: s && s.settled ? (seat === 0 ? s.scores : [s.scores[1], s.scores[0]]) : null,
     opp: m.sides[1 - seat]?.player ?? null,
-    at: matchOpenedAt(m.id, m.game),
-    asset: m.game === "trading-duel" ? assetIndexOf(m.id) : null,
+    at: m.openedAt,
+    asset: m.game === "trading-duel" ? m.asset : null,
   };
 }
 

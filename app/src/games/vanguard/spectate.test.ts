@@ -22,7 +22,7 @@ describe("spectating a Vanguard Match", () => {
   });
 
   it("never reads an Army account: the only account read is the Battle", async () => {
-    const id = 1_800_000_000_001n;
+    const id = new PublicKey("SysvarRent111111111111111111111111111111111");
     const read: string[] = [];
     const conn = {
       getAccountInfo: async (k: PublicKey) => {
@@ -41,7 +41,7 @@ describe("spectating a Vanguard Match", () => {
   it("decodes a Battle owned by the delegation program or the game", async () => {
     const bytes = Buffer.from(golden.battle.bytes, "hex");
     const conn = { getAccountInfo: async () => ({ data: bytes, owner: new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"), lamports: 1, executable: false }) };
-    const b = await readPublicBattle(conn as never, 1n);
+    const b = await readPublicBattle(conn as never, PublicKey.default);
     expect(b?.eventSeq).toBe(decodeBattle(bytes).eventSeq);
   });
 });

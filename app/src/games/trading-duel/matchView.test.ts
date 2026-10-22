@@ -13,7 +13,6 @@ const row = (over: Record<number, number>) => blank().map((v, c) => over[c] ?? v
 
 const duel = (over: Partial<Duel> = {}): Duel => ({
   address: key(1),
-  matchId: 1n,
   tesoroMatch: key(2),
   players: [key(3), key(4)],
   asset: ASSETS[0],
@@ -82,7 +81,7 @@ describe("decoding accounts with the program IDL", () => {
   const coder = new Program(idl as unknown as Idl, new AnchorProvider(new Connection("http://localhost:8899"), {} as never, {})).coder.accounts;
   const bn = (n: number | bigint) => new BN(n.toString());
   const raw = {
-    bump: 255, authorityBump: 254, matchId: bn(5), tesoroMatch: key(2), players: [key(3), key(4)], asset: 1, status: 1, finalized: false, winner: 255,
+    bump: 255, authorityBump: 254, tesoroMatch: key(2), players: [key(3), key(4)], asset: 1, status: 1, finalized: false, winner: 255,
     startDeadline: bn(1), startsAt: bn(1000), gridAt: bn(1030), endsAt: bn(1150), anchor: bn(300000000000n), step: bn(60000000n), lastTick: bn(1001),
     track: { lo: Array.from({ length: 12 }, (_, c) => bn(c)), hi: Array.from({ length: 12 }, (_, c) => bn(c + 1)), seen: 0b101, last: bn(0), lastCol: -1 },
     revealed: [row({ 0: 3 }), row({ 0: 5 })], scores: [0, 100],

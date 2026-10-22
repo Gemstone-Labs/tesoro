@@ -25,7 +25,7 @@
 //! | 64 | `reserved_total` u64 (Offer reservations, set by the caller) |
 //! | 72 | `sponsored_lamports` u64 (sponsored rent, set by the caller) |
 //! | 80 | `ticket_need` u64 (Gemas the open Entry Ticket still has to stage, set by the draw module) |
-//! | 88 | `room_reserved` u32 (spill slots reserved for Matches in flight, set by the instruction layer) |
+//! | 88 | `room_reserved` u32 (slots of basket and spill together held for lines that are away in Tickets and Matches; kept in the spill's header) |
 //! | 92 | `first` u32: slots before the first line (lines start at slot `first`; zero when none) |
 //! | 96 | 32 reserved bytes, zero |
 //!
@@ -300,8 +300,9 @@ impl<T: AsRef<[u8]>> LineStore<T> {
         self.u64_at(H_TICKET_NEED)
     }
 
-    /// Spill slots held back for Matches in flight (`shrink` keeps them; see `ledger::lifecycle`'s
-    /// room plan). Only meaningful in a spill.
+    /// Slots (of the basket and the spill together) held for lines that are away in Tickets and
+    /// Matches: a plain credit may only use free slots beyond them (`Pool::put`), and `shrink`
+    /// keeps them. Only meaningful in a spill.
     pub fn room_reserved(&self) -> u32 {
         u32::from_le_bytes(arr(&self.raw()[H_ROOM_RESERVED..H_ROOM_RESERVED + 4]))
     }

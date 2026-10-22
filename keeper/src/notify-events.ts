@@ -1,8 +1,9 @@
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain } from "../../app/src/games/block-puzzle/chain.ts";
 import { POSITION_SPACE } from "../../app/src/lib/chain/position-size.ts";
-import { fetchSeasonRecord } from "../../app/src/lib/chain/leaderboard.ts";
 import { delayedOf } from "../../app/src/lib/chain/match-status.ts";
-import { seasonsToCheck } from "./season.ts";
+import { rankTotal, readSeason, seasonsToCheck, type SeasonRecord } from "./season.ts";
+import { matchKeyOf } from "../../app/src/server/history/match-key.ts";
+import { viewOf } from "./settle.ts";
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { PublicKey } from "@solana/web3.js";
 import { log, type Ctx } from "./act.ts";
@@ -27,7 +28,8 @@ const BP_PER_PASS = 15;
 const EVENTS_PER_PUSH = 50;
 
 export interface MatchFacts {
-  id: bigint;
+  /** The Match's id as the app shows it: `<opener>-<n>`. */
+  id: bigint | string;
   game: GameId;
   status: "open" | "active" | "settled" | "refunded";
   /** tesoro_core's refund deadline, unix seconds. */
@@ -56,7 +58,7 @@ export interface BoardFacts {
 }
 
 /** Block Puzzle: the opener played first and the joiner has played now. Only for an Active Match with a joined Session. */
-export function opponentPlayedFact(m: { id: bigint; opener: string }, joined: boolean, boards: [BoardFacts, BoardFacts]): Fact | null {
+export function opponentPlayedFact(m: { id: bigint | string; opener: string }, joined: boolean, boards: [BoardFacts, BoardFacts]): Fact | null {
   const played = (b: BoardFacts) => b.delegated || b.sealed;
   if (!joined || !played(boards[0]) || !played(boards[1])) return null;
   return { account: m.opener, kind: "opponent-played", matchId: m.id.toString(), game: "block-puzzle" };
@@ -113,14 +115,23 @@ export function debtClearedFacts(before: Map<string, number> | null, positions: 
   return { facts, after };
 }
 
-/** Each rank of a Season that has been paid. */
-export function seasonFacts(rec: { number: number; count: number; winners: string[]; amounts: bigint[]; paidMask: number }): Fact[] {
+/** Each rank of a Season that has been paid in full (every budget line). */
+export function seasonFacts(rec: { number: number; count: number; winners: string[]; gemas: bigint[]; paid: boolean[] }): Fact[] {
   const out: Fact[] = [];
   for (let i = 0; i < rec.count; i++) {
-    if (rec.paidMask & (1 << i)) out.push({ account: rec.winners[i], kind: "season-placed", season: rec.number, rank: i + 1, gemas: Number(rec.amounts[i]) });
+    if (rec.paid[i]) out.push({ account: rec.winners[i], kind: "season-placed", season: rec.number, rank: i + 1, gemas: Number(rec.gemas[i]) });
   }
   return out;
 }
+
+/** A recorded Season in the shape `seasonFacts` takes. */
+export const seasonFactsInput = (r: SeasonRecord) => ({
+  number: r.number,
+  count: r.count,
+  winners: r.winners.map((w) => w.toBase58()),
+  gemas: r.winners.map((_, i) => rankTotal(r, i)),
+  paid: r.winners.map((_, i) => r.lines.length > 0 && r.cursor[i] === r.lines.length),
+});
 
 /** The daily digest is due from `hourUtc` on, once per UTC day. */
 export function digestDue(nowMs: number, lastDay: string | null, hourUtc: number): boolean {
@@ -182,21 +193,23 @@ async function authorityOf(ctx: Ctx, account: string): Promise<string | null> {
 async function matchesFacts(ctx: Ctx): Promise<Fact[]> {
   const all: any[] = await ctx.core.account.matchState.all();
   const facts: Fact[] = [];
-  const bp: { id: bigint; opener: string }[] = [];
-  for (const { account } of all) {
-    const st = status(account.inner.status);
+  const bp: { id: string; label: string; opener: string; row: any }[] = [];
+  for (const { publicKey, account } of all) {
+    const view = viewOf(publicKey, account);
     const game = gameOfKey(pk(account.inner.game));
-    if (!game || st === "settled" || st === "open") continue;
+    // Open and Active Matches can be Delayed; a Refunding one is being refunded; the rest (settling, closed) say nothing.
+    if (!game || (view.stage !== "open" && view.stage !== "active" && view.stage !== "refunding")) continue;
+    const st: MatchFacts["status"] = view.stage === "refunding" ? "refunded" : view.stage;
+    if (st === "open") continue;
     const m = account.inner;
-    const id = BigInt(account.id.toString());
+    const label = matchKeyOf({ opener: view.ref.opener.toBase58(), n: view.ref.n });
     const players = [m.a, m.b].filter(Boolean).map((s: any) => pk(s.player).toBase58());
-    const base = { id, game, status: st as MatchFacts["status"], deadline: Number(m.deadline.toString()), entry: Number(m.entry.toString()), players };
-    if (st === "active" && game === "block-puzzle") bp.push({ id, opener: players[0] });
+    const base = { id: label, game, status: st, deadline: Number(m.deadline.toString()), entry: Number(m.entry.toString()), players };
+    if (st === "active" && game === "block-puzzle") bp.push({ id: label, label, opener: players[0], row: account });
     else facts.push(...matchFacts({ ...base, session: null }, ctx.now));
   }
   // Block Puzzle: its Session gives the Delayed deadlines, and Session + Boards say whether the opponent has played.
   for (const m of bp.slice(0, BP_PER_PASS)) {
-    const row = all.find((r) => BigInt(r.account.id.toString()) === m.id)!;
     const a = BlockPuzzleChain.addresses(m.id);
     const [sInfo, b0, b1] = await ctx.conn.getMultipleAccountsInfo([a.session, ...a.boards]);
     let session: any = null;
@@ -211,10 +224,10 @@ async function matchesFacts(ctx: Ctx): Promise<Fact[]> {
       }
     };
     const boardFacts = (info: typeof b0): BoardFacts => ({ delegated: !!info?.owner.equals(DELEGATION_PROGRAM_ID), sealed: !!decodeBoard(info)?.sealed });
-    const players = [row.account.inner.a, row.account.inner.b].filter(Boolean).map((s: any) => pk(s.player).toBase58());
+    const players = [m.row.inner.a, m.row.inner.b].filter(Boolean).map((s: any) => pk(s.player).toBase58());
     const sess = session ? { deadline: Number(session.deadline.toString()), openerDeadline: Number(session.openerDeadline.toString()) } : null;
-    facts.push(...matchFacts({ id: m.id, game: "block-puzzle", status: "active", deadline: Number(row.account.inner.deadline.toString()), entry: Number(row.account.inner.entry.toString()), players, session: sess }, ctx.now));
-    const played = session && opponentPlayedFact(m, !!session.joined && !session.settled, [boardFacts(b0), boardFacts(b1)]);
+    facts.push(...matchFacts({ id: m.label, game: "block-puzzle", status: "active", deadline: Number(m.row.inner.deadline.toString()), entry: Number(m.row.inner.entry.toString()), players, session: sess }, ctx.now));
+    const played = session && opponentPlayedFact({ id: m.label, opener: m.opener }, !!session.joined && !session.settled, [boardFacts(b0), boardFacts(b1)]);
     if (played) facts.push(played);
   }
   return facts;
@@ -258,8 +271,8 @@ async function positionFacts(ctx: Ctx): Promise<Fact[]> {
 async function seasonPaidFacts(ctx: Ctx): Promise<Fact[]> {
   const out: Fact[] = [];
   for (const n of seasonsToCheck(ctx.now, undefined, 1)) {
-    const rec = await fetchSeasonRecord(ctx.conn, n);
-    if (rec) out.push(...seasonFacts(rec));
+    const rec = await readSeason(ctx.core, n);
+    if (rec) out.push(...seasonFacts(seasonFactsInput(rec)));
   }
   return out;
 }

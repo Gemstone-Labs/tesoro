@@ -31,8 +31,32 @@ const FEE_MINTED_AT = 8 + 3 + 2 + 2 + 32 + 32;
 /** SOL units of earned Yield Fee already minted out as simSOL; null on a wrong size. */
 export const parseFeeMinted = (d: Uint8Array): bigint | null => (d.length === TREASURY_LEN ? rdU64(d, FEE_MINTED_AT) : null);
 
-/** `NativeCustody`: disc 8, bump, vault_bump, pool, mint, vault, then principal, fee_weight, fee_weight_time, realised_fee (u128) and open_positions (u64). */
-export const NATIVE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 4 * 16 + 8;
+/** The Treasury's shares on one route (`RouteLedger`, Borsh, 149 bytes at the end of a custody account). */
+export const ROUTE_LEN = 4 * 16 + 1 + 3 * 16 + 4 + 2 * 16;
+
+export interface RouteView {
+  treasuryShares: bigint;
+  owedShares: bigint;
+  poolOwed: bigint;
+  reserved: bigint;
+  /** Shares a fill or a withdrawal may pay out: `treasury_shares` less everything owed or reserved (`RouteLedger::spendable`). */
+  spendable: bigint;
+}
+
+export function parseRoute(d: Uint8Array, at: number): RouteView {
+  const treasuryShares = rdU128(d, at);
+  const owedShares = rdU128(d, at + 16);
+  const poolOwed = rdU128(d, at + 32);
+  const reserved = rdU128(d, at + 48);
+  const claims = owedShares + poolOwed + reserved;
+  return { treasuryShares, owedShares, poolOwed, reserved, spendable: treasuryShares > claims ? treasuryShares - claims : 0n };
+}
+
+/** `NativeCustody`: disc 8, bump, vault_bump, pool, mint, vault, then principal, fee_weight, fee_weight_time, realised_fee (u128), open_positions (u64) and the route. */
+export const NATIVE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 4 * 16 + 8 + ROUTE_LEN;
+export const NATIVE_ROUTE_AT = 8 + 2 + 3 * 32 + 4 * 16 + 8;
+
+export const parseNativeRoute = (d: Uint8Array): RouteView | null => (d.length === NATIVE_CUSTODY_LEN ? parseRoute(d, NATIVE_ROUTE_AT) : null);
 
 export function parsePoolTotals(d: Uint8Array): PoolTotals | null {
   if (d.length !== NATIVE_CUSTODY_LEN) return null;

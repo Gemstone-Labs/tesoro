@@ -7,17 +7,20 @@
 //! * **Backing.** With an accepted Offer the Backer's lines are drawn by the same order (directly
 //!   or through a Backing Ticket) and the Player is never debited.
 //! * **Ids.** A Match is `["match", opener Account, n]` where `n` is the opener's counter.
-//! * **Room.** Opening and joining hold, in each Account's spill, the slots its credits can need
-//!   (`MatchRecord::room_plan`), so settling and refunding never fail for lack of room.
+//! * **Room.** An entry needs no free slot: each whole line it takes off the pool frees one, and
+//!   that slot is held for the line (`MatchState::room`, `room_reserved` in the spill header), so
+//!   a refund finds its place however full the Account's stores are. Joining also holds, if it
+//!   can, the slots the other side's lines can need (`MatchRecord::room_plan`); credits without
+//!   a hold wait for free room like any credit (the chunk reports it, growing a store frees it).
 //! * **Settle and refund** start in one atomic step (outcome, fees and plan frozen, receipt
 //!   written, records emitted by event-CPI) and run in chunks anyone may call. `close_match`
 //!   returns the rents once the run is complete.
 
 use crate::books::OnchainBooks;
 use crate::error::{core_err, MatchError, TesoroError};
-use crate::instructions::economy::{draw_err, with_pool};
+use crate::instructions::economy::{draw_err, with_pool, with_pool_hold};
 use crate::instructions::settlement::ChainSettlement;
-use crate::instructions::ticket::{close_pot_account, release_room, reserve_room, ticket_err};
+use crate::instructions::ticket::{close_pot_account, release_room, ticket_err, try_hold};
 use crate::ledger;
 use crate::ledger::draw::TicketKind;
 use crate::ledger::lifecycle::{
@@ -203,7 +206,7 @@ fn take_entry<'b, 'info>(
     system: &AccountInfo<'info>,
     (basket, spill): (&AccountInfo<'info>, &AccountInfo<'info>),
     books: &mut OnchainBooks<'info, 'info>,
-) -> Result<OnchainPot<'b, 'info>> {
+) -> Result<(OnchainPot<'b, 'info>, u32)> {
     let fresh = pot_info.owner == &system_program::ID && pot_info.data_is_empty();
     if fresh {
         require!(
@@ -220,7 +223,8 @@ fn take_entry<'b, 'info>(
             pot_lines as usize,
         )?;
         let mut pot = init_pot(pot_info, funder, bump)?;
-        with_pool(basket, spill, |pool| {
+        let mut hold = 0u32;
+        with_pool_hold(basket, spill, &mut hold, |pool| {
             if backing {
                 pool.draw_backing_direct_into(books, &mut pot, entry, MAX_DIRECT_LINES)
             } else {
@@ -251,7 +255,7 @@ fn take_entry<'b, 'info>(
             sponsored_lamports: 0,
         };
         init_head(pot.bytes_mut(), &fields, &extra);
-        Ok(pot)
+        Ok((pot, hold))
     } else {
         let (mut ticket, mut extra) = load_ticket(pot_info)?;
         require_keys_eq!(
@@ -273,37 +277,75 @@ fn take_entry<'b, 'info>(
                 .consume(pool, &game.to_bytes(), entry)
                 .map_err(ticket_err)
         })?;
+        // the slots the Ticket held for its lines are the Match's now
         let held = extra.spill_room;
         extra.spill_room = 0;
         save_ticket(&mut ticket, &extra);
-        release_room(spill, held)?;
-        Ok(ticket.into_pot())
+        Ok((ticket.into_pot(), held))
     }
 }
 
-/// Holds, in each Account's spill, the slots the Match's credits can need beyond what it already
-/// held (`before` is the plan before this step). The outside studio, whose Account is not one of
-/// the two sides', is not reserved for: its fee lines wait for room like any credit.
-fn reserve_plan(
+/// Adds `slots` to `account`'s share of the Match's held room.
+fn add_hold(room: &mut [RoomHold; ROOM_HOLDS], account: ledger::Key, slots: u32) -> Result<()> {
+    if slots == 0 {
+        return Ok(());
+    }
+    let at = room
+        .iter()
+        .position(|h| h.account == account)
+        .or_else(|| room.iter().position(|h| h.account == [0u8; 32]))
+        .ok_or_else(|| error!(MatchError::Inconsistent))?;
+    room[at].account = account;
+    room[at].left = room[at]
+        .left
+        .checked_add(slots)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    Ok(())
+}
+
+/// The basket of `owner` among `infos`, if the caller passed it.
+fn basket_among<'info>(infos: &[AccountInfo<'info>], owner: &Pubkey) -> Option<AccountInfo<'info>> {
+    infos
+        .iter()
+        .find(|i| check_store(i, BASKET_SEED, owner).is_ok())
+        .cloned()
+}
+
+/// The spill of `owner` among `infos`, if the caller passed it.
+fn spill_among<'info>(infos: &[AccountInfo<'info>], owner: &Pubkey) -> Option<AccountInfo<'info>> {
+    infos
+        .iter()
+        .find(|i| check_store(i, SPILL_SEED, owner).is_ok())
+        .cloned()
+}
+
+/// Holds, where the caller passed the stores and the room is there, the slots the credits the
+/// Match can still make to each Account can need (`plan`), on top of what the Account already
+/// holds. All or nothing per Account; whatever is not held waits for free room when the time
+/// comes.
+fn top_up_holds(
+    room: &mut [RoomHold; ROOM_HOLDS],
     plan: &std::collections::BTreeMap<ledger::Key, usize>,
-    before: &std::collections::BTreeMap<ledger::Key, usize>,
-    spills: &[(ledger::Key, &AccountInfo)],
-    skip: Option<ledger::Key>,
+    stores: &[AccountInfo],
 ) -> Result<()> {
-    for (acct, want) in plan {
-        if Some(*acct) == skip && !spills.iter().any(|(k, _)| k == acct) {
-            continue;
-        }
-        let have = before.get(acct).copied().unwrap_or(0);
+    for (account, want) in plan {
+        let have = room
+            .iter()
+            .find(|h| h.account == *account)
+            .map_or(0, |h| h.left as usize);
         if *want <= have {
             continue;
         }
-        let spill = spills
-            .iter()
-            .find(|(k, _)| k == acct)
-            .map(|(_, i)| *i)
-            .ok_or_else(|| error!(MatchError::AccountMissing))?;
-        reserve_room(spill, (*want - have) as u32)?;
+        let owner = Pubkey::new_from_array(*account);
+        let (Some(basket), Some(spill)) =
+            (basket_among(stores, &owner), spill_among(stores, &owner))
+        else {
+            continue;
+        };
+        let extra = (*want - have) as u32;
+        if try_hold(&basket, &spill, extra)? {
+            add_hold(room, *account, extra)?;
+        }
     }
     Ok(())
 }
@@ -507,7 +549,7 @@ pub(crate) fn open_match<'info>(
     let own_basket = ctx.accounts.basket.to_account_info();
     let own_spill = ctx.accounts.spill.to_account_info();
 
-    let (party, funder_spill, pot) = if backed {
+    let (party, pot, hold) = if backed {
         require!(listed, TesoroError::GameNotListed);
         crate::util::require_can_play(&ctx.accounts.protections.to_account_info())?;
         let offer = ctx
@@ -531,7 +573,7 @@ pub(crate) fn open_match<'info>(
         require_can_play(backer.protections)?;
         backer.counters.open_offers = backer.counters.open_offers.saturating_sub(1);
         let funder = backer.account.key();
-        let pot = take_entry(
+        let (pot, hold) = take_entry(
             &pot_info,
             &funder,
             true,
@@ -547,12 +589,12 @@ pub(crate) fn open_match<'info>(
                 funder: funder.to_bytes(),
                 share_bps: share,
             },
-            backer.spill,
             pot,
+            hold,
         )
     } else {
         require_can_play(&ctx.accounts.protections.to_account_info())?;
-        let pot = take_entry(
+        let (pot, hold) = take_entry(
             &pot_info,
             &player,
             false,
@@ -568,8 +610,8 @@ pub(crate) fn open_match<'info>(
                 funder: player.to_bytes(),
                 share_bps: 0,
             },
-            own_spill.clone(),
             pot,
+            hold,
         )
     };
     let (entries, terms) = {
@@ -605,14 +647,6 @@ pub(crate) fn open_match<'info>(
         ts,
     )
     .map_err(lc_err)?;
-    // room for the credits the Match can make to the opener's Accounts
-    let plan = rec.room_plan();
-    let spills: Vec<(ledger::Key, &AccountInfo)> = if party.funder == party.player {
-        vec![(party.player, &own_spill)]
-    } else {
-        vec![(party.funder, &funder_spill), (party.player, &own_spill)]
-    };
-    reserve_plan(&plan, &Default::default(), &spills, terms.studio_owner)?;
     let state = &mut ctx.accounts.match_state;
     state.bump = ctx.bumps.match_state;
     state.inner = rec;
@@ -620,6 +654,9 @@ pub(crate) fn open_match<'info>(
     state.listing_epoch = ctx.accounts.game_record.listing_epoch;
     state.payer = payer.key();
     state.pots = [pot_info.key(), Pubkey::default()];
+    // the slots the entry freed stay held for the lines that may come back
+    state.room = [RoomHold::default(); ROOM_HOLDS];
+    add_hold(&mut state.room, party.funder, hold)?;
     drop(pot);
     books.flush()
 }
@@ -688,9 +725,15 @@ pub struct JoinMatch<'info> {
         bump
     )]
     pub opener_protections: UncheckedAccount<'info>,
+    /// CHECK: the opener Player's basket, checked by `check_store`.
+    #[account(mut)]
+    pub opener_basket: UncheckedAccount<'info>,
     /// CHECK: the opener Player's spill, checked by `check_store`.
     #[account(mut)]
     pub opener_spill: UncheckedAccount<'info>,
+    /// CHECK: the opener's funder's basket (the same account as `opener_basket` when unbacked).
+    #[account(mut)]
+    pub opener_funder_basket: UncheckedAccount<'info>,
     /// CHECK: the opener's funder's spill (the same account as `opener_spill` when unbacked).
     #[account(mut)]
     pub opener_funder_spill: UncheckedAccount<'info>,
@@ -786,11 +829,17 @@ pub(crate) fn join_match<'info>(
         );
         counters.open_matches += 1;
     }
-    // the opener's spills, for the extra room
-    let opener_spill = ctx.accounts.opener_spill.to_account_info();
-    let opener_funder_spill = ctx.accounts.opener_funder_spill.to_account_info();
-    check_store(&opener_spill, SPILL_SEED, &opener_player)?;
-    check_store(&opener_funder_spill, SPILL_SEED, &opener_funder)?;
+    // the opener's stores, to hold the room the joiner's lines can need
+    let opener_stores = [
+        ctx.accounts.opener_basket.to_account_info(),
+        ctx.accounts.opener_spill.to_account_info(),
+        ctx.accounts.opener_funder_basket.to_account_info(),
+        ctx.accounts.opener_funder_spill.to_account_info(),
+    ];
+    check_store(&opener_stores[0], BASKET_SEED, &opener_player)?;
+    check_store(&opener_stores[1], SPILL_SEED, &opener_player)?;
+    check_store(&opener_stores[2], BASKET_SEED, &opener_funder)?;
+    check_store(&opener_stores[3], SPILL_SEED, &opener_funder)?;
 
     let mut books = OnchainBooks::load(ctx.remaining_accounts)?;
     let payer = ctx.accounts.payer.to_account_info();
@@ -798,7 +847,7 @@ pub(crate) fn join_match<'info>(
     let pot_info = ctx.accounts.pot.to_account_info();
     let own_basket = ctx.accounts.basket.to_account_info();
     let own_spill = ctx.accounts.spill.to_account_info();
-    let (party, funder_spill, pot) = if backed {
+    let (party, pot, hold) = if backed {
         require_can_play(&ctx.accounts.protections.to_account_info())?;
         let offer = ctx
             .accounts
@@ -821,7 +870,7 @@ pub(crate) fn join_match<'info>(
         require_can_play(backer.protections)?;
         backer.counters.open_offers = backer.counters.open_offers.saturating_sub(1);
         let funder = backer.account.key();
-        let pot = take_entry(
+        let (pot, hold) = take_entry(
             &pot_info,
             &funder,
             true,
@@ -837,12 +886,12 @@ pub(crate) fn join_match<'info>(
                 funder: funder.to_bytes(),
                 share_bps: share,
             },
-            backer.spill,
             pot,
+            hold,
         )
     } else {
         require_can_play(&ctx.accounts.protections.to_account_info())?;
-        let pot = take_entry(
+        let (pot, hold) = take_entry(
             &pot_info,
             &player,
             false,
@@ -858,23 +907,26 @@ pub(crate) fn join_match<'info>(
                 funder: player.to_bytes(),
                 share_bps: 0,
             },
-            own_spill.clone(),
             pot,
+            hold,
         )
     };
     let state = &mut ctx.accounts.match_state;
-    let before = state.inner.room_plan();
     state.inner.join(party, &pot, ts).map_err(lc_err)?;
+    // the joiner's freed slots stay held for the lines that may come back; the slots the other
+    // side's lines can need are held too wherever the stores were passed and have the room
+    add_hold(&mut state.room, party.funder, hold)?;
+    let mut stores: Vec<AccountInfo<'info>> = vec![own_basket.clone(), own_spill.clone()];
+    stores.extend(opener_stores);
+    stores.extend(
+        [&ctx.accounts.backer_basket, &ctx.accounts.backer_spill]
+            .into_iter()
+            .flatten()
+            .map(|a| a.to_account_info()),
+    );
+    stores.extend(ctx.remaining_accounts.iter().cloned());
     let plan = state.inner.room_plan();
-    let mut spills: Vec<(ledger::Key, &AccountInfo)> = vec![
-        (opener_player.to_bytes(), &opener_spill),
-        (opener_funder.to_bytes(), &opener_funder_spill),
-        (party.player, &own_spill),
-    ];
-    if party.funder != party.player {
-        spills.push((party.funder, &funder_spill));
-    }
-    reserve_plan(&plan, &before, &spills, state.inner.terms.studio_owner)?;
+    top_up_holds(&mut state.room, &plan, &stores)?;
     state.pots[1] = pot_info.key();
     drop(pot);
     books.flush()
@@ -1190,10 +1242,16 @@ pub(crate) fn match_chunk<'info>(
     };
     let mut pots: lifecycle::Pots<AccountWindow> = [Some(pot_a), pot_b];
     let mut settlement = ChainSettlement::load(ctx.remaining_accounts)?;
+    settlement.set_holds(&state.room);
     let report = state
         .inner
         .chunk(&mut pots, &mut settlement, steps)
         .map_err(lc_err)?;
+    for hold in state.room.iter_mut() {
+        if let Some(left) = settlement.hold_of(&hold.account) {
+            hold.left = left;
+        }
+    }
     settlement.finish()?;
     let (opener, n) = (
         Pubkey::new_from_array(state.inner.id.opener),
@@ -1307,17 +1365,12 @@ pub(crate) fn close_match<'info>(
             extra.sponsored_lamports,
         )?;
     }
-    // the room the Match held, and the open-Match count of each Player
-    let plan = rec.room_plan();
-    let mut sides: Vec<ledger::Key> = vec![rec.a.player, rec.a.funder];
+    // the room the Match still held, and the open-Match count of each Player
     let mut players: Vec<ledger::Key> = vec![rec.a.player];
     if let Some(b) = rec.b {
-        sides.extend([b.player, b.funder]);
         players.push(b.player);
     }
-    sides.sort();
-    sides.dedup();
-    let mut released: Vec<ledger::Key> = Vec::new();
+    let mut owed: Vec<RoomHold> = state.room.iter().filter(|h| h.left > 0).copied().collect();
     let mut counted: Vec<ledger::Key> = Vec::new();
     for info in ctx.remaining_accounts {
         if info.owner != &crate::ID || !info.is_writable {
@@ -1339,12 +1392,9 @@ pub(crate) fn close_match<'info>(
                     .account()
             };
             check_store(info, SPILL_SEED, &Pubkey::new_from_array(owner))?;
-            // an outside studio's Account that plays nothing was never reserved for
-            if sides.contains(&owner) && !released.contains(&owner) {
-                if let Some(slots) = plan.get(&owner) {
-                    release_room(info, *slots as u32)?;
-                }
-                released.push(owner);
+            if let Some(at) = owed.iter().position(|h| h.account == owner) {
+                release_room(info, owed[at].left)?;
+                owed.remove(at);
             }
         } else if is_counters {
             let mut c = Account::<AccountCounters>::try_from(info)?;
@@ -1360,7 +1410,7 @@ pub(crate) fn close_match<'info>(
         }
     }
     require!(
-        sides.iter().all(|k| released.contains(k)) && players.iter().all(|k| counted.contains(k)),
+        owed.is_empty() && players.iter().all(|k| counted.contains(k)),
         MatchError::AccountMissing
     );
     Ok(())

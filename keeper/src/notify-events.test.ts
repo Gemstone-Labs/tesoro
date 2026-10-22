@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { debtClearedFacts, digestDue, matchFacts, offerFacts, opponentPlayedFact, pushDigest, pushEvents, seasonFacts, sendEvents, type MatchFacts, type OfferFacts } from "./notify-events.ts";
+import { debtClearedFacts, digestDue, matchFacts, offerFacts, opponentPlayedFact, pushDigest, pushEvents, seasonFacts, seasonFactsInput, sendEvents, type MatchFacts, type OfferFacts } from "./notify-events.ts";
 
 const NOW = 1_800_000_000;
 const base: MatchFacts = { id: 7n, game: "holdem", status: "active", deadline: NOW + 600, entry: 500, players: ["a", "b"], session: null };
@@ -97,11 +97,19 @@ describe("Debt reached 0", () => {
 
 describe("Season placed", () => {
   it("tells each paid rank with its place and Gemas", () => {
-    const f = seasonFacts({ number: 2, count: 3, winners: ["a", "b", "c"], amounts: [900n, 500n, 100n], paidMask: 0b101 });
+    const f = seasonFacts({ number: 2, count: 3, winners: ["a", "b", "c"], gemas: [900n, 500n, 100n], paid: [true, false, true] });
     assert.deepEqual(f, [
       { account: "a", kind: "season-placed", season: 2, rank: 1, gemas: 900 },
       { account: "c", kind: "season-placed", season: 2, rank: 3, gemas: 100 },
     ]);
+  });
+});
+
+describe("Season placed from a recorded Season", () => {
+  it("counts a rank as paid once all its budget lines are, and tells its total", () => {
+    const k = (n: number) => ({ toBase58: () => `k${n}` }) as any;
+    const rec = { number: 2, count: 2, winners: [k(1), k(2)], points: [9n, 4n], lines: [{ source: k(0), amount: 1000n, paid: 0n }, { source: k(0), amount: 400n, paid: 0n }], cursor: [2, 1, 0, 0, 0, 0, 0, 0, 0, 0], recordedAt: 1, voidedMask: 0, closed: false };
+    assert.deepEqual(seasonFacts(seasonFactsInput(rec)), [{ account: "k1", kind: "season-placed", season: 2, rank: 1, gemas: 350 }]);
   });
 });
 

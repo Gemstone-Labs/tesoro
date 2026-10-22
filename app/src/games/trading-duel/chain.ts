@@ -24,17 +24,15 @@ import {
   TEE_VALIDATOR,
   TEE_WS,
   TESORO_CORE_PROGRAM_ID,
-  computePayouts,
   tesoroAccountPda,
   tesoroConfigPda,
-  tesoroHoldingPda,
-  tesoroMatchPda,
+  settledPda,
+  eventAuthorityPda,
   type PlayerSigner,
 } from "../holdem/chain";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
-import { fetchLeaderboardTerms } from "../../lib/chain/leaderboard";
 import { COLUMNS, type Track } from "./grid";
-import { gameRecordPda } from "../../lib/chain/game-record";
+import { gameAccounts, gameRecordPda } from "../../lib/chain/game-record";
 
 export { keypairSigner, type PlayerSigner } from "../holdem/chain";
 
@@ -71,16 +69,8 @@ export const ASSETS: Asset[] = [
   { id: 2, symbol: "HYPE", name: "Hyperliquid", feed: new PublicKey(MAGICBLOCK.priceFeeds.HYPE) },
 ];
 
-/**
- * Match id: `ms * 8 + asset * 2 + challenge`. Bit 0 marks a Challenge (as for every Game), bits 1
- * and 2 are the asset the program trades. The id fixes the asset on chain: nobody can change it.
- */
-export function duelMatchId(asset: 0 | 1 | 2, challenge: boolean, ms = Date.now()): bigint {
-  return BigInt(ms) * 8n + BigInt(asset) * 2n + (challenge ? 1n : 0n);
-}
-export function assetOfMatchId(id: bigint): Asset | null {
-  return ASSETS[Number((id >> 1n) & 3n)] ?? null;
-}
+/** The asset a Match trades: `meta.asset` of its tesoro_core MatchState. */
+export const assetOfIndex = (index: number): Asset | null => ASSETS[index] ?? null;
 
 export interface Addresses {
   duel: PublicKey;
@@ -89,11 +79,10 @@ export interface Addresses {
   authority: PublicKey;
 }
 
-const le64 = (n: bigint | number | anchor.BN) => new anchor.BN(n.toString()).toArrayLike(Buffer, "le", 8);
-
-export function addresses(matchId: bigint | number | anchor.BN): Addresses {
+/** PDAs of one Duel. `match` is the address of the tesoro_core Match (`["match", opener, n]`); the asset is in its meta. */
+export function addresses(match: PublicKey): Addresses {
   const pda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, TRADING_DUEL_PROGRAM_ID)[0];
-  const duel = pda([Buffer.from("duel"), le64(matchId)]);
+  const duel = pda([Buffer.from("duel"), match.toBuffer()]);
   return {
     duel,
     book0: pda([Buffer.from("book"), duel.toBuffer(), Buffer.from([0])]),
@@ -109,7 +98,6 @@ const big = (n: anchor.BN) => BigInt(n.toString());
 
 export interface Duel {
   address: PublicKey;
-  matchId: bigint;
   tesoroMatch: PublicKey;
   /** seat 0 opened the tesoro_core Match, seat 1 joined */
   players: [PublicKey, PublicKey];
@@ -159,7 +147,6 @@ export function decodeTrack(t: any): Track {
 export function decodeDuel(address: PublicKey, d: any): Duel {
   return {
     address,
-    matchId: big(d.matchId),
     tesoroMatch: d.tesoroMatch,
     players: d.players,
     asset: ASSETS[d.asset] ?? ASSETS[0],
@@ -299,14 +286,14 @@ export class TradingDuelChain {
 
   // -- base layer ----------------------------------------------------------------------------
 
-  /** Base layer. Binds a Duel to an Active tesoro_core Match (asset from the id) and creates the Books. */
-  async createDuel(creator: PlayerSigner, matchId: bigint | number, seatA: PublicKey, seatB: PublicKey): Promise<string> {
-    const ad = addresses(matchId);
+  /** Base layer. Binds a Duel to an Active tesoro_core Match (the asset is in its meta) and creates the Books. */
+  async createDuel(creator: PlayerSigner, match: PublicKey, seatA: PublicKey, seatB: PublicKey): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods
-      .createMatch(new anchor.BN(matchId.toString()))
+      .createMatch()
       .accountsPartial({
         creator: creator.publicKey,
-        tesoroMatch: tesoroMatchPda(matchId),
+        tesoroMatch: match,
         gameRecord: gameRecordPda(TRADING_DUEL_PROGRAM_ID),
         accountA: tesoroAccountPda(seatA),
         accountB: tesoroAccountPda(seatB),
@@ -320,10 +307,10 @@ export class TradingDuelChain {
   }
 
   /** Base layer. Delegates the Duel and both Books to the TEE. */
-  async delegateDuel(creator: PlayerSigner, matchId: bigint | number): Promise<Addresses> {
-    const ad = addresses(matchId);
+  async delegateDuel(creator: PlayerSigner, match: PublicKey): Promise<Addresses> {
+    const ad = addresses(match);
     const ix = await this.program.methods
-      .delegateMatch(new anchor.BN(matchId.toString()))
+      .delegateMatch(match)
       .accountsPartial({ payer: creator.publicKey, duel: ad.duel, book0: ad.book0, book1: ad.book1, validator: TEE_VALIDATOR } as any)
       .instruction();
     await this.sendBase("delegate_match", [ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), ix], [creator]);
@@ -333,13 +320,13 @@ export class TradingDuelChain {
     return ad;
   }
 
-  async readTesoroMatch(matchId: bigint | number): Promise<any | null> {
-    const info = await this.base.getAccountInfo(tesoroMatchPda(matchId));
+  async readTesoroMatch(match: PublicKey): Promise<any | null> {
+    const info = await this.base.getAccountInfo(match);
     return info ? this.tesoro.coder.accounts.decode("matchState", info.data) : null;
   }
 
   private isLive(tesoroMatch: any | null): boolean {
-    return !!tesoroMatch && "active" in tesoroMatch.inner.status;
+    return !!tesoroMatch && "active" in tesoroMatch.inner.stage;
   }
 
   /**
@@ -347,45 +334,25 @@ export class TradingDuelChain {
    * a cancelled Match, refunds) the tesoro_core Match by CPI as the Game authority PDA. Returns ""
    * when it is already settled.
    */
-  async finalize(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
+  async finalize(payer: PlayerSigner, match: PublicKey): Promise<string> {
+    const ad = addresses(match);
     if (!(await this.waitOwner(ad.duel, TRADING_DUEL_PROGRAM_ID, 90))) {
       throw new Error("the Duel has not been committed back to the base layer yet");
     }
-    const info = await this.base.getAccountInfo(ad.duel);
-    const duel = decodeDuel(ad.duel, this.program.coder.accounts.decode("duel", info!.data));
-    const tesoroMatch = await this.readTesoroMatch(matchId);
-    if (!this.isLive(tesoroMatch)) return "";
-    const winner = duel.status === STATUS.over && duel.winner !== DRAW ? (duel.winner as 0 | 1) : null;
-    const payouts = computePayouts(tesoroMatch.inner, winner, await fetchLeaderboardTerms(this.base));
-    const holdings = payouts.map((p) => tesoroHoldingPda(p.recipient, p.source));
-    const existing = await this.base.getMultipleAccountsInfo(holdings);
-    const missing: TransactionInstruction[] = [];
-    for (let i = 0; i < payouts.length; i++) {
-      if (existing[i]) continue;
-      missing.push(
-        await this.tesoro.methods
-          .openHolding()
-          .accountsPartial({ payer: payer.publicKey, account: payouts[i].recipient, source: payouts[i].source, holding: holdings[i] } as any)
-          .instruction(),
-      );
-    }
-    for (let i = 0; i < missing.length; i += 5) await this.sendBase("open_holding", missing.slice(i, i + 5), [payer]);
-    const remaining: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
-    payouts.forEach((p, i) => remaining.push({ pubkey: p.recipient, isSigner: false, isWritable: true }, { pubkey: holdings[i], isSigner: false, isWritable: true }));
-    if (!this.isLive(await this.readTesoroMatch(matchId))) return "";
+    if (!this.isLive(await this.readTesoroMatch(match))) return "";
     const ix = await this.program.methods
       .finalize()
       .accountsPartial({
         caller: payer.publicKey,
         duel: ad.duel,
-        tesoroMatch: tesoroMatchPda(matchId),
+        tesoroMatch: match,
         config: tesoroConfigPda(),
-        gameRecord: gameRecordPda(TRADING_DUEL_PROGRAM_ID),
+        ...gameAccounts(TRADING_DUEL_PROGRAM_ID),
         authority: ad.authority,
+        receipt: settledPda(match),
+        eventAuthority: eventAuthorityPda(),
         tesoroProgram: TESORO_CORE_PROGRAM_ID,
       } as any)
-      .remainingAccounts(remaining)
       .instruction();
     return this.sendBase("finalize", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], [payer]);
   }
@@ -393,8 +360,8 @@ export class TradingDuelChain {
   // -- rollup --------------------------------------------------------------------------------
 
   /** Rollup. Creates the permissions and starts the Match at the live price: the head start runs, then 12 columns. Anyone. */
-  async start(payer: PlayerSigner, matchId: bigint | number, asset: Asset): Promise<string> {
-    const ad = addresses(matchId);
+  async start(payer: PlayerSigner, match: PublicKey, asset: Asset): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods
       .initPermissions()
       .accountsPartial({
@@ -415,8 +382,8 @@ export class TradingDuelChain {
   }
 
   /** Rollup. Picks `band` (signed, 0 starts at the anchor) for `column`, or clears the pick with `NO_PICK`. Only until the column locks. */
-  async setPick(player: PlayerSigner, matchId: bigint | number, seat: 0 | 1, column: number, band: number): Promise<string> {
-    const ad = addresses(matchId);
+  async setPick(player: PlayerSigner, match: PublicKey, seat: 0 | 1, column: number, band: number): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods
       .setPick(column, band)
       .accountsPartial({ player: player.publicKey, duel: ad.duel, book: seat === 0 ? ad.book0 : ad.book1 } as any)
@@ -424,27 +391,27 @@ export class TradingDuelChain {
     return this.sendTee("set_pick", [ix], player);
   }
 
-  private crankAccounts(caller: PublicKey, matchId: bigint | number, asset: Asset) {
-    const ad = addresses(matchId);
+  private crankAccounts(caller: PublicKey, match: PublicKey, asset: Asset) {
+    const ad = addresses(match);
     return { caller, duel: ad.duel, book0: ad.book0, book1: ad.book1, priceFeed: asset.feed } as any;
   }
 
   /** Rollup, permissionless. Records the live price into the line, reveals the columns that locked, scores the ones that ended. */
-  async tick(payer: PlayerSigner, matchId: bigint | number, asset: Asset): Promise<string> {
-    const ix = await this.program.methods.tick().accountsPartial(this.crankAccounts(payer.publicKey, matchId, asset)).instruction();
+  async tick(payer: PlayerSigner, match: PublicKey, asset: Asset): Promise<string> {
+    const ix = await this.program.methods.tick().accountsPartial(this.crankAccounts(payer.publicKey, match, asset)).instruction();
     return this.sendTee("tick", [ix], payer);
   }
 
   /** Rollup, permissionless. After the window: carries the line through any column it missed, scores every column and decides the Match. Reads no price. */
-  async end(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
+  async end(payer: PlayerSigner, match: PublicKey): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods.endMatch().accountsPartial({ caller: payer.publicKey, duel: ad.duel, book0: ad.book0, book1: ad.book1 } as any).instruction();
     return this.sendTee("end_match", [ix], payer);
   }
 
   /** Rollup, permissionless. Cancels a Duel that was delegated but never started before its deadline. */
-  async claimTimeout(caller: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
+  async claimTimeout(caller: PlayerSigner, match: PublicKey): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods.claimTimeout().accountsPartial({ caller: caller.publicKey, duel: ad.duel } as any).instruction();
     return this.sendTee("claim_timeout", [ix], caller);
   }
@@ -453,9 +420,9 @@ export class TradingDuelChain {
    * Rollup. Over: closes the permissions and commits everything (Books included, now public).
    * Cancelled (never started, so no permissions exist): commits the accounts as they are.
    */
-  async closeMatch(payer: PlayerSigner, matchId: bigint | number): Promise<{ tee: string; commit: string }> {
-    const ad = addresses(matchId);
-    const duel = await this.readDuel(payer, matchId);
+  async closeMatch(payer: PlayerSigner, match: PublicKey): Promise<{ tee: string; commit: string }> {
+    const ad = addresses(match);
+    const duel = await this.readDuel(payer, match);
     const cancelled = duel?.status === STATUS.cancelled;
     const ix = cancelled
       ? await this.program.methods
@@ -489,8 +456,8 @@ export class TradingDuelChain {
   // -- reads ---------------------------------------------------------------------------------
 
   /** The public Duel in the rollup (readable by anyone through a Player's token). */
-  async readDuel(viewer: PlayerSigner, matchId: bigint | number): Promise<Duel | null> {
-    const ad = addresses(matchId);
+  async readDuel(viewer: PlayerSigner, match: PublicKey): Promise<Duel | null> {
+    const ad = addresses(match);
     const conn = await this.teeConnection(viewer);
     const info = await conn.getAccountInfo(ad.duel).catch(() => null);
     if (!info || (!info.owner.equals(DELEGATION_PROGRAM_ID) && !info.owner.equals(TRADING_DUEL_PROGRAM_ID))) return null;
@@ -498,16 +465,16 @@ export class TradingDuelChain {
   }
 
   /** The Duel on the base layer (final result once committed back). */
-  async readDuelOnBase(matchId: bigint | number): Promise<Duel | null> {
-    const ad = addresses(matchId);
+  async readDuelOnBase(match: PublicKey): Promise<Duel | null> {
+    const ad = addresses(match);
     const info = await this.base.getAccountInfo(ad.duel);
     if (!info || !info.owner.equals(TRADING_DUEL_PROGRAM_ID)) return null;
     return decodeDuel(ad.duel, this.program.coder.accounts.decode("duel", info.data));
   }
 
   /** Your own Book through your TEE token; `null` for anything you may not read. */
-  async readOwnBook(player: PlayerSigner, matchId: bigint | number, seat: 0 | 1): Promise<Book | null> {
-    const ad = addresses(matchId);
+  async readOwnBook(player: PlayerSigner, match: PublicKey, seat: 0 | 1): Promise<Book | null> {
+    const ad = addresses(match);
     const conn = await this.teeConnection(player);
     const address = seat === 0 ? ad.book0 : ad.book1;
     const info = await conn.getAccountInfo(address).catch(() => null);

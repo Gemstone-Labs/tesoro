@@ -1,6 +1,5 @@
 "use client";
 
-import type { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, ChainChip, Chip, ClockIcon, CrossChainProgress } from "@/components/ui";
 import { ReturnOwnSheet, useReturnable } from "./MoneySheets";
@@ -49,7 +48,6 @@ import {
   fetchEthPrice,
   getTestSimEth,
   openEthPosition,
-  instantRedeemToEvm,
   redeemToEvm,
   freshenYield,
   takeEthAdvance,
@@ -659,7 +657,7 @@ export function EthPositionCard({ position, market, label, compact }: { position
       let amount = redeemable;
       try {
         if (await freshenYield(ctx, { vault: ref.vault, id: ref.id, action: "redeem", waitingGemas: holding.pending, onStatus: setWaitNote })) {
-          const fresh = (await fetchAccountState(ctx.signer.publicKey, { fresh: true })).holdings.find((h) => h.holding.equals(holding.holding));
+          const fresh = (await fetchAccountState(ctx.signer.publicKey, { fresh: true })).holdings.find((h) => h.key === holding.key);
           amount = fresh?.redeemable ?? amount;
         }
       } finally {
@@ -669,7 +667,7 @@ export function EthPositionCard({ position, market, label, compact }: { position
         await refresh();
         throw new Error(NOTHING_REDEEMABLE_YET);
       }
-      await redeemEthSource(ctx, address, ref, holding.source, amount);
+      await redeemEthSource(ctx, address, ref, holding, amount);
       await refresh();
     });
   const unlock = () =>
@@ -682,7 +680,7 @@ export function EthPositionCard({ position, market, label, compact }: { position
       }
       const fresh = await fetchEthState(getChain().base, ref.vault, ref.id, ctx.signer.publicKey);
       if (!fresh.source || debtGemas(fresh.source.math) > 0n) throw new Error("It is not paid back yet. Try again in a moment.");
-      const sig = await unlockEth(ctx.signer, position.address);
+      const sig = await unlockEth(ctx.signer, position.address, position.advance ? Number(position.advances) - 1 : null);
       addOp(address, { kind: "unlock", vault: ref.vault, id: ref.id.toString(), hash: sig });
       await refresh();
     });
@@ -738,35 +736,18 @@ export function EthPositionCard({ position, market, label, compact }: { position
 // ---- Redeem rows (Wallet Redeem sheet) --------------------------------------------------------------------------
 
 /** `redeem_to_evm` for one Source of an ETH or HYPE Position, then a tracker keyed to that Source's Claim and to this redemption's units. */
-async function redeemEthSource(ctx: EthCtx, address: string, ref: { vault: string; id: bigint }, source: PublicKey, gemas: bigint) {
+async function redeemEthSource(ctx: EthCtx, address: string, ref: { vault: string; id: bigint }, h: ChainHolding, gemas: bigint) {
+  const source = h.source;
   const base = getChain().base;
   const holder = ctx.signer.publicKey;
   const head = await fetchEthState(base, ref.vault, ref.id, holder);
   const sourceIndex = head.core ? ethSourceIndex(head.core.position, source, head.core.advances) : null;
   if (sourceIndex === null) throw new Error("This Gemas holding is not from an Advance of this Lock.");
   const [before, fromBlock] = await Promise.all([fetchEthState(base, ref.vault, ref.id, holder, sourceIndex), evmClient(netOfVault(ref.vault)).getBlockNumber()]);
-  const sig = await redeemToEvm(ctx.signer, head.core!.position, source, gemas, ref.vault);
+  const sig = await redeemToEvm(ctx.signer, h, gemas, ref.vault);
   const after = await fetchEthState(base, ref.vault, ref.id, holder, sourceIndex);
   const total = after.claim?.unitsTotal ?? 0n;
   addOp(address, { kind: "redeem", vault: ref.vault, id: ref.id.toString(), hash: sig, sourceIndex, baseline: total.toString(), units: (total - (before.claim?.unitsTotal ?? 0n)).toString(), fromBlock: fromBlock.toString() });
-}
-
-/**
- * Instant Redeem of won ETH- or HYPE-Sourced Gemas: `instant_redeem_to_evm` (the Treasury buys them and the bridge records the payout), then a
- * tracker keyed to this Source's Instant Claim; `send_pay_instant` and the vault's payout follow.
- */
-export async function instantRedeemEthSource(ctx: EthCtx, ref: { vault: string; id: bigint }, source: PublicKey, gemas: bigint) {
-  const base = getChain().base;
-  const holder = ctx.signer.publicKey;
-  const head = await fetchEthState(base, ref.vault, ref.id, holder);
-  const sourceIndex = head.core ? ethSourceIndex(head.core.position, source, head.core.advances) : null;
-  if (sourceIndex === null) throw new Error("This Gemas holding is not from an Advance of this Lock.");
-  const [before, fromBlock] = await Promise.all([fetchEthState(base, ref.vault, ref.id, holder, sourceIndex), evmClient(netOfVault(ref.vault)).getBlockNumber()]);
-  await ensureEvmLinked(ctx);
-  const sig = await instantRedeemToEvm(ctx.signer, head.core!.position, source, gemas, ref.vault);
-  const after = await fetchEthState(base, ref.vault, ref.id, holder, sourceIndex);
-  const total = after.instantClaim?.unitsTotal ?? 0n;
-  addOp(ctx.signer.publicKey.toBase58(), { kind: "instant", vault: ref.vault, id: ref.id.toString(), hash: sig, sourceIndex, baseline: total.toString(), units: (total - (before.instantClaim?.unitsTotal ?? 0n)).toString(), fromBlock: fromBlock.toString() });
 }
 
 /**
@@ -798,7 +779,7 @@ export async function redeemEthHoldings(ctx: EthCtx, holdings: ChainHolding[], o
   // A holder who won ETH- or HYPE-Sourced Gemas may never have opened an ETH Position: the bridge pays to the linked EVM address.
   await ensureEvmLinked(ctx);
   const address = ctx.signer.publicKey.toBase58();
-  for (const h of rows) await redeemEthSource(ctx, address, { vault: h.eth!.vault, id: h.eth!.id }, h.source, h.redeemable);
+  for (const h of rows) await redeemEthSource(ctx, address, { vault: h.eth!.vault, id: h.eth!.id }, h, h.redeemable);
   return { count: rows.length, gemas: rows.reduce((n, h) => n + h.redeemable, 0n) };
 }
 

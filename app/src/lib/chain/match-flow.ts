@@ -2,12 +2,16 @@ import "./polyfill";
 import { PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, type ChainSigner, type Seat } from "@/games/block-puzzle/chain";
-import { duelMatchId } from "@/games/trading-duel/chain";
 import type { GameId } from "@/lib/mock/types";
 import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
 import { ensureSol, type GetToken } from "./demo-client";
-import { EntryError, planEntry } from "./ledger";
+import { DrawError } from "./draw";
+import { openEntry, joinEntry } from "./entry-flow";
+import { readEntryStores, type BackingRef } from "./entry";
+import { entryError } from "./entry-errors";
+import type { StagedEntry } from "./ticket";
+import { matchKeyOf } from "./match-id";
 import { queueEntry, type Entered, type QueueDeps } from "./queue";
 import { fetchAccountState, fetchMatch, listLiveMatchIds, listQueueMatchIds, type AccountSnapshot, type ChainMatch } from "./read";
 import { plainError } from "@/lib/errors";
@@ -17,31 +21,23 @@ import { BRAND } from "../brand";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export { GAME_IDS } from "./games";
-import { GAME_IDS } from "./games";
 
 /**
- * Match ids are chosen by the opener (ms clock, doubled). tesoro_core has no Queue/Challenge
- * concept, so the lowest bit marks a Challenge: odd ids are only joined through their link and are
- * never picked by the Queue. Trading Duel ids are `ms * 8 + asset * 2 + challenge`: bits 1 and 2 carry
- * the asset the Match trades, so the Queue is per asset and nobody can change it later.
+ * A Match is named by its opener's Account and the opener's counter: `<opener>-<n>`. The Player learns the key before
+ * the transaction lands (`n` is the counter value the open will use). Challenge, Trading Duel asset and opening time
+ * are fields of the Match, not bits of an id.
  */
-export function newMatchId(challenge: boolean, game: GameId = "block-puzzle", asset: 0 | 1 | 2 = 0): bigint {
-  if (game === "trading-duel") return duelMatchId(asset, challenge);
-  return BigInt(Date.now()) * 2n + (challenge ? 1n : 0n);
+export async function nextMatchKey(authority: PublicKey): Promise<string> {
+  const account = BlockPuzzleChain.coreAccount(authority);
+  const stores = await readEntryStores(account);
+  return matchKeyOf({ opener: account.toBase58(), n: stores.nextMatch });
 }
 
-export const isChallengeId = (id: bigint) => (id & 1n) === 1n;
+/** What a refused or impossible entry says to the Player (plain words). */
+export const entryFailure = entryError;
 
-/** Holdings an entry of `entry` Gemas draws on, in tesoro_core's canonical order. */
-export function entryHoldings(snapshot: AccountSnapshot, entry: number): PublicKey[] {
-  const idx = planEntry(
-    BigInt(entry),
-    snapshot.holdings.map((h) => ({ source: h.source.toBytes(), isOwn: h.isOwn, free: h.free })),
-  );
-  return idx.map((i) => snapshot.holdings[i].holding);
-}
+export { DrawError as EntryError };
 
-export { EntryError };
 export { QueueUnconfirmedError, type Entered } from "./queue";
 
 /** `create_account`: the wallet's TesoroAccount. */
@@ -57,14 +53,17 @@ export const createAccountIx = (authority: PublicKey): Promise<TransactionInstru
     })
     .instruction();
 
-/** SOL for fees and rent (demo faucet if needed) and the TesoroAccount itself. */
+/**
+ * The Account exists and its state is fresh. SOL is only needed to create the Account (the Player pays that rent);
+ * entering, joining and leaving are sponsored, with the Player paying only when the relayer cannot.
+ */
 export async function ensureReady(signer: ChainSigner, getToken: GetToken, onStep?: (s: string) => void): Promise<AccountSnapshot> {
-  onStep?.("Checking your SOL and Account…");
-  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
-  // Fresh: an entry draws on these Holdings, and Gemas opened a moment ago are not in the cached lists yet.
+  onStep?.("Checking your Account…");
+  // Fresh: an entry draws on the Gemas in the basket, and Gemas opened a moment ago are not in the cached lists yet.
   let snap = await fetchAccountState(signer.publicKey, { fresh: true });
   if (!snap.exists) {
     onStep?.(`Creating your ${BRAND.name} Account…`);
+    await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
     await getChain().sendBase(signer, [await createAccountIx(signer.publicKey)]);
     snap = await fetchAccountState(signer.publicKey, { fresh: true });
   }
@@ -104,30 +103,40 @@ export function queueDeps(signer: ChainSigner, me: PublicKey, game: GameId, entr
     readMatch: (id) => fetchMatch(id, me),
     settle: (e) => chain.txOutcome(e),
     unfinished: () => unfinishedMatches(signer, me, game),
-    newId: () => newMatchId(false, game, asset),
+    newId: () => nextMatchKey(signer.publicKey),
   };
 }
 
 /** Queue: join the oldest open Match at this entry from another Account, else open one. */
-export async function enterQueue(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", onStep?: (s: string) => void, asset: 0 | 1 | 2 = 0): Promise<Entered> {
-  const chain = getChain();
+export async function enterQueue(
+  signer: ChainSigner,
+  entry: number,
+  getToken: GetToken,
+  game: GameId = "block-puzzle",
+  onStep?: (s: string) => void,
+  asset: 0 | 1 | 2 = 0,
+  backing?: BackingRef,
+  /** After a definite failure: false when the entry can no longer be used (a spent Offer). */
+  canRetry?: () => Promise<boolean>,
+  /** Progress of a long entry prepared in steps (an Entry Ticket). */
+  onStaged?: (s: StagedEntry) => void,
+): Promise<Entered> {
   const snap = await ensureReady(signer, getToken);
-  const holdings = entryHoldings(snap, entry);
+  const common = { signer, getToken, game, entry, backing, onStep, onStaged };
   return queueEntry({
     ...queueDeps(signer, snap.accountKey, game, entry, asset),
-    join: (id) => chain.joinMatch(signer, id, holdings, GAME_IDS[game]),
-    open: (id) => chain.openMatch(signer, id, entry, holdings, GAME_IDS[game]),
+    join: (key) => joinEntry({ ...common, key }),
+    open: () => openEntry({ ...common, challenge: false, asset: game === "trading-duel" ? asset : 0 }),
+    canRetry,
     onStep,
   });
 }
 
-/** Challenge: open a Match only reachable through its link. */
-export async function createChallenge(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", asset: 0 | 1 | 2 = 0, onStep?: (s: string) => void): Promise<bigint> {
-  const snap = await ensureReady(signer, getToken, onStep);
-  const id = newMatchId(true, game, asset);
+/** Challenge: open a Match only reachable through its link. Resolves with the Match key. */
+export async function createChallenge(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", asset: 0 | 1 | 2 = 0, onStep?: (s: string) => void, backing?: BackingRef, onStaged?: (s: StagedEntry) => void): Promise<string> {
+  await ensureReady(signer, getToken, onStep);
   onStep?.("Opening your Challenge…");
-  await getChain().openMatch(signer, id, entry, entryHoldings(snap, entry), GAME_IDS[game]);
-  return id;
+  return (await openEntry({ signer, getToken, game, entry, backing, onStep, onStaged, challenge: true, asset: game === "trading-duel" ? asset : 0 })).key;
 }
 
 export class ChallengeError extends Error {
@@ -144,14 +153,14 @@ export class ChallengeError extends Error {
 }
 
 /** Opening a Challenge link joins it. Already-joined participants just continue to the Match. */
-export async function joinChallenge(signer: ChainSigner, id: bigint, getToken: GetToken): Promise<void> {
+export async function joinChallenge(signer: ChainSigner, key: string, getToken: GetToken, backing?: BackingRef, onStaged?: (s: StagedEntry) => void): Promise<void> {
   const snap = await ensureReady(signer, getToken);
-  const m = await fetchMatch(id, snap.accountKey);
+  const m = await fetchMatch(key, snap.accountKey);
   if (!m) throw new ChallengeError("missing");
   if (!m.challenge) throw new ChallengeError("not-challenge");
   if (m.seat !== null) return;
   if (m.status !== "open") throw new ChallengeError("taken");
-  await getChain().joinMatch(signer, id, entryHoldings(snap, m.entry), GAME_IDS[m.game]);
+  await joinEntry({ signer, getToken, game: m.game, entry: m.entry, backing, key, onStaged });
 }
 
 // ---- Match orchestration --------------------------------------------------------------------
@@ -214,7 +223,7 @@ export async function probeRun(signer: ChainSigner, m: ChainMatch, verifySeed = 
  * Seed (VRF inside the rollup). Idempotent; the other Player's client (or a keeper) may do the same
  * steps in the same moment.
  */
-export async function prepareRun(signer: ChainSigner, id: bigint, seat: Seat, onStep: (s: string) => void): Promise<void> {
+export async function prepareRun(signer: ChainSigner, id: string, seat: Seat, onStep: (s: string) => void): Promise<void> {
   const chain = getChain();
   const a = BlockPuzzleChain.addresses(id);
   const tolerate = async (fn: () => Promise<unknown>, done: () => Promise<boolean>) => {
@@ -283,7 +292,7 @@ export async function prepareRun(signer: ChainSigner, id: bigint, seat: Seat, on
 }
 
 /** The Player's move stream for one Match, wired to the chain (see run-submitter.ts). */
-export function runSubmitter(signer: ChainSigner, id: bigint, seat: Seat): RunSubmitter {
+export function runSubmitter(signer: ChainSigner, id: string, seat: Seat): RunSubmitter {
   const chain = getChain();
   return new RunSubmitter({
     play: (moves) => chain.play(signer, id, seat, moves),
@@ -301,7 +310,7 @@ export type SettleOutcome = "settled" | "waiting-opponent" | "commit-pending" | 
  * Once the deadline of a Board's Player has passed, anyone may put an unplayed Board in the rollup
  * and give it its permission so it can be sealed (its Player forfeits). No-op before that.
  */
-async function bringForfeitedBoardsIn(signer: ChainSigner, id: bigint, session: NonNullable<ChainMatch["session"]>) {
+async function bringForfeitedBoardsIn(signer: ChainSigner, id: string, session: NonNullable<ChainMatch["session"]>) {
   const chain = getChain();
   const a = BlockPuzzleChain.addresses(id);
   const now = Date.now() / 1000;
@@ -328,7 +337,7 @@ async function bringForfeitedBoardsIn(signer: ChainSigner, id: bigint, session: 
  */
 export async function trySettle(
   signer: ChainSigner,
-  id: bigint,
+  id: string,
   session?: ChainMatch["session"],
   opts: { sealed?: boolean; onSent?: () => void } = {},
 ): Promise<{ outcome: SettleOutcome; sig?: string; error?: string }> {
@@ -367,7 +376,7 @@ export async function canClaimTimeout(m: ChainMatch): Promise<boolean> {
   return (await isProgramOwned(a.boards[0])) && (await isProgramOwned(a.boards[1]));
 }
 
-export const claimTimeout = (signer: ChainSigner, id: bigint) => getChain().claimTimeout(signer, id);
+export const claimTimeout = (signer: ChainSigner, id: string) => getChain().claimTimeout(signer, id);
 
 /** Opener cancels an unjoined Match (or anyone, after its refund deadline) and gets the entry back. */
-export const refundMatch = (signer: ChainSigner, id: bigint) => getChain().refundMatch(signer, id);
+export const refundMatch = (signer: ChainSigner, id: string) => getChain().refundMatch(signer, id);

@@ -9,9 +9,11 @@ import {
 } from "@solana/web3.js";
 import { CLUSTER } from "../cluster-settings";
 import { debtGemas, sourceView, unitsToRepayTotal, type SourceMath } from "./ledger";
-import { parseFeeMinted, parsePoolTotals, parseTreasury, parseVaultShares, type TreasuryRates } from "./fees";
+import { parseFeeMinted, parseNativeRoute, parsePoolTotals, parseTreasury, parseVaultShares, type RouteView, type TreasuryRates } from "./fees";
 import { DEFAULT_YIELD_FEE_BPS, SPEEDUP, advanceUnits, positionAccrued, secondsUntilNet, type PoolTotals, type PositionClock, type StakeGrowth } from "./yield";
 import type { StakeMarket } from "./stake";
+import { coreIx } from "./core-ix";
+import { basketPda, bookPda, spillPda, type LineRef } from "./basket";
 
 /**
  * Solana-native Positions (one shared simSOL custody, tesoro_core) and the SIMULATED sim_lst pool. Instructions
@@ -110,7 +112,6 @@ export const sourcePda = (position: PublicKey, index: number) => {
   view(i).setUint32(0, index, true);
   return pda([s("source"), position.toBuffer(), i]);
 };
-export const holdingPda = (account: PublicKey, source: PublicKey) => pda([s("holding"), account.toBuffer(), source.toBuffer()]);
 export const simSolAta = (owner: PublicKey) =>
   PublicKey.findProgramAddressSync([owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), SIM_SOL_MINT.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID)[0];
 
@@ -159,25 +160,42 @@ export const setPriceIx = (oracle: PublicKey, priceMicroUsd: bigint) =>
 
 /** `position` is `await positionPda(owner, nonce)`. */
 export function openNativePositionIx(owner: PublicKey, nonce: bigint | number, lstAmount: bigint, position: PublicKey) {
-  return core(
-    [
-      meta(owner, true, true),
-      meta(accountPda(owner)),
-      meta(POOL),
-      meta(SIM_SOL_MINT),
-      meta(simSolAta(owner), true),
-      meta(position, true),
-      meta(treasuryPda()),
-      meta(nativeCustodyPda(), true),
-      meta(nativeVaultPda(), true),
-      meta(TOKEN_PROGRAM_ID),
-      meta(SystemProgram.programId),
-    ],
+  return coreIx(
     "open_native_position",
-    u64(nonce),
-    u64(lstAmount),
+    {
+      owner_authority: owner,
+      owner_account: accountPda(owner),
+      pool: POOL,
+      mint: SIM_SOL_MINT,
+      owner_token: simSolAta(owner),
+      position,
+      treasury: treasuryPda(),
+      custody: nativeCustodyPda(),
+      vault: nativeVaultPda(),
+    },
+    { nonce: BigInt(nonce), lst_amount: lstAmount },
   );
 }
+
+/** A line of a Source in the holder's basket or spill, and the accounts a Redeem or Return of it reads: the Source's book, then its checkpoint pages. */
+export interface LineTarget {
+  line: LineRef;
+  accounts: PublicKey[];
+}
+
+/** The previous Advance an Advance closes: its index on the Position and its book with the checkpoint pages. */
+export interface PrevAdvance {
+  index: number;
+  accounts: PublicKey[];
+}
+
+const writable = (keys: PublicKey[]): AccountMeta[] => keys.map((k) => meta(k, true));
+
+/** The accounts of a native Position's kind after an instruction's own, when nothing is paid out: the shared custody and the pool. */
+export const nativeKindAccounts = (): AccountMeta[] => [meta(nativeCustodyPda(), true), meta(POOL)];
+
+/** The same when the instruction pays simSOL into `dest`: custody, vault, then the pool, destination, mint and the yield minting accounts. */
+export const nativePayingAccounts = (dest: PublicKey): AccountMeta[] => [meta(nativeCustodyPda(), true), meta(nativeVaultPda(), true), ...yieldRemaining(dest)];
 
 // --- Mainnet prices: Pyth sponsored push feeds (ADR 0011) ---------------------------------------------
 
@@ -228,51 +246,56 @@ export function parseSolPrice(info: AccountInfo<Uint8Array> | null): PriceFeedVi
 }
 
 /**
- * `advances` is the Position's advance count before this one (0 for a new Position). `openAdvance` is the
- * Position's open Advance, which the program closes here: required whenever one is open, even at Debt 0.
+ * `advances` is the Position's advance count before this one (0 for a new Position). `prev` is the Position's open Advance,
+ * which the program closes here: required whenever one is open, even at Debt 0 (its Source, then its book and checkpoint pages).
  * On a cluster with Pyth prices (`CLUSTER.priceSource === "onchain"`) the price is read from the asset's mapped feed.
  */
-export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number, openAdvance: number | null = null) {
+export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number, prev: PrevAdvance | null = null) {
   const source = sourcePda(position, advances);
-  const price = CLUSTER.priceSource === "onchain" ? [meta(onchainPricePda(SIM_SOL_MINT)), meta(pythFeedAddress("SOL"))] : [meta(PRICE_FEED)];
-  return core(
-    [
-      meta(owner, true, true),
-      meta(accountPda(owner), true),
-      meta(protectionsPda(accountPda(owner))),
-      meta(position, true),
-      ...price,
-      meta(POOL),
-      // Optional account: the program id stands for `None`.
-      meta(openAdvance === null ? TESORO_CORE_ID : sourcePda(position, openAdvance), openAdvance !== null),
-      meta(source, true),
-      meta(holdingPda(accountPda(owner), source), true),
-      meta(SystemProgram.programId),
-    ],
-    CLUSTER.priceSource === "onchain" ? "take_native_advance_onchain" : "take_native_advance",
-    Buffer.from([months]),
+  const onchain = CLUSTER.priceSource === "onchain";
+  return coreIx(
+    onchain ? "take_native_advance_onchain" : "take_native_advance",
+    {
+      owner_authority: owner,
+      owner_account: accountPda(owner),
+      protections: protectionsPda(accountPda(owner)),
+      position,
+      ...(onchain ? { onchain_price: onchainPricePda(SIM_SOL_MINT), price_feed: pythFeedAddress("SOL") } : { price_feed: PRICE_FEED }),
+      pool: POOL,
+      source,
+      book: bookPda(source),
+    basket: basketPda(accountPda(owner)),
+      spill: spillPda(accountPda(owner)),
+    },
+    { horizon_months: months },
+    prev ? [meta(sourcePda(position, prev.index)), ...writable(prev.accounts)] : [],
   );
 }
 
 export const extendLimitPda = (account: PublicKey) => pda([s("extend_limit"), account.toBuffer()]);
 
-/** `info.source.index` is the Position's open Advance; the owner signs alone and `extraMonths` is added to its Horizon (1 to 12 minus the Horizon so far). The owner pays for their Extend Limit account on the first Extend (ADR 0009). */
-export function extendNativeAdvanceIx(owner: PublicKey, position: PublicKey, source: number, extraMonths: number) {
-  const src = sourcePda(position, source);
-  return core(
-    [
-      meta(owner, true, true),
-      meta(accountPda(owner), true),
-      meta(protectionsPda(accountPda(owner))),
-      meta(position, true),
-      meta(POOL),
-      meta(src, true),
-      meta(holdingPda(accountPda(owner), src), true),
-      meta(extendLimitPda(accountPda(owner)), true),
-      meta(SystemProgram.programId),
-    ],
+/**
+ * `source` is the Position's open Advance; the owner signs alone and `extraMonths` is added to its Horizon (1 to 12 minus the Horizon so far).
+ * `book` is that Source's book and checkpoint pages. The owner pays for their Extend Limit account on the first Extend (ADR 0009) and for the
+ * book's new class.
+ */
+export function extendNativeAdvanceIx(owner: PublicKey, position: PublicKey, source: number, extraMonths: number, book: PublicKey[]) {
+  const account = accountPda(owner);
+  return coreIx(
     "extend_native_advance",
-    Buffer.from([extraMonths]),
+    {
+      owner_authority: owner,
+      owner_account: account,
+      protections: protectionsPda(account),
+      position,
+      pool: POOL,
+      source: sourcePda(position, source),
+      basket: basketPda(account),
+      spill: spillPda(account),
+      extend_limit: extendLimitPda(account),
+    },
+    { extra_months: extraMonths },
+    writable(book),
   );
 }
 
@@ -330,130 +353,95 @@ const yieldRemaining = (dest: PublicKey): AccountMeta[] => [
   meta(TOKEN_PROGRAM_ID),
 ];
 
-/** Redeem Gemas of `source`: the holder is paid simSOL into their own token account. */
-export function redeemIx(holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint) {
+/** Redeem Gemas of one line: the holder is paid simSOL into their own token account (it must exist). */
+export function redeemIx(holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, target: LineTarget) {
   const account = accountPda(holder);
-  const i = core(
-    [meta(holder, false, true), meta(account, true), meta(position), meta(source, true), meta(holdingPda(account, source), true)],
+  return coreIx(
     "redeem",
-    u64(gemas),
+    { holder_authority: holder, holder_account: account, basket: basketPda(account), spill: spillPda(account), position, source },
+    { line: lineArg(target.line), amount: gemas },
+    [...nativePayingAccounts(simSolAta(holder)), ...writable(target.accounts)],
   );
-  i.keys.push(...yieldRemaining(simSolAta(holder)));
-  return i;
 }
 
-/**
- * Instant Redeem: the holder sells won Gemas of a native Source and the treasury vault pays simSOL into
- * their token account in the same transaction (fails when the vault holds less).
- */
-export function instantRedeemIx(holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint) {
-  const account = accountPda(holder);
-  const treasuryAccount = treasuryAccountPda();
-  return core(
-    [
-      meta(holder, true, true),
-      meta(account, true),
-      meta(position),
-      meta(source),
-      meta(holdingPda(account, source), true),
-      meta(treasuryPda(), true),
-      meta(treasuryAccount, true),
-      meta(holdingPda(treasuryAccount, source), true),
-      meta(treasuryVaultPda(), true),
-      meta(simSolAta(holder), true),
-      meta(POOL),
-      // The Treasury pays from its vault first and mints the rest of what it has earned.
-      meta(nativeCustodyPda()),
-      meta(SIM_SOL_MINT, true),
-      meta(yieldConfigPda()),
-      meta(yieldAuthorityPda()),
-      meta(SIM_LST_ID),
-      meta(TOKEN_PROGRAM_ID),
-      meta(SystemProgram.programId),
-    ],
-    "instant_redeem",
-    u64(gemas),
-  );
-}
+/** A `LineRef` as the IDL coder wants it. */
+export const lineArg = (l: LineRef) => ({ side: l.side, due_at: l.dueAt, class: l.class, tranche: l.tranche });
 
 /** Permissionless: the Treasury Account redeems Gemas it bought; the simSOL goes into the treasury vault. */
-export function redeemTreasuryIx(position: PublicKey, source: PublicKey, gemas: bigint) {
+export function redeemTreasuryIx(position: PublicKey, source: PublicKey, gemas: bigint, target: LineTarget) {
   const treasuryAccount = treasuryAccountPda();
-  const i = core(
-    [meta(treasuryPda()), meta(treasuryAccount, true), meta(position), meta(source, true), meta(holdingPda(treasuryAccount, source), true)],
+  return coreIx(
     "redeem_treasury",
-    u64(gemas),
+    { treasury: treasuryPda(), treasury_account: treasuryAccount, basket: basketPda(treasuryAccount), spill: spillPda(treasuryAccount), position, source },
+    { line: lineArg(target.line), amount: gemas },
+    [...nativePayingAccounts(treasuryVaultPda()), ...writable(target.accounts)],
   );
-  i.keys.push(...yieldRemaining(treasuryVaultPda()));
-  return i;
 }
 
 /** Admin: creates the Treasury or changes its rates (basis points of yield / of the Gemas' value). */
-export const initTreasuryIx = (admin: PublicKey, yieldFeeBps: number, instantFeeBps: number) => {
-  const bps = Buffer.alloc(4);
-  view(bps).setUint16(0, yieldFeeBps, true);
-  view(bps).setUint16(2, instantFeeBps, true);
-  return core(
-    [
-      meta(admin, true, true),
-      meta(CONFIG),
-      meta(treasuryPda(), true),
-      meta(treasuryAccountPda(), true),
-      meta(SIM_SOL_MINT),
-      meta(treasuryVaultPda(), true),
-      meta(TOKEN_PROGRAM_ID),
-      meta(SystemProgram.programId),
-    ],
+export const initTreasuryIx = (admin: PublicKey, yieldFeeBps: number, instantFeeBps: number) =>
+  coreIx(
     "init_treasury",
-    bps,
+    {
+      admin,
+      config: CONFIG,
+      treasury: treasuryPda(),
+      treasury_account: treasuryAccountPda(),
+      mint: SIM_SOL_MINT,
+      treasury_vault: treasuryVaultPda(),
+      token_program: TOKEN_PROGRAM_ID,
+    },
+    { yield_fee_bps: yieldFeeBps, instant_fee_bps: instantFeeBps },
   );
-};
 
 /** Admin: moves simSOL from the admin's token account into the treasury vault. */
 export const fundTreasuryIx = (admin: PublicKey, shares: bigint) =>
-  core(
-    [meta(admin, false, true), meta(CONFIG), meta(treasuryPda(), true), meta(treasuryVaultPda(), true), meta(simSolAta(admin), true), meta(TOKEN_PROGRAM_ID)],
+  coreIx(
     "fund_treasury",
-    u64(shares),
+    { admin, config: CONFIG, treasury: treasuryPda(), custody: nativeCustodyPda(), treasury_vault: treasuryVaultPda(), admin_token: simSolAta(admin), token_program: TOKEN_PROGRAM_ID },
+    { shares },
   );
 
 /**
  * Debt must be zero at the clock. Returns the Principal from the shared vault and mints the free yield to the owner.
- * `openAdvance` is the Position's open Advance, which the program closes here (its Source is required whenever one is open).
+ * `open` is the Position's open Advance, which the program closes here (its Source, then its book and pages, are required whenever one is open).
  */
-export function unlockIx(owner: PublicKey, position: PublicKey, openAdvance: number | null = null) {
-  const i = core([meta(owner, false, true), meta(accountPda(owner)), meta(position, true)], "unlock");
-  i.keys.push(meta(nativeCustodyPda(), true), meta(nativeVaultPda(), true), ...yieldRemaining(simSolAta(owner)));
-  if (openAdvance !== null) i.keys.push(meta(sourcePda(position, openAdvance), true));
-  return i;
+export function unlockIx(owner: PublicKey, position: PublicKey, open: PrevAdvance | null = null) {
+  const account = accountPda(owner);
+  return coreIx(
+    "unlock",
+    { owner_authority: owner, owner_account: account, economy: pda([s("economy")]), position },
+    {},
+    [...nativePayingAccounts(simSolAta(owner)), ...(open ? [meta(sourcePda(position, open.index), true), ...writable(open.accounts)] : [])],
+  );
 }
 
-/** The accounts a native `return_own` adds after its own: the sim_lst pool, whose speedup times the Position's yield. */
-export const returnOwnRemaining = (): AccountMeta[] => [meta(POOL)];
+/** The accounts a native `return_own` adds after its own: the custody and the pool, then the Source's book and pages. */
+export const returnOwnRemaining = (): AccountMeta[] => nativeKindAccounts();
 
 /** Admin: sets the wallet `withdraw_treasury` pays. Required before any withdrawal. */
 export const setTreasuryCompanyIx = (admin: PublicKey, company: PublicKey) =>
-  core([meta(admin, false, true), meta(CONFIG), meta(treasuryPda(), true)], "set_treasury_company", company.toBuffer());
+  coreIx("set_treasury_company", { admin, config: CONFIG, treasury: treasuryPda() }, { company });
 
 /** Admin: pays `units` (SOL base units) of the Treasury's balance to the company wallet's simSOL account. */
 export const withdrawTreasuryIx = (admin: PublicKey, company: PublicKey, units: bigint) =>
-  core(
-    [
-      meta(admin, false, true),
-      meta(CONFIG),
-      meta(treasuryPda(), true),
-      meta(treasuryVaultPda(), true),
-      meta(simSolAta(company), true),
-      meta(POOL),
-      meta(nativeCustodyPda()),
-      meta(SIM_SOL_MINT, true),
-      meta(yieldConfigPda()),
-      meta(yieldAuthorityPda()),
-      meta(SIM_LST_ID),
-      meta(TOKEN_PROGRAM_ID),
-    ],
+  coreIx(
     "withdraw_treasury",
-    u64(units),
+    {
+      admin,
+      config: CONFIG,
+      treasury: treasuryPda(),
+      treasury_vault: treasuryVaultPda(),
+      company_token: simSolAta(company),
+      pool: POOL,
+      custody: nativeCustodyPda(),
+      mint: SIM_SOL_MINT,
+      yield_config: yieldConfigPda(),
+      yield_authority: yieldAuthorityPda(),
+      sim_lst_program: SIM_LST_ID,
+      token_program: TOKEN_PROGRAM_ID,
+    },
+    { amount: units },
   );
 
 /** Admin, once: creates the shared custody and its simSOL vault. */
@@ -604,6 +592,8 @@ export interface NativeMarket {
   treasuryShares: bigint | null;
   /** What the earned, unminted Yield Fee is computed from; null while there is no Treasury or shared custody. */
   treasuryClaim: { totals: PoolTotals; feeMinted: bigint } | null;
+  /** The Treasury's shares on the shared custody's route (Instant Redeem fills pay from `spendable`); null before the custody exists. */
+  treasuryRoute?: RouteView | null;
   /** Mainnet: the staking token, its pool and the custody read; null on a simulated market, where `pool` is the sim_lst pool. */
   stake: StakeMarket | null;
 }
@@ -658,6 +648,7 @@ export function marketFrom([pool, feed, ata, treasuryInfo, treasuryVault, custod
     simSol,
     treasury,
     treasuryClaim: claim,
+    treasuryRoute: custodyInfo && custodyInfo.owner.equals(TESORO_CORE_ID) ? parseNativeRoute(custodyInfo.data) : null,
     stake: null,
     treasuryShares: treasury ? (treasuryVault && parseVaultShares(treasuryVault.data)) ?? 0n : null,
   };

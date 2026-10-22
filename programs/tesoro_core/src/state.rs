@@ -377,13 +377,32 @@ pub struct MatchState {
     pub payer: Pubkey,
     /// The Ticket account that is each side's Pot (the default key until the side joined).
     pub pots: [Pubkey; 2],
+    /// Slots held in Accounts' stores for the lines this Match will credit (`room_reserved` of
+    /// each spill counts them). Every credit that takes a new slot pays the holder's share down;
+    /// `close_match` hands back what is left.
+    pub room: [RoomHold; ROOM_HOLDS],
+}
+
+/// Slots of one Account's stores held for a Match.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
+pub struct RoomHold {
+    pub account: [u8; 32],
+    pub left: u32,
+}
+
+/// Distinct Accounts a Match can credit: both Players, both funders and an outside Studio.
+pub const ROOM_HOLDS: usize = 5;
+
+impl RoomHold {
+    pub const LEN: usize = 32 + 4;
 }
 
 impl MatchState {
     /// Largest Borsh size of `MatchRecord` (a Match with a joiner and a run in progress), checked
     /// by a unit test.
     pub const RECORD_LEN: usize = 486;
-    pub const SPACE: usize = 8 + 1 + Self::RECORD_LEN + 1 + 4 + 32 + 64;
+    pub const SPACE: usize =
+        8 + 1 + Self::RECORD_LEN + 1 + 4 + 32 + 64 + ROOM_HOLDS * RoomHold::LEN;
 
     pub fn id(&self) -> ledger::lifecycle::MatchId {
         self.inner.id
@@ -1281,13 +1300,13 @@ pub struct OldAccountRetired {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::ledger::lifecycle::*;
     use anchor_lang::AnchorSerialize;
 
-    #[test]
-    fn the_match_record_never_outgrows_its_account() {
+    /// The fullest Match: joined, Backed, an outside studio, a run started, every room hold used.
+    pub(crate) fn fullest_match_state() -> MatchState {
         // the fullest record: a joined Match with a Backed side, an outside studio and a run
         let party = Party {
             player: [1; 32],
@@ -1359,9 +1378,22 @@ mod tests {
             inner: rec,
             listed: true,
             listing_epoch: u32::MAX,
-            payer: Pubkey::new_unique(),
-            pots: [Pubkey::new_unique(); 2],
+            payer: Pubkey::new_from_array([60; 32]),
+            pots: [
+                Pubkey::new_from_array([61; 32]),
+                Pubkey::new_from_array([62; 32]),
+            ],
+            room: std::array::from_fn(|i| RoomHold {
+                account: [40 + i as u8; 32],
+                left: 3 + i as u32,
+            }),
         };
+        state
+    }
+
+    #[test]
+    fn the_match_record_never_outgrows_its_account() {
+        let state = fullest_match_state();
         let mut bytes = Vec::new();
         state.serialize(&mut bytes).unwrap();
         // 8 discriminator + bump, then the Borsh of the rest
@@ -1371,6 +1403,9 @@ mod tests {
             bytes.len(),
             MatchState::SPACE
         );
-        assert!(MatchState::RECORD_LEN >= bytes.len() - 1 - 1 - 4 - 32 - 64);
+        assert!(
+            MatchState::RECORD_LEN
+                >= bytes.len() - 1 - 1 - 4 - 32 - 64 - ROOM_HOLDS * RoomHold::LEN
+        );
     }
 }

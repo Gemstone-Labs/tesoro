@@ -27,7 +27,7 @@ export function VanguardSpectate({ m }: { m: ChainMatch }) {
     const conn = publicConnection();
     const read = async () => {
       try {
-        const b = finished ? await getVanguard().readBattleOnBase(m.id) : await readPublicBattle(conn, m.id);
+        const b = finished ? await getVanguard().readBattleOnBase(m.address) : await readPublicBattle(conn, m.address);
         if (!live) return;
         setBattle(b);
         setHidden(!b);
@@ -41,7 +41,7 @@ export function VanguardSpectate({ m }: { m: ChainMatch }) {
       live = false;
       clearTimeout(timer);
     };
-  }, [m.id, m.status, finished]);
+  }, [m.id, m.address, m.status, finished]);
 
   if (m.status === "open") return null;
   return <VanguardSpectateView battle={battle} hidden={hidden} />;
