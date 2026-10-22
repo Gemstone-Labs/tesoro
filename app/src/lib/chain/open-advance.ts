@@ -21,16 +21,17 @@ export interface OpenedAdvance {
  * Opens a Position and takes its Advance for `months` on the Player's basket: the Gemas land as one General line (planned repayment
  * `now + months`) in the Player's basket, creating the Account first when the wallet has none. This is the one call the beginner packs
  * make. The relayer cannot pay for it: the Source, its book and the Position are the Player's own rent, so the wallet needs a little SOL
- * (the test cluster tops it up). Throws the plain-language error of the failed step.
+ * (the test cluster tops it up). `minGemas` is the Gemas the pack shows: the program refuses the Advance rather than issue fewer. Throws the plain-language error of the failed step.
  */
 export async function openAndAdvance(
   signer: ChainSigner,
   getToken: GetToken,
   deposit: OpenDeposit,
   months: number,
+  minGemas: bigint,
   onStep: (s: string) => void = () => undefined,
   token?: StakeToken,
 ): Promise<OpenedAdvance> {
-  if (deposit.from === "simsol") return openPositionWithAdvance(signer, getToken, deposit.baseUnits, months, onStep);
-  return openStakePositionWithAdvance(signer, getToken, deposit, months, token, onStep);
+  if (deposit.from === "simsol") return openPositionWithAdvance(signer, getToken, deposit.baseUnits, months, minGemas, onStep);
+  return openStakePositionWithAdvance(signer, getToken, deposit, months, minGemas, token, onStep);
 }

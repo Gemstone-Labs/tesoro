@@ -42,6 +42,7 @@ import { GAME_IDS } from "./games";
 import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
 import { protectionsPda } from "./native";
+import { matchOverflowPda } from "./overflow";
 import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
 
 export { DrawError };
@@ -461,8 +462,12 @@ export function joinMatchIx(a: JoinArgs): TransactionInstruction {
   return coreIx("join_match", accounts, { potNonce: new BN(a.pot.nonce.toString()), potLines: a.pot.lines }, a.remaining ?? []);
 }
 
-/** Basket and spill of an outside Studio, passed so its fee line gets a hold (without them the Account gets none). */
-export const studioRemaining = (studio: PublicKey | null): AccountMeta[] => (studio ? [metaOf(basketPda(studio), true), metaOf(spillPda(studio), true)] : []);
+/**
+ * Basket and spill of an outside Studio (the join refuses without them) and its overflow record for this Match, named always:
+ * when the Studio's stores are full the join creates it, else it is left alone, and an unused writable address costs nothing.
+ */
+export const studioRemaining = (studio: PublicKey | null, match?: MatchRef): AccountMeta[] =>
+  studio ? [metaOf(basketPda(studio), true), metaOf(spillPda(studio), true), ...(match ? [metaOf(matchOverflowPda(studio, match), true)] : [])] : [];
 
 /**
  * The instructions of a join transaction: the best-effort grows (they need the relayer, so only when sponsored), then the join.

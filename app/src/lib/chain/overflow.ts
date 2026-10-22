@@ -1,6 +1,6 @@
 import "./polyfill";
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { BASKET_VERSION, DISC, basketPda, decodeStore, matchPda, spillPda } from "./basket";
+import { BASKET_VERSION, DISC, TESORO_CORE, basketPda, decodeStore, matchPda, spillPda } from "./basket";
 import { coreIx, metaOf } from "./core-ix";
 
 /**
@@ -17,6 +17,14 @@ export const OVERFLOW_DISC = Uint8Array.from([191, 210, 201, 203, 240, 85, 28, 1
 export const OVERFLOW_STORE_AT = DISC + 32 + 1 + 40;
 /** Where the owner Account's key sits in a record (the store header keeps it 8 bytes in): the memcmp offset for a list by owner. */
 export const OVERFLOW_OWNER_AT = OVERFLOW_STORE_AT + 8;
+/** The record address of `owner` for a Match: `["overflow", owner, kind, id[..32], id[32..]]`, id = the opener's Account then n (LE). */
+export function matchOverflowPda(owner: PublicKey, m: { opener: PublicKey; n: bigint | number }): PublicKey {
+  const id = new Uint8Array(40);
+  id.set(m.opener.toBytes(), 0);
+  new DataView(id.buffer).setBigUint64(32, BigInt(m.n), true);
+  return PublicKey.findProgramAddressSync([Buffer.from("overflow"), owner.toBuffer(), Buffer.from([OVERFLOW_KINDS.match]), id.slice(0, 32), id.slice(32)], TESORO_CORE)[0];
+}
+
 /** Lines one claim moves. */
 export const CLAIM_LINES = 4;
 

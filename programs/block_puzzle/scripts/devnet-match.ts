@@ -156,7 +156,7 @@ async function stakeFragmented(signer: ReturnType<typeof keypairSigner>, label: 
       .accountsPartial({ oracle: oracle.publicKey, config, ownerAccount: account, position, systemProgram: SystemProgram.programId })
       .instruction();
     const advance = await core.methods
-      .takeAdvance(6, new BN(150_000_000))
+      .takeAdvance(6, new BN(150_000_000), new BN(1))
       .accountsPartial({ oracle: oracle.publicKey, ownerAuthority: signer.publicKey, config, ownerAccount: account, position, source, holding, systemProgram: SystemProgram.programId })
       .instruction();
     const tx = new Transaction().add(open, advance);
@@ -197,7 +197,7 @@ async function stakeOne(signer: ReturnType<typeof keypairSigner>, label: string,
   }
   if (!(await exists(holding))) {
     const ix = await core.methods
-      .takeAdvance(6, new BN(150_000_000))
+      .takeAdvance(6, new BN(150_000_000), new BN(1))
       .accountsPartial({ oracle: oracle.publicKey, ownerAuthority: signer.publicKey, config, ownerAccount: account, position, source, holding, systemProgram: SystemProgram.programId })
       .instruction();
     const tx = new Transaction().add(ix);

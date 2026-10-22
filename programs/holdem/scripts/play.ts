@@ -164,7 +164,7 @@ async function setup() {
         TESORO_CORE_PROGRAM_ID,
       )[0];
       const adv = await tesoro.methods
-        .takeAdvance(6, new anchor.BN(150_000_000))
+        .takeAdvance(6, new anchor.BN(150_000_000), new anchor.BN(1))
         .accountsPartial({
           oracle: oracle.publicKey,
           ownerAuthority: kp.publicKey,
