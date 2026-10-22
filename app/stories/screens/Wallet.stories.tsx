@@ -36,8 +36,8 @@ export const GemasWaitingForRoom: Story = {
       snapshot: (a: string): AccountSnapshot => ({
         ...demoSnapshot(a),
         waiting: [
-          { address: new PublicKey(demoKey(990)), owner: new PublicKey(demoKey(991)), payer: new PublicKey(demoKey(992)), kind: 0, gemas: 270n, lines: 1, sources: [new PublicKey(demoKey(993))] },
-          { address: new PublicKey(demoKey(994)), owner: new PublicKey(demoKey(991)), payer: new PublicKey(demoKey(992)), kind: 1, gemas: 50n, lines: 1, sources: [new PublicKey(demoKey(995))] },
+          { address: new PublicKey(demoKey(990)), owner: new PublicKey(demoKey(991)), payer: new PublicKey(demoKey(992)), kind: 0, match: null, gemas: 270n, lines: 1, sources: [new PublicKey(demoKey(993))] },
+          { address: new PublicKey(demoKey(994)), owner: new PublicKey(demoKey(991)), payer: new PublicKey(demoKey(992)), kind: 1, match: null, gemas: 50n, lines: 1, sources: [new PublicKey(demoKey(995))] },
         ],
       }),
     },

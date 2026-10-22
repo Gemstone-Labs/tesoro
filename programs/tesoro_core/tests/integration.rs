@@ -5676,15 +5676,6 @@ fn an_outside_studio_at_its_maximum_gets_its_fee_line_in_an_overflow_record_and_
     d.env.send(&[claim], &caller, &[]).expect("claim");
     assert_eq!(d.env.fee_gemas(&studio_person), 60);
     assert!(
-        d.env.svm.get_account(&s(record)).is_some(),
-        "the Match is still open: its record stays, empty"
-    );
-    d.env.close_match(m).expect("close");
-    let claim = d
-        .env
-        .claim_overflow_ix(studio, record, d.bob.key, 4, Some(m));
-    d.env.send(&[claim], &caller, &[]).expect("sweep");
-    assert!(
         d.env.svm.get_account(&s(record)).is_none(),
         "the record is closed"
     );
@@ -5734,11 +5725,6 @@ fn a_backers_share_with_no_hold_and_full_stores_lands_in_an_overflow_record() {
     // the line has its own Source: the claim needs no book unless it merges
     b.d.env.send(&[claim], &caller, &[]).expect("claim");
     assert_eq!(b.d.env.gemas_of(&b.carol, b.d.b_source), 270);
-    b.d.env.close_match(id).expect("close");
-    let claim =
-        b.d.env
-            .claim_overflow_ix(carol.account, record, b.dave.key, 4, Some(id));
-    b.d.env.send(&[claim], &caller, &[]).expect("sweep");
     assert!(b.d.env.svm.get_account(&s(record)).is_none());
 }
 
