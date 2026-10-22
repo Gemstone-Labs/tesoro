@@ -9,6 +9,7 @@ import { stakeMarketFrom, stakeMarketKeys } from "./stake";
 import { positionAccrued } from "./yield";
 import { clockOf } from "./native";
 import { parseEthPositionId } from "./eth";
+import type { WaitingRecord } from "./overflow";
 import type { AccountSnapshot, ChainAdvance, ChainHolding, ChainPosition, StoreSummary } from "./read";
 
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
@@ -24,6 +25,8 @@ type Row = { publicKey: PublicKey; account: any };
 export interface StateSource {
   /** Every Position of one TesoroAccount, decoded. List reads may lag the chain. */
   lists(accountKey: PublicKey): Promise<Row[]>;
+  /** The Account's overflow records (Gemas waiting for room). A source without it, or a failed read, shows none. */
+  overflow?(accountKey: PublicKey): Promise<WaitingRecord[]>;
   /** Raw accounts in key order, null where missing. At most 100 keys. */
   infos(keys: PublicKey[]): Promise<Info[]>;
   balance(authority: PublicKey): Promise<number>;
@@ -85,6 +88,7 @@ function syncedBook(book: SourceBookView, pos: any, srcState: any, speedup: numb
 export async function readAccountState(src: StateSource, authority: PublicKey, accountKey: PublicKey): Promise<AccountSnapshot> {
   const lists = src.lists(accountKey);
   lists.catch(() => undefined);
+  const waiting = (src.overflow ? src.overflow(accountKey) : Promise.resolve([])).catch(() => [] as WaitingRecord[]);
   const [accountAndMarket, lamports] = await Promise.all([
     src.infos([accountKey, basketPda(accountKey), spillPda(accountKey), ...(REAL ? stakeMarketKeys(authority) : marketKeys(authority))]),
     src.balance(authority).catch(() => 0),
@@ -279,9 +283,11 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     };
   });
 
+  const records = await waiting;
   return {
     ...empty,
     exists: true,
+    ...(records.length ? { waiting: records } : {}),
     ownTotal: (basket?.header.ownTotal ?? 0n) + (spill?.header.ownTotal ?? 0n),
     wonTotal: (basket?.header.wonTotal ?? 0n) + (spill?.header.wonTotal ?? 0n),
     reservedTotal: basket?.header.reservedTotal ?? 0n,

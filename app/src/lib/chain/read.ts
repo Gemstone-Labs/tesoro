@@ -1,4 +1,5 @@
 import { PublicKey, type AccountInfo } from "@solana/web3.js";
+import bs58 from "bs58";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import { decodeBattle } from "@/games/vanguard/decode";
 import { VANGUARD_PROGRAM_ID } from "@/games/vanguard/chain";
@@ -14,6 +15,7 @@ import { readAccountState } from "./account-state";
 import { isCurrentPosition } from "./position-size";
 import { fetchRoutedState } from "./snapshot-wire";
 import type { NativeInfo, NativeMarket } from "./native";
+import { OVERFLOW_DISC, OVERFLOW_OWNER_AT, decodeOverflowRecord, type WaitingRecord } from "./overflow";
 import { matchPda, type LineRef } from "./basket";
 
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
@@ -190,6 +192,8 @@ export interface AccountSnapshot {
   market: NativeMarket | null;
   /** Matches this Account funded as a Backer without playing them. */
   funded: ChainMatch[];
+  /** Overflow records: Gemas that found no room in the stores (a win, a refund, a prize) and wait to be claimed. */
+  waiting?: WaitingRecord[];
   /** False while `matches` and `funded` are not read yet (they arrive after the rest of the Account). */
   matchesLoaded: boolean;
   fetchedAt: number;
@@ -565,6 +569,14 @@ async function ownedPositions(chain: ReturnType<typeof getChain>, owner: PublicK
     .map((r) => ({ publicKey: r.pubkey, account: chain.core.coder.accounts.decode("positionState", r.account.data) }));
 }
 
+/** The overflow records of one Account: Gemas that found no room in its stores. A failed read answers none (the Wallet just shows nothing waiting). */
+async function ownedOverflow(chain: ReturnType<typeof getChain>, owner: PublicKey): Promise<WaitingRecord[]> {
+  const rows = await chain.base.getProgramAccounts(chain.core.programId, {
+    filters: [{ memcmp: { offset: 0, bytes: bs58.encode(OVERFLOW_DISC) } }, { memcmp: { offset: OVERFLOW_OWNER_AT, bytes: owner.toBase58() } }],
+  });
+  return rows.flatMap((r) => decodeOverflowRecord(r.pubkey, r.account.data) ?? []);
+}
+
 /**
  * The Account without its Matches (`matchesLoaded` false): SOL, Gemas, Positions and the simSOL market.
  * Asks the server route first (one request; see server/snapshot.ts) and reads the chain itself when it
@@ -578,6 +590,7 @@ export async function fetchAccountState(authority: PublicKey, opts: { fresh?: bo
     {
       // PositionState: disc 8 + bump 1 + position_id 32, then `inner.owner`.
       lists: (key) => ownedPositions(chain, key),
+      overflow: (key) => ownedOverflow(chain, key),
       infos: (keys) => chain.base.getMultipleAccountsInfo(keys),
       balance: (a) => chain.base.getBalance(a),
       decode: (name, data) => chain.core.coder.accounts.decode(name, data),
