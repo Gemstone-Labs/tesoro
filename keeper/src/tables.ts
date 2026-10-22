@@ -2,6 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { settledPda } from "../../app/src/games/holdem/chain.ts";
 import { PHASE, SLOT, configPda, sponsorPda, tablePda, type Table } from "../../app/src/games/trading-duel/chain.ts";
 import { act, log, type Ctx } from "./act.ts";
+import { resetMayProceed, duelEndState } from "./end-state.ts";
 import { shortKey } from "./env.ts";
 import { needsRecommit } from "./recommit.ts";
 
@@ -108,6 +109,7 @@ export async function maintainTables(ctx: Ctx): Promise<number> {
     const step = tableStep(tableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit.get(subject) ?? 0));
     if (step.do === "wait") continue;
     if (step.why.includes("probably lost")) lastRecommit.set(subject, ctx.now);
+    if (step.do === "reset_table" && !(await resetMayProceed({ tesoroMatch: t.tesoroMatch, epoch: t.epoch, fn: duelEndState, table: t }, Math.max(0, Math.floor(ctx.now - t.overAt)), undefined, subject))) continue;
     const sig = (fn: () => Promise<string>) => act(ctx, "match", subject, `${step.do} (${step.why})`, fn);
     let r;
     if (step.do === "release_slot") r = await sig(() => ctx.duel.releaseSlot(ctx.hsigner, address, step.slot!.index, new PublicKey(step.slot!.match)));
