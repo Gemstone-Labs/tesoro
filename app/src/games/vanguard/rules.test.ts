@@ -73,7 +73,8 @@ describe("combat", () => {
     expect(fight("4", "5")).toBe("lose");
     expect(fight("6", "6")).toBe("tie");
     expect(fight("1", "10")).toBe("win");
-    expect(fight("10", "1")).toBe("win");
+    expect(fight("10", "1")).toBe("lose"); // v6: the Spy beats the 10 both ways (founder 2026-10-22)
+    expect(fight("10", "1", 5)).toBe("win");
     expect(fight("3", "B")).toBe("mine"); // v6: the Engineer no longer defuses (see powers.test.ts for v5)
     expect(fight("10", "B")).toBe("mine");
     expect(fight("2", "F")).toBe("truck");
@@ -85,6 +86,13 @@ describe("combat", () => {
     expect(a).toMatchObject({ outcome: "lose", flash: [1] });
     expect(g2.pieces.map((p) => p.id)).toEqual([2]);
   });
+  it("a 10 that attacks a Spy dies, and the Spy stays where it is", () => {
+    const g = game([P(1, "us", "10", 6, 0), P(2, "it", "1", 5, 0), P(3, "us", "5", 9, 9), P(4, "it", "5", 0, 9)]);
+    const { game: g2, events } = go(g, 1, 5, 0);
+    expect(events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "lose", flash: [1] });
+    expect(g2.pieces.find((p) => p.id === 2)).toMatchObject({ r: 5, c: 0, known: false });
+    expect(g2.pieces.some((p) => p.id === 1)).toBe(false);
+  });
   it("a win flashes the beaten piece and moves in", () => {
     const g = game([P(1, "us", "8", 6, 0), P(2, "it", "7", 5, 0), P(3, "it", "5", 0, 9)]);
     const { game: g2, events } = go(g, 1, 5, 0);
@@ -94,7 +102,8 @@ describe("combat", () => {
   it("a landmine that goes off survives and is revealed for good", () => {
     const g = game([P(1, "us", "9", 6, 0), P(2, "it", "B", 5, 0), P(4, "us", "5", 9, 9), P(3, "it", "5", 0, 9)]);
     const { game: g2, events } = go(g, 1, 5, 0);
-    expect(events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "mine", flash: [2] });
+    // the attacker it killed is shown too, like any piece that dies attacking (founder 2026-10-22)
+    expect(events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "mine", flash: [1, 2] });
     expect(g2.pieces.map((p) => p.id).sort()).toEqual([2, 3, 4]);
     expect(g2.pieces.find((p) => p.id === 2)!.known).toBe(true);
   });

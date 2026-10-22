@@ -805,7 +805,7 @@ mod tests {
 mod changes {
     use super::*;
     use crate::engine::{
-        CHAIN_CLOCK, DUG_IN, GENERAL_OF_THE_ARMY, MAJOR, NO_PIECE, RECON, SPY, SWITCHED,
+        CHAIN_CLOCK, DUG_IN, GENERAL, GENERAL_OF_THE_ARMY, MAJOR, NO_PIECE, RECON, SPY, SWITCHED,
     };
 
     type Parts = (Box<Battle>, Army, Army, Secret);
@@ -921,8 +921,10 @@ mod changes {
             (DUG_IN, SWITCHED)
         );
         assert_eq!(g.changed, 1 << MAJOR_ID | 1 << TEN_ID);
-        // Italy's 10 (piece 26) stands next to Alice's switched 10 and attacks it: a 10 against a Spy, the 10 wins
+        // Italy's piece 26, played as a General (9), stands next to Alice's switched 10 and attacks it: the Spy loses
+        // (a 10 would lose to it: the Spy beats the 10 whichever attacks)
         crate::run(&mut b, &mut a0, &mut a1, &secret, |g, out| {
+            g.pieces[26].rank = GENERAL;
             let from = g.pieces[26].sq;
             g.cells[from as usize] = 0;
             g.cells[76] = 27;

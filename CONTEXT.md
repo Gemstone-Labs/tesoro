@@ -159,7 +159,7 @@ Once per Match, on a turn between the 10th and the 18th, a random row or column 
 _Avoid_: sandstorm, shuffle
 
 **Power**:
-What a Vanguard rank can do beyond moving one square and attacking. Every rank has one: Spy beats the 10 when it attacks; Recon runs any distance in a line; Engineer Blasts; Sergeant slides on diagonals; Lieutenant Jumps; Captain steps in 8 directions; Major Digs in; Colonel Rescues; General crosses a wadi; General of the Army Becomes a Spy.
+What a Vanguard rank can do beyond moving one square and attacking. Every rank has one: Spy beats the 10, whichever of the two attacks; Recon runs any distance in a line; Engineer Blasts; Sergeant slides on diagonals; Lieutenant Jumps; Captain steps in 8 directions; Major Digs in; Colonel Rescues; General crosses a wadi; General of the Army Becomes a Spy.
 _Avoid_: ability, skill, special
 
 **Blast**:

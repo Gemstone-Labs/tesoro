@@ -379,7 +379,7 @@ describe("Dig in", () => {
     expect(reach({ ...d, turn: "us" }, 1)).toEqual([]);
     const g = game([P(1, "us", "7", 7, 0), P(2, "it", "10", 6, 0), P(5, "us", "2", 9, 9)], { turn: "it", changed: { 1: "dug" } });
     const r = go(g, 2, 7, 0);
-    expect(r.events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "mine", flash: [1] });
+    expect(r.events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "mine", flash: [2, 1] });
     expect(sq(r.game, 2)).toBe("gone");
     expect(r.game.pieces.find((p) => p.id === 1)!.known).toBe(true);
   });
@@ -420,10 +420,11 @@ describe("Become a Spy", () => {
     expect(r.game.changed).toEqual({ 1: "spy" });
     expect(sq(r.game, 2)).toBe("gone");
   });
-  it("loses to a 10 that attacks it, and ties a Spy and another switched 10", () => {
-    const lose = go(game([P(1, "us", "10", 6, 0), P(2, "it", "10", 5, 0), IT], { turn: "it", changed: { 1: "spy" } }), 2, 6, 0);
-    expect(lose.events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "win", att: 2 });
-    expect(sq(lose.game, 1)).toBe("gone");
+  it("beats a 10 that attacks it like any Spy, and ties a Spy and another switched 10", () => {
+    const beat = go(game([P(1, "us", "10", 6, 0), P(2, "it", "10", 5, 0), IT], { turn: "it", changed: { 1: "spy" } }), 2, 6, 0);
+    expect(beat.events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "lose", att: 2 });
+    expect(sq(beat.game, 2)).toBe("gone");
+    expect(sq(beat.game, 1)).not.toBe("gone");
     const spy = go(game([P(1, "us", "10", 6, 0), P(2, "it", "1", 5, 0), IT], { changed: { 1: "spy" } }), 1, 5, 0);
     expect(spy.events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "tie" });
     const two = go(game([P(1, "us", "10", 6, 0), P(2, "it", "10", 5, 0), IT], { changed: { 1: "spy", 2: "spy" } }), 1, 5, 0);

@@ -101,7 +101,7 @@ export default function Page() {
       <DataTable
         head={["Rank", "Power"]}
         rows={[
-          ["Spy", "Beats the 10 when it attacks."],
+          ["Spy", "Beats the 10, whichever of the two attacks."],
           ["Recon", "Runs any distance in a straight line."],
           ["Engineer", "Blast: blows up and turns every piece around it face up, yours and theirs."],
           ["Sergeant", "Slides diagonally any distance, never straight."],
