@@ -567,6 +567,11 @@ pub(crate) fn init_treasury_stake(
     if yield_fee_bps > ledger::MAX_YIELD_FEE_BPS || instant_fee_bps > ledger::MAX_INSTANT_FEE_BPS {
         return Err(core_err(CoreError::InvalidBps));
     }
+    crate::instructions::admin::require_studio_exemption_safe(
+        yield_fee_bps,
+        ctx.accounts.config.platform_bps,
+        ctx.accounts.config.leaderboard_bps,
+    )?;
     let treasury_key = ctx.accounts.treasury.key();
     let account = &mut ctx.accounts.treasury_account;
     if account.authority == Pubkey::default() {

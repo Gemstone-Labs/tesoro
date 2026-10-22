@@ -446,7 +446,8 @@ pub(crate) fn redeem<'info>(
             )
         },
     )?;
-    if out.shares == 0 {
+    // A Redeem too small to pay a share after the Yield Fee would burn the Gemas for nothing.
+    if out.payout_shares == 0 {
         return Err(ledger_zero_shares());
     }
     books.flush()?;
@@ -533,7 +534,13 @@ pub(crate) fn unlock<'info>(ctx: Context<'_, '_, 'info, 'info, Unlock<'info>>) -
     let remaining = ctx.remaining_accounts;
     let a = ctx.accounts;
     let wallet = a.owner_authority.key();
-    let pool_bps = a.economy.pool_share.bps_now(now()?).map_err(core_err)?;
+    // The fee on the owner's free yield is split at the Pool share the latest Advance snapshotted;
+    // a Position that never took one uses the share in force (red-team 31 #2).
+    let pool_bps = if a.position.inner.advances > 0 {
+        a.position.inner.pool_bps
+    } else {
+        a.economy.pool_share.bps_now(now()?).map_err(core_err)?
+    };
     let (mut kind, rest) = KindCtx::load(&a.position.inner, remaining, PayTo::Wallet(&wallet))?;
     let position_key = a.position.key();
     unlock_position(&mut a.position, &mut kind, rest, pool_bps)?;
@@ -597,11 +604,11 @@ pub(crate) fn unlock_position<'info>(
         }
         KindCtx::Reported => {}
     }
-    if payout.shortfall_shares > 0 {
+    if payout.shortfall_shares > 0 || payout.gap_shares > 0 {
         emit!(UnlockShortfall {
             position: position_key,
             shortfall_shares: payout.shortfall_shares,
-            topped_up_shares: payout.shortfall_shares - payout.gap_shares,
+            topped_up_shares: payout.topped_up_shares,
             gap_shares: payout.gap_shares,
         });
     }

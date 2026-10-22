@@ -727,7 +727,8 @@ fn a_short_custody_is_absorbed_by_the_free_yield_fee_then_topped_up_by_the_treas
     let short = |principal: u64| {
         let mut pos =
             Position::new(OWNER, SourceChain::Solana, [7; 32], 9, principal, 500).unwrap();
-        pos.stake_rate_open = R0;
+        // Opened at a lower rate: the token grew, so a shortfall is the landed-yield gap.
+        pos.stake_rate_open = R0 - R0 / 10;
         pos.yield_fee_bps = FEE;
         pos.custody_shares = 1_000;
         pos.held_shares = 400u128 << SHARE_BITS;
@@ -765,6 +766,43 @@ fn a_short_custody_is_absorbed_by_the_free_yield_fee_then_topped_up_by_the_treas
     let mut paid = p;
     route_after_unlock(&mut empty, &mut paid, POOL).unwrap();
     assert_eq!((paid.owner_shares, paid.gap_shares), (600, 80));
+}
+
+#[test]
+fn a_slash_is_never_insured_by_the_treasury() {
+    // Red-team 31 #1: 100 shares locked at 1.3, no Advance, the token is slashed by 10%. The owner
+    // carries it (D2, no cushion): the custody comes back whole, the Treasury pays nothing.
+    let mut w = World::new(100);
+    w.route.receive(1_000).unwrap();
+    w.custody0 += 1_000;
+    w.rate = R0 - R0 / 10;
+    let before = w.route.clone();
+    w.unlock().unwrap();
+    let p = w.unlocked.unwrap();
+    assert_eq!((p.owner_shares, p.shortfall_shares), (100, 0));
+    assert_eq!(w.route, before, "the Treasury is untouched");
+    w.check();
+    // With holders: the coverage landed before the slash, so the owner's Principal paid for it.
+    // Still nothing from the Treasury; the gap is recorded.
+    let mut w = World::new(10 * SOL);
+    w.route.receive(SOL as u128).unwrap();
+    w.custody0 += SOL;
+    w.advance(3).unwrap();
+    w.rate = R0 * 2;
+    w.sync(0).unwrap();
+    let idx = w.find(0, 0, CLASS_GENERAL).unwrap();
+    w.win(0, idx, w.lines[0][idx].1.amount).unwrap();
+    w.rate = R0 - R0 / 10;
+    let spendable = w.route.spendable();
+    w.unlock().unwrap();
+    let p = w.unlocked.unwrap();
+    assert_eq!(
+        p.shortfall_shares, 0,
+        "no top-up after a fall below the opening rate"
+    );
+    assert!(p.gap_shares > 0);
+    assert_eq!(w.route.spendable(), spendable);
+    w.check();
 }
 
 #[test]

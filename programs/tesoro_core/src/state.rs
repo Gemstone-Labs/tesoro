@@ -333,7 +333,8 @@ impl PositionState {
         + 8
         + 16
         + 16
-        + 8;
+        + 8
+        + 2;
 }
 
 #[account]
@@ -475,6 +476,9 @@ pub struct NativeCustody {
     pub vault: Pubkey,
     /// Principal of the Locked native Positions, SOL units (informational).
     pub principal: u128,
+    /// The pooled fee totals of the old Yield Fee model, unused since ticket 31. Kept so an account
+    /// written before the upgrade still decodes every later field at its own offset.
+    pub retired_fee_totals: [u128; 3],
     pub open_positions: u64,
     /// The Treasury's shares of this route: what it holds, what holders and the Pool are owed
     /// (Yield Fees realised at cash-out), the prize escrow. Simulated shares are minted at payout,
@@ -483,7 +487,7 @@ pub struct NativeCustody {
 }
 
 impl NativeCustody {
-    pub const SPACE: usize = 8 + 1 + 1 + 3 * 32 + 16 + 8 + ledger::RouteLedger::SPACE;
+    pub const SPACE: usize = 8 + 1 + 1 + 3 * 32 + 4 * 16 + 8 + ledger::RouteLedger::SPACE;
 
     /// A Position joined the custody.
     pub fn add_position(&mut self, principal: u64) -> Result<()> {
@@ -542,6 +546,9 @@ pub struct StakeCustody {
     pub vault: Pubkey,
     /// Principal of the Locked stake Positions, lamports (informational).
     pub principal: u128,
+    /// The pooled fee totals of the old Yield Fee model, unused since ticket 31. Kept so an account
+    /// written before the upgrade still decodes every later field at its own offset.
+    pub retired_fee_totals: [u128; 3],
     pub open_positions: u64,
     /// Tokens the Treasury bought back by redeeming Gemas (their yield stays in the vault).
     pub refilled_shares: u64,
@@ -555,7 +562,7 @@ pub struct StakeCustody {
 }
 
 impl StakeCustody {
-    pub const SPACE: usize = 8 + 2 + 3 * 32 + 16 + 8 + 3 * 8 + ledger::RouteLedger::SPACE;
+    pub const SPACE: usize = 8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8 + ledger::RouteLedger::SPACE;
 
     /// A Position joined the custody.
     pub fn add_position(&mut self, principal: u64) -> Result<()> {
@@ -603,6 +610,9 @@ pub struct Treasury {
     pub account: Pubkey,
     /// simSOL token account (`["treasury_vault"]`), authority = this PDA.
     pub vault: Pubkey,
+    /// The old model's minted-fee counter, unused since ticket 31. Kept so an account written before
+    /// the upgrade still decodes every later field at its own offset.
+    pub retired_fee_minted: u64,
     /// SOL units paid out by Solana Instant Redeems, cumulative.
     pub instant_units: u64,
     /// simSOL shares the admin funded the vault with, cumulative.
@@ -614,7 +624,7 @@ pub struct Treasury {
 }
 
 impl Treasury {
-    pub const SPACE: usize = 8 + 3 + 2 + 2 + 32 + 32 + 2 * 8 + 8 + 32;
+    pub const SPACE: usize = 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8 + 8 + 32;
 }
 
 /// SOL/USD price used for issuance (micro-USD per whole SOL). Written by the oracle authority
@@ -1015,9 +1025,10 @@ pub struct PositionUnlocked {
     pub position: Pubkey,
 }
 
-/// A stake Unlock found the custody short of the owner's Principal and free yield (holders' landed
-/// shares grew with the pool). The Treasury topped up what it could spend; `gap_shares` is what
-/// the owner did not get (founder, 2026-10-22: Tesoro covers it; Unlock never fails).
+/// A stake Unlock found the custody short of the owner's Principal and free yield. A shortfall from
+/// holders' landed shares growing with the pool is topped up by the Treasury from what it can spend
+/// (founder, 2026-10-22: Tesoro covers it); a slash is the owner's (D2). `gap_shares` is what the
+/// owner did not get. Unlock never fails.
 #[event]
 pub struct UnlockShortfall {
     pub position: Pubkey,
@@ -1436,6 +1447,45 @@ pub(crate) mod tests {
         assert!(
             MatchState::RECORD_LEN
                 >= bytes.len() - 1 - 1 - 4 - 32 - 64 - ROOM_HOLDS * RoomHold::LEN
+        );
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    use anchor_lang::AnchorSerialize;
+
+    /// Red-team 31 #3: ticket 31 retired fields of the Treasury and the custodies without moving
+    /// anything after them, so an account written before the upgrade still decodes in place.
+    #[test]
+    fn retired_fields_keep_the_old_offsets() {
+        assert_eq!(Treasury::SPACE, 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8 + 8 + 32);
+        let t = Treasury {
+            bump: 0,
+            vault_bump: 0,
+            account_bump: 0,
+            yield_fee_bps: 0,
+            instant_fee_bps: 0,
+            account: Pubkey::default(),
+            vault: Pubkey::default(),
+            retired_fee_minted: 0,
+            instant_units: 7,
+            funded_shares: 0,
+            withdrawn_units: 0,
+            company: Pubkey::default(),
+        };
+        let bytes = t.try_to_vec().unwrap();
+        // instant_units sat after fee_minted before ticket 31 (offsets without the discriminator).
+        assert_eq!(bytes[3 + 2 + 2 + 64 + 8], 7);
+        assert_eq!(bytes.len() + 8, Treasury::SPACE);
+        assert_eq!(
+            NativeCustody::SPACE,
+            8 + 1 + 1 + 3 * 32 + 4 * 16 + 8 + ledger::RouteLedger::SPACE
+        );
+        assert_eq!(
+            StakeCustody::SPACE,
+            8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8 + ledger::RouteLedger::SPACE
         );
     }
 }

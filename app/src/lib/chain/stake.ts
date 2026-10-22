@@ -234,8 +234,8 @@ export const fundTreasuryStakeIx = (admin: PublicKey, shares: bigint, token: Sta
 
 // ---- Readers -------------------------------------------------------------------------------------
 
-/** `StakeCustody`: disc 8, bump, vault_bump, mint, pool, vault, principal (u128), open_positions, refilled, instant, withdrawn (u64), then the Treasury's route. */
-export const STAKE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 16 + 8 + 3 * 8 + ROUTE_LEN;
+/** `StakeCustody`: disc 8, bump, vault_bump, mint, pool, vault, principal and three retired fee totals (u128, unused since ticket 31), open_positions, refilled, instant, withdrawn (u64), then the Treasury's route. */
+export const STAKE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8 + ROUTE_LEN;
 /** `StakeConfig`: disc 8, bump, active_mint, apy_ceiling_bps u16. */
 export const STAKE_CONFIG_LEN = 8 + 1 + 32 + 2;
 
@@ -263,11 +263,11 @@ export function parseStakeCustody(d: Uint8Array): StakeCustodyView | null {
     pool: key(42),
     vault: key(74),
     principal: rdU128(d, o),
-    openPositions: rdU64(d, o + 16),
-    refilledShares: rdU64(d, o + 24),
-    instantShares: rdU64(d, o + 32),
-    withdrawnShares: rdU64(d, o + 40),
-    route: parseRoute(d, o + 48),
+    openPositions: rdU64(d, o + 64),
+    refilledShares: rdU64(d, o + 72),
+    instantShares: rdU64(d, o + 80),
+    withdrawnShares: rdU64(d, o + 88),
+    route: parseRoute(d, o + 96),
   };
 }
 

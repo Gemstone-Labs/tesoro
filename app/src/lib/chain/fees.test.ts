@@ -187,18 +187,18 @@ describe("instantUnavailable", () => {
 });
 
 describe("Treasury and custody layouts (ticket 31: no fee claim on open Positions)", () => {
-  it("reads the rates at their offsets and refuses the old 8-byte-longer Treasury", () => {
+  it("keeps the Treasury's size: the retired fee counter stays in place", () => {
     const t = Buffer.alloc(TREASURY_LEN);
     t.writeUInt16LE(2_000, 11);
     t.writeUInt16LE(2_500, 13);
-    expect(TREASURY_LEN).toBe(8 + 3 + 2 + 2 + 32 + 32 + 2 * 8 + 8 + 32);
+    expect(TREASURY_LEN).toBe(8 + 3 + 2 + 2 + 32 + 32 + 3 * 8 + 8 + 32);
     expect(parseTreasury(t)).toEqual({ yieldFeeBps: 2_000, instantFeeBps: 2_500 });
-    expect(parseTreasury(Buffer.alloc(TREASURY_LEN + 8))).toBeNull();
+    expect(parseTreasury(Buffer.alloc(TREASURY_LEN - 8))).toBeNull();
   });
 
-  it("reads the route right after the custody's principal and open-Position count", () => {
+  it("reads the route after the custody's principal, its retired fee totals and open-Position count", () => {
     const c = Buffer.alloc(NATIVE_CUSTODY_LEN);
-    c.writeBigUInt64LE(77n, 8 + 2 + 96 + 16 + 8);
+    c.writeBigUInt64LE(77n, 8 + 2 + 96 + 64 + 8);
     expect(parseNativeRoute(c)?.treasuryShares).toBe(77n);
     expect(parseNativeRoute(c.subarray(1))).toBeNull();
   });

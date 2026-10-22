@@ -249,12 +249,12 @@ describe("the mainnet market", () => {
     expect(parseStakeConfig(Buffer.alloc(10))).toBeNull();
     const c = parseStakeCustody(custodyBytes())!;
     expect(c.mint.equals(JITOSOL.mint) && c.pool.equals(JITOSOL.pool)).toBe(true);
-    // principal u128 at 106, open_positions, refilled, instant, withdrawn u64, then the route (ticket 31 layout).
+    // principal u128 at 106, three retired fee totals, open_positions, refilled, instant, withdrawn u64, then the route.
     const b = custodyBytes();
     b.writeBigUInt64LE(13n * SOL, 106);
-    b.writeBigUInt64LE(2n, 122);
-    b.writeBigUInt64LE(9n, 146);
-    b.writeBigUInt64LE(77n, 154);
+    b.writeBigUInt64LE(2n, 170);
+    b.writeBigUInt64LE(9n, 194);
+    b.writeBigUInt64LE(77n, 202);
     const f = parseStakeCustody(b)!;
     expect([f.principal, f.openPositions, f.withdrawnShares, f.route.treasuryShares]).toEqual([13n * SOL, 2n, 9n, 77n]);
     expect(parseStakeCustody(Buffer.alloc(10))).toBeNull();

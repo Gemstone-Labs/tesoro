@@ -2408,3 +2408,38 @@ fn the_vault_returns_every_principal_and_the_treasury_keeps_its_fee() {
     assert_eq!(left as u128, env.route().treasury_shares);
     assert_eq!(env.custody().open_positions, 0);
 }
+
+/// The ready part of an Instant Redeem is an ordinary Redeem (red-team 31 #5): the seller gets
+/// exactly floor(80%) of the shares redeemed, the Treasury the rest, at the request and at the fill.
+#[test]
+fn the_ready_part_of_an_instant_redeem_pays_the_yield_fee() {
+    let (mut env, _alice, bob, pos, source) = treasury_env();
+    env.fund_treasury(SOL);
+    env.set_total(1_365_000_000_000);
+    // The request first Redeems the line's ready part, then sells from the rest.
+    let ready = env.redeemable(&bob, source);
+    assert!(ready > 0 && ready < 1_000, "ready {ready}");
+    let route = env.route();
+    env.request(&bob, pos, source, 1_000 - ready, 1)
+        .expect("request");
+    let got = u128::from(env.token_balance(bob.token));
+    let fee = env.route().treasury_shares - route.treasury_shares;
+    assert!(got > 0, "part of the line was ready");
+    assert_eq!(got, (got + fee) * 8_000 / 10_000, "seller {got}, fee {fee}");
+    // More repays while the order waits; the fill Redeems that part first, with the same fee.
+    env.set_total(1_370_000_000_000);
+    let before = env.token_balance(bob.token);
+    let route = env.route();
+    env.fill(&bob, pos, source, 1, 10).expect("fill");
+    let state = env.load::<InstantOrderState>(env.order_address(&bob, 1));
+    assert!(state.redeemed_while_open > 0, "part repaid while it waited");
+    let ready = u128::from(env.token_balance(bob.token) - before) - state.paid_shares;
+    let fee = env.route().treasury_shares + state.paid_shares - route.treasury_shares;
+    assert!(ready > 0);
+    assert_eq!(
+        ready,
+        (ready + fee) * 8_000 / 10_000,
+        "seller {ready}, fee {fee}"
+    );
+    env.check_vault();
+}

@@ -246,6 +246,18 @@ contract PositionVaultSimTest is VaultBase {
         _deliver(_payFeeMsg(id, 1, redeemer, 100, 10, 101));
     }
 
+    /// Defence in depth (red-team 31 #10): a bridge bug can never take more than the 50% Yield Fee cap of a holder's
+    /// yield; the cap itself still passes.
+    function test_payYieldRefusesAFeeAboveTheYieldFeeCap() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 20 minutes);
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.BadFeeSplit.selector, 100, 51, 0));
+        _deliver(_payFeeMsg(id, 1, redeemer, 100, 51, 0));
+        uint256 before = lst.balanceOf(redeemer);
+        _deliver(_payFeeMsg(id, 1, redeemer, 100, 50, 25));
+        assertEq(lst.balanceOf(redeemer) - before, 50);
+    }
+
     function test_noAccrualAfterUnlock() public {
         uint64 id = _open(10 ether);
         vm.warp(block.timestamp + 10 minutes);

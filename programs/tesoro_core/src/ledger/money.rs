@@ -83,6 +83,9 @@ pub struct Position {
     /// holders by Redeem, to the prize escrow by harvest, to the Treasury by its own Redeem).
     /// `custody_shares` stays what was deposited, so the pooled fee totals can be unwound exactly.
     pub paid_shares: u64,
+    /// The Pool's share of the Yield Fee the latest Advance snapshotted: the share the fee on the
+    /// owner's free yield uses at Unlock (red-team 31 #2). 0 before the first Advance.
+    pub pool_bps: u16,
 }
 
 impl Position {
@@ -122,6 +125,7 @@ impl Position {
             held_shares: 0,
             free_shares: 0,
             paid_shares: 0,
+            pool_bps: 0,
         })
     }
 

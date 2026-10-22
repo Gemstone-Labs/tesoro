@@ -1482,6 +1482,7 @@ impl Env {
                     config: core_pda(&[CONFIG_SEED]),
                     pool_authority: core_pda(&[LEADERBOARD_SEED]),
                     pool_account: self.pool_account(),
+                    treasury: core_pda(&[TREASURY_SEED]),
                     system_program: anchor_lang::system_program::ID,
                 },
                 tesoro_core::instruction::InitLeaderboard { leaderboard_bps: 100 },

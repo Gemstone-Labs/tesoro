@@ -122,6 +122,8 @@ contract PositionVault {
     ///         in the OApp).
     address public immutable admin = msg.sender;
     uint256 internal constant BPS = 10_000;
+    /// @dev tesoro_core's cap on the Yield Fee (ledger::MAX_YIELD_FEE_BPS): a PayYield fee above it is refused.
+    uint256 internal constant MAX_YIELD_FEE_BPS = 5_000;
     uint256 internal constant YEAR = 365 days;
 
     /// @notice Sum of principalUnderlying over open Positions: the shares that back it are never spent on payouts.
@@ -514,7 +516,8 @@ contract PositionVault {
         owedShares += owed;
     }
 
-    /// @dev `amount` leaves the Position's yield; `fee` of it stays with the Treasury and the holder gets the rest.
+    /// @dev `amount` leaves the Position's yield; `fee` of it (at most the Yield Fee cap) stays with the Treasury and
+    ///      the holder gets the rest.
     ///      `pool` is the part of the Treasury's share owed to the Leaderboard Pool, never above what the Treasury
     ///      gains here, so the Treasury always holds what the Pool is owed. A refill (`to == vault`) keeps all of it.
     function _onPayYield(
@@ -526,7 +529,7 @@ contract PositionVault {
         uint256 fee,
         uint256 pool
     ) internal {
-        if (fee > amount || pool > amount) revert BadFeeSplit(amount, fee, pool);
+        if (fee * BPS > amount * MAX_YIELD_FEE_BPS || pool > amount) revert BadFeeSplit(amount, fee, pool);
         uint256 available = _unreservedYield(id, p);
         if (amount > available) revert ExceedsAccruedYield(amount, available);
 

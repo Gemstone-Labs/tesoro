@@ -635,6 +635,10 @@ pub(crate) fn account_cash_out(
     let (yf, pool_bps) = ledger::exit_terms(&source.inner, class);
     let split = match who {
         Cashing::Holder => ledger::cash_out(u128::from(paid), yf, pool_bps),
+        // A fee-class line is exempt whoever holds it, the Instant part of the Pool's share too.
+        Cashing::Treasury { .. } if class < ledger::line_store::CLASS_GENERAL => {
+            ledger::cash_out(u128::from(paid), 0, 0)
+        }
         Cashing::Treasury { instant_fee_bps } => {
             ledger::treasury_cash_out(u128::from(paid), yf, pool_bps, instant_fee_bps)
         }
@@ -807,6 +811,7 @@ pub(crate) fn begin_advance<'a, 'info>(
         .map_err(core_err)?;
     src.yield_fee_bps = fees.yield_fee_bps;
     src.pool_bps = fees.pool_bps;
+    a.position.inner.pool_bps = fees.pool_bps;
     require_min_gemas(src.issued, min_gemas)?;
     src.due_at =
         ledger::economy::planned_due_at(now()?, horizon_months, rates.speedup).map_err(core_err)?;

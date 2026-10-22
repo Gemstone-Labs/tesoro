@@ -2950,6 +2950,7 @@ impl Env {
                 config: pda(&[CONFIG_SEED]),
                 pool_authority: pda(&[LEADERBOARD_SEED]),
                 pool_account: pool_pda(),
+                treasury: common::treasury(),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::InitLeaderboard {

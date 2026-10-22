@@ -2540,6 +2540,73 @@ fn common_init_treasury(env: &Env, admin: APk) -> Instruction {
     )
 }
 
+impl Env {
+    fn set_platform_fee(&mut self, platform_bps: u16) -> Result<(), Failed> {
+        let admin = self.admin.insecure_clone();
+        let config = self.load::<Config>(pda(&[CONFIG_SEED]));
+        let update = tix(
+            accounts::UpdateConfig {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                platform_recipient: config.platform_recipient,
+                treasury: common::treasury(),
+            },
+            instruction::UpdateConfig {
+                oracle_authority: a(self.oracle.pubkey()),
+                platform_bps,
+            },
+            vec![],
+        );
+        self.send(&[update], &admin, &[])
+    }
+
+    fn set_leaderboard_fee(&mut self, leaderboard_bps: u16) -> Result<(), Failed> {
+        let admin = self.admin.insecure_clone();
+        let init = tix(
+            accounts::InitLeaderboard {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                pool_authority: pda(&[LEADERBOARD_SEED]),
+                pool_account: self.pool_account(),
+                treasury: common::treasury(),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::InitLeaderboard { leaderboard_bps },
+            vec![],
+        );
+        self.send(&[init], &admin, &[])
+    }
+}
+
+/// Studio Fee Gemas skip the Yield Fee, so routing Gemas through a Studio must cost more in Platform
+/// and Leaderboard Fees than it saves: `yield_fee x 10% <= platform + leaderboard` (red-team 31 #4).
+/// Every setter of those rates refuses a change that breaks it.
+#[test]
+fn fees_that_would_pay_to_launder_gemas_through_a_studio_are_refused() {
+    // Platform 2%, no Leaderboard yet, Yield Fee 20%: 20% x 10% = 2%, cost equals saving.
+    let mut env = Env::new();
+    let laundering = 6000 + TesoroError::StudioFeeLaundering as u32;
+    let err = env.init_treasury(2_001, INSTANT_FEE_BPS).unwrap_err();
+    assert_eq!(code(&err), laundering);
+    let err = env.set_platform_fee(199).unwrap_err();
+    assert_eq!(code(&err), laundering);
+    // A 1% Leaderboard Fee raises the cost: a 30% Yield Fee fits, then neither fee can drop.
+    env.set_leaderboard_fee(100).unwrap();
+    env.init_treasury(3_000, INSTANT_FEE_BPS).unwrap();
+    let err = env.set_leaderboard_fee(99).unwrap_err();
+    assert_eq!(code(&err), laundering);
+    let err = env.set_platform_fee(199).unwrap_err();
+    assert_eq!(code(&err), laundering);
+    let err = env.init_treasury(3_001, INSTANT_FEE_BPS).unwrap_err();
+    assert_eq!(code(&err), laundering);
+    // Nothing moved.
+    assert_eq!(env.treasury().yield_fee_bps, 3_000);
+    let config = env.load::<Config>(pda(&[CONFIG_SEED]));
+    assert_eq!((config.platform_bps, config.leaderboard_bps), (200, 100));
+    // Raising a cost is always fine.
+    env.set_platform_fee(300).unwrap();
+}
+
 /// The Yield Fee is the Treasury's only once yield is cashed out (ticket 31): an open Position's
 /// growing yield is not spendable; its free yield's fee is, once it unlocks.
 #[test]
@@ -3665,6 +3732,7 @@ impl Env {
                 config: pda(&[CONFIG_SEED]),
                 pool_authority: pda(&[LEADERBOARD_SEED]),
                 pool_account: self.pool_account(),
+                treasury: common::treasury(),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::InitLeaderboard {
@@ -4325,4 +4393,83 @@ fn funding_a_prize_into_a_full_pool_lands_in_an_overflow_record() {
         0,
         "not in the Pool's stores yet"
     );
+}
+
+/// Red-team 31 #2: Return Own then Unlock splits the fee on the released yield at the Pool share the
+/// Advance snapshotted, not the share in force at Unlock.
+#[test]
+fn return_then_unlock_uses_the_snapshotted_pool_share() {
+    let mut env = Env::with_start(SEASON_1_START + 10);
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    assert_eq!(env.stored(source).pool_bps, 5_000);
+    // The admin announces a Pool share of 0 from Season 2.
+    let admin = env.admin.insecure_clone();
+    let set = tix(
+        accounts::SetPrizeShare {
+            admin: a(admin.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            economy: pda(&[ECONOMY_SEED]),
+        },
+        instruction::SetPrizeShare {
+            from_season: 2,
+            bps: 0,
+        },
+        vec![],
+    );
+    env.send(&[set], &admin, &[])
+        .expect("announce a 0% Pool share");
+    env.set_time(SEASON_1_START + SEASON_SECS + 10);
+    env.set_price(PRICE).unwrap();
+    let all = env.gemas(&alice, source);
+    env.return_own(&alice, pos, source, all).expect("return");
+    let free = (env.position(pos).free_shares >> 32) as u64;
+    env.unlock(&alice, pos).expect("unlock");
+    let fee = u128::from(free - free * 8_000 / 10_000);
+    let route = env.route();
+    assert!(route.treasury_shares >= fee && route.treasury_shares <= fee + 1);
+    assert_eq!(
+        route.pool_owed,
+        route.treasury_shares / 2,
+        "the Advance's 50%, not the live 0%"
+    );
+}
+
+/// The ready part of an Instant Redeem is an ordinary Redeem (red-team 31 #5): the seller gets
+/// exactly floor(80%) of the shares redeemed, the Treasury the rest, at the request and at the fill.
+#[test]
+fn the_ready_part_of_an_instant_redeem_pays_the_yield_fee() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let bob = env.staker();
+    env.fund_treasury(5 * SOL).unwrap();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 12).unwrap();
+    env.give_won(&alice, &bob, source, 2_000);
+    env.advance(3 * MONTH);
+    let before = env.token_balance(bob.token);
+    let route = env.route();
+    let order = env.request(&bob, pos, source, 1_000, 1).expect("request");
+    let got = u128::from(env.token_balance(bob.token) - before);
+    let fee = env.route().treasury_shares - route.treasury_shares;
+    assert!(got > 0, "part of the line was ready");
+    assert_eq!(got, (got + fee) * 8_000 / 10_000, "seller {got}, fee {fee}");
+    assert_eq!(env.route().pool_owed - route.pool_owed, fee / 2);
+    // More repays while the order waits; the fill Redeems that part first, with the same fee.
+    env.advance(3 * MONTH);
+    let before = env.token_balance(bob.token);
+    let route = env.route();
+    env.fill(&bob, pos, source, 1, 100).expect("fill");
+    let state = env.load::<InstantOrderState>(order);
+    assert!(state.redeemed_while_open > 0, "part repaid while it waited");
+    let ready = u128::from(env.token_balance(bob.token) - before) - state.paid_shares;
+    let fee = env.route().treasury_shares + state.paid_shares - route.treasury_shares;
+    assert!(ready > 0);
+    assert_eq!(
+        ready,
+        (ready + fee) * 8_000 / 10_000,
+        "seller {ready}, fee {fee}"
+    );
+    env.check_invariants(&[pos]);
 }

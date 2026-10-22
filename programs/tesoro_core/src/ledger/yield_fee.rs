@@ -93,8 +93,9 @@ pub fn treasury_cash_out(
 }
 
 /// Routing Gemas through a Studio Fee (exempt) costs Platform + Leaderboard of the pot and saves the
-/// Yield Fee on the Studio share: it never pays while `yield_fee * max_studio < platform +
-/// leaderboard` (founder 2026-10-22; at launch 20% x 10% = 2% < 3%).
+/// Yield Fee on the Studio share: it never pays while `yield_fee * max_studio <= platform +
+/// leaderboard` (founder 2026-10-22; at launch 20% x 10% = 2% < 3%). At equality the saving and the
+/// cost cancel, so a Config set up before its Leaderboard (Platform 2% alone) is accepted.
 pub fn studio_exemption_safe(
     yield_fee_bps: u16,
     platform_bps: u16,
@@ -102,7 +103,7 @@ pub fn studio_exemption_safe(
     max_studio_bps: u16,
 ) -> bool {
     u128::from(yield_fee_bps) * u128::from(max_studio_bps)
-        < (u128::from(platform_bps) + u128::from(leaderboard_bps)) * BPS
+        <= (u128::from(platform_bps) + u128::from(leaderboard_bps)) * BPS
 }
 
 #[cfg(test)]
@@ -172,6 +173,9 @@ mod tests {
         // Yield Fee on the Studio share: safe while yield_fee * max_studio < platform + leaderboard.
         assert!(studio_exemption_safe(YF, 200, 100, 1_000));
         assert!(!studio_exemption_safe(YF, 100, 50, 1_000));
-        assert!(!studio_exemption_safe(YF, 150, 50, 1_000));
+        // Equal cost and saving: nothing to gain.
+        assert!(studio_exemption_safe(YF, 150, 50, 1_000));
+        assert!(!studio_exemption_safe(YF + 1, 150, 50, 1_000));
+        assert!(!studio_exemption_safe(MAX_YIELD_FEE_BPS, 200, 100, 1_000));
     }
 }

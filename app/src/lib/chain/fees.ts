@@ -24,8 +24,8 @@ export const DEFAULT_RATES: TreasuryRates = { yieldFeeBps: DEFAULT_YIELD_FEE_BPS
 /** The rates in force: the Treasury's, or the launch rates while it cannot be read. */
 export const ratesOf = (t: TreasuryRates | null | undefined): TreasuryRates => t ?? DEFAULT_RATES;
 
-/** `Treasury`: disc 8, bump, vault_bump, account_bump, yield_fee_bps u16, instant_fee_bps u16, account, vault, instant_units, funded_shares, withdrawn_units, company. */
-export const TREASURY_LEN = 8 + 3 + 2 + 2 + 32 + 32 + 2 * 8 + 8 + 32;
+/** `Treasury`: disc 8, bump, vault_bump, account_bump, yield_fee_bps u16, instant_fee_bps u16, account, vault, retired_fee_minted (unused since ticket 31), instant_units, funded_shares, withdrawn_units, company. */
+export const TREASURY_LEN = 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8 + 8 + 32;
 
 /** The Treasury's shares on one route (`RouteLedger`, Borsh, 149 bytes at the end of a custody account). */
 export const ROUTE_LEN = 4 * 16 + 1 + 3 * 16 + 4 + 2 * 16;
@@ -48,9 +48,9 @@ export function parseRoute(d: Uint8Array, at: number): RouteView {
   return { treasuryShares, owedShares, poolOwed, reserved, spendable: treasuryShares > claims ? treasuryShares - claims : 0n };
 }
 
-/** `NativeCustody`: disc 8, bump, vault_bump, pool, mint, vault, then principal (u128), open_positions (u64) and the route. */
-export const NATIVE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 16 + 8 + ROUTE_LEN;
-export const NATIVE_ROUTE_AT = 8 + 2 + 3 * 32 + 16 + 8;
+/** `NativeCustody`: disc 8, bump, vault_bump, pool, mint, vault, then principal and three retired fee totals (u128, unused since ticket 31), open_positions (u64) and the route. */
+export const NATIVE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 4 * 16 + 8 + ROUTE_LEN;
+export const NATIVE_ROUTE_AT = 8 + 2 + 3 * 32 + 4 * 16 + 8;
 
 export const parseNativeRoute = (d: Uint8Array): RouteView | null => (d.length === NATIVE_CUSTODY_LEN ? parseRoute(d, NATIVE_ROUTE_AT) : null);
 

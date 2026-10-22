@@ -122,6 +122,11 @@ impl ShareRate {
         u64::try_from(s).map_err(|_| CoreError::Math)
     }
 
+    /// The rate itself: Source-asset units per share at `scale` (stake: lamports per token, 1e12).
+    pub fn per_share(&self) -> u128 {
+        self.rate
+    }
+
     /// Whole shares worth `units` whole units, rounded down (what a payout of `units` sends).
     pub fn whole_shares_for_units(&self, units: u64) -> CoreResult<u64> {
         let s = mul_div_u128(u128::from(units), self.scale, self.rate, Round::Down)
@@ -500,11 +505,14 @@ pub struct UnlockPayout {
     /// Shares the holders of the Position's Gemas are owed, fixed now (D2).
     pub owed_shares: u64,
     /// Staking token: what the custody lacks to return the owner's Principal and free yield after
-    /// the fee (holders' landed shares grew with the pool). The Treasury tops it up from spendable
-    /// shares ([`route_after_unlock`]); whatever it cannot cover is `gap_shares`.
+    /// the fee because holders' landed shares grew with the pool. The Treasury tops it up from
+    /// spendable shares ([`route_after_unlock`]). Never set after a fall below the opening rate.
     pub shortfall_shares: u64,
-    /// The part of the shortfall the Treasury could not cover: the owner got that much less.
+    /// What the owner got less than the Principal and free yield: a slash, or the part of the
+    /// shortfall the Treasury could not cover.
     pub gap_shares: u64,
+    /// What the Treasury topped up out of `shortfall_shares`.
+    pub topped_up_shares: u64,
 }
 
 /// Unlock a Position whose Advance is already closed (or banked). The Yield Fee is charged on the
@@ -547,11 +555,16 @@ pub fn settle_unlock(
             let custody =
                 position.custody_shares - position.paid_shares.min(position.custody_shares);
             let rest = custody.checked_sub(owed).ok_or(CoreError::VaultShortfall)?;
-            // Holders' shares keep growing (or shrinking) with the pool after they land, and the
-            // same growth also counted as the Position's yield, so the custody can fall short of
-            // the owner's Principal plus free yield. The fee on the free yield absorbs it first
-            // (founder, 2026-10-22: Tesoro covers it); the Treasury tops up the rest.
-            let due = rate
+            // Holders' shares keep growing with the pool after they land, and the same growth also
+            // counted as the Position's yield, so the custody can fall short of the owner's
+            // Principal plus free yield. The fee on the free yield absorbs it first; the Treasury
+            // tops up the rest (founder, 2026-10-22: Tesoro covers that gap). A slash is never
+            // insured (D2, no cushion; red-team 31 #1): the Principal is counted at the higher of
+            // the rate now and at open, and below the opening rate nothing is topped up.
+            let open = ShareRate::stake(position.stake_rate_open)?;
+            let grew = rate.per_share() > open.per_share();
+            let principal_rate = if grew { rate } else { &open };
+            let due = principal_rate
                 .whole_shares_for_units_ceil(position.principal)?
                 .checked_add(free_after)
                 .ok_or(CoreError::Math)?;
@@ -563,11 +576,18 @@ pub fn settle_unlock(
                     owed_shares: owed,
                     ..UnlockPayout::default()
                 }
-            } else {
+            } else if grew {
                 UnlockPayout {
                     owner_shares: rest,
                     owed_shares: owed,
                     shortfall_shares: due - rest,
+                    ..UnlockPayout::default()
+                }
+            } else {
+                UnlockPayout {
+                    owner_shares: rest,
+                    owed_shares: owed,
+                    gap_shares: due - rest,
                     ..UnlockPayout::default()
                 }
             }
@@ -602,9 +622,14 @@ pub fn route_after_unlock(
         .owner_shares
         .checked_add(top)
         .ok_or(CoreError::Math)?;
+    let gap = payout
+        .gap_shares
+        .checked_add(payout.shortfall_shares - top)
+        .ok_or(CoreError::Math)?;
     *route = next;
     payout.owner_shares = owner;
-    payout.gap_shares = payout.shortfall_shares - top;
+    payout.gap_shares = gap;
+    payout.topped_up_shares = top;
     Ok(())
 }
 
