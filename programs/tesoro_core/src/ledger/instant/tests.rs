@@ -198,9 +198,11 @@ impl Src {
     }
 }
 
+/// Terms without a Yield Fee: the fill mechanics on their own (the fee is tested separately).
 fn terms(shares: u128, gemas: u64, pay: PayMode) -> FillTerms {
     FillTerms {
         rate: Rate { shares, gemas },
+        yield_fee_bps: 0,
         fees_outstanding: 0,
         outstanding: 0,
         pay,
@@ -330,22 +332,20 @@ fn a_request_refuses_what_it_must() {
         .unwrap_err(),
         CoreError::LineMismatch
     );
-    // own Gemas can't be sold
+    assert_eq!(before, (player.lines().collect::<Vec<_>>(), s.book.clone()));
+    // Own Gemas can be sold too (founder, 2026-10-22).
     let mut own = basket(12, 4);
     own.insert(&s.owner).unwrap();
     let own_key = s.owner.key();
-    assert_eq!(
-        go(
-            &mut s,
-            &mut own,
-            SourceKind::Yield,
-            &own_key,
-            DEFAULT_ORDER_TTL_SECS
-        )
-        .unwrap_err(),
-        CoreError::NotWonGemas
-    );
-    assert_eq!(before, (player.lines().collect::<Vec<_>>(), s.book.clone()));
+    let r = go(
+        &mut s,
+        &mut own,
+        SourceKind::Yield,
+        &own_key,
+        DEFAULT_ORDER_TTL_SECS,
+    )
+    .unwrap();
+    assert_eq!((r.order.requested, r.order.line.side), (10, SIDE_OWN));
 }
 
 #[test]
@@ -1199,6 +1199,7 @@ fn fuzz_one(seed: u64, ops: usize, st: &mut Stats) {
                         },
                         gemas: 1 + rng.below(20),
                     },
+                    yield_fee_bps: if rng.below(2) == 0 { 0 } else { 2_000 },
                     fees_outstanding: u128::from(rng.below(100)),
                     outstanding: 100,
                     pay: if rng.below(2) == 0 {
@@ -1247,10 +1248,11 @@ fn fuzz_one(seed: u64, ops: usize, st: &mut Stats) {
                         st.ready_redeemed_at_fill += u64::from(f.redeemed.is_some());
                         assert!(a.check(&signer).is_ok(), "{ctx}: unauthorised fill");
                         assert!(!expired, "{ctx}: filled an expired order");
-                        // never more than 75% of the value at fill, never above spendable
+                        // never more than the value after both fees, never above spendable
+                        let keep = (10_000 - u128::from(t.yield_fee_bps)) * 7_500;
                         assert!(
-                            f.payout_shares * 10_000 <= f.value_shares * 7_500,
-                            "{ctx}: over 75%"
+                            f.payout_shares * 100_000_000 <= f.value_shares * keep,
+                            "{ctx}: over the value after both fees"
                         );
                         assert_eq!(f.value_shares, t.rate.value(k).unwrap());
                         assert!(f.payout_shares <= spendable, "{ctx}: over spendable");
@@ -1480,4 +1482,48 @@ fn fuzz_orders_hold_every_invariant() {
         assert!(st.over_spendable > 0 && st.cancels > 0 && st.expiries > 0);
         assert!(st.ready_redeemed_at_fill > 0 && st.ext_orders > 0);
     }
+}
+
+#[test]
+fn a_fill_pays_the_value_after_the_yield_fee_and_the_instant_fee_with_one_floor() {
+    let (mut s, mut player, mut treasury) = world();
+    let r = request(&mut s, &mut player, 3_000).unwrap();
+    s.redeemed += r.redeemed.unwrap().gemas;
+    let mut order = r.order;
+    let mut route = route(1_000_000);
+    let t = FillTerms {
+        yield_fee_bps: 2_000,
+        ..terms(1, 1, PayMode::Now)
+    };
+    // 1,000 Gemas worth 1,000 shares: 800 after the Yield Fee, 600 after the Instant fee.
+    let f = fill_instant_redeem(
+        &auth(),
+        &key(200),
+        &mut route,
+        &mut s.book,
+        &mut s.ck,
+        &mut order,
+        &mut treasury,
+        1_000,
+        &t,
+        NOW,
+    )
+    .unwrap();
+    assert_eq!((f.value_shares, f.payout_shares), (1_000, 600));
+    // 7 shares: 4.2 -> 4 (two chained floors would pay 3).
+    let f = fill_instant_redeem(
+        &auth(),
+        &key(200),
+        &mut route,
+        &mut s.book,
+        &mut s.ck,
+        &mut order,
+        &mut treasury,
+        7,
+        &t,
+        NOW,
+    )
+    .unwrap();
+    assert_eq!(f.payout_shares, 4);
+    check_all(&s, &[&player, &treasury], &[&order]);
 }

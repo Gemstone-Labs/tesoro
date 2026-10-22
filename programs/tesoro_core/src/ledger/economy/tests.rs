@@ -1,7 +1,10 @@
 use super::*;
 use crate::ledger::book::checkpoint::MemCheckpoints;
 use crate::ledger::book::{fp, SourceBook};
-use crate::ledger::line_store::{CLASS_GENERAL, SIDE_WON};
+use crate::ledger::line_store::{
+    CLASS_GENERAL, CLASS_LEADERBOARD, CLASS_PLATFORM, CLASS_STUDIO, SIDE_WON,
+};
+use crate::ledger::yield_fee::{cash_out, exit_terms};
 use crate::ledger::{
     principal_for_shares, stake_position_accrued, tokens_for_units, SourceChain, STAKE_RATE_SCALE,
 };
@@ -12,6 +15,7 @@ const POSITION: [u8; 32] = [2; 32];
 const SOL: u64 = 1_000_000_000;
 const R0: u64 = 1_300_000_000_000;
 const FEE: u16 = 2_000;
+const POOL: u16 = 5_000;
 const PRICE: u64 = 150_000_000;
 const T0: i64 = 1_800_000_000;
 
@@ -36,6 +40,10 @@ struct World {
     custody0: u64,
     paid_pre: u64,
     paid_post: u64,
+    /// Shares that left the vault: holders' payouts and the owner's Unlock.
+    out: u64,
+    /// Yield Fee shares realised by cash-outs, and how many cash-outs paid one.
+    fees: u128,
     unlocked: Option<UnlockPayout>,
     now: i64,
 }
@@ -63,6 +71,8 @@ impl World {
             custody0: shares,
             paid_pre: 0,
             paid_post: 0,
+            out: 0,
+            fees: 0,
             unlocked: None,
             now: T0,
         }
@@ -73,11 +83,7 @@ impl World {
     }
 
     fn net(&self) -> u64 {
-        stake_position_accrued(&self.pos, self.rate).unwrap().net
-    }
-
-    fn fee_units(&self) -> u64 {
-        stake_position_accrued(&self.pos, self.rate).unwrap().fee
+        stake_position_accrued(&self.pos, self.rate).unwrap()
     }
 
     /// Takes an Advance of `months`, closing the previous one if it is repaid.
@@ -99,8 +105,10 @@ impl World {
                 &mut pos, None, net, &rate,
             )?,
         }
-        let mut src = pos.open_advance(POSITION, months, PRICE, FEE)?;
+        let mut src = pos.open_advance(POSITION, months, PRICE)?;
         src.due_at = planned_due_at(self.now, months, 1)?;
+        src.yield_fee_bps = FEE;
+        src.pool_bps = POOL;
         let s = self.srcs.len();
         let mut book = SourceBook::new();
         let ck = MemCheckpoints::new(source_key(s));
@@ -144,7 +152,6 @@ impl World {
             source_key(s),
             &mut self.books[s],
             months,
-            FEE,
             1,
             net,
             &rate,
@@ -154,19 +161,29 @@ impl World {
         Ok(())
     }
 
-    /// Redeems `k` of a line, paying shares from the Position (or the route once Unlocked).
-    fn redeem(&mut self, s: usize, idx: usize, k: u64) -> CoreResult<u64> {
+    /// Redeems `k` of a line, as the instruction does: the shares come from the Position (or the
+    /// route once Unlocked), the holder is paid them less the Yield Fee, the fee joins the Treasury.
+    /// Returns `(paid, payout)`.
+    fn redeem(&mut self, s: usize, idx: usize, k: u64) -> CoreResult<(u64, u64)> {
         self.sync(s)?;
         let (h, mut line) = self.lines[s][idx];
         let r = self.books[s].redeem(&mut line, k, &self.cks[s])?;
         let paid = u64::try_from(r.shares).unwrap();
         let unlocked = self.pos.status == PositionStatus::Unlocked;
+        let (yf, pool) = exit_terms(&self.srcs[s], line.class);
+        let c = cash_out(u128::from(paid), yf, pool)?;
+        let mut pos = self.pos.clone();
+        let mut route = self.route.clone();
         debit_paid_shares(
-            &mut self.pos,
+            &mut pos,
             CustodyKind::Stake,
-            unlocked.then_some(&mut self.route),
+            unlocked.then_some(&mut route),
             paid,
         )?;
+        route.realise_yield_fee(c.fee, pool)?;
+        self.pos = pos;
+        self.route = route;
+        self.fees += c.fee;
         self.srcs[s].redeemed += k;
         self.lines[s][idx] = (h, line);
         if unlocked {
@@ -174,7 +191,9 @@ impl World {
         } else {
             self.paid_pre += paid;
         }
-        Ok(paid)
+        let payout = u64::try_from(c.payout).unwrap();
+        self.out += payout;
+        Ok((paid, payout))
     }
 
     fn return_own(&mut self, s: usize, idx: usize, k: u64) -> CoreResult<()> {
@@ -233,11 +252,13 @@ impl World {
         } else {
             bank_free_yield(&mut pos, net, &rate)?;
         }
-        let payout = settle_unlock(&mut pos, CustodyKind::Stake, self.fee_units(), &rate)?;
+        let mut payout = settle_unlock(&mut pos, CustodyKind::Stake, &rate)?;
         let mut route = self.route.clone();
-        route_after_unlock(&mut route, &payout, 5_000)?;
+        route_after_unlock(&mut route, &mut payout, POOL)?;
         self.pos = pos;
         self.route = route;
+        self.fees += u128::from(payout.fee_shares);
+        self.out += payout.owner_shares;
         self.unlocked = Some(payout);
         Ok(())
     }
@@ -263,12 +284,17 @@ impl World {
             );
         }
         self.route.check(&[]).expect("route");
+        let custody_left = if self.pos.status == PositionStatus::Locked {
+            self.pos.custody_shares - self.pos.paid_shares
+        } else {
+            0
+        };
+        assert_eq!(
+            u128::from(self.custody0),
+            u128::from(self.out) + u128::from(custody_left) + self.route.treasury_shares,
+            "every share of the vault is the custody's, paid out, or the Treasury's"
+        );
         if let Some(p) = &self.unlocked {
-            assert_eq!(
-                self.custody0,
-                self.paid_pre + p.owner_shares + p.fee_shares + p.owed_shares,
-                "the custody is conserved through Unlock"
-            );
             assert_eq!(
                 u64::try_from(self.route.owed_shares).unwrap() + self.paid_post,
                 p.owed_shares,
@@ -327,7 +353,7 @@ fn a_slash_after_landing_lowers_the_value_of_ready_shares_not_their_number() {
         shares_before,
         "the shares the yield was worth when it landed"
     );
-    let paid = w.redeem(0, 0, before).unwrap();
+    let (paid, _) = w.redeem(0, 0, before).unwrap();
     // Value of the payout falls with the rate: fewer lamports than when it landed.
     let landed_value = tokens_for_units(1, R0 + R0 / 20).unwrap();
     assert!(landed_value <= 1 && paid > 0);
@@ -376,20 +402,24 @@ fn return_own_releases_ready_once_and_unlock_pays_it_once() {
     assert!(w.pos.free_shares > 0);
     assert!(w.pos.held_shares < held_before + 1);
     w.check();
-    let free = w.pos.free_shares;
-    // Unlock: the owner gets the rest of the custody; the free shares are included once.
+    let free = u64::try_from(w.pos.free_shares >> SHARE_BITS).unwrap();
+    assert_eq!(
+        w.fees, 0,
+        "returning own Gemas pays no fee: nothing left Tesoro yet"
+    );
+    // Unlock: the released ready came back as free yield and pays the Yield Fee now, once
+    // (red-team #1: Return then Unlock does not get around the fee).
     w.unlock().unwrap();
     let p = w.unlocked.unwrap();
     assert!(
         p.owed_shares <= 1,
         "nobody holds Gemas of this Source: at most a stranded share is owed"
     );
-    assert_eq!(
-        w.custody0,
-        p.owner_shares + p.fee_shares + p.owed_shares,
-        "custody = owner + fee + owed"
-    );
-    assert!(free >> SHARE_BITS <= u128::from(p.owner_shares));
+    let want = cash_out(u128::from(free), FEE, 0).unwrap().fee;
+    assert!(want > 0);
+    assert_eq!(u128::from(p.fee_shares), want);
+    assert_eq!(w.route.pool_owed, want / 2);
+    assert_eq!(p.shortfall_shares, 0);
     w.check();
 }
 
@@ -427,8 +457,16 @@ fn holders_of_an_unlocked_position_are_paid_from_owed_shares() {
     let won = w.find(0, 1, CLASS_GENERAL).unwrap();
     let k = w.redeemable(0, won);
     assert!(k > 0);
-    let paid = w.redeem(0, won, k).unwrap();
+    let pool_before = w.route.pool_owed;
+    let (paid, payout) = w.redeem(0, won, k).unwrap();
     assert!(paid > 0);
+    let c = cash_out(u128::from(paid), FEE, POOL).unwrap();
+    assert_eq!(
+        u128::from(payout),
+        c.payout,
+        "an unlocked holder pays the fee too"
+    );
+    assert_eq!(w.route.pool_owed, pool_before + c.pool);
     w.check();
     // Spending never touches what holders are owed or the Pool's half.
     let spendable = w.route.spendable();
@@ -437,6 +475,8 @@ fn holders_of_an_unlocked_position_are_paid_from_owed_shares() {
         Err(CoreError::OverSpendable)
     );
     w.route.spend(spendable).unwrap();
+    // A withdrawal: those shares leave the vault.
+    w.out += u64::try_from(spendable).unwrap();
     w.check();
 }
 
@@ -476,15 +516,15 @@ fn the_pool_half_follows_the_share_in_force_and_the_route_never_overspends() {
     let mut route = RouteLedger::default();
     let payout = UnlockPayout {
         owner_shares: 5,
-        mint_shares: 0,
         fee_shares: 1_000,
         owed_shares: 700,
+        ..UnlockPayout::default()
     };
-    route_after_unlock(&mut route, &payout, 5_000).unwrap();
+    route_after_unlock(&mut route, &mut payout.clone(), 5_000).unwrap();
     assert_eq!(route.treasury_shares, 1_700);
     assert_eq!((route.owed_shares, route.pool_owed), (700, 500));
     assert_eq!(route.spendable(), 500);
-    route_after_unlock(&mut route, &payout, 0).unwrap();
+    route_after_unlock(&mut route, &mut payout.clone(), 0).unwrap();
     assert_eq!(
         route.pool_owed, 500,
         "a share of zero owes the Pool nothing more"
@@ -650,56 +690,91 @@ proptest! {
 }
 
 #[test]
-fn a_fee_larger_than_what_the_custody_has_left_is_clamped_not_invented() {
+fn unlock_charges_the_fee_on_free_yield_only_and_never_invents_custody() {
     let rate = ShareRate::stake(R0).unwrap();
-    let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, 1, 500).unwrap();
+    // 1,000 shares, 400 owed to holders, Principal 600 units (462 shares at R0), 100 free shares.
+    let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, 600, 500).unwrap();
     pos.stake_rate_open = R0;
+    pos.yield_fee_bps = FEE;
     pos.custody_shares = 1_000;
     pos.held_shares = 400u128 << SHARE_BITS;
-    pos.paid_shares = 0;
-    let p = settle_unlock(&mut pos, CustodyKind::Stake, 10 * SOL, &rate).unwrap();
-    // The owner keeps the share that covers the Principal (1 lamport), the fee takes the rest.
-    assert_eq!((p.owed_shares, p.fee_shares, p.owner_shares), (400, 599, 1));
+    pos.free_shares = 100u128 << SHARE_BITS;
+    let p = settle_unlock(&mut pos, CustodyKind::Stake, &rate).unwrap();
+    // The fee is 20 of the 100 free shares; the owner gets everything else of the custody.
+    assert_eq!(
+        (
+            p.owed_shares,
+            p.fee_shares,
+            p.owner_shares,
+            p.shortfall_shares
+        ),
+        (400, 20, 580, 0)
+    );
     // Holders owed more than the custody holds is an inconsistency, not a payout.
     let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, SOL, 500).unwrap();
     pos.custody_shares = 100;
     pos.held_shares = 400u128 << SHARE_BITS;
     assert_eq!(
-        settle_unlock(&mut pos, CustodyKind::Stake, 0, &rate),
+        settle_unlock(&mut pos, CustodyKind::Stake, &rate),
         Err(CoreError::VaultShortfall)
     );
     assert_eq!(pos.status, PositionStatus::Locked);
 }
 
 #[test]
-fn the_fee_is_paid_only_above_the_owners_principal() {
+fn a_short_custody_is_absorbed_by_the_free_yield_fee_then_topped_up_by_the_treasury() {
     let rate = ShareRate::stake(R0).unwrap();
-    // 1,000 shares, 400 owed to holders: the owner's 600 shares are worth 780 units at R0.
-    let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, 700, 500).unwrap();
-    pos.stake_rate_open = R0;
-    pos.custody_shares = 1_000;
-    pos.held_shares = 400u128 << SHARE_BITS;
-    let p = settle_unlock(&mut pos, CustodyKind::Stake, 500, &rate).unwrap();
-    // The Principal (700 units) needs 539 shares; the fee wanted 385 but only 61 are above it.
+    let short = |principal: u64| {
+        let mut pos =
+            Position::new(OWNER, SourceChain::Solana, [7; 32], 9, principal, 500).unwrap();
+        pos.stake_rate_open = R0;
+        pos.yield_fee_bps = FEE;
+        pos.custody_shares = 1_000;
+        pos.held_shares = 400u128 << SHARE_BITS;
+        pos.free_shares = 100u128 << SHARE_BITS;
+        settle_unlock(&mut pos, CustodyKind::Stake, &rate).unwrap()
+    };
+    // Principal 600 shares + 80 free after the fee = 680 due, 600 there: the fee is waived and the
+    // owner is 80 short.
+    let p = short(780);
     assert_eq!(
-        (p.owed_shares, p.fee_shares, p.owner_shares),
-        (400, 61, 539)
+        (p.fee_shares, p.owner_shares, p.shortfall_shares),
+        (0, 600, 80)
     );
-    // A Principal worth more than the owner's shares leaves no fee at all.
-    let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, 900, 500).unwrap();
-    pos.stake_rate_open = R0;
-    pos.custody_shares = 1_000;
-    pos.held_shares = 400u128 << SHARE_BITS;
-    let p = settle_unlock(&mut pos, CustodyKind::Stake, 500, &rate).unwrap();
-    assert_eq!((p.fee_shares, p.owner_shares), (0, 600));
+    // Principal 516 shares + 80 = 596 due, 600 there: the fee only takes the 4 above it.
+    let p = short(670);
+    assert_eq!(
+        (p.fee_shares, p.owner_shares, p.shortfall_shares),
+        (4, 596, 0)
+    );
+    // The Treasury tops up what it can spend; Unlock never fails for the rest.
+    let p = short(780);
+    let mut rich = RouteLedger::default();
+    rich.receive(1_000).unwrap();
+    let mut paid = p;
+    route_after_unlock(&mut rich, &mut paid, POOL).unwrap();
+    assert_eq!((paid.owner_shares, paid.gap_shares), (680, 0));
+    assert_eq!(rich.treasury_shares, 1_000 + 400 - 80);
+    let mut poor = RouteLedger::default();
+    poor.receive(30).unwrap();
+    let mut paid = p;
+    route_after_unlock(&mut poor, &mut paid, POOL).unwrap();
+    assert_eq!((paid.owner_shares, paid.gap_shares), (630, 50));
+    assert_eq!(poor.spendable(), 0);
+    let mut empty = RouteLedger::default();
+    let mut paid = p;
+    route_after_unlock(&mut empty, &mut paid, POOL).unwrap();
+    assert_eq!((paid.owner_shares, paid.gap_shares), (600, 80));
 }
 
 #[test]
-fn growth_of_landed_shares_never_takes_the_owners_principal() {
+fn growth_of_landed_shares_is_covered_by_the_treasury_not_the_owners_principal() {
     // Coverage lands in many small steps while the pool grows, so the landed shares grow with the
-    // pool and the Position's own growth is counted on them again. Priced on the Position's whole
-    // growth the owner would get back a little less than the Principal.
+    // pool and the Position's own growth is counted on them again: the custody falls short of the
+    // owner's Principal. The Treasury (here funded by earlier fees) makes the owner whole.
     let mut w = World::new(10 * SOL);
+    w.route.receive(SOL as u128).unwrap();
+    w.custody0 += SOL;
     w.advance(12).unwrap();
     let step = R0 / 20_000;
     for _ in 0..4_000 {
@@ -710,20 +785,53 @@ fn growth_of_landed_shares_never_takes_the_owners_principal() {
         }
     }
     assert_eq!(w.books[0].uncovered_total(), 0, "the Advance is repaid");
-    let fee_units = w.fee_units();
     let rate = w.share_rate();
     w.unlock().unwrap();
     let p = w.unlocked.unwrap();
-    let rest = w.custody0 - p.owed_shares;
-    let uncapped = rate.whole_shares_for_units(fee_units).unwrap().min(rest);
     let value = |shares: u64| rate.units_for_shares(u128::from(shares)).unwrap();
     assert!(
-        value(rest - uncapped) < u128::from(w.pos.principal),
-        "without the floor the owner would get back less than the Principal"
+        p.shortfall_shares > 0,
+        "the landed shares' growth leaves the custody short"
     );
+    assert_eq!(p.gap_shares, 0);
     assert!(
         value(p.owner_shares) >= u128::from(w.pos.principal),
         "the owner's shares are worth at least the Principal"
     );
-    assert!(p.fee_shares > 0 && p.fee_shares < uncapped);
+    w.check();
+}
+
+#[test]
+fn fee_classes_are_exempt_and_every_playable_class_pays_the_sources_snapshot() {
+    let mut src = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, SOL, 500)
+        .unwrap()
+        .open_advance(POSITION, 6, PRICE)
+        .unwrap();
+    src.yield_fee_bps = FEE;
+    src.pool_bps = POOL;
+    for class in [CLASS_PLATFORM, CLASS_STUDIO, CLASS_LEADERBOARD] {
+        assert_eq!(exit_terms(&src, class), (0, 0));
+    }
+    assert_eq!(exit_terms(&src, CLASS_GENERAL), (FEE, POOL));
+    assert_eq!(exit_terms(&src, CLASS_GENERAL + 3), (FEE, POOL));
+}
+
+#[test]
+fn a_locked_redeem_pays_eighty_percent_and_the_fee_stays_in_the_vault_as_the_treasurys() {
+    let mut w = World::new(10 * SOL);
+    w.advance(6).unwrap();
+    w.rate = R0 + R0 / 20;
+    w.sync(0).unwrap();
+    let idx = w.find(0, 0, CLASS_GENERAL).unwrap();
+    w.win(0, idx, w.lines[0][idx].1.amount / 2).unwrap();
+    let won = w.find(0, 1, CLASS_GENERAL).unwrap();
+    let k = w.redeemable(0, won);
+    let (paid, payout) = w.redeem(0, won, k).unwrap();
+    let c = cash_out(u128::from(paid), FEE, POOL).unwrap();
+    assert_eq!(u128::from(payout), c.payout);
+    assert!(c.fee > 0);
+    assert_eq!(w.route.treasury_shares, c.fee);
+    assert_eq!(w.route.pool_owed, c.pool);
+    assert_eq!(w.route.spendable(), c.fee - c.pool);
+    w.check();
 }

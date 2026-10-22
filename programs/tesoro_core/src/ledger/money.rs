@@ -125,17 +125,16 @@ impl Position {
         })
     }
 
-    /// Takes an Advance: the projected yield over `horizon_months` net of the Yield Fee
-    /// (`yield_fee_bps`), as Gemas at $0.01 with `price_micro_usd` (USD per whole asset, micro-USD)
-    /// fixed for this Source. The Position earns its yield net of the same fee, so the Advance is
-    /// repaid at the Horizon. The caller credits `source.issued` Gemas to the owner's basket as
-    /// lines of the returned Source.
+    /// Takes an Advance: the whole projected yield over `horizon_months`, as Gemas at $0.01 with
+    /// `price_micro_usd` (USD per whole asset, micro-USD) fixed for this Source. The Position earns
+    /// its gross yield, so the Advance is repaid at the Horizon; the Yield Fee is taken when the
+    /// Gemas are cashed out (ticket 31). The caller sets the Source's fee snapshot and credits
+    /// `source.issued` Gemas to the owner's basket as lines of the returned Source.
     pub fn open_advance(
         &mut self,
         position: Key,
         horizon_months: u8,
         price_micro_usd: u64,
-        yield_fee_bps: u16,
     ) -> CoreResult<Source> {
         if self.status != PositionStatus::Locked {
             return Err(CoreError::PositionNotLocked);
@@ -149,13 +148,10 @@ impl Position {
         if price_micro_usd == 0 {
             return Err(CoreError::InvalidPrice);
         }
-        if yield_fee_bps > MAX_YIELD_FEE_BPS {
-            return Err(CoreError::InvalidBps);
-        }
         let unit_num = 10u128
             .checked_pow(self.decimals as u32 + 4)
             .ok_or(CoreError::Math)?;
-        let issued = self.advance_gemas(horizon_months, price_micro_usd, yield_fee_bps)?;
+        let issued = self.advance_gemas(horizon_months, price_micro_usd)?;
         if issued == 0 {
             return Err(CoreError::AdvanceTooSmall);
         }
@@ -176,25 +172,23 @@ impl Position {
             yield_units: 0,
             redeemed_units: 0,
             due_at: 0,
+            yield_fee_bps: 0,
+            pool_bps: 0,
+            fee_units: 0,
+            pool_units: 0,
         })
     }
 
-    /// Gemas an Advance of `months` is worth: projected yield net of the Yield Fee, as Gemas at
+    /// Gemas an Advance of `months` is worth: the whole projected yield, as Gemas at
     /// `price_micro_usd`, floored.
-    pub(crate) fn advance_gemas(
-        &self,
-        months: u8,
-        price_micro_usd: u64,
-        yield_fee_bps: u16,
-    ) -> CoreResult<u64> {
+    pub(crate) fn advance_gemas(&self, months: u8, price_micro_usd: u64) -> CoreResult<u64> {
         let projected_units = mul_div_floor(
             (self.principal as u128)
                 .checked_mul(self.rate_bps as u128)
                 .and_then(|x| x.checked_mul(months as u128))
                 .ok_or(CoreError::Math)?,
-            BPS.checked_sub(yield_fee_bps as u128)
-                .ok_or(CoreError::Math)?,
-            BPS * BPS * 12,
+            1,
+            BPS * 12,
         )?;
         let unit_num = 10u128
             .checked_pow(self.decimals as u32 + 4)
@@ -207,15 +201,9 @@ impl Position {
     }
 
     /// Extends the open Advance by `extra_months` (total Horizon at most 12) and returns the Gemas
-    /// minted: `size(h + extra) - size(h)` at the Source's own price and the current Yield Fee, so
-    /// a Yield Fee change since the Advance never turns into a windfall or an error. The caller
-    /// credits them to the owner's basket as lines of `src`.
-    pub fn extend_advance(
-        &mut self,
-        src: &mut Source,
-        extra_months: u8,
-        yield_fee_bps: u16,
-    ) -> CoreResult<u64> {
+    /// minted: `size(h + extra) - size(h)` at the Source's own price. The caller credits them to
+    /// the owner's basket as lines of `src`.
+    pub fn extend_advance(&mut self, src: &mut Source, extra_months: u8) -> CoreResult<u64> {
         if self.status != PositionStatus::Locked {
             return Err(CoreError::PositionNotLocked);
         }
@@ -233,11 +221,8 @@ impl Position {
         if extra_months == 0 || total > MAX_HORIZON_MONTHS {
             return Err(CoreError::InvalidHorizon);
         }
-        if yield_fee_bps > MAX_YIELD_FEE_BPS {
-            return Err(CoreError::InvalidBps);
-        }
-        let before = self.advance_gemas(src.horizon_months, src.unit_den, yield_fee_bps)?;
-        let after = self.advance_gemas(total, src.unit_den, yield_fee_bps)?;
+        let before = self.advance_gemas(src.horizon_months, src.unit_den)?;
+        let after = self.advance_gemas(total, src.unit_den)?;
         let minted = after.checked_sub(before).ok_or(CoreError::Math)?;
         if minted == 0 {
             return Err(CoreError::AdvanceTooSmall);
@@ -340,6 +325,17 @@ pub struct Source {
     /// Planned repayment date of the Source's Gemas (unix seconds), set by the instruction layer
     /// when the Advance is taken and moved by Extend: the fast-first key of its basket lines.
     pub due_at: i64,
+    /// Yield Fee charged when this Source's Gemas are cashed out, fixed when the Advance opens
+    /// (ticket 31). Fee-class lines are exempt whatever this says.
+    pub yield_fee_bps: u16,
+    /// The Pool's share of that fee, fixed when the Advance opens (red-team #10).
+    pub pool_bps: u16,
+    /// Source-asset units of Yield Fee charged on this Source's cash-outs, cumulative (included in
+    /// `redeemed_units`). The bridge reads its delta to tell an EVM vault what to keep.
+    pub fee_units: u64,
+    /// Units of those cash-outs owed to the Leaderboard Pool, cumulative: its part of the Yield
+    /// Fee and, on the Treasury's redeems, its fifth of the Instant fee.
+    pub pool_units: u64,
 }
 
 impl Source {

@@ -1,16 +1,17 @@
 //! The Treasury (CONTEXT.md, ADR 0007): Tesoro's Yield Fee and Instant Redeem.
 //!
-//! * The Yield Fee on Solana-native Positions is computed from the `NativeCustody` pool totals
-//!   (ADR 0010) and minted only when it is paid out: the Treasury's balance is the unminted fee
-//!   (`earned_fee - fee_minted`) plus the simSOL in its vault (funding, `redeem_treasury`
-//!   refills). `pay_from_treasury` takes the vault first and mints the shortfall out of the
-//!   unminted fee. EVM vaults keep their fee at the source.
+//! * The Yield Fee is taken when yield is cashed out (ticket 31) and joins the custody's route as
+//!   the Treasury's shares (native: virtual until minted). The Treasury's balance is the route's
+//!   spendable shares; `pay_from_treasury` takes the simSOL vault first and mints the rest. EVM
+//!   vaults keep their fee at the source.
 //! * Instant Redeem: a holder sells won Gemas to the Treasury Account for their value less the
 //!   Instant Redeem Fee. On Solana the treasury vault pays in the same transaction
 //!   (`instant_redeem`); for EVM Sources the bridge records the payout and the vault's treasury pays
 //!   it (`instant_redeem_from_source`, co-signed by the chain's source authority).
-//! * The Treasury Account later redeems those Gemas at full value through the normal Redeem rules
+//! * The Treasury Account later redeems those Gemas through the normal Redeem rules
 //!   (`redeem_treasury`, `redeem_treasury_from_source`), which refills the treasury on that chain.
+//!   That redeem is not exempt: it is where the Yield Fee on bought Gemas is realised, with the
+//!   Pool's half and its fifth of the Instant fee.
 
 use crate::books::OnchainBooks;
 use crate::error::{core_err, TesoroError};
@@ -354,8 +355,10 @@ pub(crate) fn withdraw_treasury(ctx: Context<WithdrawTreasury>, amount: u64) -> 
 /// The Treasury Account redeems Gemas of a Solana Source it bought (an Instant Redeem fill), by the
 /// normal Redeem rules (only the repaid part of a line, paying the shares it was worth when its
 /// yield landed). Permissionless: nobody can sign for the Treasury Account and the destination is
-/// fixed. Native: the shares are minted into the Treasury's vault; stake: they stay in the custody
-/// vault. Either way they become the Treasury's own shares (`route.receive`).
+/// fixed, so Tesoro cannot defer the Pool's share. Native: the shares are minted into the
+/// Treasury's vault; stake: they stay in the custody vault. Either way they become the Treasury's
+/// own shares (`route.receive`), and the Pool is owed its half of the Yield Fee and its fifth of
+/// the Instant fee on them (`route.owe_pool`).
 /// Remaining accounts: the kind's accounts (native paying to `treasury.vault`), then the Source's
 /// book and pages.
 #[derive(Accounts)]
@@ -419,6 +422,9 @@ pub(crate) fn redeem_treasury<'info>(
                 &source_key,
                 &key,
                 amount,
+                Cashing::Treasury {
+                    instant_fee_bps: ledger::INSTANT_REDEEM_FEE_BPS,
+                },
             )
         },
     )?;
@@ -427,12 +433,8 @@ pub(crate) fn redeem_treasury<'info>(
     // Stake shares stay in the custody vault as the Treasury's own; native simSOL is minted into
     // the Treasury's vault.
     if !is_stake(&a.position.inner) {
-        kind.pay_shares(&a.position.key(), out.shares as u64, 4)?;
+        kind.pay_shares(&a.position.key(), out.shares, 4)?;
     }
-    kind.route_mut()
-        .ok_or_else(|| error!(TesoroError::NotNativePosition))?
-        .receive(u128::from(out.shares))
-        .map_err(core_err)?;
     kind.exit()?;
     emit!(Redeemed {
         position: a.position.key(),
@@ -510,6 +512,9 @@ pub(crate) fn redeem_treasury_from_source<'info>(
                 &source_key,
                 &key,
                 amount,
+                Cashing::Treasury {
+                    instant_fee_bps: ledger::INSTANT_REDEEM_FEE_BPS,
+                },
             )
         },
     )?;

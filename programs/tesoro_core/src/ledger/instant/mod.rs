@@ -3,18 +3,22 @@
 //! Pure Rust, like the rest of `ledger`: no accounts, no clocks, no CPIs. Ticket 11 wires the
 //! instructions. An Instant Redeem is an **order that Tesoro fills** (founder, 2026-10-20):
 //!
-//! 1. [`request_instant_redeem`] Redeems the line's ready whole Gemas at full value, then moves
-//!    the Gemas to sell out of the Player's basket into an [`InstantOrder`]. The order holds a
+//! 1. [`request_instant_redeem`] Redeems the line's ready whole Gemas (the instruction layer pays
+//!    them less the Yield Fee, like any Redeem: red-team #3), then moves the Gemas to sell out of
+//!    the Player's basket into an [`InstantOrder`]. Won and own Gemas alike (founder, 2026-10-22:
+//!    a Player may cash out their own deposit's future yield). The order holds a
 //!    [`Line`] of the same Source, class and tranche. Because the Gemas are no longer in the
 //!    basket, no draw, transfer, Redeem or Offer reservation can reach them while the order is
 //!    open (an order's Gemas are not part of `own_total`/`won_total`).
 //! 2. [`fill_instant_redeem`] (the fill authority: the admin, or the keeper while a rule is
-//!    switched on, off by default) buys all or some of the order's Gemas. The Treasury pays 75%
-//!    of their value at fill from `spendable_shares` ([`RouteLedger::spend`]) and its basket
+//!    switched on, off by default) buys all or some of the order's Gemas. The Treasury pays their
+//!    value at fill less the Yield Fee and then the Instant Redeem Fee, with one floor
+//!    ([`super::yield_fee::instant_payout`]: 60% at 20% and 25%), from `spendable_shares`
+//!    ([`RouteLedger::spend`]) and its basket
 //!    takes the Gemas with the seller's class and tranche (never promoted into a fee class). A
 //!    partial fill leaves the rest of the order open. Ready Gemas that appeared in the order
-//!    while it waited are Redeemed to the seller at full value first, so waiting never costs the
-//!    seller the 25% on Gemas that already repaid.
+//!    while it waited are Redeemed to the seller first (less the Yield Fee only), so waiting never
+//!    costs the seller the Instant fee on Gemas that already repaid.
 //! 3. [`cancel_instant_redeem`] (the seller, any time) and [`expire_instant_redeem`] (anyone,
 //!    after `expires_at`) put the unsold Gemas back exactly.
 //!
@@ -36,9 +40,10 @@ use super::book::checkpoint::CheckpointStore;
 use super::book::wide::{mul_div_u128, Round};
 use super::book::{Redeemed, SourceBook};
 use super::draw::{Bytes, DrawError, DrawResult, Pool, SourceBooks};
-use super::line_store::{Line, LineKey, SIDE_WON};
+use super::line_store::{Line, LineKey};
 use super::prize::{RouteLedger, SourceKind};
-use super::{CoreError, CoreResult, Key, BPS, MAX_INSTANT_FEE_BPS};
+use super::yield_fee::instant_payout;
+use super::{CoreError, CoreResult, Key};
 
 /// The Instant Redeem Fee for launch, in basis points of the Gemas' value (25%).
 pub const INSTANT_REDEEM_FEE_BPS: u16 = 2_500;
@@ -113,6 +118,8 @@ pub enum PayMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FillTerms {
     pub rate: Rate,
+    /// The Source's Yield Fee snapshot: an Instant fill pays the Gemas' value after it.
+    pub yield_fee_bps: u16,
     pub fees_outstanding: u128,
     pub outstanding: u128,
     pub pay: PayMode,
@@ -165,15 +172,12 @@ impl InstantOrder {
     }
 }
 
-/// `(value, payout)` for `k` Gemas: the payout is the value less the fee, rounded down.
+/// `(value, payout)` for `k` Gemas: the payout is the value less the Yield Fee and the Instant
+/// Redeem Fee, one floor.
 fn payout_for(k: u64, terms: &FillTerms) -> CoreResult<(u128, u128)> {
     let value = terms.rate.value(k)?;
     let fee = instant_fee_bps(terms.fees_outstanding, terms.outstanding);
-    if fee > MAX_INSTANT_FEE_BPS {
-        return Err(CoreError::InvalidBps);
-    }
-    let keep = BPS - u128::from(fee);
-    let payout = mul_div_u128(value, keep, BPS, Round::Down).ok_or(CoreError::Math)?;
+    let payout = instant_payout(value, terms.yield_fee_bps, fee)?;
     Ok((value, payout))
 }
 
@@ -212,10 +216,10 @@ pub struct Requested {
     pub redeemed: Option<Redeemed>,
 }
 
-/// `request_instant_redeem`: the Player puts `sell` Gemas of the won line `key` into an order.
-/// The line's ready whole Gemas are Redeemed at full value first (their shares are the seller's).
-/// Refused for own Gemas, fee classes and prize Sources, and when the Gemas leaving (Redeemed
-/// plus sold) would dip into what an Offer reservation needs. `Err` changes nothing.
+/// `request_instant_redeem`: the Player puts `sell` Gemas of the line `key` (won or own) into an
+/// order. The line's ready whole Gemas are Redeemed first (their shares are the seller's, less the
+/// Yield Fee). Refused for fee classes and prize Sources, and when the Gemas leaving (Redeemed plus
+/// sold) would dip into what an Offer reservation needs. `Err` changes nothing.
 #[allow(clippy::too_many_arguments)]
 pub fn request_instant_redeem<B: Bytes, S: Bytes>(
     kind: SourceKind,
@@ -248,7 +252,7 @@ pub fn request_instant_redeem<B: Bytes, S: Bytes>(
         pool.basket.get(idx)
     }
     .ok_or(CoreError::LineMismatch)?;
-    if line.side != SIDE_WON || !line.is_playable() {
+    if !line.is_playable() {
         return Err(CoreError::NotWonGemas);
     }
     let mut b = book.boxed_clone();
@@ -305,14 +309,14 @@ pub struct Filled {
     pub fee_bps: u16,
     /// Shares the Treasury pays the seller (value less the fee, rounded down).
     pub payout_shares: u128,
-    /// Ready Gemas Redeemed to the seller at full value before the sale.
+    /// Ready Gemas Redeemed to the seller before the sale (paid less the Yield Fee).
     pub redeemed: Option<Redeemed>,
     /// `true` for [`PayMode::Deferred`]: the payout is reserved, not yet spent.
     pub deferred: bool,
 }
 
-/// `fill_instant_redeem`: buy `gemas` of the order's Gemas, all or part, at 75% of their value at
-/// fill, from `spendable_shares`. `treasury` is the Treasury Account's basket, which takes the
+/// `fill_instant_redeem`: buy `gemas` of the order's Gemas, all or part, at their value at fill
+/// less the Yield Fee and the Instant Redeem Fee, from `spendable_shares`. `treasury` is the Treasury Account's basket, which takes the
 /// Gemas under the seller's key (class and tranche kept). Refused for a signer without fill
 /// authority, an expired or finished order, more Gemas than the order holds (after Redeeming its
 /// ready part), a payout above `route.spendable()`, or a Treasury pool with no room (`SpillFull`: grow its spill, retry). `Err` changes

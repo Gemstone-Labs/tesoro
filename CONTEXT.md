@@ -29,7 +29,7 @@ A Player's own cap on the months Extend may add in any 30-day period, across all
 _Avoid_: borrowing cap, credit limit
 
 **Length** (code and on-chain: Horizon):
-The period (1–12 months) a staker chooses when taking an Advance; the Advance is 80% of the Lock's projected yield over it: the yield net of the Yield Fee, so the Unlock Estimate still lands at the end of the Length. A Lock holds at most one open Advance. An open Advance with some left to pay back can be extended up to a total of 12 months (see **Extend**).
+The period (1–12 months) a staker chooses when taking an Advance; the Advance is the Lock's whole projected yield over it (Gemas are 100% of the yield), so the Unlock Estimate lands at the end of the Length. The Yield Fee is taken later, when the Gemas are cashed out. A Lock holds at most one open Advance. An open Advance with some left to pay back can be extended up to a total of 12 months (see **Extend**).
 _Avoid_: Horizon (in Player copy), term, lock period, maturity
 
 **Unlock Estimate**:
@@ -37,7 +37,7 @@ The projected date a Lock is paid back and unlocks. An estimate, never a promise
 _Avoid_: unlock date, maturity date
 
 **Earned** (code: Accrued Yield):
-The yield a Lock has earned since it opened, net of the Yield Fee: its Locked amount times its staking growth since then. Always current; nobody has to record it, and it is what pays back the Advance and lets Gemas be Redeemed.
+The yield a Lock has earned since it opened: its Locked amount times its staking growth since then (nothing is taken from it as it accrues). Always current; nobody has to record it, and it is what pays back the Advance and lets Gemas be Redeemed.
 _Avoid_: Accrued Yield (in Player copy), refreshed yield, reported yield, cranked yield
 
 **Staking Rate**:
@@ -113,7 +113,7 @@ Tesoro's fixed share of every Pot on every game, taken in Gemas at settlement. O
 _Avoid_: rake, commission, house edge
 
 **Yield Fee**:
-20% of every increment of yield a Lock earns (SOL, ETH and HYPE alike), taken before the yield counts toward paying back, redemption or free yield. Never charged on a Locked amount. Half is Tesoro's revenue and half is owed to the Leaderboard Pool; both halves count only once the fee is realised (a Lock's fee is realised when the Lock is Unlocked).
+20% of yield when it is cashed out (SOL, ETH and HYPE alike): on a Redeem, on the repaid part of an Instant Redeem, when the Treasury redeems the Gemas it bought, and on a Lock owner's free yield at Unlock (including what a Return gave back). Taken once per cash-out, from what leaves: 1,000 Gemas Redeem for $8.00. Never charged on a Locked amount, on fee Gemas (Platform, Studio, Leaderboard Fees) or on prize Gemas. Half is Tesoro's revenue and half is owed to the Leaderboard Pool, both counted when the cash-out happens. Each Advance keeps the Yield Fee and the Pool's share in force when it was taken.
 _Avoid_: performance fee, staking commission, interest
 
 **Studio Fee**:
@@ -169,7 +169,7 @@ _Avoid_: user, gamer, backee
 ### Redemption
 
 **Redeem**:
-To turn Gemas into their Source asset, possible only as far as the Source Lock's yield has actually been Earned and has reached those Gemas by the **Payout order**. Winning Gemas never shortens the winner's own lock. Won Gemas can instead be Instant Redeemed. What a Player can Redeem never goes down unless they Redeem or spend it: another holder's Redeem, the Lock owner's Extend, a new fee or an Instant Redeem cannot lower it.
+To turn Gemas into their Source asset, possible only as far as the Source Lock's yield has actually been Earned and has reached those Gemas by the **Payout order**. Winning Gemas never shortens the winner's own lock. The Player chooses how many to Redeem and is paid their value less the Yield Fee; Gemas whose yield has not landed can instead be Instant Redeemed. What a Player can Redeem never goes down unless they Redeem or spend it: another holder's Redeem, the Lock owner's Extend, a new fee or an Instant Redeem cannot lower it.
 _Avoid_: withdraw, cash out, claim
 
 **Redeem now** (an amount, not an action):
@@ -196,11 +196,11 @@ A half-built entry. When an entry needs more Gemas lines than one transaction fi
 _Avoid_: batch, partial entry
 
 **Instant Redeem**:
-Selling won Gemas to Tesoro's Treasury for their Source asset before the Source's yield has landed, for 75% of their value at the moment of the fill; Tesoro keeps the other 25% (the **Instant Redeem Fee**). It is an order: the Player requests it, the Gemas wait in the order and cannot be played, and Tesoro fills it, in full or in part, while the Treasury of that asset can pay. The Player may cancel an unfilled order at any time, and an order that nobody fills expires and returns the Gemas. Only free Gemas the holder won whose yield has not landed yet are sold; landed Gemas are Redeemed at full value, never at 75%. Own-Sourced Gemas are never sold. What the Source Lock has left to pay back, and its counts, are untouched.
+Selling Gemas (won or own) to Tesoro's Treasury for their Source asset before the Source's yield has landed. The Yield Fee comes off first, then 25% (the **Instant Redeem Fee**): 1,000 Gemas pay $6.00 now instead of $8.00 later. Of the Instant Redeem Fee, one fifth is owed to the Leaderboard Pool and four fifths are Tesoro's, counted when the Treasury redeems the Gemas it bought. It is an order: the Player requests it, the Gemas wait in the order and cannot be played, and Tesoro fills it, in full or in part, while the Treasury of that asset can pay. The Player may cancel an unfilled order at any time, and an order that nobody fills expires and returns the Gemas. Only free Gemas whose yield has not landed yet are sold; landed Gemas are simply Redeemed (less the Yield Fee), never sold. A Player may sell their own deposit's Gemas too, and chooses how many. What the Source Lock has left to pay back, and its counts, are untouched.
 _Avoid_: early withdrawal, cash out, sell (as the action name)
 
 **Treasury**:
-Tesoro's own holdings and revenue, one per asset (on Solana, and inside each EVM vault). It collects Tesoro's half of the Yield Fee, fills Instant Redeem orders while it holds enough, is refilled when the Gemas it bought are redeemed at full value, and Tesoro may withdraw from it at any time. It is held in the staking token's shares and spends only fees already realised (a Lock's fee counts once the Lock is Unlocked), never what Gema holders of an unlocked Lock are still owed and never the Pool's half. Holders carry a slash of the staking token as if they held it themselves; the Treasury does not insure them. Not the Leaderboard Pool, and not a Lock.
+Tesoro's own holdings and revenue, one per asset (on Solana, and inside each EVM vault). It collects Tesoro's half of the Yield Fee, fills Instant Redeem orders while it holds enough, is refilled when the Gemas it bought are redeemed (paying the Yield Fee like anyone), and Tesoro may withdraw from it at any time. It is held in the staking token's shares and spends only fees already realised (at cash-out), never what Gema holders of an unlocked Lock are still owed and never the Pool's part. It also tops up a staking-token Lock's Unlock when the custody falls short of the owner's Locked amount (holders' landed shares grew with the pool). Holders carry a slash of the staking token as if they held it themselves; the Treasury does not insure them. Not the Leaderboard Pool, and not a Lock.
 _Avoid_: reserve, vault (a Lock's custody), pool
 
 **Yield Report**:

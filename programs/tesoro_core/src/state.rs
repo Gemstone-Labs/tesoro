@@ -343,7 +343,7 @@ pub struct SourceState {
 }
 
 impl SourceState {
-    pub const SPACE: usize = 8 + 1 + 32 + 32 + 4 + 1 + 16 + 8 + 5 * 8 + 8;
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 4 + 1 + 16 + 8 + 5 * 8 + 8 + 2 + 2 + 2 * 8;
 }
 
 /// The most Matches one Account may have open at once (an Open, Active, Settling or Refunding
@@ -473,37 +473,42 @@ pub struct NativeCustody {
     pub mint: Pubkey,
     /// Token account (PDA) that keeps the Principal of every Locked native Position.
     pub vault: Pubkey,
-    /// `PoolTotals` (`ledger::yield_math`), updated only on open and unlock.
+    /// Principal of the Locked native Positions, SOL units (informational).
     pub principal: u128,
-    pub fee_weight: u128,
-    pub fee_weight_time: u128,
-    pub realised_fee: u128,
     pub open_positions: u64,
     /// The Treasury's shares of this route: what it holds, what holders and the Pool are owed
-    /// (realised fees only, D1), the prize escrow. Simulated shares are minted at payout, so most
-    /// of these are virtual until paid.
+    /// (Yield Fees realised at cash-out), the prize escrow. Simulated shares are minted at payout,
+    /// so most of these are virtual until paid.
     pub route: ledger::RouteLedger,
 }
 
 impl NativeCustody {
-    pub const SPACE: usize = 8 + 1 + 1 + 3 * 32 + 4 * 16 + 8 + ledger::RouteLedger::SPACE;
+    pub const SPACE: usize = 8 + 1 + 1 + 3 * 32 + 16 + 8 + ledger::RouteLedger::SPACE;
 
-    pub fn totals(&self) -> ledger::PoolTotals {
-        ledger::PoolTotals {
-            principal: self.principal,
-            fee_weight: self.fee_weight,
-            fee_weight_time: self.fee_weight_time,
-            realised_fee: self.realised_fee,
-            open_positions: self.open_positions,
-        }
+    /// A Position joined the custody.
+    pub fn add_position(&mut self, principal: u64) -> Result<()> {
+        self.principal = self
+            .principal
+            .checked_add(u128::from(principal))
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        self.open_positions = self
+            .open_positions
+            .checked_add(1)
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        Ok(())
     }
 
-    pub fn set_totals(&mut self, t: ledger::PoolTotals) {
-        self.principal = t.principal;
-        self.fee_weight = t.fee_weight;
-        self.fee_weight_time = t.fee_weight_time;
-        self.realised_fee = t.realised_fee;
-        self.open_positions = t.open_positions;
+    /// A Position unlocked.
+    pub fn remove_position(&mut self, principal: u64) -> Result<()> {
+        self.principal = self
+            .principal
+            .checked_sub(u128::from(principal))
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        self.open_positions = self
+            .open_positions
+            .checked_sub(1)
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        Ok(())
     }
 }
 
@@ -525,8 +530,7 @@ impl StakeConfig {
 }
 
 /// The shared custody of one staking token. Every stake Position of that token holds its
-/// `custody_shares` in `vault`; the totals behind the Treasury's Yield Fee claim change only on
-/// open and unlock (`ledger::stake`). Seeds `["stake_custody", mint]`; the vault is a token account
+/// `custody_shares` in `vault`. Seeds `["stake_custody", mint]`; the vault is a token account
 /// at `["stake_vault", mint]` with this account as authority.
 #[account]
 pub struct StakeCustody {
@@ -536,10 +540,8 @@ pub struct StakeCustody {
     /// The SPL stake pool account the token's Staking Rate is read from.
     pub pool: Pubkey,
     pub vault: Pubkey,
+    /// Principal of the Locked stake Positions, lamports (informational).
     pub principal: u128,
-    pub fee_shares: u128,
-    pub fee_principal: u128,
-    pub realised_fee_shares: u128,
     pub open_positions: u64,
     /// Tokens the Treasury bought back by redeeming Gemas (their yield stays in the vault).
     pub refilled_shares: u64,
@@ -553,39 +555,47 @@ pub struct StakeCustody {
 }
 
 impl StakeCustody {
-    pub const SPACE: usize = 8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8 + ledger::RouteLedger::SPACE;
+    pub const SPACE: usize = 8 + 2 + 3 * 32 + 16 + 8 + 3 * 8 + ledger::RouteLedger::SPACE;
 
-    pub fn totals(&self) -> ledger::StakeTotals {
-        ledger::StakeTotals {
-            principal: self.principal,
-            fee_shares: self.fee_shares,
-            fee_principal: self.fee_principal,
-            realised_fee_shares: self.realised_fee_shares,
-            open_positions: self.open_positions,
-        }
+    /// A Position joined the custody.
+    pub fn add_position(&mut self, principal: u64) -> Result<()> {
+        self.principal = self
+            .principal
+            .checked_add(u128::from(principal))
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        self.open_positions = self
+            .open_positions
+            .checked_add(1)
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        Ok(())
     }
 
-    pub fn set_totals(&mut self, t: ledger::StakeTotals) {
-        self.principal = t.principal;
-        self.fee_shares = t.fee_shares;
-        self.fee_principal = t.fee_principal;
-        self.realised_fee_shares = t.realised_fee_shares;
-        self.open_positions = t.open_positions;
+    /// A Position unlocked.
+    pub fn remove_position(&mut self, principal: u64) -> Result<()> {
+        self.principal = self
+            .principal
+            .checked_sub(u128::from(principal))
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        self.open_positions = self
+            .open_positions
+            .checked_sub(1)
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        Ok(())
     }
 }
 
-/// Tesoro's Treasury (CONTEXT.md): its Yield Fee on Solana-native Positions is computed from the
-/// `NativeCustody` pool totals (ADR 0010) and minted lazily: its balance is the unminted fee
-/// (`earned_fee - fee_minted`) plus the simSOL in `vault`. It pays Solana Instant Redeems and
-/// `withdraw_treasury` from `vault` first, then by minting the shortfall out of the unminted fee, and holds the Gemas it bought in `account`, a
+/// Tesoro's Treasury (CONTEXT.md). Its Yield Fee is taken when yield is cashed out (ticket 31) and
+/// kept as the route's shares (`NativeCustody.route`; native shares are minted lazily). It pays
+/// Solana Instant Redeems and `withdraw_treasury` from `vault` first, then by minting the
+/// shortfall out of its route's virtual shares, and holds the Gemas it bought in `account`, a
 /// `TesoroAccount` whose authority is this PDA. Seeds `["treasury"]`. Its fee rates apply on every
-/// chain: `yield_fee_bps` sizes every Advance, and EVM vaults take the same fee at the source.
+/// chain: each new Source keeps `yield_fee_bps` as its cash-out fee.
 #[account]
 pub struct Treasury {
     pub bump: u8,
     pub vault_bump: u8,
     pub account_bump: u8,
-    /// Yield Fee, basis points of every yield increment (2,000 at launch).
+    /// Yield Fee, basis points of yield cashed out (2,000 at launch).
     pub yield_fee_bps: u16,
     /// Instant Redeem Fee, basis points of the redeemed Gemas' value (3,500 on devnet; 2,500 on mainnet, ADR 0011).
     pub instant_fee_bps: u16,
@@ -593,9 +603,6 @@ pub struct Treasury {
     pub account: Pubkey,
     /// simSOL token account (`["treasury_vault"]`), authority = this PDA.
     pub vault: Pubkey,
-    /// SOL units of earned Yield Fee already minted out as simSOL (to a withdrawal or an Instant
-    /// Redeem payout). Never above `PoolTotals::earned_fee`; the difference is the unminted fee.
-    pub fee_minted: u64,
     /// SOL units paid out by Solana Instant Redeems, cumulative.
     pub instant_units: u64,
     /// simSOL shares the admin funded the vault with, cumulative.
@@ -607,7 +614,7 @@ pub struct Treasury {
 }
 
 impl Treasury {
-    pub const SPACE: usize = 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8 + 8 + 32;
+    pub const SPACE: usize = 8 + 3 + 2 + 2 + 32 + 32 + 2 * 8 + 8 + 32;
 }
 
 /// SOL/USD price used for issuance (micro-USD per whole SOL). Written by the oracle authority
@@ -1006,6 +1013,17 @@ pub struct YieldClaimed {
 #[event]
 pub struct PositionUnlocked {
     pub position: Pubkey,
+}
+
+/// A stake Unlock found the custody short of the owner's Principal and free yield (holders' landed
+/// shares grew with the pool). The Treasury topped up what it could spend; `gap_shares` is what
+/// the owner did not get (founder, 2026-10-22: Tesoro covers it; Unlock never fails).
+#[event]
+pub struct UnlockShortfall {
+    pub position: Pubkey,
+    pub shortfall_shares: u64,
+    pub topped_up_shares: u64,
+    pub gap_shares: u64,
 }
 
 #[event]

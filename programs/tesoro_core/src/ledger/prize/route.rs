@@ -143,6 +143,20 @@ impl RouteLedger {
         Ok((fee_shares - pool, pool))
     }
 
+    /// The Pool's fifth of the Instant Redeem Fee, owed when the Treasury redeems the Gemas it
+    /// bought (ticket 31). The shares are already in the Treasury (the redeem received them); like
+    /// the Pool's half of a realised Yield Fee it can never take what holders or reservations need.
+    pub fn owe_pool(&mut self, shares: u128) -> CoreResult<()> {
+        if shares > self.spendable() {
+            return Err(CoreError::OwedExceedsTreasury);
+        }
+        let owed = add(self.pool_owed, shares)?;
+        let realised = add(self.pool_realised_total, shares)?;
+        self.pool_owed = owed;
+        self.pool_realised_total = realised;
+        Ok(())
+    }
+
     /// [`Self::realise_yield_fee`] at the default 50/50 split.
     pub fn realise_yield_fee_default(&mut self, fee_shares: u128) -> CoreResult<(u128, u128)> {
         self.realise_yield_fee(fee_shares, DEFAULT_POOL_SHARE_BPS)

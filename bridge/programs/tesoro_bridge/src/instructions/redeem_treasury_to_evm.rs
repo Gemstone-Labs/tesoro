@@ -95,7 +95,9 @@ impl RedeemTreasuryToEvm<'_> {
             ctx.accounts.core_position.inner.source_chain != SourceChain::Solana,
             BridgeError::NotBridgedPosition
         );
-        let units_before = ctx.accounts.core_source.inner.redeemed_units;
+        let before = &ctx.accounts.core_source.inner;
+        let (units_before, fee_before, pool_before) =
+            (before.redeemed_units, before.fee_units, before.pool_units);
         let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &[ctx.accounts.store.authority_bump]]];
         tesoro_core::cpi::redeem_treasury_from_source(
             CpiContext::new_with_signer(
@@ -118,13 +120,13 @@ impl RedeemTreasuryToEvm<'_> {
             gemas,
         )?;
         ctx.accounts.core_source.reload()?;
-        let units = ctx
-            .accounts
-            .core_source
-            .inner
-            .redeemed_units
-            .checked_sub(units_before)
-            .ok_or(BridgeError::AmountOverflow)?;
+        let after = &ctx.accounts.core_source.inner;
+        let delta = |now: u64, then: u64| now.checked_sub(then).ok_or(BridgeError::AmountOverflow);
+        let units = delta(after.redeemed_units, units_before)?;
+        // The Yield Fee split core applied to this cash-out (ticket 31): the vault keeps `fee` for
+        // the Treasury and owes `pool` of what the Treasury keeps to the Leaderboard Pool.
+        let fee = delta(after.fee_units, fee_before)?;
+        let pool = delta(after.pool_units, pool_before)?;
 
         let claim = &mut ctx.accounts.claim;
         if claim.holder_account == Pubkey::default() {
@@ -137,6 +139,8 @@ impl RedeemTreasuryToEvm<'_> {
             claim.gemas_total.checked_add(gemas).ok_or(BridgeError::AmountOverflow)?;
         claim.units_total =
             claim.units_total.checked_add(units).ok_or(BridgeError::AmountOverflow)?;
+        claim.fee_total = claim.fee_total.checked_add(fee).ok_or(BridgeError::AmountOverflow)?;
+        claim.pool_total = claim.pool_total.checked_add(pool).ok_or(BridgeError::AmountOverflow)?;
         Ok(())
     }
 }
