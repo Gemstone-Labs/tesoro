@@ -22,30 +22,16 @@
 @media (min-width: 1100px) { .bk-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .bk-span { grid-column: 1 / -1; }
 
-.bk-card { --edge: var(--edge-1); position: relative; background: var(--surface); padding: 20px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px 16px; align-items: center; overflow: hidden; }
-.bk-card.selected { --edge: var(--fg); --t: 2px; }
-.bk-avatar { width: 60px; height: 60px; --c: 14px; }
-.bk-who { display: grid; gap: 2px; min-width: 0; }
-.bk-who strong { font-size: var(--fs-18); font-weight: 700; }
-.bk-who span { font-size: var(--fs-15); color: var(--fg-2); }
-.bk-foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid var(--line); }
-.bk-foot > div { display: grid; gap: 2px; }
-.bk-foot span { font-size: var(--fs-14); color: var(--fg-2); }
-.bk-foot b { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-24); font-weight: 800; letter-spacing: -0.01em; font-variant-numeric: normal; }
-.bk-foot small { font-size: var(--fs-14); font-weight: 500; color: var(--fg-2); }
-.bk-foot .btn { min-height: 46px; padding: 0 16px; font-size: var(--fs-15); white-space: nowrap; }
-
 .bk-mine { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); }
 
 .bk-empty { min-height: 130px; }
 .bk-empty .bust-card-body b { font-size: var(--fs-20); }
 .bk-empty .bust-card-body p { font-size: var(--fs-15); margin-top: 4px; max-width: 46ch; }
 
-/* Offer modal: a native dialog in the top layer, centred over everything. For a Request, the Player's
-   card on the left and the terms on the right (one column on phones); a public Offer is terms only. */
+/* Offer modal: a native dialog in the top layer, centred over everything. The Player's card on the
+   left and the terms on the right (one column on phones). */
 dialog.bk-drawer { --c: var(--cut-frame); --edge: var(--edge-2); position: fixed; padding: 0; border: 0; color: var(--fg); background: var(--side);
-  width: calc(100% - 24px); max-width: 560px; max-height: calc(100dvh - 24px); margin: auto; }
-dialog.bk-drawer.has-card { max-width: 940px; }
+  width: calc(100% - 24px); max-width: 940px; max-height: calc(100dvh - 24px); margin: auto; }
 dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: blur(6px); }
 .bk-drawer-in { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "card" "terms"; align-items: start; }
 .bk-drawer-card { grid-area: card; padding: 16px 16px 0; }
@@ -85,9 +71,9 @@ dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: b
   .bk-drawer-foot { margin: 0 -28px; padding: 16px 28px 24px; }
 }
 @media (min-width: 860px) {
-  .has-card .bk-drawer-in { grid-template-columns: 340px minmax(0, 1fr); grid-template-rows: auto 1fr; grid-template-areas: "card head" "card terms"; }
+  .bk-drawer-in { grid-template-columns: 340px minmax(0, 1fr); grid-template-rows: auto 1fr; grid-template-areas: "card head" "card terms"; }
   .bk-drawer-card { position: sticky; top: 0; padding: 24px 0 24px 24px; }
-  .has-card :is(.bk-drawer-head, .bk-drawer-terms) { padding-left: 24px; }
+  :is(.bk-drawer-head, .bk-drawer-terms) { padding-left: 24px; }
 }
 /* stacked, the Player is a compact header row (avatar, name, record, ask) so the terms stay in view */
 @media (max-width: 859px) {
