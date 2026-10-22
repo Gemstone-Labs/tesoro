@@ -96,9 +96,9 @@ async function playBlockPuzzle(page) {
 
 /** Practice hand against the bot: raise once, then call or check down the streets to the showdown. */
 async function playHoldem(page) {
-  await page.getByRole("button", { name: "Min", exact: true }).waitFor({ timeout: 20000 });
+  await page.getByRole("button", { name: "+400", exact: true }).waitFor({ timeout: 20000 });
   await page.waitForTimeout(1200);
-  await page.getByRole("button", { name: "½ pot", exact: true }).click();
+  await page.getByRole("button", { name: "+400", exact: true }).click();
   await page.waitForTimeout(900);
   await page.locator(".hdx-btn", { hasText: /^Raise/ }).click();
   const start = Date.now();

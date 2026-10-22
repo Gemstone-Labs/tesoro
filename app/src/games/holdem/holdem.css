@@ -214,30 +214,13 @@
 .hdx-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .hdx-btn.sending:disabled { opacity: 1; cursor: progress; font-size: var(--fs-14); }
 .hdx-btn.primary:focus-visible::after { --t: 1px; --r: 2px; background: #0a0d0f; }
-.hdx-raise { display: grid; gap: 12px; align-items: center; }
-.hdx-raise-in { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.hdx-raise-in input {
-  width: 140px; height: 48px; padding: 0 14px; background: #0c1116; border: 1px solid var(--line-2); color: var(--fg); font-size: var(--fs-20); text-align: center; border-radius: 0;
-}
-.hdx-raise-in input:disabled { opacity: 0.5; }
-.hd-range-hint { font-size: var(--fs-12); color: var(--fg-2); white-space: nowrap; }
-.hd-range-hint.bad { color: var(--warn); }
-.hdx-raise-in input[aria-invalid=true] { box-shadow: inset 0 0 0 1px var(--warn); }
-.hdx-raise-ctl { display: grid; gap: 8px; }
-.hd-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.hdx-raise { display: grid; gap: 8px; align-items: center; }
+.hd-presets { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 .hd-preset { padding: 12px 4px; font-size: var(--fs-15); font-weight: 700; background: #141a20; border: 1px solid var(--line-2); color: var(--fg); }
 .hd-preset:hover:not(:disabled) { background: #1c242c; }
 .hd-preset:disabled { opacity: 0.4; }
-
-/* neutral range (Chips are not Gemas: the emerald slider is for Gema amounts only) */
-.hd-range { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; background: transparent; margin: 0; }
-.hd-range::-webkit-slider-runnable-track { height: 4px; background: linear-gradient(90deg, var(--fg) var(--pct, 0%), rgba(255, 255, 255, 0.14) var(--pct, 0%)); }
-.hd-range::-moz-range-track { height: 4px; background: rgba(255, 255, 255, 0.14); }
-.hd-range::-moz-range-progress { height: 4px; background: var(--fg); }
-.hd-range::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; margin-top: -9px; background: var(--fg); border: 0; clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
-.hd-range::-moz-range-thumb { width: 22px; height: 22px; background: var(--fg); border: 0; border-radius: 0; clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
-.hd-range:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
-.hd-range:disabled { opacity: 0.4; }
+/* the picked size (Chips are not Gemas: neutral, not emerald) */
+.hd-preset[aria-pressed=true], .hd-preset[aria-pressed=true]:hover { background: #eef0e9; color: #0a0d0f; }
 
 .hd-sigs summary { cursor: pointer; }
 .hd-sigs { gap: 6px; }
@@ -298,9 +281,6 @@
 }
 @media (min-width: 1024px) {
   .hdx-actions { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: center; }
-  .hdx-raise { grid-template-columns: 150px minmax(0, 1fr); }
-  .hdx-raise-in { display: grid; gap: 6px; justify-content: stretch; }
-  .hdx-raise-in input { width: 100%; }
   /* Sized by viewport height too, so header, table and action bar fit one desktop screen. */
   .hdx { gap: clamp(12px, 2vh, 24px); }
   .hdx-felt { min-height: clamp(380px, 50vh, 500px); }
