@@ -25,7 +25,7 @@ import {
 } from "./native";
 import { coreIx } from "./core-ix";
 import { basketPda, bookPda, spillPda } from "./basket";
-import { lineArg, type LineTarget, type PrevAdvance } from "./native";
+import { economyPda, lineArg, type LineTarget, type PrevAdvance } from "./native";
 import { STAKE_POOL_PROGRAM_ID, STAKE_RATE_SCALE, parseStakePool, sizingApyBps, stakePoolRate, tokenAta, tokenSymbol, type StakePoolView } from "./stake-pool";
 
 /**
@@ -112,6 +112,7 @@ export function takeStakeAdvanceIx(owner: PublicKey, position: PublicKey, advanc
       stake_pool: token.pool,
       source,
       book: bookPda(source),
+      economy: economyPda(),
       basket: basketPda(account),
       spill: spillPda(account),
     },
@@ -233,8 +234,8 @@ export const fundTreasuryStakeIx = (admin: PublicKey, shares: bigint, token: Sta
 
 // ---- Readers -------------------------------------------------------------------------------------
 
-/** `StakeCustody`: disc 8, bump, vault_bump, mint, pool, vault, principal, fee_shares, fee_principal, realised_fee_shares (u128), open_positions, refilled, instant, withdrawn (u64), then the Treasury's route. */
-export const STAKE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8 + ROUTE_LEN;
+/** `StakeCustody`: disc 8, bump, vault_bump, mint, pool, vault, principal (u128), open_positions, refilled, instant, withdrawn (u64), then the Treasury's route. */
+export const STAKE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 16 + 8 + 3 * 8 + ROUTE_LEN;
 /** `StakeConfig`: disc 8, bump, active_mint, apy_ceiling_bps u16. */
 export const STAKE_CONFIG_LEN = 8 + 1 + 32 + 2;
 
@@ -245,9 +246,6 @@ export interface StakeCustodyView {
   pool: PublicKey;
   vault: PublicKey;
   principal: bigint;
-  feeShares: bigint;
-  feePrincipal: bigint;
-  realisedFeeShares: bigint;
   openPositions: bigint;
   refilledShares: bigint;
   instantShares: bigint;
@@ -265,44 +263,17 @@ export function parseStakeCustody(d: Uint8Array): StakeCustodyView | null {
     pool: key(42),
     vault: key(74),
     principal: rdU128(d, o),
-    feeShares: rdU128(d, o + 16),
-    feePrincipal: rdU128(d, o + 32),
-    realisedFeeShares: rdU128(d, o + 48),
-    openPositions: rdU64(d, o + 64),
-    refilledShares: rdU64(d, o + 72),
-    instantShares: rdU64(d, o + 80),
-    withdrawnShares: rdU64(d, o + 88),
-    route: parseRoute(d, o + 96),
+    openPositions: rdU64(d, o + 16),
+    refilledShares: rdU64(d, o + 24),
+    instantShares: rdU64(d, o + 32),
+    withdrawnShares: rdU64(d, o + 40),
+    route: parseRoute(d, o + 48),
   };
 }
 
 export function parseStakeConfig(d: Uint8Array): { activeMint: PublicKey; apyCeilingBps: number } | null {
   if (d.length !== STAKE_CONFIG_LEN) return null;
   return { activeMint: new PublicKey(d.subarray(9, 41)), apyCeilingBps: rdU16(d, 41) };
-}
-
-const BPS = 10_000n;
-const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
-
-/** Tokens the vault must keep to return every Locked Position's Principal at `rate` (Rust `principal_reserve`). */
-export const principalReserve = (c: Pick<StakeCustodyView, "principal">, rate: bigint) => ceilDiv(c.principal * STAKE_RATE_SCALE, rate);
-
-/** Yield Fee earned by the Treasury at `rate`, in tokens (Rust `StakeTotals::earned_fee_shares`): conservative, never more than the sum of the per-Position fees. */
-export function earnedFeeShares(c: StakeCustodyView, rate: bigint): bigint {
-  const reserve = ceilDiv(c.feePrincipal * STAKE_RATE_SCALE, rate);
-  const pooled = c.feeShares > reserve ? (c.feeShares - reserve) / BPS : 0n;
-  const allowance = 3n * c.openPositions;
-  return (pooled > allowance ? pooled - allowance : 0n) + c.realisedFeeShares;
-}
-
-/** The Treasury's balance in tokens (Rust `StakeCustody::treasury_balance`): its claim, never above the vault's headroom over the Principal reserve. */
-export function stakeTreasuryBalance(c: StakeCustodyView, rate: bigint, vaultAmount: bigint): bigint {
-  const earned = earnedFeeShares(c, rate) + c.refilledShares;
-  const paid = c.instantShares + c.withdrawnShares;
-  const claim = earned > paid ? earned - paid : 0n;
-  const reserve = principalReserve(c, rate);
-  const headroom = vaultAmount > reserve ? vaultAmount - reserve : 0n;
-  return claim < headroom ? claim : headroom;
 }
 
 /** Tokens `units` lamports are worth at `rate`, rounded down (Rust `tokens_for_units`). */
@@ -377,7 +348,6 @@ export function stakeMarketFrom([config, poolInfo, custodyInfo, , ata, feed, tre
     simSol: tokenBalance,
     treasury,
     treasuryShares: null,
-    treasuryClaim: null,
     treasuryRoute: custody?.route ?? null,
     stake,
   };

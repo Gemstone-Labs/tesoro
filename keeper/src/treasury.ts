@@ -65,7 +65,8 @@ export const realTreasuryDeps = (ctx: Ctx): TreasuryDeps => ({
 
 /**
  * Job 8: Treasury. The Treasury Account holds the Gemas Tesoro bought by Instant Redeem; once their Source's yield has
- * repaid them it redeems them at full value, which refills the Treasury (SOL: `redeem_treasury` pays simSOL into the
+ * repaid them it redeems them, which refills the Treasury and is where the Yield Fee on bought Gemas is realised: the
+ * Pool is owed its half of the fee and a fifth of the Instant fee (ticket 31). (SOL: `redeem_treasury` pays simSOL into the
  * Treasury vault; staking tokens stay in the custody vault as the Treasury's own shares; ETH and HYPE: bridge
  * `redeem_treasury_to_evm` records a Claim that the bridge job pays into the vault's own treasury with `send_pay_yield`).
  * A Redeem pays only the repaid part of a line, so a free dry run finds how much that is. Permissionless and bounded: at

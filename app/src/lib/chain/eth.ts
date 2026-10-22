@@ -9,7 +9,7 @@ import { TESORO_CORE_ID, meta, parseSource, pda, rdU32, rdU64, s, sourcePda, u64
 import { unitsToRepay, type SourceMath } from "./ledger";
 import { basketPda, spillPda, type LineRef } from "./basket";
 import { coreIx } from "./core-ix";
-import { DEFAULT_YIELD_FEE_BPS, accruedYield, advanceUnits, netOfYieldFee } from "./yield";
+import { DEFAULT_YIELD_FEE_BPS, accruedYield, advanceUnits, cashOut } from "./yield";
 
 /**
  * EVM Positions (Ethereum Hoodi and HyperEVM testnet) on the Solana ledger, over LayerZero V2. Accounts and wire
@@ -652,9 +652,9 @@ export const withHeadroom = (fee: bigint) => (fee * (100n + LZ_FEE_HEADROOM_PCT)
 
 // ---- Math ---------------------------------------------------------------------------------------
 
-/** Advance sizing as `Position::open_advance`: the projected yield net of the Yield Fee, floored to whole Gemas ($0.01 each). */
-export function quoteEthAdvance(principalWei: bigint, rateBps: number, months: number, priceMicroUsd: bigint, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) {
-  const projectedUnits = advanceUnits(principalWei, rateBps, months, yieldFeeBps);
+/** Advance sizing as `Position::open_advance`: the whole projected yield (ticket 31), floored to whole Gemas ($0.01 each). */
+export function quoteEthAdvance(principalWei: bigint, rateBps: number, months: number, priceMicroUsd: bigint) {
+  const projectedUnits = advanceUnits(principalWei, rateBps, months);
   const gemas = (projectedUnits * priceMicroUsd) / 10n ** BigInt(ETH_DECIMALS + 4);
   return { projectedUnits, gemas };
 }
@@ -688,7 +688,6 @@ export function ethUnlockEstimateMs(args: {
   position: Pick<VaultPosition, "heldShares" | "principalUnderlying" | "paidUnderlying" | "accrued">;
   rate: SimRate;
   nowMs: number;
-  yieldFeeBps?: number;
 }): number | null {
   const { source, position, rate, nowMs } = args;
   if (!source || position.heldShares === 0n) return null;
@@ -697,22 +696,20 @@ export function ethUnlockEstimateMs(args: {
   if (have >= needed) return nowMs;
   // Yield is linear on the Position's own Principal (docs/yield-model.md): accrued(t) = accrued_now + per_second * t.
   const window = 1_000_000n;
-  const perWindow = netOfYieldFee(
-    accruedYield({
-      principal: position.principalUnderlying,
-      rateBps: Number(rate.apyBps),
-      elapsedSec: window,
-      speedup: rate.speedup,
-    }),
-    args.yieldFeeBps ?? DEFAULT_YIELD_FEE_BPS,
-  );
+  const perWindow = accruedYield({
+    principal: position.principalUnderlying,
+    rateBps: Number(rate.apyBps),
+    elapsedSec: window,
+    speedup: rate.speedup,
+  });
   if (perWindow === 0n) return null;
   const seconds = ((needed - have) * window + perWindow - 1n) / perWindow;
   return nowMs + Number(seconds) * 1000;
 }
 
-/** ETH base units a redeem of `gemas` pays (floor, as the program computes it). */
-export const redeemPayoutWei = (source: SourceMath, gemas: bigint) => (gemas * source.unitNum) / source.unitDen;
+/** ETH base units a redeem of `gemas` pays: their value (floor, as the program computes it) less the Yield Fee (one floor). */
+export const redeemPayoutWei = (source: SourceMath, gemas: bigint, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) =>
+  cashOut((gemas * source.unitNum) / source.unitDen, yieldFeeBps, 0).payout;
 
 export const fmtEth = (wei: bigint | number, digits = 4) =>
   (Number(wei) / 1e18).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
