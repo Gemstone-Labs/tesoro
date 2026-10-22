@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultViewMode, getGemasHref, readViewMode, writeViewMode } from "./view-mode";
+import { DEFAULT_VIEW_MODE, getGemasHref, readViewMode, writeViewMode } from "./view-mode";
 
 const memory = () => {
   const m = new Map<string, string>();
@@ -7,9 +7,8 @@ const memory = () => {
 };
 
 describe("view mode", () => {
-  it("starts email sign-ins in Simple and own-wallet sign-ins in Advanced", () => {
-    expect(defaultViewMode(0)).toBe("simple");
-    expect(defaultViewMode(1)).toBe("advanced");
+  it("starts every Account in Simple: Pro view is off until the Player turns it on", () => {
+    expect(DEFAULT_VIEW_MODE).toBe("simple");
   });
 
   it("remembers the choice per Account", () => {

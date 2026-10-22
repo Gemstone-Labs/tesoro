@@ -20,7 +20,7 @@ _Avoid_: buy, spend, purchase (a deposit is money that comes back)
 One of the three fixed deposits in the Simple view's Get Gemas modal: Starter $100, Player $250, Pro $500. Code names it `DepositPack`; the waitlist's reveal pack is a different thing.
 
 **Vault** (Simple view's money page, `/vault`):
-Your Gemas, your deposits and when each comes back, and your winnings to cash out. The Advanced view is today's Wallet. Each Account remembers its view.
+Your Gemas, your deposits and when each comes back, and your winnings to cash out. **Pro view** (switched on from the Vault's gear; code: the Advanced view) is today's Wallet. Every Account starts with Pro view off and remembers its choice; the Get Gemas modals have no switch.
 
 **Locked amount** (code and on-chain: Principal):
 The staked amount inside a Lock, as opposed to the yield it earns. It is only ever locked, never spent. In sentences Players read "your SOL" or "what you lock".

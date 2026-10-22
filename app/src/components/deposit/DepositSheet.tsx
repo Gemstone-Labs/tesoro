@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Sheet } from "@/components/ui";
 import { useAuth } from "@/lib/auth/context";
@@ -11,9 +10,7 @@ import { DEPOSIT_ACK_TITLE } from "@/lib/deposit/acknowledgment";
 import type { DepositStep } from "./use-deposit-flow";
 import { PACK_MONTHS } from "@/lib/deposit/packs";
 import { CLUSTER } from "@/lib/cluster-settings";
-import { getGemasHref } from "@/lib/deposit/view-mode";
 import { AckView, DoneView, ErrorView, PacksView, WorkingView } from "./DepositPanel";
-import { ViewToggle } from "./ViewToggle";
 import { useDepositFlow } from "./use-deposit-flow";
 
 const TEST_MODE = CLUSTER.yieldModel !== "real";
@@ -31,7 +28,6 @@ const TITLES: Record<DepositStep, string> = {
 /** The deposit modal: packs, the acknowledgment, progress, success. Controlled by `open`. */
 export function DepositSheet({ open, onClose, intent }: { open: boolean; onClose: () => void; intent: DepositIntent | null }) {
   const flow = useDepositFlow(intent);
-  const router = useRouter();
   const { step, picked, reset } = flow;
   // A finished or abandoned deposit starts over the next time the modal opens.
   const wasOpen = useRef(false);
@@ -39,15 +35,9 @@ export function DepositSheet({ open, onClose, intent }: { open: boolean; onClose
     if (open && !wasOpen.current && step !== "packs" && step !== "working") reset();
     wasOpen.current = open;
   }, [open, step, reset]);
-  // The switch saves Advanced; the Vault then opens its own Get Gemas sheet, with the game the Player came from.
-  const goAdvanced = () => {
-    onClose();
-    router.push(getGemasHref("advanced", intent ?? undefined));
-  };
 
   return (
     <Sheet open={open} onClose={onClose} title={TITLES[step]} className={`dep-sheet ${step}`}>
-      {step === "packs" && <ViewToggle value="simple" onPick={goAdvanced} />}
       {step === "packs" && (
         <PacksView
           quotes={flow.quotes}

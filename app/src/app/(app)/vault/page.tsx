@@ -10,7 +10,7 @@ import { useViewMode } from "@/lib/deposit/use-view-mode";
 import { requestGetGemas } from "@/lib/get-gemas";
 import { WalletView } from "../wallet/WalletView";
 import { SimpleVault } from "./SimpleVault";
-import { ViewToggle } from "@/components/deposit/ViewToggle";
+import { ViewSettings } from "@/components/deposit/ViewSettings";
 import { VaultHeader } from "./VaultHeader";
 import "./vault.css";
 
@@ -65,7 +65,7 @@ function Vault() {
         <div className="wl">
           <WalletView part="card" />
           <div className="vt-below">
-            <ViewToggle />
+            <ViewSettings className="vt-gear" />
             {simple ? <SimpleVault /> : <WalletView part="body" />}
           </div>
         </div>

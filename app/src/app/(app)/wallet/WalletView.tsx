@@ -8,8 +8,6 @@ import { redeemableOf, useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { fmtAsset, fmtGemas, fmtUsd } from "@/lib/format";
 import { onGetGemas } from "@/lib/get-gemas";
-import { requestDeposit } from "@/lib/deposit/bus";
-import { ViewToggle } from "@/components/deposit/ViewToggle";
 import { type Chain, type GemaHolding, type Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
 import { AdvanceSheet } from "./AdvanceSheet";
@@ -266,13 +264,6 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
       </footer>}
 
       {body && <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Get Gemas">
-        <ViewToggle
-          value="advanced"
-          onPick={() => {
-            setOpenSheet(false);
-            requestDeposit(intent);
-          }}
-        />
         <OpenIntentContext.Provider value={intent}>
         <OpenPanel tab={tab} onTab={setTab}>
           {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}

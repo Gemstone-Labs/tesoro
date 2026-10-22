@@ -1,13 +1,13 @@
 import type { GameId } from "@/lib/mock/types";
 import { browserStore, type Store } from "@/lib/storage";
 
-/** Two bodies of the one Vault page. Simple: deposit packs. Advanced: chains, amounts and Lengths. */
+/** Two bodies of the one Vault page. Simple: deposit packs. Advanced (the Player sees "Pro view"): chains, amounts and Lengths. */
 export type ViewMode = "simple" | "advanced";
 
 const key = (authority: string) => `tesoro:view:${authority}`;
 
-/** New Accounts start in Simple; a Player who signed in with their own wallet starts in Advanced. */
-export const defaultViewMode = (linkedWallets: number): ViewMode => (linkedWallets > 0 ? "advanced" : "simple");
+/** Every Account starts in Simple (Pro view off), however the Player signed in; the Vault's gear turns Pro view on. */
+export const DEFAULT_VIEW_MODE: ViewMode = "simple";
 
 export function readViewMode(authority: string, store: Store | null = browserStore()): ViewMode | null {
   try {
