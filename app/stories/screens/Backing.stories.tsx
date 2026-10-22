@@ -52,7 +52,6 @@ function offer(n: number, game: GameId, entry: number, o: Partial<ChainOffer> = 
     useBy: now() + 20 * HOUR,
     player: null,
     request: null,
-    applicants: [],
     lines: [{ source: pk(n + 50), isOwn: true, amount: BigInt(entry) }],
     matchId: null,
     ...o,
@@ -138,27 +137,8 @@ export const OfferSentOnARequest: Story = {
   },
 };
 
-/** Public Offers from Backers. You applied to one with your Request; the others take an Apply. */
-export const PublicOffers: Story = {
-  parameters: {
-    data: {
-      board: board(
-        [MY_REQUEST],
-        [
-          offer(946, "holdem", 1000, { backer: demoKey(704), shareBps: 5000, applicants: [MY_REQUEST.address.toBase58()] }),
-          offer(947, "block-puzzle", 2500, { backer: demoKey(707), shareBps: 4000, expiresAt: now() + 2 * HOUR }),
-          offer(948, "trading-duel", 500, { backer: demoKey(702), shareBps: 7000, expiresAt: now() + 15 * HOUR }),
-        ],
-      ),
-    },
-  },
-  play: tab("Public Offers"),
-};
-
-export const PublicOffersEmpty: Story = { play: tab("Public Offers") };
-
 /**
- * Offers you funded, one in each state: waiting on a Player, public with applicants to choose from,
+ * Offers you funded, one in each state: waiting on a Player, an old public Offer (cancel only),
  * accepted and waiting for the Player to start, used in a Match, and expired (release the Gemas).
  */
 export const MyBackings: Story = {
@@ -166,7 +146,7 @@ export const MyBackings: Story = {
     data: {
       board: board([], [
         offer(951, "block-puzzle", 1000, { directedTo: at(1), shareBps: 5500 }),
-        offer(952, "holdem", 1000, { shareBps: 5000, applicants: [at(4), at(7)] }),
+        offer(952, "holdem", 1000, { shareBps: 5000 }),
         offer(953, "trading-duel", 500, { status: "accepted", shareBps: 6000, player: demoKey(705), request: at(5), useBy: now() + 40 * 60 }),
         offer(954, "block-puzzle", 2500, { status: "consumed", shareBps: 4500, player: demoKey(703), request: at(3), matchId: BigInt(Date.now() - 25 * 60_000) << 1n }),
         offer(955, "holdem", 500, { directedTo: at(2), shareBps: 5000, expiresAt: now() - HOUR }),
@@ -177,9 +157,6 @@ export const MyBackings: Story = {
 };
 
 export const MyBackingsEmpty: Story = { play: tab("My Backings") };
-
-/** Post an Offer: a public Offer picks its Game, entry and split. */
-export const PostAnOffer: Story = { play: press("Post an Offer") };
 
 export const PostARequest: Story = { play: press("Post a Request") };
 
