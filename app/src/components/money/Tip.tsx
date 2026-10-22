@@ -8,11 +8,11 @@ import "./tip.css";
 type Align = "start" | "center" | "end";
 
 /**
- * An ⓘ that explains a figure: shows above (or below) the icon on hover or focus, and stays open on tap (phones). The
+ * An ⓘ that explains a figure: shows above the icon on hover or focus, and stays open on tap (phones). The
  * bubble is drawn at the page level so the card's cut corners can't clip it; inside a modal it is drawn in the modal,
  * which sits above the page.
  */
-export function InfoTip({ label, children, align = "center", side = "above" }: { label: string; children: ReactNode; align?: Align; side?: "above" | "below" }) {
+export function InfoTip({ label, children, align = "center" }: { label: string; children: ReactNode; align?: Align }) {
   const id = useId();
   const ref = useRef<HTMLButtonElement>(null);
   const [at, setAt] = useState<{ top: number; x: number } | null>(null);
@@ -23,7 +23,7 @@ export function InfoTip({ label, children, align = "center", side = "above" }: {
     if (!btn) return;
     const r = btn.getBoundingClientRect();
     setHost(btn.closest("dialog"));
-    setAt({ top: side === "below" ? r.bottom + 8 : r.top - 8, x: align === "start" ? r.left : align === "end" ? r.right : r.left + r.width / 2 });
+    setAt({ top: r.top - 8, x: align === "start" ? r.left : align === "end" ? r.right : r.left + r.width / 2 });
   };
   const hide = () => {
     setAt(null);
@@ -65,7 +65,7 @@ export function InfoTip({ label, children, align = "center", side = "above" }: {
       </button>
       {typeof document !== "undefined" &&
         createPortal(
-          <span role="tooltip" id={id} className={`tip-bubble fixed${at ? " open" : ""}`} style={at ? { top: at.top, left: at.x, transform: `translate(${shift}, ${side === "below" ? "0" : "-100%"})` } : undefined}>
+          <span role="tooltip" id={id} className={`tip-bubble fixed${at ? " open" : ""}`} style={at ? { top: at.top, left: at.x, transform: `translate(${shift}, -100%)` } : undefined}>
             {children}
           </span>,
           host ?? document.body,
