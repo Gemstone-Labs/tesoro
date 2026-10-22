@@ -52,7 +52,7 @@ export function parseSpotSlug(raw: string): { spot: number; roles: Role[] } | nu
 
 /** The X post: the link sits in the text, on its own line, because X's url field glues it to the last word. */
 export function shareText(gem: SpotGem, url: string): string {
-  return `I'm #${gem.spot} on the ${BRAND.name} waitlist and pulled the ${gem.name}! What's yours?
+  return `I'm #${gem.spot} on the ${BRAND.handle} waitlist and pulled the ${gem.name}! What's yours?
 
 Open your pack: ${url}`;
 }

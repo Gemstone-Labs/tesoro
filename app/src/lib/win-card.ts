@@ -57,7 +57,7 @@ export const winPath = (id: string | bigint) => `/win/${id}`;
 
 export function winShareText(w: Pick<WinCardData, "game" | "gemas" | "entry">): string {
   const won = w.gemas > 0 ? `won ${w.gemas.toLocaleString("en-US")} Gemas` : "won";
-  return `I just ${won} in a ${GAME_NAMES[w.game]} Match on ${BRAND.name}. ${BRAND.shareTagline}`;
+  return `I just ${won} in a ${GAME_NAMES[w.game]} Match on ${BRAND.handle}. ${BRAND.shareTagline}`;
 }
 
 export const postUrl = (text: string, url: string) => `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;

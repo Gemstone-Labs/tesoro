@@ -27,3 +27,10 @@ export async function notifyCall(step: NotifyStep, signer: ChainSigner, getToken
   if (!res.ok) throw new Error(json.error ?? "That didn’t go through. Try again in a moment.");
   return json as NotifyStatus;
 }
+
+/** False when the server has no email set up (no signature needed to ask). */
+export async function notifyReady(): Promise<boolean> {
+  const res = await fetch("/api/notify");
+  const json = await res.json().catch(() => ({}));
+  return res.ok && json.ready === true;
+}

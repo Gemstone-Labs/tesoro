@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/ui";
+import { Button, Select } from "@/components/ui";
 import { MAX_EXTEND_LIMIT, blockedNote, extendLimitChange, type ExtendLimitView } from "@/lib/chain/extend-limit";
 import { fmtWhen } from "@/lib/format";
 
@@ -31,13 +31,12 @@ export function ExtendLimitPanel({ view, busy, error, onSet, onRetry, showCommit
       <div className="field">
         <label className="label" htmlFor="ext-limit-pick">Change your limit</label>
         <div className="ext-limit-row">
-          <span className="cut cut-chip ctl">
-            <select id="ext-limit-pick" className="select" value={pick} onChange={(e) => setPicked(Number(e.target.value))}>
-              {Array.from({ length: MAX_EXTEND_LIMIT + 1 }, (_, m) => (
-                <option key={m} value={m}>{m} {m === 1 ? "month" : "months"}</option>
-              ))}
-            </select>
-          </span>
+          <Select
+            id="ext-limit-pick"
+            value={pick}
+            options={Array.from({ length: MAX_EXTEND_LIMIT + 1 }, (_, m) => ({ value: m, label: `${m} ${m === 1 ? "month" : "months"}` }))}
+            onChange={setPicked}
+          />
           <Button size="sm" disabled={busy || unknown || change === "same"} onClick={() => { onSet(pick); setPicked(null); }}>{busy ? "Saving…" : "Set limit"}</Button>
         </div>
         <p className="adv-fee">{{ same: "Pick 0 to 11 months for every 30 days.", raise: "A higher limit takes effect in 24 hours.", lower: "A lower limit takes effect now.", cancel: "This keeps your current limit and cancels the raise." }[change]}</p>

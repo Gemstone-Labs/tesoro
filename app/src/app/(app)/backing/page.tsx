@@ -18,6 +18,7 @@ import {
   SkeletonCards,
   Slider,
   XIcon,
+  Select,
 } from "@/components/ui";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/Player";
@@ -45,6 +46,13 @@ import { backingQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import { GAME_LIST } from "@/lib/games";
 import type { EntrySize, GameId } from "@/lib/mock";
+
+const GAME_OPTIONS = GAME_LIST.map((g) => ({ value: g, label: GAME_NAMES[g] }));
+const SORT_OPTIONS: { value: Sort; label: string }[] = [
+  { value: "recent", label: "Newest" },
+  { value: "entry", label: "Biggest entry" },
+  { value: "record", label: "Best win rate" },
+];
 import { GemasLabel } from "../wallet/AdvanceQuote";
 import { RequestCard } from "@/components/backing/RequestCard";
 import { BackingExample, FEES } from "./BackingExample";
@@ -299,14 +307,10 @@ export default function Backing() {
               ))}
             </div>
             <div className="bk-tools">
-              <label className="cut cut-card bk-sort">
-                <span>Sort by</span>
-                <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort by">
-                  <option value="recent">Newest</option>
-                  <option value="entry">Biggest entry</option>
-                  <option value="record">Best win rate</option>
-                </select>
-              </label>
+              <div className="cut cut-card bk-sort sel-host">
+                <span aria-hidden="true">Sort by</span>
+                <Select framed={false} aria-label="Sort by" value={sort} options={SORT_OPTIONS} onChange={setSort} />
+              </div>
             </div>
           </div>
 
@@ -571,13 +575,7 @@ function PostRequest({
         </p>
         <div className="field">
           <label className="label" htmlFor="req-game">Game</label>
-          <span className="cut cut-chip ctl">
-            <select id="req-game" className="select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
-              {GAME_LIST.map((g) => (
-                <option key={g} value={g}>{GAME_NAMES[g]}</option>
-              ))}
-            </select>
-          </span>
+          <Select id="req-game" value={game} options={GAME_OPTIONS} onChange={setGame} />
         </div>
         <EntryPicker value={entry} onChange={setEntry} legend="Entry to be backed" name="req-entry" />
         <Button block disabled={disabled} onClick={() => onPost(game, entry)}>
@@ -760,13 +758,7 @@ function OfferDrawer({
               <p className="meta">Post terms; Players apply and you accept one.</p>
               <div className="field">
                 <label className="label" htmlFor="off-game">Game</label>
-                <span className="cut cut-chip ctl">
-                  <select id="off-game" className="select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
-                    {GAME_LIST.map((g) => (
-                      <option key={g} value={g}>{GAME_NAMES[g]}</option>
-                    ))}
-                  </select>
-                </span>
+                <Select id="off-game" value={game} options={GAME_OPTIONS} onChange={setGame} />
               </div>
               <EntryPicker value={entry} onChange={setEntry} legend="Entry you fund" name="off-entry" />
             </div>
