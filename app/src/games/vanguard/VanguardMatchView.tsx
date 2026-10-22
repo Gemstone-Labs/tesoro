@@ -13,7 +13,7 @@ import { delayedOf } from "@/lib/chain/match-status";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { MatchStage, MatchStageLoading, StageAction, delayedCopy } from "@/components/match/MatchStage";
 import { STATUS } from "./decode";
-import { ChangedList, EndWhy } from "./EndWhy";
+import { EndWhy } from "./EndWhy";
 import { VanguardTable } from "./VanguardTable";
 import { useVanguardMatch } from "./useVanguardMatch";
 
@@ -117,7 +117,6 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
               <div className="stack">
                 <Label>Match over</Label>
                 {battle && seat !== null && <EndWhy battle={battle} seat={seat} titleOnly />}
-                {battle && seat !== null && <ChangedList battle={battle} seat={seat} />}
                 <Busy>{view.commit ? commitCopy(view.commit).title : `${view.note || "Saving the result"}…`}</Busy>
                 <p className="note">{view.commit ? commitCopy(view.commit).line : "Saving the result and paying out the Pot. This takes a few seconds."}</p>
               </div>

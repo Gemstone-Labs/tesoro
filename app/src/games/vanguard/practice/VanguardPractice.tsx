@@ -11,7 +11,7 @@ import { PRACTICE_COUNTDOWN, missedLabel } from "../clock";
 import { VanguardScreen, type TurnInfo } from "../VanguardScreen";
 import { VanguardBoard, type HitSide, type Mark, type Preview, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
 import { RulesSheet } from "../RulesSheet";
-import { blastSquares, canSwitch, changeLines, isJump, observe, powerBlockedLine, powerFor, rosterView, type Ledger } from "../powers-ui";
+import { blastSquares, canSwitch, isJump, observe, powerBlockedLine, powerFor, rosterView, type Ledger } from "../powers-ui";
 import { applyBot, botMove, type Policy } from "./bot";
 import "../vanguard.css";
 
@@ -533,15 +533,6 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
                 <div><dt>Your pieces left</dt><dd>{count("us")}</dd></div>
                 <div><dt>Italian pieces beaten</dt><dd>{20 - count("it")}</dd></div>
               </dl>
-              {changeLines(game).length > 0 && (
-                <ul className="vg-end-changes" aria-label="Changed pieces">
-                  {changeLines(game).map((c) => (
-                    <li key={c.id}>
-                      {c.army === "us" ? "Yours" : "Italy's"}: {c.text}
-                    </li>
-                  ))}
-                </ul>
-              )}
               <p className="note">Practice: nothing was staked and no Gemas moved.</p>
               <div className="vg-end-actions">
                 <Button onClick={again}>Play again</Button>
