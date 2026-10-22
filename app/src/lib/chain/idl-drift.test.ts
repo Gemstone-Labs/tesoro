@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, it } from "vitest";
 
 const root = join(process.cwd(), "..");
+
 describe("the app's copy of the program", () => {
   const built = join(root, "target/idl/tesoro_core.json");
 
