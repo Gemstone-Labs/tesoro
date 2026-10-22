@@ -86,7 +86,7 @@ describe("Match history from core events", () => {
   let rpc: Rpc;
   const keyOf = (opener: string, n: number) => matchKeyOf({ opener, n: BigInt(n) });
 
-  // 25 Matches for ALICE (opener or joiner), a backed one, a Block Puzzle one with scores, a draw, a refund.
+  // 25 Matches for ALICE (opener or joiner), a backed one, a Block Burst one with scores, a draw, a refund.
   const seeds: Seed[] = [];
   const detail: Record<string, { scores?: [number, number] }> = {};
 
@@ -104,7 +104,7 @@ describe("Match history from core events", () => {
     // Backed: CARL plays with ERIN's Gemas at a 40% share, wins against ALICE; and loses to DANA.
     seeds.push({ opener: CARL, n: 1, game: GAME.holdem, entry: 1000, at: T0 + 30_000, a: [CARL, ERIN], b: [ALICE, ALICE], winner: 0, shares: [4000, 0] });
     seeds.push({ opener: DANA, n: 1, game: GAME.holdem, entry: 1000, at: T0 + 31_000, a: [DANA, DANA], b: [CARL, ERIN], winner: 0, shares: [0, 4000] });
-    // Trading Duel with an asset, Block Puzzle with scores, a draw and a cancelled (never joined) Match.
+    // Trading Duel with an asset, Block Burst with scores, a draw and a cancelled (never joined) Match.
     seeds.push({ opener: ALICE, n: 100, game: GAME.td, entry: 500, at: T0 + 32_000, a: [ALICE, ALICE], b: [BOB, BOB], winner: 0, asset: 2, challenge: true });
     seeds.push({ opener: BOB, n: 101, game: GAME.bp, entry: 500, at: T0 + 33_000, a: [BOB, BOB], b: [ALICE, ALICE], winner: 1 });
     detail[keyOf(BOB, 101)] = { scores: [310, 480] };

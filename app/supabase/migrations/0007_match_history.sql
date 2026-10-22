@@ -37,7 +37,7 @@ create table public.match_history (
   started_at timestamptz,
   settled_at timestamptz,
   chunks integer not null default 0,
-  -- Block Puzzle only: [side A score, side B score], as read from the Session by whoever ingests.
+  -- Block Burst only: [side A score, side B score], as read from the Session by whoever ingests.
   scores jsonb,
   primary key (opener, n),
   unique (match_key)

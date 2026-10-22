@@ -57,7 +57,7 @@ export interface BoardFacts {
   sealed: boolean;
 }
 
-/** Block Puzzle: the opener played first and the joiner has played now. Only for an Active Match with a joined Session. */
+/** Block Burst: the opener played first and the joiner has played now. Only for an Active Match with a joined Session. */
 export function opponentPlayedFact(m: { id: bigint | string; opener: string }, joined: boolean, boards: [BoardFacts, BoardFacts]): Fact | null {
   const played = (b: BoardFacts) => b.delegated || b.sealed;
   if (!joined || !played(boards[0]) || !played(boards[1])) return null;

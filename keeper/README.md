@@ -27,9 +27,9 @@ The last job of each pass (`src/alerts.ts`, `src/alerts-job.ts`) emails both fou
 
 ## Jobs
 
-1. **Match hygiene** (every Match in tesoro_core; Block Puzzle in `src/blockpuzzle.ts`, Hold'em in `src/matches.ts`)
+1. **Match hygiene** (every Match in tesoro_core; Block Burst in `src/blockpuzzle.ts`, Hold'em in `src/matches.ts`)
    - **Settling and Refunding Matches, every Game** (`src/settle.ts`): once a Match's run has started (`settle_match` or `refund_match`), the keeper runs `match_chunk` until the run is done and then `close_match`. A chunk carries the baskets and spills of the Accounts it credits, and for the next steps the book and checkpoint pages of each Source (and, for a fee cut, the SourceState, Position and the custody with its rate account); `src/chunks.ts` is a port of `MatchRecord::sources_ahead` and `src/supply.ts` assembles the accounts. The steps per chunk (`KEEPER_CHUNK_STEPS`, 6) shrink until the transaction fits 1,232 bytes and 64 accounts; with `KEEPER_LOOKUP_TABLES` (comma separated address lookup tables) it compiles a v0 message. A chunk that reports `blocked` (a credit found no slot) makes the keeper `grow_store` the spill of the Account that is full, then run the chunk again. `close_match` receives the spill of every Account that still holds room for the Match plus both Players' counters. Refunds the Game logic below asks for go through `refund_match` (anyone may once the deadline passed).
-   - Block Puzzle (open_session / join_session flow; the Seed lives in a SeedVault in the TEE, so the keeper never needs it):
+   - Block Burst (open_session / join_session flow; the Seed lives in a SeedVault in the TEE, so the keeper never needs it):
      - Open Match nobody joined, Queue window (1 h) over: `refund_match`. Its opener Board and SeedVault stay delegated (the rollup cannot see the base Match).
      - Joined on tesoro_core but not bound to the Session (an older client): `join_session`, inside the Match's 1 h window; after it, `refund_match`.
      - Both Boards in the rollup: a free simulation of `seal` (works from a non-member) says whether both runs are closed. If so, or if both deadlines passed, `seal` + `commit_boards` in the TEE, then `settle` on the base layer (one pass). Otherwise it logs when the deadlines fall.
@@ -49,7 +49,7 @@ The last job of each pass (`src/alerts.ts`, `src/alerts-job.ts`) emails both fou
    - The two sends pay the LayerZero fee in SOL from the keeper payer: the fee is quoted by simulating `quote_send`, refused above `--max-lz-fee-sol`, and counted against `--max-lz-sol-per-hour`. Every base transaction is simulated first, so a step that would fail is logged as `wait: ... would fail (...)` and costs nothing.
 6. **EVM yield: no job.** An ETH or HYPE Position's Debt is computed by the vault (ADR 0010); anyone may call `reportYield(id)` on the vault (the Player's app does when they want Debt lowered) and the bridge job below applies the arrived report. The keeper holds no EVM sending key; `KEEPER_EVM_PRIVATE_KEY` only names an address whose balance the alerts watch.
 
-Fixture (pre-upgrade flow: `both-runs-closed.ts`, `holdem-no-show.ts` and `turn-latency-spike.ts` open Matches with the Holdings client and do not run against the upgraded programs; they return with the game tickets 12 to 15): `pnpm --filter @tesoro/keeper exec tsx scripts/both-runs-closed.ts` plays a real devnet Block Puzzle Match up to "both runs closed" (test wallets from `~/.config/tesoro/block-puzzle-testers.json`) and stops, so the keeper does the seal, commit and settle.
+Fixture (pre-upgrade flow: `both-runs-closed.ts`, `holdem-no-show.ts` and `turn-latency-spike.ts` open Matches with the Holdings client and do not run against the upgraded programs; they return with the game tickets 12 to 15): `pnpm --filter @tesoro/keeper exec tsx scripts/both-runs-closed.ts` plays a real devnet Block Burst Match up to "both runs closed" (test wallets from `~/.config/tesoro/block-puzzle-testers.json`) and stops, so the keeper does the seal, commit and settle.
 
 ## Admin scripts
 

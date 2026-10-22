@@ -17,7 +17,7 @@ Backing on Solana devnet, in the browser: a Player posts a **Request**, a Backer
 
 ## Flow
 
-1. **Request.** A Player posts (Game, entry). The card Backers see carries the Player's real record: settled Matches with a winner, wins, win rate, always with the sample size ("1 of 1 won (100%) · 1 settled Match"). Computed from every settled tesoro_core Match of that Player (Block Puzzle from the Session result, Hold'em from the table).
+1. **Request.** A Player posts (Game, entry). The card Backers see carries the Player's real record: settled Matches with a winner, wins, win rate, always with the sample size ("1 of 1 won (100%) · 1 settled Match"). Computed from every settled tesoro_core Match of that Player (Block Burst from the Session result, Hold'em from the table).
 2. **Offer.** A Backer picks a Request, sets the Player's share of the surplus (10 to 90%, 5% steps) and reserves the entry from their own Gemas. The Player accepts or declines. There are no public Offers (removed 2026-10-22): every Offer answers a Request.
 3. **Reservation.** The Backer's entry is `reserved` on their Holdings: still in their balance, not spendable. The Backing screen shows Gemas in the Wallet, reserved and available; the Wallet shows a reserved line; the Lobby's Enter buttons use available Gemas. Cancel releases it; an unused or unaccepted Offer past 24h shows "Release Gemas" (`expire_offer`, anyone may call it).
 4. **Expiries.** Requests and Offers show time left (24h TTL); an accepted Backing shows the 24h to start a Match.

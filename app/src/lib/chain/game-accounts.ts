@@ -16,7 +16,7 @@ const pda = (program: PublicKey, ...seeds: (string | PublicKey)[]) =>
     program,
   )[0];
 
-/** Block Puzzle's Session (open_session seeds ["session", match_state]). */
+/** Block Burst's Session (open_session seeds ["session", match_state]). */
 export const sessionOf = (match: PublicKey) => pda(BLOCK_PUZZLE, "session", match);
 /** Hold'em's table (create_match seeds ["match", tesoro_match]). */
 export const holdemTableOf = (match: PublicKey) => pda(HOLDEM, "match", match);

@@ -123,7 +123,7 @@ A Match opened by one Player for a specific opponent through a link, outside the
 _Avoid_: invite, private table, duel
 
 **Table**:
-A seat for a Match that Hold'em, Trading Duel and Vanguard keep ready on MagicBlock between Matches. A Match is bound to exactly one Table, which shows nothing from the Match before. Players never set a Table up or pay for one; Tesoro does, once per Table, and each Game has a capped number of them. Block Puzzle has no Tables yet.
+A seat for a Match that Hold'em, Trading Duel and Vanguard keep ready on MagicBlock between Matches. A Match is bound to exactly one Table, which shows nothing from the Match before. Players never set a Table up or pay for one; Tesoro does, once per Table, and each Game has a capped number of them. Block Burst has no Tables yet.
 _Avoid_: room, lobby, server
 
 **Chips**:

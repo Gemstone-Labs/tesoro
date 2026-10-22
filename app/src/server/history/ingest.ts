@@ -2,9 +2,9 @@ import { matchKeyOf } from "./match-key";
 import type { MatchRecord, MatchRunStartedRecord } from "./events";
 import type { Rpc } from "./rpc";
 
-/** What the keeper reads from the Game's own account (the Block Puzzle Session); core's records do not carry it. */
+/** What the keeper reads from the Game's own account (the Block Burst Session); core's records do not carry it. */
 export interface MatchDetail {
-  /** Block Puzzle only: [side A score, side B score]. */
+  /** Block Burst only: [side A score, side B score]. */
   scores?: [number, number] | null;
 }
 

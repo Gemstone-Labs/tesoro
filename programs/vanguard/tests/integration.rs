@@ -1104,7 +1104,7 @@ fn close_unstarted_ix(env: &Env, payer: APk) -> Instruction {
 /// `PrivilegeEscalation` when the Game passes one read-only (the first staging Match, 2026-10-21).
 #[test]
 fn every_account_given_a_permission_is_writable() {
-    let ad = addrs(7);
+    let ad = addrs(APk::new_unique());
     let metas = vanguard::accounts::InitPermissions {
         payer: APk::new_unique(),
         battle: ad.battle,
@@ -4529,7 +4529,7 @@ fn a_battle_on_older_rules_is_cancelled_by_claim_timeout_in_every_lifecycle_stat
         }
         env.finalize(true)
             .unwrap_or_else(|e| panic!("{state}: finalize {e:?}"));
-        assert_eq!(env.tesoro_status(), MatchStatus::Refunded, "{state}");
+        assert_eq!(env.tesoro_status(), Stage::Closed, "{state}");
         assert_eq!(
             (env.gemas(&env.alice), env.gemas(&env.bob)),
             (before.0 + 1_000, before.1 + 1_000),

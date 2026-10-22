@@ -59,7 +59,7 @@ export interface ChainMatch {
   fees: { platformBps: number; studioBps: number; leaderboardBps: number };
   /** The winning seat of a finished Match (null for a draw, a refund or while unsettled). */
   winner: "opener" | "joiner" | null;
-  /** Block Burst (Block Puzzle): set as soon as the Match is opened (the opener plays before anyone is paired). */
+  /** Block Burst: set as soon as the Match is opened (the opener plays before anyone is paired). */
   session: {
     settled: boolean;
     joined: boolean;

@@ -46,7 +46,7 @@ function stubCtx(id: string, perms: [boolean, boolean, boolean], failPermission 
 
 const [M42, M43, M44] = [1, 2, 3].map((n) => `${Keypair.generate().publicKey.toBase58()}-${n}`);
 
-describe("Block Puzzle permissions (OC-11)", () => {
+describe("Block Burst permissions (OC-11)", () => {
   it("creates a permission missing after an earlier delegate, before seal + commit_boards", async () => {
     // The old keeper delegated and created the permission in one step: once the Board was delegated it never
     // retried, and sealAndCommit (commit_boards closes all three permissions) kept failing.
