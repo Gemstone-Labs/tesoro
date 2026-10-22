@@ -6001,6 +6001,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "table_kit"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "ephemeral-rollups-sdk",
+ "tesoro_core",
+]
+
+[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6170,6 +6179,7 @@ dependencies = [
  "litesvm",
  "serde_json",
  "solana-sdk",
+ "table_kit",
  "tesoro_core",
 ]
 
