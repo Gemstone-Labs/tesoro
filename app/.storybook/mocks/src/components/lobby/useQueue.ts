@@ -14,6 +14,6 @@ export function useQueueDepth(): Record<GameId, number> {
 /** Fake waiting Players, spread over the entries, one per story count. */
 export function useQueue(): QueueSeats {
   const depth = useQueueDepth();
-  const seats = (game: GameId) => Array.from({ length: depth[game] }, (_, i) => ({ player: `${game}-waiting-${i}`, entry: ENTRIES[i % ENTRIES.length], asset: 0 }));
+  const seats = (game: GameId) => Array.from({ length: depth[game] }, (_, i) => ({ player: `${game}-waiting-${i}`, funder: `${game}-waiting-${i}`, entry: ENTRIES[i % ENTRIES.length], asset: 0 }));
   return { "block-puzzle": seats("block-puzzle"), holdem: seats("holdem"), "trading-duel": seats("trading-duel") };
 }

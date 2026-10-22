@@ -2,11 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Button, Label } from "@/components/ui";
+import { Button } from "@/components/ui";
 import { art } from "@/lib/art";
 import { ASSETS, type Asset } from "../chain";
-import { assetBySymbol, midToUsd, perSecond, usePriceFeed, type PriceFeed } from "../feed";
-import { usd } from "../fmt";
+import { perSecond, usePriceFeed } from "../feed";
 import { COLUMNS, MATCH_SECS, lockAt, revealed, bandOf, type GridAsset } from "../grid";
 import { GridScreen } from "../GridScreen";
 import { seededRng } from "./bot";
@@ -18,13 +17,17 @@ import { Arena, FullScreenToggle, MuteToggle } from "../../fx";
 const YOU = { name: "You", avatar: art.avatars[0] };
 const BOT = { name: "Bot", avatar: art.avatars[4] };
 
+/** Practice always plays SOL. */
+const PRACTICE_ASSET: Asset = ASSETS[0];
+
 /**
- * Trading Duel practice: the real grid screen on the live price against a local bot. Nothing is
- * staked, there is no wallet and no chain. `?asset=eth` and `?seed=7` (a fixed bot) are honoured.
+ * Trading Duel practice: the real grid screen on the live SOL price against a local bot. Nothing is
+ * staked, there is no wallet and no chain. It starts as soon as the first live price lands; `?seed=7`
+ * gives a fixed bot.
  */
 export function TradingDuelPractice() {
   const sp = useSearchParams();
-  const [asset, setAsset] = useState<Asset>(() => assetBySymbol(sp.get("asset")));
+  const asset = PRACTICE_ASSET;
   const [session, setSession] = useState<GridSession | null>(null);
   const [clock, setClock] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -78,15 +81,19 @@ export function TradingDuelPractice() {
     };
   }, [startsAt, store]);
 
-  const start = () => {
-    const mid = store.tick?.mid;
-    if (mid === undefined) return;
-    rng.current = seed ? seededRng(Number(seed) || 1) : () => Math.random();
-    setError(null);
-    commit(newGridSession(Date.now(), mid, asset.symbol as GridAsset, rng.current));
-  };
+  // Start (and Play again) on the next live price: no picker, no button.
+  const waiting = !session;
+  useEffect(() => {
+    if (!waiting) return;
+    const off = store.onUpdate((tick) => {
+      if (sessionRef.current) return;
+      rng.current = seed ? seededRng(Number(seed) || 1) : () => Math.random();
+      commit(newGridSession(Date.now(), tick.mid, asset.symbol as GridAsset, rng.current));
+    });
+    return off;
+  }, [waiting, store, seed, asset]);
 
-  if (!session) return <Picker asset={asset} setAsset={setAsset} feed={feed} onStart={start} />;
+  if (!session) return <Connecting asset={asset} stale={feed.status === "stale"} />;
 
   const t = elapsed(session, clock || session.startsAt);
   const final = session.final;
@@ -113,7 +120,10 @@ export function TradingDuelPractice() {
         setError(next ? null : "That column just locked, so the pick didn’t count.");
         if (next) commit(next);
       }}
-      onPlayAgain={() => commit(null)}
+      onPlayAgain={() => {
+        setError(null);
+        commit(null);
+      }}
       exitHref="/lobby"
     />
   );
@@ -126,11 +136,10 @@ function lineSignature(s: GridSession, t: number): string {
   return `${bands.join()}|${s.picks[1].join()}|${locked}|${s.final ? 1 : 0}`;
 }
 
-function Picker({ asset, setAsset, feed, onStart }: { asset: Asset; setAsset: (a: Asset) => void; feed: PriceFeed; onStart: () => void }) {
-  const ready = !!feed.tick && feed.status === "live";
-  const price = feed.tick ? usd(midToUsd(feed.tick.mid), asset) : "…";
+/** Shown for the moment before the first live price lands; the game starts by itself after it. */
+function Connecting({ asset, stale }: { asset: Asset; stale: boolean }) {
   return (
-    <Arena game="trading-duel">
+    <Arena game="trading-duel" autoFull>
       <section className="td" aria-label="Trading Duel practice">
         <div className="cut cut-frame td-card" style={{ maxWidth: 560, margin: "0 auto", width: "100%", gap: 16 }}>
           <div className="td-head-l">
@@ -141,25 +150,10 @@ function Picker({ asset, setAsset, feed, onStart }: { asset: Asset; setAsset: (a
             <MuteToggle />
             <FullScreenToggle />
           </div>
-          <p className="meta">
-            Pick where the price will be. Each box is a stretch of price and a ten second column: when the live line passes through your box, you score 100
-            points. You have 12 columns over two and a half minutes; more points than the bot wins. Nothing is staked and no Gemas move.
+          <p className="meta mono" role="status">
+            {stale ? `${asset.symbol}/USD price is late · waiting for a fresh one…` : `Getting the live ${asset.symbol}/USD price…`}
           </p>
-          <div className="stack">
-            <Label>Asset</Label>
-            <div className="td-pick" role="group" aria-label="Asset">
-              {ASSETS.map((a) => (
-                <button key={a.id} type="button" className="cut cut-btn" aria-pressed={a.id === asset.id} onClick={() => setAsset(a)}>
-                  {a.symbol}
-                </button>
-              ))}
-            </div>
-            <p className="meta mono" role="status">
-              {asset.symbol}/USD {price} {ready ? "· live" : "· connecting to live prices…"}
-            </p>
-          </div>
           <div className="td-banner-row">
-            <Button variant="neutral" size="lg" onClick={onStart} disabled={!ready}>Start practice</Button>
             <Button href="/play/trading-duel">Back</Button>
           </div>
         </div>
@@ -167,4 +161,3 @@ function Picker({ asset, setAsset, feed, onStart }: { asset: Asset; setAsset: (a
     </Arena>
   );
 }
-

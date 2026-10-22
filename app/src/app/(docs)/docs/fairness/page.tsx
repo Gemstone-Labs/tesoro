@@ -30,7 +30,7 @@ export default function Page() {
       <H2 id="hidden-information">Hidden information stays hidden</H2>
       <ul>
         <li><b>Hold&apos;em.</b> The deck and each Player&apos;s hole cards are private. Your cards are readable only by you; cards become public only at a showdown.</li>
-        <li><b>Block Puzzle.</b> The pieces for a Match are generated at random and are not visible to anyone, including you, until your own run begins. Your moves stay hidden until both runs are closed.</li>
+        <li><b>Block Burst.</b> The pieces for a Match are generated at random and are not visible to anyone, including you, until your own run begins. Your moves stay hidden until both runs are closed.</li>
         <li><b>Trading Duel.</b> Each Player&apos;s picks stay hidden until their column locks, ten seconds before the line reaches it, and both full sets of picks are published afterwards.</li>
       </ul>
       <p>
@@ -40,9 +40,9 @@ export default function Page() {
 
       <H2 id="results">Results you can check</H2>
       <ul>
-        <li>Your Block Puzzle score is the game program&apos;s replay of your moves. There is no way to submit a score, and an illegal move is rejected.</li>
+        <li>Your Block Burst score is the game program&apos;s replay of your moves. There is no way to submit a score, and an illegal move is rejected.</li>
         <li>The settlement of every Match is a transaction on Solana. Anyone can open the Match page and see the result, the Fees and who got what.</li>
-        <li>Time limits, such as a Hold&apos;em turn or a Block Puzzle run, are enforced by the program, and anyone can trigger a timeout or a refund; you do not have to wait for {BRAND.name}.</li>
+        <li>Time limits, such as a Hold&apos;em turn or a Block Burst run, are enforced by the program, and anyone can trigger a timeout or a refund; you do not have to wait for {BRAND.name}.</li>
       </ul>
 
       <H2 id="what-you-trust">What you still have to trust</H2>

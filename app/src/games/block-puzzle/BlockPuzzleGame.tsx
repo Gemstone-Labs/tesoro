@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { Button, CountUp, Label } from "@/components/ui";
 import { apply, EngineFailure, MAX_MOVES, SIZE, dims, fitsAt, handBase, newState, pieceAt, pieceCells } from "./engine";
@@ -46,7 +46,6 @@ interface Game {
   gemsCleared: number;
 }
 
-const noSubscribe = () => () => {};
 const pad = (n: number) => String(n).padStart(2, "0");
 const fmtClock = (ms: number) => {
   const s = Math.ceil(Math.max(0, ms) / 1000);
@@ -104,7 +103,7 @@ const RING_R = 54;
 const RING_C = 2 * Math.PI * RING_R;
 
 /**
- * The Block Puzzle play screen: a slim bar (score, 90 s ring, combo and lines, entry and pot) over the
+ * The Block Burst play screen: a slim bar (score, 90 s ring, combo and lines, entry and pot) over the
  * centred board and tray; recent clears show on the game-over card. No character anywhere on it. `matchPanel` is the Match status the
  * caller owns (who we wait for); without a `run` this is practice.
  */
@@ -124,8 +123,6 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   const [fizzle, setFizzle] = useState(0);
   const [runId, setRunId] = useState(0);
   const [best, setBest] = useState({ value: 0, fresh: false, set: false });
-  const stored = useSyncExternalStore(noSubscribe, readBest, () => 0);
-  const bestShown = best.set ? best.value : stored;
   const [preview, setPreview] = useState<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState<{ idx: number; px: number; py: number; cell: number } | null>(null);
   const [focusCell, setFocusCell] = useState(0);
@@ -204,13 +201,12 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
     setPhase("play");
   }, []);
 
-  // A Match run starts as soon as the chain says `begin_run` landed.
+  // A Match run starts as soon as the chain says `begin_run` landed; Practice counts 3-2-1 as soon as the screen opens.
   const started = useRef(false);
   useEffect(() => {
-    if (run && !started.current) {
-      started.current = true;
-      start();
-    }
+    if (started.current) return;
+    started.current = true;
+    start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run]);
 
@@ -458,7 +454,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       style={hinting && previewInfo ? ({ "--hk": BLOCK_HEX[previewInfo.color] } as React.CSSProperties) : undefined}
       ref={boardRef}
       role="grid"
-      aria-label="Block Puzzle board, 8 by 8"
+      aria-label="Block Burst board, 8 by 8"
       onPointerLeave={() => !dragMeta.current && setPreview(null)}
     >
       {Array.from({ length: 64 }, (_, i) => {
@@ -501,7 +497,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   );
 
   return (
-    <Arena game="block-puzzle">
+    <Arena game="block-puzzle" autoFull={phase !== "over"}>
     <div className="bpx">
       <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
         <div className="bpx-score">
@@ -543,23 +539,9 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       </header>
 
       <section className="bpx-mid" aria-label="Board">
-        <h1 className="sr-only">Block Puzzle</h1>
+        <h1 className="sr-only">Block Burst</h1>
       <div className="bp-stage">
         {board}
-        {phase === "idle" && !run && (
-          <div className="bp-overlay">
-            <div className="stack bp-intro">
-              <h2 className="bp-title">Block Puzzle</h2>
-              <ul className="bp-rules">
-                <li className="cut"><b>Place</b>Drag pieces onto the board</li>
-                <li className="cut"><b>Clear</b>Fill a whole row or column</li>
-                <li className="cut gem"><b>Gem</b>Clear one to multiply the clear</li>
-              </ul>
-              <p className="meta">90 seconds on the clock.{bestShown > 0 ? <> Your best <b className="tnum">{bestShown}</b></> : null}</p>
-              <Button onClick={start}>Start practice</Button>
-            </div>
-          </div>
-        )}
         {(phase === "count" || goOn) && (
           <Countdown
             from={3}

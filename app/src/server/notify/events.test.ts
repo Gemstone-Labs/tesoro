@@ -28,7 +28,7 @@ describe("who gets what for each event", () => {
   it("sends each event to its Player in plain words", () => {
     const subjects = events.map((e) => decide(e, prefs, 0).emails[0]);
     expect(subjects.map((m) => m.subject)).toEqual([
-      "Your opponent has played your Block Puzzle Match",
+      "Your opponent has played your Block Burst Match",
       "Your Trading Duel Match is delayed",
       "Your Hold'em Match was refunded",
       "A Backer made you an Offer",

@@ -14,7 +14,7 @@ import { BRAND } from "@/lib/brand";
 
 const IDLE: WaitlistState = { status: "idle" };
 const SITE = SITE_URL;
-const SHARE_TEXT = `I just joined the ${BRAND.name} waitlist: play casual games with yield you haven't earned yet.
+const SHARE_TEXT = `I just joined the ${BRAND.handle} waitlist: play casual games with yield you haven't earned yet.
 
 ${SITE}`;
 

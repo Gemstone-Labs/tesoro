@@ -92,7 +92,7 @@ _Avoid_: app, title, Match (a single contest)
 **Seed**:
 The shared generated setup both Players of an async Match play against, so their scores are directly comparable. A score counts only as the server's replay of the Player's inputs against the Seed.
 _Avoid_: level, round, puzzle
-In UI copy the Seed is never named: Players see "the same pieces" (Block Puzzle).
+In UI copy the Seed is never named: Players see "the same pieces" (Block Burst).
 
 **Match**:
 A head-to-head contest between two players with equal Gema entries (100, 500 or 1,000 on mainnet; 500, 1,000 or 2,500 in test mode), settled once: the winner takes the Pot minus Fees; a draw, abandonment or no-show refunds both entries.
@@ -103,7 +103,7 @@ The Gemas entered into one Match, held in escrow until settlement. The winner re
 _Avoid_: prize pool, jackpot (the Leaderboard Pool is a different thing)
 
 **Queue**:
-The waiting line for one game at one entry size, where Players are paired with the next entrant. In the async game a Player may play before an opponent is paired, so an unpaired Block Puzzle entry waits 24 hours for an opponent before it can be refunded; a live-game entry (Hold'em, Trading Duel) waits 1 hour.
+The waiting line for one game at one entry size, where Players are paired with the next entrant. In the async game a Player may play before an opponent is paired, so an unpaired Block Burst entry waits 24 hours for an opponent before it can be refunded; a live-game entry (Hold'em, Trading Duel) waits 1 hour.
 _Avoid_: lobby, matchmaking pool
 
 **Challenge**:
@@ -157,7 +157,7 @@ A Player's public listing asking to be backed for a game and entry size, shown w
 _Avoid_: application, ask, listing
 
 **Offer**:
-A Backer's terms for a Backing: game, entry and the Player's share of the surplus. Either directed at a Request (the Player accepts) or public (Players apply and the Backer accepts one). Either way the Backer chooses whom they back and the Player consents to the terms.
+A Backer's terms for a Backing, made on one Request: game, entry and the Player's share of the surplus. The Backer chooses whom they back and the Player accepts or declines. There are no public Offers.
 _Avoid_: bid, proposal, deal
 
 **Backer**:

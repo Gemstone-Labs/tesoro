@@ -48,7 +48,7 @@ export interface PlayerSummary {
   net: number;
   /** The record again, one entry per game the Player has a decided Match in. */
   byGame: { game: GameId; matches: number; wins: number }[];
-  /** The Player's highest Block Puzzle score in a finished Match, when there is one. */
+  /** The Player's highest Block Burst score in a finished Match, when there is one. */
   bestScore: number | null;
   /** Opening time of the first and the latest finished Match (ms), null with none. */
   first: number | null;

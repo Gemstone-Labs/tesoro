@@ -17,7 +17,7 @@ describe("canRematch", () => {
 });
 
 describe("rematchHref", () => {
-  it("carries entry and opponent for Block Puzzle", () => {
+  it("carries entry and opponent for Block Burst", () => {
     expect(rematchHref({ game: "block-puzzle", entry: 1000, opponent: OPP })).toBe(`/play/challenge?entry=1000&opponent=${OPP}`);
   });
   it("carries the Game and the Trading Duel asset", () => {

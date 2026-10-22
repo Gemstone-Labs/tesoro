@@ -38,7 +38,7 @@ const errText = plainError;
 const SETTLE_TRY_MS = 6000;
 
 /**
- * One Block Puzzle Match, driven by what is on chain: waiting for an opponent, preparing the
+ * One Block Burst Match, driven by what is on chain: waiting for an opponent, preparing the
  * private Boards, playing (moves are submitted to the private rollup as you place), waiting for the
  * opponent, then the result. Every step re-reads chain state, so a reload resumes where you were.
  */
@@ -237,10 +237,10 @@ export function MatchView({ matchId }: { matchId: string }) {
                   <i className="bpx-spin" aria-hidden="true" /> Finding opponent…
                 </span>
               )}
+              {error && <p className="status err" role="alert">{error}</p>}
             </div>
           }
         />
-        {error && <p className="status err" role="alert">{error}</p>}
       </div>
     );
   }

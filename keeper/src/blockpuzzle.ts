@@ -39,7 +39,7 @@ export function openQueueStep(now: number, deadline: number): "wait" | "refund" 
 }
 
 /**
- * Block Puzzle hygiene for one unsettled tesoro_core Match (open_session / join_session flow).
+ * Block Burst hygiene for one unsettled tesoro_core Match (open_session / join_session flow).
  *
  * Open Match: nobody joined. The opener's Board and SeedVault live in the TEE; nothing to do there
  * (the rollup cannot see the base Match, so they stay delegated, a few thousand lamports). After the

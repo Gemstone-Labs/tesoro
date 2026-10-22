@@ -7,7 +7,7 @@ import { gameFromParam, gameQuery } from "../game-params";
 const MS = 1_790_000_000_000;
 
 describe("Match ids", () => {
-  it("Block Puzzle and Hold'em ids are ms * 2 + challenge; their opening time reads back", () => {
+  it("Block Burst and Hold'em ids are ms * 2 + challenge; their opening time reads back", () => {
     const id = BigInt(MS) * 2n + 1n;
     expect(matchOpenedAt(id, "holdem")).toBe(MS);
     expect(matchOpenedAt(id, "block-puzzle")).toBe(MS);

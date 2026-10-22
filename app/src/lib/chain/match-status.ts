@@ -1,7 +1,7 @@
 
 /**
  * tesoro_core::MATCH_TIMEOUT_SECS: how long after a join the Match's refund deadline is set. The
- * Block Puzzle Queue window (24 h, before anyone joins) does not change it: a join resets it.
+ * Block Burst Queue window (24 h, before anyone joins) does not change it: a join resets it.
  */
 const CORE_WINDOW_SECS = 60 * 60;
 /** trading_duel START_WINDOW_SECS + MATCH_SECS (30 s head start + 12 columns of 10 s): the longest a Duel runs after the join. */
@@ -34,7 +34,7 @@ type Input = {
 
 /**
  * Unix seconds after which an Active Match should have settled, never later than its refund deadline.
- * - Block Puzzle: both submission deadlines have passed, so `seal` and settle are open to anyone.
+ * - Block Burst: both submission deadlines have passed, so `seal` and settle are open to anyone.
  * - Trading Duel: the join, plus the start window, plus the Duel itself.
  * - Hold'em: no fixed end exists in the Match state, so only the refund deadline counts.
  */

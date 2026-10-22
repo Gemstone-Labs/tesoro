@@ -18,7 +18,7 @@ export interface ScreenData {
   queueDepth?: { "block-puzzle": number; holdem: number; "trading-duel": number };
   /** The Backing Request to open in the Offer drawer (the URL hash). */
   hash?: string;
-  /** Block Puzzle Match: where the signed-in Player's run is, whether the joiner timed out, and the setup step shown while preparing. */
+  /** Block Burst Match: where the signed-in Player's run is, whether the joiner timed out, and the setup step shown while preparing. */
   run?: { stage: RunStage; timeout?: boolean; step?: string };
   /** Ethereum / HyperEVM Positions: the Advance on every Position card, and how far an opening Position has got. */
   eth?: { advance?: "open" | "paid"; opening?: "sent" | "delivered" | "recorded" | "arrived" | "failed" };
