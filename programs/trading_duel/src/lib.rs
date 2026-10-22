@@ -18,6 +18,9 @@
 pub mod engine;
 pub mod state;
 
+#[cfg(test)]
+mod keeper_fixtures;
+
 use anchor_lang::{prelude::*, system_program};
 use ephemeral_rollups_sdk::{
     access_control::structs::PERMISSION_SEED,
