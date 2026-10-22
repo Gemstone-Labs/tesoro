@@ -23,6 +23,7 @@ import { EndpointProgram, UlnProgram } from "@layerzerolabs/lz-solana-sdk-v2/umi
 import { CLUSTER } from "@/lib/cluster-settings";
 import { basketPda, bookPda, spillPda } from "@/lib/chain/basket";
 import { coreIx } from "@/lib/chain/core-ix";
+import { parseTreasury } from "@/lib/chain/fees";
 import { MAX_PRICE_AGE_SECS, PRICE_QUOTE_MARGIN_SECS, TESORO_CORE_ID, onchainPricePda, parsePythPrice, protectionsPda, pythFeedAddress, sourcePda, treasuryPda } from "@/lib/chain/native";
 import {
   BRIDGE_AUTHORITY,
@@ -49,6 +50,8 @@ import {
   vaultByAddress,
   vaultsOn,
   parseBridgePosition,
+  parseCorePosition,
+  quoteEthAdvance,
   sourceAuthPda,
   vaultAbi,
   vaultTreasuryPda,
@@ -562,15 +565,22 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
     spill: spillPda(ownerAccount),
   };
   const priceKey = onchainPricePda(new PublicKey(info.data.subarray(74, 106)));
+  // The floor is the Gemas this quote shows: the program refuses the Advance rather than issue fewer. The Account re-quotes before it signs.
+  const treasury = await conn.getAccountInfo(treasuryPda());
+  const rates = treasury && treasury.owner.equals(TESORO_CORE_ID) ? parseTreasury(treasury.data) : null;
+  if (!rates) throw new DemoHttpError(503, "no-fees", "The fees could not be read right now. Try again in a minute.");
+  const position = parseCorePosition(cp, info.data);
+  const minGemas = quoteEthAdvance(position.principalWei, position.rateBps, months, price.microUsd, rates.yieldFeeBps).gemas;
+  if (minGemas <= 0n) throw new DemoHttpError(409, "too-small", "This Lock is too small for an Advance.");
   const ix = CLUSTER.priceSource === "onchain"
-    ? coreIx("take_advance_onchain", { ...common, onchain_price: priceKey, price_feed: pythFeedAddress(asset) }, { horizon_months: months })
+    ? coreIx("take_advance_onchain", { ...common, onchain_price: priceKey, price_feed: pythFeedAddress(asset) }, { horizon_months: months, min_gemas: minGemas })
     // The oracle names the price; the asset's OnchainPrice address follows as the first remaining account (it must not exist to be used).
-    : coreIx("take_advance", common, { horizon_months: months, price_micro_usd: price.microUsd }, [key(priceKey)]);
+    : coreIx("take_advance", common, { horizon_months: months, price_micro_usd: price.microUsd, min_gemas: minGemas }, [key(priceKey)]);
   const tx = new Transaction().add(ix);
   tx.feePayer = oracle.publicKey;
   tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
   tx.partialSign(oracle);
-  return { source: source.toBase58(), priceMicroUsd: price.microUsd.toString(), transaction: tx.serialize({ requireAllSignatures: false }).toString("base64") };
+  return { source: source.toBase58(), priceMicroUsd: price.microUsd.toString(), minGemas: minGemas.toString(), transaction: tx.serialize({ requireAllSignatures: false }).toString("base64") };
 }
 
 // ---- entry points ----------------------------------------------------------------------------------

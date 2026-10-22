@@ -63,8 +63,8 @@ describe("native instructions", () => {
       [faucetIx(owner).data, "faucet"],
       [setPriceIx(owner, 1n).data, "set_price"],
       [openNativePositionIx(owner, 1, 1n, pos).data, "open_native_position"],
-      [takeNativeAdvanceIx(owner, pos, 0, 3).data, "take_native_advance"],
-      [extendNativeAdvanceIx(owner, pos, 0, 3, []).data, "extend_native_advance"],
+      [takeNativeAdvanceIx(owner, pos, 0, 3, 1400n).data, "take_native_advance"],
+      [extendNativeAdvanceIx(owner, pos, 0, 3, 7n, []).data, "extend_native_advance"],
       [setExtendLimitIx(owner, 2).data, "set_extend_limit"],
       [setEntryLimitIx(owner, 500).data, "set_entry_limit"],
       [setBreakIx(owner, 3).data, "set_break"],
@@ -90,8 +90,8 @@ describe("native instructions", () => {
       [redeemIx(owner, pos, pos, 1n, target), "redeem"],
       [unlockIx(owner, pos), "unlock"],
       [openNativePositionIx(owner, 1, 1n, pos), "open_native_position"],
-      [takeNativeAdvanceIx(owner, pos, 1, 3, { index: 0, accounts: [bookPda(sourcePda(pos, 0))] }), "take_native_advance"],
-      [extendNativeAdvanceIx(owner, pos, 0, 3, []), "extend_native_advance"],
+      [takeNativeAdvanceIx(owner, pos, 1, 3, 1400n, { index: 0, accounts: [bookPda(sourcePda(pos, 0))] }), "take_native_advance"],
+      [extendNativeAdvanceIx(owner, pos, 0, 3, 7n, []), "extend_native_advance"],
       [setExtendLimitIx(owner, 2), "set_extend_limit"],
       [setEntryLimitIx(owner, 500), "set_entry_limit"],
       [setBreakIx(owner, 3), "set_break"],
@@ -118,36 +118,43 @@ describe("native instructions", () => {
     expect(withdrawTreasuryIx(owner, owner, 1n).keys).toHaveLength(count("withdraw_treasury"));
     expect(setTreasuryCompanyIx(owner, owner).keys).toHaveLength(count("set_treasury_company"));
     expect(openNativePositionIx(owner, 1, 1n, pos).keys).toHaveLength(count("open_native_position"));
-    expect(takeNativeAdvanceIx(owner, pos, 0, 3).keys).toHaveLength(count("take_native_advance"));
+    expect(takeNativeAdvanceIx(owner, pos, 0, 3, 1400n).keys).toHaveLength(count("take_native_advance"));
     expect(initTreasuryIx(owner, 2000, 3500).keys).toHaveLength(count("init_treasury"));
     expect(fundTreasuryIx(owner, 1n).keys).toHaveLength(count("fund_treasury"));
     expect(redeemTreasuryIx(pos, pos, 1n, target).keys).toHaveLength(count("redeem_treasury") + 9);
     // The Yield Fee is fixed on the Position at open: only open reads the Treasury, Advance and Extend read the pool.
     expect(openNativePositionIx(owner, 1, 1n, pos).keys[6].pubkey.equals(treasuryPda())).toBe(true);
-    expect(takeNativeAdvanceIx(owner, pos, 0, 3).keys[5].pubkey.equals(POOL)).toBe(true);
+    expect(takeNativeAdvanceIx(owner, pos, 0, 3, 1400n).keys[5].pubkey.equals(POOL)).toBe(true);
     expect(initTreasuryIx(owner, 2000, 3500).data.subarray(8).toString("hex")).toBe("d007ac0d");
   });
 
   it("extend_native_advance lists the IDL accounts, carries the months, and derives the Source PDA", () => {
     const pos = sourcePda(owner, 0);
-    const ix = extendNativeAdvanceIx(owner, pos, 2, 4, []);
+    const ix = extendNativeAdvanceIx(owner, pos, 2, 4, 9n, []);
     const spec = (idl.instructions as { name: string; accounts: unknown[] }[]).find((i) => i.name === "extend_native_advance")!;
     expect(ix.keys).toHaveLength(spec.accounts.length);
-    expect(ix.data.subarray(8).toString("hex")).toBe("04");
+    expect(ix.data.subarray(8).toString("hex")).toBe("04" + "0900000000000000");
     expect(ix.keys[2].pubkey.equals(protectionsPda(accountPda(owner)))).toBe(true);
     expect(ix.keys[4].pubkey.equals(POOL)).toBe(true);
     expect(ix.keys[5].pubkey.equals(sourcePda(pos, 2))).toBe(true);
     expect(ix.keys[6].pubkey.equals(basketPda(accountPda(owner)))).toBe(true);
   });
 
+  it("take_native_advance ends with the Gemas floor as a little-endian u64, and an Extend carries its own", () => {
+    const pos = sourcePda(owner, 0);
+    const take = takeNativeAdvanceIx(owner, pos, 0, 3, 1400n);
+    expect(take.data.subarray(8).toString("hex")).toBe("03" + "7805000000000000");
+    expect(takeNativeAdvanceIx(owner, pos, 0, 3, (1n << 63n) + 5n).data.readBigUInt64LE(9)).toBe((1n << 63n) + 5n);
+  });
+
   it("passes the previous Advance to take_native_advance, or the program id for none", () => {
     const pos = sourcePda(owner, 0);
     const spec = (idl.instructions as { name: string; accounts: unknown[] }[]).find((i) => i.name === "take_native_advance")!;
-    const none = takeNativeAdvanceIx(owner, pos, 1, 3);
+    const none = takeNativeAdvanceIx(owner, pos, 1, 3, 1400n);
     expect(none.keys).toHaveLength(spec.accounts.length);
     expect(none.keys[6].pubkey.equals(sourcePda(pos, 1))).toBe(true);
     expect(none.keys[7].pubkey.equals(bookPda(sourcePda(pos, 1)))).toBe(true);
-    const prev = takeNativeAdvanceIx(owner, pos, 1, 3, { index: 0, accounts: [bookPda(sourcePda(pos, 0))] });
+    const prev = takeNativeAdvanceIx(owner, pos, 1, 3, 1400n, { index: 0, accounts: [bookPda(sourcePda(pos, 0))] });
     expect(prev.keys).toHaveLength(spec.accounts.length + 2);
     expect(prev.keys[spec.accounts.length].pubkey.equals(sourcePda(pos, 0))).toBe(true);
     expect(prev.keys[spec.accounts.length].isWritable).toBe(false);

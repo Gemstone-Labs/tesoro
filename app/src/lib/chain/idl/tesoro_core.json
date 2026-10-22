@@ -3511,6 +3511,10 @@
         {
           "name": "extra_months",
           "type": "u8"
+        },
+        {
+          "name": "min_gemas",
+          "type": "u64"
         }
       ]
     },
@@ -3757,6 +3761,10 @@
         {
           "name": "extra_months",
           "type": "u8"
+        },
+        {
+          "name": "min_gemas",
+          "type": "u64"
         }
       ]
     },
@@ -12896,6 +12904,10 @@
         {
           "name": "price_micro_usd",
           "type": "u64"
+        },
+        {
+          "name": "min_gemas",
+          "type": "u64"
         }
       ]
     },
@@ -13155,6 +13167,10 @@
         {
           "name": "horizon_months",
           "type": "u8"
+        },
+        {
+          "name": "min_gemas",
+          "type": "u64"
         }
       ]
     },
@@ -13443,6 +13459,10 @@
         {
           "name": "horizon_months",
           "type": "u8"
+        },
+        {
+          "name": "min_gemas",
+          "type": "u64"
         }
       ]
     },
@@ -13713,6 +13733,10 @@
         {
           "name": "horizon_months",
           "type": "u8"
+        },
+        {
+          "name": "min_gemas",
+          "type": "u64"
         }
       ]
     },
@@ -13984,6 +14008,10 @@
         {
           "name": "horizon_months",
           "type": "u8"
+        },
+        {
+          "name": "min_gemas",
+          "type": "u64"
         }
       ]
     },
@@ -15774,6 +15802,11 @@
       "code": 6044,
       "name": "ProgramTooLarge",
       "msg": "the program is too large to hash in one transaction"
+    },
+    {
+      "code": 6045,
+      "name": "AdvanceBelowMinimum",
+      "msg": "the Advance would issue fewer Gemas than the minimum asked for (or the minimum is zero)"
     }
   ],
   "types": [
