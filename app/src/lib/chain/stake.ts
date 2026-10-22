@@ -1,13 +1,12 @@
 import "./polyfill";
-import { PublicKey, SystemProgram, TransactionInstruction, type AccountInfo, type AccountMeta } from "@solana/web3.js";
-import { parseTreasury } from "./fees";
+import { PublicKey, type AccountInfo, type AccountMeta } from "@solana/web3.js";
+import { ROUTE_LEN, parseRoute, parseTreasury, type RouteView } from "./fees";
 import {
   CONFIG,
   TESORO_CORE_ID,
   TOKEN_PROGRAM_ID,
   accountPda,
   extendLimitPda,
-  holdingPda,
   meta,
   onchainPricePda,
   parseSolPrice,
@@ -24,6 +23,9 @@ import {
   u64,
   type NativeMarket,
 } from "./native";
+import { coreIx } from "./core-ix";
+import { basketPda, bookPda, spillPda } from "./basket";
+import { lineArg, type LineTarget, type PrevAdvance } from "./native";
 import { STAKE_POOL_PROGRAM_ID, STAKE_RATE_SCALE, parseStakePool, sizingApyBps, stakePoolRate, tokenAta, tokenSymbol, type StakePoolView } from "./stake-pool";
 
 /**
@@ -52,23 +54,6 @@ export const JITOSOL: StakeToken = {
 export const STAKE_TOKENS: readonly StakeToken[] = [JITOSOL];
 export const stakeTokenOf = (mint: PublicKey) => STAKE_TOKENS.find((t) => t.mint.equals(mint)) ?? null;
 
-/** Anchor discriminators, `sha256("global:<name>")[..8]`. */
-const DISC = {
-  set_stake_token: "12655d763754c7ab",
-  set_stake_apy_ceiling: "625b89312ef07862",
-  open_stake_position: "642e20f8001d7a15",
-  take_stake_advance: "cd15f5d25ce96bab",
-  extend_stake_advance: "999277475292cb65",
-  instant_redeem_stake: "af08013ca3ba9771",
-  withdraw_treasury_stake: "37f35378bae00045",
-  init_treasury_stake: "e8d81b9bc90727e5",
-  redeem: "b80c569546c461e1",
-  unlock: "659b28159ebd38cb",
-  redeem_treasury: "109798e01b5bb9cd",
-} as const;
-const core = (keys: AccountMeta[], name: keyof typeof DISC, ...args: Buffer[]) =>
-  new TransactionInstruction({ programId: TESORO_CORE_ID, keys, data: Buffer.concat([Buffer.from(DISC[name], "hex"), ...args]) });
-
 // ---- Addresses -----------------------------------------------------------------------------------
 
 export const stakeConfigPda = () => pda([s("stake_config")]);
@@ -87,179 +72,169 @@ export async function stakePositionPda(owner: PublicKey, nonce: bigint | number)
 
 /** Deposits `shares` of the active staking token as a new Position (Principal recorded at the pool's rate now). `position` is `await stakePositionPda(owner, nonce)`. */
 export function openStakePositionIx(owner: PublicKey, nonce: bigint | number, shares: bigint, position: PublicKey, token: StakeToken = JITOSOL) {
-  return core(
-    [
-      meta(owner, true, true),
-      meta(accountPda(owner)),
-      meta(stakeConfigPda()),
-      meta(token.mint),
-      meta(stakeCustodyPda(token.mint), true),
-      meta(stakeVaultPda(token.mint), true),
-      meta(tokenAta(owner, token.mint), true),
-      meta(token.pool),
-      meta(treasuryPda()),
-      meta(position, true),
-      meta(TOKEN_PROGRAM_ID),
-      meta(SystemProgram.programId),
-    ],
+  return coreIx(
     "open_stake_position",
-    u64(nonce),
-    u64(shares),
+    {
+      owner_authority: owner,
+      owner_account: accountPda(owner),
+      stake_config: stakeConfigPda(),
+      mint: token.mint,
+      custody: stakeCustodyPda(token.mint),
+      vault: stakeVaultPda(token.mint),
+      owner_token: tokenAta(owner, token.mint),
+      stake_pool: token.pool,
+      treasury: treasuryPda(),
+      position,
+      token_program: TOKEN_PROGRAM_ID,
+    },
+    { nonce: BigInt(nonce), shares },
   );
 }
 
-/** An Advance on a staking-token Position: priced from the token's Pyth mapping, sized on the pool's last-epoch growth. `openAdvance` is the open Advance, closed here. */
-export function takeStakeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number, openAdvance: number | null = null, token: StakeToken = JITOSOL) {
+/**
+ * An Advance on a staking-token Position: priced from the token's Pyth mapping, sized on the pool's last-epoch growth.
+ * `prev` is the open Advance, closed here (its Source, then its book and checkpoint pages).
+ */
+export function takeStakeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number, prev: PrevAdvance | null = null, token: StakeToken = JITOSOL) {
   const source = sourcePda(position, advances);
-  return core(
-    [
-      meta(owner, true, true),
-      meta(accountPda(owner), true),
-      meta(protectionsPda(accountPda(owner))),
-      meta(position, true),
-      meta(onchainPricePda(token.mint)),
-      meta(pythFeedAddress("SOL")),
-      meta(stakeConfigPda()),
-      meta(stakeCustodyPda(token.mint)),
-      meta(token.pool),
-      // Optional account: the program id stands for `None`.
-      meta(openAdvance === null ? TESORO_CORE_ID : sourcePda(position, openAdvance), openAdvance !== null),
-      meta(source, true),
-      meta(holdingPda(accountPda(owner), source), true),
-      meta(SystemProgram.programId),
-    ],
+  const account = accountPda(owner);
+  return coreIx(
     "take_stake_advance",
-    Buffer.from([months]),
+    {
+      owner_authority: owner,
+      owner_account: account,
+      protections: protectionsPda(account),
+      position,
+      onchain_price: onchainPricePda(token.mint),
+      price_feed: pythFeedAddress("SOL"),
+      stake_config: stakeConfigPda(),
+      custody: stakeCustodyPda(token.mint),
+      stake_pool: token.pool,
+      source,
+      book: bookPda(source),
+      basket: basketPda(account),
+      spill: spillPda(account),
+    },
+    { horizon_months: months },
+    prev ? [meta(sourcePda(position, prev.index)), ...prev.accounts.map((k) => meta(k, true))] : [],
   );
 }
 
-export function extendStakeAdvanceIx(owner: PublicKey, position: PublicKey, source: number, extraMonths: number, token: StakeToken = JITOSOL) {
-  const src = sourcePda(position, source);
-  return core(
-    [
-      meta(owner, true, true),
-      meta(accountPda(owner), true),
-      meta(protectionsPda(accountPda(owner))),
-      meta(position, true),
-      meta(stakeConfigPda()),
-      meta(stakeCustodyPda(token.mint)),
-      meta(token.pool),
-      meta(src, true),
-      meta(holdingPda(accountPda(owner), src), true),
-      meta(extendLimitPda(accountPda(owner)), true),
-      meta(SystemProgram.programId),
-    ],
+/** Adds months to the open Advance of a staking-token Position. `book` is the Source's book and checkpoint pages. */
+export function extendStakeAdvanceIx(owner: PublicKey, position: PublicKey, source: number, extraMonths: number, book: PublicKey[], token: StakeToken = JITOSOL) {
+  const account = accountPda(owner);
+  return coreIx(
     "extend_stake_advance",
-    Buffer.from([extraMonths]),
+    {
+      owner_authority: owner,
+      owner_account: account,
+      protections: protectionsPda(account),
+      position,
+      stake_config: stakeConfigPda(),
+      custody: stakeCustodyPda(token.mint),
+      stake_pool: token.pool,
+      source: sourcePda(position, source),
+      basket: basketPda(account),
+      spill: spillPda(account),
+      extend_limit: extendLimitPda(account),
+    },
+    { extra_months: extraMonths },
+    book.map((k) => meta(k, true)),
   );
 }
 
-/** The accounts a stake Position's `return_own` and `redeem_treasury` add after their own: the custody and the pool. */
+/** The accounts a stake Position's `return_own` adds after its own, when nothing is paid out: the custody and the pool. */
 export const stakeRateRemaining = (token: StakeToken = JITOSOL): AccountMeta[] => [meta(stakeCustodyPda(token.mint), true), meta(token.pool)];
 
-/** Redeem Gemas of a stake Source: the holder is paid the staking token into their own token account. */
-export function redeemStakeIx(holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, token: StakeToken = JITOSOL) {
+/** The same when the instruction pays the token out to `dest`: custody, pool, vault, destination, token program. */
+export const stakePayingAccounts = (dest: PublicKey, token: StakeToken = JITOSOL): AccountMeta[] => [
+  ...stakeRateRemaining(token),
+  meta(stakeVaultPda(token.mint), true),
+  meta(dest, true),
+  meta(TOKEN_PROGRAM_ID),
+];
+
+/** Redeem Gemas of one line of a stake Source: the holder is paid the staking token into their own token account (it must exist). */
+export function redeemStakeIx(holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, target: LineTarget, token: StakeToken = JITOSOL) {
   const account = accountPda(holder);
-  const i = core([meta(holder, false, true), meta(account, true), meta(position), meta(source, true), meta(holdingPda(account, source), true)], "redeem", u64(gemas));
-  i.keys.push(...stakeRateRemaining(token), meta(stakeVaultPda(token.mint), true), meta(tokenAta(holder, token.mint), true), meta(TOKEN_PROGRAM_ID));
-  return i;
+  return coreIx(
+    "redeem",
+    { holder_authority: holder, holder_account: account, basket: basketPda(account), spill: spillPda(account), position, source },
+    { line: lineArg(target.line), amount: gemas },
+    [...stakePayingAccounts(tokenAta(holder, token.mint), token), ...target.accounts.map((k) => meta(k, true))],
+  );
 }
 
-/** Unlock: Debt is computed by the program and must be zero; Principal and the free yield return in the token. `openAdvance` is the open Advance, closed here. */
-export function unlockStakeIx(owner: PublicKey, position: PublicKey, openAdvance: number | null = null, token: StakeToken = JITOSOL) {
-  const i = core([meta(owner, false, true), meta(accountPda(owner)), meta(position, true)], "unlock");
-  i.keys.push(...stakeRateRemaining(token), meta(stakeVaultPda(token.mint), true), meta(tokenAta(owner, token.mint), true), meta(TOKEN_PROGRAM_ID));
-  if (openAdvance !== null) i.keys.push(meta(sourcePda(position, openAdvance), true));
-  return i;
-}
-
-/** Instant Redeem of won Gemas of a stake Source: the Treasury's token balance pays the holder in the same transaction. */
-export function instantRedeemStakeIx(holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, token: StakeToken = JITOSOL) {
-  const account = accountPda(holder);
-  const treasuryAccount = treasuryAccountPda();
-  return core(
-    [
-      meta(holder, true, true),
-      meta(account, true),
-      meta(position),
-      meta(source),
-      meta(holdingPda(account, source), true),
-      meta(treasuryPda()),
-      meta(treasuryAccount, true),
-      meta(holdingPda(treasuryAccount, source), true),
-      meta(stakeCustodyPda(token.mint), true),
-      meta(stakeVaultPda(token.mint), true),
-      meta(tokenAta(holder, token.mint), true),
-      meta(token.pool),
-      meta(TOKEN_PROGRAM_ID),
-      meta(SystemProgram.programId),
-    ],
-    "instant_redeem_stake",
-    u64(gemas),
+/** Unlock: Debt is computed by the program and must be zero; Principal and the free yield return in the token. `open` is the open Advance, closed here. */
+export function unlockStakeIx(owner: PublicKey, position: PublicKey, open: PrevAdvance | null = null, token: StakeToken = JITOSOL) {
+  return coreIx(
+    "unlock",
+    { owner_authority: owner, owner_account: accountPda(owner), economy: pda([s("economy")]), position },
+    {},
+    [...stakePayingAccounts(tokenAta(owner, token.mint), token), ...(open ? [meta(sourcePda(position, open.index), true), ...open.accounts.map((k) => meta(k, true))] : [])],
   );
 }
 
 /** Permissionless: the Treasury Account redeems Gemas it bought; the value stays in the vault and joins the Treasury's balance. */
-export function redeemTreasuryStakeIx(position: PublicKey, source: PublicKey, gemas: bigint, token: StakeToken = JITOSOL) {
+export function redeemTreasuryStakeIx(position: PublicKey, source: PublicKey, gemas: bigint, target: LineTarget, token: StakeToken = JITOSOL) {
   const treasuryAccount = treasuryAccountPda();
-  const i = core([meta(treasuryPda()), meta(treasuryAccount, true), meta(position), meta(source, true), meta(holdingPda(treasuryAccount, source), true)], "redeem_treasury", u64(gemas));
-  i.keys.push(...stakeRateRemaining(token));
-  return i;
+  return coreIx(
+    "redeem_treasury",
+    { treasury: treasuryPda(), treasury_account: treasuryAccount, basket: basketPda(treasuryAccount), spill: spillPda(treasuryAccount), position, source },
+    { line: lineArg(target.line), amount: gemas },
+    [...stakeRateRemaining(token), ...target.accounts.map((k) => meta(k, true))],
+  );
 }
 
 /** Admin: the staking token new Positions open with (creates its custody and vault the first time). */
 export const setStakeTokenIx = (admin: PublicKey, token: StakeToken = JITOSOL) =>
-  core(
-    [
-      meta(admin, true, true),
-      meta(CONFIG),
-      meta(stakeConfigPda(), true),
-      meta(token.mint),
-      meta(token.pool),
-      meta(stakeCustodyPda(token.mint), true),
-      meta(stakeVaultPda(token.mint), true),
-      meta(TOKEN_PROGRAM_ID),
-      meta(SystemProgram.programId),
-    ],
-    "set_stake_token",
-  );
+  coreIx("set_stake_token", {
+    admin,
+    config: CONFIG,
+    stake_config: stakeConfigPda(),
+    mint: token.mint,
+    stake_pool: token.pool,
+    custody: stakeCustodyPda(token.mint),
+    vault: stakeVaultPda(token.mint),
+  });
 
 /** Admin: the ceiling on the annualised growth an Advance is sized on, basis points (1 to 2,000). */
-export const setStakeApyCeilingIx = (admin: PublicKey, bps: number) => {
-  const b = Buffer.alloc(2);
-  b.writeUInt16LE(bps);
-  return core([meta(admin, true, true), meta(CONFIG), meta(stakeConfigPda(), true), meta(SystemProgram.programId)], "set_stake_apy_ceiling", b);
-};
+export const setStakeApyCeilingIx = (admin: PublicKey, bps: number) =>
+  coreIx("set_stake_apy_ceiling", { admin, config: CONFIG, stake_config: stakeConfigPda() }, { apy_ceiling_bps: bps });
 
 /** Admin: creates the Treasury without a simSOL vault, or changes its rates. */
-export const initTreasuryStakeIx = (admin: PublicKey, yieldFeeBps: number, instantFeeBps: number) => {
-  const b = Buffer.alloc(4);
-  b.writeUInt16LE(yieldFeeBps, 0);
-  b.writeUInt16LE(instantFeeBps, 2);
-  return core([meta(admin, true, true), meta(CONFIG), meta(treasuryPda(), true), meta(treasuryAccountPda(), true), meta(SystemProgram.programId)], "init_treasury_stake", b);
-};
+export const initTreasuryStakeIx = (admin: PublicKey, yieldFeeBps: number, instantFeeBps: number) =>
+  coreIx("init_treasury_stake", { admin, config: CONFIG, treasury: treasuryPda(), treasury_account: treasuryAccountPda() }, { yield_fee_bps: yieldFeeBps, instant_fee_bps: instantFeeBps });
 
 /** Admin: pays `units` lamports of value of the Treasury's balance, in the token, to the company wallet's token account. */
 export const withdrawTreasuryStakeIx = (admin: PublicKey, company: PublicKey, units: bigint, token: StakeToken = JITOSOL) =>
-  core(
-    [
-      meta(admin, false, true),
-      meta(CONFIG),
-      meta(treasuryPda(), true),
-      meta(stakeCustodyPda(token.mint), true),
-      meta(stakeVaultPda(token.mint), true),
-      meta(tokenAta(company, token.mint), true),
-      meta(token.pool),
-      meta(TOKEN_PROGRAM_ID),
-    ],
+  coreIx(
     "withdraw_treasury_stake",
-    u64(units),
+    {
+      admin,
+      config: CONFIG,
+      treasury: treasuryPda(),
+      custody: stakeCustodyPda(token.mint),
+      vault: stakeVaultPda(token.mint),
+      company_token: tokenAta(company, token.mint),
+      stake_pool: token.pool,
+      token_program: TOKEN_PROGRAM_ID,
+    },
+    { amount: units },
+  );
+
+/** Admin: moves the staking token from the admin's token account into the custody vault as the Treasury's balance. */
+export const fundTreasuryStakeIx = (admin: PublicKey, shares: bigint, token: StakeToken = JITOSOL) =>
+  coreIx(
+    "fund_treasury_stake",
+    { admin, config: CONFIG, custody: stakeCustodyPda(token.mint), vault: stakeVaultPda(token.mint), admin_token: tokenAta(admin, token.mint), token_program: TOKEN_PROGRAM_ID },
+    { shares },
   );
 
 // ---- Readers -------------------------------------------------------------------------------------
 
-/** `StakeCustody`: disc 8, bump, vault_bump, mint, pool, vault, principal, fee_shares, fee_principal, realised_fee_shares (u128), open_positions, refilled, instant, withdrawn (u64). */
-export const STAKE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8;
+/** `StakeCustody`: disc 8, bump, vault_bump, mint, pool, vault, principal, fee_shares, fee_principal, realised_fee_shares (u128), open_positions, refilled, instant, withdrawn (u64), then the Treasury's route. */
+export const STAKE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8 + ROUTE_LEN;
 /** `StakeConfig`: disc 8, bump, active_mint, apy_ceiling_bps u16. */
 export const STAKE_CONFIG_LEN = 8 + 1 + 32 + 2;
 
@@ -277,6 +252,8 @@ export interface StakeCustodyView {
   refilledShares: bigint;
   instantShares: bigint;
   withdrawnShares: bigint;
+  /** The Treasury's shares (tokens) on this route: what it holds, owes and may spend. */
+  route: RouteView;
 }
 
 export function parseStakeCustody(d: Uint8Array): StakeCustodyView | null {
@@ -295,6 +272,7 @@ export function parseStakeCustody(d: Uint8Array): StakeCustodyView | null {
     refilledShares: rdU64(d, o + 72),
     instantShares: rdU64(d, o + 80),
     withdrawnShares: rdU64(d, o + 88),
+    route: parseRoute(d, o + 96),
   };
 }
 
@@ -369,7 +347,7 @@ export const stakeMarketKeys = (wallet: PublicKey, token: StakeToken = JITOSOL) 
 type Info = AccountInfo<Buffer> | null;
 
 /** The mainnet market from the accounts of `stakeMarketKeys`. Throws when the token's pool cannot be read. */
-export function stakeMarketFrom([config, poolInfo, custodyInfo, vault, ata, feed, treasuryInfo]: Info[], token: StakeToken = JITOSOL): NativeMarket {
+export function stakeMarketFrom([config, poolInfo, custodyInfo, , ata, feed, treasuryInfo]: Info[], token: StakeToken = JITOSOL): NativeMarket {
   const pool = poolInfo && poolInfo.owner.equals(token.poolProgram) ? parseStakePool(poolInfo.data) : null;
   const rate = pool && stakePoolRate(pool.totalLamports, pool.poolTokenSupply);
   if (!pool || !rate) throw new Error(`${token.symbol} stake pool not readable`);
@@ -377,7 +355,6 @@ export function stakeMarketFrom([config, poolInfo, custodyInfo, vault, ata, feed
   const activeMint = cfg && !cfg.activeMint.equals(PublicKey.default) ? cfg.activeMint : null;
   const ceilingBps = cfg?.apyCeilingBps ?? 0;
   const custody = custodyInfo && custodyInfo.owner.equals(TESORO_CORE_ID) ? parseStakeCustody(custodyInfo.data) : null;
-  const vaultAmount = vault && vault.data.length >= 72 ? rdU64(vault.data, 64) : 0n;
   const treasury = treasuryInfo && treasuryInfo.owner.equals(TESORO_CORE_ID) ? parseTreasury(treasuryInfo.data) : null;
   const sizingBps = sizingApyBps(pool, ceilingBps);
   const tokenBalance = ata && ata.data.length >= 72 ? rdU64(ata.data, 64) : 0n;
@@ -390,7 +367,7 @@ export function stakeMarketFrom([config, poolInfo, custodyInfo, vault, ata, feed
     rate,
     sizingBps,
     tokenBalance,
-    treasuryTokens: custody ? stakeTreasuryBalance(custody, rate, vaultAmount) : null,
+    treasuryTokens: custody ? custody.route.spendable : null,
     custody,
   };
   return {
@@ -401,6 +378,7 @@ export function stakeMarketFrom([config, poolInfo, custodyInfo, vault, ata, feed
     treasury,
     treasuryShares: null,
     treasuryClaim: null,
+    treasuryRoute: custody?.route ?? null,
     stake,
   };
 }

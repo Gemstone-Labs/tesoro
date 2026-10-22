@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain, getVanguard } from "@/lib/chain/client";
+import { matchAddressOf } from "@/lib/chain/match-id";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { commitPhase, isCommitPending, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
@@ -51,7 +52,7 @@ const now = () => Date.now();
  * that either may do is tried by one client first and by the other after a grace period, and a lost race is
  * harmless because each step re-reads chain state.
  */
-export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, onSettled?: () => void) {
+export function useVanguardMatch(id: string | null, signer: ChainSigner | null, onSettled?: () => void) {
   const [view, setView] = useState<VanguardView>({
     stage: "loading",
     match: null,
@@ -98,6 +99,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
   useEffect(() => {
     turnSeenRef.current = view.turnSeenAt;
   }, [view.turnSeenAt]);
+  const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
   const p = useMemo(() => (signer ? (signer as unknown as PlayerSigner) : null), [signer]);
 
   const setStage = useCallback((s: Stage, note = "") => {
@@ -131,9 +133,9 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
   // -- the driver (sequential; one step per tick) --------------------------------------------
 
   const step = useCallback(async () => {
-    if (!p || !signer || id === null) return;
+    if (!p || !signer || id === null || mk === null) return;
     const vg = getVanguard();
-    const ad = addresses(id);
+    const ad = addresses(mk!);
     const me = BlockPuzzleChain.coreAccount(signer.publicKey);
     const m = await fetchMatch(id, me);
     setView((v) => ({ ...v, match: m, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
@@ -147,7 +149,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       setStage("settled");
       if (!finalRead.current) {
         finalRead.current = true;
-        const b = await vg.readBattleOnBase(id);
+        const b = await vg.readBattleOnBase(mk!);
         if (b) setView((v) => ({ ...v, battle: b }));
       }
       if (!settledSeen.current) {
@@ -170,7 +172,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       const core = getChain().core;
       const opp: any = await core.account.tesoroAccount.fetch(new PublicKey(m.opponent));
       const [a, b] = seat === 0 ? [signer.publicKey, opp.authority] : [opp.authority, signer.publicKey];
-      await vg.createMatch(p, id, a, b);
+      await vg.createMatch(p, mk!, a, b);
       return;
     }
 
@@ -179,7 +181,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       if (b.status === STATUS.created && canDelegate(b, Math.floor(now() / 1000))) {
         setStage("setup", "Creating your session");
         if (!late) return;
-        await vg.delegateMatch(p, id);
+        await vg.delegateMatch(p, mk!);
         return;
       }
       // Committed back after the Match ended, or never started in time (a no-show is refunded): settle.
@@ -193,7 +195,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       const mine = b.winner === 0 || b.winner === 1 ? b.winner === seat : seat === 0;
       if (!mine && now() - closingSince.current < FINALIZE_GRACE_MS) return;
       try {
-        await vg.finalize(p, id);
+        await vg.finalize(p, mk!);
       } catch (e) {
         const again = await fetchMatch(id, me);
         if (again && (again.status === "settled" || again.status === "refunded")) return;
@@ -204,7 +206,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
 
     if (!info.owner.equals(DELEGATION_PROGRAM_ID)) return;
     delegated.current = true;
-    const b = await vg.readBattle(p, id);
+    const b = await vg.readBattle(p, mk!);
     if (!b) return setStage("setup", "Creating your session");
     applyBattle(b);
 
@@ -212,9 +214,9 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       setStage("setup", "Setting up the Match");
       if (!late) return;
       try {
-        await vg.initPermissions(p, id);
+        await vg.initPermissions(p, mk!);
       } catch (e) {
-        if ((await vg.readBattle(p, id))?.status === STATUS.created) throw e;
+        if ((await vg.readBattle(p, mk!))?.status === STATUS.created) throw e;
       }
       return;
     }
@@ -243,8 +245,8 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
     if (now() - lastClose.current < 30_000) return;
     lastClose.current = now();
     try {
-      if (b.permissioned) await vg.closeMatch(p, id);
-      else await vg.closeUnstarted(p, id);
+      if (b.permissioned) await vg.closeMatch(p, mk!);
+      else await vg.closeUnstarted(p, mk!);
     } catch (e) {
       // The other Player closed it first, or the commit is already in flight: only other errors count.
       if (!isCommitPending(e) && ++closeFailures.current >= 3) throw e;
@@ -257,7 +259,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
     async function setUp(s: 0 | 1, current: Battle) {
       if (!p || id === null) return;
       if (!contributed.current) {
-        await contributeBundled(vg, p, id, current.oracleQueue);
+        await contributeBundled(vg, p, mk!, current.oracleQueue);
         contributed.current = true;
         contributedAt.current = now();
         lastVrf.current = 0;
@@ -267,19 +269,19 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       if (s === 0 && now() - contributedAt.current < 6_000) return;
       if (now() - lastVrf.current > 15_000) {
         try {
-          await vg.requestVrf(p, id, current.oracleQueue);
+          await vg.requestVrf(p, mk!, current.oracleQueue);
           lastVrf.current = now();
         } catch {
           // Refused until both secrets are in.
         }
       }
       try {
-        await vg.deal(p, id);
+        await vg.deal(p, mk!);
       } catch {
         // Refused until the randomness has arrived, or the other Player dealt first.
       }
     }
-  }, [p, signer, id, setStage, applyBattle, onSettled]);
+  }, [p, signer, id, mk, setStage, applyBattle, onSettled]);
 
   const tick = useCallback(async () => {
     if (working.current) return;
@@ -332,7 +334,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       const key = [b.status, b.turnNo, b.moves, b.actionSeq].join(":");
       if (key === armyKey.current) return;
       armyKey.current = key;
-      const army = await getVanguard().readOwnArmy(p, id, seat).catch(() => null);
+      const army = await getVanguard().readOwnArmy(p, mk!, seat).catch(() => null);
       if (army && army.ranks.some((r) => r !== 0) && !stop) setView((v) => (v.army && v.army.moves === army.moves && v.army.fuel === army.fuel && v.army.side === army.side ? v : { ...v, army }));
     };
     // What to send from the Battle held, no reads: a declared move or timeout waits for a later slot (either Player
@@ -345,15 +347,15 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       const vg = getVanguard();
       if (due.resolve) {
         lastResolve.current = now();
-        await vg.resolve(p, id).catch(() => undefined);
+        await vg.resolve(p, mk!).catch(() => undefined);
       }
       if (due.claim) {
         lastClaim.current = now();
-        await vg.claimTimeout(p, id).catch(() => undefined);
+        await vg.claimTimeout(p, mk!).catch(() => undefined);
       }
     };
     void getVanguard()
-      .watchBattle(p, id, (b) => {
+      .watchBattle(p, mk!, (b) => {
         if (stop) return;
         lastUpdate.current = now();
         applyBattle(b);
@@ -372,7 +374,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       busy = true;
       try {
         if (readDue(now(), lastUpdate.current, lastRead.current)) {
-          const b = await getVanguard().readBattle(p, id);
+          const b = await getVanguard().readBattle(p, mk!);
           lastRead.current = now();
           if (!b || stop) return;
           setView((v) => (v.reconnecting ? { ...v, reconnecting: false } : v));
@@ -393,7 +395,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       unwatch?.();
       clearInterval(t);
     };
-  }, [p, id, applyBattle]);
+  }, [p, id, mk, applyBattle]);
 
   // -- Player decisions -----------------------------------------------------------------------
 
@@ -403,27 +405,27 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       if (!p || id === null) throw new Error("Not ready");
       try {
         const vg = getVanguard();
-        await vg.movePiece(p, id, piece, to);
+        await vg.movePiece(p, mk!, piece, to);
         // Applying it needs a later slot: try right away, the poll keeps trying if this misses.
         for (let i = 0; i < 4; i++) {
-          if (await vg.resolve(p, id).then(() => true, () => false)) break;
+          if (await vg.resolve(p, mk!).then(() => true, () => false)) break;
           await new Promise((r) => setTimeout(r, 250));
         }
       } catch (e) {
         throw new Error(refusalLine(e));
       }
     },
-    [p, id],
+    [p, id, mk],
   );
 
   const twoStep = useCallback(async () => {
     if (!p || id === null) throw new Error("Not ready");
     try {
-      await getVanguard().startTwoStep(p, id);
+      await getVanguard().startTwoStep(p, mk!);
     } catch (e) {
       throw new Error(plainError(e));
     }
-  }, [p, id]);
+  }, [p, id, mk]);
 
   const run = useCallback(
     async (label: string, fn: () => Promise<string | void>) => {

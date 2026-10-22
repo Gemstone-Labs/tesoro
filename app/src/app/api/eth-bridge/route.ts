@@ -1,12 +1,21 @@
 import { DemoHttpError } from "@/server/demo-advance";
-import { handleEthPrice, handleEthRequest } from "@/server/eth-bridge";
+import { handleEthPrice, handleEthRequest, handleRedeemCost } from "@/server/eth-bridge";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-/** The devnet price an Advance on an ETH or HYPE Position is issued at (public): `?asset=HYPE`, ETH by default. */
+/** The devnet price an Advance on an ETH or HYPE Position is issued at (public): `?asset=HYPE`, ETH by default. `?quote=redeem` answers the cross-chain fee of a payout. */
 export async function GET(request: Request) {
-  return Response.json(await handleEthPrice(new URL(request.url).searchParams.get("asset")));
+  const q = new URL(request.url).searchParams;
+  if (q.get("quote") === "redeem") {
+    try {
+      return Response.json(await handleRedeemCost(q.get("asset")));
+    } catch (e) {
+      if (e instanceof DemoHttpError) return Response.json({ error: e.message, code: e.code }, { status: e.status });
+      return Response.json({ error: "Could not get the fee.", code: "error" }, { status: 502 });
+    }
+  }
+  return Response.json(await handleEthPrice(q.get("asset")));
 }
 
 /** Hoodi ETH top-up, the permissionless bridge steps and the oracle-priced Advance. */

@@ -1,5 +1,6 @@
 "use client";
 
+import { parseMatchKey } from "@/lib/chain/match-id";
 import { Button, Chip, GemaAmount, Notice } from "@/components/ui";
 import { usePlayerLabel } from "@/components/account/Player";
 import { shownIdentity } from "@/lib/identity/display";
@@ -38,13 +39,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
   const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
   const nowSecs = useNowSecs();
-  const id = (() => {
-    try {
-      return BigInt(matchId);
-    } catch {
-      return null;
-    }
-  })();
+  const id = parseMatchKey(matchId) ? matchId : null;
   const { view, pick, run } = useDuelMatch(id, signer, refresh);
   const { stage, match: m, duel, book, seat, asset } = view;
   const started = !!duel && duel.status !== STATUS.created && duel.startsAt > 0;

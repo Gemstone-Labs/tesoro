@@ -5,8 +5,9 @@ import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { PublicKey } from "@solana/web3.js";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain, getTradingDuel } from "@/lib/chain/client";
+import { matchAddressOf } from "@/lib/chain/match-id";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
-import { ASSETS, DRAW, STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfMatchId, decodeDuel, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
+import { ASSETS, DRAW, STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfIndex, decodeDuel, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
 import { addSighting, clockOffsetMs, dropPending, settlePending, type ClockSighting, type PendingPicks } from "./matchView";
 import { commitPhase, isCommitPending, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
@@ -70,13 +71,12 @@ const END_BACKOFF_MAX_MS = 1_000;
  * Picks are signed by the Account's wallet signer without a prompt (embedded or dev wallet), as in
  * Hold'em, and show at once; a refused pick is rolled back with a plain error.
  */
-export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSettled?: () => void) {
-  const asset = useMemo(() => (id === null ? ASSETS[0] : (assetOfMatchId(id) ?? ASSETS[0])), [id]);
+export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSettled?: () => void) {
   const [view, setView] = useState<DuelView>({
     stage: "loading",
     match: null,
     seat: null,
-    asset,
+    asset: ASSETS[0],
     duel: null,
     book: null,
     pending: {},
@@ -110,6 +110,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
   const finalRead = useRef(false);
   const failures = useRef(0);
 
+  const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
   const p = useMemo(() => (signer ? (signer as unknown as PlayerSigner) : null), [signer]);
 
   const setStage = useCallback((s: Stage, note = "") => {
@@ -155,12 +156,12 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
   // -- the driver (sequential; one step per tick) --------------------------------------------
 
   const step = useCallback(async () => {
-    if (!p || !signer || id === null) return;
+    if (!p || !signer || id === null || mk === null) return;
     const td = getTradingDuel();
-    const ad = addresses(id);
+    const ad = addresses(mk!);
     const me = BlockPuzzleChain.coreAccount(signer.publicKey);
     const m = await fetchMatch(id, me);
-    setView((v) => ({ ...v, match: m, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
+    setView((v) => ({ ...v, match: m, asset: (m && assetOfIndex(m.asset)) || v.asset, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
     if (!m) return setStage("notfound");
     if (m.seat === null) return setStage("spectator");
     const seat = m.seat;
@@ -171,7 +172,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       setStage("settled");
       if (!finalRead.current) {
         finalRead.current = true;
-        const d = await td.readDuelOnBase(id);
+        const d = await td.readDuelOnBase(mk!);
         setView((v) => ({ ...v, duel: d ?? v.duel }));
       }
       if (!settledSeen.current) {
@@ -194,7 +195,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       const core = getChain().core;
       const opp = (await core.account.tesoroAccount.fetch(new PublicKey(m.opponent))) as unknown as { authority: PublicKey };
       const [a, b] = seat === 0 ? [signer.publicKey, opp.authority] : [opp.authority, signer.publicKey];
-      await td.createDuel(p, id, a, b);
+      await td.createDuel(p, mk!, a, b);
       return;
     }
 
@@ -203,7 +204,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       if (d.status === STATUS.created) {
         setStage("setup", "Creating your session");
         if (!late) return;
-        await td.delegateDuel(p, id);
+        await td.delegateDuel(p, mk!);
         return;
       }
       // Committed back after the Match ended: settle.
@@ -216,7 +217,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       const mine = d.status === STATUS.cancelled || d.winner === DRAW ? seat === 0 : d.winner === seat;
       if (!mine && now() - closingSince.current < GRACE_MS) return;
       try {
-        await td.finalize(p, id);
+        await td.finalize(p, mk!);
       } catch (e) {
         const again = await fetchMatch(id, me);
         if (again && (again.status === "settled" || again.status === "refunded")) return;
@@ -227,7 +228,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
 
     if (!info.owner.equals(DELEGATION_PROGRAM_ID)) return;
     delegated.current = true;
-    const d = await td.readDuel(p, id);
+    const d = await td.readDuel(p, mk!);
     if (!d) return setStage("setup", "Creating your session");
     applyDuel(d);
 
@@ -235,15 +236,15 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       if ((Date.now() + offsetRef.current) / 1000 > d.startDeadline) {
         // Delegated but never started in time: cancel it so both entries can be refunded.
         setStage("setup", "The Duel was never started: cancelling");
-        if (seat === 1 || now() - activeSince.current > GRACE_MS) await td.claimTimeout(p, id).catch(() => undefined);
+        if (seat === 1 || now() - activeSince.current > GRACE_MS) await td.claimTimeout(p, mk!).catch(() => undefined);
         return;
       }
       setStage("setup", "Starting the Match");
       if (!late) return;
       try {
-        await td.start(p, id, d.asset);
+        await td.start(p, mk!, d.asset);
       } catch (e) {
-        if ((await td.readDuel(p, id))?.status === STATUS.created) throw e;
+        if ((await td.readDuel(p, mk!))?.status === STATUS.created) throw e;
       }
       return;
     }
@@ -267,7 +268,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     if (now() - lastClose.current < 30_000) return;
     lastClose.current = now();
     try {
-      await td.closeMatch(p, id);
+      await td.closeMatch(p, mk!);
     } catch (e) {
       // The other Player closed it first, or the commit is already in flight: only other errors count.
       if (!isCommitPending(e) && ++closeFailures.current >= 3) throw e;
@@ -276,7 +277,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     commitSince.current = now();
     setCommitPending(id, true);
     setView((v) => ({ ...v, commit: { phase: "sending", won: mine } }));
-  }, [p, signer, id, setStage, applyDuel, onSettled]);
+  }, [p, signer, id, mk, setStage, applyDuel, onSettled]);
 
   const tick = useCallback(async () => {
     if (working.current) return;
@@ -313,7 +314,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       busy = true;
       try {
         const td = getTradingDuel();
-        const [d, b] = await Promise.all([td.readDuel(p, id), td.readOwnBook(p, id, seat)]);
+        const [d, b] = await Promise.all([td.readDuel(p, mk!), td.readOwnBook(p, mk!, seat)]);
         if (stop) return;
         if (d) applyDuel(d);
         if (b) applyBook(b);
@@ -328,7 +329,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       stop = true;
       clearInterval(t);
     };
-  }, [p, id, applyDuel, applyBook]);
+  }, [p, id, mk, applyDuel, applyBook]);
 
   // -- the crank: tick every quarter second through the grid, then end it ---------------------------
 
@@ -350,12 +351,12 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
         const td = getTradingDuel();
         if (nowS < d.endsAt) {
           // Records the live price into the line and reveals the columns that locked; a stale price just refuses it.
-          await td.tick(p, id, d.asset);
+          await td.tick(p, mk!, d.asset);
           failures = 0;
         } else {
           // The window is over: end it. The result is the same whoever does it and whenever, so seat 1 tries right away, seat 0 a couple of seconds later, and both retry every second.
           if (!endSince) endSince = now();
-          if (seat === 1 || now() - endSince >= END_GRACE_MS) await td.end(p, id);
+          if (seat === 1 || now() - endSince >= END_GRACE_MS) await td.end(p, mk!);
           failures = 0;
         }
       } catch {
@@ -371,7 +372,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       stop = true;
       clearInterval(t);
     };
-  }, [p, id]);
+  }, [p, id, mk]);
 
   // -- Player decisions -----------------------------------------------------------------------
 
@@ -407,8 +408,8 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       pickQueue.current = pickQueue.current.then(async () => {
         const td = getTradingDuel();
         try {
-          await td.setPick(p, id, seat, column, band);
-          const b = await td.readOwnBook(p, id, seat);
+          await td.setPick(p, mk!, seat, column, band);
+          const b = await td.readOwnBook(p, mk!, seat);
           if (b) applyBook(b);
           // Confirmed: the Book is the truth now, unless a newer pick for the column is in flight.
           if (pendingRef.current[column] === band) {
@@ -422,7 +423,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
         }
       });
     },
-    [p, id, patch, applyBook],
+    [p, id, mk, patch, applyBook],
   );
 
   return { view, pick, run, tick };

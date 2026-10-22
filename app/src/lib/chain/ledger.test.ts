@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fixtures from "./yield-math.fixtures.json";
-import { EntryError, MAX_ENTRY_SOURCES, backedSplit, gemasInAsset, backerDelta, covered, debtGemas, feeGemas, entryProblem, instantSplit, matchDelta, planEntry, redeemable, redeemableFor, returnableGemas, seatResult, sourceNow, sourceView, unitsToRepay, unitsToRepayTotal, type SourceMath } from "./ledger";
+import { backedSplit, gemasInAsset, backerDelta, covered, debtGemas, feeGemas, instantSplit, matchDelta, redeemable, redeemableFor, returnableGemas, seatResult, sourceNow, sourceView, unitsToRepay, unitsToRepayTotal, type SourceMath } from "./ledger";
 
 // The demo Advance: 7,500 Gemas at $150 (unit = 1e13 / 150e6 lamports per Gema).
 const src = (over: Partial<SourceMath> = {}): SourceMath => ({
@@ -12,7 +12,6 @@ const src = (over: Partial<SourceMath> = {}): SourceMath => ({
   unitDen: 150_000_000n,
   ...over,
 });
-const key = (n: number) => Uint8Array.from({ length: 32 }, () => n);
 
 describe("source math", () => {
   it("has full Debt and nothing redeemable before any yield", () => {
@@ -39,83 +38,6 @@ describe("source math", () => {
     expect(instantSplit(src(), 900n)).toEqual({ landed: 0n, pending: 900n });
   });
 });
-
-describe("planEntry", () => {
-  const h = (n: number, isOwn: boolean, free: bigint) => ({ source: key(n), isOwn, free });
-
-  it("draws own-sourced Gemas first", () => {
-    expect(planEntry(1000n, [h(1, false, 5000n), h(2, true, 5000n)])).toEqual([1]);
-  });
-
-  it("tops up from won Gemas, own class first", () => {
-    expect(planEntry(1000n, [h(9, false, 5000n), h(2, true, 400n)])).toEqual([1, 0]);
-  });
-
-  it("orders each class ascending by Source", () => {
-    expect(planEntry(1000n, [h(7, true, 600n), h(3, true, 600n)])).toEqual([1, 0]);
-  });
-
-  it("refuses when Gemas are short", () => {
-    expect(() => planEntry(1000n, [h(1, true, 999n)])).toThrow(EntryError);
-    expect(entryProblem(1000n, [h(1, true, 999n)])).toBe("insufficient");
-  });
-
-  it("skips small Holdings when a minimum cover of the won class exists", () => {
-    // Own 300 in one Source; 700 needed from won: the 900 Holding alone covers it, the tiny ones stay.
-    const hs = [h(1, true, 300n), h(2, false, 5n), h(3, false, 900n), h(4, false, 5n), h(5, false, 5n)];
-    expect(planEntry(1000n, hs)).toEqual([0, 2]);
-  });
-
-  it("uses every own Holding when the entry needs all own Gemas, however many", () => {
-    const own = Array.from({ length: 8 }, (_, i) => h(i + 1, true, 63n));
-    expect(planEntry(500n, own)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-  });
-
-  it("caps an entry at MAX_ENTRY_SOURCES Holdings", () => {
-    expect(MAX_ENTRY_SOURCES).toBe(8);
-    const nine = Array.from({ length: 9 }, (_, i) => h(i + 1, true, 60n));
-    expect(() => planEntry(500n, nine)).toThrow(/more than 8 Advances/);
-    expect(entryProblem(500n, nine)).toBe("too-many-sources");
-    // 3 Sources are no longer a dead end (was capped at 2).
-    expect(planEntry(500n, [h(1, true, 200n), h(2, true, 200n), h(3, true, 200n)])).toEqual([0, 1, 2]);
-  });
-
-  it("returns a set the program accepts: ascending, all but the last drained, the last contributes", () => {
-    let seed = 7;
-    const rnd = (n: number) => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) % n);
-    for (let t = 0; t < 300; t++) {
-      const hs = Array.from({ length: rnd(12) }, (_, i) => h((i * 41 + 3) % 250, rnd(2) === 0, BigInt(rnd(400) + 1)));
-      const entry = [500n, 1000n, 2500n][rnd(3)];
-      let idx: number[];
-      try {
-        idx = planEntry(entry, hs);
-      } catch (e) {
-        expect(e).toBeInstanceOf(EntryError);
-        continue;
-      }
-      const ownFree = hs.filter((x) => x.isOwn).reduce((a, x) => a + x.free, 0n);
-      let left = { own: entry < ownFree ? entry : ownFree, won: entry - (entry < ownFree ? entry : ownFree) };
-      const seq = idx.map((i) => hs[i]);
-      // own class first, each class strictly ascending
-      for (let k = 1; k < seq.length; k++) {
-        if (seq[k - 1].isOwn === seq[k].isOwn) expect(compareOrder(seq[k - 1].source, seq[k].source)).toBeLessThan(0);
-        else expect(seq[k - 1].isOwn).toBe(true);
-      }
-      for (const x of seq) {
-        const key = x.isOwn ? "own" : "won";
-        const take = left[key] < x.free ? left[key] : x.free;
-        expect(take > 0n).toBe(true);
-        left = { ...left, [key]: left[key] - take };
-      }
-      expect(left).toEqual({ own: 0n, won: 0n });
-    }
-  });
-});
-
-const compareOrder = (a: Uint8Array, b: Uint8Array) => {
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] - b[i];
-  return 0;
-};
 
 describe("match outcome", () => {
   const fees = { platformBps: 200, studioBps: 300 };

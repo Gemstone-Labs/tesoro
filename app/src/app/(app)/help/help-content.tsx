@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { fmtGemas } from "@/lib/format";
-import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { ENTRY_SIZES } from "@/lib/cluster-settings";
 import { fmtEntryList } from "@/lib/format";
 import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
@@ -359,8 +358,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "It says I don't have enough Gemas",
         a: (
           <p>
-            Gemas reserved for your open Offers can&apos;t be entered again until you cancel the Offer. An entry can also draw on at most{" "}
-            {MAX_ENTRY_SOURCES} Locks: if your Gemas are spread across many small batches, Redeem a few of them first.
+            Gemas reserved for your open Offers can&apos;t be entered again until you cancel the Offer, and Gemas staged for an entry that is still being prepared are held until it opens or you cancel it. Everything else counts, however many Locks it comes from.
           </p>
         ),
       },

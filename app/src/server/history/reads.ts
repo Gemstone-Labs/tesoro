@@ -5,9 +5,9 @@ import type { Rpc } from "./rpc";
 
 export const HISTORY_PAGE_SIZE = 20;
 
-/** One page of an Account's finished Matches, played and funded, newest first (page 1-based, clamped). */
-export async function accountHistory(rpc: Rpc, account: string, page = 1, size = HISTORY_PAGE_SIZE) {
-  return (await rpc("history_page", { p_account: account, p_page: page, p_size: size })) as { rows: HistoryRow[]; page: number; pages: number; total: number };
+/** One page of an Account's finished Matches, played and funded, newest first (page 1-based, clamped), optionally of one Game id. */
+export async function accountHistory(rpc: Rpc, account: string, page = 1, size = HISTORY_PAGE_SIZE, game: string | null = null) {
+  return (await rpc("history_page", { p_account: account, p_page: page, p_size: size, p_game: game })) as { rows: HistoryRow[]; page: number; pages: number; total: number };
 }
 
 export interface MatchPage {

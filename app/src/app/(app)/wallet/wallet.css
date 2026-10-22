@@ -246,3 +246,11 @@
   .wl-src li.wide > .meter { grid-column: 2 / -1; }
   .wl-src li.wide > .meta { grid-column: 2 / -1; text-align: left; }
 }
+
+/* Ready by, Redeem cost, small leftovers (economy upgrade, ticket 21) */
+.wl-readyby { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font-size: var(--fs-13); color: var(--fg-2); }
+.wl-readyby b { color: var(--fg-1); font-weight: 700; }
+.wl-redeem-cost { display: block; }
+.wl-redeem-cost.small { color: var(--warn, var(--fg-1)); }
+.wl-leftovers { display: grid; justify-items: start; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.wl-requested { margin: 0; }

@@ -104,6 +104,11 @@ export const playerIx = {
     coreIx("cancel_instant_redeem", [], { signer: a, ...books(a), order, ownerWallet: payer, sponsor: sponsored ? sponsorPda : null }),
   expireInstantRedeem: (a: PublicKey, order = key(), payer = a, sponsored = false) =>
     coreIx("expire_instant_redeem", [], { signer: a, ...books(a), order, ownerWallet: payer, sponsor: sponsored ? sponsorPda : null }),
+  returnOwn: (a: PublicKey) => coreIx("return_own", [line, new BN(5)], { ownerAuthority: a, position: key(), source: key() }),
+  openNativePosition: (a: PublicKey) => coreIx("open_native_position", [new BN(1), new BN(5)], { ownerAuthority: a, mint: key(), ownerToken: key(), position: key(), vault: key() }),
+  takeNativeAdvance: (a: PublicKey, position = key()) => coreIx("take_native_advance", [3], { ownerAuthority: a, position, source: key() }),
+  openStakePosition: (a: PublicKey) => coreIx("open_stake_position", [new BN(1), new BN(5)], { ownerAuthority: a, mint: key(), vault: key(), ownerToken: key(), stakePool: key(), position: key() }),
+  takeStakeAdvance: (a: PublicKey, position = key()) => coreIx("take_stake_advance", [3], { ownerAuthority: a, position, onchainPrice: key(), priceFeed: key(), custody: key(), stakePool: key(), source: key() }),
   cancelOffer: (a: PublicKey, offer = key()) => coreIx("cancel_offer", [], { backerAuthority: a, offer, request: null }),
   cancelRequest: (a: PublicKey, request = key()) => coreIx("cancel_request", [], { playerAuthority: a, request }),
   claimFreeYield: (a: PublicKey) => coreIx("claim_free_yield", [new BN(5)], { ownerAuthority: a, position: key() }),

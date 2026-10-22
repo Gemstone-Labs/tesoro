@@ -14,24 +14,25 @@ describe("a Battle is delegated only inside its start window", () => {
 
 describe("the second contributor asks for the randomness in the same transaction", () => {
   const p = {} as never;
+  const m = new PublicKey("SysvarC1ock11111111111111111111111111111111");
   const q = new PublicKey("SysvarRent111111111111111111111111111111111");
   it("sends one bundled transaction when it is the second", async () => {
     const vg = { contributeEntropy: vi.fn().mockResolvedValue("sig") };
-    await contributeBundled(vg, p, 7n, q);
-    expect(vg.contributeEntropy.mock.calls).toEqual([[p, 7n, true, q]]);
+    await contributeBundled(vg, p, m, q);
+    expect(vg.contributeEntropy.mock.calls).toEqual([[p, m, true, q]]);
   });
 
   it("falls back to a plain contribution when the other secret is not in yet", async () => {
     const vg = { contributeEntropy: vi.fn().mockRejectedValueOnce(new Error("EntropyIncomplete")).mockResolvedValue("sig") };
-    await contributeBundled(vg, p, 7n, q);
+    await contributeBundled(vg, p, m, q);
     expect(vg.contributeEntropy.mock.calls.map((c) => c[2])).toEqual([true, false]);
   });
 
   it("treats an already-counted contribution as done and rethrows anything else", async () => {
     const done = { contributeEntropy: vi.fn().mockRejectedValue(new Error("AlreadyContributed")) };
-    await expect(contributeBundled(done, p, 7n)).resolves.toBeUndefined();
+    await expect(contributeBundled(done, p, m)).resolves.toBeUndefined();
     const broken = { contributeEntropy: vi.fn().mockRejectedValue(new Error("network down")) };
-    await expect(contributeBundled(broken, p, 7n)).rejects.toThrow("network down");
+    await expect(contributeBundled(broken, p, m)).rejects.toThrow("network down");
   });
 });
 

@@ -1,3 +1,4 @@
+import { matchPda } from "../../lib/chain/basket";
 import { describe, expect, it } from "vitest";
 import { Keypair, type TransactionInstruction } from "@solana/web3.js";
 import { permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
@@ -18,7 +19,7 @@ function capture() {
 }
 
 const keys = (ix: TransactionInstruction) => ix.keys.map((k) => k.pubkey.toBase58());
-const ID = 1_800_000_000_000n * 8n;
+const ID = matchPda(Keypair.generate().publicKey, 7n);
 
 describe("rollup instructions", () => {
   it("tick takes caller, duel, both Books and the price feed; end_match the same without the feed", async () => {

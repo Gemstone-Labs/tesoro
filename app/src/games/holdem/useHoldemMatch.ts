@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getHoldem } from "@/lib/chain/client";
+import { matchAddressOf } from "@/lib/chain/match-id";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import {
   HOLDEM_PROGRAM_ID,
@@ -68,7 +69,7 @@ const FINALIZE_GRACE_MS = 20_000;
  * either Player may do are tried by one client first and by the other after a grace period, and
  * a lost race is harmless because each step re-reads chain state.
  */
-export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, onSettled?: () => void) {
+export function useHoldemMatch(id: string | null, signer: ChainSigner | null, onSettled?: () => void) {
   const [view, setView] = useState<HoldemView>({
     stage: "loading",
     match: null,
@@ -102,6 +103,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
   const delegated = useRef(false);
   const failures = useRef(0);
 
+  const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
   const p = useMemo(() => (signer ? (signer as unknown as PlayerSigner) : null), [signer]);
 
   const setStage = useCallback((s: Stage, note = "") => {
@@ -132,9 +134,9 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
   // -- the driver (sequential; one step per tick) --------------------------------------------
 
   const step = useCallback(async () => {
-    if (!p || !signer || id === null) return;
+    if (!p || !signer || id === null || mk === null) return;
     const hd = getHoldem();
-    const ad = addresses(id);
+    const ad = addresses(mk!);
     const me = BlockPuzzleChain.coreAccount(signer.publicKey);
     const m = await fetchMatch(id, me);
     setView((v) => ({ ...v, match: m, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
@@ -148,7 +150,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       setStage("settled");
       if (!finalRead.current) {
         finalRead.current = true;
-        const t = await hd.readTableOnBase(id);
+        const t = await hd.readTableOnBase(mk!);
         if (t) setView((v) => ({ ...v, table: t }));
       }
       if (!settledSeen.current) {
@@ -174,7 +176,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       const core = (await import("@/lib/chain/client")).getChain().core;
       const opp: any = await core.account.tesoroAccount.fetch(new PublicKey(opponentAccount));
       const [a, b] = seat === 0 ? [signer.publicKey, opp.authority] : [opp.authority, signer.publicKey];
-      await hd.createTable(p, id, a, b, SPEED_TURBO);
+      await hd.createTable(p, mk!, a, b, SPEED_TURBO);
       return;
     }
 
@@ -183,7 +185,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       if (t.status === STATUS.created) {
         setStage("setup", "Creating your session");
         if (!late) return;
-        await hd.delegateTable(p, id);
+        await hd.delegateTable(p, mk!);
         return;
       }
       // Committed back after the Match ended: settle.
@@ -197,7 +199,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       const mine = t.status === STATUS.cancelled ? seat === 0 : t.winner === seat;
       if (!mine && now() - closingSince.current < FINALIZE_GRACE_MS) return;
       try {
-        await hd.finalize(p, id);
+        await hd.finalize(p, mk!);
       } catch (e) {
         // The other Player may have settled it in the same moment.
         const again = await fetchMatch(id, me);
@@ -209,7 +211,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
 
     if (!info.owner.equals(DELEGATION_PROGRAM_ID)) return;
     delegated.current = true;
-    const t = await hd.readTable(p, id);
+    const t = await hd.readTable(p, mk!);
     if (!t) return setStage("setup", "Creating your session");
     applyTable(t);
 
@@ -217,9 +219,9 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       setStage("setup", "Starting the Match");
       if (!late) return;
       try {
-        await hd.start(p, id);
+        await hd.start(p, mk!);
       } catch (e) {
-        if ((await hd.readTable(p, id))?.status === STATUS.created) throw e;
+        if ((await hd.readTable(p, mk!))?.status === STATUS.created) throw e;
       }
       return;
     }
@@ -243,7 +245,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
     if (now() - lastClose.current < 30_000) return;
     lastClose.current = now();
     try {
-      await hd.closeMatch(p, id);
+      await hd.closeMatch(p, mk!);
     } catch (e) {
       // The other Player closed it first, or the commit is already in flight: only other errors count.
       if (!isCommitPending(e) && ++closeFailures.current >= 3) throw e;
@@ -257,7 +259,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       if (!p || id === null) return;
       if (contributedHand.current !== tb.handNo) {
         try {
-          await hd.contributeEntropy(p, id, false);
+          await hd.contributeEntropy(p, mk!, false);
         } catch (e) {
           if (!/AlreadyContributed/.test(String(e))) throw e;
         }
@@ -270,19 +272,19 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       if (s === 0 && now() - contributedAt.current < 6_000) return;
       if (now() - lastVrf.current > 15_000) {
         try {
-          await hd.requestVrf(p, id);
+          await hd.requestVrf(p, mk!);
           lastVrf.current = now();
         } catch {
           // Refused until both secrets are in.
         }
       }
       try {
-        await hd.deal(p, id);
+        await hd.deal(p, mk!);
       } catch {
         // Refused until the VRF output has arrived, or the other Player dealt first.
       }
     }
-  }, [p, signer, id, setStage, applyTable, onSettled]);
+  }, [p, signer, id, mk, setStage, applyTable, onSettled]);
 
   const tick = useCallback(async () => {
     if (working.current) return;
@@ -319,11 +321,11 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       busy = true;
       try {
         const hd = getHoldem();
-        const t = await hd.readTable(p, id);
+        const t = await hd.readTable(p, mk!);
         if (!t || stop) return;
         applyTable(t);
         if (t.phase >= PHASE.preflop && t.phase <= PHASE.river && holeHand.current !== t.handNo) {
-          const h = await hd.readOwnHole(p, id, seat);
+          const h = await hd.readOwnHole(p, mk!, seat);
           if (h && !stop) {
             holeHand.current = h.handNo;
             setView((v) => ({ ...v, hole: h }));
@@ -340,7 +342,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       stop = true;
       clearInterval(t);
     };
-  }, [p, id, applyTable]);
+  }, [p, id, mk, applyTable]);
 
   // -- Player decisions -----------------------------------------------------------------------
 
@@ -352,7 +354,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
         // Rollup steps were logged by the client; this catches base-layer ones (refund).
         if (sig) addSig(label, sig, "base");
         if (p && id !== null) {
-          const t = await getHoldem().readTable(p, id);
+          const t = await getHoldem().readTable(p, mk!);
           if (t) applyTable(t);
         }
       } catch (e) {
@@ -361,11 +363,11 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
         patch({ busy: null });
       }
     },
-    [p, id, patch, addSig, applyTable],
+    [p, id, mk, patch, addSig, applyTable],
   );
 
-  const act = useCallback((a: Action, label: string) => run(label, () => getHoldem().act(p!, id!, a)), [p, id, run]);
-  const claimTimeout = useCallback(() => run("claim_timeout", () => getHoldem().claimTimeout(p!, id!)), [p, id, run]);
+  const act = useCallback((a: Action, label: string) => run(label, () => getHoldem().act(p!, mk!, a)), [p, mk, run]);
+  const claimTimeout = useCallback(() => run("claim_timeout", () => getHoldem().claimTimeout(p!, mk!)), [p, mk, run]);
 
   return { view, act, claimTimeout, tick, run };
 }
