@@ -43,7 +43,7 @@ describe("a Dig in from the opponent's side: nothing shows", () => {
     const declared = (b: Battle, sealedSlot: number) => ({ ...b, pendingKind: 6, pendingSeat: 0, pendingPiece: sealedSlot });
     // a sealed slot byte is not a piece: whatever it holds, the line and the piece are the same
     expect(pendingOf(declared(dug.state.battle, 0x4c), 1)).toEqual(pendingOf(declared(plain.state.battle, 0xe1), 1));
-    expect(pendingOf(declared(dug.state.battle, 0x4c), 1)).toMatchObject({ kind: "pass", mine: false, piece: null, line: "Your opponent is passing…" });
+    expect(pendingOf(declared(dug.state.battle, 0x4c), 1)).toMatchObject({ kind: "pass", mine: false, piece: null, line: "Their Major is digging in…" });
   });
 
   it("shows the owner their Major as a Landmine with a Major badge, from the Army alone (after a reload)", () => {

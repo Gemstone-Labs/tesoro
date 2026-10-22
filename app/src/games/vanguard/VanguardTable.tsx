@@ -8,7 +8,7 @@ import { art } from "@/lib/art";
 import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../fx";
 import { STATUS, changeOfCode, rankOfCode, type ArmyAccount, type Battle } from "./decode";
 import { catchUp, pendingOf, turnLine } from "./catchup";
-import { NAMES, TIMEOUTS_TO_LOSE, rankOf as playedRank, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
+import { NAMES, rankOf as playedRank, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
 import { endLine } from "./end";
 import { START_COUNTDOWN, getReadyLeft, isOpening, missedLabel, ringLeft, ringStart, turnKey, turnMsOf } from "./clock";
 import { VanguardScreen, type TurnInfo } from "./VanguardScreen";
@@ -30,8 +30,6 @@ export interface VanguardTableProps {
   onMove: (piece: number, to: number, o?: ActionOptions) => Promise<void>;
   /** Blast, Rescue or Dig in with a piece. Each takes the turn. */
   onPower: (kind: "blast" | "rescue" | "dig_in", piece: number, o?: ActionOptions) => Promise<void>;
-  /** Pass the turn on purpose (a missed turn). */
-  onPass: (o?: ActionOptions) => Promise<void>;
   onTwoStep: () => Promise<void>;
   /** The Match is over and being settled: no more taps. */
   ended?: boolean;
@@ -44,14 +42,13 @@ const wait = (ms: number) => new Promise<void>((ok) => setTimeout(ok, prefersRed
 const slideMs = (a: Square, b: Square) => Math.min(380, 140 + (Math.abs(a.r - b.r) + Math.abs(a.c - b.c)) * 40);
 /** A Lieutenant's jump or a General's wadi crossing is a hop: lift, arc over the squares between, land. */
 const HOP_MS = 620;
-const PASS_WARNING = "Pass again or miss once more and you lose.";
 
 /**
  * The war-room table for a chain Match. It draws what the Battle and your own Army say, from your side (the
  * Italian Player sees the board turned half way round). A plain move slides at once and is confirmed or snapped
  * back; an attack waits for the program's result, then the events the Battle recorded are played in order.
  */
-export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onPower, onPass, onTwoStep, ended = false, reconnecting = false, children }: VanguardTableProps) {
+export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onPower, onTwoStep, ended = false, reconnecting = false, children }: VanguardTableProps) {
   const fxKey = useRef(1);
   const side: Army = battle.usSeat === seat ? "us" : "it";
   const foe: Army = side === "us" ? "it" : "us";
@@ -226,9 +223,9 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onPower,
           sfx("knock");
           await wait(650);
         } else if (e.kind === "pass") {
-          // a pass and a face-down Dig in are the same record: the opponent reads one line for both. Your own Army tells you which it was.
+          // a face-down Dig in is a pass record. Players have no Pass button, so the opponent is told a Major dug in, never which one.
           declared.current = false;
-          line = e.army === side ? "You passed." : "Your opponent passed.";
+          line = e.army === side ? "Your Major dug in." : "Their Major dug in somewhere.";
         } else if (e.kind === "switched") {
           // a face-up 10 switching is public; your own face-down one is told by your Army (below), never by a record
           if (!mineId(e.id)) {
@@ -438,12 +435,6 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onPower,
     setSpyOn(!spyOn);
     setSay(spyOn ? "Spy taken back." : "One way: it stays a Spy.");
   };
-  const pressPass = () => {
-    if (!yourTurn) return;
-    const spy = spyOn;
-    sent("");
-    onPass({ spy }).catch(failed);
-  };
   const closeRules = useCallback(() => setRulesOpen(false), []);
 
   const twoStepLeft = battle.twoStep[side === "us" ? 0 : 1];
@@ -487,7 +478,6 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onPower,
   };
 
   const mineIdx = side === "us" ? 0 : 1;
-  const canPass = game.version >= 6 && yourTurn && !game.twoStepActive && game.movedThisTurn.length === 0;
   const turn: TurnInfo = {
     label: live ? (battle.turn === mineIdx ? (battle.twoStepActive ? `Two-Step · ${battle.stepsLeft} left` : "Your turn") : "Their turn") : "",
     banked: twoStepLeft,
@@ -497,7 +487,6 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onPower,
     onUse: useTwoStep,
     power: power ? { label: power.label, hint: power.hint, onPress: pressPower } : null,
     spy: yourTurn && sel && canSwitch(game, sel) ? { on: spyOn, onPress: toggleSpy } : null,
-    pass: canPass ? { onPress: pressPass, warn: battle.timeouts[mineIdx] >= TIMEOUTS_TO_LOSE - 1 ? PASS_WARNING : null } : null,
   };
   // the strip counts what the Battle shows of the enemy (dead pieces included), never an event count: it holds after a ring wrap or a reload
   const seenTen = shownTen(battle, seat);

@@ -36,7 +36,7 @@ export function pendingOf(b: Battle, seat: number): PendingView | null {
   if (b.pendingKind === PENDING.cap) return { kind: "cap", mine: false, piece: null, line: "Time limit reached. Counting the armies…" };
   const mine = b.pendingSeat === seat;
   // a pass and a face-down Dig in are the same declare; its piece byte is a sealed slot, not a piece, and never read
-  if (b.pendingKind === PENDING.pass) return { kind: "pass", mine, piece: null, line: mine ? "Your pass is being applied…" : "Your opponent is passing…" };
+  if (b.pendingKind === PENDING.pass) return { kind: "pass", mine, piece: null, line: mine ? "Digging in…" : "Their Major is digging in…" };
   if (b.pendingKind === PENDING.blast || b.pendingKind === PENDING.rescue) {
     const kind = b.pendingKind === PENDING.blast ? "blast" : "rescue";
     return { kind, mine, piece: b.pendingPiece, line: mine ? `Your ${kind === "blast" ? "Blast" : "Rescue"} is being applied…` : "Your opponent is making a move…" };

@@ -32,7 +32,7 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
       return null;
     }
   })();
-  const { view, move, power, passTurn, twoStep, run } = useVanguardMatch(id, signer, refresh);
+  const { view, move, power, twoStep, run } = useVanguardMatch(id, signer, refresh);
   const { stage, match: m, battle, army, seat } = view;
   const me = snapshot?.accountKey.toBase58() ?? null;
 
@@ -111,7 +111,7 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
     <div className="stack-lg">
       {late && <Notice title={delayedCopy(late).title} body={delayedCopy(late).line} />}
       {showTable && battle && army && seat !== null && (
-        <VanguardTable battle={battle} army={army} seat={seat} turnSeenAt={view.turnSeenAt} onMove={move} onPower={power} onPass={passTurn} onTwoStep={twoStep} ended={over || stage === "closing"} reconnecting={view.reconnecting}>
+        <VanguardTable battle={battle} army={army} seat={seat} turnSeenAt={view.turnSeenAt} onMove={move} onPower={power} onTwoStep={twoStep} ended={over || stage === "closing"} reconnecting={view.reconnecting}>
           {stage === "closing" && (
             <Card large>
               <div className="stack">

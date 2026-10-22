@@ -92,7 +92,7 @@ export default function Page() {
       </p>
       <ul>
         <li>Your pieces&apos; ranks are visible only to you. An enemy piece shows its rank only once it has fought, and a piece that loses an attack is never shown.</li>
-        <li>You have 10 seconds for each move. A missed turn, or a Pass on purpose, counts as one; three in a row lose the Match, and any move resets the count.</li>
+        <li>You have 10 seconds for each move. Three missed turns in a row lose the Match, and any move resets the count.</li>
         <li>A Dust Storm blows once per Match and shifts one row or column of the board a square. Raiding the enemy depot with a one-square step earns a Two-Step Turn: two single-square steps in one turn.</li>
         <li>A Landmine beats every attacker and stays. Engineers no longer clear them.</li>
         <li>Every Match ends: after the time or move limit, the higher total of surviving ranks wins, then the higher piece count. A Major that dug in counts as a Landmine (0) and a General of the Army that became a Spy counts 1. An exact tie is a draw, and a draw refunds both entries.</li>
@@ -114,7 +114,7 @@ export default function Page() {
         ]}
       />
       <p>
-        A Dig in counts as a Pass, so it looks like one to your opponent. Blast, Rescue, Dig in and Pass use your turn and can&apos;t be used inside a Two-Step Turn.
+        A Dig in uses your turn and counts as a missed turn. Your opponent sees that a Major dug in, never which one. Blast, Rescue and Dig in use your turn and can&apos;t be used inside a Two-Step Turn.
         The <Link href="/docs/fairness#hidden-information">hidden information</Link> note says what stays secret.
       </p>
 

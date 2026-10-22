@@ -26,15 +26,7 @@ describe("TurnBox", () => {
     expect(html({ active: true })).not.toContain("Use Two-Step");
     expect(html({ label: "" })).not.toContain("Use Two-Step");
   });
-  it("shows a Pass button in the power-button family on your turn, and a warning once only one missed turn is left", () => {
-    const h = html({ pass: { onPress: () => undefined, warn: null } });
-    expect(h).toContain("vg-power vg-pass");
-    expect(h).not.toContain("miss once more");
-    expect(html({ pass: { onPress: () => undefined, warn: "Pass again or miss once more and you lose." } })).toContain("Pass again or miss once more and you lose.");
-  });
-  it("offers no Pass on Italy's turn, inside a Two-Step Turn (the screen sends none) or with the Match over", () => {
-    expect(html({ yourTurn: false, pass: { onPress: () => undefined, warn: null } })).not.toContain("vg-pass");
-    expect(html({ pass: null })).not.toContain("vg-pass");
-    expect(html({ label: "", pass: { onPress: () => undefined, warn: null } })).not.toContain("vg-pass");
+  it("has no Pass button (founder 2026-10-22): a turn is passed only by letting the clock run out", () => {
+    expect(html({})).not.toMatch(/>Pass</);
   });
 });

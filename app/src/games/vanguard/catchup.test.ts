@@ -108,8 +108,8 @@ describe("a declared power or pass in flight", () => {
     const a = pendingOf(p(PENDING.pass, { pendingPiece: 0 }), 0);
     const b = pendingOf(p(PENDING.pass, { pendingPiece: 200 }), 0);
     expect(a).toEqual(b);
-    expect(a).toEqual({ kind: "pass", mine: false, piece: null, line: "Your opponent is passing…" });
-    expect(pendingOf(p(PENDING.pass, { pendingSeat: 0 }), 0)?.line).toBe("Your pass is being applied…");
+    expect(a).toEqual({ kind: "pass", mine: false, piece: null, line: "Their Major is digging in…" });
+    expect(pendingOf(p(PENDING.pass, { pendingSeat: 0 }), 0)?.line).toBe("Digging in…");
   });
 });
 

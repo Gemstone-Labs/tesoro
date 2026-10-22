@@ -341,8 +341,6 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 .vg-power.on { background: linear-gradient(#ffe08a, #f0b43c 55%, #c98a1d); border-color: #5a3a0a; color: #2a1706; }
 .vg-power:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* Pass sits in the same row but reads as the quiet option next to the powers */
-.vg-power.vg-pass { background: linear-gradient(#5b5346, #3c362c 55%, #2b261e); border-color: #14110c; color: #e6d8b4; text-shadow: none; box-shadow: inset 0 1px 0 rgba(255, 240, 200, 0.25), 0 2px 0 #14110c; }
-.vg-hint.vg-pass-warn { color: var(--warn, #f2a63b); }
 
 /* enemy roster: notes row, the 10's open question */
 .vg-roster span.maybe { box-shadow: 0 0 0 1px #060302, inset 0 0 0 1px #f6d98e, inset 0 0 8px rgba(0, 0, 0, 0.6); border-style: dashed; }

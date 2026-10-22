@@ -24,5 +24,5 @@ export function useVanguardMatch() {
       throw new Error(refuse);
     }
   };
-  return { view, move: send, power: send, passTurn: send, twoStep: done, tick: done, run: done };
+  return { view, move: send, power: send, twoStep: done, tick: done, run: done };
 }
