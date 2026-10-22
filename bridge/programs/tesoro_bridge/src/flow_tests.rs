@@ -421,6 +421,8 @@ impl Env {
                     spill: tesoro_core::storage::spill_address(&account).0,
                     invite_gate: tesoro_core::state::invite_gate_pda(),
                     system_program: anchor_lang::system_program::ID,
+                    payer: key,
+                    sponsor: None,
                 },
                 tesoro_core::instruction::CreateAccount { evm_address },
             )],
@@ -503,6 +505,31 @@ impl Env {
         self.put(key, crate::ID, &p);
     }
 
+    /// `link_evm` with another wallet (`payer`, a relayer) paying the rent and the fee; the owner only signs.
+    fn link_paid_by(
+        &mut self,
+        payer: &Keypair,
+        signature: &[u8],
+    ) -> std::result::Result<(), Failed> {
+        let owner = self.owner.insecure_clone();
+        let mut sig = [0u8; 65];
+        sig.copy_from_slice(&signature[..65]);
+        let link = ix(
+            crate::ID,
+            crate::accounts::LinkEvm {
+                authority: a(owner.pubkey()),
+                owner_account: self.owner_account,
+                evm_link: bridge_pda(&[EVM_LINK_SEED, &EVM_ADDRESS]),
+                system_program: anchor_lang::system_program::ID,
+                payer: a(payer.pubkey()),
+            },
+            crate::instruction::LinkEvm {
+                params: LinkEvmParams { evm_address: EVM_ADDRESS, signature: sig },
+            },
+        );
+        self.send(&[link], payer, &[&owner])
+    }
+
     fn link(&mut self, evm_address: [u8; 20], signature: &[u8]) -> std::result::Result<(), Failed> {
         let owner = self.owner.insecure_clone();
         let mut sig = [0u8; 65];
@@ -514,6 +541,7 @@ impl Env {
                 owner_account: self.owner_account,
                 evm_link: bridge_pda(&[EVM_LINK_SEED, &evm_address]),
                 system_program: anchor_lang::system_program::ID,
+                payer: a(owner.pubkey()),
             },
             crate::instruction::LinkEvm { params: LinkEvmParams { evm_address, signature: sig } },
         );
@@ -667,6 +695,24 @@ fn link_evm_needs_the_accounts_address_and_the_wallets_signature() {
     let link: EvmLink = env.load(env.evm_link());
     assert_eq!(link.account, env.owner_account);
     assert_eq!(link.evm_address, EVM_ADDRESS);
+}
+
+#[test]
+fn link_evm_can_be_paid_by_a_relayer_for_an_owner_with_no_lamports() {
+    let mut env = Env::new();
+    let relayer = Keypair::new();
+    env.svm.airdrop(&relayer.pubkey(), 5_000_000_000).unwrap();
+    let owner = env.owner.pubkey();
+    let owner_before = env.svm.get_balance(&owner).unwrap_or(0);
+    let before = env.svm.get_balance(&relayer.pubkey()).unwrap();
+    env.link_paid_by(&relayer, &hex(LINK_SIGNATURE)).expect("the relayer pays");
+    let link: EvmLink = env.load(env.evm_link());
+    assert_eq!(link.authority, a(owner));
+    assert_eq!(env.svm.get_balance(&owner).unwrap_or(0), owner_before, "the owner paid nothing");
+    assert!(
+        before - env.svm.get_balance(&relayer.pubkey()).unwrap() > 1_000_000,
+        "the relayer paid the rent"
+    );
 }
 
 #[test]

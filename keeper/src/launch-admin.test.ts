@@ -81,6 +81,11 @@ test("every instruction matches the IDL: account order, signer and writable flag
       const def = idl.instructions.find((i) => i.name === coder.decode(ix.data)!.name)!;
       assert.equal(ix.keys.length, def.accounts.length, def.name);
       def.accounts.forEach((a, i) => {
+        // An optional account nobody named is "none": the program's own id, read-only.
+        if ((a as { optional?: boolean }).optional && ix.keys[i].pubkey.equals(CORE)) {
+          assert.equal(ix.keys[i].isWritable, false, `${def.name}.${a.name} none`);
+          return;
+        }
         assert.equal(ix.keys[i].isSigner, !!a.signer, `${def.name}.${a.name} signer`);
         assert.equal(ix.keys[i].isWritable, !!a.writable, `${def.name}.${a.name} writable`);
         if (a.address) assert.equal(ix.keys[i].pubkey.toBase58(), a.address);

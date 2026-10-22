@@ -37,6 +37,14 @@ export interface Limits {
   completionReserve: bigint;
   /** The balance admissions must leave alone, on top of the exit holds. */
   floor: bigint;
+  /** Sponsored new Accounts per signed-in user (Privy user id), ever (ticket 18c; the founder may change the gate). */
+  onboardPerUser: number;
+  /** Sponsored new Accounts across all users per day. */
+  onboardPerDay: number;
+  /** The day's count at which the relayer's operators are mailed (once a day). */
+  onboardAlertAt: number;
+  /** Sponsored `link_evm` per Account, ever: its rent is never returned, and set_evm_address lets an Account link any number of addresses. */
+  linksPerAccount: number;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -50,6 +58,10 @@ export const DEFAULT_LIMITS: Limits = {
   buildsPerDay: 2_000,
   completionReserve: 300_000n,
   floor: 500_000_000n,
+  onboardPerUser: 1,
+  onboardPerDay: 500,
+  onboardAlertAt: 400,
+  linksPerAccount: 1,
 };
 
 export interface Clock {
@@ -63,6 +75,11 @@ const k = {
   sunk: (a: string) => `sunk:${a}`,
   fail: (a: string) => `fail:${a}`,
   cycle: (a: string) => `cycle:${a}`,
+  /** One sponsored Account per user: the Privy user id, or the address where there is no Privy (local dev). */
+  onboardUser: (u: string) => `onboard-user:${u}`,
+  onboardDay: () => "onboard-day",
+  onboardAlert: () => "onboard-alert",
+  link: (a: string) => `link:${a}`,
 };
 
 export interface Admission {
@@ -89,9 +106,38 @@ export async function admit(store: UsageStore, limits: Limits, plan: Plan, playe
   await take(k.account(player), 1, limits.accountPerDay, DAY, "account-limit", "Today's limit for free transactions is used up for this Account.");
   if (plan.pair) await take(k.pair(plan.pair.toBase58()), 1, limits.pairPerDay, DAY, "pair-limit", "These two Accounts have played enough Matches today.");
   await take(k.global(), 1, limits.globalPerDay, DAY, "global-limit", "Free transactions are paused for today.");
+  if (plan.names.includes("link_evm")) await take(k.link(player), 1, limits.linksPerAccount, LIFETIME, "link-limit", "This Account already got a free EVM link. Add some SOL to link another address.");
   const sunk = Number(plan.spend.sunk);
   await take(k.sunk(player), sunk, limits.accountSunkTotal, LIFETIME, "total-limit", "This Account has used all the free transactions it gets.");
   return { undo };
+}
+
+export const onboardUserOf = (sub: string | null, address: string) => k.onboardUser(sub ?? `addr:${address}`);
+
+/** Refuses (before anything is built) a user who already had a sponsored Account, or a day past the cap. Takes nothing. */
+export async function checkOnboarding(store: UsageStore, limits: Limits, userKey: string, now: number): Promise<void> {
+  if ((await store.used(userKey, LIFETIME, now)) >= limits.onboardPerUser) throw new RuleError("account-limit", "You already got a free Account. Add some SOL to create another.");
+  if ((await store.used(k.onboardDay(), DAY, now)) >= limits.onboardPerDay) throw new RuleError("global-limit", "New free Accounts are paused for today.");
+}
+
+/** Takes the user's slot and the day's, at submit time so a build that is never sent costs nothing. Returns what to give back. */
+export async function takeOnboarding(store: UsageStore, limits: Limits, userKey: string, now: number): Promise<() => Promise<void>> {
+  if (!(await store.take(userKey, 1, limits.onboardPerUser, LIFETIME, now))) throw new RuleError("account-limit", "You already got a free Account. Add some SOL to create another.");
+  if (!(await store.take(k.onboardDay(), 1, limits.onboardPerDay, DAY, now))) {
+    await store.refund(userKey, 1, now);
+    throw new RuleError("global-limit", "New free Accounts are paused for today.");
+  }
+  return async () => {
+    await store.refund(userKey, 1, now);
+    await store.refund(k.onboardDay(), 1, now);
+  };
+}
+
+/** True once per day, when the day's sponsored Accounts reach the alert level. */
+export async function onboardingAlertDue(store: UsageStore, limits: Limits, now: number): Promise<number | null> {
+  const used = await store.used(k.onboardDay(), DAY, now);
+  if (used < limits.onboardAlertAt) return null;
+  return (await store.take(k.onboardAlert(), 1, 1, DAY, now)) ? used : null;
 }
 
 /** Whether `player` has failed too many transactions today to be sponsored on exits. */

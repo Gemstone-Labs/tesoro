@@ -222,7 +222,7 @@ async function main() {
             const evm = hex(a[0], 20)
             const ix = new TransactionInstruction({
                 programId: BRIDGE,
-                keys: [meta(owner.publicKey, true, true), meta(ownerAccount), meta(evmLinkPda(evm), false, true), meta(SystemProgram.programId)],
+                keys: [meta(owner.publicKey, true, false), meta(ownerAccount), meta(evmLinkPda(evm), false, true), meta(SystemProgram.programId), meta(owner.publicKey, true, true)],
                 data: Buffer.concat([disc('link_evm'), evm, hex(a[1], 65)]),
             })
             return void (await run('link_evm', [ix], [owner]))

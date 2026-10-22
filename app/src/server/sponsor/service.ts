@@ -18,7 +18,7 @@ import {
 } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import { DemoHttpError } from "../request-auth";
-import { admissionFits, admit, exitFits, exitsBlocked, recordCycle, recordFailure, type Balance, type Limits } from "./policy";
+import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
 import { CORE_ID, PRIORITY_MICROLAMPORTS, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
 import type { UsageStore } from "./store";
 
@@ -51,6 +51,13 @@ export interface SponsorDeps {
   alertLowBalance(balance: bigint): Promise<void>;
   /** The relayer's balance below which we email. */
   lowBalance: bigint;
+  /**
+   * The Invite key (ADR 0012) and whether `authority` redeemed an Invite. Both are needed to co-sign a sponsored
+   * `create_account` while the Invite gate is on; without them such an Account is refused.
+   */
+  invite?: { key: Keypair; redeemed(authority: string): Promise<boolean> };
+  /** Mailed when the day's sponsored new Accounts reach `limits.onboardAlertAt` (at most once a day). */
+  alertOnboarding?(used: number, max: number): Promise<void>;
   now(): number;
 }
 
@@ -107,6 +114,10 @@ interface Meta {
   fronted: string;
   cycle: boolean;
   fee: string;
+  /** The user counter of a sponsored new Account, taken when it is sent. */
+  onboard: string | null;
+  /** The Invite key signs this transaction too. */
+  invite: boolean;
 }
 
 const mac = (key: Buffer, message: Uint8Array, meta: string) => createHmac("sha256", key).update(message).update("|").update(meta).digest("base64");
@@ -143,7 +154,7 @@ export class Sponsor {
     const listed = new Set<string>();
     for (const p of new Set(ixs.map((i) => i.programId.toBase58()))) if (p !== CORE_ID.toBase58() && (await this.d.isListed(new PublicKey(p)))) listed.add(p);
     try {
-      return planTransaction(ixs, { relayer: this.relayer, player, isGame: (p) => listed.has(p.toBase58()) });
+      return planTransaction(ixs, { relayer: this.relayer, player, isGame: (p) => listed.has(p.toBase58()), inviteKey: this.d.invite?.key.publicKey });
     } catch (e) {
       if (e instanceof RuleError) throw refuse(e);
       throw e;
@@ -170,7 +181,8 @@ export class Sponsor {
     for (const sg of plan.signers) if (!sg.equals(player)) await this.requireAccount(sg);
   }
 
-  async build(player: PublicKey, raw: unknown): Promise<Built> {
+  /** `sub` is the Privy user id the request came with (null only off production), the key of the one-Account-per-user gate. */
+  async build(player: PublicKey, raw: unknown, sub: string | null = null): Promise<Built> {
     const now = this.d.now();
     const who = player.toBase58();
     const ixs = parseIntent(raw);
@@ -188,15 +200,29 @@ export class Sponsor {
     const hold: string[] = [];
     let reserve = 0n;
     let fronted = 0n;
+    let onboard: string | null = null;
 
+    if (plan.onboarding) {
+      // A new Player has no Account and no Gemas: the gate is one Account per user, a daily cap, and the Invite when it is on.
+      if (plan.signers.length !== 1 || !plan.signers[0].equals(player)) throw new DemoHttpError(400, "bad-signer", "Only the Player signs a new Account.");
+      if (await this.d.chain.account(accountPda(player))) throw new DemoHttpError(409, "has-account", "This wallet already has an Account.");
+      if (plan.invite && !(this.d.invite && (await this.d.invite.redeemed(who)))) throw new DemoHttpError(403, "invite-required", "Redeem your Invite first.");
+      onboard = onboardUserOf(sub, who);
+      try {
+        await checkOnboarding(this.d.store, this.d.limits, onboard, now);
+      } catch (e) {
+        if (e instanceof RuleError) throw refuse(e);
+        throw e;
+      }
+    }
     if (plan.class === "admission") {
       if (await this.d.paused()) throw new DemoHttpError(503, "sponsor-paused", "Free transactions are paused. You can still play: pay the network fee from your own SOL.");
       // The Gemas that fund it must exist: the Player's own, or the Backer's when a Backer's lines are drawn.
-      for (const funder of plan.funders.length ? plan.funders : [accountPda(player)]) {
+      for (const funder of plan.onboarding || plan.noGemas ? [] : plan.funders.length ? plan.funders : [accountPda(player)]) {
         const basket = await this.d.chain.account(basketPda(funder));
         if (!basket || !basket.owner.equals(CORE_ID) || basketGemas(basket.data) === 0n) throw new DemoHttpError(403, "no-gemas", "Free transactions are for Accounts that hold Gemas.");
       }
-      if (plan.funders.length) await this.requireAccount(player);
+      if (plan.funders.length || plan.noGemas) await this.requireAccount(player);
       await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
       reserve = plan.names.some((n) => n === "open_match" || n === "join_match" || n === "open_ticket") ? this.d.limits.completionReserve : 0n;
@@ -230,7 +256,7 @@ export class Sponsor {
       await this.d.lookupTables(),
     );
     const bytes = message.serialize();
-    const meta: Meta = { player: who, exp: now + BUILD_TTL_MS, release, hold, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString() };
+    const meta: Meta = { player: who, exp: now + BUILD_TTL_MS, release, hold, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite };
     const metaText = JSON.stringify(meta);
     return { message: Buffer.from(bytes).toString("base64"), meta: metaText, mac: mac(this.d.macKey, bytes, metaText), expiresAt: meta.exp, class: plan.class };
   }
@@ -252,7 +278,10 @@ export class Sponsor {
     const keys = tx.message.staticAccountKeys;
     const required = tx.message.header.numRequiredSignatures;
     if (!keys[0].equals(this.relayer)) throw new DemoHttpError(400, "not-ours", "That is not a transaction we built.");
+    const inviteKey = meta.invite ? this.d.invite?.key : undefined;
+    if (meta.invite && !inviteKey) throw new DemoHttpError(400, "not-ours", "That is not a transaction we built.");
     for (let i = 1; i < required; i++) {
+      if (inviteKey && keys[i].equals(inviteKey.publicKey)) continue;
       const sig = tx.signatures[i];
       if (!sig || !nacl.sign.detached.verify(bytes, sig, keys[i].toBytes())) throw new DemoHttpError(400, "unsigned", "The transaction is not signed by the Player.");
     }
@@ -265,18 +294,34 @@ export class Sponsor {
       }
       for (const o of meta.hold) if (await this.d.store.hold(o, BigInt(meta.reserve))) held.push(o);
     }
-    tx.sign([this.d.relayer]);
+    // One sponsored Account per user: the slot is taken when the transaction is really sent and given back if it fails.
+    let giveBack: (() => Promise<void>) | null = null;
+    if (meta.onboard) {
+      try {
+        giveBack = await takeOnboarding(this.d.store, this.d.limits, meta.onboard, now);
+      } catch (e) {
+        for (const o of held) await this.d.store.release(o);
+        if (e instanceof RuleError) throw refuse(e);
+        throw e;
+      }
+    }
+    tx.sign(inviteKey ? [this.d.relayer, inviteKey] : [this.d.relayer]);
 
     let signature: string;
     try {
       signature = await this.d.chain.send(tx.serialize());
     } catch (e) {
       await recordFailure(this.d.store, meta.player, now);
+      await giveBack?.();
       for (const o of held) await this.d.store.release(o);
       throw new DemoHttpError(502, "chain", `Transaction failed: ${(e as Error).message}`.slice(0, 300));
     }
     for (const k of meta.release) await this.d.store.release(k);
     if (meta.cycle) await recordCycle(this.d.store, meta.player, now);
+    if (meta.onboard && this.d.alertOnboarding) {
+      const used = await onboardingAlertDue(this.d.store, this.d.limits, now);
+      if (used !== null) await this.d.alertOnboarding(used, this.d.limits.onboardPerDay).catch((e) => console.error("[sponsor] onboarding alert failed", e));
+    }
     await this.checkLow(await this.d.chain.balance(this.relayer));
     return { signature };
   }

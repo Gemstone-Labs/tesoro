@@ -8,7 +8,6 @@ use tesoro_core::state::{TesoroAccount, ACCOUNT_SEED};
 #[derive(Accounts)]
 #[instruction(params: LinkEvmParams)]
 pub struct LinkEvm<'info> {
-    #[account(mut)]
     pub authority: Signer<'info>,
     #[account(
         seeds = [ACCOUNT_SEED, authority.key().as_ref()],
@@ -18,13 +17,17 @@ pub struct LinkEvm<'info> {
     pub owner_account: Account<'info, TesoroAccount>,
     #[account(
         init_if_needed,
-        payer = authority,
+        payer = payer,
         space = 8 + EvmLink::INIT_SPACE,
         seeds = [EVM_LINK_SEED, &params.evm_address],
         bump
     )]
     pub evm_link: Account<'info, EvmLink>,
     pub system_program: Program<'info, System>,
+    /// Pays the link's rent: the authority, or the sponsor's relayer (ticket 18c: a Player with no SOL can still link).
+    /// The rent is not returned to anyone; the link only exists for an Account whose authority signed.
+    #[account(mut)]
+    pub payer: Signer<'info>,
 }
 
 impl LinkEvm<'_> {

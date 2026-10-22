@@ -37,7 +37,7 @@ impl StoreKind {
     }
 }
 
-fn store_err(_: LineStoreError) -> Error {
+pub(crate) fn store_err(_: LineStoreError) -> Error {
     BasketError::BadStore.into()
 }
 
@@ -181,6 +181,8 @@ pub(crate) fn init_sponsor(
     sponsor.outstanding = 0;
     sponsor.pages_cap = pages_cap;
     sponsor.pages_spent = 0;
+    sponsor.accounts_cap = 0;
+    sponsor.accounts_spent = 0;
     Ok(())
 }
 
@@ -215,6 +217,18 @@ pub(crate) fn set_sponsor(
     sponsor.per_account_cap = per_account_cap;
     sponsor.total_cap = total_cap;
     sponsor.pages_cap = pages_cap;
+    Ok(())
+}
+
+/// Admin only: the most the sponsor may spend on the rent a sponsored `create_account` can never
+/// get back. Zero (the start) means no Account is created on the sponsor's SOL.
+pub(crate) fn set_accounts_cap(ctx: Context<SetSponsor>, accounts_cap: u64) -> Result<()> {
+    let sponsor = &mut ctx.accounts.sponsor;
+    require!(
+        accounts_cap >= sponsor.accounts_spent,
+        BasketError::CapBelowOutstanding
+    );
+    sponsor.accounts_cap = accounts_cap;
     Ok(())
 }
 

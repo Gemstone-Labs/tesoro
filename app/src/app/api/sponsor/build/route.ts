@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
     const req = await verifySignedRequest("tesoro-sponsor", ["build"] as const, body, request.headers.get("authorization"), { nonces });
-    return Response.json(await sponsor().build(req.address, parseIntentText(req.fields.intent)));
+    return Response.json(await sponsor().build(req.address, parseIntentText(req.fields.intent), req.sub));
   } catch (e) {
     if (e instanceof DemoHttpError) return Response.json({ error: e.message, code: e.code }, { status: e.status });
     console.error("sponsor build", e);

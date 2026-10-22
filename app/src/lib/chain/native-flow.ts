@@ -4,7 +4,7 @@ import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
 import { withdrawOwnOpenItems } from "./backing";
-import { createAccountIx } from "./match-flow";
+import { accountReady, createAccountIx } from "./match-flow";
 import { exitSend, prevAdvanceOf, redeemLine, sourceAccounts, unlockPosition } from "./redeem";
 import type { ChainHolding } from "./read";
 import { sourcePda } from "./native";
@@ -55,10 +55,9 @@ const send = (signer: ChainSigner, ixs: TransactionInstruction[]) => getChain().
  * creates the Account in the same transaction when there is none, so a new wallet signs once.
  */
 export async function getTestSimSol(signer: ChainSigner, getToken: GetToken, onStep: (s: string) => void = () => undefined): Promise<string> {
-  const [account] = await Promise.all([
-    getChain().base.getAccountInfo(BlockPuzzleChain.coreAccount(signer.publicKey)),
-    ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees")),
-  ]);
+  const existing = !!(await getChain().base.getAccountInfo(BlockPuzzleChain.coreAccount(signer.publicKey)));
+  const account = await accountReady(signer, getToken, existing);
+  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   onStep("Getting test SOL");
   const faucet = faucetIx(signer.publicKey);
   return send(signer, account ? [faucet] : [await createAccountIx(signer.publicKey), faucet]);
@@ -77,10 +76,9 @@ export async function openPositionWithAdvance(
   onStep: (s: string) => void = () => undefined,
 ): Promise<{ signature: string; position: string }> {
   onStep("Preparing");
-  const [account] = await Promise.all([
-    getChain().base.getAccountInfo(BlockPuzzleChain.coreAccount(signer.publicKey)),
-    ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees")),
-  ]);
+  const existing = !!(await getChain().base.getAccountInfo(BlockPuzzleChain.coreAccount(signer.publicKey)));
+  const account = await accountReady(signer, getToken, existing);
+  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   const nonce = BigInt(Date.now());
   const position = await positionPda(signer.publicKey, nonce);
   const ixs = [openNativePositionIx(signer.publicKey, nonce, simSolBaseUnits, position), takeNativeAdvanceIx(signer.publicKey, position, 0, months, minGemas)];
@@ -203,10 +201,11 @@ export async function openStakePositionWithAdvance(
   onStep: (s: string) => void = () => undefined,
 ): Promise<{ signature: string; position: string }> {
   onStep("Preparing");
-  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   const me = signer.publicKey;
   const base = getChain().base;
-  const [account, poolInfo] = await Promise.all([base.getAccountInfo(BlockPuzzleChain.coreAccount(me)), deposit.from === "sol" ? base.getAccountInfo(token.pool) : null]);
+  const [existing, poolInfo] = await Promise.all([base.getAccountInfo(BlockPuzzleChain.coreAccount(me)), deposit.from === "sol" ? base.getAccountInfo(token.pool) : null]);
+  const account = await accountReady(signer, getToken, !!existing);
+  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   const nonce = BigInt(Date.now());
   const position = await stakePositionPda(me, nonce);
   const advance = takeStakeAdvanceIx(me, position, 0, months, minGemas, null, token);

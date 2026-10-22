@@ -301,6 +301,12 @@ pub mod tesoro_core {
         )
     }
 
+    /// Admin only: the most the sponsor may spend on rent it can never get back, which is what a
+    /// sponsored `create_account` costs (ticket 18c). Zero turns that off.
+    pub fn set_accounts_cap(ctx: Context<SetSponsor>, accounts_cap: u64) -> Result<()> {
+        instructions::basket::set_accounts_cap(ctx, accounts_cap)
+    }
+
     /// Anyone grows a basket or spill with their own lamports (a gift to its owner).
     pub fn grow_store(ctx: Context<GrowStore>, which: StoreKind, extra_lines: u32) -> Result<()> {
         instructions::basket::grow_store(ctx, which, extra_lines)

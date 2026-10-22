@@ -78,6 +78,8 @@ impl Env {
                     spill: tesoro_core::storage::spill_address(&account).0,
                     invite_gate: invite_gate_pda(),
                     system_program: anchor_lang::system_program::ID,
+                    payer: key,
+                    sponsor: None,
                 },
                 instruction::CreateAccount {
                     evm_address: [0; 20],
@@ -115,6 +117,8 @@ impl Env {
                     account,
                     profile,
                     system_program: anchor_lang::system_program::ID,
+                    payer: a(signer.pubkey()),
+                    sponsor: None,
                 },
                 instruction::SetProfile {
                     name: name.to_string(),
@@ -203,6 +207,8 @@ impl Env {
                     profile,
                     evm_link: link,
                     system_program: anchor_lang::system_program::ID,
+                    payer: a(signer.pubkey()),
+                    sponsor: None,
                 },
                 instruction::SetNameEvm { evm_address: evm },
             )],
@@ -290,6 +296,8 @@ fn only_the_authority_sets_its_own_profile() {
                 account: account2,
                 profile: wrong_profile,
                 system_program: anchor_lang::system_program::ID,
+                payer: a(kp2.pubkey()),
+                sponsor: None,
             },
             instruction::SetProfile {
                 name: "Hacked".to_string(),
