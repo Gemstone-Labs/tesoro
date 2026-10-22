@@ -568,6 +568,7 @@ impl Env {
             tesoro_core::instruction::TakeAdvance {
                 horizon_months: 3,
                 price_micro_usd: 3_000_000_000,
+                min_gemas: 1,
             },
         );
         // The asset's `OnchainPrice` address: `take_advance` fails when that account exists.
