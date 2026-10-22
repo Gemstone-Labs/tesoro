@@ -113,8 +113,7 @@ pub(crate) fn create_account(ctx: Context<CreateAccount>, evm_address: [u8; 20])
         let sponsor_info = sponsor.to_account_info();
         let keep = rent.minimum_balance(sponsor_info.data_len());
         require!(
-            sponsor_info.lamports() >= permanent
-                && sponsor_info.lamports() - permanent >= keep,
+            sponsor_info.lamports() >= permanent && sponsor_info.lamports() - permanent >= keep,
             BasketError::SponsorShort
         );
         move_lamports(&sponsor_info, &payer, permanent)?;

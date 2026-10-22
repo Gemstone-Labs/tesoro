@@ -1420,7 +1420,11 @@ fn a_wallet_with_no_lamports_gets_an_account_through_the_sponsor() {
         &[&env.relayer.insecure_clone(), &wallet],
     )
     .expect("shrink");
-    assert_eq!(env.sponsor().outstanding, 0, "the sponsor got the lines back");
+    assert_eq!(
+        env.sponsor().outstanding,
+        0,
+        "the sponsor got the lines back"
+    );
     assert_eq!(
         env.sponsor().accounts_spent,
         permanent,
@@ -1492,7 +1496,8 @@ fn a_sponsored_account_is_refused_without_the_sponsor_or_past_a_cap() {
     assert_eq!(custom_code(&e), NOT_SPONSOR_RELAYER);
 
     // the per-Account and total caps count the refundable part, and the pause stops it
-    env.set_sponsor(&admin, true, 10 * SOL, 100 * SOL, SOL).unwrap();
+    env.set_sponsor(&admin, true, 10 * SOL, 100 * SOL, SOL)
+        .unwrap();
     let e = env.create_sponsored(&second).unwrap_err();
     assert_eq!(custom_code(&e), SPONSOR_PAUSED);
     env.set_sponsor(&admin, false, refundable - 1, 100 * SOL, SOL)
