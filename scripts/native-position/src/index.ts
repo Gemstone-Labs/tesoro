@@ -124,7 +124,7 @@ export function openNativePositionIx(owner: PublicKey, nonce: bigint | number, l
   );
 }
 
-export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number) {
+export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number, minGemas: bigint = 1n) {
   const source = sourcePda(position, advances);
   return ix(
     [
@@ -138,7 +138,7 @@ export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advan
       meta(SystemProgram.programId),
     ],
     "take_native_advance",
-    Buffer.from([months]),
+    Buffer.concat([Buffer.from([months]), u64(minGemas)]),
   );
 }
 

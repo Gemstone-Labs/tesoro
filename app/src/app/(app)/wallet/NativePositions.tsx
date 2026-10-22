@@ -256,7 +256,7 @@ function StakeOpenForm({ market, loading, onDone }: { market: NativeMarket | nul
       onSubmit={() =>
         auth.signer &&
         stake &&
-        a.run("open", async () => (await openStakePositionWithAdvance(auth.signer!, auth.getAccessToken, from === "token" ? { from: "token", shares } : { from: "sol", lamports: units }, months, stake.token, setStep)).signature)
+        a.run("open", async () => (await openStakePositionWithAdvance(auth.signer!, auth.getAccessToken, from === "token" ? { from: "token", shares } : { from: "sol", lamports: units }, months, BigInt(gemas), stake.token, setStep)).signature)
       }
     />
   );
@@ -369,7 +369,7 @@ function SimOpenForm({ market, loading, onDone }: { market: NativeMarket | null;
         a.busy ? `${step}…` : tooMuch ? "Not enough test SOL" : shares === 0n ? "Enter an amount" : market && !priceOk ? "Waiting for the SOL price" : <GemasLabel action="Get Gemas" gemas={gemas} />
       }
       disabled={!valid || !priceOk || a.busy !== null || !auth.signer}
-      onSubmit={() => auth.signer && a.run("open", async () => (await openPositionWithAdvance(auth.signer!, auth.getAccessToken, shares, months, setStep)).signature)}
+      onSubmit={() => auth.signer && a.run("open", async () => (await openPositionWithAdvance(auth.signer!, auth.getAccessToken, shares, months, BigInt(gemas), setStep)).signature)}
     />
   );
 }
@@ -540,7 +540,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
       }
       buttonLabel={a.busy ? `${step}…` : <GemasLabel action="Take Advance" gemas={gemas} />}
       disabled={gemas <= 0 || a.busy !== null || !auth.signer}
-      onSubmit={() => auth.signer && a.run("advance", () => takeNextAdvance(auth.signer!, auth.getAccessToken, info, months, setStep))}
+      onSubmit={() => auth.signer && a.run("advance", () => takeNextAdvance(auth.signer!, auth.getAccessToken, info, months, BigInt(gemas), setStep))}
     />
   );
 }
@@ -639,7 +639,7 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
       buttonLabel={a.busy ? `${step}…` : view.blocked ? blockedLabel(view.blocked) : <GemasLabel action="Extend" gemas={gemas} />}
       dimmed={view.blocked !== null}
       disabled={gemas <= 0 || a.busy !== null || !auth.signer || view.blocked !== null || lim.loading}
-      onSubmit={() => auth.signer && a.run("extend", () => extendAdvance(auth.signer!, auth.getAccessToken, info, months, setStep))}
+      onSubmit={() => auth.signer && a.run("extend", () => extendAdvance(auth.signer!, auth.getAccessToken, info, months, BigInt(gemas), setStep))}
     />
   );
 }

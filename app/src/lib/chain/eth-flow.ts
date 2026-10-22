@@ -3,12 +3,19 @@ import { PublicKey, Transaction } from "@solana/web3.js";
 import { maxUint256, parseEventLogs, type Address, type Hex } from "viem";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import type { EvmSigner } from "@/lib/auth/types";
+import { parseTreasury } from "./fees";
+import { treasuryPda } from "./native";
 import { prevAdvanceOf, sourceAccounts } from "./redeem";
 import type { ChainHolding } from "./read";
 import { getChain } from "./client";
 import { DemoError, type GetToken } from "./demo-client";
 import {
   ETH_VAULTS,
+  advanceFloorOf,
+  corePositionPda,
+  ethPositionId,
+  parseCorePosition,
+  quoteEthAdvance,
   coreAccountPda,
   fetchEthState,
   fetchVaultPosition,
@@ -375,10 +382,21 @@ export async function freshenYield(
 
 // ---- Solana side ------------------------------------------------------------------------------------
 
-/** The Advance for an ETH or HYPE Position: the server signs `take_advance` at the oracle price, the Account co-signs. */
+/**
+ * The Advance for an ETH or HYPE Position: the server signs `take_advance` at the oracle price with `min_gemas` set to its own quote, and the
+ * Account co-signs only after it quotes the same Gemas from the Position, the Treasury's Yield Fee and the price the server used.
+ */
 export async function takeEthAdvance(ctx: Pick<EthCtx, "signer" | "getToken">, vault: string, id: bigint, months: number): Promise<string> {
-  const r = await ethCall<{ transaction: string }>("advance", ctx, { vault, id: id.toString(), months });
+  const r = await ethCall<{ transaction: string; priceMicroUsd: string }>("advance", ctx, { vault, id: id.toString(), months });
   const tx = Transaction.from(Uint8Array.from(atob(r.transaction), (c) => c.charCodeAt(0)));
+  const base = getChain().base;
+  const position = corePositionPda(ethPositionId(vault, id));
+  const [pos, treasury] = await Promise.all([base.getAccountInfo(position), base.getAccountInfo(treasuryPda())]);
+  const rates = treasury ? parseTreasury(treasury.data) : null;
+  if (!pos || !rates) throw new Error("Your Lock or the fees could not be read. Try again in a moment.");
+  const core = parseCorePosition(position, pos.data);
+  const mine = quoteEthAdvance(core.principalWei, core.rateBps, months, BigInt(r.priceMicroUsd), rates.yieldFeeBps).gemas;
+  if (advanceFloorOf(tx.instructions[0].data) !== mine || mine <= 0n) throw new Error("The Advance did not match your quote, so it was not signed. Try again.");
   return getChain().sendSigned(await ctx.signer.signTransaction(tx));
 }
 
