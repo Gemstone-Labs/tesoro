@@ -7,6 +7,7 @@
  */
 import { PublicKey } from "@solana/web3.js";
 import layout from "./chain-layout.json";
+import type { EndState } from "../../server/history/end-state";
 import type { Army, Change, EndReason, GameEvent, Outcome, Rank, Square } from "./rules";
 
 const B = layout.battle;
@@ -237,6 +238,26 @@ export function decodeArmy(data: Uint8Array): ArmyAccount {
     sealKey: data.slice(O2.reserved, O2.reserved + 32),
     contributed: data[O2.contributed] !== 0,
     dealt: data[O2.dealt] !== 0,
+  };
+}
+
+/** The public end board kept in the Match history (see `vanguardEndState` in the keeper) as a Battle the board components can show. */
+export function battleFromEndState(s: Extract<EndState, { game: "vanguard" }>, match: PublicKey): Battle {
+  const b = decodeBattle(new Uint8Array(B.size));
+  return {
+    ...b,
+    tesoroMatch: match,
+    players: [new PublicKey(s.players[0]), new PublicKey(s.players[1])],
+    usSeat: s.usSeat,
+    winner: s.winner,
+    reason: s.reason,
+    moves: s.moves,
+    turnNo: s.turnNo,
+    sq: [...s.sq],
+    shown: [...s.shown],
+    endMask: BigInt(s.endMask),
+    depotClaimed: [s.depotClaimed[0], s.depotClaimed[1]],
+    status: STATUS.over,
   };
 }
 

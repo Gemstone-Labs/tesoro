@@ -2,6 +2,7 @@ import type { PublicKey } from "@solana/web3.js";
 import { runLogOf, type Table as BurstTable } from "../../app/src/games/block-puzzle/live-chain.ts";
 import type { Table as HoldemTable } from "../../app/src/games/holdem/chain.ts";
 import type { Table as DuelTable } from "../../app/src/games/trading-duel/chain.ts";
+import { UNSET, type Battle as VanguardBattle } from "../../app/src/games/vanguard/decode.ts";
 import { NO_PICK } from "../../app/src/games/trading-duel/grid.ts";
 import { recordEndState, type EndState } from "../../app/src/server/history/end-state.ts";
 import type { Rpc } from "../../app/src/server/history/rpc.ts";
@@ -13,7 +14,7 @@ import { historyRpc } from "./history.ts";
  * table replaces it (on base at its commit, in the rollup at the reset).
  *
  * One pure function per Game turns the table into JSON. ONLY what is public at Match end goes in: never a seat account, never
- * a card that was not shown. To add a Game (Vanguard, ticket 14): write its function, add one entry to `CAPTURE`, and call
+ * a card that was not shown. To add a Game: write its function, add one entry to `CAPTURE`, and call
  * `resetMayProceed` before its `reset_table` (see docs/games/table-protocol.md, "End state").
  */
 
@@ -56,11 +57,33 @@ export function burstEndState(t: BurstTable): EndState | null {
   };
 }
 
-/** Per-Game capture functions. Vanguard adds its entry here. */
+/**
+ * Vanguard's end board: the public Battle at the end (positions, the ranks the end reveal showed, the end mask). Never an Army:
+ * the keeper does not read them. A Match that was never dealt has no board.
+ */
+export function vanguardEndState(b: VanguardBattle): EndState | null {
+  if (b.usSeat === UNSET) return null;
+  return {
+    game: "vanguard",
+    usSeat: b.usSeat,
+    winner: b.winner,
+    reason: b.reason,
+    moves: b.moves,
+    turnNo: b.turnNo,
+    sq: [...b.sq],
+    shown: [...b.shown],
+    endMask: b.endMask.toString(),
+    depotClaimed: [b.depotClaimed[0], b.depotClaimed[1]],
+    players: [b.players[0].toBase58(), b.players[1].toBase58()],
+  };
+}
+
+/** Per-Game capture functions. */
 export const CAPTURE = {
   "trading-duel": duelEndState,
   holdem: holdemEndState,
   "block-puzzle": burstEndState,
+  vanguard: vanguardEndState,
 } as const;
 
 /** A table held for capture is reset anyway after this many rollup seconds Over: a database outage must not hold a table forever. */

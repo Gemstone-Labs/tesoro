@@ -7,14 +7,14 @@ const CORE_WINDOW_SECS = 60 * 60;
 /** trading_duel START_WINDOW_SECS + MATCH_SECS (30 s head start + 12 columns of 10 s): the longest a Duel runs after the join. */
 const DUEL_PLAY_SECS = 300 + 150;
 /**
- * vanguard START_WINDOW_SECS + ENTROPY_SECS + CAP_SECS: the longest a Battle runs after `create_match`. The
+ * vanguard START_WINDOW_SECS + SETUP_GRACE_SECS + CAP_SECS: the longest a Battle runs after `assign_match`. The
  * program pushes the Match's refund deadline to a full day after that call (TABLE_WINDOW_SECS), so this is
  * counted back from the deadline, not from the join.
  */
-const VANGUARD_PLAY_SECS = 300 + 60 + 900;
+const VANGUARD_PLAY_SECS = 300 + 180 + 900;
 const VANGUARD_WINDOW_SECS = 24 * 60 * 60;
 /**
- * Before `create_match` the deadline is still the hour after the join. A deadline less than this far ahead has
+ * Before `assign_match` the deadline is still the hour after the join. A deadline less than this far ahead has
  * not been pushed, so a Vanguard Match counts only its refund deadline until it is.
  */
 const VANGUARD_PUSHED_MIN_SECS = 2 * 60 * 60;
@@ -48,8 +48,8 @@ type Input = {
  * Unix seconds after which an Active Match should have settled, never later than its refund deadline.
  * - Block Burst: both submission deadlines have passed, so `seal` and settle are open to anyone.
  * - Trading Duel: the join, plus the start window, plus the Duel itself.
- * - Vanguard: the day the Battle was created on, plus the start window, entropy window and 15-minute cap. Until the
- *   Battle exists the deadline is the hour after the join and only that counts, which needs `nowSecs`.
+ * - Vanguard: the day the Match was assigned a table on, plus the start window, the setup window and the 15-minute cap. Until
+ *   it is assigned the deadline is the hour after the join and only that counts, which needs `nowSecs`.
  * - Hold'em: no fixed end exists in the Match state, so only the refund deadline counts.
  */
 export function settleBy(m: Pick<Input, "game" | "deadline" | "session">, nowSecs = Number.NEGATIVE_INFINITY): number {

@@ -16,6 +16,7 @@ import {
 import { PENDING, STATUS, type Battle } from "../../app/src/games/vanguard/decode.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { refund } from "./blockpuzzle.ts";
+import { resetMayProceed, vanguardEndState } from "./end-state.ts";
 import { holdemTableStep, type HoldemTableFacts } from "./holdem.ts";
 import { keyOf } from "./kit.ts";
 import { needsRecommit } from "./recommit.ts";
@@ -220,6 +221,13 @@ export async function maintainVanguardTables(ctx: Ctx): Promise<number> {
     const step = holdemTableStep(vanguardTableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit.get(subject) ?? 0));
     if (step.do === "wait") continue;
     if (step.why.includes("probably lost")) lastRecommit.set(subject, ctx.now);
+    if (step.do === "reset_table") {
+      // The reset zeroes the Battle: its end board goes to the Match history first (the same step, so the reset cannot overtake it).
+      const b = await ctx.vanguard.readBattle(ctx.hsigner, ref).catch(() => null);
+      const board = b && b.tesoroMatch.equals(t.tesoroMatch) ? b : null;
+      const held = { tesoroMatch: t.tesoroMatch, epoch: t.epoch, fn: board ? vanguardEndState : () => null, table: board as never };
+      if (!(await resetMayProceed(held, Math.max(0, Math.floor(ctx.now - t.overAt)), undefined, subject))) continue;
+    }
     const send = (fn: () => Promise<string>) => act(ctx, "match", subject, `${step.do} (${step.why})`, fn);
     let r;
     if (step.do === "release_slot") r = await send(() => ctx.vanguard.releaseSlot(ctx.hsigner, address, step.slot!.index, new PublicKey(step.slot!.match)));

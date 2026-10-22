@@ -73,6 +73,12 @@ const FINALIZE_GRACE_MS = 20_000;
 const OPENER_LATE_MS = 12_000;
 const now = () => Date.now();
 
+/** The table the Match is assigned to; a Player's action before it exists is refused. */
+const must = (a: Assignment | null): Assignment => {
+  if (!a) throw new Error("Not ready");
+  return a;
+};
+
 /**
  * Drives one Vanguard Match for one Player: reads the table, the Battle and your own Army from the private rollup and
  * does every step that is not a move (begin the Match on its table, seat the Players, check in, entropy and the deal,
@@ -480,10 +486,10 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
     if (!p || id === null) return;
     const vg = getVanguard();
     for (let i = 0; i < 4; i++) {
-      if (await vg.resolve(p, assignRef.current!).then(() => true, () => false)) break;
+      if (await vg.resolve(p, must(assignRef.current)).then(() => true, () => false)) break;
       await new Promise((r) => setTimeout(r, 250));
     }
-  }, [p, id, mk]);
+  }, [p, id]);
 
   /** Send one declare. A stale `expected_seq` re-reads the Battle (the board snaps to what is confirmed); the message says what happened. */
   const declare = useCallback(
@@ -495,13 +501,13 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
       } catch (e) {
         if (e instanceof SealLocked) throw new Error(e.message);
         if (isStale(e)) {
-          const fresh = await getVanguard().readBattle(p, assignRef.current!).catch(() => null);
+          const fresh = await getVanguard().readBattle(p, must(assignRef.current)).catch(() => null);
           if (fresh) applyBattle(fresh);
         }
         throw new Error(refusalLine(e));
       }
     },
-    [p, id, mk, applyDeclared, applyBattle],
+    [p, id, applyDeclared, applyBattle],
   );
 
   /** Send a move. Resolves when the rollup confirmed it, rejects (with a plain message) when it did not. */
@@ -509,9 +515,9 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
     async (piece: number, to: number, o: ActionOptions = {}) =>
       declare(async () => {
         const seal = await sealFor(o, false, null);
-        return getVanguard().movePiece(p!, assignRef.current!, piece, to, seal);
+        return getVanguard().movePiece(p!, must(assignRef.current), piece, to, seal);
       }),
-    [declare, sealFor, p, mk],
+    [declare, sealFor, p],
   );
 
   /** Blast or Rescue with `piece`, or Dig in (a pass whose sealed slot names the Major). */
@@ -519,22 +525,22 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
     async (kind: "blast" | "rescue" | "dig_in", piece: number, o: ActionOptions = {}) =>
       declare(async () => {
         const vg = getVanguard();
-        if (kind === "dig_in") return vg.pass(p!, assignRef.current!, await sealFor(o, true, piece));
+        if (kind === "dig_in") return vg.pass(p!, must(assignRef.current), await sealFor(o, true, piece));
         const seal = await sealFor(o, false, null);
-        return kind === "blast" ? vg.blast(p!, assignRef.current!, piece, seal) : vg.rescue(p!, assignRef.current!, piece, seal);
+        return kind === "blast" ? vg.blast(p!, must(assignRef.current), piece, seal) : vg.rescue(p!, must(assignRef.current), piece, seal);
       }),
-    [declare, sealFor, p, mk],
+    [declare, sealFor, p],
   );
 
 
   const twoStep = useCallback(async () => {
     if (!p || id === null) throw new Error("Not ready");
     try {
-      await getVanguard().startTwoStep(p, assignRef.current!);
+      await getVanguard().startTwoStep(p, must(assignRef.current));
     } catch (e) {
       throw new Error(plainError(e));
     }
-  }, [p, id, mk]);
+  }, [p, id]);
 
   const run = useCallback(
     async (label: string, fn: () => Promise<string | void>) => {
