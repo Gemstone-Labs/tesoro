@@ -60,18 +60,15 @@ export function FriendsPage() {
     );
   }
 
-  if (friends.status === "locked" || (friends.status === "error" && !view)) {
+  if (friends.status === "error" && !view) {
     return (
-      <Card large as="section" aria-label="Open your Friends">
+      <Card large as="section" aria-label="Friends">
         <div className="stack">
           <h1 className="page-title">Friends</h1>
-          <p className="meta">Your Friends list is private: only you see it. Open it with one signature from your wallet. This browser remembers it for 30 days.</p>
-          {friends.error && (
-            <p className="status err" role="alert">
-              {friends.error}
-            </p>
-          )}
-          <Button block onClick={() => void friends.unlock()}>Open Friends</Button>
+          <p className="status err" role="alert">
+            Your Friends couldn’t load. {friends.error}
+          </p>
+          <Button block onClick={() => void friends.unlock()}>Try again</Button>
         </div>
       </Card>
     );

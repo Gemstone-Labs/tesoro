@@ -10,7 +10,7 @@ import "./friends.css";
 
 /**
  * Add friend for one other Account: Add friend, then Request sent; Accept when they asked first;
- * Friends once you are. Signed out, it signs in first; the first use asks for the Friends signature.
+ * Friends once you are. Signed out, it signs in first.
  */
 export function AddFriendButton({ account, size, className }: { account: string; size?: "sm" | "lg"; className?: string }) {
   const { auth } = useAccount();

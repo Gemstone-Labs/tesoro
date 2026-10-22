@@ -39,13 +39,14 @@ export function FriendPicker({
     <Sheet open={open} onClose={onClose} title="Challenge a friend">
       <div className="stack-lg">
         {!view ? (
-          <div className="stack">
-            <p className="meta">Your Friends list is private. Open it with one signature from your wallet.</p>
-            {friends.error && <p className="status err">{friends.error}</p>}
-            <Button block onClick={() => void friends.unlock()} disabled={friends.status === "loading"}>
-              {friends.status === "loading" ? "Opening…" : "Open Friends"}
-            </Button>
-          </div>
+          friends.status === "error" ? (
+            <div className="stack">
+              <p className="status err">Your Friends couldn’t load. {friends.error}</p>
+              <Button block onClick={() => void friends.unlock()}>Try again</Button>
+            </div>
+          ) : (
+            <p className="meta" role="status">Loading your Friends…</p>
+          )
         ) : (
           <fieldset className="fp-list">
             <legend className="sr-only">Who the Challenge is for</legend>

@@ -9,12 +9,12 @@ import { FriendsError, friendsCall, startFriendsSession, type FriendsResult, typ
 export type Relation = "self" | "friend" | "sent" | "incoming" | "none" | "unknown";
 
 export interface FriendsState {
-  /** `locked`: signed in, but no Friends session on this browser yet (opening Friends asks for one signature). */
+  /** `locked`: signed in, no Friends session on this browser yet; the provider starts one on its own (the embedded wallet signs without a prompt). */
   status: "signed-out" | "locked" | "loading" | "ready" | "error";
   view: FriendsView | null;
   me: string | null;
   error: string | null;
-  /** Starts a session if needed (one signature), then loads the list. */
+  /** Starts a session if needed (the embedded wallet signs in the background), then loads the list. */
   unlock: () => Promise<boolean>;
   refresh: () => Promise<void>;
   /** Runs one action (starting a session first if needed) and reloads the list. */
@@ -85,7 +85,7 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
     [read],
   );
 
-  // On sign-in, use a session this browser already has; never ask for a signature on its own.
+  // On sign-in, use a session this browser already has; without one, start one below.
   useEffect(() => {
     if (!me) return;
     read(me).then(
@@ -119,6 +119,15 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
     })();
     return unlocking.current;
   }, [signer, me, getToken, load]);
+
+  // The Account's embedded wallet signs in the background (no wallet UI), so a session starts as soon as
+  // the wallet exists, once per Account; after a failure, the Friends page offers Try again.
+  const tried = useRef<string | null>(null);
+  useEffect(() => {
+    if (!me || !signer || st.of !== me || st.status !== "locked" || tried.current === me) return;
+    tried.current = me;
+    void unlock();
+  }, [me, signer, st.of, st.status, unlock]);
 
   const act = useCallback(
     async (op: string, args: Record<string, unknown> = {}): Promise<FriendsResult> => {
