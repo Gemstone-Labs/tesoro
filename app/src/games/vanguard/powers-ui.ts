@@ -1,9 +1,9 @@
 /**
  * What the screen needs to know about the rank powers, as pure functions over the rules' `Game`: which power a selected
- * piece offers, what a Blast or a jump looks like, what the enemy roster strip may say, and what the end panel marks.
+ * piece offers, what a Blast or a jump looks like and what the enemy roster strip may say.
  * Nothing here reads a hidden rank of the other army: the roster strip works from a ledger of what the viewer was shown.
  */
-import { NAMES, ROSTER, act, isWadi, onBoard, rankOf, type Army, type Game, type GameEvent, type Piece, type PowerKind, type Rank, type Square } from "./rules";
+import { ROSTER, act, isWadi, onBoard, rankOf, type Army, type Game, type GameEvent, type Piece, type PowerKind, type Rank, type Square } from "./rules";
 
 /** One line per rank for the in-game rules sheet. */
 export const POWER_LINES: [Rank, string][] = [
@@ -157,20 +157,4 @@ export function rosterOf(alive: ReadonlySet<number>, over: boolean, ledger: Ledg
     return { rank, of, left: Math.max(0, of - deadAs(rank)) };
   });
   return { cells, tenOrSpy: !over && !tenSeen && !switched && tenLeft === 1 };
-}
-
-export interface ChangeLine {
-  id: number;
-  army: Army;
-  text: string;
-}
-
-/** The end panel's marks: every piece whose rank changed, dead ones included (pieces 0-29 are Italy's, 30-59 the US's). */
-export function changeLines(g: Game): ChangeLine[] {
-  return Object.entries(g.changed)
-    .map(([k, c]) => {
-      const id = Number(k);
-      return { id, army: (id >= 30 ? "us" : "it") as Army, text: c === "dug" ? `${NAMES["7"]}, dug in` : `${NAMES["10"]}, now a Spy` };
-    })
-    .sort((a, b) => a.id - b.id);
 }

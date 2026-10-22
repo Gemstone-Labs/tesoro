@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blastSquares, canSwitch, changeLines, isJump, observe, powerFor, rosterView, type Ledger } from "./powers-ui";
+import { blastSquares, canSwitch, isJump, observe, powerFor, rosterView, type Ledger } from "./powers-ui";
 import { DEPOTS, PRACTICE_CLOCK, RULES_VERSION, TURN_MS, move, type Game, type GameEvent, type GameEventBody, type Piece, type Rank } from "./rules";
 
 const T0 = 1_000_000;
@@ -145,13 +145,3 @@ describe("observe", () => {
   });
 });
 
-describe("the end panel marks", () => {
-  it("names dug-in Majors and switched Generals of the Army for both armies, dead ones included", () => {
-    const g = game([], { changed: { 31: "dug", 5: "spy", 32: "spy" } });
-    expect(changeLines(g)).toEqual([
-      { id: 5, army: "it", text: "General of the Army, now a Spy" },
-      { id: 31, army: "us", text: "Major, dug in" },
-      { id: 32, army: "us", text: "General of the Army, now a Spy" },
-    ]);
-  });
-});

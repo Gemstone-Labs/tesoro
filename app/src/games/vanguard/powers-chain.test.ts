@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decodeRecord, type ArmyAccount, type Battle } from "./decode";
 import { pendingOf } from "./catchup";
-import { changedPieces } from "./end";
 import { chainState, encodeEvent, freshGame } from "./fixture";
 import { move, pass, rankOf, type Game, type GameEvent, type Result } from "./rules";
 import { canSwitch, powerFor } from "./powers-ui";
@@ -215,21 +214,9 @@ describe("the end panel reads the end mask", () => {
   };
   const s = chainState(end, g0, r.events);
 
-  it("is empty while the Match is on, even when pieces changed", () => {
-    const live = chainState(r.game, g0, r.events).battle;
-    expect(live.endMask).toBe(0n);
-    expect(changedPieces(live, 0)).toEqual([]);
-  });
-
-  it("lists the dug-in Major and the switched 10 for what they were, the dead one included, as 'Yours' or the opponent's", () => {
+  it("writes the end mask only once the Match is over: the dug-in Major and the switched 10, the dead one included", () => {
+    expect(chainState(r.game, g0, r.events).battle.endMask).toBe(0n);
     expect(s.battle.endMask).toBe((1n << BigInt(major.id)) | (1n << BigInt(ten.id)));
-    expect(changedPieces(s.battle, 0)).toEqual(
-      [
-        { id: ten.id, mine: false, text: "General of the Army, now a Spy" },
-        { id: major.id, mine: true, text: "Major, dug in" },
-      ].sort((a, b) => a.id - b.id),
-    );
-    expect(changedPieces(s.battle, 1).map((c) => c.mine)).toEqual([true, false]);
   });
 
   it("draws the pieces with their badge once the Match is over, whoever owns them, and no 'seen by the enemy' glow", () => {
