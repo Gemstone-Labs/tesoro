@@ -93,8 +93,8 @@ export default function Page() {
 
       <H2 id="backing">Backing in the ledger</H2>
       <p>
-        <code>create_request</code>, <code>create_offer</code>, <code>accept_directed</code>, <code>apply_offer</code>, <code>accept_applicant</code>,{" "}
-        <code>cancel_offer</code>, <code>expire_offer</code>. Offers reserve an amount of the Backer&apos;s Gemas; the lines are drawn when the backed Match opens, and only a Listed Game can be Backed. Requests and Offers live 24 hours; an
+        <code>create_request</code>, <code>create_offer</code> (on one Request), <code>accept_offer</code>,{" "}
+        <code>cancel_offer</code>, <code>expire_offer</code>. Every Offer answers one Request; there are no public Offers. Offers reserve an amount of the Backer&apos;s Gemas; the lines are drawn when the backed Match opens, and only a Listed Game can be Backed. Requests and Offers live 24 hours; an
         accepted Offer has 24 hours to be used and is consumed when the backed Match opens or is joined. Win: the Backer&apos;s entry first, then the
         Player&apos;s share of the surplus after Fees, the rest to the Backer. Loss: the Backer loses the entry, nothing more.
       </p>

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ERROR_NAMES } from "./entry-errors";
+import { BASKET, CORE, MATCH } from "./entry-errors";
 
 const root = join(process.cwd(), "..");
 const read = (p: string) => readFileSync(join(root, p), "utf8");
@@ -28,9 +28,9 @@ describe("the app's copy of the program", () => {
   it("the error names the app maps by number follow the program's enums", () => {
     const errors = read("programs/tesoro_core/src/error.rs");
     const regen = "Update the lists in app/src/lib/chain/entry-errors.ts to the enum order in programs/tesoro_core/src/error.rs and ledger/mod.rs.";
-    expect(ERROR_NAMES.basket, regen).toEqual(enumNames(errors, "BasketError"));
-    expect(ERROR_NAMES.match, regen).toEqual(enumNames(errors, "MatchError"));
+    expect(BASKET, regen).toEqual(enumNames(errors, "BasketError"));
+    expect(MATCH, regen).toEqual(enumNames(errors, "MatchError"));
     const core = [...read("programs/tesoro_core/src/ledger/mod.rs").split("core_errors! {")[1].matchAll(/^ {4}(\w+) => "/gm)].map((m) => m[1]);
-    expect(ERROR_NAMES.core, regen).toEqual(core);
+    expect(CORE, regen).toEqual(core);
   });
 });

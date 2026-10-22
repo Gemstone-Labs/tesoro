@@ -18,7 +18,7 @@ import type { Entered } from "./queue";
 
 /**
  * Backing on chain (tesoro_core Requests and Offers). Reads are public; writes are signed by the
- * Player (Request, apply, accept a directed Offer) or the Backer (Offer, accept an applicant).
+ * Player (Request, accept an Offer) or the Backer (an Offer on a Request).
  * See docs/tesoro-core.md for the rules and docs/games/backing.md for the flow.
  */
 
@@ -66,17 +66,13 @@ export interface ChainOffer {
   game: GameId;
   entry: number;
   shareBps: number;
-  /** Request address a directed Offer answers; null for a public Offer. */
-  directedTo: string | null;
   status: "open" | "accepted" | "consumed" | "cancelled" | "expired";
   expiresAt: number;
   useBy: number;
   /** TesoroAccount key of the accepted Player. */
   player: string | null;
-  /** Address of the accepted Player's Request. */
-  request: string | null;
-  /** Request addresses of applicants (public Offers). */
-  applicants: string[];
+  /** The Request this Offer answers: every Offer is made on one Request. */
+  request: string;
   lines: OfferLine[];
   /** Key (`<opener>-<n>`) of the live Match this Offer funded, once consumed; null when that Match is closed or unknown. */
   matchId: string | null;
@@ -135,16 +131,8 @@ function toRequest(row: any, { record, pnl }: PlayerForm): ChainRequest {
   };
 }
 
-const kindOf = (k: any): string | null => {
-  const v = k.directed ?? null;
-  if (!v) return null;
-  const inner = Array.isArray(v) ? v[0] : (v[0] ?? v._0 ?? v);
-  return pk(inner).toBase58();
-};
-
 function toOffer(row: any, matchId: string | null): ChainOffer {
   const o = row.account.inner;
-  const directed = kindOf(o.kind);
   const requestKey = (k: number[] | null) => (k ? pk(k).toBase58() : null);
   return {
     address: row.publicKey,
@@ -153,13 +141,11 @@ function toOffer(row: any, matchId: string | null): ChainOffer {
     game: requireGame(pk(o.game)),
     entry: Number(o.entry.toString()),
     shareBps: o.playerShareBps,
-    directedTo: directed,
     status: offerStatus(o.status),
     expiresAt: Number(o.expiresAt.toString()),
     useBy: Number(o.useBy.toString()),
     player: requestKey(o.player),
-    request: requestKey(o.request),
-    applicants: (o.applicants as number[][]).map((a) => pk(a).toBase58()),
+    request: pk(o.request).toBase58(),
     // An Offer reserves an amount in the Backer's basket, not lines: kept empty for callers written for line reservations.
     lines: [],
     matchId,
@@ -280,13 +266,10 @@ export async function cancelRequest(signer: ChainSigner, request: PublicKey) {
   return chain.sendBase(signer, [ix]);
 }
 
-/**
- * A Backer posts an Offer and reserves the entry from their own Gemas. `request` makes it a
- * directed Offer for that Request; omit it for a public Offer.
- */
+/** A Backer answers a Request with an Offer for its game and entry, reserving the entry from their own Gemas. */
 export async function postOffer(
   signer: ChainSigner,
-  a: { game: GameId; entry: number; shareBps: number; request?: PublicKey },
+  a: { game: GameId; entry: number; shareBps: number; request: PublicKey },
   getToken: GetToken,
 ): Promise<{ address: PublicKey; sig: string }> {
   const chain = getChain();
@@ -301,6 +284,7 @@ export async function postOffer(
     {
       backerAuthority: signer.publicKey,
       config: config(),
+      request: a.request,
       gameRecord: gameRecordPda(GAME_IDS[a.game]),
       backerAccount: snap.accountKey,
       protections: protectionsPda(snap.accountKey),
@@ -310,43 +294,17 @@ export async function postOffer(
       offer: address,
       systemProgram: SystemProgram.programId,
     },
-    { nonce: new BN(n.toString()), game: GAME_IDS[a.game], entry: new BN(a.entry), playerShareBps: a.shareBps, directedRequest: a.request ?? null },
+    { nonce: new BN(n.toString()), playerShareBps: a.shareBps },
   );
   return { address, sig: await chain.sendBase(signer, [ix]) };
 }
 
-/** The Player accepts an Offer directed at their Request. */
-export async function acceptDirected(signer: ChainSigner, request: PublicKey, offer: PublicKey) {
+/** The Player accepts an Offer made on their Request. */
+export async function acceptOffer(signer: ChainSigner, request: PublicKey, offer: PublicKey) {
   const chain = getChain();
   const ix = await chain.core.methods
-    .acceptDirected()
+    .acceptOffer()
     .accountsPartial({ playerAuthority: signer.publicKey, playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey), protections: protectionsPda(BlockPuzzleChain.coreAccount(signer.publicKey)), request, offer })
-    .instruction();
-  return chain.sendBase(signer, [ix]);
-}
-
-/** A Player applies to a public Offer with one of their Requests. */
-export async function applyToOffer(signer: ChainSigner, request: PublicKey, offer: PublicKey) {
-  const chain = getChain();
-  const ix = await chain.core.methods
-    .applyOffer()
-    .accountsPartial({ playerAuthority: signer.publicKey, playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey), protections: protectionsPda(BlockPuzzleChain.coreAccount(signer.publicKey)), request, offer })
-    .instruction();
-  return chain.sendBase(signer, [ix]);
-}
-
-/** The Protections address of the Account that owns a Request (the applicant being accepted). */
-async function requestOwnerProtections(request: PublicKey): Promise<PublicKey> {
-  const r = await getChain().core.account.requestState.fetch(request);
-  return protectionsPda(new PublicKey(Uint8Array.from(r.inner.player)));
-}
-
-/** The Backer accepts one applicant of their public Offer. */
-export async function acceptApplicant(signer: ChainSigner, request: PublicKey, offer: PublicKey) {
-  const chain = getChain();
-  const ix = await chain.core.methods
-    .acceptApplicant()
-    .accountsPartial({ backerAuthority: signer.publicKey, backerAccount: BlockPuzzleChain.coreAccount(signer.publicKey), request, playerProtections: await requestOwnerProtections(request), offer })
     .instruction();
   return chain.sendBase(signer, [ix]);
 }
@@ -363,7 +321,7 @@ export async function cancelOffer(signer: ChainSigner, offer: ChainOffer) {
     counters: countersPda(backerAccount),
     offer: offer.address,
     // An accepted Offer hands its Request back to Open, so the Request comes with the call.
-    request: offer.status === "accepted" && offer.request ? new PublicKey(offer.request) : undefined,
+    request: offer.status === "accepted" ? new PublicKey(offer.request) : undefined,
   });
   return chain.sendBase(signer, [ix]);
 }
@@ -379,7 +337,7 @@ export async function expireOffer(signer: ChainSigner, offer: ChainOffer) {
     spill: spillPda(backerAccount),
     counters: countersPda(backerAccount),
     offer: offer.address,
-    request: offer.status === "accepted" && offer.request ? new PublicKey(offer.request) : undefined,
+    request: offer.status === "accepted" ? new PublicKey(offer.request) : undefined,
     backerProtections: undefined,
   });
   return chain.sendBase(signer, [ix]);

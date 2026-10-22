@@ -861,35 +861,17 @@ pub mod tesoro_core {
     pub fn create_offer(
         ctx: Context<CreateOffer>,
         nonce: u64,
-        game: Pubkey,
-        entry: u64,
         player_share_bps: u16,
-        directed_request: Option<Pubkey>,
     ) -> Result<()> {
-        instructions::backing::create_offer(
-            ctx,
-            nonce,
-            game,
-            entry,
-            player_share_bps,
-            directed_request,
-        )
+        instructions::backing::create_offer(ctx, nonce, player_share_bps)
     }
 
     pub fn clear_request(ctx: Context<ClearRequest>) -> Result<()> {
         instructions::backing::clear_request(ctx)
     }
 
-    pub fn accept_directed(ctx: Context<AcceptDirected>) -> Result<()> {
-        instructions::backing::accept_directed(ctx)
-    }
-
-    pub fn apply_offer(ctx: Context<ApplyOffer>) -> Result<()> {
-        instructions::backing::apply_offer(ctx)
-    }
-
-    pub fn accept_applicant(ctx: Context<AcceptApplicant>) -> Result<()> {
-        instructions::backing::accept_applicant(ctx)
+    pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
+        instructions::backing::accept_offer(ctx)
     }
 
     pub fn cancel_offer(ctx: Context<CancelOffer>) -> Result<()> {

@@ -75,7 +75,7 @@ export const typeOf = (data: Buffer): string | undefined => {
 const pk = (b: Buffer, at: number) => new PublicKey(b.subarray(at, at + 32));
 export const ataOf = (owner: PublicKey) => PublicKey.findProgramAddressSync([owner.toBuffer(), TOKEN_PROGRAM.toBuffer(), SIM_SOL_MINT.toBuffer()], ATA_PROGRAM)[0];
 
-/** Reserved Sources of a current-layout Offer, or null when the bytes do not decode. */
+/** Reserved Sources of an Offer in the devnet layout this script retires (with kind, applicants and lines; the program's Offer no longer has them), or null when the bytes do not decode. */
 export function offerSources(d: Buffer): PublicKey[] | null {
   try {
     let off = 8 + 1 + 8 + 32 + 32 + 8 + 2;

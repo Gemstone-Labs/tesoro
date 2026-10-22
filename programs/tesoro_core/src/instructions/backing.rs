@@ -1,7 +1,7 @@
 use crate::error::{core_err, MatchError, TesoroError};
 use crate::instructions::economy::with_pool;
 use crate::instructions::ticket::ticket_err;
-use crate::ledger::{self, OfferKind, OfferStatus};
+use crate::ledger::{self, OfferStatus};
 use crate::state::*;
 use crate::storage::*;
 use crate::util::*;
@@ -106,17 +106,22 @@ pub(crate) fn clear_request(ctx: Context<ClearRequest>) -> Result<()> {
     ctx.accounts.request.inner.cancel().map_err(core_err)
 }
 
-/// Creates an Offer and reserves the Backer's entry: an *amount* of Gemas held by the slowest
-/// lines of the Backer's basket and spill (nothing is moved). `directed_request` makes it a
-/// directed Offer; `None` makes it public.
+/// Creates an Offer on one live Request, for its game and entry, and reserves the Backer's entry:
+/// an *amount* of Gemas held by the slowest lines of the Backer's basket and spill (nothing is
+/// moved). Every Offer answers a Request; there are no public Offers.
 #[derive(Accounts)]
-#[instruction(nonce: u64, game: Pubkey)]
+#[instruction(nonce: u64)]
 pub struct CreateOffer<'info> {
     #[account(mut)]
     pub backer_authority: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,
-    #[account(seeds = [GAME_SEED, game.as_ref()], bump = game_record.bump)]
+    #[account(
+        seeds = [REQUEST_SEED, request.inner.player.as_ref(), &request.nonce.to_le_bytes()],
+        bump = request.bump
+    )]
+    pub request: Box<Account<'info, RequestState>>,
+    #[account(seeds = [GAME_SEED, request.inner.game.as_ref()], bump = game_record.bump)]
     pub game_record: Box<Account<'info, GameRecord>>,
     #[account(
         seeds = [ACCOUNT_SEED, backer_authority.key().as_ref()],
@@ -164,27 +169,20 @@ pub struct CreateOffer<'info> {
 pub(crate) fn create_offer(
     ctx: Context<CreateOffer>,
     nonce: u64,
-    game: Pubkey,
-    entry: u64,
     player_share_bps: u16,
-    directed_request: Option<Pubkey>,
 ) -> Result<()> {
     let backer = ctx.accounts.backer_account.key();
-    count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
-    let kind = match directed_request {
-        Some(r) => OfferKind::Directed(r.to_bytes()),
-        None => OfferKind::Public,
-    };
     let created = ledger::Offer::create(
         backer.to_bytes(),
-        game.to_bytes(),
-        entry,
+        &ctx.accounts.request.inner,
+        ctx.accounts.request.key().to_bytes(),
         &ctx.accounts.config.entries(),
         player_share_bps,
-        kind,
         now()?,
     )
     .map_err(core_err)?;
+    let entry = created.entry;
+    count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
     let counters = &mut ctx.accounts.counters;
     if counters.bump == 0 {
         counters.bump = ctx.bumps.counters;
@@ -205,9 +203,9 @@ pub(crate) fn create_offer(
     Ok(())
 }
 
-/// The Player accepts an Offer directed at their Request.
+/// The Player accepts an Offer made on their Request.
 #[derive(Accounts)]
-pub struct AcceptDirected<'info> {
+pub struct AcceptOffer<'info> {
     pub player_authority: Signer<'info>,
     #[account(
         seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
@@ -235,96 +233,13 @@ pub struct AcceptDirected<'info> {
     pub offer: Box<Account<'info, OfferState>>,
 }
 
-pub(crate) fn accept_directed(ctx: Context<AcceptDirected>) -> Result<()> {
+pub(crate) fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
     require_can_play(&ctx.accounts.protections.to_account_info())?;
     let request_key = ctx.accounts.request.key();
     ctx.accounts
         .offer
         .inner
-        .accept_directed(
-            &mut ctx.accounts.request.inner,
-            request_key.to_bytes(),
-            now()?,
-        )
-        .map_err(core_err)
-}
-
-/// A Player applies to a public Offer with their Request.
-#[derive(Accounts)]
-pub struct ApplyOffer<'info> {
-    pub player_authority: Signer<'info>,
-    #[account(
-        seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
-        bump = player_account.bump
-    )]
-    pub player_account: Account<'info, TesoroAccount>,
-    /// CHECK: the Player's Protections address; a Player who is away cannot be backed.
-    #[account(
-        seeds = [PROTECTIONS_SEED, player_account.key().as_ref()],
-        bump
-    )]
-    pub protections: UncheckedAccount<'info>,
-    #[account(
-        seeds = [REQUEST_SEED, request.inner.player.as_ref(), &request.nonce.to_le_bytes()],
-        bump = request.bump,
-        constraint = request.inner.player == player_account.key().to_bytes() @ TesoroError::Unauthorized
-    )]
-    pub request: Account<'info, RequestState>,
-    #[account(
-        mut,
-        seeds = [OFFER_SEED, offer.inner.backer.as_ref(), &offer.nonce.to_le_bytes()],
-        bump = offer.bump
-    )]
-    pub offer: Box<Account<'info, OfferState>>,
-}
-
-pub(crate) fn apply_offer(ctx: Context<ApplyOffer>) -> Result<()> {
-    require_can_play(&ctx.accounts.protections.to_account_info())?;
-    let request_key = ctx.accounts.request.key();
-    ctx.accounts
-        .offer
-        .inner
-        .apply(&ctx.accounts.request.inner, request_key.to_bytes(), now()?)
-        .map_err(core_err)
-}
-
-/// The Backer accepts one applicant of their public Offer.
-#[derive(Accounts)]
-pub struct AcceptApplicant<'info> {
-    pub backer_authority: Signer<'info>,
-    #[account(
-        seeds = [ACCOUNT_SEED, backer_authority.key().as_ref()],
-        bump = backer_account.bump
-    )]
-    pub backer_account: Account<'info, TesoroAccount>,
-    #[account(
-        mut,
-        seeds = [REQUEST_SEED, request.inner.player.as_ref(), &request.nonce.to_le_bytes()],
-        bump = request.bump
-    )]
-    pub request: Account<'info, RequestState>,
-    /// CHECK: the applicant Player's Protections address; a Player who is away cannot be backed.
-    #[account(
-        seeds = [PROTECTIONS_SEED, request.inner.player.as_ref()],
-        bump
-    )]
-    pub player_protections: UncheckedAccount<'info>,
-    #[account(
-        mut,
-        seeds = [OFFER_SEED, offer.inner.backer.as_ref(), &offer.nonce.to_le_bytes()],
-        bump = offer.bump,
-        constraint = offer.inner.backer == backer_account.key().to_bytes() @ TesoroError::Unauthorized
-    )]
-    pub offer: Box<Account<'info, OfferState>>,
-}
-
-pub(crate) fn accept_applicant(ctx: Context<AcceptApplicant>) -> Result<()> {
-    require_can_play(&ctx.accounts.player_protections.to_account_info())?;
-    let request_key = ctx.accounts.request.key();
-    ctx.accounts
-        .offer
-        .inner
-        .accept_applicant(
+        .accept(
             &mut ctx.accounts.request.inner,
             request_key.to_bytes(),
             now()?,
@@ -413,9 +328,7 @@ fn release_offer(
 pub(crate) fn cancel_offer(ctx: Context<CancelOffer>) -> Result<()> {
     let offer = &mut ctx.accounts.offer.inner;
     require!(!offer.ticket_open, MatchError::OfferHasTicket);
-    let accepted = (offer.status == OfferStatus::Accepted)
-        .then_some(offer.request)
-        .flatten();
+    let accepted = (offer.status == OfferStatus::Accepted).then_some(offer.request);
     let entry = offer.entry;
     offer.cancel().map_err(core_err)?;
     release_offer(
@@ -481,9 +394,7 @@ pub(crate) fn expire_offer(ctx: Context<ExpireOffer>) -> Result<()> {
     let now = now()?;
     let offer = &mut ctx.accounts.offer.inner;
     require!(!offer.ticket_open, MatchError::OfferHasTicket);
-    let accepted = (offer.status == OfferStatus::Accepted)
-        .then_some(offer.request)
-        .flatten();
+    let accepted = (offer.status == OfferStatus::Accepted).then_some(offer.request);
     let backer_away = match &ctx.accounts.backer_protections {
         Some(p) => is_away(&p.to_account_info())?,
         None => false,
