@@ -3671,6 +3671,24 @@
                 2
               ]
             }
+          },
+          {
+            "name": "room",
+            "docs": [
+              "Slots held in Accounts' stores for the lines this Match will credit (`room_reserved` of",
+              "each spill counts them). Every credit that takes a new slot pays the holder's share down;",
+              "`close_match` hands back what is left."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "RoomHold"
+                  }
+                },
+                5
+              ]
+            }
           }
         ]
       }
@@ -3774,6 +3792,30 @@
           {
             "name": "at",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RoomHold",
+      "docs": [
+        "Slots of one Account's stores held for a Match."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "account",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "left",
+            "type": "u32"
           }
         ]
       }
