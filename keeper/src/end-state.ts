@@ -1,5 +1,5 @@
 import type { PublicKey } from "@solana/web3.js";
-import type { Table as BurstTable } from "../../app/src/games/block-puzzle/live-chain.ts";
+import { runLogOf, type Table as BurstTable } from "../../app/src/games/block-puzzle/live-chain.ts";
 import type { Table as HoldemTable } from "../../app/src/games/holdem/chain.ts";
 import type { Table as DuelTable } from "../../app/src/games/trading-duel/chain.ts";
 import { NO_PICK } from "../../app/src/games/trading-duel/grid.ts";
@@ -46,7 +46,7 @@ export function holdemEndState(t: HoldemTable): EndState {
 
 export function burstEndState(t: BurstTable): EndState | null {
   if (t.startSlot === 0) return null; // the run never started: no scores
-  const l = t.logs.find((x) => x.startSlot === t.startSlot) ?? null;
+  const l = runLogOf(t, t.tesoroMatch, t.epoch);
   return {
     game: "block-puzzle",
     scores: [t.finalScores[0], t.finalScores[1]],

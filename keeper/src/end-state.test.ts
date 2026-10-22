@@ -11,7 +11,7 @@ const holdem: any = {
   stacks: [900n, 1100n],
   lastHand: { handNo: 7, result: 1, pot: 200n, showdown: false, shown: [[3, 4], [5, 6]], board: [1, 2, 3, 52, 52] },
 };
-const burst: any = { startSlot: 9, finalScores: [10, 20], finalMoves: [3, 4], reason: 2, logs: [{ seed: 5n, seedHash: Uint8Array.of(1, 2), startSlot: 9, moves: Uint8Array.of(7), offsets: Uint8Array.of(0, 1) }] };
+const burst: any = { tesoroMatch: match, epoch: 3, ring: [{ state: 2, tesoroMatch: match, epoch: 3 }], startSlot: 9, finalScores: [10, 20], finalMoves: [3, 4], reason: 2, logs: [{ seed: 5n, seedHash: Uint8Array.of(1, 2), startSlot: 9, moves: Uint8Array.of(7), offsets: Uint8Array.of(0, 1) }] };
 
 describe("end state per game", () => {
   it("Trading Duel keeps picks, line range and scores; a Match that never started keeps nothing", () => {
