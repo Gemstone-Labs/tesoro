@@ -99,6 +99,10 @@ pub enum TesoroError {
     NotListed,
     #[msg("the program is too large to hash in one transaction")]
     ProgramTooLarge,
+    #[msg(
+        "the Advance would issue fewer Gemas than the minimum asked for (or the minimum is zero)"
+    )]
+    AdvanceBelowMinimum,
 }
 
 /// Errors of the economy storage layer (baskets, spills, the sponsor, Source books). Their own

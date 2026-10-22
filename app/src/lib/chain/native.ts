@@ -246,11 +246,12 @@ export function parseSolPrice(info: AccountInfo<Uint8Array> | null): PriceFeedVi
 }
 
 /**
+ * `minGemas` is the Gemas the Player was shown: the program refuses the Advance (`AdvanceBelowMinimum`) rather than issue fewer, and 0 is refused.
  * `advances` is the Position's advance count before this one (0 for a new Position). `prev` is the Position's open Advance,
  * which the program closes here: required whenever one is open, even at Debt 0 (its Source, then its book and checkpoint pages).
  * On a cluster with Pyth prices (`CLUSTER.priceSource === "onchain"`) the price is read from the asset's mapped feed.
  */
-export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number, prev: PrevAdvance | null = null) {
+export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number, minGemas: bigint, prev: PrevAdvance | null = null) {
   const source = sourcePda(position, advances);
   const onchain = CLUSTER.priceSource === "onchain";
   return coreIx(
@@ -267,7 +268,7 @@ export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advan
     basket: basketPda(accountPda(owner)),
       spill: spillPda(accountPda(owner)),
     },
-    { horizon_months: months },
+    { horizon_months: months, min_gemas: minGemas },
     prev ? [meta(sourcePda(position, prev.index)), ...writable(prev.accounts)] : [],
   );
 }
@@ -276,10 +277,10 @@ export const extendLimitPda = (account: PublicKey) => pda([s("extend_limit"), ac
 
 /**
  * `source` is the Position's open Advance; the owner signs alone and `extraMonths` is added to its Horizon (1 to 12 minus the Horizon so far).
- * `book` is that Source's book and checkpoint pages. The owner pays for their Extend Limit account on the first Extend (ADR 0009) and for the
+ * `minGemas` is the Gemas the quote showed (the program refuses to mint fewer). `book` is that Source's book and checkpoint pages. The owner pays for their Extend Limit account on the first Extend (ADR 0009) and for the
  * book's new class.
  */
-export function extendNativeAdvanceIx(owner: PublicKey, position: PublicKey, source: number, extraMonths: number, book: PublicKey[]) {
+export function extendNativeAdvanceIx(owner: PublicKey, position: PublicKey, source: number, extraMonths: number, minGemas: bigint, book: PublicKey[]) {
   const account = accountPda(owner);
   return coreIx(
     "extend_native_advance",
@@ -294,7 +295,7 @@ export function extendNativeAdvanceIx(owner: PublicKey, position: PublicKey, sou
       spill: spillPda(account),
       extend_limit: extendLimitPda(account),
     },
-    { extra_months: extraMonths },
+    { extra_months: extraMonths, min_gemas: minGemas },
     writable(book),
   );
 }

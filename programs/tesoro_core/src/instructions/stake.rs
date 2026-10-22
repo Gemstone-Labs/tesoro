@@ -373,6 +373,7 @@ fn sizing(read: &StakePoolRead, config: &StakeConfig) -> Result<u16> {
 pub(crate) fn take_stake_advance<'info>(
     mut ctx: Context<'_, '_, 'info, 'info, TakeStakeAdvance<'info>>,
     horizon_months: u8,
+    min_gemas: u64,
 ) -> Result<()> {
     require_can_advance(&ctx.accounts.protections.to_account_info())?;
     let remaining = ctx.remaining_accounts;
@@ -402,6 +403,7 @@ pub(crate) fn take_stake_advance<'info>(
         horizon_months,
         price,
         fee,
+        min_gemas,
     )
 }
 
@@ -467,6 +469,7 @@ pub struct ExtendStakeAdvance<'info> {
 pub(crate) fn extend_stake_advance<'info>(
     ctx: Context<'_, '_, 'info, 'info, ExtendStakeAdvance<'info>>,
     extra_months: u8,
+    min_gemas: u64,
 ) -> Result<()> {
     require_can_advance(&ctx.accounts.protections.to_account_info())?;
     let remaining = ctx.remaining_accounts;
@@ -497,6 +500,7 @@ pub(crate) fn extend_stake_advance<'info>(
         remaining,
         extra_months,
         fee,
+        min_gemas,
     )
 }
 

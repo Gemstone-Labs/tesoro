@@ -2,6 +2,7 @@ import { BorshInstructionCoder, type Idl } from "@coral-xyz/anchor";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import coreIdl from "./idl/tesoro_core.json";
+import { matchOverflowPda } from "./overflow";
 import { SIDE_WON, basketPda, countersPda, decodeStore, matchPda, sponsorPda, spillPda, ticketPda, MAX_GROW_LINES } from "./basket";
 import { encodeStore, lineOf } from "./basket-fixture";
 import {
@@ -201,6 +202,11 @@ describe("join_match and the holds", () => {
     expect(f.outsideStudio?.toBase58()).toBe(studio.toBase58());
     expect(studioRemaining(studio).map((m) => m.isWritable)).toEqual([true, true]);
     expect(studioRemaining(null)).toEqual([]);
+    // with the Match it also names the Studio's overflow record, which the join needs when the Studio's stores are full
+    const withRecord = studioRemaining(studio, { opener: new PublicKey(new Uint8Array(32).fill(5)), n: 3n });
+    expect(withRecord).toHaveLength(3);
+    expect(withRecord[2].isWritable).toBe(true);
+    expect(withRecord[2].pubkey.toBase58()).toBe(matchOverflowPda(studio, { opener: new PublicKey(new Uint8Array(32).fill(5)), n: 3n }).toBase58());
   });
 });
 

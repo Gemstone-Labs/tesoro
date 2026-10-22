@@ -2,6 +2,7 @@ export type Change = { date: string; iso: string; title: string; body: string; h
 
 /** What changed recently, in Player words. Dated from the merges on main; newest first. */
 export const CHANGES: Change[] = [
+  { date: "22 Oct", iso: "2026-10-22", title: "Backers answer Requests", body: "Public Offers are gone. To back a Player, pick their Request and make an Offer; they accept or decline.", href: "/docs/backing" },
   { date: "19 Oct", iso: "2026-10-19", title: "Vanguard", body: "The fourth Game: blitz Stratego on a 10x10 desert board. Hidden ranks, 5 seconds a move, capture the enemy Supply Truck to win. Play now, Practice free or Challenge a friend.", href: "/docs/matches#vanguard" },
   { date: "19 Oct", iso: "2026-10-19", title: "Buckshot Hold'em", body: "Heads-up Hold'em has a new name. Same Game, same rules.", href: "/docs/matches#holdem" },
   { date: "19 Oct", iso: "2026-10-19", title: "Limits and Breaks", body: "Set an Entry Limit for any 7 days, take a Break from one day to six weeks, or exclude yourself for six months or more. Unlock and Redeem always work. Find them under Edit profile." },

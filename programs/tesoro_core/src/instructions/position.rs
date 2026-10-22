@@ -145,6 +145,7 @@ pub(crate) fn take_advance<'info>(
     mut ctx: Context<'_, '_, 'info, 'info, TakeAdvance<'info>>,
     horizon_months: u8,
     price_micro_usd: u64,
+    min_gemas: u64,
 ) -> Result<()> {
     require!(
         !ctx.accounts.config.oracle_locked,
@@ -182,6 +183,7 @@ pub(crate) fn take_advance<'info>(
         horizon_months,
         price_micro_usd,
         fee,
+        min_gemas,
     )
 }
 

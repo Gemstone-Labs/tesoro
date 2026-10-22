@@ -5,7 +5,7 @@ import type { WaitingRecord } from "@/lib/chain/overflow";
 import { WaitingForRoomView } from "./WaitingForRoom";
 
 const k = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
-const record = (gemas: bigint): WaitingRecord => ({ address: k(1), owner: k(2), payer: k(3), kind: 0, gemas, lines: 1, sources: [k(4)] });
+const record = (gemas: bigint): WaitingRecord => ({ address: k(1), owner: k(2), payer: k(3), kind: 0, match: null, gemas, lines: 1, sources: [k(4)] });
 
 describe("Gemas waiting for room", () => {
   it("says how many wait and offers a Claim", () => {
