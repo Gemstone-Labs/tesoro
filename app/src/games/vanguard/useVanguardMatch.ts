@@ -7,9 +7,10 @@ import { getChain, getVanguard } from "@/lib/chain/client";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { commitPhase, isCommitPending, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
-import { refusalLine } from "./refusal";
+import { isStale, refusalLine } from "./refusal";
 import { PublicKey } from "@solana/web3.js";
-import { VANGUARD_PROGRAM_ID, addresses, type PlayerSigner } from "./chain";
+import { VANGUARD_PROGRAM_ID, addresses, type DeclareSeal, type PlayerSigner } from "./chain";
+import { SealLedger, SealLocked, sealDeclare, sealPad, type SealedEntry } from "./seal";
 import { turnKey } from "./clock";
 import { actionsDue, canDelegate, contributeBundled, readDue, tickDelayMs } from "./driver";
 import { STATUS, battleKey, decodeBattle, type ArmyAccount, type Battle } from "./decode";
@@ -37,6 +38,35 @@ export interface VanguardView {
   /** Reads of the Battle keep failing: the board shown may be behind. */
   reconnecting: boolean;
 }
+
+/** What a Player's action carries besides its piece: Become a Spy rides on the action (free, secret). */
+export interface ActionOptions {
+  spy?: boolean;
+}
+
+/** The sealed-bytes ledger survives a reload of the page (sessionStorage), so a retry after a reload still resends the same bytes. */
+function sealStore(matchId: bigint, seat: number) {
+  const key = `vanguard-seal:${matchId}:${seat}`;
+  return {
+    load: (): SealedEntry[] => {
+      try {
+        const raw = window.sessionStorage.getItem(key);
+        return raw ? (JSON.parse(raw) as SealedEntry[]) : [];
+      } catch {
+        return [];
+      }
+    },
+    save: (entries: SealedEntry[]) => {
+      try {
+        window.sessionStorage.setItem(key, JSON.stringify(entries));
+      } catch {
+        // storage can be blocked; the in-memory ledger still holds for this page
+      }
+    },
+  };
+}
+
+const sameArmy = (a: ArmyAccount, b: ArmyAccount): boolean => a.moves === b.moves && a.fuel === b.fuel && a.side === b.side && a.ranks.every((r, i) => r === b.ranks[i]);
 
 /** How long the Player who does not settle at once waits before settling a still-open Match. */
 const FINALIZE_GRACE_MS = 20_000;
@@ -85,6 +115,8 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
   const lastClaim = useRef(0);
   const lastResolve = useRef(0);
   const battleRef = useRef<Battle | null>(null);
+  const armyRef = useRef<ArmyAccount | null>(null);
+  const ledgerRef = useRef<{ key: string; ledger: SealLedger } | null>(null);
   const lastUpdate = useRef(0);
   const lastRead = useRef(0);
   const armyKey = useRef("");
@@ -333,7 +365,10 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       if (key === armyKey.current) return;
       armyKey.current = key;
       const army = await getVanguard().readOwnArmy(p, id, seat).catch(() => null);
-      if (army && army.ranks.some((r) => r !== 0) && !stop) setView((v) => (v.army && v.army.moves === army.moves && v.army.fuel === army.fuel && v.army.side === army.side ? v : { ...v, army }));
+      if (army && army.ranks.some((r) => r !== 0) && !stop) {
+        armyRef.current = army;
+        setView((v) => (v.army && sameArmy(v.army, army) ? v : { ...v, army }));
+      }
     };
     // What to send from the Battle held, no reads: a declared move or timeout waits for a later slot (either Player
     // or the keeper applies it), and past a deadline the program passes the turn, ends the Match on the cap or
@@ -397,23 +432,82 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
 
   // -- Player decisions -----------------------------------------------------------------------
 
-  /** Send a move. Resolves when the rollup confirmed it, rejects (with a plain message) when it did not. */
-  const move = useCallback(
-    async (piece: number, to: number) => {
+  /**
+   * The sealing for the declare about to be sent: the Battle's `action_seq` now and the sealed bytes of this turn. The
+   * ledger hands back the same bytes for a seq it already sealed, and refuses a different choice for it.
+   */
+  const sealFor = useCallback(
+    async (o: ActionOptions, withSlot: boolean, digIn: number | null): Promise<DeclareSeal & { sealedSlot: number }> => {
+      const b = battleRef.current;
+      const army = armyRef.current;
+      const seat = seatRef.current;
+      if (!b || !army || seat === null || id === null) throw new Error("Not ready");
+      const hex = Array.from(army.sealKey, (x) => x.toString(16).padStart(2, "0")).join("");
+      if (ledgerRef.current?.key !== hex) {
+        const battle = addresses(id).battle.toBytes();
+        ledgerRef.current = { key: hex, ledger: new SealLedger((seq, field) => sealPad(army.sealKey, battle, seat, seq, field), sealStore(id, seat)) };
+      }
+      return sealDeclare(ledgerRef.current.ledger, b.actionSeq, army, { spy: !!o.spy, withSlot, digIn });
+    },
+    [id],
+  );
+
+  /** A declare landed: the program applies it in a later slot. Try right away; the poll keeps trying if this misses. */
+  const applyDeclared = useCallback(async () => {
+    if (!p || id === null) return;
+    const vg = getVanguard();
+    for (let i = 0; i < 4; i++) {
+      if (await vg.resolve(p, id).then(() => true, () => false)) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }, [p, id]);
+
+  /** Send one declare. A stale `expected_seq` re-reads the Battle (the board snaps to what is confirmed); the message says what happened. */
+  const declare = useCallback(
+    async (send: () => Promise<unknown>) => {
       if (!p || id === null) throw new Error("Not ready");
       try {
-        const vg = getVanguard();
-        await vg.movePiece(p, id, piece, to);
-        // Applying it needs a later slot: try right away, the poll keeps trying if this misses.
-        for (let i = 0; i < 4; i++) {
-          if (await vg.resolve(p, id).then(() => true, () => false)) break;
-          await new Promise((r) => setTimeout(r, 250));
-        }
+        await send();
+        await applyDeclared();
       } catch (e) {
+        if (e instanceof SealLocked) throw new Error(e.message);
+        if (isStale(e)) {
+          const fresh = await getVanguard().readBattle(p, id).catch(() => null);
+          if (fresh) applyBattle(fresh);
+        }
         throw new Error(refusalLine(e));
       }
     },
-    [p, id],
+    [p, id, applyDeclared, applyBattle],
+  );
+
+  /** Send a move. Resolves when the rollup confirmed it, rejects (with a plain message) when it did not. */
+  const move = useCallback(
+    async (piece: number, to: number, o: ActionOptions = {}) =>
+      declare(async () => {
+        const seal = await sealFor(o, false, null);
+        return getVanguard().movePiece(p!, id!, piece, to, seal);
+      }),
+    [declare, sealFor, p, id],
+  );
+
+  /** Blast or Rescue with `piece`, or Dig in (a pass whose sealed slot names the Major). */
+  const power = useCallback(
+    async (kind: "blast" | "rescue" | "dig_in", piece: number, o: ActionOptions = {}) =>
+      declare(async () => {
+        const vg = getVanguard();
+        if (kind === "dig_in") return vg.pass(p!, id!, await sealFor(o, true, piece));
+        const seal = await sealFor(o, false, null);
+        return kind === "blast" ? vg.blast(p!, id!, piece, seal) : vg.rescue(p!, id!, piece, seal);
+      }),
+    [declare, sealFor, p, id],
+  );
+
+  /** Pass the turn on purpose: a missed turn. */
+  const passTurn = useCallback(
+    async (o: ActionOptions = {}) =>
+      declare(async () => getVanguard().pass(p!, id!, await sealFor(o, true, null))),
+    [declare, sealFor, p, id],
   );
 
   const twoStep = useCallback(async () => {
@@ -440,5 +534,5 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
     [patch, addSig],
   );
 
-  return { view, move, twoStep, tick, run };
+  return { view, move, power, passTurn, twoStep, tick, run };
 }

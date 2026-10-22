@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAP_MS, CHAIN_CLOCK, OPENING_GRACE_MS, PRACTICE_CLOCK, DEPOTS, ROSTER, START_SQUARES, fight, startGame, startIndex, isWadi, move, newGame, placeArmy, seeded, REFUSALS, startTwoStep, storm, targets, timeout, TURN_MS, type Game, type Piece, type Rank } from "./rules";
+import { CAP_MS, CHAIN_CLOCK, RULES_VERSION, OPENING_GRACE_MS, PRACTICE_CLOCK, DEPOTS, ROSTER, START_SQUARES, fight, startGame, startIndex, isWadi, move, newGame, placeArmy, seeded, REFUSALS, startTwoStep, storm, targets, timeout, TURN_MS, type Game, type Piece, type Rank } from "./rules";
 
 const T0 = 1_000_000;
 
@@ -28,6 +28,8 @@ function game(pieces: Piece[], over: Partial<Game> = {}): Game {
     eventSeq: 0,
     winner: null,
     reason: null,
+    version: RULES_VERSION,
+    changed: {},
     ...over,
   };
 }
@@ -72,12 +74,12 @@ describe("combat", () => {
     expect(fight("6", "6")).toBe("tie");
     expect(fight("1", "10")).toBe("win");
     expect(fight("10", "1")).toBe("win");
-    expect(fight("3", "B")).toBe("defuse");
+    expect(fight("3", "B")).toBe("mine"); // v6: the Engineer no longer defuses (see powers.test.ts for v5)
     expect(fight("10", "B")).toBe("mine");
     expect(fight("2", "F")).toBe("truck");
   });
   it("a lost attack flashes only the attacker; the winning defender stays hidden", () => {
-    const g = game([P(1, "us", "4", 6, 0), P(2, "it", "7", 5, 0)]);
+    const g = game([P(1, "us", "3", 6, 0), P(2, "it", "7", 5, 0)]);
     const { game: g2, events } = go(g, 1, 5, 0);
     const a = events.find((e) => e.kind === "attack");
     expect(a).toMatchObject({ outcome: "lose", flash: [1] });
@@ -177,7 +179,7 @@ describe("depots", () => {
 
 describe("clock and storm", () => {
   it("three timeouts in a row lose the Match", () => {
-    let g = game([P(1, "us", "5", 9, 0), P(2, "it", "4", 0, 9)]);
+    let g = game([P(1, "us", "5", 9, 0), P(2, "it", "3", 0, 9)]);
     const expire = (x: Game) => {
       const r = timeout(x, x.deadline + 1);
       if (!r.ok) throw new Error(r.reason);

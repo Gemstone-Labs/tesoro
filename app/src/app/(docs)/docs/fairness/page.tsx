@@ -32,7 +32,7 @@ export default function Page() {
         <li><b>Hold&apos;em.</b> The deck and each Player&apos;s hole cards are private. Your cards are readable only by you; cards become public only at a showdown.</li>
         <li><b>Block Burst.</b> The pieces for a Match are generated at random and are not visible to anyone, including you, until your own run begins. Your moves stay hidden until both runs are closed.</li>
         <li><b>Trading Duel.</b> Each Player&apos;s picks stay hidden until their column locks, ten seconds before the line reaches it, and both full sets of picks are published afterwards.</li>
-        <li><b>Vanguard.</b> The rank of each of your pieces is readable only by you. An enemy piece shows its rank only once it has fought, and a piece that loses an attack stays hidden.</li>
+        <li><b>Vanguard.</b> The rank of each of your pieces is readable only by you. An enemy piece shows its rank only once it has fought, and a piece that loses an attack stays hidden. A Major that digs in and a General of the Army that becomes a Spy are sealed: your opponent sees a turn pass, never which piece changed. A Blast or a Rescue is public. When the Match ends everything is shown.</li>
       </ul>
       <p>
         This is done with MagicBlock&apos;s private environment, which runs on secure hardware. Randomness comes from a verifiable random-number service

@@ -10,7 +10,7 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 .vg-bar-tools { display: flex; gap: 6px; }
 
 /* plates: avatar with the turn ring, name, pieces left, turn and Two-Step */
-.vg-plate { width: min(100%, 640px); display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(12, 9, 6, 0.72); border: 1px solid rgba(201, 145, 58, 0.18); border-radius: 4px; }
+.vg-plate { width: min(100%, 640px); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 10px; background: rgba(12, 9, 6, 0.72); border: 1px solid rgba(201, 145, 58, 0.18); border-radius: 4px; }
 .vg-plate.active { border-color: rgba(232, 190, 110, 0.55); }
 .vg-ava { position: relative; width: 52px; height: 52px; display: grid; place-items: center; flex: none; }
 .vg-ava-img { width: 40px; height: 40px; border-radius: 50%; }
@@ -19,7 +19,7 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 .vg-ring-track { stroke: rgba(255, 255, 255, 0.08); }
 .vg-ring-arc { stroke: #e8be6e; transition: stroke 0.2s; }
 .vg-ava.low .vg-ring-arc { stroke: var(--warn, #f2a63b); }
-.vg-who { display: grid; line-height: 1.2; min-width: 0; }
+.vg-who { display: grid; line-height: 1.2; min-width: 0; flex: 1 1 7em; }
 .vg-who b { font: 800 18px/1 var(--f-display); text-transform: uppercase; letter-spacing: 0.02em; }
 .vg-who small { color: var(--fg-2, #9aa4ad); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vg-turn { margin-left: auto; font: 600 12px/1 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: #e8be6e; white-space: nowrap; }
@@ -33,6 +33,7 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 .vg-two.earned { animation: vg-two-earned 0.9s ease-out 3; }
 @keyframes vg-two-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(232, 190, 110, 0.5); } 50% { box-shadow: 0 0 0 7px rgba(232, 190, 110, 0); } }
 @keyframes vg-two-earned { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 236, 170, 0.9); } 40% { transform: scale(1.08); box-shadow: 0 0 0 12px rgba(255, 236, 170, 0); } 100% { transform: scale(1); } }
+.vg-two { min-height: 44px; }
 .vg-two:focus-visible { outline: 2px solid var(--fg, #fff); outline-offset: 2px; }
 .vg-missed { margin-left: auto; font: 600 12px/1 var(--f-mono); letter-spacing: 0.04em; color: var(--fg-2, #9aa4ad); white-space: nowrap; }
 .vg-missed.last { color: var(--warn, #f2a63b); }
@@ -254,4 +255,135 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 
 @media (prefers-reduced-motion: reduce) {
   .vg-say { animation: none !important; }
+}
+/* ---- Rank powers ---- */
+/* jump marks: the dot is a ring, and an arc runs from the piece over what it jumps */
+.vg-over { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; overflow: visible; }
+.vg-arc { fill: none; stroke: #ffe9a8; stroke-width: 2.5px; stroke-linecap: round; stroke-dasharray: 5 5; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.8)); animation: vg-arc-run 0.9s linear infinite; }
+@keyframes vg-arc-run { to { stroke-dashoffset: -20; } }
+.vg-mark.jump { background: radial-gradient(circle, rgba(255, 236, 170, 0.9) 0 9%, rgba(255, 236, 170, 0) 11%, rgba(255, 236, 170, 0) 26%, rgba(255, 236, 170, 0.85) 28% 33%, rgba(255, 236, 170, 0) 35%); }
+.vg-mark.jump.atk { background: none; }
+.vg-rescue-arrow { fill: none; stroke: #a8f0b4; stroke-width: 4px; stroke-linecap: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.9)); stroke-dasharray: 7 6; animation: vg-arc-run 0.7s linear infinite; }
+.vg-head { fill: #a8f0b4; stroke: #1c3a22; stroke-width: 1; }
+/* a Blast previews the 8 squares it will show */
+.vg-pv { position: absolute; z-index: 9; width: var(--vg-sq); height: var(--vg-sq); box-sizing: border-box; pointer-events: none; border: 3px dashed #ffd36a; background: rgba(255, 211, 106, 0.16); box-shadow: inset 0 0 0 1px rgba(40, 20, 0, 0.7), 0 0 0 1px rgba(40, 20, 0, 0.7); animation: vg-pv 0.9s ease-in-out infinite alternate; }
+@keyframes vg-pv { from { background: rgba(255, 211, 106, 0.08); } to { background: rgba(255, 211, 106, 0.28); } }
+
+/* the owner's badges: the old rank in a small brass disc at the bottom right; the eye = the enemy has seen this piece */
+.vg-was { --b: max(18px, calc(var(--w) * 0.27)); position: absolute; right: 2%; bottom: 4%; width: var(--b); height: var(--b); display: grid; place-items: center; border-radius: 50%; background: var(--army); border: 1.5px solid #f4e8c8; color: #fff6dc; font: 800 calc(var(--b) * 0.62) / 1 var(--f-display); letter-spacing: -0.02em; }
+/* the enemy has seen this piece: a warm red glow round the rim and a red edge on the face (the target ring is on the face's ::before, so the two never meet) */
+.vg-piece.exposed .vg-coin3d { filter: drop-shadow(0 0 max(1.5px, calc(var(--w) * 0.03)) rgba(255, 74, 44, 0.95)) drop-shadow(0 0 calc(var(--w) * 0.12) rgba(255, 60, 30, 0.6)); }
+.vg-piece.exposed .vg-face { box-shadow: 0 0 0 max(1.5px, calc(var(--w) * 0.03)) #ff5a3c; }
+.vg-piece.exposed.sel .vg-coin3d { filter: drop-shadow(0 0 max(1.5px, calc(var(--w) * 0.03)) rgba(255, 74, 44, 0.95)) drop-shadow(0 0 calc(var(--w) * 0.18) rgba(255, 60, 30, 0.7)); }
+/* a hop: the ground path is a constant-speed slide (linear left/top transition); the lift is a parabola
+   sampled below, so rise and fall are symmetric and soft at the top. The shadow stays on the ground:
+   it cancels the lift, shrinks and fades as the piece rises. */
+.vg-piece.hop { z-index: 34; transition-timing-function: linear; }
+.vg-piece.hop .vg-pb { animation: vg-hop var(--hop-ms, 600ms) linear both; }
+.vg-piece.hop .vg-sh { animation: vg-hop-sh var(--hop-ms, 600ms) linear both; }
+@keyframes vg-hop {
+  0% { transform: translateY(-0.00%) scale(1.000) }
+  5% { transform: translateY(-6.84%) scale(1.038) }
+  10% { transform: translateY(-12.96%) scale(1.072) }
+  15% { transform: translateY(-18.36%) scale(1.102) }
+  20% { transform: translateY(-23.04%) scale(1.128) }
+  25% { transform: translateY(-27.00%) scale(1.150) }
+  30% { transform: translateY(-30.24%) scale(1.168) }
+  35% { transform: translateY(-32.76%) scale(1.182) }
+  40% { transform: translateY(-34.56%) scale(1.192) }
+  45% { transform: translateY(-35.64%) scale(1.198) }
+  50% { transform: translateY(-36.00%) scale(1.200) }
+  55% { transform: translateY(-35.64%) scale(1.198) }
+  60% { transform: translateY(-34.56%) scale(1.192) }
+  65% { transform: translateY(-32.76%) scale(1.182) }
+  70% { transform: translateY(-30.24%) scale(1.168) }
+  75% { transform: translateY(-27.00%) scale(1.150) }
+  80% { transform: translateY(-23.04%) scale(1.128) }
+  85% { transform: translateY(-18.36%) scale(1.102) }
+  90% { transform: translateY(-12.96%) scale(1.072) }
+  95% { transform: translateY(-6.84%) scale(1.038) }
+  100% { transform: translateY(-0.00%) scale(1.000) }
+}
+@keyframes vg-hop-sh {
+  0% { transform: translateY(0.00%) scale(1.000); opacity: 1.000; filter: blur(calc(var(--w) * 0.050)); }
+  5% { transform: translateY(8.00%) scale(0.918); opacity: 0.962; filter: blur(calc(var(--w) * 0.058)); }
+  10% { transform: translateY(15.16%) scale(0.849); opacity: 0.928; filter: blur(calc(var(--w) * 0.064)); }
+  15% { transform: translateY(21.48%) scale(0.792); opacity: 0.898; filter: blur(calc(var(--w) * 0.070)); }
+  20% { transform: translateY(26.96%) scale(0.745); opacity: 0.872; filter: blur(calc(var(--w) * 0.076)); }
+  25% { transform: translateY(31.59%) scale(0.707); opacity: 0.850; filter: blur(calc(var(--w) * 0.080)); }
+  30% { transform: translateY(35.38%) scale(0.676); opacity: 0.832; filter: blur(calc(var(--w) * 0.084)); }
+  35% { transform: translateY(38.33%) scale(0.654); opacity: 0.818; filter: blur(calc(var(--w) * 0.086)); }
+  40% { transform: translateY(40.44%) scale(0.638); opacity: 0.808; filter: blur(calc(var(--w) * 0.088)); }
+  45% { transform: translateY(41.70%) scale(0.628); opacity: 0.802; filter: blur(calc(var(--w) * 0.090)); }
+  50% { transform: translateY(42.12%) scale(0.625); opacity: 0.800; filter: blur(calc(var(--w) * 0.090)); }
+  55% { transform: translateY(41.70%) scale(0.628); opacity: 0.802; filter: blur(calc(var(--w) * 0.090)); }
+  60% { transform: translateY(40.44%) scale(0.638); opacity: 0.808; filter: blur(calc(var(--w) * 0.088)); }
+  65% { transform: translateY(38.33%) scale(0.654); opacity: 0.818; filter: blur(calc(var(--w) * 0.086)); }
+  70% { transform: translateY(35.38%) scale(0.676); opacity: 0.832; filter: blur(calc(var(--w) * 0.084)); }
+  75% { transform: translateY(31.59%) scale(0.707); opacity: 0.850; filter: blur(calc(var(--w) * 0.080)); }
+  80% { transform: translateY(26.96%) scale(0.745); opacity: 0.872; filter: blur(calc(var(--w) * 0.076)); }
+  85% { transform: translateY(21.48%) scale(0.792); opacity: 0.898; filter: blur(calc(var(--w) * 0.070)); }
+  90% { transform: translateY(15.16%) scale(0.849); opacity: 0.928; filter: blur(calc(var(--w) * 0.064)); }
+  95% { transform: translateY(8.00%) scale(0.918); opacity: 0.962; filter: blur(calc(var(--w) * 0.058)); }
+  100% { transform: translateY(0.00%) scale(1.000); opacity: 1.000; filter: blur(calc(var(--w) * 0.050)); }
+}
+.vg-piece.fresh .vg-art, .vg-piece.fresh .vg-was { animation: vg-morph 0.7s ease-out; }
+@keyframes vg-morph { 0% { transform: scale(0.55); filter: brightness(2.2); } 60% { transform: scale(1.12); filter: brightness(1.4); } 100% { transform: none; filter: none; } }
+/* the Rescued Truck flies: up, over, down */
+.vg-piece.fly { z-index: 33; }
+.vg-piece.fly .vg-pb { animation: vg-fly 0.7s ease-in-out; }
+@keyframes vg-fly { 0%, 100% { transform: translateY(0) scale(1); } 45% { transform: translateY(-34%) scale(1.45); } }
+.vg-fx.dust { mix-blend-mode: normal; -webkit-mask-image: radial-gradient(circle, #000 30%, transparent 68%); mask-image: radial-gradient(circle, #000 30%, transparent 68%); background-image: url(/art/vanguard/fx-dust-alpha.webp); background-size: 260% 100%; background-position: 40% 50%; }
+
+/* power button: the same button for Blast, Rescue, Dig in and Become a Spy, next to the Two-Step button */
+.vg-power { min-height: 44px; font: 800 15px/1 var(--f-display); letter-spacing: 0.08em; text-transform: uppercase; border-radius: 3px; padding: 0 16px; cursor: pointer; white-space: nowrap;
+  border: 1px solid #5a1d0e; background: linear-gradient(#f2a265, #c4552a 55%, #9b3a1b); color: #2a0c04; text-shadow: 0 1px 0 rgba(255, 220, 190, 0.5); box-shadow: inset 0 1px 0 rgba(255, 226, 200, 0.7), 0 2px 0 #3a1608; }
+.vg-power.on { background: linear-gradient(#ffe08a, #f0b43c 55%, #c98a1d); border-color: #5a3a0a; color: #2a1706; }
+.vg-power:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+/* Pass sits in the same row but reads as the quiet option next to the powers */
+.vg-power.vg-pass { background: linear-gradient(#5b5346, #3c362c 55%, #2b261e); border-color: #14110c; color: #e6d8b4; text-shadow: none; box-shadow: inset 0 1px 0 rgba(255, 240, 200, 0.25), 0 2px 0 #14110c; }
+.vg-hint.vg-pass-warn { color: var(--warn, #f2a63b); }
+
+/* enemy roster: notes row, the 10's open question */
+.vg-roster span.maybe { box-shadow: 0 0 0 1px #060302, inset 0 0 0 1px #f6d98e, inset 0 0 8px rgba(0, 0, 0, 0.6); border-style: dashed; }
+.vg-roster .vg-notes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px 12px; justify-content: center; padding: 2px 0 0; background: none; box-shadow: none; font: 600 12px/1.3 var(--f-mono); color: #f6d98e; }
+.vg-screen .vg-roster span.vg-notes { background: none; box-shadow: none; }
+
+/* in-game rules sheet and the end panel's changed pieces */
+.vg-rules { --rv: radial-gradient(circle, #f6dc9a 0 1.4px, #94692a 2.4px 3.4px, rgba(0, 0, 0, 0.55) 4px, transparent 5px);
+  position: absolute; z-index: 65; inset: 2% 2% auto; max-height: 96%; overflow-y: auto; overscroll-behavior: contain; padding: 14px 18px 14px; display: grid; gap: 10px; align-content: start; border-radius: 4px;
+  background: var(--rv) left 5px top 5px / 10px 10px no-repeat, var(--rv) right 5px top 5px / 10px 10px no-repeat,
+    linear-gradient(rgba(22, 11, 5, 0.62), rgba(8, 4, 2, 0.86)), url(/art/vanguard/ui/wood.webp) 0 0 / 300px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.7), 0 0 0 1px #060302, inset 0 1px 0 1px rgba(255, 238, 180, 0.5), inset 0 0 0 2px #b88a3c, inset 0 0 0 3px #2e1a08, inset 0 0 18px rgba(0, 0, 0, 0.6); }
+.vg-rules-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; position: sticky; top: -14px; margin: -14px -18px 0; padding: 14px 18px 8px; z-index: 1; background: linear-gradient(rgba(22, 11, 5, 0.97) 70%, transparent); }
+.vg-rules h3 { margin: 0; font: 800 22px/1 var(--f-display); text-transform: uppercase; letter-spacing: 0.1em; color: #f9e6b0; text-shadow: 0 -1px 0 #000, 0 1px 0 rgba(255, 225, 150, 0.25); }
+.vg-rules-x { min-height: 36px; padding: 0 14px; border: 1px solid #4a300d; border-radius: 3px; cursor: pointer; background: linear-gradient(#f0d184, #b98a34 55%, #9d7126); color: #2a1706; font: 800 13px/1 var(--f-display); letter-spacing: 0.08em; text-transform: uppercase; box-shadow: inset 0 1px 0 rgba(255, 246, 200, 0.8), 0 2px 0 #3a2408; }
+.vg-rules-x:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.vg-rules-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.vg-rules-list li { display: grid; grid-template-columns: 42px 1fr; gap: 12px; align-items: center; padding: 4px 8px 4px 6px; border-radius: 3px; background: linear-gradient(rgba(22, 11, 5, 0.4), rgba(8, 4, 2, 0.62)); box-shadow: 0 0 0 1px #060302, inset 0 0 0 1px rgba(154, 114, 48, 0.7); }
+.vg-rules-text { display: grid; gap: 2px; font-size: 14px; line-height: 1.3; color: #efe0b8; }
+.vg-rules-name { font: 800 15px/1.1 var(--f-display); letter-spacing: 0.08em; text-transform: uppercase; color: #f6d98e; text-shadow: 0 -1px 0 #000; }
+/* a marker as it looks on the board: brass rim, the army's art, the rank in a small cream disc */
+.vg-rules-coin { position: relative; width: 42px; height: 42px; border-radius: 50%; padding: 3px; flex: none; background: linear-gradient(180deg, #f6d98e 0%, #d8a24a 30%, #b07428 62%, #e8b45e 88%, #fbe2a0 100%); box-shadow: 0 0 0 1px #2a1206, 0 3px 0 #3a1a08, 0 5px 6px rgba(0, 0, 0, 0.55); }
+.vg-rules-coin > span { display: block; width: 100%; height: 100%; border-radius: 50%; background: center / cover no-repeat; box-shadow: 0 0 0 1px rgba(60, 35, 10, 0.6); }
+.vg-rules-coin b { position: absolute; left: 8px; top: 8px; width: 17px; height: 17px; transform: translate(-50%, -50%); display: grid; place-items: center; border-radius: 50%; background: #f4e8c8; border: 1.5px solid #7b4d1c; color: #1b140d; font: 800 12px/1 var(--f-display); letter-spacing: -0.02em; }
+.vg-rules-legend { display: grid; grid-template-columns: 42px 1fr; gap: 12px; align-items: center; margin: 0; padding: 4px 8px 8px 6px; border-bottom: 1px solid rgba(184, 138, 60, 0.4); font-size: 14px; line-height: 1.3; color: #efe0b8; }
+.vg-rules-coin.seen { filter: drop-shadow(0 0 1.5px rgba(255, 74, 44, 0.95)) drop-shadow(0 0 6px rgba(255, 60, 30, 0.6)); box-shadow: 0 0 0 2px #ff5a3c, 0 3px 0 #3a1a08; }
+.vg-end-changes { margin: 2px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; font-size: 13px; color: var(--fg-2, #c8b88a); }
+
+@media (max-width: 520px) {
+  .vg-power { flex: 1 1 auto; justify-content: center; }
+  .vg-roster span { font-size: 10px; }
+  /* the board is small on a phone: the sheet covers the screen instead */
+  .vg-rules { position: fixed; z-index: 200; inset: 8px; max-height: none; padding: 12px; }
+  .vg-rules-head { top: -12px; margin: -12px -12px 0; padding: 12px 12px 8px; }
+  .vg-rules-list li, .vg-rules-legend { grid-template-columns: 40px 1fr; gap: 10px; }
+  .vg-rules-coin { width: 40px; height: 40px; }
+  .vg-rules-coin b { left: 7px; top: 7px; }
+  .vg-rules-text { font-size: 13px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vg-arc, .vg-rescue-arrow, .vg-pv, .vg-piece.fresh .vg-art, .vg-piece.fresh .vg-was, .vg-piece.fly .vg-pb, .vg-piece.hop .vg-pb, .vg-piece.hop .vg-sh { animation: none; }
+  .vg-pv { background: rgba(255, 211, 106, 0.22); }
+  .vg-piece.fly .vg-pb { transform: scale(1.3); }
 }

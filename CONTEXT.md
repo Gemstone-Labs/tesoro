@@ -76,7 +76,7 @@ A `.sol` (Solana Name Service) or `.eth` (ENS) primary name of a wallet the Play
 ### Play
 
 **Game**:
-A title in Tesoro's catalogue, made by a Studio. The catalogue is four Games: Buckshot Hold'em (heads-up poker, real-time), a block-placement puzzle (async), Trading Duel (real-time, two Players pick boxes on a price grid and score when the live price line passes through them, over two and a half minutes) and Vanguard (real-time blitz Stratego: hidden ranks, 5 seconds a move, capture the enemy Supply Truck).
+A title in Tesoro's catalogue, made by a Studio. The catalogue is four Games: Buckshot Hold'em (heads-up poker, real-time), a block-placement puzzle (async), Trading Duel (real-time, two Players pick boxes on a price grid and score when the live price line passes through them, over two and a half minutes) and Vanguard (real-time blitz Stratego: hidden ranks, 10 seconds a move, every rank has a power, capture the enemy Supply Truck).
 _Avoid_: app, title, Match (a single contest)
 
 **Seed**:
@@ -135,6 +135,56 @@ _Avoid_: score (a game's own result), XP, rank
 **Studio**:
 The maker of a game listed on Tesoro. Tesoro's own games have Tesoro as their Studio.
 _Avoid_: developer, partner, publisher
+
+### Vanguard
+
+**Supply Truck**:
+Each Army's objective piece in Vanguard. Capturing the enemy Supply Truck wins the Match. It moves one square, three times in all, never in two of its own turns in a row, and is shown to the enemy after its third drive. Rescue can send it across the board.
+_Avoid_: flag, king
+
+**Landmine**:
+A Vanguard piece that never moves and beats every attacker, whatever its rank, and stays. Nothing clears it: the Engineer used to (before rules version 6) and no longer does. A Major that digs in becomes one.
+_Avoid_: bomb, mine (in UI copy), defuse
+
+**Depot**:
+The square in each Army's base that the enemy raids. A one-square step onto it claims it once per Match and banks a Two-Step Turn. Jumps, wadi crossings, Recon runs, Rescues and the Dust Storm never claim one.
+_Avoid_: base, flag square
+
+**Two-Step Turn**:
+A turn of two steps instead of one, banked by raiding the enemy Depot and spent before moving. Each step is one square for every piece; no Jump, wadi crossing, run or power except Become a Spy.
+_Avoid_: double move, extra turn
+
+**Dust Storm**:
+Once per Match, on a turn between the 10th and the 18th, a random row or column with at least two pieces drifts one square. It is blind to rank and never claims a Depot.
+_Avoid_: sandstorm, shuffle
+
+**Power**:
+What a Vanguard rank can do beyond moving one square and attacking. Every rank has one: Spy beats the 10 when it attacks; Recon runs any distance in a line; Engineer Blasts; Sergeant slides on diagonals; Lieutenant Jumps; Captain steps in 8 directions; Major Digs in; Colonel Rescues; General crosses a wadi; General of the Army Becomes a Spy.
+_Avoid_: ability, skill, special
+
+**Blast**:
+The Engineer's power. It blows itself up (it leaves the board and is shown) and every piece on the squares around it, the enemy's and its own, turns face up for good. Nothing else is hurt. Uses the turn.
+_Avoid_: explosion, defuse
+
+**Jump**:
+The Lieutenant's power. Besides its step, it may jump one neighbouring piece, either Army's, straight up, down, left or right onto the empty or enemy-held square right behind it. It can't jump a wadi. (The General's wadi crossing is a different power: it crosses a wadi, not a piece.)
+_Avoid_: leap, hop
+
+**Dig in**:
+The Major's power. It turns the Major into a Landmine for good; it never moves again. Sealed: the opponent can't tell which piece dug in, and a face-down Dig in is a Pass in public. Counts as a missed turn.
+_Avoid_: fortify, bury
+
+**Rescue**:
+The Colonel's power. The Colonel blows itself up (it leaves the board and is shown) and its Army's Supply Truck jumps from anywhere onto its square. Everyone sees where the Truck went. Costs no fuel and uses the turn.
+_Avoid_: teleport, recall
+
+**Become a Spy**:
+The General of the Army's power. It turns into a Spy for good, so it can beat the enemy 10 without trading pieces. Free: it doesn't use the turn, and the Player makes their action in the same turn. Sealed, like Dig in; a switch never has an event of its own unless the piece was already face up.
+_Avoid_: disguise, downgrade
+
+**Pass**:
+Giving up a Vanguard turn on purpose. A Pass counts as a missed turn: three in a row, Passes and timeouts mixed, lose the Match. It is not a move toward the 200-move cap and is refused inside a Two-Step Turn.
+_Avoid_: skip, forfeit
 
 ### Backing
 

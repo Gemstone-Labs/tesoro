@@ -1,5 +1,6 @@
 import { STATUS, type Battle } from "./decode";
-import type { EndReason } from "./rules";
+import { NAMES, type Army, type EndReason } from "./rules";
+import { armyOfPiece, mySide } from "./view";
 
 const REASONS: EndReason[] = ["truck", "stuck", "timeouts", "cap"];
 
@@ -33,3 +34,26 @@ export function endWhy(b: Battle, seat: number): EndWhy | null {
 
 /** The line under the board once the Battle is decided, from this Player's seat. */
 export const endLine = (b: Battle, seat: number): string => endWhy(b, seat)?.line ?? LINE.cap.won;
+
+export interface ChangedPiece {
+  id: number;
+  mine: boolean;
+  text: string;
+}
+
+/**
+ * The end panel's marks, from the end mask the program writes when the Match ends (and not before): every piece whose rank
+ * changed, dead ones included. A changed piece plays as a Landmine (a Major that dug in) or a Spy (a General of the Army that
+ * became one), which is the rank the Battle publishes for it. Empty for a Match that is not over, and for a v5 Battle.
+ */
+export function changedPieces(b: Battle, seat: number): ChangedPiece[] {
+  if (b.status !== STATUS.over || b.endMask === 0n) return [];
+  const side: Army = mySide(b, seat);
+  const out: ChangedPiece[] = [];
+  for (let id = 0; id < 60; id++) {
+    if (((b.endMask >> BigInt(id)) & 1n) === 0n) continue;
+    const text = b.shown[id] === 11 ? `${NAMES["7"]}, dug in` : b.shown[id] === 1 ? `${NAMES["10"]}, now a Spy` : null;
+    if (text) out.push({ id, mine: armyOfPiece(id) === side, text });
+  }
+  return out;
+}

@@ -10,6 +10,7 @@ import { chainMatch, duelLive, duelSettled, holdemLive, holdemOver, type MatchSt
 import { withScreen, type ScreenData } from "./support/screen";
 import { withSigner } from "./support/signer";
 import * as vg from "./support/vanguard";
+import * as vp from "./support/vanguard-powers";
 
 const meta = {
   title: "Screens/Match",
@@ -136,6 +137,23 @@ export const VanguardStormPhone = phone(vanguard("active", vg.storm()));
 export const VanguardEnd = vanguard("active", vg.end());
 export const VanguardEndPhone = phone(vanguard("active", vg.end()));
 export const VanguardEndTimeouts = vanguard("active", vg.endTimeouts());
+/* Vanguard, rank powers */
+/** Your turn with the powers in reach. Tap the Engineer (Blast outlines its 8 squares), the Colonel (Rescue arrow), the Major (Dig in) or the 10 (Become a Spy). */
+export const VanguardPowers = vanguard("active", vp.powerTurn());
+export const VanguardPowersPhone = phone(vanguard("active", vp.powerTurn()));
+/** Their Engineer blasts beside your pieces: it flips face up, and your two pieces it showed glow red. */
+export const VanguardTheirBlast = vanguard("active", vp.theirBlast());
+/** Their Colonel blows up and their Truck flies to its square, face up. */
+export const VanguardTheirRescue = vanguard("active", vp.theirRescue());
+/** They pass. A face-down Dig in reads exactly the same: nothing here tells the two apart. */
+export const VanguardTheirPass = vanguard("active", vp.theirPass());
+export const VanguardTheirDigInLooksLikeAPass = vanguard("active", vp.theirPass(true));
+/** Reloaded after a Dig in and a switch: the Major wears a Landmine with a Major badge, the 10 a Spy with a 10 badge. */
+export const VanguardReloadedWithChanges = vanguard("active", vp.reloadedWithChanges());
+/** You dug a Major in: the Battle shows a pass, your own Army tells you ("Dug in"). */
+export const VanguardYourDugIn = vanguard("active", vp.yourDugIn());
+/** The end of the Match lists the pieces whose rank changed. */
+export const VanguardEndChanged = vanguard("active", vp.endChanged());
 export const VanguardWon = vanguard("won", { stage: "settled" });
 export const VanguardLost = vanguard("lost", { stage: "settled" });
 export const VanguardRefunded = vanguard("refunded", { stage: "settled" });

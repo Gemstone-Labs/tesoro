@@ -4,7 +4,7 @@ import type { Battle } from "./decode";
 import { EndWhy } from "./EndWhy";
 import { endLine } from "./end";
 
-const over = { status: 3, winner: 0, reason: 0 } as Battle;
+const over = { status: 3, winner: 0, reason: 0, endMask: 0n, shown: Array(60).fill(0), usSeat: 0 } as Battle;
 
 describe("EndWhy", () => {
   it("gives the title and the sentence on the result screen", () => {

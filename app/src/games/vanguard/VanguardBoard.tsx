@@ -2,7 +2,7 @@
 
 import { memo, useLayoutEffect, useRef, type CSSProperties } from "react";
 import { prefersReducedMotion } from "../fx";
-import { ARMY_NAME, NAMES, SIZE, type Army, type Depot, type Rank, type Square } from "./rules";
+import { ARMY_NAME, NAMES, SIZE, type Army, type Change, type Depot, type Rank, type Square } from "./rules";
 
 /** A piece as the viewer sees it right now (position may be between squares mid-animation). */
 export interface ShownPiece {
@@ -22,11 +22,34 @@ export interface ShownPiece {
   hitFrom?: HitSide;
   /** Carried one square by the Dust Storm: rides above the haze while it slides. */
   drift?: boolean;
+  /** The owner's private rank change: a dug-in Major (drawn as a Landmine with a Major badge) or a General of the Army turned Spy. Only ever set for the viewer's own pieces, or for all of them once the Match is over. */
+  changed?: Change;
+  /** Own piece the enemy has seen face up (a Blast, a Spotted Truck): a red glow round its rim. */
+  exposed?: boolean;
+  /** Just changed: the face pulses once. */
+  fresh?: boolean;
+  /** In the air (the Truck on a Rescue). */
+  fly?: boolean;
+  /** Hopping to its square (a Lieutenant's jump, a General's wadi crossing): lifts, arcs over, lands, in `ms`. */
+  hop?: boolean;
+}
+
+/** A mark on the board: a square the selected piece can go to; `jump` marks get an arc from the piece. */
+export type Mark = Square & { attack: boolean; jump?: boolean };
+
+/** What a power will do, drawn before the player confirms it. */
+export interface Preview {
+  kind: "blast" | "rescue";
+  /** Blast: the squares it shows. */
+  squares?: Square[];
+  /** Rescue: the Truck's flight, from its square to the Colonel's. */
+  from?: Square;
+  to?: Square;
 }
 
 export interface ShownFx {
   key: number;
-  kind: "clash" | "mine" | "spotted";
+  kind: "clash" | "mine" | "spotted" | "dust";
   /** Centre, in squares (fractions allowed). */
   r: number;
   c: number;
@@ -97,12 +120,14 @@ export const Marker = memo(function Marker({ p, selected, target = false, onTap,
     left: `calc(var(--vg-sq) * ${p.c})`,
     top: `calc(var(--vg-sq) * ${p.r})`,
     transitionDuration: `${p.ms ?? 0}ms`,
+    "--hop-ms": `${p.ms ?? 0}ms`,
   } as CSSProperties;
-  const label = shownUp && p.rank ? `${p.army === "us" ? "US" : "Italian"} ${p.rank} ${NAMES[p.rank]}` : `${ARMY_NAME[p.army]} hidden piece`;
+  const was = p.changed === "dug" ? "7" : p.changed === "spy" ? "10" : null;
+  const label = shownUp && p.rank ? `${p.army === "us" ? "US" : "Italian"} ${p.rank} ${NAMES[p.rank]}${was ? `, was ${NAMES[was]}` : ""}${p.exposed ? ", seen by the enemy" : ""}` : `${ARMY_NAME[p.army]} hidden piece`;
   return (
     <button
       type="button"
-      className={`vg-piece ${p.army}${selected ? " sel" : ""}${target ? " tgt" : ""}${p.gone ? " gone" : ""}${p.drift ? " drift" : ""}`}
+      className={`vg-piece ${p.army}${selected ? " sel" : ""}${target ? " tgt" : ""}${p.gone ? " gone" : ""}${p.drift ? " drift" : ""}${p.fly ? " fly" : ""}${p.hop ? " hop" : ""}${shownUp && p.exposed ? " exposed" : ""}${p.fresh ? " fresh" : ""}`}
       style={style}
       aria-label={label}
       aria-pressed={selected || undefined}
@@ -128,6 +153,7 @@ export const Marker = memo(function Marker({ p, selected, target = false, onTap,
               <span className={`vg-face${shownUp ? "" : " back"}`}>
                 <span className="vg-art" style={{ backgroundImage: face(p.army, shownUp && p.rank ? p.rank : "back") }} />
                 {shownUp && <span className="vg-rk">{p.rank}</span>}
+                {shownUp && was && <span className="vg-was">{was}</span>}
               </span>
               <span className="vg-gloss" />
             </span>
@@ -142,7 +168,9 @@ export interface VanguardBoardProps {
   pieces: ShownPiece[];
   depots: Depot[];
   selected: number | null;
-  marks: (Square & { attack: boolean })[];
+  marks: Mark[];
+  /** A Blast or Rescue waiting for its confirm tap. */
+  preview?: Preview | null;
   fx: ShownFx[];
   storm: ShownStorm | null;
   /** Taps are off (not your turn, or an animation is playing). */
@@ -150,14 +178,14 @@ export interface VanguardBoardProps {
   /** The army whose Player is looking; its depot is the one "yours to raid". Defaults to the US. */
   viewer?: Army;
   onPiece: (id: number) => void;
-  onMark: (mark: Square & { attack: boolean }) => void;
+  onMark: (mark: Mark) => void;
 }
 
 /**
  * The 10×10 board, top-down, from the US side. Pieces are positioned by square and slide with a CSS
  * transition; effects are painted sprites drawn with a screen blend; the Dust Storm is a haze over its line.
  */
-export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, locked, viewer = "us", onPiece, onMark }: VanguardBoardProps) {
+export function VanguardBoard({ pieces, depots, selected, marks, preview = null, fx, storm, locked, viewer = "us", onPiece, onMark }: VanguardBoardProps) {
   const targets = new Set(marks.filter((m) => m.attack).map((m) => m.r * SIZE + m.c));
   return (
     <div className="vg-board" role="group" aria-label="Vanguard board">
@@ -173,13 +201,17 @@ export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, lock
       {pieces.map((p) => (
         <Marker key={p.id} p={p} selected={selected === p.id} target={!p.gone && targets.has(p.r * SIZE + p.c)} onTap={onPiece} disabled={locked && selected !== p.id} />
       ))}
+      {preview?.squares?.map((q) => (
+        <span key={`pv${q.r},${q.c}`} className="vg-pv" style={{ left: `calc(var(--vg-sq) * ${q.c})`, top: `calc(var(--vg-sq) * ${q.r})` }} aria-hidden="true" />
+      ))}
+      <Overlay pieces={pieces} selected={selected} marks={marks} preview={preview} />
       {marks.map((m) => (
         <button
           key={`${m.r},${m.c}`}
           type="button"
-          className={`vg-mark${m.attack ? " atk" : ""}`}
+          className={`vg-mark${m.attack ? " atk" : ""}${m.jump ? " jump" : ""}`}
           style={{ left: `calc(var(--vg-sq) * ${m.c})`, top: `calc(var(--vg-sq) * ${m.r})` }}
-          aria-label={`${m.attack ? "Attack" : "Move to"} row ${SIZE - m.r}, column ${m.c + 1}`}
+          aria-label={`${m.attack ? "Attack" : m.jump ? "Jump to" : "Move to"} row ${SIZE - m.r}, column ${m.c + 1}`}
           disabled={locked}
           onClick={() => onMark(m)}
         />
@@ -202,5 +234,38 @@ export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, lock
         </span>
       )}
     </div>
+  );
+}
+
+/** Arcs for the jump marks and the Rescue arrow: one SVG laid over the board, in squares. */
+function Overlay({ pieces, selected, marks, preview }: { pieces: ShownPiece[]; selected: number | null; marks: Mark[]; preview: Preview | null }) {
+  const me = pieces.find((p) => p.id === selected);
+  const jumps = me ? marks.filter((m) => m.jump) : [];
+  if (!jumps.length && preview?.kind !== "rescue") return null;
+  // the control point sits off to the side of the line (upward for a level jump, to the right for an upright one), so every jump reads as an arc
+  const arc = (a: Square, b: Square, lift: number) => {
+    const x1 = a.c + 0.5;
+    const y1 = a.r + 0.5;
+    const x2 = b.c + 0.5;
+    const y2 = b.r + 0.5;
+    const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+    let nx = -(y2 - y1) / len;
+    let ny = (x2 - x1) / len;
+    if (ny > 0.001 || (Math.abs(ny) <= 0.001 && nx < 0)) {
+      nx = -nx;
+      ny = -ny;
+    }
+    return `M ${x1} ${y1} Q ${(x1 + x2) / 2 + nx * lift} ${(y1 + y2) / 2 + ny * lift} ${x2} ${y2}`;
+  };
+  return (
+    <svg className="vg-over" viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
+      <defs>
+        <marker id="vg-head" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" className="vg-head" />
+        </marker>
+      </defs>
+      {me && jumps.map((m) => <path key={`${m.r},${m.c}`} className="vg-arc" d={arc(me, m, 1.3)} />)}
+      {preview?.kind === "rescue" && preview.from && preview.to && <path className="vg-rescue-arrow" d={arc(preview.from, preview.to, 1.4)} markerEnd="url(#vg-head)" />}
+    </svg>
   );
 }

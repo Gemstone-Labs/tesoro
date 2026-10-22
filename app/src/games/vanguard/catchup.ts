@@ -20,7 +20,7 @@ export function catchUp(b: Battle, cursor: number): CatchUp {
 
 /** A declared action waiting for `resolve`, as the screen may describe it. Public intent only, never an outcome. */
 export interface PendingView {
-  kind: "move" | "attack" | "pass" | "cap";
+  kind: "move" | "attack" | "blast" | "rescue" | "pass" | "cap";
   mine: boolean;
   piece: number | null;
   line: string;
@@ -35,6 +35,12 @@ export function pendingOf(b: Battle, seat: number): PendingView | null {
   if (b.pendingKind === PENDING.timeout) return { kind: "pass", mine: false, piece: null, line: "A turn ran out of time. Passing it…" };
   if (b.pendingKind === PENDING.cap) return { kind: "cap", mine: false, piece: null, line: "Time limit reached. Counting the armies…" };
   const mine = b.pendingSeat === seat;
+  // a pass and a face-down Dig in are the same declare; its piece byte is a sealed slot, not a piece, and never read
+  if (b.pendingKind === PENDING.pass) return { kind: "pass", mine, piece: null, line: mine ? "Your pass is being applied…" : "Your opponent is passing…" };
+  if (b.pendingKind === PENDING.blast || b.pendingKind === PENDING.rescue) {
+    const kind = b.pendingKind === PENDING.blast ? "blast" : "rescue";
+    return { kind, mine, piece: b.pendingPiece, line: mine ? `Your ${kind === "blast" ? "Blast" : "Rescue"} is being applied…` : "Your opponent is making a move…" };
+  }
   const attack = b.sq.some((s, id) => s === b.pendingTo && s !== NO_SQUARE && id !== b.pendingPiece);
   const kind = attack ? "attack" : "move";
   const line = mine

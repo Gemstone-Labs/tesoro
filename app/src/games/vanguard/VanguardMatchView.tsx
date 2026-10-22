@@ -13,7 +13,7 @@ import { delayedOf } from "@/lib/chain/match-status";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { MatchStage, MatchStageLoading, StageAction, delayedCopy } from "@/components/match/MatchStage";
 import { STATUS } from "./decode";
-import { EndWhy } from "./EndWhy";
+import { ChangedList, EndWhy } from "./EndWhy";
 import { VanguardTable } from "./VanguardTable";
 import { useVanguardMatch } from "./useVanguardMatch";
 
@@ -32,7 +32,7 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
       return null;
     }
   })();
-  const { view, move, twoStep, run } = useVanguardMatch(id, signer, refresh);
+  const { view, move, power, passTurn, twoStep, run } = useVanguardMatch(id, signer, refresh);
   const { stage, match: m, battle, army, seat } = view;
   const me = snapshot?.accountKey.toBase58() ?? null;
 
@@ -111,12 +111,13 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
     <div className="stack-lg">
       {late && <Notice title={delayedCopy(late).title} body={delayedCopy(late).line} />}
       {showTable && battle && army && seat !== null && (
-        <VanguardTable battle={battle} army={army} seat={seat} turnSeenAt={view.turnSeenAt} onMove={move} onTwoStep={twoStep} ended={over || stage === "closing"} reconnecting={view.reconnecting}>
+        <VanguardTable battle={battle} army={army} seat={seat} turnSeenAt={view.turnSeenAt} onMove={move} onPower={power} onPass={passTurn} onTwoStep={twoStep} ended={over || stage === "closing"} reconnecting={view.reconnecting}>
           {stage === "closing" && (
             <Card large>
               <div className="stack">
                 <Label>Match over</Label>
                 {battle && seat !== null && <EndWhy battle={battle} seat={seat} titleOnly />}
+                {battle && seat !== null && <ChangedList battle={battle} seat={seat} />}
                 <Busy>{view.commit ? commitCopy(view.commit).title : `${view.note || "Saving the result"}…`}</Busy>
                 <p className="note">{view.commit ? commitCopy(view.commit).line : "Saving the result and paying out the Pot. This takes a few seconds."}</p>
               </div>

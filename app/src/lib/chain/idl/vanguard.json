@@ -7,6 +7,67 @@
   },
   "instructions": [
     {
+      "name": "blast",
+      "docs": [
+        "Rollup. Declares a Blast of `piece`. Checks public state only: live, your turn, nothing pending,",
+        "`expected_seq`, the clock, the piece is yours and on the board, and no step has been made this turn (not in a",
+        "Two-Step Turn). Whether it is an Engineer is decided by `resolve`; a Blast of anything else costs the turn."
+      ],
+      "discriminator": [
+        61,
+        204,
+        127,
+        127,
+        140,
+        207,
+        63,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "signer": true
+        },
+        {
+          "name": "battle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  116,
+                  116,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "battle"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "piece",
+          "type": "u8"
+        },
+        {
+          "name": "expected_seq",
+          "type": "u32"
+        },
+        {
+          "name": "sealed_switch",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "claim_timeout",
       "docs": [
         "Rollup, permissionless. Past the start window or the entropy window it cancels the Match. In a live Match it",
@@ -2236,10 +2297,12 @@
       "name": "move_piece",
       "docs": [
         "Rollup. Declares a move: checks only public state (the Match is live, it is your turn, nothing is pending,",
-        "the piece is yours and on the board, the square is on the board, not a wadi, in line, not yours and not the",
-        "square it just came from) and freezes the clock decision on the declare time. Reads no Army and no Secret,",
-        "so what it answers cannot depend on a hidden rank. The move is applied by `resolve` in a later slot, which",
-        "checks the rank rules; a move they refuse costs the turn."
+        "`expected_seq` is the Battle's `action_seq`, the piece is yours and on the board, the square is on the board,",
+        "not a wadi, on a straight or diagonal line, not yours and not the square it just came from) and freezes the",
+        "clock decision on the declare time. Reads no Army and no Secret, so what it answers cannot depend on a hidden",
+        "rank. `sealed_switch` is the Player's sealed Become a Spy byte (always sent, see `engine::seal_pad`); it is only",
+        "stored. The move is applied by `resolve` in a later slot, which checks the rank rules; a move they refuse",
+        "costs the turn."
       ],
       "discriminator": [
         136,
@@ -2287,6 +2350,75 @@
         },
         {
           "name": "to",
+          "type": "u8"
+        },
+        {
+          "name": "expected_seq",
+          "type": "u32"
+        },
+        {
+          "name": "sealed_switch",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "pass",
+      "docs": [
+        "Rollup. Declares a pass, which counts as a missed turn. `sealed_slot` seals the Dig in: 0 is a plain pass, else",
+        "the Major to dig in (see `engine::seal_pad`), so a face-down Dig in is this very instruction with the same",
+        "public effect. Public checks as `blast`, without a piece."
+      ],
+      "discriminator": [
+        8,
+        14,
+        180,
+        117,
+        151,
+        60,
+        46,
+        71
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "signer": true
+        },
+        {
+          "name": "battle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  116,
+                  116,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "battle"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "expected_seq",
+          "type": "u32"
+        },
+        {
+          "name": "sealed_slot",
+          "type": "u8"
+        },
+        {
+          "name": "sealed_switch",
           "type": "u8"
         }
       ]
@@ -2508,13 +2640,75 @@
       ]
     },
     {
+      "name": "rescue",
+      "docs": [
+        "Rollup. Declares a Rescue of the Truck by `piece`. Same public checks as `blast`; whether `piece` is a Colonel",
+        "with a Truck on the board is decided by `resolve`."
+      ],
+      "discriminator": [
+        42,
+        111,
+        16,
+        88,
+        147,
+        101,
+        209,
+        62
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "signer": true
+        },
+        {
+          "name": "battle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  116,
+                  116,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "battle"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "piece",
+          "type": "u8"
+        },
+        {
+          "name": "expected_seq",
+          "type": "u32"
+        },
+        {
+          "name": "sealed_switch",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "resolve",
       "docs": [
-        "Rollup, permissionless, no arguments. Applies the pending action in a slot after its declare: the rank",
-        "rules, the fight, the Spotted and raid bookkeeping, the turn pass, the storm, the caps, the no-legal-move",
-        "check, the end reveal and the events. It never fails on hidden state: a declared move the rank rules refuse",
-        "costs the turn. The next deadline counts from the resolve time, but never from later than the declare time plus",
-        "`RESOLVE_SLACK_SECS`: a slow resolve never eats the next Player's time, and a held-back one buys none."
+        "Rollup, permissionless, no arguments. Applies the pending action in a slot after its declare: it unseals the",
+        "declaring Player's switch (and a pass's Dig in) with that Army's key, applies them only to an action the rank",
+        "rules allow, then runs the rank rules, the fight, the Spotted and raid bookkeeping, the turn pass, the storm, the",
+        "caps, the no-legal-action check, the end reveal and the events. It never fails on hidden state: an action the",
+        "rank rules refuse costs the turn, and every value of a sealed byte decodes to something defined. The next",
+        "deadline counts from the resolve time, but never from later than the declare time plus `RESOLVE_SLACK_SECS`: a",
+        "slow resolve never eats the next Player's time, and a held-back one buys none."
       ],
       "discriminator": [
         246,
@@ -3007,6 +3201,11 @@
       "code": 6025,
       "name": "TooSoon",
       "msg": "Wait for a later slot"
+    },
+    {
+      "code": 6026,
+      "name": "StaleSeq",
+      "msg": "The action was sealed for an earlier turn"
     }
   ],
   "types": [
@@ -3107,6 +3306,10 @@
           },
           {
             "name": "reserved",
+            "docs": [
+              "The 32-byte sealing key of this Army (`engine::seal_keys`), written at `deal`, private to its Player and",
+              "zeroed by `wipe`. It seals the switch and Dig in bytes this Player sends (`engine::seal_pad`)."
+            ],
             "type": {
               "array": [
                 "u8",
@@ -3453,6 +3656,11 @@
           },
           {
             "name": "pad_a",
+            "docs": [
+              "`pad_a[0]` is the SEALED switch byte of the pending move, Blast, Rescue or pass (`plain ^ pad`, see",
+              "`engine::seal_pad`); a timeout claim leaves it 0. Cleared with the pending action. The other two bytes are",
+              "unused."
+            ],
             "type": {
               "array": [
                 "u8",
@@ -3506,6 +3714,11 @@
           },
           {
             "name": "reserved",
+            "docs": [
+              "`reserved[..8]` is the END MASK: bit `id` (little endian `u64`, piece numbers 0-59) is set for every piece",
+              "whose rank changed in the Match (a Major that dug in, a General of the Army that became a Spy), dead pieces",
+              "included. Written when the Match ends, never before. The rest is unused."
+            ],
             "type": {
               "array": [
                 "u8",

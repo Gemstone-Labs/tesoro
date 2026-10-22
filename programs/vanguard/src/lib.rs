@@ -14,7 +14,7 @@ pub mod engine;
 pub mod state;
 
 use anchor_lang::{prelude::*, solana_program::hash::hashv, system_program};
-use engine::{Army as Side, Events, Refusal, PIECE_SLOTS};
+use engine::{Army as Side, Events, Refusal, RULES_VERSION};
 use ephemeral_rollups_sdk::{
     access_control::{
         instructions::{CloseEphemeralPermissionCpi, CreateEphemeralPermissionCpi},
@@ -101,6 +101,8 @@ pub enum VanguardError {
     NothingPending,
     #[msg("Wait for a later slot")]
     TooSoon,
+    #[msg("The action was sealed for an earlier turn")]
+    StaleSeq,
 }
 
 fn refused(r: Refusal) -> Error {
@@ -469,6 +471,7 @@ pub mod vanguard {
 
         let seed = hashv(&[&secret.entropy, &secret.vrf]).to_bytes();
         let drawn = engine::setup(&seed, battle.storm_from as u16, battle.storm_to as u16);
+        let keys = engine::seal_keys(&seed);
         let mut game = engine::Game::start(
             &drawn.pieces,
             Side::Us,
@@ -485,7 +488,7 @@ pub mod vanguard {
         battle.us_seat = drawn.us_seat;
         battle.deal_slot = Clock::get()?.slot;
         battle.cap_deadline = game.cap_at;
-        battle.absorb(&game, &[0; PIECE_SLOTS]);
+        battle.absorb(&game);
         battle.status = STATUS_LIVE;
         battle.started_at = now;
         for (seat, army) in [&mut ctx.accounts.army_0, &mut ctx.accounts.army_1]
@@ -496,6 +499,7 @@ pub mod vanguard {
                 .side_of_seat(seat)
                 .ok_or_else(|| error!(VanguardError::BadState))?;
             army.place(side, &drawn.pieces);
+            army.reserved = keys[side.idx()];
         }
         secret.storm_at = drawn.storm_at;
         secret.storm_seed = drawn.storm_seed;
@@ -504,18 +508,88 @@ pub mod vanguard {
     }
 
     /// Rollup. Declares a move: checks only public state (the Match is live, it is your turn, nothing is pending,
-    /// the piece is yours and on the board, the square is on the board, not a wadi, in line, not yours and not the
-    /// square it just came from) and freezes the clock decision on the declare time. Reads no Army and no Secret,
-    /// so what it answers cannot depend on a hidden rank. The move is applied by `resolve` in a later slot, which
-    /// checks the rank rules; a move they refuse costs the turn.
-    pub fn move_piece(ctx: Context<Declare>, piece: u8, to: u8) -> Result<()> {
+    /// `expected_seq` is the Battle's `action_seq`, the piece is yours and on the board, the square is on the board,
+    /// not a wadi, on a straight or diagonal line, not yours and not the square it just came from) and freezes the
+    /// clock decision on the declare time. Reads no Army and no Secret, so what it answers cannot depend on a hidden
+    /// rank. `sealed_switch` is the Player's sealed Become a Spy byte (always sent, see `engine::seal_pad`); it is only
+    /// stored. The move is applied by `resolve` in a later slot, which checks the rank rules; a move they refuse
+    /// costs the turn.
+    pub fn move_piece(
+        ctx: Context<Declare>,
+        piece: u8,
+        to: u8,
+        expected_seq: u32,
+        sealed_switch: u8,
+    ) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let slot = Clock::get()?.slot;
         let mut battle = ctx.accounts.battle.load_mut()?;
-        let seat = declaring_seat(&battle, &ctx.accounts.player.key(), slot)?;
+        let seat = declaring_seat(&battle, &ctx.accounts.player.key(), slot, expected_seq)?;
         let g = battle.public_game()?;
         g.check_declared_move(piece, to, now).map_err(refused)?;
-        battle.record_pending(PENDING_MOVE, piece, to, seat as u8, slot, now);
+        battle.record_pending(
+            PENDING_MOVE,
+            Intent {
+                piece,
+                to,
+                sealed_switch,
+            },
+            seat as u8,
+            slot,
+            now,
+        );
+        Ok(())
+    }
+
+    /// Rollup. Declares a Blast of `piece`. Checks public state only: live, your turn, nothing pending,
+    /// `expected_seq`, the clock, the piece is yours and on the board, and no step has been made this turn (not in a
+    /// Two-Step Turn). Whether it is an Engineer is decided by `resolve`; a Blast of anything else costs the turn.
+    pub fn blast(
+        ctx: Context<Declare>,
+        piece: u8,
+        expected_seq: u32,
+        sealed_switch: u8,
+    ) -> Result<()> {
+        declare_act(ctx, PENDING_BLAST, piece, expected_seq, sealed_switch)
+    }
+
+    /// Rollup. Declares a Rescue of the Truck by `piece`. Same public checks as `blast`; whether `piece` is a Colonel
+    /// with a Truck on the board is decided by `resolve`.
+    pub fn rescue(
+        ctx: Context<Declare>,
+        piece: u8,
+        expected_seq: u32,
+        sealed_switch: u8,
+    ) -> Result<()> {
+        declare_act(ctx, PENDING_RESCUE, piece, expected_seq, sealed_switch)
+    }
+
+    /// Rollup. Declares a pass, which counts as a missed turn. `sealed_slot` seals the Dig in: 0 is a plain pass, else
+    /// the Major to dig in (see `engine::seal_pad`), so a face-down Dig in is this very instruction with the same
+    /// public effect. Public checks as `blast`, without a piece.
+    pub fn pass(
+        ctx: Context<Declare>,
+        expected_seq: u32,
+        sealed_slot: u8,
+        sealed_switch: u8,
+    ) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let slot = Clock::get()?.slot;
+        let mut battle = ctx.accounts.battle.load_mut()?;
+        let seat = declaring_seat(&battle, &ctx.accounts.player.key(), slot, expected_seq)?;
+        let g = battle.public_game()?;
+        g.check_declared_pass(now).map_err(refused)?;
+        battle.record_pending(
+            PENDING_PASS,
+            Intent {
+                piece: sealed_slot,
+                to: 0,
+                sealed_switch,
+            },
+            seat as u8,
+            slot,
+            now,
+        );
         Ok(())
     }
 
@@ -525,7 +599,7 @@ pub mod vanguard {
         let now = Clock::get()?.unix_timestamp;
         let slot = Clock::get()?.slot;
         let mut battle = ctx.accounts.battle.load_mut()?;
-        declaring_seat(&battle, &ctx.accounts.player.key(), slot)?;
+        declaring_seat(&battle, &ctx.accounts.player.key(), slot, battle.action_seq)?;
         let mut g = battle.shell(0, 0)?;
         g.start_two_step(now).map_err(refused)?;
         battle.two_step = g.two_step;
@@ -541,7 +615,19 @@ pub mod vanguard {
     pub fn claim_timeout(ctx: Context<ClaimTimeout>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let slot = Clock::get()?.slot;
-        let status = ctx.accounts.battle.load()?.status;
+        let (status, rules_version) = {
+            let b = ctx.accounts.battle.load()?;
+            (b.status, b.rules_version)
+        };
+        // Wind-down: a Battle created under older rules is cancelled at any point before it is over, whatever its
+        // clock says, so the normal `close_match` / `close_unstarted` and `finalize` refund it in full and no account
+        // stays delegated. Public state only.
+        if rules_version != RULES_VERSION && status < STATUS_OVER {
+            let mut battle = ctx.accounts.battle.load_mut()?;
+            battle.clear_pending();
+            battle.status = STATUS_CANCELLED;
+            return Ok(());
+        }
         match status {
             STATUS_CREATED => {
                 let mut battle = ctx.accounts.battle.load_mut()?;
@@ -581,22 +667,25 @@ pub mod vanguard {
                     engine::TimeoutClass::Pass => PENDING_TIMEOUT,
                     engine::TimeoutClass::Cap => PENDING_CAP,
                 };
-                battle.record_pending(kind, 0, 0, 0, slot, now);
+                battle.record_pending(kind, Intent::default(), 0, slot, now);
             }
             _ => return err!(VanguardError::MatchOver),
         }
         Ok(())
     }
 
-    /// Rollup, permissionless, no arguments. Applies the pending action in a slot after its declare: the rank
-    /// rules, the fight, the Spotted and raid bookkeeping, the turn pass, the storm, the caps, the no-legal-move
-    /// check, the end reveal and the events. It never fails on hidden state: a declared move the rank rules refuse
-    /// costs the turn. The next deadline counts from the resolve time, but never from later than the declare time plus
-    /// `RESOLVE_SLACK_SECS`: a slow resolve never eats the next Player's time, and a held-back one buys none.
+    /// Rollup, permissionless, no arguments. Applies the pending action in a slot after its declare: it unseals the
+    /// declaring Player's switch (and a pass's Dig in) with that Army's key, applies them only to an action the rank
+    /// rules allow, then runs the rank rules, the fight, the Spotted and raid bookkeeping, the turn pass, the storm, the
+    /// caps, the no-legal-action check, the end reveal and the events. It never fails on hidden state: an action the
+    /// rank rules refuse costs the turn, and every value of a sealed byte decodes to something defined. The next
+    /// deadline counts from the resolve time, but never from later than the declare time plus `RESOLVE_SLACK_SECS`: a
+    /// slow resolve never eats the next Player's time, and a held-back one buys none.
     pub fn resolve(mut ctx: Context<Resolve>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let slot = Clock::get()?.slot;
         let accounts = &mut ctx.accounts;
+        let battle_key = accounts.battle.key().to_bytes();
         let mut battle = accounts.battle.load_mut()?;
         require!(battle.status == STATUS_LIVE, VanguardError::NotLive);
         require!(
@@ -611,6 +700,18 @@ pub mod vanguard {
             battle.pending_to,
             battle.pending_seat,
         );
+        // The declare took `action_seq` as `expected_seq` and then advanced it: the pads are for the number before.
+        let seq = battle.action_seq.wrapping_sub(1);
+        // Unseal. Both pads are always computed and both bytes always unsealed, whatever the kind: the work does not
+        // depend on which fields the action uses. Only the declaring seat's own key is read (the seat is public).
+        let key = if seat == 0 {
+            accounts.army_0.reserved
+        } else {
+            accounts.army_1.reserved
+        };
+        let plain_switch =
+            battle.pad_a[0] ^ engine::seal_pad(&key, &battle_key, seat, seq, engine::SEAL_SWITCH);
+        let plain_dig = piece ^ engine::seal_pad(&key, &battle_key, seat, seq, engine::SEAL_DIG);
         run(
             &mut battle,
             &mut accounts.army_0,
@@ -618,15 +719,22 @@ pub mod vanguard {
             &accounts.secret,
             |g, out| {
                 let at = g.counted(declared, now);
+                let switch = g.switch_wanted(plain_switch);
                 match kind {
-                    PENDING_MOVE => g.resolve_move(piece, to, at, out),
+                    PENDING_MOVE => g.resolve_move(piece, to, switch, at, out),
+                    PENDING_BLAST => g.resolve_blast(piece, switch, at, out),
+                    PENDING_RESCUE => g.resolve_rescue(piece, switch, at, out),
+                    PENDING_PASS => {
+                        let dig_in = g.dig_in_piece(plain_dig);
+                        g.resolve_pass(dig_in, switch, at, out)
+                    }
                     PENDING_CAP => g.resolve_timeout(engine::TimeoutClass::Cap, at, out),
                     _ => g.resolve_timeout(engine::TimeoutClass::Pass, at, out),
                 }
             },
         )?;
         battle.clear_pending();
-        if kind == PENDING_MOVE {
+        if matches!(kind, PENDING_MOVE | PENDING_BLAST | PENDING_RESCUE) {
             let mover = if seat == 0 {
                 &mut accounts.army_0
             } else {
@@ -828,9 +936,10 @@ fn seat_of(battle: &Battle, key: &Pubkey) -> Result<usize> {
         .ok_or_else(|| error!(VanguardError::NotAPlayer))
 }
 
-/// The seat of `key` for an action declared in a live Match: it is that Player's turn, nothing is pending and the
-/// deal is in an earlier slot. All public state.
-fn declaring_seat(battle: &Battle, key: &Pubkey, slot: u64) -> Result<usize> {
+/// The seat of `key` for an action declared in a live Match: it is that Player's turn, nothing is pending, the deal is
+/// in an earlier slot and `expected_seq` is the number of this declare (a sealed byte made for an earlier turn is
+/// refused here, so it can never be decoded as garbage). All public state.
+fn declaring_seat(battle: &Battle, key: &Pubkey, slot: u64, expected_seq: u32) -> Result<usize> {
     require!(battle.status == STATUS_LIVE, VanguardError::NotLive);
     let seat = seat_of(battle, key)?;
     require!(
@@ -842,7 +951,36 @@ fn declaring_seat(battle: &Battle, key: &Pubkey, slot: u64) -> Result<usize> {
         .side_of_seat(seat)
         .ok_or_else(|| error!(VanguardError::BadState))?;
     require!(side.idx() as u8 == battle.turn, VanguardError::NotYourTurn);
+    require!(expected_seq == battle.action_seq, VanguardError::StaleSeq);
     Ok(seat)
+}
+
+/// Declare a Blast or a Rescue: public checks only, then freeze the intent and the sealed switch.
+fn declare_act(
+    ctx: Context<Declare>,
+    kind: u8,
+    piece: u8,
+    expected_seq: u32,
+    sealed_switch: u8,
+) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    let slot = Clock::get()?.slot;
+    let mut battle = ctx.accounts.battle.load_mut()?;
+    let seat = declaring_seat(&battle, &ctx.accounts.player.key(), slot, expected_seq)?;
+    let g = battle.public_game()?;
+    g.check_declared_act(piece, now).map_err(refused)?;
+    battle.record_pending(
+        kind,
+        Intent {
+            piece,
+            to: 0,
+            sealed_switch,
+        },
+        seat as u8,
+        slot,
+        now,
+    );
+    Ok(())
 }
 
 /// Assemble the engine's Game from the public Battle and both private Armies, run one infallible resolution and
@@ -855,13 +993,9 @@ fn run(
     f: impl FnOnce(&mut engine::Game, &mut Events),
 ) -> Result<()> {
     let mut g = battle.game([&*army_0, &*army_1], secret)?;
-    let mut before = [0u8; PIECE_SLOTS];
-    for (slot, p) in before.iter_mut().zip(g.pieces.iter()) {
-        *slot = p.rank;
-    }
     let mut out = Events::new();
     f(&mut g, &mut out);
-    battle.absorb(&g, &before);
+    battle.absorb(&g);
     battle.push_events(&out);
     army_0.absorb(&g);
     army_1.absorb(&g);

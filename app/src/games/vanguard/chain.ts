@@ -43,11 +43,19 @@ const EPHEMERAL_VAULT = new PublicKey("MagicVau1t9999999999999999999999999999999
 const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 
 /**
- * Compute limits. A declare (a move, a timeout claim) checks public state only: about 4k CU in LiteSVM. The resolve
- * does the rank rules, the fight and the turn pass: about 57k (a fight up to 57k, a lost turn the same). The 200k
- * default is enough for both; the limits leave room. Delegation is Hold'em's 600k; `finalize` pays out.
+ * Compute limits. A declare (a move, a timeout claim) checks public state only: about 4-6k CU in LiteSVM. The resolve
+ * does the rank rules, the fight, the turn pass and the "any action left?" scan over every shape a rank could make
+ * (rules version 6): 135-145k in LiteSVM on compiled SBF whatever the board (a lost turn the same; endings that skip
+ * the scan are cheaper). 200k leaves 30% over the worst reading (see ticket vgp 05). Delegation is Hold'em's 600k;
+ * `finalize` pays out.
  */
-export const CU = { declare: 40_000, resolve: 150_000, delegate: 600_000, finalize: 400_000 } as const;
+export const CU = { declare: 40_000, resolve: 200_000, delegate: 600_000, finalize: 400_000 } as const;
+
+/** What every declare carries: the `action_seq` it was built for (public) and the sealed Become a Spy byte. */
+export interface DeclareSeal {
+  expectedSeq: number;
+  sealedSwitch: number;
+}
 
 const le64 = (n: bigint | number) => new anchor.BN(n.toString()).toArrayLike(Buffer, "le", 8);
 
@@ -405,14 +413,48 @@ export class VanguardChain {
    * Rollup. Declare a move (or an attack) of `piece` to square `to` (`row * 10 + col`) on your turn. The program
    * checks only public state now; the rank rules and the fight are applied by `resolve` in a later slot, and a move
    * the rank rules refuse costs the turn. A declare cannot be taken back. Send `resolve` as soon as it lands.
+   * `seal` is the Battle's `action_seq` you saw and the sealed Become a Spy byte (always sent, 0 sealed like any other).
    */
-  async movePiece(player: PlayerSigner, matchId: bigint | number, piece: number, to: number): Promise<string> {
+  async movePiece(player: PlayerSigner, matchId: bigint | number, piece: number, to: number, seal: DeclareSeal): Promise<string> {
     const ad = addresses(matchId);
     const ix = await this.program.methods
-      .movePiece(piece, to)
+      .movePiece(piece, to, seal.expectedSeq, seal.sealedSwitch)
       .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
       .instruction();
     return this.sendTee("move_piece", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
+  }
+
+  /** Rollup. Declare an Engineer's Blast by `piece`. Whether it is an Engineer is decided by `resolve`; anything else costs the turn. */
+  async blast(player: PlayerSigner, matchId: bigint | number, piece: number, seal: DeclareSeal): Promise<string> {
+    const ad = addresses(matchId);
+    const ix = await this.program.methods
+      .blast(piece, seal.expectedSeq, seal.sealedSwitch)
+      .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
+      .instruction();
+    return this.sendTee("blast", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
+  }
+
+  /** Rollup. Declare a Colonel's Rescue of the Truck by `piece`. Whether it is a Colonel with a Truck on the board is decided by `resolve`. */
+  async rescue(player: PlayerSigner, matchId: bigint | number, piece: number, seal: DeclareSeal): Promise<string> {
+    const ad = addresses(matchId);
+    const ix = await this.program.methods
+      .rescue(piece, seal.expectedSeq, seal.sealedSwitch)
+      .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
+      .instruction();
+    return this.sendTee("rescue", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
+  }
+
+  /**
+   * Rollup. Declare a pass, which counts as a missed turn. `sealedSlot` seals the Dig in (0 sealed is a plain pass): a
+   * face-down Dig in is this very instruction, so nothing public tells the two apart.
+   */
+  async pass(player: PlayerSigner, matchId: bigint | number, seal: DeclareSeal & { sealedSlot: number }): Promise<string> {
+    const ad = addresses(matchId);
+    const ix = await this.program.methods
+      .pass(seal.expectedSeq, seal.sealedSlot, seal.sealedSwitch)
+      .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
+      .instruction();
+    return this.sendTee("pass", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
   }
 
   /** Rollup. Spend a banked Two-Step Turn before the first step of your turn. */

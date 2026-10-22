@@ -7,7 +7,7 @@
  */
 import { PublicKey } from "@solana/web3.js";
 import layout from "./chain-layout.json";
-import type { Army, EndReason, GameEvent, Outcome, Rank, Square } from "./rules";
+import type { Army, Change, EndReason, GameEvent, Outcome, Rank, Square } from "./rules";
 
 const B = layout.battle;
 const A = layout.army;
@@ -16,6 +16,13 @@ const O = B.offsets;
 const NO_PIECE = 255;
 
 export const NO_SQUARE = B.noSquare;
+/**
+ * The 31 reserved bytes close the Battle and the 32 reserved bytes close the Army, so both sit at the end of their
+ * accounts (the layout table has no entry for them): the end mask is the first 8 bytes of the Battle's, the sealing
+ * key all 32 of the Army's.
+ */
+const END_MASK_AT = B.size - 31;
+const SEAL_KEY_AT = A.size - 32;
 /** Battle status, as the program writes it. */
 export const STATUS = { created: 0, setup: 1, live: 2, over: 3, cancelled: 4 } as const;
 /** `Battle.winner` when the Match was a draw / nobody has won. */
@@ -24,8 +31,15 @@ export const NO_WINNER = 255;
 export const UNSET = 255;
 
 const RANKS: Record<number, Rank> = { 1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10", 11: "B", 12: "F" };
-/** The app's rank for the program's code; null for 0 (hidden or empty). */
-export const rankOfCode = (code: number): Rank | null => RANKS[code] ?? null;
+/** The private codes of a changed piece in its owner's Army: a Major that dug in (plays as a Landmine) and a General of the Army that became a Spy. The public `shown` bytes never hold them. */
+export const CODE_DUG_IN = 13;
+export const CODE_SWITCHED = 14;
+/** The app's rank for the program's code, the rank a piece PLAYS as (13 is a Landmine, 14 a Spy); null for 0 (hidden or empty). */
+export const rankOfCode = (code: number): Rank | null => (code === CODE_DUG_IN ? "B" : code === CODE_SWITCHED ? "1" : (RANKS[code] ?? null));
+/** The rank a piece was DEALT as, from its owner's code: a dug-in code is a Major, a switched one a General of the Army. */
+export const dealtRankOfCode = (code: number): Rank | null => (code === CODE_DUG_IN ? "7" : code === CODE_SWITCHED ? "10" : (RANKS[code] ?? null));
+/** What a piece's owner changed about it, from the private code. */
+export const changeOfCode = (code: number): Change | null => (code === CODE_DUG_IN ? "dug" : code === CODE_SWITCHED ? "spy" : null);
 
 export interface RingRecord {
   seq: number;
@@ -94,7 +108,7 @@ export interface Battle {
   resolveSlackSecs: number;
   stormFrom: number;
   stormTo: number;
-  /** A declared action waiting for `resolve` (0 none, 1 move, 2 timeout, 3 cap). Public intent only. */
+  /** A declared action waiting for `resolve` (see `PENDING`). Public intent only. */
   pendingKind: number;
   pendingPiece: number;
   pendingTo: number;
@@ -106,10 +120,12 @@ export interface Battle {
   pendingTime: number;
   /** The slot the deal ran in: nothing is declared in it. */
   dealSlot: bigint;
+  /** Bit `id` set for every piece whose rank changed (a dug-in Major, a switched General of the Army), dead ones included. Zero until the Match ends. */
+  endMask: bigint;
 }
 
 /** `Battle.pendingKind`. */
-export const PENDING = { none: 0, move: 1, timeout: 2, cap: 3 } as const;
+export const PENDING = { none: 0, move: 1, timeout: 2, cap: 3, blast: 4, rescue: 5, pass: 6 } as const;
 
 /** One side's private state. */
 export interface ArmyAccount {
@@ -124,6 +140,8 @@ export interface ArmyAccount {
   fuel: number;
   truckTurn: number;
   moves: number;
+  /** The Player's 32-byte sealing key (`Army.reserved`), written at the deal and zeroed when the Match is wiped. Never leaves the client. */
+  sealKey: Uint8Array;
 }
 
 const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength);
@@ -196,6 +214,7 @@ export function decodeBattle(data: Uint8Array): Battle {
     pendingSlot: v.getBigUint64(O.pendingSlot, true),
     pendingTime: Number(v.getBigInt64(O.pendingTime, true)),
     dealSlot: v.getBigUint64(O.dealSlot, true),
+    endMask: v.getBigUint64(END_MASK_AT, true),
   };
 }
 
@@ -213,6 +232,7 @@ export function decodeArmy(data: Uint8Array): ArmyAccount {
     fuel: data[O2.fuel],
     truckTurn: v.getInt32(O2.truckTurn, true),
     moves: v.getUint16(O2.moves, true),
+    sealKey: data.slice(SEAL_KEY_AT, SEAL_KEY_AT + 32),
   };
 }
 
@@ -253,6 +273,22 @@ export function decodeRecord(r: RingRecord): GameEvent | null {
       return { seq, kind: "turn", turn: armyOf(d[0]), timedOut: d[1] !== 0 };
     case 7:
       return { seq, kind: "end", winner: d[0] === 2 ? "draw" : armyOf(d[0]), reason: REASONS[d[1]] ?? "cap" };
+    case 8: {
+      const shown: { id: number; rank: Rank }[] = [];
+      for (let i = 0; i < Math.min(d[2], 8); i++) {
+        const rank = rankOfCode(d[3 + i * 2 + 1]);
+        if (rank) shown.push({ id: d[3 + i * 2], rank });
+      }
+      return { seq, kind: "blast", id: d[0], at: sqr(d[1]), shown };
+    }
+    case 9:
+      return { seq, kind: "rescue", colonel: d[0], truck: d[1], from: sqr(d[2]), to: sqr(d[3]) };
+    case 10:
+      return { seq, kind: "dug_in", army: armyOf(d[0]), id: d[1] };
+    case 11:
+      return { seq, kind: "pass", army: armyOf(d[0]) };
+    case 12:
+      return { seq, kind: "switched", id: d[0] };
     default:
       return null;
   }
@@ -280,5 +316,5 @@ export function eventsSince(b: Battle, cursor: number): Catchup {
 
 /** Changes whenever anything a Player can see in the Battle changes. */
 export function battleKey(b: Battle): string {
-  return [b.status, b.eventSeq, b.turnNo, b.moves, b.turn, b.stepsLeft, b.twoStepActive, b.deadline, b.winner, b.stormDone, b.twoStep, b.timeouts, b.depotClaimed, b.pendingKind, b.actionSeq, b.sq.join(","), b.shown.join(",")].join("|");
+  return [b.status, b.eventSeq, b.turnNo, b.moves, b.turn, b.stepsLeft, b.twoStepActive, b.deadline, b.winner, b.stormDone, b.twoStep, b.timeouts, b.depotClaimed, b.pendingKind, b.actionSeq, b.endMask, b.sq.join(","), b.shown.join(",")].join("|");
 }
