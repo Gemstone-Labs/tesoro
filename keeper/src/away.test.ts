@@ -21,13 +21,14 @@ describe("away accounts", () => {
 
 describe("away clean-up plan", () => {
   const away = new Set([alice.toBase58()]);
-  const match = (id: number, status: string, opener: typeof alice) => ({ id: n(id), inner: { status: st(status), a: { player: opener.toBytes() } } });
+  const game = Keypair.generate().publicKey;
+  const match = (id: number, stage: string, opener: typeof alice) => ({ ref: { opener, n: BigInt(id) }, stage, game, opener });
   const request = (status: string, owner: typeof alice) => ({ publicKey: Keypair.generate().publicKey, account: { inner: { status: st(status), player: owner.toBytes() } } });
   const offer = (status: string, backer: typeof alice) => ({ publicKey: Keypair.generate().publicKey, account: { inner: { status: st(status), backer: backer.toBytes() } } });
 
   it("refunds unpaired Matches of an away opener only", () => {
-    const plan = planAway(away, [match(1, "open", alice), match(2, "active", alice), match(3, "open", bob), match(4, "settled", alice)], [], []);
-    assert.deepEqual(plan.map((p) => p.kind === "refund" && p.id), [1n]);
+    const plan = planAway(away, [match(1, "open", alice), match(2, "active", alice), match(3, "open", bob), match(4, "settling", alice)], [], []);
+    assert.deepEqual(plan.map((p) => p.kind === "refund" && p.match.n), [1n]);
   });
 
   it("withdraws open Requests and unused Offers of away Players only", () => {

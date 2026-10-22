@@ -1312,13 +1312,13 @@ pub struct OldAccountRetired {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::ledger::lifecycle::*;
     use anchor_lang::AnchorSerialize;
 
-    #[test]
-    fn the_match_record_never_outgrows_its_account() {
+    /// The fullest Match: joined, Backed, an outside studio, a run started, every room hold used.
+    pub(crate) fn fullest_match_state() -> MatchState {
         // the fullest record: a joined Match with a Backed side, an outside studio and a run
         let party = Party {
             player: [1; 32],
@@ -1390,10 +1390,22 @@ mod tests {
             inner: rec,
             listed: true,
             listing_epoch: u32::MAX,
-            payer: Pubkey::new_unique(),
-            pots: [Pubkey::new_unique(); 2],
-            room: [RoomHold::default(); ROOM_HOLDS],
+            payer: Pubkey::new_from_array([60; 32]),
+            pots: [
+                Pubkey::new_from_array([61; 32]),
+                Pubkey::new_from_array([62; 32]),
+            ],
+            room: std::array::from_fn(|i| RoomHold {
+                account: [40 + i as u8; 32],
+                left: 3 + i as u32,
+            }),
         };
+        state
+    }
+
+    #[test]
+    fn the_match_record_never_outgrows_its_account() {
+        let state = fullest_match_state();
         let mut bytes = Vec::new();
         state.serialize(&mut bytes).unwrap();
         // 8 discriminator + bump, then the Borsh of the rest
