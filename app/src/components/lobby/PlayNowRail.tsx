@@ -15,6 +15,7 @@ import type { GameId } from "@/lib/mock/types";
 import { CATALOGUE } from "@/lib/catalogue";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { Rail } from "./Rail";
+import { useFeatured } from "./useFeatured";
 import { useQueue } from "./useQueue";
 
 const RESULT_WORD = { won: ["Won", CheckIcon], lost: ["Lost", XIcon], draw: ["Draw", MinusIcon], refunded: ["Refunded", MinusIcon] } as const;
@@ -40,6 +41,7 @@ function untilt(e: PointerEvent<HTMLElement>) {
 export function PlayNowRail() {
   const { query, setQuery } = useSearch();
   const queue = useQueue();
+  const featured = useFeatured().filter((g) => !query.trim() || matchesQuery(g.gameName, query));
   const { auth, snapshot } = useAccount();
   const me = snapshot?.accountKey.toBase58();
   const facts = useMemo(
@@ -92,6 +94,23 @@ export function PlayNowRail() {
           )}
         </div>
       ))}
+      {featured.length > 0 && (
+        <div className="soon-strip" style={{ gridColumn: "1 / -1" }}>
+          <b>Featured Games</b>
+          {featured.map((g) => (
+            <span key={g.programId} className="soon-item">
+              {g.site ? (
+                <a href={g.site} target="_blank" rel="noopener noreferrer">
+                  {g.gameName}
+                </a>
+              ) : (
+                g.gameName
+              )}
+              <small className="meta"> by {g.studio}</small>
+            </span>
+          ))}
+        </div>
+      )}
       {soon.length > 0 && (
         <div className="soon-strip" style={{ gridColumn: "1 / -1" }}>
           <b>
