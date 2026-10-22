@@ -271,7 +271,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
         open={openSheet}
         onClose={() => setOpenSheet(false)}
         title="Buy Gemas"
-        actions={<ProViewSwitch on onChange={() => {
+        actions={<ProViewSwitch on tip={false} onChange={() => {
           // Pro view off: save it and swap to the deposit packs, with the game the Player came from.
           setMode("simple");
           setOpenSheet(false);

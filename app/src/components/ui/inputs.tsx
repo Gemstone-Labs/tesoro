@@ -238,10 +238,11 @@ export function Sheet({
           <div className="sheet-head">
             {lead}
             <h2 id={titleId}>{title}</h2>
-            {actions && <div className="sheet-actions">{actions}</div>}
+            {/* Close comes first in the DOM so opening the sheet focuses it, not one of the actions */}
             <button type="button" className="cut cut-chip icon-btn" onClick={onClose} aria-label="Close">
               <XIcon />
             </button>
+            {actions && <div className="sheet-actions">{actions}</div>}
           </div>
           {children}
         </div>

@@ -11,6 +11,12 @@ describe("Pro view switch", () => {
     expect(html).toContain('aria-label="About Pro view"');
   });
 
+  it("has no info tip in the Buy Gemas modals", () => {
+    const html = renderToStaticMarkup(<ProViewSwitch on={false} tip={false} onChange={() => {}} />);
+    expect(html).toContain('role="switch"');
+    expect(html).not.toContain("About Pro view");
+  });
+
   it("shows when it is on", () => {
     expect(renderToStaticMarkup(<ProViewSwitch on onChange={() => {}} />)).toContain('aria-checked="true"');
   });

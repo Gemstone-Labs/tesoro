@@ -51,7 +51,7 @@ export function DepositSheet({ open, onClose, intent }: { open: boolean; onClose
       onClose={onClose}
       title={TITLES[step]}
       className={`dep-sheet ${step}`}
-      actions={step === "packs" && <ProViewSwitch on={false} onChange={goPro} />}
+      actions={step === "packs" && <ProViewSwitch on={false} onChange={goPro} tip={false} />}
     >
       {step === "packs" && (
         <PacksView
