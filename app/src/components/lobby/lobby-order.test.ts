@@ -3,7 +3,7 @@ import { CATALOGUE, LOBBY_ORDER } from "@/lib/catalogue";
 import { SLIDES } from "./HeroCarousel";
 
 describe("Lobby game order", () => {
-  it("is Vanguard, Hold'em, Trading Duel, Block Puzzle", () => {
+  it("is Vanguard, Hold'em, Trading Duel, Block Burst", () => {
     expect(LOBBY_ORDER).toEqual(["vanguard", "holdem", "trading-duel", "block-puzzle"]);
   });
   it("orders the hero carousel", () => {

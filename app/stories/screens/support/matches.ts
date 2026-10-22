@@ -67,6 +67,18 @@ export function holdemLive(kind: "preflop" | "flop" | "facing-bet"): Partial<Hol
   return { stage: "live", table: t, seat: 0, hole: p.lastHoles ? { handNo: playing ? t.handNo : t.lastHand.handNo, cards: p.lastHoles[0] } : null };
 }
 
+/** The preflop table with the turn clock set: whose turn it is and how many seconds are left (negative: already run out). */
+export function holdemClock(turn: "opponent" | "opponent-late" | "mine-late"): Partial<HoldemView> {
+  const v = holdemLive("preflop");
+  const [toAct, left] = { opponent: [1, 40], "opponent-late": [1, -30], "mine-late": [0, -30] }[turn];
+  return { ...v, table: { ...v.table!, toAct, deadline: secs() + left } };
+}
+
+/** An Active Match past the time it should have settled; with `refundOpen` its refund deadline has passed too. */
+export function lateMatch(m: ChainMatch, refundOpen: boolean): ChainMatch {
+  return { ...m, deadline: secs() + (refundOpen ? -600 : 1800), session: m.session && { ...m.session, deadline: secs() - 900, openerDeadline: secs() - 900 } };
+}
+
 export function holdemOver(): Partial<HoldemView> {
   const p = hand(5, [[0, raise(1500)], [1, call()]]);
   return { stage: "closing", note: "Saving the result", table: { ...p.table, status: HD_STATUS.over } };

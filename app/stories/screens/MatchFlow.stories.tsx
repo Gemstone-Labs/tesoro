@@ -53,7 +53,7 @@ function queueSteps(game: GameId, via: "joined" | "opened", o: { backing?: boole
       label: "Looking for an opponent",
       status: "Looking for an opponent…",
       layers: ["solana"],
-      what: `First: any unfinished ${bp ? "Block Puzzle" : game === "holdem" ? "Hold'em" : "Trading Duel"} Match of yours? Then the page offers Continue instead of a second entry. Otherwise it lists open Queue Matches at this entry, oldest first, and re-reads each one fresh: same Game and entry, an even id (odd ids are Challenges), no Backer seat, more than 60 s before its refund deadline${game === "trading-duel" ? ", and the same asset (bits 1–2 of the Match id)" : ""}.`,
+      what: `First: any unfinished ${bp ? "Block Burst" : game === "holdem" ? "Hold'em" : "Trading Duel"} Match of yours? Then the page offers Continue instead of a second entry. Otherwise it lists open Queue Matches at this entry, oldest first, and re-reads each one fresh: same Game and entry, an even id (odd ids are Challenges), no Backer seat, more than 60 s before its refund deadline${game === "trading-duel" ? ", and the same asset (bits 1–2 of the Match id)" : ""}.`,
       calls: ["unfinishedMatches", "listQueueMatchIds (getProgramAccounts on tesoro_core)", "fetchMatch × up to 6 per round"],
     },
   ];
@@ -63,7 +63,7 @@ function queueSteps(game: GameId, via: "joined" | "opened", o: { backing?: boole
         label: "Joining a Match",
         status: "Joining a Match…",
         layers: ["wallet", "solana"],
-        what: `One transaction on Solana takes the second seat. ${holdingNote}${bp ? " For Block Puzzle the same transaction creates your hidden Board (join_session)." : ""} A send that times out is settled on chain first (\"Confirming your entry on Solana…\"); a definite failure tries the next candidate, three at most.`,
+        what: `One transaction on Solana takes the second seat. ${holdingNote}${bp ? " For Block Burst the same transaction creates your hidden Board (join_session)." : ""} A send that times out is settled on chain first (\"Confirming your entry on Solana…\"); a definite failure tries the next candidate, three at most.`,
         calls: [o.backing ? "tesoro_core.join_match_backed" : "tesoro_core.join_match", ...(bp ? ["block_puzzle.join_session"] : [])],
       },
       {
@@ -81,7 +81,7 @@ function queueSteps(game: GameId, via: "joined" | "opened", o: { backing?: boole
         label: "Opening a Match",
         status: "Opening a Match…",
         layers: ["wallet", "solana"],
-        what: `Nobody was waiting at this entry, so you open a Match with a fresh even id (${game === "trading-duel" ? "ms × 8 + asset × 2" : "ms × 2"}). ${holdingNote}${bp ? " For Block Puzzle the same transaction opens the Session, your Board and the SeedVault (open_session), so you can play before anyone joins." : " It waits in the Queue for the next Player."}`,
+        what: `Nobody was waiting at this entry, so you open a Match with a fresh even id (${game === "trading-duel" ? "ms × 8 + asset × 2" : "ms × 2"}). ${holdingNote}${bp ? " For Block Burst the same transaction opens the Session, your Board and the SeedVault (open_session), so you can play before anyone joins." : " It waits in the Queue for the next Player."}`,
         calls: [o.backing ? "tesoro_core.open_match_backed" : "tesoro_core.open_match", ...(bp ? ["block_puzzle.open_session"] : [])],
       },
       {
@@ -100,7 +100,7 @@ function queueSteps(game: GameId, via: "joined" | "opened", o: { backing?: boole
 const routing: Step = {
   label: "Reading the Match",
   layers: ["solana"],
-  what: "/play/match/<id> renders MatchRoute. It reads the MatchState on tesoro_core and picks the Match view from the Game's program id (Block Puzzle, Hold'em or Trading Duel). Until that read answers the page shows the Match stage blank with “Loading the Match…”, so the layout holds.",
+  what: "/play/match/<id> renders MatchRoute. It reads the MatchState on tesoro_core and picks the Match view from the Game's program id (Block Burst, Hold'em or Trading Duel). Until that read answers the page shows the Match stage blank with “Loading the Match…”, so the layout holds.",
   calls: ["tesoro_core.account.matchState.fetchNullable", "gameOf(program id)"],
   ms: 2000,
 };
@@ -115,7 +115,7 @@ function frames(entry: { url: string; match: ChainMatch; steps: Step[] }, match:
   ];
 }
 
-/* Block Puzzle */
+/* Block Burst */
 
 const run = (stage: NonNullable<ScreenData["run"]>["stage"], step?: string): ScreenData => ({ run: { stage, step } });
 
@@ -296,6 +296,117 @@ function blockPuzzleChallengeJoin(): Frame[] {
   );
 }
 
+function blockPuzzleNobodyJoins(): Frame[] {
+  const open = chainMatch("block-puzzle", "open");
+  const refunded = { ...chainMatch("block-puzzle", "refunded"), id: open.id };
+  return frames(
+    { url: queueUrl("block-puzzle"), match: open, steps: queueSteps("block-puzzle", "opened") },
+    {
+      steps: [
+        ...blockPuzzlePrep(true),
+        {
+          label: "Waiting for an opponent",
+          screen: run("finished"),
+          remount: true,
+          layers: ["solana"],
+          what: "Your run is closed and nobody has joined. Cancel and refund is on the page the whole time: it returns the entry to your Holdings.",
+          calls: ["fetchMatch every 3 s"],
+          ms: 3600,
+        },
+        {
+          label: "Cancel and refund pressed",
+          screen: run("finished"),
+          click: "Cancel and refund",
+          layers: ["wallet", "solana"],
+          what: "refund_match on tesoro_core closes the open Match and returns your held entry; the Match page reads it as refunded.",
+          calls: ["tesoro_core.refund_match"],
+          ms: 2400,
+        },
+        {
+          label: "Refunded",
+          match: refunded,
+          screen: run("committed"),
+          remount: true,
+          layers: ["solana"],
+          what: "The Match is refunded. The result screen says so and shows no scores.",
+          ms: 6000,
+        },
+      ],
+    },
+  );
+}
+
+function blockPuzzleOpponentNeverFinishes(): Frame[] {
+  const active = chainMatch("block-puzzle", "active");
+  const refunded = { ...chainMatch("block-puzzle", "refunded"), id: active.id };
+  return frames(
+    { url: queueUrl("block-puzzle"), match: active, steps: queueSteps("block-puzzle", "joined") },
+    {
+      steps: [
+        ...blockPuzzlePrep(false),
+        {
+          label: "Waiting for their score",
+          screen: run("finished"),
+          remount: true,
+          layers: ["solana", "tee"],
+          what: "Your run is closed. The opener has not finished theirs yet; trySettle runs every 6 s.",
+          calls: ["trySettle every 6 s", "canClaimTimeout"],
+          ms: 3600,
+        },
+        {
+          label: "Their time ran out",
+          screen: { run: { stage: "finished", timeout: true } },
+          remount: true,
+          layers: ["solana"],
+          what: "The opener's time to finish is over, so canClaimTimeout turns true and the page offers “Time’s up: refund both entries”.",
+          calls: ["canClaimTimeout"],
+          ms: 3600,
+        },
+        {
+          label: "Time’s up pressed",
+          screen: { run: { stage: "finished", timeout: true } },
+          click: "refund both entries",
+          layers: ["wallet", "solana"],
+          what: "claim_timeout on block_puzzle refunds both entries through tesoro_core.",
+          calls: ["block_puzzle.claim_timeout → tesoro_core.refund_match"],
+          ms: 2400,
+        },
+        {
+          label: "Refunded",
+          match: refunded,
+          screen: run("committed"),
+          remount: true,
+          layers: ["solana"],
+          what: "Both entries are back. The result screen says refunded.",
+          ms: 6000,
+        },
+      ],
+    },
+  );
+}
+
+function blockPuzzleContinue(): Frame[] {
+  const active = chainMatch("block-puzzle", "active");
+  return frames(
+    {
+      url: queueUrl("block-puzzle"),
+      match: active,
+      steps: [
+        ...queueSteps("block-puzzle", "joined").slice(0, 2),
+        {
+          label: "Unfinished Match found",
+          entered: "existing",
+          layers: ["solana"],
+          what: "unfinishedMatches found a Block Burst Match of yours that is still playable, so nothing new is entered. The page offers Continue and Lobby instead.",
+          calls: ["unfinishedMatches"],
+          ms: 4200,
+        },
+      ],
+    },
+    { steps: [{ label: "Continue pressed: back in your Match", screen: run("ready"), layers: ["tee"], what: "Continue opens the Match page, which picks up where the Match is: here, ready to start your run.", ms: 4200 }] },
+  );
+}
+
 /* Hold'em */
 
 const hv = (m: ChainMatch, v: Partial<HoldemView>): ScreenData => ({ holdem: { match: m, seat: m.seat, ...v } });
@@ -365,15 +476,16 @@ function holdemTable(m: ChainMatch, seat: "joiner" | "opener"): (Step & { match?
   ];
 }
 
-function holdemJoins(): Frame[] {
-  const active = { ...chainMatch("holdem", "active"), id: chainMatch("holdem", "open").id };
-  const won = { ...chainMatch("holdem", "won"), id: active.id };
+function holdemJoins(o: { lost?: boolean; backing?: boolean } = {}): Frame[] {
+  const b = o.backing ? { backing: "player" as const } : {};
+  const active = { ...chainMatch("holdem", "active", b), id: chainMatch("holdem", "open").id };
+  const won = { ...chainMatch("holdem", o.lost ? "lost" : "won", b), id: active.id };
   return frames(
-    { url: queueUrl("holdem"), match: active, steps: queueSteps("holdem", "joined") },
+    { url: queueUrl("holdem", o.backing), match: active, steps: queueSteps("holdem", "joined", o) },
     {
       steps: [
         ...holdemTable(active, "joiner"),
-        { label: "Won", match: won, screen: hv(won, { stage: "settled" }), layers: ["solana"], what: "Settled. The result screen shows the payout and the receipts from both layers.", ms: 6000 },
+        { label: o.lost ? "Lost" : o.backing ? "Won (Backed)" : "Won", match: won, screen: hv(won, { stage: "settled" }), layers: ["solana"], what: "Settled. The result screen shows the payout and the receipts from both layers.", ms: 6000 },
       ],
     },
   );
@@ -505,16 +617,16 @@ function duelLiveSteps(m: ChainMatch): (Step & { match?: ChainMatch })[] {
   ];
 }
 
-function duelJoins(): Frame[] {
+function duelJoins(o: { lost?: boolean } = {}): Frame[] {
   const active = { ...chainMatch("trading-duel", "active"), id: chainMatch("trading-duel", "open").id };
-  const won = { ...chainMatch("trading-duel", "won"), id: active.id };
+  const won = { ...chainMatch("trading-duel", o.lost ? "lost" : "won"), id: active.id };
   return frames(
     { url: queueUrl("trading-duel"), match: active, steps: queueSteps("trading-duel", "joined") },
     {
       steps: [
         ...duelSetup(active, "joiner"),
         ...duelLiveSteps(active),
-        { label: "Won", match: won, screen: dv(won, duelSettled(true)), layers: ["solana"], what: "Settled. Both scores and the final price.", ms: 6000 },
+        { label: o.lost ? "Lost" : "Won", match: won, screen: dv(won, duelSettled(!o.lost)), layers: ["solana"], what: "Settled. Both scores and the final price.", ms: 6000 },
       ],
     },
   );
@@ -531,7 +643,7 @@ function duelOpens(): Frame[] {
           label: "Waiting for an opponent",
           screen: dv(open, { stage: "waiting" }),
           layers: ["solana"],
-          what: "Unlike Block Puzzle there is nothing to play alone: the Match waits in the SOL Queue until the next Player trading SOL joins. The page re-reads it every few seconds.",
+          what: "Unlike Block Burst there is nothing to play alone: the Match waits in the SOL Queue until the next Player trading SOL joins. The page re-reads it every few seconds.",
           calls: ["fetchMatch (poll)"],
           ms: 4200,
         },
@@ -545,16 +657,16 @@ function duelOpens(): Frame[] {
 const flow = (title: string, enter: Flow["enter"], build: () => Frame[]): Flow => ({ title, enter, frames: build });
 
 /** Nobody waiting: you open the Match, play your run straight away, then someone joins and the Match settles. */
-export const BlockPuzzleQueueOpens: Story = { args: { flow: flow("Block Puzzle · Queue · opens", { kind: "queue", entry: 1000, game: "block-puzzle" }, blockPuzzleOpens) } };
+export const BlockPuzzleQueueOpens: Story = { args: { flow: flow("Block Burst · Queue · opens", { kind: "queue", entry: 1000, game: "block-puzzle" }, blockPuzzleOpens) } };
 /** A Match was waiting: you join it, set up your own hidden Board and play. */
-export const BlockPuzzleQueueJoins: Story = { args: { flow: flow("Block Puzzle · Queue · joins", { kind: "queue", entry: 1000, game: "block-puzzle" }, () => blockPuzzleJoins()) } };
+export const BlockPuzzleQueueJoins: Story = { args: { flow: flow("Block Burst · Queue · joins", { kind: "queue", entry: 1000, game: "block-puzzle" }, () => blockPuzzleJoins()) } };
 /** The entry is paid by a Backer's accepted Offer. */
 export const BlockPuzzleBackedQueue: Story = {
-  args: { flow: flow("Block Puzzle · Backed Queue", { kind: "queue", entry: 1000, game: "block-puzzle", backing: BACKING }, () => blockPuzzleJoins({ backing: true })) },
+  args: { flow: flow("Block Burst · Backed Queue", { kind: "queue", entry: 1000, game: "block-puzzle", backing: BACKING }, () => blockPuzzleJoins({ backing: true })) },
 };
 /** Opening a friend's Challenge link. */
 export const BlockPuzzleChallengeLink: Story = {
-  args: { flow: flow("Block Puzzle · Challenge link", { kind: "challenge-join", id: "3581887481019" }, blockPuzzleChallengeJoin) },
+  args: { flow: flow("Block Burst · Challenge link", { kind: "challenge-join", id: "3581887481019" }, blockPuzzleChallengeJoin) },
   parameters: { nextjs: { navigation: { pathname: "/play/challenge/3581887481019" } } },
 };
 export const HoldemQueueJoins: Story = { args: { flow: flow("Hold'em · Queue · joins", { kind: "queue", entry: 1000, game: "holdem" }, holdemJoins) } };
@@ -566,3 +678,20 @@ export const HoldemChallenge: Story = {
 export const TradingDuelQueueJoins: Story = { args: { flow: flow("Trading Duel · Queue · joins", { kind: "queue", entry: 1000, game: "trading-duel", asset: 0 }, duelJoins) } };
 export const TradingDuelQueueOpens: Story = { args: { flow: flow("Trading Duel · Queue · opens", { kind: "queue", entry: 1000, game: "trading-duel", asset: 0 }, duelOpens) } };
 
+
+/** Nobody joins: Cancel and refund returns the entry. */
+export const BlockPuzzleNobodyJoins: Story = { args: { flow: flow("Block Burst · nobody joins · refund", { kind: "queue", entry: 1000, game: "block-puzzle" }, blockPuzzleNobodyJoins) } };
+/** The opponent never finishes their run: Time’s up refunds both entries. */
+export const BlockPuzzleOpponentNeverFinishes: Story = {
+  args: { flow: flow("Block Burst · opponent never finishes", { kind: "queue", entry: 1000, game: "block-puzzle" }, blockPuzzleOpponentNeverFinishes) },
+};
+/** You already have a Match to play: the Queue page offers Continue instead of a second entry. */
+export const BlockPuzzleContinueExistingMatch: Story = { args: { flow: flow("Block Burst · existing Match · Continue", { kind: "queue", entry: 1000, game: "block-puzzle" }, blockPuzzleContinue) } };
+/** Hold'em: the opponent wins the Match. */
+export const HoldemQueueLost: Story = { args: { flow: flow("Hold'em · Queue · lost", { kind: "queue", entry: 1000, game: "holdem" }, () => holdemJoins({ lost: true })) } };
+/** Hold'em entry paid by a Backer's accepted Offer. */
+export const HoldemBackedQueue: Story = {
+  args: { flow: flow("Hold'em · Backed Queue", { kind: "queue", entry: 1000, game: "holdem", backing: BACKING }, () => holdemJoins({ backing: true })) },
+};
+/** Trading Duel: the opponent comes out ahead. */
+export const TradingDuelQueueLost: Story = { args: { flow: flow("Trading Duel · Queue · lost", { kind: "queue", entry: 1000, game: "trading-duel", asset: 0 }, () => duelJoins({ lost: true })) } };

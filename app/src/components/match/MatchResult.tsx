@@ -13,6 +13,7 @@ import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { pointsForWin } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
 import { canRematch, rematchHref } from "@/lib/rematch";
+import { AddFriendButton } from "@/components/friends/AddFriendButton";
 import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
 import { practiceHref } from "@/lib/game-params";
@@ -54,7 +55,7 @@ export const RULES: Record<GameId, { chip: string; line: string }> = {
   "block-puzzle": { chip: "Same pieces", line: "90 seconds · higher score wins" },
   holdem: { chip: "Heads-up", line: "Turbo blinds · last stack standing" },
   "trading-duel": { chip: "Live prices", line: "2.5 minutes · more points wins" },
-  vanguard: { chip: "Hidden ranks", line: "5 seconds a move · capture the Supply Truck" },
+  vanguard: { chip: "Hidden ranks", line: "10 seconds a move · capture the Supply Truck" },
 };
 
 const HERO: Record<GameId, string> = { "block-puzzle": art.blockPuzzleHero, holdem: art.holdemHero, "trading-duel": art.tradingDuelHero, vanguard: art.vanguardHero };
@@ -112,7 +113,7 @@ function LossStanding() {
   return <p className="mr-copy">Losses earn no points{rank ? <>; you are still <Link href="/leaderboard">{ordinal(rank)} this Season</Link></> : null}.</p>;
 }
 
-/** "New best" beside a Block Puzzle score that beats every earlier finished Match of this Account. */
+/** "New best" beside a Block Burst score that beats every earlier finished Match of this Account. */
 function NewBest({ score, matchId }: { score: number; matchId?: string }) {
   const { snapshot } = useAccount();
   if (!snapshot?.matchesLoaded) return null;
@@ -190,7 +191,7 @@ export function MatchResult(p: MatchResultProps) {
             <div className="mr-in mr-notes" style={{ "--d": "1400ms" } as Css}>
               {won && (
                 <>
-                  <Link className="mr-pending" href="/wallet">
+                  <Link className="mr-pending" href="/vault">
                     Pending · redeemable as their yield lands <span aria-hidden="true">→</span>
                   </Link>
                   <SimulatedYieldLabel />
@@ -233,6 +234,7 @@ export function MatchResult(p: MatchResultProps) {
             {canRematch({ role, outcome, opponent: p.opponent }) && (
               <Button size="lg" href={rematchHref({ game: p.game, asset: p.asset, entry: p.entry, opponent: p.opponent! })}>Rematch</Button>
             )}
+            {canRematch({ role, outcome, opponent: p.opponent }) && <AddFriendButton account={p.opponent!} size="lg" />}
             {won && role === "player" && p.matchId && (
               <Button
                 size="lg"
@@ -248,7 +250,7 @@ export function MatchResult(p: MatchResultProps) {
           </div>
           <nav className="mr-links" aria-label="Leave the result">
             <Link href="/lobby">Lobby</Link>
-            <Link href="/wallet">Wallet</Link>
+            <Link href="/vault">Vault</Link>
           </nav>
         </div>
         {p.children}

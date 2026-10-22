@@ -12,7 +12,7 @@ const CHAINS = [
 
 const COLUMNS: { title: string; links: [label: string, href: string | null][] }[] = [
   { title: "Play", links: [["Lobby", "/lobby"], ["Games", "/play"], ["Leaderboard", "/leaderboard"], ["Your Matches", "/matches"]] },
-  { title: "Money", links: [["Wallet", "/wallet"], ["Backing", "/backing"]] },
+  { title: "Money", links: [["Vault", "/vault"], ["Backing", "/backing"]] },
   { title: "Learn", links: [["Docs", "/docs"], ["Help", "/help"], ["Terms", "/terms"], ["Privacy", "/privacy"]] },
 ];
 

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { PENDING, type Battle } from "./decode";
 import { catchUp, pendingOf, turnLine } from "./catchup";
 import { encodeEvent } from "./fixture";
-import { enemyLeft } from "./view";
+import { chainRoster } from "./view";
 import type { GameEvent } from "./rules";
 
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
@@ -17,7 +17,7 @@ function battle(over: Partial<Battle> = {}): Battle {
     bump: 0, authorityBump: 0, usSeat: 0, status: 2, finalized: 0, permissioned: 1, winner: 255, reason: 255, turn: 0, stepsLeft: 1, twoStepActive: 0, stormDone: 0,
     twoStep: [0, 0], timeouts: [0, 0], depotClaimed: [0, 0],
     layoutVersion: 2, rulesVersion: 3, setupDeadline: 0, capDeadline: 0, payer: key(4), oracleQueue: key(5), moveCap: 200, capSecs: 900, turnSecs: 5, graceSecs: 1,
-    openingGraceSecs: 10, stormFrom: 10, stormTo: 18, pendingKind: 0, pendingPiece: 0, pendingTo: 0, pendingSeat: 0, actionSeq: 0, pendingSlot: 0n, pendingTime: 0, dealSlot: 0n, resolveSlackSecs: 2,
+    openingGraceSecs: 10, stormFrom: 10, stormTo: 18, pendingKind: 0, pendingPiece: 0, pendingTo: 0, pendingSeat: 0, actionSeq: 0, pendingSlot: 0n, pendingTime: 0, dealSlot: 0n, resolveSlackSecs: 2, endMask: 0n,
     ...over,
   };
 }
@@ -82,8 +82,34 @@ describe("the board is the truth, the ring only animates", () => {
     const plain = battle({ sq, shown });
     const noisy = withRing(30, 16);
     Object.assign(noisy, { sq, shown });
-    expect(enemyLeft(noisy, 0)).toEqual(enemyLeft(plain, 0));
-    expect(enemyLeft(plain, 0)["4"]).toBe(enemyLeft(battle(), 0)["4"] - 2);
+    expect(chainRoster(noisy, 0)).toEqual(chainRoster(plain, 0));
+    const four = (b: Battle) => chainRoster(b, 0).cells.find((x) => x.rank === "4")!.left;
+    expect(four(plain)).toBe(four(battle()) - 2);
+  });
+});
+
+describe("a declared power or pass in flight", () => {
+  const p = (kind: number, o: Partial<Battle> = {}) => battle({ pendingKind: kind, pendingSeat: 1, pendingPiece: 33, pendingTo: 0, turn: 1, ...o });
+
+  it("shows an opponent's Blast or Rescue as a move in progress, and never treats its square 0 as a target", () => {
+    for (const kind of [PENDING.blast, PENDING.rescue]) {
+      const v = pendingOf(p(kind), 0);
+      expect(v).toMatchObject({ mine: false, line: "Your opponent is making a move…" });
+      expect(v?.kind).toBe(kind === PENDING.blast ? "blast" : "rescue");
+    }
+  });
+
+  it("names your own Blast or Rescue while it applies", () => {
+    expect(pendingOf(p(PENDING.blast, { pendingSeat: 0 }), 0)?.line).toBe("Your Blast is being applied…");
+    expect(pendingOf(p(PENDING.rescue, { pendingSeat: 0 }), 0)?.line).toBe("Your Rescue is being applied…");
+  });
+
+  it("reads a pass the same whatever its sealed slot byte holds: that byte is not a piece", () => {
+    const a = pendingOf(p(PENDING.pass, { pendingPiece: 0 }), 0);
+    const b = pendingOf(p(PENDING.pass, { pendingPiece: 200 }), 0);
+    expect(a).toEqual(b);
+    expect(a).toEqual({ kind: "pass", mine: false, piece: null, line: "Their Major is digging in…" });
+    expect(pendingOf(p(PENDING.pass, { pendingSeat: 0 }), 0)?.line).toBe("Digging in…");
   });
 });
 

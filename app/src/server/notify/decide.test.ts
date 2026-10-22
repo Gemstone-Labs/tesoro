@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DAILY_LIMIT, decide, type MatchSettledEvent, type NotifyPrefs } from "./decide";
+import { DAILY_LIMIT, decide, describe as describeEvent, type MatchSettledEvent, type NotifyPrefs } from "./decide";
 
 const event = (over: Partial<MatchSettledEvent> = {}): MatchSettledEvent => ({
   kind: "match-settled",
@@ -19,13 +19,13 @@ describe("who is emailed about a settled Match", () => {
     const d = decide(event(), prefs, 0);
     expect(d.emails).toHaveLength(1);
     expect(d.emails[0].to).toBe("p@example.com");
-    expect(d.emails[0].subject).toBe("You won your Block Puzzle Match");
-    expect(d.emails[0].text).toContain("You won your Block Puzzle Match and 980 Gemas. The Pot was 2,000 Gemas.");
+    expect(d.emails[0].subject).toBe("You won your Block Burst Match");
+    expect(d.emails[0].text).toContain("You won your Block Burst Match and 980 Gemas. The Pot was 2,000 Gemas.");
   });
 
   it("says a loss and a draw in their own words", () => {
-    expect(decide(event({ result: "lost", gemas: 1000 }), prefs, 0).emails[0].text).toContain("lost your Block Puzzle Match and 1,000 Gemas");
-    expect(decide(event({ result: "draw", gemas: 0 }), prefs, 0).emails[0].subject).toBe("Your Block Puzzle Match was a draw");
+    expect(decide(event({ result: "lost", gemas: 1000 }), prefs, 0).emails[0].text).toContain("lost your Block Burst Match and 1,000 Gemas");
+    expect(decide(event({ result: "draw", gemas: 0 }), prefs, 0).emails[0].subject).toBe("Your Block Burst Match was a draw");
   });
 
   it("sends nothing without an address, to an unverified address, or with notifications off", () => {
@@ -39,5 +39,18 @@ describe("who is emailed about a settled Match", () => {
     const d = decide(event(), prefs, DAILY_LIMIT);
     expect(d.emails).toEqual([]);
     expect(d.digest).toHaveLength(1);
+  });
+});
+
+describe("Friend emails", () => {
+  it("say what happened without the other Player's name (a Profile name is free text)", () => {
+    expect(describeEvent({ kind: "friend-request", id: "friend-request:1", authority: "A" })).toEqual({
+      subject: "You have a Friend request",
+      body: "A Player sent you a Friend request. Open Friends to accept or decline it.",
+    });
+    expect(describeEvent({ kind: "friend-challenge", id: "friend-challenge:13", authority: "A", matchId: "13", game: "holdem", entry: 500 })).toEqual({
+      subject: "A Friend challenged you to Hold'em",
+      body: "A Friend challenged you to a Hold'em Match for an entry of 500 Gemas. Open Friends to see it and play.",
+    });
   });
 });

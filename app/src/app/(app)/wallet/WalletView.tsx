@@ -2,14 +2,16 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ChevronDown } from "lucide-react";
 import { CLUSTER } from "@/lib/cluster-settings";
-import { Button, Card, FacetCrown, GemaMark, GemaUsd, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
+import { Button, Sheet, SkeletonCards, CountUp } from "@/components/ui";
 import { redeemableOf, useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
-import { fmtAsset, fmtGemas } from "@/lib/format";
+import { fmtAsset, fmtGemas, fmtUsd } from "@/lib/format";
 import { onGetGemas } from "@/lib/get-gemas";
-import { GAME_NAMES, type Chain, type GameId, type GemaHolding, type Position } from "@/lib/mock";
+import { requestDeposit } from "@/lib/deposit/bus";
+import { useViewMode } from "@/lib/deposit/use-view-mode";
+import { ProViewSwitch } from "@/components/deposit/ProViewSwitch";
+import { type Chain, type GemaHolding, type Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
 import { BRAND } from "@/lib/brand";
 import { AdvanceSheet } from "./AdvanceSheet";
@@ -21,20 +23,28 @@ import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables, ethYieldWaiting } from "./EthPositions";
 import { vaultsOn, type EthVault } from "@/lib/chain/eth";
-import { OpenPanel, OpenFormView, NoPositions, OpenIntentContext, type OpenIntent } from "./OpenPanel";
-import { ChainPockets, NextRedeem, type Pocket, type PocketSource } from "./ChainPockets";
+import { OpenPanel, OpenFormView, OpenIntentContext, type OpenIntent } from "./OpenPanel";
+import { BalanceHero } from "@/components/money/BalanceHero";
+import { CARD, NextIn } from "@/components/money/card-copy";
+import { HoverHint } from "@/components/money/Tip";
+import { instantCandidates, useInstantRedeem } from "./instant";
+import { ChainPockets, type Pocket, type PocketSource } from "./ChainPockets";
 import { SmallLeftovers } from "./Leftovers";
 import { WaitingForRoom } from "./WaitingForRoom";
-import { useInstantRedeem } from "./instant";
 import { orderState } from "@/lib/chain/instant-order";
 import { readyBy } from "@/lib/chain/ready-by";
 import { PositionTile, linearSeries } from "./PositionTile";
-import { ResetNote } from "./ResetNote";
 import "./wallet.css";
 
 const REAL = CLUSTER.yieldModel === "real";
 
-export default function Wallet() {
+/**
+ * The Advanced view. `part` splits it for the Vault page: "card" is the balance card both views share (with its Redeem
+ * and Instant Redeem), "body" is everything under the view toggle. Without it, both.
+ */
+export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" }) {
+  const card = part !== "body";
+  const body = part !== "card";
   const { gemas, positions, holdings, auth, onChain, loading, ready, error, refresh, snapshot } = useAccount();
   const [tab, setTab] = useState<Chain>("SOL");
   const [advanceFor, setAdvanceFor] = useState<Position | null>(null);
@@ -48,25 +58,24 @@ export default function Wallet() {
   const [openSheet, setOpenSheet] = useState(false);
   const [intent, setIntent] = useState<OpenIntent | null>(null);
   // Phones fold the balance to the Total; wider screens always show all of it.
-  const [heroOpen, setHeroOpen] = useState(false);
   const router = useRouter();
   const { orders } = useInstantRedeem();
-  // `/wallet?open=1` (the Lobby's Get Gemas) lands with the Open a Position sheet already up.
+  const { setMode } = useViewMode();
+  // The Vault's Buy Gemas button, the top bar's Gemas pill and `/vault?open=1` open this sheet (a game adds what it needs).
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search);
-    if (q.get("open") !== "1") return;
-    // A game that sent the Player here (`game`, and the entry as `need`) is remembered for the sheet.
-    const game = q.get("game");
-    const need = Math.floor(Number(q.get("need")));
-    const from: OpenIntent | null = game && game in GAME_NAMES ? { game: game as GameId, need: need > 0 ? need : null } : null;
-    const t = setTimeout(() => {
-      setIntent(from);
+    if (!body) return;
+    return onGetGemas((from) => auth.gate("buy Gemas", () => {
+      setIntent(from ? { game: from.game, need: from.need ?? null } : null);
       setOpenSheet(true);
-    }, 0);
-    return () => clearTimeout(t);
-  }, []);
-  // The top bar's Gemas pill opens the same sheet while on this page.
-  useEffect(() => onGetGemas(() => auth.gate("get Gemas", () => setOpenSheet(true))), [auth]);
+    }));
+  }, [auth, body]);
+  const { offer: instantOffer } = useInstantRedeem();
+  const wonPending = instantCandidates(snapshot?.holdings ?? []).length > 0;
+  // What Instant Redeem would pay now, in dollars: the Gemas the Treasury can buy, less the fee. "Up to" when it can't buy them all.
+  const instantGemas = (instantOffer?.rows ?? []).reduce((t, r) => t + r.gemas, 0);
+  const instantCandidatesGemas = instantCandidates(snapshot?.holdings ?? []).reduce((t, h) => t + Number(h.pending), 0);
+  const instantCapped = instantGemas > 0 && instantGemas < instantCandidatesGemas;
+  const instantUsdText = `≈ ${fmtUsd(Math.floor((instantGemas * (100 - (instantOffer?.feePct ?? 25))) / 100) / 100)}`;
   useGuideTip({
     id: "wallet-first",
     pose: "himExplain",
@@ -75,18 +84,6 @@ export default function Wallet() {
       ? "Gemas you win stay Pending until the yield of their Lock lands, then they become redeemable."
       : "Gemas you win stay Pending until the yield of their Lock lands, then they become redeemable. Yield here is simulated: 1 month = 10 min.",
   });
-
-  if (auth.status === "signed-out") {
-    return (
-      <Card large as="section" aria-label="Sign in to see your Wallet">
-        <div className="stack">
-          <h1 className="page-title">Wallet</h1>
-          <p className="meta">Your Locks, Gemas and Advances belong to your Account. Sign in to see them.</p>
-          <Button block onClick={() => auth.openSignIn()}>Sign in</Button>
-        </div>
-      </Card>
-    );
-  }
 
   const market = snapshot?.market ?? null;
   const nativeIds = new Set((snapshot?.positions ?? []).filter((p) => p.native).map((p) => p.address.toBase58()));
@@ -99,6 +96,10 @@ export default function Wallet() {
   const canFetchYield = onChain && ethYieldWaiting(snapshot?.holdings ?? []).length > 0;
   // Pending is what is left of the Total after Redeemable now, so the hero adds up and matches the chain cards (which use the same figures).
   const pendingAmount = Math.max(0, gemas.total - redeemAmount);
+  // Pending split by who pays it: your own Locks' yield (just waits) and other Players' (won: Instant Redeem can buy it now).
+  const heldOnChain = snapshot?.holdings ?? [];
+  const ownPending = heldOnChain.filter((h) => h.isOwn).reduce((t, h) => t + Number(h.free - h.redeemable), 0);
+  const wonPendingGemas = heldOnChain.filter((h) => !h.isOwn).reduce((t, h) => t + Number(h.free - h.redeemable), 0);
   // Which sheet opens is decided when it renders, not when the tap happened: a tap while the session
   // is still loading must not open the offline sheet once the Account turns out to be on chain.
   const openRedeem = (chain?: Chain) =>
@@ -110,16 +111,11 @@ export default function Wallet() {
   const requested = orders.filter((o) => orderState(o, Math.floor(now / 1000)) !== "finished");
 
   const generic = positions.filter((p) => !nativeIds.has(p.id) && !ethIds.has(p.id));
-  const openTab = (c: Chain) => {
-    setTab(c);
-    setOpenSheet(true);
-  };
 
   const genericTile = (p: Position, label: string) => {
     const yearly = p.principal * p.apy;
     const monthsToZero = yearly > 0 ? p.debt / (yearly / 12) : null;
     const zeroAt = p.debt > 0 && monthsToZero !== null ? now + monthsToZero * 10 * 60_000 : null;
-    const canRedeem = holdings.some((h) => h.source.positionId === p.id && redeemableOf(h) > 0);
     const chainPos = snapshot?.positions.find((x) => x.address.toBase58() === p.id) ?? null;
     const canReturn = !!chainPos && !!snapshot && returnRows(snapshot.holdings, chainPos.address, snapshot.accountKey).length > 0;
     return (
@@ -140,7 +136,6 @@ export default function Wallet() {
           <Button variant="money" size="sm" block onClick={() => auth.gate("take an Advance", () => setAdvanceFor(p))}>Take an Advance</Button>
         ) : (
           <div className="wl-actions-row">
-            <Button variant="money" size="sm" disabled={!canRedeem} onClick={() => openRedeem()}>Redeem</Button>
             {!onChain && p.advance && (
               <Button size="sm" onClick={() => auth.gate("return Gemas", () => setReturnFor(p))}>Return Gemas</Button>
             )}
@@ -159,7 +154,7 @@ export default function Wallet() {
     for (const p of (snapshot?.positions ?? []).filter((x) => (chain === "SOL" ? x.native : x.eth && x.asset === chain))) {
       const label = `${chain} Lock ${++n}`;
       const tile = p.native ? (
-        <NativePositionCard key={p.address.toBase58()} position={p} market={market} onRedeem={() => openRedeem("SOL")} label={label} compact />
+        <NativePositionCard key={p.address.toBase58()} position={p} market={market} label={label} compact />
       ) : (
         <EthPositionCard key={p.address.toBase58()} position={p} market={null} label={label} compact />
       );
@@ -194,70 +189,73 @@ export default function Wallet() {
     .map((chain) => ({ chain, nextRedeemAt: nextRedeemAt(chain), ...chainTiles(chain), ...(onChain && snapshot ? chainGemas(snapshot.holdings, chain) : mockGemas(holdings, chain)), ...(onChain && snapshot ? lineFacts(snapshot, chain, Math.floor(now / 1000)) : {}), fetchYield: onChain && ethYieldWaiting(snapshot?.holdings ?? [], chain).length > 0 }))
     .filter((p) => p.positions.length > 0 || p.closed.length > 0 || p.gemas > 0);
   const hasPositions = pockets.some((p) => p.positions.length > 0 || p.closed.length > 0);
-  const noPositions = pockets.length === 0 && !loading;
   const heroNext = pockets.filter((p) => p.gemas > p.redeemable && p.nextRedeemAt).reduce<number | null>((m, p) => (m === null || p.nextRedeemAt! < m ? p.nextRedeemAt! : m), null);
-  const openPosition = () => auth.gate("get Gemas", () => openTab(tab));
 
   return (
-    <div className="wl">
-      <header className="page-head wl-head">
-        <div>
-          <h1 className="page-title">Wallet</h1>
-          <p className="page-sub">1 Gema = $0.01</p>
-        </div>
-        {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Get Gemas</Button>}
-      </header>
-
-      <ResetNote />
-
-      <section className={`cut cut-frame facet-panel wl-hero${heroOpen ? " open" : ""}`} aria-label="Balance">
-        <FacetCrown />
-        <div className="wl-total" onClick={() => setHeroOpen((o) => !o)}>
-          <div className="wl-total-head">
-            <h2>Total Balance</h2>
-            <button type="button" className="wl-fold" aria-expanded={heroOpen} aria-controls="wl-second">
-              <ChevronDown size={18} aria-hidden="true" />
-              <span className="sr-only">{heroOpen ? "Hide" : "Show"} Redeemable and Pending</span>
-            </button>
-          </div>
-          <div className="wl-total-fig">
-            <GemaMark size={72} glint />
-            <b aria-busy={!ready}>{ready ? <CountUp value={gemas.total} /> : "—"}</b>
-            <span>Gemas</span>
-            {ready && <GemaUsd className="wl-usd" value={gemas.total} />}
-          </div>
-          {ready && !heroOpen && (
-            <button type="button" className="wl-sum" aria-expanded={heroOpen} aria-controls="wl-second">
-              <span>Redeemable <b className="tnum">{fmtGemas(redeemAmount)}</b></span>
-              <span aria-hidden="true">·</span>
-              <span>Pending <b className="tnum">{fmtGemas(pendingAmount)}</b></span>
-            </button>
-          )}
-        </div>
-        <div className="wl-second" id="wl-second">
-          <div className="wl-redeemable" aria-label="Redeemable now">
-            <h2>Redeemable now</h2>
-            <b>{ready ? fmtGemas(redeemAmount) : "—"}</b>
-            {ready && <GemaUsd className="wl-usd" value={redeemAmount} />}
-            <Button variant="money" disabled={redeemAmount === 0 && !canFetchYield} onClick={() => openRedeem()}>Redeem</Button>
-            {ready && redeemAmount === 0 && <span className="meta">{canFetchYield ? "Redeem fetches the latest yield first" : "Nothing redeemable yet"}</span>}
-          </div>
-          <div className="wl-pending" aria-label="Pending">
-            <h2>Pending</h2>
-            <b>{ready ? fmtGemas(pendingAmount) : "—"}</b>
-            {ready && <GemaUsd className="wl-usd" value={pendingAmount} />}
-            {ready && pendingAmount > 0 && <NextRedeem at={heroNext} />}
-          </div>
-        </div>
-        {error && (
+    <div className={part === "all" ? "wl" : "wl-part"}>
+      {card && <BalanceHero
+        label={CARD.total}
+        figure={ready ? <CountUp value={gemas.total} /> : "—"}
+        usdOf={ready ? gemas.total : undefined}
+        busy={!ready}
+        simulated={!REAL}
+        summary={ready && (
+          <>
+            <span>Redeemable <b className="tnum">{fmtGemas(redeemAmount)}</b></span>
+            <span aria-hidden="true">·</span>
+            <span>Pending <b className="tnum">{fmtGemas(pendingAmount)}</b></span>
+          </>
+        )}
+        totalNote={ready && gemas.reserved > 0 ? <>In play: <b className="tnum">{fmtGemas(gemas.reserved)}</b> {CARD.inPlay}</> : undefined}
+        columns={[
+          {
+            label: CARD.now,
+            figure: ready ? fmtGemas(redeemAmount) : "—",
+            usdOf: ready ? redeemAmount : undefined,
+            emerald: true,
+            info: CARD.nowInfo(!REAL),
+            action: (
+              <HoverHint hint={ready && redeemAmount === 0 ? (canFetchYield ? CARD.redeemCheck : CARD.redeemEmpty) : null}>
+                <Button variant="money" disabled={redeemAmount === 0 && !canFetchYield} onClick={() => openRedeem()}>{CARD.redeem}</Button>
+              </HoverHint>
+            ),
+          },
+          {
+            label: CARD.own,
+            figure: ready ? fmtGemas(onChain ? ownPending : pendingAmount) : "—",
+            usdOf: ready ? (onChain ? ownPending : pendingAmount) : undefined,
+            info: (
+              <>
+                {CARD.ownInfo} {ready && ownPending > 0 && <NextIn at={heroNext} />}
+              </>
+            ),
+          },
+          {
+            label: CARD.won,
+            figure: ready ? fmtGemas(onChain ? wonPendingGemas : 0) : "—",
+            usdOf: ready ? (onChain ? wonPendingGemas : 0) : undefined,
+            info: CARD.wonInfo(100 - (instantOffer?.feePct ?? 25)),
+            action: (
+              <HoverHint
+                align="end"
+                hint={!ready ? null : !wonPending ? CARD.instantNoneWon : instantOffer?.unavailable ? CARD.instantUnavailable : CARD.instantGet(instantUsdText, instantCapped)}
+              >
+                <Button disabled={!ready || !wonPending || !instantOffer || !!instantOffer.unavailable} onClick={() => openRedeem()}>
+                  {CARD.instant}
+                </Button>
+              </HoverHint>
+            ),
+            note: instantOffer && !instantOffer.unavailable && instantGemas > 0 ? CARD.instantNote(instantUsdText, instantCapped) : undefined,
+          },
+        ]}
+        error={error && (
           <p className="status err wl-hero-err" role="alert">
             Could not read your Account from {CLUSTER.solana.label}. <Button size="sm" onClick={() => void refresh()}>Retry</Button>
           </p>
         )}
-        {!REAL && <SimulatedYieldLabel className="wl-hero-sim" />}
-      </section>
+      />}
 
-      <section className="wl-positions" aria-label="Your Gemas and Locks by chain">
+      {body && <section className="wl-positions" aria-label="Your Gemas and Locks by chain">
         {onChain && loading && positions.length === 0 && (
           <div className="wl-pockets">
             <SkeletonCards count={2} avatar={false} className="wl-tile" label="Loading your Locks…" />
@@ -276,16 +274,25 @@ export default function Wallet() {
         )}
         {onChain && snapshot?.waiting && snapshot.waiting.length > 0 && <WaitingForRoom records={snapshot.waiting} />}
         {pockets.length > 0 && <ChainPockets pockets={pockets} onRedeem={openRedeem} />}
-        {noPositions && <NoPositions onOpen={openPosition} />}
         {onChain && <EthOps />}
-      </section>
+      </section>}
 
-      <footer className="wl-foot">
+      {body && <footer className="wl-foot">
         {hasPositions && <p className="note">Unlock Estimate is an estimate, not a promise: it moves with the provider&apos;s actual yield. Charts are projections from the live yield rate.</p>}
         {onChain && <p className="note">{REAL ? "Redeem pays the staking token (jitoSOL for SOL Locks) from the yield your Lock has earned so far." : "Redeem pays test SOL (simulated) from the yield your Lock has earned so far."}</p>}
-      </footer>
+      </footer>}
 
-      <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Get Gemas">
+      {body && <Sheet
+        open={openSheet}
+        onClose={() => setOpenSheet(false)}
+        title="Buy Gemas"
+        actions={<ProViewSwitch on tip={false} onChange={() => {
+          // Pro view off: save it and swap to the deposit packs, with the game the Player came from.
+          setMode("simple");
+          setOpenSheet(false);
+          requestDeposit(intent);
+        }} />}
+      >
         <OpenIntentContext.Provider value={intent}>
         <OpenPanel tab={tab} onTab={setTab}>
           {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
@@ -293,7 +300,7 @@ export default function Wallet() {
           {tab === "HYPE" && (onChain ? <EthVaultForm unit="HYPE" vault={vaultsOn("hyperevm")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="HYPE" months={months} onMonths={setMonths} />)}
         </OpenPanel>
         </OpenIntentContext.Provider>
-      </Sheet>
+      </Sheet>}
       <NativeRedeemSheet open={redeemOpen && onChain} asset={redeemChain} onClose={() => setRedeemOpen(false)} />
       <AdvanceSheet position={advanceFor} onClose={() => setAdvanceFor(null)} />
       <ReturnSheet position={returnFor} onClose={() => setReturnFor(null)} />

@@ -9,6 +9,7 @@ import { getChain, getHoldem, getTradingDuel } from "./client";
 import { gameOfProgram } from "./games";
 import { matchAddressOf, matchKeyOf, parseMatchKey } from "./match-id";
 import { battleOf, duelOf, holdemTableOf, sessionOf } from "./game-accounts";
+import { canJoinSeat as seatsCanPair } from "./queue";
 import { fetchLeaderboardTerms } from "./leaderboard";
 import { leaderboardBpsFor } from "./season";
 import { readAccountState } from "./account-state";
@@ -475,11 +476,11 @@ export async function accountExists(key: PublicKey): Promise<boolean> {
 }
 
 /**
- * Open Queue Matches at this entry from other Accounts, oldest first (Challenges are excluded). A list read
- * that may lag the chain: re-read a Match before acting on it. A Match is joinable by `me` unless the core
- * rule refuses it: nobody joins a Match whose seat they fund (`canJoinSeat`, `SelfMatch`).
+ * Open Queue Matches at this entry that `me`, paid for by `funder` (a Backer, or `me`), may join, oldest first
+ * (Challenges are excluded). A list read that may lag the chain: re-read a Match before acting on it. A Match is
+ * joinable unless the core rule refuses it: nobody joins a Match whose seat they fund (`SelfMatch`).
  */
-export async function listQueueMatchIds(entry: number, me: PublicKey, game: GameId = "block-puzzle", asset?: number): Promise<string[]> {
+export async function listQueueMatchIds(entry: number, me: PublicKey, game: GameId = "block-puzzle", asset?: number, funder: PublicKey = me): Promise<string[]> {
   const now = Math.floor(Date.now() / 1000);
   const all = await allMatchStates();
   return all
@@ -491,7 +492,7 @@ export async function listQueueMatchIds(entry: number, me: PublicKey, game: Game
         Number(inner.entry.toString()) === entry &&
         !inner.meta.challenge &&
         (asset === undefined || game !== "trading-duel" || inner.meta.asset === asset) &&
-        canJoinSeat(inner.a, me) &&
+        seatsCanPair({ player: pk(inner.a.player).toBase58(), funder: pk(inner.a.funder).toBase58() }, { player: me.toBase58(), funder: funder.toBase58() }) &&
         Number(inner.deadline.toString()) > now + 60
       );
     })
@@ -523,6 +524,8 @@ export async function listLiveMatchIds(me: PublicKey, game: GameId): Promise<str
 export interface QueueSeat {
   /** Account key of the Player waiting. */
   player: string;
+  /** Account key that paid the entry: the Player, or their Backer. */
+  funder: string;
   entry: number;
   /** TesoroAccount key of whoever put the Gemas in (differs from `player` when the seat is backed). */
   funder?: string;

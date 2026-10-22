@@ -64,6 +64,8 @@ interface Props {
   practice?: boolean;
   /** Shown over the table a few seconds after the last hand (the practice Match result). */
   endPanel?: React.ReactNode;
+  /** A failed action, shown on the table (the page around it is hidden in full screen). */
+  error?: string | null;
 }
 
 /** Your Chips against theirs across the Match, as a bar that leans to whoever has more. */
@@ -90,7 +92,7 @@ function ShareBar({ mine, theirs }: { mine: bigint; theirs: bigint }) {
  * the board, a share bar and turn timer in the header, the action bar below. Chips are neutral steel
  * discs and mono numbers: they are scorekeeping, not Gemas. No character anywhere.
  */
-export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, onClaim, practice, endPanel }: Props) {
+export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, onClaim, practice, endPanel, error }: Props) {
   const opp = 1 - seat;
   const now = useNow();
   const [walletA, walletB] = t.players.map((p) => p.toBase58());
@@ -268,7 +270,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   const oppHand = hands ? hands[opp].name : null;
 
   return (
-    <Arena game="holdem" fullScreenKey={false}>
+    <Arena game="holdem" fullScreenKey={false} autoFull={!ended}>
     <section className="hdx" aria-label="Hold'em table" style={{ ["--pace" as string]: PACE }}>
       <header className="hdx-head" aria-label="Table">
         <div className="hdx-head-l">
@@ -313,6 +315,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
           </button>
         </div>
       </header>
+      {error && <p className="status err hdx-error" role="alert">{error}</p>}
 
       <div className="hdx-stage" style={{ ["--rv" as string]: `${revealAt}ms` }}>
         <div className="hdx-table" ref={tableRef}>
@@ -437,12 +440,6 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
             <ChipStack amount={g.amount} />
           </div>
         ))}
-        {!showLast && playing && lh.handNo > 0 && lh.result !== NO_WINNER && (
-          <p className="meta hd-last">
-            Hand {lh.handNo}: {lh.result === SPLIT ? "split pot" : lh.result === seat ? "you won" : "you lost"} · {chips(lh.pot)} Chips
-            {lh.showdown ? " at showdown" : lh.result === seat ? " (opponent folded)" : " (you folded)"}
-          </p>
-        )}
       </div>
 
       {!ended && (

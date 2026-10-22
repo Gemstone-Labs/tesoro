@@ -19,7 +19,7 @@ export default function Page() {
         rows={[
           ["A Player wins", "The winner gets their own entry back plus the loser's Gemas, minus Fees (see Fees). Fees come out of the loser's Gemas, so a winner always gets their own entry back whole."],
           ["Draw", "Both entries go back to the Players unchanged."],
-          ["No-show or abandoned Match", "Both entries are refunded. A Match that nobody joins can be cancelled by its opener at any time, and anyone can refund it after the Queue window: 24 hours for Block Puzzle, one hour for the live games."],
+          ["No-show or abandoned Match", "Both entries are refunded. A Match that nobody joins can be cancelled by its opener at any time, and anyone can refund it after the Queue window: 24 hours for Block Burst, one hour for the live games."],
         ]}
       />
       <p>
@@ -67,7 +67,7 @@ export default function Page() {
       <H2 id="finding-a-match">Finding an opponent</H2>
       <ul>
         <li>
-          <b>Queue.</b> The waiting line for one game at one entry size. You are paired with the next entrant. In Block Puzzle you can play before an
+          <b>Queue.</b> The waiting line for one game at one entry size. You are paired with the next entrant. In Block Burst you can play before an
           opponent is paired.
         </li>
         <li>
@@ -79,7 +79,7 @@ export default function Page() {
         </li>
       </ul>
 
-      <H2 id="block-puzzle">Block Puzzle</H2>
+      <H2 id="block-puzzle">Block Burst</H2>
       <p>
         An asynchronous puzzle. You and your opponent get <b>the same pieces</b>, so your scores are directly comparable, but you do not have to play at
         the same time. Each run lasts 90 seconds. The higher score wins; equal scores are a draw.
@@ -91,7 +91,7 @@ export default function Page() {
         <li>If you are first, you have a one-hour Queue window for an opponent to join. After someone joins, they have 24 hours to play their run; if they never begin, you win by forfeit.</li>
       </ul>
 
-      <Shot name="block-puzzle" url={`${BRAND.domain}/play/…`} alt="A Block Puzzle run: the board, the three pieces and the score" caption="A Block Puzzle run. Both Players get the same pieces." />
+      <Shot name="block-puzzle" url={`${BRAND.domain}/play/…`} alt="A Block Burst run: the board, the three pieces and the score" caption="A Block Burst run. Both Players get the same pieces." />
 
       <H2 id="holdem">Buckshot Hold&apos;em</H2>
       <p>
@@ -127,10 +127,31 @@ export default function Page() {
       </p>
       <ul>
         <li>Your pieces&apos; ranks are visible only to you. An enemy piece shows its rank only once it has fought, and a piece that loses an attack is never shown.</li>
-        <li>You have 5 seconds for each move. Three missed turns in a row lose the Match.</li>
-        <li>A Dust Storm blows once per Match and shifts one row or column of the board a square. Raiding the enemy depot earns a Two-Step Turn.</li>
-        <li>Every Match ends: after the time or move limit, the higher total of surviving ranks wins, then the higher piece count. An exact tie is a draw, and a draw refunds both entries.</li>
+        <li>You have 10 seconds for each move. Three missed turns in a row lose the Match, and any move resets the count.</li>
+        <li>A Dust Storm blows once per Match and shifts one row or column of the board a square. Raiding the enemy depot with a one-square step earns a Two-Step Turn: two single-square steps in one turn.</li>
+        <li>A Landmine beats every attacker and stays. Engineers no longer clear them.</li>
+        <li>Every Match ends: after the time or move limit, the higher total of surviving ranks wins, then the higher piece count. A Major that dug in counts as a Landmine (0) and a General of the Army that became a Spy counts 1. An exact tie is a draw, and a draw refunds both entries.</li>
       </ul>
+      <p>Every rank has a power:</p>
+      <DataTable
+        head={["Rank", "Power"]}
+        rows={[
+          ["Spy", "Beats the 10, whichever of the two attacks."],
+          ["Recon", "Runs any distance in a straight line."],
+          ["Engineer", "Blast: blows up and turns every piece around it face up, yours and theirs."],
+          ["Sergeant", "Slides diagonally any distance, never straight."],
+          ["Lieutenant", "Jump: hops one piece in a straight line onto the empty or enemy square behind it."],
+          ["Captain", "Steps one square in any of 8 directions."],
+          ["Major", "Dig in: becomes a Landmine for good. Your opponent can't tell which piece."],
+          ["Colonel", "Rescue: blows up, and your Supply Truck jumps onto its square."],
+          ["General", "Steps one square, or jumps straight across a wadi."],
+          ["General of the Army", "Become a Spy: turns into a Spy for good, free with your move. Your opponent can't tell."],
+        ]}
+      />
+      <p>
+        A Dig in uses your turn and counts as a missed turn. Your opponent sees that a Major dug in, never which one. Blast, Rescue and Dig in use your turn and can&apos;t be used inside a Two-Step Turn.
+        The <Link href="/docs/fairness#hidden-information">hidden information</Link> note says what stays secret.
+      </p>
 
       <H3 id="chips">Chips are not Gemas</H3>
       <p>

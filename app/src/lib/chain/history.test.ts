@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { match } from "./fixture";
-import { accountHistory, amountText, backingText, historyPage, historyRow } from "./history";
+import { PLAYED, accountHistory, amountText, backingText, historyPage, historyRow, resultFilter, resultParam, toggleResult } from "./history";
 import type { ChainMatch } from "./read";
 
 const ME = "Me111111111111111111111111111111111111111111";
 const BACKER = "BackerKey1111111111111111111111111111111111";
 const PLAYER = "PlayerKey1111111111111111111111111111111111";
 
-/** A settled Block Puzzle Match this Account played from seat 0, backed by BACKER at 40%. */
+/** A settled Block Burst Match this Account played from seat 0, backed by BACKER at 40%. */
 function backedPlayed(won: boolean): ChainMatch {
   const m = match("block-puzzle", 1000, won, 5, [120, 80]);
   return { ...m, sides: [{ player: ME, funder: BACKER, shareBps: 4000 }, m.sides[1]], backing: { seat: 0, player: ME, funder: BACKER, shareBps: 4000 } };
@@ -70,11 +70,11 @@ describe("accountHistory and paging", () => {
     expect(rows.map((r) => r.game)).toEqual(["block-puzzle", "holdem"]);
   });
 
-  it("pages 20 at a time and clamps the page", () => {
+  it("pages 10 at a time and clamps the page", () => {
     const rows = Array.from({ length: 45 }, (_, i) => i);
-    expect(historyPage(rows, 1)).toMatchObject({ page: 1, pages: 3 });
-    expect(historyPage(rows, 3).rows).toEqual([40, 41, 42, 43, 44]);
-    expect(historyPage(rows, 9).page).toBe(3);
+    expect(historyPage(rows, 1)).toMatchObject({ page: 1, pages: 5 });
+    expect(historyPage(rows, 5).rows).toEqual([40, 41, 42, 43, 44]);
+    expect(historyPage(rows, 9).page).toBe(5);
     expect(historyPage(rows, Number.NaN).page).toBe(1);
     expect(historyPage([], 1)).toEqual({ rows: [], page: 1, pages: 1 });
   });
@@ -92,5 +92,27 @@ describe("Trading Duel history", () => {
     const { gameFilter } = await import("../../components/match/MatchHistory");
     expect(gameFilter("trading-duel")).toBe("trading-duel");
     expect(gameFilter("nonsense")).toBeNull();
+  });
+
+});
+
+describe("Match history result filter", () => {
+  it("hides refunded Matches unless the ?result= value asks for them", () => {
+    expect(resultFilter(null)).toEqual(["won", "lost", "draw"]);
+    expect(resultFilter("refunded,won")).toEqual(["won", "refunded"]);
+    expect(resultFilter("none")).toEqual([]);
+    expect(resultFilter("nonsense")).toEqual(PLAYED);
+  });
+
+  it("writes the default as no ?result= value and keeps a stable order", () => {
+    expect(resultParam(["draw", "won", "lost"])).toBeNull();
+    expect(resultParam(["refunded", "won", "lost", "draw"])).toBe("won,lost,draw,refunded");
+    expect(resultParam([])).toBe("none");
+    expect(resultFilter(resultParam(["lost"]))).toEqual(["lost"]);
+  });
+
+  it("toggles one result in or out", () => {
+    expect(toggleResult(PLAYED, "refunded")).toEqual(["won", "lost", "draw", "refunded"]);
+    expect(toggleResult(PLAYED, "won")).toEqual(["lost", "draw"]);
   });
 });

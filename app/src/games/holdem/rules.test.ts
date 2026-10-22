@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PHASE, STATUS } from "./chain";
-import { inPlay, legalMoves } from "./rules";
+import { RAISE_BY, inPlay, legalMoves, raisePresets } from "./rules";
 
 const t = (bets: [bigint, bigint], stacks: [bigint, bigint], lastRaise = 100n) => ({ bets, stacks, lastRaise });
 
@@ -41,6 +41,37 @@ describe("legalMoves (mirrors engine.rs)", () => {
     const l = legalMoves(t([100n, 300n], [250n, 100n], 200n), 0);
     expect(l.minTo).toBe(350n);
     expect(l.maxTo).toBe(350n);
+  });
+});
+
+describe("raisePresets (raise by 200 / 400 / 600 / 800)", () => {
+  const tos = (p: ReturnType<typeof raisePresets>) => p.map((x) => (x.ok ? x.to : null));
+
+  it("adds each amount on top of the current bet", () => {
+    const p = raisePresets(t([50n, 100n], [1450n, 1400n]), 0);
+    expect(p.map((x) => x.by)).toEqual(RAISE_BY);
+    expect(tos(p)).toEqual([300n, 500n, 700n, 900n]);
+  });
+
+  it("is a plain bet of that size when nothing is bet yet", () => {
+    expect(tos(raisePresets(t([0n, 0n], [1000n, 1000n], 200n), 1))).toEqual([200n, 400n, 600n, 800n]);
+  });
+
+  it("greys out amounts below the minimum raise", () => {
+    // 200/400 blinds: a raise must add at least 400.
+    expect(tos(raisePresets(t([200n, 400n], [1000n, 1000n], 400n), 0))).toEqual([null, 800n, 1000n, 1200n]);
+  });
+
+  it("greys out amounts bigger than the stack (All-in covers those)", () => {
+    expect(tos(raisePresets(t([50n, 100n], [550n, 1400n]), 0))).toEqual([300n, 500n, null, null]);
+  });
+
+  it("allows an amount that puts the whole stack in", () => {
+    expect(tos(raisePresets(t([50n, 100n], [450n, 1400n]), 0))).toEqual([300n, 500n, null, null]);
+  });
+
+  it("allows none when raising is not allowed", () => {
+    expect(tos(raisePresets(t([0n, 800n], [1000n, 0n], 800n), 0))).toEqual([null, null, null, null]);
   });
 });
 

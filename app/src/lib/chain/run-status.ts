@@ -7,7 +7,7 @@ type Input = Pick<ChainMatch, "status" | "game" | "seat" | "deadline"> & {
 };
 
 /**
- * The window left to begin this Player's Block Puzzle run, or null when there is nothing to play.
+ * The window left to begin this Player's Block Burst run, or null when there is nothing to play.
  * The base layer cannot tell whether a run began (the Board lives in the rollup), so the caller
  * passes the probed `stage`; an unknown stage claims nothing.
  */

@@ -25,12 +25,12 @@ function Match({ seed }: { seed: number }) {
 }
 
 const meta = {
-  title: "Games/Block Puzzle",
+  title: "Games/Block Burst",
   parameters: { layout: "padded", shell: "app" },
 } satisfies Meta;
 export default meta;
 
-/** Practice: nothing staked, a fresh random set of pieces each time. Press Start practice. */
+/** Practice: nothing staked, a fresh random set of pieces each time. It counts 3-2-1 and starts as soon as it opens. */
 export const Practice: StoryObj = { render: () => <BlockPuzzleGame /> };
 
 /** A Match run on a fixed set of pieces; change the seed in Controls to get another set. Drag a piece onto the board, or tap a piece then a cell. */
@@ -113,7 +113,7 @@ function Frozen({ moves, title }: { moves: number; title: string }) {
         </header>
         <section className="bpx-mid" style={{ maxWidth: "100%" }} aria-label="Board">
           <div className="bp-stage">
-            <div className="bp-board" role="img" aria-label="Block Puzzle board">
+            <div className="bp-board" role="img" aria-label="Block Burst board">
               {Array.from({ length: SIZE * SIZE }, (_, i) => {
                 const on = (st.occ >> BigInt(i)) & 1n;
                 const gem = (st.gems >> BigInt(i)) & 1n;

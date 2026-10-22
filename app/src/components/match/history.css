@@ -20,3 +20,20 @@
 .mh-delayed-entry { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-13); font-weight: 700; }
 .mh-delayed-status { flex: 1; min-width: 180px; color: var(--warn); font-size: var(--fs-13); font-weight: 600; }
 .mh-delayed-row svg { width: 16px; height: 16px; flex: none; margin-left: auto; }
+
+/* which results show: one toggle per result, Refunded starts off */
+.mh-results { display: flex; flex-wrap: wrap; gap: 8px; }
+.mh-result {
+  --tone: var(--fg-2); --edge: var(--edge-1);
+  display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 14px;
+  font-size: var(--fs-14); font-weight: 600; color: var(--fg-2); background: transparent;
+}
+.mh-result i { width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--tone); }
+.mh-result span { color: var(--fg-2); font-weight: 500; }
+.mh-result:hover { color: var(--fg); background: var(--surface); }
+.mh-result.on { color: var(--fg); background: var(--surface-2); --edge: var(--edge-2); }
+.mh-result.on i { background: var(--tone); }
+.mh-result.won { --tone: var(--em-hi); }
+.mh-result.lost { --tone: var(--danger); }
+.mh-result.draw, .mh-result.refunded { --tone: var(--fg-2); }
+@media (max-width: 640px) { .mh-result { min-height: 44px; } }

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { actionsDue, canDelegate, contributeBundled, readDue, tickDelayMs } from "./driver";
 import { STATUS, type Battle } from "./decode";
 
-const battle = (over: Partial<Battle> = {}): Battle => ({ status: STATUS.live, startDeadline: 1000, pendingKind: 0, ...over }) as Battle;
+const battle = (over: Partial<Battle> = {}): Battle => ({ status: STATUS.live, startDeadline: 1000, pendingKind: 0, turnSecs: 10, graceSecs: 1, openingGraceSecs: 10, ...over }) as Battle;
 
 describe("a Battle is delegated only inside its start window", () => {
   it("allows the last second and refuses the next", () => {

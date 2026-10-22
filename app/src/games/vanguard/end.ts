@@ -1,5 +1,5 @@
 import { STATUS, type Battle } from "./decode";
-import type { EndReason } from "./rules";
+import { type EndReason } from "./rules";
 
 const REASONS: EndReason[] = ["truck", "stuck", "timeouts", "cap"];
 

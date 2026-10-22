@@ -107,7 +107,7 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
       <div className="mx">
         <div className="status ok" role="status"><CheckIcon /> {done.cancelled ? "Taken back" : done.instant ? "Waiting for Tesoro to buy" : "Redeemed"} {fmtGemas(done.gemas)} Gemas</div>
         {done.instant && <p className="meta">{BRAND.name} buys these when it can, all or part. Gemas it has not bought by the deadline come back to you, and you can take them back any time before.</p>}
-        {done.later && <p className="meta">Your ETH and HYPE payouts arrive on their own chain in a few minutes. The Wallet shows their progress.</p>}
+        {done.later && <p className="meta">Your ETH and HYPE payouts arrive on their own chain in a few minutes. The Vault shows their progress.</p>}
         <Button block onClick={onClose}>Done</Button>
         <Receipts items={done.receipts} />
       </div>

@@ -1,7 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { PublicKey } from "@solana/web3.js";
+import { userEvent, within } from "storybook/test";
+import type { BackingBoard } from "@/lib/chain/backing";
 import { demoSnapshot, match } from "@/lib/chain/fixture";
 import Lobby from "@/app/(app)/lobby/page";
-import { withScreen } from "./support/screen";
+import { DEMO_ME } from "../support/data";
+import { demoKey, withScreen } from "./support/screen";
 
 const meta = {
   title: "Screens/Lobby",
@@ -43,3 +47,56 @@ export const Loading: Story = {
 };
 
 export const SignedOut: Story = { parameters: { auth: "signed-out" } };
+
+/** On a Break: the hero shows the Break notice where Play now would be. */
+export const OnABreak: Story = { parameters: { screen: { away: "break" } } };
+
+/** Self-Excluded: the hero shows the Self-Exclusion notice instead of Play now. */
+export const SelfExcluded: Story = { parameters: { screen: { away: "self-exclusion" } } };
+
+/** Your own live Request sits on the "Back a player" shelf (best record, so it leads) and its card says "Your Request". */
+export const YourOwnRequestOnTheShelf: Story = {
+  parameters: {
+    data: {
+      board: (demo: BackingBoard): BackingBoard => ({
+        requests: [
+          {
+            address: new PublicKey(demoKey(931)),
+            nonce: 931n,
+            player: DEMO_ME,
+            game: "holdem",
+            entry: 1000,
+            expiresAt: Math.floor(Date.now() / 1000) + 18 * 3600,
+            status: "open",
+            live: true,
+            record: { matches: 80, wins: 62 },
+            pnl: [],
+          },
+          ...demo.requests,
+        ],
+        offers: [],
+        fetchedAt: Date.now(),
+      }),
+    },
+  },
+};
+
+/** Typing in the top-bar search turns the Lobby into the matching Games only. */
+export const SearchResults: Story = {
+  play: async ({ canvasElement }) => {
+    await userEvent.type(await within(canvasElement.ownerDocument.body).findByRole("searchbox", { name: "Search games" }), "hold");
+  },
+};
+
+/** A search that matches no Game. */
+export const SearchNoMatch: Story = {
+  play: async ({ canvasElement }) => {
+    await userEvent.type(await within(canvasElement.ownerDocument.body).findByRole("searchbox", { name: "Search games" }), "zzz");
+  },
+};
+
+/** The "Back a player" shelf when the Requests could not be read: the failure note and Try again. */
+export const BackingRequestsFailed: Story = { parameters: { screen: { board: "error" } } };
+
+/** The "Back a player" shelf when nobody is asking to be backed. */
+export const NoBackingRequests: Story = { parameters: { data: { board: { requests: [], offers: [], fetchedAt: Date.now() } } } };

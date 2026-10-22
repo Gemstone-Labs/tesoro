@@ -42,11 +42,19 @@ const EPHEMERAL_VAULT = new PublicKey("MagicVau1t9999999999999999999999999999999
 const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 
 /**
- * Compute limits. A declare (a move, a timeout claim) checks public state only: about 4k CU in LiteSVM. The resolve
- * does the rank rules, the fight and the turn pass: about 57k (a fight up to 57k, a lost turn the same). The 200k
- * default is enough for both; the limits leave room. Delegation is Hold'em's 600k; `finalize` pays out.
+ * Compute limits. A declare (a move, a timeout claim) checks public state only: about 4-6k CU in LiteSVM. The resolve
+ * does the rank rules, the fight, the turn pass and the "any action left?" scan over every shape a rank could make
+ * (rules version 6): 135-145k in LiteSVM on compiled SBF whatever the board (a lost turn the same; endings that skip
+ * the scan are cheaper). 200k leaves 30% over the worst reading (see ticket vgp 05). Delegation is Hold'em's 600k;
+ * `finalize` pays out.
  */
-export const CU = { declare: 40_000, resolve: 150_000, delegate: 600_000, finalize: 400_000 } as const;
+export const CU = { declare: 40_000, resolve: 200_000, delegate: 600_000, finalize: 400_000 } as const;
+
+/** What every declare carries: the `action_seq` it was built for (public) and the sealed Become a Spy byte. */
+export interface DeclareSeal {
+  expectedSeq: number;
+  sealedSwitch: number;
+}
 
 export interface Addresses {
   battle: PublicKey;
@@ -95,7 +103,7 @@ async function withRetry<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
   }
 }
 
-/** A rollup blockhash is reused for this long, so a 5-second turn does not spend a round trip on one. */
+/** A rollup blockhash is reused for this long, so a short turn does not spend a round trip on one. */
 const BLOCKHASH_TTL_MS = 20_000;
 
 export class VanguardChain {
@@ -105,7 +113,8 @@ export class VanguardChain {
   private readonly teeRpc: string;
   private readonly teeWs: string;
   private readonly tee = new Map<string, Connection>();
-  private readonly hashes = new Map<Connection, { hash: string; at: number }>();
+  /** The cached rollup blockhash per connection, with every message already sent under it. */
+  private readonly hashes = new Map<Connection, { hash: string; at: number; sent: Set<string> }>();
   /** Step logger; a UI may replace it while it is mounted. */
   onTx?: VanguardChainOptions["onTx"];
 
@@ -183,19 +192,40 @@ export class VanguardChain {
     }
   }
 
-  private async blockhash(conn: Connection): Promise<string> {
+  private async blockhash(conn: Connection, fresh = false): Promise<{ hash: string; sent: Set<string> }> {
     const seen = this.hashes.get(conn);
-    if (seen && Date.now() - seen.at < BLOCKHASH_TTL_MS) return seen.hash;
+    if (seen && !fresh && Date.now() - seen.at < BLOCKHASH_TTL_MS) return seen;
     const hash = (await withRetry(() => conn.getLatestBlockhash())).blockhash;
-    this.hashes.set(conn, { hash, at: Date.now() });
-    return hash;
+    // the rollup may hand the same hash out again: what was sent under it still counts
+    const entry = { hash, at: Date.now(), sent: seen?.hash === hash ? seen.sent : new Set<string>() };
+    this.hashes.set(conn, entry);
+    return entry;
+  }
+
+  /**
+   * Sets a blockhash under which these exact bytes were never sent. `resolve` and `claim_timeout` take no arguments, so the
+   * same Player sending one twice under one hash would send the same transaction: it carries the first one's signature, the
+   * rollup answers with the first one's result, and nothing runs.
+   */
+  private async setBlockhash(conn: Connection, tx: Transaction): Promise<void> {
+    for (let i = 0; i < 20; i++) {
+      const entry = await this.blockhash(conn, i > 0);
+      tx.recentBlockhash = entry.hash;
+      const message = tx.serializeMessage().toString("base64");
+      if (!entry.sent.has(message)) {
+        entry.sent.add(message);
+        return;
+      }
+      if (i > 0) await sleep(100);
+    }
+    throw new Error("The rollup kept the same blockhash: try again");
   }
 
   private async sendTee(step: string, ixs: TransactionInstruction[], signer: PlayerSigner): Promise<string> {
     const conn = await this.teeConnection(signer);
     const tx = new Transaction().add(...ixs);
     tx.feePayer = signer.publicKey;
-    tx.recentBlockhash = await this.blockhash(conn);
+    await this.setBlockhash(conn, tx);
     const signed = await signer.signTransaction(tx);
     const sig = await conn.sendRawTransaction(signed.serialize(), { skipPreflight: true });
     for (let i = 0; i < 120; i++) {
@@ -204,7 +234,7 @@ export class VanguardChain {
         if (st.err) {
           const t = await conn.getTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: "confirmed" }).catch(() => null);
           // an expired cached hash is the one failure worth a fresh hash next time
-          this.hashes.delete(conn);
+          this.expireHash(conn);
           throw new Error(`${step} failed ${sig}: ${JSON.stringify(st.err)}\n${t?.meta?.logMessages?.join("\n") ?? ""}`);
         }
         this.onTx?.(step, "tee", sig);
@@ -212,8 +242,14 @@ export class VanguardChain {
       }
       await sleep(250);
     }
-    this.hashes.delete(conn);
+    this.expireHash(conn);
     throw new Error(`${step} not confirmed ${sig}`);
+  }
+
+  /** The next send fetches a new hash; what was sent under the old one is kept in case the rollup hands it out again. */
+  private expireHash(conn: Connection): void {
+    const seen = this.hashes.get(conn);
+    if (seen) seen.at = 0;
   }
 
   private pause = sleep;
@@ -387,14 +423,48 @@ export class VanguardChain {
    * Rollup. Declare a move (or an attack) of `piece` to square `to` (`row * 10 + col`) on your turn. The program
    * checks only public state now; the rank rules and the fight are applied by `resolve` in a later slot, and a move
    * the rank rules refuse costs the turn. A declare cannot be taken back. Send `resolve` as soon as it lands.
+   * `seal` is the Battle's `action_seq` you saw and the sealed Become a Spy byte (always sent, 0 sealed like any other).
    */
-  async movePiece(player: PlayerSigner, match: PublicKey, piece: number, to: number): Promise<string> {
+  async movePiece(player: PlayerSigner, match: PublicKey, piece: number, to: number, seal: DeclareSeal): Promise<string> {
     const ad = addresses(match);
     const ix = await this.program.methods
-      .movePiece(piece, to)
+      .movePiece(piece, to, seal.expectedSeq, seal.sealedSwitch)
       .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
       .instruction();
     return this.sendTee("move_piece", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
+  }
+
+  /** Rollup. Declare an Engineer's Blast by `piece`. Whether it is an Engineer is decided by `resolve`; anything else costs the turn. */
+  async blast(player: PlayerSigner, match: PublicKey, piece: number, seal: DeclareSeal): Promise<string> {
+    const ad = addresses(match);
+    const ix = await this.program.methods
+      .blast(piece, seal.expectedSeq, seal.sealedSwitch)
+      .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
+      .instruction();
+    return this.sendTee("blast", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
+  }
+
+  /** Rollup. Declare a Colonel's Rescue of the Truck by `piece`. Whether it is a Colonel with a Truck on the board is decided by `resolve`. */
+  async rescue(player: PlayerSigner, match: PublicKey, piece: number, seal: DeclareSeal): Promise<string> {
+    const ad = addresses(match);
+    const ix = await this.program.methods
+      .rescue(piece, seal.expectedSeq, seal.sealedSwitch)
+      .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
+      .instruction();
+    return this.sendTee("rescue", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
+  }
+
+  /**
+   * Rollup. Declare a pass, which counts as a missed turn. `sealedSlot` seals the Dig in (0 sealed is a plain pass): a
+   * face-down Dig in is this very instruction, so nothing public tells the two apart.
+   */
+  async pass(player: PlayerSigner, match: PublicKey, seal: DeclareSeal & { sealedSlot: number }): Promise<string> {
+    const ad = addresses(match);
+    const ix = await this.program.methods
+      .pass(seal.expectedSeq, seal.sealedSlot, seal.sealedSwitch)
+      .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
+      .instruction();
+    return this.sendTee("pass", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
   }
 
   /** Rollup. Spend a banked Two-Step Turn before the first step of your turn. */

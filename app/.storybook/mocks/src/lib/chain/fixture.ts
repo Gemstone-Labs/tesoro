@@ -5,7 +5,10 @@ import { storyData } from "../../../../../stories/support/data";
 export const { match, backed, demoSnapshot, fixtureHolding, DEMO_NEW_ACCOUNT, DEMO_NO_ACCOUNT } = real;
 
 export const demoMode = () => true;
-export const demoBoard: typeof real.demoBoard = () => storyData().data.board ?? real.demoBoard();
+export const demoBoard: typeof real.demoBoard = () => {
+  const board = storyData().data.board;
+  return typeof board === "function" ? board(real.demoBoard()) : (board ?? real.demoBoard());
+};
 export const demoSettled: typeof real.demoSettled = () => storyData().data.settled ?? real.demoSettled();
 export const demoPlayerAccount: typeof real.demoPlayerAccount = (address) =>
   storyData().data.playerAccount?.(address) ?? real.demoPlayerAccount(address);

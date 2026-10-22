@@ -12,12 +12,11 @@
 .lb-skel-chip { display: block; width: 190px; height: 38px; background: rgba(234, 239, 236, 0.06); clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
 .lb-skel-chip.short { width: 120px; }
 .lb-skel-h { width: 170px; height: 30px; }
-.lb-skel-table .lb-who { display: flex; align-items: center; gap: 10px; width: 100%; }
-.lb-skel-table .skel-av { --edge: transparent; }
-.lb-skel-table .lb-who .skel-line { flex: none; }
-.lb-skel-table td { height: 48px; }
-.lb-skel-table .lb-c-rank .skel-line { width: 16px; height: 18px; margin: 0 auto; }
-.lb-skel-table .lb-c-num .skel-line { width: 40px; margin-left: auto; }
+.lb-skel-rows .skel-av { --edge: transparent; }
+.lb-skel-rows .lb-who .skel-line { flex: none; }
+.lb-skel-rows .lb-rank .skel-line { width: 18px; height: 24px; margin: 0 auto; }
+.lb-skel-rows .lb-num .skel-line { width: 40px; }
+.lb-skel-rows .lb-prize .skel-line { width: 96px; }
 
 /* the pool: a banner in gold, the Pool's colour. The chest is the cut-out (no lighten blend), so the rays stay behind it */
 .lb-hero {
@@ -117,13 +116,17 @@
 .lb-pager .btn { min-width: 44px; justify-content: center; }
 .lb-page[aria-current="page"] { background: var(--fg); color: var(--shell); --edge: var(--edge-2); }
 
-/* rows: rank, who, points, wins, prize */
+/* this season's ranks as cards: rank, who, wins, points, prize (with its share under it) */
+.lb-group { display: grid; gap: 8px; }
+.lb-group + .lb-group { margin-top: 10px; }
+.lb-group-h { font-size: var(--fs-12); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg); padding-left: 4px; }
 .lb-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .lb-row {
   --edge: var(--edge-1);
   background: var(--surface);
-  display: grid; grid-template-columns: 44px minmax(0, 1fr) 76px 64px minmax(84px, auto); align-items: center; gap: 12px; padding: 10px 16px 10px 12px; min-height: 64px;
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) 64px 76px minmax(170px, auto); align-items: center; gap: 12px; padding: 12px 20px 12px 12px; min-height: 76px;
 }
+.lb-row.paid { --edge: var(--edge-2); }
 .lb-row.me { --edge: var(--edge-2); background: var(--surface-2); box-shadow: inset 3px 0 var(--fg); }
 .lb-rank { font-family: var(--f-display); font-weight: 800; font-size: 30px; line-height: 1; text-align: center; color: var(--fg-2); }
 .lb-row.paid .lb-rank { color: var(--fg); }
@@ -131,6 +134,7 @@
 .lb-avatar { width: 44px; height: 44px; flex: none; --c: 9px; }
 .lb-name { min-width: 0; }
 .lb-name b { font-size: var(--fs-17); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.lb-row .lb-name { font-size: var(--fs-17); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lb-you { font-style: normal; font-size: var(--fs-12); font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 8px; background: var(--fg); color: var(--shell); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
 .lb-num { display: grid; gap: 0; justify-items: end; line-height: 1.15; }
 .lb-num b { font-size: var(--fs-20); font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -138,12 +142,21 @@
 .lb-prize { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; color: var(--em-hi); }
 .lb-prize b { font-size: var(--fs-18); font-weight: 800; font-variant-numeric: tabular-nums; }
 .lb-prize small { color: var(--fg-2); font-size: var(--fs-13); margin-left: 4px; }
+.lb-prize-stack { display: grid; justify-items: end; gap: 2px; }
+.lb-prize-line { display: inline-flex; align-items: center; gap: 6px; }
+.lb-prize-stack b { font-size: var(--fs-22); }
+.lb-prize-stack small { margin-left: 0; }
+.lb-row .lb-prize.lb-dim { justify-content: flex-end; color: var(--fg-2); }
 
 .lb-empty { --edge: var(--edge-1); background: var(--surface); display: grid; gap: 10px; justify-items: start; padding: 24px 26px; }
 .lb-empty p { color: var(--fg-2); font-size: var(--fs-15); line-height: 1.5; max-width: 52ch; }
 
-.lb-last-pool { display: inline-flex; align-items: center; gap: 6px; color: var(--em-hi); font-size: var(--fs-15); }
-.lb-last-pool b { font-size: var(--fs-18); }
+/* the season before: a small ledger under this season */
+.lb-last { margin-top: 12px; }
+.lb-last .lb-sec-head { margin-bottom: 4px; }
+.lb-last-h { font-family: var(--f-display); font-size: var(--fs-22); font-weight: 800; text-transform: uppercase; line-height: 1; color: var(--fg-2); }
+.lb-last-pool { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); font-size: var(--fs-14); }
+.lb-last-pool b { color: var(--em-hi); font-size: var(--fs-15); }
 
 @media (max-width: 1023px) {
   .lb-payout { grid-template-columns: minmax(0, 1fr); }
@@ -171,7 +184,14 @@
   .lb-table .lb-c-rank { width: 30px; }
   .lb-table .lb-avatar { width: 26px; height: 26px; --c: 6px; }
   .lb-table .lb-name { max-width: 140px; }
-  .lb-row { grid-template-columns: 32px minmax(0, 1fr) auto; grid-template-areas: "rank who prize" "rank stats stats"; padding: 10px 12px; gap: 6px 10px; }
+  .lb-row { grid-template-columns: 32px minmax(0, 1fr) auto; grid-template-areas: "rank who prize" "rank stats stats"; padding: 10px 12px; gap: 6px 10px; min-height: 0; }
+  .lb-prize-stack b { font-size: var(--fs-18); }
+  .lb-prize-stack small { display: none; }
+  /* the $ goes under the Gema figure so names keep their room */
+  .lb-prize-line, .lb-last .lb-prize { display: inline-grid; grid-template-columns: auto auto; align-items: center; justify-items: end; column-gap: 5px; }
+  .lb-prize-line .gema-usd, .lb-last .lb-prize .gema-usd, .lb-last .lb-prize small { grid-column: 1 / -1; margin-left: 0; }
+  .lb-row .lb-avatar { width: 36px; height: 36px; --c: 8px; }
+  .lb-row .lb-name { font-size: var(--fs-15); }
   .lb-rank { grid-area: rank; font-size: 26px; }
   .lb-who { grid-area: who; }
   .lb-prize { grid-area: prize; }
@@ -179,4 +199,4 @@
   .lb-num.lb-wins { display: none; }
   .lb-num b { font-size: var(--fs-16); }
 }
-.lb-hero-chip .gema-usd, .lb-prize .gema-usd { font-size: var(--fs-13); }
+.lb-hero-chip .gema-usd, .lb-prize .gema-usd, .lb-last-pool .gema-usd { font-size: var(--fs-13); }

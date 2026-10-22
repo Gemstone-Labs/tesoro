@@ -69,7 +69,7 @@ export default function HelpPage() {
           </p>
           <div className="help-still">
             <Button size="sm" href="/matches">Match history</Button>
-            <Button size="sm" href="/wallet">Wallet</Button>
+            <Button size="sm" href="/vault">Vault</Button>
             <Button size="sm" href="/docs">Docs</Button>
           </div>
         </BustCard>

@@ -381,20 +381,18 @@ function SimOpenForm({ market, loading, onDone }: { market: NativeMarket | null;
 export function NativePositionCard({
   position,
   market,
-  onRedeem,
   extend = EXTEND_ADVANCE_ENABLED,
   label = "SOL Lock",
   compact,
 }: {
   position: ChainPosition;
   market: NativeMarket | null;
-  onRedeem: () => void;
   extend?: boolean;
   label?: string;
   compact?: boolean;
 }) {
   const info = position.native as NativeInfo;
-  const { auth, snapshot, refresh } = useAccount();
+  const { auth, refresh } = useAccount();
   const a = useAction(refresh);
   const now = useNow(5000);
   const signer = auth.signer;
@@ -416,7 +414,6 @@ export function NativePositionCard({
   const locked = info.status === "locked";
   const canUnlock = locked && debt === 0n;
   const canExtend = extend && locked && !!src && info.openAdvance === info.source?.index && debt > 0n && info.source.horizonMonths < MAX_ADVANCE_MONTHS;
-  const redeemable = (snapshot?.holdings ?? []).some((h) => h.native && h.position.equals(position.address) && h.redeemable > 0n);
   const series = src && locked && debt > 0n ? sampledSeries((at) => Number(debtGemasAt(info, speedup, at, stake)), now, estimate ? estimate - now : 10 * 60_000) : null;
 
   return (
@@ -435,28 +432,27 @@ export function NativePositionCard({
       notes={
         <>
           <p className="note">Earned {fmtSol(cur.accrued, 5)} SOL{info.stakeRateOpen > 0n ? ` (${symbol} yield rate)` : " (simulated)"}. {BRAND.name} keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
-          {locked && !canUnlock && <p className="note">Unlock returns your SOL once it is paid back. Only this Lock&apos;s own yield pays it back.</p>}
-          {canUnlock && <p className="note">Paid back: Unlock to get your SOL back, or take another Advance on the same SOL.</p>}
+          {locked && !canUnlock && <p className="note">Unlock deposit returns your SOL once it is paid back. Only this Lock&apos;s own yield pays it back.</p>}
+          {canUnlock && <p className="note">Paid back: Unlock deposit to get your SOL back, or Extend deposit for more Gemas on the same SOL.</p>}
         </>
       }
     >
       {locked && (
         <>
-          {canUnlock && (
-            <Button variant="money" size="sm" block disabled={!signer || a.busy !== null} onClick={() => setAdvancing(true)}>Take another Advance</Button>
-          )}
-          {canExtend && (
-            <Button variant="money" size="sm" block disabled={!signer || a.busy !== null} onClick={() => setExtending(true)}>Extend</Button>
-          )}
+          {/* Redeem lives on the chain card above: it pays every SOL Gema, not this Lock's. */}
           <div className="wl-actions-row">
-            <Button variant="money" size="sm" disabled={!signer || a.busy !== null || !redeemable} onClick={onRedeem}>Redeem</Button>
-            <Button size="sm" disabled={!signer || a.busy !== null || !canUnlock} onClick={() => signer && a.run("unlock", () => unlockNative(signer, auth.getAccessToken, info))}>
-              {a.busy === "unlock" ? "Unlocking…" : "Unlock"}
-            </Button>
+            {canUnlock && (
+              <Button variant="money" size="sm" disabled={!signer || a.busy !== null} onClick={() => signer && a.run("unlock", () => unlockNative(signer, auth.getAccessToken, info))}>
+                {a.busy === "unlock" ? "Unlocking…" : "Unlock deposit"}
+              </Button>
+            )}
+            {(canUnlock || canExtend) && (
+              <Button size="sm" disabled={!signer || a.busy !== null} onClick={() => (canUnlock ? setAdvancing(true) : setExtending(true))}>Extend deposit</Button>
+            )}
+            {returnable > 0n && (
+              <Button size="sm" disabled={!signer || a.busy !== null} onClick={() => setReturning(true)}>Return Gemas</Button>
+            )}
           </div>
-          {returnable > 0n && (
-            <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => setReturning(true)}>Return Gemas</Button>
-          )}
           <ReturnOwnSheet position={position} open={returning} onClose={() => setReturning(false)} />
           <NativeAdvanceSheet info={info} market={market} open={advancing} onClose={() => setAdvancing(false)} />
           {canExtend && <NativeExtendSheet info={info} market={market} open={extending} onClose={() => setExtending(false)} />}
@@ -473,7 +469,7 @@ export function NativePositionCard({
 /** A new Advance on a locked SOL Position whose Debt is zero: the same Principal, a new Horizon. */
 export function NativeAdvanceSheet({ info, market, open, onClose }: { info: NativeInfo; market: NativeMarket | null; open: boolean; onClose: () => void }) {
   return (
-    <Sheet open={open} onClose={onClose} title="Take another Advance" className="adv-sheet">
+    <Sheet open={open} onClose={onClose} title="Extend deposit" className="adv-sheet">
       {open && <NativeAdvanceForm info={info} market={market} onClose={onClose} />}
     </Sheet>
   );
@@ -550,7 +546,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
 /** Commit more of a Position's future yield on its open Advance: Gemas now, more Debt, a later Unlock Estimate. */
 export function NativeExtendSheet({ info, market, open, onClose, limit }: { info: NativeInfo; market: NativeMarket | null; open: boolean; onClose: () => void; limit?: ExtendLimitData | null | "unknown" }) {
   return (
-    <Sheet open={open} onClose={onClose} title="Extend your Advance" className="adv-sheet">
+    <Sheet open={open} onClose={onClose} title="Extend deposit" className="adv-sheet">
       {open && <NativeExtendForm info={info} market={market} onClose={onClose} limit={limit} />}
     </Sheet>
   );

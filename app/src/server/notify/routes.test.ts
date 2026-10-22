@@ -6,7 +6,7 @@ import { DemoHttpError, type AuthEnv } from "../request-auth";
 import type { Email } from "./decide";
 import { handleAlert, handleSettings, handleSettled, secretOk } from "./routes";
 import type { EmailSender } from "./sender";
-import { ResendSender } from "./sender";
+import { ResendSender, emailReady } from "./sender";
 import { handleEvent, verifyToken, type NotifyDeps } from "./service";
 import { MemoryNotifyStore } from "./store";
 
@@ -126,7 +126,7 @@ describe("settled Match push", () => {
     expect(first.outcomes).toEqual(["sent"]);
     expect(second.outcomes).toEqual(["duplicate"]);
     expect(sender.sent).toHaveLength(1);
-    expect(sender.sent[0].text).toContain("You won your Block Puzzle Match and 980 Gemas");
+    expect(sender.sent[0].text).toContain("You won your Block Burst Match and 980 Gemas");
   });
 
   it("accepts a settled Vanguard Match and names the Game", async () => {
@@ -149,7 +149,7 @@ describe("settled Match push", () => {
       ],
     });
     expect((await settled(deps, body)).outcomes).toEqual(["sent", "skipped"]);
-    expect(sender.sent[0].subject).toBe("You lost your Block Puzzle Match");
+    expect(sender.sent[0].subject).toBe("You lost your Block Burst Match");
   });
 
   it("sends at most 5 emails a day and holds the rest for the digest", async () => {
@@ -251,5 +251,14 @@ describe("keeper alert", () => {
     const { deps, sender } = setup();
     sender.fail = true;
     expect(await code(alert(deps))).toBe("send-failed");
+  });
+});
+
+describe("emailReady", () => {
+  const env = (vars: Record<string, string>) => ({ NODE_ENV: "test", ...vars }) as NodeJS.ProcessEnv;
+  it("is on only when Resend and the sender address are both set", () => {
+    expect(emailReady(env({}))).toBe(false);
+    expect(emailReady(env({ RESEND_API_KEY: "re_x" }))).toBe(false);
+    expect(emailReady(env({ RESEND_API_KEY: "re_x", NOTIFY_FROM: "hi@mail.example.com" }))).toBe(true);
   });
 });

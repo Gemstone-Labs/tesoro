@@ -2281,7 +2281,7 @@
     {
       "code": 6001,
       "name": "InvalidMatch",
-      "msg": "match is not a Block Puzzle match in the right state"
+      "msg": "match is not a Block Burst match in the right state"
     },
     {
       "code": 6002,

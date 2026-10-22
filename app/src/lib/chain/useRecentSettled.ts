@@ -109,7 +109,7 @@ const fetchTopToday = () =>
     (f) => topScores(f.demoSettled().filter((m) => m.game === "block-puzzle")),
   );
 
-/** The best winning Block Puzzle scores of the last 24 hours (other games have none). */
+/** The best winning Block Burst scores of the last 24 hours (other games have none). */
 export function useTopScoresToday(enabled: boolean): QueryState<[string, number][]> {
   return useSharedQuery(enabled ? "top-scores-today" : null, fetchTopToday);
 }

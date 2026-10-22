@@ -15,6 +15,8 @@ export const ENTITY = {
   contactEmail: "contact@playtesoro.com",
   privacyEmail: "contact@playtesoro.com",
   effectiveDate: "October 21, 2026",
+  /** The Privacy Policy changes on its own when only what we store changes (Friends: October 22, 2026). */
+  privacyEffectiveDate: "October 22, 2026",
   minAge: 18,
 } as const;
 

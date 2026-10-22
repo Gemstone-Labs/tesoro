@@ -25,7 +25,7 @@ function midMatch(seenAgo: number, tweak: (g: Game, start: Game, events: GameEve
   const g0 = freshGame(7, T0());
   const mine = g0.pieces.find((p) => p.army === "us" && targets(g0, p).length)!;
   const r1 = ok(move(g0, { id: mine.id, to: targets(g0, mine)[0], at: g0.startedAt + 1000 }));
-  const m = botMove(r1.game, seeded(5))!;
+  const m = botMove(r1.game, seeded(5), "plain")!;
   const r2 = ok(move(r1.game, { id: m.id, to: m.to, at: g0.startedAt + 2000 }));
   const t = tweak(r2.game, g0, [...r1.events, ...r2.events]);
   return live(chainState(t.g, g0, t.events), { turnSeenAt: Date.now() - seenAgo });

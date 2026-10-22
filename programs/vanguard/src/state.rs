@@ -45,6 +45,13 @@ pub const PENDING_MOVE: u8 = 1;
 pub const PENDING_TIMEOUT: u8 = 2;
 /// A declared timeout claim waits for `resolve`: the time cap had passed at the declare.
 pub const PENDING_CAP: u8 = 3;
+/// A declared Blast (`pending_piece` the Engineer) waits for `resolve`.
+pub const PENDING_BLAST: u8 = 4;
+/// A declared Rescue (`pending_piece` the Colonel) waits for `resolve`.
+pub const PENDING_RESCUE: u8 = 5;
+/// A declared pass waits for `resolve`. `pending_piece` holds the SEALED Dig in slot byte (0 sealed = a plain pass),
+/// so a face-down Dig in and a pass are the same record.
+pub const PENDING_PASS: u8 = 6;
 
 pub const STATUS_CREATED: u8 = 0;
 /// Permissions exist; waiting for both secrets, the randomness and `deal`.
@@ -77,6 +84,17 @@ pub const EVENT_RAID: u8 = 4;
 pub const EVENT_STORM: u8 = 5;
 pub const EVENT_TURN: u8 = 6;
 pub const EVENT_END: u8 = 7;
+/// `[engineer, square, n, n x (piece, rank)]`: the Engineer's own number, its square, how many neighbours (at most 8)
+/// and each neighbour's number with the rank it plays as now.
+pub const EVENT_BLAST: u8 = 8;
+/// `[colonel, truck, from, to]`: `from` is the Truck's old square, `to` the Colonel's.
+pub const EVENT_RESCUE: u8 = 9;
+/// `[army, piece]`: only a face-up Major's Dig in is named.
+pub const EVENT_DUG_IN: u8 = 10;
+/// `[army]`: a pass, and every Dig in (a face-down one produces exactly this).
+pub const EVENT_PASS: u8 = 11;
+/// `[piece]`: only a face-up General of the Army's switch is named.
+pub const EVENT_SWITCHED: u8 = 12;
 
 #[zero_copy]
 pub struct RingRecord {
@@ -127,6 +145,34 @@ impl RingRecord {
             Event::Raid { army, at } => {
                 d[..2].copy_from_slice(&[army.idx() as u8, at]);
                 EVENT_RAID
+            }
+            Event::Blast { id, at, n, shown } => {
+                d[..3].copy_from_slice(&[id, at, n]);
+                for (i, (piece, rank)) in shown.iter().enumerate().take(engine::MAX_BLAST) {
+                    d[3 + i * 2..5 + i * 2].copy_from_slice(&[*piece, *rank]);
+                }
+                EVENT_BLAST
+            }
+            Event::Rescue {
+                colonel,
+                truck,
+                from,
+                to,
+            } => {
+                d[..4].copy_from_slice(&[colonel, truck, from, to]);
+                EVENT_RESCUE
+            }
+            Event::DugIn { army, id } => {
+                d[..2].copy_from_slice(&[army.idx() as u8, id]);
+                EVENT_DUG_IN
+            }
+            Event::Pass { army } => {
+                d[0] = army.idx() as u8;
+                EVENT_PASS
+            }
+            Event::Switched { id } => {
+                d[0] = id;
+                EVENT_SWITCHED
             }
             Event::Storm {
                 col,
@@ -285,6 +331,9 @@ pub struct Battle {
     pub pending_to: u8,
     /// The seat that declared a move (a timeout claim reads 0).
     pub pending_seat: u8,
+    /// `pad_a[0]` is the SEALED switch byte of the pending move, Blast, Rescue or pass (`plain ^ pad`, see
+    /// `engine::seal_pad`); a timeout claim leaves it 0. Cleared with the pending action. The other two bytes are
+    /// unused.
     pub pad_a: [u8; 3],
     /// Counts declared actions: the n-th pending action is the one `resolve` applies.
     pub action_seq: u32,
@@ -297,7 +346,19 @@ pub struct Battle {
     pub deal_slot: u64,
     /// See `engine::RESOLVE_SLACK_SECS`.
     pub resolve_slack_secs: u8,
+    /// `reserved[..8]` is the END MASK: bit `id` (little endian `u64`, piece numbers 0-59) is set for every piece
+    /// whose rank changed in the Match (a Major that dug in, a General of the Army that became a Spy), dead pieces
+    /// included. Written when the Match ends, never before. The rest is unused.
     pub reserved: [u8; 31],
+}
+
+/// What a declare freezes in the Battle: public intent plus sealed bytes. A move uses `piece` and `to`; a Blast or a
+/// Rescue only `piece`; a pass puts its sealed Dig in slot byte in `piece`; a timeout claim carries nothing.
+#[derive(Clone, Copy, Default)]
+pub struct Intent {
+    pub piece: u8,
+    pub to: u8,
+    pub sealed_switch: u8,
 }
 
 /// What `create_match` knows when it binds a Battle to a tesoro_core Match.
@@ -344,10 +405,11 @@ impl Battle {
     }
 
     /// Record a declared action. It is bound to the n-th declare of the Match and cannot be changed.
-    pub fn record_pending(&mut self, kind: u8, piece: u8, to: u8, seat: u8, slot: u64, time: i64) {
+    pub fn record_pending(&mut self, kind: u8, intent: Intent, seat: u8, slot: u64, time: i64) {
         self.pending_kind = kind;
-        self.pending_piece = piece;
-        self.pending_to = to;
+        self.pending_piece = intent.piece;
+        self.pending_to = intent.to;
+        self.pad_a[0] = intent.sealed_switch;
         self.pending_seat = seat;
         self.pending_slot = slot;
         self.pending_time = time;
@@ -359,6 +421,7 @@ impl Battle {
         self.pending_piece = 0;
         self.pending_to = 0;
         self.pending_seat = 0;
+        self.pad_a[0] = 0;
         self.pending_slot = 0;
         self.pending_time = 0;
     }
@@ -424,6 +487,7 @@ impl Battle {
             )
             .map_err(|_| error!(VanguardError::BadState))?,
         );
+        g.version = self.rules_version;
         g.cap_at = self.cap_deadline;
         g.move_cap = self.move_cap;
         g.depot_claimed = [self.depot_claimed[0] != 0, self.depot_claimed[1] != 0];
@@ -502,24 +566,30 @@ impl Battle {
         for a in armies {
             if let Some(side) = side_from(a.side) {
                 g.truck_turn[side.idx()] = a.truck_turn;
+                // every piece whose rank changed, dead ones included: a dead piece keeps its code in the Army
+                let base = if side == Side::Us { 30 } else { 0 };
+                for (i, code) in a.ranks.iter().enumerate() {
+                    g.changed |= (engine::is_changed_code(*code) as u64) << (base + i);
+                }
             }
         }
         Ok(g)
     }
 
-    /// Take the engine's result back into the public fields. `before` holds each piece's rank before the action,
-    /// so a piece that left the board is shown with the rank it had.
-    pub fn absorb(&mut self, g: &Game, before: &[u8; PIECE_SLOTS]) {
-        for (id, (p, was)) in g.pieces.iter().zip(before.iter()).enumerate() {
+    /// Take the engine's result back into the public fields. A piece that left the board is shown with the rank it
+    /// played as when it left (`Game::fallen`: a switched General of the Army that died shows as a Spy); a piece that
+    /// is face up shows the rank it plays as now, so a known Major that dug in shows as a Landmine.
+    pub fn absorb(&mut self, g: &Game) {
+        for (id, p) in g.pieces.iter().enumerate() {
             if p.rank == 0 {
                 if self.sq[id] != NO_SQ {
-                    self.shown[id] = *was;
+                    self.shown[id] = g.fallen[id];
                     self.sq[id] = NO_SQ;
                     self.trail_len[id] = 0;
                 }
             } else {
                 self.sq[id] = p.sq;
-                self.shown[id] = if p.known { p.rank } else { 0 };
+                self.shown[id] = if p.known { engine::eff(p.rank) } else { 0 };
                 self.trail[id] = p.trail;
                 self.trail_len[id] = p.trail_len;
             }
@@ -543,6 +613,8 @@ impl Battle {
                 Winner::Army(a) => self.seat_of_side(a),
             };
             self.reason = reason_code(r);
+            // The end reveal: which pieces changed rank, dead ones included, for the end panel.
+            self.reserved[..8].copy_from_slice(&g.changed.to_le_bytes());
         }
     }
 
@@ -588,6 +660,8 @@ pub struct Army {
     pub truck_turn: i32,
     /// Moves this side made, written on every move so a Truck move writes the account like any other.
     pub moves: u16,
+    /// The 32-byte sealing key of this Army (`engine::seal_keys`), written at `deal`, private to its Player and
+    /// zeroed by `wipe`. It seals the switch and Dig in bytes this Player sends (`engine::seal_pad`).
     pub reserved: [u8; 32],
 }
 
@@ -620,7 +694,9 @@ impl Army {
         }
     }
 
-    /// Take the Truck's fuel and last-moved turn back from the engine.
+    /// Take the Truck's fuel and last-moved turn and every rank back from the engine. All thirty rank bytes are
+    /// written every time, from masks: a live piece keeps the code the engine holds for it (a Dig in or a switch
+    /// changes it), a dead piece keeps the code it had (plus a change made in its last action), so the end reveal and the owner's badge survive a death.
     pub fn absorb(&mut self, g: &Game) {
         let Some(side) = side_from(self.side) else {
             return;
@@ -632,14 +708,30 @@ impl Army {
             // Select the Truck's fuel without branching on a rank.
             let m = engine::ct::mask(engine::ct::eq(p.rank as u64, TRUCK as u64));
             self.fuel = (p.fuel & m) | (self.fuel & !m);
+            // A dead piece keeps the code it had, except that a change made in this very action (a switch, then a lost
+            // attack) is written back from `changed`, so the record and the end mask survive the death.
+            let old = self.ranks[i];
+            let changed = ((g.changed >> (base + i)) & 1) as u8;
+            let switched = changed & engine::ct::eq(old as u64, engine::GENERAL_OF_THE_ARMY as u64);
+            let dug_in = changed & engine::ct::eq(old as u64, engine::MAJOR as u64);
+            let dead_code = engine::ct::pick(
+                switched,
+                engine::SWITCHED,
+                engine::ct::pick(dug_in, engine::DUG_IN, old),
+            );
+            let live = engine::ct::mask(1 ^ engine::ct::eq(p.rank as u64, 0));
+            self.ranks[i] = (p.rank & live) | (dead_code & !live);
         }
     }
 
+    /// Everything private to the Player goes before the Army is committed to the base layer: the rank codes (a Dig in
+    /// or a switch included) and the sealing key.
     pub fn wipe(&mut self) {
         self.ranks = [0; 30];
         self.fuel = 0;
         self.truck_turn = 0;
         self.moves = 0;
+        self.reserved = [0; 32];
     }
 }
 
@@ -706,6 +798,217 @@ mod tests {
     fn a_storm_fits_one_record() {
         const _: () = assert!(4 + engine::MAX_SHIFTS * 3 <= RECORD_DATA);
         assert_eq!(core::mem::size_of::<RingRecord>(), 40);
+    }
+}
+
+#[cfg(test)]
+mod changes {
+    use super::*;
+    use crate::engine::{
+        CHAIN_CLOCK, DUG_IN, GENERAL, GENERAL_OF_THE_ARMY, MAJOR, NO_PIECE, RECON, SPY, SWITCHED,
+    };
+
+    type Parts = (Box<Battle>, Army, Army, Secret);
+
+    /// A live Battle laid out as `deal` leaves it: Alice (seat 0) plays the US Army, Bob (seat 1) Italy.
+    fn live(layout: &[LayoutPiece]) -> Parts {
+        let g = Game::start(layout, Side::Us, 99, 12_345, 1_000, CHAIN_CLOCK).unwrap();
+        let mut b: Box<Battle> = Box::new(anchor_lang::__private::bytemuck::Zeroable::zeroed());
+        b.sq = [NO_SQ; PIECE_SLOTS];
+        b.rules_version = RULES_VERSION;
+        b.us_seat = 0;
+        b.turn_secs = TURN_SECS as u8;
+        b.grace_secs = GRACE_SECS as u8;
+        b.opening_grace_secs = OPENING_GRACE_SECS as u8;
+        b.resolve_slack_secs = RESOLVE_SLACK_SECS as u8;
+        b.move_cap = MOVE_CAP;
+        b.steps_left = 1;
+        b.started_at = 1_000;
+        b.cap_deadline = g.cap_at;
+        b.absorb(&g);
+        b.status = STATUS_LIVE;
+        let key = Pubkey::new_unique();
+        let mut a0 = Army::blank(1, key, 0, Pubkey::new_unique());
+        let mut a1 = Army::blank(1, key, 1, Pubkey::new_unique());
+        a0.place(Side::Us, layout);
+        a1.place(Side::It, layout);
+        let mut secret = Secret::blank(1, key);
+        secret.storm_at = 99;
+        secret.storm_seed = 12_345;
+        (b, a0, a1, secret)
+    }
+
+    fn bytes(b: &Battle) -> Vec<u8> {
+        anchor_lang::__private::bytemuck::bytes_of(b).to_vec()
+    }
+
+    fn piece(army: Side, rank: u8, sq: u8) -> LayoutPiece {
+        LayoutPiece { army, rank, sq }
+    }
+
+    fn layout() -> Vec<LayoutPiece> {
+        vec![
+            piece(Side::Us, MAJOR, 85),
+            piece(Side::Us, GENERAL_OF_THE_ARMY, 86),
+            piece(Side::Us, RECON, 99),
+            piece(Side::It, GENERAL_OF_THE_ARMY, 26),
+            piece(Side::It, RECON, 0),
+        ]
+    }
+
+    const MAJOR_ID: u8 = 45;
+    const TEN_ID: u8 = 46;
+
+    #[test]
+    fn a_dig_in_leaves_the_public_battle_exactly_as_a_plain_pass_does() {
+        let mut plain = live(&layout());
+        let mut dug = live(&layout());
+        for (parts, dig) in [(&mut plain, NO_PIECE), (&mut dug, MAJOR_ID)] {
+            let (b, a0, a1, secret) = parts;
+            crate::run(b, a0, a1, secret, |g, out| {
+                g.resolve_pass(dig, false, 1_005, out)
+            })
+            .unwrap();
+        }
+        assert_eq!(
+            bytes(&plain.0),
+            bytes(&dug.0),
+            "the public Battle cannot tell a Dig in from a pass"
+        );
+        assert_eq!(plain.1.ranks[MAJOR_ID as usize % 30], MAJOR);
+        assert_eq!(dug.1.ranks[MAJOR_ID as usize % 30], DUG_IN);
+        assert_eq!(dug.2.ranks, plain.2.ranks, "the other army is untouched");
+    }
+
+    #[test]
+    fn a_switch_leaves_the_public_battle_as_no_switch_does() {
+        let mut plain = live(&layout());
+        let mut switched = live(&layout());
+        for (parts, sw) in [(&mut plain, false), (&mut switched, true)] {
+            let (b, a0, a1, secret) = parts;
+            crate::run(b, a0, a1, secret, |g, out| {
+                g.resolve_move(99 - 40, 89, sw, 1_005, out)
+            })
+            .unwrap();
+        }
+        assert_eq!(bytes(&plain.0), bytes(&switched.0));
+        assert_eq!(switched.1.ranks[TEN_ID as usize % 30], SWITCHED);
+        assert_eq!(plain.1.ranks[TEN_ID as usize % 30], GENERAL_OF_THE_ARMY);
+    }
+
+    #[test]
+    fn a_rank_change_persists_across_engine_runs_and_dead_pieces_keep_their_code() {
+        let (mut b, mut a0, mut a1, secret) = live(&layout());
+        // run 1: Alice digs in and switches her 10 (a Dig in is a pass)
+        crate::run(&mut b, &mut a0, &mut a1, &secret, |g, out| {
+            g.resolve_pass(MAJOR_ID, true, 1_005, out)
+        })
+        .unwrap();
+        assert_eq!(
+            (
+                a0.ranks[MAJOR_ID as usize % 30],
+                a0.ranks[TEN_ID as usize % 30]
+            ),
+            (DUG_IN, SWITCHED)
+        );
+        // run 2, from the accounts alone: the engine reads them as a Landmine and a Spy
+        let g = b.game([&a0, &a1], &secret).unwrap();
+        assert_eq!(
+            (
+                g.pieces[MAJOR_ID as usize].rank,
+                g.pieces[TEN_ID as usize].rank
+            ),
+            (DUG_IN, SWITCHED)
+        );
+        assert_eq!(g.changed, 1 << MAJOR_ID | 1 << TEN_ID);
+        // Italy's piece 26, played as a General (9), stands next to Alice's switched 10 and attacks it: the Spy loses
+        // (a 10 would lose to it: the Spy beats the 10 whichever attacks)
+        crate::run(&mut b, &mut a0, &mut a1, &secret, |g, out| {
+            g.pieces[26].rank = GENERAL;
+            let from = g.pieces[26].sq;
+            g.cells[from as usize] = 0;
+            g.cells[76] = 27;
+            g.pieces[26].sq = 76;
+            g.pieces[26].trail = [76, 0, 0, 0, 0, 0];
+            g.resolve_move(26, 86, false, 1_010, out)
+        })
+        .unwrap();
+        assert_eq!(b.sq[TEN_ID as usize], NO_SQ);
+        assert_eq!(
+            b.shown[TEN_ID as usize], SPY,
+            "a switched 10 that dies is shown as a Spy"
+        );
+        assert_eq!(
+            a0.ranks[TEN_ID as usize % 30],
+            SWITCHED,
+            "a dead piece keeps its code"
+        );
+        assert_eq!(
+            a0.ranks[MAJOR_ID as usize % 30],
+            DUG_IN,
+            "and so does the one that did not move"
+        );
+        // a third run from the accounts still knows both changes, the dead one included
+        let g = b.game([&a0, &a1], &secret).unwrap();
+        assert_eq!(g.changed, 1 << MAJOR_ID | 1 << TEN_ID);
+        // the Army's other twenty-nine bytes were written back unchanged
+        assert_eq!(a0.ranks[RECON as usize], 0);
+        // nothing of the change is public while the Match lives
+        assert_eq!(b.shown[MAJOR_ID as usize], 0);
+    }
+
+    #[test]
+    fn a_face_up_major_that_digs_in_shows_a_landmine() {
+        let (mut b, mut a0, mut a1, secret) = live(&layout());
+        b.shown[MAJOR_ID as usize] = MAJOR;
+        crate::run(&mut b, &mut a0, &mut a1, &secret, |g, out| {
+            g.pieces[MAJOR_ID as usize].known = true;
+            g.resolve_pass(MAJOR_ID, false, 1_005, out)
+        })
+        .unwrap();
+        assert_eq!(b.shown[MAJOR_ID as usize], crate::engine::BOMB);
+    }
+
+    #[test]
+    fn the_new_events_fit_one_record() {
+        const _: () = assert!(3 + 2 * engine::MAX_BLAST <= RECORD_DATA);
+        let blast = engine::Event::Blast {
+            id: 30,
+            at: 85,
+            n: 8,
+            shown: [(1, 2); engine::MAX_BLAST],
+        };
+        let r = RingRecord::encode(&Record {
+            seq: 7,
+            event: blast,
+        });
+        assert_eq!(
+            (r.kind, r.data[0], r.data[1], r.data[2]),
+            (EVENT_BLAST, 30, 85, 8)
+        );
+        assert_eq!(&r.data[3..19], &[1, 2].repeat(8)[..]);
+        for (event, kind) in [
+            (
+                engine::Event::Rescue {
+                    colonel: 1,
+                    truck: 2,
+                    from: 3,
+                    to: 4,
+                },
+                EVENT_RESCUE,
+            ),
+            (
+                engine::Event::DugIn {
+                    army: Side::It,
+                    id: 5,
+                },
+                EVENT_DUG_IN,
+            ),
+            (engine::Event::Pass { army: Side::It }, EVENT_PASS),
+            (engine::Event::Switched { id: 9 }, EVENT_SWITCHED),
+        ] {
+            assert_eq!(RingRecord::encode(&Record { seq: 1, event }).kind, kind);
+        }
     }
 }
 

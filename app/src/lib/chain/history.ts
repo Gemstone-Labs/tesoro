@@ -15,7 +15,7 @@ export interface HistoryRow {
   delta: number;
   /** The other party of a Backing: the Backer when this Account played backed, the Player when it backed. */
   backing: { other: string; shareBps: number } | null;
-  /** Block Puzzle only: [this side's score, the opponent's]. */
+  /** Block Burst only: [this side's score, the opponent's]. */
   scores: [number, number] | null;
   /** TesoroAccount key of whoever played against this side, when anyone did. */
   opp: string | null;
@@ -68,7 +68,33 @@ export function accountHistory(played: ChainMatch[], funded: ChainMatch[] = []):
     .sort((a, b) => b.at - a.at);
 }
 
-export const HISTORY_PAGE = 20;
+/** Every result a finished Match can have, in the order the filter shows them. */
+export const RESULTS: readonly MatchResult[] = ["won", "lost", "draw", "refunded"];
+/** What a Match history shows by default: Matches that were played. Refunds stay hidden until asked for. */
+export const PLAYED: readonly MatchResult[] = ["won", "lost", "draw"];
+
+/** The results a `?result=` value shows: the played ones when it is absent or unreadable, none for "none". */
+export function resultFilter(v: string | null): MatchResult[] {
+  if (v === null) return [...PLAYED];
+  if (v === "none") return [];
+  const asked = v.split(",");
+  const shown = RESULTS.filter((r) => asked.includes(r));
+  return shown.length > 0 ? shown : [...PLAYED];
+}
+
+/** The `?result=` value for a set of results: null for the default, "none" for none. */
+export function resultParam(results: readonly MatchResult[]): string | null {
+  const shown = RESULTS.filter((r) => results.includes(r));
+  if (shown.join() === PLAYED.join()) return null;
+  return shown.length > 0 ? shown.join(",") : "none";
+}
+
+/** The set with one result switched on or off. */
+export function toggleResult(results: readonly MatchResult[], r: MatchResult): MatchResult[] {
+  return RESULTS.filter((x) => (x === r ? !results.includes(x) : results.includes(x)));
+}
+
+export const HISTORY_PAGE = 10;
 
 /** One page of rows (1-based, clamped to the pages that exist). */
 export function historyPage<T>(rows: T[], page: number, size = HISTORY_PAGE): { rows: T[]; page: number; pages: number } {

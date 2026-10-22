@@ -3,33 +3,41 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
-import { BookOpen, ChevronRight, CircleHelp, Gamepad2, HandCoins, House, Swords, Trophy, Wallet, type LucideIcon } from "lucide-react";
+import { BookOpen, ChevronRight, CircleHelp, Gamepad2, HandCoins, House, Swords, Trophy, Users, Wallet, type LucideIcon } from "lucide-react";
 import { AvatarSkeleton, PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { TesoroLogo } from "@/components/brand";
 import { useAccount } from "@/lib/account";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import { BRAND } from "@/lib/brand";
+import { useFriends } from "@/lib/friends/FriendsProvider";
 
 type NavItem = { href: string; label: string; Icon: LucideIcon };
 const LOBBY: NavItem = { href: "/lobby", label: "Lobby", Icon: House };
 const PLAY: NavItem = { href: "/play", label: "Play", Icon: Gamepad2 };
 const MATCHES: NavItem = { href: "/matches", label: "Matches", Icon: Swords };
+const FRIENDS: NavItem = { href: "/friends", label: "Friends", Icon: Users };
 const BACKING: NavItem = { href: "/backing", label: "Backing", Icon: HandCoins };
 const BOARD: NavItem = { href: "/leaderboard", label: "Leaderboard", Icon: Trophy };
-const WALLET: NavItem = { href: "/wallet", label: "Wallet", Icon: Wallet };
+const VAULT: NavItem = { href: "/vault", label: "Vault", Icon: Wallet };
 
 /** The phone bottom nav. */
-export const NAV: NavItem[] = [LOBBY, PLAY, BACKING, BOARD, WALLET];
+export const NAV: NavItem[] = [LOBBY, PLAY, BACKING, BOARD, VAULT];
 
 /** The sidebar, in labelled groups. */
 const GROUPS: { title: string; items: NavItem[] }[] = [
-  { title: "Play", items: [LOBBY, PLAY, MATCHES] },
-  { title: "Money", items: [BACKING, WALLET] },
+  { title: "Play", items: [LOBBY, PLAY, MATCHES, FRIENDS] },
+  { title: "Money", items: [VAULT, BACKING] },
   { title: "Season", items: [BOARD] },
 ];
 
+/** The nav lists: one money item, the Vault, in both views. */
+export function useNavItems(): { nav: NavItem[]; groups: typeof GROUPS } {
+  return { nav: NAV, groups: GROUPS };
+}
+
 export function isHere(path: string, href: string): boolean {
-  return path.startsWith(href);
+  // /wallet/opening is part of the Vault: the nav keeps the Vault lit there.
+  return path.startsWith(href) || (href === "/vault" && path.startsWith("/wallet"));
 }
 
 export function Wordmark({ onNavigate }: { onNavigate?: () => void }) {
@@ -70,7 +78,14 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
     () => (auth.status !== "signed-in" ? null : (snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null))),
     [auth.status, snapshot, auth.addresses.solana],
   );
+  const { groups } = useNavItems();
   const count = <OpenCount n={openMatches.length} lit={openMatches.some((m) => m.status === "active")} />;
+  const friendsBadge = useFriends().view?.badge ?? 0;
+  const friendCount = friendsBadge > 0 && (
+    <span className="side-count lit" aria-label={`${friendsBadge} waiting for you`}>
+      {friendsBadge}
+    </span>
+  );
   const profile = me ? `/account/${me}` : null;
 
   return (
@@ -79,11 +94,11 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
         <Wordmark onNavigate={onNavigate} />
       </div>
       <nav aria-label="Main" className="side-groups">
-        {GROUPS.map((g) => (
+        {groups.map((g) => (
           <div key={g.title} className="side-nav">
             <h3 className="side-group-h">{g.title}</h3>
             {g.items.map((item) => (
-              <SideLink key={item.href} item={item} path={path} onNavigate={onNavigate} after={item === MATCHES && count} />
+              <SideLink key={item.href} item={item} path={path} onNavigate={onNavigate} after={item === MATCHES ? count : item === FRIENDS ? friendCount : null} />
             ))}
           </div>
         ))}

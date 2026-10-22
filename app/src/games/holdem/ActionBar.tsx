@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { call, check, fold, raise, type Action, type Table } from "./chain";
-import { legalMoves } from "./rules";
+import { legalMoves, raisePresets } from "./rules";
 
 const chips = (n: bigint | number) => Number(n).toLocaleString("en-US");
 
 /**
- * Fold / Check or Call / Raise to, with a slider, presets and All-in. Each button says what it will
- * do. Desktop shortcuts: F fold, C check or call, R raise, A sets the raise to all-in.
+ * Fold / Check or Call / Raise to. The raise size is one of four presets (raise by 200, 400, 600 or
+ * 800 on top of the current bet) or All-in; each button says what it will do. Desktop shortcuts:
+ * F fold, C check or call, R raise, A picks All-in.
  */
 export function ActionBar({
   table: t,
@@ -24,28 +25,21 @@ export function ActionBar({
   onAct: (a: Action, label: string) => void;
 }) {
   const lg = legalMoves(t, seat);
-  const min = Number(lg.minTo);
   const max = Number(lg.maxTo);
-  // What the Player typed, kept as text so the field can be cleared and retyped. It resets to the
-  // minimum whenever the minimum moves (a re-raise). Out of range, the raise button is disabled.
-  const [edit, setEdit] = useState<{ min: number; text: string } | null>(null);
-  const text = edit && edit.min === min ? edit.text : String(min);
-  const setTo = (n: number) => setEdit({ min, text: String(n) });
-  const typed = text === "" ? NaN : Number(text);
-  const inRange = Number.isInteger(typed) && typed >= min && typed <= max;
-  const value = inRange ? typed : Math.min(max, Math.max(min, Number.isFinite(typed) ? typed : min));
+  const presets = raisePresets(t, seat);
+  // The picked size resets whenever the legal range moves (a new street or a re-raise): it starts on
+  // the smallest preset that is legal, or All-in when none is.
+  const range = `${lg.minTo}:${lg.maxTo}`;
+  const [pick, setPick] = useState<{ range: string; by: bigint | "all" } | null>(null);
+  const firstOk = presets.find((p) => p.ok);
+  const chosen = pick && pick.range === range ? pick.by : (firstOk?.by ?? "all");
+  const picked = chosen === "all" ? undefined : presets.find((p) => p.by === chosen && p.ok);
+  const value = picked ? Number(picked.to) : max;
   const facing = lg.toCall > 0n;
-  const pot = Number(t.pot);
-  const current = Number(t.bets[0] > t.bets[1] ? t.bets[0] : t.bets[1]);
   const raiseOk = enabled && lg.canRaise;
-  const canSendRaise = raiseOk && inRange;
   const verb = lg.isBet ? "Bet" : "Raise";
   const allInRaise = value === max;
-  const preset = (label: string, target: number) => (
-    <button key={label} type="button" className="cut cut-chip hd-preset" disabled={!raiseOk} onClick={() => setTo(Math.min(max, Math.max(min, Math.round(target))))}>
-      {label}
-    </button>
-  );
+  const sizeLabel = lg.isBet ? "Bet" : "Raise by";
 
   // One move per turn: `busy` only arrives after the click, so a second key press or click in between is dropped.
   const sent = useRef(false);
@@ -62,12 +56,12 @@ export function ActionBar({
     pass: once(() => (facing ? onAct(call(), `call ${lg.toCall}`) : onAct(check(), "check"))),
     raise: once(() => onAct(raise(value), `${verb.toLowerCase()} to ${value}`)),
   };
-  const allIn = () => setTo(max);
+  const allIn = () => setPick({ range, by: "all" });
   // Phones pin the bar above the bottom nav, so the amount controls fold behind one button there.
   const [open, setOpen] = useState(false);
-  const latest = useRef({ act, enabled, raiseOk, canSendRaise, allIn });
+  const latest = useRef({ act, enabled, raiseOk, allIn });
   useEffect(() => {
-    latest.current = { act, enabled, raiseOk, canSendRaise, allIn };
+    latest.current = { act, enabled, raiseOk, allIn };
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -79,7 +73,7 @@ export function ActionBar({
       if (!cur.enabled) return;
       if (k === "f") cur.act.fold();
       else if (k === "c") cur.act.pass();
-      else if (k === "r" && cur.canSendRaise) cur.act.raise();
+      else if (k === "r" && cur.raiseOk) cur.act.raise();
       else if (k === "a" && cur.raiseOk) cur.allIn();
       else return;
       e.preventDefault();
@@ -89,78 +83,54 @@ export function ActionBar({
   }, []);
 
   const passText = facing ? `Call ${chips(lg.toCall)}` : "Check";
-  const raiseText = !inRange && raiseOk ? `${verb} to ${text === "" ? "…" : chips(typed)}` : allInRaise && raiseOk ? `All-in ${chips(value)}` : `${verb} to ${chips(value)}`;
+  // The pressed button says it is sending, so the bar never grows a status line.
+  const sending = busy && busy !== "claim_timeout" ? (busy.startsWith("fold") ? "fold" : busy.startsWith("check") || busy.startsWith("call") ? "pass" : "raise") : null;
+  const label = (which: typeof sending, text: string) => (sending === which ? "Sending…" : text);
+  const raiseText = allInRaise && raiseOk ? `All-in ${chips(value)}` : `${verb} to ${chips(value)}`;
 
   return (
     <div className={`cut cut-frame hdx-actions${open ? " raise-open" : ""}`} role="group" aria-label="Actions">
       <div className="hdx-btns">
-        <button type="button" className="cut cut-btn hdx-btn" disabled={!enabled} onClick={act.fold}>
-          <span>Fold</span>
+        <button type="button" className={`cut cut-btn hdx-btn${sending === "fold" ? " sending" : ""}`} disabled={!enabled} onClick={act.fold}>
+          <span>{label("fold", "Fold")}</span>
           <kbd aria-hidden="true">F</kbd>
         </button>
-        <button type="button" className="cut cut-btn hdx-btn primary" disabled={!enabled} onClick={act.pass} aria-label={passText}>
-          <span>{passText}</span>
+        <button type="button" className={`cut cut-btn hdx-btn primary${sending === "pass" ? " sending" : ""}`} disabled={!enabled} onClick={act.pass} aria-label={passText}>
+          <span>{label("pass", passText)}</span>
           <kbd aria-hidden="true">C</kbd>
         </button>
-        <button type="button" className="cut cut-btn hdx-btn" disabled={!canSendRaise} onClick={act.raise} aria-label={raiseText}>
-          <span>{raiseText}</span>
+        <button type="button" className={`cut cut-btn hdx-btn${sending === "raise" ? " sending" : ""}`} disabled={!raiseOk} onClick={act.raise} aria-label={raiseText}>
+          <span>{label("raise", raiseText)}</span>
           <kbd aria-hidden="true">R</kbd>
         </button>
       </div>
       <button type="button" className="cut cut-chip hd-preset hdx-more" aria-expanded={open} aria-controls="hd-raise-ctl" disabled={!raiseOk} onClick={() => setOpen((o) => !o)}>
         {open ? "Hide amount" : `Set ${verb.toLowerCase()} amount`}
       </button>
-      <div className="hdx-raise" id="hd-raise-ctl">
-        <div className="hdx-raise-in">
-          <label className="label" htmlFor="hd-to">
-            {verb} to
-          </label>
-          <input
-            id="hd-to"
-            className="tnum mono"
-            type="text"
-            inputMode="numeric"
-            autoComplete="off"
-            value={text}
-            disabled={!raiseOk}
-            aria-invalid={raiseOk && !inRange}
-            aria-describedby="hd-to-range"
-            onChange={(e) => setEdit({ min, text: e.target.value.replace(/\D/g, "").slice(0, 12) })}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && canSendRaise) act.raise();
-            }}
-          />
-          {raiseOk && (
-            <span id="hd-to-range" className={`mono hd-range-hint${inRange ? "" : " bad"}`}>
-              {min === max ? `All-in only: ${chips(max)}` : `${chips(min)} to ${chips(max)}`}
-            </span>
-          )}
-        </div>
-        <div className="hdx-raise-ctl">
-          <input
-            className="hd-range"
-            type="range"
-            aria-label={`${verb} to`}
-            min={min}
-            max={max}
-            step={1}
-            value={value}
-            disabled={!raiseOk || min === max}
-            style={{ ["--pct" as string]: max === min ? "100%" : `${((value - min) / (max - min)) * 100}%` }}
-            onChange={(e) => setTo(Number(e.target.value))}
-          />
-          <div className="hd-presets">
-            {preset("Min", min)}
-            {preset("½ pot", current + pot / 2)}
-            {preset("Pot", current + pot)}
-            <button type="button" className="cut cut-chip hd-preset" disabled={!raiseOk} onClick={allIn}>
-              All-in <kbd aria-hidden="true">A</kbd>
+      <div className="hdx-raise" id="hd-raise-ctl" role="group" aria-label={sizeLabel}>
+        <span className="label">{sizeLabel}</span>
+        <div className="hd-presets">
+          {presets.map((p) => (
+            <button
+              key={String(p.by)}
+              type="button"
+              className="cut cut-chip hd-preset"
+              aria-pressed={raiseOk && p.ok && chosen === p.by}
+              disabled={!raiseOk || !p.ok}
+              onClick={() => setPick({ range, by: p.by })}
+            >
+              {lg.isBet ? "" : "+"}
+              {chips(p.by)}
             </button>
-          </div>
+          ))}
+          <button type="button" className="cut cut-chip hd-preset" aria-pressed={raiseOk && !picked} disabled={!raiseOk} onClick={allIn}>
+            All-in <kbd aria-hidden="true">A</kbd>
+          </button>
         </div>
       </div>
-      {!enabled && busy === null && <span className="hd-hint meta">Actions unlock on your turn.</span>}
-      {busy && busy !== "claim_timeout" && <span className="hd-hint meta">Sending {busy.split(" ")[0]}…</span>}
+      <span className="sr-only" role="status">
+        {sending ? `Sending ${busy?.split(" ")[0]}` : ""}
+      </span>
     </div>
   );
 }

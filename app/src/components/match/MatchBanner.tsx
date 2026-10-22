@@ -14,7 +14,7 @@ const RESULT = { won: { text: "Won", Icon: CheckIcon }, lost: { text: "Lost", Ic
 
 /**
  * One finished Match as a banner over the Game's hero art: the result as a poster word, the two
- * Players face to face (with Block Puzzle scores), the Gema change on a glass chip. Every small line
+ * Players face to face (with Block Burst scores), the Gema change on a glass chip. Every small line
  * sits on the dark side of the art or on a plate. The banner opens the Match; the opponent's seat
  * leads to their Account (a separate link above it, never nested).
  * `account` is the Account whose history this is: its own seat, or, on a Match it backed, the

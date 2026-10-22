@@ -12,7 +12,7 @@ describe("PlayNowRail", () => {
     const html = renderToStaticMarkup(<PlayNowRail />);
     expect(html).toContain("Vanguard");
     expect(html).toContain("Buckshot Hold");
-    expect(html).toContain("Block Puzzle");
+    expect(html).toContain("Block Burst");
     expect(html).not.toMatch(/live now/i);
   });
 });

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { GameTabs, HistoryPages } from "@/components/match/MatchHistory";
+import { GameTabs, HistoryPages, ResultFilter } from "@/components/match/MatchHistory";
+import { PLAYED, RESULTS } from "@/lib/chain/history";
 
 const meta = {
   title: "Components/match/MatchHistory",
@@ -22,3 +23,10 @@ export const Tabs: Story = {
   render: (args) => <GameTabs base={args.base} game={args.game} />,
 };
 export const TabsAll: Story = { args: { game: null }, render: (args) => <GameTabs base={args.base} game={args.game} /> };
+
+const COUNTS = { won: 12, lost: 7, draw: 1, refunded: 9 };
+/** Which results show: played Matches by default, Refunded off until picked. */
+export const Results: Story = { render: (args) => <ResultFilter base={args.base} game={args.game} results={PLAYED} counts={COUNTS} /> };
+export const ResultsAllOn: Story = { render: (args) => <ResultFilter base={args.base} game={args.game} results={RESULTS} counts={COUNTS} /> };
+/** No draws yet: the Draw toggle is left out. */
+export const ResultsNoDraws: Story = { render: (args) => <ResultFilter base={args.base} game={args.game} results={PLAYED} counts={{ ...COUNTS, draw: 0 }} /> };

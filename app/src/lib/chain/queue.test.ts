@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it, vi } from "vitest";
 import { TxFailedError, TxUnconfirmedError, txOutcome, type TxOutcome } from "../../games/block-puzzle/tx";
-import { QueueUnconfirmedError, queueEntry, type QueueDeps } from "./queue";
+import { QueueUnconfirmedError, canJoinSeat, queueEntry, type QueueDeps } from "./queue";
 import type { ChainMatch } from "./read";
 
 const NOW = 1_800_000_000_000;
@@ -265,5 +265,35 @@ describe("queueEntry for Trading Duel", () => {
     const w = world({ list: [ETH], matches });
     const r = await queueEntry({ ...w.deps, game: "trading-duel", asset: 1 });
     expect(r).toEqual({ id: ETH, via: "joined" });
+  });
+});
+
+// tesoro_core `join` refuses SelfMatch: the same Player, the same funder, or the opener's own Backer.
+describe("canJoinSeat (mirrors tesoro_core join)", () => {
+  const own = (k: string) => ({ player: k, funder: k });
+  it("two Players paying their own entries meet", () => {
+    expect(canJoinSeat(own("ana"), own("bo"))).toBe(true);
+  });
+  it("a Backer cannot play the Player they back", () => {
+    expect(canJoinSeat({ player: "ana", funder: "bo" }, own("bo"))).toBe(false);
+  });
+  it("a backed Player cannot play their own Backer", () => {
+    expect(canJoinSeat(own("bo"), { player: "ana", funder: "bo" })).toBe(false);
+  });
+  it("two Players backed by the same Backer cannot meet", () => {
+    expect(canJoinSeat({ player: "ana", funder: "bo" }, { player: "cy", funder: "bo" })).toBe(false);
+  });
+  it("nobody plays themselves", () => {
+    expect(canJoinSeat(own("ana"), own("ana"))).toBe(false);
+  });
+});
+
+describe("queueEntry skips seats the entrant may not take", () => {
+  it("a backed entry never tries to join its own Backer's Match", async () => {
+    const matches = new Map([[A, match(A, { sides: [{ player: "bo", funder: "bo", shareBps: 0 }, null] })]]);
+    const { deps, calls } = world({ list: [A], matches });
+    deps.entrant = { player: "ana", funder: "bo" };
+    await expect(queueEntry(deps)).resolves.toEqual({ id: NEW, via: "opened" });
+    expect(calls).not.toContain(`join ${A}`);
   });
 });
