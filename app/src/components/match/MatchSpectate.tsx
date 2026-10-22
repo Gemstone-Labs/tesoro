@@ -10,6 +10,7 @@ import { GAME_NAMES } from "@/lib/mock";
 import type { GameId } from "@/lib/mock";
 import { gameQuery } from "@/lib/game-params";
 import { DuelSpectate } from "./DuelSpectate";
+import { EndStateNote } from "./EndStateNote";
 import { VanguardSpectate } from "@/games/vanguard/VanguardSpectate";
 import { RULES } from "./MatchResult";
 import "./match.css";
@@ -133,6 +134,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
 
           {m.game === "trading-duel" && <DuelSpectate m={m} />}
           {m.game === "vanguard" && <VanguardSpectate m={m} />}
+          <EndStateNote m={m} />
 
           <p className="mr-copy">
             {m.status === "open" || m.status === "active"

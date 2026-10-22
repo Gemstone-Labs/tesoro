@@ -93,3 +93,7 @@ Picks are signed by the Account's wallet signer without a prompt (embedded or de
 `cargo test -p trading_duel` (engine unit tests against the shared fixture plus 48 LiteSVM tests against the real `trading_duel.so` and `tesoro_core.so`: a table reused for several Matches with every result settled from the ring after resets, wrong table, owner and epoch refused, a stale commit never refunding a win, slot release only on core's receipt, void and reset rules, one commit per result) and `cargo test -p table_kit`. LiteSVM has no delegation, ephemeral-account, permission or commit programs: `open_seats`, `close_seats`, the commit and delegation are stood in for by writing the state they produce. `app/src/games/trading-duel/grid.test.ts` runs the same fixture.
 
 Devnet evidence for the tables (real delegation, commits through the Sponsor, ephemeral Books, the delegated-table read in `finalize`) is part of the economy-upgrade deploy ticket; the program has not been deployed.
+
+## Result history
+
+A table is reused, so the final board of a finished Match would be overwritten by the next Match's commit. The keeper copies each finished Match's public end state (the 24 picks, the line range, the scores) into the Match history right before it resets the table, and the reset waits for that copy. The result screen reads the table while it still holds the Match, then the history (`/api/end-state/<match>`), and says the board is no longer available if neither has it. Hold'em (board, shown hands) and Block Burst (final scores, move log) are kept the same way.

@@ -18,6 +18,7 @@ import {
   type Table,
 } from "../../app/src/games/block-puzzle/live-chain.ts";
 import { act, log, type Ctx } from "./act.ts";
+import { resetMayProceed, burstEndState } from "./end-state.ts";
 import { refund } from "./blockpuzzle.ts";
 import { shortKey } from "./env.ts";
 import { keyOf } from "./kit.ts";
@@ -225,6 +226,7 @@ export async function maintainBurstTables(ctx: Ctx): Promise<number> {
     const step = burstTableStep(burstTableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit.get(subject) ?? 0));
     if (step.do === "wait") continue;
     if (step.why.includes("probably lost")) lastRecommit.set(subject, ctx.now);
+    if (step.do === "reset_table" && !(await resetMayProceed({ tesoroMatch: t.tesoroMatch, epoch: t.epoch, fn: burstEndState, table: t }, Math.max(0, Math.floor(ctx.now - t.overAt)), undefined, subject))) continue;
     const send = (fn: () => Promise<string>) => act(ctx, "match", subject, `${step.do} (${step.why})`, fn);
     let r;
     if (step.do === "release_slot") r = await send(() => ctx.burst.releaseSlot(ctx.hsigner, address, step.slot!.index, new PublicKey(step.slot!.match)));
