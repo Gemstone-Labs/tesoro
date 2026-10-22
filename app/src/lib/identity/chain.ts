@@ -3,7 +3,7 @@ import { PublicKey, SystemProgram, Transaction, TransactionMessage, VersionedTra
 import { TESORO_CORE_PROGRAM_ID, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain } from "@/lib/chain/client";
 import { decodeAll } from "@/lib/chain/read";
-import { createAccountIx } from "@/lib/chain/match-flow";
+import { accountReady, createAccountIx } from "@/lib/chain/match-flow";
 import { accountExists } from "@/lib/chain/read";
 import { ensureSol, type GetToken } from "@/lib/chain/demo-client";
 import { coreAccountPda, evmLinkPda, fetchLinkState, linkEvmIx, linkMessage } from "@/lib/chain/eth";
@@ -104,11 +104,12 @@ export async function saveProfile(
   wallets: WalletNames = {},
   onStep?: (s: string) => void,
 ): Promise<string> {
+  const hasAccount = await accountReady(signer, getToken, await accountExists(accountOf(signer.publicKey)));
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep?.("Adding SOL for network fees"));
   onStep?.("Saving your profile");
   const ixs: TransactionInstruction[] = [];
   const base = getChain().base;
-  if (!(await accountExists(accountOf(signer.publicKey)))) ixs.push(await createAccountIx(signer.publicKey));
+  if (!hasAccount) ixs.push(await createAccountIx(signer.publicKey));
   ixs.push(await setProfileIx(signer.publicKey, name, avatar));
 
   if (wallets.evm !== undefined) {

@@ -1,7 +1,7 @@
 import { Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import nacl from "tweetnacl";
-import { accountOf, backingPairIx, chunkIx, coreIx, key, openMatchIx, playerIx } from "./fixtures";
+import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, key, openMatchIx, playerIx } from "./fixtures";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type WireIx } from "./service";
@@ -17,12 +17,14 @@ const basketData = (gemas: bigint) => {
   return d;
 };
 
-function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean; noAccount?: boolean } = {}) {
+function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean; noAccount?: boolean; invite?: { redeemed: boolean } } = {}) {
   const relayer = Keypair.generate();
   const player = Keypair.generate();
   const game = key();
   const sent: VersionedTransaction[] = [];
   const alerts: bigint[] = [];
+  const onboardingAlerts: number[] = [];
+  const inviteKey = Keypair.generate();
   let balance = over.balance ?? 10n * SOL;
   const accounts = new Map<string, { owner: PublicKey; data: Uint8Array }>();
   accounts.set(basketPda(accountPda(player.publicKey)).toBase58(), { owner: CORE_ID, data: basketData(over.gemas ?? 500n) });
@@ -51,9 +53,11 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
     paused: async () => !!over.paused,
     alertLowBalance: async (b) => void alerts.push(b),
     lowBalance: 1n * SOL,
+    invite: over.invite ? { key: inviteKey, redeemed: async () => over.invite!.redeemed } : undefined,
+    alertOnboarding: async (used) => void onboardingAlerts.push(used),
     now: () => t,
   };
-  return { accounts, sponsor: new Sponsor(deps), deps, relayer, player, game, sent, alerts, setBalance: (b: bigint) => (balance = b), tick: (ms: number) => (t += ms) };
+  return { accounts, sponsor: new Sponsor(deps), deps, relayer, player, game, sent, alerts, onboardingAlerts, inviteKey, setBalance: (b: bigint) => (balance = b), tick: (ms: number) => (t += ms) };
 }
 
 /** Every wallet in `players` that must sign the message we built does so, in any order. */
@@ -354,5 +358,80 @@ describe("a Backing Ticket signed by the Requester alone (ticket 18b)", () => {
     const { ixs } = await pair({ gemas: 0n });
     const t = setup();
     await expect(t.sponsor.build(t.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "bad-signer" });
+  });
+});
+
+describe("a new Account on the sponsor (ticket 18c)", () => {
+  const create = (s: ReturnType<typeof setup>, over?: { invite?: PublicKey }) => createAccountIx(s.relayer.publicKey, s.player.publicKey, over);
+  it("needs no Gemas and no SOL: built, signed by the new wallet alone, sent", async () => {
+    const s = setup({ noAccount: true, gemas: 0n });
+    const built = await s.sponsor.build(s.player.publicKey, wire([await create(s)]), "privy-user-1");
+    expect(built.class).toBe("admission");
+    expect((await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac)).signature).toBe("sig1");
+    expect(await s.deps.store.used("onboard-user:privy-user-1", 100 * 365 * 86_400_000, 1_000_000)).toBe(1);
+  });
+  it("is for wallets without an Account", async () => {
+    const s = setup({ gemas: 0n });
+    await expect(s.sponsor.build(s.player.publicKey, wire([await create(s)]), "u")).rejects.toMatchObject({ code: "has-account" });
+  });
+  it("gives one Account per user, even to another wallet of the same user", async () => {
+    const s = setup({ noAccount: true });
+    const b = await s.sponsor.build(s.player.publicKey, wire([await create(s)]), "same-user");
+    await s.sponsor.submit(playerSigns(b, s.player), b.meta, b.mac);
+    const other = setup({ noAccount: true });
+    const second = new Sponsor({ ...other.deps, store: s.deps.store });
+    await expect(second.build(other.player.publicKey, wire([await createAccountIx(other.relayer.publicKey, other.player.publicKey)]), "same-user")).rejects.toMatchObject({ code: "account-limit" });
+    await expect(second.build(other.player.publicKey, wire([await createAccountIx(other.relayer.publicKey, other.player.publicKey)]), "another-user")).resolves.toBeTruthy();
+  });
+  it("a build that is never sent, or a send that fails, does not use up the user's Account", async () => {
+    const s = setup({ noAccount: true });
+    await s.sponsor.build(s.player.publicKey, wire([await create(s)]), "u1");
+    await s.sponsor.build(s.player.publicKey, wire([await create(s)]), "u1");
+    const f = setup({ noAccount: true, sendFails: true });
+    const b = await f.sponsor.build(f.player.publicKey, wire([await create(f)]), "u2");
+    await expect(f.sponsor.submit(playerSigns(b, f.player), b.meta, b.mac)).rejects.toMatchObject({ code: "chain" });
+    expect(await f.deps.store.used("onboard-user:u2", 100 * 365 * 86_400_000, 1_000_000)).toBe(0);
+    expect(await f.deps.store.used("onboard-day", 86_400_000, 1_000_000)).toBe(0);
+  });
+  it("stops at the daily cap and mails the operators at the alert level, once", async () => {
+    const s = setup({ noAccount: true, limits: { onboardPerDay: 3, onboardAlertAt: 2 } });
+    const people = [0, 1, 2].map(() => Keypair.generate());
+    const run = async (p: Keypair, sub: string) => {
+      const b = await s.sponsor.build(p.publicKey, wire([await createAccountIx(s.relayer.publicKey, p.publicKey)]), sub);
+      return s.sponsor.submit(playerSigns(b, p), b.meta, b.mac);
+    };
+    await run(people[0], "a");
+    expect(s.onboardingAlerts).toEqual([]);
+    await run(people[1], "b");
+    await run(people[2], "c");
+    expect(s.onboardingAlerts).toEqual([2]);
+    const late = Keypair.generate();
+    await expect(s.sponsor.build(late.publicKey, wire([await createAccountIx(s.relayer.publicKey, late.publicKey)]), "d")).rejects.toMatchObject({ code: "global-limit" });
+  });
+  it("the limits are config: a user may get more than one when the founder says so", async () => {
+    const s = setup({ noAccount: true, limits: { onboardPerUser: 2 } });
+    const b = await s.sponsor.build(s.player.publicKey, wire([await create(s)]), "gen");
+    await s.sponsor.submit(playerSigns(b, s.player), b.meta, b.mac);
+    await expect(s.sponsor.build(s.player.publicKey, wire([await create(s)]), "gen")).resolves.toBeTruthy();
+  });
+  it("is not sponsored when someone else signs for the wallet", async () => {
+    const s = setup({ noAccount: true });
+    const other = Keypair.generate();
+    await expect(s.sponsor.build(other.publicKey, wire([await create(s)]), "x")).rejects.toMatchObject({ code: "bad-signer" });
+  });
+  it("co-signs with the Invite key only for a wallet that redeemed an Invite", async () => {
+    const no = setup({ noAccount: true, invite: { redeemed: false } });
+    await expect(no.sponsor.build(no.player.publicKey, wire([await create(no, { invite: no.inviteKey.publicKey })]), "i")).rejects.toMatchObject({ code: "invite-required" });
+    const none = setup({ noAccount: true });
+    await expect(none.sponsor.build(none.player.publicKey, wire([await create(none, { invite: none.inviteKey.publicKey })]), "i")).rejects.toMatchObject({ code: "bad-accounts" });
+    const yes = setup({ noAccount: true, invite: { redeemed: true } });
+    const b = await yes.sponsor.build(yes.player.publicKey, wire([await create(yes, { invite: yes.inviteKey.publicKey })]), "i");
+    await yes.sponsor.submit(playerSigns(b, yes.player), b.meta, b.mac);
+    const tx = yes.sent[0];
+    const bytes = tx.message.serialize();
+    const keys = tx.message.staticAccountKeys;
+    const at = keys.findIndex((k) => k.equals(yes.inviteKey.publicKey));
+    expect(nacl.sign.detached.verify(bytes, tx.signatures[at], yes.inviteKey.publicKey.toBytes())).toBe(true);
+    expect(nacl.sign.detached.verify(bytes, tx.signatures[0], yes.relayer.publicKey.toBytes())).toBe(true);
   });
 });

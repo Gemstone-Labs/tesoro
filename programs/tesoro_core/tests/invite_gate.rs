@@ -167,6 +167,8 @@ fn create_account(authority: APk, invite: Option<APk>) -> Instruction {
             spill: tesoro_core::storage::spill_address(&pda(&[ACCOUNT_SEED, authority.as_ref()])).0,
             invite_gate: invite_gate_pda(),
             system_program: anchor_lang::system_program::ID,
+            payer: authority,
+            sponsor: None,
         },
         instruction::CreateAccount {
             evm_address: [0; 20],

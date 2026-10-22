@@ -58,6 +58,8 @@ interface Row {
   spend?: (args: Args) => Spend;
   /** The Player who asks must be one of the instruction's signers (an exit is the Player's own, not anyone's). */
   playerSigns?: boolean;
+  /** A new Player's first transaction: no Gemas needed, one per user, counted against the daily onboarding cap (ticket 18c). */
+  onboarding?: boolean;
 }
 
 /** Rent of one 144-byte line (docs: economy-notes/basket-instructions.md). */
@@ -71,6 +73,13 @@ export const TICKET_HEAD_RENT = 2_000_000n;
 export const RECEIPT_RENT = 2_000_000n;
 /** Rent of an Instant Redeem order (`InstantOrderState::SPACE` = 8+1+8+32+32+144+40+16+32+8 = 321 bytes). */
 export const ORDER_RENT = (128n + 321n) * 6_960n;
+/**
+ * A sponsored `create_account` (ticket 18c): the basket's four starting lines come back to the sponsor when the basket
+ * shrinks; the Account, the two headers and the spill never do. Estimates for the relayer's float, the program's
+ * `accounts_cap` is the hard limit: (128 + 61) + (128 + 8 + 128) + (128 + 8 + 128) bytes of rent, minus the lines.
+ */
+export const ACCOUNT_REFUNDABLE = 4n * LINE_RENT;
+export const ACCOUNT_SUNK = (189n + 264n + 264n) * 6_960n;
 
 const lines = (v: unknown) => BigInt(Number(v ?? 0));
 const NONE: Spend = { refundable: 0n, sunk: 0n };
@@ -115,6 +124,9 @@ export const ROWS: Readonly<Record<string, Row>> = {
   // A sponsored order: the relayer fronts the rent as `payer` and the sponsor pays it back in the same instruction;
   // closing the order (cancel, expire or a fill) returns it to the sponsor first. Needs the sponsor account.
   request_instant_redeem: { class: "admission", relayer: ["payer"], cu: 400_000, extra: 12, playerSigns: true, spend: () => ({ refundable: ORDER_RENT, sunk: 0n }) },
+  // A new Player's Account: the relayer fronts the rent as `payer` and the sponsor pays it back in the same instruction. The one
+  // extra account is the Invite key's signature while the Invite gate is on (only the Invite key, see `inviteKey`).
+  create_account: { class: "admission", relayer: ["payer"], cu: 300_000, extra: 1, playerSigns: true, onboarding: true, spend: () => ({ refundable: ACCOUNT_REFUNDABLE, sunk: ACCOUNT_SUNK }) },
 };
 
 /**
@@ -176,6 +188,10 @@ export interface Plan {
   playerSigns: boolean;
   /** Accounts whose Gemas fund the admission when they are not the Player's own (the Backer of a Backing Ticket). */
   funders: PublicKey[];
+  /** The transaction is a lone sponsored `create_account`: the Player has no Account (and so no Gemas) yet. */
+  onboarding: boolean;
+  /** The Invite key signs it too (the server adds that signature). */
+  invite: boolean;
 }
 
 const seedBytes = (type: unknown, v: unknown): Buffer | null => {
@@ -217,7 +233,8 @@ function expectedPda(acc: IdlAccount, ix: IdlIx, byName: Map<string, PublicKey>,
   return PublicKey.findProgramAddressSync(seeds, other ? new PublicKey(Uint8Array.from(other.value ?? [])) : CORE_ID)[0];
 }
 
-function planCore(ixs: Ix[], relayer: PublicKey): Plan {
+function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): Plan {
+  let invite = false;
   const names: string[] = [];
   let spend: Spend = { ...NONE };
   let cu = 0;
@@ -247,7 +264,7 @@ function planCore(ixs: Ix[], relayer: PublicKey): Plan {
     named.push(byName);
     // The relayer may pay or collect an order's rent only when the sponsor account is there to repay or take it back.
     for (const slot of ["payer", "owner_wallet"]) {
-      if (name.endsWith("_instant_redeem") && byName.get(slot)?.equals(relayer) && byName.get("sponsor")?.equals(CORE_ID)) {
+      if ((name.endsWith("_instant_redeem") || name === "create_account") && byName.get(slot)?.equals(relayer) && byName.get("sponsor")?.equals(CORE_ID)) {
         throw new RuleError("bad-accounts", `${name}: the relayer needs the sponsor account.`);
       }
     }
@@ -257,6 +274,12 @@ function planCore(ixs: Ix[], relayer: PublicKey): Plan {
       const acc = def.accounts[i];
       const isRelayer = k.pubkey.equals(relayer);
       if (!acc) {
+        // The Invite key's co-signature on a new Account: the one signer that is not the Player or the relayer.
+        if (name === "create_account") {
+          if (!inviteKey || !k.pubkey.equals(inviteKey) || !k.isSigner || k.isWritable || i !== own) throw new RuleError("bad-accounts", "create_account: the only extra account is the Invite key's signature.");
+          invite = true;
+          return;
+        }
         // Chunk accounts beyond the IDL's: read or write, never a signer, never the relayer.
         if (k.isSigner || isRelayer) throw new RuleError("bad-accounts", `${name}: extra accounts may not sign or be the relayer.`);
         return;
@@ -314,6 +337,8 @@ function planCore(ixs: Ix[], relayer: PublicKey): Plan {
     signers: [...signers.values()],
     playerSigns,
     funders: [...funders.values()],
+    onboarding: names.length === 1 && names[0] === "create_account",
+    invite,
   };
 }
 
@@ -332,17 +357,17 @@ function planGame(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
       }
     }
   }
-  return { kind: "game", names: ixs.map(() => "game"), class: "continue", spend: NONE, cu: 400_000, obligations: [], pair: null, signers: [...signers.values()], playerSigns: false, funders: [] };
+  return { kind: "game", names: ixs.map(() => "game"), class: "continue", spend: NONE, cu: 400_000, obligations: [], pair: null, signers: [...signers.values()], playerSigns: false, funders: [], onboarding: false, invite: false };
 }
 
 /**
  * Accepts the instructions of one sponsored transaction or throws a RuleError. `isGame` says whether a program is a
  * listed Game (the service answers from the registry).
  */
-export function planTransaction(ixs: Ix[], ctx: { relayer: PublicKey; player: PublicKey; isGame: (program: PublicKey) => boolean }): Plan {
+export function planTransaction(ixs: Ix[], ctx: { relayer: PublicKey; player: PublicKey; isGame: (program: PublicKey) => boolean; inviteKey?: PublicKey }): Plan {
   if (ixs.length === 0 || ixs.length > MAX_IXS) throw new RuleError("bad-shape", `A sponsored transaction has between one and ${MAX_IXS} instructions.`);
   const core = ixs.filter((i) => i.programId.equals(CORE_ID)).length;
-  if (core === ixs.length) return planCore(ixs, ctx.relayer);
+  if (core === ixs.length) return planCore(ixs, ctx.relayer, ctx.inviteKey);
   if (core === 0 && ctx.isGame(ixs[0].programId)) return planGame(ixs, ctx.relayer, ctx.player);
   throw new RuleError("unknown-program", "That program is not one we pay for.");
 }

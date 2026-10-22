@@ -317,6 +317,8 @@ impl Env {
                 spill: tesoro_core::storage::spill_address(&account).0,
                 invite_gate: tesoro_core::state::invite_gate_pda(),
                 system_program: anchor_lang::system_program::ID,
+                payer: a(kp.pubkey()),
+                sponsor: None,
             },
             tesoro_core::instruction::CreateAccount {
                 evm_address: [0; 20],

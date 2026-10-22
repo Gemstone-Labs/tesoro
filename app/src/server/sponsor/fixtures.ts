@@ -134,3 +134,13 @@ export async function backingPairIx(relayer: PublicKey, parties: { requester?: P
   const stage = await coreIx("stage_entry", [8], { signer: requester, owner: backerAccount, ticket });
   return { ixs: [open, stage], requester, backer, backerAccount, ticket };
 }
+
+/**
+ * `create_account` for `authority`: `relayer` pays the rent and the sponsor repays it, or (`sponsored: false`, payer = the
+ * wallet) the wallet pays. `invite` adds the Invite key's signature as the one extra account.
+ */
+export async function createAccountIx(relayer: PublicKey, authority: PublicKey, opts: { sponsored?: boolean; payer?: PublicKey; invite?: PublicKey } = {}): Promise<Ix> {
+  const ix = await coreIx("create_account", [Array(20).fill(0)], { authority, payer: opts.payer ?? relayer, sponsor: opts.sponsored === false ? null : sponsorPda });
+  if (opts.invite) ix.keys.push({ pubkey: opts.invite, isSigner: true, isWritable: false });
+  return ix;
+}

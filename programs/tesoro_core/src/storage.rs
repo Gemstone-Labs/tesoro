@@ -123,10 +123,15 @@ pub struct SponsorState {
     /// Most the sponsor may spend, over time, on checkpoint pages (never refunded).
     pub pages_cap: u64,
     pub pages_spent: u64,
+    /// Most the sponsor may spend, over time, on the rent a sponsored `create_account` can never
+    /// get back (the Account itself and the fixed part of its basket and spill). Zero until the
+    /// admin sets it: until then `create_account` is not sponsored.
+    pub accounts_cap: u64,
+    pub accounts_spent: u64,
 }
 
 impl SponsorState {
-    pub const SPACE: usize = DISC + 1 + 32 + 1 + 5 * 8;
+    pub const SPACE: usize = DISC + 1 + 32 + 1 + 7 * 8;
 }
 
 pub fn basket_address(account: &Pubkey) -> (Pubkey, u8) {

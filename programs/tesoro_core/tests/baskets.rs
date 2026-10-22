@@ -170,6 +170,8 @@ impl Env {
                     spill: spill_address(&account).0,
                     invite_gate: invite_gate_pda(),
                     system_program: anchor_lang::system_program::ID,
+                    payer: authority,
+                    sponsor: None,
                 },
                 instruction::CreateAccount {
                     evm_address: [0; 20],
@@ -1299,4 +1301,206 @@ fn measured_rent_and_compute_units() {
     let (_o2, other) = env.person();
     cu("create_account (basket + spill)", &env);
     let _ = other;
+}
+
+// ---------------------------------------------------------------------------------------------
+// sponsored create_account (ticket 18c)
+// ---------------------------------------------------------------------------------------------
+
+const ACCOUNTS_SPONSOR_CAP: u32 = 6319;
+const PAYER_NEEDS_SPONSOR: u32 = 6320;
+
+fn create_account_ix(authority: Pk, payer: Pk, sponsored: bool) -> Instruction {
+    let account = pda(&[ACCOUNT_SEED, a(authority).as_ref()]);
+    ix(
+        accounts::CreateAccount {
+            authority: a(authority),
+            account,
+            basket: basket_address(&account).0,
+            spill: spill_address(&account).0,
+            invite_gate: invite_gate_pda(),
+            system_program: anchor_lang::system_program::ID,
+            payer: a(payer),
+            sponsor: sponsored.then(|| sponsor_address().0),
+        },
+        instruction::CreateAccount {
+            evm_address: [0; 20],
+        },
+    )
+}
+
+impl Env {
+    fn set_accounts_cap(&mut self, cap: u64) {
+        let admin = self.admin.insecure_clone();
+        self.send(
+            &[ix(
+                accounts::SetSponsor {
+                    admin: a(admin.pubkey()),
+                    config: pda(&[CONFIG_SEED]),
+                    sponsor: sponsor_address().0,
+                },
+                instruction::SetAccountsCap { accounts_cap: cap },
+            )],
+            &[&admin],
+        )
+        .expect("set accounts cap");
+    }
+
+    /// The relayer fronts the rent and pays the fee; `wallet` only signs.
+    fn create_sponsored(&mut self, wallet: &Keypair) -> Result<(), Failed> {
+        let relayer = self.relayer.insecure_clone();
+        self.send(
+            &[create_account_ix(wallet.pubkey(), relayer.pubkey(), true)],
+            &[&relayer, wallet],
+        )
+    }
+}
+
+/// What a sponsored `create_account` costs, split the way the program splits it.
+fn account_rents(env: &Env) -> (u64, u64) {
+    let total = rent(env, TesoroAccount::SPACE)
+        + rent(env, store_len(INITIAL_BASKET_LINES))
+        + rent(env, store_len(0));
+    let refundable = rent(env, store_len(INITIAL_BASKET_LINES)) - rent(env, store_len(0));
+    (refundable, total - refundable)
+}
+
+#[test]
+fn a_wallet_with_no_lamports_gets_an_account_through_the_sponsor() {
+    let mut env = Env::new();
+    env.init_sponsor(10 * SOL, 100 * SOL, SOL, 50 * SOL);
+    env.set_accounts_cap(SOL);
+    let (refundable, permanent) = account_rents(&env);
+    let wallet = Keypair::new();
+    let account = pda(&[ACCOUNT_SEED, a(wallet.pubkey()).as_ref()]);
+    let sponsor_before = env.lamports(sponsor_address().0);
+    let relayer_before = env.svm.get_balance(&env.relayer.pubkey()).unwrap();
+
+    env.create_sponsored(&wallet).expect("sponsored create");
+
+    assert_eq!(env.svm.get_balance(&wallet.pubkey()).unwrap_or(0), 0);
+    let acc = TesoroAccount::try_deserialize(&mut &env.data(account)[..]).expect("account");
+    assert_eq!(acc.authority, a(wallet.pubkey()));
+    // the sponsor paid all of it, the relayer only the fee (two signatures)
+    assert_eq!(
+        sponsor_before - env.lamports(sponsor_address().0),
+        refundable + permanent
+    );
+    assert_eq!(
+        relayer_before - env.svm.get_balance(&env.relayer.pubkey()).unwrap(),
+        10_000
+    );
+    // recorded: the lines of the basket come back to the sponsor, the rest never does
+    let basket = basket_address(&account).0;
+    assert_eq!(env.sponsored(basket), refundable);
+    assert_eq!(env.sponsored(spill_address(&account).0), 0);
+    assert_eq!(env.sponsor().outstanding, refundable);
+    assert_eq!(env.sponsor().accounts_spent, permanent);
+    assert_eq!(
+        env.lamports(basket),
+        rent(&env, store_len(INITIAL_BASKET_LINES)),
+        "rent exempt, no more"
+    );
+
+    // shrinking the basket's lines hands the refundable rent back to the sponsor
+    env.send(
+        &[ix(
+            accounts::ShrinkStore {
+                authority: a(wallet.pubkey()),
+                account,
+                basket,
+                spill: spill_address(&account).0,
+                sponsor: sponsor_address().0,
+            },
+            instruction::ShrinkStore {
+                which: StoreKind::Basket,
+                keep_free: 0,
+            },
+        )],
+        &[&env.relayer.insecure_clone(), &wallet],
+    )
+    .expect("shrink");
+    assert_eq!(env.sponsor().outstanding, 0, "the sponsor got the lines back");
+    assert_eq!(
+        env.sponsor().accounts_spent,
+        permanent,
+        "the rest is never returned"
+    );
+    assert_eq!(env.sponsored(basket), 0);
+    assert_eq!(
+        sponsor_before - env.lamports(sponsor_address().0),
+        permanent,
+        "the sponsor is out only the rent that never returns"
+    );
+}
+
+#[test]
+fn a_sponsored_account_is_refused_without_the_sponsor_or_past_a_cap() {
+    let mut env = Env::new();
+    env.init_sponsor(10 * SOL, 100 * SOL, SOL, 50 * SOL);
+    let relayer = env.relayer.insecure_clone();
+    let (refundable, permanent) = account_rents(&env);
+
+    // a payer who is not the wallet needs the sponsor account: the relayer is never left holding rent
+    let wallet = Keypair::new();
+    let e = env
+        .send(
+            &[create_account_ix(wallet.pubkey(), relayer.pubkey(), false)],
+            &[&relayer, &wallet],
+        )
+        .unwrap_err();
+    assert_eq!(custom_code(&e), PAYER_NEEDS_SPONSOR);
+
+    // the admin has not opened the cap for rent that never returns
+    let e = env.create_sponsored(&wallet).unwrap_err();
+    assert_eq!(custom_code(&e), ACCOUNTS_SPONSOR_CAP);
+
+    // room for exactly one
+    env.set_accounts_cap(permanent);
+    env.create_sponsored(&wallet).unwrap();
+    let second = Keypair::new();
+    let e = env.create_sponsored(&second).unwrap_err();
+    assert_eq!(custom_code(&e), ACCOUNTS_SPONSOR_CAP);
+
+    // the cap cannot drop below what was spent
+    let admin = env.admin.insecure_clone();
+    let e = env
+        .send(
+            &[ix(
+                accounts::SetSponsor {
+                    admin: a(admin.pubkey()),
+                    config: pda(&[CONFIG_SEED]),
+                    sponsor: sponsor_address().0,
+                },
+                instruction::SetAccountsCap { accounts_cap: 1 },
+            )],
+            &[&admin],
+        )
+        .unwrap_err();
+    assert_eq!(custom_code(&e), CAP_BELOW_OUTSTANDING);
+
+    // a stranger cannot be the payer of a sponsored Account
+    env.set_accounts_cap(10 * permanent);
+    let stranger = Keypair::new();
+    env.svm.airdrop(&stranger.pubkey(), SOL).unwrap();
+    let e = env
+        .send(
+            &[create_account_ix(second.pubkey(), stranger.pubkey(), true)],
+            &[&stranger, &second],
+        )
+        .unwrap_err();
+    assert_eq!(custom_code(&e), NOT_SPONSOR_RELAYER);
+
+    // the per-Account and total caps count the refundable part, and the pause stops it
+    env.set_sponsor(&admin, true, 10 * SOL, 100 * SOL, SOL).unwrap();
+    let e = env.create_sponsored(&second).unwrap_err();
+    assert_eq!(custom_code(&e), SPONSOR_PAUSED);
+    env.set_sponsor(&admin, false, refundable - 1, 100 * SOL, SOL)
+        .unwrap();
+    let e = env.create_sponsored(&second).unwrap_err();
+    assert_eq!(custom_code(&e), ACCOUNT_SPONSOR_CAP);
+    env.set_sponsor(&admin, false, 10 * SOL, refundable + 1, SOL)
+        .unwrap();
+    let e = env.create_sponsored(&second).unwrap_err();
+    assert_eq!(custom_code(&e), TOTAL_SPONSOR_CAP);
 }

@@ -2250,7 +2250,10 @@
       "accounts": [
         {
           "name": "authority",
-          "writable": true,
+          "docs": [
+            "The wallet the Account belongs to. It signs but pays nothing: a wallet with no SOL can own an",
+            "Account whose rent the sponsor covers."
+          ],
           "signer": true
         },
         {
@@ -2352,6 +2355,36 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the rent: the authority itself, or (with `sponsor`) the sponsor's relayer, which is",
+            "repaid in the same instruction. Placed after the original accounts so their order is kept."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": [
@@ -10342,6 +10375,76 @@
         },
         {
           "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "set_accounts_cap",
+      "docs": [
+        "Admin only: the most the sponsor may spend on rent it can never get back, which is what a",
+        "sponsored `create_account` costs (ticket 18c). Zero turns that off."
+      ],
+      "discriminator": [
+        67,
+        122,
+        9,
+        247,
+        186,
+        183,
+        134,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "accounts_cap",
           "type": "u64"
         }
       ]
@@ -19358,6 +19461,19 @@
           },
           {
             "name": "pages_spent",
+            "type": "u64"
+          },
+          {
+            "name": "accounts_cap",
+            "docs": [
+              "Most the sponsor may spend, over time, on the rent a sponsored `create_account` can never",
+              "get back (the Account itself and the fixed part of its basket and spill). Zero until the",
+              "admin sets it: until then `create_account` is not sponsored."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "accounts_spent",
             "type": "u64"
           }
         ]

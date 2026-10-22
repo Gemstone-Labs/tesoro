@@ -17,6 +17,7 @@ interface IdlAccount {
   name: string;
   writable?: boolean;
   signer?: boolean;
+  optional?: boolean;
   address?: string;
   pda?: { seeds: { kind: "const" | "account" | "arg"; value?: number[]; path?: string }[] };
 }
@@ -109,6 +110,8 @@ export function coreIx(core: PublicKey, name: string, accounts: Record<string, P
   if (!def) throw new Error(`tesoro_core has no instruction ${name}`);
   const resolved: Record<string, PublicKey> = { ...accounts };
   const keys: AccountMeta[] = def.accounts.map((a) => {
+    // An optional account nobody named is absent: Anchor reads the program's own id as "none".
+    if (a.optional && !resolved[a.name]) return { pubkey: core, isSigner: false, isWritable: false };
     let key = resolved[a.name];
     if (!key && a.address) key = new PublicKey(a.address);
     if (!key && a.pda) {
@@ -259,7 +262,7 @@ export function buildLaunchPlan(input: LaunchInput): PlanStep[] {
         `create_account signed by the vault creates the TesoroAccount ${feeAccount.toBase58()} (["account", vault]); it receives the Platform Fee and must exist before initialize_config. ` +
         "The vault is a PDA and cannot sign a normal transaction: submit this as a Squads proposal, with the vault funded for rent. It does not need Config. " +
         "Do it BEFORE the Invite gate is on (the gate step is last); the gate account does not exist yet, so no Invite key is needed.",
-      ixs: [coreIx(core, "create_account", { authority: vault, account: feeAccount }, { evm_address: [...evm] })],
+      ixs: [coreIx(core, "create_account", { authority: vault, payer: vault, account: feeAccount }, { evm_address: [...evm] })],
       check: `account ${feeAccount.toBase58()} exists on tesoro_core`,
     });
   }
