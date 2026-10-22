@@ -74,7 +74,6 @@ dialog.sheet.dep-sheet.packs .sheet-head h2 { font-family: var(--f-display); fon
 .dep-note-icon { flex: none; display: grid; place-items: center; width: 32px; height: 32px; color: var(--fg); }
 .dep-note-icon svg { width: 26px; height: 26px; stroke-width: 1.5; }
 .dep-small { display: grid; gap: 6px; }
-.dep-test { margin: 0; font-family: var(--f-mono); font-size: var(--fs-11); color: var(--fg-2); }
 .dep-link { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
 
 /* acknowledgment: numbered points, then "Don't show this again" left and "I understand" right */
@@ -113,7 +112,7 @@ dialog.sheet.dep-sheet.packs .sheet-head h2 { font-family: var(--f-display); fon
 .dep-done-ready { margin: 0; display: inline-flex; align-items: center; gap: 12px; font-size: var(--fs-20); font-weight: 800; color: var(--fg); }
 .dep-done-check { --c: var(--cut-chip); --edge: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.3)); display: grid; place-items: center; width: 40px; height: 40px; color: #0b1012; background: linear-gradient(180deg, #f4f7f6, #c3cbc7); }
 .dep-done-check svg { width: 22px; height: 22px; stroke-width: 2.5; }
-.dep-done .dep-art { width: min(88%, 440px, 46vh); margin-block: -6px -14px; filter: drop-shadow(0 0 40px rgba(36, 216, 168, 0.4)); }
+.dep-done .dep-art { width: min(88%, 400px, 38dvh); margin-block: -6px -14px; filter: drop-shadow(0 0 40px rgba(36, 216, 168, 0.4)); }
 .dep-done .dep-actions { position: relative; width: 100%; max-width: 440px; justify-items: center; gap: 12px; }
 .dep-done .dep-actions .btn.neutral { min-width: 160px; }
 

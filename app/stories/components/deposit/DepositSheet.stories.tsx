@@ -56,28 +56,28 @@ export const AcknowledgmentFailed: Story = {
 export const Paying: Story = {
   render: () => (
     <Frame>
-      <WorkingView pack={DEPOSIT_PACKS[0]} gemas={560} phase="paying" testMode hours={2} />
+      <WorkingView pack={DEPOSIT_PACKS[0]} gemas={560} phase="paying" testMode />
     </Frame>
   ),
 };
 export const Adding: Story = {
   render: () => (
     <Frame>
-      <WorkingView pack={DEPOSIT_PACKS[0]} gemas={560} phase="adding" testMode hours={2} />
+      <WorkingView pack={DEPOSIT_PACKS[0]} gemas={560} phase="adding" testMode />
     </Frame>
   ),
 };
 export const Success: Story = {
   render: () => (
     <Frame title="Your Gemas are ready" step="done">
-      <DoneView gemas={1400} packId="player" back={null} onDone={() => {}} testMode hours={2} />
+      <DoneView gemas={1400} packId="player" back={null} onDone={() => {}} />
     </Frame>
   ),
 };
 export const SuccessFromAGame: Story = {
   render: () => (
     <Frame title="Your Gemas are ready" step="done">
-      <DoneView gemas={1400} packId="player" back={{ href: "/play/queue?game=holdem&entry=500", label: "Play Buckshot Hold'em", need: 500 }} onDone={() => {}} testMode hours={2} />
+      <DoneView gemas={1400} packId="player" back={{ href: "/play/queue?game=holdem&entry=500", label: "Play Buckshot Hold'em", need: 500 }} onDone={() => {}} />
     </Frame>
   ),
 };

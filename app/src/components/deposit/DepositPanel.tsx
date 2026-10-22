@@ -11,11 +11,6 @@ import "./deposit.css";
 
 export const packArt = (id: DepositPackId) => `/art/deposit/${id}.webp`;
 
-/** Test mode only: the line that says the money is not real and how fast time runs. */
-export function TestModeLine({ hours }: { hours: number }) {
-  return <p className="dep-test">Test mode · no card needed · {PACK_MONTHS} months = about {hours} {hours === 1 ? "hour" : "hours"}</p>;
-}
-
 export interface PacksViewProps {
   /** Null while the SOL price is not available to quote on. */
   quotes: PackQuote[] | null;
@@ -142,7 +137,7 @@ export function AckView({ dontShow, onDontShow, busy, error, onConfirm }: {
 
 export type WorkPhase = "paying" | "adding";
 
-export function WorkingView({ pack, gemas, phase, testMode, hours }: { pack: DepositPack; gemas: number; phase: WorkPhase; testMode: boolean; hours: number }) {
+export function WorkingView({ pack, gemas, phase, testMode }: { pack: DepositPack; gemas: number; phase: WorkPhase; testMode: boolean }) {
   const paid = phase === "adding";
   const steps = [
     { id: "paying", label: paid ? (testMode ? "Test SOL added" : "Payment received") : testMode ? "Getting your test SOL" : "Waiting for your payment", state: paid ? "done" : "now" },
@@ -169,19 +164,16 @@ export function WorkingView({ pack, gemas, phase, testMode, hours }: { pack: Dep
         ))}
       </ol>
       <p className="dep-work-note" role="status">This takes a few seconds. Don&apos;t close this window.</p>
-      {testMode && <TestModeLine hours={hours} />}
     </div>
   );
 }
 
-export function DoneView({ gemas, packId, back, onDone, testMode, hours }: {
+export function DoneView({ gemas, packId, back, onDone }: {
   gemas: number;
   packId: DepositPackId;
   /** Where a game that sent the Player goes on; "Play now" otherwise. */
   back: { href: string; label: string; need: number } | null;
   onDone: () => void;
-  testMode: boolean;
-  hours: number;
 }) {
   const play = back ?? { href: "/play", label: "Play now", need: 0 };
   return (
@@ -200,7 +192,6 @@ export function DoneView({ gemas, packId, back, onDone, testMode, hours }: {
         <Button variant="silver" size="lg" block href={play.href} onClick={onDone}>{play.label}</Button>
         <Button variant="neutral" onClick={onDone}>Done</Button>
       </div>
-      {testMode && <TestModeLine hours={hours} />}
     </div>
   );
 }
