@@ -442,22 +442,9 @@ pub struct OfferState {
 }
 
 impl OfferState {
-    pub const SPACE: usize = 8
-        + 1
-        + 8
-        + 32
-        + 32
-        + 8
-        + 2
-        + 33
-        + 1
-        + 8
-        + 8
-        + 33
-        + 33
-        + 4
-        + ledger::MAX_APPLICANTS * 32
-        + 1;
+    // discriminator, bump, nonce, backer, game, entry, player_share_bps, request, status,
+    // expires_at, use_by, player, ticket_open
+    pub const SPACE: usize = 8 + 1 + 8 + 32 + 32 + 8 + 2 + 32 + 1 + 8 + 8 + 33 + 1;
 }
 
 /// The one custody of every native Position (ADR 0010): a single simSOL vault that keeps their

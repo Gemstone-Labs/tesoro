@@ -90,7 +90,7 @@ export async function awayCleanup(ctx: Ctx): Promise<number> {
       actions += +r.ok;
     } else {
       const offer: any = offers.find((o) => o.publicKey.equals(step.offer))!.account;
-      const accepted = status(offer.inner.status).toLowerCase() === "accepted" && offer.inner.request;
+      const accepted = status(offer.inner.status).toLowerCase() === "accepted";
       const r = await act(ctx, "away", `offer=${shortKey(step.offer)}`, `expire_offer (Backer ${shortKey(owner)} is away)`, async () =>
         sendIxs(ctx.conn, ctx.payer, [await expireOfferIx(ctx.core, { caller: ctx.payer.publicKey, backerAccount: owner, offer: step.offer, request: accepted ? keyOf(offer.inner.request) : null, backerProtections: protectionsKey })]),
       );

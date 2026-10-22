@@ -66,7 +66,7 @@ describe("Block Puzzle opponent played", () => {
 });
 
 describe("Offers", () => {
-  const offer: OfferFacts = { address: "O1", backer: "backer", game: "block-puzzle", entry: 1000, status: "open", expiresAt: NOW + 100, useBy: NOW + 200, directedTo: "R1" };
+  const offer: OfferFacts = { address: "O1", backer: "backer", game: "block-puzzle", entry: 1000, status: "open", expiresAt: NOW + 100, useBy: NOW + 200, request: "R1" };
   const requests = new Map([["R1", "player"]]);
   it("an open Offer on a Request tells the Request's Player", () => {
     assert.deepEqual(offerFacts([offer], requests, NOW), [{ account: "player", kind: "offer-made", offerId: "O1", game: "block-puzzle", entry: 1000 }]);
@@ -74,8 +74,8 @@ describe("Offers", () => {
   it("an accepted Offer tells its Backer", () => {
     assert.deepEqual(offerFacts([{ ...offer, status: "accepted" }], requests, NOW), [{ account: "backer", kind: "offer-accepted", offerId: "O1", game: "block-puzzle", entry: 1000 }]);
   });
-  it("skips lapsed, public and unmatched Offers and ones that are over", () => {
-    assert.deepEqual(offerFacts([{ ...offer, expiresAt: NOW - 1 }, { ...offer, directedTo: null }, { ...offer, directedTo: "R2" }, { ...offer, status: "cancelled" }, { ...offer, status: "accepted", useBy: NOW - 1 }], requests, NOW), []);
+  it("skips lapsed and unmatched Offers and ones that are over", () => {
+    assert.deepEqual(offerFacts([{ ...offer, expiresAt: NOW - 1 }, { ...offer, request: "R2" }, { ...offer, status: "cancelled" }, { ...offer, status: "accepted", useBy: NOW - 1 }], requests, NOW), []);
   });
 });
 
