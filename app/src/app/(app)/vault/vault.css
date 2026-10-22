@@ -2,11 +2,14 @@
 /* the body shares the Wallet's .wl grid and section gap, so both views line up */
 .vt-head { align-items: center; margin-bottom: calc(20px - var(--section-gap)); }
 .vt-head .btn { white-space: nowrap; }
+.vt-head-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+@media (max-width: 639px) { .vt-head-actions { width: 100%; flex-wrap: nowrap; } .vt-head-actions .btn { flex: 1 1 0; min-width: 0; padding-inline: 12px; justify-content: center; } }
+@media (max-width: 379px) { .vt-head-actions .btn { font-size: var(--fs-16); padding-inline: 8px; } }
 /* the views' bodies join the page grid, so the card, the toggle and each section keep one rhythm */
 .wl-part { display: contents; }
 /* the toggle sits close to the card above and the section below; the sections under it keep the page's gap */
 .vt-below { display: flex; flex-direction: column; gap: var(--section-gap); margin-top: calc(16px - var(--section-gap)); min-width: 0; }
-.vt-below > .vt-gear { align-self: flex-end; margin: -8px 0 calc(8px - var(--section-gap)); }
+.vt-below > .vt-pro { align-self: flex-end; margin: -4px 0 calc(8px - var(--section-gap)); }
 
 .vt-deposits, .vt-empty { --edge: var(--edge-1); display: grid; gap: 14px; padding: 22px 24px; background: var(--surface); align-content: start; }
 .vt-deposits > h2, .vt-empty > h2 { font-size: clamp(26px, 2.4vw, 34px); }

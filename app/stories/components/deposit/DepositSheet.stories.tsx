@@ -8,7 +8,7 @@ import { NATIVE_MARKET } from "../wallet/support";
 const quotes = DEPOSIT_PACKS.map((p) => quotePack(p, packMarket(NATIVE_MARKET)!, 0));
 const pack = DEPOSIT_PACKS[1];
 
-function Frame({ title = "Get Gemas", step = "packs", children }: { title?: string; step?: DepositStep; children: React.ReactNode }) {
+function Frame({ title = "Buy Gemas", step = "packs", children }: { title?: string; step?: DepositStep; children: React.ReactNode }) {
   return (
     <Sheet open onClose={() => {}} title={title} className={`dep-sheet ${step}`}>
       {children}

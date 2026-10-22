@@ -5,19 +5,19 @@ import { requestDeposit, type DepositIntent } from "@/lib/deposit/bus";
 import { useViewMode } from "@/lib/deposit/use-view-mode";
 import { getGemasHref } from "@/lib/deposit/view-mode";
 
-/** "Get Gemas" in the Player's view: the deposit modal in Simple, Vault's Advanced sheet. */
+/** "Buy Gemas" in the Player's view: the deposit modal in Simple, Vault's Advanced sheet. */
 export function GetGemasButton({ intent }: { intent?: DepositIntent }) {
   const { mode } = useViewMode();
   if (mode === "simple") {
     return (
       <Button variant="money" onClick={() => requestDeposit(intent)}>
-        Get Gemas
+        Buy Gemas
       </Button>
     );
   }
   return (
     <Button variant="money" href={getGemasHref("advanced", intent)}>
-      Get Gemas
+      Buy Gemas
     </Button>
   );
 }

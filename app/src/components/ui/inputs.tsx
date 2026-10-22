@@ -199,6 +199,7 @@ export function Sheet({
   onClose,
   title,
   lead,
+  actions,
   className,
   children,
 }: {
@@ -207,6 +208,8 @@ export function Sheet({
   title: string;
   /** Shown above the title inside the header (e.g. the Tesoro mark on the Sign in sheet). */
   lead?: ReactNode;
+  /** Shown beside the close button (e.g. the Pro view switch on the Buy Gemas sheets). */
+  actions?: ReactNode;
   className?: string;
   children: ReactNode;
 }) {
@@ -235,6 +238,7 @@ export function Sheet({
           <div className="sheet-head">
             {lead}
             <h2 id={titleId}>{title}</h2>
+            {actions && <div className="sheet-actions">{actions}</div>}
             <button type="button" className="cut cut-chip icon-btn" onClick={onClose} aria-label="Close">
               <XIcon />
             </button>

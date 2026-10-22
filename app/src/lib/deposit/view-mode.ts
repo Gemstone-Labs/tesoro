@@ -26,7 +26,7 @@ export function writeViewMode(authority: string, mode: ViewMode, store: Store | 
   }
 }
 
-/** Where "Get Gemas" goes. A game passes what it needs so the right pack (or amount) is preset. */
+/** Where "Buy Gemas" goes. A game passes what it needs so the right pack (or amount) is preset. */
 export function getGemasHref(mode: ViewMode, intent?: { game: GameId; need?: number | null }): string {
   const q = new URLSearchParams();
   q.set(mode === "simple" ? "deposit" : "open", "1");

@@ -107,7 +107,8 @@ const SIMPLE_WORDS: [RegExp, string][] = [
   [/\blength\b/i, "\"about 12 months\""],
   [/\bunlock estimate\b/i, "\"back around <month>\""],
   [/\bsources?\b/i, "(nothing)"],
-  [/\b(buy|buying|bought|spend|spending|purchase|purchases|purchased)\b/i, "deposit"],
+  // "Buy Gemas" is the Vault's button and modal name (founder, 2026-10-22); every other buy/spend word stays out.
+  [/\b(buy(?!\s+gemas\b)|buying|bought|spend|spending|purchase|purchases|purchased)\b/i, "deposit"],
 ];
 
 describe("simple view words", () => {

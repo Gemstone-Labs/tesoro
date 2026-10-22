@@ -23,9 +23,9 @@ export default function Lobby() {
     pose: "himWelcome",
     title: `Welcome to ${BRAND.name}`,
     text: simple
-      ? "Pick a game, choose an entry and press Play now. Get Gemas by making a deposit."
+      ? "Pick a game, choose an entry and press Play now. Buy Gemas by making a deposit."
       : "Pick a game, choose an entry and press Play now. Your Gemas come from a Lock in your Vault.",
-    link: simple ? { href: getGemasHref("simple"), label: "Get Gemas" } : { href: "/vault", label: "Open the Vault" },
+    link: simple ? { href: getGemasHref("simple"), label: "Buy Gemas" } : { href: "/vault", label: "Open the Vault" },
   });
 
   // A search turns the Lobby into its results: the matching Games only, as on Play.

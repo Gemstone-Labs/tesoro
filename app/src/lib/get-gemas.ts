@@ -1,6 +1,6 @@
 import type { DepositIntent } from "@/lib/deposit/bus";
 
-/** Asks the open Advanced Vault to show its Get Gemas sheet (the Vault's Get Gemas button, the top bar's Gemas pill). */
+/** Asks the open Advanced Vault to show its Buy Gemas sheet (the Vault’s Buy Gemas button, the top bar's Gemas pill). */
 const bus = new EventTarget();
 const EVENT = "get-gemas";
 

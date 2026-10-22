@@ -59,7 +59,7 @@ export function SimpleVault() {
         <section className="cut cut-card vt-empty" aria-label="Get started">
           <h2 className="display">Deposits</h2>
           <p className="meta">Make a deposit to get Gemas and start playing. Your deposit stays yours: you get it back after about {PACK_MONTHS} months.</p>
-          <Button variant="money" size="lg" onClick={() => requestDeposit()}>Get Gemas</Button>
+          <Button variant="money" size="lg" onClick={() => requestDeposit()}>Buy Gemas</Button>
         </section>
       )}
 

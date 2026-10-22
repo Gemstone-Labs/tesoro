@@ -8,6 +8,9 @@ import { redeemableOf, useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { fmtAsset, fmtGemas, fmtUsd } from "@/lib/format";
 import { onGetGemas } from "@/lib/get-gemas";
+import { requestDeposit } from "@/lib/deposit/bus";
+import { useViewMode } from "@/lib/deposit/use-view-mode";
+import { ProViewSwitch } from "@/components/deposit/ProViewSwitch";
 import { type Chain, type GemaHolding, type Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
 import { AdvanceSheet } from "./AdvanceSheet";
@@ -51,10 +54,11 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   const [intent, setIntent] = useState<OpenIntent | null>(null);
   // Phones fold the balance to the Total; wider screens always show all of it.
   const router = useRouter();
-  // The Vault's Get Gemas button, the top bar's Gemas pill and `/vault?open=1` open this sheet (a game adds what it needs).
+  const { setMode } = useViewMode();
+  // The Vault's Buy Gemas button, the top bar's Gemas pill and `/vault?open=1` open this sheet (a game adds what it needs).
   useEffect(() => {
     if (!body) return;
-    return onGetGemas((from) => auth.gate("get Gemas", () => {
+    return onGetGemas((from) => auth.gate("buy Gemas", () => {
       setIntent(from ? { game: from.game, need: from.need ?? null } : null);
       setOpenSheet(true);
     }));
@@ -263,7 +267,17 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
         {onChain && <p className="note">{REAL ? "Redeem pays the staking token (jitoSOL for SOL Locks) from the yield your Lock has earned so far." : "Redeem pays test SOL (simulated) from the yield your Lock has earned so far."}</p>}
       </footer>}
 
-      {body && <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Get Gemas">
+      {body && <Sheet
+        open={openSheet}
+        onClose={() => setOpenSheet(false)}
+        title="Buy Gemas"
+        actions={<ProViewSwitch on onChange={() => {
+          // Pro view off: save it and swap to the deposit packs, with the game the Player came from.
+          setMode("simple");
+          setOpenSheet(false);
+          requestDeposit(intent);
+        }} />}
+      >
         <OpenIntentContext.Provider value={intent}>
         <OpenPanel tab={tab} onTab={setTab}>
           {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}

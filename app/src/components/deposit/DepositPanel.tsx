@@ -82,7 +82,7 @@ export function PacksView({ quotes, highlight, canPay, testMode, feePct, onPick 
           ) : canPay ? (
             "Card, Apple Pay or Google Pay"
           ) : (
-            "Prefer to use crypto? Turn on Pro view from the gear on your Vault."
+            "Prefer to use crypto? Turn on Pro view at the top."
           )}
         </Note>
       </ul>

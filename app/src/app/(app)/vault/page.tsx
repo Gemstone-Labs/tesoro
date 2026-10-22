@@ -10,7 +10,7 @@ import { useViewMode } from "@/lib/deposit/use-view-mode";
 import { requestGetGemas } from "@/lib/get-gemas";
 import { WalletView } from "../wallet/WalletView";
 import { SimpleVault } from "./SimpleVault";
-import { ViewSettings } from "@/components/deposit/ViewSettings";
+import { ProViewSwitch } from "@/components/deposit/ProViewSwitch";
 import { VaultHeader } from "./VaultHeader";
 import "./vault.css";
 
@@ -40,7 +40,7 @@ function useGemasQuery(ready: boolean, simple: boolean) {
 
 function Vault() {
   const { auth } = useAccount();
-  const { mode, resolved } = useViewMode();
+  const { mode, setMode, resolved } = useViewMode();
   const signedIn = auth.status === "signed-in";
   const simple = mode === "simple";
   // Signed out there is no Advanced sheet to open: only the deposit modal can answer the link.
@@ -65,7 +65,7 @@ function Vault() {
         <div className="wl">
           <WalletView part="card" />
           <div className="vt-below">
-            <ViewSettings className="vt-gear" />
+            <ProViewSwitch className="vt-pro" on={!simple} onChange={(on) => setMode(on ? "advanced" : "simple")} />
             {simple ? <SimpleVault /> : <WalletView part="body" />}
           </div>
         </div>

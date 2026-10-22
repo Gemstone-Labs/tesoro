@@ -438,6 +438,7 @@ dialog.sheet[open]::backdrop, dialog.bk-drawer[open]::backdrop { opacity: 1; }
 .sheet-in { padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 14px; }
 .sheet-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
 .sheet-head h2 { font-size: var(--fs-20); font-weight: 900; letter-spacing: -0.01em; }
+.sheet-actions { margin-left: auto; align-self: center; }
 @media (min-width: 640px) { dialog.sheet { margin: auto; } .sheet-in { padding: 24px 24px 26px; gap: 16px; } }
 
 /* ——— Form controls ——— */

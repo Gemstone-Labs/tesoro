@@ -136,13 +136,13 @@ const heavySnapshot = (a: string): AccountSnapshot => {
 export const LongTimePlayer: Story = { parameters: { data: { snapshot: heavySnapshot }, screen: { eth: { advance: "open" } } } };
 
 const openTab = (name: string): Story["play"] => async ({ canvasElement }) => {
-  const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Get Gemas/ })[0], { timeout: 10_000 });
+  const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Buy Gemas/ })[0], { timeout: 10_000 });
   await userEvent.click(open);
   const tab = await waitFor(() => within(document.body).getAllByRole("tab", { name: new RegExp(`^${name}`) })[0], { timeout: 10_000 });
   await userEvent.click(tab);
 };
 
-/** The Get Gemas sheet on the ETH tab. */
+/** The Buy Gemas sheet on the ETH tab. */
 export const OpenEthPosition: Story = { parameters: { data: { snapshot: withEth }, screen: { eth: { advance: "open" } } }, play: openTab("ETH") };
 export const OpenHypePosition: Story = { parameters: { data: { snapshot: withEth }, screen: { eth: { advance: "open" } } }, play: openTab("HYPE") };
 

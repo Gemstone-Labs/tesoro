@@ -65,8 +65,8 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
             <Link
               href="/vault"
               className="cut cut-card gpill"
-              aria-label={simple || onVault ? "Your Gemas, get Gemas" : "Your Gemas, open Vault"}
-              title={simple ? "Get Gemas" : "Simulated yield · 1 month = 10 min"}
+              aria-label={simple || onVault ? "Your Gemas, buy Gemas" : "Your Gemas, open Vault"}
+              title={simple ? "Buy Gemas" : "Simulated yield · 1 month = 10 min"}
               onClick={(e) => {
                 if (simple) {
                   e.preventDefault();
