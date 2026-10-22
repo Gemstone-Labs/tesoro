@@ -113,7 +113,8 @@ export class VanguardChain {
   private readonly teeRpc: string;
   private readonly teeWs: string;
   private readonly tee = new Map<string, Connection>();
-  private readonly hashes = new Map<Connection, { hash: string; at: number }>();
+  /** The cached rollup blockhash per connection, with every message already sent under it. */
+  private readonly hashes = new Map<Connection, { hash: string; at: number; sent: Set<string> }>();
   /** Step logger; a UI may replace it while it is mounted. */
   onTx?: VanguardChainOptions["onTx"];
 
@@ -191,19 +192,40 @@ export class VanguardChain {
     }
   }
 
-  private async blockhash(conn: Connection): Promise<string> {
+  private async blockhash(conn: Connection, fresh = false): Promise<{ hash: string; sent: Set<string> }> {
     const seen = this.hashes.get(conn);
-    if (seen && Date.now() - seen.at < BLOCKHASH_TTL_MS) return seen.hash;
+    if (seen && !fresh && Date.now() - seen.at < BLOCKHASH_TTL_MS) return seen;
     const hash = (await withRetry(() => conn.getLatestBlockhash())).blockhash;
-    this.hashes.set(conn, { hash, at: Date.now() });
-    return hash;
+    // the rollup may hand the same hash out again: what was sent under it still counts
+    const entry = { hash, at: Date.now(), sent: seen?.hash === hash ? seen.sent : new Set<string>() };
+    this.hashes.set(conn, entry);
+    return entry;
+  }
+
+  /**
+   * Sets a blockhash under which these exact bytes were never sent. `resolve` and `claim_timeout` take no arguments, so the
+   * same Player sending one twice under one hash would send the same transaction: it carries the first one's signature, the
+   * rollup answers with the first one's result, and nothing runs.
+   */
+  private async setBlockhash(conn: Connection, tx: Transaction): Promise<void> {
+    for (let i = 0; i < 20; i++) {
+      const entry = await this.blockhash(conn, i > 0);
+      tx.recentBlockhash = entry.hash;
+      const message = tx.serializeMessage().toString("base64");
+      if (!entry.sent.has(message)) {
+        entry.sent.add(message);
+        return;
+      }
+      if (i > 0) await sleep(100);
+    }
+    throw new Error("The rollup kept the same blockhash: try again");
   }
 
   private async sendTee(step: string, ixs: TransactionInstruction[], signer: PlayerSigner): Promise<string> {
     const conn = await this.teeConnection(signer);
     const tx = new Transaction().add(...ixs);
     tx.feePayer = signer.publicKey;
-    tx.recentBlockhash = await this.blockhash(conn);
+    await this.setBlockhash(conn, tx);
     const signed = await signer.signTransaction(tx);
     const sig = await conn.sendRawTransaction(signed.serialize(), { skipPreflight: true });
     for (let i = 0; i < 120; i++) {
@@ -212,7 +234,7 @@ export class VanguardChain {
         if (st.err) {
           const t = await conn.getTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: "confirmed" }).catch(() => null);
           // an expired cached hash is the one failure worth a fresh hash next time
-          this.hashes.delete(conn);
+          this.expireHash(conn);
           throw new Error(`${step} failed ${sig}: ${JSON.stringify(st.err)}\n${t?.meta?.logMessages?.join("\n") ?? ""}`);
         }
         this.onTx?.(step, "tee", sig);
@@ -220,8 +242,14 @@ export class VanguardChain {
       }
       await sleep(250);
     }
-    this.hashes.delete(conn);
+    this.expireHash(conn);
     throw new Error(`${step} not confirmed ${sig}`);
+  }
+
+  /** The next send fetches a new hash; what was sent under the old one is kept in case the rollup hands it out again. */
+  private expireHash(conn: Connection): void {
+    const seen = this.hashes.get(conn);
+    if (seen) seen.at = 0;
   }
 
   private pause = sleep;

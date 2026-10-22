@@ -1,4 +1,4 @@
-import { ComputeBudgetProgram, Keypair, type TransactionInstruction } from "@solana/web3.js";
+import { ComputeBudgetProgram, Keypair, Message, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import { permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { describe, expect, it } from "vitest";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
@@ -196,5 +196,51 @@ describe("base-layer instructions", () => {
     expect(keys(ix)).toContain(addresses(ID).config.toBase58());
     expect(keys(ix)).toContain(tesoroConfigPda().toBase58());
     expect(ix.data.readBigUInt64LE(8)).toBe(ID);
+  });
+});
+
+describe("rollup sending", () => {
+  /** A fake rollup that hands out `hashes` in turn (the last one repeats) and records each transaction it is sent. */
+  function rollup(hashes: string[]) {
+    const chain = new VanguardChain(vanguardIdl, coreIdl);
+    const messages: string[] = [];
+    let n = 0;
+    const conn = {
+      getLatestBlockhash: async () => ({ blockhash: hashes[Math.min(n++, hashes.length - 1)], lastValidBlockHeight: 1 }),
+      sendRawTransaction: async (raw: Buffer) => {
+        messages.push(Transaction.from(raw).serializeMessage().toString("base64"));
+        return `sig${messages.length}`;
+      },
+      getSignatureStatuses: async () => ({ value: [{ err: null }] }),
+    };
+    Object.assign(chain as unknown as Record<string, unknown>, { teeConnection: async () => conn });
+    return { chain, messages, player: keypairSigner(Keypair.generate()) };
+  }
+  const hash = () => Keypair.generate().publicKey.toBase58();
+  const hashOf = (m: string) => Message.from(Buffer.from(m, "base64")).recentBlockhash;
+
+  it("never sends the same bytes twice: a second resolve gets a fresh blockhash (identical bytes would reuse the first signature and do nothing)", async () => {
+    const [a, b] = [hash(), hash()];
+    const { chain, messages, player } = rollup([a, b]);
+    await chain.resolve(player, ID);
+    await chain.resolve(player, ID);
+    expect(messages).toHaveLength(2);
+    expect(new Set(messages).size).toBe(2);
+  });
+
+  it("keeps asking while the rollup still hands out the blockhash the same bytes were sent with", async () => {
+    const [a, b] = [hash(), hash()];
+    const { chain, messages, player } = rollup([a, a, a, b]);
+    await chain.claimTimeout(player, ID);
+    await chain.claimTimeout(player, ID);
+    expect(messages.map(hashOf)).toEqual([a, b]);
+  });
+
+  it("different actions still share one cached blockhash (no extra round trip in a turn)", async () => {
+    const [a, b] = [hash(), hash()];
+    const { chain, messages, player } = rollup([a, b]);
+    await chain.resolve(player, ID);
+    await chain.claimTimeout(player, ID);
+    expect(messages.map(hashOf)).toEqual([a, a]);
   });
 });
