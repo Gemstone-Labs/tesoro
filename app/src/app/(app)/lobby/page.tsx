@@ -11,9 +11,11 @@ import { PlayNowRail } from "@/components/lobby/PlayNowRail";
 import { useSearch } from "@/components/shell/SearchContext";
 import { useAccount } from "@/lib/account";
 import { BRAND } from "@/lib/brand";
+import { useFriends } from "@/lib/friends/FriendsProvider";
 
 export default function Lobby() {
   const { openMatches } = useAccount();
+  const friendChallenges = useFriends().view?.challenges ?? [];
   const { query } = useSearch();
   useGuideTip({
     id: "lobby-first",
@@ -34,7 +36,7 @@ export default function Lobby() {
 
   return (
     <div className="lobby">
-      {openMatches.length > 0 && <ContinueRail matches={openMatches} />}
+      {(openMatches.length > 0 || friendChallenges.length > 0) && <ContinueRail matches={openMatches} challenges={friendChallenges} />}
 
       <div className="lobby-top">
         <HeroCarousel />

@@ -5,7 +5,7 @@ import { ENTITY } from "@/lib/legal/entity";
 import { BRAND } from "@/lib/brand";
 
 /** A plain reading page for the Terms and the Privacy Policy, in the docs' type and themes. */
-export function LegalPage({ title, lede, children }: { title: string; lede: string; children: ReactNode }) {
+export function LegalPage({ title, lede, effective = ENTITY.effectiveDate, children }: { title: string; lede: string; effective?: string; children: ReactNode }) {
   return (
     <div className="docs">
       <header className="docs-top">
@@ -22,7 +22,7 @@ export function LegalPage({ title, lede, children }: { title: string; lede: stri
             <p className="docs-eyebrow">Legal</p>
             <h1 className="docs-h1">{title}</h1>
             <p className="docs-lede">{lede}</p>
-            <p className="legal-date mono">Effective {ENTITY.effectiveDate}</p>
+            <p className="legal-date mono">Effective {effective}</p>
           </header>
           <div className="docs-prose">{children}</div>
           <nav className="legal-links" aria-label="Legal">

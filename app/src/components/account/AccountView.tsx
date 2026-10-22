@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { GameTabs, HistoryPages, ResultFilter, gameFilter, historyHref, resultCounts } from "@/components/match/MatchHistory";
 import { MatchBanner } from "@/components/match/MatchBanner";
-import { AssetPicker, Bust, Button, EntryPicker, Label, Sheet, Notice } from "@/components/ui";
+import { ChallengeSheet } from "@/components/match/ChallengeSheet";
+import { Bust, Button, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
@@ -14,9 +15,7 @@ import { backingLine, playedRows, playerSummary, signed, type PlayedRow, type Pl
 import { timeLeft } from "@/lib/chain/useBackingBoard";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
 import { fmtGemas } from "@/lib/format";
-import { gameQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
-import type { EntrySize, GameId } from "@/lib/mock";
 import { AccountHero } from "./AccountHero";
 import { AccountSkeleton } from "./AccountSkeleton";
 import { shownIdentity } from "@/lib/identity/display";
@@ -168,7 +167,7 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
       {stale && <p className="note">Couldn’t refresh; showing what was last loaded.</p>}
       <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
 
-      <ChallengeSheet open={challenge} onClose={() => setChallenge(false)} player={who.label} />
+      <ChallengeSheet open={challenge} onClose={() => setChallenge(false)} player={address} name={who.label} />
     </div>
   );
 }
@@ -370,43 +369,4 @@ function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGem
   );
 }
 
-const GAMES: GameId[] = ["block-puzzle", "holdem", "trading-duel"];
-
-/** Game and entry for a Challenge, and the plain fact that the link is the only way it reaches the other Player. */
-function ChallengeSheet({ open, onClose, player }: { open: boolean; onClose: () => void; player: string }) {
-  const { auth } = useAccount();
-  const router = useRouter();
-  const [game, setGame] = useState<GameId>("block-puzzle");
-  const [entry, setEntry] = useState<EntrySize>(1000);
-  const [asset, setAsset] = useState<0 | 1 | 2>(0);
-  return (
-    <Sheet open={open} onClose={onClose} title={`Challenge ${player}`}>
-      <div className="stack-lg">
-        <fieldset className="entries pa-games">
-          <legend className="sr-only">Game</legend>
-          {GAMES.map((g) => (
-            <label key={g} className="entry">
-              <input type="radio" name="pa-game" value={g} checked={game === g} onChange={() => setGame(g)} />
-              <span className="cut cut-chip">{GAME_NAMES[g]}</span>
-            </label>
-          ))}
-        </fieldset>
-        {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="pa-asset" />}
-        <EntryPicker value={entry} onChange={setEntry} name="pa-entry" />
-        <p className="pa-p">
-          {BRAND.name} cannot tell this Player about your Challenge. You get a link to send them yourself, and whoever opens it first joins.{" "}
-          {game === "block-puzzle" && "You play your run first, then get the link. "}
-          Your entry goes in the Pot when you open it; if nobody joins, it is refunded.
-        </p>
-        <Button
-          variant="money"
-          block
-          onClick={() => auth.gate("Challenge a Player", () => router.push(`/play/challenge?${gameQuery(game, asset)}entry=${entry}`))}
-        >
-          Open Challenge · {fmtGemas(entry)} Gemas
-        </Button>
-      </div>
-    </Sheet>
-  );
-}
 

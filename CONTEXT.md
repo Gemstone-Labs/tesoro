@@ -73,6 +73,18 @@ _Avoid_: referral, access code, whitelist spot
 **Name service name**:
 A `.sol` (Solana Name Service) or `.eth` (ENS) primary name of a wallet the Player attached to their Profile. It is shown with a verified mark because the registry says the wallet owns it and the wallet proved it belongs to the Account.
 
+**Friend**:
+Another Account that both Players agreed to keep in each other's private list, kept off chain and seen only by the two of them. Friendship is a convenience: it changes no rule of play, Points or payouts.
+_Avoid_: follower, contact, buddy, invite
+
+**Friend request**:
+One Player's ask to become Friends with another Account, which becomes a friendship only when the other Player accepts it.
+_Avoid_: invite (an Invite is the waitlist's way into mainnet)
+
+**Friend link**:
+A Player's own shareable link that makes whoever opens it and accepts their Friend, with no further step from the owner. The owner can reset it, which ends the old link.
+_Avoid_: invite link, referral link
+
 ### Play
 
 **Game**:

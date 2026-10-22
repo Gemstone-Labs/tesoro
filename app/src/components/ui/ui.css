@@ -317,6 +317,10 @@ a.row:hover, button.row:hover { --edge: var(--edge-2); }
 .asset input:checked + span small { color: var(--fg-2); }
 .asset input:not(:checked) + span .chain-glyph { filter: grayscale(1); opacity: 0.6; }
 .assets.compact .asset span { min-height: 44px; }
+/* game: neutral like assets */
+.games .pick-thumb { background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 1px), linear-gradient(180deg, #34404a, #222b32); }
+.game span { display: flex; justify-content: center; align-items: center; text-align: center; min-height: 48px; padding: 4px 6px; font-weight: 800; font-size: var(--fs-15); line-height: 1.15; }
+.game input:checked + span { color: var(--fg); }
 
 /* ——— Slider: a ruler with its values written under it and a pin on the current one ———
    The native range sits invisibly on top (28px thumb), so every position below is 14px + (100% - 28px) * fraction.

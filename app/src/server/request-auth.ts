@@ -51,7 +51,7 @@ export interface AuthEnv {
   verifyToken: (token: string, appId: string) => Promise<string | null>;
 }
 
-const envFromProcess = (): AuthEnv => {
+export const envFromProcess = (): AuthEnv => {
   const production = process.env.NODE_ENV === "production";
   return {
     privyAppId: process.env.NEXT_PUBLIC_PRIVY_APP_ID || undefined,

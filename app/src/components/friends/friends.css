@@ -1,0 +1,115 @@
+/* ——— Friends page (founder pick F1: stacked list, Friend link at the top right) ——— */
+.fr-page { display: grid; gap: 18px; }
+.fr-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px 24px; flex-wrap: wrap; }
+.fr-count { color: var(--fg); font-size: var(--fs-18); font-weight: 600; margin-top: 4px; }
+
+.fr-section { --edge: var(--edge-1); background: var(--surface); padding: 0; display: grid; }
+.fr-h { font-size: var(--fs-18); font-weight: 800; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.fr-list { list-style: none; margin: 0; padding: 0; }
+.fr-section > .btn { margin: 12px 18px 16px; justify-self: start; }
+.fr-empty { padding: 18px; color: var(--fg-2); }
+.fr-skel { min-height: 220px; }
+
+.fr-row { display: grid; grid-template-columns: minmax(200px, 1fr) auto; align-items: center; gap: 12px 20px; padding: 12px 18px; }
+.fr-row + .fr-row { border-top: 1px solid var(--line); }
+.fr-friend { grid-template-columns: minmax(200px, 0.8fr) minmax(0, 2fr) auto; }
+.fr-challenge { grid-template-columns: minmax(200px, 0.8fr) minmax(0, 1fr) auto; }
+
+.fr-who { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.fr-av { --c: 10px; flex: none; width: 56px; height: 56px; display: grid; place-items: center; background: var(--raised-2); overflow: hidden; }
+.fr-who-text { display: grid; gap: 2px; min-width: 0; }
+.fr-name { font-weight: 800; font-size: var(--fs-17); color: var(--fg); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-name:hover { text-decoration: underline; }
+.fr-who small { color: var(--fg-2); font-size: var(--fs-14); }
+.fr-note { color: var(--warn); }
+.fr-rec { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; color: var(--fg); font-size: var(--fs-15); }
+.fr-tag { --c: 5px; padding: 2px 8px; font-size: var(--fs-12); color: var(--fg-2); background: var(--raised-2); --edge: var(--edge-1); }
+
+.fr-thumb { --c: 6px; flex: none; width: 36px; height: 36px; display: grid; place-items: center; overflow: hidden; background: var(--raised-2); }
+.fr-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.fr-game { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.fr-game > span:last-child { display: grid; }
+.fr-game small { color: var(--fg-2); font-size: var(--fs-13); }
+
+.fr-recent { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.fr-recent > li { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-14); }
+.fr-recent > li + li { border-left: 1px solid var(--line); padding-left: 10px; }
+.fr-recent > li > span:last-child { display: grid; min-width: 0; }
+.fr-recent small { color: var(--fg-2); font-size: var(--fs-12); }
+.fr-recent-skel { height: 36px; background: var(--raised); opacity: 0.6; }
+.fr-res { font-weight: 800; }
+.fr-res.won { color: var(--em); }
+.fr-res.lost { color: var(--danger); }
+.fr-res.draw { color: var(--fg); }
+
+.fr-actions { display: flex; align-items: center; gap: 8px; justify-self: end; }
+.fr-actions .btn svg { width: 16px; height: 16px; }
+/* The row's main action: a light fill, neutral (emerald stays with Gemas), like Challenge on an Account page */
+.fr-actions > .btn.neutral:first-child { background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
+.fr-actions > .btn.neutral:first-child:hover { filter: brightness(0.92); }
+
+.fr-more { width: 44px; padding: 0; background: var(--surface); color: var(--fg); --edge: var(--edge-2); }
+.fr-more:hover { background: var(--surface-2); }
+.fr-more svg { width: 18px; height: 18px; }
+
+.fr-link { --edge: var(--edge-1); background: var(--surface); padding: 12px 14px; display: grid; gap: 8px; min-width: min(100%, 460px); }
+.fr-link-label { font-size: var(--fs-13); color: var(--fg-2); }
+.fr-link-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fr-link-url { --c: 6px; flex: 1 1 220px; min-width: 0; padding: 8px 10px; background: var(--shell); font-size: var(--fs-14); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-link-help { color: var(--fg-2); font-size: var(--fs-13); }
+
+/* Add friend (Account page, Match result) */
+.af { display: inline-grid; gap: 4px; justify-items: start; }
+.af-note { color: var(--fg-2); font-size: var(--fs-13); max-width: 260px; }
+
+@media (max-width: 1100px) {
+  .fr-friend { grid-template-columns: minmax(0, 1fr) auto; }
+  .fr-friend .fr-recent { grid-column: 1 / -1; grid-row: 2; }
+}
+@media (max-width: 639px) {
+  .fr-head { align-items: stretch; }
+  .fr-link { min-width: 0; width: 100%; }
+  .fr-row, .fr-challenge { grid-template-columns: minmax(0, 1fr); padding: 12px 14px; }
+  .fr-actions { justify-self: stretch; }
+  .fr-actions > .btn:first-child { flex: 1; }
+  .fr-recent { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .fr-recent > li + li { border-left: 0; padding-left: 0; }
+  .fr-recent > li > span:last-child { display: block; }
+  .fr-recent small { display: inline; font-size: var(--fs-13); }
+  .fr-recent small::before { content: " · "; }
+  .fr-recent .fr-thumb { width: 28px; height: 28px; }
+  .fr-av { width: 48px; height: 48px; }
+}
+
+/* ——— Friend link page (founder pick L1: one centred calling card) ——— */
+.fl-card { --edge: var(--edge-2); background: var(--surface); width: min(100%, 520px); margin: clamp(8px, 4vh, 48px) auto; padding: 32px 28px 26px; display: grid; justify-items: center; gap: 14px; text-align: center; }
+.fl-av { --c: 22px; width: 168px; height: 168px; display: grid; place-items: center; overflow: hidden; background: var(--raised-2); }
+.fl-name { font-size: clamp(36px, 4vw, 56px); line-height: 1; text-transform: none; }
+.fl-line { font-size: var(--fs-18); color: var(--fg); }
+.fl-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; border-block: 1px solid var(--line); margin: 4px 0 0; }
+.fl-facts > div { padding: 12px 8px; display: grid; gap: 2px; }
+.fl-facts > div + div { border-left: 1px solid var(--line); }
+.fl-facts dt { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: var(--fs-12); text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2); }
+.fl-facts dt svg { width: 14px; height: 14px; }
+.fl-facts dd { margin: 0; font-weight: 700; font-size: var(--fs-17); }
+.fl-games { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 22px; font-weight: 700; }
+.fl-games li { display: flex; align-items: center; gap: 8px; }
+.fl-act { width: 100%; display: grid; gap: 8px; margin-top: 6px; }
+.fl-act > .btn.neutral:first-child { background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
+.fl-act > .btn.neutral:first-child:hover { filter: brightness(0.92); }
+.fl-small { color: var(--fg-2); font-size: var(--fs-13); }
+@media (max-width: 639px) { .fl-card { padding: 24px 16px 20px; } .fl-av { width: 136px; height: 136px; } }
+
+/* ——— Friend picker for a new Challenge (founder pick C3, as a centred modal) ——— */
+.fp-list { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; max-height: min(52dvh, 460px); overflow-y: auto; }
+.fp-row { --c: 10px; --edge: var(--edge-1); background: var(--surface); display: grid; grid-template-columns: auto minmax(0, 1fr) 24px; align-items: center; gap: 12px; padding: 10px 12px; cursor: pointer; }
+.fp-row.on { --edge: rgba(255, 255, 255, 0.85); background: var(--surface-2); }
+.fp-row input { position: absolute; opacity: 0; pointer-events: none; }
+.fp-row:has(input:focus-visible) { outline: 2px solid var(--fg); outline-offset: 2px; }
+.fp-av { --c: 8px; width: 48px; height: 48px; display: grid; place-items: center; overflow: hidden; background: var(--raised-2); }
+.fp-link svg { width: 22px; height: 22px; color: var(--fg-2); }
+.fp-text { display: grid; gap: 2px; min-width: 0; text-align: left; justify-items: start; }
+.fp-name { font-weight: 800; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-text small { color: var(--fg-2); font-size: var(--fs-13); }
+.fp-check svg { width: 20px; height: 20px; }
+.enter-seat > .btn { margin-top: 6px; }

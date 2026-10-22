@@ -59,7 +59,9 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
   display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 10px 12px;
   padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
 }
-.topbar .menu-btn { grid-column: 1; }
+.topbar .menu-btn { grid-column: 1; position: relative; }
+/* something waits in Friends (requests, Challenges, new Friends): Friends is in the drawer on phones */
+.menu-dot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--fg); box-shadow: 0 0 0 2px var(--shell); }
 .top-word { grid-column: 2; }
 .top-word .wordmark svg { height: 26px; width: auto; }
 .top-right { grid-column: 4; display: flex; align-items: center; gap: 12px; justify-self: end; }
