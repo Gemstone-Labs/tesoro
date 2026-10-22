@@ -626,7 +626,10 @@ impl Env {
     /// the account checks pass, and the CPI into it then fails (what a real commit does is
     /// devnet evidence): here the Game's own binary, which refuses a foreign program id.
     fn magic_shell(&mut self) {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/block_puzzle.so");
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../target/deploy/block_puzzle.so"
+        );
         self.svm
             .add_program_from_file(s(sdk_key(MAGIC_PROGRAM_ID)), path)
             .expect("magic shell");
@@ -1135,6 +1138,15 @@ impl Env {
         self.play_with(seat, binding, expected, moves, false)
     }
 
+    /// Public play before the freeze, hidden play from it: what a client does.
+    fn play_any(&mut self, seat: usize, n: usize) -> Result<(), Failed> {
+        if self.slot < self.table().freeze_slot().unwrap() {
+            self.play(seat, n)
+        } else {
+            self.play_hidden(seat, n)
+        }
+    }
+
     fn play_hidden(&mut self, seat: usize, n: usize) -> Result<(), Failed> {
         let (binding, expected) = (self.binding(), self.board(seat).moves);
         let moves = self.moves(seat, n);
@@ -1527,7 +1539,11 @@ fn only_the_operator_creates_tables_inside_the_cap_and_the_current_generation() 
     );
     assert!(!t.seats_created, "the seats are made in the rollup");
     assert!(t.ring.slots.iter().all(|s| s.state == table_kit::SLOT_FREE));
-    assert_eq!(t.logs.len(), table_kit::RING_LEN, "a log for every ring slot");
+    assert_eq!(
+        t.logs.len(),
+        table_kit::RING_LEN,
+        "a log for every ring slot"
+    );
 }
 
 #[test]
@@ -1616,8 +1632,16 @@ fn only_the_operator_assigns_once_and_only_to_a_real_table_slot() {
 fn an_open_match_nobody_joined_cannot_be_assigned() {
     let mut env = Env::new();
     let alice = dup(&env.alice);
-    let m = flow::open_match(&mut env.svm, &alice.kp, block_puzzle::ID, 1_000, 5, false, 0)
-        .expect("open");
+    let m = flow::open_match(
+        &mut env.svm,
+        &alice.kp,
+        block_puzzle::ID,
+        1_000,
+        5,
+        false,
+        0,
+    )
+    .expect("open");
     env.tmatch = m.key;
     let err = env.assign(0, 0, 0).unwrap_err();
     assert_eq!(custom_code(&err), dcode(E::BadTesoroMatch));
@@ -1639,10 +1663,7 @@ fn begin_reserves_a_ring_slot_and_copies_the_match_from_the_assignment() {
     assert_eq!(t.start_deadline, T0 + block_puzzle::START_WINDOW_SECS);
     let (i, slot) = t.ring.find(&env.tmatch, 0).expect("slot");
     assert_eq!((i, slot.state), (t.slot, table_kit::SLOT_RESERVED));
-    assert_eq!(
-        custom_code(&env.begin().unwrap_err()),
-        dcode(E::WrongPhase)
-    );
+    assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(E::WrongPhase));
 }
 
 #[test]
@@ -1650,12 +1671,18 @@ fn begin_refuses_a_wrong_table_epoch_or_late_start_a_frozen_match_and_a_table_wi
     // another table
     let mut env = ready();
     env.table = table_addr(0, 1);
-    assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(E::NotAssigned));
+    assert_eq!(
+        custom_code(&env.begin().unwrap_err()),
+        dcode(E::NotAssigned)
+    );
     // a future epoch
     let mut env = Env::new();
     env.open_and_join(1_000);
     env.assign(0, 0, 5).expect("assign epoch 5");
-    assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(E::NotAssigned));
+    assert_eq!(
+        custom_code(&env.begin().unwrap_err()),
+        dcode(E::NotAssigned)
+    );
     // after the start deadline
     let mut env = ready();
     env.set_time(T0 + block_puzzle::START_WINDOW_SECS + 1);
@@ -1674,7 +1701,10 @@ fn begin_refuses_a_wrong_table_epoch_or_late_start_a_frozen_match_and_a_table_wi
     // a table whose seats were never made
     let mut env = ready();
     env.patch_table(|t| t.seats_created = false);
-    assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(E::SeatsMissing));
+    assert_eq!(
+        custom_code(&env.begin().unwrap_err()),
+        dcode(E::SeatsMissing)
+    );
 }
 
 #[test]
@@ -1810,7 +1840,10 @@ fn the_seed_request_is_made_once_and_retried_only_after_its_wait_and_never_past_
     let caller = env.oracle.insecure_clone();
     // Not before both have checked in.
     let ixn = env.request_ix(a(caller.pubkey()));
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(E::WrongPhase));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(E::WrongPhase)
+    );
     env.check_in_both();
     // A first request passes this program's checks and fails only in the oracle's program,
     // which LiteSVM does not have (devnet evidence).
@@ -1920,7 +1953,9 @@ fn the_callback_must_come_from_the_oracle_and_only_while_seeding() {
             seed_vault: vault_addr(env.table),
             request: env.marker(),
         },
-        block_puzzle::instruction::SeedCallback { randomness: [1; 32] },
+        block_puzzle::instruction::SeedCallback {
+            randomness: [1; 32],
+        },
         vec![],
     );
     let payer = env.oracle.insecure_clone();
@@ -2141,12 +2176,16 @@ fn the_freeze_play_writes_the_public_table_at_79_seconds_and_nothing_public_at_8
     let t = env.table();
     assert!(t.shown_moves[0] < env.board(0).moves);
     assert!(t.shown_score[0] <= env.board(0).score);
-    // The hidden play is always allowed, before the freeze too.
+    // The hidden play is not a way to hide your score while watching the opponent's.
     let mut env = begun();
     let start = env.table().start_slot;
     env.set_slot(start + 100);
-    env.play_hidden(1, 2).expect("hidden play at 1 s");
-    assert_eq!(env.table().shown_moves[1], 0, "and shows nothing");
+    assert_eq!(
+        custom_code(&env.play_hidden(1, 2).unwrap_err()),
+        dcode(E::NotFrozen)
+    );
+    env.set_slot(freeze);
+    env.play_hidden(1, 2).expect("hidden play from the freeze");
 }
 
 #[test]
@@ -2171,11 +2210,8 @@ fn the_hidden_play_has_no_public_account_and_no_other_instruction_writes_one_aft
             })
             .collect()
     };
-    let writes = |name: &str, account: &str| {
-        accounts(name)
-            .into_iter()
-            .any(|(n, w)| n == account && w)
-    };
+    let writes =
+        |name: &str, account: &str| accounts(name).into_iter().any(|(n, w)| n == account && w);
     assert!(writes("play", "table"), "the public play shows the score");
     for name in ["play_hidden", "begin"] {
         assert!(!writes(name, "table"), "{name} must not write the table");
@@ -2192,7 +2228,10 @@ fn the_hidden_play_has_no_public_account_and_no_other_instruction_writes_one_aft
 }
 
 fn idl() -> serde_json::Value {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/idl/block_puzzle.json");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../target/idl/block_puzzle.json"
+    );
     serde_json::from_str(&std::fs::read_to_string(path).expect("IDL: pnpm build:programs"))
         .expect("json")
 }
@@ -2204,7 +2243,8 @@ fn a_move_counts_three_seconds_after_time_is_up_and_not_a_slot_later() {
     let end = env.table().play_end().unwrap();
     assert_eq!(end, start + 93 * SPS, "90 s of play and the 3 s grace");
     env.set_slot(end);
-    env.play_hidden(0, 2).expect("the last slot of the grace counts");
+    env.play_hidden(0, 2)
+        .expect("the last slot of the grace counts");
     env.set_slot(end + 1);
     assert_eq!(
         custom_code(&env.play_hidden(0, 2).unwrap_err()),
@@ -2237,8 +2277,11 @@ fn pacing_refuses_a_stockpile_dump_and_lets_a_human_keep_up() {
     assert_eq!(custom_code(&env.play(0, 4).unwrap_err()), dcode(E::TooFast));
     env.play(0, 3).expect("up to ten in the first second");
     assert_eq!(env.board(0).moves, 10);
-    // The pace holds for the hidden play too.
-    assert_eq!(custom_code(&env.play_hidden(0, 1).unwrap_err()), dcode(E::TooFast));
+    // The pace holds from the freeze on, for the hidden play, counting what was played before.
+    env.set_slot(start + 80 * SPS);
+    let n = env.board(0).moves;
+    assert!(u64::from(n) * SPS <= 4 * 80 * SPS + 6 * SPS);
+    env.play_hidden(0, 4).expect("hidden, well inside the pace");
 }
 
 #[test]
@@ -2257,7 +2300,10 @@ fn a_batch_has_one_to_eight_moves() {
     let nine = env.moves(0, 9);
     assert_eq!(nine.len(), 9);
     assert_eq!(
-        custom_code(&env.play_with(0, binding, expected, nine, false).unwrap_err()),
+        custom_code(
+            &env.play_with(0, binding, expected, nine, false)
+                .unwrap_err()
+        ),
         dcode(E::BadBatch)
     );
     env.play(0, 8).expect("eight");
@@ -2273,7 +2319,10 @@ fn an_illegal_move_rejects_the_whole_batch_and_leaves_the_board() {
     let (binding, expected) = (env.binding(), 0);
     let before = env.board(0);
     assert_eq!(
-        custom_code(&env.play_with(0, binding, expected, moves, false).unwrap_err()),
+        custom_code(
+            &env.play_with(0, binding, expected, moves, false)
+                .unwrap_err()
+        ),
         dcode(E::IllegalMove)
     );
     assert_eq!(env.board(0), before);
@@ -2357,14 +2406,14 @@ fn a_run_that_is_over_takes_no_more_moves_and_both_runs_over_end_the_match_early
             assert!(guard < 100, "the game does not end");
             at += SPS;
             env.set_slot(at);
-            env.play_hidden(seat, 4).unwrap();
+            env.play_any(seat, 4).unwrap();
         }
     }
     assert!(at < env.table().freeze_slot().unwrap() + 100 * SPS);
     let b = env.board(0);
     assert!(b.over);
     assert_eq!(
-        custom_code(&env.play_hidden(0, 1).unwrap_err()),
+        custom_code(&env.play_any(0, 1).unwrap_err()),
         dcode(E::RunOver)
     );
     // Both are over: the Match can be closed without waiting for the clock.
@@ -2383,9 +2432,18 @@ fn binding_an_instruction_to_another_match_epoch_or_generation_is_refused_everyw
     let good = env.binding();
     let other = APk::new_unique();
     for bad in [
-        Binding { tesoro_match: other, ..good },
-        Binding { generation: good.generation + 1, ..good },
-        Binding { epoch: good.epoch + 1, ..good },
+        Binding {
+            tesoro_match: other,
+            ..good
+        },
+        Binding {
+            generation: good.generation + 1,
+            ..good
+        },
+        Binding {
+            epoch: good.epoch + 1,
+            ..good
+        },
     ] {
         assert_eq!(
             custom_code(&env.check_in_with(0, bad).unwrap_err()),
@@ -2396,12 +2454,15 @@ fn binding_an_instruction_to_another_match_epoch_or_generation_is_refused_everyw
             dcode(E::StaleBinding)
         );
         let moves = env.moves(0, 2);
-        for hidden in [false, true] {
+        let (start, freeze) = (env.table().start_slot, env.table().freeze_slot().unwrap());
+        for (hidden, at) in [(false, start + 10 * SPS), (true, freeze)] {
+            env.set_slot(at);
             assert_eq!(
                 custom_code(&env.play_with(0, bad, 0, moves.clone(), hidden).unwrap_err()),
                 dcode(E::StaleBinding)
             );
         }
+        env.set_slot(start + 10 * SPS);
     }
 }
 
@@ -2445,9 +2506,14 @@ fn a_transaction_held_back_from_one_match_is_worthless_in_the_next_on_the_same_t
         dcode(E::StaleBinding)
     );
     env.begin_run(0).unwrap();
-    for hidden in [false, true] {
+    let (start, freeze) = (env.table().start_slot, env.table().freeze_slot().unwrap());
+    for (hidden, at) in [(false, start), (true, freeze)] {
+        env.set_slot(at);
         assert_eq!(
-            custom_code(&env.play_with(0, old, 0, old_moves.clone(), hidden).unwrap_err()),
+            custom_code(
+                &env.play_with(0, old, 0, old_moves.clone(), hidden)
+                    .unwrap_err()
+            ),
             dcode(E::StaleBinding)
         );
     }
@@ -2504,7 +2570,11 @@ fn a_player_who_does_not_check_in_loses_to_the_one_who_did() {
         assert_eq!(
             (outcome, why),
             (
-                if present == 0 { OUTCOME_WIN0 } else { OUTCOME_WIN1 },
+                if present == 0 {
+                    OUTCOME_WIN0
+                } else {
+                    OUTCOME_WIN1
+                },
                 block_puzzle::REASON_ABSENT
             )
         );
@@ -2512,7 +2582,11 @@ fn a_player_who_does_not_check_in_loses_to_the_one_who_did() {
         // A normal win: the Pot of 2,000 less 5% fees to the present side; core needs no
         // one-sided result.
         let (winner, loser) = if present == 0 { (ga, gb) } else { (gb, ga) };
-        assert_eq!((winner, loser), (1_900, 0), "the Pot less 5% fees, nothing for the absent side");
+        assert_eq!(
+            (winner, loser),
+            (1_900, 0),
+            "the Pot less 5% fees, nothing for the absent side"
+        );
     }
 }
 
@@ -2577,7 +2651,10 @@ fn both_checked_in_and_nobody_moved_is_a_no_show_that_costs_each_side_the_platfo
 fn the_player_who_moved_beats_the_one_who_did_not() {
     let mut env = ready();
     env.play_out(3, 0);
-    assert_eq!(outcome_of(&env), (OUTCOME_WIN0, block_puzzle::REASON_PLAYED));
+    assert_eq!(
+        outcome_of(&env),
+        (OUTCOME_WIN0, block_puzzle::REASON_PLAYED)
+    );
     assert_eq!(settle(&mut env), (1_900, 0));
 }
 
@@ -2588,14 +2665,20 @@ fn the_higher_score_wins_whoever_sits_where() {
     let t = env.table();
     assert!(t.final_scores[0] > t.final_scores[1]);
     assert_eq!(t.final_moves, [10, 6]);
-    assert_eq!(outcome_of(&env), (OUTCOME_WIN0, block_puzzle::REASON_PLAYED));
+    assert_eq!(
+        outcome_of(&env),
+        (OUTCOME_WIN0, block_puzzle::REASON_PLAYED)
+    );
     let (ga, gb) = settle(&mut env);
     assert_eq!((ga, gb), (1_900, 0));
 
     let mut env = Env::new();
     env.next_match_on(0);
     env.play_out(6, 10);
-    assert_eq!(outcome_of(&env), (OUTCOME_WIN1, block_puzzle::REASON_PLAYED));
+    assert_eq!(
+        outcome_of(&env),
+        (OUTCOME_WIN1, block_puzzle::REASON_PLAYED)
+    );
     let t = env.table();
     assert!(t.final_scores[0] < t.final_scores[1]);
 }
@@ -2627,7 +2710,10 @@ fn equal_scores_are_a_no_show_when_both_made_fewer_than_five_moves_and_a_draw_ot
     let mut env = Env::new();
     env.next_match_on(0);
     env.play_out(5, 4);
-    assert_eq!(outcome_of(&env), (OUTCOME_WIN0, block_puzzle::REASON_PLAYED));
+    assert_eq!(
+        outcome_of(&env),
+        (OUTCOME_WIN0, block_puzzle::REASON_PLAYED)
+    );
 }
 
 #[test]
@@ -2635,7 +2721,7 @@ fn a_rollup_outage_during_the_run_voids_the_match_and_refunds_in_full() {
     // Over the whole run: far more wall clock than slots.
     let mut env = begun();
     let end = env.table().play_end().unwrap();
-    env.play_hidden(0, 3).unwrap();
+    env.play_any(0, 3).unwrap();
     let ts = env.table().ready_ts + 10_000;
     env.set_clock(end + 1, ts);
     env.close().expect("close");
@@ -2649,15 +2735,18 @@ fn a_rollup_outage_during_the_run_voids_the_match_and_refunds_in_full() {
     env.begun();
     let start = env.table().start_slot;
     env.set_slot(start + SPS);
-    env.play_hidden(0, 2).unwrap();
+    env.play_any(0, 2).unwrap();
     let (slot, ts) = (env.slot, env.now);
     // 60 seconds of wall clock, 100 slots.
     env.set_clock(slot + 100, ts + 60);
-    env.play_hidden(0, 2).unwrap();
+    env.play_any(0, 2).unwrap();
     assert!(env.board(0).stalled);
     assert!(!env.board(1).stalled);
     let end = env.table().play_end().unwrap();
-    env.set_clock(end + 1, ts + 60 + (end + 1 - slot - 100) as i64 / SPS as i64);
+    env.set_clock(
+        end + 1,
+        ts + 60 + (end + 1 - slot - 100) as i64 / SPS as i64,
+    );
     env.close().expect("close");
     assert_eq!(outcome_of(&env), (OUTCOME_DRAW, block_puzzle::REASON_VOID));
 }
@@ -2667,14 +2756,14 @@ fn a_slow_player_is_not_a_stall_and_a_short_gap_is_never_judged() {
     let mut env = begun();
     let start = env.table().start_slot;
     env.set_slot(start + SPS);
-    env.play_hidden(0, 2).unwrap();
+    env.play_any(0, 2).unwrap();
     // 30 seconds of thinking at the healthy rate.
     env.set_slot(start + 31 * SPS);
-    env.play_hidden(0, 2).unwrap();
+    env.play_any(0, 2).unwrap();
     // Four seconds with no slots at all is under the judging threshold.
     let (slot, ts) = (env.slot, env.now);
     env.set_clock(slot, ts + 4);
-    env.play_hidden(0, 2).unwrap();
+    env.play_any(0, 2).unwrap();
     assert!(!env.board(0).stalled);
 }
 
@@ -2713,10 +2802,7 @@ fn the_result_carries_both_run_logs_bound_to_the_match_epoch_and_seed() {
     let log = &t.logs[i as usize];
     assert_eq!(log.engine_version, block_puzzle::ENGINE_VERSION);
     assert_eq!(log.seed, seed);
-    assert_eq!(
-        log.seed_hash,
-        block_puzzle::seed_hash(seed, &env.tmatch, 0)
-    );
+    assert_eq!(log.seed_hash, block_puzzle::seed_hash(seed, &env.tmatch, 0));
     assert_eq!(log.start_slot, start);
     assert_eq!(log.scores, [b0.score, b1.score]);
     assert_eq!(log.counts, [4, 3]);
@@ -2725,7 +2811,10 @@ fn the_result_carries_both_run_logs_bound_to_the_match_epoch_and_seed() {
     assert_eq!(&log.offsets[..240], &b0.offsets[..]);
     assert_eq!(&log.offsets[240..], &b1.offsets[..]);
     assert_eq!(u16::from_le_bytes([log.offsets[0], log.offsets[1]]), 200);
-    assert_eq!(u16::from_le_bytes([log.offsets[240], log.offsets[241]]), 500);
+    assert_eq!(
+        u16::from_le_bytes([log.offsets[240], log.offsets[241]]),
+        500
+    );
     // The finished Match is public in the table too.
     assert_eq!(t.final_scores, log.scores);
     assert_eq!(t.final_moves, [4, 3]);
@@ -2762,15 +2851,9 @@ fn after_start_no_public_account_holds_the_seed_or_the_oracle_output() {
     // Only the Vault and the begun Board hold the Seed.
     let vault = env.svm.get_account(&s(vault_addr(env.table))).unwrap();
     assert!(contains(&vault.data, &seed.to_le_bytes()));
-    let own = env
-        .svm
-        .get_account(&s(board_addr(env.table, 0)))
-        .unwrap();
+    let own = env.svm.get_account(&s(board_addr(env.table, 0))).unwrap();
     assert!(contains(&own.data, &seed.to_le_bytes()));
-    let other = env
-        .svm
-        .get_account(&s(board_addr(env.table, 1)))
-        .unwrap();
+    let other = env.svm.get_account(&s(board_addr(env.table, 1))).unwrap();
     assert!(!contains(&other.data, &seed.to_le_bytes()));
     // The oracle output is kept nowhere at all.
     for key in [
@@ -2799,7 +2882,7 @@ fn nothing_the_game_does_is_logged_and_the_seed_is_in_no_log() {
     env.begin_run(1).unwrap();
     env.play(0, 3).unwrap();
     let play_logs = env.last_logs.clone();
-    env.play_hidden(1, 3).unwrap();
+    env.play_any(1, 3).unwrap();
     let hidden_logs = env.last_logs.clone();
     env.set_slot(env.table().play_end().unwrap() + 1);
     env.close().unwrap();
@@ -2815,10 +2898,7 @@ fn nothing_the_game_does_is_logged_and_the_seed_is_in_no_log() {
     ] {
         for line in &logs {
             if let Some(text) = line.strip_prefix("Program log: ") {
-                assert!(
-                    text.starts_with("Instruction: "),
-                    "{name} logged {text:?}"
-                );
+                assert!(text.starts_with("Instruction: "), "{name} logged {text:?}");
             }
             assert!(!line.contains(&seed.to_string()), "{name}: {line}");
             assert!(!line.contains(&format!("{seed:x}")), "{name}: {line}");
@@ -2861,10 +2941,16 @@ fn a_wiped_seat_is_blank_and_the_reset_forgets_the_match_but_not_the_ring() {
         assert_eq!(env.board(seat).moves, 0);
     }
     assert!(env.vault().is_blank());
-    assert_eq!(custom_code(&env.reset().unwrap_err()), dcode(E::NotCommitted));
+    assert_eq!(
+        custom_code(&env.reset().unwrap_err()),
+        dcode(E::NotCommitted)
+    );
     env.commit_standin();
     env.set_time(over + block_puzzle::RESET_DELAY_SECS - 1);
-    assert_eq!(custom_code(&env.reset().unwrap_err()), dcode(E::ResetTooEarly));
+    assert_eq!(
+        custom_code(&env.reset().unwrap_err()),
+        dcode(E::ResetTooEarly)
+    );
     env.set_time(over + block_puzzle::RESET_DELAY_SECS);
     let commit_before = env.table().commit;
     env.reset().expect("reset");
@@ -2892,7 +2978,11 @@ fn finalize_pays_the_winner_from_the_committed_ring_and_the_loser_nothing() {
     env.finalize_start().expect("settle");
     let finalize_cu = env.last_cu;
     env.run_settlement();
-    assert_eq!(env.gemas(&env.alice), before.0 + 1_900, "pot of 2000 less 5% fees");
+    assert_eq!(
+        env.gemas(&env.alice),
+        before.0 + 1_900,
+        "pot of 2000 less 5% fees"
+    );
     assert_eq!(env.gemas(&env.bob), before.1);
     assert_eq!(env.tesoro_status(), Stage::Closed);
     println!("CU close {close_cu} finalize {finalize_cu}");
@@ -3050,7 +3140,11 @@ fn a_table_is_reused_and_every_result_and_its_log_wait_in_the_ring_until_the_rec
     let mut played: Vec<(flow::MatchRef, APk, [u32; 2], [u16; 2])> = vec![];
     for (n, (m0, m1)) in [(9usize, 4usize), (3, 8), (6, 6)].into_iter().enumerate() {
         env.next_match_on(0);
-        assert_eq!(env.table().epoch, n as u64, "each Match runs in its own epoch");
+        assert_eq!(
+            env.table().epoch,
+            n as u64,
+            "each Match runs in its own epoch"
+        );
         env.play_out(m0, m1);
         let t = env.table();
         played.push((env.mref.unwrap(), env.table, t.final_scores, t.final_moves));
@@ -3067,7 +3161,13 @@ fn a_table_is_reused_and_every_result_and_its_log_wait_in_the_ring_until_the_rec
     let committed = env.table_at_committed();
     assert_eq!(committed.ring.used(), 3);
     for (m, _, scores, counts) in &played {
-        let (i, slot) = committed.ring.find(&m.key, played.iter().position(|p| p.0.key == m.key).unwrap() as u64).unwrap();
+        let (i, slot) = committed
+            .ring
+            .find(
+                &m.key,
+                played.iter().position(|p| p.0.key == m.key).unwrap() as u64,
+            )
+            .unwrap();
         assert_eq!(slot.state, table_kit::SLOT_DONE);
         let log = &committed.logs[i as usize];
         assert_eq!((log.scores, log.counts), (*scores, *counts));
@@ -3096,7 +3196,10 @@ fn a_match_assigned_to_a_past_epoch_never_begins_and_is_refunded_not_paid_from_a
     next_epoch(&mut env);
     env.open_and_join(1_000);
     env.assign(0, 0, 0).unwrap();
-    assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(E::NotAssigned));
+    assert_eq!(
+        custom_code(&env.begin().unwrap_err()),
+        dcode(E::NotAssigned)
+    );
     env.commit_standin();
     env.set_time(env.now + 1_000);
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
@@ -3138,7 +3241,10 @@ fn a_slot_is_freed_only_on_the_cores_receipt_and_not_a_minute_too_soon() {
         block_puzzle::instruction::ReleaseSlot { index: slot },
         vec![],
     );
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(E::NoReceipt));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(E::NoReceipt)
+    );
     env.release(slot, m).expect("freed with the receipt");
     assert_eq!(env.table().ring.used(), 0);
     assert_eq!(
@@ -3206,7 +3312,10 @@ fn the_old_assignment_cannot_begin_again_after_its_epoch() {
     env.play_out(4, 2);
     env.commit_standin();
     next_epoch(&mut env);
-    assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(E::NotAssigned));
+    assert_eq!(
+        custom_code(&env.begin().unwrap_err()),
+        dcode(E::NotAssigned)
+    );
 }
 
 #[test]
@@ -3242,7 +3351,10 @@ fn a_receipt_of_another_match_cannot_void_the_table() {
         block_puzzle::instruction::VoidTable {},
         vec![],
     );
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(E::NoReceipt));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(E::NoReceipt)
+    );
     assert_eq!(env.table().phase, block_puzzle::TABLE_GET_READY);
 }
 
@@ -3287,7 +3399,10 @@ fn the_result_is_committed_once_and_the_sponsor_cannot_be_drained_by_repeats() {
     let mut env = begun();
     env.magic_shell();
     let ixn = env.commit_ix();
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(E::NotDirty));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(E::NotDirty)
+    );
     env.set_slot(env.table().play_end().unwrap() + 1);
     env.close().unwrap();
     let ixn = env.commit_ix();
@@ -3366,7 +3481,10 @@ fn a_lost_commit_is_repeated_after_a_wait_and_then_finalize_pays_the_winner() {
     );
     let before = bytes_of(&env.table());
     let ixn = env.commit_ix();
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(E::NotDirty));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(E::NotDirty)
+    );
     assert_eq!(bytes_of(&env.table()), before);
     // After the wait the repeat passes its own checks and reaches the MagicBlock program, which
     // LiteSVM does not have (devnet evidence, ticket 24).
@@ -3415,7 +3533,10 @@ fn a_lost_commit_survives_the_reset_and_repeated_calls_cost_nothing_once_freed()
     for _ in 0..5 {
         env.set_time(env.now + table_kit::COMMIT_RETRY_MAX_SECS);
         let ixn = env.commit_ix();
-        assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(E::NotDirty));
+        assert_eq!(
+            custom_code(&env.rollup(ixn).unwrap_err()),
+            dcode(E::NotDirty)
+        );
     }
     assert_eq!(bytes_of(&env.table()), before);
     assert_eq!(env.svm.get_balance(&s(sponsor_addr())).unwrap(), sponsor);
@@ -3661,7 +3782,10 @@ fn no_instruction_a_player_calls_can_reach_the_permission_program() {
             let n = acc["name"].as_str().unwrap();
             assert!(!n.contains("permission"), "{name} takes {n}");
             if n == "seed_vault" {
-                assert!(!acc["writable"].as_bool().unwrap_or(false), "{name} writes the Vault");
+                assert!(
+                    !acc["writable"].as_bool().unwrap_or(false),
+                    "{name} writes the Vault"
+                );
             }
         }
     }
@@ -3673,7 +3797,10 @@ fn seats_are_made_once_and_handed_on_only_between_matches() {
     let caller = env.oracle.insecure_clone();
     // Already made.
     let ixn = seat_ix(&env, "init", a(caller.pubkey()));
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(E::SeatsOpen));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(E::SeatsOpen)
+    );
     // A live Match's seats cannot be handed to anyone or wiped, by anyone.
     for which in ["seat", "wipe"] {
         let ixn = seat_ix(&env, which, a(caller.pubkey()));
@@ -3714,7 +3841,10 @@ fn seats_are_handed_over_only_when_blank_and_wiped_only_when_the_match_is_over()
     let caller = env.oracle.insecure_clone();
     // An idle table has no Match to seat.
     let ixn = seat_ix(&env, "seat", a(caller.pubkey()));
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(E::WrongPhase));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(E::WrongPhase)
+    );
     env.begin().unwrap();
     // A seat that still holds data, or a Vault that still holds a Seed, is not handed on.
     env.patch_board(0, |b| b.seed = 9);
@@ -3733,10 +3863,16 @@ fn seats_are_handed_over_only_when_blank_and_wiped_only_when_the_match_is_over()
     // Open seats are not handed again.
     env.seat_players_standin();
     let ixn = seat_ix(&env, "seat", a(caller.pubkey()));
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(E::SeatsOpen));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(E::SeatsOpen)
+    );
     // Waiting is not over.
     let ixn = seat_ix(&env, "wipe", a(caller.pubkey()));
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(E::WrongPhase));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(E::WrongPhase)
+    );
 }
 
 #[test]
@@ -3787,4 +3923,32 @@ fn the_old_per_match_machinery_is_gone() {
     ] {
         assert!(!names.contains(&gone), "{gone} is still an instruction");
     }
+}
+
+#[test]
+fn a_rollup_that_halts_after_the_window_does_not_turn_a_decided_match_into_a_refund() {
+    // The run is fine; nobody closes for three minutes and the wall clock runs on while the rollup
+    // is down. Only a prompt close judges the aggregate rate.
+    let mut env = ready();
+    env.begun();
+    env.set_slot(env.table().start_slot + SPS);
+    env.play(0, 4).unwrap();
+    let end = env.table().play_end().unwrap();
+    let ts = env.table().ready_ts + 300;
+    env.set_clock(end + block_puzzle::CLOSE_GRACE_SLOTS + 1, ts);
+    env.close().expect("close");
+    assert_eq!(
+        outcome_of(&env),
+        (OUTCOME_WIN0, block_puzzle::REASON_PLAYED)
+    );
+    // The same gap with a close inside the grace is a stall.
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.begun();
+    env.set_slot(env.table().start_slot + SPS);
+    env.play(0, 4).unwrap();
+    let end = env.table().play_end().unwrap();
+    env.set_clock(end + 1, env.table().ready_ts + 300);
+    env.close().expect("close");
+    assert_eq!(outcome_of(&env), (OUTCOME_DRAW, block_puzzle::REASON_VOID));
 }

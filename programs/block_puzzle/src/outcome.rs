@@ -2,9 +2,7 @@
 //! row is a unit test and `close` only supplies facts.
 
 use crate::state::*;
-use table_kit::{
-    OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1,
-};
+use table_kit::{OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1};
 
 /// A Match whose Players were paired but did not both check in before the window ended.
 /// `stalled`: the rollup stalled over the window (a one-sided absence is then nobody's fault).
@@ -51,7 +49,10 @@ mod tests {
 
     #[test]
     fn nobody_checking_in_refunds_and_a_stall_turns_an_absence_into_a_refund() {
-        assert_eq!(absent([false, false], false), (OUTCOME_DRAW, REASON_NEITHER));
+        assert_eq!(
+            absent([false, false], false),
+            (OUTCOME_DRAW, REASON_NEITHER)
+        );
         assert_eq!(absent([false, false], true), (OUTCOME_DRAW, REASON_NEITHER));
         assert_eq!(absent([true, false], true), (OUTCOME_DRAW, REASON_VOID));
         assert_eq!(absent([false, true], true), (OUTCOME_DRAW, REASON_VOID));
@@ -85,14 +86,18 @@ mod tests {
 
     #[test]
     fn every_wait_fits_the_assignment_budget_and_the_cores_cap() {
-        let phases = (CHECKIN_SECS + SEED_SECS + GET_READY_SECS + PLAY_SECS + GRACE_SECS) as i64;
-        assert!(phases + CLOSE_MARGIN_SECS as i64 <= ASSIGN_BUDGET_SECS);
+        // Checked at compile time (a failing line breaks the build, not only this test); this test
+        // names them for the reader.
+        const PHASES: i64 =
+            (CHECKIN_SECS + SEED_SECS + GET_READY_SECS + PLAY_SECS + GRACE_SECS) as i64;
+        const _: () = assert!(PHASES + CLOSE_MARGIN_SECS as i64 <= ASSIGN_BUDGET_SECS);
         // Window to begin + budget stays inside the hold on refunds, which stays inside core's
         // seven-day extension cap.
-        assert!(START_WINDOW_SECS + ASSIGN_BUDGET_SECS < TABLE_WINDOW_SECS);
-        assert!(TABLE_WINDOW_SECS < 7 * 24 * 60 * 60);
+        const _: () = assert!(START_WINDOW_SECS + ASSIGN_BUDGET_SECS < TABLE_WINDOW_SECS);
+        const _: () = assert!(TABLE_WINDOW_SECS < 7 * 24 * 60 * 60);
         // The freeze begins after the run starts and before it ends.
-        assert!(HIDE_LAST_SECS < PLAY_SECS);
-        assert!(GRACE_SECS < HIDE_LAST_SECS);
+        const _: () = assert!(HIDE_LAST_SECS < PLAY_SECS);
+        const _: () = assert!(GRACE_SECS < HIDE_LAST_SECS);
+        assert_eq!(PHASES, 223);
     }
 }

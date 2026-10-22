@@ -42,6 +42,8 @@ pub const GRACE_SECS: u64 = 3;
 pub const CLOSE_MARGIN_SECS: u64 = 60;
 /// The longest a Match needs from `begin_match`, as the Game authority checks at assignment: every
 /// phase plus the close margin (proposal: 7 minutes).
+/// A close after this many slots past a window no longer judges the aggregate slot rate.
+pub const CLOSE_GRACE_SLOTS: u64 = CLOSE_MARGIN_SECS * SLOTS_PER_SEC;
 pub const ASSIGN_BUDGET_SECS: i64 = 7 * 60;
 
 pub const CHECKIN_SLOTS: u64 = CHECKIN_SECS * SLOTS_PER_SEC;
@@ -149,7 +151,8 @@ pub fn stalled(slots: u64, secs: i64) -> bool {
         return false;
     }
     let secs = secs as u64;
-    u128::from(slots) * 1000 < u128::from(OUTAGE_RATIO_PERMILLE) * u128::from(SLOTS_PER_SEC) * u128::from(secs)
+    u128::from(slots) * 1000
+        < u128::from(OUTAGE_RATIO_PERMILLE) * u128::from(SLOTS_PER_SEC) * u128::from(secs)
 }
 
 /// Game-wide settings. The upgrade authority names the operator (the key that creates tables and

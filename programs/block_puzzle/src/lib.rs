@@ -101,6 +101,8 @@ pub enum BlockPuzzleError {
     PlayWindowClosed,
     #[msg("The scores are hidden now: send the hidden play")]
     Frozen,
+    #[msg("The scores are not hidden yet: send the public play")]
+    NotFrozen,
     #[msg("The move count differs from the one expected")]
     WrongCount,
     #[msg("Submit between 1 and 8 moves")]
@@ -253,10 +255,7 @@ fn run_moves(
     clock: &Clock,
 ) -> Result<usize> {
     require_binding(table, binding)?;
-    require!(
-        table.phase == TABLE_GET_READY,
-        BlockPuzzleError::WrongPhase
-    );
+    require!(table.phase == TABLE_GET_READY, BlockPuzzleError::WrongPhase);
     let seat = require_board(table, board, player)?;
     require!(board.began, BlockPuzzleError::NotBegan);
     require!(!board.over, BlockPuzzleError::RunOver);
@@ -266,10 +265,7 @@ fn run_moves(
         slot <= ov(table.play_end())?,
         BlockPuzzleError::PlayWindowClosed
     );
-    require!(
-        board.moves == expected_count,
-        BlockPuzzleError::WrongCount
-    );
+    require!(board.moves == expected_count, BlockPuzzleError::WrongCount);
     require!(
         !moves.is_empty() && moves.len() <= MAX_PLAY_BATCH,
         BlockPuzzleError::BadBatch
@@ -283,10 +279,7 @@ fn run_moves(
         .checked_mul(elapsed)
         .and_then(|v| v.checked_add(MOVE_BURST * SLOTS_PER_SEC))
         .ok_or(BlockPuzzleError::Overflow)?;
-    require!(
-        total * SLOTS_PER_SEC <= allowed,
-        BlockPuzzleError::TooFast
-    );
+    require!(total * SLOTS_PER_SEC <= allowed, BlockPuzzleError::TooFast);
     // Outage rule: a long gap with too few slots in it marks the seat.
     let gap_slots = slot.saturating_sub(board.last_slot);
     let gap_secs = clock.unix_timestamp.saturating_sub(board.last_ts);
@@ -321,13 +314,7 @@ fn run_moves(
 
 /// Writes the Match's result: the ring slot reserved at the start, the run log of that slot and
 /// the public result fields; the table moves to Closed and is owed a commit.
-fn conclude(
-    table: &mut Table,
-    now: i64,
-    outcome: u8,
-    reason: u8,
-    log: RunLog,
-) -> Result<()> {
+fn conclude(table: &mut Table, now: i64, outcome: u8, reason: u8, log: RunLog) -> Result<()> {
     let (slot, key, epoch) = (table.slot, table.tesoro_match, table.epoch);
     kit(table.ring.record(slot, &key, epoch, outcome, now))?;
     table.final_scores = log.scores;
@@ -562,7 +549,10 @@ pub mod block_puzzle {
                 // The slot is freed only after tesoro_core froze the Match, so an absent slot is
                 // proof of "never ran" only once the table is past that epoch.
                 require!(table.epoch > assignment.epoch, BlockPuzzleError::NoResult);
-                require!(now > assignment.start_deadline, BlockPuzzleError::NotTimedOut);
+                require!(
+                    now > assignment.start_deadline,
+                    BlockPuzzleError::NotTimedOut
+                );
                 (OUTCOME_DRAW, None)
             }
         };
@@ -1057,10 +1047,7 @@ pub mod block_puzzle {
         let clock = Clock::get()?;
         let table = &ctx.accounts.table;
         require_binding(table, &binding)?;
-        require!(
-            table.phase == TABLE_GET_READY,
-            BlockPuzzleError::WrongPhase
-        );
+        require!(table.phase == TABLE_GET_READY, BlockPuzzleError::WrongPhase);
         let player = ctx.accounts.player.key();
         let board = &mut ctx.accounts.board;
         require_board(table, board, &player)?;
@@ -1070,7 +1057,10 @@ pub mod block_puzzle {
             BlockPuzzleError::PlayWindowClosed
         );
         require!(!board.began, BlockPuzzleError::AlreadyBegan);
-        require!(ctx.accounts.seed_vault.ready, BlockPuzzleError::SeedNotReady);
+        require!(
+            ctx.accounts.seed_vault.ready,
+            BlockPuzzleError::SeedNotReady
+        );
         board.seed = ctx.accounts.seed_vault.seed;
         board.began = true;
         board.last_slot = clock.slot;
@@ -1095,15 +1085,23 @@ pub mod block_puzzle {
         );
         let player = ctx.accounts.player.key();
         let board = &mut ctx.accounts.board;
-        let seat = run_moves(table, board, &player, &binding, expected_count, moves, &clock)?;
+        let seat = run_moves(
+            table,
+            board,
+            &player,
+            &binding,
+            expected_count,
+            moves,
+            &clock,
+        )?;
         table.shown_score[seat] = board.score;
         table.shown_moves[seat] = board.moves;
         Ok(())
     }
 
     /// Rollup, the Player. The same moves, touching only the Player's own Board: the public table
-    /// is not an account of this instruction, so nothing public changes. Always allowed during the
-    /// run; required from the freeze.
+    /// is not an account of this instruction, so nothing public changes. Only from the freeze: a
+    /// Player may not hide their score from the opponent while watching the opponent's.
     pub fn play_hidden(
         ctx: Context<PlayHidden>,
         binding: Binding,
@@ -1111,6 +1109,10 @@ pub mod block_puzzle {
         moves: Vec<MoveArg>,
     ) -> Result<()> {
         let clock = Clock::get()?;
+        require!(
+            clock.slot >= ov(ctx.accounts.table.freeze_slot())?,
+            BlockPuzzleError::NotFrozen
+        );
         let player = ctx.accounts.player.key();
         run_moves(
             &ctx.accounts.table,
@@ -1138,18 +1140,21 @@ pub mod block_puzzle {
                     slot > ov(table.checkin_end())?,
                     BlockPuzzleError::NotClosable
                 );
-                let stall = stalled(
-                    slot.saturating_sub(table.assigned_slot),
-                    now.saturating_sub(table.assigned_ts),
-                );
+                // The rate is judged only when the close comes soon after the window: a rollup
+                // that halts after it must not turn a decided Match into a refund.
+                let stall = slot
+                    <= ov(table
+                        .checkin_end()
+                        .and_then(|e| e.checked_add(CLOSE_GRACE_SLOTS)))?
+                    && stalled(
+                        slot.saturating_sub(table.assigned_slot),
+                        now.saturating_sub(table.assigned_ts),
+                    );
                 let (outcome, reason) = outcome::absent(table.checked_in, stall);
                 conclude(table, now, outcome, reason, blank_log(reason))
             }
             TABLE_SEEDING => {
-                require!(
-                    slot > ov(table.seed_end())?,
-                    BlockPuzzleError::NotClosable
-                );
+                require!(slot > ov(table.seed_end())?, BlockPuzzleError::NotClosable);
                 conclude(
                     table,
                     now,
@@ -1165,12 +1170,17 @@ pub mod block_puzzle {
                     slot > ov(table.play_end())? || (b0.over && b1.over),
                     BlockPuzzleError::NotClosable
                 );
+                // Seats marked during play always count; the aggregate rate only for a prompt close.
                 let stall = b0.stalled
                     || b1.stalled
-                    || stalled(
-                        slot.saturating_sub(table.ready_slot),
-                        now.saturating_sub(table.ready_ts),
-                    );
+                    || (slot
+                        <= ov(table
+                            .play_end()
+                            .and_then(|e| e.checked_add(CLOSE_GRACE_SLOTS)))?
+                        && stalled(
+                            slot.saturating_sub(table.ready_slot),
+                            now.saturating_sub(table.ready_ts),
+                        ));
                 let counts = [b0.moves, b1.moves];
                 let scores = [b0.score, b1.score];
                 let (outcome, reason) = if stall {
