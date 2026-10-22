@@ -18,6 +18,7 @@ use crate::books::OnchainBooks;
 use crate::error::{core_err, TesoroError};
 use crate::instructions::economy::*;
 use crate::instructions::position::chain_byte;
+use crate::instructions::ticket::{close_pot_account, sponsor_rent};
 use crate::instructions::treasury::{pay_from_treasury, FeeMint};
 use crate::ledger::draw::SourceBooks;
 use crate::ledger::instant::{self as inst, PayMode};
@@ -30,18 +31,18 @@ use crate::util::now;
 use anchor_lang::prelude::*;
 use anchor_spl::token::TokenAccount;
 
-/// Closes a finished order: its rent goes back to the seller.
-fn close_order<'info>(order: &AccountInfo<'info>, owner: &AccountInfo<'info>) -> Result<()> {
-    let moved = order.lamports();
-    let total = owner
-        .lamports()
-        .checked_add(moved)
-        .ok_or(TesoroError::InvalidAccount)?;
-    **owner.try_borrow_mut_lamports()? = total;
-    **order.try_borrow_mut_lamports()? = 0;
-    order.assign(&anchor_lang::system_program::ID);
-    order.resize(0)?;
-    Ok(())
+/// Closes a finished order: the sponsor gets back what it fronted, the rest goes to whoever paid.
+fn close_order<'info>(
+    order: &Account<'info, InstantOrderState>,
+    payer: &AccountInfo<'info>,
+    sponsor: Option<&mut Account<'info, SponsorState>>,
+) -> Result<()> {
+    close_pot_account(
+        &order.to_account_info(),
+        payer,
+        sponsor,
+        order.sponsored_lamports,
+    )
 }
 
 // --- Request -----------------------------------------------------------------------------------
@@ -49,7 +50,10 @@ fn close_order<'info>(order: &AccountInfo<'info>, owner: &AccountInfo<'info>) ->
 #[derive(Accounts)]
 #[instruction(line: LineRef, sell: u64, ttl_secs: i64, nonce: u64)]
 pub struct RequestInstantRedeem<'info> {
+    /// Pays the order's rent: the holder, or with the sponsor accounts the relayer, made whole
+    /// from the sponsor at once (a Player with no SOL can still sell).
     #[account(mut)]
+    pub payer: Signer<'info>,
     pub holder_authority: Signer<'info>,
     #[account(
         seeds = [ACCOUNT_SEED, holder_authority.key().as_ref()],
@@ -77,12 +81,14 @@ pub struct RequestInstantRedeem<'info> {
     pub source: Account<'info, SourceState>,
     #[account(
         init,
-        payer = holder_authority,
+        payer = payer,
         space = InstantOrderState::SPACE,
         seeds = [INSTANT_ORDER_SEED, holder_account.key().as_ref(), &nonce.to_le_bytes()],
         bump
     )]
     pub order: Account<'info, InstantOrderState>,
+    #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
+    pub sponsor: Option<Account<'info, SponsorState>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -100,6 +106,16 @@ pub(crate) fn request_instant_redeem<'info>(
     // Gemas of an EVM-sourced Advance wait in the order like any other: their repaid part is
     // redeemed through the bridge, so the order refuses to start while one is ready.
     let reported = a.position.inner.source_chain != SourceChain::Solana;
+    // The bridge fills the orders of an EVM-sourced Advance and cannot return a sponsor's rent.
+    let mut sponsored_lamports = 0;
+    if let Some(sponsor) = a.sponsor.as_mut() {
+        require!(!reported, TesoroError::BridgedSource);
+        let rent = Rent::get()?.minimum_balance(InstantOrderState::SPACE);
+        sponsor_rent(sponsor, &a.payer.to_account_info(), 0, rent)?;
+        sponsored_lamports = rent;
+    } else {
+        require_keys_eq!(a.payer.key(), wallet, TesoroError::Unauthorized);
+    }
     let pay = if reported {
         PayTo::Nobody
     } else {
@@ -167,6 +183,8 @@ pub(crate) fn request_instant_redeem<'info>(
     order.nonce = nonce;
     order.account = account_key;
     order.owner = wallet;
+    order.payer = a.payer.key();
+    order.sponsored_lamports = sponsored_lamports;
     order.set_order(&requested.order);
     emit!(InstantRequested {
         order: order.key(),
@@ -207,9 +225,12 @@ pub struct FillInstantRedeem<'info> {
         bump = order.bump
     )]
     pub order: Account<'info, InstantOrderState>,
-    /// CHECK: the seller's wallet; receives the order's rent when it is finished.
-    #[account(mut, address = order.owner @ TesoroError::InvalidAccount)]
+    /// CHECK: who paid the order's rent (the seller, or the sponsor's relayer); receives it back
+    /// when the order is finished.
+    #[account(mut, address = order.payer @ TesoroError::InvalidAccount)]
     pub owner_wallet: UncheckedAccount<'info>,
+    #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
+    pub sponsor: Option<Account<'info, SponsorState>>,
     #[account(
         mut,
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
@@ -368,8 +389,9 @@ pub(crate) fn fill_instant_redeem<'info>(
     });
     if finished {
         close_order(
-            &a.order.to_account_info(),
+            &a.order,
             &a.owner_wallet.to_account_info(),
+            a.sponsor.as_mut(),
         )?;
     }
     Ok(())
@@ -511,10 +533,7 @@ pub(crate) fn fill_instant_redeem_from_source<'info>(
         fee_bps: filled.fee_bps,
     });
     if finished {
-        close_order(
-            &a.order.to_account_info(),
-            &a.owner_wallet.to_account_info(),
-        )?;
+        close_order(&a.order, &a.owner_wallet.to_account_info(), None)?;
     }
     Ok(payout)
 }
@@ -543,9 +562,12 @@ pub struct ReturnInstantRedeem<'info> {
         constraint = order.account == owner_account.key() @ TesoroError::InvalidAccount
     )]
     pub order: Account<'info, InstantOrderState>,
-    /// CHECK: the seller's wallet; receives the order's rent.
-    #[account(mut, address = order.owner @ TesoroError::InvalidAccount)]
+    /// CHECK: who paid the order's rent (the seller, or the sponsor's relayer); receives it back
+    /// when the order is finished.
+    #[account(mut, address = order.payer @ TesoroError::InvalidAccount)]
     pub owner_wallet: UncheckedAccount<'info>,
+    #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
+    pub sponsor: Option<Account<'info, SponsorState>>,
 }
 
 pub(crate) fn cancel_instant_redeem<'info>(
@@ -575,8 +597,9 @@ pub(crate) fn cancel_instant_redeem<'info>(
         expired: false,
     });
     close_order(
-        &a.order.to_account_info(),
+        &a.order,
         &a.owner_wallet.to_account_info(),
+        a.sponsor.as_mut(),
     )
 }
 
@@ -606,7 +629,8 @@ pub(crate) fn expire_instant_redeem<'info>(
         expired: true,
     });
     close_order(
-        &a.order.to_account_info(),
+        &a.order,
         &a.owner_wallet.to_account_info(),
+        a.sponsor.as_mut(),
     )
 }

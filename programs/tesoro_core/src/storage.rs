@@ -52,7 +52,7 @@ pub const MAX_GROW_BYTES: usize = 10_240;
 pub const MAX_GROW_LINES: usize = MAX_GROW_BYTES / LINE_LEN;
 const _: () = assert!(MAX_GROW_LINES >= 70 && MAX_GROW_LINES * LINE_LEN <= MAX_GROW_BYTES);
 
-/// Bytes of a basket or spill account holding `lines` slots.
+/// Bytes of a basket or spill account with `lines` slots.
 pub fn store_len(lines: usize) -> usize {
     DISC + required_len(lines)
 }

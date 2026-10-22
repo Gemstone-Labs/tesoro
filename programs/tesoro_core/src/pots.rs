@@ -65,7 +65,7 @@ const H_SPILL_ROOM: usize = 132;
 const H_RESERVED_LEFT: usize = 136;
 const H_SPONSORED: usize = 144;
 
-/// Bytes of a Ticket account holding `lines` lines.
+/// Bytes of a Ticket account with `lines` lines.
 pub fn ticket_len(lines: usize) -> usize {
     POT_AT + required_len(lines)
 }

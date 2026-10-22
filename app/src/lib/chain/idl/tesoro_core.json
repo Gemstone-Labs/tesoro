@@ -916,7 +916,31 @@
         },
         {
           "name": "owner_wallet",
+          "docs": [
+            "when the order is finished."
+          ],
           "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -2853,7 +2877,31 @@
         },
         {
           "name": "owner_wallet",
+          "docs": [
+            "when the order is finished."
+          ],
           "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -3787,7 +3835,31 @@
         },
         {
           "name": "owner_wallet",
+          "docs": [
+            "when the order is finished."
+          ],
           "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "position",
@@ -6826,111 +6898,6 @@
       ]
     },
     {
-      "name": "open_holding",
-      "discriminator": [
-        156,
-        48,
-        185,
-        83,
-        244,
-        185,
-        72,
-        115
-      ],
-      "accounts": [
-        {
-          "name": "payer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "account",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "account.authority",
-                "account": "TesoroAccount"
-              }
-            ]
-          }
-        },
-        {
-          "name": "source",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  111,
-                  117,
-                  114,
-                  99,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "source.inner.position",
-                "account": "SourceState"
-              },
-              {
-                "kind": "account",
-                "path": "source.inner.index",
-                "account": "SourceState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "holding",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "account"
-              },
-              {
-                "kind": "account",
-                "path": "source"
-              }
-            ]
-          }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "open_match",
       "docs": [
         "Opens a Match for `game` at `entry`. `n` is the opener's next Match id; `pot` is a fresh",
@@ -9679,8 +9646,16 @@
       ],
       "accounts": [
         {
-          "name": "holder_authority",
+          "name": "payer",
+          "docs": [
+            "Pays the order's rent: the holder, or with the sponsor accounts the relayer, made whole",
+            "from the sponsor at once (a Player with no SOL can still sell)."
+          ],
           "writable": true,
+          "signer": true
+        },
+        {
+          "name": "holder_authority",
           "signer": true
         },
         {
@@ -9812,6 +9787,27 @@
           }
         },
         {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -9884,10 +9880,6 @@
         },
         {
           "name": "source"
-        },
-        {
-          "name": "account",
-          "writable": true
         }
       ],
       "args": []
@@ -14568,19 +14560,6 @@
       ]
     },
     {
-      "name": "HoldingState",
-      "discriminator": [
-        89,
-        50,
-        83,
-        16,
-        155,
-        76,
-        152,
-        254
-      ]
-    },
-    {
       "name": "InstantOrderState",
       "discriminator": [
         126,
@@ -15683,37 +15662,6 @@
   ],
   "types": [
     {
-      "name": "Account",
-      "docs": [
-        "One Account's identity ledger. Balances mirror the sum of its Holdings, split by whether the",
-        "Gemas are own-sourced (Source owned by this Account) or won (any other Source)."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "own_total",
-            "type": "u64"
-          },
-          {
-            "name": "won_total",
-            "type": "u64"
-          },
-          {
-            "name": "own_reserved",
-            "docs": [
-              "Reserved for Offers (part of the totals, not free to enter Matches or redeem)."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "won_reserved",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "AccountCounters",
       "docs": [
         "What an Account has counted: the id of its next Match, how many of its Matches are open, how",
@@ -16501,62 +16449,6 @@
       }
     },
     {
-      "name": "Holding",
-      "docs": [
-        "Gemas held by one Account of one Source."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "source",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "is_own",
-            "type": "bool"
-          },
-          {
-            "name": "amount",
-            "type": "u64"
-          },
-          {
-            "name": "reserved",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "HoldingState",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "bump",
-            "type": "u8"
-          },
-          {
-            "name": "account",
-            "type": "pubkey"
-          },
-          {
-            "name": "inner",
-            "type": {
-              "defined": {
-                "name": "Holding"
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
       "name": "InstantFilled",
       "type": {
         "kind": "struct",
@@ -16592,7 +16484,8 @@
       "docs": [
         "An open Instant Redeem order (ticket 07's `InstantOrder` on chain): the unsold Gemas sit in",
         "`line`, off the owner's basket, until a fill buys them, the owner cancels or the order expires.",
-        "Seeds `[\"instant\", holder account, nonce LE]`; the owner pays the rent and gets it back."
+        "Seeds `[\"instant\", holder account, nonce LE]`; the owner pays the rent and gets it back, or the",
+        "sponsor does for a Player with no SOL (it is repaid first)."
       ],
       "type": {
         "kind": "struct",
@@ -16654,6 +16547,18 @@
           {
             "name": "paid_shares",
             "type": "u128"
+          },
+          {
+            "name": "payer",
+            "docs": [
+              "Who paid the order's rent and gets it back at the close: the seller, or the sponsor's",
+              "relayer (then `sponsored_lamports` of it return to the sponsor first)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "sponsored_lamports",
+            "type": "u64"
           }
         ]
       }
@@ -17332,7 +17237,7 @@
     {
       "name": "NativeCustody",
       "docs": [
-        "The one custody of every native Position (ADR 0010): a single simSOL vault holding their",
+        "The one custody of every native Position (ADR 0010): a single simSOL vault that keeps their",
         "Principal, and the pool totals behind the Treasury's Yield Fee claim. Seeds `[\"native\"]`; the",
         "vault is `[\"native_vault\"]` with this account as authority. Yield is never held here: it is",
         "minted by `sim_lst` at the moment it is paid out."
@@ -17362,7 +17267,7 @@
           {
             "name": "vault",
             "docs": [
-              "Token account (PDA) holding the Principal of every Locked native Position."
+              "Token account (PDA) that keeps the Principal of every Locked native Position."
             ],
             "type": "pubkey"
           },
@@ -17653,7 +17558,7 @@
       "docs": [
         "An account of the world before the yield-by-math reset was closed by the admin. `kind`:",
         "0 custody (`amount` = simSOL returned to its owner), 1 Position, 2 Source, 3 Holding",
-        "(`amount` = Gemas taken out of the Account), 4 Request, 5 Offer, 6 Treasury."
+        "(`amount` 0), 4 Request, 5 Offer, 6 Treasury."
       ],
       "type": {
         "kind": "struct",
@@ -19789,14 +19694,6 @@
                 "u8",
                 20
               ]
-            }
-          },
-          {
-            "name": "inner",
-            "type": {
-              "defined": {
-                "name": "Account"
-              }
             }
           }
         ]

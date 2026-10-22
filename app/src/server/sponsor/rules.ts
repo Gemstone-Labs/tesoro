@@ -56,6 +56,8 @@ interface Row {
   /** Compute unit limit the server sets. */
   cu: number;
   spend?: (args: Args) => Spend;
+  /** The Player who asks must be one of the instruction's signers (an exit is the Player's own, not anyone's). */
+  playerSigns?: boolean;
 }
 
 /** Rent of one 144-byte line (docs: economy-notes/basket-instructions.md). */
@@ -67,6 +69,8 @@ export const MATCH_RECORD_RENT = 6_000_000n;
 export const MATCH_SUNK = 3_000_000n;
 export const TICKET_HEAD_RENT = 2_000_000n;
 export const RECEIPT_RENT = 2_000_000n;
+/** Rent of an Instant Redeem order (`InstantOrderState::SPACE` = 8+1+8+32+32+144+40+16+32+8 = 321 bytes). */
+export const ORDER_RENT = (128n + 321n) * 6_960n;
 
 const lines = (v: unknown) => BigInt(Number(v ?? 0));
 const NONE: Spend = { refundable: 0n, sunk: 0n };
@@ -91,6 +95,19 @@ export const ROWS: Readonly<Record<string, Row>> = {
   close_receipt: { class: "exit", relayer: ["caller", "payer"], cu: 100_000 },
   shrink_store: { class: "exit", relayer: [], cu: 200_000 },
   redeem_from_source: { class: "exit", relayer: [], cu: 400_000, extra: 4 },
+  // Ticket 18b: the Player's own exits. The Player signs as the authority, the relayer only pays the fee, so none has a
+  // relayer slot. `extra` is the books (and pages) of the Sources a Redeem or an order touches.
+  redeem: { class: "exit", relayer: [], cu: 600_000, extra: 12, playerSigns: true },
+  redeem_prize: { class: "exit", relayer: [], cu: 400_000, extra: 12, playerSigns: true },
+  unlock: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
+  claim_free_yield: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
+  cancel_offer: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
+  cancel_request: { class: "exit", relayer: [], cu: 100_000, playerSigns: true },
+  cancel_instant_redeem: { class: "exit", relayer: ["owner_wallet"], cu: 400_000, extra: 12, playerSigns: true },
+  expire_instant_redeem: { class: "exit", relayer: ["owner_wallet"], cu: 400_000, extra: 12, playerSigns: true },
+  // A sponsored order: the relayer fronts the rent as `payer` and the sponsor pays it back in the same instruction;
+  // closing the order (cancel, expire or a fill) returns it to the sponsor first. Needs the sponsor account.
+  request_instant_redeem: { class: "admission", relayer: ["payer"], cu: 400_000, extra: 12, playerSigns: true, spend: () => ({ refundable: ORDER_RENT, sunk: 0n }) },
 };
 
 /**
@@ -106,6 +123,9 @@ export const TX_SHAPES: readonly (readonly string[])[] = [
   ...Object.keys(ROWS).map((n) => [n]),
   ...Array.from({ length: MAX_GROWS - 1 }, (_, i) => grows(i + 2)),
   ...Array.from({ length: MAX_GROWS }, (_, i) => [...grows(i + 1), "join_match"]),
+  // A Backing Ticket: the Requester opens it and stages the Backer's lines in the same transaction. The accepted Offer is
+  // the Backer's consent: stage_entry of a Backing Ticket takes any signer, so the Requester is the only one.
+  ["open_ticket", "stage_entry"],
 ];
 
 /** A Game's instructions: the relayer is never an account of one, and only the Player signs. */
@@ -142,6 +162,10 @@ export interface Plan {
   pair: PublicKey | null;
   /** Signers other than the relayer. */
   signers: PublicKey[];
+  /** An instruction in the plan is the Player's own: the Player who asks must be one of its signers. */
+  playerSigns: boolean;
+  /** Accounts whose Gemas fund the admission when they are not the Player's own (the Backer of a Backing Ticket). */
+  funders: PublicKey[];
 }
 
 const seedBytes = (type: unknown, v: unknown): Buffer | null => {
@@ -189,6 +213,9 @@ function planCore(ixs: Ix[], relayer: PublicKey): Plan {
   const obligations: PublicKey[] = [];
   let pair: PublicKey | null = null;
   const signers = new Map<string, PublicKey>();
+  const funders = new Map<string, PublicKey>();
+  const named: Map<string, PublicKey>[] = [];
+  let playerSigns = false;
 
   for (const ix of ixs) {
     const decoded = coder.decode(Buffer.from(ix.data));
@@ -204,6 +231,14 @@ function planCore(ixs: Ix[], relayer: PublicKey): Plan {
 
     const byName = new Map<string, PublicKey>();
     def.accounts.forEach((a, i) => byName.set(a.name, ix.keys[i].pubkey));
+    named.push(byName);
+    // The relayer may pay or collect an order's rent only when the sponsor account is there to repay or take it back.
+    for (const slot of ["payer", "owner_wallet"]) {
+      if (name.endsWith("_instant_redeem") && byName.get(slot)?.equals(relayer) && byName.get("sponsor")?.equals(CORE_ID)) {
+        throw new RuleError("bad-accounts", `${name}: the relayer needs the sponsor account.`);
+      }
+    }
+    if (row.playerSigns) playerSigns = true;
 
     ix.keys.forEach((k, i) => {
       const acc = def.accounts[i];
@@ -234,6 +269,8 @@ function planCore(ixs: Ix[], relayer: PublicKey): Plan {
       const k = byName.get(n);
       if (k) obligations.push(k);
     }
+    const funder = name === "open_ticket" ? byName.get("owner") : name === "open_match" || name === "join_match" ? byName.get("backer_account") : undefined;
+    if (funder && !funder.equals(CORE_ID)) funders.set(funder.toBase58(), funder);
     if (name === "join_match") pair = byName.get("pair") ?? null;
 
     names.push(name);
@@ -246,7 +283,25 @@ function planCore(ixs: Ix[], relayer: PublicKey): Plan {
   if (!TX_SHAPES.some((s) => s.length === names.length && s.every((n, i) => n === names[i]))) {
     throw new RuleError("bad-shape", `${names.join(" + ")} is not a transaction we pay for.`);
   }
-  return { kind: "core", names, class: cls, spend, cu: Math.min(cu, 1_400_000), obligations, pair, signers: [...signers.values()] };
+  if (names.length === 2 && names[0] === "open_ticket" && names[1] === "stage_entry") {
+    const [open, stage] = named;
+    if (!open.get("ticket")?.equals(stage.get("ticket") as PublicKey) || !open.get("owner")?.equals(stage.get("owner") as PublicKey)) {
+      throw new RuleError("bad-shape", "open_ticket and stage_entry must be for the same Ticket and Account.");
+    }
+    if (!open.get("authority")?.equals(stage.get("signer") as PublicKey)) throw new RuleError("bad-shape", "The Requester who opens the Ticket stages it.");
+  }
+  return {
+    kind: "core",
+    names,
+    class: cls,
+    spend,
+    cu: Math.min(cu, 1_400_000),
+    obligations: [...new Map(obligations.map((o) => [o.toBase58(), o])).values()],
+    pair,
+    signers: [...signers.values()],
+    playerSigns,
+    funders: [...funders.values()],
+  };
 }
 
 function planGame(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
@@ -264,7 +319,7 @@ function planGame(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
       }
     }
   }
-  return { kind: "game", names: ixs.map(() => "game"), class: "continue", spend: NONE, cu: 400_000, obligations: [], pair: null, signers: [...signers.values()] };
+  return { kind: "game", names: ixs.map(() => "game"), class: "continue", spend: NONE, cu: 400_000, obligations: [], pair: null, signers: [...signers.values()], playerSigns: false, funders: [] };
 }
 
 /**

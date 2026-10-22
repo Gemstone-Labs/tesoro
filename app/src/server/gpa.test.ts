@@ -7,11 +7,11 @@ import { GpaInputError, GpaUpstreamError, createListCache, parseQuery } from "./
 const CORE = coreIdl.address;
 const disc = (name: string) => utils.bytes.bs58.encode(Uint8Array.from(coreIdl.accounts.find((a) => a.name === name)!.discriminator));
 const MATCH = disc("MatchState");
-const HOLDING = disc("HoldingState");
+const HOLDING = disc("TesoroAccount");
 const POSITION = disc("PositionState");
 const q = (s: string) => parseQuery(new URLSearchParams(s));
 
-/** A HoldingState-shaped row whose owner key sits at offset 9. */
+/** A TesoroAccount-shaped row whose owner key sits at offset 9. */
 function row(owner: Uint8Array, i: number) {
   const data = Buffer.alloc(80);
   Buffer.from(owner).copy(data, 9);

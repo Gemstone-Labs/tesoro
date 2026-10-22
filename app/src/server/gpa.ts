@@ -7,15 +7,15 @@ import { WindowLimiter } from "./rate-limit";
 /**
  * The only list queries the app makes, all Anchor `.all()` on tesoro_core (src/lib/chain/read.ts,
  * recent.ts, backing.ts): the account discriminator at offset 0, plus an owner key at `ownerOffset`
- * for Holdings and Positions. Owner-filtered queries are answered from the unfiltered list, so the
+ * for Accounts and Positions. Owner-filtered queries are answered from the unfiltered list, so the
  * upstream sees at most one query per account type whatever the browser sends.
  */
 const LISTS: Record<string, { ownerOffset: number | null }> = {
   MatchState: { ownerOffset: null },
   RequestState: { ownerOffset: null },
   OfferState: { ownerOffset: null },
-  // HoldingState: disc 8 + bump 1, then `inner.account`.
-  HoldingState: { ownerOffset: 9 },
+  // TesoroAccount: disc 8 + bump 1, then `authority`.
+  TesoroAccount: { ownerOffset: 9 },
   // PositionState: disc 8 + bump 1 + position_id 32, then `inner.owner`.
   PositionState: { ownerOffset: 41 },
 };

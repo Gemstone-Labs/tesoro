@@ -253,7 +253,7 @@ pub(crate) fn begin_prize_payout_from_source(
         &a.spill.to_account_info(),
         |pool| {
             let (at, idx, mut line) =
-                find_line(pool, &line_key).ok_or_else(|| core_err(CoreError::HoldingMismatch))?;
+                find_line(pool, &line_key).ok_or_else(|| core_err(CoreError::LineMismatch))?;
             pool.check_withdraw(amount).map_err(draw_err)?;
             if amount > line.amount {
                 return Err(core_err(CoreError::InsufficientGemas));

@@ -50,9 +50,6 @@ fn position_pda(id: u8) -> APk {
 fn source_pda(position: APk, index: u32) -> APk {
     pda(&[SOURCE_SEED, position.as_ref(), &index.to_le_bytes()])
 }
-fn holding_pda(account: APk, source: APk) -> APk {
-    pda(&[HOLDING_SEED, account.as_ref(), source.as_ref()])
-}
 fn counters_pda(account: APk) -> APk {
     pda(&[COUNTERS_SEED, account.as_ref()])
 }
@@ -417,19 +414,18 @@ impl Env {
     }
 
     /// Position + first Advance (6 months at $150): 100 tokens at 10% => 5 tokens => 75_000 Gemas.
-    fn stake(&mut self, p: &Person, id: u8) -> (APk, APk, APk) {
+    fn stake(&mut self, p: &Person, id: u8) -> (APk, APk) {
         self.stake_principal(p, id, 100 * SOL)
     }
 
     /// Opens a Position of `principal` lamports and takes a 6-month Advance at $150: 750 Gemas
     /// per SOL of principal at the 10% rate used here.
-    fn stake_principal(&mut self, p: &Person, id: u8, principal: u64) -> (APk, APk, APk) {
+    fn stake_principal(&mut self, p: &Person, id: u8, principal: u64) -> (APk, APk) {
         let position = self.open_position_only(p, id, principal);
         let source = source_pda(position, 0);
-        let holding = holding_pda(p.account, source);
         self.take_advance(p, position, 0, 6, 150_000_000)
             .expect("advance");
-        (position, source, holding)
+        (position, source)
     }
 
     /// Opens a Position of `principal` lamports; the Advance is the caller's.
@@ -770,7 +766,7 @@ impl Env {
     }
 
     /// Sizes of `ix` sent alone as a legacy transaction and as a v0 transaction with a lookup
-    /// table holding every account that is not a signer: (legacy bytes, v0 bytes, accounts).
+    /// table of every account that is not a signer: (legacy bytes, v0 bytes, accounts).
     fn tx_sizes(&self, ix: &Instruction, payer: &Keypair) -> (usize, usize, usize) {
         use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
         let legacy = Transaction::new_with_payer(std::slice::from_ref(ix), Some(&payer.pubkey()));
@@ -1621,7 +1617,7 @@ impl Env {
     }
 
     /// Gemas of `source` the Account holds (basket and spill, all classes).
-    fn holding_amount(&self, p: &Person, source: APk) -> u64 {
+    fn gemas_of(&self, p: &Person, source: APk) -> u64 {
         gemas_in(&self.svm, p.account, source)
     }
 
@@ -1671,8 +1667,8 @@ fn duel() -> Duel {
     let mut env = Env::new();
     let alice = env.person();
     let bob = env.person();
-    let (a_position, a_source, _) = env.stake(&alice, 1);
-    let (_, b_source, _) = env.stake(&bob, 2);
+    let (a_position, a_source) = env.stake(&alice, 1);
+    let (_, b_source) = env.stake(&bob, 2);
     Duel {
         env,
         alice,
@@ -1689,7 +1685,7 @@ fn advance_is_100_percent_of_projected_yield_in_gemas() {
     let src = d.env.load::<SourceState>(d.a_source).inner;
     assert_eq!(src.issued, 75_000);
     assert_eq!(src.debt(), 75_000);
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 75_000);
+    assert_eq!(d.env.gemas_of(&d.alice, d.a_source), 75_000);
     assert_eq!(d.env.total_gemas(&d.alice), 75_000);
 }
 
@@ -1930,7 +1926,7 @@ fn return_own_cancels_debt_and_principal_never_does() {
     d.env
         .settle(&game, m, MatchResult::Joiner, payouts)
         .expect("settle");
-    assert!(d.env.holding_amount(&d.bob, d.a_source) > 0);
+    assert!(d.env.gemas_of(&d.bob, d.a_source) > 0);
     let debt = d.env.debt_of(d.a_source);
     // Bob is not the Position owner: the ownership constraint rejects it.
     let steal = d
@@ -1952,7 +1948,7 @@ fn match_settles_to_winner_minus_fees_exactly_once() {
         .unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidStatus));
     d.env.join_match(&d.bob, m).expect("join");
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 74_000);
+    assert_eq!(d.env.gemas_of(&d.alice, d.a_source), 74_000);
 
     // Only the registered Game authority settles.
     let alice = d.alice.kp.insecure_clone();
@@ -1980,10 +1976,10 @@ fn match_settles_to_winner_minus_fees_exactly_once() {
     // Pot 2_000: platform 2% = 40, studio 3% = 60, Alice 1_000 back + 900 won.
     assert_eq!(d.env.counter_amount(d.b_source, CLASS_PLATFORM), 40);
     assert_eq!(d.env.fee_gemas(&d.env.studio), 60);
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 74_000 + 1_000);
-    assert_eq!(d.env.holding_amount(&d.alice, d.b_source), 900);
+    assert_eq!(d.env.gemas_of(&d.alice, d.a_source), 74_000 + 1_000);
+    assert_eq!(d.env.gemas_of(&d.alice, d.b_source), 900);
     assert_eq!(d.env.total_gemas(&d.alice), 75_000 + 900);
-    assert_eq!(d.env.holding_amount(&d.bob, d.b_source), 74_000);
+    assert_eq!(d.env.gemas_of(&d.bob, d.b_source), 74_000);
     assert_eq!(d.env.stage_of(m), Stage::Closed);
     // Won Gemas keep their Source: Bob's Debt is untouched and Alice's own Debt is too.
     assert_eq!(d.env.load::<SourceState>(d.b_source).inner.debt(), 75_000);
@@ -1997,7 +1993,7 @@ fn match_settles_to_winner_minus_fees_exactly_once() {
     for src in [d.a_source, d.b_source] {
         let held: u64 = [&d.alice, &d.bob, &d.env.platform, &d.env.studio]
             .iter()
-            .map(|p| d.env.holding_amount(p, src))
+            .map(|p| d.env.gemas_of(p, src))
             .sum();
         let counters: u64 = [CLASS_PLATFORM, CLASS_LEADERBOARD]
             .iter()
@@ -2043,11 +2039,11 @@ fn entry_draws_own_sourced_gemas_first() {
     d.env
         .settle(&game, m, MatchResult::Joiner, vec![])
         .expect("settle");
-    assert_eq!(d.env.holding_amount(&d.bob, d.a_source), 900);
+    assert_eq!(d.env.gemas_of(&d.bob, d.a_source), 900);
     // The program chooses the lines: his own Gemas first, the won ones stay.
     d.env.open_match(&d.bob, ENTRY).expect("own first");
-    assert_eq!(d.env.holding_amount(&d.bob, d.b_source), 75_000 - ENTRY);
-    assert_eq!(d.env.holding_amount(&d.bob, d.a_source), 900);
+    assert_eq!(d.env.gemas_of(&d.bob, d.b_source), 75_000 - ENTRY);
+    assert_eq!(d.env.gemas_of(&d.bob, d.a_source), 900);
     // Someone with no Gemas cannot enter, whatever they pass.
     let carol = d.env.person();
     let err = d.env.open_match(&carol, ENTRY).unwrap_err();
@@ -2173,20 +2169,18 @@ struct Backing {
     carol: Person,
     dave: Person,
     c_source: APk,
-    c_holding: APk,
 }
 
 fn backing_setup() -> Backing {
     let mut d = duel();
     let carol = d.env.person();
     let dave = d.env.person();
-    let (_, c_source, c_holding) = d.env.stake(&carol, 3);
+    let (_, c_source) = d.env.stake(&carol, 3);
     Backing {
         d,
         carol,
         dave,
         c_source,
-        c_holding,
     }
 }
 
@@ -2342,7 +2336,7 @@ fn backing_win_returns_backer_entry_then_splits_and_player_has_no_debt() {
     assert_eq!(b.reserved(), 500);
     b.accept_public(offer, request);
     let id = b.open_backed(offer, 500).expect("backed entry");
-    assert_eq!(b.d.env.holding_amount(&b.carol, b.c_source), 75_000 - 500);
+    assert_eq!(b.d.env.gemas_of(&b.carol, b.c_source), 75_000 - 500);
     b.d.env.join_match(&b.d.bob, id).map(|_| ()).expect("join");
 
     // Backed Player Dave wins: Pot 1_000, fees 20 + 30, surplus 450 => Dave 180, Carol 500 + 270.
@@ -2352,19 +2346,11 @@ fn backing_win_returns_backer_entry_then_splits_and_player_has_no_debt() {
         .settle(&game, id, MatchResult::Opener, payouts)
         .expect("settle");
     assert_eq!(b.d.env.total_gemas(&b.dave), 180);
-    assert_eq!(
-        b.d.env.holding_amount(&b.carol, b.c_source),
-        75_000 - 500 + 500
-    );
-    assert_eq!(b.d.env.holding_amount(&b.carol, b.d.b_source), 270);
-    assert_eq!(b.d.env.holding_amount(&b.dave, b.d.b_source), 180);
+    assert_eq!(b.d.env.gemas_of(&b.carol, b.c_source), 75_000 - 500 + 500);
+    assert_eq!(b.d.env.gemas_of(&b.carol, b.d.b_source), 270);
+    assert_eq!(b.d.env.gemas_of(&b.dave, b.d.b_source), 180);
     // Dave never gained a Position or Debt, and none of Carol's Sources moved to him.
-    assert!(b
-        .d
-        .env
-        .svm
-        .get_account(&s(holding_pda(b.dave.account, b.c_source)))
-        .is_none());
+    assert_eq!(b.d.env.gemas_of(&b.dave, b.c_source), 0);
     assert_eq!(b.d.env.load::<SourceState>(b.c_source).inner.debt(), 75_000);
     assert_eq!(
         b.d.env.load::<OfferState>(offer).inner.status,
@@ -2424,7 +2410,7 @@ fn backing_loss_costs_the_backer_the_entry_and_nothing_more() {
     // Carol lost exactly 500 Gemas (75_000 -> 74_500); Bob got them minus the fees.
     assert_eq!(b.d.env.total_gemas(&b.carol), 74_500);
     assert_eq!(b.d.env.total_gemas(&b.dave), 0);
-    assert_eq!(b.d.env.holding_amount(&b.d.bob, b.c_source), 450);
+    assert_eq!(b.d.env.gemas_of(&b.d.bob, b.c_source), 450);
     assert_eq!(b.d.env.load::<SourceState>(b.c_source).inner.debt(), 75_000);
 }
 
@@ -2434,7 +2420,7 @@ fn backing_cannot_be_revoked_after_start_and_backed_player_cannot_move_backer_ge
     let request = b.request(1, 500);
     let offer = b.offer(1, 500, 5_000, None);
     b.accept_public(offer, request);
-    // Dave cannot enter a plain Match with Carol's Holding.
+    // Dave cannot enter a plain Match with Carol's Gemas.
     let err = b.d.env.open_match(&b.dave, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InsufficientGemas));
     let id = b.open_backed(offer, 500).expect("backed entry");
@@ -2477,20 +2463,10 @@ fn an_entry_limit_stops_opening_and_joining_over_it() {
     let m1 = d.env.open_match(&d.alice, 500).unwrap();
     let m2 = d.env.open_match(&d.alice, 500).unwrap();
     // The third entry of the period is over Alice's 1,000: refused, and no Gemas leave her.
-    let free = d
-        .env
-        .load::<TesoroAccount>(d.alice.account)
-        .inner
-        .own_free();
+    let free = d.env.total_gemas(&d.alice);
     let err = d.env.open_match(&d.alice, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
-    assert_eq!(
-        d.env
-            .load::<TesoroAccount>(d.alice.account)
-            .inner
-            .own_free(),
-        free
-    );
+    assert_eq!(d.env.total_gemas(&d.alice), free);
     assert_eq!(d.env.entry_limit(&d.alice).window_used, 1_000);
     // Bob's 500 covers one join, not two.
     d.env.join_match(&d.bob, m1).unwrap();
@@ -2807,7 +2783,7 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
                             backer_protections: None,
                         },
                         instruction::ExpireOffer {},
-                        vec![rem(b.c_holding)],
+                        vec![],
                     ),
                     b.d.env.admin.insecure_clone(),
                 )
@@ -2824,7 +2800,7 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
                             request,
                         },
                         instruction::CancelOffer {},
-                        vec![rem(b.c_holding)],
+                        vec![],
                     ),
                     b.carol.kp.insecure_clone(),
                 )
@@ -2859,7 +2835,7 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
     }
 }
 
-// --- Entry fragmentation: up to MAX_ENTRY_SOURCES Holdings per entry -----------------------------
+// --- Entry fragmentation: up to MAX_ENTRY_SOURCES lines per entry -----------------------------
 
 /// `n` Positions for `p`, each worth `gemas_each` Gemas of its own Source, returned as Sources in
 /// ascending order. `first_id` keeps Position ids unique across people.
@@ -2869,8 +2845,8 @@ fn fragment(env: &mut Env, p: &Person, first_id: u8, n: u8, gemas_each: u64) -> 
     let principal = gemas_each * SOL / 750;
     let mut sources: Vec<APk> = (0..n)
         .map(|i| {
-            let (_, source, _) = env.stake_principal(p, first_id + i, principal);
-            assert_eq!(env.holding_amount(p, source), gemas_each);
+            let (_, source) = env.stake_principal(p, first_id + i, principal);
+            assert_eq!(env.gemas_of(p, source), gemas_each);
             source
         })
         .collect();
@@ -2979,22 +2955,12 @@ fn a_break_stops_opening_and_joining_matches_until_it_ends() {
     d.env.set_break(&d.alice, 3).unwrap();
     let now = d.env.now();
     assert_eq!(d.env.protections(&d.alice).break_until, now + 3 * DAY);
-    let free = d
-        .env
-        .load::<TesoroAccount>(d.alice.account)
-        .inner
-        .own_free();
+    let free = d.env.total_gemas(&d.alice);
     let err = d.env.open_match(&d.alice, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
     let err = d.env.join_match(&d.alice, open).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
-    assert_eq!(
-        d.env
-            .load::<TesoroAccount>(d.alice.account)
-            .inner
-            .own_free(),
-        free
-    );
+    assert_eq!(d.env.total_gemas(&d.alice), free);
     d.env.set_time(now + 3 * DAY);
     let later = d.env.open_match(&d.bob, 500).unwrap();
     d.env.join_match(&d.alice, later).unwrap();
@@ -4561,12 +4527,7 @@ const ERR_TOO_MANY_OFFERS: u32 = 6426;
 fn total_in_world(env: &Env, people: &[&Person], sources: &[APk]) -> u64 {
     let held: u64 = people
         .iter()
-        .map(|p| {
-            sources
-                .iter()
-                .map(|s| env.holding_amount(p, *s))
-                .sum::<u64>()
-        })
+        .map(|p| sources.iter().map(|s| env.gemas_of(p, *s)).sum::<u64>())
         .sum();
     let counters: u64 = sources
         .iter()
@@ -4581,7 +4542,7 @@ fn an_entry_ticket_stages_in_steps_then_becomes_the_pot() {
     // 50 lines of 50 Gemas: more than one transaction draws, so the entry goes through a Ticket
     let (alice, a_sources) = person_with_lines(&mut env, 50, 100, 2_500);
     let bob = env.person();
-    let (_, b_source, _) = env.stake(&bob, 2);
+    let (_, b_source) = env.stake(&bob, 2);
     let all: Vec<APk> = a_sources.iter().copied().chain([b_source]).collect();
     let before = total_in_world(&env, &[&alice, &bob, &env.platform, &env.studio], &all);
     let err = env.open_match(&alice, 2_500).unwrap_err();
@@ -5095,7 +5056,7 @@ fn a_listed_tesoro_game_pays_its_studio_fee_into_the_source_counter_and_cash_in_
     // conservation: every Gema of Bob's Source is somewhere
     let held: u64 = [&d.alice, &d.bob, &d.env.platform, &d.env.studio]
         .iter()
-        .map(|p| d.env.holding_amount(p, d.b_source))
+        .map(|p| d.env.gemas_of(p, d.b_source))
         .sum::<u64>()
         + d.env.counter_amount(d.b_source, CLASS_STUDIO)
         + d.env.counter_amount(d.b_source, CLASS_PLATFORM);

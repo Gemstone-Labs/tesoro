@@ -95,9 +95,6 @@ fn dpda(seeds: &[&[u8]]) -> APk {
 fn account_pda(auth: APk) -> APk {
     tpda(&[ACCOUNT_SEED, auth.as_ref()])
 }
-fn holding_pda(account: APk, source: APk) -> APk {
-    tpda(&[HOLDING_SEED, account.as_ref(), source.as_ref()])
-}
 fn authority_pda() -> APk {
     dpda(&[trading_duel::AUTHORITY_SEED])
 }
@@ -1404,45 +1401,4 @@ fn tesoro_core_treasury() -> anchor_lang::prelude::Pubkey {
         &tesoro_core::ID,
     )
     .0
-}
-
-/// Matching reads Holdings until ticket 09 moves it onto baskets: give the Advance's owner a
-/// Holding of the new Source with the Gemas the Advance issued (the basket holds them too).
-fn forge_holding_amount(svm: &mut litesvm::LiteSVM, account: APk, source: APk) {
-    use anchor_lang::{AccountDeserialize, AccountSerialize};
-    let issued = {
-        let acc = svm.get_account(&s(source)).expect("source");
-        SourceState::try_deserialize(&mut acc.data.as_slice())
-            .expect("source")
-            .inner
-            .issued
-    };
-    let hk = holding_pda(account, source);
-    let mut h = {
-        let acc = svm.get_account(&s(hk)).expect("holding");
-        HoldingState::try_deserialize(&mut acc.data.as_slice()).expect("holding")
-    };
-    let mut acct = {
-        let acc = svm.get_account(&s(account)).expect("account");
-        TesoroAccount::try_deserialize(&mut acc.data.as_slice()).expect("account")
-    };
-    h.inner.credit(&mut acct.inner, issued).expect("credit");
-    for (k, buf) in [
-        (hk, {
-            let mut b = Vec::new();
-            h.try_serialize(&mut b).unwrap();
-            b.resize(HoldingState::SPACE, 0);
-            b
-        }),
-        (account, {
-            let mut b = Vec::new();
-            acct.try_serialize(&mut b).unwrap();
-            b.resize(TesoroAccount::SPACE, 0);
-            b
-        }),
-    ] {
-        let mut acc = svm.get_account(&s(k)).expect("account");
-        acc.data = buf;
-        svm.set_account(s(k), acc).expect("set");
-    }
 }

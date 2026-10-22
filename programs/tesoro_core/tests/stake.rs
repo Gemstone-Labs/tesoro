@@ -414,7 +414,7 @@ impl Env {
         }
     }
 
-    /// A person holding `tokens` of the staking token.
+    /// A person with `tokens` of the staking token.
     fn holder(&mut self, tokens: u64) -> Person {
         let p = self.person();
         self.set_tokens(&p, tokens);
@@ -1024,6 +1024,7 @@ impl Env {
         remaining.extend(book_metas(&self.svm, source));
         tix(
             accounts::RequestInstantRedeem {
+                payer: p.key,
                 holder_authority: p.key,
                 holder_account: p.account,
                 basket: self.basket(p),
@@ -1031,6 +1032,7 @@ impl Env {
                 position: pos.position,
                 source,
                 order: self.order_address(p, nonce),
+                sponsor: None,
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::RequestInstantRedeem {
@@ -1077,6 +1079,7 @@ impl Env {
                 treasury_spill: spill_address(&treasury_account()).0,
                 order: self.order_address(seller, nonce),
                 owner_wallet: seller.key,
+                sponsor: None,
                 position: pos.position,
                 source,
             },
@@ -1113,6 +1116,7 @@ impl Env {
             spill: self.spill(seller),
             order: self.order_address(seller, nonce),
             owner_wallet: seller.key,
+            sponsor: None,
         };
         let remaining = book_metas(&self.svm, source);
         if expire {

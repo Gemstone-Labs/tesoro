@@ -2,14 +2,13 @@
 //! Ledger identities (`Key`) are the addresses of the PDAs below; `Account` (CONTEXT.md) is
 //! `TesoroAccount` on chain because `Account` is Anchor's wrapper type.
 
-use crate::ledger::{self, Holding, Key, Offer, Position, Request, Source};
+use crate::ledger::{self, Key, Offer, Position, Request, Source};
 use anchor_lang::prelude::*;
 
 pub const CONFIG_SEED: &[u8] = b"config";
 pub const ACCOUNT_SEED: &[u8] = b"account";
 pub const POSITION_SEED: &[u8] = b"position";
 pub const SOURCE_SEED: &[u8] = b"source";
-pub const HOLDING_SEED: &[u8] = b"holding";
 /// A Match: `["match", opener Account, counter as u64 LE]`. The counter lives in the opener's
 /// `AccountCounters` and only grows, so no id is ever reused.
 pub const MATCH_SEED: &[u8] = b"match";
@@ -297,11 +296,10 @@ pub struct TesoroAccount {
     pub authority: Pubkey,
     /// The EVM family address of the Account (zero until set).
     pub evm_address: [u8; 20],
-    pub inner: ledger::Account,
 }
 
 impl TesoroAccount {
-    pub const SPACE: usize = 8 + 1 + 32 + 20 + 4 * 8;
+    pub const SPACE: usize = 8 + 1 + 32 + 20;
 }
 
 #[account]
@@ -346,17 +344,6 @@ pub struct SourceState {
 
 impl SourceState {
     pub const SPACE: usize = 8 + 1 + 32 + 32 + 4 + 1 + 16 + 8 + 5 * 8 + 8;
-}
-
-#[account]
-pub struct HoldingState {
-    pub bump: u8,
-    pub account: Pubkey,
-    pub inner: Holding,
-}
-
-impl HoldingState {
-    pub const SPACE: usize = 8 + 1 + 32 + 32 + 1 + 8 + 8;
 }
 
 /// The most Matches one Account may have open at once (an Open, Active, Settling or Refunding
@@ -473,7 +460,7 @@ impl OfferState {
         + 1;
 }
 
-/// The one custody of every native Position (ADR 0010): a single simSOL vault holding their
+/// The one custody of every native Position (ADR 0010): a single simSOL vault that keeps their
 /// Principal, and the pool totals behind the Treasury's Yield Fee claim. Seeds `["native"]`; the
 /// vault is `["native_vault"]` with this account as authority. Yield is never held here: it is
 /// minted by `sim_lst` at the moment it is paid out.
@@ -484,7 +471,7 @@ pub struct NativeCustody {
     /// The canonical `sim_lst` Pool (test APY and speedup live there).
     pub pool: Pubkey,
     pub mint: Pubkey,
-    /// Token account (PDA) holding the Principal of every Locked native Position.
+    /// Token account (PDA) that keeps the Principal of every Locked native Position.
     pub vault: Pubkey,
     /// `PoolTotals` (`ledger::yield_math`), updated only on open and unlock.
     pub principal: u128,
@@ -776,7 +763,8 @@ impl EconomyConfig {
 
 /// An open Instant Redeem order (ticket 07's `InstantOrder` on chain): the unsold Gemas sit in
 /// `line`, off the owner's basket, until a fill buys them, the owner cancels or the order expires.
-/// Seeds `["instant", holder account, nonce LE]`; the owner pays the rent and gets it back.
+/// Seeds `["instant", holder account, nonce LE]`; the owner pays the rent and gets it back, or the
+/// sponsor does for a Player with no SOL (it is repaid first).
 #[account]
 pub struct InstantOrderState {
     pub bump: u8,
@@ -793,10 +781,15 @@ pub struct InstantOrderState {
     pub sold: u64,
     pub redeemed_while_open: u64,
     pub paid_shares: u128,
+    /// Who paid the order's rent and gets it back at the close: the seller, or the sponsor's
+    /// relayer (then `sponsored_lamports` of it return to the sponsor first).
+    pub payer: Pubkey,
+    pub sponsored_lamports: u64,
 }
 
 impl InstantOrderState {
-    pub const SPACE: usize = 8 + 1 + 8 + 32 + 32 + ledger::LINE_LEN + 8 + 8 + 8 + 8 + 8 + 16;
+    pub const SPACE: usize =
+        8 + 1 + 8 + 32 + 32 + ledger::LINE_LEN + 8 + 8 + 8 + 8 + 8 + 16 + 32 + 8;
 
     /// The Source whose Gemas the order holds.
     pub fn line_source(&self) -> Pubkey {
@@ -1298,7 +1291,7 @@ mod profile_tests {
 
 /// An account of the world before the yield-by-math reset was closed by the admin. `kind`:
 /// 0 custody (`amount` = simSOL returned to its owner), 1 Position, 2 Source, 3 Holding
-/// (`amount` = Gemas taken out of the Account), 4 Request, 5 Offer, 6 Treasury.
+/// (`amount` 0), 4 Request, 5 Offer, 6 Treasury.
 #[event]
 pub struct OldAccountRetired {
     pub kind: u8,

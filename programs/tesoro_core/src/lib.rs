@@ -342,7 +342,7 @@ pub mod tesoro_core {
         instructions::basket::init_ckpt_page_sponsored(ctx, class, page_no)
     }
 
-    // --- Accounts and Holdings --------------------------------------------------------------
+    // --- Accounts --------------------------------------------------------------
 
     pub fn create_account(ctx: Context<CreateAccount>, evm_address: [u8; 20]) -> Result<()> {
         instructions::identity::create_account(ctx, evm_address)
@@ -350,10 +350,6 @@ pub mod tesoro_core {
 
     pub fn set_evm_address(ctx: Context<SetEvmAddress>, evm_address: [u8; 20]) -> Result<()> {
         instructions::identity::set_evm_address(ctx, evm_address)
-    }
-
-    pub fn open_holding(ctx: Context<OpenHolding>) -> Result<()> {
-        instructions::identity::open_holding(ctx)
     }
 
     pub fn set_profile(

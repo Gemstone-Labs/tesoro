@@ -510,7 +510,6 @@ fn init_stores_gives_an_existing_account_its_baskets() {
         bump,
         authority,
         evm_address: [0; 20],
-        inner: Default::default(),
     };
     let mut data = Vec::new();
     state.try_serialize(&mut data).unwrap();

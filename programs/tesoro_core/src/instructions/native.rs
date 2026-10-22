@@ -27,7 +27,7 @@ pub fn is_native(position: &ledger::Position) -> bool {
     position.source_chain == SourceChain::Solana && position.source_asset == SIM_SOL_MINT.to_bytes()
 }
 
-/// A Solana Position holding a real staking token in a shared stake custody (ADR 0011). Only
+/// A Solana Position backed by a real staking token in a shared stake custody (ADR 0011). Only
 /// `open_stake_position` sets the Staking Rate at open, so no oracle fact can make one.
 pub fn is_stake(position: &ledger::Position) -> bool {
     position.source_chain == SourceChain::Solana
