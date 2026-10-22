@@ -152,7 +152,7 @@ export const vaultAbi = parseAbi([
   "function rateSource() view returns (address)",
   "function accruedYield(uint64) view returns (uint256)",
   "function payableYield(uint64) view returns (uint256)",
-  "function getPosition(uint64) view returns ((address owner, uint256 principalShares, uint256 principalUnderlying, uint256 openRate, uint256 paidUnderlying, uint256 frozenAccrued, uint256 a, uint256 b, uint256 d, uint256 heldShares, uint256 apyBps, uint256 speedup, uint64 openTime, uint64 outSeq, uint64 inSeq, uint16 feeBps, uint8 horizonMonths, bool unlocked))",
+  "function getPosition(uint64) view returns ((address owner, uint256 principalShares, uint256 principalUnderlying, uint256 openRate, uint256 paidUnderlying, uint256 frozenAccrued, uint256 a, uint256 b, uint256 d, uint256 heldShares, uint256 apyBps, uint256 speedup, uint64 openTime, uint64 outSeq, uint64 inSeq, uint8 horizonMonths, bool unlocked))",
   "function treasuryBalance() view returns (uint256)",
   "function reportedAccrued(uint64) view returns (uint256)",
   "error YieldBelowReported(uint256 accrued, uint256 reported)",
@@ -605,19 +605,17 @@ export interface VaultPosition {
   paidUnderlying: bigint;
   /** Accrued Yield frozen at Unlock (the formula stops there). */
   frozenAccrued: bigint;
-  /** The Yield Fee this Position opened with (basis points, fixed per Position). */
-  feeBps: number;
   openTime: bigint;
   horizonMonths: number;
   unlocked: boolean;
   /**
-   * Accrued Yield right now by the vault's formula (underlying wei, net of the Yield Fee, cumulative: includes what was
+   * Accrued Yield right now by the vault's formula (underlying wei, gross: the Yield Fee is taken at cash-out; cumulative: includes what was
    * paid out). Computed on read, never recorded; Solana only learns it from a Yield Report.
    */
   accrued: bigint;
 }
 
-type VaultPositionRaw = Omit<VaultPosition, "accrued" | "feeBps" | "horizonMonths"> & { feeBps: number | bigint; horizonMonths: number | bigint };
+type VaultPositionRaw = Omit<VaultPosition, "accrued" | "horizonMonths"> & { horizonMonths: number | bigint };
 
 export async function fetchVaultPosition(vault: string, id: bigint): Promise<VaultPosition | null> {
   const c = evmClient(netOfVault(vault));
@@ -635,7 +633,6 @@ export async function fetchVaultPosition(vault: string, id: bigint): Promise<Vau
     heldShares: p.heldShares,
     paidUnderlying: p.paidUnderlying,
     frozenAccrued: p.frozenAccrued,
-    feeBps: Number(p.feeBps),
     openTime: p.openTime,
     horizonMonths: Number(p.horizonMonths),
     unlocked: p.unlocked,

@@ -58,7 +58,6 @@ export async function fetchVaultPosition(vault: string): Promise<VaultPosition> 
     heldShares: 2n * E,
     paidUnderlying: 0n,
     frozenAccrued: 0n,
-    feeBps: 2000,
     openTime: 0n,
     horizonMonths: 3,
     unlocked: false,
