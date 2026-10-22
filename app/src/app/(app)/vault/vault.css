@@ -1,0 +1,61 @@
+/* The Vault: Gemas to play, winnings, deposits. */
+/* the body shares the Wallet's .wl grid and section gap, so both views line up */
+.vt-head { align-items: center; margin-bottom: calc(20px - var(--section-gap)); }
+.vt-head .btn { white-space: nowrap; }
+.vt-head-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+@media (max-width: 639px) { .vt-head-actions { width: 100%; flex-wrap: nowrap; } .vt-head-actions .btn { flex: 1 1 0; min-width: 0; padding-inline: 12px; justify-content: center; } }
+@media (max-width: 379px) { .vt-head-actions .btn { font-size: var(--fs-16); padding-inline: 8px; } }
+/* the views' bodies join the page grid, so the card, the toggle and each section keep one rhythm */
+.wl-part { display: contents; }
+/* the toggle sits close to the card above and the section below; the sections under it keep the page's gap */
+.vt-below { display: flex; flex-direction: column; gap: var(--section-gap); margin-top: calc(16px - var(--section-gap)); min-width: 0; }
+.vt-below > .vt-pro { align-self: flex-end; margin: -4px 0 calc(8px - var(--section-gap)); }
+
+.vt-deposits, .vt-empty { --edge: var(--edge-1); display: grid; gap: 14px; padding: 22px 24px; background: var(--surface); align-content: start; }
+.vt-deposits > h2, .vt-empty > h2 { font-size: clamp(26px, 2.4vw, 34px); }
+.vt-empty { justify-items: start; }
+.vt-empty p { margin: 0; max-width: 52ch; }
+.vt-deposits-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.vt-total { margin: 0; color: var(--fg-2); font-size: var(--fs-15); }
+.vt-total b { color: var(--fg); font-family: var(--f-display); font-weight: 800; font-size: var(--fs-24); margin-right: 6px; }
+.vt-foot p, .vt-notice { margin: 0; }
+
+/* one card per deposit: pack art, value, a bar that fills on its way back */
+.vt-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.vt-card {
+  --edge: var(--edge-2); position: relative; display: grid; justify-items: center; align-content: start; text-align: center; gap: 8px;
+  padding: 26px 18px 18px; background: radial-gradient(70% 45% at 50% 30%, rgba(36, 216, 168, 0.1), transparent 70%), var(--raised);
+}
+.vt-card.ready { --edge: var(--edge-em); background: radial-gradient(70% 50% at 50% 32%, rgba(36, 216, 168, 0.28), transparent 72%), var(--raised); }
+.vt-card.late { --edge: var(--edge-gold); }
+.vt-card-tag { position: absolute; top: 12px; left: 14px; font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.vt-card.ready .vt-card-tag { color: var(--em-hi); }
+.vt-card.late .vt-card-tag { color: var(--warn); }
+.vt-card-art { width: 150px; height: auto; aspect-ratio: 1; object-fit: contain; filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.5)); }
+.vt-card.ready .vt-card-art { filter: drop-shadow(0 0 28px rgba(36, 216, 168, 0.55)); animation: vt-bob 3s ease-in-out infinite; }
+@keyframes vt-bob { 50% { transform: translateY(-5px); } }
+.vt-card h3 { margin: 0; font-size: var(--fs-16); font-weight: 800; color: var(--fg-2); }
+.vt-card-worth { margin: -4px 0 0; display: grid; font-family: var(--f-display); font-weight: 800; font-size: 44px; line-height: 1; color: var(--fg); }
+.vt-card-worth small { font-family: var(--f-body); font-size: var(--fs-12); font-weight: 600; color: var(--fg-2); margin-top: 4px; }
+.vt-card-gave { margin: 0; display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-13); color: var(--fg-2); }
+.vt-bar { width: 100%; height: 8px; margin-top: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.07); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.vt-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--em-deep), var(--em-hi)); box-shadow: 0 0 12px rgba(36, 216, 168, 0.5); transition: width 1s linear; }
+.vt-card.late .vt-bar i { background: linear-gradient(90deg, #8a6a1f, var(--warn)); box-shadow: none; }
+.vt-card-when { margin: 0; font-size: var(--fs-14); color: var(--fg-2); }
+.vt-card-when b { color: var(--fg); font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.vt-card-when .ok { display: inline-flex; align-items: center; gap: 6px; color: var(--em-hi); font-weight: 700; }
+.vt-card-when .ok svg { width: 16px; height: 16px; }
+.vt-card-when .warn { color: var(--warn); }
+.vt-card .btn { margin-top: 6px; }
+.vt-foot { display: grid; gap: 6px; }
+
+@media (max-width: 639px) {
+  .vt-head { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .vt-deposits, .vt-empty { padding: 18px 16px; }
+  .vt-cards { grid-template-columns: 1fr; }
+  .vt-card { grid-template-columns: 96px 1fr; justify-items: start; text-align: left; column-gap: 14px; padding: 30px 14px 14px; }
+  .vt-card-art { width: 96px; grid-row: 1 / span 4; }
+  .vt-card .vt-bar, .vt-card-when, .vt-card .btn { grid-column: 1 / -1; }
+  .vt-card-worth { font-size: 36px; }
+}
+@media (prefers-reduced-motion: reduce) { .vt-card.ready .vt-card-art { animation: none; } .vt-bar i { transition: none; } }

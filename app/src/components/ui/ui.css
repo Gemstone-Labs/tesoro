@@ -186,6 +186,13 @@ a.row:hover, button.row:hover { --edge: var(--edge-2); }
 .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; }
 .btn.money:disabled { background: var(--money-off); color: rgba(234, 239, 236, 0.5); --edge: var(--edge-1); }
 .btn.neutral:disabled { color: var(--fg-2); }
+.btn.silver {
+  color: #0b1012; --edge: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.35));
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 3px, transparent 3px), linear-gradient(180deg, #f4f7f6 0%, #d9dfdc 55%, #bcc4c0 100%);
+}
+.btn.silver.lg { padding-bottom: 3px; }
+.btn.silver:hover:not(:disabled) { filter: brightness(1.05); }
+.btn.silver:disabled { background: var(--surface); color: var(--fg-2); --edge: var(--edge-1); }
 .btn svg { width: 16px; height: 16px; flex: none; }
 
 /* square icon / arrow button (rail arrows, drawer toggles, copy) */
@@ -435,6 +442,9 @@ dialog.sheet[open]::backdrop, dialog.bk-drawer[open]::backdrop { opacity: 1; }
 .sheet-in { padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 14px; }
 .sheet-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
 .sheet-head h2 { font-size: var(--fs-20); font-weight: 900; letter-spacing: -0.01em; }
+/* drawn before the close button, which comes first in the DOM */
+.sheet-head > .icon-btn { order: 2; }
+.sheet-actions { order: 1; margin-left: auto; align-self: center; }
 @media (min-width: 640px) { dialog.sheet { margin: auto; } .sheet-in { padding: 24px 24px 26px; gap: 16px; } }
 
 /* ——— Form controls ——— */

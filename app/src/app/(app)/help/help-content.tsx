@@ -8,10 +8,10 @@ import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
 import { BRAND } from "@/lib/brand";
 
 export const STEPS: { title: string; text: string; href: string; cta: string }[] = [
-  { title: "Get Gemas", text: "Lock a staking token in your Wallet. What you lock is never played.", href: "/wallet", cta: "Wallet" },
-  { title: "Take an Advance", text: "Get 80% of its projected yield for 1–12 months upfront, as Gemas.", href: "/wallet", cta: "Wallet" },
+  { title: "Get Gemas", text: "Lock a staking token in your Vault. What you lock is never played.", href: "/vault", cta: "Vault" },
+  { title: "Take an Advance", text: "Get 80% of its projected yield for 1–12 months upfront, as Gemas.", href: "/vault", cta: "Vault" },
   { title: "Play a Match", text: "Pick a game and an entry. Win the Pot minus Fees.", href: "/play", cta: "Play" },
-  { title: "Redeem", text: `Turn Gemas into the coin they came from as its yield lands, or now for ${INSTANT_PAYOUT_PCT}%.`, href: "/wallet", cta: "Wallet" },
+  { title: "Redeem", text: `Turn Gemas into the coin they came from as its yield lands, or now for ${INSTANT_PAYOUT_PCT}%.`, href: "/vault", cta: "Vault" },
 ];
 
 export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[] = [
@@ -33,7 +33,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "Where do my Gemas come from?",
         a: (
           <p>
-            Get Gemas in your <Link href="/wallet">Wallet</Link> by locking a staking token, then take an Advance: 80% of the Lock&apos;s
+            Get Gemas in your <Link href="/vault">Vault</Link> by locking a staking token, then take an Advance: 80% of the Lock&apos;s
             projected yield over a Length of 1 to 12 months (the yield after {BRAND.name}&apos;s 20% Yield Fee), paid upfront as Gemas.
           </p>
         ),
@@ -56,7 +56,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
               skip it. What is left to pay back on a SOL Lock falls with the clock: nothing needs refreshing, and Redeem and Unlock always use the latest figure.
             </p>
             <p>
-              The only other way to lower it is to Return your own unspent Gemas from the Wallet. Adding more to the Lock does not pay it back.
+              The only other way to lower it is to Return your own unspent Gemas from the Vault. Adding more to the Lock does not pay it back.
             </p>
           </>
         ),
@@ -227,7 +227,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
               redeemable as that Lock&apos;s yield lands, shared pro rata among everyone holding Gemas from it.
             </p>
             <p>
-              Your Wallet always shows Redeemable now and Pending side by side, with Pending broken down by coin. Pending is not lost.
+              Your Vault always shows Redeemable now and Pending side by side, with Pending broken down by coin. Pending is not lost.
             </p>
           </>
         ),
@@ -236,7 +236,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "How do I Redeem?",
         a: (
           <p>
-            From your <Link href="/wallet">Wallet</Link>. Redeem turns Gemas into the coin they came from, as far as that Lock&apos;s yield has
+            From your <Link href="/vault">Vault</Link>. Redeem turns Gemas into the coin they came from, as far as that Lock&apos;s yield has
             been earned. Gemas from an ETH or HYPE Lock are paid out on that chain, which takes a few minutes.
           </p>
         ),
@@ -260,7 +260,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "How do I get my coins back?",
         a: (
           <p>
-            When a Lock&apos;s nothing is left to pay back, press Unlock on it in your Wallet. Your coins come back to you, minus a small reserve for
+            When a Lock&apos;s nothing is left to pay back, press Unlock on it in your Vault. Your coins come back to you, minus a small reserve for
             yield still owed to unredeemed Gemas from that Lock.
           </p>
         ),
@@ -337,7 +337,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <p>
             No. {BRAND.name} runs on testnets with simulated staking tokens whose yield runs on a fast clock: 1 month is about 10 minutes. Get test
-            tokens from the Get test buttons in your <Link href="/wallet">Wallet</Link>. What is and is not simulated is on the{" "}
+            tokens from the Get test buttons in your <Link href="/vault">Vault</Link>. What is and is not simulated is on the{" "}
             <Link href="/docs/risks">Risks and limits</Link> page of the Docs.
           </p>
         ),
@@ -353,7 +353,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <p>
             Crossing chains usually takes 2 to 5 minutes from Ethereum, and about a minute from HyperEVM. You can leave the page. Taking the
-            Advance is the last step and needs your signature, so it continues when you come back to your Wallet.
+            Advance is the last step and needs your signature, so it continues when you come back to your Vault.
           </p>
         ),
       },

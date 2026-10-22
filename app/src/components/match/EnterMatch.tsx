@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { GetGemasButton } from "@/components/deposit/GetGemasButton";
 import { useRouter } from "next/navigation";
 import { Busy, Button, GemaAmount } from "@/components/ui";
 import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
@@ -42,8 +43,8 @@ const OPENED_LINE: Record<GameId, string> = {
 function explain(e: unknown): { text: string; short?: boolean } {
   if (e instanceof EntryError) {
     return e.code === "insufficient"
-      ? { text: "You need more Gemas to join this Challenge. Get Gemas in your Wallet (free test SOL works).", short: true }
-      : { text: `Your Gemas come from more than ${MAX_ENTRY_SOURCES} different Advances, and this entry cannot draw on that many. Redeem a few small balances in your Wallet to consolidate, then try again.` };
+      ? { text: "You need more Gemas to join this Challenge. Get Gemas in your Vault (free test SOL works).", short: true }
+      : { text: `Your Gemas come from more than ${MAX_ENTRY_SOURCES} different Advances, and this entry cannot draw on that many. Redeem a few small balances in your Vault to consolidate, then try again.` };
   }
   if (e instanceof ChallengeError || e instanceof BackingError || e instanceof QueueUnconfirmedError) return { text: e.message };
   if (e instanceof DemoError) return { text: e.message };
@@ -287,7 +288,7 @@ export function EnterMatch(props: EnterKind) {
           <>
             <p className="status err" role="status">You need {fmtGemas(entryGemas)} Gemas to enter. You have {fmtGemas(gemas.available)}.</p>
             <div className="hstack wrap">
-              <Button variant="money" href={`/wallet?open=1&need=${entryGemas}&game=${game}`}>Get Gemas</Button>
+              <GetGemasButton intent={{ game, need: entryGemas }} />
               <Button href={practiceHref(game, props.asset)}>Practice free</Button>
               <Button href="/lobby">Lobby</Button>
             </div>
@@ -296,7 +297,7 @@ export function EnterMatch(props: EnterKind) {
           <>
             <p className="status err" role="alert">{landing ? "Your new Gemas are still landing. Try again in a few seconds." : failure.text}</p>
             <div className="hstack wrap">
-              {failure.short && !landing ? <Button variant="money" href={`/wallet?open=1&game=${game}`}>Get Gemas</Button> : <Button onClick={() => window.location.reload()}>Retry</Button>}
+              {failure.short && !landing ? <GetGemasButton intent={{ game }} /> : <Button onClick={() => window.location.reload()}>Retry</Button>}
               <Button href="/lobby">Lobby</Button>
             </div>
           </>

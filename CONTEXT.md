@@ -10,7 +10,17 @@ Player words and code words: on 2026-10-19 the founder renamed the money terms P
 
 **Lock** (code and on-chain: Position):
 A staker's locked, yield-bearing stake in Tesoro. What it holds (its Locked amount) is never played with and never pays anything back; only its yield does. Players see "SOL Lock 1", "Your SOL Locks", "New Lock"; the action that makes one is "Get Gemas".
-_Avoid_: Position (in Player copy), deposit, stake, vault, collateral
+_Avoid_: Position (in Player copy), stake, collateral. "Deposit" and "Vault" are the Simple view's words for it, below.
+
+**Deposit** (Simple view; code: a SOL Lock with a 12-month Length and its Advance taken):
+What a beginner puts in through a Pack. The Simple view never says Lock, Advance, Length, staking or APY (`app/src/plain-words.test.ts` guards `vault/` and `components/deposit/`). Players read "You get your deposit back after about 12 months": about, never a promise, and what comes back depends on the SOL price when they withdraw.
+_Avoid_: buy, spend, purchase (a deposit is money that comes back)
+
+**Pack**:
+One of the three fixed deposits in the Simple view's Buy Gemas modal: Starter $100, Player $250, Pro $500. Code names it `DepositPack`; the waitlist's reveal pack is a different thing.
+
+**Vault** (Simple view's money page, `/vault`):
+Your Gemas, your deposits and when each comes back, and your winnings to cash out. **Pro view** (code: the Advanced view) is today's Wallet. Its switch sits on the Vault under the balance card and in both Buy Gemas modals (switching in a modal swaps to the other one). Every Account starts with Pro view off and remembers its choice. Buy Gemas is the Vault's main action; Borrow Gemas beside it opens Post a Request on the Backing board.
 
 **Locked amount** (code and on-chain: Principal):
 The staked amount inside a Lock, as opposed to the yield it earns. It is only ever locked, never spent. In sentences Players read "your SOL" or "what you lock".

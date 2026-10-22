@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { X as XMark } from "lucide-react";
@@ -57,6 +58,7 @@ import "./backing.css";
 import { plainError } from "@/lib/errors";
 import { awayNotice } from "@/lib/chain/protections";
 import { useAway } from "@/lib/chain/useAway";
+import { wantsPostRequest } from "@/lib/backing/post-link";
 
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
@@ -69,7 +71,7 @@ function explain(e: unknown): string {
   if (e instanceof EntryError) {
     return e.code === "insufficient"
       ? "Not enough available Gemas. Gemas reserved for your other Offers cannot be reserved again."
-      : `This entry would draw on Gemas from more than ${MAX_ENTRY_SOURCES} Advances. Redeem a few small balances in your Wallet first.`;
+      : `This entry would draw on Gemas from more than ${MAX_ENTRY_SOURCES} Advances. Redeem a few small balances in your Vault first.`;
   }
   return plainError(e);
 }
@@ -98,6 +100,7 @@ export default function Backing() {
     title: "What Backing means",
     text: "A Backer funds a Player's whole entry. On a win the entry returns first and the surplus is split by the Offer. Only the Backer bears a loss.",
   });
+  const router = useRouter();
   const away = useAway();
   const awayText = away ? awayNotice(away) : null;
   const nowMs = useNow();
@@ -178,6 +181,16 @@ export default function Backing() {
     hashRead.current = true;
     if (linked.live && !linkedOffered) auth.gate("make an Offer", () => setOfferFor(linked));
   }, [linked, linkedOffered, auth]);
+
+  // `/backing?post=1` (the Vault's Borrow Gemas) opens Post a Request once sign-in is known, then drops the query.
+  const postRead = useRef(false);
+  const canPost = auth.status === "signed-in" || auth.status === "signed-out";
+  useEffect(() => {
+    if (postRead.current || !canPost || !wantsPostRequest(window.location.search)) return;
+    postRead.current = true;
+    router.replace("/backing", { scroll: false });
+    if (!awayText) auth.gate("post a Request", () => setPostOpen(true));
+  }, [canPost, awayText, auth, router]);
 
   const selected = offerFor ? offerFor.address.toBase58() : null;
   const tabs: [Tab, string][] = [
@@ -649,7 +662,7 @@ function OfferDrawer({
 
           {short && (
             <p className="status err" role="alert">
-              You have {fmtGemas(available)} Gemas available. <Link href="/wallet">Get Gemas in your Wallet</Link>
+              You have {fmtGemas(available)} Gemas available. <Link href="/vault">Get Gemas in your Vault</Link>
             </p>
           )}
           <footer className="bk-drawer-foot">

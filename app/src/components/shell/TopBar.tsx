@@ -6,6 +6,8 @@ import { Menu, Search, X } from "lucide-react";
 import { AvatarSkeleton } from "@/components/account/Player";
 import { Button, CountUp, GemaMark } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { requestDeposit } from "@/lib/deposit/bus";
+import { useViewMode } from "@/lib/deposit/use-view-mode";
 import { requestGetGemas } from "@/lib/get-gemas";
 import { AccountMenu } from "./AccountMenu";
 import { useFriends } from "@/lib/friends/FriendsProvider";
@@ -21,7 +23,8 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   const signedIn = auth.status === "signed-in";
   const signedOut = auth.status === "signed-out";
   const onLobby = path === "/lobby";
-  const onWallet = path === "/wallet";
+  const onVault = path === "/vault";
+  const simple = useViewMode().mode === "simple";
   const friendsWaiting = useFriends().view?.badge ?? 0;
 
   return (
@@ -63,12 +66,17 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         {auth.status !== "signed-out" &&
           (ready || (error && auth.status !== "loading") ? (
             <Link
-              href="/wallet"
+              href="/vault"
               className="cut cut-card gpill"
-              aria-label={onWallet ? "Your Gemas, get Gemas" : "Your Gemas, open Wallet"}
-              title="Simulated yield · 1 month = 10 min"
+              aria-label={simple || onVault ? "Your Gemas, buy Gemas" : "Your Gemas, open Vault"}
+              title={simple ? "Buy Gemas" : "Simulated yield · 1 month = 10 min"}
               onClick={(e) => {
-                if (!onWallet) return;
+                if (simple) {
+                  e.preventDefault();
+                  requestDeposit();
+                  return;
+                }
+                if (!onVault) return;
                 e.preventDefault();
                 requestGetGemas();
               }}

@@ -128,7 +128,8 @@ export function ChainChip({ chain }: { chain: Chain }) {
 
 /* ——— Button ——— */
 type ButtonProps = {
-  variant?: "money" | "neutral";
+  /** money: Gemas move · neutral: everything else · silver: a confirm step that moves nothing yet (deposit flow). */
+  variant?: "money" | "neutral" | "silver";
   size?: "md" | "sm" | "lg";
   block?: boolean;
   href?: string;

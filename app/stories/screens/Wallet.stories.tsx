@@ -1,20 +1,27 @@
-import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import type { Decorator, Meta, StoryObj } from "@storybook/nextjs-vite";
 import { userEvent, waitFor, within } from "storybook/test";
 import { PublicKey } from "@solana/web3.js";
 import { demoSnapshot } from "@/lib/chain/fixture";
 import { ETH_VAULTS } from "@/lib/chain/eth";
 import type { AccountSnapshot, ChainPosition } from "@/lib/chain/read";
-import Wallet from "@/app/(app)/wallet/page";
+import Vault from "@/app/(app)/vault/page";
 import Opening from "@/app/(app)/wallet/opening/page";
+import { writeViewMode } from "@/lib/deposit/view-mode";
 import { demoKey, withScreen, type ScreenData } from "./support/screen";
 import { withSigner } from "./support/signer";
 
+/** The Vault in its Advanced view (the old Wallet): the demo Account has chosen it. */
+const withAdvancedView: Decorator = (Story) => {
+  writeViewMode(PublicKey.default.toBase58(), "advanced");
+  return <Story />;
+};
+
 const meta = {
   title: "Screens/Wallet",
-  component: Wallet,
-  decorators: [withSigner, withScreen],
-  parameters: { layout: "fullscreen", shell: "app", nextjs: { navigation: { pathname: "/wallet" } } },
-} satisfies Meta<typeof Wallet>;
+  component: Vault,
+  decorators: [withAdvancedView, withSigner, withScreen],
+  parameters: { layout: "fullscreen", shell: "app", nextjs: { navigation: { pathname: "/vault" } } },
+} satisfies Meta<typeof Vault>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 
@@ -129,13 +136,13 @@ const heavySnapshot = (a: string): AccountSnapshot => {
 export const LongTimePlayer: Story = { parameters: { data: { snapshot: heavySnapshot }, screen: { eth: { advance: "open" } } } };
 
 const openTab = (name: string): Story["play"] => async ({ canvasElement }) => {
-  const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Get Gemas/ })[0], { timeout: 10_000 });
+  const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Buy Gemas/ })[0], { timeout: 10_000 });
   await userEvent.click(open);
   const tab = await waitFor(() => within(document.body).getAllByRole("tab", { name: new RegExp(`^${name}`) })[0], { timeout: 10_000 });
   await userEvent.click(tab);
 };
 
-/** The Get Gemas sheet on the ETH tab. */
+/** The Buy Gemas sheet on the ETH tab. */
 export const OpenEthPosition: Story = { parameters: { data: { snapshot: withEth }, screen: { eth: { advance: "open" } } }, play: openTab("ETH") };
 export const OpenHypePosition: Story = { parameters: { data: { snapshot: withEth }, screen: { eth: { advance: "open" } } }, play: openTab("HYPE") };
 

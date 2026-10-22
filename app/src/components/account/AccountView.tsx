@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { GetGemasButton } from "@/components/deposit/GetGemasButton";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { GameTabs, HistoryPages, ResultFilter, gameFilter, historyHref, resultCounts } from "@/components/match/MatchHistory";
@@ -343,7 +344,7 @@ function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGem
             ? `${name} has not finished a Match. When they do, their Account shows:`
             : hasGemas !== false
               ? "Play a Match and your Account fills in as it settles. This is what other Players will see:"
-              : "Get Gemas in your Wallet, then play a Match: your Account fills in as it settles. This is what other Players will see:"}
+              : "Get Gemas in your Vault, then play a Match: your Account fills in as it settles. This is what other Players will see:"}
         </p>
       </div>
       {own &&
@@ -353,9 +354,7 @@ function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGem
             Play now
           </Button>
         ) : (
-          <Button variant="money" href="/wallet?open=1">
-            Get Gemas
-          </Button>
+          <GetGemasButton />
         ))}
       <ul className="pa-empty-list">
         {SHOWN.map(([title, text]) => (
