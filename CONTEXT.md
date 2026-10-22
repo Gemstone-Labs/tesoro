@@ -147,7 +147,7 @@ A Player's public listing asking to be backed for a game and entry size, shown w
 _Avoid_: application, ask, listing
 
 **Offer**:
-A Backer's terms for a Backing: game, entry and the Player's share of the surplus. Either directed at a Request (the Player accepts) or public (Players apply and the Backer accepts one). Either way the Backer chooses whom they back and the Player consents to the terms.
+A Backer's terms for a Backing, made on one Request: game, entry and the Player's share of the surplus. The Backer chooses whom they back and the Player accepts or declines. There are no public Offers.
 _Avoid_: bid, proposal, deal
 
 **Backer**:
