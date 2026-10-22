@@ -12,9 +12,12 @@ export const UNCONFIRMED = "Sent, but not confirmed yet. Wait a moment and check
 /** The program refused an Instant Redeem because the Treasury holds less than the payout (tesoro_core TreasuryShort, 6017 = 0x1781). */
 export const INSTANT_UNAVAILABLE = `Instant Redeem unavailable right now. ${BRAND.name}'s Treasury cannot pay it at the moment. Redeem at full value as the yield lands, or try again later.`;
 
+export const PRICE_MOVED = "The price moved while you were confirming, so the Advance would have issued fewer Gemas than shown. Nothing was taken. Try again.";
+
 export function plainError(e: unknown): string {
   const text = e instanceof Error ? e.message : String(e);
   if (/TreasuryShort|treasury cannot pay|custom program error: 0x1781|"Custom":\s*6017\b/i.test(text)) return INSTANT_UNAVAILABLE;
+  if (/AdvanceBelowMinimum|fewer Gemas than the minimum|"Custom":\s*6045\b|custom program error: 0x179d/i.test(text)) return PRICE_MOVED;
   const err = e as { code?: number; name?: string };
   if (err?.name === "UserRejectedRequestError" || err?.code === 4001 || /user rejected|rejected the request|user denied/i.test(text)) {
     return "You cancelled the request in your wallet.";

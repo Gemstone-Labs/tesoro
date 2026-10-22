@@ -58,8 +58,8 @@ const spec = (name: string) => (idl.instructions as Spec[]).find((i) => i.name =
 describe("instruction encoders match the IDL", () => {
   const cases: [string, ReturnType<typeof openStakePositionIx>][] = [
     ["open_stake_position", openStakePositionIx(owner, 1, SOL, position)],
-    ["take_stake_advance", takeStakeAdvanceIx(owner, position, 1, 3)],
-    ["extend_stake_advance", extendStakeAdvanceIx(owner, position, 0, 2, [])],
+    ["take_stake_advance", takeStakeAdvanceIx(owner, position, 1, 3, 560n)],
+    ["extend_stake_advance", extendStakeAdvanceIx(owner, position, 0, 2, 3n, [])],
     ["withdraw_treasury_stake", withdrawTreasuryStakeIx(owner, owner, 5n)],
     ["set_stake_token", setStakeTokenIx(owner)],
     ["set_stake_apy_ceiling", setStakeApyCeilingIx(owner, 800)],
@@ -90,14 +90,19 @@ describe("instruction encoders match the IDL", () => {
     expect(redeemTreasuryStakeIx(position, position, 5n, target).keys).toHaveLength(spec("redeem_treasury").accounts.length + 2);
   });
 
+  it("carries the Gemas floor as the last argument of take_stake_advance and extend_stake_advance", () => {
+    expect(takeStakeAdvanceIx(owner, position, 0, 1, 560n).data.subarray(8).toString("hex")).toBe("01" + "3002000000000000");
+    expect(extendStakeAdvanceIx(owner, position, 0, 2, 3n, []).data.subarray(8).toString("hex")).toBe("02" + "0300000000000000");
+  });
+
   it("prices only from the token's Pyth mapping and the SOL/USD sponsored feed", () => {
-    const ix = takeStakeAdvanceIx(owner, position, 0, 1);
+    const ix = takeStakeAdvanceIx(owner, position, 0, 1, 560n);
     expect(ix.keys[4].pubkey.toBase58()).toBe(PublicKey.findProgramAddressSync([Buffer.from("onchain_price"), JITOSOL.mint.toBuffer()], TESORO_CORE_ID)[0].toBase58());
     expect(ix.keys[5].pubkey.equals(pythFeedAddress("SOL"))).toBe(true);
     expect(ix.keys[2].pubkey.equals(accountPda(owner))).toBe(false);
     expect(ix.keys[9].pubkey.equals(sourcePda(position, 0))).toBe(true);
     expect(ix.keys).toHaveLength(spec("take_stake_advance").accounts.length);
-    const prev = takeStakeAdvanceIx(owner, position, 1, 3, { index: 0, accounts: [] });
+    const prev = takeStakeAdvanceIx(owner, position, 1, 3, 560n, { index: 0, accounts: [] });
     expect(prev.keys[spec("take_stake_advance").accounts.length].pubkey.equals(sourcePda(position, 0))).toBe(true);
   });
 

@@ -10,8 +10,11 @@
 //! * **Room.** An entry needs no free slot: each whole line it takes off the pool frees one, and
 //!   that slot is held for the line (`MatchState::room`, `room_reserved` in the spill header), so
 //!   a refund finds its place however full the Account's stores are. Joining also holds, if it
-//!   can, the slots the other side's lines can need (`MatchRecord::room_plan`); credits without
-//!   a hold wait for free room like any credit (the chunk reports it, growing a store frees it).
+//!   can, the slots the other side's lines can need (`MatchRecord::room_plan`). Where an Account's
+//!   stores cannot give them, its **overflow record** for the Match is created instead (rent from
+//!   the payer, `overflow.rs`): a credit that finds no slot in a chunk is written there, so a
+//!   settle or refund never waits for room. The Game's outside studio must pass its stores (and a
+//!   record when they are short) when the Match is joined; an entrant's own record is optional.
 //! * **Settle and refund** start in one atomic step (outcome, fees and plan frozen, receipt
 //!   written, records emitted by event-CPI) and run in chunks anyone may call. `close_match`
 //!   returns the rents once the run is complete.
@@ -19,8 +22,9 @@
 use crate::books::OnchainBooks;
 use crate::error::{core_err, MatchError, TesoroError};
 use crate::instructions::economy::{draw_err, with_pool, with_pool_hold};
+use crate::instructions::overflow::cover_room;
 use crate::instructions::settlement::ChainSettlement;
-use crate::instructions::ticket::{close_pot_account, release_room, ticket_err, try_hold};
+use crate::instructions::ticket::{close_pot_account, release_room, ticket_err};
 use crate::ledger;
 use crate::ledger::draw::TicketKind;
 use crate::ledger::lifecycle::{
@@ -166,7 +170,7 @@ fn terms_of(
 
 /// Checks that `info` is the basket or spill of `owner` (program-owned, writable, PDA of the
 /// stored bump).
-fn check_store(info: &AccountInfo, seed: &[u8], owner: &Pubkey) -> Result<()> {
+pub(crate) fn check_store(info: &AccountInfo, seed: &[u8], owner: &Pubkey) -> Result<()> {
     use anchor_lang::Discriminator;
     require_keys_eq!(*info.owner, crate::ID, TesoroError::InvalidAccount);
     require!(info.is_writable, TesoroError::NotWritable);
@@ -286,7 +290,11 @@ fn take_entry<'b, 'info>(
 }
 
 /// Adds `slots` to `account`'s share of the Match's held room.
-fn add_hold(room: &mut [RoomHold; ROOM_HOLDS], account: ledger::Key, slots: u32) -> Result<()> {
+pub(crate) fn add_hold(
+    room: &mut [RoomHold; ROOM_HOLDS],
+    account: ledger::Key,
+    slots: u32,
+) -> Result<()> {
     if slots == 0 {
         return Ok(());
     }
@@ -300,53 +308,6 @@ fn add_hold(room: &mut [RoomHold; ROOM_HOLDS], account: ledger::Key, slots: u32)
         .left
         .checked_add(slots)
         .ok_or(ProgramError::ArithmeticOverflow)?;
-    Ok(())
-}
-
-/// The basket of `owner` among `infos`, if the caller passed it.
-fn basket_among<'info>(infos: &[AccountInfo<'info>], owner: &Pubkey) -> Option<AccountInfo<'info>> {
-    infos
-        .iter()
-        .find(|i| check_store(i, BASKET_SEED, owner).is_ok())
-        .cloned()
-}
-
-/// The spill of `owner` among `infos`, if the caller passed it.
-fn spill_among<'info>(infos: &[AccountInfo<'info>], owner: &Pubkey) -> Option<AccountInfo<'info>> {
-    infos
-        .iter()
-        .find(|i| check_store(i, SPILL_SEED, owner).is_ok())
-        .cloned()
-}
-
-/// Holds, where the caller passed the stores and the room is there, the slots the credits the
-/// Match can still make to each Account can need (`plan`), on top of what the Account already
-/// holds. All or nothing per Account; whatever is not held waits for free room when the time
-/// comes.
-fn top_up_holds(
-    room: &mut [RoomHold; ROOM_HOLDS],
-    plan: &std::collections::BTreeMap<ledger::Key, usize>,
-    stores: &[AccountInfo],
-) -> Result<()> {
-    for (account, want) in plan {
-        let have = room
-            .iter()
-            .find(|h| h.account == *account)
-            .map_or(0, |h| h.left as usize);
-        if *want <= have {
-            continue;
-        }
-        let owner = Pubkey::new_from_array(*account);
-        let (Some(basket), Some(spill)) =
-            (basket_among(stores, &owner), spill_among(stores, &owner))
-        else {
-            continue;
-        };
-        let extra = (*want - have) as u32;
-        if try_hold(&basket, &spill, extra)? {
-            add_hold(room, *account, extra)?;
-        }
-    }
     Ok(())
 }
 
@@ -657,6 +618,31 @@ pub(crate) fn open_match<'info>(
     // the slots the entry freed stay held for the lines that may come back
     state.room = [RoomHold::default(); ROOM_HOLDS];
     add_hold(&mut state.room, party.funder, hold)?;
+    // a line of the entry that freed no slot (the split part of a line) may find none when the
+    // lines come back: hold one, or else the Account's overflow record takes it
+    let mut own_stores: Vec<AccountInfo<'info>> = vec![
+        ctx.accounts.basket.to_account_info(),
+        ctx.accounts.spill.to_account_info(),
+    ];
+    own_stores.extend(
+        [&ctx.accounts.backer_basket, &ctx.accounts.backer_spill]
+            .into_iter()
+            .flatten()
+            .map(|a| a.to_account_info()),
+    );
+    let plan =
+        std::collections::BTreeMap::from([(party.funder, state.inner.pot_lines[0] as usize)]);
+    let match_id = state.inner.id;
+    cover_room(
+        &mut state.room,
+        &plan,
+        &own_stores,
+        ctx.remaining_accounts,
+        &match_id,
+        &payer,
+        &system,
+        None,
+    )?;
     drop(pot);
     books.flush()
 }
@@ -926,7 +912,22 @@ pub(crate) fn join_match<'info>(
     );
     stores.extend(ctx.remaining_accounts.iter().cloned());
     let plan = state.inner.room_plan();
-    top_up_holds(&mut state.room, &plan, &stores)?;
+    let match_id = state.inner.id;
+    let studio = state
+        .inner
+        .terms
+        .studio_owner
+        .filter(|_| state.inner.terms.studio_bps > 0);
+    cover_room(
+        &mut state.room,
+        &plan,
+        &stores,
+        ctx.remaining_accounts,
+        &match_id,
+        &payer,
+        &system,
+        studio,
+    )?;
     state.pots[1] = pot_info.key();
     drop(pot);
     books.flush()
@@ -1243,6 +1244,7 @@ pub(crate) fn match_chunk<'info>(
     let mut pots: lifecycle::Pots<AccountWindow> = [Some(pot_a), pot_b];
     let mut settlement = ChainSettlement::load(ctx.remaining_accounts)?;
     settlement.set_holds(&state.room);
+    settlement.set_match(&state.inner.id);
     let report = state
         .inner
         .chunk(&mut pots, &mut settlement, steps)
@@ -1252,6 +1254,7 @@ pub(crate) fn match_chunk<'info>(
             hold.left = left;
         }
     }
+    let overflowed = settlement.overflowed();
     settlement.finish()?;
     let (opener, n) = (
         Pubkey::new_from_array(state.inner.id.opener),
@@ -1266,6 +1269,7 @@ pub(crate) fn match_chunk<'info>(
         steps: report.steps,
         done: report.done,
         blocked: report.blocked.is_some(),
+        overflowed,
     });
     if report.done {
         emit_cpi!(MatchSettled {

@@ -4,7 +4,7 @@ import { act, log, type Ctx } from "./act.ts";
 import { creditedAccounts, runOf, sourcesAhead } from "./chunks.ts";
 import { closeMatchIx, growStoreIx, matchChunkIx, meta, type Core } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
-import { POT_AT, basketOf, countersOf, decodeStore, decodeTicketHead, keyOf, matchAddress, matchLabel, matchRefOf, slack, sponsorAddress, spillOf, type MatchRef, type Store } from "./kit.ts";
+import { OVERFLOW_MATCH, POT_AT, basketOf, countersOf, decodeStore, decodeTicketHead, keyOf, matchAddress, matchLabel, matchOverflowId, matchRefOf, overflowAddress, slack, sponsorAddress, spillOf, type MatchRef, type Store } from "./kit.ts";
 import { fits, lookupTables, sendIxs, type SendOpts } from "./send.ts";
 import { connReader, dedupe, supplySources, type Reader } from "./supply.ts";
 
@@ -71,6 +71,12 @@ export async function planChunk(core: Core, read: Reader, caller: PublicKey, l: 
   const credited = creditedAccounts(l.view.inner, keyOf);
   const stores = await read.many(credited.flatMap((a) => [basketOf(a), spillOf(a)]));
   const storeMetas: AccountMeta[] = credited.flatMap((a, i) => (stores[2 * i] && stores[2 * i + 1] ? [meta(basketOf(a)), meta(spillOf(a))] : []));
+  // An Account the Match made an overflow record for (its stores had no room at join): a credit that finds no slot lands there.
+  const recordKeys = credited.map((a) => overflowAddress(a, OVERFLOW_MATCH, matchOverflowId(l.view.ref)));
+  const records = await read.many(recordKeys);
+  records.forEach((r, i) => {
+    if (r) storeMetas.push(meta(recordKeys[i]));
+  });
   for (let n = Math.max(1, steps); ; n = Math.max(1, Math.floor(n / 2))) {
     const ahead = sourcesAhead(run, l.stores, n);
     const supply = await supplySources(core, read, ahead);

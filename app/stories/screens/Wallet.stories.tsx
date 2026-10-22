@@ -29,6 +29,21 @@ export const NoAccountYet: Story = {
   parameters: { data: { snapshot: (a: string) => ({ ...demoSnapshot(a), exists: false, positions: [], holdings: [], matches: [], funded: [], ownTotal: 0n, wonTotal: 0n }) } },
 };
 
+/** Gemas that did not fit in the Account when a win landed wait for room; Claim moves them in. */
+export const GemasWaitingForRoom: Story = {
+  parameters: {
+    data: {
+      snapshot: (a: string): AccountSnapshot => ({
+        ...demoSnapshot(a),
+        waiting: [
+          { address: new PublicKey(demoKey(990)), owner: new PublicKey(demoKey(991)), payer: new PublicKey(demoKey(992)), kind: 0, gemas: 270n, lines: 1, sources: [new PublicKey(demoKey(993))] },
+          { address: new PublicKey(demoKey(994)), owner: new PublicKey(demoKey(991)), payer: new PublicKey(demoKey(992)), kind: 1, gemas: 50n, lines: 1, sources: [new PublicKey(demoKey(995))] },
+        ],
+      }),
+    },
+  },
+};
+
 export const Loading: Story = { parameters: { data: { snapshot: null } } };
 
 export const LoadFailed: Story = { parameters: { data: { snapshotError: "Loading your Account took too long." } } };

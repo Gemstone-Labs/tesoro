@@ -95,7 +95,7 @@ export function openStakePositionIx(owner: PublicKey, nonce: bigint | number, sh
  * An Advance on a staking-token Position: priced from the token's Pyth mapping, sized on the pool's last-epoch growth.
  * `prev` is the open Advance, closed here (its Source, then its book and checkpoint pages).
  */
-export function takeStakeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number, prev: PrevAdvance | null = null, token: StakeToken = JITOSOL) {
+export function takeStakeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number, minGemas: bigint, prev: PrevAdvance | null = null, token: StakeToken = JITOSOL) {
   const source = sourcePda(position, advances);
   const account = accountPda(owner);
   return coreIx(
@@ -115,13 +115,13 @@ export function takeStakeAdvanceIx(owner: PublicKey, position: PublicKey, advanc
       basket: basketPda(account),
       spill: spillPda(account),
     },
-    { horizon_months: months },
+    { horizon_months: months, min_gemas: minGemas },
     prev ? [meta(sourcePda(position, prev.index)), ...prev.accounts.map((k) => meta(k, true))] : [],
   );
 }
 
 /** Adds months to the open Advance of a staking-token Position. `book` is the Source's book and checkpoint pages. */
-export function extendStakeAdvanceIx(owner: PublicKey, position: PublicKey, source: number, extraMonths: number, book: PublicKey[], token: StakeToken = JITOSOL) {
+export function extendStakeAdvanceIx(owner: PublicKey, position: PublicKey, source: number, extraMonths: number, minGemas: bigint, book: PublicKey[], token: StakeToken = JITOSOL) {
   const account = accountPda(owner);
   return coreIx(
     "extend_stake_advance",
@@ -138,7 +138,7 @@ export function extendStakeAdvanceIx(owner: PublicKey, position: PublicKey, sour
       spill: spillPda(account),
       extend_limit: extendLimitPda(account),
     },
-    { extra_months: extraMonths },
+    { extra_months: extraMonths, min_gemas: minGemas },
     book.map((k) => meta(k, true)),
   );
 }

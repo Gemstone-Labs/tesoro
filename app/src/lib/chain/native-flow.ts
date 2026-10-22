@@ -72,6 +72,7 @@ export async function openPositionWithAdvance(
   getToken: GetToken,
   simSolBaseUnits: bigint,
   months: number,
+  minGemas: bigint,
   onStep: (s: string) => void = () => undefined,
 ): Promise<{ signature: string; position: string }> {
   onStep("Preparing");
@@ -80,7 +81,7 @@ export async function openPositionWithAdvance(
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   const nonce = BigInt(Date.now());
   const position = await positionPda(signer.publicKey, nonce);
-  const ixs = [openNativePositionIx(signer.publicKey, nonce, simSolBaseUnits, position), takeNativeAdvanceIx(signer.publicKey, position, 0, months)];
+  const ixs = [openNativePositionIx(signer.publicKey, nonce, simSolBaseUnits, position), takeNativeAdvanceIx(signer.publicKey, position, 0, months, minGemas)];
   onStep("Locking your SOL");
   const signature = await send(signer, account ? ixs : [await createAccountIx(signer.publicKey), ...ixs]);
   return { signature, position: position.toBase58() };
@@ -95,6 +96,7 @@ export async function takeNextAdvance(
   getToken: GetToken,
   info: NativeInfo,
   months: number,
+  minGemas: bigint,
   onStep: (s: string) => void = () => undefined,
 ): Promise<string> {
   onStep("Preparing");
@@ -105,8 +107,8 @@ export async function takeNextAdvance(
   return send(signer, [
     ...create,
     token
-      ? takeStakeAdvanceIx(signer.publicKey, info.position, info.advances, months, prev, token)
-      : takeNativeAdvanceIx(signer.publicKey, info.position, info.advances, months, prev),
+      ? takeStakeAdvanceIx(signer.publicKey, info.position, info.advances, months, minGemas, prev, token)
+      : takeNativeAdvanceIx(signer.publicKey, info.position, info.advances, months, minGemas, prev),
   ]);
 }
 
@@ -116,6 +118,7 @@ export async function extendAdvance(
   getToken: GetToken,
   info: NativeInfo,
   extraMonths: number,
+  minGemas: bigint,
   onStep: (s: string) => void = () => undefined,
 ): Promise<string> {
   if (!info.source) throw new Error("This Lock has no open Advance.");
@@ -128,8 +131,8 @@ export async function extendAdvance(
     return await send(signer, [
       ...create,
       token
-        ? extendStakeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths, accounts, token)
-        : extendNativeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths, accounts),
+        ? extendStakeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths, minGemas, accounts, token)
+        : extendNativeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths, minGemas, accounts),
     ]);
   } catch (e) {
     throw extendFailure(e);
@@ -193,6 +196,7 @@ export async function openStakePositionWithAdvance(
   getToken: GetToken,
   deposit: StakeDeposit,
   months: number,
+  minGemas: bigint,
   token: StakeToken = JITOSOL,
   onStep: (s: string) => void = () => undefined,
 ): Promise<{ signature: string; position: string }> {
@@ -204,7 +208,7 @@ export async function openStakePositionWithAdvance(
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   const nonce = BigInt(Date.now());
   const position = await stakePositionPda(me, nonce);
-  const advance = takeStakeAdvanceIx(me, position, 0, months, null, token);
+  const advance = takeStakeAdvanceIx(me, position, 0, months, minGemas, null, token);
   const prefix = account ? [] : [await createAccountIx(me)];
   if (deposit.from === "token") {
     onStep("Locking your SOL");

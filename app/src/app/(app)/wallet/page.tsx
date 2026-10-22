@@ -24,6 +24,7 @@ import { vaultsOn, type EthVault } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, NoPositions, OpenIntentContext, type OpenIntent } from "./OpenPanel";
 import { ChainPockets, NextRedeem, type Pocket, type PocketSource } from "./ChainPockets";
 import { SmallLeftovers } from "./Leftovers";
+import { WaitingForRoom } from "./WaitingForRoom";
 import { useInstantRedeem } from "./instant";
 import { orderState } from "@/lib/chain/instant-order";
 import { readyBy } from "@/lib/chain/ready-by";
@@ -273,6 +274,7 @@ export default function Wallet() {
             {fmtGemas(gemas.reserved)} of your Gemas are reserved for your Backing Offers; {fmtGemas(gemas.available)} available. <a href="/backing">See Backing</a>
           </p>
         )}
+        {onChain && snapshot?.waiting && snapshot.waiting.length > 0 && <WaitingForRoom records={snapshot.waiting} />}
         {pockets.length > 0 && <ChainPockets pockets={pockets} onRedeem={openRedeem} />}
         {noPositions && <NoPositions onOpen={openPosition} />}
         {onChain && <EthOps />}

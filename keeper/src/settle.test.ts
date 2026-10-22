@@ -4,7 +4,7 @@ import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { Budget, type Ctx } from "./act.ts";
 import { accountBytes, bookBytes, ixNameOf, potBytes, storeBytes, ticketBytes, zeroOf } from "./fixtures.ts";
-import { POT_AT, basketOf, bookOf, ckptOf, countersOf, decodeStore, spillOf } from "./kit.ts";
+import { OVERFLOW_MATCH, POT_AT, basketOf, bookOf, ckptOf, countersOf, decodeStore, matchOverflowId, overflowAddress, spillOf } from "./kit.ts";
 import { loadIdl } from "./runtime.ts";
 import { closeRemaining, driveMatch, fullAccounts, planChunk, viewOf, type Deps, type MatchView } from "./settle.ts";
 import type { Info, Reader } from "./supply.ts";
@@ -69,6 +69,18 @@ describe("planning a chunk", () => {
     assert.equal(plan!.steps, 4);
   });
 
+  it("brings the overflow record of an Account that has one for this Match, and only that one", async () => {
+    const sources = [k()];
+    const view = await matchView();
+    const accounts = world(sources);
+    const record = overflowAddress(alice, OVERFLOW_MATCH, matchOverflowId(view.ref));
+    accounts.set(record.toBase58(), Buffer.alloc(300));
+    const l = { view, pots: [] as any, stores: [decodeStore(accounts.get(potA.toBase58())!, POT_AT), decodeStore(accounts.get(potB.toBase58())!, POT_AT)] };
+    const plan = await planChunk(core, reader(accounts), payer, l, 4);
+    const keys = plan!.ix.keys.map((x) => x.pubkey.toBase58());
+    assert.ok(keys.includes(record.toBase58()));
+    assert.ok(!keys.includes(overflowAddress(bob, OVERFLOW_MATCH, matchOverflowId(view.ref)).toBase58()), "Bob has none");
+  });
   it("asks for fewer steps when the accounts do not fit one transaction", async () => {
     const sources = Array.from({ length: 12 }, k);
     const view = await matchView();

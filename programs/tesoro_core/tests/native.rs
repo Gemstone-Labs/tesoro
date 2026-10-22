@@ -46,6 +46,8 @@ const ERR_INVALID_MINT: u32 = 6008;
 const ERR_NATIVE_POSITION: u32 = 6009;
 const ERR_NOT_NATIVE: u32 = 6010;
 const ERR_STALE_PRICE: u32 = 6011;
+const ERR_ADVANCE_BELOW_MINIMUM: u32 = anchor_lang::error::ERROR_CODE_OFFSET
+    + tesoro_core::error::TesoroError::AdvanceBelowMinimum as u32;
 const ERR_SOURCE_REQUIRED: u32 = 6018;
 const ERR_BAD_PRICE_FEED: u32 = 6020;
 const ERR_PRICE_UNCERTAIN: u32 = 6021;
@@ -554,6 +556,16 @@ impl Env {
     }
 
     fn advance_ix(&self, p: &Person, pos: Pos, months: u8) -> (Instruction, APk) {
+        self.advance_ix_min(p, pos, months, 1)
+    }
+
+    fn advance_ix_min(
+        &self,
+        p: &Person,
+        pos: Pos,
+        months: u8,
+        min_gemas: u64,
+    ) -> (Instruction, APk) {
         let position = self.position(pos);
         let source = self.source(pos, position.advances);
         let advance = tix(
@@ -572,6 +584,7 @@ impl Env {
             },
             instruction::TakeNativeAdvance {
                 horizon_months: months,
+                min_gemas,
             },
             self.prev_tail(pos),
         );
@@ -665,6 +678,17 @@ impl Env {
         source: APk,
         extra_months: u8,
     ) -> Result<(), Failed> {
+        self.extend_native_min(p, pos, source, extra_months, 1)
+    }
+
+    fn extend_native_min(
+        &mut self,
+        p: &Person,
+        pos: Pos,
+        source: APk,
+        extra_months: u8,
+        min_gemas: u64,
+    ) -> Result<(), Failed> {
         let extend = tix(
             accounts::ExtendNativeAdvance {
                 owner_authority: p.key,
@@ -678,7 +702,10 @@ impl Env {
                 extend_limit: self.extend_limit(p),
                 system_program: anchor_lang::system_program::ID,
             },
-            instruction::ExtendNativeAdvance { extra_months },
+            instruction::ExtendNativeAdvance {
+                extra_months,
+                min_gemas,
+            },
             book_metas(&self.svm, source),
         );
         self.send(&[extend], &p.kp, &[])?;
@@ -1000,6 +1027,48 @@ fn advance_is_priced_by_the_feed_and_owner_signs_alone() {
 }
 
 #[test]
+fn an_advance_below_the_players_floor_is_refused_and_nothing_moves() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    // The quote said 699 (see above). The price drops 1% before the Advance lands: about 693.
+    env.set_price(PRICE * 99 / 100).unwrap();
+    let (short, _) = env.advance_ix_min(&alice, pos, 1, 699);
+    let err = env.send(&[short], &alice.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_ADVANCE_BELOW_MINIMUM);
+    assert_eq!(env.position(pos).advances, 0, "no Advance was opened");
+    // A floor of zero is refused too: every caller names one.
+    let (zero, _) = env.advance_ix_min(&alice, pos, 1, 0);
+    assert_eq!(
+        code(&env.send(&[zero], &alice.kp, &[]).unwrap_err()),
+        ERR_ADVANCE_BELOW_MINIMUM
+    );
+    // Back at the quoted price the same floor is met exactly.
+    env.set_price(PRICE).unwrap();
+    let (ok, source) = env.advance_ix_min(&alice, pos, 1, 699);
+    env.send(&[ok], &alice.kp, &[]).expect("floor met");
+    assert_eq!(env.gemas(&alice, source), 699);
+}
+
+#[test]
+fn an_extend_below_the_players_floor_is_refused() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    let before = env.gemas(&alice, source);
+    // One more month at the Source's own price mints 699 or 700 (two floors); 701 is out of reach.
+    let err = env
+        .extend_native_min(&alice, pos, source, 1, 701)
+        .unwrap_err();
+    assert_eq!(code(&err), ERR_ADVANCE_BELOW_MINIMUM);
+    assert_eq!(env.gemas(&alice, source), before);
+    env.extend_native_min(&alice, pos, source, 1, 699)
+        .expect("floor met");
+    assert!(env.gemas(&alice, source) >= before + 699);
+}
+
+#[test]
 fn stale_price_blocks_an_advance() {
     let mut env = Env::new();
     let alice = env.staker();
@@ -1032,7 +1101,10 @@ fn only_the_owner_takes_an_advance() {
             spill: env.spill(&mallory),
             system_program: anchor_lang::system_program::ID,
         },
-        instruction::TakeNativeAdvance { horizon_months: 1 },
+        instruction::TakeNativeAdvance {
+            horizon_months: 1,
+            min_gemas: 1,
+        },
         vec![],
     );
     let err = env.send(&[advance], &mallory.kp, &[]).unwrap_err();
@@ -2951,6 +3023,7 @@ impl Env {
             },
             instruction::TakeNativeAdvanceOnchain {
                 horizon_months: months,
+                min_gemas: 1,
             },
             self.prev_tail(pos),
         )
@@ -3204,7 +3277,10 @@ fn evm_advance_ix(
                 spill: spill_address(&p.account).0,
                 system_program: anchor_lang::system_program::ID,
             },
-            instruction::TakeAdvanceOnchain { horizon_months: 3 },
+            instruction::TakeAdvanceOnchain {
+                horizon_months: 3,
+                min_gemas: 1,
+            },
             vec![],
         ),
         None => tix(
@@ -3225,6 +3301,7 @@ fn evm_advance_ix(
             instruction::TakeAdvance {
                 horizon_months: 3,
                 price_micro_usd: price,
+                min_gemas: 1,
             },
             vec![rem(onchain_price_pda(asset), false)],
         ),
@@ -3617,6 +3694,36 @@ impl Env {
         self.send(&[fund], signer, &[]).map(|_| ps)
     }
 
+    /// `fund_prize` for a Pool whose stores may be full: the record and the system program travel
+    /// as remaining accounts and the authority pays the record's rent.
+    fn fund_prize_overflow(&mut self, signer: &Keypair, season: u32) -> Result<APk, Failed> {
+        let ps = self.prize_source(season);
+        let id =
+            tesoro_core::instructions::overflow::route_overflow_id(season, &pda(&[NATIVE_SEED]));
+        let record = overflow_address(&self.pool_account(), OVERFLOW_ROUTE, &id).0;
+        let fund = tix(
+            accounts::FundSeasonPrizeNative {
+                authority: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                custody: pda(&[NATIVE_SEED]),
+                pool: self.pool,
+                price_feed: pda(&[PRICE_SEED, SIM_SOL_MINT.as_ref()]),
+                pool_account: self.pool_account(),
+                pool_basket: basket_address(&self.pool_account()).0,
+                pool_spill: spill_address(&self.pool_account()).0,
+                prize_source: ps,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::FundSeasonPrizeNative { season },
+            vec![
+                rem(record, true),
+                rem(anchor_lang::system_program::ID, false),
+            ],
+        );
+        self.send(&[fund], signer, &[]).map(|_| ps)
+    }
+
     fn record_season(
         &mut self,
         signer: &Keypair,
@@ -3673,6 +3780,41 @@ impl Env {
             },
             instruction::PaySeasonRank { rank, line },
             vec![],
+        );
+        self.send(&[pay], signer, &[])
+    }
+
+    /// A payout whose winner's stores may be full: the record and the system program travel as
+    /// remaining accounts, and the authority pays the record's rent.
+    fn pay_rank_overflow(
+        &mut self,
+        signer: &Keypair,
+        (season, rank, line): (u32, u8, u8),
+        winner: &Person,
+        prize_source: APk,
+    ) -> Result<(), Failed> {
+        let id = tesoro_core::instructions::overflow::season_overflow_id(season, rank, line);
+        let record = overflow_address(&winner.account, OVERFLOW_SEASON, &id).0;
+        let pay = tix(
+            accounts::PaySeasonRank {
+                authority: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                season: pda(&[SEASON_SEED, &season.to_le_bytes()]),
+                reservations: pda(&[POOL_RESERVATIONS_SEED]),
+                pool_account: self.pool_account(),
+                pool_basket: basket_address(&self.pool_account()).0,
+                pool_spill: spill_address(&self.pool_account()).0,
+                winner_account: winner.account,
+                winner_basket: self.basket(winner),
+                winner_spill: self.spill(winner),
+                prize_source,
+            },
+            instruction::PaySeasonRank { rank, line },
+            vec![
+                rem(record, true),
+                rem(anchor_lang::system_program::ID, false),
+            ],
         );
         self.send(&[pay], signer, &[])
     }
@@ -3964,5 +4106,132 @@ fn a_voided_rank_is_not_paid_and_closing_releases_the_rest() {
     assert!(
         env.pool_prize_gemas(prize) > 0,
         "the voided share stays in the Pool"
+    );
+}
+
+/// A ranked winner whose stores are completely full still gets the prize: the line goes to an
+/// overflow record the keeper's transaction creates, and a claim moves it after room is made.
+#[test]
+fn a_season_prize_for_a_winner_with_full_stores_lands_in_an_overflow_record() {
+    let mut env = Env::with_start(SEASON_1_START + 10);
+    env.init_pool();
+    let keeper = env.person();
+    env.keeper_economy(keeper.key);
+    env.set_escrow(true);
+    let alice = env.staker();
+    let bob = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    env.advance_native(&alice, pos, 1).unwrap();
+    env.advance(MONTH + 1);
+    env.unlock(&alice, pos).unwrap();
+    env.set_time(SEASON_1_START + SEASON_SECS + 5);
+    env.set_price(PRICE).unwrap();
+    let prize = env.fund_prize(&keeper.kp, 1).expect("fund");
+    env.record_season(&keeper.kp, 1, &[(&bob, 20)])
+        .expect("record");
+    env.advance(48 * 3600 + 1);
+    // Bob's basket and spill are full to the last slot
+    let (basket, spill) = (env.basket(&bob), env.spill(&bob));
+    econ::fill_with_dust(&mut env.svm, basket);
+    econ::fill_with_dust(&mut env.svm, spill);
+    // without a record the payout still fails as before, nothing changed
+    let err = env.pay_rank(&keeper.kp, 1, 0, 0, &bob, prize).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::SpillFull));
+    let keeper_before = env.svm.get_balance(&keeper.kp.pubkey()).unwrap_or(0);
+    env.pay_rank_overflow(&keeper.kp, (1, 0, 0), &bob, prize)
+        .expect("the prize lands in an overflow record");
+    let id = tesoro_core::instructions::overflow::season_overflow_id(1, 0, 0);
+    let record = overflow_address(&bob.account, OVERFLOW_SEASON, &id).0;
+    let rent = env.svm.get_balance(&s(record)).unwrap_or(0);
+    assert!(rent > 0);
+    assert!(keeper_before > env.svm.get_balance(&keeper.kp.pubkey()).unwrap_or(0));
+    let data = env.svm.get_account(&s(record)).expect("record").data;
+    let held: Vec<_> = tesoro_core::ledger::line_store::LineStore::new(&data[OVERFLOW_STORE_AT..])
+        .expect("store")
+        .lines()
+        .collect();
+    assert_eq!(held.len(), 1);
+    assert_eq!(held[0].source, prize.to_bytes());
+    let amount = held[0].amount;
+    assert!(amount > 0);
+    // the step is paid once; the Pool gave the line up
+    let err = env.pay_rank(&keeper.kp, 1, 0, 0, &bob, prize).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::BudgetStep));
+    // a claim with no room moves nothing; after a grow it lands and the rent goes to the keeper
+    let claim = |env: &Env| {
+        tix(
+            accounts::ClaimOverflow {
+                account: bob.account,
+                basket: env.basket(&bob),
+                spill: env.spill(&bob),
+                record,
+                payer: a(keeper.kp.pubkey()),
+            },
+            instruction::ClaimOverflow { max: 4 },
+            vec![],
+        )
+    };
+    let c = claim(&env);
+    env.send(&[c], &keeper.kp, &[]).expect("claim, no room");
+    assert!(env.svm.get_account(&s(record)).is_some());
+    let grow = tix(
+        accounts::GrowStore {
+            payer: a(keeper.kp.pubkey()),
+            account: bob.account,
+            basket: env.basket(&bob),
+            spill: env.spill(&bob),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::GrowStore {
+            which: tesoro_core::StoreKind::Spill,
+            extra_lines: 1,
+        },
+        vec![],
+    );
+    env.send(&[grow], &keeper.kp, &[]).expect("grow");
+    let c = claim(&env);
+    env.send(&[c], &keeper.kp, &[]).expect("claim");
+    assert!(env.svm.get_account(&s(record)).is_none());
+    assert_eq!(gemas_in(&env.svm, bob.account, prize), amount);
+}
+
+/// The Pool at its maximum still receives a Season's prize: the funding goes to an overflow record.
+#[test]
+fn funding_a_prize_into_a_full_pool_lands_in_an_overflow_record() {
+    let mut env = Env::with_start(SEASON_1_START + 10);
+    env.init_pool();
+    let keeper = env.person();
+    env.keeper_economy(keeper.key);
+    env.set_escrow(true);
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    env.advance_native(&alice, pos, 1).unwrap();
+    env.advance(MONTH + 1);
+    env.unlock(&alice, pos).unwrap();
+    env.set_time(SEASON_1_START + SEASON_SECS + 5);
+    env.set_price(PRICE).unwrap();
+    let pool = env.pool_account();
+    econ::fill_with_dust(&mut env.svm, basket_address(&pool).0);
+    econ::fill_with_dust(&mut env.svm, spill_address(&pool).0);
+    let err = env.fund_prize(&keeper.kp, 1).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::SpillFull));
+    let prize = env.fund_prize_overflow(&keeper.kp, 1).expect("fund");
+    let id = tesoro_core::instructions::overflow::route_overflow_id(1, &pda(&[NATIVE_SEED]));
+    let record = overflow_address(&pool, OVERFLOW_ROUTE, &id).0;
+    let data = env.svm.get_account(&s(record)).expect("record").data;
+    let held: Vec<_> = tesoro_core::ledger::line_store::LineStore::new(&data[OVERFLOW_STORE_AT..])
+        .expect("store")
+        .lines()
+        .collect();
+    assert_eq!(held.len(), 1);
+    assert_eq!(held[0].source, prize.to_bytes());
+    assert_eq!(
+        held[0].amount,
+        env.load::<PrizeSourceState>(prize).inner.gemas
+    );
+    assert_eq!(
+        env.pool_prize_gemas(prize),
+        0,
+        "not in the Pool's stores yet"
     );
 }

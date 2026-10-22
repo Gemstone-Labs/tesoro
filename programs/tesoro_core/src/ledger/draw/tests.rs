@@ -81,6 +81,22 @@ impl World {
             }
         }
     }
+    /// A Ticket's cancel step; when a line finds no slot the spill grows by one and it goes on,
+    /// as `run` does for every other `SpillFull`.
+    fn cancel_step<T: PotBacking>(
+        &mut self,
+        t: &mut Ticket<T>,
+        max: usize,
+    ) -> DrawResult<CancelStep> {
+        self.run(|p, books| {
+            let step = t.cancel_step(p, books, max)?;
+            if step.blocked {
+                Err(DrawError::SpillFull)
+            } else {
+                Ok(step)
+            }
+        })
+    }
     /// Like `run` but the caller wants the raw result, `SpillFull` included.
     fn run_raw<R>(&mut self, f: impl FnOnce(&mut P, &mut Books) -> DrawResult<R>) -> DrawResult<R> {
         let mut b = LineStore::new(self.basket.as_mut_slice()).unwrap();
@@ -429,14 +445,14 @@ fn cancel_returns_every_line_exactly_and_clears_the_flag() {
     );
     let mut chunks = 0;
     loop {
-        let s = w.run(|p, books| t.cancel_step(p, books, 5)).unwrap();
+        let s = w.cancel_step(&mut t, 5).unwrap();
         chunks += 1;
         if s.done {
             break;
         }
     }
     assert!(chunks > 1);
-    assert!(w.run(|p, books| t.cancel_step(p, books, 5)).unwrap().done);
+    assert!(w.cancel_step(&mut t, 5).unwrap().done);
     assert_eq!(w.b().flags(), 0);
     assert_eq!(w.amounts(), before);
     w.check(&[]);
@@ -492,7 +508,7 @@ fn gaps_1_cancel_and_refund_into_a_full_basket_use_the_spill_and_stay_free() {
     }
     assert_eq!(w.b().len(), 10);
     w.run(|p, _| t.begin_cancel(p, 0, true)).unwrap();
-    let s = w.run(|p, books| t.cancel_step(p, books, 100)).unwrap();
+    let s = w.cancel_step(&mut t, 100).unwrap();
     assert!(s.done);
     assert_eq!(w.s().len(), 5);
     // everything is free at once: 50 back + 15 + 50 other
@@ -502,6 +518,32 @@ fn gaps_1_cancel_and_refund_into_a_full_basket_use_the_spill_and_stay_free() {
     // and claiming is only tidying up
     let moved = w.run(|p, books| p.claim(books, 100)).unwrap();
     assert_eq!(moved, 0);
+}
+
+#[test]
+fn a_cancel_that_finds_no_slot_reports_blocked_and_keeps_every_line_in_the_ticket() {
+    let mut w = world(10);
+    for i in 0..10i64 {
+        w.credit(SIDE_OWN, i, (i % 5) as u8, CLASS_GENERAL, 10);
+    }
+    let mut t = open_ticket(&mut w, 50);
+    stage_all(&mut w, &mut t);
+    for i in 100..105i64 {
+        w.credit(SIDE_OWN, i, 0, CLASS_GENERAL, 3);
+    }
+    w.run(|p, _| t.begin_cancel(p, 0, true)).unwrap();
+    let before = t.staged();
+    let step = w.run_raw(|p, books| t.cancel_step(p, books, 100)).unwrap();
+    assert!(
+        step.blocked && !step.done,
+        "no slot: the step stops, it does not fail"
+    );
+    assert_eq!(step.lines_to_basket + step.lines_to_spill, 0);
+    assert_eq!(t.staged(), before, "nothing left the Ticket");
+    // room made: the next call returns everything and finishes
+    let step = w.cancel_step(&mut t, 100).unwrap();
+    assert!(step.done);
+    w.check(&[]);
 }
 
 #[test]
@@ -575,11 +617,7 @@ fn gaps_3_a_backing_ticket_never_blocks_the_backers_own_entries() {
         DrawError::NotExpired
     );
     w.run(|p, _| back.begin_cancel(p, 0, true)).unwrap();
-    while !w
-        .run(|p, books| back.cancel_step(p, books, 4))
-        .unwrap()
-        .done
-    {}
+    while !w.cancel_step(&mut back, 4).unwrap().done {}
     assert_eq!(w.b().flags(), 0);
     assert_eq!(w.b().reserved_total(), 100);
     w.run(|p, _| p.reserve_offer(10, 1)).unwrap();
@@ -602,7 +640,7 @@ fn backing_ticket_cancel_restores_the_reservation_then_draws_directly() {
     assert!(w.b().reserved_total() < 250);
     assert_eq!(w.b().ticket_need(), 0);
     w.run(|p, _| t.begin_cancel(p, 0, true)).unwrap();
-    while !w.run(|p, books| t.cancel_step(p, books, 4)).unwrap().done {}
+    while !w.cancel_step(&mut t, 4).unwrap().done {}
     assert_eq!(w.b().reserved_total(), 250);
     let pot = w
         .run(|p, books| p.draw_backing_direct(books, key(OWNER), 50, 12))
@@ -1164,7 +1202,7 @@ impl Sim {
         loop {
             let max = 1 + self.rng.below(5) as usize;
             let mut t = self.slot(slot).take().unwrap();
-            let s = self.w.run(|p, books| t.cancel_step(p, books, max)).unwrap();
+            let s = self.w.cancel_step(&mut t, max).unwrap();
             let done = s.done;
             *self.slot(slot) = Some(t);
             self.invariants();

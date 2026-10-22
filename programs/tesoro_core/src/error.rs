@@ -99,6 +99,10 @@ pub enum TesoroError {
     NotListed,
     #[msg("the program is too large to hash in one transaction")]
     ProgramTooLarge,
+    #[msg(
+        "the Advance would issue fewer Gemas than the minimum asked for (or the minimum is zero)"
+    )]
+    AdvanceBelowMinimum,
 }
 
 /// Errors of the economy storage layer (baskets, spills, the sponsor, Source books). Their own
@@ -208,6 +212,12 @@ pub enum MatchError {
     OfferNotUsable,
     #[msg("this Account already has the most Offers open at once")]
     TooManyOffers,
+    #[msg("the stores of the studio that is paid by this Match must be passed when it is joined")]
+    StudioStoresMissing,
+    #[msg("the overflow record this Match needs was not supplied")]
+    OverflowRecordMissing,
+    #[msg("the overflow record is not the one for this owner and scope")]
+    OverflowRecordInvalid,
 }
 
 pub fn core_err(e: CoreError) -> Error {

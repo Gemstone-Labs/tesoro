@@ -198,20 +198,32 @@ pub(crate) fn put_prize<B: Bytes, S: Bytes>(
     pool: &mut ledger::draw::Pool<B, S>,
     line: &Line,
 ) -> Result<()> {
+    if try_put_prize(pool, line)? {
+        Ok(())
+    } else {
+        Err(core_err(CoreError::SpillFull))
+    }
+}
+
+/// [`put_prize`] that says `false`, changing nothing, when neither store has room.
+pub(crate) fn try_put_prize<B: Bytes, S: Bytes>(
+    pool: &mut ledger::draw::Pool<B, S>,
+    line: &Line,
+) -> Result<bool> {
     let key = line.key();
     if pool.basket.find(&key).is_ok() {
-        return pool.basket.merge(line).map(drop).map_err(store_err);
+        return pool.basket.merge(line).map(|_| true).map_err(store_err);
     }
     if pool.basket.len() < pool.basket.capacity() {
-        return pool.basket.insert(line).map(drop).map_err(store_err);
+        return pool.basket.insert(line).map(|_| true).map_err(store_err);
     }
     if pool.spill.find(&key).is_ok() {
-        return pool.spill.merge(line).map(drop).map_err(store_err);
+        return pool.spill.merge(line).map(|_| true).map_err(store_err);
     }
     if pool.spill.len() < pool.spill.capacity() {
-        return pool.spill.insert(line).map(drop).map_err(store_err);
+        return pool.spill.insert(line).map(|_| true).map_err(store_err);
     }
-    Err(core_err(CoreError::SpillFull))
+    Ok(false)
 }
 
 /// The key of a prize Source's line in any basket: won, due at once, General.
@@ -333,6 +345,7 @@ fn fund_route<'info>(
     prize_bump: u8,
     pool_basket: &AccountInfo,
     pool_spill: &AccountInfo,
+    (pool_account, candidates, payer): (&Pubkey, &[AccountInfo<'info>], &AccountInfo<'info>),
 ) -> Result<()> {
     let ts = now()?;
     let unissued = route
@@ -355,7 +368,18 @@ fn fund_route<'info>(
     });
     if let Some(ps) = funding.issued {
         let line = ledger::prize::prize_line(SIDE_WON, 0, key.to_bytes(), ps.gemas);
-        with_pool(pool_basket, pool_spill, |pool| put_prize(pool, &line))?;
+        // The Pool is an ordinary Account: at the maximum its prize line goes to an overflow
+        // record, created in this transaction, instead of failing the funding.
+        crate::instructions::overflow::credit_prize(
+            pool_basket,
+            pool_spill,
+            pool_account,
+            &line,
+            candidates,
+            payer,
+            OVERFLOW_ROUTE,
+            &crate::instructions::overflow::route_overflow_id(season, &custody),
+        )?;
     }
     emit!(SeasonFunded {
         season,
@@ -434,8 +458,8 @@ pub struct FundSeasonPrizeNative<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub(crate) fn fund_season_prize_native(
-    ctx: Context<FundSeasonPrizeNative>,
+pub(crate) fn fund_season_prize_native<'info>(
+    ctx: Context<'_, '_, 'info, 'info, FundSeasonPrizeNative<'info>>,
     season: u32,
 ) -> Result<()> {
     let bump = ctx.bumps.prize_source;
@@ -462,6 +486,11 @@ pub(crate) fn fund_season_prize_native(
         bump,
         &a.pool_basket.to_account_info(),
         &a.pool_spill.to_account_info(),
+        (
+            &a.pool_account.key(),
+            ctx.remaining_accounts,
+            &a.authority.to_account_info(),
+        ),
     )
 }
 
@@ -515,8 +544,8 @@ pub struct FundSeasonPrizeStake<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub(crate) fn fund_season_prize_stake(
-    ctx: Context<FundSeasonPrizeStake>,
+pub(crate) fn fund_season_prize_stake<'info>(
+    ctx: Context<'_, '_, 'info, 'info, FundSeasonPrizeStake<'info>>,
     season: u32,
 ) -> Result<()> {
     let bump = ctx.bumps.prize_source;
@@ -539,6 +568,11 @@ pub(crate) fn fund_season_prize_stake(
         bump,
         &a.pool_basket.to_account_info(),
         &a.pool_spill.to_account_info(),
+        (
+            &a.pool_account.key(),
+            ctx.remaining_accounts,
+            &a.authority.to_account_info(),
+        ),
     )
 }
 

@@ -14,9 +14,8 @@
 
 use crate::error::{core_err, TesoroError};
 use crate::instructions::economy::*;
-use crate::instructions::prize::{
-    check_prize_source, put_prize, route_of, season_authority, take_exact,
-};
+use crate::instructions::overflow::{credit_prize, season_overflow_id};
+use crate::instructions::prize::{check_prize_source, route_of, season_authority, take_exact};
 use crate::ledger::line_store::{LineKey, LineStore, CLASS_GENERAL};
 use crate::ledger::{self, PoolLine, PoolReservations, Ranked};
 use crate::state::*;
@@ -188,6 +187,7 @@ pub(crate) fn record_season<'info>(
 /// budget line; the prize Source of that line is the last account.
 #[derive(Accounts)]
 pub struct PaySeasonRank<'info> {
+    #[account(mut)]
     pub authority: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,
@@ -260,10 +260,19 @@ pub(crate) fn pay_season_rank<'info>(
             &a.pool_spill.to_account_info(),
             |pool| take_exact(pool, &key, step.amount),
         )?;
-        with_pool(
+        // A winner whose stores are full still gets the prize: the line goes to an overflow
+        // record the keeper's transaction creates (remaining accounts: the record, the system
+        // program), and anyone claims it into the stores once there is room.
+        let season = a.season.inner.number;
+        credit_prize(
             &a.winner_basket.to_account_info(),
             &a.winner_spill.to_account_info(),
-            |pool| put_prize(pool, &taken),
+            &winner,
+            &taken,
+            ctx.remaining_accounts,
+            &a.authority.to_account_info(),
+            OVERFLOW_SEASON,
+            &season_overflow_id(season, rank, line),
         )?;
     }
     emit!(SeasonPrizePaid {

@@ -659,6 +659,11 @@ export function quoteEthAdvance(principalWei: bigint, rateBps: number, months: n
   return { projectedUnits, gemas };
 }
 
+/** The `min_gemas` argument of a `take_advance` or `take_advance_onchain` instruction: its last eight bytes, little-endian. */
+export function advanceFloorOf(data: Uint8Array): bigint {
+  return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(data.byteLength - 8, true);
+}
+
 /** Principal in underlying wei for `shares` at `rate` (as `openPosition` computes it). */
 export const underlyingOf = (shares: bigint, rate: bigint) => (shares * rate) / WEI;
 

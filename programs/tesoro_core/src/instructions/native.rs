@@ -332,6 +332,7 @@ pub struct TakeNativeAdvance<'info> {
 pub(crate) fn take_native_advance<'info>(
     mut ctx: Context<'_, '_, 'info, 'info, TakeNativeAdvance<'info>>,
     horizon_months: u8,
+    min_gemas: u64,
 ) -> Result<()> {
     require_can_advance(&ctx.accounts.protections.to_account_info())?;
     let remaining = ctx.remaining_accounts;
@@ -363,6 +364,7 @@ pub(crate) fn take_native_advance<'info>(
         horizon_months,
         a.price_feed.price_micro_usd,
         fee,
+        min_gemas,
     )
 }
 
@@ -431,6 +433,7 @@ pub struct ExtendNativeAdvance<'info> {
 pub(crate) fn extend_native_advance<'info>(
     ctx: Context<'_, '_, 'info, 'info, ExtendNativeAdvance<'info>>,
     extra_months: u8,
+    min_gemas: u64,
 ) -> Result<()> {
     require_can_advance(&ctx.accounts.protections.to_account_info())?;
     let remaining = ctx.remaining_accounts;
@@ -457,6 +460,7 @@ pub(crate) fn extend_native_advance<'info>(
         remaining,
         extra_months,
         fee,
+        min_gemas,
     )
 }
 

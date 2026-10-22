@@ -707,6 +707,7 @@ impl Env {
             },
             instruction::TakeStakeAdvance {
                 horizon_months: months,
+                min_gemas: 1,
             },
             self.prev_tail(pos),
         );
@@ -767,7 +768,10 @@ impl Env {
                 extend_limit: pda(&[EXTEND_LIMIT_SEED, p.account.as_ref()]),
                 system_program: anchor_lang::system_program::ID,
             },
-            instruction::ExtendStakeAdvance { extra_months },
+            instruction::ExtendStakeAdvance {
+                extra_months,
+                min_gemas: 1,
+            },
             book_metas(&self.svm, source),
         );
         self.send(&[extend], &p.kp, &[])?;
@@ -1881,7 +1885,10 @@ fn a_stake_position_prices_only_from_the_pyth_mapping() {
             spill: env.spill(&alice),
             system_program: anchor_lang::system_program::ID,
         },
-        instruction::TakeNativeAdvance { horizon_months: 1 },
+        instruction::TakeNativeAdvance {
+            horizon_months: 1,
+            min_gemas: 1,
+        },
         vec![],
     );
     let err = env.send(&[keeper], &alice.kp, &[]).unwrap_err();
@@ -1911,6 +1918,7 @@ fn a_stake_position_prices_only_from_the_pyth_mapping() {
         instruction::TakeAdvance {
             horizon_months: 1,
             price_micro_usd: 1_000_000_000_000,
+            min_gemas: 1,
         },
         vec![rem(pda(&[ONCHAIN_PRICE_SEED, env.mint.as_ref()]), false)],
     );

@@ -237,14 +237,17 @@ pub mod tesoro_core {
         instructions::evm_prize::cancel_prize_payout_from_source(ctx, chain, gemas, shares)
     }
 
-    pub fn fund_season_prize_native(
-        ctx: Context<FundSeasonPrizeNative>,
+    pub fn fund_season_prize_native<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FundSeasonPrizeNative<'info>>,
         season: u32,
     ) -> Result<()> {
         instructions::prize::fund_season_prize_native(ctx, season)
     }
 
-    pub fn fund_season_prize_stake(ctx: Context<FundSeasonPrizeStake>, season: u32) -> Result<()> {
+    pub fn fund_season_prize_stake<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FundSeasonPrizeStake<'info>>,
+        season: u32,
+    ) -> Result<()> {
         instructions::prize::fund_season_prize_stake(ctx, season)
     }
 
@@ -331,6 +334,15 @@ pub mod tesoro_core {
         instructions::basket::claim_spill(ctx, max)
     }
 
+    /// Anyone moves up to `max` lines of an overflow record into the owner's stores; an empty
+    /// record is closed and its rent goes back to its payer. Source books are remaining accounts.
+    pub fn claim_overflow<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ClaimOverflow<'info>>,
+        max: u8,
+    ) -> Result<()> {
+        instructions::overflow::claim_overflow(ctx, max)
+    }
+
     /// Anyone creates the book account of a Source.
     pub fn init_source_book(ctx: Context<InitSourceBook>) -> Result<()> {
         instructions::basket::init_source_book(ctx)
@@ -402,8 +414,9 @@ pub mod tesoro_core {
         ctx: Context<'_, '_, 'info, 'info, TakeAdvance<'info>>,
         horizon_months: u8,
         price_micro_usd: u64,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::position::take_advance(ctx, horizon_months, price_micro_usd)
+        instructions::position::take_advance(ctx, horizon_months, price_micro_usd, min_gemas)
     }
 
     pub fn apply_yield<'info>(
@@ -457,8 +470,9 @@ pub mod tesoro_core {
     pub fn take_native_advance<'info>(
         ctx: Context<'_, '_, 'info, 'info, TakeNativeAdvance<'info>>,
         horizon_months: u8,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::native::take_native_advance(ctx, horizon_months)
+        instructions::native::take_native_advance(ctx, horizon_months, min_gemas)
     }
 
     /// Admin: where an asset's Advances read their USD price on mainnet (a Pyth push feed).
@@ -482,23 +496,26 @@ pub mod tesoro_core {
     pub fn take_native_advance_onchain<'info>(
         ctx: Context<'_, '_, 'info, 'info, TakeNativeAdvanceOnchain<'info>>,
         horizon_months: u8,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::onchain_price::take_native_advance_onchain(ctx, horizon_months)
+        instructions::onchain_price::take_native_advance_onchain(ctx, horizon_months, min_gemas)
     }
 
     /// `take_advance` priced from the asset's Pyth feed instead of a price the oracle names.
     pub fn take_advance_onchain<'info>(
         ctx: Context<'_, '_, 'info, 'info, TakeAdvanceOnchain<'info>>,
         horizon_months: u8,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::onchain_price::take_advance_onchain(ctx, horizon_months)
+        instructions::onchain_price::take_advance_onchain(ctx, horizon_months, min_gemas)
     }
 
     pub fn extend_native_advance<'info>(
         ctx: Context<'_, '_, 'info, 'info, ExtendNativeAdvance<'info>>,
         extra_months: u8,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::native::extend_native_advance(ctx, extra_months)
+        instructions::native::extend_native_advance(ctx, extra_months, min_gemas)
     }
 
     pub fn set_extend_limit(ctx: Context<SetExtendLimit>, months: u8) -> Result<()> {
@@ -551,15 +568,17 @@ pub mod tesoro_core {
     pub fn take_stake_advance<'info>(
         ctx: Context<'_, '_, 'info, 'info, TakeStakeAdvance<'info>>,
         horizon_months: u8,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::stake::take_stake_advance(ctx, horizon_months)
+        instructions::stake::take_stake_advance(ctx, horizon_months, min_gemas)
     }
 
     pub fn extend_stake_advance<'info>(
         ctx: Context<'_, '_, 'info, 'info, ExtendStakeAdvance<'info>>,
         extra_months: u8,
+        min_gemas: u64,
     ) -> Result<()> {
-        instructions::stake::extend_stake_advance(ctx, extra_months)
+        instructions::stake::extend_stake_advance(ctx, extra_months, min_gemas)
     }
 
     /// Admin: tops up the Treasury with `shares` of the staking token (its own funding).

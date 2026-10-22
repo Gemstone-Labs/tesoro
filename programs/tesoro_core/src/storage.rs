@@ -32,6 +32,7 @@ pub const SPILL_SEED: &[u8] = b"spill";
 pub const SPONSOR_SEED: &[u8] = b"sponsor";
 pub const BOOK_SEED: &[u8] = b"book";
 pub const CKPT_SEED: &[u8] = b"ckpt";
+pub const OVERFLOW_SEED: &[u8] = b"overflow";
 
 /// Anchor's discriminator length.
 pub const DISC: usize = 8;
@@ -72,6 +73,36 @@ pub struct SpillHead {
 
 /// Byte of the `LineStore` header that holds the bump.
 pub const STORE_BUMP_AT: usize = 1;
+
+/// What an overflow record was made for. The kind and the 40-byte id are part of its address:
+/// `["overflow", owner, kind, id[..32], id[32..]]` (a seed is at most 32 bytes).
+pub const OVERFLOW_MATCH: u8 = 0;
+/// A Season prize (id: the Season number, 8 bytes LE, then the rank, then zeros).
+pub const OVERFLOW_SEASON: u8 = 1;
+/// A prize route's line (id: the route's prize escrow key, then zeros).
+pub const OVERFLOW_ROUTE: u8 = 2;
+
+/// Head of an overflow record: lines a credit found no room for in the owner's stores
+/// (`instructions::overflow`). The `LineStore` body (same format as a basket, the owner in its
+/// header) follows the head. The record keeps its rent until its last line is claimed.
+#[account(zero_copy)]
+pub struct OverflowHead {
+    /// Who paid the rent; it goes back there when the record is empty.
+    pub payer: [u8; 32],
+    pub kind: u8,
+    pub id: [u8; 40],
+}
+
+/// Where the `LineStore` body of an overflow record starts.
+pub const OVERFLOW_STORE_AT: usize = DISC + 32 + 1 + 40;
+
+/// Bytes of an overflow record with `lines` slots.
+pub fn overflow_len(lines: usize) -> usize {
+    OVERFLOW_STORE_AT + required_len(lines)
+}
+
+/// Most lines an overflow record can be created (or grown) with in one instruction.
+pub const MAX_OVERFLOW_LINES: usize = (MAX_GROW_BYTES - OVERFLOW_STORE_AT - HEADER_LEN) / LINE_LEN;
 
 /// Head of a Source's book account.
 #[account(zero_copy)]
@@ -144,6 +175,13 @@ pub fn spill_address(account: &Pubkey) -> (Pubkey, u8) {
 
 pub fn sponsor_address() -> (Pubkey, u8) {
     Pubkey::find_program_address(&[SPONSOR_SEED], &crate::ID)
+}
+
+pub fn overflow_address(owner: &Pubkey, kind: u8, id: &[u8; 40]) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[OVERFLOW_SEED, owner.as_ref(), &[kind], &id[..32], &id[32..]],
+        &crate::ID,
+    )
 }
 
 pub fn book_address(source: &Pubkey) -> (Pubkey, u8) {

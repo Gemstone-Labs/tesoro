@@ -8,7 +8,7 @@
 //   init-position <eid> <vault0x> <id>     anyone: create the inbox record before the EVM openPosition
 //   state <eid> <vault0x> <id>             inbox + tesoro_core Position + Source
 //   apply-locked <eid> <vault0x> <id>      anyone: open the tesoro_core Position from the received PositionLocked
-//   advance <eid> <vault0x> <id> <months> <priceMicroUsd>   oracle + owner: take the Advance
+//   advance <eid> <vault0x> <id> <months> <priceMicroUsd> [minGemas=1]   oracle + owner: take the Advance
 //   apply-yield <eid> <vault0x> <id>       anyone: apply the latest received YieldAccrued
 //   unlock <eid> <vault0x> <id>            owner: request Unlock in tesoro_core (Debt must be zero)
 //   send-unlock <eid> <vault0x> <id>       anyone: send Unlock to the vault
@@ -267,7 +267,7 @@ async function main() {
                     meta(PublicKey.findProgramAddressSync([Buffer.from('protections'), ownerAccount.toBuffer()], CORE)[0]),
                     meta(cp, false, true), meta(source, false, true), meta(holdingPda(ownerAccount, source), false, true), meta(SystemProgram.programId),
                 ],
-                data: Buffer.concat([disc('take_advance'), Buffer.from([Number(a[3])]), u64le(BigInt(a[4]))]),
+                data: Buffer.concat([disc('take_advance'), Buffer.from([Number(a[3])]), u64le(BigInt(a[4])), u64le(BigInt(a[5] ?? 1))]),
             })
             return void (await run('take_advance', [ix], [oracle, owner]))
         }

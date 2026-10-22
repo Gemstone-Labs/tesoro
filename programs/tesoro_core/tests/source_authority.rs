@@ -423,6 +423,7 @@ fn cu_profile_apply_yield_from_source() {
         instruction::TakeAdvance {
             horizon_months: 3,
             price_micro_usd: 1_000_000_000_000_000,
+            min_gemas: 1,
         },
     );
     let asset = {

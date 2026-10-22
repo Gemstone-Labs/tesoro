@@ -1,6 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { utils } from "@coral-xyz/anchor";
 import coreIdl from "../lib/chain/idl/tesoro_core.json";
+import { OVERFLOW_DISC, OVERFLOW_OWNER_AT } from "../lib/chain/overflow";
 import { gpaRpc } from "../lib/chain/rpc-config";
 import { WindowLimiter } from "./rate-limit";
 
@@ -10,7 +11,7 @@ import { WindowLimiter } from "./rate-limit";
  * for Accounts and Positions. Owner-filtered queries are answered from the unfiltered list, so the
  * upstream sees at most one query per account type whatever the browser sends.
  */
-const LISTS: Record<string, { ownerOffset: number | null }> = {
+const LISTS: Record<string, { ownerOffset: number | null; disc?: number[] }> = {
   MatchState: { ownerOffset: null },
   RequestState: { ownerOffset: null },
   OfferState: { ownerOffset: null },
@@ -18,14 +19,20 @@ const LISTS: Record<string, { ownerOffset: number | null }> = {
   TesoroAccount: { ownerOffset: 9 },
   // PositionState: disc 8 + bump 1 + position_id 32, then `inner.owner`.
   PositionState: { ownerOffset: 41 },
+  // OverflowHead: disc 8 + payer 32 + kind 1 + id 40, then the line store, whose header keeps the owner Account at byte 8.
+  // No instruction names this account type, so the IDL has no discriminator for it.
+  OverflowHead: { ownerOffset: OVERFLOW_OWNER_AT, disc: [...OVERFLOW_DISC] },
 };
 
 const CORE = coreIdl.address;
-const SHAPES = new Map(
-  coreIdl.accounts
+const SHAPES = new Map([
+  ...coreIdl.accounts
     .filter((a) => a.name in LISTS)
-    .map((a) => [utils.bytes.bs58.encode(Uint8Array.from(a.discriminator)), { name: a.name, ...LISTS[a.name] }]),
-);
+    .map((a) => [utils.bytes.bs58.encode(Uint8Array.from(a.discriminator)), { name: a.name, ...LISTS[a.name] }] as const),
+  ...Object.entries(LISTS)
+    .filter(([, l]) => l.disc)
+    .map(([name, l]) => [utils.bytes.bs58.encode(Uint8Array.from(l.disc!)), { name, ...l }] as const),
+]);
 
 export interface GpaQuery {
   /** The upstream query: tesoro_core, discriminator memcmp only. */

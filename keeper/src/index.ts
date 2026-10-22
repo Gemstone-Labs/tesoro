@@ -7,6 +7,7 @@ import { bridgeJob } from "./bridge.ts";
 import { cashInJob, harvestJob } from "./counters.ts";
 import { historyJob } from "./history.ts";
 import { orderJob } from "./orders.ts";
+import { overflowJob } from "./overflow.ts";
 import { poolJob } from "./pools.ts";
 import { listingJob, sweepJob } from "./sweeps.ts";
 import { ticketJob } from "./tickets.ts";
@@ -47,6 +48,8 @@ async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>) {
     ["harvest", harvestJob],
     ["fees", cashInJob],
     ["season", seasonJob],
+    // After the Match and Season jobs, which are what make records.
+    ["overflow", overflowJob],
     ["sweep", sweepJob],
     ["listing", listingJob],
     ["notify", notifyJob],

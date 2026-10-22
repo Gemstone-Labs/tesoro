@@ -254,3 +254,5 @@
 .wl-redeem-cost.small { color: var(--warn, var(--fg-1)); }
 .wl-leftovers { display: grid; justify-items: start; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
 .wl-requested { margin: 0; }
+.wl-waiting { display: grid; justify-items: start; gap: 8px; }
+.wl-waiting .note { margin: 0; }
