@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import Leaderboard from "@/app/(app)/leaderboard/page";
+import { userEvent, within } from "storybook/test";
 import { withScreen } from "./support/screen";
 
 const meta = {
@@ -36,3 +37,21 @@ export const OpensWithNextUpgrade: Story = { parameters: { screen: { leaderboard
 export const Loading: Story = { parameters: { screen: { leaderboard: "loading" } } };
 
 export const LoadFailed: Story = { parameters: { screen: { leaderboard: "error" } } };
+
+/** Last season's winners are still waiting to be paid: "paying out <date>" beside prizes, and one rank "not paid". */
+export const LastSeasonPaying: Story = { parameters: { screen: { leaderboard: "paying" } } };
+
+/** Nobody won a Match last season: "the pool carried over" instead of a winners table. */
+export const LastSeasonPoolCarriedOver: Story = { parameters: { screen: { leaderboard: "carried" } } };
+
+/** The Payout scale band opened under the season heading. */
+export const PayoutScaleOpen: Story = {
+  parameters: { screen: { leaderboard: "live" } },
+  play: async ({ canvasElement }) => {
+    const btn = await within(canvasElement).findByRole("button", { name: /Payout scale/ });
+    if (btn.getAttribute("aria-expanded") !== "true") await userEvent.click(btn);
+  },
+};
+
+/** Signed in with no points this season: the table has no "You" row. */
+export const SignedInNotOnTheTable: Story = { parameters: { screen: { leaderboard: "outside" } } };

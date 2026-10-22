@@ -1,3 +1,4 @@
+import "../stories/support/offline";
 import type { Decorator, Preview } from "@storybook/nextjs-vite";
 import { useLayoutEffect } from "react";
 import "../src/app/globals.css";
@@ -17,10 +18,8 @@ import { authFor } from "../stories/support/auth";
 import { setStoryData, type AuthMode, type StoryData } from "../stories/support/data";
 import { setScreenData, type ScreenData } from "../stories/screens/support/screen";
 import { FONT_CLASSES } from "../stories/support/fonts";
-import { blockNetwork } from "../stories/support/network";
 import { ShellFor, type Shell } from "../stories/support/shells";
 
-blockNetwork();
 
 let reducedMotion = false;
 if (typeof window !== "undefined") {

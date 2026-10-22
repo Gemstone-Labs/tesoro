@@ -1,4 +1,6 @@
 import type { Meta } from "@storybook/nextjs-vite";
+import type { StoryObj } from "@storybook/nextjs-vite";
+import { userEvent, within } from "storybook/test";
 import { docStory } from "./support/docs";
 
 const meta = {
@@ -25,3 +27,13 @@ export const DevPrograms = docStory("/docs/developers/programs");
 export const DevSettlement = docStory("/docs/developers/settlement");
 export const DevRollups = docStory("/docs/developers/rollups");
 export const DevCrossChain = docStory("/docs/developers/cross-chain");
+
+const search = (text: string): StoryObj["play"] => async ({ canvasElement }) => {
+  await userEvent.type(await within(canvasElement).findByRole("searchbox", { name: "Search the docs" }), text);
+};
+
+/** Typing "fees" in the header search opens the list of matching pages. */
+export const SearchResults: StoryObj = { ...docStory("/docs"), play: search("fees") };
+
+/** Typing something no page covers: "No page matches ...". */
+export const SearchNoResults: StoryObj = { ...docStory("/docs"), play: search("zzzqxv") };
