@@ -4,6 +4,27 @@ Program `holdem` `CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE` (Solana devnet, 
 
 Design basis: `docs/spikes/S1.md` (hidden Deck, private hole cards, settle round-trip) and ADR 0003. Code: `programs/holdem/src/{lib,state,engine,eval}.rs`. Client: `app/src/games/holdem/chain.ts`. Devnet driver: `programs/holdem/scripts/play.ts`.
 
+## Persistent tables (economy upgrade, ticket 12)
+
+The per-Match accounts, `create_match`, `delegate_match` and `close_match` below describe the program that ran until the upgrade; the devnet evidence further down was recorded on it. The program now plays Matches on **tables** that stay delegated to the TEE across Matches (`crates/table_kit`, protocol note `table-protocol.md`):
+
+| Step | Layer | Instruction | Who |
+|---|---|---|---|
+| bind a Match to a table and epoch (write-once) | base | `assign_match(generation, index, epoch)` | the operator |
+| start, hand the seats over, check in | TEE | `begin_match`, `seat_players`, `check_in` x2 | anyone, anyone, each Player |
+| each hand: secret, request, answer, deal | TEE | `contribute_entropy(secret)` x2, `request_vrf`, oracle callback, `deal` | each Player, anyone, the oracle, anyone |
+| betting and clock | TEE | `act`, `claim_timeout` | Player to act, anyone |
+| result | TEE then base | `commit_table` (once per result), `finalize` reads the committed ring | anyone |
+| between Matches | TEE | `wipe_seats`, `reset_table`, `release_slot`, `void_table`, `refill_sponsor`; `init_seats` once per table, `retire_seats` at retirement | the table scheduler (ticket 19t) |
+
+**No Deck.** Each Player's secret is written only to their own `Hole` seat (an ephemeral account behind a private permission) and frozen before the one VRF request of the hand. The program chooses the request input: table, Match, epoch, hand, request number and the hashes of both secrets. The oracle's callback must name the address `["vrfreq", table, request number]`, so an answer to any other request (a late one after a reset, a replay) is refused. The answer is split into a half per seat. `deal` derives the seed from both secrets, both halves, the table epoch, the Match, the hand, the request number and a 32-byte `ext_entropy` slot per seat (zero today; no instruction writes it), draws the nine cards of the hand with a partial Fisher-Yates shuffle, writes each Player's hole cards, stores the board as two XOR shares (one per seat) and zeroes every secret and half. Nothing holds the deck or the seed afterwards. One request is made per hand and never repeated: if the answer does not come within three extensions of the shuffle clock the hand is cancelled and both entries are refunded.
+
+**Seats never lapse.** Both seats are made once per table with no member, handed to the Match's Players by `seat_players` (before play) and zeroed and swapped back to no member by `wipe_seats` (after the Match). Only those instructions and `init_seats` / `retire_seats` reach the permission program; no Player move does, and a test reads the IDL to keep it so. No error code, log line or account size depends on a hidden card.
+
+**What is public afterwards.** The public table holds the board street by street, and the hole cards of a showdown. After a table leaves MagicBlock its transaction history can become readable, which would show every folded hand: the founder accepts that for now; the promise is "private while Players are playing".
+
+**Tested without the rollup** (`cargo test -p holdem`): byte scan of every account after `deal` for the seed, both secrets, both halves, the oracle output and the cards; stale or replayed callbacks refused; Match N+1 gets a different seed from identical inputs; shuffle chi-square over 100,000 seeds; share bytes uniform; table reuse with the ring kept until core's receipt; settle from the wrong table or epoch refused. **Devnet only** (ticket 24): the seat creation and swap CPIs, the VRF round trip with the marker account, the real commit and the delegated-table read in `finalize`, and the opponent / outsider read checks during a live Match.
+
 ## Flow and layers
 
 | Step | Layer | Instruction | Who |

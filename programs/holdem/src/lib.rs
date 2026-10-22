@@ -28,6 +28,9 @@ pub mod engine;
 pub mod eval;
 pub mod state;
 
+#[cfg(test)]
+mod keeper_fixtures;
+
 use anchor_lang::{prelude::*, system_program};
 use deal::{Contributions, HandContext};
 use ephemeral_rollups_sdk::{
@@ -566,7 +569,7 @@ pub mod holdem {
         ctx.accounts.hole_1.player = players[1];
         ctx.accounts.hole_0.exit(&ID)?;
         ctx.accounts.hole_1.exit(&ID)?;
-        for seat in 0..2usize {
+        for (seat, player) in players.into_iter().enumerate() {
             let (hole, permission) = if seat == 0 {
                 (&ctx.accounts.hole_0, &ctx.accounts.hole_0_permission)
             } else {
@@ -586,7 +589,7 @@ pub mod holdem {
                 },
                 table_seeds,
                 seat_seeds,
-                Some(players[seat]),
+                Some(player),
             )?;
         }
         ctx.accounts.table.seats_open = true;
@@ -777,9 +780,9 @@ pub mod holdem {
         let hand = table.game.hand_no;
         require!(table.game.phase == PHASE_SHUFFLE, HoldemError::WrongPhase);
         require!(
-            !table.req_pending
-                && !table.vrf_ready
-                && !(table.req_epoch == table.epoch && table.req_hand == hand),
+            !(table.req_pending
+                || table.vrf_ready
+                || (table.req_epoch == table.epoch && table.req_hand == hand)),
             HoldemError::AlreadyDealt
         );
         let holes = [&ctx.accounts.hole_0, &ctx.accounts.hole_1];
@@ -917,8 +920,7 @@ pub mod holdem {
         );
         let (cards, board) = deal::split_hand(&deal::draw_hand(&seed));
         let shares = deal::board_shares(&seed, &board);
-        for ((hole, hole_cards), share) in [&mut *h0, &mut *h1].into_iter().zip(cards).zip(shares)
-        {
+        for ((hole, hole_cards), share) in [&mut *h0, &mut *h1].into_iter().zip(cards).zip(shares) {
             hole.last_secret_hash = deal::secret_hash(&hole.secret);
             hole.spend_secrets();
             hole.cards = hole_cards;
@@ -1023,8 +1025,8 @@ pub mod holdem {
             table.phase == TABLE_WAITING || table.phase == TABLE_LIVE,
             HoldemError::WrongPhase
         );
-        let at = receipt_at(&ctx.accounts.receipt, &table.tesoro_match)
-            .ok_or(HoldemError::NoReceipt)?;
+        let at =
+            receipt_at(&ctx.accounts.receipt, &table.tesoro_match).ok_or(HoldemError::NoReceipt)?;
         require!(
             now >= at
                 .checked_add(RELEASE_DELAY_SECS)

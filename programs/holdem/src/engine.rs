@@ -114,12 +114,7 @@ impl GameMatch {
     }
 
     /// The hand is dealt and hole cards are in place: preflop betting begins.
-    pub fn on_dealt(
-        &mut self,
-        board: &[u8; 5],
-        holes: &[[u8; 2]; 2],
-        now: i64,
-    ) -> Result<()> {
+    pub fn on_dealt(&mut self, board: &[u8; 5], holes: &[[u8; 2]; 2], now: i64) -> Result<()> {
         require!(self.status == STATUS_LIVE, HoldemError::NotLive);
         require!(self.phase == PHASE_SHUFFLE, HoldemError::WrongPhase);
         self.phase = PHASE_PREFLOP;
@@ -221,12 +216,7 @@ impl GameMatch {
     }
 
     /// Betting on this street is done: return uncalled chips, then deal on or show down.
-    fn finish_street(
-        &mut self,
-        board: &[u8; 5],
-        holes: &[[u8; 2]; 2],
-        now: i64,
-    ) -> Result<()> {
+    fn finish_street(&mut self, board: &[u8; 5], holes: &[[u8; 2]; 2], now: i64) -> Result<()> {
         if self.bets[0] != self.bets[1] {
             let (high, low) = if self.bets[0] > self.bets[1] {
                 (0, 1)
@@ -392,12 +382,7 @@ impl GameMatch {
         Ok(())
     }
 
-    fn turn_timeout(
-        &mut self,
-        board: &[u8; 5],
-        holes: &[[u8; 2]; 2],
-        now: i64,
-    ) -> Result<()> {
+    fn turn_timeout(&mut self, board: &[u8; 5], holes: &[[u8; 2]; 2], now: i64) -> Result<()> {
         let seat = usize::from(self.to_act);
         self.missed[seat] = self.missed[seat].saturating_add(1);
         if self.missed[seat] >= MAX_MISSED {
@@ -518,7 +503,7 @@ mod tests {
         assert_eq!(m.to_act, 1);
         act(&mut m, &c, 1, Action::Check).unwrap();
         assert_eq!(m.phase, PHASE_FLOP);
-        assert_eq!(m.board[..3], c.0[4..7]);
+        assert_eq!(m.board[..3], c.0[..3]);
         assert_eq!(m.board[3], NO_CARD);
         assert_eq!(m.to_act, 1);
         assert_eq!(m.bets, [0, 0]);
@@ -783,11 +768,12 @@ mod tests {
         );
         let late = m.deadline + 1;
         assert!(
-            m.timeout([true, true], &c.0, &c.1, m.deadline).is_err(),
+            m.timeout(waiting([true, true]), &c.0, &c.1, m.deadline)
+                .is_err(),
             "not late yet"
         );
         // Seat 0 (small blind) faces 25: the timeout folds.
-        m.timeout([true, true], &c.0, &c.1, late).unwrap();
+        m.timeout(waiting([true, true]), &c.0, &c.1, late).unwrap();
         assert_eq!(m.last_result, 1);
         assert_eq!(m.hand_no, 2);
         assert_eq!(m.missed, [1, 0]);
@@ -802,7 +788,8 @@ mod tests {
         act(&mut m, &c2, 1, Action::Call).unwrap();
         // Seat 0 (BB) is late with a free check.
         let late = m.deadline + 1;
-        m.timeout([true, true], &c2.0, &c2.1, late).unwrap();
+        m.timeout(waiting([true, true]), &c2.0, &c2.1, late)
+            .unwrap();
         assert_eq!(m.phase, PHASE_FLOP);
         assert_eq!(m.missed, [2, 0]);
     }
@@ -818,7 +805,7 @@ mod tests {
         );
         m.missed = [2, 0];
         let late = m.deadline + 1;
-        m.timeout([true, true], &c.0, &c.1, late).unwrap();
+        m.timeout(waiting([true, true]), &c.0, &c.1, late).unwrap();
         assert_eq!(m.status, STATUS_OVER);
         assert_eq!(m.winner, 1);
     }

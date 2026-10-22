@@ -10,6 +10,7 @@
 
 use anchor_lang::prelude::Pubkey as APk;
 use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas};
+use holdem::{Action, Assignment, Hole, Table};
 use litesvm::LiteSVM;
 use solana_sdk::account::Account;
 use solana_sdk::clock::Clock;
@@ -22,7 +23,6 @@ use std::collections::HashMap;
 use tesoro_core::ledger::lifecycle::Stage;
 use tesoro_core::ledger::SourceChain;
 use tesoro_core::state::*;
-use holdem::{Action, Assignment, Hole, Table};
 
 #[path = "../../tesoro_core/tests/common/flow.rs"]
 mod flow;
@@ -750,10 +750,7 @@ impl Env {
     /// the account checks pass, and the CPI into it then fails (what a real commit does is
     /// devnet evidence): here the Game's own binary, which refuses a foreign program id.
     fn magic_shell(&mut self) {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../target/deploy/holdem.so"
-        );
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/holdem.so");
         self.svm
             .add_program_from_file(s(sdk_key(MAGIC_PROGRAM_ID)), path)
             .expect("magic shell");
@@ -924,9 +921,8 @@ impl Env {
     }
 
     fn request_ix(&self, payer: APk) -> Instruction {
-        let vrf_program = APk::new_from_array(
-            ephemeral_rollups_sdk::vrf::consts::VRF_PROGRAM_ID.to_bytes(),
-        );
+        let vrf_program =
+            APk::new_from_array(ephemeral_rollups_sdk::vrf::consts::VRF_PROGRAM_ID.to_bytes());
         ix(
             holdem::ID,
             holdem::accounts::RequestVrf {
@@ -962,11 +958,7 @@ impl Env {
     }
 
     /// The VRF program's callback: the scoped identity PDA signs, as the oracle's CPI makes it.
-    fn callback_with(
-        &mut self,
-        randomness: [u8; 32],
-        request: APk,
-    ) -> Result<(), Failed> {
+    fn callback_with(&mut self, randomness: [u8; 32], request: APk) -> Result<(), Failed> {
         let identity = APk::new_from_array(
             ephemeral_rollups_sdk::vrf::consts::scoped_vrf_identity(&holdem::ID).to_bytes(),
         );
@@ -1140,7 +1132,8 @@ impl Env {
             if self.table().game.status != holdem::STATUS_LIVE {
                 break;
             }
-            let randomness = solana_sdk::hash::hashv(&[b"rand", &self.secrets.to_le_bytes()]).to_bytes();
+            let randomness =
+                solana_sdk::hash::hashv(&[b"rand", &self.secrets.to_le_bytes()]).to_bytes();
             self.deal_hand(randomness).expect("deal");
             self.shove_and_call().expect("shove");
         }
@@ -1349,7 +1342,11 @@ fn the_speed_is_the_one_the_match_was_opened_with_and_two_is_refused() {
     env.seat_players_standin();
     env.check_in(0).unwrap();
     env.check_in(1).unwrap();
-    assert_eq!(env.table().game.small_blind, 50, "turbo blinds start at 50/100");
+    assert_eq!(
+        env.table().game.small_blind,
+        50,
+        "turbo blinds start at 50/100"
+    );
 
     let mut env = Env::new();
     env.speed = 2;
@@ -1389,8 +1386,8 @@ fn only_the_operator_assigns_once_and_only_to_a_real_table_slot() {
 fn an_open_match_nobody_joined_cannot_be_assigned() {
     let mut env = Env::new();
     let alice = dup(&env.alice);
-    let m = flow::open_match(&mut env.svm, &alice.kp, holdem::ID, 1_000, 5, false, 0)
-        .expect("open");
+    let m =
+        flow::open_match(&mut env.svm, &alice.kp, holdem::ID, 1_000, 5, false, 0).expect("open");
     env.tmatch = m.key;
     let err = env.assign(0, 0, 0).unwrap_err();
     assert_eq!(
@@ -1519,7 +1516,11 @@ fn both_players_check_in_and_the_second_one_starts_the_match() {
         (t.phase, t.checked_in),
         (holdem::TABLE_WAITING, [true, false])
     );
-    assert_eq!(t.game.status, holdem::STATUS_CREATED, "the clock has not started");
+    assert_eq!(
+        t.game.status,
+        holdem::STATUS_CREATED,
+        "the clock has not started"
+    );
     let secret = env.fresh_secret();
     assert_eq!(
         custom_code(&env.contribute(0, secret).unwrap_err()),
@@ -1531,7 +1532,12 @@ fn both_players_check_in_and_the_second_one_starts_the_match() {
     assert_eq!(t.phase, holdem::TABLE_LIVE);
     let g = t.game;
     assert_eq!(
-        (g.status, g.phase, g.hand_no, g.stacks[0] + g.stacks[1] + g.committed[0] + g.committed[1]),
+        (
+            g.status,
+            g.phase,
+            g.hand_no,
+            g.stacks[0] + g.stacks[1] + g.committed[0] + g.committed[1]
+        ),
         (holdem::STATUS_LIVE, SHUFFLE, 1, 2 * holdem::STARTING_CHIPS)
     );
     assert_eq!(g.deadline, T0 + 5 + holdem::ENTROPY_SECS);
@@ -1607,14 +1613,22 @@ fn contributing_touches_only_the_players_own_hole_and_reads_the_table() {
     );
 
     env.contribute(0, [1; 32]).unwrap();
-    assert_eq!(bytes_of(&env.table()), table_before, "the table is untouched");
+    assert_eq!(
+        bytes_of(&env.table()),
+        table_before,
+        "the table is untouched"
+    );
     let h = env.hole(0);
     assert!(h.contributed && h.secret == [1; 32] && h.hand_no == 1);
     assert_eq!(
         custom_code(&env.contribute(0, [9; 32]).unwrap_err()),
         dcode(AlreadyContributed)
     );
-    assert_eq!(env.hole(0).secret, [1; 32], "a second secret is not folded in");
+    assert_eq!(
+        env.hole(0).secret,
+        [1; 32],
+        "a second secret is not folded in"
+    );
 }
 
 #[test]
@@ -1716,7 +1730,11 @@ fn deal_writes_the_derived_hand_into_the_holes_and_nothing_public() {
     assert_ne!(h0.shares, want.board, "neither share is the board");
     assert_ne!(h1.shares, want.board);
     let g = env.table().game;
-    assert_eq!(g.board, [holdem::NO_CARD; 5], "nothing of the board is public");
+    assert_eq!(
+        g.board,
+        [holdem::NO_CARD; 5],
+        "nothing of the board is public"
+    );
     assert_eq!(g.phase, holdem::PHASE_PREFLOP);
     let mut seen = std::collections::HashSet::new();
     for c in want.holes.iter().flatten().chain(want.board.iter()) {
@@ -1762,7 +1780,7 @@ fn nothing_that_made_the_shuffle_survives_the_deal() {
                 continue;
             }
             // The board is public by design once a street is revealed; it is not yet.
-            if *name == "board" && key == hole_addr(t, 0) || *name == "board" && key == hole_addr(t, 1) {
+            if *name == "board" && (key == hole_addr(t, 0) || key == hole_addr(t, 1)) {
                 continue;
             }
             assert!(
@@ -1772,12 +1790,12 @@ fn nothing_that_made_the_shuffle_survives_the_deal() {
         }
     }
     // The Holes keep only the Players' own hole cards and one XOR share of the board each.
-    for seat in 0..2 {
+    for (seat, secret) in secrets.iter().enumerate() {
         let h = env.hole(seat);
         assert_eq!(h.secret, [0; 32]);
         assert_eq!(h.half, [0; 32]);
         assert!(!h.contributed && !h.half_set);
-        assert_eq!(h.last_secret_hash, holdem::deal::secret_hash(&secrets[seat]));
+        assert_eq!(h.last_secret_hash, holdem::deal::secret_hash(secret));
     }
 }
 
@@ -1853,7 +1871,9 @@ fn only_the_answer_to_the_outstanding_request_is_accepted_and_only_once() {
             hole_1: hole_addr(env.table, 1),
             request: env.marker(),
         },
-        holdem::instruction::VrfCallbackShuffle { randomness: [5; 32] },
+        holdem::instruction::VrfCallbackShuffle {
+            randomness: [5; 32],
+        },
         vec![],
     );
     assert!(env.rollup(ixn).is_err(), "not the VRF identity");
@@ -1873,7 +1893,10 @@ fn a_stale_answer_after_a_reset_or_on_a_new_hand_is_refused() {
         env.claim_timeout().unwrap();
     }
     let t = env.table();
-    assert_eq!((t.phase, t.game.status), (holdem::TABLE_OVER, holdem::STATUS_CANCELLED));
+    assert_eq!(
+        (t.phase, t.game.status),
+        (holdem::TABLE_OVER, holdem::STATUS_CANCELLED)
+    );
     assert!(!t.req_pending, "the request is abandoned with the Match");
     // The late answer arrives while the table is Over, then after the reset: refused both times.
     assert_eq!(
@@ -1973,7 +1996,10 @@ fn only_the_player_to_act_may_act_and_rules_are_enforced_on_chain() {
         dcode(CannotCheck)
     );
     assert_eq!(
-        custom_code(&env.act(first, Action::Raise { to: g.big_blind }).unwrap_err()),
+        custom_code(
+            &env.act(first, Action::Raise { to: g.big_blind })
+                .unwrap_err()
+        ),
         dcode(RaiseTooSmall)
     );
     env.act(first, Action::Call).expect("limp");
@@ -2017,10 +2043,18 @@ fn a_fold_wipes_the_hands_cards_and_shares_and_opens_the_next_shuffle() {
         let h = env.hole(seat);
         assert!(!h.dealt, "no hand in the seat");
         assert_eq!((h.cards, h.shares), ([0; 2], [0; 5]));
-        assert_eq!(h.player, env.person_of(seat).1, "the seat stays with its Player");
+        assert_eq!(
+            h.player,
+            env.person_of(seat).1,
+            "the seat stays with its Player"
+        );
     }
-    assert_eq!(t.game.last_showdown, false);
-    assert_eq!(t.game.last_shown, [[holdem::NO_CARD; 2]; 2], "a fold shows nothing");
+    assert!(!t.game.last_showdown);
+    assert_eq!(
+        t.game.last_shown,
+        [[holdem::NO_CARD; 2]; 2],
+        "a fold shows nothing"
+    );
 }
 
 #[test]
@@ -2098,13 +2132,20 @@ fn a_shove_and_call_decides_the_match_the_result_goes_into_the_ring_and_finalize
         (slot.state, slot.outcome),
         (
             table_kit::SLOT_DONE,
-            if w == 0 { table_kit::OUTCOME_WIN0 } else { table_kit::OUTCOME_WIN1 }
+            if w == 0 {
+                table_kit::OUTCOME_WIN0
+            } else {
+                table_kit::OUTCOME_WIN1
+            }
         )
     );
     assert_eq!(t.game.stacks[w], 2 * holdem::STARTING_CHIPS);
     env.commit_standin();
     let loser = 1 - w;
-    let before = (env.gemas(env.winner_person(w)), env.gemas(env.winner_person(loser)));
+    let before = (
+        env.gemas(env.winner_person(w)),
+        env.gemas(env.winner_person(loser)),
+    );
     env.finalize_start().expect("settle");
     let finalize_cu = env.last_cu;
     env.run_settlement();
@@ -2142,10 +2183,14 @@ fn the_second_seat_can_win_and_chips_are_conserved_in_every_hand() {
         while env.table().game.status == holdem::STATUS_LIVE {
             guard += 1;
             assert!(guard < 40);
-            env.deal_hand([round.wrapping_mul(17).wrapping_add(guard); 32]).unwrap();
+            env.deal_hand([round.wrapping_mul(17).wrapping_add(guard); 32])
+                .unwrap();
             env.shove_and_call().unwrap();
             let g = env.table().game;
-            assert_eq!(g.stacks[0] + g.stacks[1] + g.committed[0] + g.committed[1], 3_000);
+            assert_eq!(
+                g.stacks[0] + g.stacks[1] + g.committed[0] + g.committed[1],
+                3_000
+            );
         }
         if env.table().game.winner == 1 {
             env.commit_standin();
@@ -2176,7 +2221,10 @@ fn a_whole_match_of_short_hands_conserves_chips_and_settles_once() {
             env.act(first, Action::Fold).unwrap();
         }
         let g = env.table().game;
-        assert_eq!(g.stacks[0] + g.stacks[1] + g.committed[0] + g.committed[1], 3_000);
+        assert_eq!(
+            g.stacks[0] + g.stacks[1] + g.committed[0] + g.committed[1],
+            3_000
+        );
         // Seats are clean between hands.
         if g.status == holdem::STATUS_LIVE {
             for seat in 0..2 {
@@ -2186,7 +2234,10 @@ fn a_whole_match_of_short_hands_conserves_chips_and_settles_once() {
     }
     env.commit_standin();
     env.finalize().expect("settle");
-    assert!(env.finalize_start().is_err(), "core refuses a second settlement");
+    assert!(
+        env.finalize_start().is_err(),
+        "core refuses a second settlement"
+    );
 }
 
 #[test]
@@ -2195,7 +2246,10 @@ fn nobody_contributing_to_hand_one_is_a_no_show_that_costs_each_side_the_platfor
     env.past_deadline();
     env.claim_timeout().unwrap();
     let t = env.table();
-    assert_eq!((t.phase, t.game.status), (holdem::TABLE_OVER, holdem::STATUS_CANCELLED));
+    assert_eq!(
+        (t.phase, t.game.status),
+        (holdem::TABLE_OVER, holdem::STATUS_CANCELLED)
+    );
     assert_eq!(
         t.ring.find(&env.tmatch, 0).unwrap().1.outcome,
         table_kit::OUTCOME_NO_SHOW
@@ -2208,7 +2262,10 @@ fn nobody_contributing_to_hand_one_is_a_no_show_that_costs_each_side_the_platfor
         env.gemas(&env.bob) - before.1,
     );
     assert_eq!(ga, gb, "both sides pay the same");
-    assert!(ga < 1_000 && ga > 900, "each loses the Platform Fee only, got {ga}");
+    assert!(
+        ga < 1_000 && ga > 900,
+        "each loses the Platform Fee only, got {ga}"
+    );
 }
 
 #[test]
@@ -2272,7 +2329,10 @@ fn an_oracle_that_never_answers_ends_the_hand_in_a_refund_and_never_re_rolls() {
         );
         // Asking again is refused: one request per hand.
         let ixn = env.request_ix(a(env.oracle.pubkey()));
-        assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(AlreadyDealt));
+        assert_eq!(
+            custom_code(&env.rollup(ixn).unwrap_err()),
+            dcode(AlreadyDealt)
+        );
     }
     env.past_deadline();
     env.claim_timeout().unwrap();
@@ -2390,7 +2450,10 @@ fn a_settled_match_cannot_be_settled_again() {
     env.play_match_out();
     env.commit_standin();
     env.finalize().expect("settle");
-    assert!(env.finalize_start().is_err(), "core refuses a second settlement");
+    assert!(
+        env.finalize_start().is_err(),
+        "core refuses a second settlement"
+    );
 }
 
 #[test]
@@ -2921,10 +2984,7 @@ fn delegation_is_pinned_to_the_tee_validator() {
         vec![],
     );
     let err = env.send(&[delegate], &stranger, &[]).unwrap_err();
-    assert_eq!(
-        custom_code(&err),
-        dcode(holdem::HoldemError::NotOperator)
-    );
+    assert_eq!(custom_code(&err), dcode(holdem::HoldemError::NotOperator));
 }
 
 // --- Seats and permissions ------------------------------------------------------------------
@@ -3049,23 +3109,38 @@ fn seats_are_made_once_and_handed_on_only_between_matches() {
     assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(SeatsOpen));
     // A live Match's seats cannot be handed to anyone or wiped, by anyone.
     let ixn = seat_ix(&env, "seat", a(caller.pubkey()));
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(WrongPhase));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(WrongPhase)
+    );
     let ixn = seat_ix(&env, "wipe", a(caller.pubkey()));
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(WrongPhase));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(WrongPhase)
+    );
     // The Players cannot either.
     for seat in 0..2 {
         let (kp, key) = env.person_of(seat);
         for which in ["seat", "wipe", "retire"] {
             let ixn = seat_ix(&env, which, key);
-            assert!(env.send(&[ixn], &kp, &[]).is_err(), "{which} as seat {seat}");
+            assert!(
+                env.send(&[ixn], &kp, &[]).is_err(),
+                "{which} as seat {seat}"
+            );
         }
     }
     // Retiring needs the operator and an idle table.
     let op = env.operator_kp();
     let ixn = seat_ix(&env, "retire", a(op.pubkey()));
-    assert_eq!(custom_code(&env.send(&[ixn], &op, &[]).unwrap_err()), dcode(WrongPhase));
+    assert_eq!(
+        custom_code(&env.send(&[ixn], &op, &[]).unwrap_err()),
+        dcode(WrongPhase)
+    );
     let ixn = seat_ix(&env, "retire", a(caller.pubkey()));
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(NotOperator));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(NotOperator)
+    );
 }
 
 #[test]
@@ -3075,12 +3150,18 @@ fn seats_are_handed_over_only_when_blank_and_wiped_only_when_the_match_is_over()
     let caller = env.oracle.insecure_clone();
     // An idle table has no Match to seat.
     let ixn = seat_ix(&env, "seat", a(caller.pubkey()));
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(WrongPhase));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(WrongPhase)
+    );
     env.begin().unwrap();
     // A seat that still holds data is not handed on.
     env.patch_hole(0, |h| h.last_secret_hash = [9; 32]);
     let ixn = seat_ix(&env, "seat", a(caller.pubkey()));
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(SeatNotBlank));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(SeatNotBlank)
+    );
     env.patch_hole(0, |h| h.wipe());
     // Open seats are not handed again.
     env.seat_players_standin();
@@ -3088,7 +3169,10 @@ fn seats_are_handed_over_only_when_blank_and_wiped_only_when_the_match_is_over()
     assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(SeatsOpen));
     // Waiting is not over.
     let ixn = seat_ix(&env, "wipe", a(caller.pubkey()));
-    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(WrongPhase));
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(WrongPhase)
+    );
 }
 
 #[test]

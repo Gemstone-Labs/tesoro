@@ -63,14 +63,7 @@ pub fn request_seed(ctx: &HandContext, secret_hashes: &[[u8; 32]; 2]) -> [u8; 32
 
 /// The half of the oracle's output kept in seat `seat`. Neither half alone reveals the output.
 pub fn vrf_half(seat: u8, randomness: &[u8; 32], nonce: u64) -> [u8; 32] {
-    hashv(&[
-        DOMAIN,
-        b"half",
-        &[seat],
-        &nonce.to_le_bytes(),
-        randomness,
-    ])
-    .to_bytes()
+    hashv(&[DOMAIN, b"half", &[seat], &nonce.to_le_bytes(), randomness]).to_bytes()
 }
 
 /// What `deal` reads from the two seats.
@@ -178,15 +171,27 @@ mod tests {
         let base = derive_seed(&ctx(1, 1, 1), &contrib(1));
         assert_ne!(base, derive_seed(&ctx(2, 1, 1), &contrib(1)), "epoch");
         assert_ne!(base, derive_seed(&ctx(1, 2, 1), &contrib(1)), "hand");
-        assert_ne!(base, derive_seed(&ctx(1, 1, 2), &contrib(1)), "request number");
-        assert_ne!(base, derive_seed(&ctx(1, 1, 1), &contrib(2)), "contributions");
+        assert_ne!(
+            base,
+            derive_seed(&ctx(1, 1, 2), &contrib(1)),
+            "request number"
+        );
+        assert_ne!(
+            base,
+            derive_seed(&ctx(1, 1, 1), &contrib(2)),
+            "contributions"
+        );
         let mut other_match = ctx(1, 1, 1);
         other_match.tesoro_match = Pubkey::new_from_array([8; 32]);
         assert_ne!(base, derive_seed(&other_match, &contrib(1)), "match");
         let mut ext = contrib(1);
         ext.ext[1][0] = 1;
         assert_ne!(base, derive_seed(&ctx(1, 1, 1), &ext), "ext_entropy");
-        assert_eq!(base, derive_seed(&ctx(1, 1, 1), &contrib(1)), "deterministic");
+        assert_eq!(
+            base,
+            derive_seed(&ctx(1, 1, 1), &contrib(1)),
+            "deterministic"
+        );
     }
 
     #[test]
@@ -243,7 +248,10 @@ mod tests {
                     d * d / expected
                 })
                 .sum();
-            assert!(chi < 100.0, "position {pos}: chi-square {chi:.1} over 51 dof");
+            assert!(
+                chi < 100.0,
+                "position {pos}: chi-square {chi:.1} over 51 dof"
+            );
         }
     }
 
@@ -273,7 +281,10 @@ mod tests {
                 })
                 .sum();
             // 255 dof: the 0.1% critical value is 330.5.
-            assert!(chi < 360.0, "seat {seat} share: chi-square {chi:.1} over 255 dof");
+            assert!(
+                chi < 360.0,
+                "seat {seat} share: chi-square {chi:.1} over 255 dof"
+            );
         }
     }
 }
