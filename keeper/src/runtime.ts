@@ -108,7 +108,7 @@ export function newConnection(rpc: string, gpaRpc: string = rpc): Connection {
 
 export function buildRuntime(settings: Settings, conn: Connection, payer: Keypair): Runtime {
   const coreIdl = loadIdl("tesoro_core");
-  const bp = new BlockPuzzleChain({ base: conn, blockPuzzleIdl: loadIdl("block_puzzle"), coreIdl });
+  const bp = new BlockPuzzleChain({ base: conn, coreIdl });
   const holdem = new HoldemChain(loadIdl("holdem"), coreIdl, { base: conn });
   const burst = new BlockBurstChain(loadIdl("block_puzzle"), coreIdl, { base: conn });
   const duel = new TradingDuelChain(loadIdl("trading_duel"), coreIdl, { base: conn });

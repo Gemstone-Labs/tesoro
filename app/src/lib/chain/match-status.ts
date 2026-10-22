@@ -41,23 +41,20 @@ type Input = {
   status: "open" | "active" | "settled" | "refunded";
   game: "block-puzzle" | "holdem" | "trading-duel" | "vanguard";
   deadline: number;
-  session?: { deadline: number; openerDeadline: number } | null;
 };
 
 /**
  * Unix seconds after which an Active Match should have settled, never later than its refund deadline.
- * - Block Burst: both submission deadlines have passed, so `seal` and settle are open to anyone.
+ * - Block Burst and Hold'em: no fixed end exists in the Match state (the table is assigned at an unknown time), so only the
+ *   refund deadline counts.
  * - Trading Duel: the join, plus the start window, plus the Duel itself.
  * - Vanguard: the day the Match was assigned a table on, plus the start window, the setup window and the 15-minute cap. Until
  *   it is assigned the deadline is the hour after the join and only that counts, which needs `nowSecs`.
- * - Hold'em: no fixed end exists in the Match state, so only the refund deadline counts.
  */
-export function settleBy(m: Pick<Input, "game" | "deadline" | "session">, nowSecs = Number.NEGATIVE_INFINITY): number {
+export function settleBy(m: Pick<Input, "game" | "deadline">, nowSecs = Number.NEGATIVE_INFINITY): number {
   const core = m.deadline;
   let end: number;
-  if (m.game === "block-puzzle" && m.session && m.session.deadline > 0) {
-    end = Math.max(m.session.deadline, m.session.openerDeadline) + SETTLE_GRACE_SECS;
-  } else if (m.game === "trading-duel") {
+  if (m.game === "trading-duel") {
     end = core - CORE_WINDOW_SECS + DUEL_PLAY_SECS + SETTLE_GRACE_SECS;
   } else if (m.game === "vanguard" && core - nowSecs > VANGUARD_PUSHED_MIN_SECS) {
     end = core - VANGUARD_WINDOW_SECS + VANGUARD_PLAY_SECS + SETTLE_GRACE_SECS;

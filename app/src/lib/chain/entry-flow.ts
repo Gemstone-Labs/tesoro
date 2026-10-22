@@ -28,7 +28,6 @@ import {
   type MatchRef,
   type PotRef,
 } from "./entry";
-import { getChain } from "./client";
 import { GAME_IDS } from "./games";
 import { potNonce } from "./entry";
 import { prepareBackingTicket, prepareEntryTicket, type StagedEntry } from "./ticket";
@@ -40,9 +39,6 @@ export const matchRefOf = (key: string): MatchRef => {
   if (!k) throw new Error(`Not a Match key: ${key}`);
   return { opener: new PublicKey(k.opener), n: k.n };
 };
-
-/** Block Burst opens or joins its Session in the same transaction; no other Game does. */
-const withSession = (game: GameId) => game === "block-puzzle";
 
 /** What an entry will do, before any signature: read the stores of whoever funds it and plan the draw. */
 export async function planEntryFor(signer: PublicKey, entry: number, backing?: BackingRef): Promise<{ stores: EntryStores; preview: EntryPreview }> {
@@ -93,10 +89,8 @@ export async function openEntry(a: EntryArgs & { challenge: boolean; asset?: num
       const ixs: TransactionInstruction[] = [
         openMatchIx({ payer, player: a.signer.publicKey, game: a.game, entry: BigInt(a.entry), n, challenge: a.challenge, asset: a.asset ?? 0, pot, backing: a.backing, remaining }),
       ];
-      if (withSession(a.game)) ixs.push(await getChain().openSessionIx(payer, key, a.signer.publicKey));
       return ixs;
     },
-    { sponsorable: !withSession(a.game) },
   );
   return { key, sig };
 }
@@ -119,7 +113,7 @@ export async function joinEntry(a: EntryArgs & { key: string }): Promise<string>
   const join = joinMatchIx({ payer: relayer ?? a.signer.publicKey, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio, ref)] });
 
   // Grows need the relayer to sign, so they only travel in the sponsored transaction; sized to what it carries.
-  if (relayer && !withSession(a.game)) {
+  if (relayer) {
     const { earlier, main } = joinTransaction(true, relayer, needs, join);
     // the grows are best effort: a join is never refused for room, so a refused grow does not stop it
     for (const grows of earlier) await sendEntryTx(a.signer, a.getToken, async () => grows).catch(() => undefined);
@@ -129,16 +123,9 @@ export async function joinEntry(a: EntryArgs & { key: string }): Promise<string>
     });
     return r.sig;
   }
-  const r = await sendEntryTx(
-    a.signer,
-    a.getToken,
-    async (payer) => {
-      const ixs = [joinMatchIx({ payer, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio, ref)] })];
-      if (withSession(a.game)) ixs.push(await getChain().joinSessionIx(payer, a.key, me));
-      return ixs;
-    },
-    { sponsorable: false },
-  );
+  const r = await sendEntryTx(a.signer, a.getToken, async (payer) => [
+    joinMatchIx({ payer, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio, ref)] }),
+  ]);
   return r.sig;
 }
 

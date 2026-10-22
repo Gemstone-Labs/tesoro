@@ -8,7 +8,8 @@ import type { GameId } from "@/lib/mock/types";
 import { getChain, getHoldem, getTradingDuel } from "./client";
 import { gameOfProgram } from "./games";
 import { matchAddressOf, matchKeyOf, parseMatchKey } from "./match-id";
-import { battleOf, duelOf, holdemTableOf, sessionOf } from "./game-accounts";
+import { battleOf, duelOf, holdemTableOf } from "./game-accounts";
+import { burstSession, type BurstSession } from "./burst-read";
 import { canJoinSeat as seatsCanPair } from "./queue";
 import { fetchLeaderboardTerms } from "./leaderboard";
 import { leaderboardBpsFor } from "./season";
@@ -59,18 +60,8 @@ export interface ChainMatch {
   fees: { platformBps: number; studioBps: number; leaderboardBps: number };
   /** The winning seat of a finished Match (null for a draw, a refund or while unsettled). */
   winner: "opener" | "joiner" | null;
-  /** Block Burst: set as soon as the Match is opened (the opener plays before anyone is paired). */
-  session: {
-    settled: boolean;
-    joined: boolean;
-    result: "opener" | "joiner" | "draw";
-    scores: [number, number];
-    /** Zero until settlement: the Seed is hidden from everyone until their own run begins. */
-    seed: bigint;
-    /** Opener must begin before this; a joiner's deadline is `deadline` (zero until joined). */
-    openerDeadline: number;
-    deadline: number;
-  } | null;
+  /** Block Burst: the result and Seed of a finished Match, read from the table's result ring while it still holds them (null otherwise, and for refunds). */
+  session: BurstSession | null;
 }
 
 export interface MatchSide {
@@ -219,7 +210,7 @@ export function requireGame(game: PublicKey): GameId {
 export const matchKeyOfState = (state: any): string => matchKeyOf({ opener: pk(state.inner.id.opener).toBase58(), n: big(state.inner.id.n) });
 
 /** Anchor's decoded `MatchState` (camelCase) plus the finished game account that names the winner, as a ChainMatch. */
-export function toChainMatch(state: any, me: PublicKey | null, session: any | null, table: any | null = null): ChainMatch {
+export function toChainMatch(state: any, me: PublicKey | null, session: BurstSession | null, table: any | null = null): ChainMatch {
   const m = state.inner;
   const a = pk(m.a.player).toBase58();
   const b = m.b ? pk(m.b.player).toBase58() : null;
@@ -260,17 +251,7 @@ export function toChainMatch(state: any, me: PublicKey | null, session: any | nu
         : null,
     fees: { platformBps: m.terms.platformBps, studioBps: m.terms.studioBps, leaderboardBps: leaderboardBpsFor(openedAt) },
     winner: status === "settled" && table ? (table.winner === 0 ? "opener" : table.winner === 1 ? "joiner" : null) : null,
-    session: session
-      ? {
-          settled: session.settled,
-          joined: session.joined,
-          openerDeadline: Number(session.openerDeadline.toString()),
-          result: (["opener", "joiner", "draw"] as const)[session.result as number],
-          scores: (session.scores as number[]).map(Number) as [number, number],
-          seed: big(session.seed),
-          deadline: Number(session.deadline.toString()),
-        }
-      : null,
+    session,
   };
 }
 
@@ -291,8 +272,7 @@ export async function fetchMatch(id: string, me: PublicKey | null): Promise<Chai
   if (game === "holdem") return toChainMatch(state, me, null, finished ? await holdemTable(address) : null);
   if (game === "trading-duel") return toChainMatch(state, me, null, finished ? await duelAccount(address) : null);
   if (game === "vanguard") return toChainMatch(state, me, null, finished ? await battleOnBase(address) : null);
-  const session = await chain.bp.account.session.fetchNullable(sessionOf(address)).catch(() => null);
-  return toChainMatch(state, me, session);
+  return toChainMatch(state, me, finished ? await burstSession(address) : null);
 }
 
 /** A closed Match from the history route (its account no longer exists): the result, sides and Fees it settled with. */
@@ -346,7 +326,7 @@ export function chainMatchFromPage(p: MatchPage, me: PublicKey | null): ChainMat
     fees: { platformBps: 0, studioBps: 0, leaderboardBps: 0 },
     winner: p.winnerSide === 0 ? "opener" : p.winnerSide === 1 ? "joiner" : null,
     session: p.scores
-      ? { settled: settled || draw, joined: true, result: p.winnerSide === 0 ? "opener" : p.winnerSide === 1 ? "joiner" : "draw", scores: p.scores, seed: 0n, openerDeadline: 0, deadline: 0 }
+      ? { settled: settled || draw, result: p.winnerSide === 0 ? "opener" : p.winnerSide === 1 ? "joiner" : "draw", scores: p.scores, seed: 0n }
       : null,
   };
 }
@@ -436,11 +416,12 @@ export async function fetchAccountMatches(key: PublicKey): Promise<{ played: Cha
   const holdem = getHoldem().program;
   const duelProgram = getTradingDuel().program;
   const [sessions, tables, duels, battles] = await Promise.all([
-    gameAccounts(
-      mine.filter((m) => isGame("block-puzzle")(m)),
-      sessionOf,
-      (data) => chain.bp.coder.accounts.decode("session", data),
-    ),
+    // A finished Block Burst Match shows its scores while its table still holds them; one that is still live has no result yet.
+    (async () => {
+      const finished = mine.filter((m) => isGame("block-puzzle")(m) && closed(m));
+      const sessions = await Promise.all(finished.map((m) => burstSession(matchPda(pk(m.account.inner.id.opener), big(m.account.inner.id.n))).catch(() => null)));
+      return new Map(finished.flatMap((m, i) => (sessions[i] ? [[matchKeyOfState(m.account), sessions[i]] as const] : [])));
+    })(),
     gameAccounts(
       mine.filter((m) => isGame("holdem")(m) && closed(m)),
       holdemTableOf,
@@ -529,6 +510,8 @@ export interface QueueSeat {
   entry: number;
   /** Trading Duel asset index; 0 for the other Games. */
   asset: number;
+  /** The Match key (`<opener>-<n>`): Block Burst seats are counted only while their opener's presence lease is fresh. */
+  match?: string;
 }
 
 /** Open Queue Matches per Game, oldest first: who waits and at which entry (for the Lobby). One list read. `me` hides seats the viewer may not join. */
@@ -546,9 +529,10 @@ export async function queueSeats(): Promise<Record<GameId, QueueSeat[]>> {
       entry: Number(inner.entry.toString()),
       asset: game === "trading-duel" ? inner.meta.asset : 0,
       at: Number(big(inner.openedAt)),
+      match: matchKeyOfState(m.account),
     });
   }
-  const sorted = (seats: (QueueSeat & { at: number })[]) => seats.sort((x, y) => x.at - y.at).map(({ player, funder, entry, asset }) => ({ player, funder, entry, asset }));
+  const sorted = (seats: (QueueSeat & { at: number })[]) => seats.sort((x, y) => x.at - y.at).map(({ player, funder, entry, asset, match }) => ({ player, funder, entry, asset, match }));
   return { "block-puzzle": sorted(out["block-puzzle"]), holdem: sorted(out.holdem), "trading-duel": sorted(out["trading-duel"]), vanguard: sorted(out.vanguard) };
 }
 

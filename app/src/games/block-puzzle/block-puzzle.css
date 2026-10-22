@@ -30,6 +30,12 @@
 .bpx-status p { font-size: var(--fs-15); color: var(--fg-2); }
 .bpx-finding { display: inline-flex; align-items: center; gap: 10px; margin-top: 10px; font-size: var(--fs-13); color: var(--fg-2); }
 .bpx-spin { width: 28px; height: 28px; border: 3px solid rgba(234, 239, 236, 0.16); border-top-color: var(--fg); border-radius: 50%; animation: bpx-spin 1s linear infinite; }
+.bpx-opp { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 0; }
+.bpx-opp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-13); font-weight: 600; color: var(--fg); }
+.bpx-opp-line { margin-left: auto; flex: none; font-size: var(--fs-15); color: var(--fg-2); }
+.bpx-opp-line.q { font-size: 22px; line-height: 1; color: var(--fg); }
+.bpx-opp-q { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%; background: rgba(234, 239, 236, 0.08); color: var(--fg-2); }
+.bpx-opp.k-gone .bpx-opp-line { color: var(--warn, #ffb43a); }
 @keyframes bpx-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .bpx-spin { animation-duration: 3s; } }
 .bpx-seed { color: var(--fg-2); font-size: var(--fs-12); }

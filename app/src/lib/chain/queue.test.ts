@@ -30,7 +30,7 @@ function match(id: string, over: Partial<ChainMatch> = {}): ChainMatch {
     backing: null,
     fees: { platformBps: 0, studioBps: 0, leaderboardBps: 0 },
     winner: null,
-    session: { settled: false, joined: false, result: "draw", scores: [0, 0], seed: 0n, openerDeadline: NOW / 1000 + 3600, deadline: 0 },
+    session: null,
     ...over,
   };
 }
@@ -59,6 +59,15 @@ function world(opts: { list: string[]; matches: Map<string, ChainMatch>; settle?
   };
   return { deps, calls };
 }
+
+describe("queueEntry for Block Burst Live", () => {
+  it("joins an open Match that has no Session: the table is chosen after the join, so nothing else marks it playable", async () => {
+    const matches = new Map([[A, match(A, { session: null })]]);
+    const { deps, calls } = world({ list: [A], matches });
+    await expect(queueEntry(deps)).resolves.toEqual({ id: A, via: "joined" });
+    expect(calls).toEqual(["unfinished", `join ${A}`]);
+  });
+});
 
 describe("queueEntry (OC-04)", () => {
   it("a join that timed out but landed continues in that Match and never opens a second", async () => {

@@ -15,39 +15,35 @@ const NOW = 1_800_000_000_000;
 const prefs: NotifyPrefs = { email: "p@example.com", verified: true, enabled: true };
 
 const events: NotifyEvent[] = [
-  { kind: "opponent-played", id: "1", authority: A, matchId: "9", game: "block-puzzle" },
   { kind: "match-delayed", id: "2", authority: A, matchId: "9", game: "trading-duel", refundBy: 1_800_003_540, refundOpen: false },
   { kind: "match-refunded", id: "3", authority: A, matchId: "9", game: "holdem", entry: 500 },
   { kind: "offer-made", id: "4", authority: A, offerId: "o1", game: "block-puzzle", entry: 1000 },
   { kind: "offer-accepted", id: "5", authority: A, offerId: "o1", game: "block-puzzle", entry: 1000 },
   { kind: "debt-cleared", id: "6", authority: A, positionId: "p1", asset: "SOL" },
   { kind: "season-placed", id: "7", authority: A, season: 2, rank: 3, gemas: 1250 },
-  { kind: "opponent-played", id: "8", authority: A, matchId: "9", game: "vanguard" },
 ];
 
 describe("who gets what for each event", () => {
   it("sends each event to its Player in plain words", () => {
     const subjects = events.map((e) => decide(e, prefs, 0).emails[0]);
     expect(subjects.map((m) => m.subject)).toEqual([
-      "Your opponent has played your Block Burst Match",
       "Your Trading Duel Match is delayed",
       "Your Hold'em Match was refunded",
       "A Backer made you an Offer",
       "A Player accepted your Offer",
       "Your Advance is paid back",
       "You placed 3rd in Season 2",
-      "Your opponent has played your Vanguard Match",
     ]);
     expect(subjects.every((m) => m.to === "p@example.com")).toBe(true);
-    expect(subjects[2].text).toContain("entry of 500 Gemas is back");
-    expect(subjects[5].text).toContain("Unlock it or take another Advance");
-    expect(subjects[6].text).toContain("won 1,250 Gemas from the Pool");
+    expect(subjects[1].text).toContain("entry of 500 Gemas is back");
+    expect(subjects[4].text).toContain("Unlock it or take another Advance");
+    expect(subjects[5].text).toContain("won 1,250 Gemas from the Pool");
   });
 
   it("the Delayed email carries the refund deadline, or says the refund is open", () => {
-    const wait = say(events[1]);
+    const wait = say(events[0]);
     expect(wait.body).toContain("refunded by Fri, Jan 15, 8:59 am UTC");
-    const open = say({ ...(events[1] as Extract<NotifyEvent, { kind: "match-delayed" }>), refundOpen: true });
+    const open = say({ ...(events[0] as Extract<NotifyEvent, { kind: "match-delayed" }>), refundOpen: true });
     expect(open.body).toContain("refund is open now");
     expect(open.body).not.toContain("UTC");
   });
@@ -62,9 +58,9 @@ describe("who gets what for each event", () => {
 
   it("takes every Game the app plays from the keeper and refuses any other", () => {
     for (const game of ["block-puzzle", "holdem", "trading-duel", "vanguard"]) {
-      expect(parseEvents({ events: [{ kind: "opponent-played", authority: A, matchId: "9", game }] })[0]).toMatchObject({ game });
+      expect(parseEvents({ events: [{ kind: "match-delayed", authority: A, matchId: "9", refundBy: 1, refundOpen: false, game }] })[0]).toMatchObject({ game });
     }
-    expect(() => parseEvents({ events: [{ kind: "opponent-played", authority: A, matchId: "9", game: "toString" }] })).toThrow();
+    expect(() => parseEvents({ events: [{ kind: "match-delayed", authority: A, matchId: "9", refundBy: 1, refundOpen: false, game: "toString" }] })).toThrow();
   });
 
   it("ranks read as 1st 2nd 3rd 4th 11th 21st", () => {
