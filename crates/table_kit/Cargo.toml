@@ -1,0 +1,20 @@
+[package]
+name = "table_kit"
+version = "0.1.0"
+edition = "2021"
+description = "Persistent-table protocol pieces shared by Tesoro's table Games (result ring, receipts, committed-table reads, sponsor commits, private seats)."
+
+[lib]
+name = "table_kit"
+
+[features]
+default = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "0.31.1" }
+ephemeral-rollups-sdk = { version = "=0.16.2", features = ["anchor-compat", "access-control"] }
+tesoro_core = { path = "../../programs/tesoro_core", features = ["cpi"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

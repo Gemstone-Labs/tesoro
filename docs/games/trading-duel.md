@@ -2,7 +2,7 @@
 
 Program `trading_duel` `CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj` (Solana devnet, upgradeable). Two Players watch one live price for two and a half minutes on a price grid, in a MagicBlock Private Ephemeral Rollup (TEE). For each column of the grid a Player picks one box; the line passing through it scores 100 points. More points takes the Pot minus Fees through tesoro_core; equal points refunds both entries.
 
-Code: `programs/trading_duel/src/{lib,state,engine}.rs`. Rules in TypeScript: `app/src/games/trading-duel/grid.ts`. Client: `app/src/games/trading-duel/chain.ts`. Registered in tesoro_core with studio_bps 300 and the `["authority"]` PDA `mPXSGjpEeSeJnmrBw3CKCoLbbftAsjsbiP1eE3wHcoe` (no tesoro_core change was needed, as for Hold'em).
+Code: `programs/trading_duel/src/{lib,state,engine}.rs`, table protocol pieces in `crates/table_kit`. Rules in TypeScript: `app/src/games/trading-duel/grid.ts`. Client: `app/src/games/trading-duel/chain.ts`. Registered in tesoro_core with studio_bps 300 and the `["authority"]` PDA `mPXSGjpEeSeJnmrBw3CKCoLbbftAsjsbiP1eE3wHcoe` (no tesoro_core change was needed, as for Hold'em).
 
 ## Rules
 
@@ -12,9 +12,9 @@ Code: `programs/trading_duel/src/{lib,state,engine}.rs`. Rules in TypeScript: `a
 - **Head start:** the line enters column 0 `HEAD_START_SECS` = 30 s after the Match starts. The Match ends `grid_at + 120 s` = 150 s after it starts.
 - **Picks:** each Player picks one band per column with `set_pick(column, band)` (any `i16`), and can change or clear it (`band = NO_PICK`) for free until the column locks. It records no price sample.
 - **Lock:** column `c` locks `LOCK_AHEAD_SECS` = 10 s before its window starts, which is when the column before it goes live. Picks for `c` are accepted while `now < lock(c)`.
-- **Hidden until locked:** a pick lives in its Player's own Book. When a column locks, both picks for it are copied into the public `Duel.revealed`.
+- **Hidden until locked:** a pick lives in its Player's own Book. When a column locks, both picks for it are copied into the public `Table.revealed`.
 - **Hit:** a pick hits column `c` if the recorded prices of the column (its low and high, including the price where the line entered the column) include the pick's band: `band_of(low) <= band <= band_of(high)`. A hit scores `HIT_POINTS` = 100. A column without a pick scores nothing.
-- **Result:** more points wins; equal points (including nobody picking) is a draw and both entries are refunded. A no-show (never started) refunds as well.
+- **Result:** more points wins; equal points is a draw and both entries are refunded. If both Players checked in and neither picked at all, the Match is a no-show: each side pays the Platform Fee and gets the rest of its entry back. A Match whose Players did not both check in before the start deadline refunds exactly.
 
 The exact column range rules (carry-over of the entry price, columns with no sample, the closing sample) are written in `engine.rs` (`Track::record`, `finish`, `hits`) and mirrored in `grid.ts`. Both are tested against one shared fixture, `programs/trading_duel/tests/fixtures/grid-vectors.json`, so they cannot drift.
 
@@ -44,27 +44,41 @@ Layout (a Pyth `PriceUpdateV2` image, 134 bytes): feed id at 41 (equals the acco
 
 ## Accounts and ids
 
-| Account | Seeds | Visibility during the Match |
-|---|---|---|
-| `Duel` | `["duel", match_id_le]` | public (a non-private permission): anchor, step, times, the price range of each column (`track`), `revealed` picks of locked columns, `scores`, `winner` |
-| `Book` x2 | `["book", duel, seat]` | private to its Player: `picks[12]` (`i16` bands), `pick_count` |
+Matches run on persistent tables that stay delegated to MagicBlock's TEE (design: `table-protocol.md` in the economy-upgrade notes; shared code: `crates/table_kit`). Nothing is created or delegated per Match.
 
-The tesoro_core Match id is `ms * 8 + asset * 2 + challenge`: bit 0 marks a Challenge (as for every Game), bits 1 and 2 are the asset (0 SOL, 1 ETH, 2 HYPE). `create_match` reads the asset from the id, so nobody can change it, and the Queue filters on it.
+| Account | Seeds | Where | Visibility |
+|---|---|---|---|
+| `TableConfig` | `["config"]` | base | the operator, the current table generation, the table cap (set by the upgrade authority) |
+| `Sponsor` | `["sponsor"]` | delegated once | pays commits as the fee payer |
+| `Fuel` | `["fuel", n]` | delegated | reserves the operator empties into the Sponsor in the rollup |
+| `Table` | `["table", generation u16 LE, index u16 LE]` | delegated once, never undelegated | public: epoch, phase, the Match on it, anchor, step, times, the price range of each column (`track`), `revealed` picks of locked columns, `scores`, `winner`, and the result ring |
+| `Assignment` | `["assign", tesoro_match]` | base | binds one tesoro_core Match to one table and epoch, once; Players and asset are copied from the Match |
+| `Book` x2 | `["book", table, seat]` | ephemeral, in the rollup | private to its Player (`picks[12]`, `pick_count`); created when the seats open, closed when the Match is over |
+
+The asset is carried in the tesoro_core Match (`meta.asset`), so nobody can change it, and the Queue filters on it.
+
+The **result ring** keeps the outcome of the last 8 finished Matches (Win0, Win1, Draw, NoShow) in the table until tesoro_core has frozen the Match; only then is the slot freed (`release_slot`, on core's settlement receipt). `finalize` reads only the ring, so resetting the table can never lose a result.
 
 ## Flow
 
 | Step | Layer | Instruction | Who |
 |---|---|---|---|
 | open / join | base | tesoro_core `open_match`, `join_match` (game = this program id) | the two Players |
-| bind | base | `create_match(match_id)` | either Player |
-| delegate | base | `delegate_match` | anyone |
-| permissions + start | TEE | `init_permissions` (reads the start price, sets the anchor and step, starts the head start) | anyone |
+| assign | base | `assign_match(generation, index, epoch)`: copies Players and asset, fixes the start deadline, holds core's refund timer 24 h | the operator |
+| begin | TEE | `begin_match`: only at the assigned table and epoch, only while the core Match is Active; reserves a ring slot | anyone |
+| seats | TEE | `open_seats`: creates both Books behind private permissions | anyone |
+| check in | TEE | `check_in`; the second Player starts the Match (anchor price read, head start begins) | the Players |
 | pick | TEE | `set_pick(column, band)` | the Player |
-| sample and reveal | TEE | `tick` (about four times a second during the grid: records the price, reveals locked columns, scores finished ones) | anyone |
-| end | TEE | `end_match` | anyone, after the window |
-| cancel | TEE | `claim_timeout` (delegated, never started, past `start_deadline`) | anyone |
-| commit | TEE | `close_match` (closes permissions, commit + undelegate), or `close_unstarted` for a cancelled Duel (it never had permissions) | anyone |
-| settle | base | `finalize` (CPI `settle_match`, or `refund_match` for a draw or cancel) | anyone |
+| sample and reveal | TEE | `tick` (about four times a second during the grid) | anyone |
+| end | TEE | `end_match`: writes the result into the ring slot; both Players picked nothing = no-show | anyone, after the window |
+| no check-in | TEE | `expire_start`: past the start deadline, records a refund | anyone |
+| commit | TEE | `commit_table`: once per result, paid by the Sponsor | anyone |
+| close seats, reset | TEE | `close_seats`, then `reset_table` (committed, seats closed, 30 s after the end): wipes the Match, epoch + 1, ring kept | anyone |
+| settle | base | `finalize`: reads the committed table, then CPI `settle_match`, `refund_match` (draw) or `NoShow` | anyone |
+| free slot | TEE | `release_slot` (core's receipt, 60 s old), `void_table` (core already refunded a Match the table never finished) | anyone |
+| close assignment | base | `close_assignment` (after the receipt) | anyone |
+
+Without a result, `finalize` refunds only when the committed table has moved past the Assignment's epoch without the Match; otherwise a stuck Match refunds at tesoro_core's own deadline.
 
 Picks are signed by the Account's wallet signer without a prompt (embedded or dev wallet), as in Hold'em; there is no separate session key. Both Players' apps and the keeper call `tick`.
 
@@ -76,6 +90,6 @@ Picks are signed by the Account's wallet signer without a prompt (embedded or de
 
 ## Verification
 
-`cargo test -p trading_duel`: engine unit tests against the shared fixture plus LiteSVM tests against the real `trading_duel.so` and `tesoro_core.so` (picks before and after the lock, reveal on lock, sampling, `end_match` then `finalize` paying the winner or refunding a draw, a non-player refused). LiteSVM has no delegation or permission programs, so `init_permissions` and `close_match` are stood in for by writing the state they produce. `app/src/games/trading-duel/grid.test.ts` runs the same fixture.
+`cargo test -p trading_duel` (engine unit tests against the shared fixture plus 48 LiteSVM tests against the real `trading_duel.so` and `tesoro_core.so`: a table reused for several Matches with every result settled from the ring after resets, wrong table, owner and epoch refused, a stale commit never refunding a win, slot release only on core's receipt, void and reset rules, one commit per result) and `cargo test -p table_kit`. LiteSVM has no delegation, ephemeral-account, permission or commit programs: `open_seats`, `close_seats`, the commit and delegation are stood in for by writing the state they produce. `app/src/games/trading-duel/grid.test.ts` runs the same fixture.
 
-The grid version of the program has not been deployed to devnet yet; the earlier leveraged version's devnet evidence was removed with it.
+Devnet evidence for the tables (real delegation, commits through the Sponsor, ephemeral Books, the delegated-table read in `finalize`) is part of the economy-upgrade deploy ticket; the program has not been deployed.
