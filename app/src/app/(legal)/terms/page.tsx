@@ -150,6 +150,7 @@ export default function Terms() {
             comes back to us when the storage is no longer needed.
           </li>
           <li>Results are decided by the Game&apos;s program. For Games with a shared Seed, a score counts only as the server&apos;s replay of your inputs.</li>
+          <li>In Block Burst, a paired Player who does not check in loses that Match.</li>
           <li>You are playing other people, not us. We do not guarantee that an opponent will be found, will finish, or will play fairly.</li>
           <li>{BRAND.name} is not a casino, a sportsbook or a lottery. We do not offer games against the house.</li>
         </ul>
