@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui";
+import { TurnstileField } from "@/components/waitlist/TurnstileField";
 import { checkApplication } from "@/lib/listing/apply";
 
 const FIELDS = [
@@ -23,7 +24,7 @@ export function ApplyForm() {
     if (!checked.ok) return setState({ kind: "error", text: checked.error });
     setState({ kind: "sending" });
     try {
-      const res = await fetch("/api/listing/apply", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(checked.value) });
+      const res = await fetch("/api/listing/apply", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...checked.value, turnstile: new FormData(e.currentTarget as HTMLFormElement).get("cf-turnstile-response") ?? "" }) });
       const json = await res.json().catch(() => ({}));
       setState(res.ok ? { kind: "done", text: json.message } : { kind: "error", text: json.error ?? "That didn’t go through. Try again in a moment." });
     } catch {
@@ -44,6 +45,7 @@ export function ApplyForm() {
         <span>What is your Game? (optional)</span>
         <textarea rows={4} maxLength={600} value={v.blurb ?? ""} onChange={(e) => setV({ ...v, blurb: e.target.value })} />
       </label>
+      <TurnstileField resetKey={state} />
       {state.kind === "error" && <p role="alert">{state.text}</p>}
       <Button variant="money" type="submit" disabled={state.kind === "sending"}>
         {state.kind === "sending" ? "Sending…" : "Apply for free"}
