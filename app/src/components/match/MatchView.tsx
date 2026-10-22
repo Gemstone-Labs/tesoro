@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Notice } from "@/components/ui";
 import { BlockPuzzleGame } from "@/games/block-puzzle/BlockPuzzleGame";
-import { ELSEWHERE_LINE, QUEUE_SIT_LINE, QUEUE_STAY_LINE, WAIT_CLOCK_LINE, needTableLine, resultLine } from "@/games/block-puzzle/burst-copy";
+import { ELSEWHERE_LINE, QUEUE_SIT_LINE, QUEUE_STAY_LINE, needTableLine, resultLine } from "@/games/block-puzzle/burst-copy";
 import { CHECKIN_SECS } from "@/games/block-puzzle/live-chain";
 import { getReadySecs, slotNow } from "@/games/block-puzzle/live-clock";
 import { stripOf } from "@/games/block-puzzle/opponent";
@@ -74,7 +74,6 @@ export function MatchView({ matchId }: { matchId: string }) {
           matchPanel={
             <div className="bpx-status">
               <BurstOpponentStrip account={m.opponent} state={strip} />
-              {view.ownOver && <p>{WAIT_CLOCK_LINE}</p>}
               {view.reconnecting && <p className="note">Reconnecting…</p>}
               {view.error && <p className="status err" role="alert">{view.error}</p>}
             </div>

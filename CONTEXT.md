@@ -115,7 +115,7 @@ The Gemas entered into one Match, held in escrow until settlement. The winner re
 _Avoid_: prize pool, jackpot (the Leaderboard Pool is a different thing)
 
 **Queue**:
-The waiting line for one game at one entry size, where Players are paired with the next entrant. In the async game a Player may play before an opponent is paired, so an unpaired Block Burst entry waits 24 hours for an opponent before it can be refunded; a live-game entry (Hold'em, Trading Duel, Vanguard) waits 1 hour.
+The waiting line for one game at one entry size, where Players are paired with the next entrant. Block Burst is live too: the opener sits first and the Match starts when someone joins. While an opener waits, their page tells the Queue it is there (a presence lease); a Match whose opener has been gone for 30 seconds is skipped by the Queue and the Play now count (Challenges ignore it).
 _Avoid_: lobby, matchmaking pool
 
 **Challenge**:

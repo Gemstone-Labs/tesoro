@@ -30,6 +30,12 @@ function blockPuzzle(state: MatchState, burst: ScreenData["burst"], o: Parameter
   return { render: () => <MatchView matchId={m.id.toString()} />, parameters: { ...route(m), spectated: m, screen: { burst: { match: m, seat: m.seat, ...burst } } }, ...extra };
 }
 
+/** A Block Burst Match that ended before any scores existed (a check-in loss, a refund): the result has none. */
+function noScores(state: MatchState, reason: number | null): Story {
+  const m = { ...chainMatch("block-puzzle", state), session: null, winner: state === "won" ? ("opener" as const) : state === "lost" ? ("joiner" as const) : null };
+  return { render: () => <MatchView matchId={m.id.toString()} />, parameters: { ...route(m), spectated: m, screen: { burst: { stage: "settled", match: m, seat: m.seat, reason } } } };
+}
+
 /** A Block Burst Match at one stage of the table. */
 function table(kind: Parameters<typeof burstView>[0], state: MatchState = "active", o: Parameters<typeof chainMatch>[2] = {}, extra: Partial<Story> = {}): Story {
   const m = chainMatch("block-puzzle", state, o);
@@ -88,14 +94,14 @@ export const BlockPuzzleWon = blockPuzzle("won", { stage: "settled", reason: 1 }
 export const BlockPuzzleLost = blockPuzzle("lost", { stage: "settled", reason: 1 });
 export const BlockPuzzleDraw = blockPuzzle("draw", { stage: "settled", reason: 8 });
 /** The opponent never checked in: you won. */
-export const BlockPuzzleWonOpponentAbsent = blockPuzzle("won", { stage: "settled", reason: 2 });
+export const BlockPuzzleWonOpponentAbsent = noScores("won", 2);
 /** You never checked in: the Match went to your opponent. */
-export const BlockPuzzleLostNotCheckedIn = blockPuzzle("lost", { stage: "settled", reason: 2 });
+export const BlockPuzzleLostNotCheckedIn = noScores("lost", 2);
 /** Nobody checked in: both entries are back. */
-export const BlockPuzzleRefundedNobodyCheckedIn = blockPuzzle("refunded", { stage: "settled", reason: 3 });
+export const BlockPuzzleRefundedNobodyCheckedIn = noScores("refunded", 3);
 /** The rollup stopped mid-Match: void, both entries are back. */
-export const BlockPuzzleVoid = blockPuzzle("refunded", { stage: "settled", reason: 5 });
-export const BlockPuzzleRefunded = blockPuzzle("refunded", { stage: "settled", reason: null });
+export const BlockPuzzleVoid = noScores("refunded", 5);
+export const BlockPuzzleRefunded = noScores("refunded", null);
 export const BlockPuzzleWonBacked = blockPuzzle("won", { stage: "settled", reason: 1 }, { backing: "player" });
 export const BlockPuzzleBackerWatching = blockPuzzle("active", { stage: "backer" }, { backing: "backer" });
 export const BlockPuzzleBackerWon = blockPuzzle("won", { stage: "settled", reason: 1 }, { backing: "backer" });

@@ -24,8 +24,6 @@ export function resultLine(reason: number | null, outcome: Outcome): string | nu
       return "Both of you were here but nobody played, so the Match didn’t count.";
     case REASON.trivial:
       return "Equal scores with under 5 moves each don’t count as a game.";
-    case REASON.draw:
-      return "Equal scores: both entries are back.";
     default:
       return null;
   }
@@ -33,9 +31,6 @@ export function resultLine(reason: number | null, outcome: Outcome): string | nu
 
 /** While there is no table yet: where the entry is safe, and until when. */
 export const needTableLine = (refundBy: string) => `We’re finding you a table. If none starts, your entry comes back by ${refundBy}.`;
-
-/** The Match is waiting for the clock after your run ended early. */
-export const WAIT_CLOCK_LINE = "Your run is over. Waiting for the clock.";
 
 /** A second tab is already playing this Match for you. */
 export const ELSEWHERE_LINE = "This Match is being played in another tab.";

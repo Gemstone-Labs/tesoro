@@ -13,10 +13,10 @@ describe("Block Burst result lines", () => {
     expect(resultLine(REASON.void, "refunded")).toMatch(/stopped/);
     expect(resultLine(REASON.noShow, "refunded")).toMatch(/nobody played/);
     expect(resultLine(REASON.trivial, "refunded")).toMatch(/under 5 moves/);
-    expect(resultLine(REASON.draw, "draw")).toMatch(/Equal scores/);
   });
   it("says nothing extra for an ordinary result or an unknown reason", () => {
     expect(resultLine(REASON.played, "won")).toBeNull();
+    expect(resultLine(REASON.draw, "draw")).toBeNull();
     expect(resultLine(null, "lost")).toBeNull();
   });
   it("tells the opener to stay, and tells a Player with no table when the entry comes back", () => {
