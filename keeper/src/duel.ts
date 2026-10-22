@@ -69,7 +69,7 @@ export async function tradingDuel(ctx: Ctx, id: bigint, m: any, st: string, subj
       log("match", subject, `${tag} wait: no Duel yet, refundable ${when(deadline, now)}`);
       return 0;
     }
-    return +(await refund(ctx, id, subject, st === "open" ? "no opponent before deadline" : "no Duel before deadline")).ok;
+    return +(await refund(ctx, m, subject, st === "open" ? "no opponent before deadline" : "no Duel before deadline")).ok;
   }
 
   if (info.owner.equals(TRADING_DUEL_PROGRAM_ID)) {
@@ -77,7 +77,7 @@ export async function tradingDuel(ctx: Ctx, id: bigint, m: any, st: string, subj
     commits.clear(subject);
     const step = duelStep(d, "base", now, deadline);
     if (step.do === "finalize") return +(await act(ctx, "match", subject, `finalize (${step.why})`, () => ctx.duel.finalize(ctx.hsigner, id))).ok;
-    if (step.do === "refund") return +(await refund(ctx, id, subject, step.why)).ok;
+    if (step.do === "refund") return +(await refund(ctx, m, subject, step.why)).ok;
     log("match", subject, `${tag} wait: ${step.why}`);
     return 0;
   }

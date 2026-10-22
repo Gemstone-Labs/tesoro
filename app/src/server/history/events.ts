@@ -1,7 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
-import coreIdl from "@/lib/chain/idl/tesoro_core.json";
+import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 
 const CORE = new PublicKey((coreIdl as { address: string }).address);
 const EVENT_AUTHORITY = PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], CORE)[0].toBase58();

@@ -5,6 +5,8 @@ use anchor_lang::prelude::*;
 pub mod books;
 pub mod error;
 pub mod instructions;
+#[cfg(test)]
+mod keeper_fixtures;
 pub mod ledger;
 pub mod pots;
 pub mod pyth;

@@ -81,6 +81,12 @@ export function conditionsOf(s: Snapshot, cfg: AlertConfig, nowMs: number): Cond
   return out;
 }
 
+/** Conditions a job raises itself (a Game whose code changed under its listing): active until the job clears them. */
+const raisedByJobs = new Map<string, Condition>();
+export const raise = (c: Condition) => void raisedByJobs.set(c.key, c);
+export const clearRaised = (key: string) => void raisedByJobs.delete(key);
+export const raisedConditions = (): Condition[] => [...raisedByJobs.values()];
+
 export type AlertKind = "alert" | "reminder" | "recovered";
 
 /** What the app's /api/notify/alert route takes. */
