@@ -45,9 +45,9 @@ export function gameFacts(rows: HistoryRow[]): Partial<Record<GameId, GameFacts>
   return out;
 }
 
-/** Players waiting at each entry of a Game's Queue, not counting `me`. */
+/** Players waiting at each entry of a Game's Queue that `me` could join: not their own Match, and not one whose seat they fund (tesoro_core refuses a Backer joining the Player they back). */
 export function waitingByEntry(seats: QueueSeat[] | undefined, entries: readonly number[], me?: string): Record<number, number> {
   const out: Record<number, number> = Object.fromEntries(entries.map((e) => [e, 0]));
-  for (const s of seats ?? []) if (s.player !== me && s.entry in out) out[s.entry] += 1;
+  for (const s of seats ?? []) if (s.player !== me && s.funder !== me && s.entry in out) out[s.entry] += 1;
   return out;
 }

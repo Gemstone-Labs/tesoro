@@ -16,8 +16,8 @@ export const spectatorPieces = (b: Battle): ShownPiece[] => shownPieces(b, null,
 type Reader = Pick<Connection, "getAccountInfo">;
 
 /** The public Battle through the rollup's open endpoint (no token), or null if it is not readable. */
-export async function readPublicBattle(conn: Reader, matchId: bigint | number): Promise<Battle | null> {
-  const key: PublicKey = addresses(matchId).battle;
+export async function readPublicBattle(conn: Reader, match: PublicKey): Promise<Battle | null> {
+  const key: PublicKey = addresses(match).battle;
   const info = await conn.getAccountInfo(key);
   if (!info || !(info.owner.equals(DELEGATION_PROGRAM_ID) || info.owner.equals(VANGUARD_PROGRAM_ID))) return null;
   try {

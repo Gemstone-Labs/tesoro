@@ -62,10 +62,10 @@ export function openQueueStep(now: number, deadline: number): "wait" | "refund" 
  *   - both committed and sealed: `settle`.
  * Returns the number of actions taken.
  */
-export async function blockPuzzle(ctx: Ctx, id: bigint, m: any, st: string, subject: string): Promise<number> {
+export async function blockPuzzle(ctx: Ctx, id: string, m: any, st: string, subject: string): Promise<number> {
   const now = ctx.now;
   const deadline = Number(m.deadline.toString());
-  const tag = `[block-puzzle ${st}${(id & 1n) === 1n ? " challenge" : ""}]`;
+  const tag = `[block-puzzle ${st}${m.meta?.challenge ? " challenge" : ""}]`;
 
   if (st === "open") {
     if (openQueueStep(now, deadline) === "wait") {
@@ -181,7 +181,7 @@ export async function blockPuzzle(ctx: Ctx, id: bigint, m: any, st: string, subj
  * failed after a successful delegate was never retried. `init_permission` / `init_vault_permission` accept an existing
  * real permission, so a repeat is harmless.
  */
-export async function ensurePermissions(ctx: Ctx, id: bigint, subject: string): Promise<{ ready: boolean; sent: number }> {
+export async function ensurePermissions(ctx: Ctx, id: string, subject: string): Promise<{ ready: boolean; sent: number }> {
   const a = BlockPuzzleChain.addresses(id);
   const tee = await ctx.bp.tee(ctx.signer);
   const targets = [a.boards[0], a.boards[1], a.vault];

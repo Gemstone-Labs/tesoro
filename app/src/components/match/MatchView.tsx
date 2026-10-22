@@ -8,6 +8,7 @@ import { useAccount } from "@/lib/account";
 import { commitPendingSince, commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { getChain } from "@/lib/chain/client";
 import { backerDelta, matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
+import { parseMatchKey } from "@/lib/chain/match-id";
 import { canClaimTimeout, runSubmitter, ensureJoined, claimTimeout, prepareRun, probeRun, refundMatch, trySettle } from "@/lib/chain/match-flow";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import type { RunSubmitter } from "@/lib/chain/run-submitter";
@@ -46,13 +47,7 @@ export function MatchView({ matchId }: { matchId: string }) {
   const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
   const nowSecs = useNowSecs();
-  const id = (() => {
-    try {
-      return BigInt(matchId);
-    } catch {
-      return null;
-    }
-  })();
+  const id = parseMatchKey(matchId) ? matchId : null;
 
   const [match, setMatch] = useState<ChainMatch | null>(null);
   const [phase, setPhaseState] = useState<Phase>("loading");

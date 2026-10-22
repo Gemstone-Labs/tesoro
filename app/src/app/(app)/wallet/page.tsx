@@ -11,6 +11,7 @@ import { fmtAsset, fmtGemas } from "@/lib/format";
 import { onGetGemas } from "@/lib/get-gemas";
 import { GAME_NAMES, type Chain, type GameId, type GemaHolding, type Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
+import { BRAND } from "@/lib/brand";
 import { AdvanceSheet } from "./AdvanceSheet";
 import type { AccountSnapshot, ChainPosition } from "@/lib/chain/read";
 import { returnRows } from "@/lib/chain/return-own";
@@ -22,6 +23,10 @@ import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables, ethYieldWaiting }
 import { vaultsOn, type EthVault } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, NoPositions, OpenIntentContext, type OpenIntent } from "./OpenPanel";
 import { ChainPockets, NextRedeem, type Pocket, type PocketSource } from "./ChainPockets";
+import { SmallLeftovers } from "./Leftovers";
+import { useInstantRedeem } from "./instant";
+import { orderState } from "@/lib/chain/instant-order";
+import { readyBy } from "@/lib/chain/ready-by";
 import { PositionTile, linearSeries } from "./PositionTile";
 import { ResetNote } from "./ResetNote";
 import "./wallet.css";
@@ -44,6 +49,7 @@ export default function Wallet() {
   // Phones fold the balance to the Total; wider screens always show all of it.
   const [heroOpen, setHeroOpen] = useState(false);
   const router = useRouter();
+  const { orders } = useInstantRedeem();
   // `/wallet?open=1` (the Lobby's Get Gemas) lands with the Open a Position sheet already up.
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -100,6 +106,7 @@ export default function Wallet() {
       setRedeemOpen(true);
     });
   const offline = auth.status === "unconfigured";
+  const requested = orders.filter((o) => orderState(o, Math.floor(now / 1000)) !== "finished");
 
   const generic = positions.filter((p) => !nativeIds.has(p.id) && !ethIds.has(p.id));
   const openTab = (c: Chain) => {
@@ -183,7 +190,7 @@ export default function Wallet() {
   };
 
   const pockets: Pocket[] = (["SOL", "ETH", "HYPE"] as Chain[])
-    .map((chain) => ({ chain, nextRedeemAt: nextRedeemAt(chain), ...chainTiles(chain), ...(onChain && snapshot ? chainGemas(snapshot.holdings, chain) : mockGemas(holdings, chain)), fetchYield: onChain && ethYieldWaiting(snapshot?.holdings ?? [], chain).length > 0 }))
+    .map((chain) => ({ chain, nextRedeemAt: nextRedeemAt(chain), ...chainTiles(chain), ...(onChain && snapshot ? chainGemas(snapshot.holdings, chain) : mockGemas(holdings, chain)), ...(onChain && snapshot ? lineFacts(snapshot, chain, Math.floor(now / 1000)) : {}), fetchYield: onChain && ethYieldWaiting(snapshot?.holdings ?? [], chain).length > 0 }))
     .filter((p) => p.positions.length > 0 || p.closed.length > 0 || p.gemas > 0);
   const hasPositions = pockets.some((p) => p.positions.length > 0 || p.closed.length > 0);
   const noPositions = pockets.length === 0 && !loading;
@@ -255,6 +262,12 @@ export default function Wallet() {
             <SkeletonCards count={2} avatar={false} className="wl-tile" label="Loading your Locks…" />
           </div>
         )}
+        {requested.length > 0 && (
+          <p className="note wl-requested" role="status">
+            <b>Instant Redeem requested.</b> {fmtGemas(requested.reduce((n, o) => n + Number(o.line.amount), 0))} Gemas are waiting for {BRAND.name} to buy them, all or part. You are paid when it does; Gemas it has not bought come back, or you can take them back any time in{" "}
+            <button type="button" className="wl-link" onClick={() => openRedeem()}>Redeem</button>.
+          </p>
+        )}
         {gemas.reserved > 0 && (
           <p className="note" role="status">
             {fmtGemas(gemas.reserved)} of your Gemas are reserved for your Backing Offers; {fmtGemas(gemas.available)} available. <a href="/backing">See Backing</a>
@@ -313,6 +326,12 @@ function IdleForm({ unit, months, onMonths }: { unit: Chain; months: number; onM
       onSubmit={() => undefined}
     />
   );
+}
+
+/** "Ready by" dates, the SOL price for small-Redeem fees and the leftovers action of one chain. */
+function lineFacts(snapshot: AccountSnapshot, chain: Chain, nowSec: number): Pick<Pocket, "readyBy" | "solMicroUsd" | "tidy"> {
+  const lines = snapshot.holdings.filter((h) => h.asset === chain);
+  return { readyBy: readyBy(lines, nowSec), solMicroUsd: snapshot.market?.price?.microUsd ?? null, tidy: <SmallLeftovers lines={lines} chain={chain} /> };
 }
 
 const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;

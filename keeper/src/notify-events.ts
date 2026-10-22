@@ -193,7 +193,7 @@ async function authorityOf(ctx: Ctx, account: string): Promise<string | null> {
 async function matchesFacts(ctx: Ctx): Promise<Fact[]> {
   const all: any[] = await ctx.core.account.matchState.all();
   const facts: Fact[] = [];
-  const bp: { id: bigint; label: string; opener: string; row: any }[] = [];
+  const bp: { id: string; label: string; opener: string; row: any }[] = [];
   for (const { publicKey, account } of all) {
     const view = viewOf(publicKey, account);
     const game = gameOfKey(pk(account.inner.game));
@@ -205,7 +205,7 @@ async function matchesFacts(ctx: Ctx): Promise<Fact[]> {
     const label = matchKeyOf({ opener: view.ref.opener.toBase58(), n: view.ref.n });
     const players = [m.a, m.b].filter(Boolean).map((s: any) => pk(s.player).toBase58());
     const base = { id: label, game, status: st, deadline: Number(m.deadline.toString()), entry: Number(m.entry.toString()), players };
-    if (st === "active" && game === "block-puzzle") bp.push({ id: view.ref.n, label, opener: players[0], row: account });
+    if (st === "active" && game === "block-puzzle") bp.push({ id: label, label, opener: players[0], row: account });
     else facts.push(...matchFacts({ ...base, session: null }, ctx.now));
   }
   // Block Puzzle: its Session gives the Delayed deadlines, and Session + Boards say whether the opponent has played.

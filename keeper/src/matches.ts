@@ -33,12 +33,12 @@ export async function matchHygiene(ctx: Ctx): Promise<number> {
     }
     live++;
     const st = view.stage;
-    // The Games still address their tables by a bare counter; their own tickets (12-15) move them to the Match id.
-    const id = view.ref.n;
+    // Every Game addresses its tables by the Match's own address.
+    const id = publicKey;
     const game = pk(account.inner.game);
     const subject = `match=${matchLabel(view.ref)}`;
     try {
-      if (game.equals(BLOCK_PUZZLE_PROGRAM_ID)) actions += await blockPuzzle(ctx, id, account.inner, st, subject);
+      if (game.equals(BLOCK_PUZZLE_PROGRAM_ID)) actions += await blockPuzzle(ctx, `${view.ref.opener.toBase58()}-${view.ref.n}`, account.inner, st, subject);
       else if (game.equals(HOLDEM_PROGRAM_ID)) actions += await holdem(ctx, id, account.inner, st, subject);
       else if (game.equals(TRADING_DUEL_PROGRAM_ID)) actions += await tradingDuel(ctx, id, account.inner, st, subject);
       else if (game.equals(VANGUARD_PROGRAM_ID)) actions += await vanguard(ctx, id, account.inner, st, subject);
@@ -52,11 +52,11 @@ export async function matchHygiene(ctx: Ctx): Promise<number> {
   return actions;
 }
 
-async function holdem(ctx: Ctx, id: bigint, m: any, st: string, subject: string): Promise<number> {
+async function holdem(ctx: Ctx, match: PublicKey, m: any, st: string, subject: string): Promise<number> {
   const now = ctx.now;
   const deadline = Number(m.deadline.toString());
   const tag = `[holdem ${st.toLowerCase()}]`;
-  const ad = holdemAddresses(id);
+  const ad = holdemAddresses(match);
   const info = await ctx.conn.getAccountInfo(ad.gameMatch);
 
   if (!info) {
@@ -71,7 +71,7 @@ async function holdem(ctx: Ctx, id: bigint, m: any, st: string, subject: string)
     const t = decodeTable(ad.gameMatch, ctx.holdem.program.coder.accounts.decode("gameMatch", info.data));
     commits.clear(subject);
     const step = baseTableStep(t, now, deadline);
-    if (step.do === "finalize") return +(await act(ctx, "match", subject, `finalize (${step.why})`, () => ctx.holdem.finalize(ctx.hsigner, id))).ok;
+    if (step.do === "finalize") return +(await act(ctx, "match", subject, `finalize (${step.why})`, () => ctx.holdem.finalize(ctx.hsigner, match))).ok;
     if (step.do === "refund") return +(await refund(ctx, m, subject, step.why)).ok;
     log("match", subject, `${tag} wait: ${step.why}`);
     return 0;
@@ -91,7 +91,7 @@ async function holdem(ctx: Ctx, id: bigint, m: any, st: string, subject: string)
     .accountsPartial({ caller: ctx.payer.publicKey, gameMatch: ad.gameMatch, deck: ad.deck, hole0: ad.hole0, hole1: ad.hole1 } as any)
     .instruction();
   if (!(await simulate(tee, ctx.payer, [timeoutIx]))) {
-    const r = await act(ctx, "match", subject, "claim_timeout (idle Player past deadline)", () => ctx.holdem.claimTimeout(ctx.hsigner, id));
+    const r = await act(ctx, "match", subject, "claim_timeout (idle Player past deadline)", () => ctx.holdem.claimTimeout(ctx.hsigner, match));
     if (r.ok) return 1;
   }
   const closeIx = await ctx.holdem.program.methods
@@ -115,7 +115,7 @@ async function holdem(ctx: Ctx, id: bigint, m: any, st: string, subject: string)
   const closeWhy = await simulate(tee, ctx.payer, [closeIx]);
   if (closeWhy) noteClose(subject, tag, { ok: false, detail: closeWhy });
   else {
-    const r = await act(ctx, "match", subject, "close_match (table finished)", async () => (await ctx.holdem.closeMatch(ctx.hsigner, id)).tee);
+    const r = await act(ctx, "match", subject, "close_match (table finished)", async () => (await ctx.holdem.closeMatch(ctx.hsigner, match)).tee);
     noteClose(subject, tag, r);
     return +r.ok;
   }

@@ -190,12 +190,15 @@ language sql stable as $$
       when pt.side = 0 then m.scores else jsonb_build_array(m.scores->1, m.scores->0) end,
     'opp', case when pt.side = 0 then m.b_player else m.a_player end,
     'at', (extract(epoch from m.opened_at) * 1000)::bigint,
-    'asset', case when m.game = 'trading-duel' then m.asset else null end
+    'asset', case when m.game = 'trading-duel' then m.asset else null end,
+    -- what the Backer of this Player's side gained or lost (null when the Player funded their own entry)
+    'backerDelta', case when pt.role = 'player' and pt.backing_other is not null then
+      (select b.delta from public.match_parties b where b.opener = pt.opener and b.n = pt.n and b.role = 'backer' and b.side = pt.side limit 1) else null end
   )
 $$;
 
--- One page of an Account's finished Matches (played and funded), newest first. Page is 1-based and clamped.
-create function public.history_page(p_account text, p_page integer, p_size integer) returns jsonb
+-- One page of an Account's finished Matches (played and funded), newest first, optionally one Game (its program key). Page is 1-based and clamped.
+create function public.history_page(p_account text, p_page integer, p_size integer, p_game text default null) returns jsonb
 language plpgsql stable as $$
 declare
   total integer;
@@ -205,14 +208,14 @@ declare
 begin
   select count(*) into total
   from public.match_parties pt join public.match_history m using (opener, n)
-  where pt.account = p_account and m.status in ('settled', 'refunded');
+  where pt.account = p_account and m.status in ('settled', 'refunded') and (p_game is null or m.game = p_game);
   pages := greatest(1, ceil(total::numeric / greatest(p_size, 1))::integer);
   pg := least(greatest(1, coalesce(p_page, 1)), pages);
   select coalesce(jsonb_agg(public.mh_row(x.mm, x.pp) order by (x.mm).opened_at desc, (x.mm).n desc, (x.pp).role), '[]'::jsonb) into rows_json
   from (
     select m as mm, pt as pp
     from public.match_parties pt join public.match_history m on m.opener = pt.opener and m.n = pt.n
-    where pt.account = p_account and m.status in ('settled', 'refunded')
+    where pt.account = p_account and m.status in ('settled', 'refunded') and (p_game is null or m.game = p_game)
     order by m.opened_at desc, m.n desc, pt.role
     limit p_size offset (pg - 1) * p_size
   ) x;
@@ -289,7 +292,7 @@ language sql stable as $$
   from public.match_history m where m.season = p_season and m.winner is not null
 $$;
 
-revoke all on function public.ingest_match_event(jsonb), public.history_page(text, integer, integer),
+revoke all on function public.ingest_match_event(jsonb), public.history_page(text, integer, integer, text),
   public.match_record(text, bigint), public.win_card(text, bigint), public.recent_wins(text, bigint, integer),
   public.player_forms(text[]), public.season_wins(integer), public.mh_row(public.match_history, public.match_parties),
   public.mh_ts(bigint) from public, anon, authenticated;

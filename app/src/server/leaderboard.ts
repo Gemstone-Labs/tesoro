@@ -1,5 +1,6 @@
 import { Connection } from "@solana/web3.js";
-import { fetchLeaderboardTerms, fetchPoolTotal, fetchSeasonRecord, fetchSeasonWins } from "@/lib/chain/leaderboard";
+import { fetchLeaderboardTerms, fetchPoolTotal, fetchSeasonRecord } from "@/lib/chain/leaderboard";
+import { configuredRpc, seasonWinsOf } from "./history/season-wins";
 import type { LeaderboardRow, LeaderboardView } from "@/lib/chain/leaderboard-view";
 import { baseRpc } from "@/lib/chain/rpc-config";
 import { seasonAt, seasonEnd, payoutOpensAt, seasonStart, standings } from "@/lib/chain/season";
@@ -22,7 +23,7 @@ async function build(c: Connection, nowSecs: number): Promise<Built> {
   const terms = await fetchLeaderboardTerms(c, true);
   const [pool, wins, record] = await Promise.all([
     terms.recipient ? fetchPoolTotal(c) : Promise.resolve(0n),
-    terms.recipient ? fetchSeasonWins(c, number) : Promise.resolve([]),
+    terms.recipient ? configuredRpc().then((rpc) => seasonWinsOf(c, number, rpc)) : Promise.resolve([]),
     number > 1 ? fetchSeasonRecord(c, number - 1) : Promise.resolve(null),
   ]);
   const table = standings(wins).map((s) => ({ rank: s.rank, account: s.account, points: s.points, wins: s.wins }));

@@ -1,5 +1,5 @@
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
-import { ComputeBudgetProgram, type Connection } from "@solana/web3.js";
+import { ComputeBudgetProgram, type Connection, type PublicKey } from "@solana/web3.js";
 import { VANGUARD_PROGRAM_ID, CU, addresses } from "../../app/src/games/vanguard/chain.ts";
 import { PENDING, STATUS, decodeBattle } from "../../app/src/games/vanguard/decode.ts";
 import { commitInFlight, commits, noteClose } from "./commits.ts";
@@ -103,11 +103,11 @@ export function setupMove(i: { canDeal: boolean; canRequest: boolean; now: numbe
 const lastRequest = new Map<string, number>();
 
 /** Vanguard hygiene for one unsettled tesoro_core Match. Returns the number of actions taken. */
-export async function vanguard(ctx: Ctx, id: bigint, m: any, st: string, subject: string): Promise<number> {
+export async function vanguard(ctx: Ctx, match: PublicKey, m: any, st: string, subject: string): Promise<number> {
   const now = ctx.now;
   const deadline = Number(m.deadline.toString());
   const tag = `[vanguard ${st}]`;
-  const ad = addresses(id);
+  const ad = addresses(match);
   const info = await ctx.conn.getAccountInfo(ad.battle);
 
   if (!info) {
@@ -122,7 +122,7 @@ export async function vanguard(ctx: Ctx, id: bigint, m: any, st: string, subject
     const b = decodeBattle(info.data);
     commits.clear(subject);
     const step = vanguardStep(factsOf(b), "base", now, deadline, 0n);
-    if (step.do === "finalize") return +(await act(ctx, "match", subject, `finalize (${step.why})`, () => ctx.vanguard.finalize(ctx.hsigner, id))).ok;
+    if (step.do === "finalize") return +(await act(ctx, "match", subject, `finalize (${step.why})`, () => ctx.vanguard.finalize(ctx.hsigner, match))).ok;
     if (step.do === "refund") return +(await refund(ctx, m, subject, step.why)).ok;
     log("match", subject, `${tag} wait: ${step.why}`);
     return 0;
@@ -133,7 +133,7 @@ export async function vanguard(ctx: Ctx, id: bigint, m: any, st: string, subject
   }
 
   // Delegated: the Battle is public in the rollup, read it with the keeper's token. Armies and the Secret are never read.
-  const b = await ctx.vanguard.readBattle(ctx.hsigner, id).catch(() => null);
+  const b = await ctx.vanguard.readBattle(ctx.hsigner, match).catch(() => null);
   if (!b) {
     // The rollup does not serve it: the Match deadline still refunds both entries.
     if (now >= deadline) return +(await refund(ctx, m, subject, "Battle not served by the rollup before the Match deadline")).ok;
@@ -145,8 +145,8 @@ export async function vanguard(ctx: Ctx, id: bigint, m: any, st: string, subject
   const step = vanguardStep(factsOf(b), "tee", now, deadline, slot);
 
   if (step.do === "refund") return +(await refund(ctx, m, subject, step.why)).ok;
-  if (step.do === "assist_setup") return assistSetup(ctx, id, b, tee, subject, tag);
-  if (step.do === "resolve") return +(await act(ctx, "match", subject, `resolve (${step.why})`, () => ctx.vanguard.resolve(ctx.hsigner, id))).ok;
+  if (step.do === "assist_setup") return assistSetup(ctx, match, b, tee, subject, tag);
+  if (step.do === "resolve") return +(await act(ctx, "match", subject, `resolve (${step.why})`, () => ctx.vanguard.resolve(ctx.hsigner, match))).ok;
   if (step.do === "claim_timeout") {
     const ix = await ctx.vanguard.program.methods
       .claimTimeout()
@@ -157,13 +157,13 @@ export async function vanguard(ctx: Ctx, id: bigint, m: any, st: string, subject
       log("match", subject, `${tag} wait: claim_timeout not yet possible (${why.slice(0, 120)}), retrying next pass`);
       return 0;
     }
-    return +(await act(ctx, "match", subject, `claim_timeout (${step.why})`, () => ctx.vanguard.claimTimeout(ctx.hsigner, id))).ok;
+    return +(await act(ctx, "match", subject, `claim_timeout (${step.why})`, () => ctx.vanguard.claimTimeout(ctx.hsigner, match))).ok;
   }
   if (step.do === "close_match" || step.do === "close_unstarted") {
     const teeInfo = await tee.getAccountInfo(ad.battle).catch(() => null);
     if (commitInFlight(subject, tag, teeInfo?.owner ?? null)) return 0;
     const r = await act(ctx, "match", subject, `${step.do} (${step.why})`, () =>
-      step.do === "close_match" ? ctx.vanguard.closeMatch(ctx.hsigner, id).then((x) => x.tee) : ctx.vanguard.closeUnstarted(ctx.hsigner, id),
+      step.do === "close_match" ? ctx.vanguard.closeMatch(ctx.hsigner, match).then((x) => x.tee) : ctx.vanguard.closeUnstarted(ctx.hsigner, match),
     );
     noteClose(subject, tag, r);
     return +r.ok;
@@ -188,17 +188,17 @@ function factsOf(b: ReturnType<typeof decodeBattle>): BattleFacts {
 }
 
 /** Deals, or asks for the randomness again, when the Players' clients have not. Sends nothing a simulation refuses. */
-async function assistSetup(ctx: Ctx, id: bigint, b: ReturnType<typeof decodeBattle>, tee: Connection, subject: string, tag: string): Promise<number> {
+async function assistSetup(ctx: Ctx, match: PublicKey, b: ReturnType<typeof decodeBattle>, tee: Connection, subject: string, tag: string): Promise<number> {
   const limit = ComputeBudgetProgram.setComputeUnitLimit({ units: CU.resolve });
-  const deal = await ctx.vanguard.dealIx(ctx.payer.publicKey, id);
+  const deal = await ctx.vanguard.dealIx(ctx.payer.publicKey, match);
   const canDeal = !(await simulate(tee, ctx.payer, [limit, deal]));
-  const request = canDeal ? null : await ctx.vanguard.requestVrfIx(ctx.payer.publicKey, id, b.oracleQueue);
+  const request = canDeal ? null : await ctx.vanguard.requestVrfIx(ctx.payer.publicKey, match, b.oracleQueue);
   const canRequest = request ? !(await simulate(tee, ctx.payer, [request])) : false;
   const move = setupMove({ canDeal, canRequest, now: ctx.now, lastRequestAt: lastRequest.get(subject) ?? 0, setupStartedAt: b.entropyDeadline - ENTROPY_SECS });
-  if (move === "deal") return +(await act(ctx, "match", subject, "deal (both secrets and the randomness are in)", () => ctx.vanguard.deal(ctx.hsigner, id))).ok;
+  if (move === "deal") return +(await act(ctx, "match", subject, "deal (both secrets and the randomness are in)", () => ctx.vanguard.deal(ctx.hsigner, match))).ok;
   if (move === "request_vrf") {
     lastRequest.set(subject, ctx.now);
-    return +(await act(ctx, "match", subject, "request_vrf (both secrets are in, no randomness yet)", () => ctx.vanguard.requestVrf(ctx.hsigner, id, b.oracleQueue))).ok;
+    return +(await act(ctx, "match", subject, "request_vrf (both secrets are in, no randomness yet)", () => ctx.vanguard.requestVrf(ctx.hsigner, match, b.oracleQueue))).ok;
   }
   log("match", subject, `${tag} wait: setup in progress`);
   return 0;

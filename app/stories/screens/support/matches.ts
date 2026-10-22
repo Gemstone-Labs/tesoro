@@ -22,7 +22,7 @@ export function chainMatch(game: GameId, state: MatchState, o: { challenge?: boo
   const entry = o.entry ?? 1000;
   const base = { ...match(game, entry, state !== "lost", 2, [171, 55], DEMO_ME), fees: FEES };
   const bp = game === "block-puzzle";
-  const id = o.challenge ? base.id | 1n : base.id;
+  const id = base.id;
   const session = (over: Partial<NonNullable<ChainMatch["session"]>>) =>
     bp ? { settled: false, joined: false, result: "draw" as const, scores: [0, 0] as [number, number], seed: 0n, openerDeadline: secs() + 900, deadline: 0, ...over } : null;
   let m: ChainMatch = { ...base, id, challenge: !!o.challenge };
@@ -120,7 +120,6 @@ export function duelLive(kind: "headstart" | "mid" | "last"): Partial<DuelView> 
 export function duel(over: Partial<Duel> = {}): Duel {
   return {
     address: key(50),
-    matchId: 0n,
     tesoroMatch: key(51),
     players: [key(70), key(71)],
     asset: ASSETS[0],

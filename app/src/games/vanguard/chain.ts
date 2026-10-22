@@ -20,24 +20,22 @@ import {
   permissionPdaFromAccount,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import nacl from "tweetnacl";
-import { fetchLeaderboardTerms } from "../../lib/chain/leaderboard";
 import {
   TEE_RPC,
   TEE_WS,
   TESORO_CORE_PROGRAM_ID,
-  computePayouts,
   defaultBaseConnection,
   keypairSigner,
   tesoroAccountPda,
   tesoroConfigPda,
-  tesoroHoldingPda,
-  tesoroMatchPda,
+  settledPda,
+  eventAuthorityPda,
   type PlayerSigner,
 } from "../holdem/chain";
-import { STATUS, decodeArmy, decodeBattle, type ArmyAccount, type Battle } from "./decode";
-import { gameRecordPda } from "../../lib/chain/game-record";
+import { decodeArmy, decodeBattle, type ArmyAccount, type Battle } from "./decode";
+import { gameAccounts, gameRecordPda } from "../../lib/chain/game-record";
 
-export { keypairSigner, tesoroAccountPda, tesoroMatchPda, type PlayerSigner };
+export { keypairSigner, tesoroAccountPda, type PlayerSigner };
 
 export const VANGUARD_PROGRAM_ID = new PublicKey("TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH");
 const EPHEMERAL_VAULT = new PublicKey("MagicVau1t999999999999999999999999999999999");
@@ -50,8 +48,6 @@ const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111
  */
 export const CU = { declare: 40_000, resolve: 150_000, delegate: 600_000, finalize: 400_000 } as const;
 
-const le64 = (n: bigint | number) => new anchor.BN(n.toString()).toArrayLike(Buffer, "le", 8);
-
 export interface Addresses {
   battle: PublicKey;
   secret: PublicKey;
@@ -61,10 +57,13 @@ export interface Addresses {
   config: PublicKey;
 }
 
-/** PDAs of one Battle. `matchId` is the tesoro_core Match id. */
-export function addresses(matchId: bigint | number): Addresses {
+/** The program's VanguardConfig (the TEE validator and oracle queue). */
+export const configPda = () => PublicKey.findProgramAddressSync([Buffer.from("config")], VANGUARD_PROGRAM_ID)[0];
+
+/** PDAs of one Battle. `match` is the address of the tesoro_core Match (`["match", opener, n]`). */
+export function addresses(match: PublicKey): Addresses {
   const pda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, VANGUARD_PROGRAM_ID)[0];
-  const battle = pda([Buffer.from("battle"), le64(matchId)]);
+  const battle = pda([Buffer.from("battle"), match.toBuffer()]);
   return {
     battle,
     secret: pda([Buffer.from("secret"), battle.toBuffer()]),
@@ -135,7 +134,7 @@ export class VanguardChain {
   readConfig(): Promise<{ teeValidator: PublicKey; oracleQueue: PublicKey }> {
     if (!this.configRead) {
       const read: Promise<{ teeValidator: PublicKey; oracleQueue: PublicKey }> = (this.program.account as any).vanguardConfig
-        .fetch(addresses(0).config)
+        .fetch(configPda())
         .then((c: any) => ({ teeValidator: c.teeValidator as PublicKey, oracleQueue: c.oracleQueue as PublicKey }));
       read.catch(() => {
         this.configRead = null;
@@ -231,13 +230,13 @@ export class VanguardChain {
   // -- base layer ----------------------------------------------------------------------------
 
   /** Base layer. Binds a Battle to an Active tesoro_core Match. `seatA` / `seatB` are the opener and the joiner. */
-  async createMatch(creator: PlayerSigner, matchId: bigint | number, seatA: PublicKey, seatB: PublicKey): Promise<string> {
-    const ad = addresses(matchId);
+  async createMatch(creator: PlayerSigner, match: PublicKey, seatA: PublicKey, seatB: PublicKey): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods
-      .createMatch(new anchor.BN(matchId.toString()))
+      .createMatch()
       .accountsPartial({
         creator: creator.publicKey,
-        tesoroMatch: tesoroMatchPda(matchId),
+        tesoroMatch: match,
         gameRecord: gameRecordPda(VANGUARD_PROGRAM_ID),
         vanguardConfig: ad.config,
         accountA: tesoroAccountPda(seatA),
@@ -253,11 +252,11 @@ export class VanguardChain {
   }
 
   /** Base layer. Delegates a created Battle (and its private accounts) to the TEE. */
-  async delegateMatch(payer: PlayerSigner, matchId: bigint | number): Promise<Addresses> {
-    const ad = addresses(matchId);
+  async delegateMatch(payer: PlayerSigner, match: PublicKey): Promise<Addresses> {
+    const ad = addresses(match);
     const { teeValidator } = await this.readConfig();
     const ix = await this.program.methods
-      .delegateMatch(new anchor.BN(matchId.toString()))
+      .delegateMatch(match)
       .accountsPartial({
         payer: payer.publicKey,
         battle: ad.battle,
@@ -275,61 +274,42 @@ export class VanguardChain {
     return ad;
   }
 
-  async readTesoroMatch(matchId: bigint | number): Promise<any | null> {
-    const info = await this.base.getAccountInfo(tesoroMatchPda(matchId));
+  async readTesoroMatch(match: PublicKey): Promise<any | null> {
+    const info = await this.base.getAccountInfo(match);
     return info ? this.tesoro.coder.accounts.decode("matchState", info.data) : null;
   }
 
   /** A tesoro_core Match that can still be settled (Active); false once settled, refunded or gone. */
   private isLive(tesoroMatch: any | null): boolean {
-    return !!tesoroMatch && "active" in tesoroMatch.inner.status;
+    return !!tesoroMatch && "active" in tesoroMatch.inner.stage;
   }
 
   /**
    * Base layer, permissionless. After the rollup committed the Battle back, settles or refunds the tesoro_core
-   * Match by CPI as the Game authority PDA, creating the Holdings the payout needs first. Returns "" without
+   * Match by CPI as the Game authority PDA. Returns "" without
    * sending when the Match is already settled or refunded (the other Player or the keeper got there first).
    */
-  async finalize(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
+  async finalize(payer: PlayerSigner, match: PublicKey): Promise<string> {
+    const ad = addresses(match);
     if (!(await this.waitOwner(ad.battle, VANGUARD_PROGRAM_ID, 90))) {
       throw new Error("the Battle has not been committed back to the base layer yet");
     }
-    const battle = await this.readBattleOnBase(matchId);
-    const tesoroMatch = await this.readTesoroMatch(matchId);
+    const battle = await this.readBattleOnBase(match);
+    const tesoroMatch = await this.readTesoroMatch(match);
     if (!battle || !this.isLive(tesoroMatch)) return "";
-    // a win names the winning seat (0 opener, 1 joiner); a draw, or a Match that never started, refunds
-    const winner = battle.status === STATUS.over && (battle.winner === 0 || battle.winner === 1) ? battle.winner : null;
-    const payouts = computePayouts(tesoroMatch.inner, winner, await fetchLeaderboardTerms(this.base));
-    const holdings = payouts.map((p) => tesoroHoldingPda(p.recipient, p.source));
-    const existing = await this.base.getMultipleAccountsInfo(holdings);
-    const missing: TransactionInstruction[] = [];
-    for (let i = 0; i < payouts.length; i++) {
-      if (existing[i]) continue;
-      missing.push(
-        await this.tesoro.methods
-          .openHolding()
-          .accountsPartial({ payer: payer.publicKey, account: payouts[i].recipient, source: payouts[i].source, holding: holdings[i] } as any)
-          .instruction(),
-      );
-    }
-    for (let i = 0; i < missing.length; i += 5) await this.sendBase("open_holding", missing.slice(i, i + 5), [payer]);
-    const remaining: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
-    payouts.forEach((p, i) => remaining.push({ pubkey: p.recipient, isSigner: false, isWritable: true }, { pubkey: holdings[i], isSigner: false, isWritable: true }));
-    // Opening Holdings takes a few seconds: look again before paying for a transaction that would fail.
-    if (!this.isLive(await this.readTesoroMatch(matchId))) return "";
     const ix = await this.program.methods
       .finalize()
       .accountsPartial({
         caller: payer.publicKey,
         battle: ad.battle,
-        tesoroMatch: tesoroMatchPda(matchId),
+        tesoroMatch: match,
         config: tesoroConfigPda(),
-        gameRecord: gameRecordPda(VANGUARD_PROGRAM_ID),
+        ...gameAccounts(VANGUARD_PROGRAM_ID),
         authority: ad.authority,
+        receipt: settledPda(match),
+        eventAuthority: eventAuthorityPda(),
         tesoroProgram: TESORO_CORE_PROGRAM_ID,
       } as any)
-      .remainingAccounts(remaining)
       .instruction();
     return this.sendBase("finalize", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.finalize }), ix], [payer]);
   }
@@ -337,8 +317,8 @@ export class VanguardChain {
   // -- rollup --------------------------------------------------------------------------------
 
   /** Rollup. Creates the permissions. Anyone. */
-  async initPermissions(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
+  async initPermissions(payer: PlayerSigner, match: PublicKey): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods
       .initPermissions()
       .accountsPartial({
@@ -364,19 +344,19 @@ export class VanguardChain {
    * randomness in the same transaction: pass it from the Player who contributes second. `oracleQueue` is the
    * Battle's own (default: the program config's).
    */
-  async contributeEntropy(player: PlayerSigner, matchId: bigint | number, withVrf = false, oracleQueue?: PublicKey): Promise<string> {
-    const ad = addresses(matchId);
+  async contributeEntropy(player: PlayerSigner, match: PublicKey, withVrf = false, oracleQueue?: PublicKey): Promise<string> {
+    const ad = addresses(match);
     const secret = Array.from(nacl.randomBytes(32));
     const ixs: TransactionInstruction[] = [
       await this.program.methods.contributeEntropy(secret).accountsPartial({ player: player.publicKey, battle: ad.battle, secret: ad.secret } as any).instruction(),
     ];
-    if (withVrf) ixs.push(await this.requestVrfIx(player.publicKey, matchId, oracleQueue));
+    if (withVrf) ixs.push(await this.requestVrfIx(player.publicKey, match, oracleQueue));
     return this.sendTee(withVrf ? "contribute_entropy+request_vrf" : "contribute_entropy", ixs, player);
   }
 
   /** The `request_vrf` instruction, for a caller that sends or simulates it itself. */
-  async requestVrfIx(payer: PublicKey, matchId: bigint | number, oracleQueue?: PublicKey): Promise<TransactionInstruction> {
-    const ad = addresses(matchId);
+  async requestVrfIx(payer: PublicKey, match: PublicKey, oracleQueue?: PublicKey): Promise<TransactionInstruction> {
+    const ad = addresses(match);
     const queue = oracleQueue ?? (await this.readConfig()).oracleQueue;
     return this.program.methods
       .requestVrf(7)
@@ -385,13 +365,13 @@ export class VanguardChain {
   }
 
   /** Rollup. Re-requests the randomness if it has not arrived. */
-  async requestVrf(payer: PlayerSigner, matchId: bigint | number, oracleQueue?: PublicKey): Promise<string> {
-    return this.sendTee("request_vrf", [await this.requestVrfIx(payer.publicKey, matchId, oracleQueue)], payer);
+  async requestVrf(payer: PlayerSigner, match: PublicKey, oracleQueue?: PublicKey): Promise<string> {
+    return this.sendTee("request_vrf", [await this.requestVrfIx(payer.publicKey, match, oracleQueue)], payer);
   }
 
   /** The `deal` instruction, for a caller that sends or simulates it itself. */
-  dealIx(payer: PublicKey, matchId: bigint | number): Promise<TransactionInstruction> {
-    const ad = addresses(matchId);
+  dealIx(payer: PublicKey, match: PublicKey): Promise<TransactionInstruction> {
+    const ad = addresses(match);
     return this.program.methods
       .deal()
       .accountsPartial({ payer, battle: ad.battle, secret: ad.secret, army0: ad.army0, army1: ad.army1 } as any)
@@ -399,8 +379,8 @@ export class VanguardChain {
   }
 
   /** Rollup, permissionless. Sets the board up once both secrets and the randomness are in. */
-  async deal(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    return this.sendTee("deal", [await this.dealIx(payer.publicKey, matchId)], payer);
+  async deal(payer: PlayerSigner, match: PublicKey): Promise<string> {
+    return this.sendTee("deal", [await this.dealIx(payer.publicKey, match)], payer);
   }
 
   /**
@@ -408,8 +388,8 @@ export class VanguardChain {
    * checks only public state now; the rank rules and the fight are applied by `resolve` in a later slot, and a move
    * the rank rules refuse costs the turn. A declare cannot be taken back. Send `resolve` as soon as it lands.
    */
-  async movePiece(player: PlayerSigner, matchId: bigint | number, piece: number, to: number): Promise<string> {
-    const ad = addresses(matchId);
+  async movePiece(player: PlayerSigner, match: PublicKey, piece: number, to: number): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods
       .movePiece(piece, to)
       .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
@@ -418,8 +398,8 @@ export class VanguardChain {
   }
 
   /** Rollup. Spend a banked Two-Step Turn before the first step of your turn. */
-  async startTwoStep(player: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
+  async startTwoStep(player: PlayerSigner, match: PublicKey): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods.startTwoStep().accountsPartial({ player: player.publicKey, battle: ad.battle } as any).instruction();
     return this.sendTee("start_two_step", [ix], player);
   }
@@ -429,8 +409,8 @@ export class VanguardChain {
    * time cap it declares the tiebreak ending; past the start window it cancels. Declared timeouts are applied by
    * `resolve`.
    */
-  async claimTimeout(caller: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
+  async claimTimeout(caller: PlayerSigner, match: PublicKey): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods
       .claimTimeout()
       .accountsPartial({ caller: caller.publicKey, battle: ad.battle, secret: ad.secret } as any)
@@ -443,8 +423,8 @@ export class VanguardChain {
    * its declare. Both Players' clients and the keeper send it as soon as the Battle shows a pending action; the
    * program refuses it in the declare's own slot (`TooSoon`), so a caller retries after a moment.
    */
-  async resolve(caller: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
+  async resolve(caller: PlayerSigner, match: PublicKey): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods
       .resolve()
       .accountsPartial({ caller: caller.publicKey, battle: ad.battle, army0: ad.army0, army1: ad.army1, secret: ad.secret } as any)
@@ -456,8 +436,8 @@ export class VanguardChain {
    * Rollup. When the Battle is over or cancelled: wipes the private accounts, closes their permissions and
    * commits everything back. Returns the rollup signature and the base-layer commitment signature.
    */
-  async closeMatch(payer: PlayerSigner, matchId: bigint | number): Promise<{ tee: string; commit: string }> {
-    const ad = addresses(matchId);
+  async closeMatch(payer: PlayerSigner, match: PublicKey): Promise<{ tee: string; commit: string }> {
+    const ad = addresses(match);
     const ix = await this.program.methods
       .closeMatch()
       .accountsPartial({
@@ -484,8 +464,8 @@ export class VanguardChain {
   }
 
   /** Rollup. Commits back a Battle that was cancelled before its permissions existed. */
-  async closeUnstarted(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
+  async closeUnstarted(payer: PlayerSigner, match: PublicKey): Promise<string> {
+    const ad = addresses(match);
     const ix = await this.program.methods
       .closeUnstarted()
       .accountsPartial({ payer: payer.publicKey, battle: ad.battle, secret: ad.secret, army0: ad.army0, army1: ad.army1, magicProgram: MAGIC_PROGRAM_ID, magicContext: MAGIC_CONTEXT } as any)
@@ -496,23 +476,23 @@ export class VanguardChain {
   // -- reads ---------------------------------------------------------------------------------
 
   /** The public Battle from the rollup. `null` if it does not exist there (yet, or any more). */
-  async readBattle(viewer: PlayerSigner, matchId: bigint | number): Promise<Battle | null> {
+  async readBattle(viewer: PlayerSigner, match: PublicKey): Promise<Battle | null> {
     const conn = await this.teeConnection(viewer);
-    const info = await conn.getAccountInfo(addresses(matchId).battle).catch(() => null);
+    const info = await conn.getAccountInfo(addresses(match).battle).catch(() => null);
     if (!info || (!info.owner.equals(DELEGATION_PROGRAM_ID) && !info.owner.equals(VANGUARD_PROGRAM_ID))) return null;
     return decodeBattle(info.data);
   }
 
   /** The Battle on the base layer (the final result once committed back). */
-  async readBattleOnBase(matchId: bigint | number): Promise<Battle | null> {
-    const info = await this.base.getAccountInfo(addresses(matchId).battle);
+  async readBattleOnBase(match: PublicKey): Promise<Battle | null> {
+    const info = await this.base.getAccountInfo(addresses(match).battle);
     if (!info || !info.owner.equals(VANGUARD_PROGRAM_ID)) return null;
     return decodeBattle(info.data);
   }
 
   /** Your own Army, read with your TEE token. `null` before it exists; the opponent's reads as null too. */
-  async readOwnArmy(player: PlayerSigner, matchId: bigint | number, seat: 0 | 1): Promise<ArmyAccount | null> {
-    const ad = addresses(matchId);
+  async readOwnArmy(player: PlayerSigner, match: PublicKey, seat: 0 | 1): Promise<ArmyAccount | null> {
+    const ad = addresses(match);
     const conn = await this.teeConnection(player);
     const info = await conn.getAccountInfo(seat === 0 ? ad.army0 : ad.army1).catch(() => null);
     if (!info || info.data.length === 0) return null;
@@ -525,10 +505,10 @@ export class VanguardChain {
   }
 
   /** Calls `onBattle` on every change of the Battle on the rollup. Returns the unsubscribe. */
-  async watchBattle(viewer: PlayerSigner, matchId: bigint | number, onBattle: (b: Battle) => void): Promise<() => void> {
+  async watchBattle(viewer: PlayerSigner, match: PublicKey, onBattle: (b: Battle) => void): Promise<() => void> {
     const conn = await this.teeConnection(viewer);
     const id = conn.onAccountChange(
-      addresses(matchId).battle,
+      addresses(match).battle,
       (info) => {
         try {
           onBattle(decodeBattle(info.data));

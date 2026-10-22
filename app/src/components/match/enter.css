@@ -35,3 +35,14 @@
 .enter-age .status { display: block; text-align: center; line-height: 1.45; text-wrap: balance; }
 .enter-age a, .enter-age-link { color: var(--emerald, inherit); text-decoration: underline; }
 .enter-age-link { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+
+/* What the entry uses, and how far a stepped entry has got (economy upgrade) */
+.enter-plan { width: 100%; display: grid; gap: 6px; justify-items: center; text-align: center; }
+.enter-plan p { margin: 0; }
+.enter-plan-head { font-weight: 700; font-size: var(--fs-15); }
+.enter-plan-staged { width: 100%; display: grid; gap: 8px; justify-items: center; }
+.enter-plan-staged .meter { width: 100%; }
+.enter-plan-lines { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font-size: var(--fs-13); color: var(--fg-2); }
+.enter-plan-lines b { color: var(--fg); }
+.enter-unfinished { width: 100%; display: grid; gap: 8px; padding: 14px; background: var(--surface); text-align: left; }
+.enter-unfinished p { margin: 0; }

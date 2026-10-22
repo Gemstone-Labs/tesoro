@@ -9,7 +9,6 @@ import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import type { GameId } from "@/lib/mock";
 import { gameQuery } from "@/lib/game-params";
-import { assetIndexOf } from "@/lib/chain/match-id";
 import { DuelSpectate } from "./DuelSpectate";
 import { VanguardSpectate } from "@/games/vanguard/VanguardSpectate";
 import { RULES } from "./MatchResult";
@@ -30,7 +29,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const read = async () => {
-      const next = await fetchMatch(BigInt(matchId), null).catch(() => undefined);
+      const next = await fetchMatch(matchId, null).catch(() => undefined);
       if (!live) return;
       if (next !== undefined) setM(next);
       if (next === undefined || (next && (next.status === "open" || next.status === "active"))) timer = setTimeout(read, 5000);
@@ -147,7 +146,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
         {onSignIn ? (
           <Button variant="money" size="lg" onClick={onSignIn}>Sign in to play</Button>
         ) : (
-          <Button variant="money" size="lg" href={`/play/queue?${gameQuery(m.game, m.game === "trading-duel" ? assetIndexOf(m.id) : null)}entry=${m.entry}`}>
+          <Button variant="money" size="lg" href={`/play/queue?${gameQuery(m.game, m.game === "trading-duel" ? m.asset : null)}entry=${m.entry}`}>
             Play {GAME_NAMES[m.game]}
           </Button>
         )}

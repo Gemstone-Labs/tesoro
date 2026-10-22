@@ -2,7 +2,9 @@ import { BN, BorshCoder } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import idl from "./idl/tesoro_core.json";
-import { NO_LEADERBOARD, POOL_ACCOUNT, parseEntrySizes, parseLeaderboardTerms, poolTotalOf, seasonPda, winsFromLogs } from "./leaderboard";
+import bs58 from "bs58";
+import { NO_LEADERBOARD, POOL_ACCOUNT, parseEntrySizes, parseLeaderboardTerms, poolTotalOf, seasonPda, seasonRecordOf, winsFromInner } from "./leaderboard";
+import { encodeStore, lineOf } from "./basket-fixture";
 import { leaderboardBpsFor, setLeaderboardSince } from "./season";
 
 const HEAD = 8 + 1 + 32 + 32 + 2 + 32;
@@ -77,12 +79,14 @@ describe("a Config still in the old layout (app deployed before the upgrade)", (
 describe("MatchWon events", () => {
   const player = PublicKey.unique();
   const loser = PublicKey.unique();
-  const disc = Buffer.from(idl.events.find((e) => e.name === "MatchWon")!.discriminator);
-  const won = () => Buffer.concat([disc, eventBody()]);
-  const inCore = (data: Buffer) => [`Program ${idl.address} invoke [2]`, `Program data: ${data.toString("base64")}`, `Program ${idl.address} success`];
-  const eventBody = () =>
+  const opener = PublicKey.unique();
+  const core = new PublicKey(idl.address);
+  const eventAuthority = PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], core)[0];
+  const tag = Buffer.from("e445a52e51cb9a1d", "hex");
+  const body = (over: Record<string, unknown> = {}) =>
     new BorshCoder(idl as never).types.encode("MatchWon", {
-      match_id: new BN(7),
+      opener,
+      n: new BN(7),
       game: PublicKey.unique(),
       entry: new BN(1000),
       player,
@@ -92,40 +96,65 @@ describe("MatchWon events", () => {
       season: 1,
       ts: new BN(1_791_200_100),
       loser,
+      challenge: false,
+      asset: 0,
+      opened_at: new BN(1_791_200_000),
+      ...over,
     });
+  const disc = Buffer.from(idl.events.find((e) => e.name === "MatchWon")!.discriminator);
+  const data = () => Buffer.concat([tag, disc, body()]);
+  const real = () => ({ programId: core.toBase58(), accounts: [eventAuthority.toBase58()], data: data() });
 
-  it("are read from the logs of a settlement", () => {
-    const body = eventBody();
-    expect(winsFromLogs(inCore(won()), "sig")).toEqual([{ player: player.toBase58(), points: 10, ts: 1_791_200_100, matchId: "7", loser: loser.toBase58() }]);
-    // An event from before the loser was named is the same bytes without it: read, and never capped.
-    const old = Buffer.concat([disc, body.subarray(0, body.length - 32)]);
-    expect(winsFromLogs(inCore(old), "sig")).toEqual([{ player: player.toBase58(), points: 10, ts: 1_791_200_100, matchId: "7" }]);
+  it("are read from the event-CPI inner instructions of a settlement, naming the Match by opener and counter", () => {
+    expect(winsFromInner([real()])).toEqual([{ player: player.toBase58(), points: 10, ts: 1_791_200_100, matchId: `${opener.toBase58()}-7`, loser: loser.toBase58() }]);
   });
 
-  it("counts only events tesoro_core wrote", () => {
-    const fake = "Fake111111111111111111111111111111111111111";
-    const game = "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE";
-    const ev = `Program data: ${won().toString("base64")}`;
-    // Another program logging the same bytes, top level or calling into core around it.
-    expect(winsFromLogs([`Program ${fake} invoke [1]`, ev, `Program ${fake} success`], "sig")).toEqual([]);
-    expect(
-      winsFromLogs(
-        [`Program ${fake} invoke [1]`, `Program ${idl.address} invoke [2]`, `Program ${idl.address} success`, ev, `Program ${fake} success`],
-        "sig",
-      ),
-    ).toEqual([]);
-    // The bytes quoted inside a log line, and an event with no program running.
-    expect(winsFromLogs([`Program ${idl.address} invoke [1]`, `Program log: ${ev}`, `Program ${idl.address} success`], "sig")).toEqual([]);
-    expect(winsFromLogs([ev], "sig")).toEqual([]);
-    // A malformed stack is refused whole.
-    expect(winsFromLogs([`Program ${idl.address} invoke [1]`, ev, `Program ${fake} success`], "sig")).toEqual([]);
-    // The real shape: a Game program calls settle_match, core writes the event.
-    expect(
-      winsFromLogs(
-        [`Program ${game} invoke [1]`, `Program ${idl.address} invoke [2]`, ev, `Program ${idl.address} success`, `Program ${game} success`],
-        "sig",
-      ),
-    ).toHaveLength(1);
+  it("counts only events tesoro_core wrote (a forged win in another program, with the wrong authority, or with another tag is ignored)", () => {
+    const fake = PublicKey.unique().toBase58();
+    expect(winsFromInner([{ ...real(), programId: fake }])).toEqual([]);
+    expect(winsFromInner([{ ...real(), accounts: [PublicKey.unique().toBase58()] }])).toEqual([]);
+    expect(winsFromInner([{ ...real(), data: Buffer.concat([Buffer.alloc(8), disc, body()]) }])).toEqual([]);
+    expect(winsFromInner([{ ...real(), data: Buffer.from(bs58.encode(data())) }])).toEqual([]);
+    // a program log carrying the same bytes is not an instruction at all: nothing to read
+    expect(winsFromInner([])).toEqual([]);
+    expect(winsFromInner([real(), { ...real(), programId: fake }])).toHaveLength(1);
+  });
+});
+
+describe("the Pool's Gemas", () => {
+  it("is the playable total of its basket and spill (a store that is not there counts 0)", () => {
+    const src = PublicKey.unique();
+    const basket = encodeStore([lineOf({ source: src, amount: 700n }), lineOf({ source: src, amount: 300n, side: 1, dueAt: 5n })]);
+    const spill = encodeStore([lineOf({ source: src, amount: 50n })]);
+    expect(poolTotalOf(basket, spill)).toBe(1050n);
+    expect(poolTotalOf(basket, null)).toBe(1000n);
+    expect(poolTotalOf(null)).toBe(0n);
+  });
+});
+
+describe("a recorded Season", () => {
+  it("reads the frozen budget: prizes are each rank's share of every budget line, paid when the cursor passed all lines", () => {
+    const w = (n: number) => Array.from(Buffer.alloc(32, n));
+    const line = (amount: number) => ({ side: 1, class: 3, tranche: 0, dueAt: new BN(0), source: w(9), amount: new BN(amount), paid: new BN(0) });
+    const rec = seasonRecordOf({
+      inner: {
+        number: 4,
+        window: { number: 4, recordedAt: new BN(1_791_300_000), voidedMask: 0b10 },
+        count: 3,
+        winners: [w(1), w(2), w(3), ...Array.from({ length: 7 }, () => w(0))],
+        points: [30, 20, 10, ...Array.from({ length: 7 }, () => 0)].map((n) => new BN(n)),
+        lines: [line(10_000), line(2_000)],
+        cursor: [2, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+        closed: false,
+      },
+    });
+    expect(rec.number).toBe(4);
+    expect(rec.poolTotal).toBe(12_000n);
+    expect(rec.amounts).toEqual([3000n, 2160n, 1560n]);
+    expect(rec.paidMask).toBe(0b001);
+    expect(rec.voidedMask).toBe(0b10);
+    expect(rec.recordedAt).toBe(1_791_300_000);
+    expect(rec.winners[1]).toBe(new PublicKey(Buffer.alloc(32, 2)).toBase58());
   });
 });
 
@@ -148,13 +177,5 @@ describe("decoders on a plain Uint8Array (no Buffer methods)", () => {
     const padded = new Uint8Array(src.length + 7);
     padded.set(src, 7);
     expect(parseLeaderboardTerms(padded.subarray(7))).toEqual({ bps: 100, recipient: POOL_ACCOUNT, since: 1_791_200_000 });
-  });
-  it("sums own and won Gemas of the pool Account", () => {
-    const at = 8 + 1 + 32 + 20;
-    const bytes = new Uint8Array(at + 32 + 5);
-    const d = new DataView(bytes.buffer);
-    d.setBigUint64(at, 1_500n, true);
-    d.setBigUint64(at + 8, 2n ** 40n, true);
-    expect(poolTotalOf(bytes)).toBe(1_500n + 2n ** 40n);
   });
 });

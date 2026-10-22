@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Busy, Button, GemaAmount } from "@/components/ui";
 import { PlayerAvatar } from "@/components/account/Player";
 import { useQueue } from "@/components/lobby/useQueue";
 import { useAccount } from "@/lib/account";
-import { MAX_ENTRY_SOURCES, estimatedWin } from "@/lib/chain/ledger";
+import { estimatedWin } from "@/lib/chain/ledger";
+import { entryError } from "@/lib/chain/entry-errors";
+import type { StagedEntry } from "@/lib/chain/ticket";
 import { chainShortfall, checkGemas } from "@/lib/chain/fresh-gemas";
 import { BackingError, createChallengeBacked, enterQueueBacked, joinChallengeBacked } from "@/lib/chain/backing";
 import { ChallengeError, EntryError, QueueUnconfirmedError, createChallenge, enterQueue, joinChallenge, type Entered } from "@/lib/chain/match-flow";
@@ -14,6 +16,10 @@ import { DemoError } from "@/lib/chain/demo-client";
 import { ageCall } from "@/lib/chain/age-client";
 import { ageGate, readAgeCache, writeAgeCache } from "@/lib/age-gate";
 import { AgeConfirm } from "./AgeConfirm";
+import { EntryPlan } from "./EntryPlan";
+import { UnfinishedEntries } from "./UnfinishedEntries";
+import { previewEntry, DrawError } from "@/lib/chain/entry";
+import { storesFromSnapshot } from "@/lib/chain/entry-snapshot";
 import { fmtGemas } from "@/lib/format";
 import { practiceHref } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
@@ -36,14 +42,10 @@ const OPENED_LINE: Record<GameId, string> = {
 };
 
 function explain(e: unknown): { text: string; short?: boolean } {
-  if (e instanceof EntryError) {
-    return e.code === "insufficient"
-      ? { text: "You need more Gemas to join this Challenge. Get Gemas in your Wallet (free test SOL works).", short: true }
-      : { text: `Your Gemas come from more than ${MAX_ENTRY_SOURCES} different Advances, and this entry cannot draw on that many. Redeem a few small balances in your Wallet to consolidate, then try again.` };
-  }
+  if (e instanceof EntryError) return { text: "You need more free Gemas to join this Challenge. Get Gemas in your Wallet (free test SOL works).", short: true };
   if (e instanceof ChallengeError || e instanceof BackingError || e instanceof QueueUnconfirmedError) return { text: e.message };
   if (e instanceof DemoError) return { text: e.message };
-  return { text: plainError(e) };
+  return { text: entryError(e) };
 }
 
 /**
@@ -58,7 +60,8 @@ export function EnterMatch(props: EnterKind) {
   const [status, setStatus] = useState("Getting your wallet ready…");
   const [failure, setFailure] = useState<{ text: string; short?: boolean } | null>(null);
   const [launched, setLaunched] = useState(false);
-  const [existing, setExisting] = useState<bigint | null>(null);
+  const [staged, setStaged] = useState<StagedEntry | null>(null);
+  const [existing, setExisting] = useState<string | null>(null);
   const [freshRead, setFreshRead] = useState<"ok" | "failed" | null>(null);
   const [ageServer, setAgeServer] = useState<boolean | null>(null);
   const [ageChecked, setAgeChecked] = useState(false);
@@ -135,11 +138,13 @@ export function EnterMatch(props: EnterKind) {
     setLaunched(true);
     void (async () => {
       try {
-        setStatus("Checking your SOL and Account…");
+        setStatus("Checking your Account…");
+        // A long entry is prepared in steps: say how far along it is.
+        const onStaged = (t: StagedEntry) => setStaged(t);
         const entered = (r: Entered, opened: string) => {
           if (r.via === "existing") return setExisting(r.id);
           setStatus(r.via === "joined" ? "Opponent found." : opened);
-          router.replace(`/play/match/${r.id.toString()}`);
+          router.replace(`/play/match/${r.id}`);
         };
         if (props.kind === "queue" && props.backing) {
           setStatus("Using your Backing…");
@@ -147,20 +152,20 @@ export function EnterMatch(props: EnterKind) {
         } else if (props.kind === "challenge-new" && props.backing) {
           setStatus("Using your Backing to open your Challenge…");
           const r = await createChallengeBacked(signer, props.backing, game, props.entry, auth.getAccessToken, asset);
-          router.replace(`/play/match/${r.id.toString()}`);
+          router.replace(`/play/match/${r.id}`);
         } else if (props.kind === "challenge-join" && props.backing) {
           setStatus("Joining the Challenge with your Backing…");
-          await joinChallengeBacked(signer, props.backing, BigInt(props.id), auth.getAccessToken);
+          await joinChallengeBacked(signer, props.backing, props.id, auth.getAccessToken);
           router.replace(`/play/match/${props.id}`);
         } else if (props.kind === "queue") {
-          const r = await enterQueue(signer, props.entry, auth.getAccessToken, props.game, setStatus, asset);
+          const r = await enterQueue(signer, props.entry, auth.getAccessToken, props.game, setStatus, asset, undefined, undefined, onStaged);
           entered(r, OPENED_LINE[game]);
         } else if (props.kind === "challenge-new") {
-          const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game, asset, setStatus);
-          router.replace(`/play/match/${id.toString()}`);
+          const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game, asset, setStatus, undefined, onStaged);
+          router.replace(`/play/match/${id}`);
         } else {
           setStatus("Joining the Challenge…");
-          await joinChallenge(signer, BigInt(props.id), auth.getAccessToken);
+          await joinChallenge(signer, props.id, auth.getAccessToken, undefined, onStaged);
           router.replace(`/play/match/${props.id}`);
         }
       } catch (e) {
@@ -193,6 +198,17 @@ export function EnterMatch(props: EnterKind) {
           : game === "block-puzzle"
             ? "No one waiting yet: you play now and are paired when someone joins."
             : `No one waiting yet: you sit first and the Match starts when someone joins${assetName ? ` (trading ${assetName})` : ""}.`;
+  // The program's draw for this entry, from the Account already read (own Gemas first, the fastest first). A backed entry draws the Backer's Gemas, not shown here.
+  const preview = useMemo(() => {
+    if (!snapshot?.exists || props.kind === "challenge-join" || props.backing) return null;
+    try {
+      return previewEntry(storesFromSnapshot(snapshot), BigInt(props.entry));
+    } catch (e) {
+      if (e instanceof DrawError) return null;
+      throw e;
+    }
+  }, [snapshot, props]);
+  const nowSec = Math.floor((snapshot?.fetchedAt ?? 0) / 1000);
   const heldLine = `${props.backing ? "The entry is" : `Your ${fmtGemas(entryGemas)} Gemas are`} held for this Match. If nobody joins within an hour, ${props.backing ? "it comes" : "they come"} back.`;
   return (
     <section className="enter" aria-label={title}>
@@ -228,6 +244,7 @@ export function EnterMatch(props: EnterKind) {
         </figure>
       </div>
       <div className="enter-foot">
+        {signer && (!launched || failure) && <UnfinishedEntries />}
         {signedOut ? (
           <>
             <p className="meta">Sign in to play a Match.</p>
@@ -239,7 +256,7 @@ export function EnterMatch(props: EnterKind) {
           <>
             <p className="status" role="status">You still have a {GAME_NAMES[game]} Match to play. Finish it before entering another.</p>
             <div className="hstack wrap">
-              <Button variant="money" href={`/play/match/${existing.toString()}`}>Continue</Button>
+              <Button variant="money" href={`/play/match/${existing}`}>Continue</Button>
               <Button href="/lobby">Lobby</Button>
             </div>
           </>
@@ -263,6 +280,7 @@ export function EnterMatch(props: EnterKind) {
         ) : (
           <>
             <Busy>{status}</Busy>
+            <EntryPlan preview={found ? null : preview} staged={staged} nowSec={nowSec} />
             {!found && <p className="meta">{waitLine}</p>}
             {!found && props.kind !== "challenge-join" && <p className="meta">{heldLine}</p>}
           </>

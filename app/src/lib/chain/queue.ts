@@ -1,6 +1,5 @@
 import { TxFailedError, TxUnconfirmedError, type TxOutcome } from "../../games/block-puzzle/tx";
 import type { GameId } from "@/lib/mock/types";
-import { assetIndexOf } from "./match-id";
 import type { ChainMatch } from "./read";
 
 /**
@@ -15,17 +14,18 @@ export interface QueueDeps {
   entry: number;
   /** Trading Duel: the asset index (0 SOL, 1 ETH, 2 HYPE) this Queue is for. Other Games ignore it. */
   asset?: number;
-  /** Open Queue Match ids at this entry, oldest first. A list read: it may lag the chain. */
-  listCandidates(): Promise<bigint[]>;
+  /** Open Queue Match keys at this entry, oldest first. A list read: it may lag the chain. */
+  listCandidates(): Promise<string[]>;
   /** Fresh read of one Match as this Account sees it. */
-  readMatch(id: bigint): Promise<ChainMatch | null>;
-  join(id: bigint): Promise<unknown>;
-  open(id: bigint): Promise<unknown>;
+  readMatch(id: string): Promise<ChainMatch | null>;
+  join(id: string): Promise<unknown>;
+  open(id: string): Promise<unknown>;
   /** Settles a send that threw `TxUnconfirmedError`. */
   settle(e: TxUnconfirmedError): Promise<TxOutcome>;
   /** Matches of this game the Player is seated in and still has to play, read fresh. */
   unfinished(): Promise<ChainMatch[]>;
-  newId(): bigint;
+  /** The key of the Match `open` is about to create (`<opener>-<n>` from the opener's counter). */
+  newId(): string | Promise<string>;
   /** After a definite failure: false when the entry itself can no longer be used (a spent Offer). */
   canRetry?(): Promise<boolean>;
   onStep?(s: string): void;
@@ -33,7 +33,8 @@ export interface QueueDeps {
 }
 
 export interface Entered {
-  id: bigint;
+  /** The Match key. */
+  id: string;
   /** "existing": the Player still has this Match to play, so nothing new was entered. */
   via: "joined" | "opened" | "existing";
 }
@@ -41,7 +42,7 @@ export interface Entered {
 /** A send whose fate could not be settled. Entering anything else could leave the Player in two Matches. */
 export class QueueUnconfirmedError extends Error {
   constructor(
-    readonly matchId: bigint,
+    readonly matchId: string,
     cause: unknown,
   ) {
     super("Your entry was sent but Solana has not confirmed it yet. Check Continue in the Lobby in a minute before entering again.", { cause });
@@ -51,7 +52,7 @@ export class QueueUnconfirmedError extends Error {
 export type SendResult = "landed" | "failed" | "unknown";
 
 /** Classifies a send that threw. `seated` tells whether the fresh Match shows the send took effect. */
-export async function classifySend(d: Pick<QueueDeps, "readMatch" | "settle">, e: unknown, id: bigint, seated: (m: ChainMatch) => boolean): Promise<SendResult> {
+export async function classifySend(d: Pick<QueueDeps, "readMatch" | "settle">, e: unknown, id: string, seated: (m: ChainMatch) => boolean): Promise<SendResult> {
   if (e instanceof TxFailedError) return "failed";
   if (!(e instanceof TxUnconfirmedError)) return "unknown";
   const tx = await d.settle(e);
@@ -74,15 +75,15 @@ function joinable(d: QueueDeps, m: ChainMatch, now: number): boolean {
     m.seat === null &&
     m.backerSeat === null &&
     m.deadline > now + MIN_LEFT_SECS &&
-    // Block Puzzle: only Matches opened with their Session (this version of the app) can be joined.
+    // Block Burst (Block Puzzle): only Matches opened with their Session (this version of the app) can be joined.
     (d.game !== "block-puzzle" || m.session !== null) &&
-    // Trading Duel: the Queue is per asset, which the Match id carries.
-    (d.game !== "trading-duel" || d.asset === undefined || assetIndexOf(m.id) === d.asset)
+    // Trading Duel: the Queue is per asset, which the Match records (`meta.asset`).
+    (d.game !== "trading-duel" || d.asset === undefined || m.asset === d.asset)
   );
 }
 
 /** The oldest listed Match not tried yet that a fresh read still shows as joinable. */
-async function nextCandidate(d: QueueDeps, tried: Set<bigint>): Promise<bigint | null> {
+async function nextCandidate(d: QueueDeps, tried: Set<string>): Promise<string | null> {
   const ids = (await d.listCandidates()).filter((id) => !tried.has(id)).slice(0, READS_PER_ROUND);
   const now = Math.floor((d.now?.() ?? Date.now()) / 1000);
   for (const id of ids) {
@@ -101,7 +102,7 @@ export async function queueEntry(d: QueueDeps): Promise<Entered> {
   const before = await existing();
   if (before) return { id: before.id, via: "existing" };
 
-  const tried = new Set<bigint>();
+  const tried = new Set<string>();
   for (let attempt = 0; attempt < 3; attempt++) {
     step("Looking for an opponent…");
     const id = await nextCandidate(d, tried);
@@ -124,7 +125,7 @@ export async function queueEntry(d: QueueDeps): Promise<Entered> {
   if (after) return { id: after.id, via: "existing" };
 
   step("Opening a Match…");
-  const id = d.newId();
+  const id = await d.newId();
   try {
     await d.open(id);
   } catch (e) {

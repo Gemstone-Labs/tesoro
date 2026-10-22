@@ -30,16 +30,16 @@ import {
   type NativeMarket,
 } from "@/lib/chain/native";
 import { advanceUnits, netApyPct } from "@/lib/chain/yield";
-import { extendAdvance, friendlyError, setExtendLimit, getTestSimSol, instantRedeemNative, openPositionWithAdvance, openStakePositionWithAdvance, redeemNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
+import { cancelInstantRedeem, requestInstantRedeem } from "@/lib/chain/instant-order";
+import { extendAdvance, friendlyError, setExtendLimit, getTestSimSol, openPositionWithAdvance, openStakePositionWithAdvance, redeemNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
 import { quoteDepositSol } from "@/lib/chain/stake-pool";
 import { tokenSymbol } from "@/lib/chain/stake-pool";
 import { tokensForUnits, unitsForTokens } from "@/lib/chain/stake";
-import { runInstant } from "@/lib/chain/instant-run";
 import { MAX_ADVANCE_MONTHS, blockedLabel, extendLimitView, fetchExtendLimit, type ExtendLimitData } from "@/lib/chain/extend-limit";
 import { getChain } from "@/lib/chain/client";
 import type { Chain } from "@/lib/mock";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
-import { NOTHING_REDEEMABLE_YET, ethRedeemables, ethYieldWaiting, freshenHoldings, instantRedeemEthSource, redeemEthHoldings, useEthCtx } from "./EthPositions";
+import { NOTHING_REDEEMABLE_YET, ethRedeemables, ethYieldWaiting, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { useInstantRedeem } from "./instant";
 import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type RedeemPayout } from "./MoneySheets";
 import { GemasLabel } from "./AdvanceQuote";
@@ -450,7 +450,7 @@ export function NativePositionCard({
           )}
           <div className="wl-actions-row">
             <Button variant="money" size="sm" disabled={!signer || a.busy !== null || !redeemable} onClick={onRedeem}>Redeem</Button>
-            <Button size="sm" disabled={!signer || a.busy !== null || !canUnlock} onClick={() => signer && a.run("unlock", () => unlockNative(signer, info))}>
+            <Button size="sm" disabled={!signer || a.busy !== null || !canUnlock} onClick={() => signer && a.run("unlock", () => unlockNative(signer, auth.getAccessToken, info))}>
               {a.busy === "unlock" ? "Unlocking…" : "Unlock"}
             </Button>
           </div>
@@ -675,7 +675,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
   const from = (h: ChainHolding) => (h.isOwn ? `Your ${h.asset} Lock` : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`);
   const payouts: RedeemPayout[] = [
     ...rows.map((h) => ({
-      key: h.holding.toBase58(),
+      key: h.key,
       asset: "SOL" as const,
       from: from(h),
       gemas: Number(h.redeemable),
@@ -688,7 +688,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
       later: false,
     })),
     ...ethRows.map((h) => ({
-      key: h.holding.toBase58(),
+      key: h.key,
       asset: h.asset,
       from: from(h),
       gemas: Number(h.redeemable),
@@ -698,44 +698,41 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     })),
   ];
 
-  const { offer: instant, plan, behind, freshPlan } = useInstantRedeem(asset);
+  const { offer: instant, orders, freshPlan, reloadOrders } = useInstantRedeem(asset);
 
+  /** Offers every won line that is waiting on yield: one order each, bought by Tesoro when it can. */
   const redeemNow = async () => {
     if (!auth.signer) return;
     setBusy(true);
     setError(null);
     try {
       const signer = auth.signer;
-      if (ethCtx && plan.some((p) => p.holding.eth)) await freshenHoldings(ethCtx, plan.map((p) => p.holding), "instant", setNote, behind);
-      let latest = plan;
-      const run = await runInstant(
-        plan.map((p) => p.line),
-        async () => {
-          latest = await freshPlan(signer.publicKey);
-          return latest.map((p) => p.line);
-        },
-        async (line) => {
-          const h = (latest.find((p) => p.line.key === line.key) ?? plan.find((p) => p.line.key === line.key))!.holding;
-          if (h.native) sigs.current.push(await instantRedeemNative(signer, h.position, h.source, line.gemas, h.redeemable, h.stakeMint));
-          else {
-            if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
-            await instantRedeemEthSource(ethCtx, h.eth!, h.source, line.gemas);
-          }
-        },
-      );
-      if (run.kind !== "sent") {
-        const part = run.sent.length > 0 ? "Part of it went through. " : "";
-        setError(
-          run.kind === "none"
-            ? `${part}Yield landed while you were confirming, so none of the rest can be redeemed now. Redeem them at full value instead.`
-            : `${part}Yield landed while you were confirming. Redeem now would sell ${fmtGemas(Number(run.gemas))} Gemas instead. Press Redeem now again to confirm the refreshed amounts.`,
-        );
+      const fresh = await freshPlan(signer.publicKey);
+      if (fresh.length === 0) {
         await refresh();
-        return;
+        throw new Error("Yield landed while you were confirming, so none of these Gemas are waiting any more. Redeem them at full value instead.");
       }
-      const lines = run.sent.map((line) => ({ line, holding: (latest.find((p) => p.line.key === line.key) ?? plan.find((p) => p.line.key === line.key))!.holding }));
-      setDone({ gemas: lines.reduce((s, p) => s + Number(p.line.gemas), 0), later: lines.some((p) => !p.holding.native), instant: true, receipts: sigs.current.map((sig) => ({ label: "Redeemed now", sig })) });
+      for (const p of fresh) sigs.current.push(await requestInstantRedeem(signer, auth.getAccessToken, p.holding, p.gemas));
+      setDone({ gemas: fresh.reduce((sum, p) => sum + Number(p.gemas), 0), later: fresh.some((p) => !p.holding.native), instant: true, receipts: sigs.current.map((sig) => ({ label: "Offered for sale", sig })) });
+      await Promise.all([refresh(), reloadOrders()]);
+    } catch (e) {
+      setError(friendlyError(e));
       await refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Takes an order's unsold Gemas back (after its deadline anyone may; here the seller does). */
+  const cancelOrder = async (key: string) => {
+    const order = orders.find((o) => o.address.toBase58() === key);
+    if (!order || !auth.signer) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const sig = await cancelInstantRedeem(auth.signer, auth.getAccessToken, order);
+      setDone({ gemas: Number(order.line.amount), later: false, cancelled: true, receipts: [{ label: "Taken back", sig }] });
+      await Promise.all([refresh(), reloadOrders()]);
     } catch (e) {
       setError(friendlyError(e));
       await refresh();
@@ -750,7 +747,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     setBusy(true);
     setError(null);
     try {
-      for (const h of rows) sigs.current.push(await redeemNative(auth.signer, h.position, h.source, h.redeemable, h.stakeMint));
+      for (const h of rows) sigs.current.push(await redeemNative(auth.signer, auth.getAccessToken, h, h.redeemable));
       let ethGemas = 0;
       let ethCount = 0;
       if (ethRows.length > 0 || ethWaiting.length > 0) {
@@ -773,5 +770,5 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     }
   };
 
-  return <RedeemExchange payouts={payouts} instant={instant} busy={busy} busyNote={note} yieldCheck={ethWaiting.length > 0 ? [...new Set(ethWaiting.map((h) => h.asset))].join(" and ") : null} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={() => void redeem()} onInstant={() => void redeemNow()} onClose={onClose} />;
+  return <RedeemExchange payouts={payouts} instant={instant} busy={busy} busyNote={note} yieldCheck={ethWaiting.length > 0 ? [...new Set(ethWaiting.map((h) => h.asset))].join(" and ") : null} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={() => void redeem()} onInstant={() => void redeemNow()} onCancelOrder={(k) => void cancelOrder(k)} onClose={onClose} />;
 }

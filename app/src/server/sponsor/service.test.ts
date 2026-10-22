@@ -244,6 +244,7 @@ describe("the Player's own exits (ticket 18b)", () => {
     ["redeem", playerIx.redeem],
     ["redeem_prize", playerIx.redeemPrize],
     ["unlock", playerIx.unlock],
+    ["return_own", playerIx.returnOwn],
     ["claim_free_yield", playerIx.claimFreeYield],
     ["cancel_offer", (a) => playerIx.cancelOffer(a)],
     ["cancel_request", (a) => playerIx.cancelRequest(a)],

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Connection } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { TEE_RPC } from "@/games/holdem/chain";
-import { STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfMatchId, decodeDuel, type Duel } from "@/games/trading-duel/chain";
+import { STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfIndex, decodeDuel, type Duel } from "@/games/trading-duel/chain";
 import { COLUMNS, NO_PICK, lockAt } from "@/games/trading-duel/grid";
 import { getTradingDuel } from "@/lib/chain/client";
 import type { ChainMatch } from "@/lib/chain/read";
@@ -16,7 +16,7 @@ import type { ChainMatch } from "@/lib/chain/read";
  * to its Player until its column locks); once it is committed, the final points and every pick.
  */
 export function DuelSpectate({ m }: { m: ChainMatch }) {
-  const asset = assetOfMatchId(m.id);
+  const asset = assetOfIndex(m.asset);
   const [duel, setDuel] = useState<Duel | null>(null);
   const [hidden, setHidden] = useState(false);
   const [now, setNow] = useState(() => Date.now() / 1000);
@@ -29,16 +29,16 @@ export function DuelSpectate({ m }: { m: ChainMatch }) {
       const chain = getTradingDuel();
       try {
         if (finished) {
-          const d = await chain.readDuelOnBase(m.id);
+          const d = await chain.readDuelOnBase(m.address);
           if (live) setDuel(d);
           return;
         }
         if (m.status !== "active") return;
         // The public Duel is readable on the rollup without a Player's token; if it is refused, say so.
-        const info = await new Connection(TEE_RPC, "confirmed").getAccountInfo(addresses(m.id).duel).catch(() => null);
+        const info = await new Connection(TEE_RPC, "confirmed").getAccountInfo(addresses(m.address).duel).catch(() => null);
         if (!live) return;
         if (info && (info.owner.equals(DELEGATION_PROGRAM_ID) || info.owner.equals(TRADING_DUEL_PROGRAM_ID))) {
-          setDuel(decodeDuel(addresses(m.id).duel, chain.program.coder.accounts.decode("duel", info.data)));
+          setDuel(decodeDuel(addresses(m.address).duel, chain.program.coder.accounts.decode("duel", info.data)));
           setHidden(false);
         } else {
           setHidden(true);
@@ -55,7 +55,7 @@ export function DuelSpectate({ m }: { m: ChainMatch }) {
       clearTimeout(timer);
       clearInterval(tick);
     };
-  }, [m.id, m.status, finished]);
+  }, [m.id, m.address, m.status, finished]);
 
   const symbol = asset?.symbol ?? "SOL";
   const side = (seat: 0 | 1) => (m.sides[seat] ? `${m.sides[seat]!.player.slice(0, 4)}…${m.sides[seat]!.player.slice(-4)}` : `Seat ${seat + 1}`);
