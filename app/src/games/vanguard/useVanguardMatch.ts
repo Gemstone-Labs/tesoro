@@ -503,12 +503,6 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
     [declare, sealFor, p, id],
   );
 
-  /** Pass the turn on purpose: a missed turn. */
-  const passTurn = useCallback(
-    async (o: ActionOptions = {}) =>
-      declare(async () => getVanguard().pass(p!, id!, await sealFor(o, true, null))),
-    [declare, sealFor, p, id],
-  );
 
   const twoStep = useCallback(async () => {
     if (!p || id === null) throw new Error("Not ready");
@@ -534,5 +528,5 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
     [patch, addSig],
   );
 
-  return { view, move, power, passTurn, twoStep, tick, run };
+  return { view, move, power, twoStep, tick, run };
 }

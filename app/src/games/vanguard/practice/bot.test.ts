@@ -34,7 +34,7 @@ function playOut(seed: number, policies: [Policy, Policy] = ["standard", "standa
       if (!s.ok) throw new Error(s.reason);
       g = s.game;
     }
-    const mover = m.kind === "pass" ? undefined : g.pieces.find((p) => p.id === m.id);
+    const mover = g.pieces.find((p) => p.id === m.id);
     const r = applyBot(g, m, at);
     if (!r.ok) throw new Error(`seed ${seed}: bot action ${m.kind} refused (${r.reason})`);
     if (tally) count(tally, mover, r.events, g);
@@ -63,20 +63,9 @@ function count(t: Tally, mover: Piece | undefined, events: GameEvent[], before: 
 const dugIn = (g: Game, army: "us" | "it") => g.pieces.filter((p) => p.army === army && g.changed[p.id] === "dug").length;
 
 describe("practice bot", () => {
-  describe("pass", () => {
-    it("passes when every move is a known loss and it has not missed a turn yet", () => {
-      const boxed = game([P(1, "us", "3", 9, 0), P(2, "it", "9", 8, 0, { known: true }), P(3, "us", "B", 9, 1), P(4, "us", "B", 8, 1), P(5, "it", "F", 0, 0)]);
-      expect(botMove(boxed, seeded(1))).toMatchObject({ kind: "pass" });
-      expect(botMove({ ...boxed, timeouts: { us: 1, it: 0 } }, seeded(1))).toMatchObject({ kind: "move" });
-      expect(botMove(boxed, seeded(1), "plain")).toMatchObject({ kind: "move" });
-      const r = applyBot(boxed, { kind: "pass", twoStep: false, switch: false }, T0 + 1);
-      expect(r.ok && r.game.timeouts.us).toBe(1);
-    });
-    it("never passes inside a Two-Step Turn or on a version 5 Battle", () => {
-      const boxed = game([P(1, "us", "3", 9, 0), P(2, "it", "9", 8, 0, { known: true }), P(3, "us", "B", 9, 1), P(4, "us", "B", 8, 1), P(5, "it", "F", 0, 0)]);
-      expect(botMove({ ...boxed, version: 5 }, seeded(1))?.kind).not.toBe("pass");
-      expect(botMove({ ...boxed, twoStepActive: true }, seeded(1))?.kind).not.toBe("pass");
-    });
+  it("never passes on purpose (Players have no Pass button): with only losing moves it still moves", () => {
+    const boxed = game([P(1, "us", "3", 9, 0), P(2, "it", "9", 8, 0, { known: true }), P(3, "us", "B", 9, 1), P(4, "us", "B", 8, 1), P(5, "it", "F", 0, 0)]);
+    expect(botMove(boxed, seeded(1))).toMatchObject({ kind: "move" });
   });
 
   it("plays whole Matches to an end without a single refused action", () => {

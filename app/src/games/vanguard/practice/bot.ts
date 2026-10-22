@@ -1,12 +1,11 @@
-import { DEPOTS, act, enemy, fight, hasStep, move, pass, rankOf, targets, type Army, type Game, type PowerKind, type Result, type Rng, type Square } from "../rules";
+import { DEPOTS, act, enemy, fight, hasStep, move, rankOf, targets, type Army, type Game, type PowerKind, type Result, type Rng, type Square } from "../rules";
 
 /** What the bot plays this turn. A move may carry the free Become a Spy switch; a Two-Step Turn is started first when `twoStep` is set. */
 export type BotAction =
   | { kind: "move"; id: number; to: Square; twoStep: boolean; switch: boolean }
   | { kind: Exclude<PowerKind, "dig_in">; id: number; twoStep: false; switch: false }
-  /** A Dig in is a pass that names the Major; a plain pass names nothing. */
-  | { kind: "dig_in"; id: number; twoStep: false; switch: false }
-  | { kind: "pass"; twoStep: false; switch: false };
+  /** A Dig in is a pass that names the Major. The bot never passes otherwise: Players have no Pass button. */
+  | { kind: "dig_in"; id: number; twoStep: false; switch: false };
 
 /** "fortress" digs both Majors in around its Truck and otherwise plays like "standard". */
 export type Policy = "standard" | "fortress";
@@ -15,13 +14,10 @@ export type BotMove = Extract<BotAction, { kind: "move" }>;
 const near = (a: Square, b: Square) => Math.max(Math.abs(a.r - b.r), Math.abs(a.c - b.c)) <= 1;
 /** Early enough for a Major to dig in beside its Truck or depot. */
 const EARLY_TURN = 30;
-/** Every move is a known loss (a losing fight scores about -20): standing still is better. */
-const PASS_BELOW = -15;
 
 /** Play the chosen action (the caller starts the Two-Step Turn first when `m.twoStep`). */
 export function applyBot(g: Game, m: BotAction, at: number): Result {
   if (m.kind === "move") return move(g, { id: m.id, to: m.to, at, switch: m.switch });
-  if (m.kind === "pass") return pass(g, { at });
   return act(g, { kind: m.kind, id: m.id, at });
 }
 
@@ -29,8 +25,8 @@ export function applyBot(g: Game, m: BotAction, at: number): Result {
  * The practice bot. It plays blind like a Player: it never reads the hidden ranks of the other army,
  * only its own and the pieces already shown. It spends a Two-Step Turn at once (when a step exists), raids the enemy depot
  * when next to it, attacks with its strong pieces, probes with Recons, and otherwise pushes forward. Landmines and its Truck mostly stay home.
- * It passes only when no move is left (a Blast it does not want is all it has), or when every move loses a fight against a shown piece and it
- * has not missed a turn yet. Policy "plain" never uses a power or a pass (the recordings use it until their regeneration with powers).
+ * With no move left it returns null and lets the clock run out. Policy "plain" never uses a power (the recordings use it until their
+ * regeneration with powers).
  * Powers (spec "Bot"): Rescue when an enemy stands next to the Truck, Blast when 3 or more hidden enemies are around
  * an Engineer, a Major digs in early beside its Truck or depot, and the 10 becomes a Spy only to attack a shown 10.
  */
@@ -92,9 +88,6 @@ export function botMove(g: Game, rng: Rng = Math.random, policy: Policy | "plain
       if (!best || score > best.score) best = { id: p.id, to: { r: t.r, c: t.c }, score, switch: sw };
     }
   }
-  // nothing useful: pass (never in a Two-Step Turn, never on a second missed turn in a row, never on the older rules)
-  const canPass = policy !== "plain" && g.version >= 6 && !g.twoStepActive && g.movedThisTurn.length === 0;
-  if (canPass && (!best || (best.score < PASS_BELOW && g.timeouts[army] === 0))) return { kind: "pass", twoStep: false, switch: false };
   return best && { kind: "move", id: best.id, to: best.to, twoStep, switch: best.switch };
 }
 

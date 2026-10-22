@@ -4,7 +4,7 @@ Program `vanguard` `TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH` (Solana devnet,
 
 Code: `programs/vanguard/src/{lib,state,engine}.rs`. Rules in TypeScript: `app/src/games/vanguard/rules.ts`. Client: `app/src/games/vanguard/chain.ts`. Registered in tesoro_core with studio_bps 300 and the `["authority"]` PDA (see `docs/addresses.md`); no tesoro_core change was needed, as for Hold'em.
 
-The rules are `RULES_VERSION` 6: every rank has a power, a Player may pass, and two powers are sealed. The rules exist twice, in TypeScript (Practice, the bot, the app) and in Rust (the program). Both are tested against one set of shared recordings, so they cannot drift. The program on devnet runs version 6 since 2026-10-22.
+The rules are `RULES_VERSION` 6: every rank has a power, and two powers are sealed. The rules exist twice, in TypeScript (Practice, the bot, the app) and in Rust (the program). Both are tested against one set of shared recordings, so they cannot drift. The program on devnet runs version 6 since 2026-10-22.
 
 ## Rules
 
@@ -45,7 +45,7 @@ A piece that is already face up may use a secret power in the open: a Blast-reve
 
 ### Pass
 
-A Player may pass a turn on purpose. A Pass counts as a missed turn, so three in a row (Passes and timeouts mixed) lose the Match, as timeouts do. It can't be used inside a Two-Step Turn or after a first step, and it doesn't count as a move toward the 200. A side with no move and no Blast, Rescue or Dig in loses at once; Passing doesn't count as an action for that.
+The app has no Pass button (founder, 2026-10-22): a Player passes only by digging a Major in or by letting the clock run out, and the practice bot never passes on purpose. The program still takes a `pass` instruction, because a face-down Dig in is sent as one. A Pass counts as a missed turn, so three in a row (Passes and timeouts mixed) lose the Match, as timeouts do. It can't be used inside a Two-Step Turn or after a first step, and it doesn't count as a move toward the 200. A side with no move and no Blast, Rescue or Dig in loses at once; Passing doesn't count as an action for that.
 
 **A face-down Dig in is a Pass in public.** It is the same instruction, carrying a sealed byte that names the Major to dig in, or nothing. Both count as a missed turn, so no counter tells the two apart. A Dig in with a sealed byte that names no Major able to dig in is just a Pass. A face-up Major's Dig in is named in the open but still counts the same way.
 
@@ -70,7 +70,7 @@ These follow from the rules and are not hidden. A Player or a spectator can draw
 - a jump over a piece is a Lieutenant;
 - a wadi crossing is a General;
 - a Blast or Rescue shows the piece that did it, and after a Rescue the Truck is known;
-- a turn in which no piece moves and a missed turn is counted is a Pass or a Dig in, and nothing tells the two apart (a Dig in by a face-up Major is named in the open);
+- a turn in which no piece moves and a missed turn is counted is a Dig in (or a Pass sent outside the app), so the opponent learns that a Major dug in, never which one; the app says so ("Their Major dug in somewhere.");
 - a Spy beating a 10 may be the switched 10, and two Spies shown means the 10 switched;
 - a side ending its turn means it still had an action.
 
