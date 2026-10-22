@@ -70,6 +70,7 @@
 .fr-link-reset:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 .fr-link-reset:disabled { opacity: 0.5; cursor: default; }
 .fr-reset-text { font-size: var(--fs-15); line-height: 1.5; }
+.fr-remove-note { text-align: center; }
 .fr-reset-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .fr-reset-actions > .btn:last-child { background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
 

@@ -323,10 +323,10 @@ function FriendMenu({ account, name }: { account: string; name: string }) {
           </Button>
           {confirm ? (
             <>
-              <p className="meta">{name} won’t be told. You can add each other again later.</p>
               <Button block disabled={busy} onClick={() => void remove()}>
                 {busy ? "Removing…" : `Remove ${name}`}
               </Button>
+              <p className="meta fr-remove-note">They won’t get a notification, and you can add each other again anytime.</p>
             </>
           ) : (
             <Button block onClick={() => setConfirm(true)}>
