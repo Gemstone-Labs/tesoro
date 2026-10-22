@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, Ellipsis, Swords } from "lucide-react";
 import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/Player";
 import { ChallengeSheet } from "@/components/match/ChallengeSheet";
-import { Button, Card, Sheet } from "@/components/ui";
+import { Bust, Button, Card, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
@@ -138,7 +138,13 @@ export function FriendsPage() {
       <section className="cut cut-card fr-section" aria-labelledby="fr-yours">
         <h2 id="fr-yours" className="fr-h">Your friends</h2>
         {sorted.length === 0 ? (
-          <p className="fr-empty">No Friends yet. Share your add-me link, or add Players from their Account page or after a Match.</p>
+          <div className="fr-empty">
+            <Bust name="himWelcome" width={150} className="fr-empty-bust" />
+            <div className="fr-empty-body">
+              <b>No Friends yet</b>
+              <p>Share your add-me link, or add Players from their Account page or after a Match. Friends can challenge each other in one tap and see each other’s latest Matches.</p>
+            </div>
+          </div>
         ) : (
           <>
             <ul className="fr-list">

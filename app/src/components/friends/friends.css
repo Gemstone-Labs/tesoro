@@ -7,7 +7,11 @@
 .fr-h { font-size: var(--fs-18); font-weight: 800; padding: 14px 18px; border-bottom: 1px solid var(--line); }
 .fr-list { list-style: none; margin: 0; padding: 0; }
 .fr-section > .btn { margin: 12px 18px 16px; justify-self: start; }
-.fr-empty { padding: 18px; color: var(--fg-2); }
+.fr-empty { display: flex; align-items: flex-end; gap: 20px; padding: 14px 18px 0 10px; min-height: 150px; overflow: hidden; }
+.fr-empty-bust { flex: none; width: 150px; height: auto; margin-bottom: -1px; }
+.fr-empty-body { flex: 1; min-width: 0; align-self: center; padding-bottom: 14px; display: grid; gap: 4px; max-width: 560px; }
+.fr-empty-body b { font-size: var(--fs-18); }
+.fr-empty-body p { color: var(--fg-2); font-size: var(--fs-15); line-height: 1.5; }
 .fr-skel { min-height: 220px; }
 
 .fr-row { display: grid; grid-template-columns: minmax(200px, 1fr) auto; align-items: center; gap: 12px 20px; padding: 12px 18px; }
@@ -88,6 +92,8 @@
   .fr-recent small::before { content: " · "; }
   .fr-recent .fr-thumb { width: 28px; height: 28px; }
   .fr-av { width: 48px; height: 48px; }
+  .fr-empty-bust { width: 104px; }
+  .fr-empty { gap: 12px; }
 }
 
 /* ——— Add-me link page (founder pick L1: one centred calling card) ——— */

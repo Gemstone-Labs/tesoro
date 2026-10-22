@@ -262,6 +262,19 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .app-main { padding-left: 20px; padding-right: 20px; }
 }
 
+/* Short laptop screens: a little less vertical space per row so the sidebar fits without scrolling. */
+@media (min-width: 1024px) and (max-height: 820px) {
+  .side-top { padding-bottom: 26px; }
+  .side-groups .side-link { height: 40px; }
+  .side-link.here::before { top: 12px; bottom: 12px; }
+  .side-rule { margin: 14px 10px; }
+  .side-nav.side-lower .side-link { height: 44px; }
+}
+@media (min-width: 1024px) and (max-height: 700px) {
+  .side-top { padding-bottom: 18px; }
+  .side-groups .side-link { height: 38px; }
+  .side-nav.side-lower .side-link { height: 40px; }
+}
 @media (min-width: 1024px) {
   .sidebar { display: flex; flex-direction: column; }
   .sidebar > * { flex-shrink: 0; }
