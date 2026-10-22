@@ -13,6 +13,7 @@ import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { pointsForWin } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
 import { canRematch, rematchHref } from "@/lib/rematch";
+import { AddFriendButton } from "@/components/friends/AddFriendButton";
 import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
 import { practiceHref } from "@/lib/game-params";
@@ -233,6 +234,7 @@ export function MatchResult(p: MatchResultProps) {
             {canRematch({ role, outcome, opponent: p.opponent }) && (
               <Button size="lg" href={rematchHref({ game: p.game, asset: p.asset, entry: p.entry, opponent: p.opponent! })}>Rematch</Button>
             )}
+            {canRematch({ role, outcome, opponent: p.opponent }) && <AddFriendButton account={p.opponent!} size="lg" />}
             {won && role === "player" && p.matchId && (
               <Button
                 size="lg"

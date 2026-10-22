@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 
 export default function Privacy() {
   return (
-    <LegalPage title={TITLE} lede={DESCRIPTION}>
+    <LegalPage title={TITLE} lede={DESCRIPTION} effective={ENTITY.privacyEffectiveDate}>
       <Section id="who" title="Who we are">
         <p>
           {ENTITY.name}, {ENTITY.form}{ENTITY.address ? `, ${ENTITY.address}` : ""}, runs {BRAND.name} and decides how the data described here is used. This policy explains it. It goes with our{" "}
@@ -42,6 +42,7 @@ export default function Privacy() {
             ["Email address", "The waitlist, your Invite, notification settings, or sign-in by email.", "To sign you in, send your Invite and the notices you asked for, and run the waitlist."],
             ["Wallet addresses and on-chain activity", "Your wallets and the blockchains. Public.", "To run your Account: Locks, Gemas, Matches, payouts, Seasons."],
             ["Profile name and picture", "You choose them. Public, kept on chain.", "To show you to other Players."],
+            ["Friends", "You add them: Friend requests, your Friend list, your add-me link and Challenges you send Friends.", "To show you your Friends and let you challenge them. Private: only you see your list, and each Friend sees only that you are Friends. We may look at it when we check a cheating report."],
             ["18+ confirmation", "You tell us once, before your first Match.", "To record that you said you are at least 18. Self-declared; we do not check your age."],
             ["Protections and fair-play records", "Your Entry Limit, Break, Self-Exclusion, and signals used to find bots and multiple Accounts.", "To enforce your limits and our fair-play rules."],
             ["Server logs and device data", "Your browser when you use our site: IP address, browser type, pages and times, errors.", `To keep ${BRAND.name} secure and working, stop abuse, and fix bugs.`],
@@ -71,7 +72,7 @@ export default function Privacy() {
           head={["Provider", "For", "What it sees"]}
           rows={[
             ["Privy", "Sign-in by email or wallet", "Your email or wallet, device and sign-in details."],
-            ["Supabase", "Database for the waitlist and notification emails", "Your email, sign-up details and notification settings."],
+            ["Supabase", "Database for the waitlist, notification emails and Friends", "Your email, sign-up details, notification settings and Friends list."],
             ["Resend", "Sending email", "Your email address and the message."],
             ["Vercel", "Hosting our website", "Requests to our site, including your IP address and logs."],
             ["MagicBlock", "Rollups that run Matches, and price feeds", "Wallet addresses and the Match activity sent to its network."],

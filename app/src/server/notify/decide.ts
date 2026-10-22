@@ -73,7 +73,21 @@ export interface SeasonPlacedEvent extends Base {
   gemas: number;
 }
 
+/** Another Player sent this Player a Friend request. Names stay out: a Profile name is free text. */
+export interface FriendRequestEvent extends Base {
+  kind: "friend-request";
+}
+/** A Friend opened a Challenge for this Player. */
+export interface FriendChallengeEvent extends Base {
+  kind: "friend-challenge";
+  matchId: string;
+  game: GameId;
+  entry: number;
+}
+
 export type NotifyEvent =
+  | FriendRequestEvent
+  | FriendChallengeEvent
   | MatchSettledEvent
   | OpponentPlayedEvent
   | MatchDelayedEvent
@@ -125,6 +139,10 @@ const utc = (secs: number) => {
 export function describe(e: NotifyEvent): Message {
   const game = "game" in e ? (GAMES[e.game] ?? "Match") : "Match";
   switch (e.kind) {
+    case "friend-request":
+      return { subject: "You have a Friend request", body: "A Player sent you a Friend request. Open Friends to accept or decline it." };
+    case "friend-challenge":
+      return { subject: `A Friend challenged you to ${game}`, body: `A Friend challenged you to a ${game} Match for an entry of ${gemas(e.entry)}. Open Friends to see it and play.` };
     case "match-settled":
       if (e.result === "won") return { subject: `You won your ${game} Match`, body: `You won your ${game} Match and ${gemas(e.gemas)}. The Pot was ${gemas(e.pot)}.` };
       if (e.result === "lost") return { subject: `You lost your ${game} Match`, body: `You lost your ${game} Match and ${gemas(e.gemas)}. The Pot was ${gemas(e.pot)}.` };

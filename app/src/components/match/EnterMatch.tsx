@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Busy, Button, GemaAmount } from "@/components/ui";
-import { PlayerAvatar } from "@/components/account/Player";
+import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
+import { FriendPicker } from "@/components/friends/FriendPicker";
+import { useFriends } from "@/lib/friends/FriendsProvider";
+import { FriendsError } from "@/lib/friends/client";
 import { useQueue } from "@/components/lobby/useQueue";
 import { useAccount } from "@/lib/account";
 import { MAX_ENTRY_SOURCES, estimatedWin } from "@/lib/chain/ledger";
@@ -48,8 +51,9 @@ function explain(e: unknown): { text: string; short?: boolean } {
 }
 
 /**
- * Sign-in gate -> Queue / Challenge -> the Match. Opening this page is the confirmation
- * (the Lobby's Enter button, or a Challenge link); it runs once per visit.
+ * Sign-in gate -> Queue / Challenge -> the Match. For the Queue and a Challenge link, opening this page
+ * is the confirmation; a new Challenge waits for Open Challenge, so a Friend can be picked first.
+ * It runs once per visit.
  */
 export function EnterMatch(props: EnterKind) {
   const { auth, snapshot, onChain, loading, gemas, refresh } = useAccount();
@@ -60,6 +64,29 @@ export function EnterMatch(props: EnterKind) {
   const [failure, setFailure] = useState<{ text: string; short?: boolean } | null>(null);
   const [launched, setLaunched] = useState(false);
   const [existing, setExisting] = useState<bigint | null>(null);
+  const friends = useFriends();
+  const [picked, setPicked] = useState<string | null>(props.kind === "challenge-new" ? (props.opponent ?? null) : null);
+  const [picking, setPicking] = useState(false);
+  const [confirmed, setConfirmed] = useState(props.kind !== "challenge-new");
+  const pickedName = usePlayerLabel(picked);
+  const pickedFriend = picked !== null && friends.relation(picked) === "friend";
+  /**
+   * Shows the new Challenge to the picked Player if they are a Friend (the server checks; their Friends page, an
+   * email if they opted in). The server reads the new Match from its own RPC, which can lag a moment behind:
+   * it retries a few times. The link works either way.
+   */
+  const tellFriend = async (id: bigint) => {
+    if (!picked) return;
+    for (let i = 0; i < 4; i++) {
+      try {
+        await friends.act("challenge", { matchId: id.toString(), to: picked });
+        return;
+      } catch (e) {
+        if (!(e instanceof FriendsError && e.code === "not-your-challenge")) return;
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+    }
+  };
   const [freshRead, setFreshRead] = useState<"ok" | "failed" | null>(null);
   const [ageServer, setAgeServer] = useState<boolean | null>(null);
   const [ageChecked, setAgeChecked] = useState(false);
@@ -130,7 +157,7 @@ export function EnterMatch(props: EnterKind) {
 
   useEffect(() => {
     // A failed attempt is retried by reloading the page, never by this effect re-running.
-    if (!signer || started.current || attempted.current || loading || needsGemas || rechecking || gate !== "go") return;
+    if (!signer || !confirmed || started.current || attempted.current || loading || needsGemas || rechecking || gate !== "go") return;
     started.current = true;
     attempted.current = true;
     setLaunched(true);
@@ -148,6 +175,7 @@ export function EnterMatch(props: EnterKind) {
         } else if (props.kind === "challenge-new" && props.backing) {
           setStatus("Using your Backing to open your Challenge…");
           const r = await createChallengeBacked(signer, props.backing, game, props.entry, auth.getAccessToken, asset);
+          await tellFriend(r.id);
           router.replace(`/play/match/${r.id.toString()}`);
         } else if (props.kind === "challenge-join" && props.backing) {
           setStatus("Joining the Challenge with your Backing…");
@@ -158,6 +186,7 @@ export function EnterMatch(props: EnterKind) {
           entered(r, OPENED_LINE[game]);
         } else if (props.kind === "challenge-new") {
           const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game, asset, setStatus);
+          await tellFriend(id);
           router.replace(`/play/match/${id.toString()}`);
         } else {
           setStatus("Joining the Challenge…");
@@ -171,7 +200,7 @@ export function EnterMatch(props: EnterKind) {
     })();
     // The mode and entry are fixed for this page instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signer, key, loading, needsGemas, rechecking, gate]);
+  }, [signer, key, loading, needsGemas, rechecking, gate, confirmed]);
 
   const assetName = game === "trading-duel" ? (["SOL", "ETH", "HYPE"][asset] ?? "SOL") : "";
   const title = props.kind === "queue" ? "Play now" : props.kind === "challenge-new" ? "New Challenge" : "Challenge";
@@ -182,10 +211,14 @@ export function EnterMatch(props: EnterKind) {
   const waiting = here.open;
   const found = status === "Opponent found.";
   const busy = !signedOut && existing === null && !needsGemas && !failure && gate !== "ask";
-  const seat = found ? "Opponent" : props.kind === "challenge-new" ? (props.opponent ? "Rematch" : "Your friend") : props.kind === "challenge-join" ? "Opponent" : waiting.length ? `${waiting.length} waiting` : "Open seat";
+  const seat = found ? "Opponent" : props.kind === "challenge-new" ? (picked ? pickedName : "Your friend") : props.kind === "challenge-join" ? "Opponent" : waiting.length ? `${waiting.length} waiting` : "Open seat";
   const waitLine =
     props.kind === "challenge-new"
-      ? props.opponent ? "Same opponent, same Game, same entry. Send them your link once the Match opens: they can accept or ignore it." : "Your link is ready once the Match opens."
+      ? pickedFriend
+        ? `${pickedName} sees it on their Friends page. You also get a link to send.`
+        : picked
+          ? "Send them your link once the Match opens: they can accept or ignore it."
+          : "Your link is ready once the Match opens."
       : props.kind === "challenge-join"
         ? "Joining your friend's Match."
         : waiting.length
@@ -222,11 +255,16 @@ export function EnterMatch(props: EnterKind) {
             <span className="enter-vs">VS</span>
           )}
         </div>
-        <figure className={`enter-seat${busy && !found ? " seeking" : ""}`}>
+        <figure className={`enter-seat${busy && confirmed && !found ? " seeking" : ""}`}>
           <span className="cut enter-av">
-            {props.kind === "challenge-new" && props.opponent ? <PlayerAvatar account={props.opponent} size={112} /> : <SeekingFace keys={found ? [] : waiting} />}
+            {props.kind === "challenge-new" && picked ? <PlayerAvatar account={picked} size={112} /> : <SeekingFace keys={found ? [] : waiting} />}
           </span>
           <figcaption>{seat}</figcaption>
+          {props.kind === "challenge-new" && !confirmed && !signedOut && (
+            <Button size="sm" onClick={() => setPicking(true)}>
+              {picked ? "Change" : "Select friend"}
+            </Button>
+          )}
         </figure>
       </div>
       <div className="enter-foot">
@@ -262,6 +300,13 @@ export function EnterMatch(props: EnterKind) {
               <Button href="/lobby">Lobby</Button>
             </div>
           </>
+        ) : !confirmed ? (
+          <>
+            <Button variant="money" block onClick={() => setConfirmed(true)}>
+              {picked ? `Open Challenge for ${pickedName}` : "Open Challenge"}
+            </Button>
+            <p className="meta">{waitLine}</p>
+          </>
         ) : (
           <>
             <Busy>{status}</Busy>
@@ -271,6 +316,18 @@ export function EnterMatch(props: EnterKind) {
         )}
         {onChain && snapshot && !snapshot.exists && <p className="note">First time: we create your {BRAND.name} Account as part of this step.</p>}
       </div>
+      {props.kind === "challenge-new" && (
+        <FriendPicker
+          open={picking}
+          picked={picked}
+          onClose={() => setPicking(false)}
+          onPick={(p) => setPicked(p)}
+          onOpen={() => {
+            setPicking(false);
+            setConfirmed(true);
+          }}
+        />
+      )}
     </section>
   );
 }

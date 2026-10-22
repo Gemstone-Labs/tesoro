@@ -8,6 +8,7 @@ import { Button, CountUp, GemaMark } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { requestGetGemas } from "@/lib/get-gemas";
 import { AccountMenu } from "./AccountMenu";
+import { useFriends } from "@/lib/friends/FriendsProvider";
 import { PoolChest } from "./PoolChest";
 import { useSearch } from "./SearchContext";
 import { Wordmark } from "./Sidebar";
@@ -21,11 +22,13 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   const signedOut = auth.status === "signed-out";
   const onLobby = path === "/lobby";
   const onWallet = path === "/wallet";
+  const friendsWaiting = useFriends().view?.badge ?? 0;
 
   return (
     <header className={`topbar${onLobby ? " on-lobby" : ""}`}>
-      <button type="button" className="cut icon-btn menu-btn" aria-label="Open menu" onClick={onMenu}>
+      <button type="button" className="cut icon-btn menu-btn" aria-label={friendsWaiting ? `Open menu, ${friendsWaiting} waiting in Friends` : "Open menu"} onClick={onMenu}>
         <Menu aria-hidden="true" />
+        {friendsWaiting > 0 && <i className="menu-dot" aria-hidden="true" />}
       </button>
       <span className="top-word"><Wordmark /></span>
       <form

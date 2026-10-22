@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DAILY_LIMIT, decide, type MatchSettledEvent, type NotifyPrefs } from "./decide";
+import { DAILY_LIMIT, decide, describe as describeEvent, type MatchSettledEvent, type NotifyPrefs } from "./decide";
 
 const event = (over: Partial<MatchSettledEvent> = {}): MatchSettledEvent => ({
   kind: "match-settled",
@@ -39,5 +39,18 @@ describe("who is emailed about a settled Match", () => {
     const d = decide(event(), prefs, DAILY_LIMIT);
     expect(d.emails).toEqual([]);
     expect(d.digest).toHaveLength(1);
+  });
+});
+
+describe("Friend emails", () => {
+  it("say what happened without the other Player's name (a Profile name is free text)", () => {
+    expect(describeEvent({ kind: "friend-request", id: "friend-request:1", authority: "A" })).toEqual({
+      subject: "You have a Friend request",
+      body: "A Player sent you a Friend request. Open Friends to accept or decline it.",
+    });
+    expect(describeEvent({ kind: "friend-challenge", id: "friend-challenge:13", authority: "A", matchId: "13", game: "holdem", entry: 500 })).toEqual({
+      subject: "A Friend challenged you to Hold'em",
+      body: "A Friend challenged you to a Hold'em Match for an entry of 500 Gemas. Open Friends to see it and play.",
+    });
   });
 });
