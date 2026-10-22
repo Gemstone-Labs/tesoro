@@ -44,7 +44,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Block Puzzle: your run is in, nobody has joined yet. Gemas flow into the Pot, the empty seat scans. */
+/** Block Burst: your run is in, nobody has joined yet. Gemas flow into the Pot, the empty seat scans. */
 export const RunInWaiting: Story = {};
 export const ChallengeLink: Story = { args: stage("block-puzzle", "waiting-run", { challengeLink: LINK }) };
 /** Pieces are dealt out to both seats. */

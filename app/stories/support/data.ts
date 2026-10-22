@@ -16,7 +16,8 @@ export interface StoryData {
   snapshot?: AccountSnapshot | null | ((address: string) => AccountSnapshot | null);
   /** Error shown instead of a snapshot (the "Couldn't load your Account" state). */
   snapshotError?: string;
-  board?: BackingBoard;
+  /** The Backing board, or a function of the demo board (read when the story renders, so another story's board never leaks in). */
+  board?: BackingBoard | ((demo: BackingBoard) => BackingBoard);
   settled?: SettledMatch[];
   playerAccount?: (address: string) => PlayerAccount;
 }

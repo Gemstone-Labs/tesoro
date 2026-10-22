@@ -10,8 +10,8 @@ import { decodeBattle, type Battle } from "./decode";
 import type { ShownPiece } from "./VanguardBoard";
 import { shownPieces } from "./view";
 
-/** Every piece on the board with the US Army at the bottom; face up only where the Battle published a rank. */
-export const spectatorPieces = (b: Battle): ShownPiece[] => shownPieces(b, null, b.usSeat);
+/** Every piece on the board with the US Army at the bottom; face up only where the Battle published a rank. No side's "seen by the enemy" glow: a spectator has no side. */
+export const spectatorPieces = (b: Battle): ShownPiece[] => shownPieces(b, null, b.usSeat).map((p) => ({ ...p, exposed: undefined }));
 
 type Reader = Pick<Connection, "getAccountInfo">;
 

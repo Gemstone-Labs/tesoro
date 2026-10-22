@@ -4,6 +4,19 @@ import { useState, type ReactNode } from "react";
 import { pushFeed } from "./feed";
 import "./vanguard.css";
 
+/** The selected piece's power: one button with the power's name and a line saying what it does. One tap does it. */
+export interface PowerInfo {
+  label: string;
+  hint: string;
+  onPress: () => void;
+}
+
+/** Become a Spy, on the selected General of the Army: the same kind of button; one tap switches it (on the turn's action), a second tap takes it back. */
+export interface SpyInfo {
+  on: boolean;
+  onPress: () => void;
+}
+
 export interface TurnInfo {
   /** Whose turn it is, in words ("Your turn", "Italy's turn", "Two-Step · 1 left"); empty before the Match starts and after it ends. */
   label: string;
@@ -16,6 +29,8 @@ export interface TurnInfo {
   /** You already made a step this turn, so a Two-Step Turn can't start. */
   moved: boolean;
   onUse: () => void;
+  power?: PowerInfo | null;
+  spy?: SpyInfo | null;
 }
 
 /** Where the Two-Step Turn button is and what it tells you: next to whose turn it is, never tucked in a seat bar. */
@@ -30,7 +45,9 @@ export function TurnBox({ turn }: { turn: TurnInfo }) {
   }
   const showButton = turn.label !== "" && banked > 0 && !active;
   const ready = showButton && yourTurn && !moved;
-  const hint = !showButton ? "" : !yourTurn ? "Banked. Press it on your turn to move twice." : moved ? "Press it before your first step." : "Press it to move twice this turn.";
+  const { power, spy } = turn;
+  const twoHint = !showButton ? "" : !yourTurn ? "Banked. Press it on your turn to move twice." : moved ? "Press it before your first step." : "Press it to move twice this turn.";
+  const hint = yourTurn && power ? power.hint : yourTurn && spy ? (spy.on ? "One way: it stays a Spy." : "Free with your move. One way: it stays a Spy.") : twoHint;
   // nothing to say before the Match starts or after it ends: no empty box
   if (!turn.label) return null;
   return (
@@ -39,6 +56,16 @@ export function TurnBox({ turn }: { turn: TurnInfo }) {
       {showButton && (
         <button key={earned} type="button" className={`vg-two${ready ? " ready" : ""}${earned ? " earned" : ""}`} onClick={turn.onUse} disabled={!ready}>
           Use Two-Step Turn{banked > 1 ? ` ×${banked}` : ""}
+        </button>
+      )}
+      {yourTurn && power && (
+        <button type="button" className="vg-power" onClick={power.onPress}>
+          {power.label}
+        </button>
+      )}
+      {yourTurn && spy && (
+        <button type="button" className={`vg-power${spy.on ? " on" : ""}`} aria-pressed={spy.on} onClick={spy.onPress}>
+          {spy.on ? "Undo Spy" : "Become a Spy"}
         </button>
       )}
       {hint && <small className="vg-hint">{hint}</small>}

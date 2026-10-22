@@ -25,7 +25,7 @@ describe("shared spot links", () => {
   it("puts the share link on its own line", () => {
     const gem = gemFor(6);
     expect(shareText(gem, "https://x.y/spot/6")).toBe(
-      `I'm #6 on the Tesoro waitlist and pulled the ${gem.name}! What's yours?\n\nOpen your pack: https://x.y/spot/6`,
+      `I'm #6 on the @PlayTesoro waitlist and pulled the ${gem.name}! What's yours?\n\nOpen your pack: https://x.y/spot/6`,
     );
   });
 });

@@ -36,6 +36,7 @@
 .hdx-head-l { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
 .hdx-title { font-family: var(--f-display); text-transform: uppercase; font-weight: 800; line-height: 1; font-size: 26px; letter-spacing: 0.005em; }
 .hdx-level { color: var(--fg-2); font-size: var(--fs-14); }
+.hdx-error { margin: -12px 4px 0; }
 .hdx-entry { --edge: var(--edge-em); display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 6px 12px; background: linear-gradient(180deg, #0f3029, #0a2320); font-weight: 800; font-size: var(--fs-14); color: var(--em-hi); }
 .hdx-stage { position: relative; display: grid; gap: 12px; min-width: 0; }
 
@@ -110,7 +111,6 @@
 .hd-bet { position: absolute; left: calc(50% + 126px); top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 8px; font-size: var(--fs-15); font-variant-numeric: tabular-nums; color: var(--fg); }
 .hd-bet-n { padding: 2px 8px; background: rgba(6, 12, 28, 0.7); }
 .hd-turn { font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--shell); background: var(--fg); padding: 1px 6px; }
-.hd-last { text-align: center; }
 .hd-handlabel {
   animation: hd-win-in 400ms ease both; --c: 7px; position: absolute; z-index: 3; left: calc(50% + 74px); top: 8px; padding: 5px 12px; white-space: nowrap; font-size: var(--fs-14); font-weight: 700; color: var(--fg);
   background: rgba(10, 16, 30, 0.9); --edge: rgba(190, 210, 255, 0.4);
@@ -211,32 +211,15 @@
 .hdx-btn.primary { background: #eef0e9; color: #0a0d0f; }
 .hdx-btn.primary:hover { background: #fff !important; }
 .hdx-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.hdx-btn.sending:disabled { opacity: 1; cursor: progress; font-size: var(--fs-14); }
 .hdx-btn.primary:focus-visible::after { --t: 1px; --r: 2px; background: #0a0d0f; }
-.hdx-raise { display: grid; gap: 12px; align-items: center; }
-.hdx-raise-in { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.hdx-raise-in input {
-  width: 140px; height: 48px; padding: 0 14px; background: #0c1116; border: 1px solid var(--line-2); color: var(--fg); font-size: var(--fs-20); text-align: center; border-radius: 0;
-}
-.hdx-raise-in input:disabled { opacity: 0.5; }
-.hd-range-hint { font-size: var(--fs-12); color: var(--fg-2); white-space: nowrap; }
-.hd-range-hint.bad { color: var(--warn); }
-.hdx-raise-in input[aria-invalid=true] { box-shadow: inset 0 0 0 1px var(--warn); }
-.hdx-raise-ctl { display: grid; gap: 8px; }
-.hd-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.hdx-raise { display: grid; gap: 8px; align-items: center; }
+.hd-presets { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 .hd-preset { padding: 12px 4px; font-size: var(--fs-15); font-weight: 700; background: #141a20; border: 1px solid var(--line-2); color: var(--fg); }
 .hd-preset:hover:not(:disabled) { background: #1c242c; }
 .hd-preset:disabled { opacity: 0.4; }
-.hd-hint { grid-column: 1 / -1; }
-
-/* neutral range (Chips are not Gemas: the emerald slider is for Gema amounts only) */
-.hd-range { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; background: transparent; margin: 0; }
-.hd-range::-webkit-slider-runnable-track { height: 4px; background: linear-gradient(90deg, var(--fg) var(--pct, 0%), rgba(255, 255, 255, 0.14) var(--pct, 0%)); }
-.hd-range::-moz-range-track { height: 4px; background: rgba(255, 255, 255, 0.14); }
-.hd-range::-moz-range-progress { height: 4px; background: var(--fg); }
-.hd-range::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; margin-top: -9px; background: var(--fg); border: 0; clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
-.hd-range::-moz-range-thumb { width: 22px; height: 22px; background: var(--fg); border: 0; border-radius: 0; clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
-.hd-range:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
-.hd-range:disabled { opacity: 0.4; }
+/* the picked size (Chips are not Gemas: neutral, not emerald) */
+.hd-preset[aria-pressed=true], .hd-preset[aria-pressed=true]:hover { background: #eef0e9; color: #0a0d0f; }
 
 .hd-sigs summary { cursor: pointer; }
 .hd-sigs { gap: 6px; }
@@ -247,7 +230,9 @@
 .hdx-more { display: none; }
 @media (max-width: 1023px) {
   .hdx-actions { position: sticky; z-index: 20; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); padding: 10px 12px; gap: 8px; max-height: 60dvh; overflow-y: auto; }
-  .hdx-btn { min-height: 54px; }
+  /* tall enough for two lines, so a label that wraps ("Raise to / 1,000") never changes the bar's height */
+  .hdx-btn { min-height: 60px; line-height: 1.1; }
+  .hdx-btns { grid-template-columns: minmax(0, 1fr) repeat(2, minmax(0, 1.2fr)); }
   .hdx-more { display: block; padding: 8px 4px; font-size: var(--fs-13); }
   .hdx-raise { display: none; }
   .hdx-actions.raise-open .hdx-raise { display: grid; }
@@ -256,7 +241,7 @@
 
 /* phones: the table shrinks, the info panel becomes a one-line strip */
 @media (max-width: 719px) {
-  .hdx-felt { min-height: 360px; padding: 22px 12px 18px; }
+  .hdx-felt { min-height: 360px; padding: 12px 12px 8px; gap: 4px; }
   .hdx-surface { transform: perspective(1200px) rotateX(9deg); }
   .hdx-deck { right: 9%; top: 27%; width: 26px; }
   .hd-card, .hd-flipc { --w: 36px; }
@@ -268,7 +253,18 @@
   .hd-btn { left: 38px; }
   .hd-bet { left: calc(50% + 58px); top: 6px; transform: none; }
   .hd-say { right: auto; left: 50%; top: 0; transform: translate(-50%, -50%); width: 200px; }
-  .hd-handlabel { position: relative; left: auto; top: auto; order: 3; margin-top: 6px; }
+  /* each seat keeps a fixed slot under its plaque for the hand name, so the table never changes height when one shows */
+  .hdx-seat { padding-bottom: 34px; }
+  .hd-handlabel { left: 0; right: 0; top: auto; bottom: 0; width: fit-content; margin-inline: auto; }
+  /* the hand result gets a fixed slot too (three lines fit: Final hand, who won, why) */
+  .hdx-mid { gap: 8px; }
+  .hdx-potslot { height: 78px; min-height: 0; }
+  /* plaques keep one height: the Winner tag stays on the name row, a missed-turn line fits beside the avatar */
+  .hd-name { flex-wrap: nowrap; min-width: 0; }
+  .hd-name strong { flex: none; }
+  .hd-addr { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hd-name, .hd-stack { line-height: 1.15; }
+  .hd-missed { font-size: var(--fs-11); line-height: 1.1; }
   .hd-turn:not(.won) { display: none; }
   /* the turn line and Hand log share one row, so the pinned action bar clears the hand name */
   .hdx-head-r { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; margin-left: 0; }
@@ -284,9 +280,6 @@
 }
 @media (min-width: 1024px) {
   .hdx-actions { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: center; }
-  .hdx-raise { grid-template-columns: 150px minmax(0, 1fr); }
-  .hdx-raise-in { display: grid; gap: 6px; justify-content: stretch; }
-  .hdx-raise-in input { width: 100%; }
   /* Sized by viewport height too, so header, table and action bar fit one desktop screen. */
   .hdx { gap: clamp(12px, 2vh, 24px); }
   .hdx-felt { min-height: clamp(380px, 50vh, 500px); }
@@ -294,14 +287,9 @@
   .hd-card.lg, .hd-flipc.lg { --w: clamp(54px, 6.8vh, 78px); }
 }
 
-/* Wide screens: the hand result sits in the empty left side of the table instead of under it, and the felt
-   takes the height left after the top bar, header and action bar, so the whole table fits one screen. */
+/* Wide screens: the felt takes the height left after the top bar, header and action bar, so the whole
+   table fits one screen. */
 @media (min-width: 1280px) {
-  .hdx-stage > .hd-last {
-    position: absolute; z-index: 2; left: 4.5%; top: 50%; transform: translateY(-50%); width: min(280px, 26%);
-    text-align: left; background: rgba(8, 14, 28, 0.88); border: 1px solid rgba(190, 210, 255, 0.22);
-  }
-  .hdx-stage > .hd-last { padding: 10px 12px; }
   .hdx-felt { min-height: 0; height: clamp(360px, calc(100dvh - 318px), 520px); }
   .hdx-actions { padding: 12px 16px; gap: 10px; }
   .hdx-btn { min-height: 56px; }

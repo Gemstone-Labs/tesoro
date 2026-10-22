@@ -25,7 +25,7 @@ export interface Frame {
   /** The progress line the entry reports (`onStep`). */
   status?: string;
   /** The entry has landed: the page moves on to the Match. */
-  entered?: "joined" | "opened";
+  entered?: "joined" | "opened" | "existing";
   /** MatchRoute's read of the Match has answered. */
   routed?: boolean;
   /** What `fetchMatch` returns. */

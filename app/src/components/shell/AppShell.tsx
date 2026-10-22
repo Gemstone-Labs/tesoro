@@ -8,7 +8,8 @@ import { EditProfileSheet } from "@/components/account/EditProfileSheet";
 import { LimitsSheet } from "@/components/account/LimitsSheet";
 import { GuideOverlay, GuideProvider } from "@/components/guide/Guide";
 import { SearchProvider } from "./SearchContext";
-import { NAV, SidebarBody, isHere } from "./Sidebar";
+import { SidebarBody, isHere, useNavItems } from "./Sidebar";
+import { DepositHost } from "@/components/deposit/DepositSheet";
 import { SiteFooter } from "./SiteFooter";
 import { TopBar } from "./TopBar";
 
@@ -21,6 +22,7 @@ function bareScreen(path: string | null) {
 export function AppShell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const [drawer, setDrawer] = useState(false);
+  const { nav } = useNavItems();
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -62,7 +64,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="bottom-nav" aria-label="Main">
-          {NAV.map(({ href, label, Icon }) => {
+          {nav.map(({ href, label, Icon }) => {
             const here = isHere(path, href);
             return (
               <Link key={href} href={href} aria-current={here ? "page" : undefined}>
@@ -74,6 +76,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
         <GuideOverlay />
         <EditProfileSheet />
+        <DepositHost />
         <LimitsSheet />
       </div>
       </GuideProvider>

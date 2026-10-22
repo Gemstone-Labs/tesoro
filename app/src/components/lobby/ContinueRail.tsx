@@ -15,6 +15,8 @@ import { useAccount } from "@/lib/account";
 import type { ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
+import { PlayerName } from "@/components/account/Player";
+import type { FriendsView } from "@/lib/friends/client";
 import "./continue.css";
 
 const subscribeNothing = () => () => {};
@@ -39,7 +41,7 @@ function timeLeft(s: number) {
   return `${Math.floor(s / 3600)} h${min ? ` ${min} min` : ""} left`;
 }
 
-/** Where the Player's own run stands in each open Block Puzzle Match (the Board lives in the rollup, so it is probed without ever asking the wallet to sign on the Lobby). */
+/** Where the Player's own run stands in each open Block Burst Match (the Board lives in the rollup, so it is probed without ever asking the wallet to sign on the Lobby). */
 function useRunStages(matches: ChainMatch[]) {
   const { auth } = useAccount();
   const signer = auth.signer;
@@ -69,8 +71,8 @@ function useRunStages(matches: ChainMatch[]) {
   return stages;
 }
 
-/** The Player's open Matches: game art, where each stands, what is in and what it pays, and the time left. */
-export function ContinueRail({ matches }: { matches: ChainMatch[] }) {
+/** The Player's open Matches, then Challenges Friends opened for them: game art, where each stands, what is in and what it pays. */
+export function ContinueRail({ matches, challenges = [] }: { matches: ChainMatch[]; challenges?: FriendsView["challenges"] }) {
   const [now, setNow] = useState(nowSecs);
   useEffect(() => {
     const t = setInterval(() => setNow(nowSecs()), 30_000);
@@ -116,6 +118,28 @@ export function ContinueRail({ matches }: { matches: ChainMatch[] }) {
             </Link>
           );
         })}
+        {challenges.map((c) => (
+          <Link key={c.matchId} href={`/play/challenge/${c.matchId}`} className="cut cut-card continue-card ready">
+            <span className="continue-art" aria-hidden="true">
+              <Image src={CATALOGUE.find((x) => x.game === c.game)?.tile ?? ""} alt="" fill sizes="76px" />
+            </span>
+            <span className="continue-body">
+              <span className="continue-game">{GAME_NAMES[c.game]}</span>
+              <span className="continue-status">
+                <i className="ready" aria-hidden="true" />
+                <PlayerName account={c.from} /> challenged you
+              </span>
+              <span className="continue-figures">
+                <span>
+                  <GemaMark size={12} /> {fmtGemas(c.entry)} in
+                </span>
+              </span>
+            </span>
+            <span className="cut cut-btn btn sm continue-cta ready">
+              Open <ArrowRight aria-hidden="true" />
+            </span>
+          </Link>
+        ))}
       </div>
     </section>
   );

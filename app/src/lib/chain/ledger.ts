@@ -164,7 +164,7 @@ export function seatResult(m: Outcome, seat: 0 | 1): "won" | "lost" | "draw" | n
 }
 
 /**
- * Gemas won or lost at settlement, net of Fees. Refunds and draws are 0. Block Puzzle settles from
+ * Gemas won or lost at settlement, net of Fees. Refunds and draws are 0. Block Burst settles from
  * its Session; Hold'em has none, so a settled table's winner comes in as `winner`. A backed Player
  * (`backing`) only ever gains their share of the surplus and loses nothing.
  */

@@ -1,5 +1,5 @@
 /**
- * On-chain client for Block Puzzle Matches (programs/block_puzzle + programs/tesoro_core).
+ * On-chain client for Block Burst Matches (programs/block_puzzle + programs/tesoro_core).
  *
  * IDL-based: pass the two IDLs (`target/idl/block_puzzle.json`, `target/idl/tesoro_core.json`).
  * Needs `@coral-xyz/anchor`, `@solana/web3.js`, `@magicblock-labs/ephemeral-rollups-sdk` and

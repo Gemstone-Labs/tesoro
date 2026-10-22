@@ -1,6 +1,7 @@
 import type { GameId, MatchResult } from "../mock/types";
 import type { HistoryRow } from "./history";
 import type { QueueSeat } from "./read";
+import { canJoinSeat } from "./queue";
 import { canRematch, rematchHref } from "../rematch";
 import { gameQuery } from "../game-params";
 
@@ -30,11 +31,11 @@ export function playAgainTarget(r: HistoryRow): { href: string; sameOpponent: bo
 export interface GameFacts {
   /** Result of the Player's latest decided Match of the Game. */
   last: MatchResult;
-  /** Block Puzzle only: the highest score the Player reached in a finished Match. */
+  /** Block Burst only: the highest score the Player reached in a finished Match. */
   best: number | null;
 }
 
-/** Per Game, the Player's last result and best Block Puzzle score; Games never played are absent. */
+/** Per Game, the Player's last result and best Block Burst score; Games never played are absent. */
 export function gameFacts(rows: HistoryRow[]): Partial<Record<GameId, GameFacts>> {
   const out: Partial<Record<GameId, GameFacts>> = {};
   for (const r of [...rows].sort((a, b) => b.at - a.at)) {
@@ -45,9 +46,18 @@ export function gameFacts(rows: HistoryRow[]): Partial<Record<GameId, GameFacts>
   return out;
 }
 
-/** Players waiting at each entry of a Game's Queue that `me` could join: not their own Match, and not one whose seat they fund (tesoro_core refuses a Backer joining the Player they back). */
+/** Whether `me` (paying their own entry) may take this seat: not their own, and not a Player they back. */
+const takeable = (s: QueueSeat, me?: string) => (me ? canJoinSeat(s, { player: me, funder: me }) : true);
+
+/** Players waiting at each entry of a Game's Queue that `me` could play: not `me`, not a Player `me` backs. */
 export function waitingByEntry(seats: QueueSeat[] | undefined, entries: readonly number[], me?: string): Record<number, number> {
   const out: Record<number, number> = Object.fromEntries(entries.map((e) => [e, 0]));
-  for (const s of seats ?? []) if (s.player !== me && s.funder !== me && s.entry in out) out[s.entry] += 1;
+  for (const s of seats ?? []) if (takeable(s, me) && s.entry in out) out[s.entry] += 1;
   return out;
+}
+
+/** At one entry: the Players `me` could be paired with (oldest first, once each), and how many waiting Players `me` backs. */
+export function seatsAt(seats: QueueSeat[] | undefined, entry: number, me?: string): { open: string[]; backed: number } {
+  const here = (seats ?? []).filter((s) => s.entry === entry && s.player !== me);
+  return { open: [...new Set(here.filter((s) => takeable(s, me)).map((s) => s.player))], backed: here.filter((s) => !takeable(s, me)).length };
 }

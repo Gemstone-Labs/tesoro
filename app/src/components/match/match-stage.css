@@ -151,7 +151,7 @@
 @keyframes stage-to-r { 0% { left: 0; opacity: 0; scale: 0.6; } 15%, 80% { opacity: 1; scale: 1; } 100% { left: 100%; opacity: 0; scale: 0.5; } }
 @keyframes stage-to-l { 0% { left: 100%; opacity: 0; scale: 0.6; } 15%, 80% { opacity: 1; scale: 1; } 100% { left: 0; opacity: 0; scale: 0.5; } }
 .stage-tok { width: 12px; height: 12px; }
-/* Block Puzzle: one square per piece colour, as on the board */
+/* Block Burst: one square per piece colour, as on the board */
 .stage-tok.bp { --k: #ffb43a; border-radius: 2px; background: linear-gradient(150deg, color-mix(in oklab, var(--k) 70%, white), var(--k) 45%, color-mix(in oklab, var(--k) 84%, black)); box-shadow: 0 0 10px -3px var(--k), inset 0 0 0 1px rgba(255, 255, 255, 0.35); }
 .stage-tok.bp:nth-of-type(4n + 2) { --k: #3fc6ff; }
 .stage-tok.bp:nth-of-type(4n + 3) { --k: #ff4d9b; }

@@ -28,11 +28,11 @@ describe("plainError", () => {
 });
 
 describe("extendFailure", () => {
-  it("turns a repaid or closed Advance into a line that offers Take another Advance", () => {
+  it("turns a repaid or closed Advance into a line that offers Extend deposit", () => {
     for (const m of ["Error Message: the advance is already repaid; take another advance instead.", "Error Message: position has no open advance."]) {
       expect(plainError(extendFailure(new Error(m)))).toBe(ADVANCE_REPAID);
     }
-    expect(ADVANCE_REPAID).toContain("Take another Advance");
+    expect(ADVANCE_REPAID).toContain("Extend deposit");
   });
   it("leaves other failures alone", () => {
     const e = new Error("x");

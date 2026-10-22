@@ -21,7 +21,7 @@ export const DOC_GROUPS: DocGroup[] = [
       { href: "/docs/accounts", title: "Accounts and sign-in", summary: "Sign in with email or a wallet, and set up your profile.", keywords: "login privy phantom metamask profile avatar name sol eth" },
       { href: "/docs/positions", title: "Locks and Advances", summary: "Lock a staking token, take an Advance, get your Lock back.", keywords: "locked amount length left to pay back unlock estimate lock principal horizon debt" },
       { href: "/docs/gemas", title: "Gemas", summary: "The play unit, what backs it, and how Redeem works.", keywords: "source redeem pending value $0.01" },
-      { href: "/docs/matches", title: "Games and Matches", summary: "Block Puzzle, Hold'em and Trading Duel, entries, Queue, Challenge.", keywords: "queue challenge pot entry draw refund chips" },
+      { href: "/docs/matches", title: "Games and Matches", summary: "Block Burst, Hold'em and Trading Duel, entries, Queue, Challenge.", keywords: "queue challenge pot entry draw refund chips" },
       { href: "/docs/backing", title: "Backing", summary: "Fund a Player's entry and share what they win.", keywords: "backer request offer split surplus" },
       { href: "/docs/leaderboard", title: "Leaderboard", summary: "Weekly seasons, points for wins, and the Leaderboard Pool.", keywords: "season points pool top 10 prize ranking" },
       { href: "/docs/fees", title: "Fees", summary: `Every fee ${BRAND.name} takes, in one table, with a worked Match.`, keywords: "platform studio leaderboard fee percent cost" },

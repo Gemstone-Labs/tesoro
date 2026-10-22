@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import type { ArmyAccount, Battle } from "./decode";
-import { depotsFor, enemyLeft, hitSide, lookGame, shownPieces, toView } from "./view";
+import { chainRoster, depotsFor, hitSide, lookGame, shownPieces, toView } from "./view";
 import { targets } from "./rules";
 
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
@@ -17,14 +17,14 @@ function battle(over: Partial<Battle> = {}, shown: Record<number, number> = {}):
     bump: 0, authorityBump: 0, usSeat: 0, status: 2, finalized: 0, permissioned: 1, winner: 255, reason: 255, turn: 0, stepsLeft: 1, twoStepActive: 0, stormDone: 0,
     twoStep: [0, 0], timeouts: [0, 0], depotClaimed: [0, 0],
     layoutVersion: 2, rulesVersion: 4, setupDeadline: 0, capDeadline: 0, payer: key(4), oracleQueue: key(5), moveCap: 200, capSecs: 900, turnSecs: 5, graceSecs: 1,
-    openingGraceSecs: 10, resolveSlackSecs: 2, stormFrom: 10, stormTo: 18, pendingKind: 0, pendingPiece: 0, pendingTo: 0, pendingSeat: 0, actionSeq: 0, pendingSlot: 0n, pendingTime: 0, dealSlot: 0n,
+    openingGraceSecs: 10, resolveSlackSecs: 2, stormFrom: 10, stormTo: 18, pendingKind: 0, pendingPiece: 0, pendingTo: 0, pendingSeat: 0, actionSeq: 0, pendingSlot: 0n, pendingTime: 0, dealSlot: 0n, endMask: 0n,
     ...over,
   };
 }
 
 /** An Army whose 30 slots hold rank codes 1..12 repeating, so every piece has a distinct-enough rank to leak. */
 const army = (side: number, seat: number): ArmyAccount => ({
-  bump: 0, battle: key(1), seat, player: key(2 + seat), side, ranks: Array.from({ length: 30 }, (_, i) => (i % 12) + 1), fuel: 0, truckTurn: -9, moves: 0,
+  bump: 0, battle: key(1), seat, player: key(2 + seat), side, ranks: Array.from({ length: 30 }, (_, i) => (i % 12) + 1), fuel: 0, truckTurn: -9, moves: 0, sealKey: new Uint8Array(32),
 });
 
 describe("merging the public Battle with the Player's own Army", () => {
@@ -103,12 +103,15 @@ describe("the table is turned for the Italian Player", () => {
   });
 });
 
+/** The strip's count of each enemy rank still standing. */
+const leftOf = (b: Battle, seat: number) => Object.fromEntries(chainRoster(b, seat).cells.map((c) => [c.rank, c.left]));
+
 describe("the roster strip comes from the piece list", () => {
   it("counts the enemy ranks still standing, never the ring", () => {
     const sq = battle().sq;
     sq[8] = 255; // an Italian piece that left, shown as a 7
     const shown = { 8: 7, 20: 12 };
-    const left = enemyLeft(battle({ sq }, shown), 0);
+    const left = leftOf(battle({ sq }, shown), 0);
     expect(left["7"]).toBe(1);
     expect(left["10"]).toBe(1);
     expect(left.F).toBe(1);
@@ -116,13 +119,13 @@ describe("the roster strip comes from the piece list", () => {
   });
 
   it("counts a revealed piece that is still on the board as standing", () => {
-    expect(enemyLeft(battle({}, { 20: 12 }), 0).F).toBe(1);
+    expect(leftOf(battle({}, { 20: 12 }), 0).F).toBe(1);
   });
 
   it("works from the Italian seat too", () => {
     const sq = battle({ usSeat: 1 }).sq;
     sq[35] = 255;
-    expect(enemyLeft(battle({ usSeat: 1, sq }, { 35: 9 }), 0)["9"]).toBe(0);
+    expect(leftOf(battle({ usSeat: 1, sq }, { 35: 9 }), 0)["9"]).toBe(0);
   });
 });
 

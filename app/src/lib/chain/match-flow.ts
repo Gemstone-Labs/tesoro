@@ -132,13 +132,15 @@ export async function unfinishedMatches(signer: ChainSigner, me: PublicKey, game
 }
 
 /** The parts of a Queue entry that do not depend on how the entry is funded. */
-export function queueDeps(signer: ChainSigner, me: PublicKey, game: GameId, entry: number, asset: 0 | 1 | 2 = 0): Omit<QueueDeps, "join" | "open"> {
+/** `funder`: who pays the entry (a Backer's Account, or `me`): seats tesoro_core would refuse to the pair are skipped. */
+export function queueDeps(signer: ChainSigner, me: PublicKey, game: GameId, entry: number, asset: 0 | 1 | 2 = 0, funder: PublicKey = me): Omit<QueueDeps, "join" | "open"> {
   const chain = getChain();
   return {
     game,
     entry,
     asset: game === "trading-duel" ? asset : undefined,
-    listCandidates: () => listQueueMatchIds(entry, me, game, game === "trading-duel" ? asset : undefined),
+    entrant: { player: me.toBase58(), funder: funder.toBase58() },
+    listCandidates: () => listQueueMatchIds(entry, me, game, game === "trading-duel" ? asset : undefined, funder),
     readMatch: (id) => fetchMatch(id, me),
     settle: (e) => chain.txOutcome(e),
     unfinished: () => unfinishedMatches(signer, me, game),
@@ -163,7 +165,7 @@ export async function enterQueue(
   const snap = await ensureReady(signer, getToken);
   const common = { signer, getToken, game, entry, backing, onStep, onStaged };
   return queueEntry({
-    ...queueDeps(signer, snap.accountKey, game, entry, asset),
+    ...queueDeps(signer, snap.accountKey, game, entry, asset, backing?.backerAccount ?? snap.accountKey),
     join: (key) => joinEntry({ ...common, key }),
     open: () => openEntry({ ...common, challenge: false, asset: matchAsset(game, asset) }),
     canRetry,

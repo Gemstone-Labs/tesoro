@@ -5,6 +5,8 @@ import { chainState, encodeEvent, freshGame } from "./fixture";
 import { move, targets } from "./rules";
 import { shownPieces } from "./view";
 
+// Kinds 8-12 are decoded by the chain client ticket.
+
 describe("fixture accounts", () => {
   it("encodes every event kind so that the decoder gives it back", () => {
     for (const ev of golden.events) {

@@ -43,7 +43,7 @@
    follows the chamfers. A cut wrapper around a bare control takes the ring for it. */
 .cut:focus-visible { outline: 0; }
 .cut:focus-visible::after,
-.cut:has(> :is(input, select, textarea, summary):not(.cut):focus-visible)::after,
+.cut:has(> :is(input, select, textarea, summary, button.select, .sel-bare):not(.cut):focus-visible)::after,
 .pick-rail input:focus-visible + span::after { --t: 2px; background: var(--fg); }
 /* light fills: a pale edge would not show, so they take an ink ring set inside the shape */
 .btn.money:focus-visible::after,
@@ -186,6 +186,13 @@ a.row:hover, button.row:hover { --edge: var(--edge-2); }
 .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; }
 .btn.money:disabled { background: var(--money-off); color: rgba(234, 239, 236, 0.5); --edge: var(--edge-1); }
 .btn.neutral:disabled { color: var(--fg-2); }
+.btn.silver {
+  color: #0b1012; --edge: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.35));
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 3px, transparent 3px), linear-gradient(180deg, #f4f7f6 0%, #d9dfdc 55%, #bcc4c0 100%);
+}
+.btn.silver.lg { padding-bottom: 3px; }
+.btn.silver:hover:not(:disabled) { filter: brightness(1.05); }
+.btn.silver:disabled { background: var(--surface); color: var(--fg-2); --edge: var(--edge-1); }
 .btn svg { width: 16px; height: 16px; flex: none; }
 
 /* square icon / arrow button (rail arrows, drawer toggles, copy) */
@@ -317,6 +324,10 @@ a.row:hover, button.row:hover { --edge: var(--edge-2); }
 .asset input:checked + span small { color: var(--fg-2); }
 .asset input:not(:checked) + span .chain-glyph { filter: grayscale(1); opacity: 0.6; }
 .assets.compact .asset span { min-height: 44px; }
+/* game: neutral like assets */
+.games .pick-thumb { background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 1px), linear-gradient(180deg, #34404a, #222b32); }
+.game span { display: flex; justify-content: center; align-items: center; text-align: center; min-height: 48px; padding: 4px 6px; font-weight: 800; font-size: var(--fs-15); line-height: 1.15; }
+.game input:checked + span { color: var(--fg); }
 
 /* ——— Slider: a ruler with its values written under it and a pin on the current one ———
    The native range sits invisibly on top (28px thumb), so every position below is 14px + (100% - 28px) * fraction.
@@ -431,6 +442,9 @@ dialog.sheet[open]::backdrop, dialog.bk-drawer[open]::backdrop { opacity: 1; }
 .sheet-in { padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 14px; }
 .sheet-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
 .sheet-head h2 { font-size: var(--fs-20); font-weight: 900; letter-spacing: -0.01em; }
+/* drawn before the close button, which comes first in the DOM */
+.sheet-head > .icon-btn { order: 2; }
+.sheet-actions { order: 1; margin-left: auto; align-self: center; }
 @media (min-width: 640px) { dialog.sheet { margin: auto; } .sheet-in { padding: 24px 24px 26px; gap: 16px; } }
 
 /* ——— Form controls ——— */
@@ -450,7 +464,31 @@ dialog.sheet[open]::backdrop, dialog.bk-drawer[open]::backdrop { opacity: 1; }
 .select:is(:hover, :focus-visible) {
   --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 7'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='rgb(234,239,236)' stroke-width='1.5'/%3E%3C/svg%3E");
 }
-.select option { background: var(--surface); color: var(--fg); }
+button.select { font: inherit; text-align: start; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.select[aria-expanded="true"] {
+  --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 7'%3E%3Cpath d='M1 6l5-5 5 5' fill='none' stroke='rgb(234,239,236)' stroke-width='1.5'/%3E%3C/svg%3E");
+}
+.select:disabled { cursor: default; color: var(--fg-3); }
+/* a bare dropdown inside a frame of its own (the Backing sort): just the value and a chevron */
+.sel-bare {
+  appearance: none; border: 0; outline: 0; margin: 0; padding: 0 22px 0 0; cursor: pointer; color: var(--fg); font: inherit; font-weight: 600;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 7'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='rgb(234,239,236)' stroke-opacity='.62' stroke-width='1.5'/%3E%3C/svg%3E") right center / 12px 7px no-repeat transparent;
+}
+/* Select's list (components/ui/Select.tsx): a raised cut card in the top layer, never the browser's own list */
+.sel-pop {
+  --edge: var(--edge-2);
+  position: fixed; inset: auto; margin: 0; border: 0; padding: 0; overflow: visible; max-width: calc(100vw - 16px);
+  background: var(--raised-2); color: var(--fg);
+}
+.sel-list { display: grid; padding: 6px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.sel-opt {
+  display: grid; grid-template-columns: 1fr 16px; align-items: center; gap: 12px; min-height: 40px; padding: 8px 10px;
+  cursor: pointer; outline: 0; font-size: var(--fs-15); color: var(--fg-2); white-space: nowrap;
+}
+.sel-opt:focus { background: rgba(234, 239, 236, 0.07); color: var(--fg); }
+.sel-opt svg { visibility: hidden; }
+.sel-opt[aria-selected="true"] { color: var(--fg); font-weight: 700; }
+.sel-opt[aria-selected="true"] svg { visibility: visible; }
 /* browser autofill paints its own pale fill and dark text over the frame: keep ours (its fill is !important, so hold it off with a transition) */
 .input:is(:autofill, :-webkit-autofill) {
   -webkit-text-fill-color: var(--fg); caret-color: var(--fg);

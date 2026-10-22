@@ -641,7 +641,7 @@ impl Env {
         let g = Game::start(layout, Side::Us, 99, 12_345, now, CHAIN_CLOCK).expect("layout");
         self.patch_battle(|b| {
             b.us_seat = us_seat;
-            b.absorb(&g, &[0; PIECE_SLOTS]);
+            b.absorb(&g);
             b.status = vanguard::STATUS_LIVE;
             b.permissioned = 1;
             b.started_at = now;
@@ -668,16 +668,90 @@ impl Env {
         dup(if seat == 0 { &self.alice } else { &self.bob })
     }
 
-    fn move_ix(&self, signer: APk, piece: u8, to: u8) -> Instruction {
-        let ad = addrs(self.tmatch);
+    fn seat_of_key(&self, key: APk) -> usize {
+        usize::from(key == self.bob.key)
+    }
+
+    /// What a client sends to seal `plain` for the next declare of `seat`: `plain ^ pad` under the Army's key.
+    fn seal(&self, seat: usize, field: u8, plain: u8) -> u8 {
+        plain ^ self.pad(seat, self.battle().action_seq, field)
+    }
+
+    /// The pad for `(seat, seq, field)` under the Army key stored in the account, as a client would derive it.
+    fn pad(&self, seat: usize, seq: u32, field: u8) -> u8 {
+        vanguard::engine::seal_pad(
+            &self.army(seat).reserved,
+            &addrs(self.tmatch).battle.to_bytes(),
+            seat as u8,
+            seq,
+            field,
+        )
+    }
+
+    fn declare_ix(&self, signer: APk, data: impl InstructionData) -> Instruction {
         ix(
             vanguard::ID,
             vanguard::accounts::Declare {
                 player: signer,
-                battle: ad.battle,
+                battle: addrs(self.tmatch).battle,
             },
-            vanguard::instruction::MovePiece { piece, to },
+            data,
             vec![],
+        )
+    }
+
+    /// A move with the switch byte `plain_switch` sealed for the current seq (0 = no switch).
+    fn move_ix_switch(&self, signer: APk, piece: u8, to: u8, plain_switch: u8) -> Instruction {
+        let seat = self.seat_of_key(signer);
+        self.declare_ix(
+            signer,
+            vanguard::instruction::MovePiece {
+                piece,
+                to,
+                expected_seq: self.battle().action_seq,
+                sealed_switch: self.seal(seat, vanguard::engine::SEAL_SWITCH, plain_switch),
+            },
+        )
+    }
+
+    fn move_ix(&self, signer: APk, piece: u8, to: u8) -> Instruction {
+        self.move_ix_switch(signer, piece, to, 0)
+    }
+
+    fn blast_ix(&self, signer: APk, piece: u8, plain_switch: u8) -> Instruction {
+        let seat = self.seat_of_key(signer);
+        self.declare_ix(
+            signer,
+            vanguard::instruction::Blast {
+                piece,
+                expected_seq: self.battle().action_seq,
+                sealed_switch: self.seal(seat, vanguard::engine::SEAL_SWITCH, plain_switch),
+            },
+        )
+    }
+
+    fn rescue_ix(&self, signer: APk, piece: u8, plain_switch: u8) -> Instruction {
+        let seat = self.seat_of_key(signer);
+        self.declare_ix(
+            signer,
+            vanguard::instruction::Rescue {
+                piece,
+                expected_seq: self.battle().action_seq,
+                sealed_switch: self.seal(seat, vanguard::engine::SEAL_SWITCH, plain_switch),
+            },
+        )
+    }
+
+    /// A pass sealing `plain_slot` (0 = plain pass, else army slot + 1 to dig in) and `plain_switch`.
+    fn pass_ix(&self, signer: APk, plain_slot: u8, plain_switch: u8) -> Instruction {
+        let seat = self.seat_of_key(signer);
+        self.declare_ix(
+            signer,
+            vanguard::instruction::Pass {
+                expected_seq: self.battle().action_seq,
+                sealed_slot: self.seal(seat, vanguard::engine::SEAL_DIG, plain_slot),
+                sealed_switch: self.seal(seat, vanguard::engine::SEAL_SWITCH, plain_switch),
+            },
         )
     }
 
@@ -1025,6 +1099,41 @@ fn close_unstarted_ix(env: &Env, payer: APk) -> Instruction {
 
 // --- Setup: config, create, permissions ---------------------------------------------------------
 
+/// LiteSVM has no permission program, so this checks the flags instead: the permission program takes each
+/// hidden account as the writable payer of its permission, and the rollup refuses the whole step with
+/// `PrivilegeEscalation` when the Game passes one read-only (the first staging Match, 2026-10-21).
+#[test]
+fn every_account_given_a_permission_is_writable() {
+    let ad = addrs(APk::new_unique());
+    let metas = vanguard::accounts::InitPermissions {
+        payer: APk::new_unique(),
+        battle: ad.battle,
+        secret: ad.secret,
+        army_0: ad.army_0,
+        army_1: ad.army_1,
+        battle_permission: permission_pda(ad.battle),
+        secret_permission: permission_pda(ad.secret),
+        army_0_permission: permission_pda(ad.army_0),
+        army_1_permission: permission_pda(ad.army_1),
+        permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
+        ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
+        magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+    }
+    .to_account_metas(None);
+    for (name, key) in [
+        ("battle", ad.battle),
+        ("secret", ad.secret),
+        ("army_0", ad.army_0),
+        ("army_1", ad.army_1),
+    ] {
+        let meta = metas.iter().find(|m| m.pubkey == key).unwrap();
+        assert!(
+            meta.is_writable,
+            "init_permissions: mark `{name}` #[account(mut)], the permission CPI writes it"
+        );
+    }
+}
+
 #[test]
 fn only_the_upgrade_authority_sets_the_tee_validator() {
     let mut env = Env::new();
@@ -1277,7 +1386,7 @@ fn deal_draws_the_armies_into_the_private_accounts_and_nothing_hidden_into_the_b
         assert_eq!(b.started_at, T0 + 30);
         assert_eq!(
             b.deadline,
-            T0 + 30 + 6 + OPENING_GRACE_SECS,
+            T0 + 30 + engine::TURN_SECS + engine::GRACE_SECS + OPENING_GRACE_SECS,
             "the opening turn has extra seconds: the first mover has not loaded their Army yet"
         );
         assert_eq!(b.shown, [0; PIECE_SLOTS], "no rank is public at the start");
@@ -1586,12 +1695,12 @@ fn refusals_are_generic_and_change_nothing() {
     // An empty slot.
     let err = env.mv(0, id_of(80), 70).unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::IllegalMove));
-    // Onto my own piece, into a wadi, off the board, diagonally: public geometry, refused when declared.
+    // Onto my own piece, into a wadi, off the board, off every line a piece could walk: public geometry, refused when declared.
     for (piece, to) in [
         (id_of(95), 96),
         (id_of(70), 42),
         (id_of(70), 100),
-        (id_of(95), 84),
+        (id_of(95), 87),
     ] {
         let err = env.mv(0, piece, to).unwrap_err();
         assert_eq!(
@@ -1689,7 +1798,11 @@ fn moves_write_no_logs_and_two_step_turns_work() {
     let b = env.battle();
     assert_eq!(b.turn, 0, "the second step is still Alice's");
     assert_eq!(b.steps_left, 1);
-    assert_eq!(b.deadline, T0 + 3 + 6, "each step gets a full turn");
+    assert_eq!(
+        b.deadline,
+        T0 + 3 + engine::TURN_SECS + engine::GRACE_SECS,
+        "each step gets a full turn"
+    );
     env.mv(0, id_of(95), 85)
         .expect("second step with another piece");
     assert_eq!(env.battle().turn, 1);
@@ -2427,7 +2540,8 @@ fn first_step_cu(rank: u8, others: u8, fuel: u8) -> (u64, u64) {
 #[test]
 fn a_move_costs_the_same_compute_whatever_rank_moves() {
     let mut readings = vec![];
-    for rank in [SPY, RECON, ENGINEER, 4, 5, 6, 7, 8, 9, GENERAL_OF_THE_ARMY] {
+    // (rank 4, the Sergeant, no longer walks straight; its diagonal step is measured in the version 6 table)
+    for rank in [SPY, RECON, ENGINEER, 5, 6, 7, 8, 9, GENERAL_OF_THE_ARMY] {
         for others in [BOMB, ENGINEER, 5] {
             readings.push((
                 format!("rank {rank} others {others}"),
@@ -2602,7 +2716,7 @@ fn a_fight_costs_what_its_published_outcome_costs_and_no_more() {
         (env.battle().ring[0].data[4], env.declare_cu, env.resolve_cu)
     };
     type Class = (&'static str, engine::Outcome, Vec<(u8, u8)>);
-    let classes: [Class; 6] = [
+    let classes: [Class; 5] = [
         (
             "win",
             engine::Outcome::Win,
@@ -2610,7 +2724,7 @@ fn a_fight_costs_what_its_published_outcome_costs_and_no_more() {
                 (10, 9),
                 (9, 8),
                 (5, 3),
-                (4, 2),
+                (6, 2),
                 (SPY, GENERAL_OF_THE_ARMY),
                 (3, 1),
                 (8, 5),
@@ -2619,7 +2733,7 @@ fn a_fight_costs_what_its_published_outcome_costs_and_no_more() {
         (
             "lose",
             engine::Outcome::Lose,
-            vec![(3, 7), (1, 9), (2, 10), (4, 8), (SPY, 5), (5, 6)],
+            vec![(3, 7), (1, 9), (2, 10), (6, 8), (SPY, 5), (5, 6)],
         ),
         (
             "tie",
@@ -2635,13 +2749,13 @@ fn a_fight_costs_what_its_published_outcome_costs_and_no_more() {
                 (SPY, BOMB),
                 (RECON, BOMB),
                 (TRUCK, BOMB),
+                (ENGINEER, BOMB),
             ],
         ),
-        ("defuse", engine::Outcome::Defuse, vec![(ENGINEER, BOMB)]),
         (
             "truck",
             engine::Outcome::Truck,
-            vec![(10, TRUCK), (SPY, TRUCK), (RECON, TRUCK), (4, TRUCK)],
+            vec![(10, TRUCK), (SPY, TRUCK), (RECON, TRUCK), (6, TRUCK)],
         ),
     ];
     let mut declares = vec![];
@@ -2856,7 +2970,7 @@ fn the_clock_is_decided_at_the_declare_and_the_next_deadline_counts_from_the_res
     assert_eq!(b.sq[id_of(70) as usize], 60);
     assert_eq!(
         b.deadline,
-        deadline + engine::RESOLVE_SLACK_SECS + 6,
+        deadline + engine::RESOLVE_SLACK_SECS + engine::TURN_SECS + engine::GRACE_SECS,
         "a stalled resolve is counted from the declare plus the slack, with no extra grace"
     );
     // One second past the edge is refused at the declare.
@@ -2973,7 +3087,10 @@ fn the_opening_grace_is_consumed_exactly_once() {
     env.set_time(T0 + 30);
     env.deal().expect("deal");
     let opening = env.battle().deadline;
-    assert_eq!(opening, T0 + 30 + 6 + OPENING_GRACE_SECS);
+    assert_eq!(
+        opening,
+        T0 + 30 + engine::TURN_SECS + engine::GRACE_SECS + OPENING_GRACE_SECS
+    );
     let us = if env.battle().side_of_seat(0) == Some(Side::Us) {
         0
     } else {
@@ -3005,7 +3122,7 @@ fn the_opening_grace_is_consumed_exactly_once() {
     env.resolve(&caller).expect("delayed resolve");
     assert_eq!(
         env.battle().deadline,
-        opening + engine::RESOLVE_SLACK_SECS + 6
+        opening + engine::RESOLVE_SLACK_SECS + engine::TURN_SECS + engine::GRACE_SECS
     );
 }
 
@@ -3293,4 +3410,1495 @@ fn the_storm_waits_for_the_turn_that_ends_it_not_for_the_first_step_of_a_two_ste
     assert_eq!((env.battle().storm_done, storm_events(&env)), (0, 0));
     env.mv(0, id_of(95), 85).expect("second step");
     assert_eq!((env.battle().storm_done, storm_events(&env)), (1, 1));
+}
+
+// --- Rules version 6: compute of whole `resolve` instructions ------------------------------------------
+
+/// Move a staged piece (given by its start square) to another square, as if it had walked there.
+fn tele(env: &mut Env, start_sq: u8, to: u8) {
+    let d = id_of(start_sq) as usize;
+    env.patch_battle(|b| {
+        b.sq[d] = to;
+        b.trail[d] = [to, 0, 0, 0, 0, 0];
+        b.trail_len[d] = 1;
+    });
+}
+
+/// Compute of the whole `resolve` instruction for the movement rules of version 6 (run with `--nocapture`): dense and
+/// sparse boards, the longest Sergeant run, a Lieutenant jump that attacks, a General crossing a wadi, a Two-Step
+/// continuation, a storm turn and each ending. The client budget for `resolve` is `chain.ts` `CU.resolve`.
+#[test]
+fn compute_of_resolving_moves_under_the_new_rules() {
+    const BUDGET: u64 = 200_000;
+    let rows: std::cell::RefCell<Vec<(String, u64, u64)>> = Default::default();
+    // 1: a staged board, `setup`, then the US moves piece `from` (a start square) to `to`; returns the Env for checks.
+    let play =
+        |name: &str, layout: Vec<LayoutPiece>, setup: &dyn Fn(&mut Env), from: u8, to: u8| -> Env {
+            let mut env = ready();
+            env.start_in_rollup(1);
+            env.stage(&layout, 0);
+            setup(&mut env);
+            env.set_time(T0 + 2);
+            let before = env.battle().moves;
+            env.mv(0, id_of(from), to).expect(name);
+            assert_eq!(env.battle().moves, before + 1, "{name}: the move was legal");
+            rows.borrow_mut()
+                .push((name.to_string(), env.declare_cu, env.resolve_cu));
+            env
+        };
+    let none: &dyn Fn(&mut Env) = &|_| {};
+    // sparse and dense
+    play("sparse board, one step", step_layout(5, BOMB), none, 70, 60);
+    // the Sergeant's longest run, and one that ends in an attack
+    let mut serg = vec![lp(Side::Us, 4, 90), lp(Side::Us, GENERAL_OF_THE_ARMY, 95)];
+    serg.extend(italy());
+    play(
+        "Sergeant runs nine squares diagonally",
+        serg.clone(),
+        none,
+        90,
+        9,
+    );
+    let mut serg_attack = serg.clone();
+    serg_attack.push(lp(Side::It, 3, 18));
+    play(
+        "Sergeant runs eight squares and attacks",
+        serg_attack,
+        none,
+        90,
+        18,
+    );
+    // a Lieutenant jumps an enemy and attacks the piece behind it
+    let mut jump = vec![
+        lp(Side::Us, 5, 70),
+        lp(Side::Us, GENERAL_OF_THE_ARMY, 95),
+        lp(Side::It, SPY, 20),
+        lp(Side::It, 5, 21),
+    ];
+    jump.extend(italy());
+    play(
+        "Lieutenant jumps a Spy and attacks a 5",
+        jump,
+        &|env| {
+            tele(env, 20, 60);
+            tele(env, 21, 50);
+        },
+        70,
+        50,
+    );
+    // a General crosses a wadi
+    let mut cross = vec![lp(Side::Us, 9, 72), lp(Side::Us, GENERAL_OF_THE_ARMY, 95)];
+    cross.extend(italy());
+    play(
+        "General crosses a wadi",
+        cross,
+        &|env| tele(env, 72, 32),
+        72,
+        62,
+    );
+    // a Two-Step Turn: the first step continues the turn (a second step exists), the second ends it
+    {
+        let mut env = ready();
+        env.start_in_rollup(1);
+        env.stage(&step_layout(5, BOMB), 0);
+        env.set_time(T0 + 2);
+        env.patch_battle(|b| b.two_step[0] = 1);
+        env.two_step(0).expect("spend it");
+        env.mv(0, id_of(70), 60).expect("first step");
+        rows.borrow_mut().push((
+            "Two-Step Turn, first step (turn continues)".into(),
+            env.declare_cu,
+            env.resolve_cu,
+        ));
+        env.mv(0, id_of(95), 85).expect("second step");
+        rows.borrow_mut().push((
+            "Two-Step Turn, second step (turn ends)".into(),
+            env.declare_cu,
+            env.resolve_cu,
+        ));
+    }
+    // endings
+    let raid = truck_raid_layout();
+    play("ends: the Truck is taken", raid.clone(), none, 70, 20);
+    let mut cap = step_layout(5, BOMB);
+    cap.push(lp(Side::It, 3, 17));
+    let env = play(
+        "ends: the 200th move (cap)",
+        cap,
+        &|env| env.patch_battle(|b| b.moves = 199),
+        70,
+        60,
+    );
+    assert_eq!(env.battle().reason, vanguard::reason_code(EndReason::Cap));
+    let stuck = vec![
+        lp(Side::Us, RECON, 70),
+        lp(Side::Us, GENERAL_OF_THE_ARMY, 95),
+        lp(Side::It, BOMB, 5),
+        lp(Side::It, BOMB, 6),
+    ];
+    let env = play(
+        "ends: Italy has no action left (stuck)",
+        stuck,
+        none,
+        70,
+        60,
+    );
+    assert_eq!(env.battle().reason, vanguard::reason_code(EndReason::Stuck));
+    // a third missed turn, and the time cap, through claim_timeout
+    {
+        let mut env = ready();
+        env.start_in_rollup(1);
+        env.stage(&step_layout(5, BOMB), 0);
+        env.patch_battle(|b| b.timeouts = [2, 0]);
+        env.set_time(env.battle().deadline + 1);
+        let caller = env.oracle.insecure_clone();
+        env.claim_timeout(&caller).expect("timeout");
+        assert_eq!(
+            env.battle().reason,
+            vanguard::reason_code(EndReason::Timeouts)
+        );
+        rows.borrow_mut().push((
+            "ends: the third missed turn".into(),
+            env.declare_cu,
+            env.resolve_cu,
+        ));
+        let mut env = ready();
+        env.start_in_rollup(1);
+        env.stage(&step_layout(5, BOMB), 0);
+        env.set_time(env.battle().cap_deadline + 1);
+        let caller = env.oracle.insecure_clone();
+        env.claim_timeout(&caller).expect("cap");
+        assert_eq!(env.battle().reason, vanguard::reason_code(EndReason::Cap));
+        rows.borrow_mut()
+            .push(("ends: the time cap".into(), env.declare_cu, env.resolve_cu));
+    }
+    // dense random boards (the first move of a dealt Match), plain and with the storm on that very turn
+    for (seed, storm) in [
+        (1u8, false),
+        (2, false),
+        (3, false),
+        (4, false),
+        (5, true),
+        (6, true),
+        (7, true),
+    ] {
+        let mut env = ready();
+        env.start_in_rollup(seed);
+        env.deal().expect("deal");
+        if storm {
+            env.patch_secret(|v| v.storm_at = 1);
+        }
+        let (piece, to) = legal_moves(&env)[0];
+        env.set_time(env.now + 1);
+        let seat = if env.battle().side_of_seat(0) == Some(Side::Us) {
+            0
+        } else {
+            1
+        };
+        env.mv(seat, piece, to).expect("move");
+        let stormed = env.battle().storm_done != 0;
+        assert_eq!(stormed, storm, "seed {seed}");
+        rows.borrow_mut().push((
+            format!(
+                "dense dealt board (seed {seed}){}",
+                if storm { ", storm turn" } else { "" }
+            ),
+            env.declare_cu,
+            env.resolve_cu,
+        ));
+    }
+    let rows = rows.into_inner();
+    println!("\nCU of whole instructions, rules version 6 (client budget: declare 40,000, resolve {BUDGET})");
+    for (name, declare, resolve) in &rows {
+        println!("  {name:<52} declare {declare:>6}   resolve {resolve:>7}");
+    }
+    let worst = rows.iter().map(|r| r.2).max().unwrap();
+    println!("  worst resolve {worst}");
+    assert!(worst < 600_000, "above 600k: back to the orchestrator");
+    assert!(
+        rows.iter().all(|r| r.1 <= 40_000 && r.2 <= BUDGET),
+        "a reading is over the client budget"
+    );
+}
+
+// --- Powers: Blast, Rescue, pass and Dig in, the sealed bytes, the wind-down ---------------------------
+//
+// A client turns a plaintext into the byte it sends with `plain ^ pad`; the helpers on `Env` (`seal`, `pad`) mirror
+// that with `engine::seal_pad` and the Army key stored in the account.
+
+/// Both sides hold every power piece. US: Engineer 70, Major 71, Colonel 72, Major 73, Recon 74, Bomb 75, General of
+/// the Army 95, Truck 96. Italy: Engineer 0, Major 1, Colonel 2, Major 3, Recon 4, General of the Army 5, Truck 6,
+/// Bomb 7.
+fn power_layout() -> Vec<LayoutPiece> {
+    vec![
+        lp(Side::Us, ENGINEER, 70),
+        lp(Side::Us, 7, 71),
+        lp(Side::Us, 8, 72),
+        lp(Side::Us, 7, 73),
+        lp(Side::Us, RECON, 74),
+        lp(Side::Us, BOMB, 75),
+        lp(Side::Us, GENERAL_OF_THE_ARMY, 95),
+        lp(Side::Us, TRUCK, 96),
+        lp(Side::It, ENGINEER, 0),
+        lp(Side::It, 7, 1),
+        lp(Side::It, 8, 2),
+        lp(Side::It, 7, 3),
+        lp(Side::It, RECON, 4),
+        lp(Side::It, GENERAL_OF_THE_ARMY, 5),
+        lp(Side::It, TRUCK, 6),
+        lp(Side::It, BOMB, 7),
+    ]
+}
+
+/// A staged Match on `power_layout` with Army keys in place, `mover` to act (0 plays the US Army and moves first;
+/// 1 plays Italy).
+fn power_env(mover: usize) -> Env {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&power_layout(), 0);
+    for seat in 0..2 {
+        env.patch_army(seat, |v| v.reserved = [0x40 + seat as u8; 32]);
+    }
+    if mover == 1 {
+        env.patch_battle(|b| b.turn = 1);
+    }
+    env.set_time(T0 + 2);
+    env
+}
+
+/// The public Battle bytes, without the two Players' keys and the payer (every `Env` makes its own).
+fn bytes_of_battle(env: &Env) -> Vec<u8> {
+    let mut b = env.battle();
+    b.players = [APk::default(); 2];
+    b.payer = APk::default();
+    anchor_lang::__private::bytemuck::bytes_of(&b).to_vec()
+}
+
+/// The event kinds still in the ring, oldest first.
+fn event_kinds(env: &Env) -> Vec<u8> {
+    let b = env.battle();
+    (b.event_seq.saturating_sub(vanguard::RING as u32)..b.event_seq)
+        .map(|seq| b.ring[(seq as usize) % vanguard::RING].kind)
+        .collect()
+}
+
+struct Snap {
+    battle: Account,
+    armies: [Army; 2],
+}
+
+impl Env {
+    fn snap(&self) -> Snap {
+        Snap {
+            battle: self
+                .svm
+                .get_account(&s(addrs(self.tmatch).battle))
+                .expect("battle"),
+            armies: [self.army(0), self.army(1)],
+        }
+    }
+
+    fn restore(&mut self, snap: &Snap) {
+        self.svm
+            .set_account(s(addrs(self.tmatch).battle), snap.battle.clone())
+            .expect("restore battle");
+        for seat in 0..2 {
+            let army = snap.armies[seat].clone();
+            self.patch_army(seat, |v| *v = army);
+        }
+    }
+
+    /// Declare `declare` as `seat`, resolve it in the next slot, keep the compute of both.
+    fn act(&mut self, seat: usize, declare: Instruction) -> Result<(), Failed> {
+        let p = self.player(seat);
+        self.send(&[budget(), declare], &p.kp, &[])?;
+        self.declare_cu = self.last_cu;
+        let r = self.resolve(&p.kp);
+        self.resolve_cu = self.last_cu;
+        r
+    }
+}
+
+/// Army slots (`id % 30`) of the Generals of the Army in `power_layout`: US piece 55, Italy piece 5.
+const SLOT_US_GOTA: u8 = 25;
+const SLOT_IT_GOTA: u8 = 5;
+
+fn maybe_custom(err: &Failed) -> Option<u32> {
+    use solana_sdk::instruction::InstructionError;
+    use solana_sdk::transaction::TransactionError;
+    match &err.err {
+        TransactionError::InstructionError(_, InstructionError::Custom(c)) => Some(*c),
+        _ => None,
+    }
+}
+
+#[test]
+fn a_blast_removes_the_engineer_and_shows_every_neighbour_both_ways() {
+    let mut env = power_env(0);
+    // Italy's General of the Army stands next to the Engineer at 70, and so does the US Major at 71.
+    tele(&mut env, 5, 60);
+    let p = env.player(0);
+    let blast = env.blast_ix(p.key, id_of(70), 0);
+    env.send(&[budget(), blast], &p.kp, &[]).expect("declare");
+    let b = env.battle();
+    assert_eq!(
+        (
+            b.pending_kind,
+            b.pending_piece,
+            b.pending_to,
+            b.pending_seat
+        ),
+        (vanguard::PENDING_BLAST, id_of(70), 0, 0)
+    );
+    assert_eq!(
+        b.pad_a[0],
+        env.pad(0, 0, engine::SEAL_SWITCH),
+        "the sealed switch byte (plain 0) sits in pad_a[0]"
+    );
+    assert_eq!(b.sq[id_of(70) as usize], 70, "a declare moves nothing");
+    env.resolve(&p.kp).expect("resolve");
+    let b = env.battle();
+    assert_eq!(b.sq[id_of(70) as usize], vanguard::NO_SQ);
+    assert_eq!(
+        b.shown[id_of(70) as usize],
+        ENGINEER,
+        "the Engineer is shown"
+    );
+    assert_eq!(
+        b.shown[5], GENERAL_OF_THE_ARMY,
+        "the enemy neighbour is shown"
+    );
+    assert_eq!(
+        b.shown[id_of(71) as usize],
+        7,
+        "my own neighbour is shown too"
+    );
+    assert_eq!(
+        b.shown[id_of(72) as usize],
+        0,
+        "a piece two squares away is not"
+    );
+    assert_eq!((b.turn, b.moves, b.timeouts), (1, 1, [0, 0]));
+    assert_eq!(
+        (b.pending_kind, b.pad_a[0], b.action_seq),
+        (vanguard::PENDING_NONE, 0, 1)
+    );
+    assert_eq!(
+        event_kinds(&env),
+        vec![vanguard::EVENT_BLAST, vanguard::EVENT_TURN]
+    );
+    assert_eq!(&b.ring[0].data[..3], &[id_of(70), 70, 2]);
+    assert_eq!(env.army(0).ranks[id_of(70) as usize % 30], ENGINEER);
+}
+
+#[test]
+fn a_rescue_sends_the_truck_to_the_colonel_and_shows_both() {
+    let mut env = power_env(0);
+    let p = env.player(0);
+    let rescue = env.rescue_ix(p.key, id_of(72), 0);
+    env.act(0, rescue).expect("rescue");
+    let b = env.battle();
+    assert_eq!(b.sq[id_of(72) as usize], vanguard::NO_SQ);
+    assert_eq!(b.shown[id_of(72) as usize], 8);
+    assert_eq!(
+        b.sq[id_of(96) as usize],
+        72,
+        "the Truck stands on the Colonel's square"
+    );
+    assert_eq!(
+        b.shown[id_of(96) as usize],
+        engine::TRUCK,
+        "and is face up for good"
+    );
+    assert_eq!((b.turn, b.moves), (1, 1));
+    assert_eq!(
+        event_kinds(&env),
+        vec![vanguard::EVENT_RESCUE, vanguard::EVENT_TURN]
+    );
+    assert_eq!(
+        &b.ring[0].data[..4],
+        &[id_of(72), id_of(96), 96, 72],
+        "colonel, truck, from, to"
+    );
+}
+
+#[test]
+fn a_blast_or_rescue_by_the_wrong_rank_costs_the_turn_and_drops_the_switch() {
+    for (rescue, piece) in [(false, id_of(71)), (true, id_of(70))] {
+        let mut env = power_env(0);
+        let p = env.player(0);
+        let switch = SLOT_US_GOTA + 1;
+        let declare = if rescue {
+            env.rescue_ix(p.key, piece, switch)
+        } else {
+            env.blast_ix(p.key, piece, switch)
+        };
+        env.act(0, declare)
+            .expect("accepted, then refused as a missed turn");
+        let b = env.battle();
+        assert_eq!((b.turn, b.moves, b.timeouts), (1, 0, [1, 0]));
+        assert_ne!(
+            b.sq[piece as usize],
+            vanguard::NO_SQ,
+            "nothing was blown up"
+        );
+        assert_eq!(
+            env.army(0).ranks[SLOT_US_GOTA as usize],
+            GENERAL_OF_THE_ARMY,
+            "the switch rode on an action the rules refused, so it is dropped"
+        );
+        assert_eq!(event_kinds(&env), vec![vanguard::EVENT_TURN]);
+    }
+}
+
+#[test]
+fn a_pass_is_a_missed_turn_and_a_dig_in_looks_exactly_like_it() {
+    let major = id_of(71);
+    let mut results = vec![];
+    for plain_slot in [0u8, major % 30 + 1, 99] {
+        let mut env = power_env(0);
+        let p = env.player(0);
+        let pass = env.pass_ix(p.key, plain_slot, 0);
+        env.send(&[budget(), pass], &p.kp, &[]).expect("declare");
+        let b = env.battle();
+        assert_eq!(b.pending_kind, vanguard::PENDING_PASS);
+        assert_eq!(
+            b.pending_piece,
+            plain_slot ^ env.pad(0, 0, engine::SEAL_DIG),
+            "the sealed Dig in byte is in pending_piece"
+        );
+        env.resolve(&p.kp).expect("resolve");
+        let b = env.battle();
+        assert_eq!((b.turn, b.moves, b.timeouts), (1, 0, [1, 0]));
+        assert_eq!(
+            event_kinds(&env),
+            vec![vanguard::EVENT_PASS, vanguard::EVENT_TURN]
+        );
+        results.push((bytes_of_battle(&env), env.army(0).ranks));
+    }
+    assert_eq!(
+        results[0].0, results[1].0,
+        "a Dig in and a pass: the same public bytes"
+    );
+    assert_eq!(results[0].0, results[2].0, "an invalid Dig in too");
+    assert_eq!(results[0].1[major as usize % 30], 7);
+    assert_eq!(results[1].1[major as usize % 30], engine::DUG_IN);
+    assert_eq!(results[2].1[major as usize % 30], 7);
+}
+
+#[test]
+fn a_switch_rides_on_a_move_and_nothing_public_says_so() {
+    let mut env = power_env(0);
+    let p = env.player(0);
+    let mv = env.move_ix_switch(p.key, id_of(74), 64, SLOT_US_GOTA + 1);
+    env.act(0, mv).expect("move");
+    assert_eq!(env.army(0).ranks[SLOT_US_GOTA as usize], engine::SWITCHED);
+    assert_eq!(
+        env.battle().shown[id_of(95) as usize],
+        0,
+        "nothing public says the 10 changed"
+    );
+    assert_eq!(env.battle().sq[id_of(74) as usize], 64);
+    assert_eq!(
+        event_kinds(&env),
+        vec![vanguard::EVENT_MOVE, vanguard::EVENT_TURN]
+    );
+}
+
+#[test]
+fn a_declare_sealed_for_another_turn_is_refused() {
+    let mut env = power_env(0);
+    let p = env.player(0);
+    let seq = env.battle().action_seq;
+    let stale = [
+        env.declare_ix(
+            p.key,
+            vanguard::instruction::MovePiece {
+                piece: id_of(74),
+                to: 64,
+                expected_seq: seq + 1,
+                sealed_switch: 0,
+            },
+        ),
+        env.declare_ix(
+            p.key,
+            vanguard::instruction::Blast {
+                piece: id_of(70),
+                expected_seq: seq.wrapping_sub(1),
+                sealed_switch: 0,
+            },
+        ),
+        env.declare_ix(
+            p.key,
+            vanguard::instruction::Rescue {
+                piece: id_of(72),
+                expected_seq: 7,
+                sealed_switch: 0,
+            },
+        ),
+        env.declare_ix(
+            p.key,
+            vanguard::instruction::Pass {
+                expected_seq: u32::MAX,
+                sealed_slot: 0,
+                sealed_switch: 0,
+            },
+        ),
+    ];
+    for declare in stale {
+        let err = env.send(&[budget(), declare], &p.kp, &[]).unwrap_err();
+        assert_eq!(custom_code(&err), vcode(VanguardError::StaleSeq));
+    }
+    assert_eq!(env.battle().pending_kind, vanguard::PENDING_NONE);
+    // A timeout claimed in between moves the seq on: what was sealed for the old one is refused, the new seq works.
+    let sealed_for_old = env.move_ix(p.key, id_of(74), 64);
+    env.set_time(env.battle().deadline + 1);
+    let bob = env.bob.kp.insecure_clone();
+    env.claim_timeout(&bob).expect("timeout");
+    assert_eq!(env.battle().action_seq, seq + 1);
+    // hand the turn back to Alice with the clock open and try the old bytes
+    env.patch_battle(|b| b.turn = 0);
+    let t = env.battle().deadline - 1;
+    env.set_time(t);
+    let err = env
+        .send(&[budget(), sealed_for_old], &p.kp, &[])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::StaleSeq));
+    let fresh = env.move_ix(p.key, id_of(74), 64);
+    env.send(&[budget(), fresh], &p.kp, &[])
+        .expect("the new seq is accepted");
+}
+
+#[test]
+fn the_new_declares_check_public_state_only() {
+    let mut env = power_env(0);
+    let (p, bob) = (env.player(0), env.player(1));
+    // not your turn
+    let wrong_turn = env.pass_ix(bob.key, 0, 0);
+    let err = env.send(&[budget(), wrong_turn], &bob.kp, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotYourTurn));
+    // the enemy's piece, a piece off the board, a piece that does not exist
+    env.patch_battle(|b| b.sq[id_of(73) as usize] = vanguard::NO_SQ);
+    for (piece, want) in [
+        (5u8, VanguardError::NotYourTurn),
+        (id_of(73), VanguardError::IllegalMove),
+        (77, VanguardError::IllegalMove),
+        (255, VanguardError::IllegalMove),
+    ] {
+        for declare in [
+            env.blast_ix(p.key, piece, 0),
+            env.rescue_ix(p.key, piece, 0),
+        ] {
+            let err = env.send(&[budget(), declare], &p.kp, &[]).unwrap_err();
+            assert_eq!(custom_code(&err), vcode(want), "piece {piece}");
+        }
+    }
+    // inside a Two-Step Turn, and after a first step
+    env.patch_battle(|b| {
+        b.two_step[0] = 1;
+        b.two_step_active = 1;
+    });
+    for declare in [
+        env.blast_ix(p.key, id_of(70), 0),
+        env.rescue_ix(p.key, id_of(72), 0),
+        env.pass_ix(p.key, 0, 0),
+    ] {
+        let err = env.send(&[budget(), declare], &p.kp, &[]).unwrap_err();
+        assert_eq!(custom_code(&err), vcode(VanguardError::IllegalMove));
+    }
+    env.patch_battle(|b| {
+        b.two_step_active = 0;
+        b.moved = 1 << id_of(74);
+    });
+    let pass = env.pass_ix(p.key, 0, 0);
+    let err = env.send(&[budget(), pass], &p.kp, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::IllegalMove));
+    // after the clock
+    env.patch_battle(|b| b.moved = 0);
+    env.set_time(env.battle().deadline + 1);
+    let pass = env.pass_ix(p.key, 0, 0);
+    let err = env.send(&[budget(), pass], &p.kp, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::TurnExpired));
+    assert_eq!(env.battle().pending_kind, vanguard::PENDING_NONE);
+}
+
+#[test]
+fn three_missed_turns_lose_and_a_blast_resets_the_count() {
+    let mut env = power_env(0);
+    env.patch_battle(|b| b.timeouts = [2, 0]);
+    let p = env.player(0);
+    // a Blast is a move: it resets the missed turns
+    let blast = env.blast_ix(p.key, id_of(70), 0);
+    env.act(0, blast).expect("blast");
+    assert_eq!(env.battle().timeouts, [0, 0]);
+    // the third missed turn in a row
+    env.patch_battle(|b| {
+        b.turn = 0;
+        b.timeouts = [2, 0];
+    });
+    let pass = env.pass_ix(p.key, 0, 0);
+    env.act(0, pass).expect("third missed turn");
+    let b = env.battle();
+    assert_eq!(b.status, vanguard::STATUS_OVER);
+    assert_eq!(b.reason, vanguard::reason_code(EndReason::Timeouts));
+    assert_eq!(b.winner, 1);
+    assert_eq!(
+        b.reserved[..8],
+        0u64.to_le_bytes(),
+        "no piece changed, so the end mask is empty"
+    );
+}
+
+#[test]
+fn the_end_mask_names_every_changed_piece_dead_ones_included_and_nothing_before() {
+    let mut env = power_env(0);
+    let p = env.player(0);
+    let dig = env.pass_ix(p.key, id_of(71) % 30 + 1, 0);
+    env.act(0, dig).expect("dig in");
+    assert_eq!(
+        env.battle().reserved,
+        [0; 31],
+        "nothing public while the Match lives"
+    );
+    // Italy switches its 10 with a move
+    let bob = env.player(1);
+    let mv = env.move_ix_switch(bob.key, 4, 14, SLOT_IT_GOTA + 1);
+    env.act(1, mv).expect("switch");
+    assert_eq!(env.battle().reserved, [0; 31]);
+    // the Italian 10 dies (stand-in: off the board, its code stays in the Army), then the Match ends by timeouts
+    env.patch_battle(|b| {
+        b.sq[5] = vanguard::NO_SQ;
+        b.shown[5] = 1;
+        b.timeouts = [2, 0];
+    });
+    let pass = env.pass_ix(p.key, 0, 0);
+    env.act(0, pass).expect("third missed turn ends it");
+    let b = env.battle();
+    assert_eq!(b.status, vanguard::STATUS_OVER);
+    let mask = u64::from_le_bytes(b.reserved[..8].try_into().unwrap());
+    assert_eq!(
+        mask,
+        (1u64 << id_of(71)) | (1u64 << 5),
+        "the dug-in Major and the dead switched 10"
+    );
+    assert_eq!(b.reserved[8..], [0; 23]);
+}
+
+#[test]
+fn a_deal_writes_a_fresh_key_per_army_from_its_own_stream() {
+    let key_of = |seed: u8| {
+        let mut env = ready();
+        env.start_in_rollup(seed);
+        env.deal().expect("deal");
+        // the Army of the US side holds the US key, whichever seat plays it
+        let b = env.battle();
+        let us = usize::from(b.us_seat);
+        [env.army(us).reserved, env.army(1 - us).reserved]
+    };
+    let a = key_of(1);
+    assert_ne!(a[0], [0; 32]);
+    assert_ne!(a[1], [0; 32]);
+    assert_ne!(a[0], a[1], "one key per Army");
+    assert_eq!(key_of(1), a, "the same secrets give the same keys");
+    assert_ne!(key_of(2), a, "other secrets give other keys");
+    let seed =
+        anchor_lang::solana_program::hash::hashv(&[&[1u8 + 7; 32], &[1u8 + 99; 32]]).to_bytes();
+    assert_eq!(
+        engine::seal_keys(&seed),
+        a,
+        "the program draws the keys as engine::seal_keys does (US, then Italy)"
+    );
+}
+
+/// One run of a sweep: every one of the 256 values of a sealed byte, built the way a client builds it (`plain ^ pad`).
+struct Sweep {
+    plain: u8,
+    ranks: [u8; 30],
+    other_ranks: [u8; 30],
+    public: Vec<u8>,
+    cu: (u64, u64),
+}
+
+type Maker<'a> = &'a dyn Fn(&Env, APk, u8) -> Instruction;
+type Declares = Vec<(&'static str, Box<dyn Fn(&Env, APk, u8) -> Instruction>)>;
+type OneByteFree = Vec<(&'static str, Box<dyn Fn(&Env, APk) -> Instruction>)>;
+
+fn sweep(env: &mut Env, seat: usize, declare: Maker) -> Vec<Sweep> {
+    let snap = env.snap();
+    let mut out = vec![];
+    for plain in 0..=255u8 {
+        env.restore(&snap);
+        let key = env.player(seat).key;
+        let ix = declare(env, key, plain);
+        env.act(seat, ix)
+            .unwrap_or_else(|e| panic!("value {plain} must neither error nor panic: {e:?}"));
+        assert_eq!(env.battle().pending_kind, vanguard::PENDING_NONE);
+        out.push(Sweep {
+            plain,
+            ranks: env.army(seat).ranks,
+            other_ranks: env.army(1 - seat).ranks,
+            public: bytes_of_battle(env),
+            cu: (env.declare_cu, env.resolve_cu),
+        });
+    }
+    env.restore(&snap);
+    out
+}
+
+/// No value changes the public Battle bytes, the other Army, or the compute of the declare and the whole resolve.
+fn assert_flat(sweeps: &[Sweep], what: &str) {
+    for sw in sweeps {
+        assert_eq!(
+            sw.public, sweeps[0].public,
+            "{what}: value {} changed the public Battle bytes",
+            sw.plain
+        );
+        assert_eq!(
+            sw.cu, sweeps[0].cu,
+            "{what}: value {} changed the compute (value 0 costs {:?})",
+            sw.plain, sweeps[0].cu
+        );
+        assert_eq!(sw.other_ranks, sweeps[0].other_ranks);
+    }
+}
+
+#[test]
+fn all_256_values_of_the_sealed_switch_byte_do_what_the_spec_says_on_every_action() {
+    for seat in 0..2usize {
+        let gota = if seat == 0 {
+            SLOT_US_GOTA
+        } else {
+            SLOT_IT_GOTA
+        };
+        let (step, blast_piece, rescue_piece) = if seat == 0 {
+            ((id_of(74), 64u8), id_of(70), id_of(72))
+        } else {
+            ((4u8, 14u8), 0u8, 2u8)
+        };
+        let makers: Declares = vec![
+            (
+                "move",
+                Box::new(move |e, k, v| e.move_ix_switch(k, step.0, step.1, v)),
+            ),
+            (
+                "blast",
+                Box::new(move |e, k, v| e.blast_ix(k, blast_piece, v)),
+            ),
+            (
+                "rescue",
+                Box::new(move |e, k, v| e.rescue_ix(k, rescue_piece, v)),
+            ),
+            ("pass", Box::new(|e, k, v| e.pass_ix(k, 0, v))),
+        ];
+        for (name, make) in makers {
+            let mut env = power_env(seat);
+            let sweeps = sweep(&mut env, seat, &*make);
+            let what = format!("seat {seat} {name}");
+            assert_flat(&sweeps, &what);
+            for sw in &sweeps {
+                let mut want = sweeps[0].ranks;
+                if sw.plain == gota + 1 {
+                    want[gota as usize] = engine::SWITCHED;
+                }
+                assert_eq!(sw.ranks, want, "{what}: value {}", sw.plain);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_switch_sealed_for_a_dead_or_already_switched_ten_does_nothing() {
+    // dead: the General of the Army left the board, its code stays in the Army
+    let mut env = power_env(0);
+    env.patch_battle(|b| b.sq[id_of(95) as usize] = vanguard::NO_SQ);
+    let sweeps = sweep(&mut env, 0, &|e, k, v| {
+        e.move_ix_switch(k, id_of(74), 64, v)
+    });
+    assert_flat(&sweeps, "dead 10");
+    assert!(sweeps.iter().all(|s| s.ranks == sweeps[0].ranks));
+    assert_eq!(sweeps[0].ranks[SLOT_US_GOTA as usize], GENERAL_OF_THE_ARMY);
+    // already switched
+    let mut env = power_env(0);
+    env.patch_army(0, |v| v.ranks[SLOT_US_GOTA as usize] = engine::SWITCHED);
+    let sweeps = sweep(&mut env, 0, &|e, k, v| {
+        e.move_ix_switch(k, id_of(74), 64, v)
+    });
+    assert_flat(&sweeps, "switched 10");
+    assert!(sweeps
+        .iter()
+        .all(|s| s.ranks[SLOT_US_GOTA as usize] == engine::SWITCHED));
+}
+
+#[test]
+fn all_256_values_of_the_sealed_dig_in_slot_dig_in_a_live_major_or_pass_plainly() {
+    for seat in 0..2usize {
+        // the first Major is live; the second is dead (its code stays in the Army); slot 20 holds a dug-in Major
+        let (live, dead) = if seat == 0 {
+            (id_of(71) % 30, id_of(73) as usize)
+        } else {
+            (1u8, 3usize)
+        };
+        let mut env = power_env(seat);
+        env.patch_battle(|b| b.sq[dead] = vanguard::NO_SQ);
+        env.patch_army(seat, |v| v.ranks[20] = engine::DUG_IN);
+        let sweeps = sweep(&mut env, seat, &|e, k, v| e.pass_ix(k, v, 0));
+        assert_flat(&sweeps, &format!("seat {seat} dig in"));
+        for sw in &sweeps {
+            let mut want = sweeps[0].ranks;
+            if sw.plain == live + 1 {
+                want[live as usize] = engine::DUG_IN;
+            }
+            assert_eq!(sw.ranks, want, "seat {seat}: value {}", sw.plain);
+        }
+        let dug = sweeps.iter().filter(|s| s.ranks != sweeps[0].ranks).count();
+        assert_eq!(dug, 1, "exactly one value digs in: the live Major's");
+    }
+}
+
+#[test]
+fn the_dig_in_byte_and_the_switch_byte_of_a_pass_decode_independently() {
+    let mut env = power_env(0);
+    let dig = id_of(71) % 30 + 1;
+    let sweeps = sweep(&mut env, 0, &|e, k, v| e.pass_ix(k, dig, v));
+    assert_flat(&sweeps, "valid dig in, any switch");
+    assert!(sweeps
+        .iter()
+        .all(|s| s.ranks[id_of(71) as usize % 30] == engine::DUG_IN));
+    let sweeps = sweep(&mut env, 0, &|e, k, v| e.pass_ix(k, v, SLOT_US_GOTA + 1));
+    assert_flat(&sweeps, "valid switch, any dig in");
+    assert!(sweeps
+        .iter()
+        .all(|s| s.ranks[SLOT_US_GOTA as usize] == engine::SWITCHED));
+}
+
+#[test]
+fn a_switch_leaves_the_public_bytes_and_the_compute_of_the_same_attack_alone() {
+    let run = |switch: bool| {
+        let mut env = power_env(0);
+        let p = env.player(0);
+        let plain = if switch { SLOT_US_GOTA + 1 } else { 0 };
+        // the Recon attacks an Italian Engineer put in its way: the same published outcome with or without the switch
+        tele(&mut env, 0, 64);
+        let mv = env.move_ix_switch(p.key, id_of(74), 64, plain);
+        env.act(0, mv).expect("attack");
+        (
+            bytes_of_battle(&env),
+            env.declare_cu,
+            env.resolve_cu,
+            env.army(0).ranks,
+        )
+    };
+    let (plain, switched) = (run(false), run(true));
+    assert_eq!(plain.0, switched.0, "public bytes");
+    assert_eq!((plain.1, plain.2), (switched.1, switched.2), "compute");
+    assert_ne!(plain.3, switched.3, "only the private rank code differs");
+}
+
+#[test]
+fn a_dig_in_costs_what_a_pass_costs_even_under_a_tight_compute_limit() {
+    let measure = |plain_slot: u8, limit: Option<u32>| -> Result<(Vec<u8>, u64), ()> {
+        let mut env = power_env(0);
+        let p = env.player(0);
+        let pass = env.pass_ix(p.key, plain_slot, 0);
+        env.send(&[budget(), pass], &p.kp, &[]).expect("declare");
+        env.next_slot();
+        let r = env.resolve_ix(p.key);
+        let mut ixs = vec![r];
+        if let Some(l) = limit {
+            let mut data = vec![2u8];
+            data.extend_from_slice(&l.to_le_bytes());
+            ixs.insert(0, Instruction { data, ..budget() });
+        }
+        env.send(&ixs, &p.kp, &[])
+            .map(|_| (bytes_of_battle(&env), env.last_cu))
+            .map_err(|_| ())
+    };
+    let plain = measure(0, None).expect("a pass resolves");
+    for slot in [id_of(71) % 30 + 1, id_of(73) % 30 + 1, 99, 200] {
+        assert_eq!(measure(slot, None).expect("resolves"), plain, "slot {slot}");
+    }
+    let tight = plain.1 as u32 + 1_000;
+    let short = plain.1 as u32 - 3_000;
+    for slot in [0, id_of(71) % 30 + 1, id_of(73) % 30 + 1, 99] {
+        assert!(measure(slot, Some(tight)).is_ok(), "slot {slot} with room");
+        assert!(
+            measure(slot, Some(short)).is_err(),
+            "slot {slot} without room"
+        );
+    }
+}
+
+#[test]
+fn an_impersonated_declare_of_any_new_kind_answers_the_same_for_every_hidden_rank() {
+    for kind in 0..4u8 {
+        let mut results = vec![];
+        for (rank, sealed) in [
+            (ENGINEER, 0u8),
+            (BOMB, 1),
+            (7, 77),
+            (GENERAL_OF_THE_ARMY, 200),
+            (TRUCK, 255),
+            (SPY, 6),
+        ] {
+            let mut env = Env::build(false);
+            env.open_and_join(1_000);
+            env.create().expect("create");
+            env.start_in_rollup(1);
+            let layout = vec![
+                lp(Side::Us, GENERAL_OF_THE_ARMY, 95),
+                lp(Side::It, rank, 5),
+                lp(Side::It, 8, 6),
+            ];
+            env.stage(&layout, 0);
+            env.patch_battle(|b| b.turn = 1);
+            env.set_time(T0 + 2);
+            let alice = env.alice.kp.insecure_clone();
+            let bob = env.bob.key;
+            let declare = match kind {
+                0 => env.blast_ix(bob, id_of(5), sealed),
+                1 => env.rescue_ix(bob, id_of(5), sealed),
+                2 => env.pass_ix(bob, sealed, sealed),
+                _ => env.move_ix_switch(bob, id_of(5), 15, sealed),
+            };
+            env.svm.expire_blockhash();
+            let mut tx = Transaction::new_unsigned(Message::new(
+                &[budget(), declare],
+                Some(&alice.pubkey()),
+            ));
+            tx.partial_sign(&[&alice], env.svm.latest_blockhash());
+            let r = env.run(tx);
+            results.push((rank, r.is_ok(), env.last_cu));
+        }
+        for r in &results {
+            assert_eq!(
+                (r.1, r.2),
+                (results[0].1, results[0].2),
+                "kind {kind}: {results:?}"
+            );
+        }
+        assert!(results[0].1, "kind {kind}: accepted: public state only");
+    }
+}
+
+#[test]
+fn a_declare_and_a_resolve_in_one_transaction_are_refused_for_every_new_kind() {
+    for kind in 0..3u8 {
+        let mut env = power_env(0);
+        let p = env.player(0);
+        let before = bytes_of_battle(&env);
+        let declare = match kind {
+            0 => env.blast_ix(p.key, id_of(70), 0),
+            1 => env.rescue_ix(p.key, id_of(72), 0),
+            _ => env.pass_ix(p.key, 2, 0),
+        };
+        let r = env.resolve_ix(p.key);
+        let err = env.send(&[budget(), declare, r], &p.kp, &[]).unwrap_err();
+        assert_eq!(custom_code(&err), vcode(VanguardError::TooSoon));
+        assert_eq!(bytes_of_battle(&env), before);
+    }
+}
+
+#[test]
+fn a_timeout_claim_never_applies_a_switch() {
+    let mut env = power_env(0);
+    let t = env.battle().deadline + 1;
+    env.set_time(t);
+    let bob = env.bob.kp.insecure_clone();
+    env.claim_timeout_declare(&bob)
+        .expect("declare the timeout");
+    let b = env.battle();
+    assert_eq!((b.pending_kind, b.pad_a[0]), (vanguard::PENDING_TIMEOUT, 0));
+    // whatever sits in the sealed byte, a timeout resolves without a switch
+    let snap = env.snap();
+    for stuffed in 0..=255u8 {
+        env.patch_battle(|b| b.pad_a[0] = stuffed);
+        env.resolve(&bob).expect("resolve");
+        assert_eq!(
+            env.army(0).ranks[SLOT_US_GOTA as usize],
+            GENERAL_OF_THE_ARMY
+        );
+        assert_eq!(env.battle().timeouts, [1, 0]);
+        env.restore(&snap);
+    }
+}
+
+#[test]
+fn wiping_an_army_removes_the_key_and_every_rank_code_from_the_committed_bytes() {
+    let mut env = power_env(0);
+    let p = env.player(0);
+    let dig = env.pass_ix(p.key, id_of(71) % 30 + 1, SLOT_US_GOTA + 1);
+    env.act(0, dig).expect("dig in and switch");
+    let mut army = env.army(0);
+    let key = army.reserved;
+    assert_ne!(key, [0; 32]);
+    assert!(army.ranks.contains(&engine::DUG_IN) && army.ranks.contains(&engine::SWITCHED));
+    army.wipe();
+    let mut bytes = vec![];
+    anchor_lang::AccountSerialize::try_serialize(&army, &mut bytes).unwrap();
+    assert!(
+        !bytes.windows(32).any(|w| w == key),
+        "the key is gone from the committed bytes"
+    );
+    // discriminator 8, bump 1, battle 32, seat 1, player 32, side 1: then the thirty rank bytes
+    assert_eq!(bytes[75..105], [0u8; 30], "no rank code is committed");
+    assert_eq!(bytes[bytes.len() - 32..], [0u8; 32], "and no key");
+    assert_eq!(army.ranks, [0; 30]);
+    assert_eq!(army.reserved, [0; 32]);
+}
+
+// --- Wind-down of Battles created under older rules ---------------------------------------------------
+
+/// A Battle in a lifecycle state, created under rules version 5.
+fn old_battle(state: &str) -> Env {
+    let mut env = ready();
+    match state {
+        "created" => {}
+        "setup" => env.start_in_rollup(1),
+        _ => {
+            env.start_in_rollup(1);
+            env.stage(&power_layout(), 0);
+            env.set_time(T0 + 2);
+        }
+    }
+    env.patch_battle(|b| b.rules_version = 5);
+    let (slot, now) = (env.slot(), env.now);
+    match state {
+        "pending move" => env.patch_battle(|b| {
+            b.record_pending(
+                vanguard::PENDING_MOVE,
+                vanguard::Intent {
+                    piece: id_of(74),
+                    to: 64,
+                    sealed_switch: 0,
+                },
+                0,
+                slot,
+                now,
+            )
+        }),
+        "pending timeout" => env.patch_battle(|b| {
+            b.record_pending(
+                vanguard::PENDING_TIMEOUT,
+                vanguard::Intent::default(),
+                0,
+                slot,
+                now,
+            )
+        }),
+        _ => {}
+    }
+    env
+}
+
+#[test]
+fn a_battle_on_older_rules_is_cancelled_by_claim_timeout_in_every_lifecycle_state_and_refunded() {
+    for state in [
+        "created",
+        "setup",
+        "live",
+        "pending move",
+        "pending timeout",
+    ] {
+        let mut env = old_battle(state);
+        let anyone = stranger(&mut env);
+        let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+        // at once: no deadline of the old Battle has to pass
+        env.claim_timeout_declare(&anyone)
+            .unwrap_or_else(|e| panic!("{state}: {e:?}"));
+        let b = env.battle();
+        assert_eq!(b.status, vanguard::STATUS_CANCELLED, "{state}");
+        assert_eq!(b.pending_kind, vanguard::PENDING_NONE, "{state}");
+        // nothing but close and finalize is left: `resolve` is refused
+        let err = env.resolve(&anyone).unwrap_err();
+        assert!(is_vcode(&err, VanguardError::NotLive), "{state}");
+        // the close step passes its own checks (it then stops at the rollup programs, which LiteSVM lacks)
+        let payer = env.bob.kp.insecure_clone();
+        let close = if b.permissioned != 0 {
+            close_match_ix(&env, a(payer.pubkey()))
+        } else {
+            close_unstarted_ix(&env, a(payer.pubkey()))
+        };
+        if let Err(e) = env.send(&[close], &payer, &[]) {
+            if let Some(code) = maybe_custom(&e) {
+                assert!(
+                    code != vcode(VanguardError::MatchNotOver)
+                        && code != vcode(VanguardError::WrongPhase),
+                    "{state}: close refused with {code}"
+                );
+            }
+        }
+        env.finalize(true)
+            .unwrap_or_else(|e| panic!("{state}: finalize {e:?}"));
+        assert_eq!(env.tesoro_status(), Stage::Closed, "{state}");
+        assert_eq!(
+            (env.gemas(&env.alice), env.gemas(&env.bob)),
+            (before.0 + 1_000, before.1 + 1_000),
+            "{state}: both entries are back in full"
+        );
+        assert_eq!(env.battle().finalized, 1);
+    }
+}
+
+#[test]
+fn an_older_battle_that_is_over_still_finalizes_and_cannot_be_cancelled() {
+    let mut env = old_battle("live");
+    env.patch_battle(|b| {
+        b.status = vanguard::STATUS_OVER;
+        b.winner = 0;
+        b.reason = vanguard::reason_code(EndReason::Truck);
+    });
+    let anyone = stranger(&mut env);
+    let err = env.claim_timeout_declare(&anyone).unwrap_err();
+    assert!(is_vcode(&err, VanguardError::MatchOver));
+    assert_eq!(env.battle().status, vanguard::STATUS_OVER);
+    let before = env.gemas(&env.alice);
+    env.finalize(false).expect("a finished v5 Battle settles");
+    assert!(env.gemas(&env.alice) > before, "the winner is paid");
+}
+
+#[test]
+fn a_battle_on_the_current_rules_is_not_wound_down_early() {
+    for state in ["created", "setup", "live"] {
+        let mut env = old_battle(state);
+        env.patch_battle(|b| b.rules_version = engine::RULES_VERSION);
+        let anyone = stranger(&mut env);
+        let err = env.claim_timeout_declare(&anyone).unwrap_err();
+        assert!(
+            is_vcode(&err, VanguardError::NotTimedOut)
+                || is_vcode(&err, VanguardError::TooSoon)
+                || is_vcode(&err, VanguardError::ActionPending),
+            "{state}: {err:?}"
+        );
+        assert_ne!(env.battle().status, vanguard::STATUS_CANCELLED, "{state}");
+    }
+}
+
+// --- Compute of whole instructions for the new kinds -------------------------------------------------
+
+#[test]
+fn compute_of_the_new_declares_and_resolves_has_headroom_in_the_client_budgets() {
+    const RESOLVE_BUDGET: u64 = 200_000;
+    const DECLARE_BUDGET: u64 = 40_000;
+    let mut rows: Vec<(String, u64, u64)> = vec![];
+    let sw = SLOT_US_GOTA + 1;
+    let makers: OneByteFree = vec![
+        (
+            "move + switch",
+            Box::new(move |e, k| e.move_ix_switch(k, id_of(74), 64, sw)),
+        ),
+        (
+            "blast + switch",
+            Box::new(move |e, k| e.blast_ix(k, id_of(70), sw)),
+        ),
+        (
+            "rescue + switch",
+            Box::new(move |e, k| e.rescue_ix(k, id_of(72), sw)),
+        ),
+        ("pass", Box::new(|e, k| e.pass_ix(k, 0, 0))),
+        (
+            "dig in + switch",
+            Box::new(move |e, k| e.pass_ix(k, id_of(71) % 30 + 1, sw)),
+        ),
+    ];
+    for (name, make) in makers {
+        let mut env = power_env(0);
+        let p = env.player(0);
+        let ix = make(&env, p.key);
+        env.act(0, ix).expect(name);
+        rows.push((
+            format!("{name} (power board)"),
+            env.declare_cu,
+            env.resolve_cu,
+        ));
+    }
+    // dense dealt boards, the real worst case, plain and on the storm turn
+    for (seed, storm) in [(1u8, false), (2, false), (5, true), (6, true)] {
+        for kind in ["dig in + switch", "blast + switch", "rescue + switch"] {
+            let mut env = ready();
+            env.start_in_rollup(seed);
+            env.deal().expect("deal");
+            if storm {
+                env.patch_secret(|v| v.storm_at = 1);
+            }
+            let seat = if env.battle().side_of_seat(0) == Some(Side::Us) {
+                0
+            } else {
+                1
+            };
+            let p = env.player(seat);
+            let ranks = env.army(seat).ranks;
+            let slot_of = |rank: u8| ranks.iter().position(|r| *r == rank).expect("rank") as u8;
+            let base = if env.battle().side_of_seat(seat) == Some(Side::Us) {
+                30
+            } else {
+                0
+            };
+            let switch = slot_of(10) + 1;
+            let ix = match kind {
+                "dig in + switch" => env.pass_ix(p.key, slot_of(7) + 1, switch),
+                "blast + switch" => env.blast_ix(p.key, base + slot_of(3), switch),
+                _ => env.rescue_ix(p.key, base + slot_of(8), switch),
+            };
+            env.set_time(env.now + 1);
+            env.act(seat, ix)
+                .unwrap_or_else(|e| panic!("{kind} seed {seed}: {e:?}"));
+            assert_eq!(
+                env.army(seat).ranks[slot_of(10) as usize],
+                engine::SWITCHED,
+                "{kind} seed {seed}: the switch applied"
+            );
+            rows.push((
+                format!(
+                    "{kind}, dense dealt board (seed {seed}){}",
+                    if storm { ", storm turn" } else { "" }
+                ),
+                env.declare_cu,
+                env.resolve_cu,
+            ));
+        }
+    }
+    println!("\nCU of the new instructions (declare / whole resolve); budgets: declare {DECLARE_BUDGET}, resolve {RESOLVE_BUDGET}");
+    for (name, d, r) in &rows {
+        println!("  {name:<58} declare {d:>6}   resolve {r:>7}");
+    }
+    let worst = rows.iter().map(|r| r.2).max().unwrap();
+    println!("  worst resolve {worst}");
+    assert!(worst < 600_000, "above 600k: back to the orchestrator");
+    for (name, d, r) in &rows {
+        assert!(
+            *d * 13 / 10 <= DECLARE_BUDGET && *r * 13 / 10 <= RESOLVE_BUDGET,
+            "{name}: {d} / {r} leaves less than 30% headroom"
+        );
+    }
+}
+
+// --- The next turn must not show what the last one hid; a death keeps its change ----------------------
+
+/// US: Major 71, Colonel 72, Recon 74, General of the Army 95, Truck 96 (no Engineer, so the Major is the only thing
+/// that gives the Major's side a Dig in, and the Colonel and the Truck the only Rescue). Italy: Colonel 2, Recon 4,
+/// General of the Army 5, Truck 6, Bomb 7.
+fn lean_layout() -> Vec<LayoutPiece> {
+    vec![
+        lp(Side::Us, 7, 71),
+        lp(Side::Us, 8, 72),
+        lp(Side::Us, RECON, 74),
+        lp(Side::Us, GENERAL_OF_THE_ARMY, 95),
+        lp(Side::Us, TRUCK, 96),
+        lp(Side::It, 8, 2),
+        lp(Side::It, RECON, 4),
+        lp(Side::It, GENERAL_OF_THE_ARMY, 5),
+        lp(Side::It, TRUCK, 6),
+        lp(Side::It, BOMB, 7),
+    ]
+}
+
+/// Alice acts (declare + resolve), then Bob moves his Recon; returns the public bytes after Bob's resolve and the
+/// compute of Bob's whole turn, optionally with Bob's resolve under a compute limit.
+fn next_turn(
+    alice: &dyn Fn(&Env, APk) -> Instruction,
+    limit: Option<u32>,
+) -> Result<(Vec<u8>, u64, u64, [u8; 30]), Failed> {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&lean_layout(), 0);
+    for seat in 0..2 {
+        env.patch_army(seat, |v| v.reserved = [0x40 + seat as u8; 32]);
+    }
+    env.set_time(T0 + 2);
+    let ix = alice(&env, env.alice.key);
+    env.act(0, ix).expect("alice acts");
+    let after_alice = (env.declare_cu, env.resolve_cu);
+    let bob = env.player(1);
+    let mv = env.move_ix(bob.key, 4, 14);
+    env.send(&[budget(), mv], &bob.kp, &[])
+        .expect("bob declares");
+    env.next_slot();
+    let r = env.resolve_ix(bob.key);
+    let mut ixs = vec![r];
+    if let Some(l) = limit {
+        let mut data = vec![2u8];
+        data.extend_from_slice(&l.to_le_bytes());
+        ixs.insert(0, Instruction { data, ..budget() });
+    }
+    env.send(&ixs, &bob.kp, &[])?;
+    Ok((
+        bytes_of_battle(&env),
+        env.last_cu,
+        after_alice.1,
+        env.army(0).ranks,
+    ))
+}
+
+fn next_turn_variants() -> OneByteFree {
+    let major = id_of(71) % 30 + 1;
+    let ten = SLOT_US_GOTA + 1;
+    vec![
+        ("plain pass", Box::new(|e, k| e.pass_ix(k, 0, 0))),
+        (
+            "face-down dig in",
+            Box::new(move |e, k| e.pass_ix(k, major, 0)),
+        ),
+        (
+            "invalid dig in (the Colonel)",
+            Box::new(|e, k| e.pass_ix(k, id_of(72) % 30 + 1, 0)),
+        ),
+        (
+            "invalid dig in (nothing there)",
+            Box::new(|e, k| e.pass_ix(k, 29, 0)),
+        ),
+        ("pass + switch", Box::new(move |e, k| e.pass_ix(k, 0, ten))),
+        (
+            "dig in + switch",
+            Box::new(move |e, k| e.pass_ix(k, major, ten)),
+        ),
+    ]
+}
+
+#[test]
+fn the_opponents_next_resolve_costs_the_same_whatever_the_last_turn_hid() {
+    let variants = next_turn_variants();
+    // (Major dug in, 10 switched) per variant, as the owner's Army must show afterwards
+    let transformed = [
+        (false, false),
+        (true, false),
+        (false, false),
+        (false, false),
+        (false, true),
+        (true, true),
+    ];
+    let (major, ten) = (id_of(71) as usize % 30, SLOT_US_GOTA as usize);
+    let base = next_turn(&*variants[0].1, None).expect("baseline");
+    for ((name, make), (dug, switched)) in variants.iter().zip(transformed) {
+        let got = next_turn(&**make, None).expect(name);
+        assert_eq!(
+            (
+                got.3[major] == engine::DUG_IN,
+                got.3[ten] == engine::SWITCHED
+            ),
+            (dug, switched),
+            "{name}: the hidden change happened (or not) in the owner's Army"
+        );
+        assert_eq!(got.0, base.0, "{name}: public bytes after the next turn");
+        assert_eq!(got.1, base.1, "{name}: the next turn's compute, exactly");
+        assert_eq!(got.2, base.2, "{name}: this turn's compute, exactly");
+    }
+    // Bob's resolve held to exactly what it needs: it succeeds at the measured amount and runs out one below, the
+    // same for every hidden variant
+    let with_limit = next_turn(&*variants[0].1, Some(1_400_000))
+        .expect("limit")
+        .1 as u32;
+    for (name, make) in &variants {
+        assert!(
+            next_turn(&**make, Some(with_limit)).is_ok(),
+            "{name}: at the measured limit"
+        );
+        let err = next_turn(&**make, Some(with_limit - 1)).expect_err(name);
+        assert!(is_budget_exceeded(&err), "{name}: one below it: {err:?}");
+    }
+}
+
+/// The program ran out of compute: LiteSVM reports it as `ProgramFailedToComplete` with the meter message in the log.
+fn is_budget_exceeded(err: &Failed) -> bool {
+    use solana_sdk::instruction::InstructionError;
+    use solana_sdk::transaction::TransactionError;
+    matches!(
+        err.err,
+        TransactionError::InstructionError(
+            _,
+            InstructionError::ProgramFailedToComplete
+                | InstructionError::ComputationalBudgetExceeded
+        )
+    ) && err
+        .meta
+        .logs
+        .iter()
+        .any(|l| l.contains("exceeded CUs meter"))
+}
+
+/// A Truck that attacks something stronger and dies: whatever fuel it had (the third drive would have shown it), the
+/// public bytes, the whole-resolve compute and the point where the budget runs out are the same.
+#[test]
+fn a_losing_truck_attack_costs_the_same_whatever_the_fuel_it_had() {
+    let run = |fuel: u8, limit: Option<u32>| -> Result<(Vec<u8>, u64), Failed> {
+        let mut env = ready();
+        env.start_in_rollup(1);
+        env.stage(&step_layout(TRUCK, BOMB), 0);
+        tele(&mut env, 5, 60);
+        env.patch_army(0, |v| v.fuel = fuel);
+        env.set_time(T0 + 2);
+        let p = env.player(0);
+        let mv = env.move_ix(p.key, id_of(70), 60);
+        env.send(&[budget(), mv], &p.kp, &[]).expect("declare");
+        env.next_slot();
+        let r = env.resolve_ix(p.key);
+        let mut ixs = vec![r];
+        if let Some(l) = limit {
+            let mut data = vec![2u8];
+            data.extend_from_slice(&l.to_le_bytes());
+            ixs.insert(0, Instruction { data, ..budget() });
+        }
+        env.send(&ixs, &p.kp, &[])?;
+        assert_eq!(
+            env.battle().sq[id_of(70) as usize],
+            vanguard::NO_SQ,
+            "the Truck died"
+        );
+        assert!(!event_kinds(&env).contains(&vanguard::EVENT_SPOTTED));
+        Ok((bytes_of_battle(&env), env.last_cu))
+    };
+    let base = run(0, None).expect("fuel 0");
+    for fuel in [1u8, 2] {
+        assert_eq!(run(fuel, None).expect("runs"), base, "fuel {fuel}");
+    }
+    let at = run(0, Some(1_400_000)).expect("limit").1 as u32;
+    for fuel in [0u8, 1, 2] {
+        assert!(
+            run(fuel, Some(at)).is_ok(),
+            "fuel {fuel} at the measured limit"
+        );
+        let err = run(fuel, Some(at - 1)).expect_err("one below");
+        assert!(is_budget_exceeded(&err), "fuel {fuel}: {err:?}");
+    }
+}
+
+#[test]
+fn a_switch_that_dies_with_its_attack_keeps_its_change_in_the_army_and_the_end_mask() {
+    let mut env = power_env(0);
+    let p = env.player(0);
+    // an Italian Recon stands next to the US General of the Army at 95; the switched 10 plays as a Spy and loses
+    tele(&mut env, 4, 85);
+    let attack = env.move_ix_switch(p.key, id_of(95), 85, SLOT_US_GOTA + 1);
+    env.act(0, attack).expect("switch and attack");
+    let b = env.battle();
+    assert_eq!(
+        b.sq[id_of(95) as usize],
+        vanguard::NO_SQ,
+        "the switched 10 died"
+    );
+    assert_eq!(
+        b.shown[id_of(95) as usize],
+        SPY,
+        "shown as the Spy it fought as"
+    );
+    assert_eq!(
+        env.army(0).ranks[SLOT_US_GOTA as usize],
+        engine::SWITCHED,
+        "the owner's record keeps the change"
+    );
+    // another resolve (Italy moves), then the Match ends by timeouts
+    let bob = env.player(1);
+    let mv = env.move_ix(bob.key, 2, 12);
+    env.act(1, mv).expect("italy moves");
+    assert_eq!(env.army(0).ranks[SLOT_US_GOTA as usize], engine::SWITCHED);
+    env.patch_battle(|b| b.timeouts = [2, 0]);
+    let pass = env.pass_ix(p.key, 0, 0);
+    env.act(0, pass).expect("third missed turn");
+    let b = env.battle();
+    assert_eq!(b.status, vanguard::STATUS_OVER);
+    let mask = u64::from_le_bytes(b.reserved[..8].try_into().unwrap());
+    assert_eq!(
+        mask,
+        1u64 << id_of(95),
+        "the dead switched 10 is in the end mask"
+    );
 }

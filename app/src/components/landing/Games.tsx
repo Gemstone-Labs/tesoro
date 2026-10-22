@@ -5,7 +5,7 @@ import { GameSelect, type LandingGame } from "./GameSelect";
 const GAMES: LandingGame[] = [
   {
     id: "block-puzzle",
-    name: "Block Puzzle",
+    name: "Block Burst",
     note: "Play anytime, 90 s",
     body: "Play when you like. You and your opponent get the same pieces; the higher score wins.",
     facts: [
@@ -50,11 +50,11 @@ const GAMES: LandingGame[] = [
   {
     id: "vanguard",
     name: "Vanguard",
-    note: "Real-time, 5 s a move",
-    body: "Blitz Stratego on a desert board. Your army's ranks are hidden, you get five seconds a move, and the first Player to capture the enemy Supply Truck wins.",
+    note: "Real-time, 10 s a move",
+    body: "Blitz Stratego on a desert board. Your army's ranks are hidden, you get ten seconds a move, and the first Player to capture the enemy Supply Truck wins.",
     facts: [
       ["Pace", "Real-time"],
-      ["Moves", "5 s each"],
+      ["Moves", "10 s each"],
       ["Ranks", "Hidden until they fight"],
       ["Goal", "Capture the Supply Truck"],
     ],

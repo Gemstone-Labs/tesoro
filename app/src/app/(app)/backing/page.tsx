@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { X as XMark } from "lucide-react";
@@ -18,6 +19,7 @@ import {
   SkeletonCards,
   Slider,
   XIcon,
+  Select,
 } from "@/components/ui";
 import { PlayerName } from "@/components/account/Player";
 import { useGuideTip } from "@/components/guide/Guide";
@@ -42,6 +44,13 @@ import { backingQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import { GAME_LIST } from "@/lib/games";
 import type { EntrySize, GameId } from "@/lib/mock";
+
+const GAME_OPTIONS = GAME_LIST.map((g) => ({ value: g, label: GAME_NAMES[g] }));
+const SORT_OPTIONS: { value: Sort; label: string }[] = [
+  { value: "recent", label: "Newest" },
+  { value: "entry", label: "Biggest entry" },
+  { value: "record", label: "Best win rate" },
+];
 import { GemasLabel } from "../wallet/AdvanceQuote";
 import { RequestCard } from "@/components/backing/RequestCard";
 import { BackingExample, FEES } from "./BackingExample";
@@ -49,6 +58,7 @@ import "./backing.css";
 import { entryError } from "@/lib/chain/entry-errors";
 import { awayNotice } from "@/lib/chain/protections";
 import { useAway } from "@/lib/chain/useAway";
+import { wantsPostRequest } from "@/lib/backing/post-link";
 
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
@@ -86,6 +96,7 @@ export default function Backing() {
     title: "What Backing means",
     text: "A Backer funds a Player's whole entry. On a win the entry returns first and the surplus is split by the Offer. Only the Backer bears a loss.",
   });
+  const router = useRouter();
   const away = useAway();
   const awayText = away ? awayNotice(away) : null;
   const nowMs = useNow();
@@ -166,6 +177,16 @@ export default function Backing() {
     hashRead.current = true;
     if (linked.live && !linkedOffered) auth.gate("make an Offer", () => setOfferFor(linked));
   }, [linked, linkedOffered, auth]);
+
+  // `/backing?post=1` (the Vault's Borrow Gemas) opens Post a Request once sign-in is known, then drops the query.
+  const postRead = useRef(false);
+  const canPost = auth.status === "signed-in" || auth.status === "signed-out";
+  useEffect(() => {
+    if (postRead.current || !canPost || !wantsPostRequest(window.location.search)) return;
+    postRead.current = true;
+    router.replace("/backing", { scroll: false });
+    if (!awayText) auth.gate("post a Request", () => setPostOpen(true));
+  }, [canPost, awayText, auth, router]);
 
   const selected = offerFor ? offerFor.address.toBase58() : null;
   const tabs: [Tab, string][] = [
@@ -278,14 +299,10 @@ export default function Backing() {
               ))}
             </div>
             <div className="bk-tools">
-              <label className="cut cut-card bk-sort">
-                <span>Sort by</span>
-                <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort by">
-                  <option value="recent">Newest</option>
-                  <option value="entry">Biggest entry</option>
-                  <option value="record">Best win rate</option>
-                </select>
-              </label>
+              <div className="cut cut-card bk-sort sel-host">
+                <span aria-hidden="true">Sort by</span>
+                <Select framed={false} aria-label="Sort by" value={sort} options={SORT_OPTIONS} onChange={setSort} />
+              </div>
             </div>
           </div>
 
@@ -455,13 +472,7 @@ function PostRequest({
         </p>
         <div className="field">
           <label className="label" htmlFor="req-game">Game</label>
-          <span className="cut cut-chip ctl">
-            <select id="req-game" className="select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
-              {GAME_LIST.map((g) => (
-                <option key={g} value={g}>{GAME_NAMES[g]}</option>
-              ))}
-            </select>
-          </span>
+          <Select id="req-game" value={game} options={GAME_OPTIONS} onChange={setGame} />
         </div>
         <EntryPicker value={entry} onChange={setEntry} legend="Entry to be backed" name="req-entry" />
         <Button block disabled={disabled} onClick={() => onPost(game, entry)}>
@@ -644,7 +655,7 @@ function OfferDrawer({
 
           {short && (
             <p className="status err" role="alert">
-              You have {fmtGemas(available)} Gemas available. <Link href="/wallet">Get Gemas in your Wallet</Link>
+              You have {fmtGemas(available)} Gemas available. <Link href="/vault">Get Gemas in your Vault</Link>
             </p>
           )}
           <footer className="bk-drawer-foot">

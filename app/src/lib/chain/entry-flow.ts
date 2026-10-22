@@ -41,7 +41,7 @@ export const matchRefOf = (key: string): MatchRef => {
   return { opener: new PublicKey(k.opener), n: k.n };
 };
 
-/** Block Burst (Block Puzzle) opens or joins its Session in the same transaction; no other Game does. */
+/** Block Burst opens or joins its Session in the same transaction; no other Game does. */
 const withSession = (game: GameId) => game === "block-puzzle";
 
 /** What an entry will do, before any signature: read the stores of whoever funds it and plan the draw. */

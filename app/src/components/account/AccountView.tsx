@@ -1,23 +1,22 @@
 "use client";
 
 import Image from "next/image";
+import { GetGemasButton } from "@/components/deposit/GetGemasButton";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
-import { MatchRow, BANNER_ROWS } from "@/components/match/MatchRow";
+import { GameTabs, HistoryPages, ResultFilter, gameFilter, historyHref, resultCounts } from "@/components/match/MatchHistory";
 import { MatchBanner } from "@/components/match/MatchBanner";
-import { AssetPicker, Bust, Button, EntryPicker, Label, Sheet, Notice } from "@/components/ui";
+import { ChallengeSheet } from "@/components/match/ChallengeSheet";
+import { Bust, Button, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
-import { historyPage } from "@/lib/chain/history";
+import { RESULTS, historyPage, resultFilter } from "@/lib/chain/history";
 import { backingLine, signed, summaryOfRows, type PlayedRow, type PlayerAccount, type PlayerSummary } from "@/lib/chain/player-account";
 import { timeLeft } from "@/lib/chain/useBackingBoard";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
 import { fmtGemas } from "@/lib/format";
-import { gameQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
-import type { EntrySize, GameId } from "@/lib/mock";
 import { AccountHero } from "./AccountHero";
 import { AccountSkeleton } from "./AccountSkeleton";
 import { shownIdentity } from "@/lib/identity/display";
@@ -25,7 +24,6 @@ import { useIdentity } from "@/lib/identity/store";
 import { GemasPanel } from "./GemasPanel";
 import "./account.css";
 import { BRAND } from "@/lib/brand";
-import { GAME_LIST } from "@/lib/games";
 
 /**
  * A Player's Account as anyone may see it: the Matches it played, the Gemas it won and lost, the
@@ -69,7 +67,9 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
   const rows = data.rows;
   const summary = useMemo(() => summaryOfRows(rows), [rows]);
   const game = gameFilter(params.get("game"));
-  const shown = game ? rows.filter((r) => r.game === game) : rows;
+  const results = resultFilter(params.get("result"));
+  const ofGame = game ? rows.filter((r) => r.game === game) : rows;
+  const shown = ofGame.filter((r) => results.includes(r.result));
   const view = historyPage(shown, Number(params.get("page") ?? 1));
   const base = `/account/${address}`;
 
@@ -135,24 +135,26 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
         <section className="pa-history" aria-labelledby="pa-matches">
           <header className="mh-head">
             <h2 id="pa-matches" className="h-section">Match history</h2>
-            {rows.length > 0 && <GameTabs base={base} game={game} />}
+            {rows.length > 0 && <GameTabs base={base} game={game} results={results} />}
+            <ResultFilter base={base} game={game} results={results} counts={resultCounts(ofGame)} />
           </header>
-          {shown.length === 0 ? (
+          {ofGame.length === 0 ? (
             rows.length > 0 && <p className="pa-none">No finished {game ? GAME_NAMES[game] : ""} Matches yet.</p>
+          ) : shown.length === 0 ? (
+            <div className="mh-state">
+              <p>No {game ? `${GAME_NAMES[game]} ` : ""}Matches with these results.</p>
+              <Button size="sm" href={historyHref(base, game, 1, RESULTS)}>Show all results</Button>
+            </div>
           ) : (
             <>
               <div className="mb-list" role="list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`}>
-                {view.rows.map((r, i) => (
+                {view.rows.map((r) => (
                   <div key={r.id} role="listitem">
-                    {view.page === 1 && i < BANNER_ROWS ? (
-                      <MatchBanner r={r} account={address} now={now} backing={backingLine(r)} me={me} />
-                    ) : (
-                      <MatchRow r={r} now={now} />
-                    )}
+                    <MatchBanner r={r} account={address} now={now} backing={backingLine(r)} me={me} />
                   </div>
                 ))}
               </div>
-              <HistoryPages base={base} game={game} page={view.page} pages={view.pages} total={shown.length} />
+              <HistoryPages base={base} game={game} results={results} page={view.page} pages={view.pages} total={shown.length} />
             </>
           )}
           {summary.notRead > 0 && (
@@ -166,7 +168,7 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
       {stale && <p className="note">Couldn’t refresh; showing what was last loaded.</p>}
       <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
 
-      <ChallengeSheet open={challenge} onClose={() => setChallenge(false)} player={who.label} />
+      <ChallengeSheet open={challenge} onClose={() => setChallenge(false)} player={address} name={who.label} />
     </div>
   );
 }
@@ -342,7 +344,7 @@ function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGem
             ? `${name} has not finished a Match. When they do, their Account shows:`
             : hasGemas !== false
               ? "Play a Match and your Account fills in as it settles. This is what other Players will see:"
-              : "Get Gemas in your Wallet, then play a Match: your Account fills in as it settles. This is what other Players will see:"}
+              : "Get Gemas in your Vault, then play a Match: your Account fills in as it settles. This is what other Players will see:"}
         </p>
       </div>
       {own &&
@@ -352,9 +354,7 @@ function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGem
             Play now
           </Button>
         ) : (
-          <Button variant="money" href="/wallet?open=1">
-            Get Gemas
-          </Button>
+          <GetGemasButton />
         ))}
       <ul className="pa-empty-list">
         {SHOWN.map(([title, text]) => (
@@ -368,41 +368,4 @@ function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGem
   );
 }
 
-/** Game and entry for a Challenge, and the plain fact that the link is the only way it reaches the other Player. */
-function ChallengeSheet({ open, onClose, player }: { open: boolean; onClose: () => void; player: string }) {
-  const { auth } = useAccount();
-  const router = useRouter();
-  const [game, setGame] = useState<GameId>("block-puzzle");
-  const [entry, setEntry] = useState<EntrySize>(1000);
-  const [asset, setAsset] = useState<0 | 1 | 2>(0);
-  return (
-    <Sheet open={open} onClose={onClose} title={`Challenge ${player}`}>
-      <div className="stack-lg">
-        <fieldset className="entries pa-games">
-          <legend className="sr-only">Game</legend>
-          {GAME_LIST.map((g) => (
-            <label key={g} className="entry">
-              <input type="radio" name="pa-game" value={g} checked={game === g} onChange={() => setGame(g)} />
-              <span className="cut cut-chip">{GAME_NAMES[g]}</span>
-            </label>
-          ))}
-        </fieldset>
-        {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="pa-asset" />}
-        <EntryPicker value={entry} onChange={setEntry} name="pa-entry" />
-        <p className="pa-p">
-          {BRAND.name} cannot tell this Player about your Challenge. You get a link to send them yourself, and whoever opens it first joins.{" "}
-          {game === "block-puzzle" && "You play your run first, then get the link. "}
-          Your entry goes in the Pot when you open it; if nobody joins, it is refunded.
-        </p>
-        <Button
-          variant="money"
-          block
-          onClick={() => auth.gate("Challenge a Player", () => router.push(`/play/challenge?${gameQuery(game, asset)}entry=${entry}`))}
-        >
-          Open Challenge · {fmtGemas(entry)} Gemas
-        </Button>
-      </div>
-    </Sheet>
-  );
-}
 

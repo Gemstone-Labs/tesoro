@@ -2,6 +2,7 @@ import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { ComputeBudgetProgram, type Connection, type PublicKey } from "@solana/web3.js";
 import { VANGUARD_PROGRAM_ID, CU, addresses } from "../../app/src/games/vanguard/chain.ts";
 import { PENDING, STATUS, decodeBattle } from "../../app/src/games/vanguard/decode.ts";
+import { RULES_VERSION } from "../../app/src/games/vanguard/rules.ts";
 import { commitInFlight, commits, noteClose } from "./commits.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { refund } from "./blockpuzzle.ts";
@@ -30,6 +31,8 @@ export interface BattleFacts {
   capDeadline: number;
   pendingKind: number;
   pendingSlot: bigint;
+  /** The rules the Battle was created under. The program only plays RULES_VERSION; older Battles are wound down. */
+  rulesVersion: number;
 }
 
 export type VanguardStep = {
@@ -41,7 +44,8 @@ export type VanguardStep = {
  * What to do with a Battle. `layer` says where it was read; `slot` is the rollup's current slot (ignored on base).
  *  - "base": only `finalize` moves it; a Battle stuck there is refunded through tesoro_core at the Match deadline.
  *  - "tee": past the tesoro_core deadline an unfinished Battle is refunded on the base layer whatever the rollup
- *    serves (or stopped serving); a finished one is closed and settled instead. Otherwise a declared action comes first: any caller may `resolve` it from a later slot than its declare, and
+ *    serves (or stopped serving); a finished one is closed and settled instead. A Battle on older rules that is not over
+ *    is wound down at once (see `windDown`). Otherwise a declared action comes first: any caller may `resolve` it from a later slot than its declare, and
  *    while one is pending nothing else is accepted. Then the start, setup, turn and cap clocks: each is a
  *    `claim_timeout` (a cancel, or a declare of a lost turn that the next pass resolves) once GRACE_SECS past.
  *    The rollup clock may be behind the base clock, so the caller simulates `claim_timeout` and waits if refused.
@@ -58,6 +62,9 @@ export function vanguardStep(b: BattleFacts, layer: "base" | "tee", now: number,
     return { do: "wait", why: `Battle on base layer (status ${b.status}), refundable ${when(deadline, now)}` };
   }
   if (now >= deadline && b.status !== STATUS.over && b.status !== STATUS.cancelled) return { do: "refund", why: "Battle never finished before the Match deadline" };
+  if (windDown(b)) {
+    return { do: "claim_timeout", why: `rules version ${b.rulesVersion} Battle on the version ${RULES_VERSION} program: cancelled at once so both entries are refunded` };
+  }
   if (b.pendingKind !== PENDING.none) {
     if (slot > b.pendingSlot) return { do: "resolve", why: `declared action (kind ${b.pendingKind}) waiting since slot ${b.pendingSlot}` };
     return { do: "wait", why: `action declared in slot ${b.pendingSlot}, resolvable from the next slot` };
@@ -85,6 +92,15 @@ export function vanguardStep(b: BattleFacts, layer: "base" | "tee", now: number,
   }
   return { do: "wait", why: `status ${b.status}` };
 }
+
+/**
+ * A Battle made under other rules than the program plays (the upgrade to RULES_VERSION left it behind) that is not over yet:
+ * `claim_timeout` cancels it whatever its clocks and any pending action say, and the normal close and finalize refund it in
+ * full. Before the upgrade the program refuses this claim until a deadline passes, and the keeper simulates every claim, so
+ * running the new keeper first is harmless.
+ */
+export const windDown = (b: Pick<BattleFacts, "status" | "rulesVersion">): boolean =>
+  b.rulesVersion !== RULES_VERSION && (b.status === STATUS.created || b.status === STATUS.setup || b.status === STATUS.live);
 
 export type SetupMove = "deal" | "request_vrf" | "wait";
 
@@ -184,6 +200,7 @@ function factsOf(b: ReturnType<typeof decodeBattle>): BattleFacts {
     capDeadline: b.capDeadline,
     pendingKind: b.pendingKind,
     pendingSlot: b.pendingSlot,
+    rulesVersion: b.rulesVersion,
   };
 }
 

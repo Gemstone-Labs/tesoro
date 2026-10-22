@@ -10,7 +10,17 @@ Player words and code words: on 2026-10-19 the founder renamed the money terms P
 
 **Lock** (code and on-chain: Position):
 A staker's locked, yield-bearing stake in Tesoro. What it holds (its Locked amount) is never played with and never pays anything back; only its yield does. Players see "SOL Lock 1", "Your SOL Locks", "New Lock"; the action that makes one is "Get Gemas".
-_Avoid_: Position (in Player copy), deposit, stake, vault, collateral
+_Avoid_: Position (in Player copy), stake, collateral. "Deposit" and "Vault" are the Simple view's words for it, below.
+
+**Deposit** (Simple view; code: a SOL Lock with a 12-month Length and its Advance taken):
+What a beginner puts in through a Pack. The Simple view never says Lock, Advance, Length, staking or APY (`app/src/plain-words.test.ts` guards `vault/` and `components/deposit/`). Players read "You get your deposit back after about 12 months": about, never a promise, and what comes back depends on the SOL price when they withdraw.
+_Avoid_: buy, spend, purchase (a deposit is money that comes back)
+
+**Pack**:
+One of the three fixed deposits in the Simple view's Buy Gemas modal: Starter $100, Player $250, Pro $500. Code names it `DepositPack`; the waitlist's reveal pack is a different thing.
+
+**Vault** (Simple view's money page, `/vault`):
+Your Gemas, your deposits and when each comes back, and your winnings to cash out. **Pro view** (code: the Advanced view) is today's Wallet. Its switch sits on the Vault under the balance card and in both Buy Gemas modals (switching in a modal swaps to the other one). Every Account starts with Pro view off and remembers its choice. Buy Gemas is the Vault's main action; Borrow Gemas beside it opens Post a Request on the Backing board.
 
 **Locked amount** (code and on-chain: Principal):
 The staked amount inside a Lock, as opposed to the yield it earns. It is only ever locked, never spent. In sentences Players read "your SOL" or "what you lock".
@@ -73,16 +83,28 @@ _Avoid_: referral, access code, whitelist spot
 **Name service name**:
 A `.sol` (Solana Name Service) or `.eth` (ENS) primary name of a wallet the Player attached to their Profile. It is shown with a verified mark because the registry says the wallet owns it and the wallet proved it belongs to the Account.
 
+**Friend**:
+Another Account that both Players agreed to keep in each other's private list, kept off chain and seen only by the two of them. Friendship is a convenience: it changes no rule of play, Points or payouts.
+_Avoid_: follower, contact, buddy, invite
+
+**Friend request**:
+One Player's ask to become Friends with another Account, which becomes a friendship only when the other Player accepts it.
+_Avoid_: invite (an Invite is the waitlist's way into mainnet)
+
+**Add-me link**:
+A Player's own shareable link that makes whoever opens it and accepts their Friend, with no further step from the owner. The owner can reset it, which ends the old link. Lower case mid-sentence ("your add-me link").
+_Avoid_: Friend link (reads as a friend's link), invite link, referral link
+
 ### Play
 
 **Game**:
-A title in Tesoro's catalogue, made by a Studio. The catalogue is four Games: Buckshot Hold'em (heads-up poker, real-time), a block-placement puzzle (async), Trading Duel (real-time, two Players pick boxes on a price grid and score when the live price line passes through them, over two and a half minutes) and Vanguard (real-time blitz Stratego: hidden ranks, 5 seconds a move, capture the enemy Supply Truck).
+A title in Tesoro's catalogue, made by a Studio. The catalogue is four Games: Buckshot Hold'em (heads-up poker, real-time), a block-placement puzzle (async), Trading Duel (real-time, two Players pick boxes on a price grid and score when the live price line passes through them, over two and a half minutes) and Vanguard (real-time blitz Stratego: hidden ranks, 10 seconds a move, every rank has a power, capture the enemy Supply Truck).
 _Avoid_: app, title, Match (a single contest)
 
 **Seed**:
 The shared generated setup both Players of an async Match play against, so their scores are directly comparable. A score counts only as the server's replay of the Player's inputs against the Seed.
 _Avoid_: level, round, puzzle
-In UI copy the Seed is never named: Players see "the same pieces" (Block Puzzle).
+In UI copy the Seed is never named: Players see "the same pieces" (Block Burst).
 
 **Match**:
 A head-to-head contest between two players with equal Gema entries (100, 500 or 1,000 on mainnet; 500, 1,000 or 2,500 in test mode), settled once: the winner takes the Pot minus Fees; a draw or an abandoned Match refunds both entries; a no-show (both Players checked in, then neither acted) settles as a draw minus each side's Platform Fee. No Match can start settling more than 7 days after it opened: after that, only a refund is possible, in any Game.
@@ -93,7 +115,7 @@ The Gemas entered into one Match, held in escrow until settlement. The winner re
 _Avoid_: prize pool, jackpot (the Leaderboard Pool is a different thing)
 
 **Queue**:
-The waiting line for one game at one entry size, where Players are paired with the next entrant. In the async game a Player may play before an opponent is paired, so an unpaired Block Puzzle entry waits 24 hours for an opponent before it can be refunded; a live-game entry (Hold'em, Trading Duel, Vanguard) waits 1 hour.
+The waiting line for one game at one entry size, where Players are paired with the next entrant. In the async game a Player may play before an opponent is paired, so an unpaired Block Burst entry waits 24 hours for an opponent before it can be refunded; a live-game entry (Hold'em, Trading Duel, Vanguard) waits 1 hour.
 _Avoid_: lobby, matchmaking pool
 
 **Challenge**:
@@ -101,7 +123,7 @@ A Match opened by one Player for a specific opponent through a link, outside the
 _Avoid_: invite, private table, duel
 
 **Table**:
-A seat for a Match that Hold'em, Trading Duel and Vanguard keep ready on MagicBlock between Matches. A Match is bound to exactly one Table, which shows nothing from the Match before. Players never set a Table up or pay for one; Tesoro does, once per Table, and each Game has a capped number of them. Block Puzzle has no Tables yet.
+A seat for a Match that Hold'em, Trading Duel and Vanguard keep ready on MagicBlock between Matches. A Match is bound to exactly one Table, which shows nothing from the Match before. Players never set a Table up or pay for one; Tesoro does, once per Table, and each Game has a capped number of them. Block Burst has no Tables yet.
 _Avoid_: room, lobby, server
 
 **Chips**:
@@ -143,6 +165,56 @@ _Avoid_: developer, partner, publisher
 **Listing** (a **Listed Game** is one whose listing is in force):
 Tesoro's acceptance of a Game: free to apply, $500 a year once accepted, tied to the exact build Tesoro approved. Only a Listed Game earns Points, gets sponsored SOL costs, has its Studio Fee repaid ahead of other holders (second in the **Payout order**) and can be Backed. Unlisted Games still work, but do none of those. An upgrade of the Game to different code ends its listing until Tesoro approves the new build; a Match opened before the upgrade can then only be refunded.
 _Avoid_: whitelist, verification, certification
+
+### Vanguard
+
+**Supply Truck**:
+Each Army's objective piece in Vanguard. Capturing the enemy Supply Truck wins the Match. It moves one square, three times in all, never in two of its own turns in a row, and is shown to the enemy after its third drive. Rescue can send it across the board.
+_Avoid_: flag, king
+
+**Landmine**:
+A Vanguard piece that never moves and beats every attacker, whatever its rank, and stays. Nothing clears it: the Engineer used to (before rules version 6) and no longer does. A Major that digs in becomes one.
+_Avoid_: bomb, mine (in UI copy), defuse
+
+**Depot**:
+The square in each Army's base that the enemy raids. A one-square step onto it claims it once per Match and banks a Two-Step Turn. Jumps, wadi crossings, Recon runs, Rescues and the Dust Storm never claim one.
+_Avoid_: base, flag square
+
+**Two-Step Turn**:
+A turn of two steps instead of one, banked by raiding the enemy Depot and spent before moving. Each step is one square for every piece; no Jump, wadi crossing, run or power except Become a Spy.
+_Avoid_: double move, extra turn
+
+**Dust Storm**:
+Once per Match, on a turn between the 10th and the 18th, a random row or column with at least two pieces drifts one square. It is blind to rank and never claims a Depot.
+_Avoid_: sandstorm, shuffle
+
+**Power**:
+What a Vanguard rank can do beyond moving one square and attacking. Every rank has one: Spy beats the 10, whichever of the two attacks; Recon runs any distance in a line; Engineer Blasts; Sergeant slides on diagonals; Lieutenant Jumps; Captain steps in 8 directions; Major Digs in; Colonel Rescues; General crosses a wadi; General of the Army Becomes a Spy.
+_Avoid_: ability, skill, special
+
+**Blast**:
+The Engineer's power. It blows itself up (it leaves the board and is shown) and every piece on the squares around it, the enemy's and its own, turns face up for good. Nothing else is hurt. Uses the turn.
+_Avoid_: explosion, defuse
+
+**Jump**:
+The Lieutenant's power. Besides its step, it may jump one neighbouring piece, either Army's, straight up, down, left or right onto the empty or enemy-held square right behind it. It can't jump a wadi. (The General's wadi crossing is a different power: it crosses a wadi, not a piece.)
+_Avoid_: leap, hop
+
+**Dig in**:
+The Major's power. It turns the Major into a Landmine for good; it never moves again. Sealed: the opponent can't tell which piece dug in, and a face-down Dig in is a Pass in public. Counts as a missed turn.
+_Avoid_: fortify, bury
+
+**Rescue**:
+The Colonel's power. The Colonel blows itself up (it leaves the board and is shown) and its Army's Supply Truck jumps from anywhere onto its square. Everyone sees where the Truck went. Costs no fuel and uses the turn.
+_Avoid_: teleport, recall
+
+**Become a Spy**:
+The General of the Army's power. It turns into a Spy for good, so it can beat the enemy 10 without trading pieces. Free: it doesn't use the turn, and the Player makes their action in the same turn. Sealed, like Dig in; a switch never has an event of its own unless the piece was already face up.
+_Avoid_: disguise, downgrade
+
+**Pass**:
+Giving up a Vanguard turn on purpose. A Pass counts as a missed turn: three in a row, Passes and timeouts mixed, lose the Match. It is not a move toward the 200-move cap and is refused inside a Two-Step Turn.
+_Avoid_: skip, forfeit
 
 ### Backing
 

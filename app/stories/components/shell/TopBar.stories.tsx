@@ -25,7 +25,7 @@ export const PhoneBigFigures: Story = {
 export const SignedOut: Story = { parameters: { auth: "signed-out" } };
 export const SigningIn: Story = { parameters: { auth: "loading" } };
 export const BalanceLoading: Story = { parameters: { data: { snapshot: null } } };
-export const OffTheLobby: Story = { parameters: { nextjs: { navigation: { pathname: "/wallet" } } } };
+export const OffTheLobby: Story = { parameters: { nextjs: { navigation: { pathname: "/vault" } } } };
 /** 23rd: the plate counts the points to the prizes. */
 export const ChasingThePrizes: Story = { parameters: { screen: { leaderboard: "deep" } } };
 /** No wins this Season yet. */

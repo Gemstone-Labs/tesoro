@@ -12,7 +12,7 @@ function paint(seed: number): string[] {
   });
 }
 
-/** Deterministic Block Puzzle art. Game art is the colourful part of the product. */
+/** Deterministic Block Burst art. Game art is the colourful part of the product. */
 export function BlockBoard({ seed = 11 }: { seed?: number }) {
   return (
     <div className="art" aria-hidden="true">

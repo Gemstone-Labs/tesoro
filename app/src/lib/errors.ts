@@ -32,7 +32,7 @@ export function plainError(e: unknown): string {
   return first.length > 200 ? `${first.slice(0, 200)}…` : first;
 }
 
-export const ADVANCE_REPAID = "Your Advance was repaid before this went through. Close this and use Take another Advance instead.";
+export const ADVANCE_REPAID = "Your Advance was repaid before this went through. Close this and use Extend deposit instead.";
 
 /** An Extend that lost the race with the clock: the Advance is repaid or closed by now. Anything else passes through. */
 export function extendFailure(e: unknown): unknown {

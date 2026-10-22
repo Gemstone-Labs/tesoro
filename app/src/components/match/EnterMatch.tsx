@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { GetGemasButton } from "@/components/deposit/GetGemasButton";
 import { useRouter } from "next/navigation";
 import { Busy, Button, GemaAmount } from "@/components/ui";
-import { PlayerAvatar } from "@/components/account/Player";
+import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
+import { FriendPicker } from "@/components/friends/FriendPicker";
+import { useFriends } from "@/lib/friends/FriendsProvider";
+import { FriendsError } from "@/lib/friends/client";
 import { useQueue } from "@/components/lobby/useQueue";
 import { useAccount } from "@/lib/account";
 import { estimatedWin } from "@/lib/chain/ledger";
@@ -11,6 +15,7 @@ import { entryError } from "@/lib/chain/entry-errors";
 import type { StagedEntry } from "@/lib/chain/ticket";
 import { chainShortfall, checkGemas } from "@/lib/chain/fresh-gemas";
 import { BackingError, createChallengeBacked, enterQueueBacked, joinChallengeBacked } from "@/lib/chain/backing";
+import { seatsAt } from "@/lib/chain/lobby-plays";
 import { ChallengeError, EntryError, QueueUnconfirmedError, createChallenge, enterQueue, joinChallenge, type Entered } from "@/lib/chain/match-flow";
 import { DemoError } from "@/lib/chain/demo-client";
 import { ageCall } from "@/lib/chain/age-client";
@@ -33,7 +38,7 @@ export type EnterKind =
   | { kind: "challenge-new"; entry: number; game?: GameId; asset?: 0 | 1 | 2; backing?: string; /** A Rematch: the opponent of the Match being replayed. */ opponent?: string }
   | { kind: "challenge-join"; id: string; backing?: string };
 
-/** What the Queue says once a seat is open: Block Puzzle is played while it waits, the others start when someone joins. */
+/** What the Queue says once a seat is open: Block Burst is played while it waits, the others start when someone joins. */
 const OPENED_LINE: Record<GameId, string> = {
   "block-puzzle": "Match opened. You'll be paired while you play.",
   holdem: "Entered the Queue.",
@@ -42,15 +47,16 @@ const OPENED_LINE: Record<GameId, string> = {
 };
 
 function explain(e: unknown): { text: string; short?: boolean } {
-  if (e instanceof EntryError) return { text: "You need more free Gemas to join this Challenge. Get Gemas in your Wallet (free test SOL works).", short: true };
+  if (e instanceof EntryError) return { text: "You need more free Gemas to join this Challenge. Get Gemas in your Vault (free test SOL works).", short: true };
   if (e instanceof ChallengeError || e instanceof BackingError || e instanceof QueueUnconfirmedError) return { text: e.message };
   if (e instanceof DemoError) return { text: e.message };
   return { text: entryError(e) };
 }
 
 /**
- * Sign-in gate -> Queue / Challenge -> the Match. Opening this page is the confirmation
- * (the Lobby's Enter button, or a Challenge link); it runs once per visit.
+ * Sign-in gate -> Queue / Challenge -> the Match. For the Queue and a Challenge link, opening this page
+ * is the confirmation; a new Challenge waits for Open Challenge, so a Friend can be picked first.
+ * It runs once per visit.
  */
 export function EnterMatch(props: EnterKind) {
   const { auth, snapshot, onChain, loading, gemas, refresh } = useAccount();
@@ -62,6 +68,29 @@ export function EnterMatch(props: EnterKind) {
   const [launched, setLaunched] = useState(false);
   const [staged, setStaged] = useState<StagedEntry | null>(null);
   const [existing, setExisting] = useState<string | null>(null);
+  const friends = useFriends();
+  const [picked, setPicked] = useState<string | null>(props.kind === "challenge-new" ? (props.opponent ?? null) : null);
+  const [picking, setPicking] = useState(false);
+  const [confirmed, setConfirmed] = useState(props.kind !== "challenge-new");
+  const pickedName = usePlayerLabel(picked);
+  const pickedFriend = picked !== null && friends.relation(picked) === "friend";
+  /**
+   * Shows the new Challenge to the picked Player if they are a Friend (the server checks; their Friends page, an
+   * email if they opted in). The server reads the new Match from its own RPC, which can lag a moment behind:
+   * it retries a few times. The link works either way.
+   */
+  const tellFriend = async (id: bigint) => {
+    if (!picked) return;
+    for (let i = 0; i < 4; i++) {
+      try {
+        await friends.act("challenge", { matchId: id.toString(), to: picked });
+        return;
+      } catch (e) {
+        if (!(e instanceof FriendsError && e.code === "not-your-challenge")) return;
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+    }
+  };
   const [freshRead, setFreshRead] = useState<"ok" | "failed" | null>(null);
   const [ageServer, setAgeServer] = useState<boolean | null>(null);
   const [ageChecked, setAgeChecked] = useState(false);
@@ -132,7 +161,7 @@ export function EnterMatch(props: EnterKind) {
 
   useEffect(() => {
     // A failed attempt is retried by reloading the page, never by this effect re-running.
-    if (!signer || started.current || attempted.current || loading || needsGemas || rechecking || gate !== "go") return;
+    if (!signer || !confirmed || started.current || attempted.current || loading || needsGemas || rechecking || gate !== "go") return;
     started.current = true;
     attempted.current = true;
     setLaunched(true);
@@ -152,6 +181,7 @@ export function EnterMatch(props: EnterKind) {
         } else if (props.kind === "challenge-new" && props.backing) {
           setStatus("Using your Backing to open your Challenge…");
           const r = await createChallengeBacked(signer, props.backing, game, props.entry, auth.getAccessToken, asset);
+          await tellFriend(r.id);
           router.replace(`/play/match/${r.id}`);
         } else if (props.kind === "challenge-join" && props.backing) {
           setStatus("Joining the Challenge with your Backing…");
@@ -162,6 +192,7 @@ export function EnterMatch(props: EnterKind) {
           entered(r, OPENED_LINE[game]);
         } else if (props.kind === "challenge-new") {
           const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game, asset, setStatus, undefined, onStaged);
+          await tellFriend(id);
           router.replace(`/play/match/${id}`);
         } else {
           setStatus("Joining the Challenge…");
@@ -175,29 +206,34 @@ export function EnterMatch(props: EnterKind) {
     })();
     // The mode and entry are fixed for this page instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signer, key, loading, needsGemas, rechecking, gate]);
+  }, [signer, key, loading, needsGemas, rechecking, gate, confirmed]);
 
   const assetName = game === "trading-duel" ? (["SOL", "ETH", "HYPE"][asset] ?? "SOL") : "";
   const title = props.kind === "queue" ? "Play now" : props.kind === "challenge-new" ? "New Challenge" : "Challenge";
   const me = snapshot?.accountKey.toBase58() ?? null;
-  // Players already waiting at this entry: the opponent seat cycles through them while the Queue runs.
-  const waiting =
-    props.kind === "queue" && seats
-      ? [...new Set(seats[game].filter((w) => w.entry === props.entry && w.player !== me && (game !== "trading-duel" || w.asset === asset)).map((w) => w.player))]
-      : [];
+  // Players waiting at this entry you can be paired with (the opponent seat cycles through them while the Queue runs).
+  // A Player you back never is: tesoro_core refuses that join.
+  const here = props.kind === "queue" && seats ? seatsAt(seats[game].filter((w) => game !== "trading-duel" || w.asset === asset), props.entry, me ?? undefined) : { open: [], backed: 0 };
+  const waiting = here.open;
   const found = status === "Opponent found.";
   const busy = !signedOut && existing === null && !needsGemas && !failure && gate !== "ask";
-  const seat = found ? "Opponent" : props.kind === "challenge-new" ? (props.opponent ? "Rematch" : "Your friend") : props.kind === "challenge-join" ? "Opponent" : waiting.length ? `${waiting.length} waiting` : "Open seat";
+  const seat = found ? "Opponent" : props.kind === "challenge-new" ? (picked ? pickedName : "Your friend") : props.kind === "challenge-join" ? "Opponent" : waiting.length ? `${waiting.length} waiting` : "Open seat";
   const waitLine =
     props.kind === "challenge-new"
-      ? props.opponent ? "Same opponent, same Game, same entry. Send them your link once the Match opens: they can accept or ignore it." : "Your link is ready once the Match opens."
+      ? pickedFriend
+        ? `${pickedName} sees it on their Friends page. You also get a link to send.`
+        : picked
+          ? "Send them your link once the Match opens: they can accept or ignore it."
+          : "Your link is ready once the Match opens."
       : props.kind === "challenge-join"
         ? "Joining your friend's Match."
         : waiting.length
           ? `${waiting.length} waiting at this entry: you take the oldest seat.`
-          : game === "block-puzzle"
-            ? "No one waiting yet: you play now and are paired when someone joins."
-            : `No one waiting yet: you sit first and the Match starts when someone joins${assetName ? ` (trading ${assetName})` : ""}.`;
+          : here.backed
+            ? `${here.backed === 1 ? "The Player waiting at this entry is one you back" : "The Players waiting at this entry are ones you back"}, and you can't play someone you back. ${game === "block-puzzle" ? "You play now and are paired with someone else." : "You sit first and the Match starts when someone else joins."}`
+            : game === "block-puzzle"
+              ? "No one waiting yet: you play now and are paired when someone joins."
+              : `No one waiting yet: you sit first and the Match starts when someone joins${assetName ? ` (trading ${assetName})` : ""}.`;
   // The program's draw for this entry, from the Account already read (own Gemas first, the fastest first). A backed entry draws the Backer's Gemas, not shown here.
   const preview = useMemo(() => {
     if (!snapshot?.exists || props.kind === "challenge-join" || props.backing) return null;
@@ -236,11 +272,16 @@ export function EnterMatch(props: EnterKind) {
             <span className="enter-vs">VS</span>
           )}
         </div>
-        <figure className={`enter-seat${busy && !found ? " seeking" : ""}`}>
+        <figure className={`enter-seat${busy && confirmed && !found ? " seeking" : ""}`}>
           <span className="cut enter-av">
-            {props.kind === "challenge-new" && props.opponent ? <PlayerAvatar account={props.opponent} size={112} /> : <SeekingFace keys={found ? [] : waiting} />}
+            {props.kind === "challenge-new" && picked ? <PlayerAvatar account={picked} size={112} /> : <SeekingFace keys={found ? [] : waiting} />}
           </span>
           <figcaption>{seat}</figcaption>
+          {props.kind === "challenge-new" && !confirmed && !signedOut && (
+            <Button size="sm" onClick={() => setPicking(true)}>
+              {picked ? "Change" : "Select friend"}
+            </Button>
+          )}
         </figure>
       </div>
       <div className="enter-foot">
@@ -264,7 +305,7 @@ export function EnterMatch(props: EnterKind) {
           <>
             <p className="status err" role="status">You need {fmtGemas(entryGemas)} Gemas to enter. You have {fmtGemas(gemas.available)}.</p>
             <div className="hstack wrap">
-              <Button variant="money" href={`/wallet?open=1&need=${entryGemas}&game=${game}`}>Get Gemas</Button>
+              <GetGemasButton intent={{ game, need: entryGemas }} />
               <Button href={practiceHref(game, props.asset)}>Practice free</Button>
               <Button href="/lobby">Lobby</Button>
             </div>
@@ -273,9 +314,16 @@ export function EnterMatch(props: EnterKind) {
           <>
             <p className="status err" role="alert">{landing ? "Your new Gemas are still landing. Try again in a few seconds." : failure.text}</p>
             <div className="hstack wrap">
-              {failure.short && !landing ? <Button variant="money" href={`/wallet?open=1&game=${game}`}>Get Gemas</Button> : <Button onClick={() => window.location.reload()}>Retry</Button>}
+              {failure.short && !landing ? <GetGemasButton intent={{ game }} /> : <Button onClick={() => window.location.reload()}>Retry</Button>}
               <Button href="/lobby">Lobby</Button>
             </div>
+          </>
+        ) : !confirmed ? (
+          <>
+            <Button variant="money" block onClick={() => setConfirmed(true)}>
+              {picked ? `Open Challenge for ${pickedName}` : "Open Challenge"}
+            </Button>
+            <p className="meta">{waitLine}</p>
           </>
         ) : (
           <>
@@ -287,6 +335,18 @@ export function EnterMatch(props: EnterKind) {
         )}
         {onChain && snapshot && !snapshot.exists && <p className="note">First time: we create your {BRAND.name} Account as part of this step.</p>}
       </div>
+      {props.kind === "challenge-new" && (
+        <FriendPicker
+          open={picking}
+          picked={picked}
+          onClose={() => setPicking(false)}
+          onPick={(p) => setPicked(p)}
+          onOpen={() => {
+            setPicking(false);
+            setConfirmed(true);
+          }}
+        />
+      )}
     </section>
   );
 }

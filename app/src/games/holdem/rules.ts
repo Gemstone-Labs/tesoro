@@ -25,6 +25,26 @@ export function legalMoves(t: Pick<Table, "bets" | "stacks" | "lastRaise">, seat
   return { toCall, canRaise, minTo: min > maxTo ? maxTo : min, maxTo, isBet: current === 0n };
 }
 
+/** The only raise sizes the app offers: chips added on top of the current bet. All-in is offered beside them. */
+export const RAISE_BY = [200n, 400n, 600n, 800n];
+
+export interface RaisePreset {
+  by: bigint;
+  /** The raise-to sent on chain: current bet plus `by`. */
+  to: bigint;
+  /** Legal now: at least a full raise (or exactly all-in) and within the stack. */
+  ok: boolean;
+}
+
+export function raisePresets(t: Pick<Table, "bets" | "stacks" | "lastRaise">, seat: number): RaisePreset[] {
+  const lg = legalMoves(t, seat);
+  const current = t.bets[0] > t.bets[1] ? t.bets[0] : t.bets[1];
+  return RAISE_BY.map((by) => {
+    const to = current + by;
+    return { by, to, ok: lg.canRaise && to >= lg.minTo && to <= lg.maxTo };
+  });
+}
+
 /** A hand is being played: dealt, betting not over, Match live. */
 export const inPlay = (t: Pick<Table, "status" | "phase">) =>
   t.status === STATUS.live && t.phase >= PHASE.preflop && t.phase <= PHASE.river;

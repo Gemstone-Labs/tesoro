@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAP_MS, CHAIN_CLOCK, OPENING_GRACE_MS, PRACTICE_CLOCK, DEPOTS, ROSTER, START_SQUARES, fight, startGame, startIndex, isWadi, move, newGame, placeArmy, seeded, REFUSALS, startTwoStep, storm, targets, timeout, TURN_MS, type Game, type Piece, type Rank } from "./rules";
+import { CAP_MS, CHAIN_CLOCK, RULES_VERSION, OPENING_GRACE_MS, PRACTICE_CLOCK, DEPOTS, ROSTER, START_SQUARES, fight, startGame, startIndex, isWadi, move, newGame, placeArmy, seeded, REFUSALS, startTwoStep, storm, targets, timeout, TURN_MS, type Game, type Piece, type Rank } from "./rules";
 
 const T0 = 1_000_000;
 
@@ -28,6 +28,8 @@ function game(pieces: Piece[], over: Partial<Game> = {}): Game {
     eventSeq: 0,
     winner: null,
     reason: null,
+    version: RULES_VERSION,
+    changed: {},
     ...over,
   };
 }
@@ -71,17 +73,25 @@ describe("combat", () => {
     expect(fight("4", "5")).toBe("lose");
     expect(fight("6", "6")).toBe("tie");
     expect(fight("1", "10")).toBe("win");
-    expect(fight("10", "1")).toBe("win");
-    expect(fight("3", "B")).toBe("defuse");
+    expect(fight("10", "1")).toBe("lose"); // v6: the Spy beats the 10 both ways (founder 2026-10-22)
+    expect(fight("10", "1", 5)).toBe("win");
+    expect(fight("3", "B")).toBe("mine"); // v6: the Engineer no longer defuses (see powers.test.ts for v5)
     expect(fight("10", "B")).toBe("mine");
     expect(fight("2", "F")).toBe("truck");
   });
   it("a lost attack flashes only the attacker; the winning defender stays hidden", () => {
-    const g = game([P(1, "us", "4", 6, 0), P(2, "it", "7", 5, 0)]);
+    const g = game([P(1, "us", "3", 6, 0), P(2, "it", "7", 5, 0)]);
     const { game: g2, events } = go(g, 1, 5, 0);
     const a = events.find((e) => e.kind === "attack");
     expect(a).toMatchObject({ outcome: "lose", flash: [1] });
     expect(g2.pieces.map((p) => p.id)).toEqual([2]);
+  });
+  it("a 10 that attacks a Spy dies, and the Spy stays where it is", () => {
+    const g = game([P(1, "us", "10", 6, 0), P(2, "it", "1", 5, 0), P(3, "us", "5", 9, 9), P(4, "it", "5", 0, 9)]);
+    const { game: g2, events } = go(g, 1, 5, 0);
+    expect(events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "lose", flash: [1] });
+    expect(g2.pieces.find((p) => p.id === 2)).toMatchObject({ r: 5, c: 0, known: false });
+    expect(g2.pieces.some((p) => p.id === 1)).toBe(false);
   });
   it("a win flashes the beaten piece and moves in", () => {
     const g = game([P(1, "us", "8", 6, 0), P(2, "it", "7", 5, 0), P(3, "it", "5", 0, 9)]);
@@ -92,7 +102,8 @@ describe("combat", () => {
   it("a landmine that goes off survives and is revealed for good", () => {
     const g = game([P(1, "us", "9", 6, 0), P(2, "it", "B", 5, 0), P(4, "us", "5", 9, 9), P(3, "it", "5", 0, 9)]);
     const { game: g2, events } = go(g, 1, 5, 0);
-    expect(events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "mine", flash: [2] });
+    // the attacker it killed is shown too, like any piece that dies attacking (founder 2026-10-22)
+    expect(events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "mine", flash: [1, 2] });
     expect(g2.pieces.map((p) => p.id).sort()).toEqual([2, 3, 4]);
     expect(g2.pieces.find((p) => p.id === 2)!.known).toBe(true);
   });
@@ -177,7 +188,7 @@ describe("depots", () => {
 
 describe("clock and storm", () => {
   it("three timeouts in a row lose the Match", () => {
-    let g = game([P(1, "us", "5", 9, 0), P(2, "it", "4", 0, 9)]);
+    let g = game([P(1, "us", "5", 9, 0), P(2, "it", "3", 0, 9)]);
     const expire = (x: Game) => {
       const r = timeout(x, x.deadline + 1);
       if (!r.ok) throw new Error(r.reason);
@@ -239,22 +250,22 @@ describe("piece numbers", () => {
 
 describe("turn clock", () => {
   it("the chain clock adds one second of grace to every deadline and ten to the opening turn, Practice adds none", () => {
-    expect(PRACTICE_CLOCK).toEqual({ turnMs: 5000, graceMs: 0, openingGraceMs: 0, resolveSlackMs: 0 });
-    expect(CHAIN_CLOCK).toEqual({ turnMs: 5000, graceMs: 1000, openingGraceMs: OPENING_GRACE_MS, resolveSlackMs: 2000 });
+    expect(PRACTICE_CLOCK).toEqual({ turnMs: 10_000, graceMs: 0, openingGraceMs: 0, resolveSlackMs: 0 });
+    expect(CHAIN_CLOCK).toEqual({ turnMs: 10_000, graceMs: 1000, openingGraceMs: OPENING_GRACE_MS, resolveSlackMs: 2000 });
     expect(OPENING_GRACE_MS).toBe(10_000);
     const layout = [{ army: "us" as const, rank: "5" as const, r: 9, c: 0 }, { army: "it" as const, rank: "4" as const, r: 0, c: 9 }];
     const g = startGame(layout, { startedAt: T0, stormAt: 99, stormSeed: 1, first: "us", clock: CHAIN_CLOCK });
-    expect(g.deadline).toBe(T0 + 16000);
-    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 16000 }).ok).toBe(true);
-    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 16001 })).toEqual({ ok: false, reason: "turn_expired" });
+    expect(g.deadline).toBe(T0 + 21000);
+    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 21000 }).ok).toBe(true);
+    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 21001 })).toEqual({ ok: false, reason: "turn_expired" });
     const m = move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 2000 });
     if (!m.ok) throw new Error(m.reason);
-    expect(m.game.deadline).toBe(T0 + 8000);
-    expect(timeout(g, T0 + 16000)).toEqual({ ok: false, reason: "turn_not_expired" });
-    const t = timeout(g, T0 + 17000);
+    expect(m.game.deadline).toBe(T0 + 13000);
+    expect(timeout(g, T0 + 21000)).toEqual({ ok: false, reason: "turn_not_expired" });
+    const t = timeout(g, T0 + 22000);
     if (!t.ok) throw new Error(t.reason);
-    expect(t.game.deadline).toBe(T0 + 23000);
-    expect(startGame(layout, { startedAt: T0, stormAt: 99, stormSeed: 1, first: "us" }).deadline).toBe(T0 + 5000);
+    expect(t.game.deadline).toBe(T0 + 33000);
+    expect(startGame(layout, { startedAt: T0, stormAt: 99, stormSeed: 1, first: "us" }).deadline).toBe(T0 + 10_000);
   });
   it("on the chain the next deadline counts from the resolve, but a held-back resolve gains at most the slack", () => {
     const g = game([P(1, "us", "5", 9, 0), P(2, "it", "4", 0, 9)], { clock: { ...PRACTICE_CLOCK, resolveSlackMs: 2000 } });

@@ -1,4 +1,4 @@
-# Block Puzzle (on-chain Game)
+# Block Burst (on-chain Game)
 
 Async head-to-head puzzle Match. Program `block_puzzle` `5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj`, settling through `tesoro_core` `AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh`. Rules and engine: `programs/block_puzzle/src/engine.rs` (Rust) with the bit-exact port `app/src/games/block-puzzle/engine.ts`. Client: `app/src/games/block-puzzle/chain.ts`.
 
@@ -131,5 +131,5 @@ Two real browser sessions at 390 px (dev-only local wallets `dev-asyncA` "Alice"
 
 - A keeper that calls `seal`/`commit_boards`/`settle`/`claim_timeout` after deadlines (the client does it opportunistically).
 - The 24 h Queue window (see Queue window).
-- Consolidating the Hold'em/other Game screens with the "Play now" wording; only Block Puzzle copy was changed here.
+- Consolidating the Hold'em/other Game screens with the "Play now" wording; only Block Burst copy was changed here.
 - Payout accounts require the recipients' Holdings of each Source to exist; `chain.ts` opens missing ones.

@@ -80,7 +80,7 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
   const ctx = useEthCtx()!;
   const { stage, note, error, scan, state, finished } = useOpTracker(op, ctx, address, refresh);
   const elapsed = useElapsed(op.createdAt, !finished);
-  useGuideTip({ id: "xc-open", pose: "herWaitingCrosschain", title: "Crossing chains", text: "Crossing chains usually takes 2–5 minutes. You can leave this page. Taking your Advance is the last step and needs your signature: it continues when you come back to your Wallet." }, !finished);
+  useGuideTip({ id: "xc-open", pose: "herWaitingCrosschain", title: "Crossing chains", text: "Crossing chains usually takes 2–5 minutes. You can leave this page. Taking your Advance is the last step and needs your signature: it continues when you come back to your Vault." }, !finished);
 
   const done = STEPS.map((_, i) => finished || stage >= NEEDS[i]);
   const active = done.findIndex((d) => !d);
@@ -145,7 +145,7 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
               <dd><a className="mono" href={lzScanUrl(op.hash)} target="_blank" rel="noreferrer">{shortHex(op.hash)} <ExternalLink aria-hidden="true" /></a></dd>
             </div>
           )}
-          {finished && <div><dt>Unlock Estimate</dt><dd>In your Wallet</dd></div>}
+          {finished && <div><dt>Unlock Estimate</dt><dd>In your Vault</dd></div>}
         </dl>
         <SimulatedYieldLabel />
         <div className="op-actions">

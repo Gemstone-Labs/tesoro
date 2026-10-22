@@ -42,7 +42,7 @@ export default function Page() {
         <li><b>Unlisted Games.</b> A Game {BRAND.name} has not listed, or whose code changed after listing, earns no Points, gets no sponsored costs and cannot be Backed. Its Studio can still hold a Match for at most 7 days before a refund is possible.</li>
         <li><b>Sponsored costs can pause.</b> {BRAND.name} pays network costs in Listed Games from a budget. If it is spent, new Matches pause until you pay your own costs or it is refilled; exits keep working.</li>
         <li><b>You can lose your entry.</b> Every Match is a contest of skill against another Player, and you can lose what you enter. A Backer can lose the whole entry they fund.</li>
-        <li><b>Skill is not luck-free.</b> Block Puzzle shares the same pieces between Players, but Hold&apos;em has chance in every hand.</li>
+        <li><b>Skill is not luck-free.</b> Block Burst shares the same pieces between Players, but Hold&apos;em has chance in every hand.</li>
       </ul>
 
       <H2 id="trust">Who you trust</H2>

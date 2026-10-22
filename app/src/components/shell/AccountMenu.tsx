@@ -10,7 +10,7 @@ import { setLimitsOpen } from "@/lib/identity/limits-sheet";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import { useChainData } from "@/lib/chain/ChainDataProvider";
 
-/** The Account avatar with its menu: Account details, the Account as others see it, Wallet, Sign out. */
+/** The Account avatar with its menu: Account details, the Account as others see it, Vault, Sign out. */
 export function AccountMenu() {
   const auth = useAuth();
   const [open, setOpen] = useState(false);
@@ -76,8 +76,8 @@ export function AccountMenu() {
               <ShieldCheck aria-hidden="true" /> Limits
             </button>
           )}
-          <Link href="/wallet" role="menuitem" onClick={() => setOpen(false)}>
-            <Wallet aria-hidden="true" /> Wallet
+          <Link href="/vault" role="menuitem" onClick={() => setOpen(false)}>
+            <Wallet aria-hidden="true" /> Vault
           </Link>
           <button type="button" role="menuitem" onClick={() => { setOpen(false); void auth.signOut(); }}>
             <LogOut aria-hidden="true" /> Sign out

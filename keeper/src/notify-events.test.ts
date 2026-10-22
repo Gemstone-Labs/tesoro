@@ -38,7 +38,7 @@ describe("Match refunded and Delayed", () => {
     assert.deepEqual(matchFacts({ ...vg, status: "refunded" }, NOW).map((x) => [x.kind, (x as any).game]), [["match-refunded", "vanguard"], ["match-refunded", "vanguard"]]);
   });
 
-  it("a Block Puzzle Match is Delayed after both Session deadlines plus the grace", () => {
+  it("a Block Burst Match is Delayed after both Session deadlines plus the grace", () => {
     const bp: MatchFacts = { ...base, game: "block-puzzle", deadline: NOW + 3000, session: { deadline: NOW + 100, openerDeadline: NOW + 50 } };
     assert.deepEqual(matchFacts(bp, NOW + 200), []);
     assert.equal(matchFacts(bp, NOW + 221)[0].kind, "match-delayed");
@@ -51,7 +51,7 @@ describe("Match refunded and Delayed", () => {
   });
 });
 
-describe("Block Puzzle opponent played", () => {
+describe("Block Burst opponent played", () => {
   const played = { delegated: true, sealed: false };
   const idle = { delegated: false, sealed: false };
   it("tells the opener once both Boards have played", () => {

@@ -59,7 +59,7 @@ export interface RecentWin {
   winner: string;
   /** Gemas the winning side received: the Pot minus Fees. */
   payout: number;
-  /** Block Puzzle only: [winner score, loser score]. */
+  /** Block Burst only: [winner score, loser score]. */
   scores: [number, number] | null;
   at: number;
 }

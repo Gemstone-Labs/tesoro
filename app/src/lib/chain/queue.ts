@@ -9,11 +9,27 @@ import type { ChainMatch } from "./read";
  * Only a definite failure moves on to the next Match; anything unclassified stops, so a Player is
  * never left in one Match while the app opens a second.
  */
+/** One side of a Match as tesoro_core compares them: TesoroAccount keys of who plays and who pays the entry. */
+export interface SideKeys {
+  player: string;
+  funder: string;
+}
+
+/**
+ * Whether `entrant` may take the open seat against `seat`. tesoro_core's `join` refuses it (SelfMatch) for the same
+ * Player, the same funder, or the opener's own Backer, so a Backer never plays the Player they fund.
+ */
+export function canJoinSeat(seat: SideKeys, entrant: SideKeys): boolean {
+  return entrant.player !== seat.player && entrant.funder !== seat.funder && entrant.player !== seat.funder;
+}
+
 export interface QueueDeps {
   game: GameId;
   entry: number;
   /** Trading Duel: the asset index (0 SOL, 1 ETH, 2 HYPE) this Queue is for. Other Games ignore it. */
   asset?: number;
+  /** Who enters and who pays: seats tesoro_core would refuse to this pair are skipped. */
+  entrant?: SideKeys;
   /** Open Queue Match keys at this entry, oldest first. A list read: it may lag the chain. */
   listCandidates(): Promise<string[]>;
   /** Fresh read of one Match as this Account sees it. */
@@ -75,7 +91,8 @@ function joinable(d: QueueDeps, m: ChainMatch, now: number): boolean {
     m.seat === null &&
     m.backerSeat === null &&
     m.deadline > now + MIN_LEFT_SECS &&
-    // Block Burst (Block Puzzle): only Matches opened with their Session (this version of the app) can be joined.
+    (!d.entrant || !m.sides[0] || canJoinSeat(m.sides[0], d.entrant)) &&
+    // Block Burst: only Matches opened with their Session (this version of the app) can be joined.
     (d.game !== "block-puzzle" || m.session !== null) &&
     // Trading Duel: the Queue is per asset, which the Match records (`meta.asset`).
     (d.game !== "trading-duel" || d.asset === undefined || m.asset === d.asset)

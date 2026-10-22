@@ -26,4 +26,7 @@ describe("TurnBox", () => {
     expect(html({ active: true })).not.toContain("Use Two-Step");
     expect(html({ label: "" })).not.toContain("Use Two-Step");
   });
+  it("has no Pass button (founder 2026-10-22): a turn is passed only by letting the clock run out", () => {
+    expect(html({})).not.toMatch(/>Pass</);
+  });
 });

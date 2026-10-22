@@ -1,4 +1,4 @@
-/* Block Puzzle: the board and pieces are the colourful game art; chrome around it stays neutral.
+/* Block Burst: the board and pieces are the colourful game art; chrome around it stays neutral.
    Emerald appears only on gem cells. */
 
 /* ——— Play screen: a slim bar (score, timer ring, run, stake) over a centred board ——— */
@@ -50,7 +50,6 @@
   .bp-overlay .bp-final { font-size: 48px; }
 }
 .bp-final { font-size: 64px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
-.bp-title { font-family: var(--f-display); text-transform: uppercase; font-weight: 800; line-height: 1; font-size: clamp(28px, 2.4vw, 42px); letter-spacing: 0.005em; }
 .bp-stage { position: relative; }
 .bp-actions { display: flex; gap: 8px; margin-top: 4px; }
 
@@ -178,12 +177,7 @@
 }
 
 /* ——— Run moments: start card, last 10 seconds, game over ——— */
-.bp-intro, .bp-over { justify-items: center; text-align: center; }
-.bp-rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; width: min(100%, 340px); }
-.bp-rules li { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 10px; padding: 8px 14px; background: var(--surface); text-align: left; font-size: var(--fs-14); color: var(--fg-2); }
-.bp-rules b { color: var(--fg); font-size: var(--fs-15); font-weight: 800; }
-.bp-rules li.gem b { color: var(--em-hi); }
-.bp-intro .meta b { color: var(--fg); }
+.bp-over { justify-items: center; text-align: center; }
 
 .bpx-ring.low { animation: bpx-pulse 1s ease-in-out infinite; }
 .bpx-ring.low span { color: var(--warn); }
