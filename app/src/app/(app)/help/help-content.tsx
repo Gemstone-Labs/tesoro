@@ -95,12 +95,12 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <>
             <p>
-              You and your opponent play the same pieces at the same time for 90 seconds; the higher score wins. Nobody can see the pieces before the
-              count reaches zero, and your score is checked by replaying your moves, so it can&apos;t be faked.
+              You and your opponent play the same pieces at the same time for 90 seconds; the higher score wins. Nobody can see the pieces before
+              the countdown ends, and your score is checked by replaying your moves, so it can&apos;t be faked.
             </p>
             <p>
-              You see your opponent&apos;s last score until the final 10 seconds, when both scores are hidden. Stay on the page once you are paired: a Player who
-              does not check in within a minute loses the Match. If nobody joins, you can cancel and get your entry back.
+              Stay on the page once you are paired: a Player who doesn&apos;t check in loses the Match. The full rules, including the 3 second
+              grace after time is up and what happens if the network stops, are in the <Link href="/docs/matches#block-puzzle">Docs</Link>.
             </p>
           </>
         ),
@@ -393,8 +393,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "My opponent never showed up",
         a: (
           <p>
-            A no-show refunds both entries. In Block Burst, a Player who does not check in within a minute loses the Match, so if your opponent
-            never shows up you win; if nobody checks in, both entries come back. In Hold&apos;em, claim the timeout when your opponent&apos;s clock runs out.
+            A no-show refunds both entries. In Block Burst, a paired Player who doesn&apos;t check in loses the Match, so you win. In Hold&apos;em, claim
+            the timeout when your opponent&apos;s clock runs out.
           </p>
         ),
       },

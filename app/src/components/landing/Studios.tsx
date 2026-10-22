@@ -81,7 +81,7 @@ export function Studios() {
                 </li>
               ))}
               <li className="lp-slot cut cut-card">
-                <a href={`${OUTBOUND.docs}/developers`}>
+                <a href={`${OUTBOUND.docs}/developers/list`}>
                   <Plus aria-hidden />
                   <span>Your game</span>
                   <small>Free to apply</small>
