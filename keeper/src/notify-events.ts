@@ -73,16 +73,16 @@ export interface OfferFacts {
   status: string;
   expiresAt: number;
   useBy: number;
-  /** Request address a directed Offer answers. */
-  directedTo: string | null;
+  /** The Request this Offer answers. */
+  request: string;
 }
 
 /** An open Offer made on a Request tells the Request's Player; an accepted Offer (still to be used) tells its Backer. */
 export function offerFacts(offers: OfferFacts[], requestPlayer: Map<string, string>, nowSecs: number): Fact[] {
   const out: Fact[] = [];
   for (const o of offers) {
-    if (o.status === "open" && nowSecs < o.expiresAt && o.directedTo) {
-      const player = requestPlayer.get(o.directedTo);
+    if (o.status === "open" && nowSecs < o.expiresAt) {
+      const player = requestPlayer.get(o.request);
       if (player) out.push({ account: player, kind: "offer-made", offerId: o.address, game: o.game, entry: o.entry });
     } else if (o.status === "accepted" && nowSecs < o.useBy) {
       out.push({ account: o.backer, kind: "offer-accepted", offerId: o.address, game: o.game, entry: o.entry });
@@ -236,15 +236,11 @@ async function matchesFacts(ctx: Ctx): Promise<Fact[]> {
 async function backingFacts(ctx: Ctx): Promise<Fact[]> {
   const [requests, offers]: any[][] = await Promise.all([ctx.core.account.requestState.all(), ctx.core.account.offerState.all()]);
   const requestPlayer = new Map<string, string>(requests.map((r) => [(r.publicKey as PublicKey).toBase58(), pk(r.account.inner.player).toBase58()]));
-  const directed = (k: any): string | null => {
-    const v = k.directed ?? null;
-    return v ? pk(Array.isArray(v) ? v[0] : (v[0] ?? v._0 ?? v)).toBase58() : null;
-  };
   const rows: OfferFacts[] = offers.flatMap(({ publicKey, account }) => {
     const o = account.inner;
     const game = gameOfKey(pk(o.game));
     return game
-      ? [{ address: (publicKey as PublicKey).toBase58(), backer: pk(o.backer).toBase58(), game, entry: Number(o.entry.toString()), status: status(o.status), expiresAt: Number(o.expiresAt.toString()), useBy: Number(o.useBy.toString()), directedTo: directed(o.kind) }]
+      ? [{ address: (publicKey as PublicKey).toBase58(), backer: pk(o.backer).toBase58(), game, entry: Number(o.entry.toString()), status: status(o.status), expiresAt: Number(o.expiresAt.toString()), useBy: Number(o.useBy.toString()), request: pk(o.request).toBase58() }]
       : [];
   });
   return offerFacts(rows, requestPlayer, ctx.now);

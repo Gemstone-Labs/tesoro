@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { X as XMark } from "lucide-react";
 import {
@@ -19,14 +19,11 @@ import {
   Slider,
   XIcon,
 } from "@/components/ui";
-import { AccountLink } from "@/components/account/AccountLink";
-import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/Player";
+import { PlayerName } from "@/components/account/Player";
 import { useGuideTip } from "@/components/guide/Guide";
 import { useAccount } from "@/lib/account";
 import {
-  acceptApplicant,
-  acceptDirected,
-  applyToOffer,
+  acceptOffer,
   cancelOffer,
   cancelRequest,
   expireOffer,
@@ -55,7 +52,7 @@ import { useAway } from "@/lib/chain/useAway";
 
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
-type Tab = "requests" | "public" | "mine";
+type Tab = "requests" | "mine";
 type Sort = "recent" | "entry" | "record";
 
 const winRate = (r: PlayerRecord) => (r.matches === 0 ? 0 : r.wins / r.matches);
@@ -94,7 +91,7 @@ export default function Backing() {
   const nowMs = useNow();
   const nowSecs = Math.floor(nowMs / 1000);
   const me = snapshot?.accountKey.toBase58() ?? null;
-  const [offerFor, setOfferFor] = useState<ChainRequest | "public" | null>(null);
+  const [offerFor, setOfferFor] = useState<ChainRequest | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ text: string; sig?: string } | null>(null);
@@ -108,10 +105,9 @@ export default function Backing() {
 
   const pending = (r: ChainRequest) => offers.some((o) => o.status === "accepted" && o.request === r.address.toBase58());
   const myRequests = requests.filter((r) => r.player === me && (r.live || (r.status === "accepted" && pending(r))));
-  const liveMine = myRequests.filter((r) => r.live);
   const backings = offers.filter((o) => o.status === "accepted" && o.player === me && nowSecs < o.useBy);
   const offersForMe = offers.filter(
-    (o) => o.status === "open" && nowSecs < o.expiresAt && o.directedTo && myRequests.some((r) => r.live && r.address.toBase58() === o.directedTo),
+    (o) => o.status === "open" && nowSecs < o.expiresAt && myRequests.some((r) => r.live && r.address.toBase58() === o.request),
   );
   const sorted = <T extends { entry: number; expiresAt: number }>(xs: T[], rec: (x: T) => PlayerRecord | null) =>
     [...xs].sort((a, b) =>
@@ -121,12 +117,8 @@ export default function Backing() {
     onePerPlayer(requests.filter((r) => r.player !== me)),
     (r) => r.record,
   );
-  const publicOffers = sorted(
-    offers.filter((o) => o.status === "open" && nowSecs < o.expiresAt && !o.directedTo && o.backer !== me),
-    () => null,
-  );
   const mine = offers.filter((o) => o.backer === me && ["open", "accepted", "consumed"].includes(o.status));
-  const offeredTo = new Set(mine.filter((o) => o.status === "open" && nowSecs < o.expiresAt && o.directedTo).map((o) => o.directedTo));
+  const offeredTo = new Set(mine.filter((o) => o.status === "open" && nowSecs < o.expiresAt).map((o) => o.request));
 
   const run = (key: string, label: string | (() => string), fn: () => Promise<string | undefined>) => {
     setBusy(key);
@@ -162,13 +154,6 @@ export default function Backing() {
     if (tab === "requests" && highlight) document.getElementById(`rq-${highlight}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [tab, highlight, requests.length]);
 
-  const apply = (offer: ChainOffer) =>
-    act("apply to an Offer", `apply-${offer.address.toBase58()}`, "Applied. The Backer chooses whom to back.", async (signer) => {
-      let request = liveRequestFor(await freshRequests(), me ?? "", offer.game, offer.entry, offer.applicants)?.address;
-      if (!request) request = (await postRequest(signer, offer.game, offer.entry, auth.getAccessToken)).address;
-      return applyToOffer(signer, request, offer.address);
-    });
-
   // `/backing#<request>` (the Lobby rail, a Player's Account) opens the Offer on that Request, once the
   // board is read and it is known whether the Request is the visitor's own.
   const hash = useSyncExternalStore(onHashChange, () => window.location.hash.slice(1), () => "");
@@ -182,10 +167,9 @@ export default function Backing() {
     if (linked.live && !linkedOffered) auth.gate("make an Offer", () => setOfferFor(linked));
   }, [linked, linkedOffered, auth]);
 
-  const selected = offerFor && offerFor !== "public" ? offerFor.address.toBase58() : null;
+  const selected = offerFor ? offerFor.address.toBase58() : null;
   const tabs: [Tab, string][] = [
     ["requests", "Requests"],
-    ["public", "Public Offers"],
     ["mine", "My Backings"],
   ];
 
@@ -201,7 +185,6 @@ export default function Backing() {
         ) : (
           <div className="bk-head-actions">
             <Button variant="money" onClick={() => auth.gate("post a Request", () => setPostOpen(true))}>Post a Request</Button>
-            <Button onClick={() => auth.gate("post an Offer", () => setOfferFor("public"))}>Post an Offer</Button>
           </div>
         )}
       </header>
@@ -272,7 +255,7 @@ export default function Backing() {
                   disabled={busy !== null}
                   onClick={() =>
                     act("accept an Offer", `acc-${o.address.toBase58()}`, "Offer accepted. You can enter the Match now.", (s) =>
-                      acceptDirected(s, new PublicKey(o.directedTo as string), o.address),
+                      acceptOffer(s, new PublicKey(o.request), o.address),
                     )
                   }
                 >
@@ -349,51 +332,11 @@ export default function Backing() {
             </section>
           )}
 
-          {tab === "public" && (
-            <section aria-label="Public Offers" className="bk-cards">
-              {board && publicOffers.length === 0 && (
-                <Empty title="No public Offers" body="No Backer has a public Offer open right now. Post a Request and Backers can answer it." />
-              )}
-              {publicOffers.map((o) => {
-                const applied = liveMine.some((r) => o.applicants.includes(r.address.toBase58()));
-                const key = `apply-${o.address.toBase58()}`;
-                return (
-                  <ArtCard
-                    key={o.address.toBase58()}
-                    seed={o.backer}
-                    game={o.game}
-                    line={`Player keeps ${o.shareBps / 100}% · ${timeLeft(o.expiresAt, nowMs)}`}
-                    label="Offered entry"
-                    entry={o.entry}
-                    action={
-                      applied ? (
-                        <Chip tone="strong" icon={<CheckIcon />}>Applied</Chip>
-                      ) : (
-                        <Button variant="money" disabled={busy !== null} onClick={() => apply(o)}>
-                          {busy === key ? "Applying…" : "Apply"}
-                        </Button>
-                      )
-                    }
-                  />
-                );
-              })}
-            </section>
-          )}
-
           {tab === "mine" && (
             <section aria-label="My Backings" className="stack">
-              <div className="section-head">
-                <Label>Offers you funded</Label>
-                {awayText ? (
-                  <span className="meta">{awayText}</span>
-                ) : (
-                  <Button size="sm" variant="money" onClick={() => auth.gate("post an Offer", () => setOfferFor("public"))}>
-                    New public Offer
-                  </Button>
-                )}
-              </div>
+              <Label>Offers you funded</Label>
               {board && mine.length === 0 && (
-                <Empty title="No Backings yet" body="Answer a Request with an Offer, or post a public Offer and choose whom to back." />
+                <Empty title="No Backings yet" body="Pick a Player under Requests and make an Offer. The Player accepts or declines." />
               )}
               <div className="bk-mine">
                 {mine.map((o) => (
@@ -403,9 +346,6 @@ export default function Backing() {
                     requests={requestByAddress}
                     nowMs={nowMs}
                     busy={busy}
-                    onAccept={(r) =>
-                      act("accept a Player", `pick-${r.address.toBase58()}`, "Player accepted. They can now enter the Match.", (s) => acceptApplicant(s, r.address, o.address))
-                    }
                     onCancel={() => act("cancel an Offer", `co-${o.address.toBase58()}`, "Offer cancelled. Your Gemas are released.", (s) => cancelOffer(s, o))}
                     onRelease={() => act("release Gemas", `ex-${o.address.toBase58()}`, "Expired. Your Gemas are released.", (s) => expireOffer(s, o))}
                   />
@@ -417,16 +357,16 @@ export default function Backing() {
 
         {offerFor && (
           <OfferDrawer
-            key={offerFor === "public" ? "public" : offerFor.address.toBase58()}
-            target={offerFor}
+            key={offerFor.address.toBase58()}
+            request={offerFor}
             available={onChain ? gemas.available : null}
             nowMs={nowMs}
             busy={busy !== null}
             onClose={() => setOfferFor(null)}
             onSend={(game, entry, share, request) => {
               setOfferFor(null);
-              act(request ? "make an Offer" : "post an Offer", "post-offer", request ? "Offer sent. The Player accepts or declines." : "Public Offer posted.", async (s) =>
-                (await postOffer(s, { game, entry, shareBps: share * 100, request: request?.address }, auth.getAccessToken)).sig,
+              act("make an Offer", "post-offer", "Offer sent. The Player accepts or declines.", async (s) =>
+                (await postOffer(s, { game, entry, shareBps: share * 100, request: request.address }, auth.getAccessToken)).sig,
               );
             }}
           />
@@ -488,58 +428,6 @@ function Empty({ title, body }: { title: string; body: string }) {
       <b>{title}</b>
       <p>{body}</p>
     </BustCard>
-  );
-}
-
-/** A Player or Backer card: avatar, handle, game, record line, a game art strip, the entry and one action. With `account`, the avatar and name lead to that Player's Account. */
-function ArtCard({
-  seed,
-  account,
-  game,
-  line,
-  label,
-  entry,
-  action,
-  selected = false,
-  id,
-}: {
-  seed: string;
-  account?: string;
-  game: GameId;
-  line: string;
-  label: string;
-  entry: number;
-  action: ReactNode;
-  selected?: boolean;
-  id?: string;
-}) {
-  const name = usePlayerLabel(seed);
-  return (
-    <article id={id} className={`cut cut-card bk-card${selected ? " selected" : ""}`} aria-label={`${name}, ${GAME_NAMES[game]}`}>
-      {account ? (
-        <AccountLink account={account} decorative className="cut cut-btn avatar bk-avatar">
-          <PlayerAvatar account={seed} size={78} />
-        </AccountLink>
-      ) : (
-        <span className="cut cut-btn avatar bk-avatar">
-          <PlayerAvatar account={seed} size={78} />
-        </span>
-      )}
-      <div className="bk-who">
-        <strong>{account ? <AccountLink account={account} /> : <PlayerName account={seed} />}</strong>
-        <span>{GAME_NAMES[game]}</span>
-        <span className="bk-rec">{line}</span>
-      </div>
-      <div className="bk-foot">
-        <div>
-          <span>{label}</span>
-          <b>
-            <GemaMark size={24} /> {fmtGemas(entry)} <small>Gemas</small>
-          </b>
-        </div>
-        {action}
-      </div>
-    </article>
   );
 }
 
@@ -612,7 +500,6 @@ function MyOffer({
   requests,
   nowMs,
   busy,
-  onAccept,
   onCancel,
   onRelease,
 }: {
@@ -620,15 +507,13 @@ function MyOffer({
   requests: Map<string, ChainRequest>;
   nowMs: number;
   busy: string | null;
-  onAccept: (r: ChainRequest) => void;
   onCancel: () => void;
   onRelease: () => void;
 }) {
   const nowSecs = nowMs / 1000;
   const reserved = offer.lines.reduce((s, l) => s + Number(l.amount), 0);
   const lapsed = (offer.status === "open" && nowSecs >= offer.expiresAt) || (offer.status === "accepted" && nowSecs >= offer.useBy);
-  const target = offer.directedTo ? requests.get(offer.directedTo) : null;
-  const playerKey = offer.player ?? target?.player ?? null;
+  const playerKey = offer.player ?? requests.get(offer.request)?.player ?? null;
   const key = offer.address.toBase58();
   const status =
     offer.status === "consumed"
@@ -637,43 +522,18 @@ function MyOffer({
         ? "Expired: release your reserved Gemas"
         : offer.status === "accepted"
           ? <>Accepted by <PlayerName account={offer.player ?? ""} /> · they have {timeLeft(offer.useBy, nowMs).replace(" left", "")} to start</>
-          : offer.directedTo
-            ? <>Waiting for {playerKey ? <PlayerName account={playerKey} /> : "the Player"} · {timeLeft(offer.expiresAt, nowMs)}</>
-            : `Public · ${offer.applicants.length} applicant${offer.applicants.length === 1 ? "" : "s"} · ${timeLeft(offer.expiresAt, nowMs)}`;
+          : <>Waiting for {playerKey ? <PlayerName account={playerKey} /> : "the Player"} · {timeLeft(offer.expiresAt, nowMs)}</>;
   return (
-    <Card as="article" aria-label={offer.directedTo ? "Your directed Offer" : "Your public Offer"}>
+    <Card as="article" aria-label="Your Offer">
       <div className="stack">
         <div className="spread">
           <span className="row-body">
-            <span className="row-title">{offer.directedTo ? "Offer" : "Public Offer"} · {fmtGemas(offer.entry)}</span>
+            <span className="row-title">Offer · {fmtGemas(offer.entry)}</span>
             <span className="row-meta">{GAME_NAMES[offer.game]} · Player keeps {offer.shareBps / 100}% of the surplus</span>
           </span>
           {offer.status === "consumed" ? <Chip tone="money">Used</Chip> : <Chip tone="strong">{fmtGemas(reserved)} reserved</Chip>}
         </div>
         <p className="note">{status}</p>
-        {offer.status === "open" && !lapsed && !offer.directedTo && offer.applicants.length > 0 && (
-          <div className="stack">
-            <Label>Applicants ({offer.applicants.length})</Label>
-            {offer.applicants.map((a) => {
-              const r = requests.get(a);
-              if (!r) return null;
-              return (
-                <div className="spread" key={a}>
-                  <span className="row-body">
-                    <span className="row-title">
-                      <AccountLink account={r.player} newTab />
-                    </span>
-                    <span className="row-meta">{recordText(r.record)}</span>
-                  </span>
-                  <Button size="sm" variant="money" disabled={busy !== null || !r.live} onClick={() => onAccept(r)}>
-                    {busy === `pick-${a}` ? "Accepting…" : "Accept"}
-                  </Button>
-                </div>
-              );
-            })}
-            <p className="note">You choose whom to back. Once the Match starts, a Backing cannot be revoked.</p>
-          </div>
-        )}
         <div className="hstack wrap">
           {offer.status === "consumed" && offer.matchId !== null && (
             <Button size="sm" href={`/play/match/${offer.matchId.toString()}`}>See the Match</Button>
@@ -696,27 +556,25 @@ function MyOffer({
 
 
 /**
- * MAKE AN OFFER: a modal over the page. For a Request, the Player's card (as on the board) beside the
- * terms; a public Offer picks its Game and entry instead. The Player keeps 10 to 90% of the surplus; the Offer lasts 24 hours.
+ * MAKE AN OFFER: a modal over the page, the Player's card (as on the board) beside the terms. The Offer
+ * takes the Request's Game and entry; the Player keeps 10 to 90% of the surplus; the Offer lasts 24 hours.
  */
 function OfferDrawer({
-  target,
+  request,
   available,
   nowMs,
   busy,
   onClose,
   onSend,
 }: {
-  target: ChainRequest | "public";
+  request: ChainRequest;
   available: number | null;
   nowMs: number;
   busy: boolean;
   onClose: () => void;
-  onSend: (game: GameId, entry: EntrySize, share: number, request: ChainRequest | null) => void;
+  onSend: (game: GameId, entry: number, share: number, request: ChainRequest) => void;
 }) {
-  const request = target === "public" ? null : target;
-  const [game, setGame] = useState<GameId>(request?.game ?? "block-puzzle");
-  const [entry, setEntry] = useState<EntrySize>((request?.entry as EntrySize) ?? 1000);
+  const { game, entry } = request;
   const [share, setShare] = useState(40);
   const win = backedSplit({ entry, ...FEES, shareBps: share * 100, won: true });
   const short = available !== null && available < entry;
@@ -731,43 +589,23 @@ function OfferDrawer({
   return (
     <dialog
       ref={ref}
-      className={`cut cut-frame bk-drawer${request ? " has-card" : ""}`}
-      aria-label={request ? "Make an Offer" : "New public Offer"}
+      className="cut cut-frame bk-drawer"
+      aria-label="Make an Offer"
       // Close the dialog first so its exit plays, then let the page unmount it.
       onClose={() => setTimeout(onClose, 180)}
       onClick={(e) => e.target === ref.current && dismiss()}
     >
       <div className="bk-drawer-in">
         <div className="bk-drawer-head">
-          <h2 className="h-section">{request ? "Make an offer" : "New public offer"}</h2>
+          <h2 className="h-section">Make an offer</h2>
           <button type="button" className="cut icon-btn" onClick={dismiss} aria-label="Close">
             <XMark aria-hidden="true" />
           </button>
         </div>
-        {request && (
-          <aside className="bk-drawer-card">
-            <RequestCard r={request} nowMs={nowMs} />
-          </aside>
-        )}
+        <aside className="bk-drawer-card">
+          <RequestCard r={request} nowMs={nowMs} />
+        </aside>
         <div className="bk-drawer-terms">
-
-          {!request && (
-            <div className="stack">
-              <p className="meta">Post terms; Players apply and you accept one.</p>
-              <div className="field">
-                <label className="label" htmlFor="off-game">Game</label>
-                <span className="cut cut-chip ctl">
-                  <select id="off-game" className="select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
-                    {GAME_LIST.map((g) => (
-                      <option key={g} value={g}>{GAME_NAMES[g]}</option>
-                    ))}
-                  </select>
-                </span>
-              </div>
-              <EntryPicker value={entry} onChange={setEntry} legend="Entry you fund" name="off-entry" />
-            </div>
-          )}
-
           <Slider
             label="Player keeps"
             value={share}
@@ -818,7 +656,7 @@ function OfferDrawer({
             <div className="bk-drawer-actions">
               <span className="bk-cancel"><Button onClick={dismiss}>Cancel</Button></span>
               <Button variant="money" disabled={short || busy} onClick={() => onSend(game, entry, share, request)}>
-                {request ? <GemasLabel action="Make an Offer" gemas={entry} /> : "Post Offer"}
+                <GemasLabel action="Make an Offer" gemas={entry} />
               </Button>
             </div>
           </footer>

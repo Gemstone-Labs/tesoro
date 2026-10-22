@@ -7,145 +7,16 @@
   },
   "instructions": [
     {
-      "name": "accept_applicant",
+      "name": "accept_offer",
       "discriminator": [
-        80,
-        23,
-        218,
-        210,
-        164,
-        125,
-        170,
-        80
-      ],
-      "accounts": [
-        {
-          "name": "backer_authority",
-          "signer": true
-        },
-        {
-          "name": "backer_account",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "backer_authority"
-              }
-            ]
-          }
-        },
-        {
-          "name": "request",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  113,
-                  117,
-                  101,
-                  115,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "request.inner.player",
-                "account": "RequestState"
-              },
-              {
-                "kind": "account",
-                "path": "request.nonce",
-                "account": "RequestState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "player_protections",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  101,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  115
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "request.inner.player",
-                "account": "RequestState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "offer",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  111,
-                  102,
-                  102,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "offer.inner.backer",
-                "account": "OfferState"
-              },
-              {
-                "kind": "account",
-                "path": "offer.nonce",
-                "account": "OfferState"
-              }
-            ]
-          }
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "accept_directed",
-      "discriminator": [
-        102,
-        241,
-        53,
-        27,
-        174,
-        247,
-        25,
-        218
+        227,
+        82,
+        234,
+        131,
+        1,
+        18,
+        48,
+        2
       ],
       "accounts": [
         {
@@ -345,133 +216,6 @@
                 "kind": "account",
                 "path": "studio_recipient.authority",
                 "account": "TesoroAccount"
-              }
-            ]
-          }
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "apply_offer",
-      "discriminator": [
-        196,
-        222,
-        253,
-        133,
-        77,
-        145,
-        159,
-        238
-      ],
-      "accounts": [
-        {
-          "name": "player_authority",
-          "signer": true
-        },
-        {
-          "name": "player_account",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "player_authority"
-              }
-            ]
-          }
-        },
-        {
-          "name": "protections",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  101,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  115
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "player_account"
-              }
-            ]
-          }
-        },
-        {
-          "name": "request",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  113,
-                  117,
-                  101,
-                  115,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "request.inner.player",
-                "account": "RequestState"
-              },
-              {
-                "kind": "account",
-                "path": "request.nonce",
-                "account": "RequestState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "offer",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  111,
-                  102,
-                  102,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "offer.inner.backer",
-                "account": "OfferState"
-              },
-              {
-                "kind": "account",
-                "path": "offer.nonce",
-                "account": "OfferState"
               }
             ]
           }
@@ -2505,6 +2249,35 @@
           }
         },
         {
+          "name": "request",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  113,
+                  117,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request.inner.player",
+                "account": "RequestState"
+              },
+              {
+                "kind": "account",
+                "path": "request.nonce",
+                "account": "RequestState"
+              }
+            ]
+          }
+        },
+        {
           "name": "game_record",
           "pda": {
             "seeds": [
@@ -2518,8 +2291,9 @@
                 ]
               },
               {
-                "kind": "arg",
-                "path": "game"
+                "kind": "account",
+                "path": "request.inner.game",
+                "account": "RequestState"
               }
             ]
           }
@@ -2682,22 +2456,8 @@
           "type": "u64"
         },
         {
-          "name": "game",
-          "type": "pubkey"
-        },
-        {
-          "name": "entry",
-          "type": "u64"
-        },
-        {
           "name": "player_share_bps",
           "type": "u16"
-        },
-        {
-          "name": "directed_request",
-          "type": {
-            "option": "pubkey"
-          }
         }
       ]
     },
@@ -17564,11 +17324,15 @@
             "type": "u16"
           },
           {
-            "name": "kind",
+            "name": "request",
+            "docs": [
+              "The Request this Offer answers. Every Offer is made on one Request; its Player accepts."
+            ],
             "type": {
-              "defined": {
-                "name": "OfferKind"
-              }
+              "array": [
+                "u8",
+                32
+              ]
             }
           },
           {
@@ -17595,33 +17359,11 @@
           },
           {
             "name": "player",
-            "type": {
-              "option": {
-                "array": [
-                  "u8",
-                  32
-                ]
-              }
-            }
-          },
-          {
-            "name": "request",
-            "type": {
-              "option": {
-                "array": [
-                  "u8",
-                  32
-                ]
-              }
-            }
-          },
-          {
-            "name": "applicants",
             "docs": [
-              "Request keys of applicants (public Offers)."
+              "The Request's Player, once they accept."
             ],
             "type": {
-              "vec": {
+              "option": {
                 "array": [
                   "u8",
                   32
@@ -17636,28 +17378,6 @@
               "the Ticket is cancelled or consumed."
             ],
             "type": "bool"
-          }
-        ]
-      }
-    },
-    {
-      "name": "OfferKind",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "Directed",
-            "fields": [
-              {
-                "array": [
-                  "u8",
-                  32
-                ]
-              }
-            ]
-          },
-          {
-            "name": "Public"
           }
         ]
       }
