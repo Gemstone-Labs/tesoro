@@ -87,6 +87,8 @@ export const ROWS: Readonly<Record<string, Row>> = {
   init_ckpt_page_sponsored: { class: "admission", relayer: ["relayer"], cu: 200_000, spend: () => ({ refundable: CKPT_PAGE_RENT, sunk: 0n }) },
   stage_entry: { class: "continue", relayer: [], cu: 400_000 },
   claim_spill: { class: "continue", relayer: [], cu: 300_000, extra: 40 },
+  // Ticket 09c: moves the lines an overflow record holds into the owner's stores; the rent goes back to whoever paid it.
+  claim_overflow: { class: "exit", relayer: [], cu: 400_000, extra: 12 },
   match_chunk: { class: "exit", relayer: ["caller"], cu: 1_000_000, extra: 60 },
   close_match: { class: "exit", relayer: ["caller", "match_payer", "pot_a_payer", "pot_b_payer"], cu: 300_000, extra: 4 },
   refund_match: { class: "exit", relayer: ["caller", "payer"], cu: 300_000, spend: () => ({ refundable: RECEIPT_RENT, sunk: 0n }) },

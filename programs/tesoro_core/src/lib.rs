@@ -237,14 +237,17 @@ pub mod tesoro_core {
         instructions::evm_prize::cancel_prize_payout_from_source(ctx, chain, gemas, shares)
     }
 
-    pub fn fund_season_prize_native(
-        ctx: Context<FundSeasonPrizeNative>,
+    pub fn fund_season_prize_native<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FundSeasonPrizeNative<'info>>,
         season: u32,
     ) -> Result<()> {
         instructions::prize::fund_season_prize_native(ctx, season)
     }
 
-    pub fn fund_season_prize_stake(ctx: Context<FundSeasonPrizeStake>, season: u32) -> Result<()> {
+    pub fn fund_season_prize_stake<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FundSeasonPrizeStake<'info>>,
+        season: u32,
+    ) -> Result<()> {
         instructions::prize::fund_season_prize_stake(ctx, season)
     }
 
@@ -323,6 +326,15 @@ pub mod tesoro_core {
         max: u8,
     ) -> Result<()> {
         instructions::basket::claim_spill(ctx, max)
+    }
+
+    /// Anyone moves up to `max` lines of an overflow record into the owner's stores; an empty
+    /// record is closed and its rent goes back to its payer. Source books are remaining accounts.
+    pub fn claim_overflow<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ClaimOverflow<'info>>,
+        max: u8,
+    ) -> Result<()> {
+        instructions::overflow::claim_overflow(ctx, max)
     }
 
     /// Anyone creates the book account of a Source.

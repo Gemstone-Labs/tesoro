@@ -53,6 +53,11 @@ describe("core instruction builders", () => {
     const [authority, poolAccount, winner, prize, season] = [k(), k(), k(), k(), k()];
     await ix.recordSeasonIx(core, { authority, number: 3, points: [50n, 10n], poolAccount, ranked: [k(), k()], routes: [k()] });
     await ix.paySeasonRankIx(core, { authority, season, poolAccount, winnerAccount: winner, prizeSource: prize, rank: 0, line: 0 });
+    const record = k();
+    const withRecord = await ix.paySeasonRankIx(core, { authority, season, poolAccount, winnerAccount: winner, prizeSource: prize, rank: 0, line: 0, remaining: [ix.meta(record)] });
+    assert.ok(has(withRecord, record));
+    const c = await ix.claimOverflowIx(core, { account: winner, record, payer: k(), max: 4 });
+    assert.ok(has(c, record) && has(c, basketOf(winner)) && has(c, spillOf(winner)));
     await ix.closeSeasonIx(core, { season });
     await ix.fundSeasonPrizeNativeIx(core, { authority, season: 3, custody: k(), pool: k(), priceFeed: k(), poolAccount, prizeSource: prize });
     await ix.fundSeasonPrizeStakeIx(core, { authority, season: 3, custody: k(), mint: k(), stakePool: k(), priceFeed: k(), poolAccount, prizeSource: prize });

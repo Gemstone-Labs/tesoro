@@ -2,6 +2,7 @@ import { Program, utils, type Idl, type Provider } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
+import { OVERFLOW_DISC, OVERFLOW_OWNER_AT, decodeOverflowRecord } from "@/lib/chain/overflow";
 import { isCurrentPosition } from "@/lib/chain/position-size";
 import { readAccountState, type StateSource } from "@/lib/chain/account-state";
 import { baseRpc } from "@/lib/chain/rpc-config";
@@ -22,6 +23,10 @@ const encodeDisc = (name: string) => utils.bytes.bs58.encode(discOf(name));
 
 const query = (name: "PositionState", offset: number, accountKey: PublicKey): GpaQuery =>
   parseQuery(new URLSearchParams([["program", CORE], ["filter", `m:0:${encodeDisc(name)}`], ["filter", `m:${offset}:${accountKey.toBase58()}`]]));
+
+/** The Account's overflow records: the owner Account's key sits in the store header of each record. */
+const overflowQuery = (accountKey: PublicKey): GpaQuery =>
+  parseQuery(new URLSearchParams([["program", CORE], ["filter", `m:0:${utils.bytes.bs58.encode(OVERFLOW_DISC)}`], ["filter", `m:${OVERFLOW_OWNER_AT}:${accountKey.toBase58()}`]]));
 
 type GpaRow = { pubkey: string; account: { data: [string, string] } };
 
@@ -54,6 +59,15 @@ export function serverStateSource(deps: SnapshotDeps, opts: { fresh?: boolean } 
       // The global list stays as cached; this Account's own rows are read directly and win. If that read fails, the cached rows answer.
       const owned = await deps.owned(q).catch(() => []);
       return decodeRows(mergeOwned(cached, owned));
+    },
+    overflow: async (key) => {
+      const q = overflowQuery(key);
+      const cached = await deps.lists(q);
+      // After this tab's own transaction, records the cache still shows are read upstream (a Claim just emptied them); an
+      // Account with none costs no extra query, and a record made since the cache was filled shows within its 2 minutes.
+      const owned = opts.fresh && cached.length > 0 ? await deps.owned(q).catch(() => null) : null;
+      const rows = owned ?? cached;
+      return rows.flatMap((r) => decodeOverflowRecord(new PublicKey(r.pubkey), Buffer.from(r.account.data[0], "base64")) ?? []);
     },
     infos: async (keys) => (await deps.connection.getMultipleAccountsInfo(keys, "confirmed")) as never,
     balance: (authority) => deps.connection.getBalance(authority, "confirmed"),

@@ -1,11 +1,11 @@
 import anchor from "@coral-xyz/anchor";
-import { PublicKey, type Keypair } from "@solana/web3.js";
+import { PublicKey, SystemProgram, type Keypair } from "@solana/web3.js";
 import { PAYOUT_WINDOW_SECS, PRIZE_BPS, PRIZE_PLACES, payoutOpensAt, seasonAt, seasonEnd, seasonStart, standings, type Standing, type Win } from "../../app/src/lib/chain/season.ts";
 import { act, log, type Ctx } from "./act.ts";
-import { closeSeasonIx, fundSeasonPrizeNativeIx, fundSeasonPrizeStakeIx, growStoreIx, paySeasonRankIx, recordSeasonIx, type Core } from "./core-ix.ts";
+import { closeSeasonIx, fundSeasonPrizeNativeIx, fundSeasonPrizeStakeIx, growStoreIx, meta, paySeasonRankIx, recordSeasonIx, type Core } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
 import { seasonWinsFromChain } from "./events-scan.ts";
-import { basketOf, decodeStore, economyAddress, keyOf, pda, prizeSourceOf, seasonAddress, slack, spillOf } from "./kit.ts";
+import { MAX_STORE_LINES, OVERFLOW_SEASON, basketOf, decodeStore, economyAddress, keyOf, overflowAddress, pda, prizeSourceOf, seasonAddress, seasonOverflowId, slack, spillOf } from "./kit.ts";
 import { oracleKey } from "./price.ts";
 import { fundEvmPrizes, realEvmPrizeDeps } from "./batches.ts";
 import { sendIxs, type SendOpts } from "./send.ts";
@@ -209,18 +209,26 @@ async function payBatch(ctx: Ctx, d: SeasonDeps, rec: SeasonRecord, steps: PaySt
     const ixs = [];
     // A prize line needs a slot in the winner's basket or spill: make one before the payment, never fail for want of it.
     const done = new Set<number>();
+    // Ranks whose winner's stores are at the maximum: they cannot grow, so the prize goes to an overflow record.
+    const atMaximum = new Set<number>();
     for (const s of steps) {
       if (done.has(s.rank)) continue;
       done.add(s.rank);
       const winner = rec.winners[s.rank];
       const [b, sp] = await d.read.many([basketOf(winner), spillOf(winner)]);
       if (!b || !sp) continue;
-      const room = slack(decodeStore(b.data), decodeStore(sp.data));
+      const spill = decodeStore(sp.data);
+      const room = slack(decodeStore(b.data), spill);
       const need = slotsNeeded(rec, s.rank);
-      if (room < need) ixs.push(await growStoreIx(ctx.core, { payer: ctx.payer.publicKey, account: winner, which: "spill", extra: need - room }));
+      if (room >= need) continue;
+      if (spill.capacity + (need - room) > MAX_STORE_LINES) atMaximum.add(s.rank);
+      else ixs.push(await growStoreIx(ctx.core, { payer: ctx.payer.publicKey, account: winner, which: "spill", extra: need - room }));
     }
     for (const s of steps) {
-      ixs.push(await paySeasonRankIx(ctx.core, { authority: authority.publicKey, season: seasonAddress(rec.number), poolAccount: pool, winnerAccount: rec.winners[s.rank], prizeSource: rec.lines[s.line].source, rank: s.rank, line: s.line }));
+      const winner = rec.winners[s.rank];
+      // the record and the system program: the payout makes the record in the same transaction, the authority pays its rent
+      const remaining = atMaximum.has(s.rank) ? [meta(overflowAddress(winner, OVERFLOW_SEASON, seasonOverflowId(rec.number, s.rank, s.line))), meta(SystemProgram.programId, false)] : [];
+      ixs.push(await paySeasonRankIx(ctx.core, { authority: authority.publicKey, season: seasonAddress(rec.number), poolAccount: pool, winnerAccount: winner, prizeSource: rec.lines[s.line].source, rank: s.rank, line: s.line, remaining }));
     }
     return d.send(ixs, { units: 300_000 + 100_000 * steps.length, signers: extraSigner(ctx, authority) });
   });

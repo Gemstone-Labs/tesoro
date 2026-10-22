@@ -13,7 +13,7 @@ use solana_sdk::transaction::Transaction;
 use tesoro_core::instructions::MatchResult;
 use tesoro_core::ledger::book::fp_ceil;
 use tesoro_core::ledger::line_store::{
-    CLASS_GENERAL, CLASS_LEADERBOARD, CLASS_PLATFORM, CLASS_STUDIO, SIDE_OWN,
+    CLASS_GENERAL, CLASS_LEADERBOARD, CLASS_PLATFORM, CLASS_STUDIO, SIDE_OWN, SIDE_WON,
 };
 use tesoro_core::ledger::{CoreError, SourceChain};
 use tesoro_core::state::*;
@@ -144,6 +144,10 @@ struct Env {
     skip_ensure: bool,
     /// Instructions the next join sends in the same transaction, before it.
     pre_ixs: Vec<Instruction>,
+    /// Name the overflow records of every Account the Match can credit when joining.
+    name_records: bool,
+    /// Do not grow the Game's outside studio's spill when joining (to test a full studio).
+    skip_studio_room: bool,
     last_cu: u64,
     /// Serialized size in bytes of the last transaction as a legacy transaction.
     last_size: usize,
@@ -203,6 +207,8 @@ impl Env {
             pot_nonce: 1_000,
             person_seed: 0,
             skip_ensure: false,
+            name_records: false,
+            skip_studio_room: false,
             pre_ixs: Vec::new(),
             last_cu: 0,
             last_size: 0,
@@ -1115,6 +1121,13 @@ impl Env {
         }
     }
 
+    /// The overflow record of the Account for the Match, once it exists.
+    fn record_of(&self, owner: APk, id: u64) -> Option<APk> {
+        let seed = self.mstate(id).inner.id.seed();
+        let key = overflow_address(&owner, OVERFLOW_MATCH, &seed).0;
+        self.svm.get_account(&s(key)).map(|_| key)
+    }
+
     fn mref(&self, id: u64) -> MRef {
         self.matches[id as usize]
     }
@@ -1223,6 +1236,20 @@ impl Env {
         };
         let key = pda(&[MATCH_SEED, p.account.as_ref(), &n.to_le_bytes()]);
         let backer = backing.map(|(_, b)| b);
+        let mut remaining = remaining;
+        if self.name_records {
+            let seed = tesoro_core::ledger::lifecycle::MatchId {
+                opener: p.account.to_bytes(),
+                n,
+            }
+            .seed();
+            remaining.push(rem(overflow_address(
+                &backer.unwrap_or(p.account),
+                OVERFLOW_MATCH,
+                &seed,
+            )
+            .0));
+        }
         let room = 16 + 2 * pot_lines as usize;
         self.ensure_spill(&p.kp, p.account, room);
         if let Some(b) = backer {
@@ -1306,6 +1333,39 @@ impl Env {
         }
         if let Some(b) = backer {
             self.ensure_spill(&p.kp, b, room);
+        }
+        // the Game's outside studio gets its room too (its fee lines land in its basket)
+        let studio_owner = m
+            .inner
+            .terms
+            .studio_owner
+            .filter(|_| m.inner.terms.studio_bps > 0)
+            .map(APk::new_from_array);
+        if let Some(studio) = studio_owner.filter(|_| !self.skip_studio_room) {
+            self.ensure_spill(&p.kp, studio, room);
+        }
+        let mut remaining = remaining;
+        // a Game's outside studio is paid by a basket line: its stores travel with the join
+        if let Some(studio) = m
+            .inner
+            .terms
+            .studio_owner
+            .filter(|_| m.inner.terms.studio_bps > 0)
+        {
+            let studio = APk::new_from_array(studio);
+            remaining.push(rem(basket_address(&studio).0));
+            remaining.push(rem(spill_address(&studio).0));
+        }
+        if self.name_records {
+            let mut who = vec![p.account, opener, opener_funder];
+            who.extend(backer);
+            who.extend(m.inner.terms.studio_owner.map(APk::new_from_array));
+            who.sort();
+            who.dedup();
+            let seed = m.inner.id.seed();
+            for k in who {
+                remaining.push(rem(overflow_address(&k, OVERFLOW_MATCH, &seed).0));
+            }
         }
         let join = ix(
             accounts::JoinMatch {
@@ -1505,6 +1565,9 @@ impl Env {
         for o in self.match_owners(id) {
             out.push(rem(basket_address(&o).0));
             out.push(rem(spill_address(&o).0));
+            if let Some(r) = self.record_of(o, id) {
+                out.push(rem(r));
+            }
         }
         let m = self.mstate(id);
         let pots: tesoro_core::ledger::lifecycle::Pots = [0, 1].map(|side| {
@@ -5458,6 +5521,7 @@ fn an_outside_studios_fee_line_has_its_slot_held_and_cannot_be_crowded_out() {
     let basket_cap = d.env.store_stats(&studio_person, false).1;
     d.env.fill_store(&studio_person, false, basket_cap, 0);
     d.env.fill_store(&studio_person, true, 4, 4);
+    d.env.skip_studio_room = true;
     let m = d.env.open_match(&d.alice, ENTRY).expect("open");
     let mut remaining = d.env.books_of(d.bob.account);
     remaining.push(rem(basket_address(&studio).0));
@@ -5493,4 +5557,264 @@ fn an_outside_studios_fee_line_has_its_slot_held_and_cannot_be_crowded_out() {
         .expect("the fee line lands in its held slot");
     assert!(d.env.fee_gemas(&studio_person) > 0);
     assert_eq!(d.env.store_stats(&studio_person, true).2, 0);
+}
+
+// --- Ticket 09c: a credit that finds no room lands in an overflow record ----------------------------
+
+impl Env {
+    /// `closing` names the Match account: a Match's record is only closed once that Match is gone.
+    fn claim_overflow_ix(
+        &self,
+        owner: APk,
+        record: APk,
+        payer: APk,
+        max: u8,
+        closing: Option<u64>,
+    ) -> Instruction {
+        ix(
+            accounts::ClaimOverflow {
+                account: owner,
+                basket: basket_address(&owner).0,
+                spill: spill_address(&owner).0,
+                record,
+                payer,
+            },
+            instruction::ClaimOverflow { max },
+            closing
+                .map(|id| rem(self.match_key(id)))
+                .into_iter()
+                .collect(),
+        )
+    }
+
+    /// The lines of an overflow record.
+    fn record_lines(&self, record: APk) -> Vec<tesoro_core::ledger::line_store::Line> {
+        self.svm.get_account(&s(record)).map_or(vec![], |acc| {
+            tesoro_core::ledger::line_store::LineStore::new(&acc.data[OVERFLOW_STORE_AT..])
+                .expect("record")
+                .lines()
+                .collect()
+        })
+    }
+
+    fn lamports(&self, k: APk) -> u64 {
+        self.svm.get_account(&s(k)).map_or(0, |acc| acc.lamports)
+    }
+}
+
+#[test]
+fn an_outside_studio_at_its_maximum_gets_its_fee_line_in_an_overflow_record_and_claims_it_after_a_grow(
+) {
+    let mut d = duel();
+    // the admin names someone else as Tesoro's studio: this Game's studio is an outside one
+    let other = d.env.platform.account;
+    set_tesoro_studio(&mut d.env, other);
+    let studio = d.env.studio.account;
+    let studio_person = Person {
+        kp: d.env.studio.kp.insecure_clone(),
+        key: d.env.studio.key,
+        account: studio,
+    };
+    // the studio's stores are completely full and stay so
+    let basket_cap = d.env.store_stats(&studio_person, false).1;
+    d.env.fill_store(&studio_person, false, basket_cap, 0);
+    d.env.fill_store(&studio_person, true, 4, 0);
+    d.env.name_records = true;
+    d.env.skip_studio_room = true;
+    let m = d.env.open_match(&d.alice, ENTRY).expect("open");
+    let bob_before = d.env.lamports(d.bob.key);
+    d.env.join_match(&d.bob, m).expect("join");
+    let seed = d.env.mstate(m).inner.id.seed();
+    let record = overflow_address(&studio, OVERFLOW_MATCH, &seed).0;
+    let rent = d.env.lamports(record);
+    assert!(rent > 0, "the record exists, its rent paid by the joiner");
+    assert!(
+        bob_before - d.env.lamports(d.bob.key) >= rent,
+        "the joiner paid it"
+    );
+    // nobody can close the empty record while the Match is open (the studio's guarantee)
+    let early = d
+        .env
+        .claim_overflow_ix(studio, record, d.bob.key, 0, Some(m));
+    let griefer = d.env.admin.insecure_clone();
+    d.env.send(&[early], &griefer, &[]).expect("early claim");
+    assert!(
+        d.env.svm.get_account(&s(record)).is_some(),
+        "an open Match keeps its record"
+    );
+    // the Match settles and closes with nobody's help: the studio's fee lands in the record
+    let game = d.env.game_auth.insecure_clone();
+    d.env
+        .settle(&game, m, MatchResult::Opener, vec![])
+        .expect("settles although the studio is full");
+    assert_eq!(
+        d.env.fee_gemas(&studio_person),
+        0,
+        "nothing fit in its stores"
+    );
+    let lines = d.env.record_lines(record);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].class, CLASS_STUDIO);
+    assert_eq!(lines[0].amount, 60, "3% of the 2,000 Pot");
+    // no room yet: a claim moves nothing and the record stays
+    let caller = d.env.admin.insecure_clone();
+    let claim = d
+        .env
+        .claim_overflow_ix(studio, record, d.bob.key, 4, Some(m));
+    d.env
+        .send(&[claim], &caller, &[])
+        .expect("claim, nothing fits");
+    assert_eq!(d.env.record_lines(record).len(), 1);
+    // one more slot and the next claim moves the line and returns the rent to the joiner
+    let grow = d.env.grow_spill_ix(a(caller.pubkey()), studio, 1);
+    d.env.send(&[grow], &caller, &[]).expect("grow");
+    let bob_mid = d.env.lamports(d.bob.key);
+    let claim = d
+        .env
+        .claim_overflow_ix(studio, record, d.bob.key, 4, Some(m));
+    d.env.send(&[claim], &caller, &[]).expect("claim");
+    assert_eq!(d.env.fee_gemas(&studio_person), 60);
+    assert!(
+        d.env.svm.get_account(&s(record)).is_some(),
+        "the Match is still open: its record stays, empty"
+    );
+    d.env.close_match(m).expect("close");
+    let claim = d
+        .env
+        .claim_overflow_ix(studio, record, d.bob.key, 4, Some(m));
+    d.env.send(&[claim], &caller, &[]).expect("sweep");
+    assert!(
+        d.env.svm.get_account(&s(record)).is_none(),
+        "the record is closed"
+    );
+    assert_eq!(
+        d.env.lamports(d.bob.key) - bob_mid,
+        rent,
+        "the rent is back"
+    );
+}
+
+#[test]
+fn a_backers_share_with_no_hold_and_full_stores_lands_in_an_overflow_record() {
+    let mut b = backing_setup();
+    // Carol's stores are full: her entry draws from one big line, so no slot is freed for it
+    let carol = Person {
+        kp: b.carol.kp.insecure_clone(),
+        key: b.carol.key,
+        account: b.carol.account,
+    };
+    let cap = b.d.env.store_stats(&carol, false).1;
+    b.d.env.fill_store(&carol, false, cap.max(8), 0);
+    b.d.env.fill_store(&carol, true, 4, 0);
+    b.d.env.name_records = true;
+    b.d.env.skip_ensure = true;
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 4_000, None);
+    b.accept_public(offer, request);
+    let id = b.open_backed(offer, 500).expect("backed entry");
+    b.d.env.join_match(&b.d.bob, id).expect("join");
+    let seed = b.d.env.mstate(id).inner.id.seed();
+    let record = overflow_address(&carol.account, OVERFLOW_MATCH, &seed).0;
+    assert!(b.d.env.lamports(record) > 0, "reserved at the join");
+    let game = b.d.env.game_auth.insecure_clone();
+    b.d.env
+        .settle(&game, id, MatchResult::Opener, vec![])
+        .expect("settles although the Backer is full");
+    // Dave got his 180 in his own stores; Carol's 270 of Bob's Source is waiting in the record
+    assert_eq!(b.d.env.total_gemas(&b.dave), 180);
+    let lines = b.d.env.record_lines(record);
+    assert_eq!(lines.iter().map(|l| l.amount).sum::<u64>(), 270);
+    let caller = b.d.env.admin.insecure_clone();
+    let grow = b.d.env.grow_spill_ix(a(caller.pubkey()), carol.account, 1);
+    b.d.env.send(&[grow], &caller, &[]).expect("grow");
+    let claim =
+        b.d.env
+            .claim_overflow_ix(carol.account, record, b.dave.key, 4, Some(id));
+    // the line has its own Source: the claim needs no book unless it merges
+    b.d.env.send(&[claim], &caller, &[]).expect("claim");
+    assert_eq!(b.d.env.gemas_of(&b.carol, b.d.b_source), 270);
+    b.d.env.close_match(id).expect("close");
+    let claim =
+        b.d.env
+            .claim_overflow_ix(carol.account, record, b.dave.key, 4, Some(id));
+    b.d.env.send(&[claim], &caller, &[]).expect("sweep");
+    assert!(b.d.env.svm.get_account(&s(record)).is_none());
+}
+
+#[test]
+fn a_ticket_cancel_that_finds_no_room_for_a_split_line_keeps_it_in_the_ticket_until_room_is_made() {
+    let mut env = Env::new();
+    let alice = env.person();
+    env.grow_basket_to(&alice, 8);
+    let sources: Vec<APk> = (0..2).map(|i| env.forge_source(100 + i, 0)).collect();
+    env.give_lines(&alice, &sources, 500, |i| i as i64);
+    env.fill_store(&alice, false, 40, 0);
+    env.fill_store(&alice, true, 40, 0);
+    env.skip_ensure = true;
+    let books: Vec<AccountMeta> = sources
+        .iter()
+        .flat_map(|src| book_metas(&env.svm, *src))
+        .collect();
+    // an Entry Ticket of 600 takes the first line whole (its slot is held) and 100 of the second
+    env.open_ticket(&alice, 4, 600, 3)
+        .expect("a ticket opens on full stores");
+    let kp = alice.kp.insecure_clone();
+    env.stage_with(&kp, &alice, 4, 20, books.clone())
+        .expect("stage");
+    assert_eq!(env.load_ticket_staged(&alice, 4), 600);
+    // another entry then takes the rest of that second line whole and the freed slot is filled
+    // by someone else's credit: the split part has nowhere to go
+    {
+        use tesoro_core::ledger::line_store::LineStore;
+        let store = basket_address(&alice.account).0;
+        let mut acc = env.svm.get_account(&s(store)).expect("basket");
+        {
+            let mut st = LineStore::new(&mut acc.data[DISC..]).expect("basket");
+            let idx = st
+                .lines()
+                .position(|l| l.source == sources[1].to_bytes())
+                .expect("the rest of the second line");
+            st.remove_at(idx).expect("removed");
+            // someone else's credit takes the freed slot
+            let mut dust = tesoro_core::ledger::book::SourceBook::blank_line(
+                SIDE_WON,
+                99_999_999,
+                [0xDD; 32],
+                CLASS_GENERAL,
+                0,
+            );
+            dust.amount = 1;
+            st.insert(&dust).expect("the freed slot");
+        }
+        env.svm.set_account(s(store), acc).expect("set basket");
+    }
+    // the cancel returns the slowest line (the split part) into the held slot and keeps the next
+    // one in the Ticket, without an error
+    env.cancel_ticket_with(&kp, &alice, 4, 20, books.clone())
+        .expect("a cancel never fails for room");
+    assert_eq!(
+        env.ticket_state(&alice, 4),
+        tesoro_core::ledger::draw::TicketState::Cancelling
+    );
+    assert_eq!(
+        env.load_ticket_staged(&alice, 4),
+        500,
+        "the other line waits in the Ticket"
+    );
+    assert_eq!(
+        env.gemas_of(&alice, sources[1]),
+        100,
+        "the split part came home"
+    );
+    // one more slot and the next cancel finishes; the Ticket closes
+    let grow = env.grow_spill_ix(alice.key, alice.account, 1);
+    env.send(&[grow], &kp, &[]).expect("grow");
+    env.cancel_ticket_with(&kp, &alice, 4, 20, books)
+        .expect("cancel");
+    assert_eq!(
+        env.ticket_state(&alice, 4),
+        tesoro_core::ledger::draw::TicketState::Cancelled
+    );
+    assert_eq!(env.gemas_of(&alice, sources[0]), 500);
+    env.close_ticket(&kp, &alice, 4).expect("close");
 }

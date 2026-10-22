@@ -9,6 +9,8 @@ import { basketPda, bookPda, spillPda, SIDE_OWN, SIDE_WON } from "@/lib/chain/ba
 import { encodeBook, encodeStore, freshClass, lineOf } from "@/lib/chain/basket-fixture";
 import { fp } from "@/lib/chain/book";
 import { decodeState } from "@/lib/chain/snapshot-wire";
+import { OVERFLOW_DISC, OVERFLOW_STORE_AT } from "@/lib/chain/overflow";
+import bs58 from "bs58";
 import { getAccountState, serverStateSource, type SnapshotDeps } from "./snapshot";
 
 const coder = new Program(coreIdl as Idl, {} as Provider).coder.accounts;
@@ -181,8 +183,24 @@ describe("Account snapshot on the server", () => {
   it("takes three batched reads at most and one list read per kind", async () => {
     const { deps, calls } = fake();
     await getAccountState(authority, {}, deps);
-    expect(calls.lists).toBe(1);
+    expect(calls.lists).toBe(2); // the Positions and the overflow records
     expect(calls.infos.length).toBeLessThanOrEqual(3);
+  });
+
+  it("shows the Gemas waiting for room in the Account's overflow records, and nothing when there are none", async () => {
+    const { deps } = fake();
+    expect((decodeState<{ waiting?: unknown }>(JSON.parse(JSON.stringify(await getAccountState(authority, {}, deps))))).waiting).toBeUndefined();
+    const store = encodeStore([lineOf({ side: 1, source: mineSource, amount: 70n })], { account: accountKey, capacity: 2 });
+    const raw = Buffer.alloc(OVERFLOW_STORE_AT + store.length - 8);
+    OVERFLOW_DISC.forEach((b, i) => (raw[i] = b));
+    store.copy(raw, OVERFLOW_STORE_AT, 8);
+    const recordKey = new PublicKey(new Uint8Array(32).fill(21));
+    const withRecord: SnapshotDeps = {
+      ...deps,
+      lists: async (q) => (q.disc === bs58.encode(OVERFLOW_DISC) ? [{ pubkey: recordKey.toBase58(), account: { data: [raw.toString("base64"), "base64"] as [string, string] } }] : deps.lists(q)),
+    };
+    const state = decodeState<{ waiting?: { address: PublicKey; gemas: bigint }[] }>(JSON.parse(JSON.stringify(await getAccountState(authority, {}, withRecord))));
+    expect(state.waiting?.map((w) => [w.address.toBase58(), w.gemas])).toEqual([[recordKey.toBase58(), 70n]]);
   });
 
   it("answers an Account that does not exist yet without lists past the first round", async () => {

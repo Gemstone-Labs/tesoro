@@ -289,7 +289,26 @@ pub fn join_match(
     for who in [account, opener, opener_funder] {
         ensure_spill(svm, player, who, 24);
     }
-    let remaining = books_of(svm, account);
+    if let Some(studio) = state
+        .inner
+        .terms
+        .studio_owner
+        .filter(|_| state.inner.terms.studio_bps > 0)
+    {
+        ensure_spill(svm, player, APk::new_from_array(studio), 24);
+    }
+    let mut remaining = books_of(svm, account);
+    // a Game's outside studio is paid by a basket line: its stores travel with the join
+    if let Some(studio) = state
+        .inner
+        .terms
+        .studio_owner
+        .filter(|_| state.inner.terms.studio_bps > 0)
+    {
+        let studio = APk::new_from_array(studio);
+        remaining.push(AccountMeta::new(s(basket_address(&studio).0), false));
+        remaining.push(AccountMeta::new(s(spill_address(&studio).0), false));
+    }
     let join = ix(
         tesoro_core::accounts::JoinMatch {
             payer: authority,
@@ -360,6 +379,11 @@ fn chunk_ix(svm: &LiteSVM, caller: APk, m: &MatchRef, steps: u8) -> Instruction 
     for o in owners(svm, m) {
         remaining.push(AccountMeta::new(s(basket_address(&o).0), false));
         remaining.push(AccountMeta::new(s(spill_address(&o).0), false));
+        // an Account the Match made an overflow record for passes it too
+        let record = overflow_address(&o, OVERFLOW_MATCH, &st.inner.id.seed()).0;
+        if svm.get_account(&s(record)).is_some() {
+            remaining.push(AccountMeta::new(s(record), false));
+        }
     }
     for src in st.inner.sources_ahead(&pots, steps as usize) {
         let src = APk::new_from_array(src);
