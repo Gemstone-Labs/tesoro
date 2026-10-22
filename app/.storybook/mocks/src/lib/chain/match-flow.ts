@@ -18,7 +18,7 @@ export async function flowEntry(onStep?: (s: string) => void): Promise<real.Ente
 
 export const enterQueue = async (...a: Parameters<typeof real.enterQueue>): Promise<real.Entered> => {
   if (flowFrame()) return flowEntry(a[4]);
-  if (screenData().entered === "existing") return { id: 3581887481018n, via: "existing" };
+  if (screenData().entered === "existing") return { id: "11111111111111111111111111111111-3581887481018", via: "existing" };
   return real.enterQueue(...a);
 };
 export const createChallenge = async (...a: Parameters<typeof real.createChallenge>) => (flowFrame() ? (await flowEntry(a[5])).id : real.createChallenge(...a));

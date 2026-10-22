@@ -79,7 +79,7 @@ export function EnterMatch(props: EnterKind) {
    * email if they opted in). The server reads the new Match from its own RPC, which can lag a moment behind:
    * it retries a few times. The link works either way.
    */
-  const tellFriend = async (id: bigint) => {
+  const tellFriend = async (id: string) => {
     if (!picked) return;
     for (let i = 0; i < 4; i++) {
       try {

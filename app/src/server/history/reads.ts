@@ -1,9 +1,10 @@
-import type { HistoryRow } from "@/lib/chain/history";
+import { HISTORY_PAGE, type HistoryRow } from "@/lib/chain/history";
 import type { Win } from "@/lib/chain/season";
 import { matchKeyOf, type MatchKey } from "./match-key";
 import type { Rpc } from "./rpc";
 
-export const HISTORY_PAGE_SIZE = 20;
+/** Banners per page: the same as the pages the app cuts from the full history. */
+export const HISTORY_PAGE_SIZE = HISTORY_PAGE;
 
 /** One page of an Account's finished Matches, played and funded, newest first (page 1-based, clamped), optionally of one Game id. */
 export async function accountHistory(rpc: Rpc, account: string, page = 1, size = HISTORY_PAGE_SIZE, game: string | null = null) {

@@ -193,6 +193,7 @@ struct Env {
     a_source: APk,
     b_source: APk,
     tmatch: APk,
+    next_person: u8,
     mref: Option<flow::MatchRef>,
     now: i64,
     last_cu: u64,
@@ -237,7 +238,9 @@ impl Env {
     }
 
     fn person(&mut self) -> Person {
-        let kp = Keypair::new();
+        // Fixed keys: every Env addresses the same Match and Battle, so runs can be compared byte for byte.
+        self.next_person += 1;
+        let kp = Keypair::new_from_array([self.next_person; 32]);
         self.svm
             .airdrop(&kp.pubkey(), 1_000 * SOL)
             .expect("airdrop");
@@ -453,6 +456,7 @@ impl Env {
             a_source: APk::default(),
             b_source: APk::default(),
             tmatch: APk::default(),
+            next_person: 0,
             mref: None,
             now: T0,
             last_cu: 0,

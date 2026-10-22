@@ -527,8 +527,6 @@ export interface QueueSeat {
   /** Account key that paid the entry: the Player, or their Backer. */
   funder: string;
   entry: number;
-  /** TesoroAccount key of whoever put the Gemas in (differs from `player` when the seat is backed). */
-  funder?: string;
   /** Trading Duel asset index; 0 for the other Games. */
   asset: number;
 }

@@ -462,7 +462,7 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
       if (await vg.resolve(p, mk!).then(() => true, () => false)) break;
       await new Promise((r) => setTimeout(r, 250));
     }
-  }, [p, id]);
+  }, [p, id, mk]);
 
   /** Send one declare. A stale `expected_seq` re-reads the Battle (the board snaps to what is confirmed); the message says what happened. */
   const declare = useCallback(

@@ -14,10 +14,15 @@ export const INSTANT_UNAVAILABLE = `Instant Redeem unavailable right now. ${BRAN
 
 export const PRICE_MOVED = "The price moved while you were confirming, so the Advance would have issued fewer Gemas than shown. Nothing was taken. Try again.";
 
+const PRICE_MOVED_PATTERN = /AdvanceBelowMinimum|fewer Gemas than the minimum|"Custom":\s*6045\b|custom program error: 0x179d/i;
+
+/** The program refused an Advance because the price moved and it would have issued fewer Gemas than the floor. */
+export const isPriceMoved = (e: unknown): boolean => PRICE_MOVED_PATTERN.test(e instanceof Error ? e.message : String(e));
+
 export function plainError(e: unknown): string {
   const text = e instanceof Error ? e.message : String(e);
   if (/TreasuryShort|treasury cannot pay|custom program error: 0x1781|"Custom":\s*6017\b/i.test(text)) return INSTANT_UNAVAILABLE;
-  if (/AdvanceBelowMinimum|fewer Gemas than the minimum|"Custom":\s*6045\b|custom program error: 0x179d/i.test(text)) return PRICE_MOVED;
+  if (PRICE_MOVED_PATTERN.test(text)) return PRICE_MOVED;
   const err = e as { code?: number; name?: string };
   if (err?.name === "UserRejectedRequestError" || err?.code === 4001 || /user rejected|rejected the request|user denied/i.test(text)) {
     return "You cancelled the request in your wallet.";
