@@ -64,8 +64,6 @@ pub const MAX_ENTRY_SIZES: usize = 4;
 /// Maximum lines (distinct Sources) one entry may be drawn from. Bounds accounts per
 /// instruction, and with it the payout lines at settlement (see docs/tesoro-core.md).
 pub const MAX_ENTRY_SOURCES: usize = 8;
-/// Maximum applicants on a public Offer.
-pub const MAX_APPLICANTS: usize = 8;
 /// Request and Offer lifetime, and the window an accepted Backing has to be used.
 pub const BACKING_TTL_SECS: i64 = 24 * 60 * 60;
 /// Time a Match has before anybody may refund it as abandoned / no-show.
@@ -122,9 +120,11 @@ core_errors! {
     GameMismatch => "game does not match",
     EntryMismatch => "entry does not match",
     SelfMatch => "both sides of a match must be distinct",
+    // TooManyApplicants and AlreadyApplied are no longer returned (no public Offers since
+    // 2026-10-22); kept so the codes after them do not move.
     TooManyApplicants => "too many applicants",
     AlreadyApplied => "already applied",
-    NotApplicant => "request has not applied to this offer",
+    WrongRequest => "the offer was made on another request",
     ReservationMismatch => "lines do not match the offer reservation",
     FeeTooHigh => "fees exceed the cap",
     InvalidDeadline => "deadline may only move later, within the extension cap",

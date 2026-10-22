@@ -291,8 +291,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "How do I back a Player?",
         a: (
           <p>
-            Send an Offer to a Player&apos;s Request, or post a public Offer that Players apply to and accept the one you choose. Either way you
-            pick whom you back and the Player agrees to your terms.
+            Pick a Player&apos;s Request on the Backing board and make an Offer on it. You pick whom you back, and the Player accepts or declines
+            your terms.
           </p>
         ),
       },

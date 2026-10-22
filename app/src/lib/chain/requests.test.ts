@@ -25,11 +25,6 @@ describe("liveRequestFor", () => {
     expect(liveRequestFor(rs, "p1", "block-puzzle", 100)?.address.toBase58()).toBe("b");
     expect(liveRequestFor(rs, "p1", "holdem", 100)).toBeUndefined();
   });
-  it("skips a Request that already applied to the Offer, so another is posted", () => {
-    const rs = [req("a", "p1"), req("b", "p1")];
-    expect(liveRequestFor(rs, "p1", "block-puzzle", 100, ["a"])?.address.toBase58()).toBe("b");
-    expect(liveRequestFor([req("a", "p1")], "p1", "block-puzzle", 100, ["a"])).toBeUndefined();
-  });
   it("finds nothing in an empty or stale list", () => {
     expect(liveRequestFor([], "p1", "block-puzzle", 100)).toBeUndefined();
     expect(liveRequestFor([req("a", "p1", { live: false })], "p1", "block-puzzle", 100)).toBeUndefined();

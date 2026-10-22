@@ -18,7 +18,7 @@ use solana_sdk::pubkey::Pubkey as Pk;
 use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
-use tesoro_core::ledger::{self, Offer, OfferKind, OfferStatus, Request, RequestStatus, Source};
+use tesoro_core::ledger::{self, Offer, OfferStatus, Request, RequestStatus, Source};
 use tesoro_core::state::*;
 use tesoro_core::{accounts, instruction};
 
@@ -617,13 +617,11 @@ fn offers_retire_when_old_sized_and_only_then() {
             game: [2; 32],
             entry: 500,
             player_share_bps: 0,
-            kind: OfferKind::Public,
+            request: [3; 32],
             status: OfferStatus::Open,
             expires_at: 0,
             use_by: 0,
             player: None,
-            request: None,
-            applicants: vec![],
             ticket_open: false,
         },
     };

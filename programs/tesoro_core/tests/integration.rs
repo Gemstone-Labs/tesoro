@@ -2278,62 +2278,56 @@ impl Backing {
         request
     }
 
-    fn offer(&mut self, nonce: u64, entry: u64, share: u16, directed: Option<APk>) -> APk {
-        let offer = offer_pda(self.carol.account, nonce);
-        let create = ix(
+    /// Carol's Offer on `request`, for its game and entry.
+    fn offer_ix(&self, nonce: u64, request: APk, share: u16) -> Instruction {
+        ix(
             accounts::CreateOffer {
                 backer_authority: self.carol.key,
                 config: pda(&[CONFIG_SEED]),
+                request,
                 game_record: common::game_record(GAME),
                 backer_account: self.carol.account,
                 protections: protections_pda(self.carol.account),
                 basket: basket_address(&self.carol.account).0,
                 spill: spill_address(&self.carol.account).0,
                 counters: counters_pda(self.carol.account),
-                offer,
+                offer: offer_pda(self.carol.account, nonce),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::CreateOffer {
                 nonce,
-                game: GAME,
-                entry,
                 player_share_bps: share,
-                directed_request: directed,
             },
             vec![],
-        );
-        let carol = self.carol.kp.insecure_clone();
-        self.d.env.send(&[create], &carol, &[]).expect("offer");
-        offer
+        )
     }
 
-    fn accept_public(&mut self, offer: APk, request: APk) {
-        let apply = ix(
-            accounts::ApplyOffer {
+    fn offer(&mut self, nonce: u64, request: APk, share: u16) -> APk {
+        let create = self.offer_ix(nonce, request, share);
+        let carol = self.carol.kp.insecure_clone();
+        self.d.env.send(&[create], &carol, &[]).expect("offer");
+        offer_pda(self.carol.account, nonce)
+    }
+
+    /// Dave accepts the Offer made on his Request.
+    fn accept_ix(&self, offer: APk, request: APk) -> Instruction {
+        ix(
+            accounts::AcceptOffer {
                 player_authority: self.dave.key,
                 player_account: self.dave.account,
                 protections: protections_pda(self.dave.account),
                 request,
                 offer,
             },
-            instruction::ApplyOffer {},
+            instruction::AcceptOffer {},
             vec![],
-        );
+        )
+    }
+
+    fn accept(&mut self, offer: APk, request: APk) {
+        let accept = self.accept_ix(offer, request);
         let dave = self.dave.kp.insecure_clone();
-        self.d.env.send(&[apply], &dave, &[]).expect("apply");
-        let accept = ix(
-            accounts::AcceptApplicant {
-                backer_authority: self.carol.key,
-                backer_account: self.carol.account,
-                request,
-                player_protections: protections_pda(self.dave.account),
-                offer,
-            },
-            instruction::AcceptApplicant {},
-            vec![],
-        );
-        let carol = self.carol.kp.insecure_clone();
-        self.d.env.send(&[accept], &carol, &[]).expect("accept");
+        self.d.env.send(&[accept], &dave, &[]).expect("accept");
     }
 
     fn open_backed(
@@ -2401,9 +2395,9 @@ impl Backing {
 fn backing_win_returns_backer_entry_then_splits_and_player_has_no_debt() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 4_000, None);
+    let offer = b.offer(1, request, 4_000);
     assert_eq!(b.reserved(), 500);
-    b.accept_public(offer, request);
+    b.accept(offer, request);
     let id = b.open_backed(offer, 500).expect("backed entry");
     assert_eq!(b.d.env.gemas_of(&b.carol, b.c_source), 75_000 - 500);
     b.d.env.join_match(&b.d.bob, id).map(|_| ()).expect("join");
@@ -2431,8 +2425,8 @@ fn backing_win_returns_backer_entry_then_splits_and_player_has_no_debt() {
 fn the_start_record_carries_both_sides_backing_shares_so_history_needs_no_match_state() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 4_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 4_000);
+    b.accept(offer, request);
     let id = b.open_backed(offer, 500).expect("backed entry");
     b.d.env.join_match(&b.d.bob, id).map(|_| ()).expect("join");
     let game = b.d.env.game_auth.insecure_clone();
@@ -2453,22 +2447,8 @@ fn the_start_record_carries_both_sides_backing_shares_so_history_needs_no_match_
 fn backing_loss_costs_the_backer_the_entry_and_nothing_more() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 4_000, Some(request));
-    let accept = ix(
-        accounts::AcceptDirected {
-            player_authority: b.dave.key,
-            player_account: b.dave.account,
-            protections: protections_pda(b.dave.account),
-            request,
-            offer,
-        },
-        instruction::AcceptDirected {},
-        vec![],
-    );
-    let dave = b.dave.kp.insecure_clone();
-    b.d.env
-        .send(&[accept], &dave, &[])
-        .expect("accept directed");
+    let offer = b.offer(1, request, 4_000);
+    b.accept(offer, request);
     let id = b.open_backed(offer, 500).expect("backed entry");
     b.d.env.join_match(&b.d.bob, id).expect("join");
     let game = b.d.env.game_auth.insecure_clone();
@@ -2484,11 +2464,46 @@ fn backing_loss_costs_the_backer_the_entry_and_nothing_more() {
 }
 
 #[test]
+fn an_offer_answers_one_live_request_and_only_that_request_accepts_it() {
+    let mut b = backing_setup();
+    let request = b.request(1, 1_000);
+    let offer = b.offer(1, request, 5_000);
+    // The Offer takes the Request's game and entry.
+    let state = b.d.env.load::<OfferState>(offer).inner;
+    assert_eq!(state.request, request.to_bytes());
+    assert_eq!((state.game, state.entry), (GAME.to_bytes(), 1_000));
+    assert_eq!(b.reserved(), 1_000);
+    // Dave's other Request for the same game and entry cannot take it.
+    let other = b.request(2, 1_000);
+    let dave = b.dave.kp.insecure_clone();
+    let wrong = b.accept_ix(offer, other);
+    let err = b.d.env.send(&[wrong], &dave, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::WrongRequest));
+    // A cancelled Request takes no new Offer.
+    let cancel = ix(
+        accounts::CancelRequest {
+            player_authority: b.dave.key,
+            player_account: b.dave.account,
+            request: other,
+        },
+        instruction::CancelRequest {},
+        vec![],
+    );
+    b.d.env.send(&[cancel], &dave, &[]).expect("cancel request");
+    let late = b.offer_ix(2, other, 5_000);
+    let carol = b.carol.kp.insecure_clone();
+    let err = b.d.env.send(&[late], &carol, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::Expired));
+    assert_eq!(b.reserved(), 1_000);
+    b.accept(offer, request);
+}
+
+#[test]
 fn backing_cannot_be_revoked_after_start_and_backed_player_cannot_move_backer_gemas() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
     // Dave cannot enter a plain Match with Carol's Gemas.
     let err = b.d.env.open_match(&b.dave, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InsufficientGemas));
@@ -2589,32 +2604,11 @@ fn removing_the_entry_limit_lifts_it_after_a_day() {
 fn funding_a_backing_counts_toward_the_backers_entry_limit() {
     let mut b = backing_setup();
     b.d.env.set_entry_limit(&b.carol, 500).unwrap();
-    b.offer(1, 500, 5_000, None);
+    let request = b.request(1, 500);
+    b.offer(1, request, 5_000);
     assert_eq!(b.d.env.entry_limit(&b.carol).window_used, 500);
     // A second Offer would put 1,000 at risk in the period.
-    let offer = offer_pda(b.carol.account, 2);
-    let create = ix(
-        accounts::CreateOffer {
-            backer_authority: b.carol.key,
-            config: pda(&[CONFIG_SEED]),
-            game_record: common::game_record(GAME),
-            backer_account: b.carol.account,
-            protections: protections_pda(b.carol.account),
-            basket: basket_address(&b.carol.account).0,
-            spill: spill_address(&b.carol.account).0,
-            counters: counters_pda(b.carol.account),
-            offer,
-            system_program: anchor_lang::system_program::ID,
-        },
-        instruction::CreateOffer {
-            nonce: 2,
-            game: GAME,
-            entry: 500,
-            player_share_bps: 5_000,
-            directed_request: None,
-        },
-        vec![],
-    );
+    let create = b.offer_ix(2, request, 5_000);
     let carol = b.carol.kp.insecure_clone();
     let err = b.d.env.send(&[create], &carol, &[]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
@@ -2628,8 +2622,8 @@ fn a_backed_player_playing_with_the_backers_gemas_is_not_counted() {
     b.d.env.set_entry_limit(&b.dave, 1).unwrap();
     b.d.env.set_entry_limit(&b.carol, 500).unwrap();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
     b.open_backed(offer, 500).expect("backed");
     assert_eq!(b.d.env.entry_limit(&b.dave).window_used, 0);
     // Using the Offer did not count Carol twice: it was counted when she funded it.
@@ -2650,7 +2644,7 @@ fn a_player_with_no_entry_limit_set_is_not_limited() {
 fn offers_and_requests_expire_after_24_hours() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
+    let offer = b.offer(1, request, 5_000);
     let expire = |b: &mut Backing| {
         let expire = ix(
             accounts::ExpireOffer {
@@ -2674,20 +2668,10 @@ fn offers_and_requests_expire_after_24_hours() {
     assert_eq!(b.reserved(), 500);
     let now = b.d.env.now();
     b.d.env.set_time(now + 24 * 3_600 + 1);
-    // Too late to apply or accept; anybody releases the reservation.
-    let apply = ix(
-        accounts::ApplyOffer {
-            player_authority: b.dave.key,
-            player_account: b.dave.account,
-            protections: protections_pda(b.dave.account),
-            request,
-            offer,
-        },
-        instruction::ApplyOffer {},
-        vec![],
-    );
+    // Too late to accept; anybody releases the reservation.
+    let accept = b.accept_ix(offer, request);
     let dave = b.dave.kp.insecure_clone();
-    let err = b.d.env.send(&[apply], &dave, &[]).unwrap_err();
+    let err = b.d.env.send(&[accept], &dave, &[]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::Expired));
     expire(&mut b).expect("expire");
     assert_eq!(b.reserved(), 0);
@@ -2701,7 +2685,8 @@ fn reserved_gemas_cannot_enter_other_matches() {
     b.carol = b.d.env.person();
     b.d.env.stake_principal(&b.carol, 9, 4 * SOL);
     assert_eq!(b.d.env.total_gemas(&b.carol), 3_000);
-    b.offer(1, 2_500, 5_000, None);
+    let request = b.request(1, 2_500);
+    b.offer(1, request, 5_000);
     assert_eq!(b.reserved(), 2_500);
     let carol = Person {
         kp: b.carol.kp.insecure_clone(),
@@ -2831,8 +2816,8 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
     for expire in [false, true] {
         let mut b = backing_setup();
         let request = b.request(1, 500);
-        let offer = b.offer(1, 500, 5_000, None);
-        b.accept_public(offer, request);
+        let offer = b.offer(1, request, 5_000);
+        b.accept(offer, request);
         assert_eq!(request_status(&b, request), RequestStatus::Accepted);
 
         let end = |b: &mut Backing, request: Option<APk>| {
@@ -2884,20 +2869,8 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
         if !expire {
             // Cancelling does not move time; the Request is live for a second Offer.
             assert_eq!(request_status(&b, request), RequestStatus::Open);
-            let offer2 = b.offer(2, 500, 5_000, Some(request));
-            let accept = ix(
-                accounts::AcceptDirected {
-                    player_authority: b.dave.key,
-                    player_account: b.dave.account,
-                    protections: protections_pda(b.dave.account),
-                    request,
-                    offer: offer2,
-                },
-                instruction::AcceptDirected {},
-                vec![],
-            );
-            let dave = b.dave.kp.insecure_clone();
-            b.d.env.send(&[accept], &dave, &[]).expect("answered again");
+            let offer2 = b.offer(2, request, 5_000);
+            b.accept(offer2, request);
         } else {
             assert_eq!(request_status(&b, request), RequestStatus::Open);
         }
@@ -3150,7 +3123,7 @@ fn a_player_on_a_break_cannot_ask_to_be_backed_or_be_backed() {
     let mut b = backing_setup();
     // Dave's Request and Carol's Offer exist before the Break.
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
+    let offer = b.offer(1, request, 5_000);
     b.d.env.set_break(&b.dave, 5).unwrap();
     let create = |b: &mut Backing, nonce: u64| {
         let create = ix(
@@ -3175,69 +3148,10 @@ fn a_player_on_a_break_cannot_ask_to_be_backed_or_be_backed() {
     };
     let err = create(&mut b, 2).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
-    // Applying to a public Offer and accepting a directed one are refused.
-    let apply = ix(
-        accounts::ApplyOffer {
-            player_authority: b.dave.key,
-            player_account: b.dave.account,
-            protections: protections_pda(b.dave.account),
-            request,
-            offer,
-        },
-        instruction::ApplyOffer {},
-        vec![],
-    );
+    // Accepting an Offer made before the Break is refused.
+    let accept = b.accept_ix(offer, request);
     let dave = b.dave.kp.insecure_clone();
-    let err = b.d.env.send(&[apply], &dave, &[]).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::OnBreak));
-    let directed = b.offer(2, 500, 5_000, Some(request));
-    let accept = ix(
-        accounts::AcceptDirected {
-            player_authority: b.dave.key,
-            player_account: b.dave.account,
-            protections: protections_pda(b.dave.account),
-            request,
-            offer: directed,
-        },
-        instruction::AcceptDirected {},
-        vec![],
-    );
     let err = b.d.env.send(&[accept], &dave, &[]).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::OnBreak));
-}
-
-#[test]
-fn a_backer_cannot_accept_an_applicant_who_is_on_a_break() {
-    let mut b = backing_setup();
-    let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    let apply = ix(
-        accounts::ApplyOffer {
-            player_authority: b.dave.key,
-            player_account: b.dave.account,
-            protections: protections_pda(b.dave.account),
-            request,
-            offer,
-        },
-        instruction::ApplyOffer {},
-        vec![],
-    );
-    let dave = b.dave.kp.insecure_clone();
-    b.d.env.send(&[apply], &dave, &[]).expect("applied");
-    b.d.env.set_break(&b.dave, 5).unwrap();
-    let accept = ix(
-        accounts::AcceptApplicant {
-            backer_authority: b.carol.key,
-            backer_account: b.carol.account,
-            request,
-            player_protections: protections_pda(b.dave.account),
-            offer,
-        },
-        instruction::AcceptApplicant {},
-        vec![],
-    );
-    let carol = b.carol.kp.insecure_clone();
-    let err = b.d.env.send(&[accept], &carol, &[]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
 }
 
@@ -3246,8 +3160,8 @@ fn an_accepted_offer_cannot_start_a_match_once_the_player_or_backer_is_away() {
     for backer_away in [false, true] {
         let mut b = backing_setup();
         let request = b.request(1, 500);
-        let offer = b.offer(1, 500, 5_000, None);
-        b.accept_public(offer, request);
+        let offer = b.offer(1, request, 5_000);
+        b.accept(offer, request);
         let who = if backer_away {
             b.carol.account
         } else {
@@ -3283,8 +3197,8 @@ fn an_accepted_offer_cannot_start_a_match_once_the_player_or_backer_is_away() {
 fn a_backed_match_cannot_be_joined_by_a_player_on_a_break() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
     // Dave is backed into the Match Bob opened; Bob's Break stops the join through the opener check.
     let id = b.d.env.open_match(&b.d.bob, 500).unwrap();
     let bob = Person {
@@ -3306,29 +3220,9 @@ fn a_backer_on_a_break_cannot_fund_an_offer() {
         key: b.carol.key,
         account: b.carol.account,
     };
+    let request = b.request(1, 500);
     b.d.env.set_break(&carol, 2).unwrap();
-    let create = ix(
-        accounts::CreateOffer {
-            backer_authority: b.carol.key,
-            config: pda(&[CONFIG_SEED]),
-            game_record: common::game_record(GAME),
-            backer_account: b.carol.account,
-            protections: protections_pda(b.carol.account),
-            basket: basket_address(&b.carol.account).0,
-            spill: spill_address(&b.carol.account).0,
-            counters: counters_pda(b.carol.account),
-            offer: offer_pda(b.carol.account, 1),
-            system_program: anchor_lang::system_program::ID,
-        },
-        instruction::CreateOffer {
-            nonce: 1,
-            game: GAME,
-            entry: 500,
-            player_share_bps: 5_000,
-            directed_request: None,
-        },
-        vec![],
-    );
+    let create = b.offer_ix(1, request, 5_000);
     let err = b.d.env.send(&[create], &carol.kp, &[]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
     assert_eq!(b.reserved(), 0);
@@ -3338,7 +3232,7 @@ fn a_backer_on_a_break_cannot_fund_an_offer() {
 fn anyone_withdraws_the_requests_and_offers_of_a_player_who_started_a_break() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
+    let offer = b.offer(1, request, 5_000);
     let stranger = b.d.env.admin.insecure_clone();
     let (dave_acct, carol_acct) = (b.dave.account, b.carol.account);
     let clear = |b: &mut Backing, request: APk, who: APk| {
@@ -3415,8 +3309,8 @@ fn anyone_withdraws_the_requests_and_offers_of_a_player_who_started_a_break() {
 fn a_withdrawn_accepted_offer_hands_its_request_back() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
     let carol = Person {
         kp: b.carol.kp.insecure_clone(),
         key: b.carol.key,
@@ -3852,8 +3746,8 @@ fn only_the_admin_lists_a_game() {
 fn a_backed_match_on_an_unlisted_game_is_refused_at_open() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 4_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 4_000);
+    b.accept(offer, request);
     // The Game is upgraded after the Offer was made.
     common::set_program_data(
         &mut b.d.env.svm,
@@ -3939,8 +3833,8 @@ fn a_pair_cannot_start_more_than_twenty_matches_a_day() {
 fn a_backed_join_is_refused_once_the_game_was_upgraded_after_the_match_opened() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
     let id = b.d.env.open_match(&b.d.bob, 500).unwrap();
     assert!(b.d.env.mstate(id).listed);
     // The studio ships different code while the Match waits for an opponent.
@@ -3972,8 +3866,8 @@ fn a_backed_join_is_refused_once_the_game_was_upgraded_after_the_match_opened() 
 fn a_stranger_extending_the_program_cannot_block_a_pending_backed_join() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
     let id = b.d.env.open_match(&b.d.bob, 500).unwrap();
     let stranger = Keypair::new();
     b.d.env
@@ -3997,8 +3891,8 @@ fn a_stranger_extending_the_program_cannot_block_a_pending_backed_join() {
 fn relisting_the_same_build_keeps_a_pending_backed_join_alive() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
     let id = b.d.env.open_match(&b.d.bob, 500).unwrap();
     common::extend_program(&mut b.d.env.svm, s(GAME), GAME_SLOT + 4, 10_240);
     let admin = b.d.env.admin.insecure_clone();
@@ -4013,8 +3907,8 @@ fn relisting_the_same_build_keeps_a_pending_backed_join_alive() {
 fn a_backed_join_works_while_the_game_is_unchanged() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
     let id = b.d.env.open_match(&b.d.bob, 500).unwrap();
     b.join_backed(offer, id).expect("join");
     assert_eq!(b.d.env.mstate(id).inner.stage(), Stage::Active);
@@ -4874,8 +4768,8 @@ const MAX_OPEN: u32 = 8;
 fn a_backed_player_cannot_be_matched_against_their_own_backer() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
     // Carol (the Backer) opens a Match; Dave, backed by Carol, may not join it
     let carol = Person {
         kp: b.carol.kp.insecure_clone(),
@@ -4891,8 +4785,8 @@ fn a_backed_player_cannot_be_matched_against_their_own_backer() {
 fn a_backing_ticket_needs_the_requesters_signature_and_blocks_cancelling_the_offer() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
     let carol = Person {
         kp: b.carol.kp.insecure_clone(),
         key: b.carol.key,
@@ -4969,8 +4863,8 @@ fn a_backing_ticket_needs_the_requesters_signature_and_blocks_cancelling_the_off
 fn the_backer_cancels_a_backing_ticket_at_once_and_the_offer_is_free_again() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
     let carol = Person {
         kp: b.carol.kp.insecure_clone(),
         key: b.carol.key,
@@ -5015,32 +4909,12 @@ fn only_eight_offers_are_open_at_once_and_the_reserved_part_costs_nothing_to_dra
         b.d.env.last_cu
     };
     let mut b = backing_setup();
+    let request = b.request(1, 500);
     for n in 1..=8 {
-        b.offer(n, 500, 5_000, None);
+        b.offer(n, request, 5_000);
     }
     assert_eq!(b.reserved(), 4_000);
-    let create = ix(
-        accounts::CreateOffer {
-            backer_authority: b.carol.key,
-            config: pda(&[CONFIG_SEED]),
-            game_record: common::game_record(GAME),
-            backer_account: b.carol.account,
-            protections: protections_pda(b.carol.account),
-            basket: basket_address(&b.carol.account).0,
-            spill: spill_address(&b.carol.account).0,
-            counters: counters_pda(b.carol.account),
-            offer: offer_pda(b.carol.account, 9),
-            system_program: anchor_lang::system_program::ID,
-        },
-        instruction::CreateOffer {
-            nonce: 9,
-            game: GAME,
-            entry: 500,
-            player_share_bps: 5_000,
-            directed_request: None,
-        },
-        vec![],
-    );
+    let create = b.offer_ix(9, request, 5_000);
     let carol = b.carol.kp.insecure_clone();
     let err = b.d.env.send(&[create], &carol, &[]).unwrap_err();
     assert_eq!(custom_code(&err), ERR_TOO_MANY_OFFERS);
@@ -5707,8 +5581,8 @@ fn a_backers_share_with_no_hold_and_full_stores_lands_in_an_overflow_record() {
     b.d.env.name_records = true;
     b.d.env.skip_ensure = true;
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 4_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 4_000);
+    b.accept(offer, request);
     let id = b.open_backed(offer, 500).expect("backed entry");
     b.d.env.join_match(&b.d.bob, id).expect("join");
     let seed = b.d.env.mstate(id).inner.id.seed();

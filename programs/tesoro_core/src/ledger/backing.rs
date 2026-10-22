@@ -60,14 +60,6 @@ impl Request {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
-pub enum OfferKind {
-    /// Directed at one Request; that Player accepts.
-    Directed(Key),
-    /// Public: Players apply, the Backer accepts one.
-    Public,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
 pub enum OfferStatus {
     Open,
     /// Both sides agreed; waiting for the Player to enter a Match.
@@ -85,55 +77,53 @@ pub struct Offer {
     pub entry: u64,
     /// Player's share of the surplus, basis points. The Backer's max loss is `entry`.
     pub player_share_bps: u16,
-    pub kind: OfferKind,
+    /// The Request this Offer answers. Every Offer is made on one Request; its Player accepts.
+    pub request: Key,
     pub status: OfferStatus,
     /// Acceptance deadline for an Open Offer.
     pub expires_at: i64,
     /// Deadline to enter a Match once Accepted.
     pub use_by: i64,
+    /// The Request's Player, once they accept.
     pub player: Option<Key>,
-    pub request: Option<Key>,
-    /// Request keys of applicants (public Offers).
-    pub applicants: Vec<Key>,
     /// A Backing Ticket is staging this Offer's lines: it cannot be cancelled or expired until
     /// the Ticket is cancelled or consumed.
     pub ticket_open: bool,
 }
 
 impl Offer {
-    /// Creates an Offer. The Backer's `entry` is reserved by the caller
-    /// (`Pool::reserve_offer`) before or with this.
-    #[allow(clippy::too_many_arguments)]
+    /// Creates an Offer on a live Request, for that Request's game and entry (still one of the
+    /// allowed `sizes`). The Backer's `entry` is reserved by the caller (`Pool::reserve_offer`)
+    /// before or with this.
     pub fn create(
         backer: Key,
-        game: Key,
-        entry: u64,
+        request: &Request,
+        request_key: Key,
         sizes: &[u64],
         player_share_bps: u16,
-        kind: OfferKind,
         now: i64,
     ) -> CoreResult<Self> {
-        if !is_ladder_entry(entry, sizes) {
+        if !is_ladder_entry(request.entry, sizes) {
             return Err(CoreError::InvalidEntry);
         }
         if player_share_bps as u128 > BPS {
             return Err(CoreError::InvalidBps);
         }
         let expires_at = now.checked_add(BACKING_TTL_SECS).ok_or(CoreError::Math)?;
-        Ok(Self {
+        let offer = Self {
             backer,
-            game,
-            entry,
+            game: request.game,
+            entry: request.entry,
             player_share_bps,
-            kind,
+            request: request_key,
             status: OfferStatus::Open,
             expires_at,
             use_by: expires_at,
             player: None,
-            request: None,
-            applicants: Vec::new(),
             ticket_open: false,
-        })
+        };
+        offer.check_request(request, now)?;
+        Ok(offer)
     }
 
     fn check_request(&self, request: &Request, now: i64) -> CoreResult<()> {
@@ -162,60 +152,18 @@ impl Offer {
         Ok(())
     }
 
-    fn accept(&mut self, request: &mut Request, request_key: Key, now: i64) -> CoreResult<()> {
+    /// The Player accepts an Offer made on their Request.
+    pub fn accept(&mut self, request: &mut Request, request_key: Key, now: i64) -> CoreResult<()> {
+        self.open_live(now)?;
+        if self.request != request_key {
+            return Err(CoreError::WrongRequest);
+        }
+        self.check_request(request, now)?;
         self.use_by = now.checked_add(BACKING_TTL_SECS).ok_or(CoreError::Math)?;
         self.player = Some(request.player);
-        self.request = Some(request_key);
         self.status = OfferStatus::Accepted;
         request.status = RequestStatus::Accepted;
         Ok(())
-    }
-
-    /// The Player accepts an Offer directed at their Request.
-    pub fn accept_directed(
-        &mut self,
-        request: &mut Request,
-        request_key: Key,
-        now: i64,
-    ) -> CoreResult<()> {
-        self.open_live(now)?;
-        if self.kind != OfferKind::Directed(request_key) {
-            return Err(CoreError::NotApplicant);
-        }
-        self.check_request(request, now)?;
-        self.accept(request, request_key, now)
-    }
-
-    /// A Player applies to a public Offer with their Request.
-    pub fn apply(&mut self, request: &Request, request_key: Key, now: i64) -> CoreResult<()> {
-        self.open_live(now)?;
-        if self.kind != OfferKind::Public {
-            return Err(CoreError::InvalidStatus);
-        }
-        self.check_request(request, now)?;
-        if self.applicants.contains(&request_key) {
-            return Err(CoreError::AlreadyApplied);
-        }
-        if self.applicants.len() >= MAX_APPLICANTS {
-            return Err(CoreError::TooManyApplicants);
-        }
-        self.applicants.push(request_key);
-        Ok(())
-    }
-
-    /// The Backer accepts one applicant of a public Offer.
-    pub fn accept_applicant(
-        &mut self,
-        request: &mut Request,
-        request_key: Key,
-        now: i64,
-    ) -> CoreResult<()> {
-        self.open_live(now)?;
-        if self.kind != OfferKind::Public || !self.applicants.contains(&request_key) {
-            return Err(CoreError::NotApplicant);
-        }
-        self.check_request(request, now)?;
-        self.accept(request, request_key, now)
     }
 
     /// The Backer withdraws the Offer before it is used; the caller releases the reservation.

@@ -377,8 +377,9 @@ pub(crate) fn retire_request(ctx: Context<RetireRequest>) -> Result<()> {
     Ok(())
 }
 
-/// Closes an Offer of the retired world: shorter than the current layout, or the longer one that
-/// carried reserved lines. It holds no money of its own: the reservation lived in the Holdings.
+/// Closes an Offer of the retired world: every earlier layout is longer than the current one (it
+/// carried an applicants list, and on devnet reserved lines). It holds no money of its own: the
+/// reservation lived in the Holdings.
 #[derive(Accounts)]
 pub struct RetireOffer<'info> {
     #[account(mut)]
@@ -398,7 +399,7 @@ pub(crate) fn retire_offer<'info>(
     ctx: Context<'_, '_, 'info, 'info, RetireOffer<'info>>,
 ) -> Result<()> {
     let offer = ctx.accounts.offer.to_account_info();
-    // Every earlier Offer layout had another length (shorter, or longer with reserved lines).
+    // Every earlier Offer layout had another length (longer: applicants, then reserved lines).
     let other_layout = offer.owner == &crate::ID
         && offer.try_borrow_data().is_ok_and(|d| {
             d.len() >= 8 && d.len() != OfferState::SPACE && d[..8] == *OfferState::DISCRIMINATOR
