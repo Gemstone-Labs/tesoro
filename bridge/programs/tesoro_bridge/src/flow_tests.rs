@@ -1005,6 +1005,7 @@ impl Env {
         let mut request = ix(
             tesoro_core::ID,
             tesoro_core::accounts::RequestInstantRedeem {
+                payer: a(holder.pubkey()),
                 holder_authority: a(holder.pubkey()),
                 holder_account: account,
                 basket: basket_address(&account).0,
@@ -1012,6 +1013,7 @@ impl Env {
                 position: self.core_position(id),
                 source,
                 order: self.order_address(account, nonce),
+                sponsor: None,
                 system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::RequestInstantRedeem {
