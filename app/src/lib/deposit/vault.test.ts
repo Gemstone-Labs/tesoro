@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { NATIVE_MARKET, nativePosition } from "../../../stories/components/wallet/support";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
-import { fmtBackAt, vaultView, type VaultSnapshot } from "./vault";
+import { depositProgress, fmtBackAt, fmtTimeLeft, likelyPack, monthMs, vaultView, type VaultSnapshot } from "./vault";
 
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 
@@ -84,5 +84,47 @@ describe("Vault view model", () => {
 
   it("says the month in mainnet words and the time in test mode", () => {
     expect(fmtBackAt(Date.UTC(2027, 9, 21, 12, 30))).toMatch(/Oct/);
+  });
+
+  it("keeps when each deposit was made", () => {
+    const p = nativePosition("debt");
+    expect(view(snap([p])).deposits[0].openedAtMs).toBe(p.native!.openedAt * 1000);
+  });
+});
+
+describe("Deposit card helpers", () => {
+  const MIN = 60_000;
+  const now = 1_000_000 * MIN;
+
+  it("fills the bar from the day it was made to the day it comes back", () => {
+    expect(depositProgress({ state: "growing", openedAtMs: now - 30 * MIN, backAtMs: now + 90 * MIN }, now)).toBeCloseTo(0.25);
+    expect(depositProgress({ state: "growing", openedAtMs: now, backAtMs: now + 90 * MIN }, now - MIN)).toBe(0);
+    expect(depositProgress({ state: "growing", openedAtMs: now - 200 * MIN, backAtMs: now - MIN }, now)).toBe(1);
+  });
+
+  it("measures against the 12 months when there is no date yet", () => {
+    expect(depositProgress({ state: "growing", openedAtMs: now - 6 * monthMs(), backAtMs: null }, now)).toBeCloseTo(0.5);
+  });
+
+  it("shows a full bar once ready or late", () => {
+    expect(depositProgress({ state: "ready", openedAtMs: now, backAtMs: null }, now)).toBe(1);
+    expect(depositProgress({ state: "late", openedAtMs: now, backAtMs: now + MIN }, now)).toBe(1);
+  });
+
+  it("says the time left in the biggest unit that reads well", () => {
+    expect(fmtTimeLeft(47 * MIN + 12_000)).toBe("47m 12s");
+    expect(fmtTimeLeft(42_000)).toBe("42s");
+    expect(fmtTimeLeft(3 * 60 * MIN + 5 * MIN)).toBe("3h 05m");
+    expect(fmtTimeLeft(12 * 1440 * MIN)).toBe("12 days");
+    expect(fmtTimeLeft(1440 * MIN + 3 * 60 * MIN)).toBe("27h 00m");
+    expect(fmtTimeLeft(122 * 1440 * MIN)).toBe("4 months");
+    expect(fmtTimeLeft(-5)).toBe("0s");
+  });
+
+  it("draws the pack whose price is nearest the deposit's value", () => {
+    expect(likelyPack(251)).toBe("player");
+    expect(likelyPack(98)).toBe("starter");
+    expect(likelyPack(530)).toBe("pro");
+    expect(likelyPack(null)).toBe("player");
   });
 });

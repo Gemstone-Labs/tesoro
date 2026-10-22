@@ -1,7 +1,7 @@
 import { CLUSTER } from "@/lib/cluster-settings";
 import { LAMPORTS, SIM_MONTH_MIN, clockOf, nativeNow, speedupOf, stakeGrowthOf, unlockEstimateMs } from "@/lib/chain/native";
 import type { AccountSnapshot } from "@/lib/chain/read";
-import { PACK_MONTHS } from "./packs";
+import { DEPOSIT_PACKS, PACK_MONTHS, type DepositPackId } from "./packs";
 
 /** What the Vault reads of an Account read. */
 export type VaultSnapshot = Pick<AccountSnapshot, "positions" | "holdings" | "market">;
@@ -25,6 +25,8 @@ export interface DepositRow {
   state: DepositState;
   /** When it should be ready, ms: null when nothing can be projected. */
   backAtMs: number | null;
+  /** When it was made, ms. */
+  openedAtMs: number;
 }
 
 export interface VaultView {
@@ -70,6 +72,7 @@ export function vaultView({ snapshot, gemasAvailable, gemasTotal, nowMs }: { sna
       gemasGiven: info.source ? Number(info.source.math.issued) : null,
       state: ready ? "ready" : nowMs >= dueMs ? "late" : "growing",
       backAtMs: ready ? null : estimate,
+      openedAtMs: info.openedAt * 1000,
     });
   }
 
@@ -87,3 +90,30 @@ const DAY_TIME = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeri
 
 /** "October 2027": when a deposit should come back. Test mode runs 12 months in about two hours, so it says the day and time. */
 export const fmtBackAt = (ms: number): string => (SIM ? DAY_TIME.format(ms) : MONTH_YEAR.format(ms));
+
+/** How far a deposit is on its way back, 0 to 1: from the day it was made to its date back (its 12 months when it has none). */
+export function depositProgress(d: Pick<DepositRow, "state" | "openedAtMs" | "backAtMs">, nowMs: number): number {
+  if (d.state !== "growing") return 1;
+  const span = (d.backAtMs ?? d.openedAtMs + PACK_MONTHS * monthMs()) - d.openedAtMs;
+  return span <= 0 ? 1 : Math.min(1, Math.max(0, (nowMs - d.openedAtMs) / span));
+}
+
+const two = (n: number) => String(n).padStart(2, "0");
+
+/** "47m 12s", "3h 05m", "12 days", "4 months": the time left before a deposit comes back. */
+export function fmtTimeLeft(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(s / 86_400);
+  if (days >= 60) return `${Math.round(days / 30.4)} months`;
+  if (days >= 2) return `${days} days`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}h ${two(m)}m`;
+  return m > 0 ? `${m}m ${two(s % 60)}s` : `${s % 60}s`;
+}
+
+/** The pack a deposit most likely was, for its art: the one priced nearest its value today (deposits don't record their pack). */
+export function likelyPack(worthUsd: number | null): DepositPackId {
+  if (worthUsd === null) return "player";
+  return DEPOSIT_PACKS.reduce((best, p) => (Math.abs(p.usd - worthUsd) < Math.abs(best.usd - worthUsd) ? p : best)).id;
+}

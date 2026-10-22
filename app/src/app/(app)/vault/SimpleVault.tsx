@@ -1,16 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Info } from "lucide-react";
 import { ViewSwitchLink } from "@/components/deposit/ViewSwitchLink";
 import { Button, CheckIcon, SkeletonCards } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { requestDeposit } from "@/lib/deposit/bus";
 import { PACK_MONTHS } from "@/lib/deposit/packs";
 import { withdrawDeposit } from "@/lib/deposit/vault-actions";
-import { fmtBackAt, vaultView, type DepositRow } from "@/lib/deposit/vault";
+import { vaultView, type DepositRow } from "@/lib/deposit/vault";
 import { plainError } from "@/lib/errors";
 import { fmtUsd } from "@/lib/format";
+import { DepositCards } from "./DepositCards";
 import "./vault.css";
 
 export function SimpleVault() {
@@ -65,31 +65,14 @@ export function SimpleVault() {
 
       {ready && !view.isNew && (
         <section className="cut cut-card vt-deposits" aria-label="Your deposits">
-          <h2 className="display">Deposits</h2>
+          <header className="vt-deposits-head">
+            <h2 className="display">Deposits</h2>
+            {view.deposits.length > 0 && (
+              <p className="vt-total"><b>{fmtUsd(Math.round(view.deposits.reduce((t, d) => t + (d.worthUsd ?? 0), 0)))}</b> in your Vault</p>
+            )}
+          </header>
           {view.deposits.length === 0 && <p className="meta">No deposits right now.</p>}
-          <div className="vt-list">
-            {view.deposits.map((d) => (
-              <article key={d.id} className={`vt-dep ${d.state}`}>
-                <p className="vt-dep-line">
-                  <b>{d.label}</b>
-                  {d.state !== "ready" && d.worthUsd !== null && <><i aria-hidden="true">·</i><span>worth about {fmtUsd(Math.round(d.worthUsd))} today</span></>}
-                  <i aria-hidden="true">·</i>
-                  {d.state === "ready" && <span className="ok"><CheckIcon aria-hidden="true" /> Ready to withdraw</span>}
-                  {d.state === "growing" && <span>{d.backAtMs ? `Back around ${fmtBackAt(d.backAtMs)}` : `Back after about ${PACK_MONTHS} months`}</span>}
-                  {d.state === "late" && <span className="warn">{d.backAtMs ? `Taking a little longer · about ${fmtBackAt(d.backAtMs)}` : "Taking a little longer. We'll show a new date soon."}</span>}
-                </p>
-                {d.state === "ready" && (
-                  <Button variant="money" size="sm" disabled={!signer || busy !== null} onClick={() => void withdraw(d)}>
-                    {busy === `withdraw:${d.id}` ? "Withdrawing…" : "Withdraw"}
-                  </Button>
-                )}
-              </article>
-            ))}
-          </div>
-          <div className="vt-info">
-            <p className="note vt-note"><Info aria-hidden="true" /><span>You get your deposit back after about {PACK_MONTHS} months!</span></p>
-            <p className="note vt-note"><Info aria-hidden="true" /><span>What you get back depends on the SOL price when you withdraw.</span></p>
-          </div>
+          <DepositCards deposits={view.deposits} busyId={busy} canWithdraw={!!signer} onWithdraw={(d) => void withdraw(d)} />
           {view.withdrawn > 0 && <p className="note">{view.withdrawn} earlier {view.withdrawn === 1 ? "deposit" : "deposits"} withdrawn.</p>}
           {view.otherChainDeposits && <p className="note">You also have deposits on other chains: see the <ViewSwitchLink to="advanced" /> to manage them.</p>}
         </section>
