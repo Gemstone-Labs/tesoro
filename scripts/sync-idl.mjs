@@ -5,7 +5,7 @@
 // Why `errors` stay: `anchor idl build` lists the errors of only ONE `#[error_code]` enum (the program has three:
 // TesoroError at 6000, BasketError at 6300, MatchError at 6400), and numbers them from 6000 whatever their `offset`.
 // The app reads error names from the program log and from the hand-kept lists in app/src/lib/chain/entry-errors.ts,
-// which app/src/lib/chain/idl-drift.test.ts checks against programs/tesoro_core/src/error.rs.
+// which app/src/lib/chain/entry-errors.test.ts checks against programs/tesoro_core/src/error.rs.
 //
 // `--check` exits 1 instead of writing when the app copy differs.
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
