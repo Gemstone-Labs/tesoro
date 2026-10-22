@@ -25,6 +25,8 @@ export interface DepositRow {
   state: DepositState;
   /** When it should be ready, ms: null when nothing can be projected. */
   backAtMs: number | null;
+  /** When it was made, ms. */
+  openedAtMs: number;
 }
 
 export interface VaultView {
@@ -70,6 +72,7 @@ export function vaultView({ snapshot, gemasAvailable, gemasTotal, nowMs }: { sna
       gemasGiven: info.source ? Number(info.source.math.issued) : null,
       state: ready ? "ready" : nowMs >= dueMs ? "late" : "growing",
       backAtMs: ready ? null : estimate,
+      openedAtMs: info.openedAt * 1000,
     });
   }
 

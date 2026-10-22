@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Info } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { ProtoSwitcher } from "@/components/proto/ProtoSwitcher";
 import { ViewSwitchLink } from "@/components/deposit/ViewSwitchLink";
 import { Button, CheckIcon, SkeletonCards } from "@/components/ui";
 import { useAccount } from "@/lib/account";
@@ -11,6 +12,7 @@ import { withdrawDeposit } from "@/lib/deposit/vault-actions";
 import { fmtBackAt, vaultView, type DepositRow } from "@/lib/deposit/vault";
 import { plainError } from "@/lib/errors";
 import { fmtUsd } from "@/lib/format";
+import { CARD_VARIANTS, VariantA, VariantB, VariantC, VariantD } from "./proto-deposits/DepositsCardProto";
 import "./vault.css";
 
 export function SimpleVault() {
@@ -42,6 +44,15 @@ export function SimpleVault() {
       return `${d.label} withdrawn. Your SOL is back in your wallet.`;
     });
   const loadingFirst = (loading || !ready) && !snapshot && !error;
+  // PROTOTYPE: ?card=a|b|c|d|today picks a Deposits card take.
+  const card = useSearchParams().get("card") ?? "a";
+  const extras = (
+    <>
+      {view.withdrawn > 0 && <p className="note">{view.withdrawn} earlier {view.withdrawn === 1 ? "deposit" : "deposits"} withdrawn.</p>}
+      {view.otherChainDeposits && <p className="note">You also have deposits on other chains: see the <ViewSwitchLink to="advanced" /> to manage them.</p>}
+    </>
+  );
+  const proto = { deposits: view.deposits, busyId: busy, canWithdraw: !!signer, onWithdraw: (d: DepositRow) => void withdraw(d), extras };
 
   return (
     <div className="wl-part">
@@ -63,7 +74,13 @@ export function SimpleVault() {
         </section>
       )}
 
-      {ready && !view.isNew && (
+      {ready && !view.isNew && card === "a" && <VariantA {...proto} />}
+      {ready && !view.isNew && card === "b" && <VariantB {...proto} />}
+      {ready && !view.isNew && card === "c" && <VariantC {...proto} />}
+      {ready && !view.isNew && card === "d" && <VariantD {...proto} />}
+      {ready && !view.isNew && <ProtoSwitcher param="card" variants={CARD_VARIANTS} current={card} />}
+
+      {ready && !view.isNew && card === "today" && (
         <section className="cut cut-card vt-deposits" aria-label="Your deposits">
           <h2 className="display">Deposits</h2>
           {view.deposits.length === 0 && <p className="meta">No deposits right now.</p>}
@@ -86,12 +103,7 @@ export function SimpleVault() {
               </article>
             ))}
           </div>
-          <div className="vt-info">
-            <p className="note vt-note"><Info aria-hidden="true" /><span>You get your deposit back after about {PACK_MONTHS} months!</span></p>
-            <p className="note vt-note"><Info aria-hidden="true" /><span>What you get back depends on the SOL price when you withdraw.</span></p>
-          </div>
-          {view.withdrawn > 0 && <p className="note">{view.withdrawn} earlier {view.withdrawn === 1 ? "deposit" : "deposits"} withdrawn.</p>}
-          {view.otherChainDeposits && <p className="note">You also have deposits on other chains: see the <ViewSwitchLink to="advanced" /> to manage them.</p>}
+          {extras}
         </section>
       )}
     </div>
