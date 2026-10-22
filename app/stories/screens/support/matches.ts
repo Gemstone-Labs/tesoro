@@ -75,7 +75,7 @@ export function holdemOver(): Partial<HoldemView> {
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 
 function book(seat: 0 | 1, picks: number[]): Book {
-  return { address: key(60 + seat), duel: key(50), player: key(70 + seat), seat, picks, pickCount: picks.filter((r) => r !== NO_PICK).length };
+  return { address: key(60 + seat), table: key(50), player: key(70 + seat), seat, picks, pickCount: picks.filter((r) => r !== NO_PICK).length };
 }
 
 const ANCHOR = usdToMid(142.5);
@@ -120,11 +120,14 @@ export function duelLive(kind: "headstart" | "mid" | "last"): Partial<DuelView> 
 export function duel(over: Partial<Duel> = {}): Duel {
   return {
     address: key(50),
+    epoch: 0,
+    checkedIn: [true, true],
+    seatsOpen: true,
+    dirty: false,
     tesoroMatch: key(51),
     players: [key(70), key(71)],
     asset: ASSETS[0],
     status: STATUS.live,
-    finalized: false,
     winner: NO_WINNER,
     startDeadline: secs() + 60,
     startsAt: secs() - 90,
@@ -153,7 +156,6 @@ export function duelSettled(won: boolean): Partial<DuelView> {
     asset: ASSETS[0],
     duel: duel({
       status: STATUS.over,
-      finalized: true,
       winner: won ? 0 : 1,
       startsAt,
       gridAt: startsAt + 30,
