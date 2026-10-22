@@ -50,9 +50,6 @@ fn position_pda(id: u8) -> APk {
 fn source_pda(position: APk, index: u32) -> APk {
     pda(&[SOURCE_SEED, position.as_ref(), &index.to_le_bytes()])
 }
-fn holding_pda(account: APk, source: APk) -> APk {
-    pda(&[HOLDING_SEED, account.as_ref(), source.as_ref()])
-}
 fn counters_pda(account: APk) -> APk {
     pda(&[COUNTERS_SEED, account.as_ref()])
 }
@@ -145,6 +142,8 @@ struct Env {
     person_seed: u8,
     /// Do not grow spills for the caller (to test the room check).
     skip_ensure: bool,
+    /// Instructions the next join sends in the same transaction, before it.
+    pre_ixs: Vec<Instruction>,
     last_cu: u64,
     /// Serialized size in bytes of the last transaction as a legacy transaction.
     last_size: usize,
@@ -204,6 +203,7 @@ impl Env {
             pot_nonce: 1_000,
             person_seed: 0,
             skip_ensure: false,
+            pre_ixs: Vec::new(),
             last_cu: 0,
             last_size: 0,
             last_logs: Vec::new(),
@@ -414,13 +414,22 @@ impl Env {
     }
 
     /// Position + first Advance (6 months at $150): 100 tokens at 10% => 5 tokens => 75_000 Gemas.
-    fn stake(&mut self, p: &Person, id: u8) -> (APk, APk, APk) {
+    fn stake(&mut self, p: &Person, id: u8) -> (APk, APk) {
         self.stake_principal(p, id, 100 * SOL)
     }
 
     /// Opens a Position of `principal` lamports and takes a 6-month Advance at $150: 750 Gemas
     /// per SOL of principal at the 10% rate used here.
-    fn stake_principal(&mut self, p: &Person, id: u8, principal: u64) -> (APk, APk, APk) {
+    fn stake_principal(&mut self, p: &Person, id: u8, principal: u64) -> (APk, APk) {
+        let position = self.open_position_only(p, id, principal);
+        let source = source_pda(position, 0);
+        self.take_advance(p, position, 0, 6, 150_000_000)
+            .expect("advance");
+        (position, source)
+    }
+
+    /// Opens a Position of `principal` lamports; the Advance is the caller's.
+    fn open_position_only(&mut self, p: &Person, id: u8, principal: u64) -> APk {
         let position = position_pda(id);
         let config = pda(&[CONFIG_SEED]);
         let open = ix(
@@ -443,11 +452,7 @@ impl Env {
         );
         let oracle = self.oracle.insecure_clone();
         self.send(&[open], &oracle, &[]).expect("open position");
-        let source = source_pda(position, 0);
-        let holding = holding_pda(p.account, source);
-        self.take_advance(p, position, 0, 6, 150_000_000)
-            .expect("advance");
-        (position, source, holding)
+        position
     }
 
     fn take_advance(
@@ -761,7 +766,7 @@ impl Env {
     }
 
     /// Sizes of `ix` sent alone as a legacy transaction and as a v0 transaction with a lookup
-    /// table holding every account that is not a signer: (legacy bytes, v0 bytes, accounts).
+    /// table of every account that is not a signer: (legacy bytes, v0 bytes, accounts).
     fn tx_sizes(&self, ix: &Instruction, payer: &Keypair) -> (usize, usize, usize) {
         use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
         let legacy = Transaction::new_with_payer(std::slice::from_ref(ix), Some(&payer.pubkey()));
@@ -1314,7 +1319,9 @@ impl Env {
                 pot,
                 match_state: self.match_key(id),
                 opener_protections: protections_pda(opener),
+                opener_basket: basket_address(&opener).0,
                 opener_spill: spill_address(&opener).0,
+                opener_funder_basket: basket_address(&opener_funder).0,
                 opener_funder_spill: spill_address(&opener_funder).0,
                 pair: pair_pda(opener, p.account),
                 game_record,
@@ -1334,7 +1341,9 @@ impl Env {
             },
             remaining,
         );
-        self.send(&[join], &p.kp, &[])
+        let mut ixs = std::mem::take(&mut self.pre_ixs);
+        ixs.push(join);
+        self.send(&ixs, &p.kp, &[])
     }
 
     fn opener_account(&self, id: u64) -> APk {
@@ -1608,7 +1617,7 @@ impl Env {
     }
 
     /// Gemas of `source` the Account holds (basket and spill, all classes).
-    fn holding_amount(&self, p: &Person, source: APk) -> u64 {
+    fn gemas_of(&self, p: &Person, source: APk) -> u64 {
         gemas_in(&self.svm, p.account, source)
     }
 
@@ -1658,8 +1667,8 @@ fn duel() -> Duel {
     let mut env = Env::new();
     let alice = env.person();
     let bob = env.person();
-    let (a_position, a_source, _) = env.stake(&alice, 1);
-    let (_, b_source, _) = env.stake(&bob, 2);
+    let (a_position, a_source) = env.stake(&alice, 1);
+    let (_, b_source) = env.stake(&bob, 2);
     Duel {
         env,
         alice,
@@ -1676,7 +1685,7 @@ fn advance_is_100_percent_of_projected_yield_in_gemas() {
     let src = d.env.load::<SourceState>(d.a_source).inner;
     assert_eq!(src.issued, 75_000);
     assert_eq!(src.debt(), 75_000);
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 75_000);
+    assert_eq!(d.env.gemas_of(&d.alice, d.a_source), 75_000);
     assert_eq!(d.env.total_gemas(&d.alice), 75_000);
 }
 
@@ -1917,7 +1926,7 @@ fn return_own_cancels_debt_and_principal_never_does() {
     d.env
         .settle(&game, m, MatchResult::Joiner, payouts)
         .expect("settle");
-    assert!(d.env.holding_amount(&d.bob, d.a_source) > 0);
+    assert!(d.env.gemas_of(&d.bob, d.a_source) > 0);
     let debt = d.env.debt_of(d.a_source);
     // Bob is not the Position owner: the ownership constraint rejects it.
     let steal = d
@@ -1939,7 +1948,7 @@ fn match_settles_to_winner_minus_fees_exactly_once() {
         .unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidStatus));
     d.env.join_match(&d.bob, m).expect("join");
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 74_000);
+    assert_eq!(d.env.gemas_of(&d.alice, d.a_source), 74_000);
 
     // Only the registered Game authority settles.
     let alice = d.alice.kp.insecure_clone();
@@ -1967,10 +1976,10 @@ fn match_settles_to_winner_minus_fees_exactly_once() {
     // Pot 2_000: platform 2% = 40, studio 3% = 60, Alice 1_000 back + 900 won.
     assert_eq!(d.env.counter_amount(d.b_source, CLASS_PLATFORM), 40);
     assert_eq!(d.env.fee_gemas(&d.env.studio), 60);
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 74_000 + 1_000);
-    assert_eq!(d.env.holding_amount(&d.alice, d.b_source), 900);
+    assert_eq!(d.env.gemas_of(&d.alice, d.a_source), 74_000 + 1_000);
+    assert_eq!(d.env.gemas_of(&d.alice, d.b_source), 900);
     assert_eq!(d.env.total_gemas(&d.alice), 75_000 + 900);
-    assert_eq!(d.env.holding_amount(&d.bob, d.b_source), 74_000);
+    assert_eq!(d.env.gemas_of(&d.bob, d.b_source), 74_000);
     assert_eq!(d.env.stage_of(m), Stage::Closed);
     // Won Gemas keep their Source: Bob's Debt is untouched and Alice's own Debt is too.
     assert_eq!(d.env.load::<SourceState>(d.b_source).inner.debt(), 75_000);
@@ -1984,7 +1993,7 @@ fn match_settles_to_winner_minus_fees_exactly_once() {
     for src in [d.a_source, d.b_source] {
         let held: u64 = [&d.alice, &d.bob, &d.env.platform, &d.env.studio]
             .iter()
-            .map(|p| d.env.holding_amount(p, src))
+            .map(|p| d.env.gemas_of(p, src))
             .sum();
         let counters: u64 = [CLASS_PLATFORM, CLASS_LEADERBOARD]
             .iter()
@@ -2030,11 +2039,11 @@ fn entry_draws_own_sourced_gemas_first() {
     d.env
         .settle(&game, m, MatchResult::Joiner, vec![])
         .expect("settle");
-    assert_eq!(d.env.holding_amount(&d.bob, d.a_source), 900);
+    assert_eq!(d.env.gemas_of(&d.bob, d.a_source), 900);
     // The program chooses the lines: his own Gemas first, the won ones stay.
     d.env.open_match(&d.bob, ENTRY).expect("own first");
-    assert_eq!(d.env.holding_amount(&d.bob, d.b_source), 75_000 - ENTRY);
-    assert_eq!(d.env.holding_amount(&d.bob, d.a_source), 900);
+    assert_eq!(d.env.gemas_of(&d.bob, d.b_source), 75_000 - ENTRY);
+    assert_eq!(d.env.gemas_of(&d.bob, d.a_source), 900);
     // Someone with no Gemas cannot enter, whatever they pass.
     let carol = d.env.person();
     let err = d.env.open_match(&carol, ENTRY).unwrap_err();
@@ -2160,20 +2169,18 @@ struct Backing {
     carol: Person,
     dave: Person,
     c_source: APk,
-    c_holding: APk,
 }
 
 fn backing_setup() -> Backing {
     let mut d = duel();
     let carol = d.env.person();
     let dave = d.env.person();
-    let (_, c_source, c_holding) = d.env.stake(&carol, 3);
+    let (_, c_source) = d.env.stake(&carol, 3);
     Backing {
         d,
         carol,
         dave,
         c_source,
-        c_holding,
     }
 }
 
@@ -2329,7 +2336,7 @@ fn backing_win_returns_backer_entry_then_splits_and_player_has_no_debt() {
     assert_eq!(b.reserved(), 500);
     b.accept_public(offer, request);
     let id = b.open_backed(offer, 500).expect("backed entry");
-    assert_eq!(b.d.env.holding_amount(&b.carol, b.c_source), 75_000 - 500);
+    assert_eq!(b.d.env.gemas_of(&b.carol, b.c_source), 75_000 - 500);
     b.d.env.join_match(&b.d.bob, id).map(|_| ()).expect("join");
 
     // Backed Player Dave wins: Pot 1_000, fees 20 + 30, surplus 450 => Dave 180, Carol 500 + 270.
@@ -2339,19 +2346,11 @@ fn backing_win_returns_backer_entry_then_splits_and_player_has_no_debt() {
         .settle(&game, id, MatchResult::Opener, payouts)
         .expect("settle");
     assert_eq!(b.d.env.total_gemas(&b.dave), 180);
-    assert_eq!(
-        b.d.env.holding_amount(&b.carol, b.c_source),
-        75_000 - 500 + 500
-    );
-    assert_eq!(b.d.env.holding_amount(&b.carol, b.d.b_source), 270);
-    assert_eq!(b.d.env.holding_amount(&b.dave, b.d.b_source), 180);
+    assert_eq!(b.d.env.gemas_of(&b.carol, b.c_source), 75_000 - 500 + 500);
+    assert_eq!(b.d.env.gemas_of(&b.carol, b.d.b_source), 270);
+    assert_eq!(b.d.env.gemas_of(&b.dave, b.d.b_source), 180);
     // Dave never gained a Position or Debt, and none of Carol's Sources moved to him.
-    assert!(b
-        .d
-        .env
-        .svm
-        .get_account(&s(holding_pda(b.dave.account, b.c_source)))
-        .is_none());
+    assert_eq!(b.d.env.gemas_of(&b.dave, b.c_source), 0);
     assert_eq!(b.d.env.load::<SourceState>(b.c_source).inner.debt(), 75_000);
     assert_eq!(
         b.d.env.load::<OfferState>(offer).inner.status,
@@ -2371,18 +2370,14 @@ fn the_start_record_carries_both_sides_backing_shares_so_history_needs_no_match_
     b.d.env
         .settle_start(&game, id, MatchResult::Opener)
         .expect("start");
-    let started: Vec<MatchRunStarted> = b
-        .d
-        .env
-        .start_events
-        .iter()
-        .filter_map(|e| decode_event(e))
-        .collect();
+    let started: Vec<MatchRunStarted> =
+        b.d.env
+            .start_events
+            .iter()
+            .filter_map(|e| decode_event(e))
+            .collect();
     assert_eq!(started.len(), 1);
-    assert_eq!(
-        (started[0].a_share_bps, started[0].b_share_bps),
-        (4_000, 0)
-    );
+    assert_eq!((started[0].a_share_bps, started[0].b_share_bps), (4_000, 0));
 }
 
 #[test]
@@ -2415,7 +2410,7 @@ fn backing_loss_costs_the_backer_the_entry_and_nothing_more() {
     // Carol lost exactly 500 Gemas (75_000 -> 74_500); Bob got them minus the fees.
     assert_eq!(b.d.env.total_gemas(&b.carol), 74_500);
     assert_eq!(b.d.env.total_gemas(&b.dave), 0);
-    assert_eq!(b.d.env.holding_amount(&b.d.bob, b.c_source), 450);
+    assert_eq!(b.d.env.gemas_of(&b.d.bob, b.c_source), 450);
     assert_eq!(b.d.env.load::<SourceState>(b.c_source).inner.debt(), 75_000);
 }
 
@@ -2425,7 +2420,7 @@ fn backing_cannot_be_revoked_after_start_and_backed_player_cannot_move_backer_ge
     let request = b.request(1, 500);
     let offer = b.offer(1, 500, 5_000, None);
     b.accept_public(offer, request);
-    // Dave cannot enter a plain Match with Carol's Holding.
+    // Dave cannot enter a plain Match with Carol's Gemas.
     let err = b.d.env.open_match(&b.dave, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InsufficientGemas));
     let id = b.open_backed(offer, 500).expect("backed entry");
@@ -2468,20 +2463,10 @@ fn an_entry_limit_stops_opening_and_joining_over_it() {
     let m1 = d.env.open_match(&d.alice, 500).unwrap();
     let m2 = d.env.open_match(&d.alice, 500).unwrap();
     // The third entry of the period is over Alice's 1,000: refused, and no Gemas leave her.
-    let free = d
-        .env
-        .load::<TesoroAccount>(d.alice.account)
-        .inner
-        .own_free();
+    let free = d.env.total_gemas(&d.alice);
     let err = d.env.open_match(&d.alice, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
-    assert_eq!(
-        d.env
-            .load::<TesoroAccount>(d.alice.account)
-            .inner
-            .own_free(),
-        free
-    );
+    assert_eq!(d.env.total_gemas(&d.alice), free);
     assert_eq!(d.env.entry_limit(&d.alice).window_used, 1_000);
     // Bob's 500 covers one join, not two.
     d.env.join_match(&d.bob, m1).unwrap();
@@ -2798,7 +2783,7 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
                             backer_protections: None,
                         },
                         instruction::ExpireOffer {},
-                        vec![rem(b.c_holding)],
+                        vec![],
                     ),
                     b.d.env.admin.insecure_clone(),
                 )
@@ -2815,7 +2800,7 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
                             request,
                         },
                         instruction::CancelOffer {},
-                        vec![rem(b.c_holding)],
+                        vec![],
                     ),
                     b.carol.kp.insecure_clone(),
                 )
@@ -2850,7 +2835,7 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
     }
 }
 
-// --- Entry fragmentation: up to MAX_ENTRY_SOURCES Holdings per entry -----------------------------
+// --- Entry fragmentation: up to MAX_ENTRY_SOURCES lines per entry -----------------------------
 
 /// `n` Positions for `p`, each worth `gemas_each` Gemas of its own Source, returned as Sources in
 /// ascending order. `first_id` keeps Position ids unique across people.
@@ -2860,8 +2845,8 @@ fn fragment(env: &mut Env, p: &Person, first_id: u8, n: u8, gemas_each: u64) -> 
     let principal = gemas_each * SOL / 750;
     let mut sources: Vec<APk> = (0..n)
         .map(|i| {
-            let (_, source, _) = env.stake_principal(p, first_id + i, principal);
-            assert_eq!(env.holding_amount(p, source), gemas_each);
+            let (_, source) = env.stake_principal(p, first_id + i, principal);
+            assert_eq!(env.gemas_of(p, source), gemas_each);
             source
         })
         .collect();
@@ -2970,22 +2955,12 @@ fn a_break_stops_opening_and_joining_matches_until_it_ends() {
     d.env.set_break(&d.alice, 3).unwrap();
     let now = d.env.now();
     assert_eq!(d.env.protections(&d.alice).break_until, now + 3 * DAY);
-    let free = d
-        .env
-        .load::<TesoroAccount>(d.alice.account)
-        .inner
-        .own_free();
+    let free = d.env.total_gemas(&d.alice);
     let err = d.env.open_match(&d.alice, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
     let err = d.env.join_match(&d.alice, open).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
-    assert_eq!(
-        d.env
-            .load::<TesoroAccount>(d.alice.account)
-            .inner
-            .own_free(),
-        free
-    );
+    assert_eq!(d.env.total_gemas(&d.alice), free);
     d.env.set_time(now + 3 * DAY);
     let later = d.env.open_match(&d.bob, 500).unwrap();
     d.env.join_match(&d.alice, later).unwrap();
@@ -4545,7 +4520,6 @@ const ERR_NOT_CLOSED: u32 = 6413;
 const ERR_OFFER_HAS_TICKET: u32 = 6416;
 const ERR_PAST_ABSOLUTE: u32 = 6417;
 const ERR_GAME_UPGRADED: u32 = 6418;
-const ERR_ROOM: u32 = 6400;
 const ERR_RECEIPT_NEW: u32 = 6422;
 const ERR_OFFER_NOT_USABLE: u32 = 6425;
 const ERR_TOO_MANY_OFFERS: u32 = 6426;
@@ -4553,12 +4527,7 @@ const ERR_TOO_MANY_OFFERS: u32 = 6426;
 fn total_in_world(env: &Env, people: &[&Person], sources: &[APk]) -> u64 {
     let held: u64 = people
         .iter()
-        .map(|p| {
-            sources
-                .iter()
-                .map(|s| env.holding_amount(p, *s))
-                .sum::<u64>()
-        })
+        .map(|p| sources.iter().map(|s| env.gemas_of(p, *s)).sum::<u64>())
         .sum();
     let counters: u64 = sources
         .iter()
@@ -4573,7 +4542,7 @@ fn an_entry_ticket_stages_in_steps_then_becomes_the_pot() {
     // 50 lines of 50 Gemas: more than one transaction draws, so the entry goes through a Ticket
     let (alice, a_sources) = person_with_lines(&mut env, 50, 100, 2_500);
     let bob = env.person();
-    let (_, b_source, _) = env.stake(&bob, 2);
+    let (_, b_source) = env.stake(&bob, 2);
     let all: Vec<APk> = a_sources.iter().copied().chain([b_source]).collect();
     let before = total_in_world(&env, &[&alice, &bob, &env.platform, &env.studio], &all);
     let err = env.open_match(&alice, 2_500).unwrap_err();
@@ -4832,16 +4801,6 @@ fn an_account_has_at_most_eight_matches_open_and_closing_frees_one() {
 const MAX_OPEN: u32 = 8;
 
 #[test]
-fn opening_needs_the_spill_room_to_be_there() {
-    let mut d = duel();
-    d.env.skip_ensure = true;
-    let err = d.env.open_match(&d.alice, ENTRY).unwrap_err();
-    assert_eq!(custom_code(&err), ERR_ROOM);
-    d.env.skip_ensure = false;
-    d.env.open_match(&d.alice, ENTRY).expect("with room");
-}
-
-#[test]
 fn a_backed_player_cannot_be_matched_against_their_own_backer() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
@@ -5097,7 +5056,7 @@ fn a_listed_tesoro_game_pays_its_studio_fee_into_the_source_counter_and_cash_in_
     // conservation: every Gema of Bob's Source is somewhere
     let held: u64 = [&d.alice, &d.bob, &d.env.platform, &d.env.studio]
         .iter()
-        .map(|p| d.env.holding_amount(p, d.b_source))
+        .map(|p| d.env.gemas_of(p, d.b_source))
         .sum::<u64>()
         + d.env.counter_amount(d.b_source, CLASS_STUDIO)
         + d.env.counter_amount(d.b_source, CLASS_PLATFORM);
@@ -5245,4 +5204,293 @@ fn a_match_cannot_close_before_its_run_is_done_and_the_receipt_waits_two_weeks()
     d.env.set_time(now + 14 * 86_400 + 1);
     close(&mut d.env).expect("after two weeks");
     assert!(d.env.svm.get_account(&s(receipt_pda(key))).is_none());
+}
+
+// --- Ticket 09b: a covered entry never needs room -------------------------------------------------
+
+impl Env {
+    /// (used lines, capacity, slots held) of the Account's basket or spill.
+    fn store_stats(&self, p: &Person, spill: bool) -> (usize, usize, u32) {
+        let key = if spill {
+            spill_address(&p.account).0
+        } else {
+            basket_address(&p.account).0
+        };
+        let d = self.svm.get_account(&s(key)).expect("store").data;
+        let st = tesoro_core::ledger::line_store::LineStore::new(&d[DISC..]).expect("store");
+        (st.len(), st.capacity(), st.room_reserved())
+    }
+
+    /// Makes the Account's basket (or spill) `capacity` slots long and fills it with dust (one
+    /// Gema each, won, due far away, from Sources no book exists for) until `free` slots are
+    /// left. Dust is never drawn while the Account has other Gemas: it only takes room.
+    fn fill_store(&mut self, p: &Person, spill: bool, capacity: usize, free: usize) {
+        use tesoro_core::ledger::book::SourceBook;
+        use tesoro_core::ledger::line_store::{LineStore, SIDE_WON};
+        let key = if spill {
+            spill_address(&p.account).0
+        } else {
+            basket_address(&p.account).0
+        };
+        let mut acc = self.svm.get_account(&s(key)).expect("store");
+        acc.data.resize(store_len(capacity), 0);
+        acc.lamports = self.svm.minimum_balance_for_rent_exemption(acc.data.len());
+        {
+            let mut st = LineStore::new(&mut acc.data[DISC..]).expect("store");
+            let mut i = st.len() as u64;
+            while st.len() < capacity - free {
+                i += 1;
+                let mut src = [0xEEu8; 32];
+                src[..8].copy_from_slice(&i.to_le_bytes());
+                let mut line =
+                    SourceBook::blank_line(SIDE_WON, 10_000_000 + i as i64, src, CLASS_GENERAL, 0);
+                line.amount = 1;
+                st.insert(&line).expect("room for dust");
+            }
+        }
+        self.svm.set_account(s(key), acc).expect("set store");
+    }
+
+    /// A grow of the Account's spill by `lines`, paid by `payer`, as an instruction (anyone may
+    /// pay, the owner is not needed).
+    fn grow_spill_ix(&self, payer: APk, account: APk, lines: u32) -> Instruction {
+        ix(
+            accounts::GrowStore {
+                payer,
+                account,
+                basket: basket_address(&account).0,
+                spill: spill_address(&account).0,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::GrowStore {
+                which: tesoro_core::StoreKind::Spill,
+                extra_lines: lines,
+            },
+            vec![],
+        )
+    }
+}
+
+/// Alice (two own lines of 500, so an entry of 1,000 takes both whole) with a basket and a spill
+/// of `cap` slots each, both completely full.
+fn full_alice(env: &mut Env, cap: usize) -> Person {
+    let alice = env.person();
+    env.grow_basket_to(&alice, 8);
+    let sources: Vec<APk> = (0..2).map(|i| env.forge_source(100 + i, 0)).collect();
+    env.give_lines(&alice, &sources, 500, |i| i as i64);
+    env.fill_store(&alice, false, cap, 0);
+    env.fill_store(&alice, true, cap, 0);
+    assert_eq!(env.store_stats(&alice, false).0, cap);
+    assert_eq!(env.store_stats(&alice, true).0, cap);
+    alice
+}
+
+#[test]
+fn a_player_with_full_stores_enters_and_gets_the_lines_back_with_no_room_and_no_help() {
+    let mut env = Env::new();
+    let alice = full_alice(&mut env, 40);
+    env.skip_ensure = true;
+    let before = env.total_gemas(&alice);
+    let m = env
+        .open_match(&alice, 1_000)
+        .expect("a covered entry always opens");
+    // the two whole lines left: two slots are free, and both are held for them
+    assert_eq!(
+        env.store_stats(&alice, false).0 + env.store_stats(&alice, true).0,
+        78
+    );
+    assert_eq!(env.store_stats(&alice, true).2, 2);
+    let room = env.mstate(m).room;
+    assert_eq!(
+        (room[0].account, room[0].left),
+        (alice.account.to_bytes(), 2)
+    );
+    // nobody asked for room: nothing grew
+    assert_eq!(env.store_stats(&alice, false).1, 40);
+    assert_eq!(env.store_stats(&alice, true).1, 40);
+    // the opener of an unjoined Match refunds it at once, and the lines come back by themselves
+    let kp = alice.kp.insecure_clone();
+    env.refund(&kp, m, vec![]).expect("refund and close");
+    assert_eq!(env.total_gemas(&alice), before);
+    assert_eq!(
+        env.store_stats(&alice, false).0 + env.store_stats(&alice, true).0,
+        80
+    );
+    assert_eq!(
+        env.store_stats(&alice, true).2,
+        0,
+        "the hold is handed back at close"
+    );
+    assert_eq!(env.store_stats(&alice, false).1, 40);
+    assert_eq!(env.store_stats(&alice, true).1, 40);
+}
+
+#[test]
+fn a_player_with_both_stores_at_the_absolute_maximum_still_enters_and_refunds() {
+    let mut env = Env::new();
+    let alice = full_alice(&mut env, MAX_BASKET_LINES);
+    env.skip_ensure = true;
+    let before = env.total_gemas(&alice);
+    let m = env
+        .open_match(&alice, 1_000)
+        .expect("a covered entry always opens");
+    println!("open_match at the maximum: {} CU", env.last_cu);
+    let kp = alice.kp.insecure_clone();
+    env.refund(&kp, m, vec![]).expect("refund and close");
+    assert_eq!(env.total_gemas(&alice), before);
+    assert_eq!(env.store_stats(&alice, true).2, 0);
+}
+
+#[test]
+fn a_full_opener_is_made_room_for_in_the_joiners_own_transaction_and_both_outcomes_settle_alone() {
+    for result in [MatchResult::Opener, MatchResult::Joiner] {
+        let mut env = Env::new();
+        let alice = full_alice(&mut env, 40);
+        let bob = env.person();
+        let b_sources: Vec<APk> = (0..2).map(|i| env.forge_source(200 + i, 0)).collect();
+        env.grow_basket_to(&bob, 8);
+        env.give_lines(&bob, &b_sources, 500, |i| i as i64);
+        env.skip_ensure = true;
+        let m = env.open_match(&alice, 1_000).expect("open");
+        // the joiner's lines (2) and the two extra lines a split can add need room in Alice's
+        // stores on top of her own freed slots; the joiner's transaction grows her spill first
+        let a_before = env.total_gemas(&alice);
+        let b_before = env.total_gemas(&bob);
+        let grow = env.grow_spill_ix(a(bob.kp.pubkey()), alice.account, 4);
+        env.pre_ixs.push(grow);
+        env.pot_nonce += 1;
+        let nonce = env.pot_nonce;
+        env.join_match_ix(
+            &bob,
+            m,
+            nonce,
+            4,
+            ticket_pda(bob.account, nonce),
+            env.books_of(bob.account),
+            None,
+        )
+        .expect("join");
+        let held: u32 = env
+            .mstate(m)
+            .room
+            .iter()
+            .filter(|h| h.account == alice.account.to_bytes())
+            .map(|h| h.left)
+            .sum();
+        assert_eq!(
+            held, 6,
+            "her whole bound is held: 2 + 2 lines and 2 for splits"
+        );
+        assert_eq!(env.store_stats(&alice, true).2, 6);
+        // no more help from anybody: the game settles, a stranger runs the chunks, the Match closes
+        let game = env.game_auth.insecure_clone();
+        env.settle(&game, m, result, vec![]).expect("settles alone");
+        assert_eq!(env.store_stats(&alice, true).2, 0);
+        assert_eq!(env.store_stats(&bob, true).2, 0);
+        let (a_after, b_after) = (env.total_gemas(&alice), env.total_gemas(&bob));
+        // Alice staked 1,000 before `a_before`; Bob staked his 1,000 at the join (inside `b_before`)
+        match result {
+            MatchResult::Opener => {
+                assert!(
+                    a_after > a_before + 1_700,
+                    "her entry back and his, less the fees"
+                );
+                assert_eq!(b_after, b_before - 1_000);
+            }
+            _ => {
+                assert_eq!(a_after, a_before);
+                assert!(
+                    b_after > b_before + 700,
+                    "his entry back and hers, less the fees"
+                );
+            }
+        }
+        let fees = a_before + b_before + 1_000 - (a_after + b_after);
+        assert!(
+            (1..=300).contains(&fees),
+            "only the fees left the two Accounts: {fees}"
+        );
+    }
+}
+
+#[test]
+fn another_credit_cannot_take_a_slot_held_for_a_match() {
+    let mut env = Env::new();
+    let alice = full_alice(&mut env, 40);
+    env.skip_ensure = true;
+    let m = env.open_match(&alice, 1_000).expect("open");
+    // two slots are free and both are held: a new Advance (one new line) must wait
+    env.open_position_only(&alice, 9, 100 * SOL);
+    let err = env
+        .take_advance(&alice, position_pda(9), 0, 6, 150_000_000)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SpillFull));
+    // one more free slot beyond the held two is enough for it, and only for it
+    let grow = env.grow_spill_ix(alice.key, alice.account, 1);
+    env.send(&[grow], &alice.kp.insecure_clone(), &[])
+        .expect("grow");
+    env.take_advance(&alice, position_pda(9), 0, 6, 150_000_000)
+        .expect("a free slot beyond the hold");
+    env.open_position_only(&alice, 10, 100 * SOL);
+    let err = env
+        .take_advance(&alice, position_pda(10), 0, 6, 150_000_000)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SpillFull));
+    // the lines of the Match still come home
+    let kp = alice.kp.insecure_clone();
+    env.refund(&kp, m, vec![]).expect("refund");
+    assert_eq!(env.store_stats(&alice, true).2, 0);
+}
+
+#[test]
+fn an_outside_studios_fee_line_has_its_slot_held_and_cannot_be_crowded_out() {
+    let mut d = duel();
+    // the admin names someone else as Tesoro's studio: this Game's studio is an outside one
+    let other = d.env.platform.account;
+    set_tesoro_studio(&mut d.env, other);
+    let studio = d.env.studio.account;
+    let studio_person = Person {
+        kp: d.env.studio.kp.insecure_clone(),
+        key: d.env.studio.key,
+        account: studio,
+    };
+    // the studio's stores have exactly the room the fee lines need, and nothing more
+    let basket_cap = d.env.store_stats(&studio_person, false).1;
+    d.env.fill_store(&studio_person, false, basket_cap, 0);
+    d.env.fill_store(&studio_person, true, 4, 4);
+    let m = d.env.open_match(&d.alice, ENTRY).expect("open");
+    let mut remaining = d.env.books_of(d.bob.account);
+    remaining.push(rem(basket_address(&studio).0));
+    remaining.push(rem(spill_address(&studio).0));
+    d.env.pot_nonce += 1;
+    let nonce = d.env.pot_nonce;
+    d.env
+        .join_match_ix(
+            &d.bob,
+            m,
+            nonce,
+            4,
+            ticket_pda(d.bob.account, nonce),
+            remaining,
+            None,
+        )
+        .expect("join");
+    assert_eq!(
+        d.env.store_stats(&studio_person, true).2,
+        4,
+        "the fee line's room is held"
+    );
+    // an Advance for the studio is one more line than the free room beyond the hold
+    d.env.open_position_only(&studio_person, 21, 100 * SOL);
+    let err = d
+        .env
+        .take_advance(&studio_person, position_pda(21), 0, 6, 150_000_000)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SpillFull));
+    let game = d.env.game_auth.insecure_clone();
+    d.env
+        .settle(&game, m, MatchResult::Opener, vec![])
+        .expect("the fee line lands in its held slot");
+    assert!(d.env.fee_gemas(&studio_person) > 0);
+    assert_eq!(d.env.store_stats(&studio_person, true).2, 0);
 }

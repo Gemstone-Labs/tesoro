@@ -4,7 +4,10 @@ import { ComputeBudgetProgram, Keypair, PublicKey, Transaction } from "@solana/w
 import coreIdl from "../../app/src/lib/chain/idl/tesoro_core.json" with { type: "json" };
 import { BATCH, KINDS, RETIRE_REQUESTS_BEFORE, SPACE, ataOf, batches, buildIx, coreProgram, planAll, type Row, type Snapshot } from "./retire-old.ts";
 
-const disc = (name: string) => Buffer.from((coreIdl as { accounts: { name: string; discriminator: number[] }[] }).accounts.find((a) => a.name === name)!.discriminator);
+const disc = (name: string) =>
+  name === "HoldingState"
+    ? Buffer.from("593253109b4c98fe", "hex") // the type left the program, so the IDL does not list it
+    : Buffer.from((coreIdl as { accounts: { name: string; discriminator: number[] }[] }).accounts.find((a) => a.name === name)!.discriminator);
 const key = () => Keypair.generate().publicKey;
 const NOW = 1_792_400_000; // 2026-10-19, before RETIRE_REQUESTS_BEFORE
 
@@ -144,7 +147,7 @@ describe("retire transactions", () => {
       custody: Array.from({ length: BATCH.custody }, () => planAll((() => { const x = new World(); x.oldCustody(); return x.snapshot(); })()).phases[0][0]),
       position: Array.from({ length: BATCH.position }, () => ({ kind: "position" as const, key: key(), refs: { position: key() } })),
       source: Array.from({ length: BATCH.source }, () => ({ kind: "source" as const, key: key(), refs: { source: key(), position: key() } })),
-      holding: Array.from({ length: BATCH.holding }, () => ({ kind: "holding" as const, key: key(), refs: { holding: key(), source: key(), account: key() } })),
+      holding: Array.from({ length: BATCH.holding }, () => ({ kind: "holding" as const, key: key(), refs: { holding: key(), source: key() } })),
       offer: Array.from({ length: BATCH.offer }, () => ({ kind: "offer" as const, key: key(), refs: { offer: key() }, remaining: Array.from({ length: 8 }, key) })),
       request: Array.from({ length: BATCH.request }, () => ({ kind: "request" as const, key: key(), refs: { request: key() } })),
       treasury: [{ kind: "treasury" as const, key: key(), refs: { treasury: key() } }],

@@ -2,14 +2,13 @@
 //! Ledger identities (`Key`) are the addresses of the PDAs below; `Account` (CONTEXT.md) is
 //! `TesoroAccount` on chain because `Account` is Anchor's wrapper type.
 
-use crate::ledger::{self, Holding, Key, Offer, Position, Request, Source};
+use crate::ledger::{self, Key, Offer, Position, Request, Source};
 use anchor_lang::prelude::*;
 
 pub const CONFIG_SEED: &[u8] = b"config";
 pub const ACCOUNT_SEED: &[u8] = b"account";
 pub const POSITION_SEED: &[u8] = b"position";
 pub const SOURCE_SEED: &[u8] = b"source";
-pub const HOLDING_SEED: &[u8] = b"holding";
 /// A Match: `["match", opener Account, counter as u64 LE]`. The counter lives in the opener's
 /// `AccountCounters` and only grows, so no id is ever reused.
 pub const MATCH_SEED: &[u8] = b"match";
@@ -297,11 +296,10 @@ pub struct TesoroAccount {
     pub authority: Pubkey,
     /// The EVM family address of the Account (zero until set).
     pub evm_address: [u8; 20],
-    pub inner: ledger::Account,
 }
 
 impl TesoroAccount {
-    pub const SPACE: usize = 8 + 1 + 32 + 20 + 4 * 8;
+    pub const SPACE: usize = 8 + 1 + 32 + 20;
 }
 
 #[account]
@@ -348,17 +346,6 @@ impl SourceState {
     pub const SPACE: usize = 8 + 1 + 32 + 32 + 4 + 1 + 16 + 8 + 5 * 8 + 8;
 }
 
-#[account]
-pub struct HoldingState {
-    pub bump: u8,
-    pub account: Pubkey,
-    pub inner: Holding,
-}
-
-impl HoldingState {
-    pub const SPACE: usize = 8 + 1 + 32 + 32 + 1 + 8 + 8;
-}
-
 /// The most Matches one Account may have open at once (an Open, Active, Settling or Refunding
 /// Match counts until it is closed). Idle Matches cannot hold tables for free.
 pub const MAX_OPEN_MATCHES: u32 = 8;
@@ -390,13 +377,32 @@ pub struct MatchState {
     pub payer: Pubkey,
     /// The Ticket account that is each side's Pot (the default key until the side joined).
     pub pots: [Pubkey; 2],
+    /// Slots held in Accounts' stores for the lines this Match will credit (`room_reserved` of
+    /// each spill counts them). Every credit that takes a new slot pays the holder's share down;
+    /// `close_match` hands back what is left.
+    pub room: [RoomHold; ROOM_HOLDS],
+}
+
+/// Slots of one Account's stores held for a Match.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
+pub struct RoomHold {
+    pub account: [u8; 32],
+    pub left: u32,
+}
+
+/// Distinct Accounts a Match can credit: both Players, both funders and an outside Studio.
+pub const ROOM_HOLDS: usize = 5;
+
+impl RoomHold {
+    pub const LEN: usize = 32 + 4;
 }
 
 impl MatchState {
     /// Largest Borsh size of `MatchRecord` (a Match with a joiner and a run in progress), checked
     /// by a unit test.
     pub const RECORD_LEN: usize = 486;
-    pub const SPACE: usize = 8 + 1 + Self::RECORD_LEN + 1 + 4 + 32 + 64;
+    pub const SPACE: usize =
+        8 + 1 + Self::RECORD_LEN + 1 + 4 + 32 + 64 + ROOM_HOLDS * RoomHold::LEN;
 
     pub fn id(&self) -> ledger::lifecycle::MatchId {
         self.inner.id
@@ -454,7 +460,7 @@ impl OfferState {
         + 1;
 }
 
-/// The one custody of every native Position (ADR 0010): a single simSOL vault holding their
+/// The one custody of every native Position (ADR 0010): a single simSOL vault that keeps their
 /// Principal, and the pool totals behind the Treasury's Yield Fee claim. Seeds `["native"]`; the
 /// vault is `["native_vault"]` with this account as authority. Yield is never held here: it is
 /// minted by `sim_lst` at the moment it is paid out.
@@ -465,7 +471,7 @@ pub struct NativeCustody {
     /// The canonical `sim_lst` Pool (test APY and speedup live there).
     pub pool: Pubkey,
     pub mint: Pubkey,
-    /// Token account (PDA) holding the Principal of every Locked native Position.
+    /// Token account (PDA) that keeps the Principal of every Locked native Position.
     pub vault: Pubkey,
     /// `PoolTotals` (`ledger::yield_math`), updated only on open and unlock.
     pub principal: u128,
@@ -1285,7 +1291,7 @@ mod profile_tests {
 
 /// An account of the world before the yield-by-math reset was closed by the admin. `kind`:
 /// 0 custody (`amount` = simSOL returned to its owner), 1 Position, 2 Source, 3 Holding
-/// (`amount` = Gemas taken out of the Account), 4 Request, 5 Offer, 6 Treasury.
+/// (`amount` 0), 4 Request, 5 Offer, 6 Treasury.
 #[event]
 pub struct OldAccountRetired {
     pub kind: u8,
@@ -1374,6 +1380,7 @@ mod tests {
             listing_epoch: u32::MAX,
             payer: Pubkey::new_unique(),
             pots: [Pubkey::new_unique(); 2],
+            room: [RoomHold::default(); ROOM_HOLDS],
         };
         let mut bytes = Vec::new();
         state.serialize(&mut bytes).unwrap();
@@ -1384,6 +1391,9 @@ mod tests {
             bytes.len(),
             MatchState::SPACE
         );
-        assert!(MatchState::RECORD_LEN >= bytes.len() - 1 - 1 - 4 - 32 - 64);
+        assert!(
+            MatchState::RECORD_LEN
+                >= bytes.len() - 1 - 1 - 4 - 32 - 64 - ROOM_HOLDS * RoomHold::LEN
+        );
     }
 }

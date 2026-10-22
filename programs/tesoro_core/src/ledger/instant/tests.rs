@@ -328,7 +328,7 @@ fn a_request_refuses_what_it_must() {
             DEFAULT_ORDER_TTL_SECS
         )
         .unwrap_err(),
-        CoreError::HoldingMismatch
+        CoreError::LineMismatch
     );
     // own Gemas can't be sold
     let mut own = basket(12, 4);

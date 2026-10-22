@@ -510,7 +510,6 @@ fn init_stores_gives_an_existing_account_its_baskets() {
         bump,
         authority,
         evm_address: [0; 20],
-        inner: Default::default(),
     };
     let mut data = Vec::new();
     state.try_serialize(&mut data).unwrap();
@@ -863,7 +862,20 @@ fn a_spill_keeps_the_room_reserved_for_matches() {
         .set_room_reserved(5);
     env.svm.set_account(s(spill), acc).unwrap();
     env.shrink(&owner, account, StoreKind::Spill, 0).unwrap();
-    assert_eq!(env.capacity(spill), 5, "the reserved slots stayed");
+    // the held slots are those of the basket and the spill together: the basket's 4 free slots
+    // count, so the spill keeps only the fifth
+    assert_eq!(
+        env.capacity(spill),
+        1,
+        "the slots the basket cannot cover stayed"
+    );
+    // and the basket may not give up the free slots the hold relies on
+    let basket = basket_address(&account).0;
+    let e = env
+        .shrink(&owner, account, StoreKind::Basket, 0)
+        .unwrap_err();
+    assert_eq!(custom_code(&e), NOTHING_TO_RESIZE);
+    assert_eq!(env.capacity(basket), 4);
 }
 
 // ---------------------------------------------------------------------------------------------

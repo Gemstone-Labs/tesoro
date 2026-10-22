@@ -6,7 +6,7 @@
  * Phases (each is sent and confirmed before the next is planned, because a later gate looks at what is gone):
  *   1. custodies (simSOL back to the owner), Positions, the Treasury, old-sized Offers, dead Requests
  *   2. Sources whose Position is gone or old-sized
- *   3. Holdings whose Source is gone (their Gemas leave the Account totals)
+ *   3. Holdings whose Source is gone (read from raw bytes: the program no longer has the type)
  *   4. Offers of the current layout whose reserved Sources are all gone
  */
 import anchor, { type Idl, type Program } from "@coral-xyz/anchor";
@@ -60,9 +60,12 @@ export interface Skipped {
   reason: string;
 }
 
-const discHex = new Map<string, string>(
-  (coreIdl as { accounts: { name: string; discriminator: number[] }[] }).accounts.map((a) => [a.name, Buffer.from(a.discriminator).toString("hex")]),
-);
+/** Account types the program no longer has, so the IDL does not list them: `sha256("account:HoldingState")[..8]`. */
+const RETIRED_DISCRIMINATORS: [string, string][] = [["HoldingState", "593253109b4c98fe"]];
+const discHex = new Map<string, string>([
+  ...(coreIdl as { accounts: { name: string; discriminator: number[] }[] }).accounts.map((a): [string, string] => [a.name, Buffer.from(a.discriminator).toString("hex")]),
+  ...RETIRED_DISCRIMINATORS,
+]);
 export const typeOf = (data: Buffer): string | undefined => {
   const hex = data.subarray(0, 8).toString("hex");
   for (const [name, d] of discHex) if (d === hex) return name;
@@ -141,9 +144,8 @@ export function planPhase(s: Snapshot, phase: 1 | 2 | 3 | 4): { items: Item[]; s
       if (gone(position) || stalePosition(position)) items.push({ kind: "source", key: r.pubkey, refs: { source: r.pubkey, position } });
       else skip("source", r.pubkey, "its Position is current");
     } else if (phase === 3 && t === "HoldingState") {
-      const account = pk(r.data, 9);
       const source = pk(r.data, 41);
-      if (gone(source)) items.push({ kind: "holding", key: r.pubkey, refs: { holding: r.pubkey, source, account }, amount: r.data.readBigUInt64LE(74) });
+      if (gone(source)) items.push({ kind: "holding", key: r.pubkey, refs: { holding: r.pubkey, source }, amount: r.data.readBigUInt64LE(74) });
       else skip("holding", r.pubkey, "its Source is current");
     } else if (phase === 4 && t === "OfferState" && len >= SPACE.offer) {
       const sources = offerSources(r.data);

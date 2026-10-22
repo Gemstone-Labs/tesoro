@@ -84,7 +84,6 @@ pub(crate) fn init_treasury(
         account.bump = ctx.bumps.treasury_account;
         account.authority = treasury_key;
         account.evm_address = [0; 20];
-        account.inner = Default::default();
     }
     let account_key = account.key();
     let vault_key = ctx.accounts.treasury_vault.key();

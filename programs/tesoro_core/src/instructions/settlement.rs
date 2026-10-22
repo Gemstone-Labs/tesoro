@@ -39,6 +39,8 @@ pub struct ChainSettlement<'info> {
     books: OnchainBooks<'info, 'info>,
     stores: Vec<OwnerStores<'info>>,
     synced: Vec<Key>,
+    /// Slots held for the Match's credits, per Account (`MatchState::room`).
+    holds: Vec<(Key, u32)>,
 }
 
 fn disc_is(info: &AccountInfo, disc: &[u8]) -> bool {
@@ -103,7 +105,26 @@ impl<'info> ChainSettlement<'info> {
             books,
             stores,
             synced: Vec::new(),
+            holds: Vec::new(),
         })
+    }
+
+    /// The slots the Match holds in each Account's stores: a credit that needs a new slot uses
+    /// its Account's share first.
+    pub fn set_holds(&mut self, room: &[RoomHold]) {
+        self.holds = room
+            .iter()
+            .filter(|h| h.account != [0u8; 32])
+            .map(|h| (h.account, h.left))
+            .collect();
+    }
+
+    /// What is left of the Account's share.
+    pub fn hold_of(&self, account: &Key) -> Option<u32> {
+        self.holds
+            .iter()
+            .find(|(k, _)| k == account)
+            .map(|(_, l)| *l)
     }
 
     /// Writes the last decoded book back. Call after the run's chunk succeeded.
@@ -206,7 +227,13 @@ impl<'info> Settlement for ChainSettlement<'info> {
         let mut basket = LineStore::new(&mut b[DISC..])?;
         let mut spill = LineStore::new(&mut s[DISC..])?;
         let mut pool = Pool::new(&mut basket, &mut spill);
-        pool.put(&mut self.books, line).map_err(Into::into)
+        let share = self.holds.iter_mut().find(|(k, _)| k == owner);
+        pool.set_hold(share.as_ref().map_or(0, |(_, l)| *l));
+        let placed = pool.put(&mut self.books, line)?;
+        if let Some((_, left)) = share {
+            *left = pool.hold_left();
+        }
+        Ok(placed)
     }
 
     fn credit_fee(&mut self, class: u8, owner: Option<&Key>, line: &Line) -> LcResult<()> {

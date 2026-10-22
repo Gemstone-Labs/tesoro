@@ -1,7 +1,7 @@
 /**
  * Retires the money accounts of the world before the yield-by-math reset (ticket 11), after `tesoro_core` is upgraded:
  * old per-Position custodies and vaults (their simSOL goes back to the Position owner), Positions, Sources, Holdings (their
- * Gemas leave the Account totals), Offers, expired Requests and the old-sized Treasury. Admin only; the program refuses
+ * Gemas are no longer tracked), Offers, expired Requests and the old-sized Treasury. Admin only; the program refuses
  * anything of the current layout. Run order and the reasoning: docs/deployments.md ("Retire the old accounts").
  *
  *   pnpm --filter @tesoro/keeper exec tsx scripts/retire-old-accounts.ts [--read-rpc <url>] [--dry-run]
@@ -98,9 +98,7 @@ function summarize(items: Item[]) {
 function totalsCheck(s: Snapshot) {
   const holdings = [...s.rows.values()].filter((r) => typeOf(r.data) === "HoldingState");
   const held = holdings.reduce((a, r) => a + r.data.readBigUInt64LE(74), 0n);
-  let totals = 0n;
-  for (const r of s.rows.values()) if (typeOf(r.data) === "TesoroAccount") totals += r.data.readBigUInt64LE(8 + 1 + 32 + 20) + r.data.readBigUInt64LE(8 + 1 + 32 + 20 + 8);
-  return { holdings: holdings.length, held, totals };
+  return { holdings: holdings.length, held };
 }
 
 const sendBatch = async (conn: Connection, admin: ReturnType<typeof loadKeypair>, group: Item[]) => {
@@ -112,7 +110,7 @@ const sendBatch = async (conn: Connection, admin: ReturnType<typeof loadKeypair>
 const snap = await readSnapshot();
 const matches = inventory(snap);
 const chk = totalsCheck(snap);
-console.log(`Gemas: ${chk.held} in ${chk.holdings} Holdings, ${chk.totals} in Account totals${chk.held === chk.totals ? " (they match)" : " (MISMATCH: Match escrow or an unread layout)"}`);
+console.log(`Gemas: ${chk.held} in ${chk.holdings} Holdings`);
 
 if (!send) {
   const plan = planAll(snap);
@@ -171,5 +169,5 @@ const left = planAll(end);
 const endChk = totalsCheck(end);
 console.log(`\nsummary: ${sent} transactions sent, ${failed} failed. Still to retire: ${summarize(left.phases.flat())}`);
 console.log(`left alone: ${left.skipped.length}${left.skipped.length ? " (" + [...new Set(left.skipped.map((x) => x.kind + ": " + x.reason))].join("; ") + ")" : ""}`);
-console.log(`Gemas: ${endChk.held} in ${endChk.holdings} Holdings, ${endChk.totals} in Account totals`);
+console.log(`Gemas: ${endChk.held} in ${endChk.holdings} Holdings`);
 if (failed) process.exitCode = 1;

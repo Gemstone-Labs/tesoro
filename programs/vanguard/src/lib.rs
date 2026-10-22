@@ -742,9 +742,8 @@ pub mod vanguard {
     /// Base layer, permissionless. Settles the tesoro_core Match from the committed result by CPI, signing as
     /// this Game's `authority` PDA: the winner takes the Pot minus Fees. A draw, a cancelled Battle, or one never
     /// started before its start deadline refunds both entries. A Match tesoro_core already refunded (its
-    /// deadline passed first) is only marked finalized. `remaining_accounts` are the payout accounts
-    /// tesoro_core expects (recipient `TesoroAccount` then its Holding, per payout, sorted by recipient and
-    /// Source).
+    /// deadline passed first) is only marked finalized. `remaining_accounts` are passed to tesoro_core
+    /// unchanged (the accounts a settle reaches, see its `settlement` module).
     pub fn finalize<'info>(ctx: Context<'_, '_, 'info, 'info, Finalize<'info>>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let (status, winner, start_deadline, authority_bump) = {

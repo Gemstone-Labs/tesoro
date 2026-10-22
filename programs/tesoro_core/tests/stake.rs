@@ -414,7 +414,7 @@ impl Env {
         }
     }
 
-    /// A person holding `tokens` of the staking token.
+    /// A person with `tokens` of the staking token.
     fn holder(&mut self, tokens: u64) -> Person {
         let p = self.person();
         self.set_tokens(&p, tokens);

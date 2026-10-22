@@ -148,6 +148,8 @@ pub enum BasketError {
 /// Errors of Tickets, Pots and the Match lifecycle (tickets 09). Their own range.
 #[error_code(offset = 6400)]
 pub enum MatchError {
+    /// No longer returned (an entry needs no free slot since ticket 09b); kept so the codes after
+    /// it do not move.
     #[msg("the spill has no free slots to reserve: grow it first")]
     RoomNotReserved,
     #[msg("this Account already has the most Matches open at once")]
