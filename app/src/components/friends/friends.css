@@ -12,7 +12,9 @@
 .fr-empty-body { flex: 1; min-width: 0; align-self: center; padding-bottom: 14px; display: grid; gap: 4px; max-width: 560px; }
 .fr-empty-body b { font-size: var(--fs-18); }
 .fr-empty-body p { color: var(--fg-2); font-size: var(--fs-15); line-height: 1.5; }
-.fr-skel { min-height: 220px; }
+.fr-count-skel { width: 90px; margin-top: 10px; }
+.skel-url { min-height: 36px; background: rgba(234, 239, 236, 0.07); }
+.fr-btn-skel { display: block; width: 130px; height: 44px; }
 
 .fr-row { display: grid; grid-template-columns: minmax(200px, 1fr) auto; align-items: center; gap: 12px 20px; padding: 12px 18px; }
 .fr-row + .fr-row { border-top: 1px solid var(--line); }
@@ -113,6 +115,8 @@
 .fl-act > .btn.neutral:first-child { background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
 .fl-act > .btn.neutral:first-child:hover { filter: brightness(0.92); }
 .fl-small { color: var(--fg-2); font-size: var(--fs-13); }
+.fl-facts-skel { width: 100%; justify-items: center; padding: 12px 0; }
+.fl-btn-skel { display: block; height: 48px; width: 100%; }
 @media (max-width: 639px) { .fl-card { padding: 24px 16px 20px; } .fl-av { width: 136px; height: 136px; } }
 
 /* ——— Friend picker for a new Challenge (founder pick C3, as a centred modal) ——— */

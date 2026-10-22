@@ -33,13 +33,16 @@ export function AddFriendButton({ account, size, className }: { account: string;
     }
   };
 
+  // Signed in but the list not read yet: the button waits rather than offering Add friend and then changing.
+  const waiting = auth.status === "signed-in" && friends.status === "loading";
   const label = relation === "friend" ? "Friends" : relation === "sent" ? "Request sent" : relation === "incoming" ? "Accept" : "Add friend";
   const done = relation === "friend" || relation === "sent";
   return (
     <span className={`af${className ? ` ${className}` : ""}`}>
       <Button
         size={size}
-        disabled={done || busy}
+        disabled={done || busy || waiting}
+        aria-busy={waiting || undefined}
         icon={relation === "friend" ? <Check aria-hidden="true" /> : <UserPlus aria-hidden="true" />}
         onClick={() => auth.gate("add a friend", () => void run())}
       >

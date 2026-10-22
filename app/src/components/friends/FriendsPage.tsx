@@ -48,7 +48,7 @@ export function FriendsPage() {
   const records = useMemo(() => new Map((view?.friends ?? []).map((f) => [f.account, recordAgainst(myRows, f.account)])), [view, myRows]);
   const sorted = useMemo(() => sortFriends(view?.friends ?? [], records), [view, records]);
 
-  if (auth.status === "signed-out" || friends.status === "signed-out") {
+  if (friends.status === "signed-out") {
     return (
       <Card large as="section" aria-label="Sign in to see your Friends">
         <div className="stack">
@@ -74,16 +74,7 @@ export function FriendsPage() {
     );
   }
 
-  if (!view) {
-    return (
-      <div className="fr-page" aria-busy="true">
-        <header className="fr-head">
-          <h1 className="page-title">Friends</h1>
-        </header>
-        <div className="cut cut-card fr-section fr-skel" aria-label="Loading your Friends…" />
-      </div>
-    );
-  }
+  if (!view) return <FriendsSkeleton />;
 
   return (
     <div className="fr-page">
@@ -164,16 +155,62 @@ export function FriendsPage() {
   );
 }
 
+/** The page's shape while Friends load: title, link box and three rows. */
+function FriendsSkeleton() {
+  return (
+    <div className="fr-page" aria-busy="true">
+      <span className="sr-only" role="status">
+        Loading your Friends…
+      </span>
+      <header className="fr-head">
+        <div>
+          <h1 className="page-title">Friends</h1>
+          <span className="skel-line lg fr-count-skel" aria-hidden="true" />
+        </div>
+        <div className="cut cut-card fr-link" aria-hidden="true">
+          <span className="fr-link-label">Your add-me link</span>
+          <span className="cut cut-chip fr-link-url skel-url" />
+          <span className="skel-line" style={{ width: "60%" }} />
+        </div>
+      </header>
+      <section className="cut cut-card fr-section" aria-hidden="true">
+        <h2 className="fr-h">Your friends</h2>
+        <ul className="fr-list">
+          {[0, 1, 2].map((i) => (
+            <li key={i} className="fr-row fr-friend">
+              <span className="fr-who">
+                <span className="cut fr-av skel" />
+                <span className="fr-who-text skel-lines">
+                  <span className="skel-line lg" style={{ width: 120 }} />
+                  <span className="skel-line" style={{ width: 80 }} />
+                </span>
+              </span>
+              <ul className="fr-recent">
+                {[0, 1, 2].map((j) => (
+                  <li key={j} className="fr-recent-skel" />
+                ))}
+              </ul>
+              <span className="fr-actions">
+                <span className="cut cut-btn fr-btn-skel skel" />
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
 /** Avatar and name, linking to the Account page. */
 function Who({ account, sub, children }: { account: string; sub?: string; children?: React.ReactNode }) {
   return (
     <span className="fr-who">
       <Link href={`/account/${account}`} className="cut fr-av" aria-hidden="true" tabIndex={-1}>
-        <PlayerAvatar account={account} size={56} />
+        <PlayerAvatar account={account} size={56} wait />
       </Link>
       <span className="fr-who-text">
         <Link href={`/account/${account}`} className="fr-name">
-          <PlayerName account={account} />
+          <PlayerName account={account} wait />
         </Link>
         {sub && <small>{sub}</small>}
         {children}
@@ -348,7 +385,7 @@ function FriendLink() {
     <div className="cut cut-card fr-link">
       <span className="fr-link-label">Your add-me link</span>
       <div className="fr-link-row">
-        <span className="cut cut-chip fr-link-url mono">{url || "…"}</span>
+        {url ? <span className="cut cut-chip fr-link-url mono">{url}</span> : <span className="cut cut-chip fr-link-url skel-url" aria-label="Loading your link" />}
         <Button size="sm" disabled={!code} onClick={copy} icon={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
           {copied ? "Copied" : "Copy"}
         </Button>

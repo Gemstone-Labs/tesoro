@@ -77,14 +77,20 @@ function Calling({ code, owner }: { code: string; owner: string }) {
   return (
     <section className="cut cut-frame fl-card" aria-labelledby="fl-name">
       <span className="cut fl-av">
-        <PlayerAvatar account={owner} size={168} />
+        <PlayerAvatar account={owner} size={168} wait />
       </span>
       <h1 id="fl-name" className="page-title fl-name">
-        <PlayerName account={owner} />
+        <PlayerName account={owner} wait />
       </h1>
       <p className="fl-line">
         {relation === "self" ? "This is your add-me link." : relation === "friend" ? `You and ${name} are Friends.` : `${name} wants to be Friends on ${BRAND.name}.`}
       </p>
+      {!data && (
+        <span className="fl-facts-skel skel-lines" aria-hidden="true">
+          <span className="skel-line" style={{ width: "70%" }} />
+          <span className="skel-line" style={{ width: "50%" }} />
+        </span>
+      )}
       {s && s.first !== null && (
         <dl className="fl-facts">
           <div>
@@ -114,7 +120,9 @@ function Calling({ code, owner }: { code: string; owner: string }) {
         </ul>
       )}
       <div className="fl-act">
-        {relation === "self" ? (
+        {friends.status === "loading" && !signedOut ? (
+          <span className="cut cut-btn fl-btn-skel skel" aria-label="Loading" />
+        ) : relation === "self" ? (
           <Button block onClick={copy} icon={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
             {copied ? "Copied" : "Copy your add-me link"}
           </Button>

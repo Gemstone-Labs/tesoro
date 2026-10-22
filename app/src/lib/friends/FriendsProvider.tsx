@@ -54,7 +54,9 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
     error: null,
   });
   const mine = me !== null && st.of === me;
-  const status: FriendsState["status"] = !me ? "signed-out" : mine ? st.status : "loading";
+  // Sign-in still settling (or the wallet address not known yet) is loading, never signed out.
+  const settling = auth.status === "loading" || (auth.status === "signed-in" && !me);
+  const status: FriendsState["status"] = settling ? "loading" : !me ? "signed-out" : mine ? st.status : "loading";
   const view = mine ? st.view : null;
   const error = mine ? st.error : null;
   const getToken = auth.getAccessToken;
