@@ -264,11 +264,11 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
 
 /* Short laptop screens: a little less vertical space per row so the sidebar fits without scrolling. */
 @media (min-width: 1024px) and (max-height: 820px) {
-  .side-top { padding-bottom: 26px; }
-  .side-groups .side-link { height: 40px; }
-  .side-link.here::before { top: 12px; bottom: 12px; }
-  .side-rule { margin: 14px 10px; }
-  .side-nav.side-lower .side-link { height: 44px; }
+  .side-top { padding-bottom: 30px; }
+  .side-groups .side-link { height: 42px; }
+  .side-link.here::before { top: 13px; bottom: 13px; }
+  .side-rule { margin: 16px 10px; }
+  .side-nav.side-lower .side-link { height: 46px; }
 }
 @media (min-width: 1024px) and (max-height: 700px) {
   .side-top { padding-bottom: 18px; }
