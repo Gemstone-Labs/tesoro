@@ -80,10 +80,10 @@ const NONE: Spend = { refundable: 0n, sunk: 0n };
  * instruction cannot leave a stale row.
  */
 export const ROWS: Readonly<Record<string, Row>> = {
-  open_match: { class: "admission", relayer: ["payer"], cu: 400_000, spend: (a) => ({ refundable: MATCH_RECORD_RENT + lines(a.pot_lines) * LINE_RENT, sunk: MATCH_SUNK }) },
-  join_match: { class: "admission", relayer: ["payer"], cu: 400_000, spend: (a) => ({ refundable: MATCH_RECORD_RENT + lines(a.pot_lines) * LINE_RENT, sunk: MATCH_SUNK }) },
+  open_match: { class: "admission", relayer: ["payer"], cu: 400_000, extra: 60, spend: (a) => ({ refundable: MATCH_RECORD_RENT + lines(a.pot_lines) * LINE_RENT, sunk: MATCH_SUNK }) },
+  join_match: { class: "admission", relayer: ["payer"], cu: 400_000, extra: 60, spend: (a) => ({ refundable: MATCH_RECORD_RENT + lines(a.pot_lines) * LINE_RENT, sunk: MATCH_SUNK }) },
   open_ticket: { class: "admission", relayer: ["payer"], cu: 300_000, spend: (a) => ({ refundable: TICKET_HEAD_RENT + lines(a.lines) * LINE_RENT, sunk: 0n }) },
-  grow_store_sponsored: { class: "admission", relayer: ["relayer"], cu: 200_000 },
+  grow_store_sponsored: { class: "admission", relayer: ["relayer"], cu: 200_000, spend: (a) => ({ refundable: lines(a.extra_lines) * LINE_RENT, sunk: 0n }) },
   init_ckpt_page_sponsored: { class: "admission", relayer: ["relayer"], cu: 200_000, spend: () => ({ refundable: CKPT_PAGE_RENT, sunk: 0n }) },
   stage_entry: { class: "continue", relayer: [], cu: 400_000 },
   claim_spill: { class: "continue", relayer: [], cu: 300_000, extra: 40 },
@@ -119,11 +119,17 @@ export const ROWS: Readonly<Record<string, Row>> = {
 
 /**
  * The ordered instruction lists one sponsored transaction may carry. Compute budget instructions are added by the
- * server and are not listed. Ticket 09b: when a full spill needs "grow, then open", add
- * `["grow_store_sponsored", "open_match"]` and `["grow_store_sponsored", "join_match"]` here.
+ * server and are not listed. Ticket 09b: an open needs no room, so it travels alone; a join may be preceded by the
+ * grows that buy the holds that make its settle independent of anyone's room (opener, opener funder, joiner, joiner
+ * funder, outside Studio: one grow each, see `economy-notes/room-and-holds.md`). The grows are best effort, so a join
+ * without them is also a shape. Several grows may travel alone (the client splits them when one transaction is too big).
  */
+const MAX_GROWS = 5;
+const grows = (n: number) => Array<string>(n).fill("grow_store_sponsored");
 export const TX_SHAPES: readonly (readonly string[])[] = [
   ...Object.keys(ROWS).map((n) => [n]),
+  ...Array.from({ length: MAX_GROWS - 1 }, (_, i) => grows(i + 2)),
+  ...Array.from({ length: MAX_GROWS }, (_, i) => [...grows(i + 1), "join_match"]),
   // A Backing Ticket: the Requester opens it and stages the Backer's lines in the same transaction. The accepted Offer is
   // the Backer's consent: stage_entry of a Backing Ticket takes any signer, so the Requester is the only one.
   ["open_ticket", "stage_entry"],
@@ -135,7 +141,7 @@ export const TX_SHAPES: readonly (readonly string[])[] = [
 /** A Game's instructions: the relayer is never an account of one, and only the Player signs. */
 export const MAX_GAME_IXS = 4;
 export const MAX_DATA_BYTES = 1_000;
-export const MAX_IXS = 4;
+export const MAX_IXS = MAX_GROWS + 1;
 /** Priority fee the server attaches, in micro-lamports per compute unit. */
 export const PRIORITY_MICROLAMPORTS = 1_000;
 export const SIGNATURE_LAMPORTS = 5_000n;
@@ -334,7 +340,7 @@ function planGame(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
  * listed Game (the service answers from the registry).
  */
 export function planTransaction(ixs: Ix[], ctx: { relayer: PublicKey; player: PublicKey; isGame: (program: PublicKey) => boolean }): Plan {
-  if (ixs.length === 0 || ixs.length > MAX_IXS) throw new RuleError("bad-shape", "A sponsored transaction has between one and four instructions.");
+  if (ixs.length === 0 || ixs.length > MAX_IXS) throw new RuleError("bad-shape", `A sponsored transaction has between one and ${MAX_IXS} instructions.`);
   const core = ixs.filter((i) => i.programId.equals(CORE_ID)).length;
   if (core === ixs.length) return planCore(ixs, ctx.relayer);
   if (core === 0 && ctx.isGame(ixs[0].programId)) return planGame(ixs, ctx.relayer, ctx.player);

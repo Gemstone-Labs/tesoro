@@ -11,7 +11,7 @@ import { blockPuzzle } from "./blockpuzzle.ts";
  * A joined Match past both deadlines whose Boards are both in the rollup. `perms` says which permissions exist in the
  * rollup (seat 0, seat 1, SeedVault). Records the rollup and base calls the keeper makes.
  */
-function stubCtx(id: bigint, perms: [boolean, boolean, boolean], failPermission = false) {
+function stubCtx(id: string, perms: [boolean, boolean, boolean], failPermission = false) {
   const a = BlockPuzzleChain.addresses(id);
   const calls: string[] = [];
   const exists = new Map([a.boards[0], a.boards[1], a.vault].map((t, i) => [permissionPdaFromAccount(t).toBase58(), perms[i]]));
@@ -44,24 +44,26 @@ function stubCtx(id: bigint, perms: [boolean, boolean, boolean], failPermission 
   return { ctx, calls };
 }
 
+const [M42, M43, M44] = [1, 2, 3].map((n) => `${Keypair.generate().publicKey.toBase58()}-${n}`);
+
 describe("Block Puzzle permissions (OC-11)", () => {
   it("creates a permission missing after an earlier delegate, before seal + commit_boards", async () => {
     // The old keeper delegated and created the permission in one step: once the Board was delegated it never
     // retried, and sealAndCommit (commit_boards closes all three permissions) kept failing.
-    const { ctx, calls } = stubCtx(42n, [true, false, false]);
-    await blockPuzzle(ctx, 42n, { deadline: 0 }, "active", "match=42");
+    const { ctx, calls } = stubCtx(M42, [true, false, false]);
+    await blockPuzzle(ctx, M42, { deadline: 0 }, "active", "match=42");
     assert.deepEqual(calls, ["initPermission 1", "initVaultPermission", "sealAndCommit", "settle"]);
   });
 
   it("does not seal while a permission is still missing, and retries it next time", async () => {
-    const { ctx, calls } = stubCtx(43n, [true, false, true], true);
-    await blockPuzzle(ctx, 43n, { deadline: 0 }, "active", "match=43");
+    const { ctx, calls } = stubCtx(M43, [true, false, true], true);
+    await blockPuzzle(ctx, M43, { deadline: 0 }, "active", "match=43");
     assert.deepEqual(calls, ["initPermission 1"]);
   });
 
   it("goes straight to seal when every permission exists", async () => {
-    const { ctx, calls } = stubCtx(44n, [true, true, true]);
-    await blockPuzzle(ctx, 44n, { deadline: 0 }, "active", "match=44");
+    const { ctx, calls } = stubCtx(M44, [true, true, true]);
+    await blockPuzzle(ctx, M44, { deadline: 0 }, "active", "match=44");
     assert.deepEqual(calls, ["sealAndCommit", "settle"]);
   });
 });

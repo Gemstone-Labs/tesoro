@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BN } from "@coral-xyz/anchor";
 import { SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
-import { backingPairIx, chunkIx, coreIx, key, openMatchIx, playerIx } from "./fixtures";
+import { backingPairIx, chunkIx, coreIx, growIx, joinMatchIx, key, openMatchIx, playerIx } from "./fixtures";
 import { CORE_ID, ORDER_RENT, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
 
 const relayer = key();
@@ -59,9 +59,19 @@ describe("refused", () => {
     refused([open], "relayer-in-accounts");
   });
   it("an extra account on an instruction that takes none", async () => {
-    const open = await openMatchIx(relayer, player, game);
-    open.keys.push({ pubkey: key(), isSigner: false, isWritable: false });
-    refused([open], "bad-accounts");
+    const close = await coreIx("close_ticket", [], { caller: relayer, ticket: key(), payer: relayer });
+    close.keys.push({ pubkey: key(), isSigner: false, isWritable: false });
+    refused([close], "bad-accounts");
+  });
+  it("more Source and store accounts than an open or a join may carry, and a signer among them", async () => {
+    for (const make of [openMatchIx, joinMatchIx]) {
+      const many = await make(relayer, player, game);
+      for (let i = 0; i < 61; i++) many.keys.push({ pubkey: key(), isSigner: false, isWritable: true });
+      refused([many], "bad-accounts");
+      const signing = await make(relayer, player, game);
+      signing.keys.push({ pubkey: key(), isSigner: true, isWritable: true });
+      refused([signing], "bad-accounts");
+    }
   });
   it("more chunk accounts than the row allows, and a signer among them", async () => {
     refused([await chunkIx(relayer, key(), 61)], "bad-accounts");
@@ -101,12 +111,35 @@ describe("refused", () => {
     refused([{ ...base, keys: [{ pubkey: relayer, isSigner: false, isWritable: false }] }], "relayer-in-accounts");
     refused([{ ...base, keys: [{ pubkey: key(), isSigner: true, isWritable: false }] }], "bad-signer");
   });
-  it("shapes the table does not list, until a row says so (ticket 09b adds grow + open)", async () => {
+  it("shapes the table does not list: an open never travels with a grow, grows never follow a join", async () => {
     const open = await openMatchIx(relayer, player, game);
     refused([open, open], "bad-shape");
-    const grow = await coreIx("grow_store_sponsored", [{ spill: {} }, 10], { relayer, account: open.keys[7].pubkey });
+    const grow = await growIx(relayer, key());
     expect(plan([grow]).class).toBe("admission");
     refused([grow, open], "bad-shape");
+    refused([await joinMatchIx(relayer, player, game), grow], "bad-shape");
+    refused([grow, grow, grow, grow, grow, grow], "bad-shape");
+  });
+  it("a join may be preceded by the grows of the Accounts it holds room in (ticket 09b)", async () => {
+    const join = await joinMatchIx(relayer, player, game);
+    const alone = plan([join]);
+    expect(alone.names).toEqual(["join_match"]);
+    for (let n = 1; n <= 5; n++) {
+      const grows = await Promise.all(Array.from({ length: n }, () => growIx(relayer, key())));
+      const p = plan([...grows, join]);
+      expect(p.names).toEqual([...Array(n).fill("grow_store_sponsored"), "join_match"]);
+      expect(p.class).toBe("admission");
+      expect(p.signers.map((k) => k.toBase58())).toEqual([player.toBase58()]);
+      expect(p.spend.refundable).toBeGreaterThan(alone.spend.refundable);
+      expect(p.cu).toBeLessThanOrEqual(1_400_000);
+    }
+  });
+  it("grows alone are a shape, and the relayer is only the grow's relayer slot", async () => {
+    expect(plan([await growIx(relayer, key()), await growIx(relayer, key())]).names).toHaveLength(2);
+    const grow = await growIx(relayer, key());
+    const account = grow.keys.findIndex((k) => !k.isSigner && !k.isWritable && !k.pubkey.equals(CORE_ID) && !k.pubkey.equals(relayer));
+    grow.keys[account] = { ...grow.keys[account], pubkey: relayer };
+    refused([grow], "relayer-in-accounts");
   });
   it("empty and oversized transactions", async () => {
     refused([], "bad-shape");

@@ -2,7 +2,14 @@ import { Budget, log, runJob, type Ctx } from "./act.ts";
 import { alertsJob } from "./alerts-job.ts";
 import { awayCleanup } from "./away.ts";
 import { backingHygiene } from "./backing.ts";
+import { batchesJob } from "./batches.ts";
 import { bridgeJob } from "./bridge.ts";
+import { cashInJob, harvestJob } from "./counters.ts";
+import { historyJob } from "./history.ts";
+import { orderJob } from "./orders.ts";
+import { poolJob } from "./pools.ts";
+import { listingJob, sweepJob } from "./sweeps.ts";
+import { ticketJob } from "./tickets.ts";
 import { loadPayer, settings, shortKey } from "./env.ts";
 import { Health, startHealthServer, startWatchdog } from "./health.ts";
 import { matchHygiene } from "./matches.ts";
@@ -16,8 +23,8 @@ import { treasuryJob } from "./treasury.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const MAX_BACKOFF_MS = 5 * 60_000;
-/** A pass is at most ~6 jobs x KEEPER_JOB_LIMIT_SECS plus a backoff sleep; no pass finished in this long means the loop is stuck. */
-const WATCHDOG_MS = Number(process.env.KEEPER_WATCHDOG_SECS ?? 20 * 60) * 1000;
+/** A pass is at most ~17 jobs x KEEPER_JOB_LIMIT_SECS plus a backoff sleep; no pass finished in this long means the loop is stuck. */
+const WATCHDOG_MS = Number(process.env.KEEPER_WATCHDOG_SECS ?? 40 * 60) * 1000;
 
 async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>) {
   ctx.now = await clusterNow(ctx.conn);
@@ -25,12 +32,23 @@ async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>) {
   // Price first: Advances stop 24 h after the last set_price, so it must not wait behind slower jobs.
   const jobs: [string, (c: Ctx) => Promise<number>][] = [
     ...(priceJobEnabled() ? ([["price", priceJob]] as [string, (c: Ctx) => Promise<number>][]) : []),
+    // Stake pools first: a payout out of a stake custody is refused from a pool that is behind.
+    ["pools", poolJob],
     ["match", matchHygiene],
+    // After the Match job, so a settle that just started is in the records; before notify, which announces from them.
+    ["history", historyJob],
+    ["tickets", ticketJob],
+    ["orders", orderJob],
     ["backing", backingHygiene],
     ["away", awayCleanup],
     ["bridge", bridgeJob],
+    ["batches", batchesJob],
     ["treasury", treasuryJob],
+    ["harvest", harvestJob],
+    ["fees", cashInJob],
     ["season", seasonJob],
+    ["sweep", sweepJob],
+    ["listing", listingJob],
     ["notify", notifyJob],
     ["notify-events", notifyEventsJob],
   ];

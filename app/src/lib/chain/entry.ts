@@ -56,10 +56,6 @@ const accountOf = (authority: PublicKey) => BlockPuzzleChain.coreAccount(authori
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Does the deployed IDL name this account on this instruction (09b renames and adds accounts)? */
-const idlHas = (ix: string, account: string): boolean =>
-  (coreIdl.instructions as { name: string; accounts: { name: string }[] }[]).find((i) => i.name === ix)?.accounts.some((a) => a.name === account) ?? false;
-
 // ---- stores --------------------------------------------------------------------------------
 
 /** An Account's basket and spill, and its Match counter, as one entry reads them. */
@@ -437,7 +433,7 @@ export interface JoinArgs {
   remaining?: AccountMeta[];
 }
 
-/** `join_match` (09b accounts when the IDL has them). */
+/** `join_match`: both of the opener's baskets and spills are accounts of it. */
 export function joinMatchIx(a: JoinArgs): TransactionInstruction {
   const account = accountOf(a.player);
   const accounts: Record<string, PublicKey | undefined> = {
@@ -451,6 +447,8 @@ export function joinMatchIx(a: JoinArgs): TransactionInstruction {
     pot: a.pot.address,
     matchState: matchPda(a.match.opener, a.match.n),
     openerProtections: protectionsPda(a.facts.openerPlayer),
+    openerBasket: basketPda(a.facts.openerPlayer),
+    openerFunderBasket: basketPda(a.facts.openerFunder),
     openerSpill: spillPda(a.facts.openerPlayer),
     openerFunderSpill: spillPda(a.facts.openerFunder),
     pair: pairPda(a.facts.openerPlayer, account),
@@ -460,10 +458,6 @@ export function joinMatchIx(a: JoinArgs): TransactionInstruction {
     systemProgram: SystemProgram.programId,
     ...backerAccounts(a.backing),
   };
-  if (idlHas("join_match", "opener_basket")) {
-    accounts.openerBasket = basketPda(a.facts.openerPlayer);
-    accounts.openerFunderBasket = basketPda(a.facts.openerFunder);
-  }
   return coreIx("join_match", accounts, { potNonce: new BN(a.pot.nonce.toString()), potLines: a.pot.lines }, a.remaining ?? []);
 }
 

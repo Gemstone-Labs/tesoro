@@ -13,7 +13,6 @@ import { PublicKey, SystemProgram, type AccountMeta, type Connection, type Trans
 import { BN } from "@coral-xyz/anchor";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import type { GameId } from "@/lib/mock/types";
-import coreIdl from "./idl/tesoro_core.json";
 import { FLAG_BACKING_OPEN, FLAG_TICKET_OPEN, MAX_GROW_LINES, basketPda, decodeStore, playableTotal, sponsorPda, spillPda, ticketPda, type Line, type Store } from "./basket";
 import { coreIx as rawCoreIx, metaOf, type AccountsByName } from "./core-ix";
 import type { GetToken } from "./demo-client";
@@ -27,7 +26,6 @@ const snake = (k: string) => k.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 const coreIx = (name: string, accounts: AccountsByName, args: Record<string, unknown> = {}, remaining: AccountMeta[] = []) =>
   rawCoreIx(name, Object.fromEntries(Object.entries(accounts).map(([k, v]) => [snake(k), v])), Object.fromEntries(Object.entries(args).map(([k, v]) => [snake(k), v])), remaining);
 const pk = (bytes: Uint8Array) => new PublicKey(bytes);
-const idlHas = (ix: string, account: string) => (coreIdl.instructions as { name: string; accounts: { name: string }[] }[]).find((i) => i.name === ix)?.accounts.some((a) => a.name === account) ?? false;
 
 export type TicketKind = "entry" | "backing";
 export type TicketState = "open" | "cancelling" | "closed" | "cancelled";
@@ -198,7 +196,6 @@ export function growTicketIxs(payer: PublicKey, owner: PublicKey, ticket: Public
   const out: TransactionInstruction[] = [];
   for (let left = extra; left > 0; left -= MAX_GROW_LINES) {
     const accounts: AccountsByName = { payer, owner, ticket, sponsor: undefined, systemProgram: SystemProgram.programId };
-    if (idlHas("grow_ticket", "spill")) accounts.spill = spillPda(owner);
     out.push(coreIx("grow_ticket", accounts, { extraLines: Math.min(left, MAX_GROW_LINES) }));
   }
   return out;

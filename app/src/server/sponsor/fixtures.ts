@@ -47,6 +47,35 @@ export async function openMatchIx(relayer: PublicKey, authority: PublicKey, game
   });
 }
 
+/** A complete, valid `join_match` for `authority` paid by `relayer`. */
+export async function joinMatchIx(relayer: PublicKey, authority: PublicKey, game: PublicKey): Promise<Ix> {
+  return coreIx("join_match", [new BN(1), 4], {
+    payer: relayer,
+    playerAuthority: authority,
+    gameProgram: game,
+    programData: key(),
+    pot: key(),
+    matchState: key(),
+    openerProtections: key(),
+    openerBasket: key(),
+    openerSpill: key(),
+    openerFunderBasket: key(),
+    openerFunderSpill: key(),
+    pair: key(),
+    gameRecord: key(),
+    offer: null,
+    backerAccount: null,
+    backerCounters: null,
+    backerProtections: null,
+    backerBasket: null,
+    backerSpill: null,
+  });
+}
+
+/** A `grow_store_sponsored` of the spill of `account`, fronted by `relayer`. */
+export const growIx = (relayer: PublicKey, account: PublicKey, lines = 10) =>
+  coreIx("grow_store_sponsored", [{ spill: {} }, lines], { relayer, account });
+
 export const chunkIx = (relayer: PublicKey, matchState: PublicKey, extra = 0) =>
   coreIx("match_chunk", [12], { caller: relayer, matchState, potA: key(), potB: key() }).then((ix) => {
     for (let i = 0; i < extra; i++) ix.keys.push({ pubkey: key(), isSigner: false, isWritable: i % 2 === 0 });

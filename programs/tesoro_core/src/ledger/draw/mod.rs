@@ -33,10 +33,23 @@
 //! # Room
 //!
 //! A line that fits neither the basket nor the spill makes the operation fail with
-//! [`DrawError::SpillFull`], changing nothing. The instruction layer grows the spill (sponsored,
-//! refundable) and retries. The slots to reserve are bounded: a Ticket needs `storage_lines()`
-//! (it reserves them before staging), a credit needs one per line it adds
-//! ([`spill_slots_for_credit`]). So settle, refund, restage and cancel never strand a Player.
+//! [`DrawError::SpillFull`], changing nothing; the instruction layer makes room (a store grows)
+//! and retries. Two rules keep that away from the Player:
+//!
+//! * **A whole line that leaves the pool frees a slot, and the slot is held for it.** The
+//!   instruction layer adds [`Pool::freed`] to the holder's share and to `room_reserved` in the
+//!   spill header; lines put back with [`Pool::set_hold`] use the share first (each new slot pays
+//!   it and the header down). So a Ticket's cancel and restage, and a Match's refund, always find
+//!   their slot, however full the stores are.
+//! * **A plain credit may only use free slots beyond the held ones** (`free_slots > room_reserved`),
+//!   so nobody else's credit can take them.
+//!
+//! A line split off a bigger one frees no slot, and needs none as long as the rest stays in the
+//! pool: its key is there and the line merges back. If a later entry takes that rest whole, the
+//! slot is *that* entry's hold, and both return the same key: the part that returns first finds
+//! no hold and waits for room (or for its sibling) like any credit. A credit that brings a new key
+//! (a win, a fee line) needs a slot of its own: [`spill_slots_for_credit`] bounds it, and the
+//! instruction layer holds it where it can.
 //!
 //! Lines move whole without touching a Source's book; only a split line, or a merge into an
 //! existing line, goes through [`SourceBook::transfer`], which brings both lines up to date and
@@ -284,11 +297,65 @@ enum Where {
 pub struct Pool<'a, B: Bytes, S: Bytes> {
     pub basket: &'a mut LineStore<B>,
     pub spill: &'a mut LineStore<S>,
+    /// Slots of the spill header's `room_reserved` the caller may use for the lines it puts.
+    hold_left: u32,
+    /// Whole lines taken off the pool since `new`: each freed one slot.
+    freed: u32,
+    /// Lines `put` inserted into a new slot since `new`.
+    used: u32,
 }
 
 impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
     pub fn new(basket: &'a mut LineStore<B>, spill: &'a mut LineStore<S>) -> Self {
-        Pool { basket, spill }
+        Pool {
+            basket,
+            spill,
+            hold_left: 0,
+            freed: 0,
+            used: 0,
+        }
+    }
+
+    /// Slots free in the basket and the spill together.
+    pub fn free_slots(&self) -> usize {
+        (self.basket.capacity() - self.basket.len()) + (self.spill.capacity() - self.spill.len())
+    }
+
+    /// Slots in `room_reserved` that no hold-user may take: free slots beyond them are the only
+    /// ones a plain credit can use.
+    pub fn held_slots(&self) -> usize {
+        self.spill.room_reserved() as usize
+    }
+
+    /// Declare how many of the held slots the lines `put` next may use (the holder's own share of
+    /// `room_reserved`). Every new slot such a line takes pays the hold, and the header, down.
+    pub fn set_hold(&mut self, slots: u32) {
+        self.hold_left = slots;
+    }
+
+    /// The holder's slots not used yet.
+    pub fn hold_left(&self) -> u32 {
+        self.hold_left
+    }
+
+    /// Whole lines the draw has taken off the pool since `new`: the slots they freed are free to
+    /// hold for the Pot or Ticket they went into.
+    pub fn freed(&self) -> u32 {
+        self.freed
+    }
+
+    /// The slots to add to the holder's hold after a step: the freed ones, but never more than
+    /// the slots that are really free beyond the header's `room_reserved`. A plain `put` in the
+    /// same step may have used a freed slot (a returned line with no hold of its own); counting
+    /// that slot as held too would leave more held than free, and a later return would fail.
+    pub fn freed_to_hold(&self) -> u32 {
+        let spare = self.free_slots().saturating_sub(self.held_slots());
+        u32::try_from(spare).map_or(self.freed, |s| self.freed.min(s))
+    }
+
+    /// Lines `put` placed in a new slot since `new` (a merge into a line needs none).
+    pub fn used(&self) -> u32 {
+        self.used
     }
 
     /// Playable Gemas in the basket and the spill (fee classes never count).
@@ -400,6 +467,7 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
                 Where::Basket => self.basket.remove_at(idx)?,
                 Where::Spill => self.spill.remove_at(idx)?,
             };
+            self.freed += 1;
             return Ok(line);
         }
         let mut part = SourceBook::blank_line(
@@ -429,18 +497,35 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
             merge_into(self.basket, idx, books, line)?;
             return Ok(Placed::Basket);
         }
-        if let Err(at) = found {
-            if self.basket.len() < self.basket.capacity() {
-                self.basket.insert_at(at, line)?;
-                return Ok(Placed::Basket);
+        let spill_found = self.spill.find(&key);
+        if let (Err(at), Err(_)) = (&found, &spill_found) {
+            // a new slot: the holder's own, else a free one that is not held for someone
+            let free = self.free_slots();
+            let held = self.held_slots();
+            let mine = self.hold_left > 0 && free > 0;
+            if !mine && free <= held {
+                return Err(DrawError::SpillFull);
             }
+            let to_basket = self.basket.len() < self.basket.capacity();
+            if to_basket {
+                self.basket.insert_at(*at, line)?;
+            } else if let Err(at) = spill_found {
+                self.spill.insert_at(at, line)?;
+            }
+            if mine {
+                self.hold_left -= 1;
+                let held = self.spill.room_reserved();
+                self.spill.set_room_reserved(held.saturating_sub(1));
+            }
+            self.used += 1;
+            return Ok(if to_basket {
+                Placed::Basket
+            } else {
+                Placed::Spill
+            });
         }
-        match self.spill.find(&key) {
-            Ok(idx) => merge_into(self.spill, idx, books, line)?,
-            Err(at) if self.spill.len() < self.spill.capacity() => {
-                self.spill.insert_at(at, line)?
-            }
-            Err(_) => return Err(DrawError::SpillFull),
+        if let Ok(idx) = spill_found {
+            merge_into(self.spill, idx, books, line)?;
         }
         Ok(Placed::Spill)
     }
