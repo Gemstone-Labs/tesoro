@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { debtClearedFacts, digestDue, matchFacts, offerFacts, opponentPlayedFact, pushDigest, pushEvents, seasonFacts, seasonFactsInput, sendEvents, type MatchFacts, type OfferFacts } from "./notify-events.ts";
+import { debtClearedFacts, digestDue, matchFacts, offerFacts, pushDigest, pushEvents, seasonFacts, seasonFactsInput, sendEvents, type MatchFacts, type OfferFacts } from "./notify-events.ts";
 
 const NOW = 1_800_000_000;
 const base: MatchFacts = { id: 7n, game: "holdem", status: "active", deadline: NOW + 600, entry: 500, players: ["a", "b"], session: null };
@@ -51,19 +51,6 @@ describe("Match refunded and Delayed", () => {
   });
 });
 
-describe("Block Burst opponent played", () => {
-  const played = { delegated: true, sealed: false };
-  const idle = { delegated: false, sealed: false };
-  it("tells the opener once both Boards have played", () => {
-    assert.deepEqual(opponentPlayedFact({ id: 9n, opener: "a" }, true, [played, played]), { account: "a", kind: "opponent-played", matchId: "9", game: "block-puzzle" });
-    assert.equal(opponentPlayedFact({ id: 9n, opener: "a" }, true, [played, { delegated: false, sealed: true }])?.kind, "opponent-played");
-  });
-  it("says nothing before the opponent joins or plays, or if the opener has not played", () => {
-    assert.equal(opponentPlayedFact({ id: 9n, opener: "a" }, false, [played, played]), null);
-    assert.equal(opponentPlayedFact({ id: 9n, opener: "a" }, true, [played, idle]), null);
-    assert.equal(opponentPlayedFact({ id: 9n, opener: "a" }, true, [idle, played]), null);
-  });
-});
 
 describe("Offers", () => {
   const offer: OfferFacts = { address: "O1", backer: "backer", game: "block-puzzle", entry: 1000, status: "open", expiresAt: NOW + 100, useBy: NOW + 200, request: "R1" };

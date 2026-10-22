@@ -25,12 +25,6 @@ interface Base {
   id: string;
   authority: string;
 }
-/** Block Burst: you played first and your opponent has now played too. */
-export interface OpponentPlayedEvent extends Base {
-  kind: "opponent-played";
-  matchId: string;
-  game: GameId;
-}
 /** An Active Match that should have settled by now (the Delayed rule in lib/chain/match-status). */
 export interface MatchDelayedEvent extends Base {
   kind: "match-delayed";
@@ -89,7 +83,6 @@ export type NotifyEvent =
   | FriendRequestEvent
   | FriendChallengeEvent
   | MatchSettledEvent
-  | OpponentPlayedEvent
   | MatchDelayedEvent
   | MatchRefundedEvent
   | OfferMadeEvent
@@ -147,8 +140,6 @@ export function describe(e: NotifyEvent): Message {
       if (e.result === "won") return { subject: `You won your ${game} Match`, body: `You won your ${game} Match and ${gemas(e.gemas)}. The Pot was ${gemas(e.pot)}.` };
       if (e.result === "lost") return { subject: `You lost your ${game} Match`, body: `You lost your ${game} Match and ${gemas(e.gemas)}. The Pot was ${gemas(e.pot)}.` };
       return { subject: `Your ${game} Match was a draw`, body: `Your ${game} Match was a draw. Your entry came back and nothing was won or lost.` };
-    case "opponent-played":
-      return { subject: `Your opponent has played your ${game} Match`, body: `Your opponent has played your ${game} Match. It is being settled now, and you will get another email with the result.` };
     case "match-delayed":
       return {
         subject: `Your ${game} Match is delayed`,
