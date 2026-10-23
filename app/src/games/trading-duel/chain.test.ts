@@ -1,4 +1,5 @@
 import { matchPda } from "../../lib/chain/basket";
+import type { TradingDuel } from "../../lib/chain/idl/trading_duel.types";
 import { describe, expect, it } from "vitest";
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
@@ -9,7 +10,7 @@ import { NO_PICK } from "./grid";
 
 /** The instructions the client would send, captured instead of sent. */
 function capture() {
-  const chain = new TradingDuelChain(duelIdl, coreIdl);
+  const chain = new TradingDuelChain(duelIdl as unknown as TradingDuel, coreIdl);
   const sent: { step: string; ix: TransactionInstruction }[] = [];
   const grab = async (step: string, ixs: TransactionInstruction[]) => {
     sent.push({ step, ix: ixs[ixs.length - 1] });

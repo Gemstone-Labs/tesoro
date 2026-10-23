@@ -13,6 +13,7 @@
  *
  * Shares the Player signer, payout maths and tesoro_core PDAs with the Hold'em client.
  */
+import type { TradingDuel } from "../../lib/chain/idl/trading_duel.types";
 import * as anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import {
@@ -350,14 +351,14 @@ async function withRetry<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
 
 export class TradingDuelChain {
   readonly base: Connection;
-  readonly program: anchor.Program<any>;
+  readonly program: anchor.Program<TradingDuel>;
   readonly tesoro: anchor.Program<any>;
   private readonly teeRpc: string;
   private readonly teeWs: string;
   private readonly tee = new Map<string, Connection>();
   onTx?: DuelChainOptions["onTx"];
 
-  constructor(duelIdl: any, tesoroIdl: any, opts: DuelChainOptions = {}) {
+  constructor(duelIdl: TradingDuel, tesoroIdl: any, opts: DuelChainOptions = {}) {
     this.base = opts.base ?? defaultBaseConnection();
     this.teeRpc = opts.teeRpc ?? TEE_RPC;
     this.teeWs = opts.teeWs ?? TEE_WS;

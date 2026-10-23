@@ -11611,6 +11611,76 @@
       ]
     },
     {
+      "name": "set_profiles_cap",
+      "docs": [
+        "Admin only: the most the sponsor may spend on the rent of sponsored Profiles, counted apart",
+        "from Accounts (ticket 18c). Zero turns that off."
+      ],
+      "discriminator": [
+        80,
+        42,
+        186,
+        22,
+        151,
+        155,
+        103,
+        51
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "profiles_cap",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "set_self_exclusion",
       "discriminator": [
         145,
@@ -19642,6 +19712,18 @@
           {
             "name": "accounts_spent",
             "type": "u64"
+          },
+          {
+            "name": "profiles_cap",
+            "docs": [
+              "The same for the rent of a sponsored Profile, counted apart from Accounts so a swarm of Profiles",
+              "cannot use up the room new Players need. Zero until the admin sets it: Profiles are then not sponsored."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "profiles_spent",
+            "type": "u64"
           }
         ]
       }
@@ -20062,7 +20144,9 @@
           {
             "name": "instant_fee_bps",
             "docs": [
-              "Instant Redeem Fee, basis points of the redeemed Gemas' value (3,500 on devnet; 2,500 on mainnet, ADR 0011)."
+              "Reserved bytes. The program never reads this: the Instant Redeem Fee is the flat",
+              "`ledger::INSTANT_REDEEM_FEE_BPS` (25%). `init_treasury` still accepts and stores the argument so the",
+              "instruction layout does not change; the app and keeper ignore it."
             ],
             "type": "u16"
           },
