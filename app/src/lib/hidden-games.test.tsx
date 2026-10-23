@@ -77,4 +77,40 @@ describe("NEXT_PUBLIC_HIDDEN_GAMES", () => {
     expect(() => refuseHiddenGames([ix(PublicKey.default, [GAME_IDS.vanguard])])).toThrow(/not available/);
     expect(() => refuseHiddenGames([ix(GAME_IDS.holdem)])).not.toThrow();
   });
+
+  it("refuses a core instruction that carries the hidden Game only in its data", async () => {
+    await withSwitch("vanguard", async () => undefined);
+    const { refuseHiddenGames } = await import("@/server/sponsor/service");
+    const { GAME_IDS } = await import("@/lib/chain/games");
+    const { BN } = await import("@coral-xyz/anchor");
+    const { coreIx, key, openMatchIx } = await import("@/server/sponsor/fixtures");
+    // open_match with every account swapped for a stranger: only the game argument names Vanguard.
+    const open = await openMatchIx(key(), key(), GAME_IDS.vanguard, { gameProgram: key(), gameRecord: key() });
+    expect(open.keys.some((k) => k.pubkey.equals(GAME_IDS.vanguard))).toBe(false);
+    expect(() => refuseHiddenGames([open])).toThrow(/not available/);
+    const req = await coreIx("create_request", [new BN(1), GAME_IDS.vanguard, new BN(500)], { playerAuthority: key(), gameRecord: key() });
+    expect(() => refuseHiddenGames([req])).toThrow(/not available/);
+    const fine = await openMatchIx(key(), key(), GAME_IDS.holdem, { gameProgram: key(), gameRecord: key() });
+    expect(() => refuseHiddenGames([fine])).not.toThrow();
+  });
+
+  it("takes hidden Games out of history rows, totals and recent wins", async () => {
+    const { visibleAccountHistory, visibleRecentWins } = await import("@/server/history/reads");
+    const row = (id: string, game: string) => ({ id, game });
+    const all = [row("a", "holdem"), row("b", "vanguard"), row("c", "block-puzzle"), row("d", "vanguard"), row("e", "trading-duel")];
+    const rpc = (async (fn: string, a: { p_page?: number; p_size?: number; p_game?: string | null }) => {
+      if (fn === "recent_wins") return all;
+      const size = a.p_size ?? 10;
+      const pageRows = all.filter((r) => !a.p_game || r.game === a.p_game);
+      const page = a.p_page ?? 1;
+      return { rows: pageRows.slice((page - 1) * size, page * size), page, pages: Math.max(1, Math.ceil(pageRows.length / size)), total: pageRows.length };
+    }) as never;
+    const hidden = new Set(["vanguard"]);
+    const h = await visibleAccountHistory(rpc, "acct", 1, 2, null, hidden);
+    expect(h.rows.map((r) => r.id)).toEqual(["a", "c"]);
+    expect(h).toMatchObject({ total: 3, pages: 2 });
+    expect((await visibleAccountHistory(rpc, "acct", 2, 2, null, hidden)).rows.map((r) => r.id)).toEqual(["e"]);
+    expect((await visibleAccountHistory(rpc, "acct", 1, 10, null, new Set())).total).toBe(5);
+    expect((await visibleRecentWins(rpc, { limit: 10 }, hidden)).map((w) => w.id)).toEqual(["a", "c", "e"]);
+  });
 });

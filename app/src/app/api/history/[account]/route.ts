@@ -1,5 +1,5 @@
 import { supabaseRpc } from "@/server/history/db";
-import { HISTORY_PAGE_SIZE, accountHistory } from "@/server/history/reads";
+import { HISTORY_PAGE_SIZE, visibleAccountHistory as accountHistory } from "@/server/history/reads";
 import { isGameId } from "@/lib/games";
 
 export const runtime = "nodejs";

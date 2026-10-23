@@ -1,5 +1,5 @@
 import { supabaseRpc } from "@/server/history/db";
-import { recentWins } from "@/server/history/reads";
+import { visibleRecentWins } from "@/server/history/reads";
 import { isGameId } from "@/lib/games";
 
 export const runtime = "nodejs";
@@ -15,8 +15,8 @@ export async function GET(req: Request) {
   const since = q.get("since");
   const limit = Math.min(200, Math.max(1, Math.floor(Number(q.get("limit"))) || 8));
   try {
-    const wins = await recentWins(supabaseRpc, { game: game ?? undefined, since: since && Number(since) > 0 ? Math.floor(Number(since)) : undefined, limit });
-    return Response.json(wins.filter((w) => isGameId(w.game)), { headers: { "cache-control": "public, s-maxage=10, stale-while-revalidate=60" } });
+    const wins = await visibleRecentWins(supabaseRpc, { game: game ?? undefined, since: since && Number(since) > 0 ? Math.floor(Number(since)) : undefined, limit });
+    return Response.json(wins, { headers: { "cache-control": "public, s-maxage=10, stale-while-revalidate=60" } });
   } catch (e) {
     console.error("recent wins", e);
     return Response.json({ error: "Match history is not available." }, { status: 503 });
