@@ -79,7 +79,9 @@ export function seasonOf(account: any): SeasonRecord {
 }
 
 export async function readSeason(core: Core, n: number): Promise<SeasonRecord | null> {
-  const account = await core.account.seasonState.fetchNullable(seasonAddress(n));
+  // A record written by the pre-economy program has another length and cannot be decoded: it counts as no record here
+  // (seasonJob skips it, the Season was paid by the old program).
+  const account = await core.account.seasonState.fetchNullable(seasonAddress(n)).catch(() => null);
   return account ? seasonOf(account) : null;
 }
 
@@ -291,6 +293,10 @@ export async function seasonJob(ctx: Ctx, d: SeasonDeps = realSeasonDeps(ctx)): 
   for (const n of seasonsToCheck(ctx.now)) {
     const subject = `season=${n}`;
     let rec = await readSeason(ctx.core, n);
+    if (!rec && (await d.read.many([seasonAddress(n)]))[0]) {
+      log("season", subject, "SKIP: an old-layout Season record exists (paid by the earlier program)");
+      continue;
+    }
     if (!rec) {
       if (Date.now() - (emptyAt.get(n) ?? 0) < EMPTY_RECHECK_MS) continue;
       const table = topRanks(await d.wins(n));
