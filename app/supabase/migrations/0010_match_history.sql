@@ -50,7 +50,7 @@ create table public.match_parties (
   account text not null,
   role text not null check (role in ('player', 'backer')),
   side smallint not null check (side in (0, 1)),
-  result text not null check (result in ('won', 'lost', 'draw', 'refunded')),
+  result text not null check (result in ('won', 'lost', 'draw', 'no-show', 'refunded')),
   -- Gemas gained (+) or lost (-) after Fees. A backed Player never goes below 0.
   delta bigint not null,
   -- The other party of a Backing and the Player's share of the surplus, when the entry was backed.

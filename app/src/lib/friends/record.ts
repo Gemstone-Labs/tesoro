@@ -1,4 +1,4 @@
-import type { HistoryRow } from "@/lib/chain/history";
+import { unplayed, type HistoryRow } from "@/lib/chain/history";
 
 export interface FriendRecord {
   won: number;
@@ -12,7 +12,7 @@ export interface FriendRecord {
 export function recordAgainst(rows: HistoryRow[], other: string): FriendRecord {
   const r: FriendRecord = { won: 0, lost: 0, draws: 0, last: null };
   for (const row of rows) {
-    if (row.role !== "player" || row.opp !== other || row.result === "refunded") continue;
+    if (row.role !== "player" || row.opp !== other || unplayed(row.result)) continue;
     if (row.result === "won") r.won++;
     else if (row.result === "lost") r.lost++;
     else r.draws++;

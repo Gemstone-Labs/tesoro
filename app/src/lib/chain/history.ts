@@ -69,9 +69,12 @@ export function accountHistory(played: ChainMatch[], funded: ChainMatch[] = []):
 }
 
 /** Every result a finished Match can have, in the order the filter shows them. */
-export const RESULTS: readonly MatchResult[] = ["won", "lost", "draw", "refunded"];
-/** What a Match history shows by default: Matches that were played. Refunds stay hidden until asked for. */
-export const PLAYED: readonly MatchResult[] = ["won", "lost", "draw"];
+export const RESULTS: readonly MatchResult[] = ["won", "lost", "draw", "no-show", "refunded"];
+/** What a Match history shows by default: Matches that were played, and no-shows (each side paid the Platform Fee). Refunds stay hidden until asked for. */
+export const PLAYED: readonly MatchResult[] = ["won", "lost", "draw", "no-show"];
+
+/** True for a Match that was never played (a refund or a no-show): left out of records, rematches and play counts. */
+export const unplayed = (r: MatchResult): boolean => r === "refunded" || r === "no-show";
 
 /** The results a `?result=` value shows: the played ones when it is absent or unreadable, none for "none". */
 export function resultFilter(v: string | null): MatchResult[] {
@@ -110,6 +113,7 @@ export const shortKey = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
 export function amountText(r: HistoryRow): string {
   if (r.result === "draw") return "Entry returned";
   if (r.result === "refunded") return "Entry refunded";
+  if (r.result === "no-show") return r.delta === 0 ? "No-show" : `No-show, Platform Fee ${fmtGemas(Math.abs(r.delta))} Gemas`;
   const sign = r.delta > 0 ? "+" : r.delta < 0 ? "−" : "";
   return `${sign}${fmtGemas(Math.abs(r.delta))} Gemas`;
 }
