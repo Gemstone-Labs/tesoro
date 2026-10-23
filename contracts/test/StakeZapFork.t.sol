@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {PositionVault} from "../src/PositionVault.sol";
+import {PositionVaultBase} from "../src/PositionVaultBase.sol";
 import {WstETHRateAdapter} from "../src/WstETHRateAdapter.sol";
 import {KHypeRateAdapter} from "../src/KHypeRateAdapter.sol";
 import {LidoZap, KinetiqZap} from "../src/StakeZap.sol";
@@ -34,7 +35,7 @@ contract LidoZapForkTest is Test {
         vm.deal(alice, 10 ether);
         vm.prank(alice);
         (uint64 id, uint256 got) = zap.openWithNative{value: 2 ether}(2 ether, 0, 12);
-        PositionVault.Position memory p = vault.getPosition(id);
+        PositionVaultBase.Position memory p = vault.getPosition(id);
         assertEq(p.owner, alice);
         assertEq(IBal(WSTETH).balanceOf(address(vault)), got);
         assertApproxEqAbs(p.principalUnderlying, 2 ether, 10, "Principal is the ETH staked, to wei rounding");
@@ -71,7 +72,7 @@ contract KinetiqZapForkTest is Test {
         assertGt(min, 0);
         vm.prank(alice);
         (uint64 id, uint256 got) = zap.openWithNative{value: min + 1 ether}(min + 1 ether, 0, 12);
-        PositionVault.Position memory p = vault.getPosition(id);
+        PositionVaultBase.Position memory p = vault.getPosition(id);
         assertEq(p.owner, alice);
         assertEq(IBal(KHYPE).balanceOf(address(vault)), got);
         assertApproxEqRel(p.principalUnderlying, min + 1 ether, 1e12, "Principal is the HYPE staked");

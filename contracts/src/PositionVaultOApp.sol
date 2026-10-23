@@ -5,6 +5,7 @@ import {OApp, Origin, MessagingFee} from "@layerzerolabs/oapp-evm/contracts/oapp
 import {MessagingParams} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {PositionVault} from "./PositionVault.sol";
+import {PrizeModule} from "./PrizeModule.sol";
 
 /// @title PositionVaultOApp
 /// @notice PositionVault carried over LayerZero V2 to the `tesoro_bridge` program on Solana.
@@ -149,19 +150,8 @@ contract PositionVaultOApp is PositionVault, OApp {
     function _encodeOutbound(bytes memory payload) internal view returns (bytes memory message) {
         uint8 msgType = uint8(uint256(_word(payload, 0)));
         uint32 chain = uint32(uint256(_word(payload, 1)));
-        if (msgType == MSG_BATCH_RESULT) {
-            (,, uint64 batchId,, uint128[] memory paid, uint256 escShares, uint256 escUnits) =
-                abi.decode(payload, (uint8, uint32, uint64, uint64, uint128[], uint256, uint256));
-            bytes memory body = abi.encodePacked(uint8(paid.length));
-            for (uint256 i; i < paid.length; i++) {
-                body = abi.encodePacked(body, paid[i]);
-            }
-            return abi.encodePacked(msgType, chain, _vaultKey(), batchId, body, _u128(escShares), _u128(escUnits));
-        }
-        if (msgType == MSG_PAY_PRIZE_RESULT) {
-            (,, uint64 payoutId,, uint8 status, uint128 shares) =
-                abi.decode(payload, (uint8, uint32, uint64, uint64, uint8, uint128));
-            return abi.encodePacked(msgType, chain, _vaultKey(), payoutId, status, shares);
+        if (msgType == MSG_BATCH_RESULT || msgType == MSG_PAY_PRIZE_RESULT) {
+            return prizeModule.encodeResult(payload, address(this));
         }
         uint256 key = _positionKey(uint64(uint256(_word(payload, 2))));
         uint64 seq = uint64(uint256(_word(payload, 3)));
@@ -210,13 +200,12 @@ contract PositionVaultOApp is PositionVault, OApp {
 
         if (msgType == MSG_CASH_IN_BATCH) {
             if (uint96(uint256(positionKey)) != 0) revert WrongVault();
-            _receiveBatch(chain, seq, message);
+            _delegate(abi.encodeCall(PrizeModule.receiveWire, (chain, seq, message)));
             return;
         }
         if (msgType == MSG_PAY_PRIZE) {
             if (uint96(uint256(positionKey)) != 0) revert WrongVault();
-            if (message.length != 157) revert InvalidMessageLength();
-            _receivePrize(chain, seq, message);
+            _delegate(abi.encodeCall(PrizeModule.receiveWire, (chain, seq, message)));
             return;
         }
 
@@ -253,38 +242,6 @@ contract PositionVaultOApp is PositionVault, OApp {
                 uint256(uint128(bytes16(message[109:125])))
             )
         );
-    }
-
-    function _receivePrize(uint32 chain, uint64 payoutId, bytes calldata message) internal {
-        uint256 shares = uint128(bytes16(message[141:157]));
-        _receive(
-            abi.encode(
-                MSG_PAY_PRIZE,
-                chain,
-                payoutId,
-                uint64(0),
-                bytes32(message[45:77]),
-                bytes32(message[77:109]),
-                bytes32(message[109:141]),
-                shares
-            )
-        );
-    }
-
-    function _receiveBatch(uint32 chain, uint64 batchId, bytes calldata message) internal {
-        if (message.length < 80) revert InvalidMessageLength();
-        uint8 kind = uint8(message[45]);
-        bytes32 recipient = bytes32(message[46:78]);
-        uint256 n = uint8(message[78]);
-        if (n == 0 || n > MAX_BATCH_ENTRIES || message.length != 79 + 24 * n) revert InvalidMessageLength();
-        uint64[] memory ids = new uint64[](n);
-        uint128[] memory units = new uint128[](n);
-        for (uint256 i; i < n; i++) {
-            uint256 at = 79 + 24 * i;
-            ids[i] = uint64(bytes8(message[at:at + 8]));
-            units[i] = uint128(bytes16(message[at + 8:at + 24]));
-        }
-        _receive(abi.encode(MSG_CASH_IN_BATCH, chain, batchId, uint64(0), kind, recipient, ids, units));
     }
 
     // ------------------------------------------------------------------ helpers

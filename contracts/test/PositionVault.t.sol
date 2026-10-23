@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {SimLST} from "../src/SimLST.sol";
 import {PositionVault} from "../src/PositionVault.sol";
+import {PositionVaultBase} from "../src/PositionVaultBase.sol";
 import {MockEndpoint} from "../src/MockEndpoint.sol";
 import {WstETHRateAdapter} from "../src/WstETHRateAdapter.sol";
 import {IWstETH} from "../src/IRateSource.sol";
@@ -240,9 +241,9 @@ contract PositionVaultSimTest is VaultBase {
     function test_payYieldRefusesAFeeOrPoolAboveTheAmount() public {
         uint64 id = _open(10 ether);
         vm.warp(block.timestamp + 20 minutes);
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.BadFeeSplit.selector, 100, 101, 0));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.BadFeeSplit.selector, 100, 101, 0));
         _deliver(_payFeeMsg(id, 1, redeemer, 100, 101, 0));
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.BadFeeSplit.selector, 100, 10, 101));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.BadFeeSplit.selector, 100, 10, 101));
         _deliver(_payFeeMsg(id, 1, redeemer, 100, 10, 101));
     }
 
@@ -251,7 +252,7 @@ contract PositionVaultSimTest is VaultBase {
     function test_payYieldRefusesAFeeAboveTheYieldFeeCap() public {
         uint64 id = _open(10 ether);
         vm.warp(block.timestamp + 20 minutes);
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.BadFeeSplit.selector, 100, 51, 0));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.BadFeeSplit.selector, 100, 51, 0));
         _deliver(_payFeeMsg(id, 1, redeemer, 100, 51, 0));
         uint256 before = lst.balanceOf(redeemer);
         _deliver(_payFeeMsg(id, 1, redeemer, 100, 50, 25));
@@ -275,7 +276,7 @@ contract PositionVaultSimTest is VaultBase {
         lst.faucet(address(this));
         lst.approve(address(vault), type(uint256).max);
         vm.prank(alice);
-        vm.expectRevert(PositionVault.NotAdmin.selector);
+        vm.expectRevert(PositionVaultBase.NotAdmin.selector);
         vault.fundTreasury(1 ether);
         vault.fundTreasury(1 ether);
         assertEq(vault.treasuryBalance(), 1 ether);
@@ -303,9 +304,9 @@ contract PositionVaultSimTest is VaultBase {
         assertEq(treasury, 1 ether + fee / 2 - fee / 4);
 
         vm.prank(alice);
-        vm.expectRevert(PositionVault.NotAdmin.selector);
+        vm.expectRevert(PositionVaultBase.NotAdmin.selector);
         vault.withdrawTreasury(1, alice);
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, treasury + 1e18, treasury));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.InsufficientTreasury.selector, treasury + 1e18, treasury));
         vault.withdrawTreasury(treasury + 1e18, address(0xC0FFEE));
 
         // more than the funding: the excess is a fee that was never minted, so it is minted now
@@ -327,12 +328,12 @@ contract PositionVaultSimTest is VaultBase {
     function test_payInstantPaysFromTheTreasuryAndLeavesThePositionAlone() public {
         uint64 id = _open(10 ether);
         _fundTreasury(1 ether);
-        PositionVault.Position memory before = vault.getPosition(id);
+        PositionVaultBase.Position memory before = vault.getPosition(id);
         _deliver(_instantMsg(id, 1, redeemer, 0.4 ether));
         assertEq(lst.balanceOf(redeemer), 0.4 ether);
         assertEq(vault.treasuryBalance(), 0.6 ether);
         assertEq(vault.instantPaid(), 0.4 ether);
-        PositionVault.Position memory after_ = vault.getPosition(id);
+        PositionVaultBase.Position memory after_ = vault.getPosition(id);
         assertEq(after_.paidUnderlying, before.paidUnderlying);
 
         _deliver(_unlockMsg(id, 2));
@@ -357,7 +358,7 @@ contract PositionVaultSimTest is VaultBase {
         uint64 id = _open(10 ether);
         _fundTreasury(0.3 ether);
         uint256 outbox = ep.outboxLength();
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 0.5 ether, 0.3 ether));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.InsufficientTreasury.selector, 0.5 ether, 0.3 ether));
         _deliver(_instantMsg(id, 7, redeemer, 0.5 ether));
         assertEq(lst.balanceOf(redeemer), 0);
         assertEq(vault.instantPaid(), 0);
@@ -459,16 +460,16 @@ contract PositionVaultSimTest is VaultBase {
 
     function test_horizonBounds() public {
         vm.startPrank(alice);
-        vm.expectRevert(PositionVault.BadHorizon.selector);
+        vm.expectRevert(PositionVaultBase.BadHorizon.selector);
         vault.openPosition(1 ether, 0);
-        vm.expectRevert(PositionVault.BadHorizon.selector);
+        vm.expectRevert(PositionVaultBase.BadHorizon.selector);
         vault.openPosition(1 ether, 13);
         vm.stopPrank();
     }
 
     function test_onlyEndpointCanDeliver() public {
         uint64 id = _open(1 ether);
-        vm.expectRevert(PositionVault.NotEndpoint.selector);
+        vm.expectRevert(PositionVaultBase.NotEndpoint.selector);
         vault.receiveMessage(_unlockMsg(id, 1));
     }
 
@@ -541,7 +542,7 @@ contract PositionVaultSimTest is VaultBase {
         uint64 id = _open(10 ether);
         vm.warp(block.timestamp + 10 minutes);
         uint256 accrued = vault.accruedYield(id);
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.ExceedsAccruedYield.selector, accrued + 1, accrued));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.ExceedsAccruedYield.selector, accrued + 1, accrued));
         _deliver(_payMsg(id, 1, redeemer, accrued + 1));
         // the failed attempt did not consume seq 1
         _deliver(_payMsg(id, 1, redeemer, accrued / 2));
@@ -594,10 +595,10 @@ contract PositionVaultSimTest is VaultBase {
     }
 
     function test_unknownPositionAndMessageRevert() public {
-        vm.expectRevert(PositionVault.UnknownPosition.selector);
+        vm.expectRevert(PositionVaultBase.UnknownPosition.selector);
         _deliver(_unlockMsg(99, 1));
         uint64 id = _open(1 ether);
-        vm.expectRevert(PositionVault.UnknownMessage.selector);
+        vm.expectRevert(PositionVaultBase.UnknownMessage.selector);
         _deliver(abi.encode(uint8(9), CHAIN, id, uint64(1)));
     }
 }
@@ -682,7 +683,7 @@ contract PositionVaultWstETHTest is VaultBase {
         assertEq(vault.instantPaid(), fee);
         assertApproxEqAbs((wst.balanceOf(redeemer) - holderGot) * 1.0403e18 / 1e18, fee, 2);
         // the next one finds an empty Treasury: it waits, never touching Principal
-        vm.expectPartialRevert(PositionVault.InsufficientTreasury.selector);
+        vm.expectPartialRevert(PositionVaultBase.InsufficientTreasury.selector);
         _deliver(abi.encode(uint8(5), CHAIN, id, uint64(3), bytes32(uint256(uint160(redeemer))), 1 ether));
     }
 
@@ -691,7 +692,7 @@ contract PositionVaultWstETHTest is VaultBase {
         uint64 id = vault.openPosition(10 ether, 6);
         wst.setRate(1.0403e18);
         assertEq(vault.treasuryBalance(), 0, "open yield is not withdrawable");
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1, 0));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.InsufficientTreasury.selector, 1, 0));
         vault.withdrawTreasury(1, address(0xC0FFEE));
         _deliver(_payFeeMsg(id, 1, redeemer, 0.05 ether, 0.02 ether, 0)); // a cash-out takes a fee
         _deliver(_unlockMsg(id, 2));
@@ -726,7 +727,7 @@ contract PositionVaultWstETHTest is VaultBase {
         wst.setRate(1.0403e18 / 2 + 1e17); // a fallen rate: reserve shares for open Principal grow
         // the formula says no yield, so nothing is claimable and nothing is paid
         assertEq(vault.payableYield(a), 0);
-        vm.expectPartialRevert(PositionVault.ExceedsAccruedYield.selector);
+        vm.expectPartialRevert(PositionVaultBase.ExceedsAccruedYield.selector);
         _deliver(_payMsg(a, 2, redeemer, 1));
     }
 
@@ -824,7 +825,7 @@ contract PositionVaultWstETHTest is VaultBase {
     }
 
     function _realGross(uint64 id) internal view returns (uint256) {
-        PositionVault.Position memory p = vault.getPosition(id);
+        PositionVaultBase.Position memory p = vault.getPosition(id);
         uint256 r = adapter.underlyingPerShare();
         return p.heldShares * r / 1e18 + p.paidUnderlying - p.principalUnderlying;
     }
@@ -866,7 +867,7 @@ contract PositionVaultWstETHTest is VaultBase {
     /// Principal could never unlock, so the vault refuses it.
     function test_pr01_principalAboveU64IsRefused() public {
         vm.prank(alice);
-        vm.expectRevert(PositionVault.PrincipalTooLarge.selector);
+        vm.expectRevert(PositionVaultBase.PrincipalTooLarge.selector);
         vault.openPosition(20 ether, 6); // 20.6e18 underlying at 1.03 > u64 max (~18.45e18)
         vm.prank(alice);
         uint64 id = vault.openPosition(17 ether, 6);
