@@ -20,6 +20,7 @@ import { priceJob, priceJobEnabled } from "./price.ts";
 import { Connection } from "@solana/web3.js";
 import { buildRuntime, clusterNow, fetchWithBackoff, newConnection, rateLimit } from "./runtime.ts";
 import { seasonJob } from "./season.ts";
+import { tablesJob } from "./scheduler-games.ts";
 import { treasuryJob } from "./treasury.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -35,6 +36,8 @@ async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>) {
     ...(priceJobEnabled() ? ([["price", priceJob]] as [string, (c: Ctx) => Promise<number>][]) : []),
     // Stake pools first: a payout out of a stake custody is refused from a pool that is behind.
     ["pools", poolJob],
+    // The table scheduler runs on its own: commits, resets, assignments and table growth wait for no Match scan, and the Match job reuses its scan.
+    ["tables", (c) => tablesJob(c)],
     ["match", matchHygiene],
     // After the Match job, so a settle that just started is in the records; before notify, which announces from them.
     ["history", historyJob],

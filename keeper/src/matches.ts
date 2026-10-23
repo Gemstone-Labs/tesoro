@@ -11,12 +11,28 @@ import { vanguard } from "./vanguard.ts";
 import { VANGUARD_PROGRAM_ID } from "../../app/src/games/vanguard/chain.ts";
 import { pk } from "./runtime.ts";
 import { matchLabel } from "./kit.ts";
+import type { SchedMatch } from "./scheduler.ts";
 import { settleMatches, viewOf, type MatchView } from "./settle.ts";
 
 
+let scanned: { now: number; all: any[] } | null = null;
+
+/** Every tesoro_core Match. The table scheduler and the Match job run in one pass: the second one reuses the first one's scan. */
+async function allMatches(ctx: Ctx): Promise<any[]> {
+  if (scanned && scanned.now === ctx.now) return scanned.all;
+  const all: any[] = await ctx.core.account.matchState.all();
+  scanned = { now: ctx.now, all };
+  return all;
+}
+
+/** The Matches as the table scheduler reads them. */
+export async function scanMatches(ctx: Ctx): Promise<SchedMatch[]> {
+  return (await allMatches(ctx)).map(({ publicKey, account }) => ({ address: publicKey, inner: account.inner, stage: viewOf(publicKey, account).stage }));
+}
+
 /** Job 1: Match hygiene for every open or active Match in tesoro_core. Returns the number of actions taken. */
 export async function matchHygiene(ctx: Ctx): Promise<number> {
-  const all: any[] = await ctx.core.account.matchState.all();
+  const all = await allMatches(ctx);
   let actions = 0;
   let live = 0;
   const running: MatchView[] = [];

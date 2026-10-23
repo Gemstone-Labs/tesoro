@@ -9,19 +9,13 @@ import {
   SLOT,
   TABLE_PHASE,
   canFinalizeTable,
-  configPda,
-  settledPda,
-  sponsorPda,
   tableOf,
-  tablePda,
   type Assignment,
   type Table,
 } from "../../app/src/games/block-puzzle/live-chain.ts";
 import { act, log, type Ctx } from "./act.ts";
-import { resetMayProceed, burstEndState } from "./end-state.ts";
 import { refund } from "./blockpuzzle.ts";
 import { shortKey } from "./env.ts";
-import { keyOf } from "./kit.ts";
 import { needsRecommit } from "./recommit.ts";
 import { when } from "./tee.ts";
 
@@ -34,7 +28,7 @@ import { when } from "./tee.ts";
  * decision is made from the table, the Assignment and the rollup's slot, so `burstStep` is pure.
  *
  * Between Matches a table needs wiping, committing, resetting and its ring slots freed: `burstTableStep` and
- * `maintainBurstTables` (the table scheduler of ticket 19t replaces the call).
+ * the table scheduler (`scheduler.ts`, ticket 19t).
  */
 
 export interface BurstFacts {
@@ -74,7 +68,7 @@ export type BurstStep = {
  *  - Seeding: `request_seed` (the first, or a retry every 20 s up to 3), then `start` once the Seed is in; past the Seed window
  *    `close` (refund).
  *  - Running: past the window and its grace, `close`.
- *  - Closed and not committed: `commit_table`.
+ *  - Closed and not committed: the table scheduler commits it (`commit_table`).
  */
 export function burstStep(d: BurstFacts, now: number, deadline: number): BurstStep {
   if (!d.assigned) {
@@ -187,99 +181,12 @@ export function burstTableFacts(t: Table, nowS: number, receiptAge: (match: Publ
   };
 }
 
-async function receiptAgeOf(ctx: Ctx, match: PublicKey, nowS: number): Promise<number | null> {
-  const info = await ctx.conn.getAccountInfo(settledPda(match)).catch(() => null);
-  if (!info) return null;
-  const r: any = ctx.core.coder.accounts.decode("settlementReceipt", info.data);
-  return nowS - Number(r.receipt.at.toString());
-}
-
-/** Tables of the current generation, as many as `TableConfig` allows. */
-export async function burstTablesOf(ctx: Ctx): Promise<{ generation: number; indexes: number[] }> {
-  const cfg: any = await (ctx.burst.program.account as any).tableConfig.fetch(configPda());
-  return { generation: cfg.generation, indexes: Array.from({ length: cfg.maxTables }, (_, i) => i) };
-}
-
-const lastRecommit = new Map<string, number>();
-
-/** One maintenance step per table. Returns the number of actions taken. Tables that were never created or are not readable yet are skipped. */
-export async function maintainBurstTables(ctx: Ctx): Promise<number> {
-  let cfg;
-  try {
-    cfg = await burstTablesOf(ctx);
-  } catch {
-    return 0; // the Game has no TableConfig yet
-  }
-  let actions = 0;
-  for (const index of cfg.indexes) {
-    const address = tablePda(cfg.generation, index);
-    const subject = `table=block-burst/${cfg.generation}/${index}`;
-    const ref = { generation: cfg.generation, index };
-    if (!(await ctx.conn.getAccountInfo(address).catch(() => null))) continue;
-    const t = await ctx.burst.readTable(ctx.hsigner, ref).catch(() => null);
-    if (!t) continue;
-    const ages = new Map<string, number | null>();
-    for (const key of [t.tesoroMatch, ...t.ring.filter((s) => s.state === SLOT.done).map((s) => s.tesoroMatch)]) {
-      if (!ages.has(key.toBase58())) ages.set(key.toBase58(), await receiptAgeOf(ctx, key, ctx.now));
-    }
-    const base = await ctx.burst.readTableOnBase(ref).catch(() => null);
-    const step = burstTableStep(burstTableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit.get(subject) ?? 0));
-    if (step.do === "wait") continue;
-    if (step.why.includes("probably lost")) lastRecommit.set(subject, ctx.now);
-    if (step.do === "reset_table" && !(await resetMayProceed({ tesoroMatch: t.tesoroMatch, epoch: t.epoch, fn: burstEndState, table: t }, Math.max(0, Math.floor(ctx.now - t.overAt)), undefined, subject))) continue;
-    const send = (fn: () => Promise<string>) => act(ctx, "match", subject, `${step.do} (${step.why})`, fn);
-    let r;
-    if (step.do === "release_slot") r = await send(() => ctx.burst.releaseSlot(ctx.hsigner, address, step.slot!.index, new PublicKey(step.slot!.match)));
-    else if (step.do === "void_table") r = await send(() => ctx.burst.voidTable(ctx.hsigner, address, t.tesoroMatch));
-    else if (step.do === "commit_table") r = await send(() => ctx.burst.commitTable(ctx.hsigner, ref));
-    else if (step.do === "wipe_seats") r = await send(() => ctx.burst.wipeSeats(ctx.hsigner, ref));
-    else r = await send(() => ctx.burst.resetTable(ctx.hsigner, address));
-    actions += +r.ok;
-  }
-  return actions;
-}
-
-/** The first table of the current generation that is Idle and not already promised to a Match this process assigned (scheduler entry point for 19t). */
-const promised = new Map<string, number>();
-export async function pickBurstTable(ctx: Ctx): Promise<{ generation: number; index: number; epoch: number } | null> {
-  const { generation, indexes } = await burstTablesOf(ctx);
-  for (const index of indexes) {
-    const t = await ctx.burst.readTable(ctx.hsigner, { generation, index }).catch(() => null);
-    if (!t || t.phase !== TABLE_PHASE.idle || !t.seatsCreated) continue;
-    const key = `${generation}/${index}`;
-    if (promised.get(key) === t.epoch) continue;
-    return { generation, index, epoch: t.epoch };
-  }
-  return null;
-}
-
-/** Sponsor upkeep: the operator moves `amount` from Fuel `fuel` when the Sponsor's rollup balance is below `floorLamports`. */
-export async function refillBurstSponsorIfLow(ctx: Ctx, opts: { fuel: number; amount: bigint; floorLamports: number }): Promise<number> {
-  const conn = await ctx.burst.teeConnection(ctx.hsigner);
-  const balance = await conn.getBalance(sponsorPda()).catch(() => null);
-  if (balance === null || balance >= opts.floorLamports) return 0;
-  const r = await act(ctx, "match", "sponsor", `block-burst refill_sponsor (balance ${balance} lamports)`, () => ctx.burst.refillSponsor(ctx.hsigner, opts.fuel, opts.amount));
-  return +r.ok;
-}
-
-let lastUpkeep = 0;
-
 /** Block Burst hygiene for one unsettled tesoro_core Match. Returns the number of actions taken. */
 export async function blockBurst(ctx: Ctx, match: PublicKey, m: any, st: string, subject: string): Promise<number> {
   const now = ctx.now;
   const deadline = Number(m.deadline.toString());
   const tag = `[block-burst ${st}]`;
   let actions = 0;
-
-  if (now !== lastUpkeep) {
-    lastUpkeep = now;
-    actions += await maintainBurstTables(ctx).catch((e) => (log("match", "-", `${tag} table upkeep failed: ${String(e?.message ?? e).slice(0, 160)}`), 0));
-    actions += await refillBurstSponsorIfLow(ctx, {
-      fuel: Number(process.env.KEEPER_BURST_FUEL ?? 0),
-      amount: BigInt(process.env.KEEPER_BURST_FUEL_AMOUNT ?? 50_000_000),
-      floorLamports: Number(process.env.KEEPER_BURST_SPONSOR_FLOOR ?? 20_000_000),
-    }).catch(() => 0);
-  }
 
   if (st === "open") {
     if (now < deadline) log("match", subject, `${tag} wait: no opponent yet, refundable ${when(deadline, now)}`);
@@ -293,19 +200,10 @@ export async function blockBurst(ctx: Ctx, match: PublicKey, m: any, st: string,
   const slot = live ? await ctx.burst.currentSlot(ctx.hsigner).catch(() => 0) : 0;
   const step = burstStep(burstFacts(a, live, base, now, slot), now, deadline);
 
+  // Table upkeep, assignment and commits belong to the table scheduler (scheduler.ts); this hook drives the Match on its table.
   if (step.do === "assign") {
-    const pick = await pickBurstTable(ctx);
-    if (!pick) {
-      log("match", subject, `${tag} wait: no Idle table to assign`);
-      return actions;
-    }
-    const seatA: any = await ctx.core.account.tesoroAccount.fetch(keyOf(m.a.player));
-    const seatB: any = await ctx.core.account.tesoroAccount.fetch(keyOf(m.b.player));
-    const r = await act(ctx, "match", subject, `assign_match to table ${pick.generation}/${pick.index} epoch ${pick.epoch}`, () =>
-      ctx.burst.assignMatch(ctx.hsigner, match, seatA.authority, seatB.authority, pick.generation, pick.index, pick.epoch),
-    );
-    if (r.ok) promised.set(`${pick.generation}/${pick.index}`, pick.epoch);
-    return actions + +r.ok;
+    log("match", subject, `${tag} wait: the table scheduler assigns a table`);
+    return actions;
   }
   if (step.do === "refund") return actions + +(await refund(ctx, m, subject, step.why)).ok;
   if (!a) return actions;
@@ -316,7 +214,6 @@ export async function blockBurst(ctx: Ctx, match: PublicKey, m: any, st: string,
   if (step.do === "request_seed") return actions + +(await send("request_seed", () => ctx.burst.requestSeed(ctx.hsigner, a))).ok;
   if (step.do === "start") return actions + +(await send("start", () => ctx.burst.start(ctx.hsigner, a))).ok;
   if (step.do === "close") return actions + +(await send("close", () => ctx.burst.close(ctx.hsigner, a))).ok;
-  if (step.do === "commit_table") return actions + +(await send("commit_table", () => ctx.burst.commitTable(ctx.hsigner, a))).ok;
   log("match", subject, `${tag} wait: ${step.why}`);
   return actions;
 }
