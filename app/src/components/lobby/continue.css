@@ -41,3 +41,20 @@
   .continue-row { margin-inline: -20px; padding-inline: 20px; scroll-padding-inline: 20px; }
   .continue-card { flex-basis: min(440px, calc(100% - 28px)); }
 }
+
+/* the Matches page: open Matches as a plain list of slim rows, no art behind them */
+.continue.rows .h-section { font-size: var(--fs-20); }
+.continue-n { color: var(--fg-2); }
+.continue.rows .continue-row { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0; padding: 0; overflow: visible; }
+.continue.rows .continue-card { flex: none; min-height: 0; padding: 8px 10px; gap: 10px; }
+.continue.rows .continue-art { inset: 0 0 0 55%; opacity: 0.5; }
+.continue.rows .continue-face { width: 44px; height: 44px; --c: 9px; }
+.continue.rows .continue-game { font-size: var(--fs-16); }
+.continue.rows .continue-status { font-size: var(--fs-12); }
+.continue.rows .continue-figures { font-size: var(--fs-12); }
+.continue.rows .continue-time { display: none; }
+.continue.rows .continue-body { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "game cta" "status cta" "fig cta"; column-gap: 10px; row-gap: 1px; justify-items: start; }
+.continue.rows .continue-game { grid-area: game; }
+.continue.rows .continue-status { grid-area: status; }
+.continue.rows .continue-figures { grid-area: fig; }
+.continue.rows .continue-cta { grid-area: cta; align-self: center; margin: 0; }

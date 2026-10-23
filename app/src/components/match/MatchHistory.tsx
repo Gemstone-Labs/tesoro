@@ -1,19 +1,18 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, LayoutGrid } from "lucide-react";
 import { PLAYED, RESULTS, resultParam, toggleResult } from "@/lib/chain/history";
 import { GAME_NAMES } from "@/lib/mock";
 import type { GameId, MatchResult } from "@/lib/mock";
 import { isGameId } from "@/lib/games";
+import { CATALOGUE, LOBBY_ORDER } from "@/lib/catalogue";
 import "./history.css";
 
-const FILTERS: [GameId | null, string][] = [
-  [null, "All"],
-  ["block-puzzle", GAME_NAMES["block-puzzle"]],
-  ["holdem", "Hold'em"],
-  ["trading-duel", "Trading Duel"],
-  ["vanguard", "Vanguard"],
-];
+const SHORT: Partial<Record<GameId, string>> = { holdem: "Hold'em" };
+/** All, then the games in Play's order. */
+const FILTERS: [GameId | null, string][] = [[null, "All"], ...LOBBY_ORDER.map((g): [GameId, string] => [g, SHORT[g] ?? GAME_NAMES[g]])];
+const tileOf = (g: GameId) => CATALOGUE.find((c) => c.game === g)?.tile;
 
 /** The game a `?game=` value names, null for all games. */
 export const gameFilter = (v: string | null): GameId | null => (isGameId(v) ? v : null);
@@ -29,12 +28,15 @@ export function historyHref(base: string, game: GameId | null, page: number, res
   return s ? `${base}?${s}` : base;
 }
 
-/** All / Block Burst / Hold'em over a Match history. */
+/** All and one chip per game (its art and short name) over a Match history; scrolls sideways when it does not fit. */
 export function GameTabs({ base, game, results = PLAYED }: { base: string; game: GameId | null; results?: readonly MatchResult[] }) {
   return (
     <nav className="mh-tabs" aria-label="Game">
       {FILTERS.map(([id, label]) => (
-        <Link key={label} href={historyHref(base, id, 1, results)} scroll={false} aria-current={game === id ? "page" : undefined} className={game === id ? "on" : undefined}>
+        <Link key={label} href={historyHref(base, id, 1, results)} scroll={false} aria-current={game === id ? "page" : undefined} className={`cut cut-chip${game === id ? " on" : ""}`}>
+          <span className="cut mh-tab-art" aria-hidden="true">
+            {id ? <Image src={tileOf(id) ?? ""} alt="" width={28} height={28} /> : <LayoutGrid />}
+          </span>
           {label}
         </Link>
       ))}

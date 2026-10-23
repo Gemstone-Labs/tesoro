@@ -95,7 +95,18 @@ const tileOf = (game: ChainMatch["game"]) => CATALOGUE.find((c) => c.game === ga
  * The Player's open Matches, then Challenges Friends opened for them. Phones: one wide card at a time, swiped sideways, with
  * dots; wider screens: a grid. Each card: the opponent, the game, where it stands, what is in and what it pays.
  */
-export function ContinueRail({ matches, challenges = [] }: { matches: ChainMatch[]; challenges?: FriendsView["challenges"] }) {
+export function ContinueRail({
+  matches,
+  challenges = [],
+  title = "Continue",
+  rows = false,
+}: {
+  matches: ChainMatch[];
+  challenges?: FriendsView["challenges"];
+  title?: string;
+  /** A plain list (Matches page) instead of the sideways cards. */
+  rows?: boolean;
+}) {
   const [now, setNow] = useState(nowSecs);
   useEffect(() => {
     const t = setInterval(() => setNow(nowSecs()), 30_000);
@@ -109,8 +120,11 @@ export function ContinueRail({ matches, challenges = [] }: { matches: ChainMatch
   const { ref, at } = useInView(count);
 
   return (
-    <section className="continue" aria-labelledby="live-h">
-      <h2 id="live-h" className="h-section">Continue</h2>
+    <section className={`continue${rows ? " rows" : ""}`} aria-labelledby="live-h">
+      <h2 id="live-h" className="h-section">
+        {title}
+        {rows && <span className="continue-n"> ({count})</span>}
+      </h2>
       <div className="continue-row" ref={ref}>
         {sorted.map((m) => {
           const s = st(m);
@@ -174,7 +188,7 @@ export function ContinueRail({ matches, challenges = [] }: { matches: ChainMatch
           </Link>
         ))}
       </div>
-      {count > 1 && (
+      {count > 1 && !rows && (
         <div className="continue-dots" aria-hidden="true">
           {Array.from({ length: count }, (_, i) => (
             <i key={i} className={i === at ? "on" : undefined} />

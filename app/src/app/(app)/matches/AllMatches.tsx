@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { GameTabs, HistoryPages, ResultFilter, gameFilter, historyHref, resultCounts } from "@/components/match/MatchHistory";
 import { DelayedMatches } from "@/components/match/DelayedMatches";
+import { ContinueRail } from "@/components/lobby/ContinueRail";
 import { MatchBanner, MatchBannerSkeleton } from "@/components/match/MatchBanner";
 import { Button, Card } from "@/components/ui";
 import { useAccount } from "@/lib/account";
@@ -13,7 +14,7 @@ import { GAME_NAMES } from "@/lib/mock";
 
 /** Every finished Match of the signed-in Account (played or backed), newest first, 10 banners per page. */
 export function AllMatches() {
-  const { auth, onChain, snapshot } = useAccount();
+  const { auth, onChain, snapshot, openMatches } = useAccount();
   const { error, refresh } = useChainData();
   const params = useSearchParams();
   const game = gameFilter(params.get("game"));
@@ -25,6 +26,7 @@ export function AllMatches() {
     [onChain, snapshot, game],
   );
   const shown = rows.filter((r) => results.includes(r.result));
+  const open = openMatches.filter((m) => !game || m.game === game);
   const view = historyPage(shown, Number(params.get("page") ?? 1));
 
   if (auth.status === "signed-out") {
@@ -42,7 +44,7 @@ export function AllMatches() {
   return (
     <div className="mh-page">
       <header className="mh-head">
-        <h1 className="page-title">Matches</h1>
+        <h1 className="sr-only">Matches</h1>
         <GameTabs base="/matches" game={game} results={results} />
         {snapshot?.matchesLoaded && <ResultFilter base="/matches" game={game} results={results} counts={resultCounts(rows)} />}
       </header>
@@ -57,6 +59,8 @@ export function AllMatches() {
           <MatchBannerSkeleton count={4} label="Loading your Matches…" />
         )
       ) : null}
+      {open.length > 0 && <ContinueRail matches={open} title="Open" rows />}
+      {snapshot?.matchesLoaded && rows.length > 0 && <h2 className="h-section mh-finished-h">Finished</h2>}
       {snapshot?.matchesLoaded && <DelayedMatches matches={[...snapshot.matches, ...snapshot.funded].filter((m) => !game || m.game === game)} now={now} />}
       {!snapshot?.matchesLoaded ? null : rows.length === 0 ? (
         <div className="mh-state">

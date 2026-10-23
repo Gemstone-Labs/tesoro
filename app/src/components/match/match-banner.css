@@ -1,7 +1,7 @@
 /* ——— A finished Match as a banner over the Game's art (a Player's Account) ———
    Small text never sits on bright art: the word column is over the near-solid left of the scrim,
    names and scores sit on dark plates, the Gema change on a dark glass chip. */
-.mb-list { display: grid; gap: 12px; container-type: inline-size; }
+.mb-list { display: grid; gap: 8px; container-type: inline-size; }
 .mb {
   --edge: var(--edge-1); position: relative; isolation: isolate; overflow: hidden; background: #0b1013;
   display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr); grid-template-areas: "word face fig";
@@ -65,18 +65,18 @@
 
 /* narrow (phones): the game line on its own, then the word with the chip beside it, the entry line, the face-off across the full width; the scrim covers the whole banner */
 @container (max-width: 640px) {
-  .mb { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "kick kick" "word fig" "line line" "face face"; gap: 4px 12px; padding: 14px 16px; min-height: 0; }
+  .mb { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "kick kick" "word fig" "line line" "face face"; gap: 2px 12px; padding: 10px 14px; min-height: 0; }
   .mb-art::after { background: linear-gradient(90deg, rgba(11, 16, 19, 0.95) 0, rgba(11, 16, 19, 0.84) 55%, rgba(11, 16, 19, 0.64) 100%); }
   .mb-word { display: contents; }
   .mb-kick { grid-area: kick; font-size: var(--fs-11); }
-  .mb-word b { grid-area: word; align-self: center; font-size: 34px; }
-  .mb-word small { grid-area: line; font-size: var(--fs-13); }
-  .mb-fig { align-self: center; padding: 7px 11px; font-size: var(--fs-15); }
+  .mb-word b { grid-area: word; align-self: center; font-size: 26px; }
+  .mb-word small { grid-area: line; font-size: var(--fs-12); }
+  .mb-fig { align-self: center; padding: 5px 10px; font-size: var(--fs-14); }
   .mb-fig.even { font-size: var(--fs-13); }
-  .mb-face { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; margin-top: 10px; }
+  .mb-face { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; margin-top: 6px; }
   .mb-seat-link, .mb-face > .mb-seat { justify-self: start; min-width: 0; }
   .mb-seat { grid-template-columns: auto minmax(0, max-content); align-items: center; justify-items: start; gap: 6px; min-width: 0; }
-  .mb-av { width: 30px; height: 30px; }
+  .mb-av { width: 28px; height: 28px; }
   .mb-you { bottom: -5px; padding: 1px 4px; font-size: var(--fs-9); letter-spacing: 0.05em; }
   .mb-plate { max-width: 100%; min-width: 0; gap: 5px; padding: 3px 6px; font-size: var(--fs-12); }
   .mb-plate b { font-size: var(--fs-13); }
