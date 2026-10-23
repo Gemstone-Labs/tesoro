@@ -2,6 +2,7 @@
  * The shared base-layer hub of the app's chain code: signers, the tesoro_core program, transaction sending (base and TEE),
  * and the Account/Match addresses every Game uses. The Block Burst program itself is in `./live-chain.ts`.
  */
+import { onlyCurrentLayouts } from "../../lib/chain/account-sizes";
 import { matchAddressOf } from "../../lib/chain/match-id";
 import { settledPda } from "../../lib/chain/basket";
 import { protectionsPda } from "../../lib/chain/native";
@@ -79,6 +80,7 @@ export class BlockPuzzleChain {
       { commitment: "confirmed" },
     );
     this.core = new Program(cfg.coreIdl, provider) as unknown as AnyProgram;
+    onlyCurrentLayouts(this.core);
   }
 
   // ---- addresses ----------------------------------------------------------------------------
