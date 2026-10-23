@@ -34,9 +34,9 @@ describe("counters", () => {
     let after: string | null = null;
     const seen: string[] = [];
     for (let i = 0; i < 4; i++) {
-      const { slice, next } = nextSlice(keys, after, 1);
-      seen.push(slice[0]);
-      after = next;
+      const step: { slice: string[]; next: string | null } = nextSlice(keys, after, 1);
+      seen.push(step.slice[0]);
+      after = step.next;
     }
     assert.deepEqual(seen, keys);
   });
