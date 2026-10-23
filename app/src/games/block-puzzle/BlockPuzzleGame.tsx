@@ -511,7 +511,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           <span className="cut bpx-face" aria-hidden="true">
             {me ? <PlayerAvatar account={me} size={44} /> : null}
           </span>
-          <span ref={scoreEl} className="bp-score-n tnum" aria-label="Score" aria-live="off"><CountUp key={runId} value={st.score} from={0} format={String} duration={500} /></span>
+          <span ref={scoreEl} className="bp-score-n tnum" hidden={phase === "over"} aria-label="Score" aria-live="off"><CountUp key={runId} value={st.score} from={0} format={String} duration={500} /></span>
         </div>
       <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
         <div className={`bpx-ring${timeLow && phase === "play" ? " low" : ""}`} role="timer" aria-label="Time left">
