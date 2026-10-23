@@ -251,12 +251,12 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, onAct, onClaim,
   const oppHand = hands ? hands[opp].name : null;
 
   return (
-    <Arena game="holdem" fullScreenKey={false} autoFull={!ended}>
+    <Arena game="holdem" autoFull={!ended}>
     <section className="hdx" aria-label="Hold'em table" style={{ ["--pace" as string]: PACE }}>
-      <header className="hdx-head" aria-label="Table">
+      <header className="cut cut-card hdx-head" aria-label="Table">
         <h1 className="sr-only">Buckshot Hold&apos;em, hand {t.handNo}</h1>
-        <span className="mono hdx-level" aria-label={`Blinds ${level}`}>
-          {level.replace(" / ", "/")}
+        <span className="hdx-level" aria-label={`Blinds ${level}`}>
+          <small>Blinds</small> <span className="mono">{level.replace(" / ", "/")}</span>
         </span>
         {practice && <span className="cut cut-chip game-tag">Practice</span>}
         {!ended && t.status === STATUS.live && (

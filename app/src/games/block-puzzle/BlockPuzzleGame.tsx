@@ -12,6 +12,7 @@ import { Arena, Callout, Countdown, GameMenu, burst, burstAt, prefersReducedMoti
 import type { CalloutTone } from "../fx";
 import { clearCallout, comboHeat, wouldClear } from "./feel";
 import { readBest, writeBest } from "./best";
+import { PracticePauseButton, PracticePauseOverlay, usePracticePause } from "../fx/PracticePause";
 import "./block-puzzle.css";
 
 const DURATION_MS = 90_000;
@@ -112,6 +113,7 @@ const RING_C = 2 * Math.PI * RING_R;
  * caller owns (who we wait for); without a `run` this is practice.
  */
 export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPanel?: ReactNode }) {
+  const { paused, toggle: togglePause, now: practiceNow } = usePracticePause(() => performance.now());
   const me = useAccount().snapshot?.accountKey.toBase58();
   const [phase, setPhase] = useState<Phase>("idle");
   const [combo, setCombo] = useState(0);
@@ -202,9 +204,9 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
 
   /** Practice: the clock starts the moment "Go!" shows. */
   const beginPractice = useCallback(() => {
-    endsAt.current = performance.now() + DURATION_MS;
+    endsAt.current = practiceNow() + DURATION_MS;
     setPhase("play");
-  }, []);
+  }, [practiceNow]);
 
   // A Match run starts as soon as the chain says `begin_run` landed; Practice counts 3-2-1 as soon as the screen opens.
   const started = useRef(false);
@@ -216,9 +218,9 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   }, [run]);
 
   useEffect(() => {
-    if (phase !== "play") return;
+    if (phase !== "play" || paused) return;
     const t = setInterval(() => {
-      const left = endsAt.current - performance.now();
+      const left = endsAt.current - (run ? performance.now() : practiceNow());
       if (left <= 0) {
         setRemaining(0);
         finish("time");
@@ -227,7 +229,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       }
     }, 100);
     return () => clearInterval(t);
-  }, [phase, finish]);
+  }, [phase, finish, paused, run, practiceNow]);
 
   /** Everything a clear does besides the rules: sweep, shards, shake, callout, points to the score, sound. */
   const celebrate = useCallback((lines: number, gems: number, comboNow: number, gained: number, gone: Ghost[], cleared: bigint, id: number) => {
@@ -283,7 +285,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
 
   const place = useCallback(
     (idx: number, x: number, y: number) => {
-      if (phase !== "play") return false;
+      if (phase !== "play" || paused) return false;
       let next;
       try {
         next = apply(game.st, { piece: idx, x, y });
@@ -349,7 +351,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       }
       return true;
     },
-    [phase, game, finish, combo, celebrate],
+    [phase, paused, game, finish, combo, celebrate],
   );
 
   const cellFromPoint = (px: number, py: number) => {
@@ -363,7 +365,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   };
 
   const onTrayDown = (e: React.PointerEvent<HTMLButtonElement>, idx: number) => {
-    if (phase !== "play" || (st.used >> (idx - base)) & 1) return;
+    if (paused || phase !== "play" || (st.used >> (idx - base)) & 1) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const cell = (boardRef.current?.getBoundingClientRect().width ?? 320) / SIZE;
     dragMeta.current = { idx, sx: e.clientX, sy: e.clientY, moved: false, lift: e.pointerType === "touch" ? LIFT_TOUCH_PX : 0, cell };
@@ -486,7 +488,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
             style={gh ? ({ animationDelay: `${gh.delay}ms` } as React.CSSProperties) : undefined}
             tabIndex={i === focusCell ? 0 : -1}
             aria-label={`Row ${cy + 1}, column ${cx + 1}${filled ? (isGem ? ", gem block" : ", filled") : ""}`}
-            disabled={phase !== "play"}
+            disabled={phase !== "play" || paused}
             onPointerEnter={(e) => e.pointerType === "mouse" && hover(cx, cy)}
             onFocus={() => setFocusCell(i)}
             onKeyDown={(e) => onCellKey(e, cx, cy)}
@@ -504,9 +506,6 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   return (
     <Arena game="block-puzzle" autoFull={phase !== "over"}>
     <div className="bpx">
-      <div className="bpx-top">
-        <GameMenu leaveHref={run ? undefined : "/play"} />
-      </div>
       <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
         <div className="bpx-score">
           <span className="cut bpx-face" aria-hidden="true">
@@ -540,6 +539,8 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           ) : (
             <span className="cut cut-chip game-tag">Practice</span>
           )}
+          {!run && <PracticePauseButton paused={paused} onToggle={() => { onTrayCancel(); togglePause(); }} disabled={phase !== "play"} />}
+          <GameMenu leaveHref={run ? undefined : "/play"} />
         </div>
       </header>
 
@@ -547,6 +548,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
         <h1 className="sr-only">Block Burst</h1>
       <div className="bp-stage">
         {board}
+        {paused && <PracticePauseOverlay onResume={togglePause} />}
         {(phase === "count" || goOn) && (
           <Countdown
             from={3}
@@ -584,7 +586,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
                 <>
                   <div className="bp-actions">
                     <Button onClick={start}>Play again</Button>
-                    <Button href="/play">Play</Button>
+                    <Button href="/play">Back to games</Button>
                   </div>
                 </>
               )}
@@ -609,7 +611,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
               key={n}
               type="button"
               className={`cut cut-btn bp-slot${isSel ? " sel" : ""}${used ? " used" : ""}${stuck ? " stuck" : ""}`}
-              disabled={phase !== "play" || used}
+              disabled={phase !== "play" || paused || used}
               aria-pressed={isSel}
               aria-label={`Piece ${n + 1}${piece.gem !== null ? ", has a gem" : ""}${stuck ? ", does not fit" : ""}`}
               onPointerDown={(e) => onTrayDown(e, idx)}

@@ -249,7 +249,7 @@ export function MatchResult(p: MatchResultProps) {
             {lost && role === "player" && <Button size="lg" href={practiceHref(p.game, p.asset ?? undefined)}>Practice free</Button>}
           </div>
           <nav className="mr-links" aria-label="Leave the result">
-            <Link href="/play">Play</Link>
+            <Link href="/play">Back to games</Link>
             <Link href="/vault">Vault</Link>
           </nav>
         </div>

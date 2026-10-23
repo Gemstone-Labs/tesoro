@@ -1,0 +1,4 @@
+.practice-pause:disabled { opacity: 0.4; cursor: default; }
+.practice-paused { position: absolute; inset: 0; z-index: 25; display: grid; place-items: center; background: rgba(6, 9, 12, 0.72); }
+.practice-paused-card { display: grid; justify-items: center; gap: 14px; padding: 24px; background: var(--surface); --edge: var(--edge-2); }
+.practice-paused-card .btn { min-height: 60px; gap: 12px; }

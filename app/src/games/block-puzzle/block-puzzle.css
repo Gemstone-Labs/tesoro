@@ -4,7 +4,6 @@
 /* ——— Play screen: the ⋯ menu, a versus bar (you and your score · the timer ring · the Pot or PRACTICE), the board, the
    tray, then combo and lines as icons with numbers ——— */
 .bpx { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); justify-items: center; position: relative; }
-.bpx-top { width: 100%; max-width: 760px; display: flex; justify-content: flex-end; margin-bottom: -4px; }
 .bpx-bar {
   --edge: var(--edge-1); background: var(--surface); width: 100%; max-width: 760px; padding: 10px 14px;
   display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px;
@@ -19,7 +18,7 @@
 .bpx-ring-fg { stroke: var(--fg); stroke-linecap: butt; transition: stroke-dashoffset 120ms linear; }
 .bpx-ring.low .bpx-ring-fg { stroke: var(--warn); }
 .bpx-ring span { position: relative; font-size: var(--fs-13); font-weight: 500; font-variant-numeric: tabular-nums; }
-.bpx-stake { display: flex; justify-content: flex-end; }
+.bpx-stake { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .bpx-pot { display: grid; justify-items: end; line-height: 1.05; }
 .bpx-pot small { font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
 .bpx-pot b { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-20); font-weight: 800; color: var(--em-hi); }
@@ -29,8 +28,8 @@
 .bpx-run b { color: var(--fg); font-size: var(--fs-18); font-weight: 800; }
 .bp-score-n { font-size: 36px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
 /* The board is square and as wide as .bpx-mid, so cap that width by the viewport height left after the
-   menu, the versus bar, the tray and the run line (~330px): the whole play screen fits without scrolling. */
-.bpx-mid { display: grid; gap: 14px; justify-items: center; width: 100%; max-width: clamp(300px, calc(100dvh - 330px), 640px); }
+   versus bar, the tray and the run line (~280px): the whole play screen fits without scrolling. */
+.bpx-mid { display: grid; gap: 14px; justify-items: center; width: 100%; max-width: clamp(300px, calc(100dvh - 280px), 640px); }
 .bpx-mid .bp-stage, .bpx-mid .bp-tray { width: 100%; }
 .bpx-foot { display: grid; gap: 6px; justify-items: center; width: 100%; max-width: 640px; font-size: var(--fs-14); color: var(--fg-2); text-align: center; }
 .bpx-status { font-size: var(--fs-15); color: var(--fg-2); }
@@ -47,7 +46,7 @@
   .bpx-bar { padding: 8px 14px; }
   .bpx-ring { width: 54px; height: 54px; }
   .bp-score-n { font-size: 30px; }
-  .bpx-mid { gap: 10px; max-width: clamp(300px, calc(100dvh - 300px), 640px); }
+  .bpx-mid { gap: 10px; max-width: clamp(300px, calc(100dvh - 260px), 640px); }
   .bp-slot { height: 72px; }
   .bp-overlay .bp-final { font-size: 48px; }
 }
@@ -198,4 +197,12 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .bpx-ring.low, .bp-board.low, .bp-best.new, .bp-stats li { animation: none; }
+}
+
+@media (max-width: 480px) {
+  .bpx-bar { padding: 8px; gap: 6px; grid-template-columns: minmax(0, 1fr) auto auto; }
+  .bpx-score { gap: 6px; }
+  .bpx-face { display: none; }
+  .bpx-stake { gap: 4px; }
+  .bpx-bar .game-tag { padding-inline: 6px; font-size: var(--fs-10); }
 }

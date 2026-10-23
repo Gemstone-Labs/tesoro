@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ActionBar } from "./ActionBar";
+import { ActionBar, actionShortcut } from "./ActionBar";
 import { newPractice } from "./practice/engine";
 
 const t = newPractice(0, () => 0.5).table;
@@ -9,6 +9,14 @@ const bar = (busy: string | null, enabled = busy === null) =>
 const buttons = (html: string) => [...html.matchAll(/class="cut cut-btn hdx-btn[^"]*"[^>]*><span>([^<]*)<\/span>/g)].map((m) => m[1]);
 
 describe("Hold'em action bar", () => {
+  it("folds with G and leaves F for the window cover", () => {
+    expect(actionShortcut("g")).toBe("fold");
+    expect(actionShortcut("G")).toBe("fold");
+    expect(actionShortcut("f")).toBeNull();
+    expect(actionShortcut("F")).toBeNull();
+    expect(bar(null)).toContain('<kbd aria-hidden="true">G</kbd>');
+  });
+
   it("has no line under the buttons while waiting for a turn", () => {
     const html = bar(null, false);
     expect(html).not.toContain("Actions unlock");

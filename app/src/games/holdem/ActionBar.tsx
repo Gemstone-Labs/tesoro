@@ -6,10 +6,15 @@ import { legalMoves, raisePresets } from "./rules";
 
 const chips = (n: bigint | number) => Number(n).toLocaleString("en-US");
 
+/** Game actions only: F belongs to the Arena's window cover. */
+export function actionShortcut(key: string): "fold" | "pass" | "raise" | "all" | null {
+  return ({ g: "fold", c: "pass", r: "raise", a: "all" } as const)[key.toLowerCase() as "g" | "c" | "r" | "a"] ?? null;
+}
+
 /**
  * Fold / Check or Call / Raise to. The raise size is one of four presets (raise by 200, 400, 600 or
  * 800 on top of the current bet) or All-in; each button says what it will do. Desktop shortcuts:
- * F fold, C check or call, R raise, A picks All-in.
+ * G fold, C check or call, R raise, A picks All-in.
  */
 export function ActionBar({
   table: t,
@@ -67,12 +72,12 @@ export function ActionBar({
       if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || el?.closest("input:not([type=range], [type=checkbox], [type=radio]), textarea, select, [contenteditable]")) return;
       if (el?.closest("[role=dialog], [aria-modal=true], dialog") || document.querySelector("[role=dialog], [aria-modal=true], dialog[open]")) return;
       const cur = latest.current;
-      const k = e.key.toLowerCase();
+      const k = actionShortcut(e.key);
       if (!cur.enabled) return;
-      if (k === "f") cur.act.fold();
-      else if (k === "c") cur.act.pass();
-      else if (k === "r" && cur.raiseOk) cur.act.raise();
-      else if (k === "a" && cur.raiseOk) cur.allIn();
+      if (k === "fold") cur.act.fold();
+      else if (k === "pass") cur.act.pass();
+      else if (k === "raise" && cur.raiseOk) cur.act.raise();
+      else if (k === "all" && cur.raiseOk) cur.allIn();
       else return;
       e.preventDefault();
     };
@@ -91,7 +96,7 @@ export function ActionBar({
       <div className="hdx-btns">
         <button type="button" className={`cut cut-btn hdx-btn${sending === "fold" ? " sending" : ""}`} disabled={!enabled} onClick={act.fold}>
           <span>{label("fold", "Fold")}</span>
-          <kbd aria-hidden="true">F</kbd>
+          <kbd aria-hidden="true">G</kbd>
         </button>
         <button type="button" className={`cut cut-btn hdx-btn primary${sending === "pass" ? " sending" : ""}`} disabled={!enabled} onClick={act.pass} aria-label={passText}>
           <span>{label("pass", passText)}</span>

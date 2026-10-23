@@ -60,6 +60,8 @@ import {
   type Mark,
 } from "./gridView";
 import { LiveButton, type LiveDir, type LiveState } from "./LiveButton";
+import { PracticePauseButton, PracticePauseOverlay } from "../fx/PracticePause";
+import { isFullScreen, subscribeFullScreen } from "../fx/full-screen";
 import "./grid.css";
 
 export interface GridSide {
@@ -97,6 +99,10 @@ export interface GridScreenProps {
   /** Points when the game is settled (this decides the end screen). Without it the scores follow the line. */
   final?: { you: number; them: number } | null;
   practice?: boolean;
+  paused?: boolean;
+  onTogglePause?: () => void;
+  /** Logical practice time, excluding pauses. Matches use the wall clock. */
+  practiceNow?: () => number;
   /** Gema entry and Pot of a real Match. */
   entry?: number;
   pot?: number;
@@ -200,19 +206,19 @@ const BURST_FOE = ["#b99bff", "#e1d4ff", "#8d6bf0"];
 const ordinalRun = (n: number) => (n >= 4 ? `On fire · ${n} in a row` : n === 3 ? "3 in a row!" : "2 in a row");
 
 /** The browser time, refreshed just after each whole second of the game (`startsAt` is a browser time), which is when the screen's text and column states change. */
-function useClock(frozen: number | undefined, startsAt: number): number {
-  const [now, setNow] = useState(() => frozen ?? Date.now());
+function useClock(frozen: number | undefined, startsAt: number, readNow: () => number): number {
+  const [now, setNow] = useState(() => frozen ?? readNow());
   useEffect(() => {
     if (frozen !== undefined) return;
     let timer: ReturnType<typeof setTimeout>;
     const next = () => {
-      setNow(Date.now());
-      const into = (((Date.now() - startsAt) % 1000) + 1000) % 1000;
+      setNow(readNow());
+      const into = (((readNow() - startsAt) % 1000) + 1000) % 1000;
       timer = setTimeout(next, 1000 - into + 20);
     };
     next();
     return () => clearTimeout(timer);
-  }, [frozen, startsAt]);
+  }, [frozen, startsAt, readNow]);
   return frozen ?? now;
 }
 
@@ -227,7 +233,8 @@ export function GridScreen(p: GridScreenProps) {
   // Everything below runs on this browser's clock: the game's start, seen from here.
   const startsAt = p.startsAt - offsetMs;
   const reduced = useReducedMotion();
-  const now = useClock(p.nowMs, startsAt);
+  const readNow = p.practiceNow ?? wallNow;
+  const now = useClock(p.paused ? readNow() : p.nowMs, startsAt, readNow);
   const t = (now - startsAt) / 1000;
   const anchorUsd = usdOf(anchor);
   const stepUsd = usdOf(step);
@@ -239,8 +246,7 @@ export function GridScreen(p: GridScreenProps) {
 
   const viewRef = useRef<HTMLDivElement>(null);
   const [viewW, setViewW] = useState(960);
-  // Phones: the grid takes the height left under it, so it reaches the screen's foot. Read on resize only (not on every
-  // render), so the grid holds one height through the Match.
+  // Fit the grid beneath its chrome in viewport coordinates, including after the window cover toggles.
   const [fillH, setFillH] = useState<number | undefined>(undefined);
   useLayoutEffect(() => {
     const el = viewRef.current;
@@ -248,14 +254,24 @@ export function GridScreen(p: GridScreenProps) {
     const read = () => {
       const r = el.getBoundingClientRect();
       setViewW(Math.round(r.width));
-      setFillH(r.width < 900 ? Math.round(window.innerHeight - (r.top + window.scrollY) - HEADER_PX - 16) : undefined);
+      const arena = el.closest(".fx-arena") as HTMLElement;
+      const viewport = window.visualViewport;
+      const bottom = isFullScreen()
+        ? arena.getBoundingClientRect().bottom - parseFloat(getComputedStyle(arena).paddingBottom)
+        : (viewport?.height ?? window.innerHeight) + (viewport?.offsetTop ?? 0) - 96;
+      setFillH(Math.max(1, Math.floor(bottom - r.top - HEADER_PX - 1)));
     };
     read();
     const ro = new ResizeObserver(read);
     ro.observe(el);
+    if (el.closest(".tg")) ro.observe(el.closest(".tg")!);
+    const off = subscribeFullScreen(read);
+    window.visualViewport?.addEventListener("resize", read);
     window.addEventListener("resize", read);
     return () => {
       ro.disconnect();
+      off();
+      window.visualViewport?.removeEventListener("resize", read);
       window.removeEventListener("resize", read);
     };
   }, []);
@@ -495,19 +511,19 @@ export function GridScreen(p: GridScreenProps) {
       return;
     }
     if (reduced) {
-      apply(Date.now(), true);
-      live.current.redraw = () => apply(Date.now(), true);
-      const i = setInterval(() => apply(Date.now(), true), 1000);
+      apply(readNow(), true);
+      live.current.redraw = () => apply(readNow(), true);
+      const i = setInterval(() => apply(readNow(), true), 1000);
       return () => clearInterval(i);
     }
     let raf = 0;
     const loop = () => {
-      apply(Date.now(), false);
+      apply(readNow(), false);
       raf = requestAnimationFrame(loop);
     };
     loop();
     return () => cancelAnimationFrame(raf);
-  }, [frozen, p.nowMs, reduced, layout, source]);
+  }, [frozen, p.nowMs, reduced, layout, source, readNow]);
 
   // ---- zoom and pan ----
   const zoomTo = (next: number, frac = 0.5) => {
@@ -656,7 +672,7 @@ export function GridScreen(p: GridScreenProps) {
   const headBand = Math.floor(bandUnits(lastPrice, anchorUsd, stepUsd));
   const tab = fc ?? { c: firstOpen, k: mine[firstOpen] !== NO_PICK ? mine[firstOpen] : headBand };
   const pick = (c: number, k: number) => {
-    if (!canPick(c, (wallNow() - startsAt) / 1000) || settled) return;
+    if (p.paused || !canPick(c, (readNow() - startsAt) / 1000) || settled) return;
     sfx("chip");
     onPick(c, mine[c] === k ? NO_PICK : k);
   };
@@ -668,7 +684,7 @@ export function GridScreen(p: GridScreenProps) {
     let nc = c;
     if (m[0]) {
       const camX = view.current.free?.x ?? live.current.cam;
-      const reachable = (n: number) => canPick(n, (wallNow() - startsAt) / 1000) && visibleCol(n, camX);
+      const reachable = (n: number) => canPick(n, (readNow() - startsAt) / 1000) && visibleCol(n, camX);
       nc = c + m[0];
       while (nc >= 0 && nc < COLUMNS && !reachable(nc)) nc += m[0];
       if (nc < 0 || nc >= COLUMNS) return;
@@ -820,6 +836,7 @@ export function GridScreen(p: GridScreenProps) {
             <GemaMark size={14} /> <b className="tnum">{p.pot}</b>
           </span>
         )}
+        {p.practice && p.onTogglePause && <PracticePauseButton paused={!!p.paused} onToggle={p.onTogglePause} disabled={phase === "over"} />}
         <GameMenu items={[{ label: "Key", icon: <Info aria-hidden="true" />, onSelect: () => setKeyOpen(true) }]} leaveHref={p.practice ? p.exitHref : undefined} />
       </div>
     </header>
@@ -850,6 +867,7 @@ export function GridScreen(p: GridScreenProps) {
 
   const scoreboard = (
     <section className="cut cut-card tg-scoreboard" aria-label="Score">
+      <div className="tg-scoreboard-in">
       {side("me", me, score.you, myMarks)}
       <div className="tg-vs">
         <span className={`cut cut-chip tg-lead${lead === 0 ? "" : lead > 0 ? " you" : " foe"}`}>{lead === 0 ? "Level" : lead > 0 ? `You lead by ${lead}` : `${p.opponent.name} leads by ${-lead}`}</span>
@@ -860,6 +878,7 @@ export function GridScreen(p: GridScreenProps) {
         </div>
       </div>
       {side("foe", p.opponent, score.them, foeMarks)}
+      </div>
     </section>
   );
 
@@ -901,6 +920,7 @@ export function GridScreen(p: GridScreenProps) {
         {p.error && <p className="tg-error" role="alert">{p.error}</p>}
 
         <div ref={stageRef} className="cut cut-frame tg-stage" role="group" onKeyDown={onStageKey} aria-label={`Price grid, ${asset}. Pick a box in a column that is still open. Arrow keys move between boxes, Enter or Space picks.`}>
+          {p.practice && p.paused && p.onTogglePause && <PracticePauseOverlay onResume={p.onTogglePause} />}
           <div className="tg-gutter" style={{ height: viewH }} aria-hidden="true">
             <div className="tg-gbody" style={{ top: HEADER_PX, height: layout.bodyH }}>
               <div className="tg-gvl" ref={gvlRef}>
@@ -1093,7 +1113,7 @@ export function GridScreen(p: GridScreenProps) {
                 )}
                 <div className="tg-end-actions">
                   {p.onPlayAgain && <Button onClick={p.onPlayAgain}>Play again</Button>}
-                  {p.exitHref && <Button href={p.exitHref}>{p.exitLabel ?? "Play"}</Button>}
+                  {p.exitHref && <Button href={p.exitHref}>{p.exitLabel ?? "Back to games"}</Button>}
                   <button type="button" className="cut cut-btn tg-review" onClick={() => setReview(true)}>Review the grid</button>
                 </div>
               </div>

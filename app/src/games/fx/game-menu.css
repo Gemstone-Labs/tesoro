@@ -4,7 +4,7 @@
 .gmenu-btn svg { width: 20px; height: 20px; }
 .gmenu-btn:hover { background: rgba(8, 12, 16, 0.92); }
 .gmenu-list {
-  position: absolute; right: 0; top: calc(100% + 8px); min-width: 200px; padding: 8px; display: grid; gap: 2px;
+  position: fixed; z-index: 100; width: 216px; overflow-y: auto; overscroll-behavior: contain; padding: 8px; display: grid; gap: 2px;
   background: var(--raised-2); --edge: var(--edge-2); animation: menu-in 0.18s ease-out; transform-origin: top right;
 }
 .gmenu-list > * {

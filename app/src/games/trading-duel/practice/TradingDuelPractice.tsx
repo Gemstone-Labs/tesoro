@@ -5,11 +5,12 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui";
 import { art } from "@/lib/art";
 import { ASSETS, type Asset } from "../chain";
-import { perSecond, usePriceFeed } from "../feed";
+import { PriceStore, perSecond, usePriceFeed } from "../feed";
 import { COLUMNS, MATCH_SECS, lockAt, revealed, bandOf, type GridAsset } from "../grid";
 import { GridScreen } from "../GridScreen";
 import { seededRng } from "./bot";
 import { elapsed, newGridSession, setPick, stepGridSession, type GridSession } from "./gridSession";
+import { usePracticePause } from "../../fx/PracticePause";
 import "../trading.css";
 import { Arena, FullScreenToggle, MuteToggle } from "../../fx";
 
@@ -26,6 +27,8 @@ const PRACTICE_ASSET: Asset = ASSETS[0];
  * gives a fixed bot.
  */
 export function TradingDuelPractice() {
+  const { paused, toggle: togglePause, now: practiceNow } = usePracticePause();
+  const [practiceStore] = useState(() => new PriceStore());
   const sp = useSearchParams();
   const asset = PRACTICE_ASSET;
   const [session, setSession] = useState<GridSession | null>(null);
@@ -52,15 +55,19 @@ export function TradingDuelPractice() {
   // The screen hears about the game when something it shows changes, and once a second.
   const startsAt = session?.startsAt;
   useEffect(() => {
-    if (!startsAt) return;
+    if (!startsAt || paused) return;
     const off = store.onUpdate((tick) => {
       const s = sessionRef.current;
-      if (s && !s.final) sessionRef.current = stepGridSession(s, tick.mid, tick.receivedAt, rng.current, prices.current);
+      if (s && !s.final) {
+        const now = practiceNow();
+        practiceStore.ingest(tick.mid, tick.publishedAt, now);
+        sessionRef.current = stepGridSession(s, tick.mid, now, rng.current, prices.current);
+      }
     });
     let shown = "";
     let shownAt = 0;
     const i = setInterval(() => {
-      const now = Date.now();
+      const now = practiceNow();
       const s = sessionRef.current;
       prices.current = perSecond(store.points);
       if (!s || !store.tick) return;
@@ -79,7 +86,7 @@ export function TradingDuelPractice() {
       off();
       clearInterval(i);
     };
-  }, [startsAt, store]);
+  }, [startsAt, store, paused, practiceNow, practiceStore]);
 
   // Start (and Play again) on the next live price: no picker, no button.
   const waiting = !session;
@@ -88,10 +95,13 @@ export function TradingDuelPractice() {
     const off = store.onUpdate((tick) => {
       if (sessionRef.current) return;
       rng.current = seed ? seededRng(Number(seed) || 1) : () => Math.random();
-      commit(newGridSession(Date.now(), tick.mid, asset.symbol as GridAsset, rng.current));
+      const now = practiceNow();
+      practiceStore.clear();
+      practiceStore.ingest(tick.mid, tick.publishedAt, now);
+      commit(newGridSession(now, tick.mid, asset.symbol as GridAsset, rng.current));
     });
     return off;
-  }, [waiting, store, seed, asset]);
+  }, [waiting, store, seed, asset, practiceNow, practiceStore]);
 
   if (!session) return <Connecting asset={asset} stale={feed.status === "stale"} />;
 
@@ -104,7 +114,7 @@ export function TradingDuelPractice() {
       step={session.step}
       startsAt={session.startsAt}
       track={session.track}
-      series={feed.series}
+      series={practiceStore}
       stale={feed.status === "stale"}
       mine={session.picks[0]}
       theirs={revealed(session.picks[1], Math.min(t, MATCH_SECS))}
@@ -112,11 +122,15 @@ export function TradingDuelPractice() {
       opponent={BOT}
       final={final ? { you: final.scores[0], them: final.scores[1] } : null}
       practice
+      paused={paused}
+      onTogglePause={togglePause}
+      practiceNow={practiceNow}
       title="Trading Duel practice"
       error={error}
       onPick={(c, k) => {
+        if (paused) return;
         const cur = sessionRef.current;
-        const next = cur && setPick(cur, c, k, Date.now());
+        const next = cur && setPick(cur, c, k, practiceNow());
         setError(next ? null : "That column just locked, so the pick didn’t count.");
         if (next) commit(next);
       }}

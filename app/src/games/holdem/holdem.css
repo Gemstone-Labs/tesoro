@@ -33,8 +33,9 @@
 /* layout: slim header, the table, the action bar, a collapsible hand log */
 .hdx { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); max-width: 1100px; margin: 0 auto; width: 100%; }
 /* the header is only the blinds and the ⋯ menu (and Claim timeout when the other clock has run out) */
-.hdx-head { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 2px; }
-.hdx-level { color: var(--fg-2); font-size: var(--fs-13); }
+.hdx-head { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 6px 12px; background: rgba(14, 19, 23, 0.86); --edge: var(--edge-1); }
+.hdx-level { display: inline-flex; align-items: baseline; gap: 6px; color: var(--fg-2); font-size: var(--fs-13); }
+.hdx-level small { font-size: var(--fs-11); color: var(--fg-3); }
 .hdx-claim { margin-left: auto; }
 .hdx-menu { margin-left: auto; }
 .hdx-claim + .hdx-menu { margin-left: 0; }
@@ -302,3 +303,8 @@
 .hd-end-chips { font-size: var(--fs-18); color: var(--fg-2); }
 .hd-end-chips b { color: var(--fg); font-weight: 600; }
 .hd-practice-end .bp-actions { justify-content: center; }
+
+@media (min-width: 1024px) {
+  html.game-full .hdx { max-width: 1280px; gap: 12px; }
+  html.game-full .hdx-felt { min-height: 0; height: clamp(360px, calc(100dvh - 206px), 660px); }
+}

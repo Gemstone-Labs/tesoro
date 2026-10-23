@@ -15,7 +15,8 @@
 .tg-feed.stale::before { background: var(--warn); }
 
 /* score */
-.tg-scoreboard { --edge: var(--edge-2); background: linear-gradient(180deg, rgba(23, 30, 37, 0.9), rgba(13, 18, 22, 0.92)); padding: 12px clamp(12px, 2vw, 22px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 280px) minmax(0, 1fr); gap: 8px clamp(10px, 2vw, 28px); align-items: center; }
+.tg-scoreboard { --edge: var(--edge-2); background: linear-gradient(180deg, rgba(23, 30, 37, 0.9), rgba(13, 18, 22, 0.92)); padding: 12px clamp(12px, 2vw, 22px); }
+.tg-scoreboard-in { max-width: 900px; margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 280px) minmax(0, 1fr); gap: 8px clamp(10px, 2vw, 28px); align-items: center; }
 .tg-side { display: grid; gap: 4px 12px; grid-template-columns: auto auto; grid-template-areas: "who score" "tally tally"; align-items: center; min-width: 0; }
 .tg-side.foe { direction: rtl; }
 .tg-side.foe > * { direction: ltr; }
@@ -244,7 +245,8 @@
   .tg-lockbar, .tg-head-chip { display: none; }
   .tg-bar-l { flex-wrap: nowrap; gap: 8px; }
   .tg-bar-r { flex-wrap: nowrap; gap: 6px; }
-  .tg-scoreboard { gap: 4px 8px; padding: 8px 12px; }
+  .tg-scoreboard { padding: 8px 12px; }
+  .tg-scoreboard-in { gap: 4px 8px; }
   .tg-score { font-size: 36px; }
   .tg-sub { display: none; }
   .tg-side { gap: 2px 8px; }
@@ -258,10 +260,10 @@
   .tg-legend { font-size: var(--fs-12); gap: 4px 14px; }
 }
 @media (max-width: 720px) {
-  .tg-scoreboard { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "a b" "v v"; padding: 10px 12px; }
-  .tg-scoreboard > :nth-child(1) { grid-area: a; }
-  .tg-scoreboard > :nth-child(3) { grid-area: b; }
-  .tg-scoreboard > :nth-child(2) { grid-area: v; order: 3; }
+  .tg-scoreboard-in { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "a b" "v v"; }
+  .tg-scoreboard-in > :nth-child(1) { grid-area: a; }
+  .tg-scoreboard-in > :nth-child(3) { grid-area: b; }
+  .tg-scoreboard-in > :nth-child(2) { grid-area: v; order: 3; }
   .tg-name { max-width: 9ch; font-size: var(--fs-14); }
   .tg-avatar { width: 32px; height: 32px; }
   .tg-tally li { width: 7px; height: 10px; }
@@ -279,3 +281,5 @@
 .tg-strip-main > span, .tg-strip-lock { display: inline-flex; align-items: center; gap: 6px; }
 .tg-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--up); box-shadow: 0 0 0 3px rgba(80, 220, 160, 0.2); }
 .tg-strip-clock { font-size: var(--fs-16); }
+
+@media (max-width: 520px) { .tg-bar { padding: 6px 8px; gap: 6px; } .tg-bar-l { gap: 5px; } .tg-bar .game-tag { font-size: var(--fs-10); padding-inline: 5px; } .tg-asset { padding-inline: 6px; } }

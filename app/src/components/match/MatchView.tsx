@@ -229,17 +229,7 @@ export function MatchView({ matchId }: { matchId: string }) {
       <div className="stack">
         <BlockPuzzleGame
           run={run}
-          matchPanel={
-            <div className="bpx-status" role="status">
-              <p>{match?.status === "open" ? "Your opponent gets the same pieces · waiting to be paired" : "Your opponent gets the same pieces · higher score wins"}</p>
-              {match?.status === "open" && (
-                <span className="bpx-finding">
-                  <i className="bpx-spin" aria-hidden="true" /> Finding opponent…
-                </span>
-              )}
-              {error && <p className="status err" role="alert">{error}</p>}
-            </div>
-          }
+          matchPanel={error ? <p className="status err" role="alert">{error}</p> : null}
         />
       </div>
     );

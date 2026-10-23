@@ -12,6 +12,7 @@ import { VanguardBoard, type HitSide, type Mark, type Preview, type ShownFx, typ
 import { RulesSheet } from "../RulesSheet";
 import { blastSquares, canSwitch, isJump, observe, powerBlockedLine, powerFor, rosterView, type Ledger } from "../powers-ui";
 import { applyBot, botMove, type Policy } from "./bot";
+import { PracticePauseButton, PracticePauseOverlay, usePracticePause } from "../../fx/PracticePause";
 import "../vanguard.css";
 
 export interface VanguardPracticeProps {
@@ -91,13 +92,14 @@ export function VanguardPractice(props: VanguardPracticeProps) {
 }
 
 function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep = 0, prepare, policy = "standard", first = "us", seen }: VanguardPracticeProps) {
+  const { paused, toggle: togglePause, now: practiceNow } = usePracticePause();
   // one random source per mount: seeded in stories, so the setup and the bot repeat
   const [rng] = useState<Rng>(() => (seed === undefined ? Math.random : seeded(seed)));
   const fresh = useCallback(() => {
-    const g = newGame(rng, Date.now(), first);
+    const g = newGame(rng, practiceNow(), first);
     const ready = { ...g, stormAt: stormAt ?? g.stormAt, twoStep: { us: twoStep, it: 0 } };
     return prepare ? prepare(ready) : ready;
-  }, [rng, stormAt, twoStep, prepare, first]);
+  }, [rng, stormAt, twoStep, prepare, first, practiceNow]);
   const [game, setGame] = useState<Game>(fresh);
   const gameRef = useRef(game);
   const [pieces, setPieces] = useState<ShownPiece[]>(() => shownFrom(game));
@@ -113,7 +115,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
   const [say, setSay] = useState("Your move. Tap a piece.");
   const [started, setStarted] = useState(instant);
   const [busy, setBusy] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => practiceNow());
   const fxKey = useRef(1);
   const [call, setCall] = useState<{ key: number; text: string; tone: CalloutTone } | null>(null);
   const shout = useCallback((text: string, tone: CalloutTone = "plain") => setCall({ key: fxKey.current++, text, tone }), []);
@@ -124,9 +126,9 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     setSpyOn(false);
   }, []);
   /** The time an action is stamped with: the real clock, or a fixed instant when the clock is off. */
-  const stamp = useCallback((g: Game) => (clock ? Date.now() : g.startedAt), [clock]);
+  const stamp = useCallback((g: Game) => (clock ? practiceNow() : g.startedAt), [clock, practiceNow]);
   /** Give the side to act a full turn from now (the screen shows the countdown from when it sees the turn begin). */
-  const freshClock = useCallback((g: Game): Game => (clock ? { ...g, deadline: Date.now() + TURN_MS } : g), [clock]);
+  const freshClock = useCallback((g: Game): Game => (clock ? { ...g, deadline: practiceNow() + TURN_MS } : g), [clock, practiceNow]);
   const patch = useCallback((id: number, p: Partial<ShownPiece>) => setPieces((ps) => ps.map((x) => (x.id === id ? { ...x, ...p } : x))), []);
   const addFx = useCallback((kind: ShownFx["kind"], r: number, c: number, size: number) => {
     const key = fxKey.current++;
@@ -300,7 +302,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
         line = e.army === "us" ? "Depot raided: Two-Step Turn." : "Italy raided your depot.";
         await wait(500);
       } else if (e.kind === "storm") {
-        setStorm({ key: Date.now(), axis: e.axis, index: e.index, dir: e.dir });
+        setStorm({ key: practiceNow(), axis: e.axis, index: e.index, dir: e.dir });
         sfx("wind");
         shout("Dust storm!", "warn");
         setSay(`Dust storm: ${e.axis === "row" ? `row ${10 - e.index}` : `column ${e.index + 1}`}.`);
@@ -324,7 +326,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     } else if (line) setSay(line);
     // every move gets a fresh 10 seconds, each step of a Two-Step Turn included (founder 2026-10-19)
     setBusy(false);
-  }, [addFx, commit, freshClock, patch, shout]);
+  }, [addFx, commit, freshClock, patch, shout, practiceNow]);
 
   /** Play an accepted action; say why a refused one was. */
   const apply = useCallback((r: Result) => {
@@ -338,7 +340,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
 
   // the clock: Italy thinks for a beat, then moves; your turn times out after 10 seconds
   useEffect(() => {
-    if (!started || busy || game.winner) return;
+    if (paused || !started || busy || game.winner) return;
     if (game.turn === "it") {
       const id = setTimeout(() => {
         let g = gameRef.current;
@@ -355,17 +357,17 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     if (!clock) return;
     // fires just past the turn deadline, or past the time cap if that comes first
     const fireAt = Math.min(game.deadline, game.startedAt + CAP_MS) + 1;
-    const id = setTimeout(() => apply(timeout(gameRef.current, Math.max(Date.now(), fireAt))), Math.max(0, fireAt - Date.now()));
+    const id = setTimeout(() => apply(timeout(gameRef.current, Math.max(practiceNow(), fireAt))), Math.max(0, fireAt - practiceNow()));
     return () => clearTimeout(id);
-  }, [started, busy, game, clock, apply, rng, stamp, policy]);
+  }, [paused, started, busy, game, clock, apply, rng, stamp, policy, practiceNow]);
 
   // tick the ring
   useEffect(() => {
-    if (!started || busy || game.winner || !clock) return;
+    if (paused || !started || busy || game.winner || !clock) return;
     let raf = 0;
     let lastSec = -1;
     const loop = () => {
-      const t = Date.now();
+      const t = practiceNow();
       setNow(t);
       const left = Math.ceil((gameRef.current.deadline - t) / 1000);
       if (gameRef.current.turn === "us" && left <= 2 && left > 0 && left !== lastSec) sfx("tick");
@@ -374,9 +376,9 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [started, busy, game.winner, clock]);
+  }, [paused, started, busy, game.winner, clock, practiceNow]);
 
-  const yourTurn = started && !busy && !game.winner && game.turn === "us";
+  const yourTurn = started && !paused && !busy && !game.winner && game.turn === "us";
   const sel = selected === null ? null : game.pieces.find((p) => p.id === selected) ?? null;
   const power = yourTurn && sel ? powerFor(game, sel) : null;
   const marks: Mark[] = yourTurn && sel ? targets(game, sel).map((m) => ({ ...m, jump: isJump(rankOf(game, sel), sel, m) })) : [];
@@ -486,7 +488,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
   return (
     <Arena game="vanguard" autoFull={!game.winner}>
       <VanguardScreen
-        bar={<VgBar practice onRules={() => setRulesOpen((o) => !o)} />}
+        bar={<VgBar practice pause={<PracticePauseButton paused={paused} onToggle={togglePause} disabled={!started || busy || !!game.winner} />} onRules={() => setRulesOpen((o) => !o)} />}
         foe={plate("it")}
         roster={roster}
         me={plate("us")}
@@ -494,6 +496,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
         say={say}
         stage={
         <div className="vg-stage">
+          {paused && <PracticePauseOverlay onResume={togglePause} />}
           <VanguardBoard pieces={tenId === undefined ? pieces : pieces.map((p) => (p.id === tenId ? { ...p, rank: "1", changed: "spy" } : p))} depots={depots} selected={selected} marks={marks} preview={preview} fx={fx} storm={storm} locked={!yourTurn} onPiece={onPiece} onMark={onMark} />
           {!started && (
             <Countdown
@@ -501,7 +504,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
               className="vg-count"
               onDone={() => {
                 setStarted(true);
-                commit(freshClock({ ...gameRef.current, startedAt: Date.now() }));
+                commit(freshClock({ ...gameRef.current, startedAt: practiceNow() }));
               }}
             />
           )}
@@ -518,7 +521,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
               </dl>
               <div className="vg-end-actions">
                 <Button onClick={again}>Play again</Button>
-                <Button href="/play">Play</Button>
+                <Button href="/play">Back to games</Button>
               </div>
             </div>
           )}

@@ -196,10 +196,17 @@ describe("vertical camera", () => {
 });
 
 describe("layoutFor fillH", () => {
-  it("grows the band area to the height left on a phone, never below the default and at most twice it", () => {
+  it("fits the available height, retaining the default only when no height budget is supplied", () => {
     const base = layoutFor(390).bodyH;
     expect(layoutFor(390, undefined, 520).bodyH).toBe(520);
-    expect(layoutFor(390, undefined, 100).bodyH).toBe(base);
+    expect(layoutFor(390, undefined, 100).bodyH).toBe(100);
     expect(layoutFor(390, undefined, 5000).bodyH).toBe(base * 2);
+  });
+});
+
+describe("viewport height budget", () => {
+  it.each([320, 390, 800, 1240])("never exceeds the remaining height at width %i", (width) => {
+    expect(layoutFor(width, undefined, 180).bodyH).toBeLessThanOrEqual(180);
+    expect(layoutFor(width, undefined, 601.7).bodyH).toBeLessThanOrEqual(601.7);
   });
 });

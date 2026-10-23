@@ -1,46 +1,50 @@
 "use client";
 
-import { useEffect, type CSSProperties, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { art } from "@/lib/art";
 import { FxLayer } from "./burst";
-import { isFullScreen, setFullScreen } from "./full-screen";
+import { createCoverSession, isFullScreen, setFullScreen } from "./full-screen";
 
 export type ArenaGame = "block-puzzle" | "holdem" | "trading-duel" | "vanguard";
+const ArenaSession = createContext<(() => void) | null>(null);
 
 /**
- * The stage a game sits on: a dark backdrop with colour at the edges and a quiet, dark centre, kept
- * inside the content column (the app shell is untouched). Paints `art.arena[game]` over a CSS
- * gradient per game, which shows if the art fails to load. Also mounts the `FxLayer` bursts draw on,
- * and owns full screen: `autoFull` turns it on (a Match or Practice game passes `autoFull={!ended}`, so it turns off again when
- * the Match ends), F toggles it (unless `fullScreenKey` is off, as in Hold'em where F folds), Esc leaves it, and
- * leaving the game leaves it.
- * `<Arena game="holdem">...the game...</Arena>`.
+ * The game's backdrop and window cover (never the browser Fullscreen API). `autoFull` enters once;
+ * the cover stays through the end panel until the Player toggles it off or leaves the Arena.
+ * A route can own an Arena so replacing the board with a Match result keeps the same cover.
+ * Nested Arenas share that owner. F toggles the cover; Esc leaves it.
  */
-export function Arena({ game, children, className = "", fullScreenKey = true, autoFull = false }: { game: ArenaGame; children: ReactNode; className?: string; fullScreenKey?: boolean; autoFull?: boolean }) {
+export function Arena({ game, children, className = "", autoFull = false }: { game: ArenaGame; children: ReactNode; className?: string; autoFull?: boolean }) {
+  const parent = useContext(ArenaSession);
+  const [session] = useState(createCoverSession);
+  const enter = session.enter;
   useEffect(() => {
-    if (!autoFull) return;
-    setFullScreen(true);
-    return () => setFullScreen(false);
-  }, [autoFull]);
+    if (autoFull) (parent ?? enter)();
+  }, [autoFull, parent, enter]);
   useEffect(() => {
+    if (parent) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || t?.closest("input, textarea, select, [contenteditable]")) return;
-      if ((e.key === "f" || e.key === "F") && fullScreenKey) setFullScreen(!isFullScreen());
-      else if (e.key === "Escape" && isFullScreen() && !t?.closest("dialog")) setFullScreen(false);
+      if (e.defaultPrevented || e.repeat || e.metaKey || e.ctrlKey || e.altKey || t?.closest("input, textarea, select, [contenteditable], dialog, [role=dialog]")) return;
+      if (document.querySelector("dialog[open], [aria-modal=true]")) return;
+      if (e.key === "f" || e.key === "F") setFullScreen(!isFullScreen());
+      else if (e.key === "Escape" && isFullScreen()) setFullScreen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
-      setFullScreen(false);
+      session.leave();
     };
-  }, [fullScreenKey]);
+  }, [parent, session]);
+  if (parent) return <>{children}</>;
   return (
-    <div className={`fx-arena ${className}`} data-game={game} style={{ "--fx-arena-art": `url(${art.arena[game]})` } as CSSProperties}>
-      <div className="fx-arena-bg" aria-hidden="true" />
-      <div className="fx-arena-shade" aria-hidden="true" />
-      <div className="fx-arena-body">{children}</div>
-      <FxLayer />
-    </div>
+    <ArenaSession value={enter}>
+      <div className={`fx-arena ${className}`} data-game={game} style={{ "--fx-arena-art": `url(${art.arena[game]})` } as CSSProperties}>
+        <div className="fx-arena-bg" aria-hidden="true" />
+        <div className="fx-arena-shade" aria-hidden="true" />
+        <div className="fx-arena-body">{children}</div>
+        <FxLayer />
+      </div>
+    </ArenaSession>
   );
 }

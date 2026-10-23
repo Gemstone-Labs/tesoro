@@ -1,11 +1,11 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Info, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar } from "@/components/account/Player";
-import { Button, CountUp, GemaMark, GemaUsd } from "@/components/ui";
+import { Button, CountUp, GemaMark, GemaUsd, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { ENTRY_SIZES } from "@/lib/cluster-settings";
 import { art } from "@/lib/art";
@@ -125,7 +125,10 @@ function PoolBand({ data, pool, remaining }: { data: LeaderboardView; pool: numb
   return (
     <section className="lb-band-wrap" aria-label="This season">
       <div className="cut cut-card lb-band">
-        <Image className="lb-band-chest" src={art.poolChestCut} alt="" width={160} height={160} priority />
+        <span className="lb-band-art" aria-hidden="true">
+          <span className="lb-hero-rays" />
+          <Image className="lb-band-chest lb-hero-chest" src={art.poolChestCut} alt="" width={160} height={160} priority />
+        </span>
         <span className="lb-band-pool">
           <b className="pool-fig lb-band-fig">
             <CountUp value={pool} duration={1200} />
@@ -138,12 +141,12 @@ function PoolBand({ data, pool, remaining }: { data: LeaderboardView; pool: numb
             {remaining === null ? "—" : left(remaining)}
           </span>
         </span>
-        <button type="button" className="lb-info-btn" aria-expanded={info} aria-controls="lb-info" aria-label={info ? "Close how the Pool works" : "How the Pool works"} onClick={() => setInfo(!info)}>
-          {info ? <X aria-hidden="true" /> : <Info aria-hidden="true" />}
+        <button type="button" className="lb-info-btn" aria-haspopup="dialog" aria-label="How the Pool works" onClick={() => setInfo(true)}>
+          <Info aria-hidden="true" />
         </button>
       </div>
-      {info && (
-        <div id="lb-info" className="lb-info">
+      <Sheet open={info} onClose={() => setInfo(false)} title="How the Pool works" className="lb-info-sheet">
+        <div className="lb-info">
           <p>
             Win Matches to earn points.{" "}
             {data.feeBps > 0 ? `${data.feeBps / 100}% of every Pot goes into the Pool, from every Game.` : "The Pool opens with the next upgrade."} The top{" "}
@@ -151,7 +154,7 @@ function PoolBand({ data, pool, remaining }: { data: LeaderboardView; pool: numb
           </p>
           <Payout pool={pool} />
         </div>
-      )}
+      </Sheet>
     </section>
   );
 }

@@ -66,13 +66,20 @@
 .lb-pager .btn { min-width: 44px; justify-content: center; }
 .lb-page[aria-current="page"] { background: var(--fg); color: var(--shell); --edge: var(--edge-2); }
 
-/* the Pool: one slim gold band (chest, figure, countdown, ⓘ); the ⓘ opens how it works and the payout scale under it */
+/* the Pool: one slim gold band (chest, figure, countdown, ⓘ); the ⓘ opens how it works and the payout scale in a modal */
 .lb-band-wrap { display: grid; gap: 10px; }
 .lb-band {
   --edge: var(--edge-gold); display: flex; align-items: center; gap: 12px; min-height: 84px; padding: 10px 6px 10px 12px;
   background: radial-gradient(60% 140% at 12% 50%, rgba(255, 180, 60, 0.2), transparent 70%), var(--surface);
 }
-.lb-band-chest { flex: none; width: 64px; height: 64px; object-fit: contain; filter: drop-shadow(0 4px 14px rgba(214, 140, 28, 0.35)); }
+.lb-band-art { position: relative; isolation: isolate; flex: none; width: 64px; height: 64px; }
+.lb-hero-rays { position: absolute; z-index: -1; inset: -30%; background: repeating-conic-gradient(from 0deg, rgba(255, 200, 100, 0.13) 0 5deg, transparent 5deg 15deg); mask-image: radial-gradient(closest-side, #000 15%, transparent 95%); animation: lb-spin 50s linear infinite; }
+.lb-hero-chest { animation: lb-bob 5s ease-in-out infinite; }
+@keyframes lb-spin { to { rotate: 360deg; } }
+@keyframes lb-bob { 50% { translate: 0 -4px; } }
+@media (prefers-reduced-motion: reduce) { .lb-hero-rays, .lb-hero-chest { animation: none; } }
+.lb-info-sheet { width: min(940px, calc(100% - 24px)); }
+.lb-band-chest { position: relative; width: 64px; height: 64px; object-fit: contain; filter: drop-shadow(0 4px 14px rgba(214, 140, 28, 0.35)); }
 .lb-band-pool { display: grid; gap: 2px; min-width: 0; }
 .lb-band-fig { font-size: clamp(40px, 12vw, 64px); font-weight: 800; line-height: 0.9; letter-spacing: -0.03em; }
 .lb-band-pool .gema-usd { font-size: var(--fs-14); }
@@ -93,12 +100,13 @@
 }
 .lb-place.p1 { order: 2; --edge: var(--edge-gold); padding-top: 12px; padding-bottom: 12px; background: radial-gradient(80% 60% at 50% 0%, rgba(255, 190, 70, 0.16), transparent 70%), var(--surface); }
 .lb-place.p2 { order: 1; --edge: linear-gradient(180deg, rgba(232, 238, 244, 0.85) 0, rgba(170, 182, 194, 0.42) 40%, rgba(170, 182, 194, 0.24) 100%); }
-.lb-place.p3 { order: 3; --edge: linear-gradient(180deg, rgba(240, 178, 120, 0.85) 0, rgba(176, 102, 48, 0.42) 40%, rgba(176, 102, 48, 0.24) 100%); }
+.lb-place.p3 { padding-block: 5px; order: 3; --edge: linear-gradient(180deg, rgba(240, 178, 120, 0.85) 0, rgba(176, 102, 48, 0.42) 40%, rgba(176, 102, 48, 0.24) 100%); }
 .lb-place-rank { font-family: var(--f-display); font-size: var(--fs-18); font-weight: 800; line-height: 1; }
 .lb-place.p1 .lb-place-rank { background: var(--gold-facet); -webkit-background-clip: text; background-clip: text; color: transparent; font-size: 24px; }
 .lb-place.p2 .lb-place-rank { color: #d9e1e8; }
 .lb-place.p3 .lb-place-rank { color: #e3a46c; }
 .lb-place-avatar { width: 40px; height: 40px; --c: 9px; margin: 2px 0; }
+.lb-place.p3 .lb-place-avatar { width: 36px; height: 36px; }
 .lb-place.p1 .lb-place-avatar { width: 50px; height: 50px; --c: 11px; }
 .lb-place .lb-name { max-width: 100%; font-size: var(--fs-13); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lb-place .lb-pts { font-size: var(--fs-12); }
@@ -168,9 +176,10 @@
 @media (min-width: 1024px) {
   .lb { gap: 20px; }
   .lb-band { min-height: 108px; padding: 14px 12px 14px 20px; gap: 20px; }
-  .lb-band-chest { width: 84px; height: 84px; }
+  .lb-band-art, .lb-band-chest { width: 84px; height: 84px; }
   .lb-band-fig { font-size: 76px; }
   .lb-place-avatar { width: 64px; height: 64px; }
+  .lb-place.p3 .lb-place-avatar { width: 58px; height: 58px; }
   .lb-place.p1 .lb-place-avatar { width: 76px; height: 76px; }
   .lb-place .lb-name { font-size: var(--fs-16); }
   .lb-row { grid-template-columns: 44px minmax(0, 1fr) auto 120px; min-height: 64px; padding: 10px 20px 10px 12px; }
