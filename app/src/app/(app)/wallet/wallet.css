@@ -228,3 +228,19 @@
   .wl-src li.wide > .meter { grid-column: 2 / -1; }
   .wl-src li.wide > .meta { grid-column: 2 / -1; text-align: left; }
 }
+
+/* the Simple view's card (V1): Gemas, then one Winnings row with its Cash out; no fold, no columns */
+.wl-hero.simple { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 20px 20px 18px; }
+.wl-hero.simple .wl-total { cursor: default; }
+.wl-hero.simple .wl-total-fig { margin-top: 6px; gap: 10px; }
+.wl-hero.simple .wl-total-fig .gema-mark { width: 44px; height: 44px; }
+.wl-hero.simple .wl-total-fig b { font-size: clamp(44px, 12vw, 72px); }
+.wl-hero.simple .wl-total-usd { display: inline; margin: 0; }
+.wl-win { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head act" "fig act"; align-items: center; gap: 2px 12px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+.wl-win .wl-col-head { grid-area: head; font-size: var(--fs-14); font-weight: 600; color: var(--fg-2); }
+.wl-win-fig { grid-area: fig; display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.wl-win-fig b { font-size: var(--fs-28, 28px); font-weight: 900; color: var(--em-hi); letter-spacing: -0.02em; }
+.wl-win-fig .wl-usd { padding: 0; font-size: var(--fs-15); }
+.wl-win > .btn, .wl-win > span:last-child { grid-area: act; }
+@media (min-width: 960px) { .wl-hero.simple { padding: 28px 32px 24px; } }
+.wl-hero.simple .wl-total-fig span { display: none; }

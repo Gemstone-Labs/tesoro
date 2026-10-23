@@ -25,7 +25,7 @@ export interface HeroColumn {
  * The green cut balance card at the top of the Vault, the same in both views: one big figure on the left, two columns on
  * the right. On phones it folds to the big figure plus `summary`, and opens on tap.
  */
-export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, summary, totalNote, columns, error, simulated = true }: {
+export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, summary, totalNote, columns, winnings, error, simulated = true }: {
   label: string;
   /** An ⓘ next to the main label that explains the total. */
   labelInfo?: ReactNode;
@@ -38,6 +38,8 @@ export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, sum
   totalNote?: ReactNode;
   /** Two or three columns on the right. */
   columns: HeroColumn[];
+  /** The Simple view: one Winnings row under the big figure (with its Cash out) instead of the columns, and no fold. */
+  winnings?: { figure: ReactNode; usdOf?: number; action: ReactNode };
   error?: ReactNode;
   /** Show the simulated-yield label (test mode). */
   simulated?: boolean;
@@ -45,7 +47,7 @@ export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, sum
   const [open, setOpen] = useState(false);
   const id = useId();
   return (
-    <section className={`cut cut-frame facet-panel wl-hero${columns.length > 2 ? " three" : ""}${open ? " open" : ""}`} aria-label={label}>
+    <section className={`cut cut-frame facet-panel wl-hero${columns.length > 2 ? " three" : ""}${open ? " open" : ""}${winnings ? " simple" : ""}`} aria-label={label}>
       <FacetCrown />
       <div className="wl-total" onClick={() => setOpen((o) => !o)}>
         <div className="wl-total-head">
@@ -57,10 +59,12 @@ export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, sum
               </InfoTip>
             )}
           </h2>
-          <button type="button" className="wl-fold" aria-expanded={open} aria-controls={id}>
-            <ChevronDown size={18} aria-hidden="true" />
-            <span className="sr-only">{open ? "Hide" : "Show"} {columns.map((c) => c.label).join(", ")}</span>
-          </button>
+          {!winnings && (
+            <button type="button" className="wl-fold" aria-expanded={open} aria-controls={id}>
+              <ChevronDown size={18} aria-hidden="true" />
+              <span className="sr-only">{open ? "Hide" : "Show"} {columns.map((c) => c.label).join(", ")}</span>
+            </button>
+          )}
         </div>
         <div className="wl-total-fig">
           <GemaMark size={72} glint />
@@ -75,7 +79,18 @@ export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, sum
           </button>
         )}
       </div>
-      <div className="wl-second" id={id}>
+      {winnings && (
+        <div className="wl-win" aria-label="Winnings">
+          <span className="wl-col-head">Winnings</span>
+          <span className="wl-win-fig">
+            <GemaMark size={28} />
+            <b>{winnings.figure}</b>
+            {winnings.usdOf !== undefined && <GemaUsd className="wl-usd" value={winnings.usdOf} />}
+          </span>
+          {winnings.action}
+        </div>
+      )}
+      {!winnings && <div className="wl-second" id={id}>
         {columns.map((c, i) => (
           <div key={c.label} className={c.emerald ? "wl-redeemable" : "wl-pending"} aria-label={c.label}>
             <h2 className="wl-col-head">
@@ -92,7 +107,7 @@ export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, sum
             {c.note && <span className="meta">{c.note}</span>}
           </div>
         ))}
-      </div>
+      </div>}
       {error}
       {simulated && <SimulatedYieldLabel className="wl-hero-sim" />}
     </section>

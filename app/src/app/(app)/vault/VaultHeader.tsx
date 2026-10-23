@@ -6,18 +6,15 @@ import { requestDeposit } from "@/lib/deposit/bus";
 import { useViewMode } from "@/lib/deposit/use-view-mode";
 import { requestGetGemas } from "@/lib/get-gemas";
 
-/** The same header in both views: title and rate on the left; Borrow Gemas (a Backing Request) and Buy Gemas on the right. */
+/** The same header in both views, with no visible title: Buy Gemas first, then Borrow Gemas (a Backing Request). */
 export function VaultHeader() {
   const { mode } = useViewMode();
   return (
-    <header className="page-head vt-head">
-      <div>
-        <h1 className="page-title">Vault</h1>
-        <p className="page-sub">1 Gema = $0.01</p>
-      </div>
+    <header className="vt-head">
+      <h1 className="sr-only">Vault</h1>
       <div className="vt-head-actions">
-        <Button size="lg" href={POST_REQUEST_HREF}>Borrow Gemas</Button>
         <Button variant="money" size="lg" onClick={() => (mode === "simple" ? requestDeposit() : requestGetGemas())}>Buy Gemas</Button>
+        <Button size="lg" href={POST_REQUEST_HREF}>Borrow Gemas</Button>
       </div>
     </header>
   );

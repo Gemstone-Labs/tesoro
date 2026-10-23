@@ -54,7 +54,8 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   const [intent, setIntent] = useState<OpenIntent | null>(null);
   // Phones fold the balance to the Total; wider screens always show all of it.
   const router = useRouter();
-  const { setMode } = useViewMode();
+  const { mode, setMode } = useViewMode();
+  const simpleCard = mode === "simple";
   // The Vault's Buy Gemas button, the top bar's Gemas pill and `/vault?open=1` open this sheet (a game adds what it needs).
   useEffect(() => {
     if (!body) return;
@@ -94,6 +95,8 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   const heldOnChain = snapshot?.holdings ?? [];
   const ownPending = heldOnChain.filter((h) => h.isOwn).reduce((t, h) => t + Number(h.free - h.redeemable), 0);
   const wonPendingGemas = heldOnChain.filter((h) => !h.isOwn).reduce((t, h) => t + Number(h.free - h.redeemable), 0);
+  // The Simple view's Winnings: every won Gema you hold (cashed out through Redeem, or Instant Redeem while pending).
+  const winnings = onChain ? heldOnChain.filter((h) => !h.isOwn).reduce((t, h) => t + Number(h.free), 0) : gemas.redeemable;
   // Which sheet opens is decided when it renders, not when the tap happened: a tap while the session
   // is still loading must not open the offline sheet once the Account turns out to be on chain.
   const openRedeem = (chain?: Chain) =>
@@ -185,7 +188,30 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
 
   return (
     <div className={part === "all" ? "wl" : "wl-part"}>
-      {card && <BalanceHero
+      {card && simpleCard && <BalanceHero
+        label="Gemas"
+        labelInfo={REAL ? undefined : <>Test mode · simulated yield, 1 month = 10 min. 1 Gema = $0.01.</>}
+        figure={ready ? <CountUp value={gemas.total} /> : "—"}
+        usdOf={ready ? gemas.total : undefined}
+        busy={!ready}
+        simulated={false}
+        columns={[]}
+        winnings={{
+          figure: ready ? fmtGemas(winnings) : "—",
+          usdOf: ready ? winnings : undefined,
+          action: (
+            <Button disabled={!ready || winnings === 0} onClick={() => openRedeem()}>
+              Cash out
+            </Button>
+          ),
+        }}
+        error={error && (
+          <p className="status err wl-hero-err" role="alert">
+            Could not read your Account from {CLUSTER.solana.label}. <Button size="sm" onClick={() => void refresh()}>Retry</Button>
+          </p>
+        )}
+      />}
+      {card && !simpleCard && <BalanceHero
         label={CARD.total}
         figure={ready ? <CountUp value={gemas.total} /> : "—"}
         usdOf={ready ? gemas.total : undefined}

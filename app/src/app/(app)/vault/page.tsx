@@ -1,7 +1,9 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Suspense, useEffect } from "react";
+import { ChevronRight, HandCoins } from "lucide-react";
 import { Button, Card } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { requestDeposit } from "@/lib/deposit/bus";
@@ -65,11 +67,16 @@ function Vault() {
         <div className="wl">
           <WalletView part="card" />
           <div className="vt-below">
-            <ProViewSwitch className="vt-pro" on={!simple} onChange={(on) => setMode(on ? "advanced" : "simple")} />
+            <ProViewSwitch className="vt-pro" tip={false} on={!simple} onChange={(on) => setMode(on ? "advanced" : "simple")} />
             {simple ? <SimpleVault /> : <WalletView part="body" />}
           </div>
         </div>
       )}
+      <Link href="/backing" className="cut cut-card vt-backing">
+        <HandCoins aria-hidden="true" />
+        <span>Backing</span>
+        <ChevronRight aria-hidden="true" />
+      </Link>
     </>
   );
 }
