@@ -264,7 +264,10 @@ export function GridScreen(p: GridScreenProps) {
     read();
     const ro = new ResizeObserver(read);
     ro.observe(el);
-    if (el.closest(".tg")) ro.observe(el.closest(".tg")!);
+    const game = el.closest(".tg");
+    if (game) ro.observe(game);
+    const summary = game?.querySelector(".tg-summary");
+    if (summary) ro.observe(summary);
     const off = subscribeFullScreen(read);
     window.visualViewport?.addEventListener("resize", read);
     window.addEventListener("resize", read);
@@ -361,6 +364,7 @@ export function GridScreen(p: GridScreenProps) {
   const view = useRef({ free: null as Free | null, returning: false, touched: 0, down: 0 });
   const [panned, setPanned] = useState(false);
   const [keyOpen, setKeyOpen] = useState(false);
+  const menuItems = [{ label: "Key", icon: <Info aria-hidden="true" />, onSelect: () => setKeyOpen(true) }];
   // The bands in the DOM: what shows plus a margin, moved as the camera moves. Picks out of view are edge markers.
   const [win, setWin] = useState(() => bandWindow(0, layout));
   const [edges, setEdges] = useState<EdgePick[]>([]);
@@ -837,7 +841,7 @@ export function GridScreen(p: GridScreenProps) {
           </span>
         )}
         {p.practice && p.onTogglePause && <PracticePauseButton paused={!!p.paused} onToggle={p.onTogglePause} disabled={phase === "over"} />}
-        <GameMenu items={[{ label: "Key", icon: <Info aria-hidden="true" />, onSelect: () => setKeyOpen(true) }]} leaveHref={p.practice ? p.exitHref : undefined} />
+        <GameMenu items={menuItems} leaveHref={p.practice ? p.exitHref : undefined} />
       </div>
     </header>
   );
@@ -915,12 +919,14 @@ export function GridScreen(p: GridScreenProps) {
       <section className="tg" aria-label={p.title ?? "Trading Duel"} data-phase={phase}>
         {header}
         {p.banner}
-        {scoreboard}
-        {strip}
+        <div className="cut cut-card tg-summary">
+          {scoreboard}
+          {strip}
+        </div>
         {p.error && <p className="tg-error" role="alert">{p.error}</p>}
 
         <div ref={stageRef} className="cut cut-frame tg-stage" role="group" onKeyDown={onStageKey} aria-label={`Price grid, ${asset}. Pick a box in a column that is still open. Arrow keys move between boxes, Enter or Space picks.`}>
-          {p.practice && p.paused && p.onTogglePause && <PracticePauseOverlay onResume={p.onTogglePause} />}
+          {p.practice && p.paused && p.onTogglePause && <PracticePauseOverlay onResume={p.onTogglePause} items={menuItems} leaveHref={p.exitHref} />}
           <div className="tg-gutter" style={{ height: viewH }} aria-hidden="true">
             <div className="tg-gbody" style={{ top: HEADER_PX, height: layout.bodyH }}>
               <div className="tg-gvl" ref={gvlRef}>

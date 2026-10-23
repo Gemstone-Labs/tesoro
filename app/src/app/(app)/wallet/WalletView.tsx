@@ -52,7 +52,6 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   const [now] = useState(() => Date.now());
   const [openSheet, setOpenSheet] = useState(false);
   const [intent, setIntent] = useState<OpenIntent | null>(null);
-  // Phones fold the balance to the Total; wider screens always show all of it.
   const router = useRouter();
   const { mode, setMode } = useViewMode();
   const simpleCard = mode === "simple";
@@ -195,8 +194,9 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
         usdOf={ready ? gemas.total : undefined}
         busy={!ready}
         simulated={false}
-        columns={[]}
-        winnings={{
+        rows={[{
+          label: "Winnings",
+          emerald: true,
           figure: ready ? fmtGemas(winnings) : "—",
           usdOf: ready ? winnings : undefined,
           action: (
@@ -204,7 +204,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
               Cash out
             </Button>
           ),
-        }}
+        }]}
         error={error && (
           <p className="status err wl-hero-err" role="alert">
             Could not read your Account from {CLUSTER.solana.label}. <Button size="sm" onClick={() => void refresh()}>Retry</Button>
@@ -213,19 +213,13 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
       />}
       {card && !simpleCard && <BalanceHero
         label={CARD.total}
+        labelInfo={REAL ? undefined : <>Test mode · simulated yield, 1 month = 10 min. 1 Gema = $0.01.</>}
         figure={ready ? <CountUp value={gemas.total} /> : "—"}
         usdOf={ready ? gemas.total : undefined}
         busy={!ready}
         simulated={!REAL}
-        summary={ready && (
-          <>
-            <span>Redeemable <b className="tnum">{fmtGemas(redeemAmount)}</b></span>
-            <span aria-hidden="true">·</span>
-            <span>Pending <b className="tnum">{fmtGemas(pendingAmount)}</b></span>
-          </>
-        )}
         totalNote={ready && gemas.reserved > 0 ? <>In play: <b className="tnum">{fmtGemas(gemas.reserved)}</b> {CARD.inPlay}</> : undefined}
-        columns={[
+        rows={[
           {
             label: CARD.now,
             figure: ready ? fmtGemas(redeemAmount) : "—",
@@ -233,7 +227,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
             emerald: true,
             info: CARD.nowInfo(!REAL),
             action: (
-              <HoverHint hint={ready && redeemAmount === 0 ? (canFetchYield ? CARD.redeemCheck : CARD.redeemEmpty) : null}>
+              <HoverHint align="end" hint={ready && redeemAmount === 0 ? (canFetchYield ? CARD.redeemCheck : CARD.redeemEmpty) : null}>
                 <Button variant="money" disabled={redeemAmount === 0 && !canFetchYield} onClick={() => openRedeem()}>{CARD.redeem}</Button>
               </HoverHint>
             ),

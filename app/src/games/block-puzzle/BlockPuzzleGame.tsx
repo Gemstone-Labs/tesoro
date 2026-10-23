@@ -548,7 +548,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
         <h1 className="sr-only">Block Burst</h1>
       <div className="bp-stage">
         {board}
-        {paused && <PracticePauseOverlay onResume={togglePause} />}
+        {paused && <PracticePauseOverlay onResume={togglePause} leaveHref="/play" />}
         {(phase === "count" || goOn) && (
           <Countdown
             from={3}

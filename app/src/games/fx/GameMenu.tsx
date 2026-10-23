@@ -1,30 +1,26 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useLayoutEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { LogOut, Maximize2, Minimize2, MoreHorizontal, Volume2, VolumeX } from "lucide-react";
-import { armSound, isMuted, setMuted, sfx, subscribeMuted } from "./sfx";
-import { isFullScreen, setFullScreen, subscribeFullScreen } from "./full-screen";
+import { MoreHorizontal } from "lucide-react";
+import { GameActions, type GameActionsProps } from "./GameActions";
+import { armSound } from "./sfx";
 import "./game-menu.css";
 
-export interface GameMenuItem {
-  label: string;
-  icon: ReactNode;
-  onSelect: () => void;
-}
+export type { GameMenuItem } from "./GameActions";
 
 /**
  * The one control a game screen keeps besides its own: a ⋯ button whose menu holds sound, full screen, the game's own
  * items (How to play, Hand log) and Leave. The list is portalled out of cut cards so their clip-path cannot clip it.
  */
-export function GameMenu({ items = [], leaveHref, className = "" }: { items?: GameMenuItem[]; leaveHref?: string; className?: string }) {
+export function GameMenu({ items, leaveHref, className = "" }: GameActionsProps & { className?: string }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const [position, setPosition] = useState({ top: 0, left: 0, maxHeight: 0 });
   const id = useId();
+  useEffect(() => armSound(), []);
   useLayoutEffect(() => {
     if (!open) return;
     const place = () => {
@@ -47,9 +43,6 @@ export function GameMenu({ items = [], leaveHref, className = "" }: { items?: Ga
       window.removeEventListener("scroll", place, true);
     };
   }, [open]);
-  const muted = useSyncExternalStore(subscribeMuted, isMuted, () => false);
-  const full = useSyncExternalStore(subscribeFullScreen, isFullScreen, () => false);
-  useEffect(() => armSound(), []);
 
   useEffect(() => {
     if (!open) return;
@@ -79,11 +72,6 @@ export function GameMenu({ items = [], leaveHref, className = "" }: { items?: Ga
     };
   }, [open]);
 
-  const pick = (fn: () => void) => () => {
-    setOpen(false);
-    fn();
-  };
-
   return (
     <div className={`gmenu ${className}`} ref={root}>
       <button type="button" ref={trigger} className="cut cut-chip gmenu-btn" aria-haspopup="menu" aria-expanded={open} aria-controls={id} aria-label="Game menu" onClick={() => setOpen((o) => !o)}>
@@ -91,30 +79,7 @@ export function GameMenu({ items = [], leaveHref, className = "" }: { items?: Ga
       </button>
       {open && createPortal(
         <div ref={list} id={id} role="menu" className="cut cut-card gmenu-list" style={position}>
-          {items.map((it) => (
-            <button key={it.label} type="button" role="menuitem" onClick={pick(it.onSelect)}>
-              {it.icon} {it.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={!muted}
-            onClick={() => {
-              setMuted(!muted);
-              if (muted) queueMicrotask(() => sfx("tick"));
-            }}
-          >
-            {muted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />} {muted ? "Sound off" : "Sound on"}
-          </button>
-          <button type="button" role="menuitemcheckbox" aria-checked={full} onClick={pick(() => setFullScreen(!full))}>
-            {full ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />} {full ? "Exit full screen" : "Full screen"}
-          </button>
-          {leaveHref && (
-            <Link href={leaveHref} role="menuitem" onClick={() => setOpen(false)}>
-              <LogOut aria-hidden="true" /> Leave
-            </Link>
-          )}
+          <GameActions items={items} leaveHref={leaveHref} menu onSelect={() => setOpen(false)} />
         </div>, document.body
       )}
     </div>

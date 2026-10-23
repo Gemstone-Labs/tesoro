@@ -15,6 +15,8 @@
 .tg-feed.stale::before { background: var(--warn); }
 
 /* score */
+.tg-summary { display: contents; }
+.tg-summary::after { display: none; }
 .tg-scoreboard { --edge: var(--edge-2); background: linear-gradient(180deg, rgba(23, 30, 37, 0.9), rgba(13, 18, 22, 0.92)); padding: 12px clamp(12px, 2vw, 22px); }
 .tg-scoreboard-in { max-width: 900px; margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 280px) minmax(0, 1fr); gap: 8px clamp(10px, 2vw, 28px); align-items: center; }
 .tg-side { display: grid; gap: 4px 12px; grid-template-columns: auto auto; grid-template-areas: "who score" "tally tally"; align-items: center; min-width: 0; }
@@ -66,6 +68,18 @@
 .tg-strip.last { --edge: linear-gradient(180deg, var(--warn), rgba(242, 166, 59, 0.25)); animation: tg-last 1s ease-in-out infinite; }
 .tg-strip.last .tg-strip-main { color: var(--warn); }
 @keyframes tg-last { 50% { background: rgba(60, 40, 10, 0.78); } }
+@media (min-width: 1024px) {
+  .tg-summary { display: grid; grid-template-columns: minmax(0, 1fr) 244px; align-items: center; --edge: var(--edge-2); background: linear-gradient(180deg, rgba(23, 30, 37, 0.9), rgba(13, 18, 22, 0.92)); }
+  .tg-summary::after { display: block; }
+  .tg-summary > * { min-width: 0; clip-path: none; background: transparent; }
+  .tg-summary > *::after { display: none; }
+  .tg-summary .tg-score { font-size: 48px; }
+  .tg-summary .tg-scoreboard-in { grid-template-columns: minmax(0, 1fr) minmax(120px, 220px) minmax(0, 1fr); gap: 16px; }
+  .tg-summary .tg-strip { align-self: stretch; display: grid; grid-template-columns: 1fr auto; align-content: center; gap: 8px 12px; border-left: 1px solid var(--line-2); padding: 12px 20px; }
+  .tg-summary .tg-strip-main { grid-column: 1; grid-row: 1; }
+  .tg-summary .tg-strip-clock { grid-column: 2; grid-row: 1; }
+  .tg-summary .tg-strip-lock { grid-column: 1 / -1; grid-row: 2; }
+}
 .tg-error { margin: 0; color: var(--warn); font-size: var(--fs-14); }
 
 /* the stage */

@@ -7,7 +7,7 @@ import { art } from "@/lib/art";
 import { Arena, Callout, Countdown, prefersReducedMotion, sfx, type CalloutTone } from "../../fx";
 import { CAP_MS, NAMES, TURN_MS, act, move, newGame, rankOf, seeded, startTwoStep, targets, timeout, type Army, type Depot, type Game, type GameEvent, type Rank, type Refusal, type Result, type Rng, type Square } from "../rules";
 import { PRACTICE_COUNTDOWN, missedLabel } from "../clock";
-import { ArmyCount, VanguardScreen, VgBar, type TurnInfo } from "../VanguardScreen";
+import { ArmyCount, VanguardScreen, VgBar, vanguardMenuItems, type TurnInfo } from "../VanguardScreen";
 import { VanguardBoard, type HitSide, type Mark, type Preview, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
 import { RulesSheet } from "../RulesSheet";
 import { blastSquares, canSwitch, isJump, observe, powerBlockedLine, powerFor, rosterView, type Ledger } from "../powers-ui";
@@ -496,7 +496,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
         say={say}
         stage={
         <div className="vg-stage">
-          {paused && <PracticePauseOverlay onResume={togglePause} />}
+          {paused && <PracticePauseOverlay onResume={togglePause} items={vanguardMenuItems(() => setRulesOpen(true))} leaveHref="/play" />}
           <VanguardBoard pieces={tenId === undefined ? pieces : pieces.map((p) => (p.id === tenId ? { ...p, rank: "1", changed: "spy" } : p))} depots={depots} selected={selected} marks={marks} preview={preview} fx={fx} storm={storm} locked={!yourTurn} onPiece={onPiece} onMark={onMark} />
           {!started && (
             <Countdown

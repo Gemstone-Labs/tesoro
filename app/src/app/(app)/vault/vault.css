@@ -1,6 +1,6 @@
 /* The Vault: Gemas to play, winnings, deposits. */
 /* the body shares the Wallet's .wl grid and section gap, so both views line up */
-.vt-head { margin-bottom: calc(12px - var(--section-gap)); }
+.vt-head { display: none; margin-bottom: calc(12px - var(--section-gap)); }
 .vt-head .btn { white-space: nowrap; }
 .vt-head-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; max-width: 560px; }
 .vt-head-actions .btn { justify-content: center; }
@@ -72,3 +72,5 @@
 .vt-backing:hover { background: var(--surface-2); }
 @media (min-width: 1024px) { .vt-backing { bottom: 24px; right: 28px; } }
 @media (min-width: 1024px) { .vt-head { display: flex; align-items: center; justify-content: space-between; gap: 24px; } .vt-head-actions { flex: 0 1 460px; } }
+
+@media (min-width: 1024px) { .vt-mobile-actions { display: none; } }

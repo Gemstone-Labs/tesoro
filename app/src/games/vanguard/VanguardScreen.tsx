@@ -36,13 +36,15 @@ export interface TurnInfo {
 }
 
 /** The bar over the opponent: PRACTICE in Practice and the ⋯ menu (Ranks and powers, sound, full screen, Leave in Practice). */
+export const vanguardMenuItems = (onRules: () => void) => [{ label: "Ranks and powers", icon: <BookOpen aria-hidden="true" />, onSelect: onRules }];
+
 export function VgBar({ practice = false, onRules, pause }: { pause?: ReactNode; practice?: boolean; onRules: () => void }) {
   return (
     <div className="cut cut-card vg-bar">
       <h1 className="sr-only">Vanguard</h1>
       {practice && <span className="cut cut-chip game-tag">Practice</span>}
       {practice && pause}
-      <GameMenu items={[{ label: "Ranks and powers", icon: <BookOpen aria-hidden="true" />, onSelect: onRules }]} leaveHref={practice ? "/play" : undefined} />
+      <GameMenu items={vanguardMenuItems(onRules)} leaveHref={practice ? "/play" : undefined} />
     </div>
   );
 }

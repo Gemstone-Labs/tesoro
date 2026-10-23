@@ -20,7 +20,7 @@ function bareScreen(path: string | null) {
 }
 
 /**
- * Desktop: fixed sidebar + top bar + footer. Below 1024px: a bottom nav with Play raised in the centre, a drawer for what the
+ * Desktop: fixed sidebar + top bar + footer. Below 1024px: a bottom nav with Play in the centre, a drawer for what the
  * nav leaves out, and no footer.
  */
 export function AppShell({ children }: { children: ReactNode }) {
@@ -79,16 +79,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           {nav.map(({ href, label, Icon }) => {
             const here = isHere(path, href);
             const b = badge[href];
-            const play = href === "/play";
             return (
               <Link
                 key={href}
                 href={href}
-                className={play ? "nav-play" : undefined}
                 aria-current={here ? "page" : undefined}
                 aria-label={b ? `${label}, ${b.n} ${b.label}` : undefined}
               >
-                <span className={play ? "cut nav-play-tile" : "nav-icon"}>
+                <span className="nav-icon">
                   <Icon aria-hidden="true" />
                   {b && <b className={`nav-badge${b.lit ? " lit" : ""}`} aria-hidden="true">{b.n}</b>}
                 </span>

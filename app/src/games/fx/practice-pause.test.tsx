@@ -24,4 +24,12 @@ describe("practice pause controls", () => {
     expect(overlay).toContain("Resume");
     expect(overlay).not.toMatch(/<p[\s>]/);
   });
+  it.each([{ labels: [] }, { labels: ["Key"] }, { labels: ["Ranks and powers"] }])("lists shared game actions under Resume ($labels)", ({ labels }) => {
+    const html = renderToStaticMarkup(<PracticePauseOverlay onResume={() => {}} leaveHref="/play" items={labels.map((label) => ({ label, icon: null, onSelect: () => {} }))} />);
+    const actions = [...html.matchAll(/<(?:button|a)\b[^>]*>([\s\S]*?)<\/(?:button|a)>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").trim());
+    expect(actions).toEqual(["Resume", ...labels, "Sound on", "Full screen", "Leave"]);
+    expect(html).toContain('href="/play"');
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).not.toContain('role="menuitem');
+  });
 });
