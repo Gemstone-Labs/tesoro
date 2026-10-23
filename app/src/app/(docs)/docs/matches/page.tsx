@@ -19,7 +19,7 @@ export default function Page() {
         rows={[
           ["A Player wins", "The winner gets their own entry back plus the loser's Gemas, minus Fees (see Fees). Fees come out of the loser's Gemas, so a winner always gets their own entry back whole."],
           ["Draw", "Both entries go back to the Players unchanged."],
-          ["No-show or abandoned Match", "Both entries are refunded. A Match that nobody joins can be cancelled by its opener at any time, and anyone can refund it after the Queue window of one hour."],
+          ["Abandoned Match", "Both entries are refunded. A Match that nobody joins can be cancelled by its opener at any time, and anyone can refund it after the Queue window of one hour."],
         ]}
       />
       <p>
@@ -34,8 +34,8 @@ export default function Page() {
         old code.
       </p>
       <p>
-        If both Players check in on a live table and then neither acts within the no-show window, the Match settles as a draw minus each side&apos;s Platform
-        Fee. A Match that never started refunds exactly.
+        A Player who is paired and doesn&apos;t check in, or doesn&apos;t take their first step, loses: the Player who showed up wins a normal Match with the normal Fees. If
+        neither shows up, or both check in and neither acts, each side pays the Platform Fee. A Match that never started on a table refunds exactly.
       </p>
 
       <H2 id="listed">Listed Games</H2>

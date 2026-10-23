@@ -44,9 +44,9 @@ use ephemeral_rollups_sdk::{
 };
 use setup::{Contributions, SetupContext};
 use table_kit::{
-    close_private_seat, create_hidden_seat, match_state_gone, move_lamports, read_table,
-    receipt_at, sponsor_commit_many, swap_seat_members, KitError, SeatAccounts, OUTCOME_DRAW,
-    OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
+    absence_outcome, close_private_seat, create_hidden_seat, match_state_gone, move_lamports,
+    read_table, receipt_at, sponsor_commit_many, swap_seat_members, KitError, SeatAccounts,
+    OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -222,6 +222,30 @@ fn require_live(table: &Table, battle: &Battle) -> Result<()> {
         VanguardError::BadState
     );
     Ok(())
+}
+
+/// Ends a Match that setup or check-in could not start, by who showed up (`present`: checked in, or took the first
+/// required step, contributing a secret). The founder's rule (2026-10-23, `table_kit::absence_outcome`): the Player who
+/// showed up wins a normal Match with the normal Fees, as if the other had lost on time; if neither showed up it is a
+/// no-show (each side pays the Platform Fee); if both did and the delay was the oracle's, nobody forfeits and both
+/// entries are refunded.
+fn end_absent(table: &mut Table, battle: &mut Battle, present: [bool; 2], now: i64) -> Result<()> {
+    match absence_outcome(present) {
+        Some(OUTCOME_WIN0) | Some(OUTCOME_WIN1) => {
+            battle.status = STATUS_OVER;
+            battle.winner = u8::from(present[1]);
+            battle.reason = reason_code(engine::EndReason::Timeouts);
+            conclude(table, battle, false, now)
+        }
+        Some(_) => {
+            battle.status = STATUS_CANCELLED;
+            conclude(table, battle, true, now)
+        }
+        None => {
+            battle.status = STATUS_CANCELLED;
+            conclude(table, battle, false, now)
+        }
+    }
 }
 
 /// Writes the Match's result into the ring slot reserved at the start and marks the table Over. Every path that ends
@@ -1135,8 +1159,9 @@ pub mod vanguard {
             STATUS_CREATED => {
                 require!(table.phase == TABLE_WAITING, VanguardError::BadState);
                 require!(now > battle.start_deadline, VanguardError::NotTimedOut);
-                battle.status = STATUS_CANCELLED;
-                conclude(table, &battle, false, now)?;
+                // The Player who checked in wins; if neither did it is a no-show.
+                let present = table.checked_in;
+                end_absent(table, &mut battle, present, now)?;
             }
             STATUS_SETUP => {
                 require!(table.phase == TABLE_LIVE, VanguardError::BadState);
@@ -1159,8 +1184,7 @@ pub mod vanguard {
                             .ok_or(VanguardError::Overflow)?
                             .min(battle.setup_deadline);
                     } else {
-                        battle.status = STATUS_CANCELLED;
-                        conclude(table, &battle, !contributed.iter().any(|c| *c), now)?;
+                        end_absent(table, &mut battle, contributed, now)?;
                     }
                 }
             }

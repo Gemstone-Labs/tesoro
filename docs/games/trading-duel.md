@@ -14,7 +14,7 @@ Code: `programs/trading_duel/src/{lib,state,engine}.rs`, table protocol pieces i
 - **Lock:** column `c` locks `LOCK_AHEAD_SECS` = 10 s before its window starts, which is when the column before it goes live. Picks for `c` are accepted while `now < lock(c)`.
 - **Hidden until locked:** a pick lives in its Player's own Book. When a column locks, both picks for it are copied into the public `Table.revealed`.
 - **Hit:** a pick hits column `c` if the recorded prices of the column (its low and high, including the price where the line entered the column) include the pick's band: `band_of(low) <= band <= band_of(high)`. A hit scores `HIT_POINTS` = 100. A column without a pick scores nothing.
-- **Result:** more points wins; equal points is a draw and both entries are refunded. If both Players checked in and neither picked at all, the Match is a no-show: each side pays the Platform Fee and gets the rest of its entry back. A Match whose Players did not both check in before the start deadline refunds exactly.
+- **Result:** more points wins; equal points is a draw and both entries are refunded. If both Players checked in and neither picked at all, the Match is a no-show: each side pays the Platform Fee and gets the rest of its entry back. If only one Player checked in before the start deadline, that Player wins a normal Match (the pot less the normal Fees); if neither did, it is a no-show with the Platform Fee each. A Match the table never began refunds exactly.
 
 The exact column range rules (carry-over of the entry price, columns with no sample, the closing sample) are written in `engine.rs` (`Track::record`, `finish`, `hits`) and mirrored in `grid.ts`. Both are tested against one shared fixture, `programs/trading_duel/tests/fixtures/grid-vectors.json`, so they cannot drift.
 
@@ -71,7 +71,7 @@ The **result ring** keeps the outcome of the last 8 finished Matches (Win0, Win1
 | pick | TEE | `set_pick(column, band)` | the Player |
 | sample and reveal | TEE | `tick` (about four times a second during the grid) | anyone |
 | end | TEE | `end_match`: writes the result into the ring slot; both Players picked nothing = no-show | anyone, after the window |
-| no check-in | TEE | `expire_start`: past the start deadline, records a refund | anyone |
+| no check-in | TEE | `expire_start`: past the start deadline, the Player who checked in wins; nobody checked in is a no-show (`table_kit::absence_outcome`) | anyone |
 | commit | TEE | `commit_table`: once per result, paid by the Sponsor | anyone |
 | close seats, reset | TEE | `close_seats`, then `reset_table` (committed, seats closed, 30 s after the end): wipes the Match, epoch + 1, ring kept | anyone |
 | settle | base | `finalize`: reads the committed table, then CPI `settle_match`, `refund_match` (draw) or `NoShow` | anyone |

@@ -1,6 +1,6 @@
 # Vanguard: Game program
 
-Program `vanguard` `TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH` (Solana devnet, upgradeable). Blitz Stratego on a 10x10 board, the US Army against the Royal Italian Army, in a MagicBlock Private Ephemeral Rollup (TEE). Each Player gets 20 hidden pieces and 10 seconds a move; capturing the enemy Supply Truck wins the Pot minus Fees through tesoro_core, and a draw or a cancelled Match refunds both entries.
+Program `vanguard` `TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH` (Solana devnet, upgradeable). Blitz Stratego on a 10x10 board, the US Army against the Royal Italian Army, in a MagicBlock Private Ephemeral Rollup (TEE). Each Player gets 20 hidden pieces and 10 seconds a move; capturing the enemy Supply Truck wins the Pot minus Fees through tesoro_core, a draw or a Match the oracle never answered refunds both entries, and a Player who never shows up loses to the one who did.
 
 Code: `programs/vanguard/src/{lib,state,engine}.rs`. Rules in TypeScript: `app/src/games/vanguard/rules.ts`. Client: `app/src/games/vanguard/chain.ts`. Registered in tesoro_core with studio_bps 300 and the `["authority"]` PDA (see `docs/addresses.md`); no tesoro_core change was needed, as for Hold'em.
 
@@ -121,7 +121,7 @@ The chain shows each declared action in the open: the piece number and the targe
 
 Both Armies are read by `resolve` and `claim_timeout`, so those two transactions are private while the Match lives; the declares touch the Battle and the table (read only) and are public.
 
-A setup nobody finished is cancelled and written into the ring: a refund, or a no-show (each side pays the Platform Fee) when both checked in and nobody contributed.
+A Match nobody finished starting is ended by `claim_timeout` and written into the ring by who showed up (`table_kit::absence_outcome`, the founder's rule of 2026-10-23): the Player who checked in (before the start deadline) or who contributed a secret (inside the setup window) wins a normal Match with the normal Fees; if neither showed up it is a no-show (each side pays the Platform Fee). When both contributed and only the oracle's answer is missing, nobody forfeits and both entries are refunded.
 
 A move is two steps: the Player declares it (public geometry checks: the turn, the clock, `expected_seq`, the deal slot, nothing pending, and a target on any line some rank could move along) and any account calls `resolve` in a later slot, which checks the piece's real rank. The split exists so the program never answers "is this rank allowed to go there?" in the declare, where a simulation could leak it. `move_piece`'s public check admits straight and diagonal lines, one square of 8, a straight jump over an occupied neighbour and a straight wadi crossing; the resolve decides.
 

@@ -1554,7 +1554,7 @@ fn both_players_check_in_and_the_second_one_starts_the_match() {
 }
 
 #[test]
-fn a_late_check_in_is_refused_and_a_player_who_never_came_gets_a_refund_from_the_ring() {
+fn a_late_check_in_is_refused_and_the_player_who_came_wins_when_the_other_never_did() {
     use holdem::HoldemError::*;
     let mut env = ready();
     env.begin().unwrap();
@@ -1578,14 +1578,58 @@ fn a_late_check_in_is_refused_and_a_player_who_never_came_gets_a_refund_from_the
     assert_eq!((t.phase, t.dirty), (holdem::TABLE_OVER, true));
     assert_eq!(
         t.ring.find(&env.tmatch, 0).unwrap().1.outcome,
-        table_kit::OUTCOME_DRAW
+        table_kit::OUTCOME_WIN0
+    );
+    assert_eq!((t.game.status, t.game.winner), (holdem::STATUS_OVER, 0));
+    env.commit_standin();
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.finalize().expect("settle from the ring");
+    assert_eq!(
+        (env.gemas(&env.alice), env.gemas(&env.bob)),
+        (before.0 + 1_900, before.1),
+        "a normal win: the pot less the normal Fees"
+    );
+}
+
+#[test]
+fn the_second_seat_wins_when_only_it_checked_in_and_nobody_checking_in_is_a_no_show() {
+    let mut env = ready();
+    env.begin().unwrap();
+    env.seat_players_standin();
+    env.check_in(1).unwrap();
+    env.set_time(env.table().start_deadline + 1);
+    let ixn = env.expire_ix();
+    env.rollup(ixn).expect("expire");
+    assert_eq!(
+        env.table().ring.find(&env.tmatch, 0).unwrap().1.outcome,
+        table_kit::OUTCOME_WIN1
+    );
+    env.commit_standin();
+    let before = env.gemas(&env.bob);
+    env.finalize().expect("settle");
+    assert_eq!(env.gemas(&env.bob), before + 1_900);
+
+    let mut env = ready();
+    env.begin().unwrap();
+    env.seat_players_standin();
+    env.set_time(env.table().start_deadline + 1);
+    let ixn = env.expire_ix();
+    env.rollup(ixn).expect("expire");
+    assert_eq!(
+        env.table().ring.find(&env.tmatch, 0).unwrap().1.outcome,
+        table_kit::OUTCOME_NO_SHOW
     );
     env.commit_standin();
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-    env.finalize().expect("refund from the ring");
-    assert_eq!(
-        (env.gemas(&env.alice), env.gemas(&env.bob)),
-        (before.0 + 1_000, before.1 + 1_000)
+    env.finalize().expect("no-show settlement");
+    let (ga, gb) = (
+        env.gemas(&env.alice) - before.0,
+        env.gemas(&env.bob) - before.1,
+    );
+    assert_eq!(ga, gb);
+    assert!(
+        ga < 1_000 && ga > 900,
+        "each loses the Platform Fee only, got {ga}"
     );
 }
 
@@ -2283,7 +2327,7 @@ fn nobody_contributing_to_hand_one_is_a_no_show_that_costs_each_side_the_platfor
 }
 
 #[test]
-fn a_player_who_never_contributes_to_hand_one_cancels_it_and_both_are_refunded() {
+fn a_player_who_never_contributes_to_hand_one_loses_the_match_to_the_one_who_did() {
     let mut env = live();
     env.contribute(0, [1; 32]).unwrap();
     let d = env.table().game.deadline;
@@ -2296,14 +2340,15 @@ fn a_player_who_never_contributes_to_hand_one_cancels_it_and_both_are_refunded()
     env.claim_timeout().unwrap();
     assert_eq!(
         env.table().ring.find(&env.tmatch, 0).unwrap().1.outcome,
-        table_kit::OUTCOME_DRAW
+        table_kit::OUTCOME_WIN0
     );
     env.commit_standin();
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-    env.finalize().expect("refund");
+    env.finalize().expect("settle");
     assert_eq!(
         (env.gemas(&env.alice), env.gemas(&env.bob)),
-        (before.0 + 1_000, before.1 + 1_000)
+        (before.0 + 1_900, before.1),
+        "a normal win with the normal Fees"
     );
 }
 

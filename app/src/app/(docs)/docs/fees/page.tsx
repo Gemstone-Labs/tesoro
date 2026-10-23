@@ -53,7 +53,7 @@ export default function Page() {
         caption="Fees on every Match, taken in Gemas at settlement"
       />
       <p>
-        On Matches, a draw, a refund or a no-show takes no Fees. Nothing is ever charged on what you lock. Taking an Advance and a normal Redeem cost nothing extra.
+        On Matches, a draw or a refund takes no Fees, and a no-show costs each side the Platform Fee only. Nothing is ever charged on what you lock. Taking an Advance and a normal Redeem cost nothing extra.
       </p>
 
       <H2 id="who-pays">Who pays</H2>

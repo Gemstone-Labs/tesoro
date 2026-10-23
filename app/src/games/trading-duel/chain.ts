@@ -598,7 +598,7 @@ export class TradingDuelChain {
     return this.sendTee("check_in", [ix], player);
   }
 
-  /** Rollup, permissionless. Past the start deadline with a Player missing: records a refund in the ring. */
+  /** Rollup, permissionless. Past the start deadline with a Player missing: ends the Match in the ring: the Player who checked in wins, nobody checking in is a no-show. */
   async expireStart(caller: PlayerSigner, a: TableRef): Promise<string> {
     const ix = await this.program.methods.expireStart().accountsPartial({ caller: caller.publicKey, table: tablePda(a.generation, a.index) } as any).instruction();
     return this.sendTee("expire_start", [ix], caller);

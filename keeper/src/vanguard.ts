@@ -74,7 +74,7 @@ export type VanguardStep = {
  *  - No Assignment: the table scheduler binds the Match to an Idle table (`assign`), while it is young enough to start.
  *  - Base's committed table can settle it: `finalize`, whatever else is going on.
  *  - Idle at the Match's epoch: `begin_match`. Waiting: `seat_players` once, then both Players check in (their clients); past the
- *    start deadline with one missing: `claim_timeout`, which writes a refund into the ring.
+ *    start deadline with one missing: `claim_timeout`, which ends it in the ring (the Player who checked in wins; nobody did: a no-show).
  *  - Past the tesoro_core deadline an unfinished Match is refunded on the base layer whatever the rollup serves.
  *  - Live: a declared action comes first: any caller may `resolve` it from a later slot than its declare, and while one is pending
  *    nothing else is accepted. Then the setup, turn and cap clocks: each is a `claim_timeout` (a cancel, or a declare of a lost turn

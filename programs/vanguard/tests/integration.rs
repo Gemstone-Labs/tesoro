@@ -1977,7 +1977,7 @@ fn both_players_check_in_and_the_second_one_opens_setup() {
 }
 
 #[test]
-fn a_late_check_in_is_refused_and_a_player_who_never_came_gets_a_refund_from_the_ring() {
+fn a_late_check_in_is_refused_and_the_player_who_came_wins_when_the_other_never_did() {
     use VanguardError::*;
     let mut env = ready();
     env.seat_players_standin();
@@ -2002,17 +2002,60 @@ fn a_late_check_in_is_refused_and_a_player_who_never_came_gets_a_refund_from_the
     env.claim_timeout_declare(&anyone).expect("cancel");
     let t = env.table();
     assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, true));
-    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    let b = env.battle();
+    assert_eq!((b.status, b.winner), (vanguard::STATUS_OVER, 0));
     assert_eq!(
         t.ring.find(&env.tmatch, 0).unwrap().1.outcome,
-        table_kit::OUTCOME_DRAW
+        table_kit::OUTCOME_WIN0
     );
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-    env.finalize(true).expect("refund from the ring");
+    env.finalize(true).expect("settle from the ring");
     assert_eq!(env.tesoro_status(), Stage::Closed);
     assert_eq!(
         (env.gemas(&env.alice), env.gemas(&env.bob)),
-        (before.0 + 1_000, before.1 + 1_000)
+        (before.0 + 1_900, before.1),
+        "a normal win with the normal Fees"
+    );
+}
+
+#[test]
+fn the_second_seat_wins_when_only_it_checked_in_and_nobody_checking_in_is_a_no_show() {
+    let anyone_kp = |env: &Env| env.oracle.insecure_clone();
+    let mut env = ready();
+    env.seat_players_standin();
+    env.check_in(1).unwrap();
+    env.set_time(env.table().start_deadline + 1);
+    let anyone = anyone_kp(&env);
+    env.claim_timeout_declare(&anyone).expect("cancel");
+    let b = env.battle();
+    assert_eq!((b.status, b.winner), (vanguard::STATUS_OVER, 1));
+    assert_eq!(
+        env.table().ring.find(&env.tmatch, 0).unwrap().1.outcome,
+        table_kit::OUTCOME_WIN1
+    );
+    let before = env.gemas(&env.bob);
+    env.finalize(true).expect("settle");
+    assert_eq!(env.gemas(&env.bob), before + 1_900);
+
+    let mut env = ready();
+    env.set_time(env.table().start_deadline + 1);
+    let anyone = anyone_kp(&env);
+    env.claim_timeout_declare(&anyone).expect("cancel");
+    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    assert_eq!(
+        env.table().ring.find(&env.tmatch, 0).unwrap().1.outcome,
+        table_kit::OUTCOME_NO_SHOW
+    );
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.finalize(true).expect("no-show settlement");
+    let (ga, gb) = (
+        env.gemas(&env.alice) - before.0,
+        env.gemas(&env.bob) - before.1,
+    );
+    assert_eq!(ga, gb);
+    assert!(
+        ga < 1_000 && ga > 900,
+        "each loses the Platform Fee only, got {ga}"
     );
 }
 
@@ -2627,7 +2670,7 @@ fn a_decided_match_writes_the_ring_and_finalize_pays_from_the_committed_table() 
 }
 
 #[test]
-fn a_cancelled_setup_with_nobody_contributing_is_a_no_show_and_one_missing_secret_is_a_refund() {
+fn a_setup_with_nobody_contributing_is_a_no_show_and_with_one_missing_secret_the_other_wins() {
     // both checked in, nobody contributed: no-show, each side pays the Platform Fee
     let mut env = ready();
     env.open_setup();
@@ -2648,7 +2691,7 @@ fn a_cancelled_setup_with_nobody_contributing_is_a_no_show_and_one_missing_secre
     assert!(env.gemas(&env.alice) < before.0 + 1_000);
     assert!(env.gemas(&env.bob) < before.1 + 1_000);
 
-    // one secret missing: a full refund
+    // one secret missing: the Player who contributed wins
     let mut env = ready();
     env.open_setup();
     env.contribute(0, [1; 32]).unwrap();
@@ -2656,13 +2699,13 @@ fn a_cancelled_setup_with_nobody_contributing_is_a_no_show_and_one_missing_secre
     env.claim_timeout(&bob).expect("anyone cancels");
     assert_eq!(
         env.table().ring.find(&env.tmatch, 0).unwrap().1.outcome,
-        table_kit::OUTCOME_DRAW
+        table_kit::OUTCOME_WIN0
     );
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-    env.finalize(true).expect("refund");
+    env.finalize(true).expect("settle");
     assert_eq!(
         (env.gemas(&env.alice), env.gemas(&env.bob)),
-        (before.0 + 1_000, before.1 + 1_000)
+        (before.0 + 1_900, before.1)
     );
 }
 
@@ -3680,7 +3723,7 @@ fn three_timeouts_in_a_row_lose_the_match() {
 // --- Endings -------------------------------------------------------------------------------------
 
 #[test]
-fn a_match_nobody_started_is_refunded_one_second_after_the_start_window() {
+fn a_match_nobody_started_is_a_no_show_one_second_after_the_start_window() {
     let mut env = ready();
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
     let anyone = env.bob.kp.insecure_clone();
@@ -3692,14 +3735,21 @@ fn a_match_nobody_started_is_refunded_one_second_after_the_start_window() {
     assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
     env.set_time(T0 + vanguard::START_WINDOW_SECS + 1);
     env.claim_timeout_declare(&anyone).expect("cancel");
-    env.finalize(true).expect("refund via tesoro_core");
+    env.finalize(true).expect("no-show settlement");
     assert_eq!(env.tesoro_status(), Stage::Closed);
-    assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
-    assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
+    for (now, was) in [
+        (env.gemas(&env.alice), before.0),
+        (env.gemas(&env.bob), before.1),
+    ] {
+        assert!(
+            now < was + 1_000 && now > was + 900,
+            "each loses the Platform Fee only"
+        );
+    }
 }
 
 #[test]
-fn a_player_who_never_contributes_entropy_cancels_the_match_and_both_are_refunded() {
+fn a_player_who_never_contributes_entropy_loses_the_match_to_the_one_who_did() {
     let mut env = ready();
     env.start_in_rollup(1);
     env.patch_army(1, |v| v.contributed = false);
@@ -3713,16 +3763,17 @@ fn a_player_who_never_contributes_entropy_cancels_the_match_and_both_are_refunde
     env.set_time(T0 + vanguard::ENTROPY_SECS + 1);
     env.claim_timeout(&bob)
         .expect("anyone may claim the timeout");
-    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
-    // A cancelled Match plays no more.
+    let b = env.battle();
+    assert_eq!((b.status, b.winner), (vanguard::STATUS_OVER, 0));
+    // An ended Match plays no more.
     let err = env.deal().unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::NotLive));
 
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-    env.finalize(true).expect("refund");
+    env.finalize(true).expect("settle");
     assert_eq!(env.tesoro_status(), Stage::Closed);
-    assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
-    assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
+    assert_eq!(env.gemas(&env.alice), before.0 + 1_900);
+    assert_eq!(env.gemas(&env.bob), before.1);
 }
 
 #[test]
@@ -4033,10 +4084,8 @@ fn nothing_goes_live_past_the_setup_deadline_and_claim_timeout_cancels() {
     let caller = env.bob.kp.insecure_clone();
     env.claim_timeout(&caller).expect("cancel");
     assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
-    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-    env.finalize(true).expect("refund");
-    assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
-    assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
+    env.finalize(true).expect("no-show settlement");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
 }
 
 /// A late oracle pushes the entropy deadline a minute at a time, never past the setup deadline.
@@ -4963,7 +5012,7 @@ fn a_move_at_the_cap_is_accepted_and_the_move_cap_ends_the_match_on_the_tiebreak
 
 /// The start window: the first second after it, anyone cancels; at it, nobody can.
 #[test]
-fn a_match_nobody_started_is_cancelled_one_second_after_the_start_window_and_refunded() {
+fn a_match_nobody_started_is_cancelled_one_second_after_the_start_window() {
     let mut env = ready();
     let caller = env.bob.kp.insecure_clone();
     let end = T0 + vanguard::START_WINDOW_SECS;
@@ -4976,10 +5025,8 @@ fn a_match_nobody_started_is_cancelled_one_second_after_the_start_window_and_ref
     env.set_time(end + 1);
     env.claim_timeout(&caller).expect("cancel");
     assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
-    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-    env.finalize(true).expect("refund");
-    assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
-    assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
+    env.finalize(true).expect("no-show settlement");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
 }
 
 #[test]
@@ -4996,8 +5043,10 @@ fn the_entropy_window_ends_exactly_at_its_deadline() {
     let err = env.claim_timeout(&caller).unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
     env.set_time(env.battle().entropy_deadline + 1);
-    env.claim_timeout(&caller).expect("cancel");
-    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    env.claim_timeout(&caller)
+        .expect("the Player who contributed wins");
+    let b = env.battle();
+    assert_eq!((b.status, b.winner), (vanguard::STATUS_OVER, 0));
 }
 
 /// A board with a row of two pieces for the storm to move; the storm blows on the first turn change.

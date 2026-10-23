@@ -7,6 +7,7 @@ import { matchAddressOf } from "@/lib/chain/match-id";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { commitPhase, isCommitPending, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
+import { absenceLine } from "@/lib/absence-copy";
 import { isStale, refusalLine } from "./refusal";
 import { TABLE_PHASE, canFinalizeTable, tableOf, type Assignment, type DeclareSeal, type PlayerSigner, type TableState } from "./chain";
 import { SealLedger, SealLocked, sealDeclare, sealPad, type SealedEntry } from "./seal";
@@ -256,8 +257,8 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
     }
     if (t.phase === TABLE_PHASE.waiting) {
       if (nowS > t.startDeadline) {
-        // Never both checked in: cancelling writes the refund into the ring so both entries come back.
-        setStage("setup", "The Match was never started: cancelling");
+        // Never both checked in: the Player who came wins, nobody coming is a no-show.
+        setStage("setup", absenceLine(t.checkedIn, seat));
         if (seat === 1 || now() - activeSince.current > OPENER_LATE_MS) await vg.claimTimeout(p, a).catch(() => undefined);
         return;
       }

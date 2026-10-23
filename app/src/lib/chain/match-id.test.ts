@@ -2,7 +2,7 @@ import { Keypair } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { matchPda } from "./basket";
 import { ASSET_PARAMS, assetIndexFromParam, matchAddressOf, matchKeyOf, parseMatchKey } from "./match-id";
-import { battleOf, duelOf, holdemTableOf, sessionOf } from "./game-accounts";
+import { sessionOf } from "./game-accounts";
 import { gameFromParam, gameQuery } from "../game-params";
 
 describe("Match keys", () => {
@@ -26,14 +26,11 @@ describe("Match keys", () => {
     }
   });
 
-  it("each Game keys its accounts by the tesoro_core Match address, so no two Matches share one", () => {
+  it("Block Burst keys its Session by the tesoro_core Match address, so no two Matches share one", () => {
     const a = matchPda(opener, 1n);
     const b = matchPda(opener, 2n);
-    for (const of of [sessionOf, holdemTableOf, duelOf, battleOf]) {
-      expect(of(a).equals(of(b))).toBe(false);
-      expect(of(a).equals(of(a))).toBe(true);
-    }
-    expect(duelOf(a).equals(battleOf(a))).toBe(false);
+    expect(sessionOf(a).equals(sessionOf(b))).toBe(false);
+    expect(sessionOf(a).equals(sessionOf(a))).toBe(true);
   });
 });
 

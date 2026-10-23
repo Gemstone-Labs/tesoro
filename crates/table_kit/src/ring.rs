@@ -24,6 +24,19 @@ pub const OUTCOME_DRAW: u8 = 3;
 /// Both checked in and neither acted: each side pays the Platform Fee.
 pub const OUTCOME_NO_SHOW: u8 = 4;
 
+/// The ending when the Players of a Match did not both show up inside a window (check in, or the first required step).
+/// The founder's rule (2026-10-23): the Player who showed up WINS a normal Match, with the normal Fees; if neither
+/// showed up the Match is a no-show (each side pays the Platform Fee). `None` when both showed up: not an absence.
+/// Every table Game decides absence here so the rule lives in one place.
+pub fn absence_outcome(present: [bool; 2]) -> Option<u8> {
+    match present {
+        [true, true] => None,
+        [true, false] => Some(OUTCOME_WIN0),
+        [false, true] => Some(OUTCOME_WIN1),
+        [false, false] => Some(OUTCOME_NO_SHOW),
+    }
+}
+
 #[derive(
     AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace, PartialEq, Eq, Debug,
 )]
@@ -148,6 +161,14 @@ mod tests {
         r.record(3, &k(4), 1, OUTCOME_WIN0, 5).unwrap();
         r.free(3, &k(4), SLOT_DONE).unwrap();
         assert_eq!(r.reserve(k(99), 2), Ok(3));
+    }
+
+    #[test]
+    fn the_player_who_showed_up_wins_and_nobody_showing_is_a_no_show() {
+        assert_eq!(absence_outcome([true, true]), None);
+        assert_eq!(absence_outcome([true, false]), Some(OUTCOME_WIN0));
+        assert_eq!(absence_outcome([false, true]), Some(OUTCOME_WIN1));
+        assert_eq!(absence_outcome([false, false]), Some(OUTCOME_NO_SHOW));
     }
 
     #[test]

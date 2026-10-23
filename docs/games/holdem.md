@@ -60,7 +60,7 @@ Devnet check (all PASS, `programs/holdem/scripts/evidence.json`): each Player re
 ## Clock and forfeits
 
 - `claim_timeout` (permissionless, TEE): an idle Player to act is checked, or folded when facing a bet. A missed-turn counter resets on any voluntary action; **three in a row forfeit the Match**.
-- No-show: if the table was never started before `start_deadline` (5 min from creation), `finalize` refunds via tesoro_core. If a Player never contributes entropy to hand 1, `claim_timeout` cancels the Match and `finalize` refunds both entries. In a later hand the absent Player forfeits; both absent cancels.
+- No-show: if the table was never started before `start_deadline` (5 min from creation), `finalize` refunds via tesoro_core. If only one Player checked in before `start_deadline`, `expire_start` gives that Player a normal win; if neither did it is a no-show (Platform Fee each). If a Player never contributes entropy to hand 1 and the other did, `claim_timeout` gives the Player who showed up a normal win (the founder's rule, 2026-10-23, `table_kit::absence_outcome`); neither contributing is a no-show. In a later hand the absent Player forfeits; both absent cancels (refund).
 - If both Players contributed but the VRF output is late, `claim_timeout` only extends the deadline (nobody forfeits) and `request_vrf` can be re-sent.
 
 ## Evaluator tests (`eval.rs`)
@@ -94,7 +94,7 @@ Match id `1790715657340`, table `5UdtBvaARNc5Vo7du2XUTzrxcThPbmzeUPgMks8UNtT7`. 
 
 Full signatures for every row are in `programs/holdem/scripts/evidence.json`.
 
-### 2. No-show refund
+### 2. Absent Player (recorded before the 2026-10-23 rule: the Match then refunded; it is now won by the Player who showed up)
 
 Match `1790715851010`: seat 1 never contributed entropy; after 60 s a third party called `claim_timeout` (cancelled), then `close_match` and `finalize` refunded both entries through tesoro_core (`refunded`, both Players +500).
 `claim_timeout` (tee) `2jJb1hh4BBwUnoFanGW8z9nfwKXLCWnxVykvQeSPZHjFSxvyvgaGECa7yrwfKV72mzRj72WFdq1y7QcBRvUtAz2Q`; `finalize` (base) [`4vZiuDrw...E7LTq`](https://explorer.solana.com/tx/4vZiuDrwKu3hzyjHqm966yrC5ssptfzYmCBNeJarSi24w3bvxscXpRqWeDbM4Nz1BBBJoDnNU4dyJyRzDFyE7LTq?cluster=devnet).
