@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {SimLST} from "../src/SimLST.sol";
 import {PositionVault} from "../src/PositionVault.sol";
+import {PositionVaultBase} from "../src/PositionVaultBase.sol";
 import {MockEndpoint} from "../src/MockEndpoint.sol";
 
 contract VaultHandler is Test {
@@ -136,7 +137,7 @@ contract PositionVaultInvariantTest is Test {
         PositionVault v = h.vault();
         for (uint256 i = 0; i < h.idsLength(); i++) {
             uint64 id = h.ids(i);
-            PositionVault.Position memory p = v.getPosition(id);
+            PositionVaultBase.Position memory p = v.getPosition(id);
             if (!p.unlocked) assertEq(h.ghostUnlockReleased(id), 0);
             assertLe(h.ghostUnlockReleased(id), p.principalShares);
         }

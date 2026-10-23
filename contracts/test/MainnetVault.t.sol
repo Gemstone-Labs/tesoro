@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {Origin} from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
 import {PositionVault} from "../src/PositionVault.sol";
+import {PositionVaultBase} from "../src/PositionVaultBase.sol";
 import {PositionVaultOApp} from "../src/PositionVaultOApp.sol";
 import {WstETHRateAdapter} from "../src/WstETHRateAdapter.sol";
 import {KHypeRateAdapter} from "../src/KHypeRateAdapter.sol";
@@ -200,14 +201,14 @@ abstract contract MainnetVaultBase is Test {
         uint64 id = _open(10 ether);
         tok.setRate(1.32e18);
         assertEq(vault.treasuryBalance(), 0);
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1, 0));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.InsufficientTreasury.selector, 1, 0));
         vault.withdrawTreasury(1, address(this));
         bytes memory one = _pay(5, id, 1, redeemer, 1);
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1, 0));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.InsufficientTreasury.selector, 1, 0));
         _recv(one);
         _fund(1 ether);
         uint256 t = vault.treasuryBalance();
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, t + 1, t));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.InsufficientTreasury.selector, t + 1, t));
         vault.withdrawTreasury(t + 1, address(this));
     }
 
@@ -277,7 +278,7 @@ abstract contract MainnetVaultBase is Test {
         assertEq(reported, 13.2 ether);
         tok.setRate(1.2e18); // slash: the Treasury is 12 now
         bytes memory claim = _pay(5, id, 2, redeemer, uint128(13.2 ether));
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 13.2 ether, 12 ether));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.InsufficientTreasury.selector, 13.2 ether, 12 ether));
         _recv(claim);
         assertEq(vault.instantPaid(), 0);
         _fund(1 ether);
@@ -450,7 +451,7 @@ abstract contract MainnetVaultBase is Test {
         (uint256 reported,,) = _report(a);
         tok.setRate(1.26e18);
         bytes memory full = _pay(4, a, 2, redeemer, uint128(reported));
-        vm.expectPartialRevert(PositionVault.ExceedsAccruedYield.selector);
+        vm.expectPartialRevert(PositionVaultBase.ExceedsAccruedYield.selector);
         _recv(full);
         _recv(_pay(4, a, 2, redeemer, uint128(vault.payableYield(a))));
         assertEq(vault.getPosition(b).heldShares, 10 ether);
@@ -475,7 +476,7 @@ abstract contract MainnetVaultBase is Test {
 
     function test_accruedYieldIsRealRateGrowth() public {
         uint64 id = _open(10 ether); // 12 underlying at 1.2
-        PositionVault.Position memory p = vault.getPosition(id);
+        PositionVaultBase.Position memory p = vault.getPosition(id);
         assertEq(p.principalUnderlying, 12 ether);
         assertEq(vault.accruedYield(id), 0);
         tok.setRate(1.26e18); // +5% growth since open: 0.6, all of it reported (the fee comes at cash-out)
@@ -542,7 +543,7 @@ abstract contract MainnetVaultBase is Test {
         assertEq(vault.payableYield(id), 0);
         bytes memory m = _pay(4, id, 2, redeemer, 1);
         vm.prank(address(lz));
-        vm.expectPartialRevert(PositionVault.ExceedsAccruedYield.selector);
+        vm.expectPartialRevert(PositionVaultBase.ExceedsAccruedYield.selector);
         vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), m, address(0), "");
         tok.setRate(1.4e18);
         assertGt(vault.payableYield(id), 0);
@@ -633,7 +634,7 @@ abstract contract MainnetVaultBase is Test {
         uint128 amt = uint128(vault.payableYield(id) / 2);
         bytes memory lying = _payFee(id, 1, redeemer, amt, amt + 1, 0);
         vm.prank(address(lz));
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.BadFeeSplit.selector, amt, amt + 1, 0));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.BadFeeSplit.selector, amt, amt + 1, 0));
         vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), lying, address(0), "");
         _recv(_payFee(id, 1, redeemer, amt, amt / 5, amt / 10));
         assertApproxEqAbs(tok.balanceOf(redeemer) * 1.32e18 / 1e18, amt - amt / 5, 2);
@@ -654,7 +655,7 @@ abstract contract MainnetVaultBase is Test {
         assertApproxEqAbs(tok.balanceOf(redeemer) * 1.32e18 / 1e18, fee, 2);
 
         bytes memory short = _pay(5, id, 2, redeemer, 0.9 ether);
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 0.9 ether, 0));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.InsufficientTreasury.selector, 0.9 ether, 0));
         _recv(short);
         assertEq(vault.instantPaid(), fee, "nothing paid, nothing recorded");
 

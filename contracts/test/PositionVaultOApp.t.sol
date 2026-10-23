@@ -10,6 +10,7 @@ import {
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import {SimLST} from "../src/SimLST.sol";
 import {PositionVault} from "../src/PositionVault.sol";
+import {PositionVaultBase} from "../src/PositionVaultBase.sol";
 import {PositionVaultOApp} from "../src/PositionVaultOApp.sol";
 
 contract MockLzEndpoint {
@@ -264,7 +265,7 @@ contract PositionVaultOAppTest is Test {
     function test_pay_instant_short_reverts_over_the_wire_and_sends_nothing() public {
         uint64 id = _open(1e18);
         uint256 sendsBefore = ep.sends();
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1e17, 0));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.InsufficientTreasury.selector, 1e17, 0));
         _recv(_instant(id, 4, redeemer, 1e17)); // empty Treasury: the message waits
         assertEq(lst.balanceOf(redeemer), 0);
         assertEq(ep.sends(), sendsBefore);

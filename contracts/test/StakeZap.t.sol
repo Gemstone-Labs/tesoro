@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {PositionVault} from "../src/PositionVault.sol";
+import {PositionVaultBase} from "../src/PositionVaultBase.sol";
 import {PositionVaultOApp} from "../src/PositionVaultOApp.sol";
 import {WstETHRateAdapter} from "../src/WstETHRateAdapter.sol";
 import {KHypeRateAdapter} from "../src/KHypeRateAdapter.sol";
@@ -111,7 +112,7 @@ contract StakeZapTest is Test {
         vm.prank(alice);
         (uint64 id, uint256 got) = lido.openWithNative{value: 10 ether + 3 * FEE}(10 ether, 0, 12);
         assertEq(got, uint256(10 ether) * 1e18 / 1.2e18);
-        PositionVault.Position memory p = ethVault.getPosition(id);
+        PositionVaultBase.Position memory p = ethVault.getPosition(id);
         assertEq(p.owner, alice, "the Player owns it, not the zap");
         assertEq(p.principalShares, got);
         assertApproxEqAbs(p.principalUnderlying, 10 ether, 2, "Principal = the ETH staked");
@@ -125,7 +126,7 @@ contract StakeZapTest is Test {
     function test_kinetiq_stakesAndOpensForThePlayerInOneCall() public {
         vm.prank(alice);
         (uint64 id, uint256 got) = kinetiq.openWithNative{value: 10 ether + 2 * FEE}(10 ether, 0, 6);
-        PositionVault.Position memory p = hypeVault.getPosition(id);
+        PositionVaultBase.Position memory p = hypeVault.getPosition(id);
         assertEq(p.owner, alice);
         assertEq(p.principalShares, got);
         assertApproxEqAbs(p.principalUnderlying, 10 ether, 2);
@@ -175,7 +176,7 @@ contract StakeZapTest is Test {
         vm.startPrank(alice);
         vm.expectRevert(StakeZap.ZeroStake.selector);
         lido.openWithNative{value: FEE}(0, 0, 12);
-        vm.expectRevert(PositionVault.BadHorizon.selector);
+        vm.expectRevert(PositionVaultBase.BadHorizon.selector);
         lido.openWithNative{value: 1 ether + FEE}(1 ether, 0, 13);
         vm.stopPrank();
     }
@@ -198,7 +199,7 @@ contract StakeZapTest is Test {
     }
 
     function test_openPositionForRejectsZeroOwner() public {
-        vm.expectRevert(PositionVault.ZeroAmount.selector);
+        vm.expectRevert(PositionVaultBase.ZeroAmount.selector);
         ethVault.openPositionFor(address(0), 1, 12);
     }
 }

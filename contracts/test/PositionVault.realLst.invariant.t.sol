@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {PositionVault} from "../src/PositionVault.sol";
+import {PositionVaultBase} from "../src/PositionVaultBase.sol";
 import {MockEndpoint} from "../src/MockEndpoint.sol";
 import {WstETHRateAdapter} from "../src/WstETHRateAdapter.sol";
 import {RateToken} from "./MainnetVault.t.sol";
@@ -108,7 +109,7 @@ contract RealLstHandler is Test {
     function unlock(uint256 idx) external {
         if (ids.length == 0) return;
         uint64 id = ids[idx % ids.length];
-        PositionVault.Position memory p = vault.getPosition(id);
+        PositionVaultBase.Position memory p = vault.getPosition(id);
         if (p.unlocked) return;
         uint256 rate = tok.stEthPerToken();
         uint256 needed = (p.principalUnderlying * 1e18 + rate - 1) / rate;
@@ -126,7 +127,7 @@ contract RealLstHandler is Test {
         uint64 batchId = resend && nextBatch > 0 ? uint64(bound(seed, 1, nextBatch)) : ++nextBatch;
         if (resend && batchId != nextBatch) {
             // re-deliver the stored content exactly
-            (bool exists, uint8 bkind, bytes32 recipient, PositionVault.BatchEntry[] memory es) = vault.batchOf(batchId);
+            (bool exists, uint8 bkind, bytes32 recipient, PositionVaultBase.BatchEntry[] memory es) = vault.batchOf(batchId);
             if (!exists) return;
             uint64[] memory bi = new uint64[](es.length);
             uint128[] memory bu = new uint128[](es.length);
@@ -155,7 +156,7 @@ contract RealLstHandler is Test {
     }
 
     function _checkBatch(uint64 batchId) internal {
-        (,,, PositionVault.BatchEntry[] memory es) = vault.batchOf(batchId);
+        (,,, PositionVaultBase.BatchEntry[] memory es) = vault.batchOf(batchId);
         for (uint256 i; i < es.length; i++) {
             if (es[i].paid > es[i].requested) batchOverpaid = true;
         }
@@ -291,7 +292,7 @@ contract RealLstInvariantTest is Test {
         uint256 owed;
         for (uint256 i; i < h.idsLength(); i++) {
             uint64 id = h.ids(i);
-            PositionVault.Position memory p = v.getPosition(id);
+            PositionVaultBase.Position memory p = v.getPosition(id);
             held += p.heldShares;
             owed += v.owedSharesOf(id);
             if (p.unlocked) assertEq(p.heldShares, 0);

@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {Origin} from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
 import {SimLST} from "../src/SimLST.sol";
 import {PositionVault} from "../src/PositionVault.sol";
+import {PositionVaultBase} from "../src/PositionVaultBase.sol";
 import {PositionVaultOApp} from "../src/PositionVaultOApp.sol";
 import {WstETHRateAdapter} from "../src/WstETHRateAdapter.sol";
 import {MockLzEndpoint} from "./PositionVaultOApp.t.sol";
@@ -280,7 +281,7 @@ abstract contract EscrowBase is Test {
             uint128(0)
         );
         vm.prank(address(lz));
-        vm.expectPartialRevert(PositionVault.ExceedsAccruedYield.selector);
+        vm.expectPartialRevert(PositionVaultBase.ExceedsAccruedYield.selector);
         vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), pay, address(0), "");
         // the batch resend takes it (all of it up to what it still asked for)
         _recv(_batch(1, 2, address(0), ids, us));
@@ -612,7 +613,7 @@ contract PrizeEscrowRealTest is EscrowBase {
             uint8(5), lz.eid(), _key(id), uint64(3), bytes32(uint256(uint160(winner))), uint128(pool / 2)
         );
         vm.prank(address(lz));
-        vm.expectPartialRevert(PositionVault.InsufficientTreasury.selector);
+        vm.expectPartialRevert(PositionVaultBase.InsufficientTreasury.selector);
         vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), instant, address(0), "");
     }
 
@@ -626,7 +627,7 @@ contract PrizeEscrowRealTest is EscrowBase {
         uint256 t = vault.treasuryShares();
 
         vm.prank(alice);
-        vm.expectRevert(PositionVault.NotAdminOrKeeper.selector);
+        vm.expectRevert(PositionVaultBase.NotAdminOrKeeper.selector);
         vault.fundPrizeEscrow(0);
 
         address keeper = address(0xBEE5);
@@ -642,7 +643,7 @@ contract PrizeEscrowRealTest is EscrowBase {
         assertEq(vault.treasuryShares(), t, "no token moved");
         assertGe(vault.treasuryShares(), vault.owedShares() + vault.escrowShares());
 
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.EscrowTooSmall.selector, 1, 0));
+        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.EscrowTooSmall.selector, 1, 0));
         vault.fundPrizeEscrow(1);
     }
 
