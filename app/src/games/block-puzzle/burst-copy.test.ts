@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { QUEUE_SIT_LINE, QUEUE_STAY_LINE, needTableLine, resultLine } from "./burst-copy";
 import { REASON } from "./live-chain";
 
+const T0 = 1_800_000_000;
+
 describe("Block Burst result lines", () => {
   it("tells each side of a check-in loss what happened", () => {
     expect(resultLine(REASON.absent, "won")).toBe("Your opponent didn’t show up.");
@@ -22,6 +24,6 @@ describe("Block Burst result lines", () => {
   it("tells the opener to stay, and tells a Player with no table when the entry comes back", () => {
     expect(QUEUE_SIT_LINE).toMatch(/sit first/);
     expect(QUEUE_STAY_LINE).toMatch(/leaving after you’re paired loses the Match/);
-    expect(needTableLine("4:12 pm")).toContain("4:12 pm");
+    expect(needTableLine(T0 + 3600, T0 * 1000)).toMatch(/If none opens by .*, your entry comes back\./);
   });
 });

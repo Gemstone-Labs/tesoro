@@ -2736,6 +2736,407 @@ export type BlockPuzzle = {
       ]
     },
     {
+      "name": "refundUntabled",
+      "docs": [
+        "Base, permissionless. Refunds a joined Match that no table was ever assigned to, once it has",
+        "waited `TABLE_WAIT_SECS`, by CPI signed by this Game's `authority` PDA. Refused whenever an",
+        "Assignment exists for the Match, so it can never touch a Match a table has claimed."
+      ],
+      "discriminator": [
+        86,
+        179,
+        79,
+        68,
+        70,
+        100,
+        97,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Pays the settlement receipt's rent in tesoro_core."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "assignment",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  115,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tesoroMatch"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tesoroMatch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tesoro_match.inner.id.opener",
+                "account": "matchState"
+              },
+              {
+                "kind": "account",
+                "path": "tesoro_match.inner.id.n",
+                "account": "matchState"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "gameRecord",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  66,
+                  252,
+                  204,
+                  94,
+                  191,
+                  185,
+                  144,
+                  147,
+                  75,
+                  164,
+                  208,
+                  73,
+                  223,
+                  102,
+                  247,
+                  74,
+                  128,
+                  91,
+                  97,
+                  170,
+                  137,
+                  116,
+                  64,
+                  193,
+                  131,
+                  225,
+                  30,
+                  149,
+                  223,
+                  224,
+                  219,
+                  26
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "gameProgram",
+          "address": "5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj"
+        },
+        {
+          "name": "programData"
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tesoroMatch"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "coreEventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "tesoroProgram",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "releaseSlot",
       "docs": [
         "Rollup, permissionless. Frees a Done ring slot once tesoro_core has frozen its Match (the",
@@ -3664,6 +4065,85 @@ export type BlockPuzzle = {
       ]
     },
     {
+      "name": "skipEpoch",
+      "docs": [
+        "Rollup, permissionless. Gives up an Assignment whose Match never began: the table is Idle at",
+        "the Assignment's epoch and the start window has passed, so `begin_match` can never accept it.",
+        "Writes a Draw for it into the ring (the way `expire_start` writes one) and marks the table",
+        "for a commit, so `finalize` refunds the Match from a committed result without waiting for the",
+        "table's next Match. The epoch is untouched, so a later Assignment for it can still begin. At",
+        "most once per Match (the ring refuses a second slot)."
+      ],
+      "discriminator": [
+        188,
+        198,
+        173,
+        71,
+        75,
+        24,
+        224,
+        183
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "assignment",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  115,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "assignment.tesoro_match",
+                "account": "assignment"
+              }
+            ]
+          }
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.generation",
+                "account": "table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "table"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "start",
       "docs": [
         "Rollup, permissionless. Sets the one shared clock once both have checked in and the Seed",
@@ -4397,6 +4877,21 @@ export type BlockPuzzle = {
       "code": 6046,
       "name": "budgetTooShort",
       "msg": "The Block Burst Match cannot finish inside the core deadline"
+    },
+    {
+      "code": 6047,
+      "name": "notUntabled",
+      "msg": "That Match is not a joined Match without a table"
+    },
+    {
+      "code": 6048,
+      "name": "tableWaitNotOver",
+      "msg": "The Match has not waited long enough for a table"
+    },
+    {
+      "code": 6049,
+      "name": "cannotSkip",
+      "msg": "This Assignment cannot be given up yet, or any more"
     }
   ],
   "types": [

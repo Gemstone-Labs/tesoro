@@ -2597,3 +2597,249 @@ fn repeated_commit_calls_cost_nothing_once_the_result_is_settled_and_freed() {
     assert_eq!(bytes_of(&env.table()), before);
     assert_eq!(env.svm.get_balance(&s(sponsor_addr())).unwrap(), sponsor);
 }
+
+// --- Fast refunds (ticket 35) ----------------------------------------------------------------
+
+impl Env {
+    fn refund_untabled_ix(&self, caller: APk) -> Instruction {
+        ix(
+            trading_duel::ID,
+            trading_duel::accounts::RefundUntabled {
+                caller,
+                assignment: assign_addr(self.tmatch),
+                tesoro_match: self.tmatch,
+                game_record: game_record_pda(),
+                authority: authority_pda(),
+                game_program: trading_duel::ID,
+                program_data: program_data_pda(),
+                receipt: tpda(&[b"settled", self.tmatch.as_ref()]),
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
+                tesoro_program: tesoro_core::ID,
+            },
+            trading_duel::instruction::RefundUntabled {},
+            vec![],
+        )
+    }
+
+    fn refund_untabled(&mut self) -> Result<(), Failed> {
+        let caller = self.oracle.insecure_clone();
+        let ixn = self.refund_untabled_ix(a(caller.pubkey()));
+        self.send(&[ixn], &caller, &[])?;
+        self.run_settlement();
+        Ok(())
+    }
+
+    fn skip_ix(&self) -> Instruction {
+        ix(
+            trading_duel::ID,
+            trading_duel::accounts::SkipEpoch {
+                caller: a(self.oracle.pubkey()),
+                assignment: assign_addr(self.tmatch),
+                table: self.table,
+            },
+            trading_duel::instruction::SkipEpoch {},
+            vec![],
+        )
+    }
+
+    fn skip(&mut self) -> Result<(), Failed> {
+        let ixn = self.skip_ix();
+        self.rollup(ixn)
+    }
+}
+
+#[test]
+fn a_joined_match_with_no_table_refunds_after_the_table_wait_and_not_before() {
+    use trading_duel::DuelError::*;
+    let mut env = Env::new();
+    env.open_and_join(1_000);
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.set_time(T0 + table_kit::TABLE_WAIT_SECS - 1);
+    assert_eq!(
+        custom_code(&env.refund_untabled().unwrap_err()),
+        dcode(TableWaitNotOver)
+    );
+    assert_eq!(env.tesoro_status(), Stage::Active);
+    env.set_time(T0 + table_kit::TABLE_WAIT_SECS);
+    env.refund_untabled().expect("refund after the wait");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
+    assert_eq!(
+        (env.gemas(&env.alice), env.gemas(&env.bob)),
+        (before.0 + 1_000, before.1 + 1_000)
+    );
+    // No double refund: the Match is no longer Active.
+    assert_eq!(
+        custom_code(&env.refund_untabled().unwrap_err()),
+        dcode(NotUntabled)
+    );
+}
+
+#[test]
+fn a_match_a_table_took_cannot_use_the_untabled_refund() {
+    use trading_duel::DuelError::*;
+    // Assigned, and the wait long past: the Assignment closes the path.
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.set_time(T0 + 10 * table_kit::TABLE_WAIT_SECS);
+    assert_eq!(
+        custom_code(&env.refund_untabled().unwrap_err()),
+        dcode(NotUntabled)
+    );
+    assert_eq!(env.tesoro_status(), Stage::Active);
+    // Started on the table: still refused.
+    let mut env = ready();
+    env.begin().expect("begin");
+    env.set_time(T0 + 10 * table_kit::TABLE_WAIT_SECS);
+    assert_eq!(
+        custom_code(&env.refund_untabled().unwrap_err()),
+        dcode(NotUntabled)
+    );
+    // A Match nobody joined is not a joined Match.
+    let mut env = Env::new();
+    let alice = dup(&env.alice);
+    let n = env.nonce;
+    let m = flow::open_match(
+        &mut env.svm,
+        &alice.kp,
+        trading_duel::ID,
+        1_000,
+        n,
+        false,
+        0,
+    )
+    .expect("open");
+    env.tmatch = m.key;
+    env.mref = Some(m);
+    env.set_time(T0 + 10 * table_kit::TABLE_WAIT_SECS);
+    assert_eq!(
+        custom_code(&env.refund_untabled().unwrap_err()),
+        dcode(NotUntabled)
+    );
+}
+
+#[test]
+fn a_lamport_sent_to_the_assignment_address_does_not_block_the_untabled_refund() {
+    let mut env = Env::new();
+    env.open_and_join(1_000);
+    env.svm
+        .set_account(
+            s(assign_addr(env.tmatch)),
+            Account {
+                lamports: 1,
+                data: vec![],
+                owner: Pk::default(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("one lamport");
+    env.set_time(T0 + table_kit::TABLE_WAIT_SECS);
+    env.refund_untabled().expect("refund");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
+}
+
+#[test]
+fn a_match_that_never_began_is_refunded_promptly_by_skipping_its_epoch() {
+    use trading_duel::DuelError::*;
+    let mut env = Env::new();
+    env.next_match_on(0);
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    // The start window is still open: the Match may yet begin.
+    assert_eq!(custom_code(&env.skip().unwrap_err()), dcode(CannotSkip));
+    env.set_time(T0 + trading_duel::START_WINDOW_SECS + 1);
+    env.skip().expect("skip");
+    let t = env.table();
+    assert_eq!((t.phase, t.epoch), (trading_duel::PHASE_IDLE, 0));
+    assert!(t.dirty);
+    let (_, slot) = t.ring.find(&env.tmatch, 0).expect("slot");
+    assert_eq!(
+        (slot.state, slot.outcome),
+        (table_kit::SLOT_DONE, table_kit::OUTCOME_DRAW)
+    );
+    // Nothing is refunded until the commit lands on base.
+    assert_eq!(
+        custom_code(&env.finalize_start().unwrap_err()),
+        dcode(NoResult)
+    );
+    env.commit_standin();
+    env.finalize().expect("refund from the committed Draw");
+    assert_eq!(
+        (env.gemas(&env.alice), env.gemas(&env.bob)),
+        (before.0 + 1_000, before.1 + 1_000)
+    );
+    // Once per Match, and once settled it cannot be refunded again.
+    assert_eq!(custom_code(&env.skip().unwrap_err()), dcode(RingFull));
+    assert!(env.finalize_start().is_err());
+}
+
+#[test]
+fn skip_refuses_a_table_that_began_moved_on_or_names_another_epoch() {
+    use trading_duel::DuelError::*;
+    // The table began this Match: not Idle.
+    let mut env = ready();
+    env.begin().expect("begin");
+    env.set_time(T0 + trading_duel::START_WINDOW_SECS + 1);
+    assert_eq!(custom_code(&env.skip().unwrap_err()), dcode(CannotSkip));
+    // The table already played another Match and moved to epoch 1: this one refunds through finalize instead.
+    let mut env = Env::new();
+    env.next_match_on(0);
+    let never = (env.mref.unwrap(), env.table);
+    env.next_match_on(0);
+    env.play(Some(0), Some(1));
+    env.close_seats_standin();
+    env.set_time(env.now + trading_duel::RESET_DELAY_SECS);
+    env.reset().expect("reset");
+    env.use_match(never.0, never.1);
+    env.set_time(env.now + 1_000);
+    assert_eq!(custom_code(&env.skip().unwrap_err()), dcode(CannotSkip));
+}
+
+#[test]
+fn a_skipped_epoch_can_still_start_another_match_assigned_to_it() {
+    let mut env = Env::new();
+    env.next_match_on(0);
+    let never = (env.mref.unwrap(), env.table);
+    // A second Match is assigned to the same table and epoch before the first window closes.
+    env.next_match_on(0);
+    let second = (env.mref.unwrap(), env.table);
+    env.set_time(T0 + trading_duel::START_WINDOW_SECS + 1);
+    env.use_match(never.0, never.1);
+    env.skip().expect("skip the first");
+    assert_eq!(env.table().epoch, 0, "the epoch is untouched");
+    // The second Assignment's own window closed too in this timeline, so give it a fresh Match.
+    env.open_and_join(1_000);
+    env.assign(0, 0, 0).expect("assign at the same epoch");
+    env.begin()
+        .expect("a later Assignment still begins on the skipped epoch");
+    assert_eq!(env.table().phase, trading_duel::PHASE_WAITING);
+    let _ = second;
+}
+
+#[test]
+fn a_skipped_epoch_commit_is_owed_while_the_table_is_idle() {
+    use trading_duel::DuelError::*;
+    let mut env = Env::new();
+    env.magic_shell();
+    env.next_match_on(0);
+    // Idle and clean: nothing to commit.
+    let ixn = env.commit_ix();
+    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(NotDirty));
+    env.set_time(T0 + trading_duel::START_WINDOW_SECS + 1);
+    env.skip().expect("skip");
+    // Idle but dirty: the call passes its own checks and reaches the MagicBlock program.
+    let ixn = env.commit_ix();
+    let err = env.rollup(ixn).unwrap_err();
+    assert!(
+        !err.meta.logs.iter().any(|l| l.contains("NotDirty")),
+        "{:?}",
+        err.meta.logs
+    );
+    env.commit_standin();
+    let ixn = env.commit_ix();
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        dcode(NotDirty),
+        "once per result"
+    );
+}

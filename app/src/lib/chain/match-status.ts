@@ -95,3 +95,28 @@ export function refundByText(refundBy: number, nowMs: number): string {
 export function delayedLine(s: Extract<MatchStanding, { kind: "delayed" }>, nowMs: number): string {
   return s.refundOpen ? "Delayed, refund is open" : `Delayed, refunds by ${refundByText(s.refundBy, nowMs)}`;
 }
+
+/**
+ * `table_kit::TABLE_WAIT_SECS`: a joined Match no table was assigned to is refunded by its Game after this long (ticket 35).
+ */
+export const TABLE_WAIT_SECS = 5 * 60;
+/** The setup note a Match shows while it has no table (no Assignment yet). */
+export const NO_TABLE_NOTE = "Finding a table";
+
+/**
+ * Unix seconds after which a joined Match that still has no table is refunded, or null once the Match has a table: an
+ * Assignment pushes the refund deadline a full day out, so a deadline more than `VANGUARD_PUSHED_MIN_SECS` ahead is not the
+ * hour after the join. Counted back from that deadline (it is the join plus `CORE_WINDOW_SECS`).
+ */
+export function tableRefundBy(deadline: number, nowSecs: number): number | null {
+  if (!deadline || deadline - nowSecs > VANGUARD_PUSHED_MIN_SECS) return null;
+  return deadline - CORE_WINDOW_SECS + TABLE_WAIT_SECS;
+}
+
+/** The line under "Waiting for a table": where the entry is safe, and when it comes back if no table opens. */
+export function tableWaitLine(deadline: number | undefined, nowMs: number): string {
+  const at = deadline ? tableRefundBy(deadline, nowMs / 1000) : null;
+  if (at === null) return deadline ? `We’re finding you a table. If none starts, your entry comes back by ${refundByText(deadline, nowMs)}.` : "We’re finding you a table. If none starts, your entry comes back.";
+  if (at * 1000 > nowMs) return `We’re finding you a table. If none opens by ${refundByText(at, nowMs)}, your entry comes back.`;
+  return "No table opened in time. Your entry is on its way back.";
+}

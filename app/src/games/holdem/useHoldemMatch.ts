@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getHoldem } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
+import { NO_TABLE_NOTE } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import {
   NO_WINNER,
@@ -196,7 +197,7 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
     // The joiner does the steps either Player may do; the opener steps in if that stalls.
     const late = now() - activeSince.current >= (seat === 1 ? 0 : 12_000);
     const a = await hd.readAssignment(mk!);
-    if (!a) return setStage("setup", "Setting up the Match");
+    if (!a) return setStage("setup", NO_TABLE_NOTE);
     assignRef.current = a;
     const t = await hd.readTable(p, a);
     if (!t) return setStage("setup", "Setting up the Match");

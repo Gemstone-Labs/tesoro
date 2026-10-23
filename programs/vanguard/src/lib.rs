@@ -44,9 +44,10 @@ use ephemeral_rollups_sdk::{
 };
 use setup::{Contributions, SetupContext};
 use table_kit::{
-    absence_outcome, close_private_seat, create_hidden_seat, match_state_gone, move_lamports,
-    read_table, receipt_at, sponsor_commit_many, swap_seat_members, KitError, SeatAccounts,
-    OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
+    absence_outcome, assignment_absent, close_private_seat, create_hidden_seat, match_state_gone,
+    may_skip, move_lamports, read_table, receipt_at, sponsor_commit_many, swap_seat_members,
+    table_wait_over, KitError, SeatAccounts, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0,
+    OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -155,6 +156,12 @@ pub enum VanguardError {
     StartWindowPassed,
     #[msg("The randomness answer is not for the current request")]
     StaleRequest,
+    #[msg("That Match is not a joined Match without a table")]
+    NotUntabled,
+    #[msg("The Match has not waited long enough for a table")]
+    TableWaitNotOver,
+    #[msg("This Assignment cannot be given up yet, or any more")]
+    CannotSkip,
 }
 
 impl From<KitError> for VanguardError {
@@ -456,6 +463,54 @@ pub mod vanguard {
         Ok(())
     }
 
+    /// Base, permissionless. Refunds a joined Match that no table was ever assigned to, once it has
+    /// waited `TABLE_WAIT_SECS`, by CPI signed by this Game's `authority` PDA. Refused whenever an
+    /// Assignment exists for the Match, so it can never touch a Match a table has claimed.
+    pub fn refund_untabled<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RefundUntabled<'info>>,
+    ) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let m = &ctx.accounts.tesoro_match.inner;
+        require!(
+            m.stage() == Stage::Active && m.game == ID.to_bytes(),
+            VanguardError::NotUntabled
+        );
+        require!(
+            assignment_absent(
+                &ctx.accounts.assignment.to_account_info(),
+                &ctx.accounts.assignment.key()
+            ),
+            VanguardError::NotUntabled
+        );
+        require!(
+            table_wait_over(m.deadline, m.deadline_abs, now),
+            VanguardError::TableWaitNotOver
+        );
+        let bump = [ctx.bumps.authority];
+        let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &bump]];
+        let remaining = ctx.remaining_accounts.to_vec();
+        let cpi = CpiContext::new_with_signer(
+            ctx.accounts.tesoro_program.to_account_info(),
+            tesoro_core::cpi::accounts::RefundMatch {
+                caller: ctx.accounts.authority.to_account_info(),
+                payer: ctx.accounts.caller.to_account_info(),
+                game_record: ctx.accounts.game_record.to_account_info(),
+                game_program: ctx.accounts.game_program.to_account_info(),
+                program_data: ctx.accounts.program_data.to_account_info(),
+                match_state: ctx.accounts.tesoro_match.to_account_info(),
+                receipt: ctx.accounts.receipt.to_account_info(),
+                opener_protections: None,
+                system_program: ctx.accounts.system_program.to_account_info(),
+                event_authority: ctx.accounts.event_authority.to_account_info(),
+                program: ctx.accounts.tesoro_program.to_account_info(),
+            },
+            signer_seeds,
+        )
+        .with_remaining_accounts(remaining);
+        tesoro_core::cpi::refund_match(cpi)?;
+        Ok(())
+    }
+
     /// Base, permissionless. Closes an Assignment once tesoro_core has frozen its Match (the receipt exists) or the
     /// Match account is gone; the rent goes back to whoever paid it.
     pub fn close_assignment(ctx: Context<CloseAssignment>) -> Result<()> {
@@ -749,6 +804,37 @@ pub mod vanguard {
     // ------------------------------------------------------------------------------------
     // Rollup: the Match
     // ------------------------------------------------------------------------------------
+
+    /// Rollup, permissionless. Gives up an Assignment whose Match never began: the table is Idle at
+    /// the Assignment's epoch and the start window has passed, so `begin_match` can never accept it.
+    /// Writes a Draw for it into the ring (the way `expire_start` writes one) and marks the table
+    /// for a commit, so `finalize` refunds the Match from a committed result without waiting for the
+    /// table's next Match. The epoch is untouched, so a later Assignment for it can still begin. At
+    /// most once per Match (the ring refuses a second slot).
+    pub fn skip_epoch(ctx: Context<SkipEpoch>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let a = &ctx.accounts.assignment;
+        let table = &mut ctx.accounts.table;
+        require!(
+            a.generation == table.generation && a.index == table.index,
+            VanguardError::NotAssigned
+        );
+        require!(
+            may_skip(
+                table.phase == TABLE_IDLE,
+                table.epoch,
+                a.epoch,
+                a.start_deadline,
+                now
+            ),
+            VanguardError::CannotSkip
+        );
+        let (key, epoch) = (a.tesoro_match, table.epoch);
+        kit(table.ring.record_never_begun(key, epoch, now))?;
+        table.dirty = true;
+        table.commit.on_result();
+        Ok(())
+    }
 
     /// Rollup, permissionless. Starts the Assignment's Match on its table: only if the table is Idle at exactly the
     /// assigned epoch with seats, the tesoro_core Match is still Active and a ring slot is free. Everything about the
@@ -1295,9 +1381,11 @@ pub mod vanguard {
     pub fn commit_table(ctx: Context<CommitTable>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
-        kit(table
-            .commit
-            .allow(table.phase == TABLE_OVER && table.dirty, &table.ring, now))?;
+        kit(table.commit.allow(
+            table.dirty && (table.phase == TABLE_OVER || table.phase == TABLE_IDLE),
+            &table.ring,
+            now,
+        ))?;
         table.dirty = false;
         table.commit.record(now);
         table.exit(&ID)?;
@@ -1893,6 +1981,63 @@ pub struct RetireSeats<'info> {
     /// CHECK: Magic Program
     #[account(address = MAGIC_PROGRAM_ID)]
     pub magic_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct RefundUntabled<'info> {
+    /// Pays the settlement receipt's rent in tesoro_core.
+    #[account(mut)]
+    pub caller: Signer<'info>,
+    /// CHECK: the Assignment address of the Match; the Match is refunded only while nothing sits here.
+    #[account(seeds = [ASSIGN_SEED, tesoro_match.key().as_ref()], bump)]
+    pub assignment: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        seeds = [CORE_MATCH_SEED, tesoro_match.inner.id.opener.as_ref(), &tesoro_match.inner.id.n.to_le_bytes()],
+        bump = tesoro_match.bump,
+        seeds::program = tesoro_core::ID
+    )]
+    pub tesoro_match: Box<Account<'info, MatchState>>,
+    #[account(
+        seeds = [GAME_SEED, crate::ID.as_ref()],
+        bump = game_record.bump,
+        seeds::program = tesoro_core::ID
+    )]
+    pub game_record: Box<Account<'info, GameRecord>>,
+    /// CHECK: the registered Game authority; signs the CPI with its canonical bump.
+    #[account(seeds = [AUTHORITY_SEED], bump)]
+    pub authority: UncheckedAccount<'info>,
+    /// CHECK: this Game's own program account (tesoro_core reads its deploy slot).
+    #[account(address = crate::ID)]
+    pub game_program: UncheckedAccount<'info>,
+    /// CHECK: this program's ProgramData, checked by tesoro_core.
+    pub program_data: UncheckedAccount<'info>,
+    /// CHECK: the settlement receipt, created by tesoro_core at `["settled", match]`.
+    #[account(
+        mut,
+        seeds = [b"settled", tesoro_match.key().as_ref()],
+        bump,
+        seeds::program = tesoro_core::ID
+    )]
+    pub receipt: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+    /// CHECK: tesoro_core's event authority PDA.
+    #[account(seeds = [b"__event_authority"], bump, seeds::program = tesoro_core::ID)]
+    pub event_authority: UncheckedAccount<'info>,
+    pub tesoro_program: Program<'info, tesoro_core::program::TesoroCore>,
+}
+
+#[derive(Accounts)]
+pub struct SkipEpoch<'info> {
+    pub caller: Signer<'info>,
+    #[account(seeds = [ASSIGN_SEED, assignment.tesoro_match.as_ref()], bump = assignment.bump)]
+    pub assignment: Account<'info, Assignment>,
+    #[account(
+        mut,
+        seeds = [TABLE_SEED, &table.generation.to_le_bytes(), &table.index.to_le_bytes()],
+        bump = table.bump
+    )]
+    pub table: Box<Account<'info, Table>>,
 }
 
 #[derive(Accounts)]

@@ -12,7 +12,7 @@ import { useAccount } from "@/lib/account";
 import { backerDelta, matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { parseMatchKey } from "@/lib/chain/match-id";
 import { refundMatch } from "@/lib/chain/match-flow";
-import { delayedOf, refundByText } from "@/lib/chain/match-status";
+import { delayedOf } from "@/lib/chain/match-status";
 import { useQueuePresence } from "@/lib/chain/usePresence";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { plainError } from "@/lib/errors";
@@ -134,7 +134,6 @@ export function MatchView({ matchId }: { matchId: string }) {
   };
 
   const link = typeof window === "undefined" ? "" : `${window.location.origin}/play/challenge/${m.id.toString()}`;
-  const refundBy = refundByText(m.deadline, nowSecs * 1000);
   const checkInLeft = table && clock ? Math.max(0, Math.ceil(CHECKIN_SECS - (slot - table.assignedSlot) / 100)) : null;
   const readyIn = table && clock ? getReadySecs(table, clock, perf) : null;
 
@@ -147,7 +146,7 @@ export function MatchView({ matchId }: { matchId: string }) {
     words = m.challenge ? undefined : { line: `${QUEUE_SIT_LINE} ${QUEUE_STAY_LINE}` };
   } else if (stage === "table") {
     kind = "setup";
-    words = { kicker: "Block Burst · opponent found", title: "Waiting for a table", line: needTableLine(refundBy) };
+    words = { kicker: "Block Burst · opponent found", title: "Waiting for a table", line: needTableLine(m.deadline, nowSecs * 1000) };
   } else if (stage === "getReady") {
     kind = "setup";
     words = { title: readyIn === null ? "Get ready" : `Starting in ${readyIn}`, line: "Same pieces for you both, at the same time. Your 90 seconds start on zero." };
