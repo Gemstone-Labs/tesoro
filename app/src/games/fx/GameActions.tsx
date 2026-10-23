@@ -10,6 +10,8 @@ export interface GameMenuItem {
   label: string;
   icon: ReactNode;
   onSelect: () => void;
+  checked?: boolean;
+  keepOpen?: boolean;
 }
 
 export interface GameActionsProps {

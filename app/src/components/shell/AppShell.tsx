@@ -13,6 +13,7 @@ import { SiteFooter } from "./SiteFooter";
 import { TopBar } from "./TopBar";
 import { useAccount } from "@/lib/account";
 import { useFriends } from "@/lib/friends/FriendsProvider";
+import { useShellPress } from "./useShellPress";
 
 /** Screens that exist for one action (play, queue, challenge, a Match, an opening Position): no link directory under them. */
 function bareScreen(path: string | null) {
@@ -25,6 +26,7 @@ function bareScreen(path: string | null) {
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const path = usePathname();
+  const onPointerDownCapture = useShellPress();
   const [drawer, setDrawer] = useState(false);
   const { nav } = useNavItems();
   const { openMatches } = useAccount();
@@ -44,7 +46,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
       <GuideProvider>
-      <div className="shell">
+      <div className="shell" onPointerDownCapture={onPointerDownCapture}>
         <aside className="sidebar" aria-label="Sidebar">
           <SidebarBody />
         </aside>

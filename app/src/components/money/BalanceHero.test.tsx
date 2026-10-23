@@ -9,7 +9,7 @@ const rows = [
 
 describe("shared Vault balance card", () => {
   it("shows Gemas and exactly two money rows with their dollar values and actions", () => {
-    const html = renderToStaticMarkup(<BalanceHero label="Gemas" labelInfo="About Gemas" figure="1,200" usdOf={1200} simulated={false} rows={rows} />);
+    const html = renderToStaticMarkup(<BalanceHero label="Gemas" labelInfo="About Gemas" figure="1,200" usdOf={1200} rows={rows} />);
     for (const label of ["Gemas", "Redeemable now", "Pending"]) {
       expect(html).toContain(`aria-label="${label}"`);
       expect(html).toContain(`aria-label="About ${label}"`);
@@ -24,11 +24,16 @@ describe("shared Vault balance card", () => {
     expect(html).not.toMatch(/Winnings|Cash out|Your pending|Won pending|wl-fold|wl-second|simulated yield/);
   });
 
-  it("keeps loading, in-play, simulated-yield and error feedback visible", () => {
+  it("replaces every pending figure with a skeleton and keeps in-play and error feedback", () => {
     const html = renderToStaticMarkup(<BalanceHero label="Gemas" figure="—" busy totalNote="In play: 100" rows={rows} error={<p role="alert">Read failed</p>} />);
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain("In play: 100");
-    expect(html).toContain("Simulated yield");
+    expect(html).not.toContain("Simulated yield");
+    expect(html).not.toContain("—");
+    expect(html).not.toContain("≈ $1.50 now");
+    expect(html).not.toContain("≈ $2");
+    expect(html.match(/class="skel-line wl-figure-skel"/g)).toHaveLength(3);
+    expect(html).toContain("Loading your Gemas…");
     expect(html).toContain('<p role="alert">Read failed</p>');
   });
 });

@@ -91,6 +91,26 @@ function useInView(count: number) {
 
 const tileOf = (game: ChainMatch["game"]) => CATALOGUE.find((c) => c.game === game)?.tile ?? "";
 
+export function ContinueSkeleton() {
+  return (
+    <section className="continue" aria-busy="true" aria-label="Continue">
+      <h2 className="h-section">Continue</h2>
+      <span className="sr-only" role="status">Loading your open Matches…</span>
+      <div className="continue-row" aria-hidden="true">
+        <div className="cut cut-card continue-card skel">
+          <span className="cut continue-face" />
+          <span className="continue-body">
+            <span className="continue-game skel-line" style={{ width: "65%" }} />
+            <span className="continue-status skel-line" style={{ width: "80%" }} />
+            <span className="continue-figures skel-line" style={{ width: "55%" }} />
+            <span className="cut cut-btn btn sm continue-cta continue-cta-skel" />
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /**
  * The Player's open Matches, then Challenges Friends opened for them. Phones: one wide card at a time, swiped sideways, with
  * dots; wider screens: a grid. Each card: the opponent, the game, where it stands, what is in and what it pays.

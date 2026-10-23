@@ -100,7 +100,7 @@ async function settled<T>(read: (r: typeof import("./recent")) => Promise<T>, de
 export function useRecentSettled(limit = 8): { matches: SettledMatch[]; loading: boolean; error: string | null } {
   const fetch = useCallback(() => settled((r) => r.fetchRecentSettled(limit), (f) => f.demoSettled()), [limit]);
   const q = useSharedQuery(`recent:${limit}`, fetch);
-  return { matches: q.data ?? [], loading: q.loading, error: q.error };
+  return { matches: q.data ?? [], loading: q.loading || (q.data === null && q.error === null), error: q.error };
 }
 
 const fetchTopToday = () =>

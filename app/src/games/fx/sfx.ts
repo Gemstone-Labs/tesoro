@@ -191,3 +191,21 @@ export function sfx(cue: Cue): void {
     // audio is optional
   }
 }
+
+/** Block Burst's short impacts use the shared audio context and mute preference. */
+export function blockSound(lines: number, gems: number, combo: number): void {
+  if (typeof window === "undefined") return;
+  armSound();
+  if (isMuted() || !ctx || ctx.state !== "running") return;
+  if (lines === 0) {
+    tone(210, 0, 0.055, { type: "triangle", gain: 0.5, to: 125 });
+    return;
+  }
+  const pitch = [1, 1.125, 1.25, 1.5, 1.667, 2][Math.min(5, Math.max(0, combo - 1))];
+  tone(140, 0, 0.09, { gain: 0.3 + Math.min(3, lines) * 0.06, to: 65 });
+  [N.c5, N.e5, N.g5].forEach((f, i) => tone(f * pitch, i * 0.018, 0.14, { type: "triangle", gain: 0.24 }));
+  if (gems) {
+    tone(N.e6, 0, 0.24, { gain: 0.3 });
+    tone(N.g6, 0.035, 0.22, { gain: 0.18 });
+  }
+}

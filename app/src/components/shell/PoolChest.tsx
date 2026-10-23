@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useId, useRef, useState } from "react";
 import { CountUp } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import { nextStep, ordinal, pts, seasonStanding } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
@@ -101,7 +103,7 @@ export function Chest({ size = 34, pop = 0 }: { size?: number; pop?: number }) {
 }
 
 /**
- * Top bar: the Season plate. The Leaderboard Pool (gold, live, opens with a burst whenever it grows) and, signed in,
+ * Top bar: the Season plate. The Leaderboard Pool (gold, live, bounces whenever it grows) and, signed in,
  * the Player's own rank and Season points beside it in steel. One link to the Leaderboard.
  */
 export function PoolChest() {
@@ -142,7 +144,7 @@ export function PoolChest() {
       aria-label={`Leaderboard Pool: ${fmtGemas(pool)} Gemas. ${PRIZE}.${you} Open Leaderboard`}
       title={PRIZE}
     >
-      <Chest pop={pop} />
+      <Image key={`pool-${pop}`} className={`pc-chest-image${pop ? " pop" : ""}`} src={art.poolChestCut} alt="" width={40} height={40} sizes="(max-width: 639px) 28px, (min-width: 1024px) 40px, 34px" />
       <div className="pc-pool">
         <b className="pc-full">
           <CountUp value={pool} duration={1200} />

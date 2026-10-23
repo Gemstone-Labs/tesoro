@@ -1,5 +1,5 @@
 /* ——— Leaderboard (/leaderboard) ——— */
-.lb { display: grid; gap: 14px; max-width: 1120px; width: 100%; margin: 0 auto; }
+.lb { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; max-width: 1120px; width: 100%; margin: 0 auto; }
 /* loading: the band and the rows in outline */
 .lb-band.skel { --edge: var(--edge-1); background: var(--surface); }
 .lb-skel-chest { width: 56px; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(closest-side, rgba(234, 239, 236, 0.09), rgba(234, 239, 236, 0.03) 70%, transparent); }
@@ -67,7 +67,7 @@
 .lb-page[aria-current="page"] { background: var(--fg); color: var(--shell); --edge: var(--edge-2); }
 
 /* the Pool: one slim gold band (chest, figure, countdown, ⓘ); the ⓘ opens how it works and the payout scale in a modal */
-.lb-band-wrap { display: grid; gap: 10px; }
+.lb-band-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .lb-band {
   --edge: var(--edge-gold); display: flex; align-items: center; gap: 12px; min-height: 84px; padding: 10px 6px 10px 12px;
   background: radial-gradient(60% 140% at 12% 50%, rgba(255, 180, 60, 0.2), transparent 70%), var(--surface);
@@ -89,11 +89,18 @@ dialog.sheet.lb-info-sheet { width: min(840px, calc(100vw - 32px)); max-width: 8
 .lb-info-btn { flex: none; display: grid; place-items: center; width: 44px; height: 44px; background: transparent; border: 0; color: var(--fg-2); }
 .lb-info-btn svg { width: 20px; height: 20px; }
 .lb-info-btn:hover { color: var(--fg); }
+@media (max-width: 359px) {
+  .lb-band:not(.skel) { display: grid; grid-template-columns: 48px minmax(0, 1fr) 44px; gap: 6px 8px; }
+  .lb-band-art, .lb-band-chest { width: 48px; height: 48px; }
+  .lb-band-art { grid-row: span 2; }
+  .lb-band-season { grid-column: 2 / -1; grid-row: 2; display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 0; padding: 0; border: 0; }
+  .lb-band .lb-info-btn { grid-column: 3; grid-row: 1; }
+}
 .lb-info { display: grid; gap: 12px; }
 .lb-info > p { color: var(--fg-2); font-size: var(--fs-14); line-height: 1.5; }
 
 /* the podium: 2nd, 1st (raised), 3rd, outlined gold, silver and bronze */
-.lb-season { display: grid; gap: 10px; }
+.lb-season { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .lb-podium { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-items: end; }
 .lb-place {
   --c: 12px; display: grid; justify-items: center; gap: 1px; padding: 8px 6px; text-align: center; background: var(--surface); min-width: 0;

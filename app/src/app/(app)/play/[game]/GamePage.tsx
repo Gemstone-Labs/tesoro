@@ -6,13 +6,14 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ArrowRight, Dumbbell, Info, UserPlus, Users } from "lucide-react";
 import { AccountLink } from "@/components/account/AccountLink";
-import { MatchBanner } from "@/components/match/MatchBanner";
+import { MatchBanner, MatchBannerSkeleton } from "@/components/match/MatchBanner";
 import { AssetPicker, Button, EntryPicker, GemaMark, Sheet } from "@/components/ui";
 import { gameQuery, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { CATALOGUE } from "@/lib/catalogue";
 import { PLAYED, accountHistory } from "@/lib/chain/history";
+import { useChainData } from "@/lib/chain/ChainDataProvider";
 import { useTopScoresToday } from "@/lib/chain/useRecentSettled";
 import { estimatedWin } from "@/lib/chain/ledger";
 import { fmtGemas } from "@/lib/format";
@@ -57,6 +58,7 @@ const COPY: Record<GameId, { tag: string; sub: string[]; how: string; steps: str
 
 export function GamePage({ game }: { game: GameId }) {
   const { snapshot, onChain, auth } = useAccount();
+  const { error, refresh } = useChainData();
   const router = useRouter();
   const [entry, setEntry] = useState<EntrySize>(game === "block-puzzle" ? 1000 : 500);
   const [asset, setAsset] = useState<0 | 1 | 2>(0);
@@ -168,18 +170,35 @@ export function GamePage({ game }: { game: GameId }) {
               </Link>
             )}
           </header>
-          {mine.length === 0 || !me ? (
+          {auth.status === "loading" || (onChain && !snapshot?.matchesLoaded) ? (
+            error ? (
+              <p className="status err" role="alert">
+                Your Matches couldn’t load. <Button size="sm" onClick={() => void refresh()}>Try again</Button>
+              </p>
+            ) : <MatchBannerSkeleton count={3} label="Loading your recent Matches…" />
+          ) : mine.length === 0 || !me ? (
             <p className="meta gp-empty">
               {onChain
                 ? `No finished ${name} Matches yet. Yours appear here when they finish.`
-                : auth.status === "signed-out"
-                  ? "Sign in to see your Matches."
-                  : "Loading your Matches…"}
+                : "Sign in to see your Matches."}
             </p>
           ) : (
             <div className="mb-list">
               {mine.map((r) => (
                 <MatchBanner key={r.id} r={r} account={me} now={now} me={me} />
+              ))}
+            </div>
+          )}
+          {game === "block-puzzle" && !top.data && !top.error && (
+            <div className="gp-top-wrap" aria-busy="true" aria-label="Loading top scores today">
+              <h3 className="gp-sub-h">Top scores today</h3>
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="cut cut-card gp-top skel" aria-hidden="true">
+                  <span className="skel-line" />
+                  <span className="gp-av skel-av" />
+                  <span className="skel-line" />
+                  <span className="skel-line" style={{ width: 44 }} />
+                </div>
               ))}
             </div>
           )}

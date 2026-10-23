@@ -92,6 +92,14 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
 .pchest .pc-short { display: none; }
 .pchest span { font-size: var(--fs-14); color: rgba(255, 226, 160, 0.72); }
 .chest { flex: none; overflow: visible; }
+.pc-chest-image { flex: none; width: 34px; height: 34px; object-fit: contain; }
+.pc-chest-image.pop { animation: pool-chest-pop 1.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes pool-chest-pop {
+  0%, 100% { transform: none; filter: none; }
+  20% { transform: translateY(-3px) scale(1.08); filter: brightness(1.4); }
+  45% { transform: translateY(1px) scale(0.98); }
+  65% { transform: translateY(-1px); }
+}
 .chest .chest-lid { transform-box: fill-box; transform-origin: 50% 100%; animation: chest-breathe 6s ease-in-out infinite; }
 .chest .chest-glow { opacity: 0; transform-box: fill-box; transform-origin: 50% 50%; animation: chest-leak 6s ease-in-out infinite; }
 .chest .chest-shine { opacity: 0.5; transform: translateX(-30px); animation: chest-shine 6s ease-in-out infinite; }
@@ -125,7 +133,7 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
 @keyframes pool-flare { 0%, 100% { filter: none; } 20% { filter: brightness(1.5) drop-shadow(0 0 8px rgba(255, 200, 80, 0.7)); } }
 @keyframes pool-ring { 0%, 100% { filter: none; } 20% { filter: brightness(1.25); } }
 @media (prefers-reduced-motion: reduce) {
-  .chest *, .pchest, .pchest b { animation: none !important; }
+  .chest *, .pc-chest-image, .pchest, .pchest b { animation: none !important; }
 }
 
 .acct { position: relative; }
@@ -241,7 +249,7 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .pchest .pc-full { display: none; }
   .pchest .pc-short { display: inline; }
   .pchest span { display: none; }
-  .pchest .chest { width: 28px; height: 28px; }
+  .pchest .chest, .pc-chest-image { width: 28px; height: 28px; }
   .avatar { width: 44px; height: 44px; --c: 10px; }
   .acct-chev { display: none; }
   .topbar .menu-btn { width: 44px; height: 44px; }
@@ -282,7 +290,7 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .pchest { height: 52px; padding: 0 22px 0 10px; gap: 10px; }
   .pchest b { font-size: 26px; }
   .pchest span { font-size: var(--fs-15); }
-  .pchest .chest { width: 40px; height: 40px; }
+  .pchest .chest, .pc-chest-image { width: 40px; height: 40px; }
   .avatar { width: 48px; height: 48px; }
   .app-main { --section-gap: 52px; padding: 16px 32px 72px; }
 }

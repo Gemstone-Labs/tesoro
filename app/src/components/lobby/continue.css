@@ -21,6 +21,8 @@
 .continue-time svg { width: 12px; height: 12px; }
 .continue-cta { margin-top: 4px; gap: 6px; }
 .continue-cta svg { width: 14px; height: 14px; }
+.continue-card.skel .skel-line { height: 1lh; }
+.continue-cta-skel { width: 100px; background: var(--raised-2); }
 .continue-cta.ready { background: var(--fg); color: #0b0f12; --edge: transparent; }
 .continue-card:hover .continue-cta.ready { background: #fff; }
 .continue-dots { display: none; justify-content: center; gap: 6px; }

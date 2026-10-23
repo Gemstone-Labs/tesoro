@@ -1,13 +1,13 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { FacetCrown, GemaMark, GemaUsd, SimulatedYieldLabel } from "@/components/ui";
+import { FacetCrown, GemaMark, GemaUsd } from "@/components/ui";
 import { InfoTip } from "./Tip";
 import "@/app/(app)/wallet/wallet.css";
 
 export interface HeroRow {
   label: string;
-  /** The figure, already formatted; "—" while loading. */
+  /** The figure, already formatted; replaced by a skeleton while busy. */
   figure: ReactNode;
   /** Gemas the ≈ dollar figure is worked out from; omit to hide it. */
   usdOf?: number;
@@ -21,7 +21,7 @@ export interface HeroRow {
 }
 
 /** Both Vault views share one balance figure followed by always-visible money rows. */
-export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, totalNote, rows, error, simulated = true }: {
+export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, totalNote, rows, error }: {
   label: string;
   /** An ⓘ next to the main label that explains the total. */
   labelInfo?: ReactNode;
@@ -32,12 +32,11 @@ export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, tot
   totalNote?: ReactNode;
   rows: HeroRow[];
   error?: ReactNode;
-  /** Show the simulated-yield label (test mode). */
-  simulated?: boolean;
 }) {
   return (
-    <section className="cut cut-frame facet-panel wl-hero" aria-label={label}>
+    <section className="cut cut-frame facet-panel wl-hero" aria-label={label} aria-busy={busy}>
       <FacetCrown />
+      {busy && <span className="sr-only" role="status">Loading your Gemas…</span>}
       <div className="wl-total">
         <h2 className="wl-col-head">
           {label}
@@ -45,9 +44,9 @@ export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, tot
         </h2>
         <div className="wl-total-fig">
           <GemaMark size={72} glint />
-          <b aria-busy={busy}>{figure}</b>
+          <b>{busy ? <span className="skel-line wl-figure-skel" aria-hidden="true" /> : figure}</b>
         </div>
-        {usdOf !== undefined && <GemaUsd className="wl-usd wl-total-usd" value={usdOf} />}
+        {busy ? <span className="skel-line wl-usd-skel" aria-hidden="true" /> : usdOf !== undefined && <GemaUsd className="wl-usd wl-total-usd" value={usdOf} />}
         {totalNote && <p className="wl-total-note">{totalNote}</p>}
       </div>
       {rows.map((row) => (
@@ -58,15 +57,14 @@ export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, tot
           </h2>
           <span className="wl-win-fig">
             <GemaMark size={28} />
-            <b>{row.figure}</b>
-            {row.usdOf !== undefined && <GemaUsd className="wl-usd" value={row.usdOf} />}
+            <b>{busy ? <span className="skel-line wl-figure-skel" aria-hidden="true" /> : row.figure}</b>
+            {busy ? <span className="skel-line wl-usd-skel" aria-hidden="true" /> : row.usdOf !== undefined && <GemaUsd className="wl-usd" value={row.usdOf} />}
           </span>
           {row.action && <div className="wl-win-action">{row.action}</div>}
-          {row.note && <span className="wl-win-note">{row.note}</span>}
+          {!busy && row.note && <span className="wl-win-note">{row.note}</span>}
         </div>
       ))}
       {error}
-      {simulated && <SimulatedYieldLabel className="wl-hero-sim" />}
     </section>
   );
 }

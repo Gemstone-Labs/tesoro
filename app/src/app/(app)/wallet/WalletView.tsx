@@ -184,8 +184,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
         labelInfo={REAL ? undefined : <>Test mode · simulated yield, 1 month = 10 min. 1 Gema = $0.01.</>}
         figure={ready ? <CountUp value={gemas.total} /> : "—"}
         usdOf={ready ? gemas.total : undefined}
-        busy={!ready}
-        simulated={!REAL}
+        busy={!ready && !error}
         totalNote={ready && gemas.reserved > 0 ? <>In play: <b className="tnum">{fmtGemas(gemas.reserved)}</b> {CARD.inPlay}</> : undefined}
         rows={[
           {
@@ -196,7 +195,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
             info: CARD.nowInfo(!REAL),
             action: (
               <HoverHint align="end" hint={ready && redeemAmount === 0 ? (canFetchYield ? CARD.redeemCheck : CARD.redeemEmpty) : null}>
-                <Button variant="money" disabled={redeemAmount === 0 && !canFetchYield} onClick={() => openRedeem()}>{CARD.redeem}</Button>
+                <Button variant="money" disabled={!ready || (redeemAmount === 0 && !canFetchYield)} onClick={() => openRedeem()}>{CARD.redeem}</Button>
               </HoverHint>
             ),
           },
@@ -226,7 +225,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
       />}
 
       {body && <section className="wl-positions" aria-label="Your Gemas and Locks by chain">
-        {onChain && loading && positions.length === 0 && (
+        {loading && !ready && !error && (
           <div className="wl-pockets">
             <SkeletonCards count={2} avatar={false} className="wl-tile" label="Loading your Locks…" />
           </div>
