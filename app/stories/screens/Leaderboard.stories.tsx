@@ -44,11 +44,11 @@ export const LastSeasonPaying: Story = { parameters: { screen: { leaderboard: "p
 /** Nobody won a Match last season: "the pool carried over" instead of a winners table. */
 export const LastSeasonPoolCarriedOver: Story = { parameters: { screen: { leaderboard: "carried" } } };
 
-/** The Payout scale band opened under the season heading. */
+/** The Pool band's ⓘ opened: how the Pool works and the payout scale. */
 export const PayoutScaleOpen: Story = {
   parameters: { screen: { leaderboard: "live" } },
   play: async ({ canvasElement }) => {
-    const btn = await within(canvasElement).findByRole("button", { name: /Payout scale/ });
+    const btn = await within(canvasElement).findByRole("button", { name: /How the Pool works/ });
     if (btn.getAttribute("aria-expanded") !== "true") await userEvent.click(btn);
   },
 };

@@ -1,61 +1,19 @@
 /* ——— Leaderboard (/leaderboard) ——— */
-.lb { display: grid; gap: 22px; max-width: 1120px; width: 100%; margin: 0 auto; }
-.lb-head { display: grid; gap: 6px; }
-.lb-head p { color: var(--fg-2); font-size: var(--fs-16); line-height: 1.5; max-width: 60ch; }
-/* loading: the hero, the season heading and the table in outline */
-.lb-hero.skel { --edge: var(--edge-1); background: radial-gradient(55% 120% at 82% 55%, rgba(234, 239, 236, 0.05), transparent 70%), var(--surface); }
-.lb-skel-chest { width: 70%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(closest-side, rgba(234, 239, 236, 0.09), rgba(234, 239, 236, 0.03) 70%, transparent); }
+.lb { display: grid; gap: 14px; max-width: 1120px; width: 100%; margin: 0 auto; }
+/* loading: the band and the rows in outline */
+.lb-band.skel { --edge: var(--edge-1); background: var(--surface); }
+.lb-skel-chest { width: 56px; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(closest-side, rgba(234, 239, 236, 0.09), rgba(234, 239, 236, 0.03) 70%, transparent); }
 .lb-skel-kicker { width: min(280px, 70%); height: 12px; }
-.lb-skel-fig { width: min(420px, 90%); height: clamp(64px, 9vw, 124px); margin: 4px 0; }
-.lb-skel-title { width: min(380px, 86%); height: 24px; }
-.lb-skel-text { width: min(340px, 80%); }
-.lb-skel-chip { display: block; width: 190px; height: 38px; background: rgba(234, 239, 236, 0.06); clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
-.lb-skel-chip.short { width: 120px; }
-.lb-skel-h { width: 170px; height: 30px; }
+.lb-skel-fig { width: 110px; height: 44px; }
 .lb-skel-rows .skel-av { --edge: transparent; }
 .lb-skel-rows .lb-who .skel-line { flex: none; }
 .lb-skel-rows .lb-rank .skel-line { width: 18px; height: 24px; margin: 0 auto; }
-.lb-skel-rows .lb-num .skel-line { width: 40px; }
+.lb-skel-rows .lb-pts .skel-line { width: 40px; }
 .lb-skel-rows .lb-prize .skel-line { width: 96px; }
-
-/* the pool: a banner in gold, the Pool's colour. The chest is the cut-out (no lighten blend), so the rays stay behind it */
-.lb-hero {
-  --edge: var(--edge-gold); position: relative; isolation: isolate; overflow: hidden;
-  background: radial-gradient(55% 120% at 82% 55%, rgba(255, 180, 60, 0.22), transparent 70%), var(--surface);
-  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; min-height: 320px; padding: 34px 36px;
-}
-.lb-hero-art { position: absolute; z-index: -1; right: -2%; top: 50%; translate: 0 -50%; width: min(48%, 460px); aspect-ratio: 1; display: grid; place-items: center; }
-.lb-hero-rays {
-  position: absolute; inset: -30%;
-  background: repeating-conic-gradient(from 0deg, rgba(255, 200, 100, 0.13) 0 5deg, transparent 5deg 15deg);
-  -webkit-mask-image: radial-gradient(closest-side, #000 15%, transparent 95%); mask-image: radial-gradient(closest-side, #000 15%, transparent 95%);
-  animation: lb-spin 50s linear infinite;
-}
-.lb-hero-chest { position: relative; display: block; width: 100%; height: auto; animation: lb-bob 5s ease-in-out infinite; }
-.lb-hero-copy { display: grid; gap: 10px; justify-items: start; min-width: 0; }
-.lb-hero-kicker { font-size: var(--fs-13); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
-.lb-hero-kicker b { color: var(--fg); font-weight: 500; letter-spacing: 0; text-transform: none; font-size: var(--fs-14); white-space: nowrap; }
-.lb-hero-fig { font-size: clamp(72px, 11vw, 148px); font-weight: 800; line-height: 0.9; letter-spacing: -0.035em; filter: drop-shadow(0 6px 24px rgba(214, 140, 28, 0.35)); }
-.lb-hero-title { font-family: var(--f-display); font-size: clamp(20px, 2.2vw, 28px); font-weight: 800; text-transform: uppercase; line-height: 1; }
-.lb-hero-copy p { color: var(--fg-2); font-size: var(--fs-15); line-height: 1.5; max-width: 46ch; }
-.lb-hero-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
-.lb-hero-chip {
-  display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px 7px 10px; font-size: var(--fs-14); color: var(--fg-2);
-  background: rgba(255, 255, 255, 0.06); backdrop-filter: blur(8px);
-  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
-}
-.lb-hero-chip b { color: var(--fg); }
-.lb-hero-you { display: inline-block; line-height: 1.45; }
-.lb-hero-faces { display: inline-flex; }
-.lb-hero-faces img { width: 26px; height: 26px; border-radius: 50%; box-shadow: 0 0 0 2px var(--surface); margin-left: -7px; }
-.lb-hero-faces img:first-child { margin-left: 0; }
-@keyframes lb-spin { to { rotate: 360deg; } }
-@keyframes lb-bob { 50% { translate: 0 -8px; } }
-@media (prefers-reduced-motion: reduce) { .lb-hero-rays, .lb-hero-chest { animation: none; } }
 
 /* the season before is still paying out: a gold tab clipped onto the hero's top edge (its margin eats the grid gap) */
 .lb-paying {
-  justify-self: start; margin: 0 0 -22px 28px; position: relative; z-index: 1;
+  justify-self: start; margin: 0 0 -14px 20px; position: relative; z-index: 1;
   display: inline-flex; align-items: center; gap: 10px; padding: 9px 20px 8px 14px; font-size: var(--fs-14); color: #2a1702;
   background: var(--gold-facet);
   clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%, 0 10px);
@@ -67,14 +25,6 @@
 @media (prefers-reduced-motion: reduce) { .lb-paying-gem { animation: none; } }
 
 .lb-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
-
-/* this season: tools, the Payout scale band, the table and its pages */
-.lb-season { display: grid; gap: 14px; }
-.lb-season .lb-sec-head { margin-bottom: 0; flex-wrap: wrap; align-items: center; row-gap: 4px; scroll-margin-top: 84px; }
-.lb-pay-sum { flex-basis: 100%; color: var(--fg-2); font-size: var(--fs-14); font-variant-numeric: tabular-nums; }
-.lb-season-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
-.lb-chev { transition: transform 0.2s; }
-[aria-expanded="false"] > .lb-chev { transform: rotate(-90deg); }
 
 .lb-payout { --edge: var(--edge-1); background: var(--surface); display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr); gap: 28px; padding: 20px 24px; }
 .lb-chart { display: grid; gap: 12px; }
@@ -116,37 +66,73 @@
 .lb-pager .btn { min-width: 44px; justify-content: center; }
 .lb-page[aria-current="page"] { background: var(--fg); color: var(--shell); --edge: var(--edge-2); }
 
-/* this season's ranks as cards: rank, who, wins, points, prize (with its share under it) */
-.lb-group { display: grid; gap: 8px; }
-.lb-group + .lb-group { margin-top: 10px; }
-.lb-group-h { font-size: var(--fs-12); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg); padding-left: 4px; }
-.lb-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+/* the Pool: one slim gold band (chest, figure, countdown, ⓘ); the ⓘ opens how it works and the payout scale under it */
+.lb-band-wrap { display: grid; gap: 10px; }
+.lb-band {
+  --edge: var(--edge-gold); display: flex; align-items: center; gap: 12px; min-height: 84px; padding: 10px 6px 10px 12px;
+  background: radial-gradient(60% 140% at 12% 50%, rgba(255, 180, 60, 0.2), transparent 70%), var(--surface);
+}
+.lb-band-chest { flex: none; width: 64px; height: 64px; object-fit: contain; filter: drop-shadow(0 4px 14px rgba(214, 140, 28, 0.35)); }
+.lb-band-pool { display: grid; gap: 2px; min-width: 0; }
+.lb-band-fig { font-size: clamp(40px, 12vw, 64px); font-weight: 800; line-height: 0.9; letter-spacing: -0.03em; }
+.lb-band-pool .gema-usd { font-size: var(--fs-14); }
+.lb-band-season { margin-left: auto; display: grid; gap: 3px; justify-items: end; padding-left: 12px; border-left: 1px solid var(--line-2); }
+.lb-band-season b { font-family: var(--f-display); font-size: var(--fs-18); font-weight: 800; text-transform: uppercase; line-height: 1; }
+.lb-band-season span { font-size: var(--fs-13); color: var(--fg-2); white-space: nowrap; }
+.lb-info-btn { flex: none; display: grid; place-items: center; width: 44px; height: 44px; background: transparent; border: 0; color: var(--fg-2); }
+.lb-info-btn svg { width: 20px; height: 20px; }
+.lb-info-btn:hover { color: var(--fg); }
+.lb-info { display: grid; gap: 12px; }
+.lb-info > p { color: var(--fg-2); font-size: var(--fs-14); line-height: 1.5; }
+
+/* the podium: 2nd, 1st (raised), 3rd, outlined gold, silver and bronze */
+.lb-season { display: grid; gap: 10px; }
+.lb-podium { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-items: end; }
+.lb-place {
+  --c: 12px; display: grid; justify-items: center; gap: 1px; padding: 8px 6px; text-align: center; background: var(--surface); min-width: 0;
+}
+.lb-place.p1 { order: 2; --edge: var(--edge-gold); padding-top: 12px; padding-bottom: 12px; background: radial-gradient(80% 60% at 50% 0%, rgba(255, 190, 70, 0.16), transparent 70%), var(--surface); }
+.lb-place.p2 { order: 1; --edge: linear-gradient(180deg, rgba(232, 238, 244, 0.85) 0, rgba(170, 182, 194, 0.42) 40%, rgba(170, 182, 194, 0.24) 100%); }
+.lb-place.p3 { order: 3; --edge: linear-gradient(180deg, rgba(240, 178, 120, 0.85) 0, rgba(176, 102, 48, 0.42) 40%, rgba(176, 102, 48, 0.24) 100%); }
+.lb-place-rank { font-family: var(--f-display); font-size: var(--fs-18); font-weight: 800; line-height: 1; }
+.lb-place.p1 .lb-place-rank { background: var(--gold-facet); -webkit-background-clip: text; background-clip: text; color: transparent; font-size: 24px; }
+.lb-place.p2 .lb-place-rank { color: #d9e1e8; }
+.lb-place.p3 .lb-place-rank { color: #e3a46c; }
+.lb-place-avatar { width: 40px; height: 40px; --c: 9px; margin: 2px 0; }
+.lb-place.p1 .lb-place-avatar { width: 50px; height: 50px; --c: 11px; }
+.lb-place .lb-name { max-width: 100%; font-size: var(--fs-13); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-place .lb-pts { font-size: var(--fs-12); }
+.lb-place .lb-prize { display: grid; justify-items: center; gap: 0; }
+.lb-place .lb-prize b { font-size: var(--fs-15); }
+.lb-place .gema-usd { font-size: var(--fs-11); }
+
+/* the rest: one line each (rank, who, points, prize) */
+.lb-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .lb-row {
-  --edge: var(--edge-1);
-  background: var(--surface);
-  display: grid; grid-template-columns: 44px minmax(0, 1fr) 64px 76px minmax(170px, auto); align-items: center; gap: 12px; padding: 12px 20px 12px 12px; min-height: 76px;
+  --c: 10px; --edge: var(--edge-1); background: var(--surface);
+  display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 76px; align-items: center; gap: 10px; padding: 8px 12px 8px 8px; min-height: 58px;
 }
 .lb-row.paid { --edge: var(--edge-2); }
+.lb-row.first-out { margin-top: 8px; }
 .lb-row.me { --edge: var(--edge-2); background: var(--surface-2); box-shadow: inset 3px 0 var(--fg); }
-.lb-rank { font-family: var(--f-display); font-weight: 800; font-size: 30px; line-height: 1; text-align: center; color: var(--fg-2); }
+.lb-rank { font-family: var(--f-display); font-weight: 800; font-size: 22px; line-height: 1; text-align: center; color: var(--fg-2); }
 .lb-row.paid .lb-rank { color: var(--fg); }
-.lb-who { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.lb-avatar { width: 44px; height: 44px; flex: none; --c: 9px; }
+.lb-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.lb-avatar { width: 38px; height: 38px; flex: none; --c: 8px; }
 .lb-name { min-width: 0; }
-.lb-name b { font-size: var(--fs-17); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
-.lb-row .lb-name { font-size: var(--fs-17); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lb-you { font-style: normal; font-size: var(--fs-12); font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 8px; background: var(--fg); color: var(--shell); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
-.lb-num { display: grid; gap: 0; justify-items: end; line-height: 1.15; }
-.lb-num b { font-size: var(--fs-20); font-weight: 800; font-variant-numeric: tabular-nums; }
-.lb-num small { font-size: var(--fs-13); color: var(--fg-2); }
-.lb-prize { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; color: var(--em-hi); }
-.lb-prize b { font-size: var(--fs-18); font-weight: 800; font-variant-numeric: tabular-nums; }
-.lb-prize small { color: var(--fg-2); font-size: var(--fs-13); margin-left: 4px; }
-.lb-prize-stack { display: grid; justify-items: end; gap: 2px; }
-.lb-prize-line { display: inline-flex; align-items: center; gap: 6px; }
-.lb-prize-stack b { font-size: var(--fs-22); }
-.lb-prize-stack small { margin-left: 0; }
-.lb-row .lb-prize.lb-dim { justify-content: flex-end; color: var(--fg-2); }
+.lb-row .lb-name { font-size: var(--fs-15); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-you { font-style: normal; font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; background: var(--fg); color: var(--shell); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.lb-pts { font-size: var(--fs-13); color: var(--fg-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lb-pts b { font-size: var(--fs-16); font-weight: 800; color: var(--fg); }
+.lb-prize { display: grid; justify-items: end; gap: 1px; color: var(--em-hi); }
+.lb-prize-line { display: inline-flex; align-items: center; gap: 5px; }
+.lb-prize b { font-size: var(--fs-16); font-weight: 800; font-variant-numeric: tabular-nums; }
+.lb-prize .gema-usd { font-size: var(--fs-12); }
+.lb-prize small { color: var(--fg-2); font-size: var(--fs-12); }
+.lb-prize.lb-dim { color: var(--fg-2); }
+/* your row, pinned above the bottom nav while the real one is out of view */
+.lb-pin { position: sticky; bottom: calc(var(--nav-h) + 10px + env(safe-area-inset-bottom)); z-index: 5; width: 100%; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; box-shadow: inset 3px 0 var(--fg), 0 -8px 24px rgba(4, 7, 9, 0.6); }
+@media (min-width: 1024px) { .lb-pin { bottom: 16px; } }
 
 .lb-empty { --edge: var(--edge-1); background: var(--surface); display: grid; gap: 10px; justify-items: start; padding: 24px 26px; }
 .lb-empty p { color: var(--fg-2); font-size: var(--fs-15); line-height: 1.5; max-width: 52ch; }
@@ -160,17 +146,10 @@
 
 @media (max-width: 1023px) {
   .lb-payout { grid-template-columns: minmax(0, 1fr); }
-  .lb-hero { grid-template-columns: minmax(0, 1fr); padding: 24px 20px; min-height: 0; }
-  .lb-hero-art { top: -6px; translate: 0 0; right: -6%; width: 50%; }
-  .lb-hero-copy { padding-top: 168px; }
-  .lb-hero-kicker { font-size: var(--fs-12); }
 }
 @media (max-width: 640px) {
-  /* phones: the chest takes the card's width, the copy starts under it */
-  .lb-hero-art { right: auto; left: 50%; translate: -50% 0; top: -4%; width: 60%; max-width: 230px; }
-  .lb-hero-copy { padding-top: min(42vw, 190px); }
-  /* the tab spans the hero's top edge from one cut corner to the other, so it reads as the card's lid */
-  .lb-paying { justify-self: stretch; justify-content: center; margin-inline: var(--cut-frame); font-size: var(--fs-13); }
+  /* the tab spans the band's top edge from one cut corner to the other */
+  .lb-paying { justify-self: stretch; justify-content: center; margin-inline: var(--cut-card); font-size: var(--fs-13); }
   .lb-paying-sub { display: none; }
   .lb-payout { padding: 16px; gap: 20px; }
   .lb-rules { order: -1; }
@@ -180,23 +159,20 @@
   .lb-col-full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .lb-col-short { display: inline; }
   .lb-table td, .lb-table th { padding: 8px 6px; }
-  .lb-table .lb-c-opt { display: none; }
   .lb-table .lb-c-rank { width: 30px; }
   .lb-table .lb-avatar { width: 26px; height: 26px; --c: 6px; }
   .lb-table .lb-name { max-width: 140px; }
-  .lb-row { grid-template-columns: 32px minmax(0, 1fr) auto; grid-template-areas: "rank who prize" "rank stats stats"; padding: 10px 12px; gap: 6px 10px; min-height: 0; }
-  .lb-prize-stack b { font-size: var(--fs-18); }
-  .lb-prize-stack small { display: none; }
-  /* the $ goes under the Gema figure so names keep their room */
-  .lb-prize-line, .lb-last .lb-prize { display: inline-grid; grid-template-columns: auto auto; align-items: center; justify-items: end; column-gap: 5px; }
-  .lb-prize-line .gema-usd, .lb-last .lb-prize .gema-usd, .lb-last .lb-prize small { grid-column: 1 / -1; margin-left: 0; }
-  .lb-row .lb-avatar { width: 36px; height: 36px; --c: 8px; }
-  .lb-row .lb-name { font-size: var(--fs-15); }
-  .lb-rank { grid-area: rank; font-size: 26px; }
-  .lb-who { grid-area: who; }
-  .lb-prize { grid-area: prize; }
-  .lb-num { display: inline-flex; gap: 5px; align-items: baseline; justify-content: start; grid-area: stats; }
-  .lb-num.lb-wins { display: none; }
-  .lb-num b { font-size: var(--fs-16); }
+  .lb-last .lb-prize { display: inline-grid; grid-template-columns: auto auto; align-items: center; justify-items: end; column-gap: 5px; }
+  .lb-last .lb-prize .gema-usd, .lb-last .lb-prize small { grid-column: 1 / -1; margin-left: 0; }
 }
-.lb-hero-chip .gema-usd, .lb-prize .gema-usd, .lb-last-pool .gema-usd { font-size: var(--fs-13); }
+@media (min-width: 1024px) {
+  .lb { gap: 20px; }
+  .lb-band { min-height: 108px; padding: 14px 12px 14px 20px; gap: 20px; }
+  .lb-band-chest { width: 84px; height: 84px; }
+  .lb-band-fig { font-size: 76px; }
+  .lb-place-avatar { width: 64px; height: 64px; }
+  .lb-place.p1 .lb-place-avatar { width: 76px; height: 76px; }
+  .lb-place .lb-name { font-size: var(--fs-16); }
+  .lb-row { grid-template-columns: 44px minmax(0, 1fr) auto 120px; min-height: 64px; padding: 10px 20px 10px 12px; }
+}
+.lb-last-pool .gema-usd { font-size: var(--fs-13); }

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, X } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
@@ -10,7 +10,7 @@ import { useAccount } from "@/lib/account";
 import { ENTRY_SIZES } from "@/lib/cluster-settings";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
-import { lastRankNote, seasonStanding, standingSummary, type LastSeason, type LeaderboardRow, type LeaderboardView, type SeasonStanding } from "@/lib/chain/leaderboard-view";
+import { lastRankNote, type LastSeason, type LeaderboardRow, type LeaderboardView } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { usePool } from "@/lib/chain/usePool";
 import { POINTS_DIVISOR, PRIZE_BPS, PRIZE_PLACES } from "@/lib/chain/season";
@@ -20,10 +20,10 @@ import "./leaderboard.css";
 /** Prize of rank `i` from a pool, floored as in the program. */
 const prize = (pool: number, i: number) => Math.floor((pool * PRIZE_BPS[i]) / 10_000);
 
-/** Rows per page of the season table. */
+/** Rows per page of the season table, under the podium. */
 const PAGE = 15;
-/** Whether the Payout scale band is shown: remembered per browser. */
-const PAYOUT_KEY = "tesoro.leaderboard.payout";
+/** The podium's places. */
+const PODIUM = 3;
 const ENTRIES = ENTRY_SIZES;
 const SHORT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const ord = (n: number) => {
@@ -37,7 +37,7 @@ function left(secs: number): string {
   const d = Math.floor(s / 86_400);
   const h = Math.floor((s % 86_400) / 3_600);
   const m = Math.floor((s % 3_600) / 60);
-  return `${d > 0 ? `${d}d ` : ""}${pad(h)}h ${pad(m)}m ${pad(s % 60)}s`;
+  return d > 0 ? `${d}d ${pad(h)}h ${pad(m)}m` : `${pad(h)}h ${pad(m)}m ${pad(s % 60)}s`;
 }
 
 /** Seconds on the server's clock, ticking: the page does not trust the visitor's clock. */
@@ -66,10 +66,7 @@ export function Leaderboard() {
 
   return (
     <div className="lb">
-      <header className="lb-head">
-        <h1 className="page-title">Leaderboard</h1>
-        <p>Win Matches to earn points. Every week the top ten Players share the prize pool.</p>
-      </header>
+      <h1 className="page-title">Leaderboard</h1>
 
       {!data ? (
         error ? (
@@ -87,106 +84,74 @@ export function Leaderboard() {
   );
 }
 
-/** Loading: the page in outline (the pool banner, the season heading, the season's rows), not a stack of bars. */
+/** Loading: the page in outline (the Pool band, the podium, the rows), not a stack of bars. */
 function LoadingSkeleton() {
   return (
     <>
       <span className="sr-only" role="status">
         Loading the leaderboard…
       </span>
-      <div className="cut cut-frame lb-hero skel" aria-hidden="true">
-        <div className="lb-hero-art">
-          <span className="lb-skel-chest" />
-        </div>
-        <div className="lb-hero-copy">
-          <span className="skel-line lb-skel-kicker" />
-          <span className="skel-line lb-skel-fig" />
-          <span className="skel-line lg lb-skel-title" />
-          <span className="skel-line lb-skel-text" />
-          <span className="lb-hero-chips">
-            <span className="lb-skel-chip" />
-            <span className="lb-skel-chip short" />
-          </span>
-        </div>
+      <div className="cut cut-card lb-band skel" aria-hidden="true">
+        <span className="lb-skel-chest" />
+        <span className="skel-line lb-skel-fig" />
+        <span className="skel-line lb-skel-kicker" />
       </div>
-      <section className="lb-season" aria-hidden="true">
-        <header className="lb-sec-head lb-season-head">
-          <span className="skel-line lb-skel-h" />
-        </header>
-        <ol className="lb-rows lb-skel-rows">
-          {Array.from({ length: 6 }, (_, i) => (
-            <li key={i} className="cut cut-card lb-row">
-              <span className="lb-rank">
-                <span className="skel-line" />
-              </span>
-              <span className="lb-who">
-                <span className="cut cut-btn avatar lb-avatar skel-av" />
-                <span className="skel-line" style={{ width: `${[52, 44, 60, 48, 40][i % 5]}%` }} />
-              </span>
-              <span className="lb-num lb-wins">
-                <span className="skel-line" />
-              </span>
-              <span className="lb-num">
-                <span className="skel-line" />
-              </span>
-              <span className="lb-prize">
-                <span className="skel-line" />
-              </span>
-            </li>
-          ))}
-        </ol>
-      </section>
+      <ol className="lb-rows lb-skel-rows" aria-hidden="true">
+        {Array.from({ length: 6 }, (_, i) => (
+          <li key={i} className="cut cut-card lb-row">
+            <span className="lb-rank">
+              <span className="skel-line" />
+            </span>
+            <span className="lb-who">
+              <span className="cut cut-btn avatar lb-avatar skel-av" />
+              <span className="skel-line" style={{ width: `${[52, 44, 60, 48, 40][i % 5]}%` }} />
+            </span>
+            <span className="lb-pts">
+              <span className="skel-line" />
+            </span>
+            <span className="lb-prize">
+              <span className="skel-line" />
+            </span>
+          </li>
+        ))}
+      </ol>
     </>
   );
 }
 
-/** The pool as a banner: the figure huge on the left, the cut-out chest over turning light on the right. */
-function Hero({ data, pool, remaining, standing }: { data: LeaderboardView; pool: number; remaining: number | null; standing: SeasonStanding | null }) {
-  const faces = data.standings.slice(0, 5);
+/** The Pool as one slim gold band: chest, figure, the Season's countdown and an ⓘ that holds how it works and the payout scale. */
+function PoolBand({ data, pool, remaining }: { data: LeaderboardView; pool: number; remaining: number | null }) {
+  const [info, setInfo] = useState(false);
   return (
-    <section className="cut cut-frame lb-hero" aria-label="This season">
-      <div className="lb-hero-art" aria-hidden="true">
-        <div className="lb-hero-rays" />
-        <Image className="lb-hero-chest" src={art.poolChestCut} alt="" width={420} height={420} priority />
-      </div>
-      <div className="lb-hero-copy">
-        <span className="lb-hero-kicker">
-          Season {data.season.number} · ends in{" "}
-          <b className="mono" aria-live="off">{remaining === null ? "—" : left(remaining)}</b>
+    <section className="lb-band-wrap" aria-label="This season">
+      <div className="cut cut-card lb-band">
+        <Image className="lb-band-chest" src={art.poolChestCut} alt="" width={160} height={160} priority />
+        <span className="lb-band-pool">
+          <b className="pool-fig lb-band-fig">
+            <CountUp value={pool} duration={1200} />
+          </b>
+          {pool > 0 && <GemaUsd value={pool} />}
         </span>
-        <b className="pool-fig lb-hero-fig">
-          <CountUp value={pool} duration={1200} />
-        </b>
-        <span className="lb-hero-title">
-          Gemas in the Leaderboard Pool{pool > 0 && <> <GemaUsd value={pool} /></>}
-        </span>
-        <p>
-          {data.feeBps > 0 ? `${data.feeBps / 100}% of every Pot goes in, from every Game.` : "The pool opens with the next upgrade."} The top{" "}
-          {PRIZE_PLACES} share it every Monday.
-        </p>
-        <div className="lb-hero-chips">
-          <span className="lb-hero-chip">
-            {faces.length > 0 && (
-              <span className="lb-hero-faces" aria-hidden="true">
-                {faces.map((r) => (
-                  <PlayerAvatar key={r.account} account={r.account} size={28} />
-                ))}
-              </span>
-            )}
-            <b>{data.players}</b> {data.players === 1 ? "Player" : "Players"} with points
+        <span className="lb-band-season">
+          <b>Season {data.season.number}</b>
+          <span className="mono" aria-live="off" aria-label="Ends in">
+            {remaining === null ? "—" : left(remaining)}
           </span>
-          {pool > 0 && (
-            <span className="lb-hero-chip">
-              1st takes <GemaMark size={14} /> <b>{fmtGemas(prize(pool, 0))}</b> <GemaUsd value={prize(pool, 0)} />
-            </span>
-          )}
-          {standing && (
-            <span className="lb-hero-chip lb-hero-you">
-              <b>You</b> {standingSummary(standing, data.players, ENTRIES[0] / POINTS_DIVISOR)}
-            </span>
-          )}
-        </div>
+        </span>
+        <button type="button" className="lb-info-btn" aria-expanded={info} aria-controls="lb-info" aria-label={info ? "Close how the Pool works" : "How the Pool works"} onClick={() => setInfo(!info)}>
+          {info ? <X aria-hidden="true" /> : <Info aria-hidden="true" />}
+        </button>
       </div>
+      {info && (
+        <div id="lb-info" className="lb-info">
+          <p>
+            Win Matches to earn points.{" "}
+            {data.feeBps > 0 ? `${data.feeBps / 100}% of every Pot goes into the Pool, from every Game.` : "The Pool opens with the next upgrade."} The top{" "}
+            {PRIZE_PLACES} share it every Monday.
+          </p>
+          <Payout pool={pool} />
+        </div>
+      )}
     </section>
   );
 }
@@ -194,7 +159,6 @@ function Hero({ data, pool, remaining, standing }: { data: LeaderboardView; pool
 function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | null; now: number | null; stale: boolean }) {
   const remaining = now === null ? null : data.season.end - now;
   const pool = usePool() ?? data.poolGemas;
-  const standing = me ? seasonStanding(data, me) : null;
 
   return (
     <>
@@ -209,7 +173,7 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
           </span>
         </div>
       )}
-      <Hero data={data} pool={pool} remaining={remaining} standing={standing} />
+      <PoolBand data={data} pool={pool} remaining={remaining} />
 
       <Season data={data} pool={pool} me={me} />
 
@@ -234,132 +198,130 @@ function Person({ account }: { account: string }) {
   );
 }
 
-/** One line for the closed Payout scale: the top three prizes and what a win is worth. */
-function payoutSummary(pool: number): string {
-  const wins = `${ENTRIES.map((e) => `+${e / POINTS_DIVISOR}`).join(" / ")} per win`;
-  if (pool <= 0) return wins;
-  return `1st ${SHORT.format(prize(pool, 0))} · 2nd ${SHORT.format(prize(pool, 1))} · 3rd ${SHORT.format(prize(pool, 2))} · ${wins}`;
-}
-
-function readPayout(): boolean {
-  try {
-    return localStorage.getItem(PAYOUT_KEY) === "on";
-  } catch {
-    return false;
-  }
-}
-
-/** This season's ranks as cards, 15 a page, under the Payout scale band (which the visitor can hide). */
+/** This season: the top three on a podium, then the rest as compact rows, 15 a page. Your own row stays pinned above the nav while it is out of view. */
 function Season({ data, pool, me }: { data: LeaderboardView; pool: number; me: string | null }) {
   const rows = data.standings;
-  // Mounted only once the leaderboard has loaded in the browser, so reading storage here cannot mismatch a server render.
-  const [payout, setPayout] = useState(readPayout);
+  const podium = rows.slice(0, PODIUM);
+  const rest = rows.slice(PODIUM);
   const [page, setPage] = useState(0);
-  const head = useRef<HTMLElement>(null);
-  const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+  const top = useRef<HTMLElement>(null);
+  const pages = Math.max(1, Math.ceil(rest.length / PAGE));
   const p = Math.min(page, pages - 1);
-  const shown = rows.slice(p * PAGE, (p + 1) * PAGE);
-  const paid = shown.filter((r) => r.rank <= PRIZE_PLACES);
-  const chasing = shown.filter((r) => r.rank > PRIZE_PLACES);
-  const line = rows[PRIZE_PLACES - 1]?.points;
+  const shown = rest.slice(p * PAGE, (p + 1) * PAGE);
   const mine = rows.find((r) => r.account === me);
-  const myPage = mine ? Math.floor((mine.rank - 1) / PAGE) : null;
+  const myPage = mine && mine.rank > PODIUM ? Math.floor((mine.rank - PODIUM - 1) / PAGE) : null;
+  const myRow = useRef<HTMLLIElement>(null);
+  const [mineInView, setMineInView] = useState(false);
+  useEffect(() => {
+    const el = myRow.current;
+    if (!el) return setMineInView(false);
+    const io = new IntersectionObserver(([e]) => setMineInView(e.isIntersecting), { rootMargin: "0px 0px -80px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [p, mine?.rank]);
 
-  const toggle = () => {
-    setPayout(!payout);
-    try {
-      localStorage.setItem(PAYOUT_KEY, payout ? "off" : "on");
-    } catch {}
-  };
   const go = (n: number) => {
     setPage(n);
-    const el = head.current;
+    const el = top.current;
     if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: "start" });
   };
+  const showMine = () => {
+    if (myPage === null) return;
+    setPage(myPage);
+    requestAnimationFrame(() => myRow.current?.scrollIntoView({ block: "center", behavior: "smooth" }));
+  };
+
+  if (rows.length === 0) {
+    return (
+      <div className="cut cut-card lb-empty">
+        <b>No points yet this season.</b>
+        <p>The first win puts you at the top. A won Match earns one point for every {POINTS_DIVISOR} Gemas of entry.</p>
+      </div>
+    );
+  }
 
   return (
-    <section className="lb-season" aria-labelledby="lb-table-h">
-      <header className="lb-sec-head lb-season-head" ref={head}>
-        <h2 id="lb-table-h" className="h-section">Season {data.season.number}</h2>
-        <div className="lb-season-tools">
-          {mine && myPage !== null && myPage !== p && (
-            <Button size="sm" onClick={() => go(myPage)}>
-              You’re {ord(mine.rank)}
-            </Button>
-          )}
-          <Button size="sm" aria-expanded={payout} aria-controls="lb-payout" onClick={toggle} icon={<ChevronDown className="lb-chev" size={16} aria-hidden="true" />}>
-            Payout scale
-          </Button>
-        </div>
-        {!payout && <p className="lb-pay-sum">{payoutSummary(pool)}</p>}
-      </header>
-
-      {payout && <Payout pool={pool} />}
-
-      {rows.length === 0 ? (
-        <div className="cut cut-card lb-empty">
-          <b>No points yet this season.</b>
-          <p>The first win puts you at the top. A won Match earns one point for every {POINTS_DIVISOR} Gemas of entry.</p>
-        </div>
-      ) : (
-        <>
-          {paid.length > 0 && (
-            <div className="lb-group">
-              <h3 className="lb-group-h">In the prizes</h3>
-              <ol className="lb-rows">
-                {paid.map((r) => (
-                  <Row key={r.account} r={r} pool={pool} me={me === r.account} />
-                ))}
-              </ol>
-            </div>
-          )}
-          {chasing.length > 0 && (
-            <div className="lb-group">
-              <h3 className="lb-group-h">Chasing{line !== undefined && ` · ${line + 1} points gets you in`}</h3>
-              <ol className="lb-rows">
-                {chasing.map((r) => (
-                  <Row key={r.account} r={r} pool={pool} me={me === r.account} />
-                ))}
-              </ol>
-            </div>
-          )}
-          {pages > 1 && <Pager page={p} pages={pages} total={rows.length} go={go} />}
-        </>
+    <section className="lb-season" aria-label={`Season ${data.season.number} ranks`} ref={top}>
+      <ol className="lb-podium">
+        {podium.map((r) => (
+          <Place key={r.account} r={r} pool={pool} me={me === r.account} />
+        ))}
+      </ol>
+      {shown.length > 0 && (
+        <ol className="lb-rows" start={PODIUM + 1 + p * PAGE}>
+          {shown.map((r) => (
+            <Row key={r.account} r={r} pool={pool} me={me === r.account} rowRef={me === r.account ? myRow : undefined} />
+          ))}
+        </ol>
+      )}
+      {pages > 1 && <Pager page={p} pages={pages} total={rest.length} go={go} />}
+      {mine && mine.rank > PODIUM && !mineInView && (
+        <button type="button" className="cut cut-card lb-row lb-pin me" onClick={showMine} aria-label={`You're ${ord(mine.rank)} with ${mine.points} points. Show your row`}>
+          <span className="lb-rank">{mine.rank}</span>
+          <span className="lb-who">
+            <span className="cut cut-btn avatar lb-avatar">
+              <PlayerAvatar account={mine.account} size={40} />
+            </span>
+            <i className="lb-you">You</i>
+          </span>
+          <span className="lb-pts">
+            <b>{mine.points}</b> pts
+          </span>
+          <Prize r={mine} pool={pool} />
+        </button>
       )}
     </section>
   );
 }
 
-function Row({ r, pool, me }: { r: LeaderboardRow; pool: number; me: boolean }) {
-  const paid = r.rank <= PRIZE_PLACES;
-  const gemas = paid ? prize(pool, r.rank - 1) : 0;
+/** The Gemas a rank wins, with ≈$; a dash outside the paid places. */
+function Prize({ r, pool }: { r: LeaderboardRow; pool: number }) {
+  if (r.rank > PRIZE_PLACES) return <span className="lb-prize lb-dim">—</span>;
+  const gemas = prize(pool, r.rank - 1);
   return (
-    <li className={`cut cut-card lb-row${paid ? " paid" : ""}${me ? " me" : ""}`} aria-current={me ? "true" : undefined}>
+    <span className="lb-prize">
+      <span className="lb-prize-line">
+        <GemaMark size={14} />
+        <b>{fmtGemas(gemas)}</b>
+      </span>
+      <GemaUsd value={gemas} />
+    </span>
+  );
+}
+
+/** A podium place: 1st in the middle and raised, outlined gold, silver and bronze. */
+function Place({ r, pool, me }: { r: LeaderboardRow; pool: number; me: boolean }) {
+  return (
+    <li className={`cut cut-card lb-place p${r.rank}${me ? " me" : ""}`} aria-current={me ? "true" : undefined}>
+      <span className="lb-place-rank" aria-label={`Rank ${r.rank}`}>{r.rank}</span>
+      <AccountLink account={r.account} decorative>
+        <span className="cut cut-btn avatar lb-place-avatar">
+          <PlayerAvatar account={r.account} size={64} />
+        </span>
+      </AccountLink>
+      <AccountLink account={r.account} className="lb-name" />
+      {me && <i className="lb-you">You</i>}
+      <span className="lb-pts">
+        <b>{r.points}</b> pts
+      </span>
+      <Prize r={r} pool={pool} />
+    </li>
+  );
+}
+
+function Row({ r, pool, me, rowRef }: { r: LeaderboardRow; pool: number; me: boolean; rowRef?: React.Ref<HTMLLIElement> }) {
+  const paid = r.rank <= PRIZE_PLACES;
+  return (
+    <li ref={rowRef} className={`cut cut-card lb-row${paid ? " paid" : ""}${me ? " me" : ""}${r.rank === PRIZE_PLACES + 1 ? " first-out" : ""}`} aria-current={me ? "true" : undefined}>
       <span className="lb-rank" aria-label={`Rank ${r.rank}`}>{r.rank}</span>
       <span className="lb-who">
         <Person account={r.account} />
         {me && <i className="lb-you">You</i>}
       </span>
-      <span className="lb-num lb-wins">
-        <b>{r.wins}</b>
-        <small>{r.wins === 1 ? "win" : "wins"}</small>
+      <span className="lb-pts">
+        <b>{r.points}</b> pts
       </span>
-      <span className="lb-num">
-        <b>{r.points}</b>
-        <small>points</small>
-      </span>
-      {paid ? (
-        <span className="lb-prize lb-prize-stack">
-          <span className="lb-prize-line">
-            <GemaMark size={16} />
-            <b>{fmtGemas(gemas)}</b>
-            <GemaUsd value={gemas} />
-          </span>
-          <small>{PRIZE_BPS[r.rank - 1] / 100}% of the pool</small>
-        </span>
-      ) : (
-        <span className="lb-prize lb-dim">—</span>
-      )}
+      <Prize r={r} pool={pool} />
     </li>
   );
 }

@@ -38,11 +38,11 @@ export function GameGrid() {
     <section className="games" aria-labelledby="games-h">
       <h2 id="games-h" className="h-section">Games</h2>
       <div className="games-grid">
-        {live.map((g) => {
+        {live.map((g, i) => {
           const waiting = g.game && queue ? Object.values(waitingByEntry(queue[g.game], ENTRY_SIZES, me)).reduce((a, n) => a + n, 0) : 0;
           return (
             <Link key={g.key} href={`/play/${g.game}`} className="cut cut-frame tile game-tile" onPointerMove={tilt} onPointerLeave={untilt}>
-              <Image src={g.tile} alt="" fill sizes="(min-width: 1024px) 22vw, 50vw" />
+              <Image src={g.tile} alt="" fill sizes="(min-width: 1024px) 22vw, 50vw" loading={i < 2 ? "eager" : undefined} />
               <span className="tile-shade" aria-hidden="true" />
               <span className="tile-glare" aria-hidden="true" />
               {waiting > 0 && (
