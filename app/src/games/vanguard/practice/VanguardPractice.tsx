@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Button, Label } from "@/components/ui";
+import { Button } from "@/components/ui";
 import { art } from "@/lib/art";
 import { Arena, Callout, Countdown, prefersReducedMotion, sfx, type CalloutTone } from "../../fx";
 import { CAP_MS, NAMES, TURN_MS, act, move, newGame, rankOf, seeded, startTwoStep, targets, timeout, type Army, type Depot, type Game, type GameEvent, type Rank, type Refusal, type Result, type Rng, type Square } from "../rules";

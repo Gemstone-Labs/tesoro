@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { Arena, Callout, Countdown, prefersReducedMotion, sfx, type CalloutTone } from "../fx";
 import { STATUS, changeOfCode, rankOfCode, type ArmyAccount, type Battle } from "./decode";
