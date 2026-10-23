@@ -26,8 +26,9 @@ import {IRateSource, IERC20Minimal, IMessageEndpoint, IYieldMinter} from "./IRat
 /// (heldShares, Pu*1e18, paidUnderlying*1e18) for a real LST.
 ///
 /// A rate fall (kHYPE can be slashed) never makes Accrued Yield negative: growth below the open rate counts as zero.
-/// A Yield Report that would carry less than an earlier one is refused (`YieldBelowReported`), because Solana would
-/// reject the lower cumulative after the Player paid for the message.
+/// A Yield Report never carries less than an earlier one: after a rate fall it repeats the highest figure sent
+/// (`reportedAccrued`), because Solana rejects a lower cumulative, and the Treasury balance and Instant payouts it also
+/// carries keep flowing. The Gema holders carry the shortfall (D2).
 ///
 /// Treasury, real-LST vaults (`yieldMinter == 0`): held in LST SHARES (`treasuryShares`, T), valued at the live rate.
 ///   spendableShares = max(0, T - owedShares - poolOwedShares - reservedShares)
@@ -227,7 +228,6 @@ contract PositionVault {
     error InsufficientTreasury(uint256 needed, uint256 available);
     /// @dev Solana refuses a cumulative lower than one it applied (CumulativeDecreased); a rate fall can push the
     ///      Accrued Yield under what an earlier report said, so that report waits for the rate to recover.
-    error YieldBelowReported(uint256 accrued, uint256 reported);
 
     constructor(address lst_, address rateSource_, address endpoint_, uint32 sourceChain_, address yieldMinter_) {
         lst = IERC20Minimal(lst_);
@@ -410,9 +410,12 @@ contract PositionVault {
     function reportYield(uint64 id) external payable {
         Position storage p = _positions[id];
         if (p.owner == address(0)) revert UnknownPosition();
+        // Solana refuses a lower cumulative, so after a rate fall the report carries the high-water mark and the
+        // Treasury balance and Instant payouts still go out fresh. The shortfall is the holders' (founder rule D2).
         uint256 accrued = _accrued(p);
-        if (accrued < reportedAccrued[id]) revert YieldBelowReported(accrued, reportedAccrued[id]);
-        reportedAccrued[id] = accrued;
+        uint256 reported = reportedAccrued[id];
+        if (accrued < reported) accrued = reported;
+        else reportedAccrued[id] = accrued;
         uint256 treasury = treasuryBalance();
         uint64 seq = ++p.outSeq;
         uint256 rate = rateSource.underlyingPerShare();

@@ -92,7 +92,6 @@ export function ethError(e: unknown): string {
   const err = e as { shortMessage?: string; code?: number; name?: string };
   if (err?.name === "UserRejectedRequestError" || err?.code === 4001) return "Wallet request was rejected.";
   if (/exceeds defined limit|rate limited|took too long to respond|unknown RPC error/i.test(`${err?.shortMessage ?? ""} ${text}`)) return "The network is busy right now. Wait a few seconds and try again.";
-  if (/YieldBelowReported/.test(`${err?.shortMessage ?? ""} ${text}`)) return "The staking rate dipped below the last report. Try again once it recovers.";
   if (err?.shortMessage) return err.shortMessage.split("\n")[0].slice(0, 200);
   return plainError(e);
 }
@@ -285,7 +284,7 @@ export async function openEthPosition(
 /**
  * Anyone may call it; the caller pays the LayerZero fee. Resolves once confirmed on the vault's chain.
  * Mainnet path of `freshenYield` (the Player's own EVM wallet pays; test mode has the relayer send it instead). Reverts
- * `YieldBelowReported` while a slashing keeps the rate under the last report.
+ * After a slashing it repeats the highest yield already reported; the Treasury figures still go out.
  */
 export async function reportEthYield(ctx: EthCtx, vault: EthVault, id: bigint): Promise<Hex> {
   const net = NETS[vault.net];

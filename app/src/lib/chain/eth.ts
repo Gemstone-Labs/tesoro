@@ -155,7 +155,6 @@ export const vaultAbi = parseAbi([
   "function getPosition(uint64) view returns ((address owner, uint256 principalShares, uint256 principalUnderlying, uint256 openRate, uint256 paidUnderlying, uint256 frozenAccrued, uint256 a, uint256 b, uint256 d, uint256 heldShares, uint256 apyBps, uint256 speedup, uint64 openTime, uint64 outSeq, uint64 inSeq, uint8 horizonMonths, bool unlocked))",
   "function treasuryBalance() view returns (uint256)",
   "function reportedAccrued(uint64) view returns (uint256)",
-  "error YieldBelowReported(uint256 accrued, uint256 reported)",
   "error ExceedsAccruedYield(uint256 requested, uint256 available)",
   "error InsufficientShares(uint256 needed, uint256 spendable)",
   "function openPosition(uint256 lstAmount, uint8 horizonMonths) payable returns (uint64 id)",
