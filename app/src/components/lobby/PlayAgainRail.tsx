@@ -16,6 +16,7 @@ const RESULT = {
   won: { word: "Won", Icon: CheckIcon },
   lost: { word: "Lost", Icon: XIcon },
   draw: { word: "Draw", Icon: MinusIcon },
+  "no-show": { word: "No-show", Icon: MinusIcon },
   refunded: { word: "Refunded", Icon: MinusIcon },
 } as const;
 
