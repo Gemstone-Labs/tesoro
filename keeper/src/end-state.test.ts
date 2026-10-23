@@ -96,14 +96,31 @@ describe("capture before reset", () => {
   });
 });
 
-describe("every table upkeep captures before it resets", () => {
-  for (const file of ["tables.ts", "holdem.ts", "burst.ts", "vanguard.ts"]) {
-    it(`${file}: the capture gate comes before the reset call`, async () => {
-      const { readFileSync } = await import("node:fs");
-      const src = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
-      const gate = src.indexOf("resetMayProceed(");
-      const reset = src.search(/\.resetTable\(/);
-      assert.ok(gate > 0 && reset > 0 && gate < reset, `${file} must call resetMayProceed before resetTable (a table's end state is lost at reset)`);
-    });
-  }
+describe("every table reset captures first, and the scheduler is the only one that drives a table", () => {
+  const read = async (file: string) => (await import("node:fs")).readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+
+  it("scheduler.ts calls the capture gate before it calls a Game's reset", async () => {
+    const src = await read("scheduler.ts");
+    const gate = src.indexOf("resetMayProceed)(");
+    const reset = src.search(/\ba\.reset\(/);
+    assert.ok(gate > 0 && reset > 0 && gate < reset, "the scheduler must call resetMayProceed before a.reset (a table's end state is lost at reset)");
+  });
+
+  it("only the Game adapters touch resetTable, and only as their `reset` member", async () => {
+    const { readdirSync } = await import("node:fs");
+    for (const file of readdirSync(new URL(".", import.meta.url)).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))) {
+      const lines = (await read(file)).split("\n").filter((l) => /\.resetTable\(/.test(l));
+      if (file === "scheduler-games.ts") for (const l of lines) assert.match(l, /^\s+reset: /, `${file}: resetTable outside the adapter's reset member: ${l.trim()}`);
+      else assert.deepEqual(lines, [], `${file} must not call resetTable: only the scheduler resets a table, after the capture`);
+    }
+  });
+
+  it("the per-Match hooks never drive a table: commits, assignment, slot release, voids and Sponsor refills are the scheduler's", async () => {
+    for (const file of ["duel.ts", "holdem.ts", "burst.ts", "vanguard.ts", "tables.ts"]) {
+      const src = await read(file);
+      for (const call of ["commitTable(", "assignMatch(", "releaseSlot(", "voidTable(", "refillSponsor(", "wipeSeats(", "closeSeats(", "resetTable(", "initSeats("]) {
+        assert.ok(!src.includes(`.${call}`), `${file} calls ${call}: that belongs to scheduler.ts / scheduler-games.ts`);
+      }
+    }
+  });
 });

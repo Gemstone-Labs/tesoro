@@ -1,24 +1,18 @@
 import { PublicKey } from "@solana/web3.js";
 import { ComputeBudgetProgram, type Connection } from "@solana/web3.js";
-import { settledPda } from "../../app/src/games/holdem/chain.ts";
 import {
   CU,
   SLOT,
   TABLE_PHASE,
   canFinalizeTable,
-  sponsorPda,
   tableOf,
-  tablePda,
-  tablesPda,
   type Assignment,
   type TableState,
 } from "../../app/src/games/vanguard/chain.ts";
 import { PENDING, STATUS, type Battle } from "../../app/src/games/vanguard/decode.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { refund } from "./blockpuzzle.ts";
-import { resetMayProceed, vanguardEndState } from "./end-state.ts";
 import { holdemTableStep, type HoldemTableFacts } from "./holdem.ts";
-import { keyOf } from "./kit.ts";
 import { needsRecommit } from "./recommit.ts";
 import { simulate, when } from "./tee.ts";
 
@@ -31,7 +25,7 @@ import { simulate, when } from "./tee.ts";
  * is that decision, pure.
  *
  * Between Matches a table needs committing, wiping, resetting and its ring slots freed: that is `holdemTableStep` (the table
- * protocol is the same for every table Game) and `maintainVanguardTables`, per table and independent of any Match.
+ * protocol is the same for every table Game) and the table scheduler (`scheduler.ts`, ticket 19t), per table and independent of any Match.
  */
 
 /** Seconds past an expired turn or the time cap before the keeper claims it, so the Players' clients get the first try. */
@@ -182,105 +176,12 @@ export function vanguardTableFacts(t: TableState, nowS: number, receiptAge: (mat
   };
 }
 
-async function receiptAgeOf(ctx: Ctx, match: PublicKey, nowS: number): Promise<number | null> {
-  const info = await ctx.conn.getAccountInfo(settledPda(match)).catch(() => null);
-  if (!info) return null;
-  const r: any = ctx.core.coder.accounts.decode("settlementReceipt", info.data);
-  return nowS - Number(r.receipt.at.toString());
-}
-
-/** Tables of the current generation, as many as `TableConfig` allows. */
-export async function vanguardTablesOf(ctx: Ctx): Promise<{ generation: number; indexes: number[] }> {
-  const cfg: any = await (ctx.vanguard.program.account as any).tableConfig.fetch(tablesPda());
-  return { generation: cfg.generation, indexes: Array.from({ length: cfg.maxTables }, (_, i) => i) };
-}
-
-const lastRecommit = new Map<string, number>();
-
-/** One maintenance step per table. Returns the number of actions taken. Tables that were never created or are not readable yet are skipped. */
-export async function maintainVanguardTables(ctx: Ctx): Promise<number> {
-  let cfg;
-  try {
-    cfg = await vanguardTablesOf(ctx);
-  } catch {
-    return 0; // the Game has no TableConfig yet
-  }
-  let actions = 0;
-  for (const index of cfg.indexes) {
-    const address = tablePda(cfg.generation, index);
-    const subject = `table=vanguard/${cfg.generation}/${index}`;
-    const ref = { generation: cfg.generation, index };
-    if (!(await ctx.conn.getAccountInfo(address).catch(() => null))) continue;
-    const t = await ctx.vanguard.readTable(ctx.hsigner, ref).catch(() => null);
-    if (!t) continue;
-    const ages = new Map<string, number | null>();
-    for (const key of [t.tesoroMatch, ...t.ring.filter((s) => s.state === SLOT.done).map((s) => s.tesoroMatch)]) {
-      if (!ages.has(key.toBase58())) ages.set(key.toBase58(), await receiptAgeOf(ctx, key, ctx.now));
-    }
-    const base = await ctx.vanguard.readTableOnBase(ref).catch(() => null);
-    const step = holdemTableStep(vanguardTableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit.get(subject) ?? 0));
-    if (step.do === "wait") continue;
-    if (step.why.includes("probably lost")) lastRecommit.set(subject, ctx.now);
-    if (step.do === "reset_table") {
-      // The reset zeroes the Battle: its end board goes to the Match history first (the same step, so the reset cannot overtake it).
-      const b = await ctx.vanguard.readBattle(ctx.hsigner, ref).catch(() => null);
-      const board = b && b.tesoroMatch.equals(t.tesoroMatch) ? b : null;
-      const held = { tesoroMatch: t.tesoroMatch, epoch: t.epoch, fn: board ? vanguardEndState : () => null, table: board as never };
-      if (!(await resetMayProceed(held, Math.max(0, Math.floor(ctx.now - t.overAt)), undefined, subject))) continue;
-    }
-    const send = (fn: () => Promise<string>) => act(ctx, "match", subject, `${step.do} (${step.why})`, fn);
-    let r;
-    if (step.do === "release_slot") r = await send(() => ctx.vanguard.releaseSlot(ctx.hsigner, address, step.slot!.index, new PublicKey(step.slot!.match)));
-    else if (step.do === "void_table") r = await send(() => ctx.vanguard.voidTable(ctx.hsigner, ref, t.tesoroMatch));
-    else if (step.do === "commit_table") r = await send(() => ctx.vanguard.commitTable(ctx.hsigner, ref));
-    else if (step.do === "wipe_seats") r = await send(() => ctx.vanguard.wipeSeats(ctx.hsigner, ref));
-    else r = await send(() => ctx.vanguard.resetTable(ctx.hsigner, ref));
-    actions += +r.ok;
-  }
-  return actions;
-}
-
-/** The first table of the current generation that is Idle and not already promised to a Match this process assigned (scheduler entry point for 19t). */
-const promised = new Map<string, number>();
-export async function pickVanguardTable(ctx: Ctx): Promise<{ generation: number; index: number; epoch: number } | null> {
-  const { generation, indexes } = await vanguardTablesOf(ctx);
-  for (const index of indexes) {
-    const t = await ctx.vanguard.readTable(ctx.hsigner, { generation, index }).catch(() => null);
-    if (!t || t.phase !== TABLE_PHASE.idle || !t.seatsCreated) continue;
-    const key = `${generation}/${index}`;
-    if (promised.get(key) === t.epoch) continue;
-    return { generation, index, epoch: t.epoch };
-  }
-  return null;
-}
-
-/** Sponsor upkeep: the operator moves `amount` from Fuel `fuel` when the Sponsor's rollup balance is below `floorLamports`. */
-export async function refillVanguardSponsorIfLow(ctx: Ctx, opts: { fuel: number; amount: bigint; floorLamports: number }): Promise<number> {
-  const conn = await ctx.vanguard.teeConnection(ctx.hsigner);
-  const balance = await conn.getBalance(sponsorPda()).catch(() => null);
-  if (balance === null || balance >= opts.floorLamports) return 0;
-  const r = await act(ctx, "match", "sponsor", `vanguard refill_sponsor (balance ${balance} lamports)`, () => ctx.vanguard.refillSponsor(ctx.hsigner, opts.fuel, opts.amount));
-  return +r.ok;
-}
-
-let lastUpkeep = 0;
-
 /** Vanguard hygiene for one unsettled tesoro_core Match. Returns the number of actions taken. */
 export async function vanguard(ctx: Ctx, match: PublicKey, m: any, st: string, subject: string): Promise<number> {
   const now = ctx.now;
   const deadline = Number(m.deadline.toString());
   const tag = `[vanguard ${st}]`;
   let actions = 0;
-
-  if (now !== lastUpkeep) {
-    lastUpkeep = now;
-    actions += await maintainVanguardTables(ctx).catch((e) => (log("match", "-", `${tag} table upkeep failed: ${String(e?.message ?? e).slice(0, 160)}`), 0));
-    actions += await refillVanguardSponsorIfLow(ctx, {
-      fuel: Number(process.env.KEEPER_VANGUARD_FUEL ?? 0),
-      amount: BigInt(process.env.KEEPER_VANGUARD_FUEL_AMOUNT ?? 50_000_000),
-      floorLamports: Number(process.env.KEEPER_VANGUARD_SPONSOR_FLOOR ?? 20_000_000),
-    }).catch(() => 0);
-  }
 
   if (st === "open") {
     if (now < deadline) log("match", subject, `${tag} wait: no opponent yet, refundable ${when(deadline, now)}`);
@@ -297,19 +198,10 @@ export async function vanguard(ctx: Ctx, match: PublicKey, m: any, st: string, s
   const slot = tee ? BigInt(await tee.getSlot().catch(() => 0)) : 0n;
   const step = vanguardStep(vanguardFacts(a, live, battle, base, now), now, deadline, slot);
 
+  // Table upkeep, assignment and commits belong to the table scheduler (scheduler.ts); this hook drives the Match on its table.
   if (step.do === "assign") {
-    const target = await pickVanguardTable(ctx);
-    if (!target) {
-      log("match", subject, `${tag} wait: no Idle table to assign`);
-      return actions;
-    }
-    const seatA: any = await ctx.core.account.tesoroAccount.fetch(keyOf(m.a.player));
-    const seatB: any = await ctx.core.account.tesoroAccount.fetch(keyOf(m.b.player));
-    const r = await act(ctx, "match", subject, `assign_match to table ${target.generation}/${target.index} epoch ${target.epoch}`, () =>
-      ctx.vanguard.assignMatch(ctx.hsigner, match, seatA.authority, seatB.authority, target.generation, target.index, target.epoch),
-    );
-    if (r.ok) promised.set(`${target.generation}/${target.index}`, target.epoch);
-    return actions + +r.ok;
+    log("match", subject, `${tag} wait: the table scheduler assigns a table`);
+    return actions;
   }
   if (step.do === "refund") return actions + +(await refund(ctx, m, subject, step.why)).ok;
   if (!a) return actions;
@@ -317,7 +209,6 @@ export async function vanguard(ctx: Ctx, match: PublicKey, m: any, st: string, s
   if (step.do === "finalize") return actions + +(await send("finalize", () => ctx.vanguard.finalize(ctx.hsigner, a))).ok;
   if (step.do === "begin_match") return actions + +(await send("begin_match", () => ctx.vanguard.beginMatch(ctx.hsigner, a))).ok;
   if (step.do === "seat_players") return actions + +(await send("seat_players", () => ctx.vanguard.seatPlayers(ctx.hsigner, a))).ok;
-  if (step.do === "commit_table") return actions + +(await send("commit_table", () => ctx.vanguard.commitTable(ctx.hsigner, a))).ok;
   if (step.do === "resolve") return actions + +(await send("resolve", () => ctx.vanguard.resolve(ctx.hsigner, a))).ok;
   if (step.do === "assist_setup" && battle && tee) return actions + (await assistSetup(ctx, a, battle, tee, subject, tag));
   if (step.do === "claim_timeout" && tee) {
