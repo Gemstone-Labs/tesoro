@@ -615,7 +615,7 @@ describe("Assignment cleanup", () => {
     const f = new Fake();
     f.assignmentAccounts = [key(21), key(22), key(23)];
     const accounts = new Map<string, unknown>();
-    const { settledPda } = await import("../../app/src/games/holdem/chain.ts");
+    const { settledPda } = await import("../../app/src/lib/chain/basket.ts");
     accounts.set(key(21).toBase58(), { owner: key(1) }); // Match exists, no receipt: keep
     accounts.set(key(22).toBase58(), { owner: key(1) }); // Match exists, receipt: close
     accounts.set(settledPda(key(22)).toBase58(), { owner: key(1) });

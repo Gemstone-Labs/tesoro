@@ -6,7 +6,7 @@ import { resetMayProceed } from "./end-state.ts";
 import { matchLabel, matchRefOf } from "./kit.ts";
 import { shortKey } from "./env.ts";
 import { pk } from "./runtime.ts";
-import { settledPda } from "../../app/src/games/holdem/chain.ts";
+import { settledPda } from "../../app/src/lib/chain/basket.ts";
 
 /**
  * The table scheduler (ticket 19t): one job, one loop, for every Game that plays on persistent tables.

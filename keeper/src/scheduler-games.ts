@@ -5,6 +5,7 @@ import * as burstChain from "../../app/src/games/block-puzzle/live-chain.ts";
 import * as holdemChain from "../../app/src/games/holdem/chain.ts";
 import * as duelChain from "../../app/src/games/trading-duel/chain.ts";
 import * as vanguardChain from "../../app/src/games/vanguard/chain.ts";
+import { settledPda } from "../../app/src/lib/chain/basket.ts";
 import { log, type Ctx } from "./act.ts";
 import { burstEndState, duelEndState, holdemEndState, vanguardEndState } from "./end-state.ts";
 import { burstTableFacts, burstTableStep } from "./burst.ts";
@@ -97,7 +98,7 @@ export const duelAdapter: GameAdapter = {
   },
   step: async (ctx, v, ref, lastRecommit): Promise<UpkeepStep> => {
     const t = v.raw as duelChain.Table;
-    const ages = await receiptAges(ctx, [t.tesoroMatch, ...t.ring.filter((s) => s.state === duelChain.SLOT.done).map((s) => s.tesoroMatch)], holdemChain.settledPda);
+    const ages = await receiptAges(ctx, [t.tesoroMatch, ...t.ring.filter((s) => s.state === duelChain.SLOT.done).map((s) => s.tesoroMatch)], settledPda);
     const base = await ctx.duel.readTableOnBase(ref).catch(() => null);
     return tableStep(tableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit));
   },
@@ -159,7 +160,7 @@ export const holdemAdapter: GameAdapter = {
   },
   step: async (ctx, v, ref, lastRecommit): Promise<UpkeepStep> => {
     const t = v.raw as holdemChain.Table;
-    const ages = await receiptAges(ctx, [t.tesoroMatch, ...t.ring.filter((s) => s.state === holdemChain.SLOT.done).map((s) => s.tesoroMatch)], holdemChain.settledPda);
+    const ages = await receiptAges(ctx, [t.tesoroMatch, ...t.ring.filter((s) => s.state === holdemChain.SLOT.done).map((s) => s.tesoroMatch)], settledPda);
     const base = await ctx.holdem.readTableOnBase(ref).catch(() => null);
     return holdemTableStep(holdemTableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit));
   },
@@ -220,7 +221,7 @@ export const burstAdapter: GameAdapter = {
   },
   step: async (ctx, v, ref, lastRecommit): Promise<UpkeepStep> => {
     const t = v.raw as burstChain.Table;
-    const ages = await receiptAges(ctx, [t.tesoroMatch, ...t.ring.filter((s) => s.state === burstChain.SLOT.done).map((s) => s.tesoroMatch)], burstChain.settledPda);
+    const ages = await receiptAges(ctx, [t.tesoroMatch, ...t.ring.filter((s) => s.state === burstChain.SLOT.done).map((s) => s.tesoroMatch)], settledPda);
     const base = await ctx.burst.readTableOnBase(ref).catch(() => null);
     return burstTableStep(burstTableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit));
   },
@@ -281,7 +282,7 @@ export const vanguardAdapter: GameAdapter = {
   },
   step: async (ctx, v, ref, lastRecommit): Promise<UpkeepStep> => {
     const t = v.raw as vanguardChain.TableState;
-    const ages = await receiptAges(ctx, [t.tesoroMatch, ...t.ring.filter((s) => s.state === vanguardChain.SLOT.done).map((s) => s.tesoroMatch)], holdemChain.settledPda);
+    const ages = await receiptAges(ctx, [t.tesoroMatch, ...t.ring.filter((s) => s.state === vanguardChain.SLOT.done).map((s) => s.tesoroMatch)], settledPda);
     const base = await ctx.vanguard.readTableOnBase(ref).catch(() => null);
     return holdemTableStep(vanguardTableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit));
   },

@@ -20,6 +20,7 @@
  * Privacy: `readOwnHole` works only for the Player's own Hole account; every other read of a
  * hidden account returns `null` (indistinguishable from "does not exist"), never an RPC error.
  */
+import { settledPda } from "../../lib/chain/basket";
 import * as anchor from "@coral-xyz/anchor";
 import {
   ComputeBudgetProgram,
@@ -97,7 +98,7 @@ export function keypairSigner(kp: Keypair): PlayerSigner {
 const tesoroPda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, TESORO_CORE_PROGRAM_ID)[0];
 export const tesoroAccountPda = (authority: PublicKey) => tesoroPda([Buffer.from("account"), authority.toBuffer()]);
 export const tesoroConfigPda = () => tesoroPda([Buffer.from("config")]);
-export const settledPda = (match: PublicKey) => tesoroPda([Buffer.from("settled"), match.toBuffer()]);
+export { settledPda };
 export const eventAuthorityPda = () => tesoroPda([Buffer.from("__event_authority")]);
 
 // ---------------------------------------------------------------------------------------------

@@ -21,6 +21,7 @@
  * Privacy: `readOwnBoard` works only for the Player's own Board; every other read of a hidden account returns `null`
  * (indistinguishable from "does not exist"), never an RPC error. The Vault is not readable by anyone.
  */
+import { settledPda } from "../../lib/chain/basket";
 import * as anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID, getAuthToken, permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
@@ -116,7 +117,7 @@ const u64le = (n: number | bigint) => {
 
 export const tesoroAccountPda = (authority: PublicKey) => tesoroPda([Buffer.from("account"), authority.toBuffer()]);
 export const tesoroConfigPda = () => tesoroPda([Buffer.from("config")]);
-export const settledPda = (match: PublicKey) => tesoroPda([Buffer.from("settled"), match.toBuffer()]);
+export { settledPda };
 export const eventAuthorityPda = (program: PublicKey = TESORO_CORE_PROGRAM_ID) => PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], program)[0];
 
 export const configPda = () => pda([Buffer.from("config")]);
