@@ -19,6 +19,7 @@ import {
 } from "./chain";
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
+import { absenceLine } from "@/lib/absence-copy";
 
 /** Where a Hold'em Match is in its life, read from chain. */
 export type Stage =
@@ -214,8 +215,8 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
     }
     if (t.tablePhase === TABLE_PHASE.waiting) {
       if (nowS > t.startDeadline) {
-        // Never both checked in: record the refund so both entries come back.
-        setStage("setup", "The Match was never started: cancelling");
+        // Never both checked in: the Player who came wins, nobody coming is a no-show.
+        setStage("setup", absenceLine(t.checkedIn, seat));
         if (seat === 1 || now() - activeSince.current > GRACE_MS) await hd.expireStart(p, a).catch(() => undefined);
         return;
       }

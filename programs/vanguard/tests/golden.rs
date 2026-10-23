@@ -19,7 +19,7 @@ use vanguard::engine::{
     Army as Side, EndReason, Event, Outcome, Record, Shift, Winner, MAX_SHIFTS, NO_PIECE,
     PIECE_SLOTS,
 };
-use vanguard::{Army, Battle, RingRecord, Secret, NO_SQ, RECORD_DATA, RING, STATUS_LIVE};
+use vanguard::{Army, Battle, RingRecord, NO_SQ, RECORD_DATA, RING, STATUS_LIVE};
 
 fn app_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../app/src/games/vanguard")
@@ -64,7 +64,7 @@ fn layout() -> Value {
     // The Army is Borsh, so its fields follow each other with no padding: offset = 8 + the sizes before it.
     let fields: [(&str, usize); 8] = [
         ("bump", 1),
-        ("battle", 32),
+        ("table", 32),
         ("seat", 1),
         ("player", 32),
         ("side", 1),
@@ -81,6 +81,21 @@ fn layout() -> Value {
     army.insert("moves".to_string(), json!(at));
     // the sealing key: the 32 reserved bytes right after the u16 move count
     army.insert("reserved".to_string(), json!(at + 2));
+    // then the setup state, which is zero once the Match is dealt: whether this seat's secret is in, and the storm shares
+    let mut at = at + 2 + 32;
+    for (name, len) in [
+        ("contributed", 1),
+        ("secret", 32),
+        ("halfSet", 1),
+        ("half", 32),
+        ("extEntropy", 32),
+        ("dealt", 1),
+        ("stormAt", 2),
+        ("stormSeed", 4),
+    ] {
+        army.insert(name.to_string(), json!(at));
+        at += len;
+    }
     json!({
         "battle": {
             "size": 8 + std::mem::size_of::<Battle>(),
@@ -505,7 +520,7 @@ fn army_golden() -> Value {
     let key: [u8; 32] = std::array::from_fn(|i| 0xA0 + i as u8);
     let a = Army {
         bump: 250,
-        battle: pk(0x11),
+        table: pk(0x11),
         seat: 1,
         player: pk(0x22),
         side: 0,
@@ -514,21 +529,26 @@ fn army_golden() -> Value {
         truck_turn: -9,
         moves: 513,
         reserved: key,
+        contributed: false,
+        secret: [0; 32],
+        half_set: false,
+        half: [0; 32],
+        ext_entropy: [0; 32],
+        dealt: true,
+        storm_at: 0x0A0B,
+        storm_seed: 0x0C0D_0E0F,
     };
     let mut bytes = Vec::new();
     a.try_serialize(&mut bytes).expect("serialize army");
     json!({
         "bytes": hex(&bytes),
         "expected": {
-            "bump": a.bump, "battle": hex(a.battle.as_ref()), "seat": a.seat, "player": hex(a.player.as_ref()),
+            "bump": a.bump, "table": hex(a.table.as_ref()), "seat": a.seat, "player": hex(a.player.as_ref()),
             "side": a.side, "ranks": hex(&a.ranks), "fuel": a.fuel, "truckTurn": a.truck_turn, "moves": a.moves,
-            "reserved": hex(&a.reserved),
+            "reserved": hex(&a.reserved), "contributed": a.contributed, "dealt": a.dealt,
+            "stormAt": a.storm_at, "stormSeed": a.storm_seed,
         }
     })
-}
-
-fn secret_size() -> usize {
-    8 + <Secret as anchor_lang::Space>::INIT_SPACE
 }
 
 fn write_or_check(path: PathBuf, value: &Value) {
@@ -549,11 +569,6 @@ fn write_or_check(path: PathBuf, value: &Value) {
 
 #[test]
 fn the_layout_the_app_reads_is_what_the_program_writes() {
-    assert_eq!(
-        secret_size(),
-        116,
-        "the Secret is private; the app never reads it"
-    );
     let mut l = layout();
     // the probe Army must sit exactly where the offsets table says
     let g = army_golden();
@@ -561,7 +576,7 @@ fn the_layout_the_app_reads_is_what_the_program_writes() {
     let off = &l["army"]["offsets"];
     let at = |name: &str| off[name].as_u64().expect("offset") as usize * 2;
     assert_eq!(
-        &bytes[at("battle")..at("battle") + 64],
+        &bytes[at("table")..at("table") + 64],
         hex(pk(0x11).as_ref())
     );
     assert_eq!(
@@ -571,7 +586,14 @@ fn the_layout_the_app_reads_is_what_the_program_writes() {
     assert_eq!(&bytes[at("moves")..at("moves") + 4], "0102");
     let key: [u8; 32] = std::array::from_fn(|i| 0xA0 + i as u8);
     assert_eq!(&bytes[at("reserved")..at("reserved") + 64], hex(&key));
-    assert_eq!(bytes.len(), at("reserved") + 64, "the key ends the Army");
+    assert_eq!(&bytes[at("dealt")..at("dealt") + 2], "01");
+    assert_eq!(&bytes[at("stormAt")..at("stormAt") + 4], "0b0a");
+    assert_eq!(&bytes[at("stormSeed")..at("stormSeed") + 8], "0f0e0d0c");
+    assert_eq!(
+        bytes.len(),
+        at("stormSeed") + 8,
+        "the storm share ends the Army"
+    );
     assert_eq!(
         l["army"]["size"].as_u64().expect("size") as usize * 2,
         bytes.len()

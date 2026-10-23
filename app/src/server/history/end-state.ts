@@ -33,6 +33,22 @@ export type EndState =
       reason: number;
       /** Public once the Match is closed; null where the log was not kept. */
       log: { seed: string; seedHash: string; startSlot: number; moves: string; offsets: string } | null;
+    }
+  | {
+      game: "vanguard";
+      /** The seat that played the US Army, the winning seat (2 = draw, 255 = none) and why the Match ended (`Battle.reason`). */
+      usSeat: number;
+      winner: number;
+      reason: number;
+      moves: number;
+      turnNo: number;
+      /** The Battle's public board at the end, by piece number: the square (255 = off the board) and the rank shown (0 = never shown; the end reveal shows every piece left). */
+      sq: number[];
+      shown: number[];
+      /** Which piece numbers changed rank in the Match (a Major that dug in, a General that became a Spy), one bit each, as a decimal string. */
+      endMask: string;
+      depotClaimed: [number, number];
+      players: [string, string];
     };
 
 export interface StoredEndState {

@@ -6260,6 +6260,7 @@ dependencies = [
  "litesvm",
  "serde_json",
  "solana-sdk",
+ "table_kit",
  "tesoro_core",
 ]
 

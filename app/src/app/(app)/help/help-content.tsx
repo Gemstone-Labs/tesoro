@@ -85,8 +85,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "How does a Match work?",
         a: (
           <p>
-            Two Players enter the same amount: {fmtEntryList(ENTRY_SIZES)} Gemas. The winner takes the Pot minus Fees. A draw, an abandoned Match or
-            a no-show refunds both entries. Every Match is settled once and recorded on Solana, where anyone can check it.
+            Two Players enter the same amount: {fmtEntryList(ENTRY_SIZES)} Gemas. The winner takes the Pot minus Fees. A draw or an abandoned Match refunds
+            both entries. A Player who doesn&apos;t show up loses; if neither does, each side pays the Platform Fee. Every Match is settled once and recorded on Solana, where anyone can check it.
           </p>
         ),
       },
@@ -393,8 +393,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "My opponent never showed up",
         a: (
           <p>
-            A no-show refunds both entries. In Block Burst, a paired Player who doesn&apos;t check in loses the Match, so you win. In Hold&apos;em, claim
-            the timeout when your opponent&apos;s clock runs out.
+            In every Game, a paired Player who doesn&apos;t check in, or doesn&apos;t take their first step, loses the Match, so you win with the normal Fees. If neither of you
+            shows up, each side pays the Platform Fee. In Hold&apos;em, claim the timeout when your opponent&apos;s clock runs out.
           </p>
         ),
       },

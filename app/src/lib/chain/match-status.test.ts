@@ -62,12 +62,12 @@ describe("matchStanding", () => {
 
 describe("Vanguard", () => {
   const DAY = 24 * 3600;
-  /** create_match pushes the refund deadline to a full day after the Battle is created. */
+  /** assign_match pushes the refund deadline to a full day after the Match is assigned a table. */
   const vg = (createdAt: number) => ({ status: "active" as const, game: "vanguard" as const, deadline: createdAt + DAY });
 
-  it("is late after the start window, the entropy window, the 15-minute cap and the grace, counted from create_match", () => {
+  it("is late after the start window, the setup window, the 15-minute cap and the grace, counted from assign_match", () => {
     const m = vg(T);
-    const by = T + 300 + 60 + 900 + SETTLE_GRACE_SECS;
+    const by = T + 300 + 180 + 900 + SETTLE_GRACE_SECS;
     expect(settleBy(m)).toBe(by);
     expect(matchStanding(m, by - 1).kind).toBe("live");
     expect(matchStanding(m, by)).toEqual({ kind: "delayed", refundBy: T + DAY, refundOpen: false });
@@ -78,7 +78,7 @@ describe("Vanguard", () => {
     expect(matchStanding(m, T + 450 + SETTLE_GRACE_SECS).kind).toBe("live");
   });
 
-  it("a Match whose Battle is not created yet (deadline still an hour after the join) is live, not Delayed", () => {
+  it("a Match with no table yet (deadline still an hour after the join) is live, not Delayed", () => {
     const joined = { status: "active" as const, game: "vanguard" as const, deadline: T + 3600 };
     expect(matchStanding(joined, T + 20).kind).toBe("live");
     expect(matchStanding(joined, T + 3600)).toMatchObject({ kind: "delayed", refundOpen: true });

@@ -24,7 +24,7 @@ function battle(over: Partial<Battle> = {}, shown: Record<number, number> = {}):
 
 /** An Army whose 30 slots hold rank codes 1..12 repeating, so every piece has a distinct-enough rank to leak. */
 const army = (side: number, seat: number): ArmyAccount => ({
-  bump: 0, battle: key(1), seat, player: key(2 + seat), side, ranks: Array.from({ length: 30 }, (_, i) => (i % 12) + 1), fuel: 0, truckTurn: -9, moves: 0, sealKey: new Uint8Array(32),
+  bump: 0, table: key(1), seat, player: key(2 + seat), side, ranks: Array.from({ length: 30 }, (_, i) => (i % 12) + 1), fuel: 0, truckTurn: -9, moves: 0, sealKey: new Uint8Array(32), contributed: false, dealt: true,
 });
 
 describe("merging the public Battle with the Player's own Army", () => {

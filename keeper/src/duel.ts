@@ -35,7 +35,7 @@ export type DuelStep = {
  *  - No Assignment: the table scheduler binds the Match to an Idle table (`assign`), while the Match is young enough to start.
  *  - Base's committed table can settle the Match: `finalize`, whatever else is going on.
  *  - Idle at the Match's epoch: `begin_match`. Waiting with the seats closed: `open_seats`. Both Players then check in (their
- *    clients); past the start deadline with one missing: `expire_start`, which writes a refund into the ring.
+ *    clients); past the start deadline with one missing: `expire_start`, which ends it in the ring (the Player who checked in wins; nobody did: a no-show).
  *  - Live: one `tick` per pass while the grid runs (the Players' apps tick about four times a second; this only keeps the line
  *    from going quiet when both are away), `end_match` once the window closed and the Players had their first try.
  *  - Over and not committed: `commit_table` (the table is `dirty` until then, so this runs once per result).

@@ -9,6 +9,7 @@ import { ASSETS, DRAW, PHASE, STATUS, assetOfIndex, decodeDuel, type Assignment,
 import { addSighting, canFinalize, clockOffsetMs, dropPending, settlePending, type ClockSighting, type PendingPicks } from "./matchView";
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
+import { absenceLine } from "@/lib/absence-copy";
 
 /** Where a Trading Duel Match is in its life, read from chain. */
 export type Stage = "loading" | "notfound" | "spectator" | "waiting" | "setup" | "live" | "closing" | "settled";
@@ -239,8 +240,8 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
 
     if (d.status === STATUS.created) {
       if (t.phase === 1 && nowS > d.startDeadline) {
-        // Never both checked in: record the refund so both entries come back.
-        setStage("setup", "The Match was never started: cancelling");
+        // Never both checked in: the Player who came wins, nobody coming is a no-show.
+        setStage("setup", absenceLine(t.checkedIn, seat));
         if (seat === 1 || now() - activeSince.current > GRACE_MS) await td.expireStart(p, a).catch(() => undefined);
         return;
       }
