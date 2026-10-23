@@ -1,5 +1,5 @@
 import type { GameId, MatchResult } from "../mock/types";
-import type { HistoryRow } from "./history";
+import { unplayed, type HistoryRow } from "./history";
 import type { QueueSeat } from "./read";
 import { canJoinSeat } from "./queue";
 import { canRematch, rematchHref } from "../rematch";
@@ -10,7 +10,7 @@ export function playAgainRows(rows: HistoryRow[], limit = 3): HistoryRow[] {
   const seen = new Set<string>();
   const out: HistoryRow[] = [];
   for (const r of [...rows].sort((a, b) => b.at - a.at)) {
-    if (r.role !== "player" || r.result === "refunded") continue;
+    if (r.role !== "player" || unplayed(r.result)) continue;
     const key = `${r.game}|${r.asset ?? 0}|${r.entry}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -39,7 +39,7 @@ export interface GameFacts {
 export function gameFacts(rows: HistoryRow[]): Partial<Record<GameId, GameFacts>> {
   const out: Partial<Record<GameId, GameFacts>> = {};
   for (const r of [...rows].sort((a, b) => b.at - a.at)) {
-    if (r.role !== "player" || r.result === "refunded") continue;
+    if (r.role !== "player" || unplayed(r.result)) continue;
     const f = (out[r.game] ??= { last: r.result, best: null });
     if (r.game === "block-puzzle" && r.scores) f.best = Math.max(f.best ?? 0, r.scores[0]);
   }

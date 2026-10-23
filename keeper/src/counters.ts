@@ -36,13 +36,20 @@ export interface SourceRow {
   position: PublicKey;
 }
 
-/** The Sources of the next `n` in line, wrapping, and the new position. */
-export function nextSlice<T>(items: T[], from: number, n: number): { slice: T[]; next: number } {
-  if (!items.length) return { slice: [], next: 0 };
-  const start = from % items.length;
+/**
+ * The next `n` items after `after` in key order, wrapping, and the key to continue from. Paging by key (not by index) keeps the
+ * walk fair when Sources are added or closed between passes.
+ */
+export function nextSlice<T>(items: T[], after: string | null, n: number, keyOf: (item: T) => string = (item) => String(item)): { slice: T[]; next: string | null } {
+  if (!items.length) return { slice: [], next: null };
+  const first = after === null ? 0 : items.findIndex((i) => keyOf(i) > after);
+  const start = first < 0 ? 0 : first;
   const slice = Array.from({ length: Math.min(n, items.length) }, (_, i) => items[(start + i) % items.length]);
-  return { slice, next: (start + slice.length) % items.length };
+  return { slice, next: keyOf(slice[slice.length - 1]) };
 }
+
+/** Code-unit order, the one `nextSlice` pages by: `localeCompare` orders base58 letters by case-folded value and would disagree. */
+export const byKey = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 export interface CounterDeps {
   list: Lister;
@@ -60,7 +67,7 @@ export const realCounterDeps = (ctx: Ctx): CounterDeps => ({
   now: () => Date.now(),
 });
 
-const cursors = { harvest: 0, cashin: 0, batches: 0 };
+const cursors: Record<"harvest" | "cashin" | "batches", string | null> = { harvest: null, cashin: null, batches: null };
 export const nextTry = new Map<string, number>();
 
 export interface Candidate {
@@ -74,11 +81,27 @@ export interface Candidate {
   counters: [bigint, bigint, bigint];
 }
 
+/** A scan of every Source stays good for this long: the harvest, cash-in and batches jobs of one pass share it. */
+const SCAN_TTL_MS = Number(process.env.KEEPER_COUNTERS_SCAN_TTL_SECS ?? 30) * 1000;
+const scans = new WeakMap<object, { at: number; rows: Promise<SourceRow[]> }>();
+
+/** Every Source with its Position, sorted by address. One `getProgramAccounts` per pass however many jobs ask. */
+export async function sourceRows(ctx: Ctx, d: CounterDeps): Promise<SourceRow[]> {
+  const hit = scans.get(ctx);
+  if (hit && d.now() - hit.at < SCAN_TTL_MS) return hit.rows;
+  const rows = d.list("SourceState").then((all) => {
+    const out: SourceRow[] = all.map((r) => ({ address: r.pubkey, position: keyOf((ctx.core.coder.accounts.decode("sourceState", r.data) as any).inner.position) }));
+    return out.sort((a, b) => byKey(a.address.toBase58(), b.address.toBase58()));
+  });
+  scans.set(ctx, { at: d.now(), rows });
+  rows.catch(() => scans.delete(ctx));
+  return rows;
+}
+
 /** Sources of Solana Positions whose custody `want` accepts, with the counters of their books, `PER_PASS` of them from the cursor. */
 export async function candidates(ctx: Ctx, d: CounterDeps, which: "harvest" | "cashin" | "batches", want: (c: Candidate) => boolean, positive: (counters: [bigint, bigint, bigint]) => boolean): Promise<Candidate[]> {
-  const sources: SourceRow[] = (await d.list("SourceState")).map((r) => ({ address: r.pubkey, position: keyOf((ctx.core.coder.accounts.decode("sourceState", r.data) as any).inner.position) }));
-  sources.sort((a, b) => a.address.toBase58().localeCompare(b.address.toBase58()));
-  const { slice, next } = nextSlice(sources, cursors[which], PER_PASS);
+  const sources = await sourceRows(ctx, d);
+  const { slice, next } = nextSlice(sources, cursors[which], PER_PASS, (r) => r.address.toBase58());
   cursors[which] = next;
   const books = await d.read.many(slice.map((s) => bookOf(s.address)));
   const withCounters = slice.flatMap((s, i) => (books[i] && positive(counterAmounts(books[i]!.data)) ? [{ ...s, counters: counterAmounts(books[i]!.data) }] : []));

@@ -591,7 +591,9 @@ pub struct Treasury {
     pub account_bump: u8,
     /// Yield Fee, basis points of yield cashed out (2,000 at launch).
     pub yield_fee_bps: u16,
-    /// Instant Redeem Fee, basis points of the redeemed Gemas' value (3,500 on devnet; 2,500 on mainnet, ADR 0011).
+    /// Reserved bytes. The program never reads this: the Instant Redeem Fee is the flat
+    /// `ledger::INSTANT_REDEEM_FEE_BPS` (25%). `init_treasury` still accepts and stores the argument so the
+    /// instruction layout does not change; the app and keeper ignore it.
     pub instant_fee_bps: u16,
     /// The Treasury Account (`["account", treasury]`).
     pub account: Pubkey,
@@ -1182,6 +1184,14 @@ pub struct MatchChunkDone {
     pub blocked: bool,
     /// Credits this chunk wrote into overflow records instead of the Accounts' stores.
     pub overflowed: u32,
+}
+
+/// A join found the Game's outside studio with full stores and a Pot too big for a capped overflow
+/// record: the Match's Studio Fee goes to Tesoro's own Studio counter instead.
+#[event]
+pub struct StudioFeeWaived {
+    pub match_state: Pubkey,
+    pub studio: Pubkey,
 }
 
 /// Lines moved out of an overflow record into their owner's stores.

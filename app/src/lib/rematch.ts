@@ -10,8 +10,8 @@ export interface Rematch {
 }
 
 /** A Rematch is a Challenge: the Match result offers it only to a Player, after a settled Match, against a known opponent. */
-export function canRematch(r: { role: "player" | "backer"; outcome: "won" | "lost" | "draw" | "refunded"; opponent?: string | null }): boolean {
-  return r.role === "player" && r.outcome !== "refunded" && !!r.opponent && BASE58_KEY.test(r.opponent);
+export function canRematch(r: { role: "player" | "backer"; outcome: "won" | "lost" | "draw" | "no-show" | "refunded"; opponent?: string | null }): boolean {
+  return r.role === "player" && r.outcome !== "refunded" && r.outcome !== "no-show" && !!r.opponent && BASE58_KEY.test(r.opponent);
 }
 
 /** The Challenge link that replays a Match: same Game (and Trading Duel asset), same entry, same opponent. */

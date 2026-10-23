@@ -18,7 +18,7 @@ import { Rail } from "./Rail";
 import { useFeatured } from "./useFeatured";
 import { useQueue } from "./useQueue";
 
-const RESULT_WORD = { won: ["Won", CheckIcon], lost: ["Lost", XIcon], draw: ["Draw", MinusIcon], refunded: ["Refunded", MinusIcon] } as const;
+const RESULT_WORD = { won: ["Won", CheckIcon], lost: ["Lost", XIcon], draw: ["Draw", MinusIcon], "no-show": ["No-show", MinusIcon], refunded: ["Refunded", MinusIcon] } as const;
 
 /** Tilt a tile toward the pointer and move its glare with it (mouse only; still under reduced motion). */
 function tilt(e: PointerEvent<HTMLElement>) {

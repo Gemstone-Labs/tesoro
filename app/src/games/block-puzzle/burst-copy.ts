@@ -15,7 +15,7 @@ export function resultLine(reason: number | null, outcome: Outcome): string | nu
     case REASON.absent:
       return outcome === "won" ? "Your opponent didn’t show up." : "You didn’t check in in time.";
     case REASON.neither:
-      return "Nobody checked in in time. Both entries are back.";
+      return "Nobody checked in in time. Each side pays the Platform Fee.";
     case REASON.noSeed:
       return "The pieces never arrived. Both entries are back.";
     case REASON.void:

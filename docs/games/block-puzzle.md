@@ -44,7 +44,7 @@ The Seed is drawn from the MagicBlock VRF inside the rollup and written only to 
 | Equal scores, both under 5 moves | trivial | no-show: each side pays the Platform Fee |
 | Both checked in, nobody moved | no-show | each side pays the Platform Fee |
 | One paired Player did not check in | absent | the other Player wins (normal win, no new core result) |
-| Neither checked in | neither | refund |
+| Neither checked in | neither | no-show: each side pays the Platform Fee (`table_kit::absence_outcome`, founder 2026-10-23, same in every Game) |
 | Stall in the check-in window, rollup outage (`OUTAGE_RATIO` 0.5 / `STALL_SECS` 5) | void | refund |
 | No Seed in time | noSeed | refund |
 

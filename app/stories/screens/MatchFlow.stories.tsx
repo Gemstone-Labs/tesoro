@@ -313,7 +313,7 @@ function blockPuzzleOpponentNeverShows(): Frame[] {
     {
       steps: [
         { label: "Check in", screen: bv("checkedIn", active), remount: true, layers: ["tee"], what: "You are checked in. Your opponent is not: they have 60 s of rollup time from the table's assigned slot.", calls: ["check_in(binding)"], ms: 3200 },
-        { label: "They never came", screen: bv("opponentGone", active), remount: true, layers: ["tee"], what: "The check-in window ended with one Player missing. close (anyone) writes the Match as a normal win for the Player who was there; neither there is a refund.", calls: ["close", "commit_table", "finalize"], ms: 3600 },
+        { label: "They never came", screen: bv("opponentGone", active), remount: true, layers: ["tee"], what: "The check-in window ended with one Player missing. close (anyone) writes the Match as a normal win for the Player who was there; neither there, each side pays the Platform Fee.", calls: ["close", "commit_table", "finalize"], ms: 3600 },
         { label: "You win", match: won, screen: { burst: { stage: "settled", match: won, seat: won.seat, reason: 2 } }, remount: true, layers: ["solana"], what: "The result says why: your opponent didn’t show up.", ms: 6000 },
       ],
     },

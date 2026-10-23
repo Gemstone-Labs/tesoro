@@ -12,6 +12,7 @@
  * Privacy: the Battle is readable by everyone, an Army only by its own Player. A read of an account the connection may not
  * see returns `null`, indistinguishable from "does not exist".
  */
+import type { Vanguard } from "../../lib/chain/idl/vanguard.types";
 import * as anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID, getAuthToken, permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
@@ -229,7 +230,7 @@ const BLOCKHASH_TTL_MS = 20_000;
 
 export class VanguardChain {
   readonly base: Connection;
-  readonly program: anchor.Program<any>;
+  readonly program: anchor.Program<Vanguard>;
   readonly tesoro: anchor.Program<any>;
   private readonly teeRpc: string;
   private readonly teeWs: string;
@@ -239,7 +240,7 @@ export class VanguardChain {
   /** Step logger; a UI may replace it while it is mounted. */
   onTx?: VanguardChainOptions["onTx"];
 
-  constructor(vanguardIdl: any, tesoroIdl: any, opts: VanguardChainOptions = {}) {
+  constructor(vanguardIdl: Vanguard, tesoroIdl: any, opts: VanguardChainOptions = {}) {
     this.base = opts.base ?? defaultBaseConnection();
     this.teeRpc = opts.teeRpc ?? TEE_RPC;
     this.teeWs = opts.teeWs ?? TEE_WS;

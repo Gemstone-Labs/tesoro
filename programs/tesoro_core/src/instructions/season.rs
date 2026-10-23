@@ -14,7 +14,7 @@
 
 use crate::error::{core_err, TesoroError};
 use crate::instructions::economy::*;
-use crate::instructions::overflow::{credit_prize, season_overflow_id};
+use crate::instructions::overflow::{credit_prize, require_routes_claimed, season_overflow_id};
 use crate::instructions::prize::{check_prize_source, route_of, season_authority, take_exact};
 use crate::ledger::line_store::{LineKey, LineStore, CLASS_GENERAL};
 use crate::ledger::{self, PoolLine, PoolReservations, Ranked};
@@ -38,7 +38,8 @@ const MAX_POOL_LINES: usize = 256;
 /// Records the ranking of a season that has ended and freezes what it pays. `points` are in rank
 /// order, one per ranked Player; the first `points.len()` remaining accounts are the Players'
 /// `TesoroAccount`s in the same order, followed by the custody of every route the economy settings
-/// name (each exactly once). Once per season: the `Season` account is created here.
+/// name (each exactly once), then the Pool's overflow record of each route for this Season in the
+/// same order (an address with no account is fine; one that still holds Gemas refuses the recording). Once per season: the `Season` account is created here.
 #[derive(Accounts)]
 #[instruction(number: u32)]
 pub struct RecordSeason<'info> {
@@ -95,7 +96,7 @@ pub(crate) fn record_season<'info>(
         ctx.remaining_accounts.len() >= n,
         TesoroError::BadRemainingAccounts
     );
-    let (ranked_infos, route_infos) = ctx.remaining_accounts.split_at(n);
+    let (ranked_infos, rest) = ctx.remaining_accounts.split_at(n);
     let mut ranking = Vec::with_capacity(n);
     for (info, p) in ranked_infos.iter().zip(points) {
         let account = Account::<TesoroAccount>::try_from(info)?;
@@ -118,6 +119,18 @@ pub(crate) fn record_season<'info>(
         .copied()
         .filter(|r| *r != Pubkey::default())
         .collect();
+    // The routes' custodies, then the Pool's overflow record of each route for this Season.
+    require!(
+        rest.len() == 2 * registered.len(),
+        TesoroError::BadRemainingAccounts
+    );
+    let (route_infos, record_infos) = rest.split_at(registered.len());
+    require_routes_claimed(
+        record_infos,
+        &ctx.accounts.pool_account.key(),
+        number,
+        &registered,
+    )?;
     require!(
         route_infos.len() == registered.len()
             && registered

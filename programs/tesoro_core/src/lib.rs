@@ -307,6 +307,12 @@ pub mod tesoro_core {
         instructions::basket::set_accounts_cap(ctx, accounts_cap)
     }
 
+    /// Admin only: the most the sponsor may spend on the rent of sponsored Profiles, counted apart
+    /// from Accounts (ticket 18c). Zero turns that off.
+    pub fn set_profiles_cap(ctx: Context<SetSponsor>, profiles_cap: u64) -> Result<()> {
+        instructions::basket::set_profiles_cap(ctx, profiles_cap)
+    }
+
     /// Anyone grows a basket or spill with their own lamports (a gift to its owner).
     pub fn grow_store(ctx: Context<GrowStore>, which: StoreKind, extra_lines: u32) -> Result<()> {
         instructions::basket::grow_store(ctx, which, extra_lines)

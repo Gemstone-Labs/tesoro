@@ -17,7 +17,7 @@ export interface IngestContext {
   detail?: (matchKey: string) => MatchDetail | undefined;
 }
 
-type Party = { account: string; role: "player" | "backer"; side: 0 | 1; result: "won" | "lost" | "draw" | "refunded"; delta: number; backing_other: string | null; share_bps: number | null };
+type Party = { account: string; role: "player" | "backer"; side: 0 | 1; result: "won" | "lost" | "draw" | "no-show" | "refunded"; delta: number; backing_other: string | null; share_bps: number | null };
 
 /**
  * Each side's Player, and the Backer who funded it, with the result and Gema change after Fees. The rule
@@ -36,7 +36,7 @@ export function partiesOf(s: MatchRunStartedRecord): Party[] {
   const out: Party[] = [];
   sides.forEach((side, i) => {
     const seat = i as 0 | 1;
-    const result: Party["result"] = s.kind === 0 ? (s.winnerSide === seat ? "won" : "lost") : s.kind === 2 ? "draw" : "refunded";
+    const result: Party["result"] = s.kind === 0 ? (s.winnerSide === seat ? "won" : "lost") : s.kind === 2 ? "draw" : s.kind === 1 ? "no-show" : "refunded";
     const backed = side.funder !== side.player;
     const surplus = s.entry - fees;
     const playerShare = Math.floor((surplus * shares[seat]) / 10_000);

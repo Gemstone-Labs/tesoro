@@ -33,10 +33,10 @@ export default function Page() {
         caption="Who calls whom, in order. Only the Game program's registered authority can call settle_match."
         steps={[
           { from: "Player", to: "tesoro_core", call: "open_match / join_match", note: "Entries are drawn from each Player's basket by the program. Fee basis points, the Game's listing and its deploy slot are snapshotted." },
-          { from: "Game", to: "Rollup", call: "delegate state accounts", note: "Pinned to the one approved TEE validator." },
-          { from: "Players", to: "Rollup", call: "play", note: "Hidden state. The program enforces the rules and its own clock." },
-          { from: "Rollup", to: "Solana", call: "commit and undelegate", note: "Hidden state is wiped, the final state returns to the base layer." },
-          { from: "Anyone", to: "Game", call: "settle", note: "The Game works out the winner itself." },
+          { from: "Game operator", to: "Solana", call: "assign_match", note: "Names an idle table (delegated once to the approved TEE validator and reused). Players and asset come from the Match itself." },
+          { from: "Players", to: "Rollup", call: "check in, play", note: "Hidden state sits in private seats. The program enforces the rules and its own clock." },
+          { from: "Rollup", to: "Solana", call: "commit_table", note: "The outcome is written into the table's result ring and the table is committed to the base layer. The table stays delegated." },
+          { from: "Anyone", to: "Game", call: "finalize", note: "Reads only the committed table's result ring: the Game never trusts a caller for the winner." },
           { from: "Game", to: "tesoro_core", call: "settle_match(result) by CPI", note: "Signed by the Game's authority PDA with invoke_signed." },
           { from: "tesoro_core", to: "Players", call: "credit payout lines, take Fees", note: "Leaderboard Fee goes to the Pool. A MatchWon event is emitted." },
         ]}

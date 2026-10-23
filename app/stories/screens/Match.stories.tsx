@@ -97,7 +97,7 @@ export const BlockPuzzleDraw = blockPuzzle("draw", { stage: "settled", reason: 8
 export const BlockPuzzleWonOpponentAbsent = noScores("won", 2);
 /** You never checked in: the Match went to your opponent. */
 export const BlockPuzzleLostNotCheckedIn = noScores("lost", 2);
-/** Nobody checked in: both entries are back. */
+/** Nobody checked in: no-show, each side paid the Platform Fee. */
 export const BlockPuzzleRefundedNobodyCheckedIn = noScores("refunded", 3);
 /** The rollup stopped mid-Match: void, both entries are back. */
 export const BlockPuzzleVoid = noScores("refunded", 5);

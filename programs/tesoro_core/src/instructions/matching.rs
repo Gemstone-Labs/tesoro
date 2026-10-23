@@ -15,6 +15,9 @@
 //!   the payer, `overflow.rs`): a credit that finds no slot in a chunk is written there, so a
 //!   settle or refund never waits for room. The Game's outside studio must pass its stores (and a
 //!   record when they are short) when the Match is joined; an entrant's own record is optional.
+//!   A join reserves at most `STUDIO_RECORD_MAX_LINES` lines of the studio's record: past that
+//!   the listed Game's Studio Fee for the Match goes to Tesoro's Studio counter, so a Player who
+//!   covers the entry is never refused for the studio's room (an unlisted Game still is).
 //! * **Settle and refund** start in one atomic step (outcome, fees and plan frozen, receipt
 //!   written, records emitted by event-CPI) and run in chunks anyone may call. `close_match`
 //!   returns the rents once the run is complete.
@@ -918,7 +921,7 @@ pub(crate) fn join_match<'info>(
         .terms
         .studio_owner
         .filter(|_| state.inner.terms.studio_bps > 0);
-    cover_room(
+    let waived = cover_room(
         &mut state.room,
         &plan,
         &stores,
@@ -928,6 +931,20 @@ pub(crate) fn join_match<'info>(
         &system,
         studio,
     )?;
+    if waived {
+        // A listed Game's Studio Fee is a senior class paid into a Source counter when the
+        // recipient is Tesoro's own studio: the same fee, to Tesoro, so the Match settles with
+        // nothing from the full studio. An unlisted Game's plain fee has no such place.
+        require!(
+            state.inner.terms.studio_priority,
+            crate::error::MatchError::StudioStoresFull
+        );
+        let studio = state.inner.terms.studio_owner.take();
+        emit!(StudioFeeWaived {
+            match_state: state.key(),
+            studio: studio.map(Pubkey::new_from_array).unwrap_or_default(),
+        });
+    }
     state.pots[1] = pot_info.key();
     drop(pot);
     books.flush()

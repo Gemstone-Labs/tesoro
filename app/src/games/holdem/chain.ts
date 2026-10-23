@@ -20,6 +20,8 @@
  * Privacy: `readOwnHole` works only for the Player's own Hole account; every other read of a
  * hidden account returns `null` (indistinguishable from "does not exist"), never an RPC error.
  */
+import type { Holdem } from "../../lib/chain/idl/holdem.types";
+import { settledPda } from "../../lib/chain/basket";
 import * as anchor from "@coral-xyz/anchor";
 import {
   ComputeBudgetProgram,
@@ -97,7 +99,7 @@ export function keypairSigner(kp: Keypair): PlayerSigner {
 const tesoroPda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, TESORO_CORE_PROGRAM_ID)[0];
 export const tesoroAccountPda = (authority: PublicKey) => tesoroPda([Buffer.from("account"), authority.toBuffer()]);
 export const tesoroConfigPda = () => tesoroPda([Buffer.from("config")]);
-export const settledPda = (match: PublicKey) => tesoroPda([Buffer.from("settled"), match.toBuffer()]);
+export { settledPda };
 export const eventAuthorityPda = () => tesoroPda([Buffer.from("__event_authority")]);
 
 // ---------------------------------------------------------------------------------------------
@@ -359,7 +361,7 @@ async function withRetry<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
 
 export class HoldemChain {
   readonly base: Connection;
-  readonly program: anchor.Program<any>;
+  readonly program: anchor.Program<Holdem>;
   readonly tesoro: anchor.Program<any>;
   private readonly teeRpc: string;
   private readonly teeWs: string;
@@ -367,7 +369,7 @@ export class HoldemChain {
   /** Step logger; a UI may replace it while it is mounted. */
   onTx?: HoldemChainOptions["onTx"];
 
-  constructor(holdemIdl: any, tesoroIdl: any, opts: HoldemChainOptions = {}) {
+  constructor(holdemIdl: Holdem, tesoroIdl: any, opts: HoldemChainOptions = {}) {
     this.base = opts.base ?? defaultBaseConnection();
     this.teeRpc = opts.teeRpc ?? TEE_RPC;
     this.teeWs = opts.teeWs ?? TEE_WS;

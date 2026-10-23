@@ -2533,7 +2533,7 @@ fn settle(env: &mut Env) -> (i64, i64) {
 }
 
 #[test]
-fn neither_player_checking_in_refunds_both_exactly() {
+fn neither_player_checking_in_is_a_no_show_each_side_pays_the_platform_fee() {
     let mut env = ready();
     env.begin().unwrap();
     env.seat_players_standin();
@@ -2548,11 +2548,16 @@ fn neither_player_checking_in_refunds_both_exactly() {
     env.close().expect("close");
     assert_eq!(
         outcome_of(&env),
-        (OUTCOME_DRAW, block_puzzle::REASON_NEITHER)
+        (OUTCOME_NO_SHOW, block_puzzle::REASON_NEITHER)
     );
     let t = env.table();
     assert_eq!((t.phase, t.dirty), (block_puzzle::TABLE_CLOSED, true));
-    assert_eq!(settle(&mut env), (1_000, 1_000));
+    let (ga, gb) = settle(&mut env);
+    assert_eq!(ga, gb, "both sides pay the same");
+    assert!(
+        ga > 900 && ga < 1_000,
+        "each gets the entry back less the Platform Fee, got {ga}"
+    );
     assert_eq!(env.tesoro_status(), Stage::Closed);
 }
 

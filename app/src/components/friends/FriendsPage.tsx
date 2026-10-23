@@ -10,7 +10,7 @@ import { Bust, Button, Card, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
-import { accountHistory } from "@/lib/chain/history";
+import { accountHistory, unplayed } from "@/lib/chain/history";
 import { playedRows } from "@/lib/chain/player-account";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
 import { fmtGemas } from "@/lib/format";
@@ -253,7 +253,7 @@ function RequestRow({ account }: { account: string }) {
 
 function FriendRow({ account, record, isNew, now }: { account: string; record: FriendRecord; isNew: boolean; now: number }) {
   const { data } = usePlayerAccount(account);
-  const last = useMemo(() => (data ? playedRows(data.played).filter((r) => r.result !== "refunded").slice(0, 3) : null), [data]);
+  const last = useMemo(() => (data ? playedRows(data.played).filter((r) => !unplayed(r.result)).slice(0, 3) : null), [data]);
   const [challenge, setChallenge] = useState(false);
   const name = usePlayerLabel(account);
   return (

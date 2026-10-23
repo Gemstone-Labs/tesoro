@@ -3879,6 +3879,13 @@ impl Env {
         let mut remaining: Vec<AccountMeta> =
             ranked.iter().map(|(p, _)| rem(p.account, false)).collect();
         remaining.push(rem(pda(&[NATIVE_SEED]), false));
+        // the Pool's overflow record of the native route for this Season (it may not exist)
+        let id =
+            tesoro_core::instructions::overflow::route_overflow_id(number, &pda(&[NATIVE_SEED]));
+        remaining.push(rem(
+            overflow_address(&self.pool_account(), OVERFLOW_ROUTE, &id).0,
+            false,
+        ));
         let record = tix(
             accounts::RecordSeason {
                 authority: a(signer.pubkey()),
@@ -4394,6 +4401,36 @@ fn funding_a_prize_into_a_full_pool_lands_in_an_overflow_record() {
         env.pool_prize_gemas(prize),
         0,
         "not in the Pool's stores yet"
+    );
+}
+
+/// Recording a Season reads the Pool's stores, so a route prize still waiting in the Pool's overflow
+/// record stops it; once the record is claimed the Season records with that prize in its budget.
+#[test]
+fn record_season_waits_while_the_pools_route_record_holds_gemas() {
+    let mut env = Env::with_start(SEASON_1_START + 10);
+    env.init_pool();
+    let keeper = env.person();
+    env.keeper_economy(keeper.key);
+    env.set_escrow(true);
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let alice_source = env.advance_native(&alice, pos, 1).unwrap();
+    env.advance(MONTH + 1);
+    let all = env.gemas(&alice, alice_source);
+    env.redeem(&alice, pos, alice_source, all).unwrap();
+    env.unlock(&alice, pos).unwrap();
+    env.set_time(SEASON_1_START + SEASON_SECS + 5);
+    env.set_price(PRICE).unwrap();
+    let pool = env.pool_account();
+    econ::fill_with_dust(&mut env.svm, basket_address(&pool).0);
+    econ::fill_with_dust(&mut env.svm, spill_address(&pool).0);
+    env.fund_prize_overflow(&keeper.kp, 1).expect("fund");
+    let bob = env.person();
+    let err = env.record_season(&keeper.kp, 1, &[(&bob, 10)]).unwrap_err();
+    assert_eq!(
+        code(&err),
+        u32::from(tesoro_core::error::MatchError::PoolOverflowUnclaimed)
     );
 }
 

@@ -47,6 +47,7 @@ contract PositionVaultOApp is PositionVault, OApp {
     error InvalidMessageLength();
     error InvalidMessageType();
     error WrongVault();
+    error BadRecipient();
     error AmountTooLarge();
     error NativeSendFailed();
 
@@ -219,6 +220,8 @@ contract PositionVaultOApp is PositionVault, OApp {
             return;
         }
 
+        // A Position key is vault << 96 | id << 32; the low 32 bits are always zero.
+        if (uint32(uint256(positionKey)) != 0) revert WrongVault();
         uint64 id = uint64(uint256(positionKey) >> 32);
         if (msgType == MSG_UNLOCK) {
             if (message.length != 61) revert InvalidMessageLength();
@@ -229,7 +232,7 @@ contract PositionVaultOApp is PositionVault, OApp {
             _receivePayYield(chain, id, seq, message);
         } else if (msgType == MSG_PAY_INSTANT) {
             if (message.length != 93) revert InvalidMessageLength();
-            bytes32 to = bytes32(message[45:77]);
+            bytes32 to = _recipient(message[45:77]);
             uint256 amount = uint128(bytes16(message[77:93]));
             _receive(abi.encode(msgType, chain, id, seq, to, amount));
         } else {
@@ -244,7 +247,7 @@ contract PositionVaultOApp is PositionVault, OApp {
                 chain,
                 id,
                 seq,
-                bytes32(message[45:77]),
+                _recipient(message[45:77]),
                 uint256(uint128(bytes16(message[77:93]))),
                 uint256(uint128(bytes16(message[93:109]))),
                 uint256(uint128(bytes16(message[109:125])))
@@ -285,6 +288,14 @@ contract PositionVaultOApp is PositionVault, OApp {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /// @dev A padded EVM address. Reverts (the LayerZero message stays retryable) rather than truncate a word that
+    ///      holds more than 20 bytes and pay a different wallet.
+    function _recipient(bytes calldata word) internal pure returns (bytes32 w) {
+        w = bytes32(word);
+        (, bool ok) = _wallet(w);
+        if (!ok) revert BadRecipient();
+    }
 
     function _word(bytes memory data, uint256 i) internal pure returns (bytes32 w) {
         assembly {

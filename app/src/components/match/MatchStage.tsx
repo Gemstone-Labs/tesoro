@@ -33,6 +33,8 @@ export interface StageInfo {
   challengeLink?: string | null;
   /** The Player is backed: their Backer funded the entry. */
   backedShareBps?: number | null;
+  /** Closing: the opponent never showed up, so their side stays idle instead of showing a finished run. */
+  opponentAbsent?: boolean;
   /** Closing: the result is in and waiting to be committed to the chain. */
   commit?: CommitState | null;
   /** The Match is past its settle time and not settled (from `matchStanding`): it refunds by `refundBy`. */
@@ -245,7 +247,9 @@ function arenaMotion(m: StageInfo): { me: SeatState; opp: SeatState; left: RailF
     case "backer-watch":
       return { me: "playing", opp: opp ? "playing" : "seeking", left: "lit", right: opp ? "in" : "scan", fountain: false };
     case "closing":
-      return { me: "done", opp: "done", left: "lit", right: "lit", fountain: true };
+      return m.opponentAbsent
+        ? { me: "done", opp: "idle", left: "lit", right: "off", fountain: true }
+        : { me: "done", opp: "done", left: "lit", right: "lit", fountain: true };
   }
 }
 

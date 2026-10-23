@@ -2,18 +2,21 @@
 //! row is a unit test and `close` only supplies facts.
 
 use crate::state::*;
-use table_kit::{OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1};
+use table_kit::{absence_outcome, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1};
 
 /// A Match whose Players were paired but did not both check in before the window ended.
-/// `stalled`: the rollup stalled over the window (a one-sided absence is then nobody's fault).
+/// `stalled`: the rollup stalled over the window, so nobody is at fault and the Match is void (a refund).
+/// Otherwise `table_kit::absence_outcome` decides, like every table Game: the present Player wins a normal
+/// Match; if neither showed up each side pays the Platform Fee (a no-show).
 pub fn absent(checked_in: [bool; 2], stalled: bool) -> (u8, u8) {
-    match (checked_in, stalled) {
-        ([false, false], _) => (OUTCOME_DRAW, REASON_NEITHER),
-        (_, true) => (OUTCOME_DRAW, REASON_VOID),
-        ([true, false], false) => (OUTCOME_WIN0, REASON_ABSENT),
-        ([false, true], false) => (OUTCOME_WIN1, REASON_ABSENT),
+    if stalled {
+        return (OUTCOME_DRAW, REASON_VOID);
+    }
+    match absence_outcome(checked_in) {
+        Some(OUTCOME_NO_SHOW) => (OUTCOME_NO_SHOW, REASON_NEITHER),
+        Some(win) => (win, REASON_ABSENT),
         // both checked in cannot reach this table row
-        ([true, true], _) => (OUTCOME_DRAW, REASON_NO_SEED),
+        None => (OUTCOME_DRAW, REASON_NO_SEED),
     }
 }
 
@@ -48,12 +51,12 @@ mod tests {
     }
 
     #[test]
-    fn nobody_checking_in_refunds_and_a_stall_turns_an_absence_into_a_refund() {
+    fn nobody_checking_in_is_a_no_show_and_a_stall_makes_any_absence_void() {
         assert_eq!(
             absent([false, false], false),
-            (OUTCOME_DRAW, REASON_NEITHER)
+            (OUTCOME_NO_SHOW, REASON_NEITHER)
         );
-        assert_eq!(absent([false, false], true), (OUTCOME_DRAW, REASON_NEITHER));
+        assert_eq!(absent([false, false], true), (OUTCOME_DRAW, REASON_VOID));
         assert_eq!(absent([true, false], true), (OUTCOME_DRAW, REASON_VOID));
         assert_eq!(absent([false, true], true), (OUTCOME_DRAW, REASON_VOID));
     }

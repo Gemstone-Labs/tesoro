@@ -1,4 +1,5 @@
 import { matchPda } from "../../lib/chain/basket";
+import type { Vanguard } from "../../lib/chain/idl/vanguard.types";
 import { ComputeBudgetProgram, Keypair, Message, PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID, permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { describe, expect, it } from "vitest";
@@ -10,7 +11,7 @@ type Sent = { step: string; ixs: TransactionInstruction[] };
 
 /** The transactions the client would send, captured instead of sent. */
 function capture() {
-  const chain = new VanguardChain(vanguardIdl, coreIdl);
+  const chain = new VanguardChain(vanguardIdl as unknown as Vanguard, coreIdl);
   const sent: Sent[] = [];
   const grab = async (step: string, ixs: TransactionInstruction[]) => {
     sent.push({ step, ixs });
@@ -281,7 +282,7 @@ describe("tables and Assignments", () => {
 describe("rollup sending", () => {
   /** A fake rollup that hands out `hashes` in turn (the last one repeats) and records each transaction it is sent. */
   function rollup(hashes: string[]) {
-    const chain = new VanguardChain(vanguardIdl, coreIdl);
+    const chain = new VanguardChain(vanguardIdl as unknown as Vanguard, coreIdl);
     const messages: string[] = [];
     let n = 0;
     const conn = {

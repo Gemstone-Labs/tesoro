@@ -516,21 +516,19 @@ abstract contract MainnetVaultBase is Test {
         assertApproxEqAbs(vault.accruedYield(id), 0.6 ether, 2, "growth is measured from the open rate");
     }
 
-    /// Solana refuses a lower cumulative (CumulativeDecreased), so a Report that fell below one already sent would
-    /// fail there after the Player paid the LayerZero fee. The vault refuses to send it.
-    function test_reportBelowTheLastReportIsRefusedUntilTheRateRecovers() public {
+    /// Solana refuses a lower cumulative (CumulativeDecreased). After a rate fall the Report repeats the highest
+    /// figure sent instead of reverting, so the Treasury balance and Instant payouts it carries never freeze.
+    function test_reportAfterARateFallRepeatsTheHighWaterMarkAndStillSends() public {
         uint64 id = _open(10 ether);
         tok.setRate(1.32e18);
         (uint256 first,,) = _report(id);
         tok.setRate(1.25e18);
         assertLt(vault.accruedYield(id), first);
         uint256 sends = lz.sends();
-        vm.expectPartialRevert(PositionVault.YieldBelowReported.selector);
-        vault.reportYield{value: 0.0001 ether}(id);
-        assertEq(lz.sends(), sends, "nothing sent");
-        assertEq(vault.getPosition(id).outSeq, 2, "no seq spent");
-        tok.setRate(1.32e18);
-        _report(id); // the same figure is fine
+        (uint256 dipped,,) = _report(id);
+        assertEq(dipped, first, "carries the high-water mark");
+        assertEq(lz.sends(), sends + 1, "sent");
+        assertEq(vault.getPosition(id).outSeq, 3, "seq spent");
         tok.setRate(1.4e18);
         (uint256 later,,) = _report(id);
         assertGt(later, first);

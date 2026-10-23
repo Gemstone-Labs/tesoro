@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { Budget, type Ctx } from "./act.ts";
-import { cashInJob, counterAmounts, createAtaIdempotentIx, harvestJob, nextSlice, type CounterDeps, type Recipients } from "./counters.ts";
+import { byKey, cashInJob, counterAmounts, createAtaIdempotentIx, harvestJob, nextSlice, type CounterDeps, type Recipients } from "./counters.ts";
 import { accountBytes, bookBytes, chainOf, ixNameOf } from "./fixtures.ts";
 import { bookOf, pda } from "./kit.ts";
 import { ata } from "./kind-pay.ts";
@@ -17,11 +17,28 @@ describe("counters", () => {
   it("reads the three fee counters of a book", () => {
     assert.deepEqual(counterAmounts(bookBytes([0, 0, 0, 0], [5n, 6n, 7n])), [5n, 6n, 7n]);
   });
-  it("walks a list round robin, wrapping", () => {
-    assert.deepEqual(nextSlice([1, 2, 3, 4, 5], 0, 2), { slice: [1, 2], next: 2 });
-    assert.deepEqual(nextSlice([1, 2, 3, 4, 5], 4, 3), { slice: [5, 1, 2], next: 2 });
-    assert.deepEqual(nextSlice([1, 2], 0, 9), { slice: [1, 2], next: 0 });
-    assert.deepEqual(nextSlice([], 3, 2), { slice: [], next: 0 });
+  it("walks a list by key, wrapping, and keeps its place when items come and go", () => {
+    assert.deepEqual(nextSlice(["a", "b", "c", "d", "e"], null, 2), { slice: ["a", "b"], next: "b" });
+    assert.deepEqual(nextSlice(["a", "b", "c", "d", "e"], "d", 3), { slice: ["e", "a", "b"], next: "b" });
+    assert.deepEqual(nextSlice(["a", "b"], null, 9), { slice: ["a", "b"], next: "b" });
+    assert.deepEqual(nextSlice([], "c", 2), { slice: [], next: null });
+    // a Source before the cursor closes: the walk continues with the same next Source
+    assert.deepEqual(nextSlice(["b", "c", "d", "e"], "b", 2), { slice: ["c", "d"], next: "d" });
+    // the cursor's own Source closed: it continues with the next key
+    assert.deepEqual(nextSlice(["a", "c", "e"], "b", 2), { slice: ["c", "e"], next: "e" });
+  });
+  it("sorts addresses in the order the cursor pages by, upper case before lower case", () => {
+    const keys = ["b9", "A1", "a2", "B3"].sort(byKey);
+    assert.deepEqual(keys, ["A1", "B3", "a2", "b9"]);
+    // a walk over that order never repeats or skips a key
+    let after: string | null = null;
+    const seen: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const { slice, next } = nextSlice(keys, after, 1);
+      seen.push(slice[0]);
+      after = next;
+    }
+    assert.deepEqual(seen, keys);
   });
   it("creates an associated token account idempotently", () => {
     const [payer, owner, mint] = [k(), k(), k()];
@@ -75,6 +92,16 @@ describe("harvest and fee cash-in jobs", () => {
     assert.deepEqual([empty.sims.length, empty.sent], [1, []], "a failed dry run sends nothing");
     await harvestJob(empty.ctx, empty.d);
     assert.equal(empty.sims.length, 1, "and is not tried again at once");
+  });
+
+  it("scans the Sources once per pass, whichever counter jobs run", async () => {
+    const w = await world([100n, 40n, 500n]);
+    let scans = 0;
+    const list = w.d.list;
+    w.d.list = async (...args) => (scans++, list(...args));
+    await harvestJob(w.ctx, w.d);
+    await cashInJob(w.ctx, w.d, async () => ({ platform: { account: k(), wallet: k() }, studio: null }));
+    assert.equal(scans, 1);
   });
 
   const recipients = (): Recipients => ({ platform: { account: k(), wallet: k() }, studio: { account: k(), wallet: k() } });

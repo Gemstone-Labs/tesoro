@@ -5,7 +5,7 @@
 //!   (keeping their class and tranche) and cannot be played while it is open.
 //! * `fill_instant_redeem`: the fill authority (the admin, or the keeper while its rule is on)
 //!   buys all or part of the order at the Gemas' value at the moment of the fill less the Yield
-//!   Fee and the Instant Redeem Fee (60% at launch, one floor), from the
+//!   Fee and the Instant Redeem Fee (a flat 25%, `ledger::INSTANT_REDEEM_FEE_BPS`), from the
 //!   route's `spendable_shares` only (never what holders, the Pool or reservations are owed). The
 //!   Treasury's basket takes the Gemas with the seller's class and tranche.
 //! * `cancel_instant_redeem` (the seller, any time) and `expire_instant_redeem` (anyone, after the

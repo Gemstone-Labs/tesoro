@@ -76,6 +76,10 @@
 .mr-fees b { flex-wrap: wrap; row-gap: 0; }
 .mr-pending { text-align: center; text-wrap: balance; }
 @media (max-width: 639px) {
+  /* Rematch, Add friend and Practice free / Share: two columns, an odd last button across both, never squeezed into thirds. */
+  .mr-second { grid-template-columns: 1fr 1fr; }
+  .mr-second > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .mr-second .btn { white-space: nowrap; }
   .mr-frame { padding: 32px 14px 28px; }
   .mr-fees > div { padding: 10px 12px 12px; }
   .mr-fees b { font-size: var(--fs-20); gap: 6px; }

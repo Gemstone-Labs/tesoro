@@ -10,7 +10,7 @@ describe("Block Burst result lines", () => {
     expect(resultLine(REASON.absent, "lost")).toBe("You didn’t check in in time.");
   });
   it("says why a Match was refunded or did not count", () => {
-    expect(resultLine(REASON.neither, "refunded")).toMatch(/Nobody checked in/);
+    expect(resultLine(REASON.neither, "refunded")).toMatch(/Nobody checked in.*Platform Fee/);
     expect(resultLine(REASON.noSeed, "refunded")).toMatch(/pieces never arrived/);
     expect(resultLine(REASON.void, "refunded")).toMatch(/stopped/);
     expect(resultLine(REASON.noShow, "refunded")).toMatch(/nobody played/);

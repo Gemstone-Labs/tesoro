@@ -103,7 +103,7 @@ pub(crate) fn create_account(ctx: Context<CreateAccount>, evm_address: [u8; 20])
             .ok_or(ProgramError::ArithmeticOverflow)?;
         let payer = ctx.accounts.payer.to_account_info();
         sponsor_rent(sponsor, &payer, 0, refundable)?;
-        repay_permanent(sponsor, &payer, permanent)?;
+        repay_permanent(sponsor, &payer, permanent, Spend::Account)?;
         let mut data = basket.try_borrow_mut_data()?;
         LineStore::new(&mut data[DISC..])
             .map_err(store_err)?
@@ -112,22 +112,39 @@ pub(crate) fn create_account(ctx: Context<CreateAccount>, evm_address: [u8; 20])
     Ok(())
 }
 
-/// Repays the relayer that fronted rent the sponsor can never get back (a new Account, a new Profile),
-/// within `accounts_cap`. The caller has checked that the payer is not the wallet itself.
+/// Which cap a permanent sponsored rent counts against.
+#[derive(Clone, Copy)]
+enum Spend {
+    Account,
+    Profile,
+}
+
+/// Repays the relayer that fronted rent the sponsor can never get back (a new Account against
+/// `accounts_cap`, a new Profile against `profiles_cap`). The caller has checked that the payer is
+/// not the wallet itself.
 fn repay_permanent<'info>(
     sponsor: &mut Account<'info, SponsorState>,
     payer: &AccountInfo<'info>,
     amount: u64,
+    spend: Spend,
 ) -> Result<()> {
     require!(!sponsor.paused, BasketError::SponsorPaused);
     require_keys_eq!(sponsor.relayer, *payer.key, BasketError::NotSponsorRelayer);
-    require!(
-        sponsor
-            .accounts_spent
-            .checked_add(amount)
-            .is_some_and(|v| v <= sponsor.accounts_cap),
-        BasketError::AccountsSponsorCap
-    );
+    let (spent, cap, over) = match spend {
+        Spend::Account => (
+            sponsor.accounts_spent,
+            sponsor.accounts_cap,
+            BasketError::AccountsSponsorCap,
+        ),
+        Spend::Profile => (
+            sponsor.profiles_spent,
+            sponsor.profiles_cap,
+            BasketError::ProfilesSponsorCap,
+        ),
+    };
+    if !spent.checked_add(amount).is_some_and(|v| v <= cap) {
+        return Err(over.into());
+    }
     let sponsor_info = sponsor.to_account_info();
     let keep = Rent::get()?.minimum_balance(sponsor_info.data_len());
     require!(
@@ -135,8 +152,11 @@ fn repay_permanent<'info>(
         BasketError::SponsorShort
     );
     move_lamports(&sponsor_info, payer, amount)?;
-    sponsor.accounts_spent = sponsor
-        .accounts_spent
+    let counter = match spend {
+        Spend::Account => &mut sponsor.accounts_spent,
+        Spend::Profile => &mut sponsor.profiles_spent,
+    };
+    *counter = counter
         .checked_add(amount)
         .ok_or(ProgramError::ArithmeticOverflow)?;
     Ok(())
@@ -158,7 +178,12 @@ fn repay_profile<'info>(
     payer: &AccountInfo<'info>,
 ) -> Result<()> {
     if let (true, Some(sponsor)) = (fresh, sponsor) {
-        repay_permanent(sponsor, payer, Rent::get()?.minimum_balance(Profile::SPACE))?;
+        repay_permanent(
+            sponsor,
+            payer,
+            Rent::get()?.minimum_balance(Profile::SPACE),
+            Spend::Profile,
+        )?;
     }
     Ok(())
 }

@@ -56,7 +56,8 @@ export const parseNativeRoute = (d: Uint8Array): RouteView | null => (d.length =
 
 export function parseTreasury(d: Uint8Array): TreasuryRates | null {
   if (d.length !== TREASURY_LEN) return null;
-  return { yieldFeeBps: view(d).getUint16(11, true), instantFeeBps: view(d).getUint16(13, true) };
+  // The program charges one flat Instant Redeem Fee and never reads the account's instant_fee_bps (reserved bytes).
+  return { yieldFeeBps: view(d).getUint16(11, true), instantFeeBps: DEFAULT_INSTANT_FEE_BPS };
 }
 
 /** The Treasury's original vault (the token it was created with), as recorded in `Treasury.vault`. Null on a wrong size. */

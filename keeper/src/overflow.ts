@@ -58,6 +58,32 @@ export const realOverflowDeps = (ctx: Ctx): OverflowDeps => ({
   send: (ixs, opts) => sendIxs(ctx.conn, ctx.payer, ixs, opts),
 });
 
+/** One claim step on a record (grow the spill first when the keeper paid for the record and there is no room). Returns the actions sent. */
+export async function claimRecord(ctx: Ctx, d: Pick<OverflowDeps, "read" | "send">, row: OverflowRow, subject = `record=${shortKey(row.address)} owner=${shortKey(row.owner)}`): Promise<number> {
+  let actions = 0;
+  const [b, s] = await d.read.many([basketOf(row.owner), spillOf(row.owner)]);
+  if (!b || !s) {
+    log("overflow", subject, "WARN the owner's stores are missing");
+    return 0;
+  }
+  const room = slack(decodeStore(b.data), decodeStore(s.data));
+  const step = claimStep(row, room, ctx.payer.publicKey);
+  if (step.kind === "wait") return 0;
+  if (step.kind === "grow") {
+    const g = await act(ctx, "overflow", subject, "grow_store spill by 1 (a prize waits for room)", async () =>
+      d.send([await growStoreIx(ctx.core, { payer: ctx.payer.publicKey, account: row.owner, which: "spill", extra: 1 })], {}),
+    );
+    actions += +g.ok;
+    if (!g.ok) return actions;
+  }
+  const lines = row.lines.slice(0, CLAIM_LINES);
+  const supply = await supplySources(ctx.core, d.read, lines.map((l) => ({ source: keyOf(l.source), cut: false })));
+  const r = await act(ctx, "overflow", subject, `claim_overflow (${row.lines.length} line(s), rent to ${shortKey(row.payer)})`, async () =>
+    d.send([await claimOverflowIx(ctx.core, { account: row.owner, record: row.address, payer: row.payer, max: CLAIM_LINES, remaining: [...supply.metas, ...(row.match ? [{ pubkey: row.match, isSigner: false, isWritable: false }] : [])] })], { units: 400_000 }),
+  );
+  return actions + +r.ok;
+}
+
 /**
  * Job: overflow records (ticket 09c). A credit that found no slot in an Account's stores sits in a record until room exists.
  * This job claims what can be claimed (anyone may), returning each record's rent to whoever paid it, and closes the empty
@@ -68,27 +94,7 @@ export async function overflowJob(ctx: Ctx, d: OverflowDeps = realOverflowDeps(c
   let actions = 0;
   for (const row of rows) {
     const subject = `record=${shortKey(row.address)} owner=${shortKey(row.owner)}`;
-    const [b, s] = await d.read.many([basketOf(row.owner), spillOf(row.owner)]);
-    if (!b || !s) {
-      log("overflow", subject, "WARN the owner's stores are missing");
-      continue;
-    }
-    const room = slack(decodeStore(b.data), decodeStore(s.data));
-    const step = claimStep(row, room, ctx.payer.publicKey);
-    if (step.kind === "wait") continue;
-    if (step.kind === "grow") {
-      const g = await act(ctx, "overflow", subject, "grow_store spill by 1 (a prize waits for room)", async () =>
-        d.send([await growStoreIx(ctx.core, { payer: ctx.payer.publicKey, account: row.owner, which: "spill", extra: 1 })], {}),
-      );
-      actions += +g.ok;
-      if (!g.ok) continue;
-    }
-    const lines = row.lines.slice(0, CLAIM_LINES);
-    const supply = await supplySources(ctx.core, d.read, lines.map((l) => ({ source: keyOf(l.source), cut: false })));
-    const r = await act(ctx, "overflow", subject, `claim_overflow (${row.lines.length} line(s), rent to ${shortKey(row.payer)})`, async () =>
-      d.send([await claimOverflowIx(ctx.core, { account: row.owner, record: row.address, payer: row.payer, max: CLAIM_LINES, remaining: [...supply.metas, ...(row.match ? [{ pubkey: row.match, isSigner: false, isWritable: false }] : [])] })], { units: 400_000 }),
-    );
-    actions += +r.ok;
+    actions += await claimRecord(ctx, d, row, subject);
   }
   return actions;
 }

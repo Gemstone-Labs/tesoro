@@ -228,7 +228,7 @@ describe("Match history from core events", () => {
     const alice = (await accountHistory(fresh, ALICE, 1, 10)).rows[0];
     const carl = (await accountHistory(fresh, CARL, 1, 10)).rows[0];
     const erin = (await accountHistory(fresh, ERIN, 1, 10)).rows[0];
-    expect(alice).toMatchObject({ result: "refunded", delta: -fee });
+    expect(alice).toMatchObject({ result: "no-show", delta: -fee });
     expect(carl).toMatchObject({ role: "player", delta: 0 });
     expect(erin).toMatchObject({ role: "backer", delta: -fee });
   });

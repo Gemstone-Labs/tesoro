@@ -8,30 +8,35 @@ export const metadata: Metadata = { title: "Private Ephemeral Rollups", alternat
 
 export default function Page() {
   return (
-    <DocPage href="/docs/developers/rollups" hero={<Pipeline label="Lifecycle of delegated state" items={[
+    <DocPage href="/docs/developers/rollups" hero={<Pipeline label="Life of a Match on a table" items={[
   { icon: Landmark, tone: "sapphire", title: "Base layer", body: "Match opens in tesoro_core." },
-  { icon: Send, tone: "violet", title: "Delegate", body: "State moves to the TEE." },
-  { icon: KeyRound, tone: "violet", title: "Permissions", body: "Who may read each account." },
+  { icon: Send, tone: "violet", title: "Assign", body: "An idle table takes the Match." },
+  { icon: KeyRound, tone: "violet", title: "Seats", body: "Only the two Players read them." },
   { icon: Play, tone: "amber", title: "Play", body: "Game rules run in the rollup." },
-  { icon: GitCommitHorizontal, tone: "violet", title: "Commit", body: "Wipe hidden state, commit back." },
-  { icon: Cpu, tone: "emerald", title: "Settle", body: "CPI into tesoro_core." },
+  { icon: GitCommitHorizontal, tone: "violet", title: "Commit", body: "The result goes back to base." },
+  { icon: Cpu, tone: "emerald", title: "Finalize", body: "CPI into tesoro_core." },
 ]} />}>
       <p>
         A Match&apos;s result must reach the Solana settlement program without trusting a Studio server&apos;s signature, and some of its state must stay hidden:
-        the Hold&apos;em deck, a Player&apos;s hole cards, a Block Burst run, a Trading Duel pick. ADR 0003 decides that each Game is a Solana program whose
-        Match state is delegated to a <b>MagicBlock Private Ephemeral Rollup</b>, which runs in an Intel TDX trusted execution environment (TEE).
+        a Player&apos;s hole cards, a Block Burst run, a Trading Duel pick, a Vanguard army. ADR 0003 decides that each Game is a Solana program whose
+        tables are delegated to a <b>MagicBlock Private Ephemeral Rollup</b>, which runs in an Intel TDX trusted execution environment (TEE).
       </p>
 
-      <H2 id="lifecycle">Lifecycle of delegated state</H2>
+      <H2 id="lifecycle">Tables and the life of a Match</H2>
+      <p>
+        A Game does not delegate a new set of accounts for every Match. It keeps a fixed set of <b>tables</b>: each is a program account delegated to the TEE validator
+        once and left there, so a Match costs a few cheap rollup transactions instead of a delegation. A table stays delegated across Matches and does not undelegate in normal running.
+      </p>
       <ol>
-        <li><b>Base layer.</b> Players open and join the Match in tesoro_core. The Game creates its state accounts (Session and Boards, or a table, or a Duel).</li>
-        <li><b>Delegate.</b> The Game&apos;s state accounts are delegated to the TEE validator. Anyone may send the delegation transaction.</li>
-        <li><b>Permissions.</b> Permission accounts declare who can read each delegated account. Inside the rollup, an account with a permission is unreadable to non-members.</li>
-        <li><b>Play.</b> Game instructions run in the rollup against the delegated accounts, with the Game&apos;s own clocks and rules.</li>
-        <li><b>Commit and undelegate.</b> Hidden state is wiped, permissions are closed, and the final state is committed back to the base layer.</li>
-        <li><b>Settle.</b> On the base layer, anyone calls the Game&apos;s settle instruction, which CPIs into tesoro_core (see <Link href="/docs/developers/settlement">How settlement works</Link>).</li>
+        <li><b>Base layer.</b> Players open and join the Match in tesoro_core.</li>
+        <li><b>Assign.</b> The Game&apos;s operator key writes one <code>Assignment</code> naming an idle table and its current epoch. It can name only the table: the two Players and the asset are read from the Match in tesoro_core, and the start deadline comes from the program&apos;s clock. A table takes one Match per epoch, and the epoch moves on at every reset.</li>
+        <li><b>Seats.</b> A Game with hidden information keeps private seat accounts on the table (rollup-only accounts behind a private permission). Between Matches a seat is wiped and then given to the next two Players, so it is never without a permission.</li>
+        <li><b>Check in and play.</b> <code>begin_match</code> reserves one of the table&apos;s result slots; the Match starts when both Players have checked in (a Player who does not loses, and if neither does, each side pays the Platform Fee). Game rules and clocks run in the rollup.</li>
+        <li><b>Result and commit.</b> The end of the Match writes the outcome into its slot in the table&apos;s result ring. The table is then <i>dirty</i>, and exactly one commit sends it back to the base layer. A Sponsor account on the rollup pays the commit, so Players never pay for it and nobody can drain it with extra commits.</li>
+        <li><b>Finalize.</b> On the base layer anyone calls the Game&apos;s <code>finalize</code>, which reads only the committed table&apos;s result ring and CPIs into tesoro_core (see <Link href="/docs/developers/settlement">How settlement works</Link>). A slot is freed once tesoro_core has written the settlement receipt, and the table is reset for the next epoch.</li>
       </ol>
       <p>
+        If a result never reaches the base layer, the Match is not lost: tesoro_core refunds it at its own deadline, and a table that moved past a Match without ever running it lets the Match refund at once.
         Rollup (TEE) transactions are private and have no public explorer page. The Game&apos;s evidence files in the repository (<code>evidence.json</code>) record
         their signatures.
       </p>
@@ -47,9 +52,10 @@ export default function Page() {
       <DataTable
         head={["Game", "Hidden", "How it is hidden", "What becomes public"]}
         rows={[
-          ["Block Burst", "The Seed, then each Player's Board (moves)", "A SeedVault with a permission that has zero members. The Seed is written there only by the VRF callback and copied into a Player's own Board by begin_run, in the transaction that starts their 90 s clock. Each Board's only member is its Player.", "After seal and commit: both Boards. The SeedVault is wiped."],
-          ["Hold'em", "The Deck and each Player's hole cards", "Deck: zero-member permission. Hole accounts: readable by their Player. The seed of a hand folds both Players' fresh secrets and the VRF output.", "Board cards as dealt; hole cards only at a showdown. close_match wipes the Deck and Holes before committing."],
-          ["Trading Duel", "Each Player's Book: picks for columns that have not locked", "Book readable only by its Player. When a column locks, both picks for it are copied into the public Duel.", "As columns lock: both picks. After the Match is committed: both full Books."],
+          ["Block Burst", "The Seed, then each Player's Board (moves), and the opponent's score for the last 10 seconds", "The Seed is written by the VRF callback into a vault seat with no members and copied into a Player's own Board by begin, in the transaction that starts that Player's clock. Each Board's only member is its Player. From 80 s into the 90 s run, moves go through play_hidden, which writes no public score.", "At the end of the Match: the Seed, both move logs and their timing, in the table's result ring."],
+          ["Hold'em", "Each Player's hole cards", "Hole accounts are seats readable only by their Player. There is no stored deck: cards are drawn from a seed that folds the VRF output with both Players' fresh secrets, which sit in seats and are never an instruction argument.", "Board cards as dealt; hole cards only at a showdown. The seats are wiped before the table is committed."],
+          ["Trading Duel", "Each Player's Book: picks for columns that have not locked", "Each Book is a seat readable only by its Player. When a column locks, both picks for it are copied into the public table.", "As columns lock: both picks. After the Match: both full Books."],
+          ["Vanguard", "Both armies and each Player's secret", "Each army is a seat readable only by its Player; the setup uses both Players' secrets and the VRF output.", "The board as it is played, and every piece left standing at the end."],
         ]}
       />
 
@@ -78,7 +84,7 @@ export default function Page() {
 
       <H2 id="liveness">Liveness</H2>
       <p>
-        Clocks live in the programs: Block Burst 60 s to check in, 60 s for the pieces, a 10 s countdown, a 90 s run and 3 s of grace; Hold&apos;em 30 s per action and 60 s
+        Clocks live in the programs: every Game gives a paired Player 60 s to check in or take the first step. Block Burst 60 s to check in, 60 s for the pieces, a 10 s countdown, a 90 s run and 3 s of grace; Hold&apos;em 30 s per action and 60 s
         to contribute entropy, with three missed turns in a row a forfeit; Trading Duel a two-and-a-half-minute grid; Vanguard 10 s per move, three missed turns in a row a forfeit, and a 15 minute limit on the whole Battle. <code>claim_timeout</code>,{" "}
         <code>close</code>, <code>finalize</code> and <code>settle</code> can be sent by anyone, and the keeper sends them when no Player does.
       </p>
