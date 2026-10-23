@@ -541,6 +541,25 @@ mod tests {
     }
 
     #[test]
+    fn a_stack_that_cannot_cover_the_bet_may_only_call_never_raise() {
+        // Regression: a randomised integration test "shoved" with `to = bets + stack` even when
+        // that total was at or below the standing bet (a short stack facing the big blind), which
+        // is a call, not a raise; the engine rightly refused it with RaiseTooSmall.
+        let mut m = table(SPEED_STANDARD);
+        let c = dealt(
+            &mut m,
+            ["As", "Ad"],
+            ["Kc", "Kd"],
+            ["2h", "7s", "9c", "Jd", "3h"],
+        );
+        m.stacks[0] = 20; // the small blind has 45 in all against a bet of 50
+        let all_in_to = m.bets[0] + m.stacks[0];
+        assert!(all_in_to <= m.current_bet());
+        assert!(act(&mut m, &c, 0, Action::Raise { to: all_in_to }).is_err());
+        act(&mut m, &c, 0, Action::Call).unwrap();
+    }
+
+    #[test]
     fn postflop_bet_minimum_is_the_big_blind() {
         let mut m = table(SPEED_STANDARD);
         let c = dealt(

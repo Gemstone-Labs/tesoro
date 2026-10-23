@@ -1132,6 +1132,12 @@ impl Env {
         }
         let first = usize::from(g.to_act);
         let to = g.bets[first] + g.stacks[first];
+        let current = g.bets[0].max(g.bets[1]);
+        // A stack that cannot cover the standing bet (late blinds) or an opponent already all-in
+        // leaves no raise: the shove is a call. Raising there is RaiseTooSmall / OpponentAllIn.
+        if to <= current || g.stacks[1 - first] == 0 {
+            return self.act(first, Action::Call);
+        }
         self.act(first, Action::Raise { to })?;
         self.act(1 - first, Action::Call)
     }

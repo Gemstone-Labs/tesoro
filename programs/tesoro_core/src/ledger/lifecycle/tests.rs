@@ -601,6 +601,29 @@ fn every_fee_cut_syncs_its_source_first() {
 }
 
 #[test]
+fn join_sets_the_deadline_one_match_timeout_ahead_which_the_games_untabled_refund_relies_on() {
+    let mut rng = Rng(11);
+    let mut w = World::new(&mut rng);
+    let mut rec = open_with(
+        &mut w,
+        id(1, 0),
+        terms(false, 500, 0),
+        100,
+        party(1, 1, 0),
+        &[(100, 0, 100)],
+        1000,
+    );
+    join_with(&mut w, &mut rec, party(2, 2, 0), &[(102, 0, 100)], 1005);
+    assert_eq!(
+        rec.deadline,
+        1005 + MATCH_TIMEOUT_SECS,
+        "tesoro_core join no longer sets deadline = joined_at + MATCH_TIMEOUT_SECS; \
+         table_kit::untabled_since (refund_untabled in every table Game) derives the join time \
+         as deadline - MATCH_TIMEOUT_SECS and must change with it"
+    );
+}
+
+#[test]
 fn settlement_must_start_before_the_absolute_deadline_and_a_running_one_is_never_cut_short() {
     let mut rng = Rng(10);
     let mut w = World::new(&mut rng);
