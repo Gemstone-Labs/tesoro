@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { BookOpen } from "lucide-react";
+import { GameMenu } from "../fx";
 import { pushFeed } from "./feed";
 import "./vanguard.css";
 
@@ -33,6 +35,27 @@ export interface TurnInfo {
   spy?: SpyInfo | null;
 }
 
+/** The bar over the opponent: PRACTICE in Practice and the ⋯ menu (Ranks and powers, sound, full screen, Leave in Practice). */
+export function VgBar({ practice = false, onRules }: { practice?: boolean; onRules: () => void }) {
+  return (
+    <div className="vg-bar">
+      <h1 className="sr-only">Vanguard</h1>
+      {practice && <span className="cut cut-chip game-tag">Practice</span>}
+      <GameMenu items={[{ label: "Ranks and powers", icon: <BookOpen aria-hidden="true" />, onSelect: onRules }]} leaveHref={practice ? "/play" : undefined} />
+    </div>
+  );
+}
+
+/** An army's flag and the pieces it has left: a number, not a sentence. */
+export function ArmyCount({ army, left }: { army: "us" | "it"; left: number }) {
+  return (
+    <span className={`vg-army ${army}`} aria-label={`${army === "us" ? "US Army" : "Royal Italian Army"}, ${left} of 20 pieces left`}>
+      <i aria-hidden="true" />
+      <b className="tnum">{left}</b>
+    </span>
+  );
+}
+
 /** Where the Two-Step Turn button is and what it tells you: next to whose turn it is, never tucked in a seat bar. */
 export function TurnBox({ turn }: { turn: TurnInfo }) {
   const { banked, active, yourTurn, moved } = turn;
@@ -52,10 +75,10 @@ export function TurnBox({ turn }: { turn: TurnInfo }) {
   if (!turn.label) return null;
   return (
     <div className="vg-turnbox">
-      <span className="vg-turn">{turn.label}</span>
+      <span className="vg-turn" role="status">{turn.label}</span>
       {showButton && (
         <button key={earned} type="button" className={`vg-two${ready ? " ready" : ""}${earned ? " earned" : ""}`} onClick={turn.onUse} disabled={!ready}>
-          Use Two-Step Turn{banked > 1 ? ` ×${banked}` : ""}
+          Two-Step{banked > 1 ? ` ×${banked}` : ""}
         </button>
       )}
       {yourTurn && power && (

@@ -384,3 +384,25 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
   .vg-pv { background: rgba(255, 211, 106, 0.22); }
   .vg-piece.fly .vg-pb { transform: scale(1.3); }
 }
+
+/* ——— Phone first (W1): no sentences during play. The ⋯ menu sits over the opponent's plate, your plate and the power
+   button share the bottom row, the field log and hints stay for wide screens only. ——— */
+.vg-bar { justify-content: flex-end; }
+.vg-army { display: inline-flex; align-items: center; gap: 6px; font: 700 14px/1 var(--f-display); color: #d8c293; }
+.vg-army i { width: 18px; height: 12px; flex: none; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
+.vg-army.us i { background: linear-gradient(90deg, #2b3f78 0 42%, transparent 42%), repeating-linear-gradient(180deg, #b8312f 0 2px, #f1ece0 2px 4px); }
+.vg-army.it i { background: linear-gradient(90deg, #1f8a4c 0 33.3%, #f1ece0 33.3% 66.6%, #c8312f 66.6%); }
+@container (max-width: 999px) {
+  .vg-bar { position: relative; z-index: 3; margin-bottom: -58px; padding-right: 8px; pointer-events: none; }
+  .vg-bar > * { pointer-events: auto; }
+  .vg-left > .vg-plate { padding-right: 64px; }
+  .vg-left > .vg-plate:has(+ *) { margin-top: 2px; }
+  .vg-right { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: min(100%, 640px); }
+  .vg-right > .vg-plate { flex: 1 1 0; width: auto; min-width: 0; }
+  .vg-right > .vg-turnbox { flex: none; width: auto; }
+  .vg-right > :not(.vg-plate, .vg-turnbox) { flex-basis: 100%; }
+  .vg-turnbox .vg-turn, .vg-hint { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .vg-feed { display: none; }
+  .vg-screen .vg-turnbox { padding: 0; border: 0; background: none; box-shadow: none; }
+  .vg-power, .vg-two { min-height: 52px; padding-inline: 18px; }
+}

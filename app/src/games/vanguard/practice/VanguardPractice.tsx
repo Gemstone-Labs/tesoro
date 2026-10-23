@@ -1,14 +1,13 @@
 "use client";
 
-import { BookOpen } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Button, Label } from "@/components/ui";
 import { art } from "@/lib/art";
-import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../../fx";
+import { Arena, Callout, Countdown, prefersReducedMotion, sfx, type CalloutTone } from "../../fx";
 import { CAP_MS, NAMES, TURN_MS, act, move, newGame, rankOf, seeded, startTwoStep, targets, timeout, type Army, type Depot, type Game, type GameEvent, type Rank, type Refusal, type Result, type Rng, type Square } from "../rules";
 import { PRACTICE_COUNTDOWN, missedLabel } from "../clock";
-import { VanguardScreen, type TurnInfo } from "../VanguardScreen";
+import { ArmyCount, VanguardScreen, VgBar, type TurnInfo } from "../VanguardScreen";
 import { VanguardBoard, type HitSide, type Mark, type Preview, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
 import { RulesSheet } from "../RulesSheet";
 import { blastSquares, canSwitch, isJump, observe, powerBlockedLine, powerFor, rosterView, type Ledger } from "../powers-ui";
@@ -448,7 +447,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
         </span>
         <span className="vg-who">
           <b>{a === "us" ? "You" : "Bot"}</b>
-          <small>{a === "us" ? "US Army" : "Royal Italian Army"} · {count(a)} of 20</small>
+          <ArmyCount army={a} left={count(a)} />
         </span>
         {missedLabel(game.timeouts[a]) && <span className={`vg-missed${game.timeouts[a] >= 2 ? " last" : ""}`}>{missedLabel(game.timeouts[a])}</span>}
         {a === "it" && game.twoStep.it > 0 && <span className="vg-tok">Two-Step ×{game.twoStep.it}</span>}
@@ -482,28 +481,12 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
           {left}/{of}
         </span>
       ))}
-      {rv.tenOrSpy && (
-        <span className="vg-notes" role="note">
-          <em>10 or Spy?</em>
-        </span>
-      )}
     </div>
   );
   return (
     <Arena game="vanguard" autoFull={!game.winner}>
       <VanguardScreen
-        bar={
-          <div className="vg-bar">
-            <Label>Practice · Vanguard</Label>
-            <span className="vg-bar-tools">
-              <button type="button" className="cut cut-chip fx-mute" onClick={() => setRulesOpen((o) => !o)} aria-expanded={rulesOpen} aria-label="Ranks and powers" title="Ranks and powers">
-                <BookOpen size={16} aria-hidden="true" />
-              </button>
-              <MuteToggle />
-              <FullScreenToggle />
-            </span>
-          </div>
-        }
+        bar={<VgBar practice onRules={() => setRulesOpen((o) => !o)} />}
         foe={plate("it")}
         roster={roster}
         me={plate("us")}
@@ -533,7 +516,6 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
                 <div><dt>Your pieces left</dt><dd>{count("us")}</dd></div>
                 <div><dt>Italian pieces beaten</dt><dd>{20 - count("it")}</dd></div>
               </dl>
-              <p className="note">Practice: nothing was staked and no Gemas moved.</p>
               <div className="vg-end-actions">
                 <Button onClick={again}>Play again</Button>
                 <Button href="/play">Play</Button>
