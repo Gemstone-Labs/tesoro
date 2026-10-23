@@ -13,7 +13,7 @@ function db(): SupabaseClient {
   return client;
 }
 
-/** Calls the Postgres functions of migration 0007_match_history.sql through the service role. */
+/** Calls the Postgres functions of migration 0010_match_history.sql through the service role. */
 export const supabaseRpc: Rpc = async (fn, args) => {
   const { data, error } = await db().rpc(fn, args);
   if (error) throw new Error(`Match history ${fn} failed: ${error.message}`);

@@ -23,7 +23,7 @@ async function take(key: string, cost: number, max: number | null, windowMs: num
   return Number(data);
 }
 
-/** Postgres through the service role (migration 0008_sponsor.sql). */
+/** Postgres through the service role (migration 0011_sponsor.sql). */
 export const supabaseUsageStore: UsageStore = {
   async take(key, cost, max, windowMs) {
     return (await take(key, cost, max, windowMs)) >= 0;
