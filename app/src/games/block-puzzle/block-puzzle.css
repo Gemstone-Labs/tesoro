@@ -1,17 +1,19 @@
 /* Block Burst: the board and pieces are the colourful game art; chrome around it stays neutral.
    Emerald appears only on gem cells. */
 
-/* ——— Play screen: the ⋯ menu, a versus bar (you and your score · the timer ring · the Pot or PRACTICE), the board, the
-   tray, then combo and lines as icons with numbers ——— */
+/* Phones put the score above the board, with the timer at the left of the toolbar.
+   Wider screens keep the score and timer together in the toolbar. */
 .bpx { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); justify-items: center; position: relative; }
+.bpx-hud { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; width: 100%; max-width: 760px; }
 .bpx-bar {
+  grid-area: 1 / 1 / 2 / -1;
   --edge: var(--edge-1); background: var(--surface); width: 100%; max-width: 760px; padding: 10px 14px;
   display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px;
 }
-.bpx-score { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bpx-score { grid-area: 1 / 1; z-index: 1; margin-left: 14px; display: flex; align-items: center; gap: 10px; min-width: 0; }
 .bpx-face { --c: 10px; flex: none; display: grid; width: 44px; height: 44px; overflow: hidden; background: var(--surface-2); --edge: var(--edge-2); }
 .bpx-face img { width: 100%; height: 100%; object-fit: cover; }
-.bpx-ring { position: relative; width: 60px; height: 60px; display: grid; place-items: center; }
+.bpx-ring { grid-column: 2; position: relative; width: 60px; height: 60px; display: grid; place-items: center; }
 .bpx-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .bpx-ring circle { fill: none; stroke-width: 10; }
 .bpx-ring-bg { stroke: rgba(234, 239, 236, 0.14); }
@@ -199,10 +201,17 @@
   .bpx-ring.low, .bp-board.low, .bp-best.new, .bp-stats li { animation: none; }
 }
 
-@media (max-width: 480px) {
-  .bpx-bar { padding: 8px; gap: 6px; grid-template-columns: minmax(0, 1fr) auto auto; }
-  .bpx-score { gap: 6px; }
+@media (max-width: 639px) {
+  .bpx { --bpx-score-height: clamp(48px, calc(100dvh - 720px), 112px); --bpx-tray-height: clamp(64px, 10dvh, 92px); }
+  .bpx-hud { display: flex; flex-direction: column; gap: 12px; }
+  .bpx-bar { order: -1; padding: 8px; gap: 6px; grid-template-columns: minmax(0, 1fr) auto; }
+  .bpx-ring { grid-column: 1; }
+  .bpx-score { margin: 0; justify-content: center; min-height: var(--bpx-score-height); }
+  .bp-score-n { font-size: clamp(40px, 8dvh, 72px); }
   .bpx-face { display: none; }
+  /* Reserve the score, toolbar, tray, counters and gaps before sizing the square board. */
+  .bpx-mid { max-width: min(100%, max(180px, calc(100dvh - 220px - var(--bpx-score-height) - var(--bpx-tray-height))), 640px); }
+  .bp-slot { height: var(--bpx-tray-height); }
   .bpx-stake { gap: 4px; }
   .bpx-bar .game-tag { padding-inline: 6px; font-size: var(--fs-10); }
 }

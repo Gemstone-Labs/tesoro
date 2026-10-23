@@ -506,13 +506,14 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   return (
     <Arena game="block-puzzle" autoFull={phase !== "over"}>
     <div className="bpx">
-      <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
+      <div className="bpx-hud">
         <div className="bpx-score">
           <span className="cut bpx-face" aria-hidden="true">
             {me ? <PlayerAvatar account={me} size={44} /> : null}
           </span>
           <span ref={scoreEl} className="bp-score-n tnum" aria-label="Score" aria-live="off"><CountUp key={runId} value={st.score} from={0} format={String} duration={500} /></span>
         </div>
+      <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
         <div className={`bpx-ring${timeLow && phase === "play" ? " low" : ""}`} role="timer" aria-label="Time left">
           <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
             <circle cx="60" cy="60" r={RING_R} className="bpx-ring-bg" />
@@ -543,6 +544,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           <GameMenu leaveHref={run ? undefined : "/play"} />
         </div>
       </header>
+      </div>
 
       <section className="bpx-mid" aria-label="Board">
         <h1 className="sr-only">Block Burst</h1>
