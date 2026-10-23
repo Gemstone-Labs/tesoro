@@ -25,7 +25,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ account:
     if (q.get("all") === "1") {
       const first = await accountHistory(supabaseRpc, account, 1, ALL_PAGE, game);
       const rows = [...first.rows];
-      for (let p = 2; p <= Math.min(first.pages, ALL_MAX_PAGES); p++) rows.push(...(await accountHistory(supabaseRpc, account, p, ALL_PAGE, game)).rows);
+      const last = Math.min(first.pages, ALL_MAX_PAGES);
+      const rest = await Promise.all(Array.from({ length: Math.max(0, last - 1) }, (_, i) => accountHistory(supabaseRpc, account, i + 2, ALL_PAGE, game)));
+      for (const r of rest) rows.push(...r.rows);
       return Response.json({ rows, page: 1, pages: 1, total: first.total }, { headers: { "cache-control": "public, s-maxage=10, stale-while-revalidate=60" } });
     }
     return Response.json(await accountHistory(supabaseRpc, account, page, HISTORY_PAGE_SIZE, game), { headers: { "cache-control": "public, s-maxage=10, stale-while-revalidate=60" } });
