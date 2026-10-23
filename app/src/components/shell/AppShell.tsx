@@ -87,8 +87,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                 aria-label={b ? `${label}, ${b.n} ${b.label}` : undefined}
               >
                 <span className="nav-icon">
-                  <Icon aria-hidden="true" />
-                  {b && <b className={`nav-badge${b.lit ? " lit" : ""}`} aria-hidden="true">{b.n}</b>}
+                  <Icon key={here ? "active" : "idle"} aria-hidden="true" />
+                  {b && <b key={b.n} className={`nav-badge${b.lit ? " lit" : ""}`} aria-hidden="true">{b.n}</b>}
                 </span>
                 {label}
               </Link>

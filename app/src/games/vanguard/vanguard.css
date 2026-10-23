@@ -413,7 +413,6 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
   box-shadow: none; text-shadow: 0 1px 0 rgba(255, 240, 180, 0.55);
 }
 .vg-screen .vg-power.on { background: linear-gradient(#ffe6a1, #e8af3d 55%, #b77b1d); --edge: #fff0bc; }
-.vg-screen .vg-power:active, .vg-screen .vg-two:active:not(:disabled) { transform: translateY(1px); filter: brightness(0.85); }
 .vg-screen .vg-power:focus-visible, .vg-screen .vg-two:focus-visible { outline: none; }
 .vg-turnbox .vg-turn, .vg-hint { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .vg-feed { display: none; }

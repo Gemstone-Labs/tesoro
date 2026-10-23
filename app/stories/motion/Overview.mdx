@@ -13,6 +13,7 @@ Use the toolbar **Motion** switch to see Reduced motion. In the app, all animati
 | Story | Keyframes | Where the app uses them |
 | --- | --- | --- |
 | UI keyframes | `glint`, `sheet-in`, `fade-in`, `spin`, `skel`, `btn-sweep`, `reveal` | Gema mark shine, sheets and their backdrop, every spinner, loading skeletons, the big money button's passing light, lists rising as they scroll in |
+| Press feedback (`components/ui/motion.css`) | `nav-pop`, `nav-bar-in`, `badge-pop`, `micro-menu-in` | Bottom tab icons dip on press and pop on selection (260 ms); the emerald bar grows from its centre (180 ms); changed counts pop (220 ms); the game menu fades and rises 6 px (180 ms) |
 | Shell keyframes | `drawer-in`, `menu-in`, `page-in`, `topbar-lift` | Menu drawer, Account menu, every page arriving, the top bar's frosted ground on scroll |
 | Play keyframes | `live-pulse`, `lw-scroll` | The red Live dot, the Live wins strip |
 | Match and Guide keyframes | `mo-in`, `mo-out`, `mo-pop`, `burst-breathe`, `gema-land`, `guide-dim`, `guide-rise`, `guide-pop` | Win overlay, the light behind a won amount, the Gema landing, the Guide's entrance |
@@ -30,6 +31,7 @@ Use the toolbar **Motion** switch to see Reduced motion. In the app, all animati
 | Page in | Every page rising in, with the whole shell | `components/shell/AppShell.tsx` |
 | Sheets and drawers | The Sheet, the menu drawer and the Offer drawer opening | `components/ui/inputs.tsx`, `AppShell.tsx`, `backing/page.tsx` |
 | Hover and focus | Every transition on buttons, pickers, rows and the tilting game tiles, with one control to slow them all | `ui.css`, `lobby.css` and others |
+| Shared press feedback | Buttons and chip links press to 0.96 in 70 ms and spring back in 260 ms. Linked cards press to 0.98 with a brightness lift; desktop tile tilt stays composed. Pro view's knob slides with a press squash. Sheets rise 8 px from 0.98 in 180 ms and close in 120 ms. Disabled controls stay still; reduced motion changes state instantly. Game boards and pieces keep their own feedback. | `components/ui/motion.css`, `ui.css`, `deposit.css` |
 | Landing page | The full page: scroll reveals, count-ups, pins and the progress line (gsap and Lenis) | `components/landing/LandingMotion.tsx` |
 | 3D canvases | The live Gema and Multichain scenes next to their posters | `components/landing/gem`, `chains` |
 

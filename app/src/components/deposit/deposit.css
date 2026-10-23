@@ -23,7 +23,6 @@ dialog.sheet.dep-sheet.packs .sheet-head h2 { font-family: var(--f-display); fon
 .vs-switch > span {
   position: absolute; top: 4px; left: 4px; width: 22px; height: 22px; background: var(--fg-2);
   clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
-  transition: transform 0.2s ease, background 0.2s ease;
 }
 .vs-switch[aria-checked="true"] { background: var(--em); --edge: transparent; }
 .vs-switch[aria-checked="true"] > span { transform: translateX(26px); background: #fff; }

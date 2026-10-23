@@ -2,26 +2,33 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { BalanceHero } from "./BalanceHero";
 
-// Check the component contract without changing the money actions supplied by its caller.
+const rows = [
+  { label: "Redeemable now", figure: "200", usdOf: 200, emerald: true, info: "Ready now", action: <button>Redeem</button> },
+  { label: "Pending", figure: "1,000", usdOf: 1000, info: "From deposits and wins", action: <button disabled>Instant Redeem</button>, note: "≈ $1.50 now" },
+];
+
 describe("shared Vault balance card", () => {
-  it("renders the Simple view's Winnings and Cash out in an always-visible row", () => {
-    const html = renderToStaticMarkup(<BalanceHero label="Gemas" figure="1,200" simulated={false} rows={[{ label: "Winnings", figure: "200", action: <button disabled>Cash out</button> }]} />);
-    expect(html).toContain('aria-label="Winnings"');
-    expect(html).toContain('disabled=""');
-    expect(html).toContain("Cash out");
-    expect(html).not.toMatch(/wl-fold|wl-second|aria-expanded|simulated yield/);
-  });
-  it("keeps all Pro rows, label info, notes and action states visible without a fold", () => {
-    const html = renderToStaticMarkup(<BalanceHero label="Total Balance" labelInfo="About this total" figure="—" busy totalNote="In play: 100" rows={[
-      { label: "Redeemable now", figure: "100", emerald: true, info: "Ready now", action: <button>Redeem</button> },
-      { label: "Your pending", figure: "800", info: "Own earnings" },
-      { label: "Won pending", figure: "200", info: "Won earnings", action: <button disabled>Instant Redeem</button>, note: "≈ $1.50 now" },
-    ]} />);
-    for (const label of ["Total Balance", "Redeemable now", "Your pending", "Won pending"]) expect(html).toContain(`aria-label="About ${label}"`);
-    expect(html).toContain("In play: 100");
+  it("shows Gemas and exactly two money rows with their dollar values and actions", () => {
+    const html = renderToStaticMarkup(<BalanceHero label="Gemas" labelInfo="About Gemas" figure="1,200" usdOf={1200} simulated={false} rows={rows} />);
+    for (const label of ["Gemas", "Redeemable now", "Pending"]) {
+      expect(html).toContain(`aria-label="${label}"`);
+      expect(html).toContain(`aria-label="About ${label}"`);
+    }
+    expect(html.match(/class="wl-win(?: emerald)?"/g)).toHaveLength(2);
+    expect(html).toContain("$12");
+    expect(html).toContain("$2");
+    expect(html).toContain("$10");
+    expect(html).toContain("Redeem</button>");
+    expect(html).toContain('<button disabled="">Instant Redeem</button>');
     expect(html).toContain("≈ $1.50 now");
-    expect(html.match(/<button(?![^>]*tip-btn)/g)).toHaveLength(2);
+    expect(html).not.toMatch(/Winnings|Cash out|Your pending|Won pending|wl-fold|wl-second|simulated yield/);
+  });
+
+  it("keeps loading, in-play, simulated-yield and error feedback visible", () => {
+    const html = renderToStaticMarkup(<BalanceHero label="Gemas" figure="—" busy totalNote="In play: 100" rows={rows} error={<p role="alert">Read failed</p>} />);
     expect(html).toContain('aria-busy="true"');
-    expect(html).not.toMatch(/wl-fold|wl-second/);
+    expect(html).toContain("In play: 100");
+    expect(html).toContain("Simulated yield");
+    expect(html).toContain('<p role="alert">Read failed</p>');
   });
 });

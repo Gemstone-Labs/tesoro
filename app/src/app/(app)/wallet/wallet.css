@@ -3,7 +3,7 @@
 .wl h2 { margin: 0; }
 
 /* Both views use the same balance card and money rows. Padding clears the crown's 13px / 30px inset. */
-.wl-hero.simple { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 28px 26px; }
+.wl-hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 28px 26px; }
 .wl-hero h2 { font-size: var(--fs-15); font-weight: 600; color: var(--fg-2); }
 .wl-col-head { display: inline-flex; align-items: center; gap: 6px; }
 .wl-total-fig { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
@@ -23,7 +23,7 @@
 .wl-win-action { grid-area: act; }
 .wl-win-action .btn { white-space: nowrap; }
 .wl-win-note { grid-area: note; justify-self: end; color: var(--fg-2); font-size: var(--fs-13); }
-@media (min-width: 600px) { .wl-hero.simple { padding: 48px 50px 46px; } }
+@media (min-width: 600px) { .wl-hero { padding: 48px 50px 46px; } }
 @media (max-width: 479px) { .wl-win-action .btn { padding-inline: 12px; font-size: var(--fs-14); } }
 
 .wl-foot { display: grid; gap: 10px; }

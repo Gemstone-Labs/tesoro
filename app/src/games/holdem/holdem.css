@@ -187,8 +187,7 @@
 .hdx-btn {
   --c: 10px; --edge: var(--edge-2); min-height: 64px; display: grid; place-content: center; gap: 0; background: #141a20; border: 0; color: var(--fg); font-size: var(--fs-20); font-weight: 800;
 }
-.hdx-btn { position: relative; transition: transform 0.16s cubic-bezier(0.23, 1, 0.32, 1); }
-.hdx-btn:active:not(:disabled) { transform: scale(0.97); }
+.hdx-btn { position: relative; }
 .hdx-btn kbd, .hd-preset kbd { display: none; font: 600 var(--fs-11)/1 var(--f-mono, monospace); opacity: 0.55; border: 1px solid currentColor; padding: 2px 4px; }
 @media (hover: hover) and (min-width: 1024px) {
   .hdx-btn kbd { display: block; position: absolute; top: 6px; right: 8px; }

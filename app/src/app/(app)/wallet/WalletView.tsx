@@ -24,7 +24,7 @@ import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables, ethYieldWaiting }
 import { vaultsOn, type EthVault } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, OpenIntentContext, type OpenIntent } from "./OpenPanel";
 import { BalanceHero } from "@/components/money/BalanceHero";
-import { CARD, NextIn } from "@/components/money/card-copy";
+import { CARD } from "@/components/money/card-copy";
 import { HoverHint } from "@/components/money/Tip";
 import { instantCandidates, useInstantRedeem } from "./instant";
 import { ChainPockets, type Pocket, type PocketSource } from "./ChainPockets";
@@ -53,8 +53,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   const [openSheet, setOpenSheet] = useState(false);
   const [intent, setIntent] = useState<OpenIntent | null>(null);
   const router = useRouter();
-  const { mode, setMode } = useViewMode();
-  const simpleCard = mode === "simple";
+  const { setMode } = useViewMode();
   // The Vault's Buy Gemas button, the top bar's Gemas pill and `/vault?open=1` open this sheet (a game adds what it needs).
   useEffect(() => {
     if (!body) return;
@@ -90,12 +89,6 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   const canFetchYield = onChain && ethYieldWaiting(snapshot?.holdings ?? []).length > 0;
   // Pending is what is left of the Total after Redeemable now, so the hero adds up and matches the chain cards (which use the same figures).
   const pendingAmount = Math.max(0, gemas.total - redeemAmount);
-  // Pending split by who pays it: your own Locks' yield (just waits) and other Players' (won: Instant Redeem can buy it now).
-  const heldOnChain = snapshot?.holdings ?? [];
-  const ownPending = heldOnChain.filter((h) => h.isOwn).reduce((t, h) => t + Number(h.free - h.redeemable), 0);
-  const wonPendingGemas = heldOnChain.filter((h) => !h.isOwn).reduce((t, h) => t + Number(h.free - h.redeemable), 0);
-  // The Simple view's Winnings: every won Gema you hold (cashed out through Redeem, or Instant Redeem while pending).
-  const winnings = onChain ? heldOnChain.filter((h) => !h.isOwn).reduce((t, h) => t + Number(h.free), 0) : gemas.redeemable;
   // Which sheet opens is decided when it renders, not when the tap happened: a tap while the session
   // is still loading must not open the offline sheet once the Account turns out to be on chain.
   const openRedeem = (chain?: Chain) =>
@@ -183,36 +176,11 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
     .map((chain) => ({ chain, nextRedeemAt: nextRedeemAt(chain), ...chainTiles(chain), ...(onChain && snapshot ? chainGemas(snapshot.holdings, chain) : mockGemas(holdings, chain)), fetchYield: onChain && ethYieldWaiting(snapshot?.holdings ?? [], chain).length > 0 }))
     .filter((p) => p.positions.length > 0 || p.closed.length > 0 || p.gemas > 0);
   const hasPositions = pockets.some((p) => p.positions.length > 0 || p.closed.length > 0);
-  const heroNext = pockets.filter((p) => p.gemas > p.redeemable && p.nextRedeemAt).reduce<number | null>((m, p) => (m === null || p.nextRedeemAt! < m ? p.nextRedeemAt! : m), null);
 
   return (
     <div className={part === "all" ? "wl" : "wl-part"}>
-      {card && simpleCard && <BalanceHero
+      {card && <BalanceHero
         label="Gemas"
-        labelInfo={REAL ? undefined : <>Test mode · simulated yield, 1 month = 10 min. 1 Gema = $0.01.</>}
-        figure={ready ? <CountUp value={gemas.total} /> : "—"}
-        usdOf={ready ? gemas.total : undefined}
-        busy={!ready}
-        simulated={false}
-        rows={[{
-          label: "Winnings",
-          emerald: true,
-          figure: ready ? fmtGemas(winnings) : "—",
-          usdOf: ready ? winnings : undefined,
-          action: (
-            <Button disabled={!ready || winnings === 0} onClick={() => openRedeem()}>
-              Cash out
-            </Button>
-          ),
-        }]}
-        error={error && (
-          <p className="status err wl-hero-err" role="alert">
-            Could not read your Account from {CLUSTER.solana.label}. <Button size="sm" onClick={() => void refresh()}>Retry</Button>
-          </p>
-        )}
-      />}
-      {card && !simpleCard && <BalanceHero
-        label={CARD.total}
         labelInfo={REAL ? undefined : <>Test mode · simulated yield, 1 month = 10 min. 1 Gema = $0.01.</>}
         figure={ready ? <CountUp value={gemas.total} /> : "—"}
         usdOf={ready ? gemas.total : undefined}
@@ -233,20 +201,10 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
             ),
           },
           {
-            label: CARD.own,
-            figure: ready ? fmtGemas(onChain ? ownPending : pendingAmount) : "—",
-            usdOf: ready ? (onChain ? ownPending : pendingAmount) : undefined,
-            info: (
-              <>
-                {CARD.ownInfo} {ready && ownPending > 0 && <NextIn at={heroNext} />}
-              </>
-            ),
-          },
-          {
-            label: CARD.won,
-            figure: ready ? fmtGemas(onChain ? wonPendingGemas : 0) : "—",
-            usdOf: ready ? (onChain ? wonPendingGemas : 0) : undefined,
-            info: CARD.wonInfo(100 - (instantOffer?.feePct ?? 25)),
+            label: "Pending",
+            figure: ready ? fmtGemas(pendingAmount) : "—",
+            usdOf: ready ? pendingAmount : undefined,
+            info: `${CARD.ownInfo} ${CARD.wonInfo(100 - (instantOffer?.feePct ?? 25))}`,
             action: (
               <HoverHint
                 align="end"

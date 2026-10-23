@@ -4,10 +4,10 @@
    panel that overlaps the art's foot. How to play opens from the ⓘ. */
 .gp-hero { position: relative; display: grid; }
 .gp-art {
-  --c: var(--cut-frame); position: relative; overflow: hidden; height: clamp(240px, 52vw, 420px); background: #060a10;
+  --c: var(--cut-frame); position: relative; overflow: hidden; aspect-ratio: 1; background: #060a10;
   clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% 100%, 0 100%, 0 var(--c));
 }
-.gp-hero-art { object-fit: cover; object-position: 60% 30%; }
+.gp-hero-art { object-fit: cover; object-position: center; }
 .gp-art::after { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, transparent 40%, rgba(6, 10, 16, 0.7) 78%, rgba(6, 10, 16, 0.95)); }
 .gp-art-title { position: absolute; z-index: 2; left: 16px; right: 8px; bottom: 44px; display: flex; align-items: flex-end; gap: 8px; }
 .gp-info { flex: none; display: grid; place-items: center; width: 44px; height: 44px; background: transparent; border: 0; color: var(--fg); }
@@ -25,9 +25,9 @@
 .gp-play-sub { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-14); font-weight: 700; word-spacing: normal; opacity: 0.82; }
 .gp-play-sub svg { width: 15px; height: 15px; }
 /* side by side when both labels fit, stacked full width when they do not */
-.gp-more { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.gp-more > .btn:only-child { grid-column: 1 / -1; }
-.gp-more .btn.neutral { min-width: 0; min-height: 48px; gap: 7px; padding: 0 8px; font-size: var(--fs-14); white-space: nowrap; background: rgba(14, 19, 24, 0.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.gp-more { display: flex; flex-wrap: wrap; gap: 10px; }
+.gp-more > .btn { flex: 1 1 13rem; }
+.gp-more .btn.neutral { min-width: 0; min-height: 48px; gap: 7px; padding: 0 16px; font-size: var(--fs-14); white-space: nowrap; background: rgba(14, 19, 24, 0.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .gp-more .btn.neutral:hover { background: var(--surface-2); }
 .gp-more .btn svg { width: 18px; height: 18px; color: var(--fg-2); }
 
@@ -61,7 +61,7 @@
   /* desktop keeps the earlier hero: the art fills the card, the name and the panel sit on its dark left side */
   .gp-hero.cut { clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c)); --edge: var(--edge-2); background: #060a10; min-height: 380px; }
   .gp-hero.cut::after { display: block; }
-  .gp-art { position: absolute; inset: 0; height: auto; clip-path: none; background: transparent; }
+  .gp-art { position: absolute; inset: 0; height: auto; aspect-ratio: auto; clip-path: none; background: transparent; }
   .gp-hero-art { object-position: 70% 50%; }
   .gp-art::after { background: linear-gradient(90deg, rgba(6, 10, 16, 0.94) 0 32%, rgba(6, 10, 16, 0.55) 55%, transparent 80%); }
   .gp-art-title { display: none; }
@@ -76,7 +76,7 @@
 .gp-sub-h { font-size: var(--fs-18); font-weight: 700; }
 
 /* the art settles in, the panel rises, light catches the stones */
-.gp-hero-art { animation: hero-settle 9s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@media (min-width: 1024px) { .gp-hero-art { animation: hero-settle 9s cubic-bezier(0.2, 0.7, 0.2, 1) both; } }
 .gp-hero .sparkles { z-index: 1; }
 .gp-hero-body > * { animation: hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 .gp-hero-body > :nth-child(2) { animation-delay: 70ms; }

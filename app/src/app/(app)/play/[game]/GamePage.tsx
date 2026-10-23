@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import { getImageProps } from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -11,6 +11,7 @@ import { AssetPicker, Button, EntryPicker, GemaMark, Sheet } from "@/components/
 import { gameQuery, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
+import { CATALOGUE } from "@/lib/catalogue";
 import { PLAYED, accountHistory } from "@/lib/chain/history";
 import { useTopScoresToday } from "@/lib/chain/useRecentSettled";
 import { estimatedWin } from "@/lib/chain/ledger";
@@ -65,6 +66,11 @@ export function GamePage({ game }: { game: GameId }) {
   const [now] = useState(() => Date.now());
   const copy = COPY[game];
   const name = GAME_NAMES[game];
+  const { props: desktopArt } = getImageProps({ src: copy.hero, alt: "", fill: true, sizes: "900px" });
+  const { props: tileArt } = getImageProps({
+    src: CATALOGUE.find((entry) => entry.game === game)!.tile,
+    alt: "", fill: true, sizes: "100vw", loading: "eager", fetchPriority: "high",
+  });
 
   const history = useMemo(() => (onChain && snapshot ? accountHistory(snapshot.matches, snapshot.funded).filter((r) => r.game === game && PLAYED.includes(r.result)) : []), [onChain, snapshot, game]);
   const mine = history.slice(0, 3);
@@ -82,7 +88,10 @@ export function GamePage({ game }: { game: GameId }) {
     <div className="gp">
       <section className="cut cut-frame gp-hero" aria-label={name}>
         <div className="gp-art">
-          <Image className="gp-hero-art" src={copy.hero} alt="" fill sizes="(min-width: 1024px) 900px, 100vw" priority />
+          <picture>
+            <source media="(min-width: 1024px)" srcSet={desktopArt.srcSet} sizes={desktopArt.sizes} />
+            <img {...tileArt} alt="" className="gp-hero-art" />
+          </picture>
           <span className="sparkles" aria-hidden="true">
             {Array.from({ length: 10 }, (_, i) => (
               <i key={i} />

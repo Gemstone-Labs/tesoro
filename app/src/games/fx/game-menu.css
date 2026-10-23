@@ -5,7 +5,7 @@
 .gmenu-btn:hover { background: rgba(8, 12, 16, 0.92); }
 .gmenu-list {
   position: fixed; z-index: 100; width: 216px; overflow-y: auto; overscroll-behavior: contain; padding: 8px; display: grid; gap: 2px;
-  background: var(--raised-2); --edge: var(--edge-2); animation: menu-in 0.18s ease-out; transform-origin: top right;
+  background: var(--raised-2); --edge: var(--edge-2); animation: micro-menu-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1); transform-origin: top right;
 }
 .gmenu-list > * {
   display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; background: transparent; border: 0; text-align: left;

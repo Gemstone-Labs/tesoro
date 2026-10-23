@@ -36,7 +36,7 @@ export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, tot
   simulated?: boolean;
 }) {
   return (
-    <section className="cut cut-frame facet-panel wl-hero simple" aria-label={label}>
+    <section className="cut cut-frame facet-panel wl-hero" aria-label={label}>
       <FacetCrown />
       <div className="wl-total">
         <h2 className="wl-col-head">
