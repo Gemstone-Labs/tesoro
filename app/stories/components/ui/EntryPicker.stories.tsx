@@ -7,7 +7,7 @@ const meta = {
   component: EntryPicker,
   args: { value: 1000, legend: "Entry", onChange: () => {} },
   argTypes: {
-    value: { control: "inline-radio", options: [500, 1000, 2500] },
+    value: { control: "inline-radio", options: [100, 500, 1000] },
     maxAffordable: { control: "number" },
     onChange: { control: false },
     isDisabled: { control: false },
@@ -21,11 +21,11 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** 500 / 1,000 / 2,500 on one rail: the emerald piece slides to the chosen entry. */
+/** 100 / 500 / 1,000 on one rail: the emerald piece slides to the chosen entry. */
 export const Default: Story = {};
 
 /** Entries above what the Player can afford are dimmed and cannot be picked. */
-export const LimitedChosenTooHigh: Story = { args: { value: 2500, maxAffordable: 1200 } };
+export const LimitedChosenTooHigh: Story = { args: { value: 1000, maxAffordable: 600 } };
 
 /** Entries above what the Player can afford are disabled. */
 export const Limited: Story = { args: { maxAffordable: 1200 } };

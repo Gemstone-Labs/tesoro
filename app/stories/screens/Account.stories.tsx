@@ -91,7 +91,7 @@ const asking = (key: string): ChainRequest[] => {
     record: { matches: 21, wins: 13 },
     pnl: [],
   });
-  return [r(961, "holdem", 1000, 18), r(962, "block-puzzle", 2500, 5)];
+  return [r(961, "holdem", 1000, 18), r(962, "block-puzzle", 1000, 5)];
 };
 
 /** A Player who is asking to be backed: the "Asking to be backed" strip with Make an Offer, and the Backing fact in the header. */

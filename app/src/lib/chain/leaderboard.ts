@@ -55,7 +55,7 @@ export function parseLeaderboardTerms(data: Uint8Array): LeaderboardTerms {
 
 /**
  * The entry sizes set on-chain (`Config.entry_sizes`: four u64 after the Leaderboard fields, zero-padded),
- * or null while none is set (the program then allows 500 / 1,000 / 2,500) or the account predates the field.
+ * or null while none is set (the program then allows its default ladder, 100 / 500 / 1,000) or the account predates the field.
  * The pickers read `cluster-settings`, which mirrors what the admin sets; this is the check against the chain.
  */
 export function parseEntrySizes(data: Uint8Array): number[] | null {

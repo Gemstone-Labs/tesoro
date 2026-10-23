@@ -25,7 +25,7 @@ export const WithOpenMatches: Story = {
       snapshot: (a: string) => {
         const s = demoSnapshot(a);
         const open = { ...match("block-puzzle", 1000, true, 1, [0, 0], a), status: "open" as const, session: null, winner: null, opponent: null };
-        const live = { ...match("holdem", 2500, true, 3, [0, 0], a), status: "active" as const, winner: null };
+        const live = { ...match("holdem", 1000, true, 3, [0, 0], a), status: "active" as const, winner: null };
         return { ...s, matches: [open, live, ...s.matches] };
       },
     },

@@ -70,8 +70,8 @@ export const GemasReservedForOffers: Story = {
   },
 };
 
-/** Sent here by a game that needs 2,500 Gemas (`?open=1&game=holdem&need=2500`): the Get Gemas sheet opens with that context. */
-export const FromNotEnoughGemas: Story = { parameters: { screen: { search: "open=1&game=holdem&need=2500" } } };
+/** Sent here by a game that needs 1,000 Gemas (`?open=1&game=holdem&need=1000`): the Get Gemas sheet opens with that context. */
+export const FromNotEnoughGemas: Story = { parameters: { screen: { search: "open=1&game=holdem&need=1000" } } };
 
 /** The Get Gemas sheet on its first tab, SOL. */
 export const OpenSolPosition: Story = {

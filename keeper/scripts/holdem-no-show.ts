@@ -3,7 +3,7 @@
  * exits before `delegate_match`. The keeper must `finalize` the Created table once its 5-minute start deadline passes,
  * refunding both entries.
  *
- *   pnpm --filter @tesoro/keeper exec tsx scripts/holdem-no-show.ts [entry Gemas: 500 (default), 1000 or 2500]
+ *   pnpm --filter @tesoro/keeper exec tsx scripts/holdem-no-show.ts [entry Gemas: 500 (default), 100 or 1000]
  *
  * Uses the two test wallets in ~/.config/tesoro/block-puzzle-testers.json and their own-sourced Holdings (position
  * ids 11 and 12, as scripts/both-runs-closed.ts); each wallet pays its own fees.

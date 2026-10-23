@@ -107,7 +107,7 @@ _Avoid_: level, round, puzzle
 In UI copy the Seed is never named: Players see "the same pieces" (Block Burst).
 
 **Match**:
-A head-to-head contest between two players with equal Gema entries (100, 500 or 1,000 on mainnet; 500, 1,000 or 2,500 in test mode), settled once: the winner takes the Pot minus Fees; a draw or an abandoned Match refunds both entries; a no-show (both Players checked in, then neither acted) settles as a draw minus each side's Platform Fee. No Match can start settling more than 7 days after it opened: after that, only a refund is possible, in any Game.
+A head-to-head contest between two players with equal Gema entries (100, 500 or 1,000, on mainnet and in test mode), settled once: the winner takes the Pot minus Fees; a draw or an abandoned Match refunds both entries; a no-show (both Players checked in, then neither acted) settles as a draw minus each side's Platform Fee. No Match can start settling more than 7 days after it opened: after that, only a refund is possible, in any Game.
 _Avoid_: game (the catalogue title), bet, wager, contest
 
 **Pot**:

@@ -58,7 +58,7 @@ pub const BPS: u128 = 10_000;
 pub const MIN_HORIZON_MONTHS: u8 = 1;
 pub const MAX_HORIZON_MONTHS: u8 = 12;
 /// The entry sizes in force until the admin sets others, in Gemas.
-pub const LADDER: [u64; 3] = [500, 1_000, 2_500];
+pub const LADDER: [u64; 3] = [100, 500, 1_000];
 /// Most entry sizes the admin can set.
 pub const MAX_ENTRY_SIZES: usize = 4;
 /// Maximum lines (distinct Sources) one entry may be drawn from. Bounds accounts per

@@ -146,7 +146,7 @@ The app and keeper also skip an old-sized Position while any is left (`app/src/l
 
 Test mode needs almost nothing, by design:
 
-- **Entry sizes:** none. Unset means 500 / 1,000 / 2,500 (the test cluster setting). Do NOT call `set_entry_sizes` with the mainnet ladder on devnet.
+- **Entry sizes:** none. Unset means the default ladder, which the test cluster mirrors (500 / 1,000 / 2,500 at this upgrade; 100 / 500 / 1,000 from the economy upgrade). A call that differs from `cluster-settings.ts` breaks entry in the app.
 - **Invite gate:** none. No `InviteGate` account means off; test mode has no Invites. Do not call `set_invite_gate`.
 - **On-chain price mapping:** none. Do not call `set_onchain_price` on devnet: it would force Advances of that asset onto the Pyth path. The keeper keeps publishing `set_price`.
 - **Treasury Instant Redeem Fee to 2,500 bps (75% paid): REQUIRED.** The devnet `Treasury` still reads Yield Fee 2,000 and Instant Redeem Fee **3,500** bps (read 2026-10-15), while the app, the deck and `DEFAULT_INSTANT_FEE_BPS` say 2,500. Run, from the repo root after the `tesoro_core` upgrade (admin key `~/.config/solana/dev-2026-10.json`):

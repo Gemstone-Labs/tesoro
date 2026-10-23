@@ -147,7 +147,7 @@ export const MyBackings: Story = {
       board: board([], [
         offer(951, "block-puzzle", 1000, { request: at(1), shareBps: 5500 }),
         offer(953, "trading-duel", 500, { status: "accepted", shareBps: 6000, player: demoKey(705), request: at(5), useBy: now() + 40 * 60 }),
-        offer(954, "block-puzzle", 2500, { status: "consumed", shareBps: 4500, player: demoKey(703), request: at(3), matchId: `${"1".repeat(32)}-${Date.now() - 25 * 60_000}` }),
+        offer(954, "block-puzzle", 1000, { status: "consumed", shareBps: 4500, player: demoKey(703), request: at(3), matchId: `${"1".repeat(32)}-${Date.now() - 25 * 60_000}` }),
         offer(955, "holdem", 500, { request: at(2), shareBps: 5000, expiresAt: now() - HOUR }),
       ]),
     },

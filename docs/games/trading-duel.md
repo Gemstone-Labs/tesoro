@@ -6,7 +6,7 @@ Code: `programs/trading_duel/src/{lib,state,engine}.rs`, table protocol pieces i
 
 ## Rules
 
-- Two Players, equal entry (500, 1,000 or 2,500 Gemas), paired through the Queue or a Challenge link. The Queue is per game, entry **and asset**.
+- Two Players, equal entry (100, 500 or 1,000 Gemas), paired through the Queue or a Challenge link. The Queue is per game, entry **and asset**.
 - One asset per Match: SOL, ETH or HYPE.
 - The grid has 12 columns of 10 seconds and unbounded bands of price. The bands are fixed when the Match starts: band height (`step`) is the start price (the anchor) times `STEP_PPM[asset]` (SOL 120, ETH 100, HYPE 130 parts per million; about $0.0135 a band for SOL at $112). Band `k`, a signed integer, is `[anchor + k*step, anchor + (k+1)*step)`: band 0 starts at the anchor, negative bands lie below it. `band_of(price) = floor((price - anchor) / step)`, clamped to -32767..32767 (picks are `i16` and `NO_PICK` = -32768 is the sentinel). No band is open-ended, so a day's move never leaves the grid: the app scrolls the view to follow the line and the Player picks any band, near or far.
 - **Head start:** the line enters column 0 `HEAD_START_SECS` = 30 s after the Match starts. The Match ends `grid_at + 120 s` = 150 s after it starts.
