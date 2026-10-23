@@ -23,6 +23,7 @@ contract CodeSizeTest is Test {
 
     function test_deployableContractsFitTheEvmLimits() public view {
         _check("PositionVault.sol:PositionVault");
+        _check("PrizeModule.sol:PrizeModule");
         _check("SimLST.sol:SimLST");
         _check("StakeZap.sol:LidoZap");
         _check("StakeZap.sol:KinetiqZap");

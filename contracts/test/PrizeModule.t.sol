@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {PrizeModule} from "../src/PrizeModule.sol";
+import {PositionVault} from "../src/PositionVault.sol";
 
 /// The module is only meant to run by delegatecall from its vault. Called directly it must refuse, so nobody can
 /// drive it against its own (empty) storage and mistake the result for a vault's.
@@ -34,5 +35,16 @@ contract PrizeModuleTest is Test {
             )
         );
         assertEq(out.length, 62);
+    }
+
+    /// The module's immutables are baked into its code and must equal the vault's, since it runs on the vault's storage.
+    function test_moduleImmutablesEqualTheVaults() public {
+        PositionVault vault = new PositionVault(address(0x21), address(0x22), address(0x23), 7, address(0x24));
+        PrizeModule m = vault.prizeModule();
+        assertEq(address(m.lst()), address(vault.lst()));
+        assertEq(address(m.rateSource()), address(vault.rateSource()));
+        assertEq(m.messageEndpoint(), vault.messageEndpoint());
+        assertEq(m.sourceChain(), vault.sourceChain());
+        assertEq(m.yieldMinter(), vault.yieldMinter());
     }
 }
