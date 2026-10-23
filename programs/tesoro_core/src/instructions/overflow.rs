@@ -382,10 +382,7 @@ pub(crate) fn require_routes_claimed(
         }
         require_keys_eq!(*record.owner, crate::ID, MatchError::OverflowRecordInvalid);
         let data = record.try_borrow_data()?;
-        require!(
-            head_of(&data).is_some(),
-            MatchError::OverflowRecordInvalid
-        );
+        require!(head_of(&data).is_some(), MatchError::OverflowRecordInvalid);
         let store = LineStore::new(&data[OVERFLOW_STORE_AT..])
             .map_err(|_| error!(MatchError::OverflowRecordInvalid))?;
         require!(

@@ -3880,7 +3880,8 @@ impl Env {
             ranked.iter().map(|(p, _)| rem(p.account, false)).collect();
         remaining.push(rem(pda(&[NATIVE_SEED]), false));
         // the Pool's overflow record of the native route for this Season (it may not exist)
-        let id = tesoro_core::instructions::overflow::route_overflow_id(number, &pda(&[NATIVE_SEED]));
+        let id =
+            tesoro_core::instructions::overflow::route_overflow_id(number, &pda(&[NATIVE_SEED]));
         remaining.push(rem(
             overflow_address(&self.pool_account(), OVERFLOW_ROUTE, &id).0,
             false,

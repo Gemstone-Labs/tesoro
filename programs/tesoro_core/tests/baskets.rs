@@ -1626,15 +1626,14 @@ fn profiles_have_their_own_cap_so_a_swarm_of_them_cannot_use_up_new_accounts() {
             avatar: AvatarChoice::Default,
         },
     );
-    let e = env
-        .send(&[set.clone()], &[&relayer, &wallet])
-        .unwrap_err();
+    let e = env.send(&[set.clone()], &[&relayer, &wallet]).unwrap_err();
     assert_eq!(
         custom_code(&e),
         u32::from(tesoro_core::error::BasketError::ProfilesSponsorCap)
     );
     // the failed Profile left the Accounts' room alone: a second Account still fits
-    env.create_sponsored(&Keypair::new()).expect("second Account");
+    env.create_sponsored(&Keypair::new())
+        .expect("second Account");
     // once the admin gives Profiles room, one fits and counts there
     env.set_profiles_cap(profile_rent);
     env.send(&[set], &[&relayer, &wallet]).expect("profile");
