@@ -1141,8 +1141,8 @@ pub mod vanguard {
         Ok(())
     }
 
-    /// Rollup, permissionless. Past the start window or the setup windows it cancels the Match (the ring gets a
-    /// refund, or a no-show when both checked in and nobody contributed). In a live Match it declares a timeout: once
+    /// Rollup, permissionless. Past the start window or the setup windows it ends the Match by who showed up (the one
+    /// who did wins, nobody is a no-show, both with the oracle late is a refund). In a live Match it declares a timeout: once
     /// the turn's deadline has passed the turn is lost (three in a row lose the Match), once the time cap has passed
     /// the Match ends on the tiebreak. Which of the two is decided now, from the clock, and `resolve` applies it.
     pub fn claim_timeout(ctx: Context<ClaimTimeout>) -> Result<()> {
@@ -1171,9 +1171,9 @@ pub mod vanguard {
                 ];
                 let both = contributed.iter().all(|c| *c);
                 if now > battle.setup_deadline {
-                    // The hard deadline: whatever stalled, the Match is cancelled and refunded.
-                    battle.status = STATUS_CANCELLED;
-                    conclude(table, &battle, !contributed.iter().any(|c| *c), now)?;
+                    // The hard deadline: a late claim by the absent Player must not turn their loss into a refund,
+                    // so the same absence rule applies (both contributed: the oracle stalled, refund).
+                    end_absent(table, &mut battle, contributed, now)?;
                 } else {
                     require!(now > battle.entropy_deadline, VanguardError::NotTimedOut);
                     if both && table.req_made {

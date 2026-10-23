@@ -2710,6 +2710,27 @@ fn a_setup_with_nobody_contributing_is_a_no_show_and_with_one_missing_secret_the
 }
 
 #[test]
+fn a_claim_after_the_setup_deadline_still_makes_the_absent_player_lose() {
+    let mut env = ready();
+    env.open_setup();
+    env.contribute(0, [1; 32]).unwrap();
+    // The absent Player waits out every deadline and claims last.
+    env.set_time(env.battle().setup_deadline + 1);
+    let bob = env.bob.kp.insecure_clone();
+    env.claim_timeout(&bob).expect("late claim");
+    assert_eq!(
+        env.table().ring.find(&env.tmatch, 0).unwrap().1.outcome,
+        table_kit::OUTCOME_WIN0
+    );
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.finalize(true).expect("settle");
+    assert_eq!(
+        (env.gemas(&env.alice), env.gemas(&env.bob)),
+        (before.0 + 1_900, before.1)
+    );
+}
+
+#[test]
 fn a_table_is_reused_and_every_result_waits_in_the_ring_until_it_is_settled() {
     let mut env = Env::new();
     let mut played: Vec<(flow::MatchRef, APk)> = vec![];
