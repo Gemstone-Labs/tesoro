@@ -1,4 +1,4 @@
-/** Runs migration 0008 on an in-process Postgres (pglite): the quota function must never hand out more than its max. */
+/** Runs migration 0011 on an in-process Postgres (pglite): the quota function must never hand out more than its max. */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
@@ -15,10 +15,10 @@ const take = async (key: string, cost: number, max: number | null, windowMs: num
 beforeAll(async () => {
   db = new PGlite();
   await db.exec("create role anon; create role authenticated;");
-  await db.exec(readFileSync(join(__dirname, "../../../supabase/migrations/0008_sponsor.sql"), "utf8"));
+  await db.exec(readFileSync(join(__dirname, "../../../supabase/migrations/0011_sponsor.sql"), "utf8"));
 });
 
-describe("sponsor_take (migration 0008)", () => {
+describe("sponsor_take (migration 0011)", () => {
   it("applies and counts up to the max, then refuses without adding", async () => {
     expect(await take("a", 1, 3, 60_000)).toBe(1);
     expect(await take("a", 2, 3, 60_000)).toBe(3);

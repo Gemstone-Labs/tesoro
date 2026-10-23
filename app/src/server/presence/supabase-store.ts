@@ -16,7 +16,7 @@ function db(): SupabaseClient | null {
 
 const memory = new MemoryPresenceStore();
 
-/** Postgres through the service role (migration 0012_queue_presence.sql); in memory when Supabase is not configured and this is not production. */
+/** Postgres through the service role (migration 0014_queue_presence.sql); in memory when Supabase is not configured and this is not production. */
 export const presenceStore: PresenceStore = {
   async touch(matchKey, at) {
     const c = db();

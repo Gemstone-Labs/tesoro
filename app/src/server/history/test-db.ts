@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import type { Rpc } from "./rpc";
 
-const MIGRATIONS = ["0007_match_history.sql", "0011_match_end_states.sql"].map((f) => new URL(`../../../supabase/migrations/${f}`, import.meta.url));
+const MIGRATIONS = ["0010_match_history.sql", "0013_match_end_states.sql"].map((f) => new URL(`../../../supabase/migrations/${f}`, import.meta.url));
 
-/** A throwaway in-process Postgres (pglite) with migrations 0007 and 0011 applied, called the way the app calls Supabase. */
+/** A throwaway in-process Postgres (pglite) with migrations 0010 and 0013 applied, called the way the app calls Supabase. */
 export async function testDb(): Promise<{ rpc: Rpc; sql: PGlite }> {
   const sql = new PGlite();
   await sql.exec("create role anon; create role authenticated;");

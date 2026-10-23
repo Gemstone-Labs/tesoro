@@ -20,7 +20,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Won: Story = {};
-export const Lost: Story = { args: { r: row(match("holdem", 2500, false, 90, [0, 0])) } };
+export const Lost: Story = { args: { r: row(match("holdem", 1000, false, 90, [0, 0])) } };
 export const Draw: Story = {
   args: {
     r: row((() => {
@@ -34,4 +34,4 @@ export const BackedWon: Story = { args: { r: row(backed(match("block-puzzle", 10
 export const BackedLost: Story = { args: { r: row(backed(match("block-puzzle", 1000, false, 900, [96, 140]), BACKER)), backing: "Backer 9WzD…AWWM bore the loss · −1,000" } };
 export const TradingDuel: Story = { args: { r: row(match("trading-duel", 1000, true, 12, [0, 0])) } };
 /** A Match this Account backed: the Player it backed takes the left seat. */
-export const AsBacker: Story = { args: { r: row(backed(match("block-puzzle", 2500, true, 300, [164, 97]), BACKER, 3000, true)) } };
+export const AsBacker: Story = { args: { r: row(backed(match("block-puzzle", 1000, true, 300, [164, 97]), BACKER, 3000, true)) } };

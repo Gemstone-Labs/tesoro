@@ -340,7 +340,7 @@ export function buildLaunchPlan(input: LaunchInput): PlanStep[] {
       name: "entry-sizes",
       title: `tesoro_core: set_entry_sizes([${sizes.join(", ")}])`,
       ...adminSigns(),
-      why: "Unset means the test ladder 500 / 1,000 / 2,500, so this call is required on mainnet. The app mirrors the ladder in cluster-settings.ts; a mismatch breaks entry.",
+      why: "Pins the ladder in Config so a later program default cannot change it (unset means ledger::LADDER, also 100 / 500 / 1,000). The app mirrors the ladder in cluster-settings.ts; a mismatch breaks entry.",
       ixs: [coreIx(core, "set_entry_sizes", { admin }, { sizes: sizes.map((s) => new BN(s)) })],
       check: "Config.entry_sizes",
     });

@@ -46,7 +46,7 @@ export function fileCursor(path: string): Cursor {
 /** Takes the records of one transaction. A throwing sink stops the scan at that transaction. */
 export type Sink = (tx: TxRecords) => Promise<void>;
 
-/** The Postgres functions of migration 0007 over Supabase's REST API with the service role. */
+/** The Postgres functions of migration 0010 over Supabase's REST API with the service role. */
 export const restRpc = (url: string, serviceKey: string, fetchFn: typeof fetch = fetch): Rpc => async (fn, args) => {
   const res = await fetchFn(`${url.replace(/\/$/, "")}/rest/v1/rpc/${fn}`, {
     method: "POST",

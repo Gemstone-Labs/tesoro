@@ -158,17 +158,17 @@ export function demoSnapshot(address: string): AccountSnapshot {
     matches: [
       match("block-puzzle", 1000, true, 2, [171, 55]),
       backed(match("block-puzzle", 1000, false, 7, [96, 140]), key(801).toBase58()),
-      match("holdem", 2500, true, 12, [2, 0]),
+      match("holdem", 1000, true, 12, [2, 0]),
       match("block-puzzle", 1000, false, 240, [102, 133]),
       match("holdem", 1000, false, 1440, [1, 2]),
       match("vanguard", 500, true, 3000, [0, 0]),
       // Older history, enough for a second page of All Matches.
       ...Array.from({ length: 18 }, (_, i) =>
-        match(i % 3 === 0 ? "holdem" : "block-puzzle", [500, 1000, 2500][i % 3], i % 4 !== 1, 1500 + i * 97, [120 + ((i * 7) % 40), 80 + ((i * 11) % 50)]),
+        match(i % 3 === 0 ? "holdem" : "block-puzzle", [100, 500, 1000][i % 3], i % 4 !== 1, 1500 + i * 97, [120 + ((i * 7) % 40), 80 + ((i * 11) % 50)]),
       ),
     ],
     market: null,
-    funded: [backed(match("block-puzzle", 2500, true, 30, [150, 88]), key(802).toBase58(), 4000, true)],
+    funded: [backed(match("block-puzzle", 1000, true, 30, [150, 88]), key(802).toBase58(), 4000, true)],
     matchesLoaded: true,
     fetchedAt: Date.now(),
   };
@@ -178,7 +178,7 @@ export function demoSnapshot(address: string): AccountSnapshot {
 function demoPnl(seed: number, matches: number, wins: number, behind = false): number[] {
   let x = seed * 9301 + 49297;
   const rnd = () => (x = (x * 9301 + 49297) % 233280) / 233280;
-  const entries = [500, 1000, 2500];
+  const entries = [100, 500, 1000];
   const results = Array.from({ length: matches }, (_, i) => i < wins).sort(() => rnd() - 0.5);
   return results.map((won) => {
     const entry = behind ? (won ? 500 : entries[1 + Math.floor(rnd() * 2)]) : entries[Math.floor(rnd() * 3)];
@@ -203,11 +203,11 @@ export function demoBoard(): BackingBoard {
     requests: [
       req(1, "block-puzzle", 1000, 38, 23, 58),
       req(2, "holdem", 500, 24, 14, 1290),
-      req(3, "block-puzzle", 2500, 52, 34, 312),
+      req(3, "block-puzzle", 1000, 52, 34, 312),
       req(4, "holdem", 1000, 17, 9, 14, true),
       req(5, "trading-duel", 500, 31, 21, 845),
       req(6, "block-puzzle", 500, 0, 0, 1380),
-      req(7, "holdem", 2500, 64, 37, 96),
+      req(7, "holdem", 1000, 64, 37, 96),
       req(8, "vanguard", 500, 12, 7, 410),
     ],
     offers: [],
@@ -218,7 +218,7 @@ export function demoBoard(): BackingBoard {
 export function demoSettled(): SettledMatch[] {
   return [
     { id: idAt(ago(2)), game: "block-puzzle", entry: 1000, winner: key(701).toBase58(), payout: 1900, scores: [171, 55], at: ago(2) },
-    { id: idAt(ago(9)), game: "holdem", entry: 2500, winner: key(702).toBase58(), payout: 4750, scores: null, at: ago(9) },
+    { id: idAt(ago(9)), game: "holdem", entry: 1000, winner: key(702).toBase58(), payout: 1900, scores: null, at: ago(9) },
     { id: idAt(ago(21)), game: "block-puzzle", entry: 500, winner: key(703).toBase58(), payout: 950, scores: [133, 102], at: ago(21) },
     { id: idAt(ago(33)), game: "vanguard", entry: 500, winner: key(704).toBase58(), payout: 950, scores: null, at: ago(33) },
   ];
@@ -243,15 +243,15 @@ export function demoPlayerAccount(address: string): PlayerAccount {
   const played: ChainMatch[] = [
     m("block-puzzle", 1000, true, 4, [171, 55]),
     backed(m("block-puzzle", 1000, true, 35, [150, 88]), backerA),
-    m("holdem", 2500, false, 90),
+    m("holdem", 1000, false, 90),
     backed(m("holdem", 1000, false, 180), backerA),
-    backed(m("block-puzzle", 2500, true, 300, [164, 97]), backerB, 3000),
+    backed(m("block-puzzle", 1000, true, 300, [164, 97]), backerB, 3000),
     m("block-puzzle", 500, true, 420, [133, 102]),
     { ...draw, status: "refunded", session: draw.session && { ...draw.session, result: "draw" } },
     { ...m("holdem", 1000, false, 720), status: "refunded", winner: null },
     backed(m("block-puzzle", 1000, false, 900, [96, 140]), backerB, 3000),
     ...Array.from({ length: 24 }, (_, i) =>
-      m(i % 3 === 0 ? "holdem" : "block-puzzle", [500, 1000, 2500][i % 3], i % 5 !== 2, 1500 + i * 97, [120 + ((i * 7) % 40), 80 + ((i * 11) % 50)]),
+      m(i % 3 === 0 ? "holdem" : "block-puzzle", [100, 500, 1000][i % 3], i % 5 !== 2, 1500 + i * 97, [120 + ((i * 7) % 40), 80 + ((i * 11) % 50)]),
     ),
   ];
   return { exists: true, played, rows: playedRows(played), requests: demoBoard().requests.filter((r) => r.player === address) };

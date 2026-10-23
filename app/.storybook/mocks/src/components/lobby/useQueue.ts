@@ -5,7 +5,7 @@ import { screenData } from "../../../../../stories/screens/support/screen";
 
 export type QueueSeats = Record<GameId, QueueSeat[]>;
 
-const ENTRIES = [1000, 500, 1000, 2500];
+const ENTRIES = [1000, 500, 1000, 100];
 
 export function useQueueDepth(): Record<GameId, number> {
   return screenData().queueDepth ?? { "block-puzzle": 3, holdem: 2, "trading-duel": 1, vanguard: 1 };

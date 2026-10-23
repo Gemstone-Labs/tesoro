@@ -20,9 +20,9 @@ type Story = StoryObj<typeof meta>;
 /** The page the Lobby's Enter button opens. With no wallet to sign, it waits at the first step. */
 export const Queue: Story = {};
 export const TradingDuel: Story = { args: { kind: "queue", entry: 1000, game: "trading-duel", asset: 1 } };
-export const NewChallenge: Story = { args: { kind: "challenge-new", entry: 2500, game: "holdem" } };
+export const NewChallenge: Story = { args: { kind: "challenge-new", entry: 1000, game: "holdem" } };
 export const SignedOut: Story = { parameters: { auth: "signed-out" } };
 export const NotEnoughGemas: Story = {
-  args: { entry: 2500 },
+  args: { entry: 1000 },
   parameters: { data: { snapshot: (a: string) => ({ ...demoSnapshot(a), holdings: [], positions: [], ownTotal: 0n, wonTotal: 0n }) } },
 };

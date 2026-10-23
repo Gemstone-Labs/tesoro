@@ -27,7 +27,7 @@ export interface ScreenData {
   age?: "ask";
   /** The Backing Request to open in the Offer drawer (the URL hash). */
   hash?: string;
-  /** The URL query (without "?") the page reads from `window.location.search`, e.g. "open=1&game=holdem&need=2500". */
+  /** The URL query (without "?") the page reads from `window.location.search`, e.g. "open=1&game=holdem&need=1000". */
   search?: string;
   /** Block Burst Match: what the driver reports (merged over a "waiting" view). */
   burst?: Partial<BurstView>;

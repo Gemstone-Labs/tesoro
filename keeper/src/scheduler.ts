@@ -483,8 +483,9 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
     else if (step.do === "reset_table") {
       // The reset wipes the Match's board: its public end state goes to the Match history first, in this same step.
       const held = await a.endState(ctx, ref, view).catch(() => null);
+      if (!held) continue; // the end state could not be read: the reset waits for the next pass
       const sinceOver = Math.max(0, Math.floor(ctx.now - view.overAt));
-      if (held && !(await (deps.gate ?? resetMayProceed)(held, sinceOver, undefined, subject))) continue;
+      if (!(await (deps.gate ?? resetMayProceed)(held, sinceOver, undefined, subject))) continue;
       await run(subject, what, () => a.reset(ctx, ref));
     }
   }

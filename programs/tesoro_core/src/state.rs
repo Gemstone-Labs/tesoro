@@ -211,8 +211,8 @@ pub struct Config {
     /// Unix time `init_leaderboard` first ran: Matches opened before it were not charged the fee, so
     /// readers show the fee only for Matches opened at or after it. Zero until then.
     pub leaderboard_since: i64,
-    /// Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default 500 /
-    /// 1,000 / 2,500 apply, so an older Config needs no call. Appended after the Leaderboard
+    /// Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default ladder
+    /// (100 / 500 / 1,000) applies, so an older Config needs no call. Appended after the Leaderboard
     /// fields: an account created before reads them as zero from its zeroed tail.
     pub entry_sizes: [u64; ledger::MAX_ENTRY_SIZES],
     /// Set by the admin on mainnet (`set_oracle_lock`): the oracle key can no longer register
