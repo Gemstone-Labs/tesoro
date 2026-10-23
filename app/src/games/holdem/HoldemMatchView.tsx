@@ -124,7 +124,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
       )}
 
       {showTable && t && seat !== null && (
-        <HoldemTable table={t} seat={seat} hole={view.hole} busy={view.busy} ended={tableOver || stage === "settled"} entry={m?.entry} error={view.error} onAct={(a, label) => void act(a, label)} onClaim={() => void claimTimeout()} />
+        <HoldemTable table={t} seat={seat} hole={view.hole} busy={view.busy} ended={tableOver || stage === "settled"} error={view.error} onAct={(a, label) => void act(a, label)} onClaim={() => void claimTimeout()} />
       )}
 
       {stage === "closing" && (

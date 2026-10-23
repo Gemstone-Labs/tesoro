@@ -46,6 +46,6 @@ export default function TablePreview() {
     lastHand: { handNo: 0, result: NO, pot: 0n, showdown: false, shown: [[NO, NO], [NO, NO]], board: [] },
   };
   return (
-    <HoldemTable table={table} seat={0} hole={{ handNo: 784592, cards: [51, 49] }} busy={null} ended={false} entry={1000} onAct={() => undefined} onClaim={() => undefined} />
+    <HoldemTable table={table} seat={0} hole={{ handNo: 784592, cards: [51, 49] }} busy={null} ended={false} onAct={() => undefined} onClaim={() => undefined} />
   );
 }

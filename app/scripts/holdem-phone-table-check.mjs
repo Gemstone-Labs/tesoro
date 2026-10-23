@@ -41,7 +41,7 @@ function watch() {
     if (win && !inEnd) ends++;
     inEnd = !!win;
     if (!seen.has(table)) seen.set(table, `${labels} hand name(s), ${win ? `result "${win.textContent}"` : "pot"}`);
-    const bar = document.querySelector(".hdx-actions:not(.raise-open)");
+    const bar = document.querySelector(".hdx-actions");
     const btns = [...document.querySelectorAll(".hdx-btn span")].map((s) => s.textContent).join(" | ");
     if (bar && !bars.has(h(bar))) bars.set(h(bar), btns);
   }, 50);

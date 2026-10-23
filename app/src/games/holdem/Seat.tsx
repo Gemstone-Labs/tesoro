@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { TimerOff } from "lucide-react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { CountUp } from "@/components/ui";
@@ -86,16 +87,19 @@ export function Seat({
         <Avatar account={account} picture={picture} active={active} fraction={fraction} low={low} />
         <div className="hd-plaque-text">
           <div className="hd-name">
-            <strong>{who}</strong>
-            {active && <span className="hd-turn">To act</span>}
+            <strong>{account ? linked ? <AccountLink account={account} newTab /> : <PlayerName account={account} /> : (address ?? who)}</strong>
+            {active && <span className="sr-only">{who} to act</span>}
             {tag && <span className="hd-turn won">{tag}</span>}
-            <span className="mono hd-addr">{account ? linked ? <AccountLink account={account} newTab /> : <PlayerName account={account} /> : address}</span>
           </div>
           <div className="hd-stack mono" aria-label={`${who} stack ${chips(stack)} Chips`}>
-            <CountUp value={Number(stack)} format={chips} /> <span className="hd-unit">Chips</span>
+            <CountUp value={Number(stack)} format={chips} />
             {allIn && <span className="hd-tag">All-in</span>}
           </div>
-          {missed > 0 && <span className="meta hd-missed">Missed {missed} of 3 turns</span>}
+          {missed > 0 && (
+            <span className="meta hd-missed" aria-label={`Missed ${missed} of 3 turns`}>
+              <TimerOff size={12} aria-hidden="true" /> {missed}/3
+            </span>
+          )}
         </div>
         {dealer && (
           <span className="hd-btn" title="Dealer button, posts the small blind" aria-label="Dealer button">

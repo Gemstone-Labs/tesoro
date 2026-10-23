@@ -32,19 +32,20 @@
 
 /* layout: slim header, the table, the action bar, a collapsible hand log */
 .hdx { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); max-width: 1100px; margin: 0 auto; width: 100%; }
-.hdx-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 0 4px; }
-.hdx-head-l { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
-.hdx-title { font-family: var(--f-display); text-transform: uppercase; font-weight: 800; line-height: 1; font-size: 26px; letter-spacing: 0.005em; }
-.hdx-level { color: var(--fg-2); font-size: var(--fs-14); }
+/* the header is only the blinds and the ⋯ menu (and Claim timeout when the other clock has run out) */
+.hdx-head { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 2px; }
+.hdx-level { color: var(--fg-2); font-size: var(--fs-13); }
+.hdx-claim { margin-left: auto; }
+.hdx-menu { margin-left: auto; }
+.hdx-claim + .hdx-menu { margin-left: 0; }
 .hdx-error { margin: -12px 4px 0; }
-.hdx-entry { --edge: var(--edge-em); display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 6px 12px; background: linear-gradient(180deg, #0f3029, #0a2320); font-weight: 800; font-size: var(--fs-14); color: var(--em-hi); }
 .hdx-stage { position: relative; display: grid; gap: 12px; min-width: 0; }
 
-/* the octagonal table, drawn in perspective: the steel rim and navy surface tilt back, the seats and cards stand on it */
+/* the octagonal table, drawn in perspective: the steel rim and charcoal surface tilt back, the seats and cards stand on it */
 .hdx-table { --oct: polygon(15% 0, 85% 0, 100% 24%, 100% 76%, 85% 100%, 15% 100%, 0 76%, 0 24%); position: relative; }
 .hdx-surface {
   position: absolute; inset: 0; transform: perspective(1500px) rotateX(13deg); transform-origin: 50% 100%;
-  filter: drop-shadow(0 28px 26px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 26px rgba(110, 150, 255, 0.22));
+  filter: drop-shadow(0 28px 26px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 22px rgba(200, 210, 225, 0.1));
 }
 .hdx-rim {
   position: absolute; inset: 0; clip-path: var(--oct); padding: 12px;
@@ -54,10 +55,10 @@
 .hdx-bed {
   position: absolute; inset: 12px; clip-path: var(--oct);
   background:
-    radial-gradient(60% 45% at 50% 46%, rgba(120, 160, 255, 0.2), transparent 70%),
-    linear-gradient(115deg, transparent 0 38%, rgba(160, 190, 255, 0.05) 38% 44%, transparent 44%),
-    linear-gradient(62deg, transparent 0 62%, rgba(160, 190, 255, 0.04) 62% 67%, transparent 67%),
-    radial-gradient(120% 90% at 50% 40%, #17346a, #0a1631 78%);
+    radial-gradient(60% 45% at 50% 46%, rgba(220, 228, 238, 0.07), transparent 70%),
+    linear-gradient(115deg, transparent 0 38%, rgba(220, 228, 238, 0.03) 38% 44%, transparent 44%),
+    linear-gradient(62deg, transparent 0 62%, rgba(220, 228, 238, 0.025) 62% 67%, transparent 67%),
+    radial-gradient(120% 90% at 50% 40%, #23282e, #0e1114 78%);
   box-shadow: inset 0 0 60px rgba(2, 6, 18, 0.6);
 }
 .hdx-felt { position: relative; min-height: 420px; padding: 34px 28px 24px; display: grid; grid-template-rows: auto 1fr auto; gap: 8px; justify-items: center; }
@@ -104,7 +105,7 @@
   animation: hd-pop 240ms cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 @keyframes hd-pop { from { transform: scale(0.6); opacity: 0; } }
-.hd-stack { font-size: var(--fs-16); font-weight: 400; font-variant-numeric: tabular-nums; color: var(--fg-2); }
+.hd-stack { font-size: var(--fs-20); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--fg); }
 .hd-unit { font-size: var(--fs-13); }
 .hd-tag { margin-left: 8px; font-size: var(--fs-11); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--warn); }
 .hd-missed { color: var(--warn); font-size: var(--fs-12); }
@@ -162,30 +163,15 @@
 .hdx-end { position: absolute; inset: 0; z-index: 12; display: grid; place-items: center; background: rgba(6, 10, 22, 0.72); animation: hd-win-in 600ms ease both, hd-end-live 1ms linear both; animation-delay: calc(var(--rv, 0ms) + 2800ms * var(--pace, 1)); }
 .hdx-end .hd-practice-end { max-width: 520px; }
 
-/* turn timer */
-.hdx-clock { display: grid; gap: 6px; min-width: 0; }
-.hdx-clock-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.hdx-who { font-weight: 700; font-size: var(--fs-15); }
-.hdx-secs { font-size: var(--fs-18); font-weight: 500; font-variant-numeric: tabular-nums; }
-.hdx-secs.low { color: var(--warn); }
 .hd-clock-bar { height: 5px; background: rgba(255, 255, 255, 0.08); }
 .hd-clock-bar i { display: block; height: 100%; background: var(--fg); transition: width 250ms linear; }
 .hd-clock-bar i.low { background: var(--warn); }
-.hd-claim { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
-/* chips across the Match */
-.hdx-share { display: flex; align-items: center; gap: 10px; flex: 1 1 200px; max-width: 300px; font-size: var(--fs-13); color: var(--fg-2); }
-.hdx-share b { color: var(--fg); font-weight: 600; }
-.hdx-share-bar { flex: 1; height: 8px; background: #3a4757; position: relative; clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 50%, calc(100% - 4px) 100%, 4px 100%, 0 50%); }
-.hdx-share-bar i { position: absolute; inset: 0 auto 0 0; background: var(--fg); transition: width 700ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 .hdx-toast { position: absolute; inset: 0; pointer-events: none; z-index: 8; }
 .hdx-toast .fx-callout-host { place-items: start center; padding-top: 14px; }
 .hdx-toast .fx-callout { font-size: var(--fs-15); padding: 6px 16px; letter-spacing: 0.06em; }
 
-/* hand log: a button under the turn line, the log itself in a sheet */
-.hdx-head-r { display: grid; justify-items: end; gap: 8px; margin-left: auto; }
-.hdx-logbtn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: var(--fs-13); font-weight: 700; color: var(--fg-2); background: rgba(10, 16, 30, 0.7); border: 0; cursor: pointer; }
-.hdx-logbtn:hover, .hdx-logbtn:focus-visible { color: var(--fg); }
+/* hand log: in the ⋯ menu, the log itself in a sheet */
 .hdx-logsheet { width: min(520px, 100%); }
 .hdx-log-body { display: grid; gap: 4px; max-height: min(60vh, 520px); overflow-y: auto; }
 .hdx-street { display: grid; gap: 4px; padding-top: 10px; border-top: 1px solid var(--line); }
@@ -225,23 +211,24 @@
 .hd-sigs { gap: 6px; }
 .hd-sigs, .hd-note { width: 100%; max-width: 1100px; margin-inline: auto; }
 
-/* Below 1024px the bottom nav is on screen: the action bar stays pinned above it and the amount controls fold
-   behind "Set raise amount". Full screen covers the nav, so the bar sits on the window edge there. */
-.hdx-more { display: none; }
+/* Below 1024px the action bar stays pinned at the bottom, the raise presets always on show in one row above the three
+   buttons (no label: the + says it). Full screen covers the nav, so the bar sits on the window edge there. */
 @media (max-width: 1023px) {
   .hdx-actions { position: sticky; z-index: 20; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); padding: 10px 12px; gap: 8px; max-height: 60dvh; overflow-y: auto; }
   /* tall enough for two lines, so a label that wraps ("Raise to / 1,000") never changes the bar's height */
   .hdx-btn { min-height: 60px; line-height: 1.1; }
   .hdx-btns { grid-template-columns: minmax(0, 1fr) repeat(2, minmax(0, 1.2fr)); }
-  .hdx-more { display: block; padding: 8px 4px; font-size: var(--fs-13); }
-  .hdx-raise { display: none; }
-  .hdx-actions.raise-open .hdx-raise { display: grid; }
+  .hdx-raise { order: -1; }
+  .hdx-raise > .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .hd-presets { gap: 6px; }
+  .hd-preset { padding: 9px 2px; font-size: var(--fs-14); }
   html.game-full .hdx-actions { bottom: 0; }
 }
 
 /* phones: the table shrinks, the info panel becomes a one-line strip */
 @media (max-width: 719px) {
-  .hdx-felt { min-height: 360px; padding: 12px 12px 8px; gap: 4px; }
+  /* the table takes the height the header and the action bar leave, one fixed height per screen */
+  .hdx-felt { min-height: max(360px, calc(100dvh - 280px)); padding: 12px 12px 8px; gap: 4px; }
   .hdx-surface { transform: perspective(1200px) rotateX(9deg); }
   .hdx-deck { right: 9%; top: 27%; width: 26px; }
   .hd-card, .hd-flipc { --w: 36px; }
@@ -266,8 +253,6 @@
   .hd-name, .hd-stack { line-height: 1.15; }
   .hd-missed { font-size: var(--fs-11); line-height: 1.1; }
   .hd-turn:not(.won) { display: none; }
-  /* the turn line and Hand log share one row, so the pinned action bar clears the hand name */
-  .hdx-head-r { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; margin-left: 0; }
   .hdx-win { padding: 6px 14px 6px 10px; gap: 8px; max-width: 98%; }
   .hdx-win-icon { width: 30px; height: 30px; }
   .hdx-win-icon svg { width: 17px; height: 17px; }
@@ -280,7 +265,7 @@
 }
 @media (min-width: 1024px) {
   .hdx-actions { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: center; }
-  /* Sized by viewport height too, so header, table and action bar fit one desktop screen. */
+  /* Sized by viewport height too, so the header, table and action bar fit one desktop screen. */
   .hdx { gap: clamp(12px, 2vh, 24px); }
   .hdx-felt { min-height: clamp(380px, 50vh, 500px); }
   .hd-card, .hd-flipc { --w: clamp(44px, 5.4vh, 62px); }
