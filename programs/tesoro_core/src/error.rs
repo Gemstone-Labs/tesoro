@@ -153,6 +153,8 @@ pub enum BasketError {
     AccountsSponsorCap,
     #[msg("a payer other than the Account's own wallet needs the sponsor account")]
     PayerNeedsSponsor,
+    #[msg("the sponsor is at its cap of rent it can never get back for Profiles")]
+    ProfilesSponsorCap,
 }
 
 /// Errors of Tickets, Pots and the Match lifecycle (tickets 09). Their own range.
@@ -220,6 +222,10 @@ pub enum MatchError {
     OverflowRecordMissing,
     #[msg("the overflow record is not the one for this owner and scope")]
     OverflowRecordInvalid,
+    #[msg("the Pool's overflow record for a route still holds Gemas: claim it before recording the Season")]
+    PoolOverflowUnclaimed,
+    #[msg("the stores of the studio that is paid by this Match are full: it must make room before Players can join")]
+    StudioStoresFull,
 }
 
 pub fn core_err(e: CoreError) -> Error {

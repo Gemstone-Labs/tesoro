@@ -37,6 +37,15 @@ use anchor_lang::Discriminator;
 use anchor_lang::Key as _;
 use std::collections::BTreeMap;
 
+/// Most lines a join may reserve in the studio's overflow record (about 0.008 SOL of rent). A studio
+/// whose stores are full and whose Pots need more than this cannot take new Matches.
+pub const STUDIO_RECORD_MAX_LINES: usize = 8;
+
+/// Whether a join may reserve `lines` lines in a studio's overflow record.
+pub(crate) fn studio_record_fits(lines: usize) -> bool {
+    lines <= STUDIO_RECORD_MAX_LINES
+}
+
 fn store_err(_: crate::ledger::line_store::LineStoreError) -> Error {
     error!(TesoroError::InvalidAccount)
 }
@@ -241,6 +250,13 @@ pub(crate) fn cover_room<'info>(
         if try_hold(&basket, &spill, extra)? {
             crate::instructions::matching::add_hold(room, *account, extra)?;
         } else {
+            // The studio's record is paid by whoever joins, and a studio can keep its stores full on
+            // purpose, so the rent a join can be asked for is capped: past the cap the join is
+            // refused and the studio has to make room. Entrants' own records are their own cost.
+            require!(
+                must_pass != Some(*account) || studio_record_fits(extra as usize),
+                MatchError::StudioStoresFull
+            );
             // A record nobody named is skipped for an entrant's own Accounts (entering must
             // never fail for room: the credit then waits like before); the studio's is
             // required, or its owner could stop the Game's settlements by filling its stores.
@@ -342,6 +358,42 @@ pub fn route_overflow_id(season: u32, custody: &Pubkey) -> [u8; 40] {
     id[..4].copy_from_slice(&season.to_le_bytes());
     id[4..36].copy_from_slice(&custody.to_bytes());
     id
+}
+
+/// Season recording reads the Pool's basket and spill, so a prize line still waiting in the Pool's
+/// overflow record for `season` and a route would be left out of the budget. Every registered route's
+/// record address is named in `records` (an account that does not exist yet is fine); one that holds
+/// Gemas stops the recording until `claim_overflow` has moved them into the Pool's stores.
+pub(crate) fn require_routes_claimed(
+    records: &[AccountInfo],
+    pool: &Pubkey,
+    season: u32,
+    routes: &[Pubkey],
+) -> Result<()> {
+    for custody in routes {
+        let id = route_overflow_id(season, custody);
+        let (address, _) = overflow_address(pool, OVERFLOW_ROUTE, &id);
+        let record = records
+            .iter()
+            .find(|i| *i.key == address)
+            .ok_or_else(|| error!(MatchError::OverflowRecordMissing))?;
+        if record.owner == &system_program::ID {
+            continue;
+        }
+        require_keys_eq!(*record.owner, crate::ID, MatchError::OverflowRecordInvalid);
+        let data = record.try_borrow_data()?;
+        require!(
+            head_of(&data).is_some(),
+            MatchError::OverflowRecordInvalid
+        );
+        let store = LineStore::new(&data[OVERFLOW_STORE_AT..])
+            .map_err(|_| error!(MatchError::OverflowRecordInvalid))?;
+        require!(
+            !store.lines().any(|l| l.amount > 0),
+            MatchError::PoolOverflowUnclaimed
+        );
+    }
+    Ok(())
 }
 
 /// Returns an empty record's rent to whoever paid it and hands the account back to the system
@@ -448,4 +500,16 @@ pub(crate) fn claim_overflow<'info>(
         left,
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_studio_record_is_capped_so_a_join_cannot_be_made_to_pay_for_a_big_one() {
+        assert!(studio_record_fits(1));
+        assert!(studio_record_fits(STUDIO_RECORD_MAX_LINES));
+        assert!(!studio_record_fits(STUDIO_RECORD_MAX_LINES + 1));
+    }
 }

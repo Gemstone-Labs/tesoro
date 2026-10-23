@@ -6,6 +6,8 @@ import { Budget, type Ctx } from "./act.ts";
 import { chainOf, ixNameOf, storeBytes } from "./fixtures.ts";
 import { OVERFLOW_MATCH, OVERFLOW_SEASON, basketOf, matchOverflowId, overflowAddress, seasonOverflowId, spillOf } from "./kit.ts";
 import { matchAddress } from "./kit.ts";
+import { claimRouteRecords, routeRecordsOf, type SeasonDeps } from "./season.ts";
+import { OVERFLOW_ROUTE, routeOverflowId } from "./kit.ts";
 import { OVERFLOW_STORE_AT, claimStep, overflowJob, overflowRowOf, type OverflowDeps } from "./overflow.ts";
 import { loadIdl } from "./runtime.ts";
 import type { Info } from "./supply.ts";
@@ -101,5 +103,34 @@ describe("the overflow job", () => {
     const w = run([record(owner, k(), 0)], stores(owner, 0));
     await overflowJob(w.ctx, w.d);
     assert.deepEqual(w.sent, ["claimOverflow"]);
+  });
+});
+
+describe("the Pool's route records before record_season", () => {
+  const keeper = Keypair.generate();
+  it("claims a route prize waiting in its record, then reports clear once the record is empty", async () => {
+    const [pool, custody] = [k(), k()];
+    const address = routeRecordsOf(pool, 4, [custody])[0];
+    assert.equal(address.toBase58(), overflowAddress(pool, OVERFLOW_ROUTE, routeOverflowId(4, custody)).toBase58());
+    let lines = 1;
+    const stores = new Map([
+      [basketOf(pool).toBase58(), storeBytes([], { account: pool, capacity: 4 })],
+      [spillOf(pool).toBase58(), storeBytes([], { account: pool, capacity: 0 })],
+    ]);
+    const sent: string[] = [];
+    const d = {
+      read: {
+        async many(keys: PublicKey[]) {
+          return keys.map((x) => {
+            if (x.equals(address)) return { data: recordBytes({ payer: keeper.publicKey, kind: OVERFLOW_ROUTE, id: routeOverflowId(4, custody), owner: pool, lines: Array.from({ length: lines }, () => ({ source: k(), amount: 9n })) }) } as Info;
+            return stores.has(x.toBase58()) ? ({ data: stores.get(x.toBase58())! } as Info) : null;
+          });
+        },
+      },
+      send: async (ixs: Parameters<SeasonDeps["send"]>[0]) => (sent.push(ixs.map((i) => ixNameOf(core, i)).join("+")), (lines = 0), "sig"),
+    } as unknown as SeasonDeps;
+    const ctx = { core: chainOf(core, new Map()), conn: { getBalance: async () => 1e9 }, payer: keeper, now: 1, settings: { dryRun: false }, budget: new Budget(1e15), lz: new Budget(1e15) } as unknown as Ctx;
+    const r = await claimRouteRecords(ctx, d, 4, pool, [custody]);
+    assert.deepEqual([r.clear, sent], [true, ["claimOverflow"]]);
   });
 });

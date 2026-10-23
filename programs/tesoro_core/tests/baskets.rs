@@ -1350,6 +1350,22 @@ impl Env {
         .expect("set accounts cap");
     }
 
+    fn set_profiles_cap(&mut self, cap: u64) {
+        let admin = self.admin.insecure_clone();
+        self.send(
+            &[ix(
+                accounts::SetSponsor {
+                    admin: a(admin.pubkey()),
+                    config: pda(&[CONFIG_SEED]),
+                    sponsor: sponsor_address().0,
+                },
+                instruction::SetProfilesCap { profiles_cap: cap },
+            )],
+            &[&admin],
+        )
+        .expect("set profiles cap");
+    }
+
     /// The relayer fronts the rent and pays the fee; `wallet` only signs.
     fn create_sponsored(&mut self, wallet: &Keypair) -> Result<(), Failed> {
         let relayer = self.relayer.insecure_clone();
@@ -1521,7 +1537,8 @@ fn a_sponsored_profile_costs_the_wallet_nothing_and_counts_against_the_cap() {
     let relayer = env.relayer.insecure_clone();
     let (_, permanent) = account_rents(&env);
     let profile_rent = rent(&env, Profile::SPACE);
-    env.set_accounts_cap(permanent + profile_rent);
+    env.set_accounts_cap(permanent);
+    env.set_profiles_cap(profile_rent);
     let wallet = Keypair::new();
     env.create_sponsored(&wallet).unwrap();
     let account = pda(&[ACCOUNT_SEED, a(wallet.pubkey()).as_ref()]);
@@ -1552,13 +1569,19 @@ fn a_sponsored_profile_costs_the_wallet_nothing_and_counts_against_the_cap() {
         .unwrap_err();
     assert_eq!(custom_code(&e), PAYER_NEEDS_SPONSOR);
 
-    let before = env.sponsor().accounts_spent;
+    let before = env.sponsor().profiles_spent;
+    let accounts_before = env.sponsor().accounts_spent;
     env.send(
         &[ix_for(relayer.pubkey(), true, "Ada")],
         &[&relayer, &wallet],
     )
     .expect("sponsored profile");
-    assert_eq!(env.sponsor().accounts_spent - before, profile_rent);
+    assert_eq!(env.sponsor().profiles_spent - before, profile_rent);
+    assert_eq!(
+        env.sponsor().accounts_spent,
+        accounts_before,
+        "a Profile never uses up the Accounts' room"
+    );
     assert_eq!(env.svm.get_balance(&wallet.pubkey()).unwrap_or(0), 0);
     assert_eq!(env.lamports(profile), profile_rent);
 
@@ -1568,10 +1591,53 @@ fn a_sponsored_profile_costs_the_wallet_nothing_and_counts_against_the_cap() {
         &[&relayer, &wallet],
     )
     .expect("rename");
-    assert_eq!(env.sponsor().accounts_spent - before, profile_rent);
+    assert_eq!(env.sponsor().profiles_spent - before, profile_rent);
 
-    // a second wallet finds the cap used up
+    // a second wallet finds the Accounts' cap used up
     let other = Keypair::new();
-    env.set_accounts_cap(permanent * 2 + profile_rent - 1);
+    env.set_accounts_cap(permanent * 2 - 1);
     env.create_sponsored(&other).unwrap_err();
+}
+
+#[test]
+fn profiles_have_their_own_cap_so_a_swarm_of_them_cannot_use_up_new_accounts() {
+    let mut env = Env::new();
+    env.init_sponsor(10 * SOL, 100 * SOL, SOL, 50 * SOL);
+    let relayer = env.relayer.insecure_clone();
+    let (_, permanent) = account_rents(&env);
+    let profile_rent = rent(&env, Profile::SPACE);
+    // room for two Accounts and no Profile at all
+    env.set_accounts_cap(permanent * 2);
+    let wallet = Keypair::new();
+    env.create_sponsored(&wallet).unwrap();
+    let account = pda(&[ACCOUNT_SEED, a(wallet.pubkey()).as_ref()]);
+    let profile = pda(&[PROFILE_SEED, account.as_ref()]);
+    let set = ix(
+        accounts::SetProfile {
+            authority: a(wallet.pubkey()),
+            account,
+            profile,
+            system_program: anchor_lang::system_program::ID,
+            payer: a(relayer.pubkey()),
+            sponsor: Some(sponsor_address().0),
+        },
+        instruction::SetProfile {
+            name: "Ada".to_string(),
+            avatar: AvatarChoice::Default,
+        },
+    );
+    let e = env
+        .send(&[set.clone()], &[&relayer, &wallet])
+        .unwrap_err();
+    assert_eq!(
+        custom_code(&e),
+        u32::from(tesoro_core::error::BasketError::ProfilesSponsorCap)
+    );
+    // the failed Profile left the Accounts' room alone: a second Account still fits
+    env.create_sponsored(&Keypair::new()).expect("second Account");
+    // once the admin gives Profiles room, one fits and counts there
+    env.set_profiles_cap(profile_rent);
+    env.send(&[set], &[&relayer, &wallet]).expect("profile");
+    assert_eq!(env.sponsor().profiles_spent, profile_rent);
+    assert_eq!(env.sponsor().accounts_spent, permanent * 2);
 }

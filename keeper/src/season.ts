@@ -5,7 +5,8 @@ import { act, log, type Ctx } from "./act.ts";
 import { closeSeasonIx, fundSeasonPrizeNativeIx, fundSeasonPrizeStakeIx, growStoreIx, meta, paySeasonRankIx, recordSeasonIx, type Core } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
 import { seasonWinsFromChain } from "./events-scan.ts";
-import { MAX_STORE_LINES, OVERFLOW_SEASON, basketOf, decodeStore, economyAddress, keyOf, overflowAddress, pda, prizeSourceOf, seasonAddress, seasonOverflowId, slack, spillOf } from "./kit.ts";
+import { MAX_STORE_LINES, OVERFLOW_ROUTE, OVERFLOW_SEASON, basketOf, decodeStore, economyAddress, keyOf, overflowAddress, pda, prizeSourceOf, routeOverflowId, seasonAddress, seasonOverflowId, slack, spillOf } from "./kit.ts";
+import { OVERFLOW_STORE_AT, claimRecord, overflowRowOf } from "./overflow.ts";
 import { oracleKey } from "./price.ts";
 import { fundEvmPrizes, realEvmPrizeDeps } from "./batches.ts";
 import { sendIxs, type SendOpts } from "./send.ts";
@@ -190,10 +191,33 @@ async function fundRoute(ctx: Ctx, d: SeasonDeps, route: RouteFacts, n: number, 
 
 // ---- Recording and paying ----------------------------------------------------------------------------------------------
 
+/** The Pool's overflow record of each route for Season `n` (it may not exist). */
+export const routeRecordsOf = (pool: PublicKey, n: number, routes: PublicKey[]): PublicKey[] => routes.map((r) => overflowAddress(pool, OVERFLOW_ROUTE, routeOverflowId(n, r)));
+
+/**
+ * `record_season` refuses while a route's prize waits in the Pool's overflow record (the budget is read from the Pool's stores),
+ * so claim those records first. True once none holds Gemas.
+ */
+export async function claimRouteRecords(ctx: Ctx, d: SeasonDeps, n: number, pool: PublicKey, routes: PublicKey[]): Promise<{ clear: boolean; actions: number }> {
+  let actions = 0;
+  for (let round = 0; round < 8; round++) {
+    const addresses = routeRecordsOf(pool, n, routes);
+    const infos = await d.read.many(addresses);
+    const waiting = infos.flatMap((info, i) => (info && info.data.length > OVERFLOW_STORE_AT ? [overflowRowOf(addresses[i], info.data)] : [])).filter((row) => row.lines.length > 0);
+    if (!waiting.length) return { clear: true, actions };
+    let sent = 0;
+    for (const row of waiting) sent += await claimRecord(ctx, d, row, `season=${n} route record ${shortKey(row.address)}`);
+    actions += sent;
+    if (!sent) break;
+  }
+  log("season", `season=${n}`, "WAIT the Pool's route prize still sits in an overflow record (no room in the Pool's stores yet): record_season waits");
+  return { clear: false, actions };
+}
+
 async function record(ctx: Ctx, d: SeasonDeps, n: number, table: Standing[], authority: Keypair, pool: PublicKey, routes: PublicKey[]): Promise<boolean> {
   const what = `record_season (${table.length} ranked: ${table.map((t) => `${shortKey(t.account)} ${t.points}`).join(", ")})`;
   const r = await act(ctx, "season", `season=${n}`, what, async () => {
-    const ix = await recordSeasonIx(ctx.core, { authority: authority.publicKey, number: n, points: table.map((t) => BigInt(t.points)), poolAccount: pool, ranked: table.map((t) => new PublicKey(t.account)), routes });
+    const ix = await recordSeasonIx(ctx.core, { authority: authority.publicKey, number: n, points: table.map((t) => BigInt(t.points)), poolAccount: pool, ranked: table.map((t) => new PublicKey(t.account)), routes, routeRecords: routeRecordsOf(pool, n, routes) });
     return d.send([ix], { units: 400_000, signers: extraSigner(ctx, authority) });
   });
   return r.ok;
@@ -284,6 +308,9 @@ export async function seasonJob(ctx: Ctx, d: SeasonDeps = realSeasonDeps(ctx)): 
       if (!funded) continue;
       // The Pool's share of ETH and HYPE yield. record_season does not wait for these routes: a prize funded later rolls into a later Season.
       if (d.evmPrizes) actions += await d.evmPrizes(n, authority, pool).catch((e) => (log("season", subject, `WARN EVM prizes: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 160)}`), 0));
+      const claimed = await claimRouteRecords(ctx, d, n, pool, routeKeys);
+      actions += claimed.actions;
+      if (!claimed.clear) continue;
       if (!(await record(ctx, d, n, table, authority, pool, routeKeys))) continue;
       actions++;
       rec = await readSeason(ctx.core, n);

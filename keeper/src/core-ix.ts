@@ -133,12 +133,12 @@ export const clearRequestIx = (core: Core, o: { caller: PublicKey; request: Publ
 
 export const recordSeasonIx = (
   core: Core,
-  o: { authority: PublicKey; number: number; points: bigint[]; poolAccount: PublicKey; ranked: PublicKey[]; routes: PublicKey[] },
+  o: { authority: PublicKey; number: number; points: bigint[]; poolAccount: PublicKey; ranked: PublicKey[]; routes: PublicKey[]; routeRecords: PublicKey[] },
 ): Promise<TransactionInstruction> =>
   core.methods
     .recordSeason(o.number, o.points.map((p) => new BN(p.toString())))
     .accountsPartial({ authority: o.authority, poolAccount: o.poolAccount })
-    .remainingAccounts([...o.ranked, ...o.routes].map((k) => meta(k, false)))
+    .remainingAccounts([...o.ranked, ...o.routes, ...o.routeRecords].map((k) => meta(k, false)))
     .instruction();
 
 export const paySeasonRankIx = (

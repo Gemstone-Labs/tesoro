@@ -60,6 +60,13 @@ export const seasonOverflowId = (season: number, rank: number, line: number): Bu
   id[5] = line;
   return id;
 };
+/** The id of a Pool route record: the Season number then the route's custody, then zeros (`route_overflow_id`). */
+export const routeOverflowId = (season: number, custody: PublicKey): Buffer => {
+  const id = Buffer.alloc(40);
+  id.writeUInt32LE(season, 0);
+  custody.toBuffer().copy(id, 4);
+  return id;
+};
 /** `["overflow", owner, kind, id[..32], id[32..]]`: a seed is at most 32 bytes. */
 export const overflowAddress = (owner: PublicKey, kind: number, id: Uint8Array) => pda("overflow", owner.toBuffer(), Buffer.from([kind]), id.subarray(0, 32), id.subarray(32));
 export const pairAddress = (opener: PublicKey, joiner: PublicKey) => pda("pair", opener.toBuffer(), joiner.toBuffer());

@@ -159,10 +159,14 @@ pub struct SponsorState {
     /// admin sets it: until then `create_account` is not sponsored.
     pub accounts_cap: u64,
     pub accounts_spent: u64,
+    /// The same for the rent of a sponsored Profile, counted apart from Accounts so a swarm of Profiles
+    /// cannot use up the room new Players need. Zero until the admin sets it: Profiles are then not sponsored.
+    pub profiles_cap: u64,
+    pub profiles_spent: u64,
 }
 
 impl SponsorState {
-    pub const SPACE: usize = DISC + 1 + 32 + 1 + 7 * 8;
+    pub const SPACE: usize = DISC + 1 + 32 + 1 + 9 * 8;
 }
 
 pub fn basket_address(account: &Pubkey) -> (Pubkey, u8) {

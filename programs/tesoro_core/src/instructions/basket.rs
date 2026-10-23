@@ -183,6 +183,8 @@ pub(crate) fn init_sponsor(
     sponsor.pages_spent = 0;
     sponsor.accounts_cap = 0;
     sponsor.accounts_spent = 0;
+    sponsor.profiles_cap = 0;
+    sponsor.profiles_spent = 0;
     Ok(())
 }
 
@@ -229,6 +231,18 @@ pub(crate) fn set_accounts_cap(ctx: Context<SetSponsor>, accounts_cap: u64) -> R
         BasketError::CapBelowOutstanding
     );
     sponsor.accounts_cap = accounts_cap;
+    Ok(())
+}
+
+/// Admin only: the most the sponsor may spend on the rent of sponsored Profiles, apart from Accounts.
+/// Zero (the start) means no Profile is created on the sponsor's SOL.
+pub(crate) fn set_profiles_cap(ctx: Context<SetSponsor>, profiles_cap: u64) -> Result<()> {
+    let sponsor = &mut ctx.accounts.sponsor;
+    require!(
+        profiles_cap >= sponsor.profiles_spent,
+        BasketError::CapBelowOutstanding
+    );
+    sponsor.profiles_cap = profiles_cap;
     Ok(())
 }
 
