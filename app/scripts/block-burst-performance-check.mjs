@@ -135,6 +135,7 @@ try {
   await advanceTo(1);
   await page.getByRole('dialog', { name: 'Game over' }).waitFor({ timeout: 2000 });
   assert.equal(await clock(), '00:00');
+  assert.equal(await page.locator('.bp-score-n').isVisible(),false,'live score stays hidden on the result screen');
   assert.equal(await page.locator('.bp-board.low').count(), 0, 'warning ends with the game');
   assert.deepEqual(errors, [], 'no runtime errors');
   console.log('PASS: rendering budgets, late touch placement, pause/resume, reduced motion, timer expiry');

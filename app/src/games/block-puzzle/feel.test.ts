@@ -56,7 +56,7 @@ describe("wouldClear", () => {
 
 describe("clearCallout", () => {
   it("names big clears in plain words", () => {
-    expect(clearCallout(1, 0, 0)).toBeNull();
+    expect(clearCallout(1, 0, 0)).toBe("Line!");
     expect(clearCallout(2, 0, 0)).toBe("Double!");
     expect(clearCallout(3, 0, 1)).toBe("Triple!");
     expect(clearCallout(4, 0, 0)).toBe("Board shaker!");
@@ -68,7 +68,7 @@ describe("clearCallout", () => {
   });
   it("calls a streak once it builds", () => {
     expect(clearCallout(1, 0, 3)).toBe("Combo ×3");
-    expect(clearCallout(1, 0, 2)).toBeNull();
+    expect(clearCallout(1, 0, 2)).toBe("Combo ×2");
   });
 });
 

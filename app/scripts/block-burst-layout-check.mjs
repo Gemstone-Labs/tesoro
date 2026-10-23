@@ -46,8 +46,15 @@ try {
     const activate = (locator) => mobile ? locator.tap() : locator.click();
     const piece = page.locator(".bp-slot:not(:disabled)").first();
     await activate(piece);
-    await activate(page.locator(".bp-board button").first());
+    if (!mobile) {
+      await page.locator(".bp-board button").first().focus();
+      await page.keyboard.press("ArrowRight");
+      assert.equal(await page.locator(".bp-board button").nth(1).evaluate(el => el === document.activeElement), true);
+      assert.ok(await page.locator(".bp-board .pv").count() > 0, "keyboard navigation paints the selected footprint");
+      await page.keyboard.press("Enter");
+    } else await activate(page.locator(".bp-board button").first());
     await page.waitForFunction(() => Number(document.querySelector(".bp-score-n").textContent) > 0);
+    assert.equal(await page.locator(".bp-board .pv").count(), 0, "placement clears the transient preview");
     if (width === 390) {
       const start = await page.locator(".bp-slot:not(:disabled)").first().boundingBox();
       const target = await page.locator(".bp-board button").last().boundingBox();
@@ -61,11 +68,18 @@ try {
       }
       await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
       await page.waitForFunction((before) => Number(document.querySelector(".bp-score-n").textContent) > before, score);
-      await cdp.detach();
+      // Keep the touch-input session alive until this page closes; detaching it can reset
+      // Chromium's touch emulation before the following Playwright tap.
       await page.screenshot({ path: join(out, "block-burst-390-played.png") });
     }
     await activate(page.getByRole("button", { name: "Pause", exact: true }));
-    await page.getByRole("dialog", { name: "Paused", exact: true }).waitFor();
+    try {
+      await page.getByRole("dialog", { name: "Paused", exact: true }).waitFor();
+    } catch (error) {
+      await page.screenshot({ path: join(out, `pause-failure-${width}.png`) });
+      await writeFile(join(out, `pause-failure-${width}.html`), await page.content());
+      throw error;
+    }
     await activate(page.getByRole("dialog", { name: "Paused", exact: true }).getByRole("button", { name: "Resume", exact: true }));
     await page.getByRole("dialog", { name: "Paused", exact: true }).waitFor({ state: "hidden" });
     console.log(`PASS ${width}x${height}: layout, placement, score, pause/resume`);

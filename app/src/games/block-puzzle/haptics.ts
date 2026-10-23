@@ -1,9 +1,10 @@
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
 type Vibrate = (pattern: number | number[]) => boolean;
+export type HapticResult = "accepted" | "blocked" | "unavailable" | "error" | "off";
 const KEY = "tesoro.block-burst.vibration";
 
 export function hapticPattern(lines: number, gems: number): number[] {
-  return gems > 0 ? [12, 20, 22] : lines > 1 ? [18, 24, 12] : lines === 1 ? [14] : [6];
+  return gems > 0 ? [20, 30, 35] : lines > 1 ? [30, 35, 18] : lines === 1 ? [24] : [18];
 }
 
 export function createHaptics(storage: () => StorageLike | null, device: () => Vibrate | undefined) {
@@ -16,8 +17,12 @@ export function createHaptics(storage: () => StorageLike | null, device: () => V
     }
     return preference;
   };
-  const invoke = (pattern: number | number[]) => {
-    try { device()?.(pattern); } catch { /* Device policies may deny optional feedback. */ }
+  const invoke = (pattern: number | number[]): HapticResult => {
+    try {
+      const vibrate = device();
+      if (!vibrate) return "unavailable";
+      return vibrate(pattern) ? "accepted" : "blocked";
+    } catch { return "error"; }
   };
   return {
     enabled,
@@ -29,7 +34,8 @@ export function createHaptics(storage: () => StorageLike | null, device: () => V
       if (!next) invoke(0);
       listeners.forEach((listener) => listener());
     },
-    play: (lines: number, gems: number) => { if (enabled()) invoke(hapticPattern(lines, gems)); },
+    play: (lines: number, gems: number): HapticResult => enabled() ? invoke(hapticPattern(lines, gems)) : "off",
+    test: () => invoke(160),
   };
 }
 

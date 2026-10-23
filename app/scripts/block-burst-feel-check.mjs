@@ -58,14 +58,28 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME ?? jo
 const results = [];
 try {
   for (const mode of (process.env.MODES ?? 'touch,settings,reduced,unsupported').split(',')) {
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: mode === 'reduced' ? 'reduce' : 'no-preference' });
-    await context.addInitScript(({ seed, supported }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, ...(mode==='capture' ? {recordVideo:{dir:join(out,'video'),size:{width:390,height:844}}} : {}), reducedMotion: mode === 'reduced' ? 'reduce' : 'no-preference' });
+    await context.addInitScript(({ seed, supported, hapticMode }) => {
       const original = crypto.getRandomValues.bind(crypto);
       crypto.getRandomValues = (array) => { if (array instanceof BigUint64Array && array.length === 1) { array[0] = BigInt(seed); return array; } return original(array); };
+      window.__boardCommits = 0;
+      window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+        supportsFiber: true, renderers: new Map(),
+        inject(renderer) { const id = this.renderers.size + 1; this.renderers.set(id, renderer); return id; },
+        onCommitFiberUnmount() {},
+        onCommitFiberRoot(_id, root) {
+          function walk(f) {
+            if (!f) return;
+            if (f.type === 'div' && f.memoizedProps?.role === 'grid' && f.memoizedProps?.['aria-label'] === 'Block Burst board, 8 by 8' && f.memoizedProps !== f.alternate?.memoizedProps) window.__boardCommits++;
+            walk(f.child); walk(f.sibling);
+          }
+          walk(root.current);
+        },
+      };
       window.__lastPointer = null;
       document.addEventListener('pointermove', e => { window.__lastPointer = {x:e.clientX,y:e.clientY}; }, true);
       window.__haptics = [];
-      Object.defineProperty(navigator, 'vibrate', { configurable: true, value: supported ? (pattern) => { window.__haptics.push(pattern); return true; } : undefined });
+      Object.defineProperty(navigator, 'vibrate', { configurable: true, value: supported ? (pattern) => { window.__haptics.push(pattern); if(hapticMode === "error") throw Error("vibration rejected"); return hapticMode !== "blocked"; } : undefined });
       window.__tones = [];
       const createOscillator = AudioContext.prototype.createOscillator;
       AudioContext.prototype.createOscillator = function () {
@@ -74,11 +88,11 @@ try {
         osc.frequency.setValueAtTime = (freq, at) => { window.__tones.push(freq); return originalSet(freq, at); };
         return osc;
       };
-    }, { seed: seed.toString(), supported: mode !== 'unsupported' });
+    }, { seed: seed.toString(), supported: mode !== 'unsupported', hapticMode: mode });
     context.setDefaultTimeout(15000);
     const page = await context.newPage();
     console.log('START', mode);
-    await page.clock.install();
+    if(mode!=="capture") await page.clock.install();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${base}/play/practice?game=block-puzzle&dev=demo`, { waitUntil: 'domcontentloaded', timeout: 90000 });
@@ -86,7 +100,7 @@ try {
     await page.locator('.fx-countdown').waitFor({ state: 'hidden' });
     await page.addStyleTag({ content: 'nextjs-portal { display:none !important; }' });
     // Test time advances explicitly so a busy host cannot exhaust the actual 90s game mid-replay.
-    await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 5000);
+    if(mode!=="capture") await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 5000);
     // Exercise clear effects together with the final-seconds warning, not only at the start.
     if (process.env.LATE === '1') {
       await page.clock.fastForward(76000);
@@ -95,7 +109,7 @@ try {
     const cdp = await context.newCDPSession(page);
     const touch = async (type, p) => {
       await cdp.send('Input.dispatchTouchEvent', { type, touchPoints: p ? [p] : [] });
-      await page.clock.runFor(16);
+      if(mode==="capture") await page.waitForTimeout(16); else await page.clock.runFor(16);
       if (type === 'touchMove') await page.waitForFunction(({x,y}) => window.__lastPointer && Math.abs(window.__lastPointer.x-x)<.1 && Math.abs(window.__lastPointer.y-y)<.1, p);
     };
     const boardState = () => page.evaluate(() => Array.from(document.querySelectorAll('.bp-board button')).map((c) => c.classList.contains('on') ? '1' : '0').join(''));
@@ -152,7 +166,7 @@ try {
     await touch('touchStart',from); await touch('touchMove',{x:180,y:400}); await touch('touchCancel');
     await page.locator('.bp-ghost').waitFor({state:'detached'});
     assert.equal(await boardState(), '0'.repeat(64));
-    const count = mode === 'touch' ? sequence.length : mode === 'settings' ? 1 : 12;
+    const count = ['expiry','profile-effects'].includes(mode) ? 7 : ['touch','capture'].includes(mode) ? sequence.length : ['settings','blocked','error'].includes(mode) ? 1 : 12;
     const seen = { lines: 0, doubles: 0, gems: 0, combos: 0 };
     for (let i=0; i<count; i++) {
       const move=sequence[i];
@@ -162,20 +176,37 @@ try {
       seen.doubles += Number(move.result.lines>=2);
       seen.gems += move.result.gems;
       seen.combos += Number(move.combo>=2);
-      if (move.result.lines && mode === 'touch') {
+      if (move.result.lines && ['touch','capture'].includes(mode)) {
         const anim = await page.evaluate(() => ({
-          shake:document.querySelector('.bp-board').getAnimations().map(a=>a.effect.getTiming().duration),
+          shake:document.querySelector('.bp-board-visual, .bp-board').getAnimations().map(a=>a.effect.getTiming().duration),
           space:getComputedStyle(document.querySelector('.bp-board-space')).transform,
           cells:Array.from(document.querySelectorAll('.bp-board button.on')).every(el=>getComputedStyle(el).opacity==='1'),
         }));
         assert.equal(anim.space,'none','hit-test space never shakes');
         assert.ok(anim.cells,'new occupied cells never inherit a clear fade');
-        if (i < 10) await page.screenshot({path:join(out,`clear-${i}.png`)});
+        if (i < 10 || mode==='capture') {
+          if (mode==='capture') await page.waitForTimeout(110);
+          await page.screenshot({path:join(out,`clear-${i}.png`)});
+        }
+        if (mode==='capture') {
+          await page.waitForTimeout(250);
+          await page.screenshot({path:join(out,`bonus-${i}.png`)});
+          await page.waitForTimeout(600);
+        }
       }
+      if(mode==="capture") await page.waitForTimeout(140);
     }
-    await page.clock.runFor(160);
+    if(mode==='expiry') {
+      assert.ok(sequence[count-1].result.lines>0,'expiry fixture ends immediately after a clear');
+      await page.clock.fastForward(90000);
+      await page.getByRole('dialog',{name:'Game over',exact:true}).waitFor();
+      assert.equal(await page.locator('.bp-fly').count(),0,'expiry removes in-flight bonuses');
+      assert.equal(await page.locator('.bp-score-n').isVisible(),false,'live score stays hidden at expiry');
+    }
+    // Clear bonuses arrive after their nonblocking flight, then the total counts up.
+    if(mode==="capture") await page.waitForTimeout(1100); else if(mode!=="profile-effects") await page.clock.runFor(1100);
     if (process.env.LATE === '1') await page.locator('.bp-board.live.low').waitFor();
-    await page.waitForFunction((score)=>Number(document.querySelector('.bp-score-n').textContent)===score,sequence[count-1].state.score);
+    if(mode!=='profile-effects') await page.waitForFunction((score)=>Number(document.querySelector('.bp-score-n').textContent)===score,sequence[count-1].state.score);
     const feedback = await page.evaluate(()=>({haptics:window.__haptics,tones:window.__tones}));
     if (mode==='unsupported') assert.equal(feedback.haptics.length,0);
     else {
@@ -184,8 +215,27 @@ try {
     }
     assert.ok(feedback.tones.length>0,'real Web Audio oscillator cues scheduled');
     if(mode==='touch') {
-      assert.ok(feedback.haptics.some(p=>JSON.stringify(p)==='[18,24,12]'),'multi-line haptic');
-      assert.ok(feedback.haptics.some(p=>JSON.stringify(p)==='[12,20,22]'),'gem haptic');
+      assert.ok(feedback.haptics.some(p=>JSON.stringify(p)==='[30,35,18]'),'multi-line haptic');
+      assert.ok(feedback.haptics.some(p=>JSON.stringify(p)==='[20,30,35]'),'gem haptic');
+    }
+    if (['settings','blocked','error','unsupported'].includes(mode)) {
+      await page.getByRole('button',{name:'Game menu',exact:true}).tap();
+      await page.getByRole('menuitem',{name:'Test vibration',exact:true}).tap();
+      const diagnostic = page.getByRole('dialog',{name:'Test vibration',exact:true});
+      await diagnostic.getByRole('button',{name:'Send test pulse',exact:true}).tap();
+      const expectedStatus = mode==='blocked' ? 'browser declined' : mode==='error' ? 'could not send' : mode==='unsupported' ? 'does not offer vibration' : 'Did you feel';
+      await diagnostic.getByRole('status').filter({hasText:expectedStatus}).waitFor();
+      if(mode==='settings') {
+        assert.ok((await page.evaluate(()=>window.__haptics)).includes(160),'explicit motor check sends the long test pulse');
+        await diagnostic.getByRole('button',{name:'Nothing happened',exact:true}).tap();
+        await diagnostic.getByRole('status').filter({hasText:'No vibration felt'}).waitFor();
+        await diagnostic.getByRole('button',{name:'Send test pulse',exact:true}).tap();
+        await diagnostic.getByRole('button',{name:'I felt it',exact:true}).tap();
+        await diagnostic.getByRole('status').filter({hasText:'Vibration confirmed'}).waitFor();
+      }
+      await page.screenshot({path:join(out,`${mode}-vibration-check.png`)});
+      await diagnostic.getByRole('button',{name:'Back to game',exact:true}).tap();
+      assert.equal(await page.getByRole('dialog',{name:'Paused',exact:true}).count(),0,'diagnostic resumes a game it paused');
     }
     if(mode==='settings') {
       await page.getByRole('button',{name:'Game menu',exact:true}).tap();
@@ -197,22 +247,68 @@ try {
       await page.getByRole('dialog',{name:'Paused'}).getByRole('button',{name:'Vibration off'}).waitFor();
       await page.getByRole('dialog',{name:'Paused'}).getByRole('button',{name:'Sound off'}).waitFor();
       await page.screenshot({path:join(out,'pause-settings.png')});
+      await page.getByRole('dialog',{name:'Paused',exact:true}).getByRole('button',{name:'Test vibration',exact:true}).tap();
+      await page.getByRole('dialog',{name:'Test vibration',exact:true}).getByRole('button',{name:'Back to game',exact:true}).tap();
+      await page.getByRole('dialog',{name:'Paused',exact:true}).waitFor();
       // Reload proves preference persistence; an actual move proves sound and haptics stay off.
       await page.clock.resume();
       await page.reload({waitUntil:'domcontentloaded'});
       await page.locator('.bp-board.live').waitFor();
       await page.locator('.fx-countdown').waitFor({state:'hidden'});
-      await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 5000);
+      if(mode!=="capture") await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 5000);
       await dragMove(sequence[0]);
       assert.deepEqual(await page.evaluate(()=>({haptics:window.__haptics,tones:window.__tones})),{haptics:[],tones:[]});
     }
     if(mode==='reduced') {
-      const moving=await page.evaluate(()=>document.querySelector('.bp-board').getAnimations().length);
+      const moving=await page.evaluate(()=>document.querySelector('.bp-board-visual, .bp-board').getAnimations().length);
       assert.equal(moving,0,'reduced motion has no board kick');
     }
     if(mode==='unsupported') {
       await page.getByRole('button',{name:'Game menu',exact:true}).tap();
       assert.equal(await page.getByRole('menuitemcheckbox',{name:/Vibration/}).count(),0);
+    }
+    if (mode === 'profile' || mode === 'profile-effects') {
+      await page.clock.resume();
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      // Hold only the game clock constant so countdown commits cannot masquerade as pointer work.
+      if(mode==='profile') await page.evaluate(() => { const now = performance.now(); performance.now = () => now; });
+      const slot = sequence[count].piece % 3;
+      const art = await page.locator('.bp-slot').nth(slot).boundingBox();
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{x:art.x+art.width/2,y:art.y+art.height/2}] });
+      await page.waitForTimeout(150);
+      await page.evaluate(() => { window.__boardCommits = 0; window.__frameDeltas = []; let last; window.__profiling = true; const tick = t => { if(last) window.__frameDeltas.push(t-last); last=t; if(window.__profiling) requestAnimationFrame(tick); }; requestAnimationFrame(tick); });
+      const trace = []; const receive = ({value}) => trace.push(...value);
+      cdp.on('Tracing.dataCollected',receive);
+      await cdp.send('Tracing.start',{categories:'devtools.timeline,disabled-by-default-devtools.timeline',transferMode:'ReportEvents'});
+      const profileStarted = Date.now();
+      for (let i=0;i<40;i++) {
+        await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:metrics.left+metrics.pitch*(1+i%6),y:metrics.top+metrics.pitch*(2+Math.floor(i/6)%4)+64}]});
+        await page.waitForTimeout(40);
+      }
+      const finished = new Promise(resolve=>cdp.once('Tracing.tracingComplete',resolve));
+      await cdp.send('Tracing.end'); await finished; cdp.off('Tracing.dataCollected',receive);
+      const measured = await page.evaluate(()=>{window.__profiling=false;return {boardCommits:window.__boardCommits,frames:window.__frameDeltas};});
+      const paints = trace.filter(e=>e.name==='Paint'&&e.ph==='X');
+      const metric = {elapsedMs:Date.now()-profileStarted,boardCommits:measured.boardCommits, paints:paints.length,paintMs:paints.reduce((n,e)=>n+(e.dur??0)/1000,0),p95FrameMs:measured.frames.sort((a,b)=>a-b)[Math.floor(measured.frames.length*.95)]};
+      await writeFile(join(out,'drag-profile.json'),JSON.stringify(metric,null,2));
+      await writeFile(join(out,'drag-trace.json'),JSON.stringify({traceEvents:trace}));
+      await page.screenshot({path:join(out,'filled-board-drag.png')});
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});
+      assert.equal(await boardState(),expected(sequence[count-1].state.occ),'profiling drag does not place a piece');
+      console.log('DRAG PROFILE',JSON.stringify(metric));
+      const budget = mode==='profile-effects' ? Math.ceil(metric.elapsedMs/1000)*3+5 : 8;
+      assert.ok(metric.boardCommits<=budget,`drag preview rebuilt the game ${metric.boardCommits} times (budget ${budget})`);
+      if(mode==='profile-effects') await page.waitForFunction((score)=>Number(document.querySelector('.bp-score-n').textContent)===score,sequence[count-1].state.score);
+    }
+    if(mode==='expiry') {
+      assert.equal(Number(await page.locator('.bp-final').innerText()),sequence[count-1].state.score,'result uses authoritative score including pending bonus');
+      await page.clock.resume();
+      await page.getByRole('button',{name:'Play again',exact:true}).tap();
+      await page.locator('.bp-board.live').waitFor();
+      await page.locator('.fx-countdown').waitFor({state:'hidden'});
+      assert.equal(await boardState(),'0'.repeat(64),'replay starts with empty board');
+      assert.equal(Number(await page.locator('.bp-score-n').innerText()),0,'old bonus cannot enter the new round');
+      assert.equal(await page.locator('.bp-board .pv, .bp-board .hint').count(),0,'replay clears preview classes');
     }
     assert.deepEqual(errors,[],'no runtime errors');
     results.push({ mode, seed:seed.toString(), moves:count, score:sequence[count-1].state.score, ...seen, hapticCalls:feedback.haptics.length, oscillatorTones:feedback.tones.length });
