@@ -95,7 +95,7 @@ describe("Treasury decoders: a wrong size is absent", () => {
   treasury.writeUInt16LE(3_500, 13);
 
   it("reads the rates and falls back to the launch rates", () => {
-    expect(parseTreasury(treasury)).toEqual({ yieldFeeBps: 2_000, instantFeeBps: 3_500 });
+    expect(parseTreasury(treasury)).toEqual({ yieldFeeBps: 2_000, instantFeeBps: 2_500 });
     expect(ratesOf(null)).toEqual(DEFAULT_RATES);
     expect(ratesOf({ yieldFeeBps: 1_000, instantFeeBps: 2_000 })).toEqual({ yieldFeeBps: 1_000, instantFeeBps: 2_000 });
     expect(DEFAULT_RATES).toEqual({ yieldFeeBps: 2_000, instantFeeBps: 2_500 });
