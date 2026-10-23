@@ -4691,8 +4691,8 @@
           {
             "name": "entry_sizes",
             "docs": [
-              "Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default 500 /",
-              "1,000 / 2,500 apply, so an older Config needs no call. Appended after the Leaderboard",
+              "Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default ladder",
+              "(100 / 500 / 1,000) applies, so an older Config needs no call. Appended after the Leaderboard",
               "fields: an account created before reads them as zero from its zeroed tail."
             ],
             "type": {
