@@ -213,6 +213,29 @@ contract PositionVaultOAppTest is Test {
         return abi.encodePacked(uint8(5), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), amt);
     }
 
+    function test_a_recipient_word_wider_than_an_address_is_refused_not_truncated() public {
+        uint64 id = _open(1e18);
+        vm.warp(block.timestamp + 600);
+        uint128 amt = uint128(vault.payableYield(id) / 2);
+        bytes32 wide = bytes32(uint256(uint160(redeemer)) | (uint256(1) << 200));
+        vm.expectRevert(PositionVaultOApp.BadRecipient.selector);
+        _recv(abi.encodePacked(uint8(4), HOODI, _key(id), uint64(1), wide, amt, uint128(0), uint128(0)));
+        vm.expectRevert(PositionVaultOApp.BadRecipient.selector);
+        _recv(abi.encodePacked(uint8(5), HOODI, _key(id), uint64(1), wide, amt));
+        assertEq(lst.balanceOf(redeemer), 0);
+    }
+
+    function test_a_position_key_with_low_bits_set_is_refused() public {
+        uint64 id = _open(1e18);
+        bytes32 dirty = bytes32(uint256(_key(id)) | 1);
+        vm.expectRevert(PositionVaultOApp.WrongVault.selector);
+        _recv(abi.encodePacked(uint8(3), HOODI, dirty, uint64(1), uint128(0)));
+        vm.expectRevert(PositionVaultOApp.WrongVault.selector);
+        _recv(abi.encodePacked(uint8(5), HOODI, dirty, uint64(1), bytes32(uint256(uint160(redeemer))), uint128(1)));
+        vm.expectRevert(PositionVaultOApp.WrongVault.selector);
+        _recv(abi.encodePacked(uint8(4), HOODI, dirty, uint64(1), bytes32(uint256(uint160(redeemer))), uint128(1), uint128(0), uint128(0)));
+    }
+
     function test_pay_instant_pays_from_the_treasury() public {
         uint64 id = _open(1e18);
         vm.warp(block.timestamp + 600);
