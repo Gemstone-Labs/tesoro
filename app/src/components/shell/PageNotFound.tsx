@@ -8,7 +8,7 @@ export function PageNotFound() {
       body="There is nothing at this address. It may have moved, or the link is incomplete."
       action={
         <>
-          <Button variant="money" href="/lobby">Lobby</Button>
+          <Button variant="money" href="/play">Play</Button>
           <Button href="/play">Play</Button>
         </>
       }

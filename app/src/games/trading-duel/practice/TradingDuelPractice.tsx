@@ -124,7 +124,7 @@ export function TradingDuelPractice() {
         setError(null);
         commit(null);
       }}
-      exitHref="/lobby"
+      exitHref="/play"
     />
   );
 }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
-import { BookOpen, ChevronRight, CircleHelp, Gamepad2, HandCoins, House, Swords, Trophy, Users, Wallet, type LucideIcon } from "lucide-react";
+import { BookOpen, ChevronRight, CircleHelp, FileText, Gamepad2, HandCoins, LogOut, Shield, Swords, Trophy, Users, Wallet, type LucideIcon } from "lucide-react";
 import { AvatarSkeleton, PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { TesoroLogo } from "@/components/brand";
 import { useAccount } from "@/lib/account";
@@ -12,7 +12,6 @@ import { BRAND } from "@/lib/brand";
 import { useFriends } from "@/lib/friends/FriendsProvider";
 
 type NavItem = { href: string; label: string; Icon: LucideIcon };
-const LOBBY: NavItem = { href: "/lobby", label: "Lobby", Icon: House };
 const PLAY: NavItem = { href: "/play", label: "Play", Icon: Gamepad2 };
 const MATCHES: NavItem = { href: "/matches", label: "Matches", Icon: Swords };
 const FRIENDS: NavItem = { href: "/friends", label: "Friends", Icon: Users };
@@ -20,12 +19,12 @@ const BACKING: NavItem = { href: "/backing", label: "Backing", Icon: HandCoins }
 const BOARD: NavItem = { href: "/leaderboard", label: "Leaderboard", Icon: Trophy };
 const VAULT: NavItem = { href: "/vault", label: "Vault", Icon: Wallet };
 
-/** The phone bottom nav. */
-export const NAV: NavItem[] = [LOBBY, PLAY, BACKING, BOARD, VAULT];
+/** The phone bottom nav: Play in the centre. Backing has no tab: it is in the drawer and on the Vault. */
+export const NAV: NavItem[] = [MATCHES, FRIENDS, PLAY, BOARD, VAULT];
 
 /** The sidebar, in labelled groups. */
 const GROUPS: { title: string; items: NavItem[] }[] = [
-  { title: "Play", items: [LOBBY, PLAY, MATCHES, FRIENDS] },
+  { title: "Play", items: [PLAY, MATCHES, FRIENDS] },
   { title: "Money", items: [VAULT, BACKING] },
   { title: "Season", items: [BOARD] },
 ];
@@ -42,7 +41,7 @@ export function isHere(path: string, href: string): boolean {
 
 export function Wordmark({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <Link href="/lobby" className="wordmark" aria-label={`${BRAND.name}, home`} onClick={onNavigate}>
+    <Link href="/play" className="wordmark" aria-label={`${BRAND.name}, home`} onClick={onNavigate}>
       <TesoroLogo height={34} />
     </Link>
   );
@@ -70,8 +69,11 @@ function SideLink({ item, path, onNavigate, after }: { item: NavItem; path: stri
   );
 }
 
-/** The sidebar content: shared by the fixed desktop sidebar and the mobile/tablet drawer. */
-export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
+/**
+ * The sidebar content, for the fixed desktop sidebar. With `drawer` (phones and tablets, beside the bottom nav) it leaves out
+ * what the bottom nav already has and adds what the footer carries on desktop.
+ */
+export function SidebarBody({ onNavigate, drawer = false }: { onNavigate?: () => void; drawer?: boolean }) {
   const path = usePathname();
   const { auth, snapshot, openMatches } = useAccount();
   const me = useMemo(
@@ -93,6 +95,11 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
       <div className="side-top">
         <Wordmark onNavigate={onNavigate} />
       </div>
+      {drawer ? (
+        <nav aria-label="More" className="side-nav">
+          <SideLink item={BACKING} path={path} onNavigate={onNavigate} />
+        </nav>
+      ) : (
       <nav aria-label="Main" className="side-groups">
         {groups.map((g) => (
           <div key={g.title} className="side-nav">
@@ -103,10 +110,17 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
           </div>
         ))}
       </nav>
+      )}
       <hr className="side-rule" />
       <div className="side-nav side-lower">
         <SideLink item={{ href: "/docs", label: "Docs", Icon: BookOpen }} path={path} onNavigate={onNavigate} />
         <SideLink item={{ href: "/help", label: "Help", Icon: CircleHelp }} path={path} onNavigate={onNavigate} />
+        {drawer && (
+          <>
+            <SideLink item={{ href: "/terms", label: "Terms", Icon: FileText }} path={path} onNavigate={onNavigate} />
+            <SideLink item={{ href: "/privacy", label: "Privacy", Icon: Shield }} path={path} onNavigate={onNavigate} />
+          </>
+        )}
       </div>
       {me && profile ? (
         <Link
@@ -136,6 +150,19 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
             </span>
           </div>
         )
+      )}
+      {drawer && auth.status === "signed-in" && (
+        <button
+          type="button"
+          className="cut cut-card side-link side-signout"
+          onClick={() => {
+            onNavigate?.();
+            void auth.signOut();
+          }}
+        >
+          <LogOut aria-hidden="true" />
+          <span className="side-label">Sign out</span>
+        </button>
       )}
     </>
   );

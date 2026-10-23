@@ -60,25 +60,9 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
   padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
 }
 .topbar .menu-btn { grid-column: 1; position: relative; }
-/* something waits in Friends (requests, Challenges, new Friends): Friends is in the drawer on phones */
-.menu-dot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--fg); box-shadow: 0 0 0 2px var(--shell); }
 .top-word { grid-column: 2; }
 .top-word .wordmark svg { height: 26px; width: auto; }
 .top-right { grid-column: 4; display: flex; align-items: center; gap: 12px; justify-self: end; }
-.search {
-  grid-column: 1 / -1; grid-row: 2; display: none; align-items: center; gap: 12px; height: 46px; padding: 0 16px;
-  background: var(--surface); --edge: var(--edge-2); min-width: 0;
-}
-.topbar.on-lobby .search { display: flex; }
-.search svg { width: 20px; height: 20px; flex: none; color: var(--fg); }
-.search input {
-  flex: 1; min-width: 0; height: 100%; background: transparent; border: 0; outline: 0; font-size: var(--fs-15); color: var(--fg);
-  -webkit-appearance: none; appearance: none;
-}
-.search input::placeholder { color: var(--fg-2); }
-.search input::-webkit-search-cancel-button { display: none; }
-.search-clear { display: grid; place-items: center; background: transparent; border: 0; padding: 4px; color: var(--fg-2); }
-.search-clear svg { width: 16px; height: 16px; }
 
 .gpill {
   --c: 12px; display: inline-flex; align-items: center; gap: 12px; height: 46px; padding: 0 18px 0 12px;
@@ -217,8 +201,28 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
 }
 .bottom-nav a { display: grid; justify-items: center; align-content: center; gap: 4px; min-height: var(--nav-h); font-size: var(--fs-12); font-weight: 700; color: var(--fg-2); }
 .bottom-nav a svg { width: 22px; height: 22px; stroke-width: 1.8; }
-.bottom-nav a[aria-current="page"] { color: var(--fg); box-shadow: inset 0 2px 0 var(--fg); }
+.bottom-nav a[aria-current="page"]:not(.nav-play) { color: var(--fg); box-shadow: inset 0 2px 0 var(--fg); }
 .bottom-nav a:focus-visible { outline-offset: -4px; }
+.nav-icon { position: relative; display: grid; }
+/* open Matches / waiting Friends: a small count on the icon's top right, lit when someone is waiting on you */
+.nav-badge {
+  position: absolute; top: -7px; left: calc(100% - 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  display: grid; place-items: center; background: var(--surface-2); box-shadow: 0 0 0 2px var(--side);
+  font-size: 11px; font-weight: 800; line-height: 1; color: var(--fg); font-variant-numeric: tabular-nums;
+}
+.nav-badge.lit { background: var(--fg); color: #0b0f12; }
+/* Play: the centre tab, a raised emerald tile that rises out of the bar */
+.bottom-nav a.nav-play { align-content: end; padding-bottom: 7px; color: var(--em); }
+.nav-play-tile {
+  --c: 14px; --edge: rgba(106, 248, 214, 0.65); display: grid; place-items: center; width: 62px; height: 62px; margin-top: -26px;
+  background: linear-gradient(170deg, var(--em-hi) 0%, var(--em) 42%, var(--em-deep) 100%); color: var(--em-ink);
+  filter: drop-shadow(0 6px 14px rgba(36, 216, 168, 0.28));
+}
+.nav-play-tile svg { width: 30px; height: 30px; stroke-width: 2; }
+.bottom-nav a.nav-play[aria-current="page"] { color: var(--em-hi); }
+.bottom-nav a.nav-play[aria-current="page"] .nav-play-tile { filter: drop-shadow(0 0 16px rgba(36, 216, 168, 0.5)); }
+.bottom-nav a.nav-play:focus-visible { outline: 0; }
+.bottom-nav a.nav-play:focus-visible .nav-play-tile::after { --r: 2px; }
 
 /* ——— Drawer (below 1024px) ——— */
 dialog.drawer {
@@ -281,7 +285,6 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .content { margin-left: var(--side-w); }
   .menu-btn, .top-word, .bottom-nav { display: none !important; }
   .topbar { grid-template-columns: minmax(0, 330px) 1fr auto; padding: 16px 18px 12px 24px; gap: 0 16px; }
-  .topbar.on-lobby .search { grid-column: 1; grid-row: 1; height: 48px; }
   .top-right { grid-column: 3; gap: 18px; min-height: 52px; }
   .gpill { height: 52px; padding: 0 30px 0 16px; gap: 14px; }
   .gpill b { font-size: 30px; }
@@ -359,8 +362,12 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .pchest { padding-right: 8px; }
 }
 
-/* bare screens drop the footer, which also carried the room above the bottom nav */
-.content[data-bare] .app-main { padding-bottom: calc(var(--nav-h) + 24px + env(safe-area-inset-bottom)); }
+/* below 1024px no page has a footer (the drawer carries its links), so the page itself keeps the room above the bottom nav;
+   bare screens drop the footer on desktop too */
+@media (max-width: 1023px) {
+  .site-foot { display: none; }
+  .app-main { padding-bottom: calc(var(--nav-h) + 24px + env(safe-area-inset-bottom)); }
+}
 @media (min-width: 1024px) { .content[data-bare] .app-main { padding-bottom: 48px; } }
 @media (max-width: 639px) {
   .site-foot-cols { gap: 16px; }
@@ -368,3 +375,5 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .site-foot-h { margin-bottom: 8px; }
   .site-foot-cols a, .site-foot-cols span { min-height: 44px; display: inline-flex; align-items: center; }
 }
+.side-signout { width: 100%; margin-top: 8px; background: transparent; border: 0; font: inherit; font-size: var(--fs-17); text-align: left; cursor: pointer; }
+.side-signout:hover { background: var(--surface); color: var(--fg); }

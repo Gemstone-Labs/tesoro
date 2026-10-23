@@ -1,0 +1,23 @@
+/* ——— Play (home): Continue, Live wins, then the games as a 2×2 grid. All three show on a phone's first screen. ——— */
+.play-home { display: grid; gap: 20px; }
+.play-home .h-section { margin: 0; }
+.games { display: grid; gap: 12px; }
+.games-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.game-tile { aspect-ratio: 1.05; --c: 14px; }
+.game-tile img { object-position: center; }
+.game-tile .tile-shade { background: linear-gradient(180deg, transparent 50%, rgba(6, 9, 12, 0.6) 74%, rgba(6, 9, 12, 0.95) 100%); }
+.game-name {
+  position: absolute; left: 12px; right: 12px; bottom: 10px; z-index: 2; font-family: var(--f-display); font-size: clamp(22px, 6.4vw, 34px);
+  font-weight: 800; line-height: 0.92; text-transform: uppercase; color: #fff; text-wrap: balance;
+}
+.game-waiting {
+  --c: 7px; position: absolute; top: 8px; right: 8px; z-index: 2; display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px;
+  font-size: var(--fs-12); font-weight: 700; color: var(--fg); background: rgba(6, 9, 12, 0.72); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); --edge: var(--edge-2);
+}
+.game-waiting svg { width: 13px; height: 13px; }
+@media (min-width: 1024px) {
+  .play-home { gap: 32px; }
+  .games-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
+  .game-tile { aspect-ratio: 0.9; }
+  .game-name { left: 18px; bottom: 16px; font-size: clamp(28px, 2.4vw, 40px); }
+}

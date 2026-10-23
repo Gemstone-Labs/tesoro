@@ -2,8 +2,8 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
 import { AssetPicker, Button, Chip, EntryPicker, Row, Slider } from "@/components/ui";
 import type { EntrySize } from "@/lib/mock";
-import { PlayNowRail } from "@/components/lobby/PlayNowRail";
-import { SearchProvider } from "@/components/shell/SearchContext";
+import { GameGrid } from "@/components/lobby/GameGrid";
+import "@/components/lobby/play-home.css";
 import "./motion.css";
 
 function Demo({ ms }: { ms: number }) {
@@ -38,10 +38,8 @@ function Demo({ ms }: { ms: number }) {
         <Row game="holdem" title="Hold'em" meta="vs Lynx · Entry 500" when="1 h ago" delta={-500} cta="Open" href="#row2" />
       </div>
       <div className="sbm-panel">
-        <h3>Game tiles (lobby.css:195: tilt follows the mouse, 0.6 s back to flat, 0.15 s while hovered; art zoom 0.6 s)</h3>
-        <SearchProvider>
-          <PlayNowRail />
-        </SearchProvider>
+        <h3>Game tiles (lobby.css: tilt follows the mouse, 0.6 s back to flat, 0.15 s while hovered; art zoom 0.6 s)</h3>
+        <GameGrid />
       </div>
     </div>
   );

@@ -275,13 +275,13 @@ export function EnterMatch(props: EnterKind) {
             <Button block onClick={() => auth.openSignIn("Enter a Match")}>Sign in</Button>
           </>
         ) : gate === "ask" ? (
-          <AgeConfirm busy={ageBusy} error={ageError} onConfirm={() => void confirmAge()} onDecline={() => router.replace("/lobby")} />
+          <AgeConfirm busy={ageBusy} error={ageError} onConfirm={() => void confirmAge()} onDecline={() => router.replace("/play")} />
         ) : existing !== null ? (
           <>
             <p className="status" role="status">You still have a {GAME_NAMES[game]} Match to play. Finish it before entering another.</p>
             <div className="hstack wrap">
               <Button variant="money" href={`/play/match/${existing.toString()}`}>Continue</Button>
-              <Button href="/lobby">Lobby</Button>
+              <Button href="/play">Play</Button>
             </div>
           </>
         ) : needsGemas ? (
@@ -290,7 +290,7 @@ export function EnterMatch(props: EnterKind) {
             <div className="hstack wrap">
               <GetGemasButton intent={{ game, need: entryGemas }} />
               <Button href={practiceHref(game, props.asset)}>Practice free</Button>
-              <Button href="/lobby">Lobby</Button>
+              <Button href="/play">Play</Button>
             </div>
           </>
         ) : failure ? (
@@ -298,7 +298,7 @@ export function EnterMatch(props: EnterKind) {
             <p className="status err" role="alert">{landing ? "Your new Gemas are still landing. Try again in a few seconds." : failure.text}</p>
             <div className="hstack wrap">
               {failure.short && !landing ? <GetGemasButton intent={{ game }} /> : <Button onClick={() => window.location.reload()}>Retry</Button>}
-              <Button href="/lobby">Lobby</Button>
+              <Button href="/play">Play</Button>
             </div>
           </>
         ) : !confirmed ? (

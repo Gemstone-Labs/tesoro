@@ -6,23 +6,33 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { EditProfileSheet } from "@/components/account/EditProfileSheet";
 import { LimitsSheet } from "@/components/account/LimitsSheet";
-import { GuideOverlay, GuideProvider } from "@/components/guide/Guide";
-import { SearchProvider } from "./SearchContext";
+import { GuideBanner, GuideOverlay, GuideProvider } from "@/components/guide/Guide";
 import { SidebarBody, isHere, useNavItems } from "./Sidebar";
 import { DepositHost } from "@/components/deposit/DepositSheet";
 import { SiteFooter } from "./SiteFooter";
 import { TopBar } from "./TopBar";
+import { useAccount } from "@/lib/account";
+import { useFriends } from "@/lib/friends/FriendsProvider";
 
 /** Screens that exist for one action (play, queue, challenge, a Match, an opening Position): no link directory under them. */
 function bareScreen(path: string | null) {
   return !!path && (/^\/play\/(practice|queue|challenge|match)(\/|$)/.test(path) || path === "/wallet/opening");
 }
 
-/** Desktop: fixed sidebar + top bar. Below 1024px: the sidebar becomes a drawer and a bottom nav appears. */
+/**
+ * Desktop: fixed sidebar + top bar + footer. Below 1024px: a bottom nav with Play raised in the centre, a drawer for what the
+ * nav leaves out, and no footer.
+ */
 export function AppShell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const [drawer, setDrawer] = useState(false);
   const { nav } = useNavItems();
+  const { openMatches } = useAccount();
+  const friendsWaiting = useFriends().view?.badge ?? 0;
+  const badge: Record<string, { n: number; lit: boolean; label: string } | undefined> = {
+    "/matches": openMatches.length ? { n: openMatches.length, lit: openMatches.some((m) => m.status === "active"), label: "open" } : undefined,
+    "/friends": friendsWaiting ? { n: friendsWaiting, lit: true, label: "waiting for you" } : undefined,
+  };
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -33,7 +43,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [drawer]);
 
   return (
-    <SearchProvider>
       <GuideProvider>
       <div className="shell">
         <aside className="sidebar" aria-label="Sidebar">
@@ -53,22 +62,36 @@ export function AppShell({ children }: { children: ReactNode }) {
             <button type="button" className="cut icon-btn drawer-x" aria-label="Close menu" onClick={() => setDrawer(false)}>
               <X aria-hidden="true" />
             </button>
-            <SidebarBody onNavigate={() => setDrawer(false)} />
+            <SidebarBody drawer onNavigate={() => setDrawer(false)} />
           </div>
         </dialog>
 
         <div className="content" data-bare={bareScreen(path) || undefined}>
           <TopBar onMenu={() => setDrawer(true)} />
-          <main className="app-main" key={path}>{children}</main>
+          <main className="app-main" key={path}>
+            <GuideBanner />
+            {children}
+          </main>
           {!bareScreen(path) && <SiteFooter />}
         </div>
 
         <nav className="bottom-nav" aria-label="Main">
           {nav.map(({ href, label, Icon }) => {
             const here = isHere(path, href);
+            const b = badge[href];
+            const play = href === "/play";
             return (
-              <Link key={href} href={href} aria-current={here ? "page" : undefined}>
-                <Icon aria-hidden="true" />
+              <Link
+                key={href}
+                href={href}
+                className={play ? "nav-play" : undefined}
+                aria-current={here ? "page" : undefined}
+                aria-label={b ? `${label}, ${b.n} ${b.label}` : undefined}
+              >
+                <span className={play ? "cut nav-play-tile" : "nav-icon"}>
+                  <Icon aria-hidden="true" />
+                  {b && <b className={`nav-badge${b.lit ? " lit" : ""}`} aria-hidden="true">{b.n}</b>}
+                </span>
                 {label}
               </Link>
             );
@@ -80,6 +103,5 @@ export function AppShell({ children }: { children: ReactNode }) {
         <LimitsSheet />
       </div>
       </GuideProvider>
-    </SearchProvider>
   );
 }

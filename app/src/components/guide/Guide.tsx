@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
-import { Lightbulb } from "lucide-react";
+import { Lightbulb, X } from "lucide-react";
 import { art } from "@/lib/art";
 import { useAuth } from "@/lib/auth/context";
 import "./guide.css";
@@ -58,7 +58,7 @@ function writeDismissed(ids: string[]) {
 /**
  * The Guide's state: pages register a tip with `useGuideTip`; one shows at a time (the earliest
  * registered that is not dismissed). Dismissal is remembered per tip in localStorage.
- * Shown once the sign-in state is known (it sits bottom right, away from Sign in), so a newcomer sees the first tip too. Hidden while a game is running (`useGuideHidden`). `GuideOverlay` renders it.
+ * Shown once the sign-in state is known (it sits bottom right, away from Sign in), so a newcomer sees the first tip too. Hidden while a game is running (`useGuideHidden`). `GuideOverlay` renders it on desktop, `GuideBanner` below 1024px.
  */
 export function GuideProvider({ children }: { children: ReactNode }) {
   const [tips, setTips] = useState<GuideTip[]>([]);
@@ -110,6 +110,36 @@ export function GuideOverlay() {
   const v = useContext(ViewCtx);
   const tip = v?.tip ?? null;
   return v && tip ? <GuideScene key={tip.id} tip={tip} dismiss={v.dismiss} /> : null;
+}
+
+/**
+ * The Guide on phones and tablets (below 1024px, where the overlay is hidden): a slim strip at the top of the page with the
+ * character's head, the tip and a close button. It never covers the page.
+ */
+export function GuideBanner() {
+  const v = useContext(ViewCtx);
+  const tip = v?.tip ?? null;
+  if (!v || !tip) return null;
+  const pose = art.guide[tip.pose];
+  return (
+    <aside className="cut cut-card guide-banner" aria-label="Tip">
+      <span className="cut guide-banner-face" aria-hidden="true">
+        <Image className={pose.faces === "right" ? "flip" : undefined} src={pose.src} alt="" width={pose.w} height={pose.h} />
+      </span>
+      <div className="guide-banner-body">
+        <b>{tip.title ?? "Good to know"}</b>
+        <p>{tip.text}</p>
+        {tip.link && (
+          <Link href={tip.link.href} className="guide-link" onClick={v.dismiss}>
+            {tip.link.label}
+          </Link>
+        )}
+      </div>
+      <button type="button" className="guide-banner-x" aria-label="Dismiss tip" onClick={v.dismiss}>
+        <X aria-hidden="true" />
+      </button>
+    </aside>
+  );
 }
 
 /** Waits for the pose to load (at most `LOAD_WAIT_MS`) so the entrance plays with the art in it. */

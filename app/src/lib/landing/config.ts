@@ -15,7 +15,7 @@ export const LAUNCH_STAGE: LaunchStage = launchStageOf(process.env.NEXT_PUBLIC_L
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
 
 /** A link into the app, which lives on its own URL at launch (`NEXT_PUBLIC_APP_URL`). */
-export const appHref = (path = "/lobby") => `${APP_URL}${path}`;
+export const appHref = (path = "/play") => `${APP_URL}${path}`;
 
 /** Outbound links; an env value overrides the default, an unset one renders as a dimmed placeholder. */
 export const OUTBOUND = {

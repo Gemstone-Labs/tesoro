@@ -11,7 +11,7 @@ const CHAINS = [
 ] as const;
 
 const COLUMNS: { title: string; links: [label: string, href: string | null][] }[] = [
-  { title: "Play", links: [["Lobby", "/lobby"], ["Games", "/play"], ["Leaderboard", "/leaderboard"], ["Your Matches", "/matches"]] },
+  { title: "Play", links: [["Play", "/play"], ["Your Matches", "/matches"], ["Friends", "/friends"], ["Leaderboard", "/leaderboard"]] },
   { title: "Money", links: [["Vault", "/vault"], ["Backing", "/backing"]] },
   { title: "Learn", links: [["Docs", "/docs"], ["Help", "/help"], ["Terms", "/terms"], ["Privacy", "/privacy"]] },
 ];
@@ -22,7 +22,7 @@ export function SiteFooter() {
     <footer className="site-foot">
       <div className="site-foot-in">
         <div className="site-foot-brand">
-          <Link href="/lobby" aria-label={`${BRAND.name}, home`}>
+          <Link href="/play" aria-label={`${BRAND.name}, home`}>
             <TesoroLogo height={30} />
           </Link>
           <p>Skill games on Solana. What you lock is never played.</p>

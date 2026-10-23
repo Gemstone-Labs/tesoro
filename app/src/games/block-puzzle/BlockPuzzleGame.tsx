@@ -580,7 +580,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
                   <p className="note">Practice: nothing was staked and no Gemas moved.</p>
                   <div className="bp-actions">
                     <Button onClick={start}>Play again</Button>
-                    <Button href="/lobby">Lobby</Button>
+                    <Button href="/play">Play</Button>
                   </div>
                 </>
               )}

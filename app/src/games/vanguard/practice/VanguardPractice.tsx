@@ -536,7 +536,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
               <p className="note">Practice: nothing was staked and no Gemas moved.</p>
               <div className="vg-end-actions">
                 <Button onClick={again}>Play again</Button>
-                <Button href="/lobby">Lobby</Button>
+                <Button href="/play">Play</Button>
               </div>
             </div>
           )}

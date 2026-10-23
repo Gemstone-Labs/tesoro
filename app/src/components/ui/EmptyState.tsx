@@ -13,7 +13,7 @@ export function EmptyState({ title, body, action, bust = "himWaiting" }: { title
       <div className="empty-state-body">
         <h1 id="empty-title" className="page-title">{title}</h1>
         <p className="meta">{body}</p>
-        {action !== null && <div className="empty-state-actions">{action ?? <Button href="/lobby">Lobby</Button>}</div>}
+        {action !== null && <div className="empty-state-actions">{action ?? <Button href="/play">Play</Button>}</div>}
       </div>
     </section>
   );
