@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { Keypair } from "@solana/web3.js";
 import nacl from "tweetnacl";
-import { beforeAll, describe, expect, it } from "vitest";
+import { vi, beforeAll, describe, expect, it } from "vitest";
 import { newNonce, signedMessage, type SignedFields } from "../../lib/chain/signed-request";
 import { DemoHttpError, type AuthEnv } from "../request-auth";
 import type { Rpc } from "../history/rpc";
@@ -14,6 +14,9 @@ const other = Keypair.generate();
 const NOW = Date.now();
 const PROGRAM = "TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH";
 const form = { programId: PROGRAM, studio: "Moss Labs", gameName: "Word Duel", contactEmail: "hi@moss.example", site: "https://moss.example", blurb: "" };
+
+// A fresh in-process Postgres takes several seconds to start when the machine is busy.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 let sql: PGlite;
 let rpc: Rpc;
