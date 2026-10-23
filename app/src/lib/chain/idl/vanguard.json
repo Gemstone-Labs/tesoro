@@ -650,8 +650,8 @@
     {
       "name": "claim_timeout",
       "docs": [
-        "Rollup, permissionless. Past the start window or the setup windows it cancels the Match (the ring gets a",
-        "refund, or a no-show when both checked in and nobody contributed). In a live Match it declares a timeout: once",
+        "Rollup, permissionless. Past the start window or the setup windows it ends the Match by who showed up (the one",
+        "who did wins, nobody is a no-show, both with the oracle late is a refund). In a live Match it declares a timeout: once",
         "the turn's deadline has passed the turn is lost (three in a row lose the Match), once the time cap has passed",
         "the Match ends on the tiebreak. Which of the two is decided now, from the clock, and `resolve` applies it."
       ],
