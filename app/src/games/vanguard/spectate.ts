@@ -5,7 +5,7 @@
 import { Connection, type PublicKey } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { TEE_RPC } from "../holdem/chain";
-import { VANGUARD_PROGRAM_ID, addresses } from "./chain";
+import { VANGUARD_PROGRAM_ID, addresses, type TableRef } from "./chain";
 import { decodeBattle, type Battle } from "./decode";
 import type { ShownPiece } from "./VanguardBoard";
 import { shownPieces } from "./view";
@@ -15,13 +15,17 @@ export const spectatorPieces = (b: Battle): ShownPiece[] => shownPieces(b, null,
 
 type Reader = Pick<Connection, "getAccountInfo">;
 
-/** The public Battle through the rollup's open endpoint (no token), or null if it is not readable. */
-export async function readPublicBattle(conn: Reader, matchId: bigint | number): Promise<Battle | null> {
-  const key: PublicKey = addresses(matchId).battle;
+/**
+ * The public Battle of a table through the rollup's open endpoint (no token), or null if it is not readable or it belongs to another
+ * Match (the Battle is reused by every Match on its table).
+ */
+export async function readPublicBattle(conn: Reader, ref: TableRef, match: PublicKey): Promise<Battle | null> {
+  const key: PublicKey = addresses(ref).battle;
   const info = await conn.getAccountInfo(key);
   if (!info || !(info.owner.equals(DELEGATION_PROGRAM_ID) || info.owner.equals(VANGUARD_PROGRAM_ID))) return null;
   try {
-    return decodeBattle(info.data);
+    const b = decodeBattle(info.data);
+    return b.tesoroMatch.equals(match) ? b : null;
   } catch {
     return null;
   }

@@ -4,36 +4,32 @@ import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
 import { withdrawOwnOpenItems } from "./backing";
-import { createAccountIx } from "./match-flow";
+import { accountReady, createAccountIx } from "./match-flow";
+import { exitSend, prevAdvanceOf, redeemLine, sourceAccounts, unlockPosition } from "./redeem";
+import type { ChainHolding } from "./read";
+import { sourcePda } from "./native";
 import { ensureSol as ensureDevnetSol, type GetToken } from "./demo-client";
 import { CLUSTER } from "../cluster-settings";
 import { DEPOSIT_SLIPPAGE_BPS, createAtaIdempotentIx, depositSolIx, parseStakePool, quoteDepositSol, tokenAta } from "./stake-pool";
 import {
   JITOSOL,
   extendStakeAdvanceIx,
-  instantRedeemStakeIx,
   openStakePositionIx,
-  redeemStakeIx,
   stakePositionPda,
   stakeTokenOf,
   takeStakeAdvanceIx,
-  unlockStakeIx,
   type StakeToken,
 } from "./stake";
 import {
-  createSimSolAtaIx,
   extendNativeAdvanceIx,
   faucetIx,
-  instantRedeemIx,
   openNativePositionIx,
   positionPda,
-  redeemIx,
   setBreakIx,
   setEntryLimitIx,
   setSelfExclusionIx,
   setExtendLimitIx,
   takeNativeAdvanceIx,
-  unlockIx,
   type NativeInfo,
 } from "./native";
 import { extendFailure, plainError } from "@/lib/errors";
@@ -59,10 +55,9 @@ const send = (signer: ChainSigner, ixs: TransactionInstruction[]) => getChain().
  * creates the Account in the same transaction when there is none, so a new wallet signs once.
  */
 export async function getTestSimSol(signer: ChainSigner, getToken: GetToken, onStep: (s: string) => void = () => undefined): Promise<string> {
-  const [account] = await Promise.all([
-    getChain().base.getAccountInfo(BlockPuzzleChain.coreAccount(signer.publicKey)),
-    ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees")),
-  ]);
+  const existing = !!(await getChain().base.getAccountInfo(BlockPuzzleChain.coreAccount(signer.publicKey)));
+  const account = await accountReady(signer, getToken, existing);
+  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   onStep("Getting test SOL");
   const faucet = faucetIx(signer.publicKey);
   return send(signer, account ? [faucet] : [await createAccountIx(signer.publicKey), faucet]);
@@ -77,16 +72,16 @@ export async function openPositionWithAdvance(
   getToken: GetToken,
   simSolBaseUnits: bigint,
   months: number,
+  minGemas: bigint,
   onStep: (s: string) => void = () => undefined,
 ): Promise<{ signature: string; position: string }> {
   onStep("Preparing");
-  const [account] = await Promise.all([
-    getChain().base.getAccountInfo(BlockPuzzleChain.coreAccount(signer.publicKey)),
-    ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees")),
-  ]);
+  const existing = !!(await getChain().base.getAccountInfo(BlockPuzzleChain.coreAccount(signer.publicKey)));
+  const account = await accountReady(signer, getToken, existing);
+  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   const nonce = BigInt(Date.now());
   const position = await positionPda(signer.publicKey, nonce);
-  const ixs = [openNativePositionIx(signer.publicKey, nonce, simSolBaseUnits, position), takeNativeAdvanceIx(signer.publicKey, position, 0, months)];
+  const ixs = [openNativePositionIx(signer.publicKey, nonce, simSolBaseUnits, position), takeNativeAdvanceIx(signer.publicKey, position, 0, months, minGemas)];
   onStep("Locking your SOL");
   const signature = await send(signer, account ? ixs : [await createAccountIx(signer.publicKey), ...ixs]);
   return { signature, position: position.toBase58() };
@@ -101,16 +96,19 @@ export async function takeNextAdvance(
   getToken: GetToken,
   info: NativeInfo,
   months: number,
+  minGemas: bigint,
   onStep: (s: string) => void = () => undefined,
 ): Promise<string> {
   onStep("Preparing");
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   onStep("Taking the Advance");
   const token = info.stakeRateOpen > 0n ? tokenFor(info.mint) : null;
+  const { prev, create } = await prevAdvanceOf(getChain().base, info.position, info.openAdvance, signer.publicKey);
   return send(signer, [
+    ...create,
     token
-      ? takeStakeAdvanceIx(signer.publicKey, info.position, info.advances, months, info.openAdvance, token)
-      : takeNativeAdvanceIx(signer.publicKey, info.position, info.advances, months, info.openAdvance),
+      ? takeStakeAdvanceIx(signer.publicKey, info.position, info.advances, months, minGemas, prev, token)
+      : takeNativeAdvanceIx(signer.publicKey, info.position, info.advances, months, minGemas, prev),
   ]);
 }
 
@@ -120,6 +118,7 @@ export async function extendAdvance(
   getToken: GetToken,
   info: NativeInfo,
   extraMonths: number,
+  minGemas: bigint,
   onStep: (s: string) => void = () => undefined,
 ): Promise<string> {
   if (!info.source) throw new Error("This Lock has no open Advance.");
@@ -128,10 +127,12 @@ export async function extendAdvance(
   onStep("Extending the Advance");
   try {
     const token = info.stakeRateOpen > 0n ? tokenFor(info.mint) : null;
+    const { accounts, create } = await sourceAccounts(getChain().base, sourcePda(info.position, info.source.index), [], signer.publicKey);
     return await send(signer, [
+      ...create,
       token
-        ? extendStakeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths, token)
-        : extendNativeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths),
+        ? extendStakeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths, minGemas, accounts, token)
+        : extendNativeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths, minGemas, accounts),
     ]);
   } catch (e) {
     throw extendFailure(e);
@@ -170,43 +171,16 @@ export async function startSelfExclusion(signer: ChainSigner, getToken: GetToken
 }
 
 /**
- * Redeem Gemas of one native Source into simSOL, or into the staking token when `stakeMint` names one (mainnet).
- * The token account is created if the holder has none.
+ * Redeem Gemas of one line of a native or staking-token Source into simSOL (or the token on mainnet). The relayer pays the fee
+ * when the Player's token account exists; the account is created (at the Player's cost) when it does not.
  */
-export const redeemNative = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint, stakeMint: PublicKey | null = null) => {
-  const token = tokenFor(stakeMint);
-  return send(
-    signer,
-    token
-      ? [createAtaIdempotentIx(signer.publicKey, signer.publicKey, token.mint), redeemStakeIx(signer.publicKey, position, source, gemas, token)]
-      : [createSimSolAtaIx(signer.publicKey, signer.publicKey), redeemIx(signer.publicKey, position, source, gemas)],
-  );
-};
-
-/**
- * Instant Redeem of won Gemas of one native Source: the `landed` Gemas (yield already in) are redeemed in full first, then the Treasury
- * buys `gemas` still pending and pays simSOL (or the staking token on mainnet) into the holder's token account, all in one transaction.
- */
-export const instantRedeemNative = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint, landed: bigint, stakeMint: PublicKey | null = null) => {
-  const token = tokenFor(stakeMint);
-  const me = signer.publicKey;
-  return send(signer, [
-    token ? createAtaIdempotentIx(me, me, token.mint) : createSimSolAtaIx(me, me),
-    ...(landed > 0n ? [token ? redeemStakeIx(me, position, source, landed, token) : redeemIx(me, position, source, landed)] : []),
-    token ? instantRedeemStakeIx(me, position, source, gemas, token) : instantRedeemIx(me, position, source, gemas),
-  ]);
-};
+export const redeemNative = (signer: ChainSigner, getToken: GetToken, h: Parameters<typeof redeemLine>[2], gemas: bigint) => redeemLine(signer, getToken, h, gemas);
 
 /** Unlock: the program computes Debt itself, closes the open Advance and returns the Principal with the free yield (in the staking token on mainnet). */
-export const unlockNative = (signer: ChainSigner, info: NativeInfo) => {
-  const token = info.stakeRateOpen > 0n ? tokenFor(info.mint) : null;
-  return send(
-    signer,
-    token
-      ? [createAtaIdempotentIx(signer.publicKey, signer.publicKey, token.mint), unlockStakeIx(signer.publicKey, info.position, info.openAdvance, token)]
-      : [unlockIx(signer.publicKey, info.position, info.openAdvance)],
-  );
-};
+export const unlockNative = (signer: ChainSigner, getToken: GetToken, info: NativeInfo) => unlockPosition(signer, getToken, info);
+
+export type { ChainHolding };
+export { exitSend };
 
 // ---- Mainnet: open with the staking token or plain SOL -----------------------------------------------
 
@@ -222,17 +196,19 @@ export async function openStakePositionWithAdvance(
   getToken: GetToken,
   deposit: StakeDeposit,
   months: number,
+  minGemas: bigint,
   token: StakeToken = JITOSOL,
   onStep: (s: string) => void = () => undefined,
 ): Promise<{ signature: string; position: string }> {
   onStep("Preparing");
-  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   const me = signer.publicKey;
   const base = getChain().base;
-  const [account, poolInfo] = await Promise.all([base.getAccountInfo(BlockPuzzleChain.coreAccount(me)), deposit.from === "sol" ? base.getAccountInfo(token.pool) : null]);
+  const [existing, poolInfo] = await Promise.all([base.getAccountInfo(BlockPuzzleChain.coreAccount(me)), deposit.from === "sol" ? base.getAccountInfo(token.pool) : null]);
+  const account = await accountReady(signer, getToken, !!existing);
+  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   const nonce = BigInt(Date.now());
   const position = await stakePositionPda(me, nonce);
-  const advance = takeStakeAdvanceIx(me, position, 0, months, null, token);
+  const advance = takeStakeAdvanceIx(me, position, 0, months, minGemas, null, token);
   const prefix = account ? [] : [await createAccountIx(me)];
   if (deposit.from === "token") {
     onStep("Locking your SOL");

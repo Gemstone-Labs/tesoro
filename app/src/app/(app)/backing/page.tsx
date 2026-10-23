@@ -25,7 +25,7 @@ import { PlayerName } from "@/components/account/Player";
 import { useGuideTip } from "@/components/guide/Guide";
 import { useAccount } from "@/lib/account";
 import {
-  acceptDirected,
+  acceptOffer,
   cancelOffer,
   cancelRequest,
   expireOffer,
@@ -37,7 +37,7 @@ import {
   type PlayerRecord,
 } from "@/lib/chain/backing";
 import { liveRequestFor, onePerPlayer } from "@/lib/chain/requests";
-import { backedSplit, EntryError, MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
+import { backedSplit, EntryError } from "@/lib/chain/ledger";
 import { recordFromMatches, recordText, timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { backingQuery } from "@/lib/game-params";
@@ -55,7 +55,7 @@ import { GemasLabel } from "../wallet/AdvanceQuote";
 import { RequestCard } from "@/components/backing/RequestCard";
 import { BackingExample, FEES } from "./BackingExample";
 import "./backing.css";
-import { plainError } from "@/lib/errors";
+import { entryError } from "@/lib/chain/entry-errors";
 import { awayNotice } from "@/lib/chain/protections";
 import { useAway } from "@/lib/chain/useAway";
 import { wantsPostRequest } from "@/lib/backing/post-link";
@@ -68,12 +68,8 @@ type Sort = "recent" | "entry" | "record";
 const winRate = (r: PlayerRecord) => (r.matches === 0 ? 0 : r.wins / r.matches);
 
 function explain(e: unknown): string {
-  if (e instanceof EntryError) {
-    return e.code === "insufficient"
-      ? "Not enough available Gemas. Gemas reserved for your other Offers cannot be reserved again."
-      : `This entry would draw on Gemas from more than ${MAX_ENTRY_SOURCES} Advances. Redeem a few small balances in your Vault first.`;
-  }
-  return plainError(e);
+  if (e instanceof EntryError) return "Not enough free Gemas. Gemas reserved for your other Offers cannot be reserved again.";
+  return entryError(e);
 }
 
 function onHashChange(notify: () => void) {
@@ -122,7 +118,7 @@ export default function Backing() {
   const myRequests = requests.filter((r) => r.player === me && (r.live || (r.status === "accepted" && pending(r))));
   const backings = offers.filter((o) => o.status === "accepted" && o.player === me && nowSecs < o.useBy);
   const offersForMe = offers.filter(
-    (o) => o.status === "open" && nowSecs < o.expiresAt && o.directedTo && myRequests.some((r) => r.live && r.address.toBase58() === o.directedTo),
+    (o) => o.status === "open" && nowSecs < o.expiresAt && myRequests.some((r) => r.live && r.address.toBase58() === o.request),
   );
   const sorted = <T extends { entry: number; expiresAt: number }>(xs: T[], rec: (x: T) => PlayerRecord | null) =>
     [...xs].sort((a, b) =>
@@ -133,7 +129,7 @@ export default function Backing() {
     (r) => r.record,
   );
   const mine = offers.filter((o) => o.backer === me && ["open", "accepted", "consumed"].includes(o.status));
-  const offeredTo = new Set(mine.filter((o) => o.status === "open" && nowSecs < o.expiresAt && o.directedTo).map((o) => o.directedTo));
+  const offeredTo = new Set(mine.filter((o) => o.status === "open" && nowSecs < o.expiresAt).map((o) => o.request));
 
   const run = (key: string, label: string | (() => string), fn: () => Promise<string | undefined>) => {
     setBusy(key);
@@ -280,7 +276,7 @@ export default function Backing() {
                   disabled={busy !== null}
                   onClick={() =>
                     act("accept an Offer", `acc-${o.address.toBase58()}`, "Offer accepted. You can enter the Match now.", (s) =>
-                      acceptDirected(s, new PublicKey(o.directedTo as string), o.address),
+                      acceptOffer(s, new PublicKey(o.request), o.address),
                     )
                   }
                 >
@@ -528,8 +524,7 @@ function MyOffer({
   const nowSecs = nowMs / 1000;
   const reserved = offer.lines.reduce((s, l) => s + Number(l.amount), 0);
   const lapsed = (offer.status === "open" && nowSecs >= offer.expiresAt) || (offer.status === "accepted" && nowSecs >= offer.useBy);
-  const target = offer.directedTo ? requests.get(offer.directedTo) : null;
-  const playerKey = offer.player ?? target?.player ?? null;
+  const playerKey = offer.player ?? requests.get(offer.request)?.player ?? null;
   const key = offer.address.toBase58();
   const status =
     offer.status === "consumed"
@@ -538,9 +533,7 @@ function MyOffer({
         ? "Expired: release your reserved Gemas"
         : offer.status === "accepted"
           ? <>Accepted by <PlayerName account={offer.player ?? ""} /> · they have {timeLeft(offer.useBy, nowMs).replace(" left", "")} to start</>
-          : offer.directedTo
-            ? <>Waiting for {playerKey ? <PlayerName account={playerKey} /> : "the Player"} · {timeLeft(offer.expiresAt, nowMs)}</>
-            : "Offers now go to a Player's Request. Cancel this one to release your Gemas.";
+          : <>Waiting for {playerKey ? <PlayerName account={playerKey} /> : "the Player"} · {timeLeft(offer.expiresAt, nowMs)}</>;
   return (
     <Card as="article" aria-label="Your Offer">
       <div className="stack">

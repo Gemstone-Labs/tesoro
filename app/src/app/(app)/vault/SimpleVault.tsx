@@ -38,7 +38,7 @@ export function SimpleVault() {
   };
   const withdraw = (d: DepositRow) =>
     signer && snapshot && run(`withdraw:${d.id}`, async () => {
-      await withdrawDeposit(signer, snapshot, d.id);
+      await withdrawDeposit(signer, auth.getAccessToken, snapshot, d.id);
       return `${d.label} withdrawn. Your SOL is back in your wallet.`;
     });
   const loadingFirst = (loading || !ready) && !snapshot && !error;

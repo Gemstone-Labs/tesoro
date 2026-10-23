@@ -1,5 +1,6 @@
 "use client";
 
+import { parseMatchKey } from "@/lib/chain/match-id";
 import { Busy, Button, Card, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { commitCopy } from "@/lib/chain/commit-pending";
@@ -25,13 +26,7 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
   const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
   const nowSecs = useNowSecs();
-  const id = (() => {
-    try {
-      return BigInt(matchId);
-    } catch {
-      return null;
-    }
-  })();
+  const id = parseMatchKey(matchId) ? matchId : null;
   const { view, move, power, twoStep, run } = useVanguardMatch(id, signer, refresh);
   const { stage, match: m, battle, army, seat } = view;
   const me = snapshot?.accountKey.toBase58() ?? null;

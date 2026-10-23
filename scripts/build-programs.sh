@@ -21,3 +21,5 @@ for dir in programs/*/; do
   p=$(basename "$dir")
   anchor idl build -p "$p" -o "target/idl/$p.json" -t "target/types/$p.ts"
 done
+# The app reads tesoro_core's instructions and types from its own copy of the IDL: keep it in step (keeps the app's `errors`).
+node scripts/sync-idl.mjs

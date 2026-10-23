@@ -27,7 +27,7 @@ describe("LiveWins", () => {
   });
 
   it("shows wins instead of placeholders when loaded, including during a refresh", () => {
-    query.matches = [{ id: 12n, winner: "player", game: "holdem", payout: 20, entry: 10, at: Date.now(), scores: null }];
+    query.matches = [{ id: "12", winner: "player", game: "holdem", payout: 20, entry: 10, at: Date.now(), scores: null }];
     for (const loading of [false, true]) {
       query.loading = loading;
       const html = renderToStaticMarkup(<LiveWins />);

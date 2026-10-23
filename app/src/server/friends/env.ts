@@ -1,10 +1,9 @@
 import "server-only";
 import { Program, type Idl, type Provider } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { gameOf } from "@/lib/chain/read";
-import { isChallengeId } from "@/lib/chain/match-flow";
+import { matchAddressOf } from "@/lib/chain/match-id";
 import { baseRpc } from "@/lib/chain/rpc-config";
 import { notifyDeps } from "../notify/env";
 import { handleEvent } from "../notify/service";
@@ -20,18 +19,17 @@ const connection = () => (conn ??= new Connection(baseRpc(process.env.TESORO_BAS
 function decodeOpen(data: Buffer | null | undefined, nowSecs: number): OpenChallenge | null {
   if (!data) return null;
   const m = coder.decode("matchState", data).inner;
-  const status = Object.keys(m.status)[0];
+  const stage = Object.keys(m.stage)[0];
   const game = gameOf(new PublicKey(m.game));
-  if (status !== "open" || m.b || !game || Number(m.deadline.toString()) <= nowSecs) return null;
+  if (stage !== "open" || !m.meta.challenge || m.b || !game || Number(m.deadline.toString()) <= nowSecs) return null;
   return { game, entry: Number(m.entry.toString()), opener: new PublicKey(m.a.player).toBase58() };
 }
 
-const matchKey = (matchId: string) => BlockPuzzleChain.addresses(BigInt(matchId)).match;
-
 /** One Challenge Match, read fresh (recording a friend Challenge right after it opened). */
 export async function openChallenge(matchId: string): Promise<OpenChallenge | null> {
-  if (!isChallengeId(BigInt(matchId))) return null;
-  const info = await connection().getAccountInfo(matchKey(matchId), "confirmed");
+  const address = matchAddressOf(matchId);
+  if (!address) return null;
+  const info = await connection().getAccountInfo(address, "confirmed");
   return decodeOpen(info?.data, Math.floor(Date.now() / 1000));
 }
 
@@ -41,10 +39,10 @@ const cache = new Map<string, { at: number; open: OpenChallenge | null }>();
 /** Many Challenge Matches in one batched read, cached for 20 s (every Friends list polls this). */
 export async function openChallenges(matchIds: string[]): Promise<(OpenChallenge | null)[]> {
   const now = Date.now();
-  const missing = [...new Set(matchIds.filter((id) => isChallengeId(BigInt(id)) && !((cache.get(id)?.at ?? 0) > now - CACHE_MS)))];
+  const missing = [...new Set(matchIds.filter((id) => matchAddressOf(id) !== null && !((cache.get(id)?.at ?? 0) > now - CACHE_MS)))];
   for (let i = 0; i < missing.length; i += 100) {
     const chunk = missing.slice(i, i + 100);
-    const infos = await connection().getMultipleAccountsInfo(chunk.map(matchKey), "confirmed");
+    const infos = await connection().getMultipleAccountsInfo(chunk.map((id) => matchAddressOf(id)!), "confirmed");
     chunk.forEach((id, j) => cache.set(id, { at: now, open: decodeOpen(infos[j]?.data, Math.floor(now / 1000)) }));
   }
   if (cache.size > 5000) for (const [k, v] of cache) if (v.at <= now - CACHE_MS) cache.delete(k);

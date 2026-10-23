@@ -61,7 +61,7 @@ export interface GemaHolding {
   own: boolean;
 }
 
-export type MatchResult = "won" | "lost" | "draw" | "refunded";
+export type MatchResult = "won" | "lost" | "draw" | "no-show" | "refunded";
 
 export interface Match {
   id: string;

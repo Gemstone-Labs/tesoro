@@ -27,10 +27,10 @@ import { PlayerAvatar } from "@/components/account/Player";
 
 const COPY: Record<GameId, { tag: string; sub: string[]; how: string; steps: string[]; hero: string }> = {
   "block-puzzle": {
-    tag: "Head-to-head · Async",
-    sub: ["Same pieces as your opponent · 90 s · higher score wins", "Pieces stay hidden until you press Start"],
+    tag: "Head-to-head · Live",
+    sub: ["Same pieces, same time · 90 s · higher score wins", "Pieces stay hidden until the countdown ends"],
     how: "Same pieces. Same chance.",
-    steps: ["Same pieces as your opponent", "90 seconds · higher score wins", "Pieces stay hidden until you press Start"],
+    steps: ["Same pieces as your opponent, at the same time", "90 seconds · higher score wins", "Pieces stay hidden until the countdown ends"],
     hero: art.blockPuzzleHero,
   },
   holdem: {

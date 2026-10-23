@@ -1,14 +1,18 @@
 //! LiteSVM tests: the real vanguard and tesoro_core programs (`pnpm build:programs` first).
 //!
-//! LiteSVM has no delegation, permission or VRF programs, so the rollup-only steps (`init_permissions`,
-//! `request_vrf`, the oracle callback, `close_match`) are stood in for by writing the account state they would
-//! have produced. Everything else runs as deployed: `create_match`, `set_config`, `deal`, `move_piece`,
-//! `start_two_step`, `claim_timeout` and `finalize`, which settles or refunds the tesoro_core Match by CPI
-//! signed by the `authority` PDA.
+//! LiteSVM has no delegation, permission or VRF programs, so the steps that need them (`init_seats`, the permission half
+//! of `seat_players` and `wipe_seats`, the call to the oracle in `request_vrf`, the real commit and delegation) are
+//! stood in for by writing the account state they would have produced. Everything else runs as deployed:
+//! `set_config`, `assign_match`, `begin_match`, `check_in`, `contribute_entropy`, the oracle callback (with signature
+//! checks off, so a test can present the VRF identity PDA), `deal`, `move_piece`, `start_two_step`, `claim_timeout`,
+//! `resolve`, `reset_table`, `void_table`, `release_slot` and `finalize`, which settles or refunds the tesoro_core Match
+//! by CPI signed by the `authority` PDA from the table's committed ring.
 #![allow(clippy::result_large_err)]
 
 use anchor_lang::prelude::Pubkey as APk;
-use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas};
+#[path = "../../tesoro_core/tests/common/flow.rs"]
+mod flow;
+use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_sdk::account::Account;
 use solana_sdk::clock::Clock;
@@ -18,13 +22,15 @@ use solana_sdk::pubkey::Pubkey as Pk;
 use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
-use tesoro_core::ledger::{MatchStatus, Outcome as CoreOutcome, SourceChain};
+use tesoro_core::instructions::MatchResult;
+use tesoro_core::ledger::lifecycle::Stage;
+use tesoro_core::ledger::SourceChain;
 use tesoro_core::state::*;
 use vanguard::engine::{
     self, Army as Side, EndReason, Game, LayoutPiece, BOMB, CHAIN_CLOCK, ENGINEER,
     GENERAL_OF_THE_ARMY, OPENING_GRACE_SECS, PIECE_SLOTS, RECON, SPY, TRUCK,
 };
-use vanguard::{Army, Battle, Secret, VanguardConfig, VanguardError};
+use vanguard::{Army, Assignment, Battle, Table, TableConfig, VanguardConfig, VanguardError};
 
 const SOL: u64 = 1_000_000_000;
 const T0: i64 = 1_000_000;
@@ -38,17 +44,55 @@ fn s(p: APk) -> Pk {
 fn tpda(seeds: &[&[u8]]) -> APk {
     APk::find_program_address(seeds, &tesoro_core::ID).0
 }
+
+/// The Game's record in tesoro_core, and the loader accounts `open_match` reads its deploy slot from.
+fn game_record_pda() -> APk {
+    APk::find_program_address(&[GAME_SEED, vanguard::ID.as_ref()], &tesoro_core::ID).0
+}
+fn program_data_pda() -> APk {
+    APk::find_program_address(
+        &[vanguard::ID.as_ref()],
+        &anchor_lang::solana_program::bpf_loader_upgradeable::ID,
+    )
+    .0
+}
+
+/// ComputeBudget `SetComputeUnitLimit`: `list_game` hashes the whole game program.
+fn cu_limit(units: u32) -> Instruction {
+    let mut data = vec![2u8];
+    data.extend_from_slice(&units.to_le_bytes());
+    Instruction {
+        program_id: s(APk::from_str_const(
+            "ComputeBudget111111111111111111111111111111",
+        )),
+        accounts: vec![],
+        data,
+    }
+}
+
+/// Makes `key` the upgrade authority of the Game program loaded into `svm`, as the Game's studio
+/// would hold it, and returns the hash tesoro_core approves: SHA-256 of the executable without
+/// trailing zeros.
+fn control_program(svm: &mut LiteSVM, program: APk, key: APk) -> [u8; 32] {
+    let pd = s(APk::find_program_address(
+        &[program.as_ref()],
+        &anchor_lang::solana_program::bpf_loader_upgradeable::ID,
+    )
+    .0);
+    let mut acct = svm.get_account(&pd).expect("program data");
+    acct.data[12] = 1;
+    acct.data[13..45].copy_from_slice(key.as_ref());
+    let code = &acct.data[45..];
+    let end = code.iter().rposition(|b| *b != 0).map_or(0, |i| i + 1);
+    let hash = solana_sdk::hash::hash(&code[..end]).to_bytes();
+    svm.set_account(pd, acct).expect("set program data");
+    hash
+}
 fn vpda(seeds: &[&[u8]]) -> APk {
     APk::find_program_address(seeds, &vanguard::ID).0
 }
 fn account_pda(auth: APk) -> APk {
     tpda(&[ACCOUNT_SEED, auth.as_ref()])
-}
-fn holding_pda(account: APk, source: APk) -> APk {
-    tpda(&[HOLDING_SEED, account.as_ref(), source.as_ref()])
-}
-fn tmatch_pda(id: u64) -> APk {
-    tpda(&[MATCH_SEED, &id.to_le_bytes()])
 }
 fn authority_pda() -> APk {
     vpda(&[vanguard::AUTHORITY_SEED])
@@ -57,20 +101,63 @@ fn config_pda() -> APk {
     vpda(&[vanguard::PROGRAM_CONFIG_SEED])
 }
 
+use ephemeral_rollups_sdk::access_control::structs::PERMISSION_SEED;
+use ephemeral_rollups_sdk::consts::{EPHEMERAL_VAULT_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID};
+use std::collections::HashMap;
+
+fn sdk_key(p: ephemeral_rollups_sdk::compat::Pubkey) -> Pk {
+    Pk::new_from_array(p.to_bytes())
+}
+fn sdk_apk(p: ephemeral_rollups_sdk::compat::Pubkey) -> APk {
+    APk::new_from_array(p.to_bytes())
+}
+
+fn permission_pda(target: APk) -> APk {
+    APk::find_program_address(
+        &[PERMISSION_SEED, target.as_ref()],
+        &sdk_apk(PERMISSION_PROGRAM_ID),
+    )
+    .0
+}
+
+fn dlp() -> APk {
+    sdk_apk(ephemeral_rollups_sdk::id())
+}
+
+const TEE: APk = APk::new_from_array([7; 32]);
+const QUEUE: APk = APk::new_from_array([8; 32]);
+
+fn table_addr(generation: u16, index: u16) -> APk {
+    vanguard::table_address(generation, index)
+}
+fn tables_addr() -> APk {
+    vpda(&[vanguard::TABLES_SEED])
+}
+fn sponsor_addr() -> APk {
+    vpda(&[vanguard::SPONSOR_SEED])
+}
+fn assign_addr(m: APk) -> APk {
+    vpda(&[vanguard::ASSIGN_SEED, m.as_ref()])
+}
+
+/// The accounts of one table.
 struct Addrs {
+    table: APk,
     battle: APk,
-    secret: APk,
     army_0: APk,
     army_1: APk,
 }
-fn addrs(id: u64) -> Addrs {
-    let battle = vpda(&[vanguard::BATTLE_SEED, &id.to_le_bytes()]);
+fn addrs_of(table: APk) -> Addrs {
     Addrs {
-        battle,
-        secret: vpda(&[vanguard::SECRET_SEED, battle.as_ref()]),
-        army_0: vpda(&[vanguard::ARMY_SEED, battle.as_ref(), &[0]]),
-        army_1: vpda(&[vanguard::ARMY_SEED, battle.as_ref(), &[1]]),
+        table,
+        battle: vanguard::battle_address(&table).0,
+        army_0: vanguard::army_address(&table, 0).0,
+        army_1: vanguard::army_address(&table, 1).0,
     }
+}
+/// The accounts of the first table, where most tests play.
+fn addrs(_tesoro_match: APk) -> Addrs {
+    addrs_of(table_addr(0, 0))
 }
 
 fn ix(
@@ -110,10 +197,6 @@ fn budget() -> Instruction {
     }
 }
 
-fn rem(k: APk) -> AccountMeta {
-    AccountMeta::new(s(k), false)
-}
-
 type Failed = litesvm::types::FailedTransactionMetadata;
 
 fn custom_code(err: &Failed) -> u32 {
@@ -148,15 +231,26 @@ struct Env {
     svm: LiteSVM,
     admin: Keypair,
     oracle: Keypair,
+    /// The table operator: creates tables and assigns Matches.
+    operator: Keypair,
     platform: Person,
     studio: Person,
     alice: Person,
     bob: Person,
-    a_holding: APk,
-    b_holding: APk,
     a_source: APk,
     b_source: APk,
-    id: u64,
+    /// The Match under test.
+    tmatch: APk,
+    /// The table it is assigned to.
+    table: APk,
+    /// Base's copy of each table, as the last commit left it.
+    committed: HashMap<APk, Vec<u8>>,
+    /// The next tesoro_core open/join nonce.
+    nonce: u64,
+    deployed: bool,
+    secrets: u64,
+    next_person: u8,
+    mref: Option<flow::MatchRef>,
     now: i64,
     last_cu: u64,
     last_logs: Vec<String>,
@@ -200,7 +294,9 @@ impl Env {
     }
 
     fn person(&mut self) -> Person {
-        let kp = Keypair::new();
+        // Fixed keys: every Env addresses the same Match and table, so runs can be compared byte for byte.
+        self.next_person += 1;
+        let kp = Keypair::new_from_array([self.next_person; 32]);
         self.svm
             .airdrop(&kp.pubkey(), 1_000 * SOL)
             .expect("airdrop");
@@ -211,8 +307,12 @@ impl Env {
             tesoro_core::accounts::CreateAccount {
                 authority: key,
                 account,
+                basket: tesoro_core::storage::basket_address(&account).0,
+                spill: tesoro_core::storage::spill_address(&account).0,
                 invite_gate: tesoro_core::state::invite_gate_pda(),
                 system_program: anchor_lang::system_program::ID,
+                payer: key,
+                sponsor: None,
             },
             tesoro_core::instruction::CreateAccount {
                 evm_address: [0; 20],
@@ -242,7 +342,7 @@ impl Env {
     }
 
     /// Position + Advance: 75_000 Gemas of the staker's own Source.
-    fn stake(&mut self, p: &Person, id: u8) -> (APk, APk) {
+    fn stake(&mut self, p: &Person, id: u8) -> APk {
         let position = tpda(&[POSITION_SEED, &[0], &[id; 32]]);
         let asset = APk::new_unique();
         let open = ix(
@@ -267,7 +367,6 @@ impl Env {
         let oracle = self.oracle.insecure_clone();
         self.send(&[open], &oracle, &[]).expect("open position");
         let source = tpda(&[SOURCE_SEED, position.as_ref(), &0u32.to_le_bytes()]);
-        let holding = holding_pda(p.account, source);
         let advance = ix(
             tesoro_core::ID,
             tesoro_core::accounts::TakeAdvance {
@@ -279,12 +378,16 @@ impl Env {
                 protections: tpda(&[PROTECTIONS_SEED, p.account.as_ref()]),
                 position,
                 source,
-                holding,
+                book: tesoro_core::storage::book_address(&source).0,
+                basket: tesoro_core::storage::basket_address(&p.account).0,
+                spill: tesoro_core::storage::spill_address(&p.account).0,
+                economy: tpda(&[ECONOMY_SEED]),
                 system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::TakeAdvance {
                 horizon_months: 6,
                 price_micro_usd: 150_000_000,
+                min_gemas: 1,
             },
             vec![AccountMeta::new_readonly(
                 s(APk::find_program_address(
@@ -297,28 +400,7 @@ impl Env {
         );
         put_core_treasury(&mut self.svm);
         self.send(&[advance], &oracle, &[&p.kp]).expect("advance");
-        (source, holding)
-    }
-
-    fn open_holding(&mut self, account: APk, source: APk) {
-        let holding = holding_pda(account, source);
-        if self.svm.get_account(&s(holding)).is_some() {
-            return;
-        }
-        let open = ix(
-            tesoro_core::ID,
-            tesoro_core::accounts::OpenHolding {
-                payer: a(self.admin.pubkey()),
-                account,
-                source,
-                holding,
-                system_program: anchor_lang::system_program::ID,
-            },
-            tesoro_core::instruction::OpenHolding {},
-            vec![],
-        );
-        let admin = self.admin.insecure_clone();
-        self.send(&[open], &admin, &[]).expect("open holding");
+        source
     }
 
     fn load<T: AccountDeserialize>(&self, k: APk) -> T {
@@ -347,36 +429,39 @@ impl Env {
             .expect("set account");
     }
 
-    fn battle(&self) -> Battle {
-        self.load(addrs(self.id).battle)
+    fn table(&self) -> Table {
+        self.load(self.table)
     }
-    fn secret(&self) -> Secret {
-        self.load(addrs(self.id).secret)
+    fn table_at(&self, k: APk) -> Table {
+        self.load(k)
+    }
+    fn battle(&self) -> Battle {
+        self.load(addrs_of(self.table).battle)
     }
     fn army(&self, seat: usize) -> Army {
-        let ad = addrs(self.id);
+        let ad = addrs_of(self.table);
         self.load(if seat == 0 { ad.army_0 } else { ad.army_1 })
     }
 
+    fn patch_table(&mut self, f: impl FnOnce(&mut Table)) {
+        let mut t = self.table();
+        f(&mut t);
+        self.store(self.table, &t, vanguard::ID);
+    }
     fn patch_battle(&mut self, f: impl FnOnce(&mut Battle)) {
         let mut b = self.battle();
         f(&mut b);
         let mut data = <Battle as anchor_lang::Discriminator>::DISCRIMINATOR.to_vec();
         data.extend_from_slice(anchor_lang::__private::bytemuck::bytes_of(&b));
-        let key = s(addrs(self.id).battle);
+        let key = s(addrs_of(self.table).battle);
         let mut acct = self.svm.get_account(&key).expect("battle");
         acct.data = data;
         self.svm.set_account(key, acct).expect("set battle");
     }
-    fn patch_secret(&mut self, f: impl FnOnce(&mut Secret)) {
-        let mut v = self.secret();
-        f(&mut v);
-        self.store(addrs(self.id).secret, &v, vanguard::ID);
-    }
     fn patch_army(&mut self, seat: usize, f: impl FnOnce(&mut Army)) {
         let mut v = self.army(seat);
         f(&mut v);
-        let ad = addrs(self.id);
+        let ad = addrs_of(self.table);
         self.store(
             if seat == 0 { ad.army_0 } else { ad.army_1 },
             &v,
@@ -385,12 +470,11 @@ impl Env {
     }
 
     fn gemas(&self, p: &Person) -> u64 {
-        let acct = self.load::<TesoroAccount>(p.account).inner;
-        acct.own_total + acct.won_total
+        flow::gemas(&self.svm, p.account)
     }
 
-    fn tesoro_status(&self) -> MatchStatus {
-        self.load::<MatchState>(tmatch_pda(self.id)).inner.status
+    fn tesoro_status(&self) -> Stage {
+        self.load::<MatchState>(self.tmatch).inner.stage()
     }
 
     fn new() -> Self {
@@ -424,22 +508,28 @@ impl Env {
             svm,
             admin: Keypair::new(),
             oracle: Keypair::new(),
+            operator: Keypair::new_from_array([0xAA; 32]),
             platform: placeholder(Keypair::new()),
             studio: placeholder(Keypair::new()),
             alice: placeholder(Keypair::new()),
             bob: placeholder(Keypair::new()),
-            a_holding: APk::default(),
-            b_holding: APk::default(),
             a_source: APk::default(),
             b_source: APk::default(),
-            id: 1,
+            tmatch: APk::default(),
+            table: table_addr(0, 0),
+            committed: HashMap::new(),
+            nonce: 1,
+            deployed: false,
+            secrets: 0,
+            next_person: 0,
+            mref: None,
             now: T0,
             last_cu: 0,
             last_logs: vec![],
             declare_cu: 0,
             resolve_cu: 0,
         };
-        for k in [&env.admin, &env.oracle] {
+        for k in [&env.admin, &env.oracle, &env.operator] {
             env.svm.airdrop(&k.pubkey(), 1_000 * SOL).expect("airdrop");
         }
         let mut clock = env.svm.get_sysvar::<Clock>();
@@ -464,133 +554,676 @@ impl Env {
         );
         let admin = env.admin.insecure_clone();
         env.send(&[init], &admin, &[]).expect("init config");
+        flow::set_economy(&mut env.svm, &admin);
         // The Game authority is the vanguard PDA, not a keypair.
+        let ctl = Keypair::new();
+        let hash = control_program(&mut env.svm, vanguard::ID, a(ctl.pubkey()));
         let register = ix(
             tesoro_core::ID,
             tesoro_core::accounts::RegisterGame {
-                admin: a(admin.pubkey()),
+                payer: a(admin.pubkey()),
+                control: a(ctl.pubkey()),
                 config: tpda(&[CONFIG_SEED]),
+                game_program: vanguard::ID,
+                program_data: program_data_pda(),
                 studio_recipient: env.studio.account,
+                game_record: game_record_pda(),
+                system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::RegisterGame {
-                game: vanguard::ID,
-                authority: authority_pda(),
+                settle_authority: authority_pda(),
                 studio_bps: 300,
             },
             vec![],
         );
-        env.send(&[register], &admin, &[]).expect("register game");
+        env.send(&[register], &admin, &[&ctl])
+            .expect("register game");
+        let list = ix(
+            tesoro_core::ID,
+            tesoro_core::accounts::ListGame {
+                admin: a(admin.pubkey()),
+                config: tpda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
+                game_program: vanguard::ID,
+                program_data: program_data_pda(),
+            },
+            tesoro_core::instruction::ListGame {
+                listed_until: 4_000_000_000,
+                approved_hash: hash,
+            },
+            vec![],
+        );
+        env.send(&[cu_limit(1_400_000), list], &admin, &[])
+            .expect("list game");
 
         env.alice = env.person();
         env.bob = env.person();
         let (alice, bob) = (dup(&env.alice), dup(&env.bob));
-        (env.a_source, env.a_holding) = env.stake(&alice, 1);
-        (env.b_source, env.b_holding) = env.stake(&bob, 2);
+        env.a_source = env.stake(&alice, 1);
+        env.b_source = env.stake(&bob, 2);
         env
     }
 
+    /// Sets the storm's turn and line seed the way the shares would hold them.
+    fn set_storm(&mut self, at: u16, seed: u32) {
+        let other = self.army(1);
+        self.patch_army(0, |v| {
+            v.storm_at = at ^ other.storm_at;
+            v.storm_seed = seed ^ other.storm_seed;
+        });
+    }
+
+    fn operator_kp(&self) -> Keypair {
+        self.operator.insecure_clone()
+    }
+
+    /// Opens and joins a tesoro_core Match for Alice and Bob.
     fn open_and_join(&mut self, entry: u64) {
         let (alice, bob) = (dup(&self.alice), dup(&self.bob));
-        let open = ix(
-            tesoro_core::ID,
-            tesoro_core::accounts::OpenMatch {
-                player_authority: alice.key,
-                config: tpda(&[CONFIG_SEED]),
-                player_account: alice.account,
-                protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
-                match_state: tmatch_pda(self.id),
-                system_program: anchor_lang::system_program::ID,
-            },
-            tesoro_core::instruction::OpenMatch {
-                match_id: self.id,
-                game: vanguard::ID,
-                entry,
-            },
-            vec![rem(self.a_holding)],
-        );
-        self.send(&[open], &alice.kp, &[]).expect("open match");
-        let join = ix(
-            tesoro_core::ID,
-            tesoro_core::accounts::JoinMatch {
-                player_authority: bob.key,
-                player_account: bob.account,
-                protections: tpda(&[PROTECTIONS_SEED, bob.account.as_ref()]),
-                match_state: tmatch_pda(self.id),
-                opener_protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
-            },
-            tesoro_core::instruction::JoinMatch {},
-            vec![rem(self.b_holding)],
-        );
-        self.send(&[join], &bob.kp, &[]).expect("join match");
+        let n = self.nonce;
+        self.nonce += 2;
+        let m = flow::open_match(&mut self.svm, &alice.kp, vanguard::ID, entry, n, false, 0)
+            .expect("open match");
+        flow::join_match(&mut self.svm, &bob.kp, &m, vanguard::ID, n + 1).expect("join match");
+        self.tmatch = m.key;
+        self.mref = Some(m);
     }
 
-    fn create_ix(&self, creator: APk) -> Instruction {
-        let ad = addrs(self.id);
-        ix(
-            vanguard::ID,
-            vanguard::accounts::CreateMatch {
-                creator,
-                tesoro_match: tmatch_pda(self.id),
-                config: tpda(&[CONFIG_SEED]),
-                vanguard_config: config_pda(),
-                account_a: self.alice.account,
-                account_b: self.bob.account,
-                authority: authority_pda(),
-                battle: ad.battle,
-                secret: ad.secret,
-                army_0: ad.army_0,
-                army_1: ad.army_1,
-                tesoro_program: tesoro_core::ID,
-                system_program: anchor_lang::system_program::ID,
-            },
-            vanguard::instruction::CreateMatch { match_id: self.id },
-            vec![],
-        )
+    fn run_settlement(&mut self) {
+        let m = self.mref.expect("a Match");
+        let caller = self.oracle.insecure_clone();
+        flow::run_chunks(&mut self.svm, &caller, &m);
     }
 
-    /// The deploy step before any Match: the upgrade authority names the TEE validator and the oracle queue.
-    fn ensure_config(&mut self) {
-        if self.svm.get_account(&s(config_pda())).is_some() {
-            return;
-        }
+    // --- base-layer instructions -----------------------------------------------------------
+
+    fn set_config_tx(&mut self) {
         let admin = self.admin.insecure_clone();
         set_upgrade_authority(self, a(admin.pubkey()));
         self.send(&[set_config_ix(a(admin.pubkey()), TEE)], &admin, &[])
             .expect("set config");
     }
 
-    fn create(&mut self) -> Result<(), Failed> {
-        self.ensure_config();
-        let alice = self.alice.kp.insecure_clone();
-        let ix = self.create_ix(self.alice.key);
-        self.send(&[ix], &alice, &[])
+    fn set_table_config(
+        &mut self,
+        operator: APk,
+        generation: u16,
+        max_tables: u16,
+    ) -> Result<(), Failed> {
+        let admin = self.admin.insecure_clone();
+        set_upgrade_authority(self, a(admin.pubkey()));
+        let ixn = ix(
+            vanguard::ID,
+            vanguard::accounts::SetTableConfig {
+                authority: a(admin.pubkey()),
+                table_config: tables_addr(),
+                program: vanguard::ID,
+                program_data: program_data_pda(),
+                system_program: anchor_lang::system_program::ID,
+            },
+            vanguard::instruction::SetTableConfig {
+                operator,
+                generation,
+                max_tables,
+            },
+            vec![],
+        );
+        self.send(&[ixn], &admin, &[])
     }
 
-    /// Stands in for `delegate_match`, `init_permissions`, both Players' entropy and the VRF callback.
-    fn start_in_rollup(&mut self, seed: u8) {
+    fn create_sponsor_ix(&self, lamports: u64) -> Instruction {
+        ix(
+            vanguard::ID,
+            vanguard::accounts::CreateSponsor {
+                operator: a(self.operator.pubkey()),
+                table_config: tables_addr(),
+                sponsor: sponsor_addr(),
+                system_program: anchor_lang::system_program::ID,
+            },
+            vanguard::instruction::CreateSponsor { lamports },
+            vec![],
+        )
+    }
+
+    fn create_table_ix(&self, signer: APk, generation: u16, index: u16) -> Instruction {
+        let table = table_addr(generation, index);
+        ix(
+            vanguard::ID,
+            vanguard::accounts::CreateTable {
+                operator: signer,
+                table_config: tables_addr(),
+                table,
+                battle: addrs_of(table).battle,
+                system_program: anchor_lang::system_program::ID,
+            },
+            vanguard::instruction::CreateTable { generation, index },
+            vec![],
+        )
+    }
+
+    fn create_table(&mut self, generation: u16, index: u16) -> Result<(), Failed> {
+        let op = self.operator_kp();
+        let ixn = self.create_table_ix(a(op.pubkey()), generation, index);
+        self.send(&[ixn], &op, &[])
+    }
+
+    /// The deploy step before any Match: the upgrade authority names the TEE validator, the oracle queue and the
+    /// operator; the operator makes the Sponsor and two tables, whose seats and delegation are stood in for.
+    fn ensure_deployed(&mut self) {
+        if self.deployed {
+            return;
+        }
+        self.deployed = true;
+        self.set_config_tx();
+        self.set_table_config(a(self.operator.pubkey()), 0, 4)
+            .expect("set table config");
+        let op = self.operator_kp();
+        let sponsor = self.create_sponsor_ix(SOL);
+        self.send(&[sponsor], &op, &[]).expect("create sponsor");
+        for index in 0..2 {
+            self.create_table(0, index).expect("create table");
+            self.init_seats_standin(table_addr(0, index));
+            self.delegate_standin(table_addr(0, index));
+        }
+    }
+
+    /// Stands in for `delegate_table`: base keeps the freshly created table as its committed copy.
+    fn delegate_standin(&mut self, table: APk) {
+        let acct = self.svm.get_account(&s(table)).expect("table");
+        self.committed.insert(table, acct.data);
+    }
+
+    /// Stands in for `init_seats`, whose ephemeral-account and permission CPIs need MagicBlock: both Armies exist,
+    /// blank and with no member, and the table says so.
+    fn init_seats_standin(&mut self, table: APk) {
+        let ad = addrs_of(table);
+        for seat in 0..2u8 {
+            let (key, bump) = vanguard::army_address(&table, seat);
+            self.store(key, &Army::blank(bump, table, seat), vanguard::ID);
+        }
+        let _ = ad;
+        let mut t: Table = self.load(table);
+        t.seats_created = true;
+        self.store(table, &t, vanguard::ID);
+    }
+
+    fn assign_ix(
+        &self,
+        m: APk,
+        generation: u16,
+        index: u16,
+        epoch: u64,
+        signer: APk,
+    ) -> Instruction {
+        ix(
+            vanguard::ID,
+            vanguard::accounts::AssignMatch {
+                operator: signer,
+                table_config: tables_addr(),
+                tesoro_match: m,
+                account_a: self.alice.account,
+                account_b: self.bob.account,
+                authority: authority_pda(),
+                assignment: assign_addr(m),
+                tesoro_program: tesoro_core::ID,
+                system_program: anchor_lang::system_program::ID,
+            },
+            vanguard::instruction::AssignMatch {
+                generation,
+                index,
+                epoch,
+            },
+            vec![],
+        )
+    }
+
+    fn assign(&mut self, generation: u16, index: u16, epoch: u64) -> Result<(), Failed> {
+        self.ensure_deployed();
+        let op = self.operator_kp();
+        let ixn = self.assign_ix(self.tmatch, generation, index, epoch, a(op.pubkey()));
+        self.send(&[ixn], &op, &[])?;
+        self.table = table_addr(generation, index);
+        Ok(())
+    }
+
+    /// Opens and joins a Match for the same Players and assigns it to `index` at the table's current epoch.
+    fn next_match_on(&mut self, index: u16) {
+        self.ensure_deployed();
+        self.open_and_join(1_000);
+        let epoch = self.table_at(table_addr(0, index)).epoch;
+        self.assign(0, index, epoch).expect("assign");
+    }
+
+    /// Open, join, assign to the first table and begin: the Battle is bound to the Match and waits for the Players.
+    fn create(&mut self) -> Result<(), Failed> {
+        self.next_match_on(0);
+        self.begin()
+    }
+
+    fn use_match(&mut self, m: flow::MatchRef, table: APk) {
+        self.tmatch = m.key;
+        self.mref = Some(m);
+        self.table = table;
+    }
+
+    /// Runs `f` with base's view of the table: the committed bytes, owned by the delegation program. The live
+    /// rollup table is put back afterwards.
+    fn on_base<R>(&mut self, table: APk, f: impl FnOnce(&mut Self) -> R) -> R {
+        let live = self.svm.get_account(&s(table));
+        if let Some(bytes) = self.committed.get(&table).cloned() {
+            self.svm
+                .set_account(
+                    s(table),
+                    Account {
+                        lamports: SOL,
+                        data: bytes,
+                        owner: s(dlp()),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .expect("base view");
+        }
+        let r = f(self);
+        if let Some(acct) = live {
+            self.svm.set_account(s(table), acct).expect("restore live");
+        }
+        r
+    }
+
+    /// Stands in for `commit_table`'s commit: the result is on base and the table is clean.
+    fn commit_standin(&mut self) {
         let now = self.now;
-        self.patch_battle(|b| {
-            b.status = vanguard::STATUS_SETUP;
-            b.permissioned = 1;
-            b.entropy_deadline = now + vanguard::ENTROPY_SECS;
+        self.patch_table(|t| {
+            t.dirty = false;
+            t.commit.record(now);
         });
-        self.patch_secret(|v| {
-            v.entropy = [seed.wrapping_add(7); 32];
-            v.contributed = [true, true];
-            v.vrf_requested = true;
-            v.vrf_seen = true;
-            v.vrf = [seed.wrapping_add(99); 32];
+        let acct = self.svm.get_account(&s(self.table)).expect("table");
+        self.committed.insert(self.table, acct.data);
+    }
+
+    /// The keeper's commit after a result, if it is still owed.
+    fn ensure_committed(&mut self) {
+        if self.table().dirty {
+            self.commit_standin();
+        }
+    }
+
+    fn finalize_ix(&self, caller: APk) -> Instruction {
+        self.finalize_ix_with(caller, vec![])
+    }
+
+    fn finalize_ix_with(&self, caller: APk, remaining: Vec<AccountMeta>) -> Instruction {
+        ix(
+            vanguard::ID,
+            vanguard::accounts::Finalize {
+                caller,
+                assignment: assign_addr(self.tmatch),
+                table: self.table,
+                tesoro_match: self.tmatch,
+                config: tpda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
+                authority: authority_pda(),
+                game_program: vanguard::ID,
+                program_data: program_data_pda(),
+                receipt: tpda(&[b"settled", self.tmatch.as_ref()]),
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
+                tesoro_program: tesoro_core::ID,
+            },
+            vanguard::instruction::Finalize {},
+            remaining,
+        )
+    }
+
+    /// Starts the settlement or refund from base's view of the table, as committed so far.
+    fn finalize_start(&mut self) -> Result<(), Failed> {
+        let caller = self.oracle.insecure_clone();
+        let finalize = self.finalize_ix(a(caller.pubkey()));
+        let table = self.table;
+        self.on_base(table, |env| env.send(&[finalize], &caller, &[]))
+    }
+
+    /// The keeper commits what is owed, then finalizes and runs the chunks.
+    fn finalize(&mut self, _refund: bool) -> Result<(), Failed> {
+        self.ensure_committed();
+        self.finalize_start()?;
+        self.run_settlement();
+        Ok(())
+    }
+
+    /// Like `finalize_start` after the commit, with accounts passed on to tesoro_core.
+    fn finalize_with(&mut self, remaining: Vec<AccountMeta>) -> Result<(), Failed> {
+        self.ensure_committed();
+        let caller = self.oracle.insecure_clone();
+        let finalize = self.finalize_ix_with(a(caller.pubkey()), remaining);
+        let table = self.table;
+        self.on_base(table, |env| env.send(&[finalize], &caller, &[]))
+    }
+
+    // --- rollup instructions ---------------------------------------------------------------
+
+    fn rollup(&mut self, ixn: Instruction) -> Result<(), Failed> {
+        let caller = self.oracle.insecure_clone();
+        self.send(&[ixn], &caller, &[])
+    }
+
+    fn begin_ix(&self) -> Instruction {
+        let ad = addrs_of(self.table);
+        ix(
+            vanguard::ID,
+            vanguard::accounts::BeginMatch {
+                caller: a(self.oracle.pubkey()),
+                assignment: assign_addr(self.tmatch),
+                table: self.table,
+                battle: ad.battle,
+                tesoro_match: self.tmatch,
+                vanguard_config: config_pda(),
+            },
+            vanguard::instruction::BeginMatch {},
+            vec![],
+        )
+    }
+
+    fn begin(&mut self) -> Result<(), Failed> {
+        let ixn = self.begin_ix();
+        self.rollup(ixn)
+    }
+
+    /// The MagicBlock program does not exist in LiteSVM. Any program loaded at its address lets the account checks
+    /// pass, and the CPI into it then fails (what a real commit does is devnet evidence): here the Game's own binary,
+    /// which refuses a foreign program id.
+    fn magic_shell(&mut self) {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../target/deploy/vanguard.so"
+        );
+        self.svm
+            .add_program_from_file(sdk_key(MAGIC_PROGRAM_ID), path)
+            .expect("magic shell");
+    }
+
+    /// The VRF program does not exist in LiteSVM. Any program loaded at its address lets the account checks pass; the CPI
+    /// into it then fails (what the oracle does is devnet evidence).
+    fn vrf_shell(&mut self) {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../target/deploy/vanguard.so"
+        );
+        self.svm
+            .add_program_from_file(
+                sdk_key(ephemeral_rollups_sdk::vrf::consts::VRF_PROGRAM_ID),
+                path,
+            )
+            .expect("vrf shell");
+    }
+
+    fn commit_ix(&self) -> Instruction {
+        let ad = addrs_of(self.table);
+        ix(
+            vanguard::ID,
+            vanguard::accounts::CommitTable {
+                caller: a(self.oracle.pubkey()),
+                table: self.table,
+                battle: ad.battle,
+                sponsor: sponsor_addr(),
+                vanguard_config: config_pda(),
+                magic_fee_vault: table_kit::fee_vault_address(&TEE),
+                magic_context: sdk_apk(ephemeral_rollups_sdk::consts::MAGIC_CONTEXT_ID),
+                magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+            },
+            vanguard::instruction::CommitTable {},
+            vec![],
+        )
+    }
+
+    fn reset_ix(&self) -> Instruction {
+        ix(
+            vanguard::ID,
+            vanguard::accounts::ResetTable {
+                caller: a(self.oracle.pubkey()),
+                table: self.table,
+                battle: addrs_of(self.table).battle,
+            },
+            vanguard::instruction::ResetTable {},
+            vec![],
+        )
+    }
+
+    fn reset(&mut self) -> Result<(), Failed> {
+        let ixn = self.reset_ix();
+        self.rollup(ixn)
+    }
+
+    fn release_accounts(&self, m: APk) -> vanguard::accounts::Release {
+        vanguard::accounts::Release {
+            caller: a(self.oracle.pubkey()),
+            table: self.table,
+            receipt: tpda(&[b"settled", m.as_ref()]),
+            match_state: m,
+        }
+    }
+
+    fn release(&mut self, index: u8, m: APk) -> Result<(), Failed> {
+        let ixn = ix(
+            vanguard::ID,
+            self.release_accounts(m),
+            vanguard::instruction::ReleaseSlot { index },
+            vec![],
+        );
+        self.rollup(ixn)
+    }
+
+    fn void(&mut self, m: APk) -> Result<(), Failed> {
+        let ixn = ix(
+            vanguard::ID,
+            vanguard::accounts::VoidTable {
+                caller: a(self.oracle.pubkey()),
+                table: self.table,
+                battle: addrs_of(self.table).battle,
+                receipt: tpda(&[b"settled", m.as_ref()]),
+            },
+            vanguard::instruction::VoidTable {},
+            vec![],
+        );
+        self.rollup(ixn)
+    }
+
+    /// Stands in for the permission half of `seat_players`: each blank Army is stamped with its Player and the table
+    /// says the seats are theirs.
+    fn seat_players_standin(&mut self) {
+        let players = self.battle().players;
+        for (seat, player) in players.into_iter().enumerate() {
+            self.patch_army(seat, |h| h.player = player);
+        }
+        self.patch_table(|t| t.seats_open = true);
+        self.patch_battle(|b| b.permissioned = 1);
+    }
+
+    /// Stands in for the permission half of `wipe_seats`: both Armies are back to blank.
+    fn wipe_standin(&mut self) {
+        for seat in 0..2 {
+            self.patch_army(seat, |h| h.wipe());
+        }
+        self.patch_table(|t| t.seats_open = false);
+    }
+
+    fn check_in_ix(&self, player: APk) -> Instruction {
+        ix(
+            vanguard::ID,
+            vanguard::accounts::CheckIn {
+                player,
+                table: self.table,
+                battle: addrs_of(self.table).battle,
+            },
+            vanguard::instruction::CheckIn {},
+            vec![],
+        )
+    }
+
+    fn check_in(&mut self, seat: usize) -> Result<(), Failed> {
+        let p = self.player(seat);
+        let ixn = self.check_in_ix(p.key);
+        self.send(&[ixn], &p.kp, &[])
+    }
+
+    /// Hands the seats over (if `begin` has not yet) and both Players check in: setup is open.
+    fn open_setup(&mut self) {
+        if self.table().phase == vanguard::TABLE_IDLE {
+            self.begin().expect("begin");
+        }
+        self.seat_players_standin();
+        self.check_in(0).expect("check in 0");
+        self.check_in(1).expect("check in 1");
+    }
+
+    /// A secret nobody has used before.
+    fn fresh_secret(&mut self) -> [u8; 32] {
+        self.secrets += 1;
+        solana_sdk::hash::hashv(&[b"test secret", &self.secrets.to_le_bytes()]).to_bytes()
+    }
+
+    fn contribute_ix(&self, seat: usize, secret: [u8; 32]) -> Instruction {
+        let ad = addrs_of(self.table);
+        let key = self.player(seat).key;
+        ix(
+            vanguard::ID,
+            vanguard::accounts::ContributeEntropy {
+                player: key,
+                table: self.table,
+                battle: ad.battle,
+                army: if seat == 0 { ad.army_0 } else { ad.army_1 },
+            },
+            vanguard::instruction::ContributeEntropy { secret },
+            vec![],
+        )
+    }
+
+    fn contribute(&mut self, seat: usize, secret: [u8; 32]) -> Result<(), Failed> {
+        let p = self.player(seat);
+        let ixn = self.contribute_ix(seat, secret);
+        self.send(&[ixn], &p.kp, &[])
+    }
+
+    fn request_ix(&self, payer: APk) -> Instruction {
+        let ad = addrs_of(self.table);
+        let vrf_program =
+            APk::new_from_array(ephemeral_rollups_sdk::vrf::consts::VRF_PROGRAM_ID.to_bytes());
+        ix(
+            vanguard::ID,
+            vanguard::accounts::RequestVrf {
+                payer,
+                table: self.table,
+                battle: ad.battle,
+                army_0: ad.army_0,
+                army_1: ad.army_1,
+                oracle_queue: QUEUE,
+                program_identity: vpda(&[ephemeral_rollups_sdk::vrf::consts::IDENTITY]),
+                vrf_program,
+                slot_hashes: APk::new_from_array(solana_sdk::sysvar::slot_hashes::ID.to_bytes()),
+                system_program: anchor_lang::system_program::ID,
+            },
+            vanguard::instruction::RequestVrf {},
+            vec![],
+        )
+    }
+
+    /// Stands in for the part of `request_vrf` that needs the VRF program: the table records the outstanding request
+    /// exactly as the instruction does before it calls the oracle.
+    fn request_standin(&mut self) {
+        let now = self.now;
+        self.patch_table(|t| {
+            t.req_nonce = t.vrf_nonce;
+            t.vrf_nonce += 1;
+            t.req_pending = true;
+            t.req_made = true;
+            t.req_epoch = t.epoch;
+            t.req_at = now;
+        });
+    }
+
+    /// The VRF program's callback: the scoped identity PDA signs, as the oracle's CPI makes it. Needs an Env built
+    /// without signature verification.
+    fn callback_with(&mut self, randomness: [u8; 32], request: APk) -> Result<(), Failed> {
+        let ad = addrs_of(self.table);
+        let identity = APk::new_from_array(
+            ephemeral_rollups_sdk::vrf::consts::scoped_vrf_identity(&vanguard::ID).to_bytes(),
+        );
+        let ixn = ix(
+            vanguard::ID,
+            vanguard::accounts::VrfCallbackStore {
+                vrf_program_identity: identity,
+                table: self.table,
+                battle: ad.battle,
+                army_0: ad.army_0,
+                army_1: ad.army_1,
+                request,
+            },
+            vanguard::instruction::VrfCallbackStore { randomness },
+            vec![],
+        );
+        let payer = self.oracle.insecure_clone();
+        self.svm.expire_blockhash();
+        let mut tx = Transaction::new_unsigned(Message::new(&[ixn], Some(&payer.pubkey())));
+        tx.partial_sign(&[&payer], self.svm.latest_blockhash());
+        self.run(tx)
+    }
+
+    /// The marker the outstanding request names.
+    fn marker(&self) -> APk {
+        let t = self.table();
+        vanguard::Table::request_marker(&self.table, t.req_nonce)
+    }
+
+    fn callback(&mut self, randomness: [u8; 32]) -> Result<(), Failed> {
+        let request = self.marker();
+        self.callback_with(randomness, request)
+    }
+
+    /// The whole of setup the way the program runs it, on an Env built without signature checks: both Players
+    /// contribute, the request is made (stood in), the oracle answers with `randomness`, anyone deals. Returns the
+    /// secrets used.
+    fn setup_and_deal(&mut self, randomness: [u8; 32]) -> Result<[[u8; 32]; 2], Failed> {
+        let secrets = [self.fresh_secret(), self.fresh_secret()];
+        self.contribute(0, secrets[0])?;
+        self.contribute(1, secrets[1])?;
+        self.request_standin();
+        self.callback(randomness)?;
+        self.deal()?;
+        Ok(secrets)
+    }
+
+    /// Stands in for both secrets, the request and the oracle's answer, leaving the Match ready to `deal`: what
+    /// `contribute_entropy` x2, `request_vrf` and the callback would have written.
+    fn start_in_rollup(&mut self, seed: u8) {
+        self.open_setup();
+        let nonce = self.table().vrf_nonce;
+        for seat in 0..2usize {
+            self.patch_army(seat, |h| {
+                h.contributed = true;
+                h.secret = [seed.wrapping_add(7).wrapping_add(seat as u8); 32];
+                h.half_set = true;
+                h.half = vanguard::setup::vrf_half(seat as u8, &[seed.wrapping_add(99); 32], nonce);
+            });
+        }
+        self.patch_table(|t| {
+            t.req_nonce = t.vrf_nonce;
+            t.vrf_nonce += 1;
+            t.req_made = true;
+            t.req_pending = false;
+            t.req_epoch = t.epoch;
+            t.vrf_ready = true;
         });
     }
 
     fn deal_ix(&self, payer: APk) -> Instruction {
-        let ad = addrs(self.id);
+        let ad = addrs_of(self.table);
         ix(
             vanguard::ID,
             vanguard::accounts::Deal {
                 payer,
+                table: self.table,
                 battle: ad.battle,
-                secret: ad.secret,
                 army_0: ad.army_0,
                 army_1: ad.army_1,
             },
@@ -608,10 +1241,12 @@ impl Env {
         Ok(())
     }
 
-    /// Lay out an explicit Match as `deal` would leave it, with Alice (seat 0) or Bob playing the US Army.
+    /// Lay out an explicit Match as `deal` would leave it, with Alice (seat 0) or Bob playing the US Army. The storm
+    /// (turn 99, line 12_345) is stored as shares: Alice's holds the whole value, Bob's is zero.
     fn stage(&mut self, layout: &[LayoutPiece], us_seat: u8) {
         let now = self.now;
         let g = Game::start(layout, Side::Us, 99, 12_345, now, CHAIN_CLOCK).expect("layout");
+        let players = self.battle().players;
         self.patch_battle(|b| {
             b.us_seat = us_seat;
             b.absorb(&g);
@@ -620,20 +1255,25 @@ impl Env {
             b.started_at = now;
             b.cap_deadline = g.cap_at;
         });
-        for seat in 0..2 {
+        for (seat, player) in players.into_iter().enumerate() {
             let side = if seat == us_seat as usize {
                 Side::Us
             } else {
                 Side::It
             };
-            self.patch_army(seat, |v| v.place(side, layout));
+            self.patch_army(seat, |v| {
+                v.place(side, layout);
+                v.player = player;
+                v.dealt = true;
+                v.storm_at = if seat == 0 { 99 } else { 0 };
+                v.storm_seed = if seat == 0 { 12_345 } else { 0 };
+            });
         }
-        self.patch_secret(|v| {
-            v.contributed = [true, true];
-            v.vrf_seen = true;
-            v.dealt = true;
-            v.storm_at = 99;
-            v.storm_seed = 12_345;
+        self.patch_table(|t| {
+            t.phase = vanguard::TABLE_LIVE;
+            t.seats_open = true;
+            t.checked_in = [true, true];
+            t.req_made = true;
         });
     }
 
@@ -650,11 +1290,12 @@ impl Env {
         plain ^ self.pad(seat, self.battle().action_seq, field)
     }
 
-    /// The pad for `(seat, seq, field)` under the Army key stored in the account, as a client would derive it.
+    /// The pad for `(seat, seq, field)` under the Army key stored in the account, as a client would derive it: the
+    /// binding is the tesoro_core Match.
     fn pad(&self, seat: usize, seq: u32, field: u8) -> u8 {
         vanguard::engine::seal_pad(
             &self.army(seat).reserved,
-            &addrs(self.id).battle.to_bytes(),
+            &self.tmatch.to_bytes(),
             seat as u8,
             seq,
             field,
@@ -662,11 +1303,13 @@ impl Env {
     }
 
     fn declare_ix(&self, signer: APk, data: impl InstructionData) -> Instruction {
+        let ad = addrs_of(self.table);
         ix(
             vanguard::ID,
             vanguard::accounts::Declare {
                 player: signer,
-                battle: addrs(self.id).battle,
+                table: self.table,
+                battle: ad.battle,
             },
             data,
             vec![],
@@ -729,15 +1372,15 @@ impl Env {
     }
 
     fn resolve_ix(&self, caller: APk) -> Instruction {
-        let ad = addrs(self.id);
+        let ad = addrs_of(self.table);
         ix(
             vanguard::ID,
             vanguard::accounts::Resolve {
                 caller,
+                table: self.table,
                 battle: ad.battle,
                 army_0: ad.army_0,
                 army_1: ad.army_1,
-                secret: ad.secret,
             },
             vanguard::instruction::Resolve {},
             vec![],
@@ -767,17 +1410,24 @@ impl Env {
 
     fn two_step(&mut self, seat: usize) -> Result<(), Failed> {
         let p = self.player(seat);
-        let ad = addrs(self.id);
-        let i = ix(
-            vanguard::ID,
-            vanguard::accounts::StartTwoStep {
-                player: p.key,
-                battle: ad.battle,
-            },
-            vanguard::instruction::StartTwoStep {},
-            vec![],
-        );
+        let i = self.declare_ix(p.key, vanguard::instruction::StartTwoStep {});
         self.send(&[i], &p.kp, &[])
+    }
+
+    fn claim_timeout_ix(&self, caller: APk) -> Instruction {
+        let ad = addrs_of(self.table);
+        ix(
+            vanguard::ID,
+            vanguard::accounts::ClaimTimeout {
+                caller,
+                table: self.table,
+                battle: ad.battle,
+                army_0: ad.army_0,
+                army_1: ad.army_1,
+            },
+            vanguard::instruction::ClaimTimeout {},
+            vec![],
+        )
     }
 
     /// Declare the timeout; in a live Match it is then resolved in the next slot.
@@ -794,68 +1444,57 @@ impl Env {
     }
 
     fn claim_timeout_declare(&mut self, caller: &Keypair) -> Result<(), Failed> {
-        let ad = addrs(self.id);
-        let claim = ix(
-            vanguard::ID,
-            vanguard::accounts::ClaimTimeout {
-                caller: a(caller.pubkey()),
-                battle: ad.battle,
-                secret: ad.secret,
-            },
-            vanguard::instruction::ClaimTimeout {},
-            vec![],
-        );
+        let claim = self.claim_timeout_ix(a(caller.pubkey()));
         self.send(&[budget(), claim], caller, &[])
     }
 
-    fn payout_metas(&mut self, refund: bool) -> Vec<AccountMeta> {
-        let mut m = self.load::<MatchState>(tmatch_pda(self.id)).inner;
-        let payouts = if refund {
-            m.refund(i64::MAX, true).expect("refund")
-        } else {
-            let winner = self.battle().winner;
-            m.settle(CoreOutcome::Winner(winner)).expect("settle")
-        };
-        let mut metas = Vec::new();
-        for p in payouts {
-            let recipient = APk::new_from_array(p.recipient);
-            let source = APk::new_from_array(p.source);
-            self.open_holding(recipient, source);
-            metas.push(rem(recipient));
-            metas.push(rem(holding_pda(recipient, source)));
-        }
-        metas
-    }
-
-    fn finalize(&mut self, refund: bool) -> Result<(), Failed> {
-        let remaining = self.payout_metas(refund);
-        self.finalize_with(remaining)
-    }
-
-    fn finalize_with(&mut self, remaining: Vec<AccountMeta>) -> Result<(), Failed> {
-        let ad = addrs(self.id);
-        let caller = self.oracle.insecure_clone();
-        let finalize = ix(
-            vanguard::ID,
-            vanguard::accounts::Finalize {
-                caller: a(caller.pubkey()),
-                battle: ad.battle,
-                tesoro_match: tmatch_pda(self.id),
-                config: tpda(&[CONFIG_SEED]),
-                authority: authority_pda(),
-                tesoro_program: tesoro_core::ID,
+    fn core_refund_ix(&self, caller: APk) -> Instruction {
+        ix(
+            tesoro_core::ID,
+            tesoro_core::accounts::RefundMatch {
+                caller,
+                payer: caller,
+                game_record: game_record_pda(),
+                game_program: vanguard::ID,
+                program_data: program_data_pda(),
+                match_state: self.tmatch,
+                receipt: tpda(&[b"settled", self.tmatch.as_ref()]),
+                opener_protections: None,
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
+                program: tesoro_core::ID,
             },
-            vanguard::instruction::Finalize {},
-            remaining,
-        );
-        self.send(&[finalize], &caller, &[])
+            tesoro_core::instruction::RefundMatch {},
+            vec![],
+        )
+    }
+
+    fn core_settle_ix(&self, signer: APk, result: MatchResult) -> Instruction {
+        ix(
+            tesoro_core::ID,
+            tesoro_core::accounts::SettleMatch {
+                game_authority: signer,
+                payer: signer,
+                config: tpda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
+                game_program: vanguard::ID,
+                program_data: program_data_pda(),
+                match_state: self.tmatch,
+                receipt: tpda(&[b"settled", self.tmatch.as_ref()]),
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
+                program: tesoro_core::ID,
+            },
+            tesoro_core::instruction::SettleMatch { result },
+            vec![],
+        )
     }
 }
 
+/// An Env with the first table assigned to a Match and begun: Battle bound, waiting for the Players.
 fn ready() -> Env {
     let mut env = Env::new();
-    env.open_and_join(1_000);
-    env.create().expect("create match");
+    env.create().expect("begin the match");
     env
 }
 
@@ -878,27 +1517,6 @@ fn truck_raid_layout() -> Vec<LayoutPiece> {
 fn id_of(sq: u8) -> u8 {
     engine::start_index(sq).expect("start square")
 }
-
-use ephemeral_rollups_sdk::access_control::structs::PERMISSION_SEED;
-use ephemeral_rollups_sdk::consts::{EPHEMERAL_VAULT_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID};
-
-fn sdk_key(p: ephemeral_rollups_sdk::compat::Pubkey) -> Pk {
-    Pk::new_from_array(p.to_bytes())
-}
-fn sdk_apk(p: ephemeral_rollups_sdk::compat::Pubkey) -> APk {
-    APk::new_from_array(p.to_bytes())
-}
-
-fn permission_pda(target: APk) -> APk {
-    APk::find_program_address(
-        &[PERMISSION_SEED, target.as_ref()],
-        &sdk_apk(PERMISSION_PROGRAM_ID),
-    )
-    .0
-}
-
-const TEE: APk = APk::new_from_array([7; 32]);
-const QUEUE: APk = APk::new_from_array([8; 32]);
 
 /// Writes the upgrade authority into the vanguard ProgramData account, as a deploy would leave it.
 fn set_upgrade_authority(env: &mut Env, authority: APk) {
@@ -935,144 +1553,54 @@ fn set_config_ix(authority: APk, validator: APk) -> Instruction {
     )
 }
 
-fn delegate_ix(env: &Env, payer: APk, validator: Option<APk>) -> Instruction {
-    let ad = addrs(env.id);
-    let dlp = sdk_apk(ephemeral_rollups_sdk::id());
+/// `delegate_table` with every account the macro asks for.
+fn delegate_table_ix(env: &Env, payer: APk, validator: Option<APk>, g: u16, i: u16) -> Instruction {
+    let table = table_addr(g, i);
+    let battle = addrs_of(table).battle;
     let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
     let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &vanguard::ID);
-    let record = |k: APk| derive(&[b"delegation", k.as_ref()], &dlp);
-    let meta = |k: APk| derive(&[b"delegation-metadata", k.as_ref()], &dlp);
+    let record = |k: APk| derive(&[b"delegation", k.as_ref()], &dlp());
+    let meta = |k: APk| derive(&[b"delegation-metadata", k.as_ref()], &dlp());
+    let _ = env;
     ix(
         vanguard::ID,
-        vanguard::accounts::DelegateMatch {
-            payer,
-            buffer_battle: buffer(ad.battle),
-            delegation_record_battle: record(ad.battle),
-            delegation_metadata_battle: meta(ad.battle),
-            battle: ad.battle,
-            buffer_secret: buffer(ad.secret),
-            delegation_record_secret: record(ad.secret),
-            delegation_metadata_secret: meta(ad.secret),
-            secret: ad.secret,
-            buffer_army_0: buffer(ad.army_0),
-            delegation_record_army_0: record(ad.army_0),
-            delegation_metadata_army_0: meta(ad.army_0),
-            army_0: ad.army_0,
-            buffer_army_1: buffer(ad.army_1),
-            delegation_record_army_1: record(ad.army_1),
-            delegation_metadata_army_1: meta(ad.army_1),
-            army_1: ad.army_1,
-            config: config_pda(),
+        vanguard::accounts::DelegateTable {
+            operator: payer,
+            table_config: tables_addr(),
+            vanguard_config: config_pda(),
+            buffer_table: buffer(table),
+            delegation_record_table: record(table),
+            delegation_metadata_table: meta(table),
+            table,
+            buffer_battle: buffer(battle),
+            delegation_record_battle: record(battle),
+            delegation_metadata_battle: meta(battle),
+            battle,
             validator,
             owner_program: vanguard::ID,
-            delegation_program: dlp,
+            delegation_program: dlp(),
             system_program: anchor_lang::system_program::ID,
         },
-        vanguard::instruction::DelegateMatch { match_id: env.id },
-        vec![],
-    )
-}
-
-fn init_permissions_ix(env: &Env, payer: APk) -> Instruction {
-    let ad = addrs(env.id);
-    ix(
-        vanguard::ID,
-        vanguard::accounts::InitPermissions {
-            payer,
-            battle: ad.battle,
-            secret: ad.secret,
-            army_0: ad.army_0,
-            army_1: ad.army_1,
-            battle_permission: permission_pda(ad.battle),
-            secret_permission: permission_pda(ad.secret),
-            army_0_permission: permission_pda(ad.army_0),
-            army_1_permission: permission_pda(ad.army_1),
-            permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
-            ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
-            magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+        vanguard::instruction::DelegateTable {
+            generation: g,
+            index: i,
         },
-        vanguard::instruction::InitPermissions {},
         vec![],
     )
 }
 
-fn close_match_ix(env: &Env, payer: APk) -> Instruction {
-    let ad = addrs(env.id);
-    ix(
-        vanguard::ID,
-        vanguard::accounts::CloseMatch {
-            payer,
-            battle: ad.battle,
-            secret: ad.secret,
-            army_0: ad.army_0,
-            army_1: ad.army_1,
-            battle_permission: permission_pda(ad.battle),
-            secret_permission: permission_pda(ad.secret),
-            army_0_permission: permission_pda(ad.army_0),
-            army_1_permission: permission_pda(ad.army_1),
-            permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
-            ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
-            magic_context: sdk_apk(ephemeral_rollups_sdk::consts::MAGIC_CONTEXT_ID),
-            magic_program: sdk_apk(MAGIC_PROGRAM_ID),
-        },
-        vanguard::instruction::CloseMatch {},
-        vec![],
-    )
+// --- Setup, tables, settlement --------------------------------------------------------------------
+
+// --- Config, tables, assignment ------------------------------------------------------------------
+
+fn bytes_of_table(t: &Table) -> Vec<u8> {
+    let mut v = Vec::new();
+    t.try_serialize(&mut v).expect("serialize");
+    v
 }
 
-fn close_unstarted_ix(env: &Env, payer: APk) -> Instruction {
-    let ad = addrs(env.id);
-    ix(
-        vanguard::ID,
-        vanguard::accounts::CloseUnstarted {
-            payer,
-            battle: ad.battle,
-            secret: ad.secret,
-            army_0: ad.army_0,
-            army_1: ad.army_1,
-            magic_context: sdk_apk(ephemeral_rollups_sdk::consts::MAGIC_CONTEXT_ID),
-            magic_program: sdk_apk(MAGIC_PROGRAM_ID),
-        },
-        vanguard::instruction::CloseUnstarted {},
-        vec![],
-    )
-}
-
-// --- Setup: config, create, permissions ---------------------------------------------------------
-
-/// LiteSVM has no permission program, so this checks the flags instead: the permission program takes each
-/// hidden account as the writable payer of its permission, and the rollup refuses the whole step with
-/// `PrivilegeEscalation` when the Game passes one read-only (the first staging Match, 2026-10-21).
-#[test]
-fn every_account_given_a_permission_is_writable() {
-    let ad = addrs(7);
-    let metas = vanguard::accounts::InitPermissions {
-        payer: APk::new_unique(),
-        battle: ad.battle,
-        secret: ad.secret,
-        army_0: ad.army_0,
-        army_1: ad.army_1,
-        battle_permission: permission_pda(ad.battle),
-        secret_permission: permission_pda(ad.secret),
-        army_0_permission: permission_pda(ad.army_0),
-        army_1_permission: permission_pda(ad.army_1),
-        permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
-        ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
-        magic_program: sdk_apk(MAGIC_PROGRAM_ID),
-    }
-    .to_account_metas(None);
-    for (name, key) in [
-        ("battle", ad.battle),
-        ("secret", ad.secret),
-        ("army_0", ad.army_0),
-        ("army_1", ad.army_1),
-    ] {
-        let meta = metas.iter().find(|m| m.pubkey == key).unwrap();
-        assert!(
-            meta.is_writable,
-            "init_permissions: mark `{name}` #[account(mut)], the permission CPI writes it"
-        );
-    }
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    needle.len() <= haystack.len() && haystack.windows(needle.len()).any(|w| w == needle)
 }
 
 #[test]
@@ -1122,101 +1650,127 @@ fn only_the_upgrade_authority_sets_the_tee_validator() {
     );
 }
 
-/// Delegation names the TEE validator the config holds: the validator a delegation names is the only key that can
-/// commit state back, so a caller-chosen validator (or none, which the delegation program reads as the public
-/// default validator) would let a Player commit a Battle they won, or leave the Armies outside the TEE.
 #[test]
-fn delegation_is_pinned_to_the_configured_validator() {
-    let mut env = ready();
+fn only_the_upgrade_authority_sets_the_table_config_and_the_generation_only_rises() {
+    let mut env = Env::new();
+    let stranger = env.bob.kp.insecure_clone();
+    let (data_key, _) = Pk::find_program_address(
+        &[s(vanguard::ID).as_ref()],
+        &s(anchor_lang::solana_program::bpf_loader_upgradeable::ID),
+    );
+    let by_stranger = ix(
+        vanguard::ID,
+        vanguard::accounts::SetTableConfig {
+            authority: a(stranger.pubkey()),
+            table_config: tables_addr(),
+            program: vanguard::ID,
+            program_data: a(data_key),
+            system_program: anchor_lang::system_program::ID,
+        },
+        vanguard::instruction::SetTableConfig {
+            operator: a(stranger.pubkey()),
+            generation: 0,
+            max_tables: 4,
+        },
+        vec![],
+    );
+    let err = env.send(&[by_stranger], &stranger, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotUpgradeAuthority));
+
+    for (operator, max) in [
+        (APk::default(), 4),
+        (a(env.operator.pubkey()), 0),
+        (a(env.operator.pubkey()), vanguard::MAX_TABLES_HARD + 1),
+    ] {
+        let err = env.set_table_config(operator, 0, max).unwrap_err();
+        assert_eq!(custom_code(&err), vcode(VanguardError::BadConfig));
+    }
+    env.set_table_config(a(env.operator.pubkey()), 0, 4)
+        .expect("set");
+    let c: TableConfig = env.load(tables_addr());
+    assert_eq!(
+        (c.operator, c.generation, c.max_tables),
+        (a(env.operator.pubkey()), 0, 4)
+    );
+    env.set_table_config(a(env.operator.pubkey()), 2, 4)
+        .expect("generation rises");
+    let err = env
+        .set_table_config(a(env.operator.pubkey()), 1, 4)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::BadConfig));
+}
+
+#[test]
+fn only_the_operator_creates_tables_inside_the_cap_and_the_current_generation() {
+    let mut env = Env::new();
+    env.ensure_deployed();
+    let stranger = env.bob.kp.insecure_clone();
+    let by_stranger = env.create_table_ix(a(stranger.pubkey()), 0, 2);
+    let err = env.send(&[by_stranger], &stranger, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotOperator));
+    for (g, i) in [(0, 4), (1, 0)] {
+        let err = env.create_table(g, i).unwrap_err();
+        assert_eq!(
+            custom_code(&err),
+            vcode(VanguardError::BadTableSlot),
+            "{g} {i}"
+        );
+    }
+    env.create_table(0, 2).expect("inside the cap");
+    let t: Table = env.load(table_addr(0, 2));
+    assert_eq!(
+        (t.generation, t.index, t.epoch, t.phase),
+        (0, 2, 0, vanguard::TABLE_IDLE)
+    );
+    assert!(!t.seats_created);
+    // The Battle is made with the table and knows its bump.
+    let (_, bump) = vanguard::battle_address(&table_addr(0, 2));
+    env.table = table_addr(0, 2);
+    assert_eq!(env.battle().bump, bump);
+    assert_eq!(env.battle().status, vanguard::STATUS_CREATED);
+    // Again: the table exists.
+    assert!(env.create_table(0, 2).is_err());
+}
+
+/// Delegation names the TEE validator the config holds: the validator a delegation names is the only key that can
+/// commit state back, so a caller-chosen validator (or none, which the delegation program reads as the public default
+/// validator) would let a Player commit a table they won, or leave the table outside the TEE.
+#[test]
+fn delegation_is_pinned_to_the_configured_validator_and_to_the_operator() {
+    let mut env = Env::new();
+    env.ensure_deployed();
+    let op = env.operator_kp();
     let attacker = env.bob.kp.insecure_clone();
     for validator in [Some(a(attacker.pubkey())), None] {
-        let delegate = delegate_ix(&env, a(attacker.pubkey()), validator);
-        let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
+        let delegate = delegate_table_ix(&env, a(op.pubkey()), validator, 0, 0);
+        let err = env.send(&[delegate], &op, &[]).unwrap_err();
         assert_eq!(
             custom_code(&err),
             vcode(VanguardError::InvalidValidator),
             "validator {validator:?} must be refused"
         );
     }
+    let delegate = delegate_table_ix(&env, a(attacker.pubkey()), Some(TEE), 0, 0);
+    let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotOperator));
 }
 
-/// `delegate_match` is permissionless, so once the Battle is committed back anyone could delegate it again and
-/// `finalize` could no longer read it. A Battle delegates once, while it is freshly created.
 #[test]
-fn a_battle_that_has_been_played_cannot_be_delegated_again() {
-    let mut env = ready();
-    for status in [vanguard::STATUS_OVER, vanguard::STATUS_CANCELLED] {
-        env.patch_battle(|b| b.status = status);
-        let attacker = env.bob.kp.insecure_clone();
-        let delegate = delegate_ix(&env, a(attacker.pubkey()), Some(TEE));
-        let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
-        assert_eq!(custom_code(&err), vcode(VanguardError::AlreadyStarted));
-    }
-}
-
-/// A Battle nobody delegated before its start window closed is a no-show: `finalize` refunds it on the base layer,
-/// so delegating it then would only strand it in the rollup.
-#[test]
-fn a_battle_cannot_be_delegated_after_its_start_window() {
-    let mut env = ready();
-    let start_deadline = env.battle().start_deadline;
-    env.set_time(start_deadline + 1);
-    let payer = env.bob.kp.insecure_clone();
-    let delegate = delegate_ix(&env, a(payer.pubkey()), Some(TEE));
-    let err = env.send(&[delegate], &payer, &[]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::NotLive));
-    env.set_time(start_deadline);
-    let delegate = delegate_ix(&env, a(payer.pubkey()), Some(TEE));
-    // The delegation program is not loaded here: whatever happens next, the window is not what refuses it.
-    if let Err(err) = env.send(&[delegate], &payer, &[]) {
-        use solana_sdk::instruction::InstructionError;
-        use solana_sdk::transaction::TransactionError;
-        assert!(
-            !matches!(&err.err, TransactionError::InstructionError(_, InstructionError::Custom(c)) if *c == vcode(VanguardError::NotLive)),
-            "the last second of the window must pass the window check"
-        );
-    }
-}
-
-/// A permission address that already holds lamports is not a permission: anyone can send some to the predictable
-/// address, which would mark a hidden account ready without ever making it private.
-#[test]
-fn a_prefunded_permission_address_is_not_a_permission() {
-    let mut env = ready();
-    let ad = addrs(env.id);
-    for target in [ad.battle, ad.secret, ad.army_0, ad.army_1] {
-        env.svm
-            .airdrop(&s(permission_pda(target)), 1_000_000)
-            .expect("dust");
-    }
-    let payer = env.bob.kp.insecure_clone();
-    let init = init_permissions_ix(&env, a(payer.pubkey()));
-    let err = env.send(&[init], &payer, &[]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::PermissionNotReady));
-    assert_eq!(env.battle().status, vanguard::STATUS_CREATED);
-}
-
-/// tesoro_core makes an Active Match refundable by anyone one hour after it turns Active. `create_match` pushes
-/// that deadline a full table window out; only then can a stranger refund.
-#[test]
-fn create_match_pushes_the_refund_deadline_a_full_table_window_out() {
-    let mut env = ready();
-    let deadline = env.load::<MatchState>(tmatch_pda(env.id)).inner.deadline;
+fn assignment_copies_the_players_and_holds_the_refund_timer_a_full_table_window_out() {
+    let mut env = Env::new();
+    env.next_match_on(0);
+    let asg: Assignment = env.load(assign_addr(env.tmatch));
+    assert_eq!(asg.players, [env.alice.key, env.bob.key]);
+    assert_eq!((asg.generation, asg.index, asg.epoch), (0, 0, 0));
+    assert_eq!(asg.start_deadline, T0 + vanguard::START_WINDOW_SECS);
+    assert_eq!(asg.payer, a(env.operator.pubkey()));
+    // tesoro_core makes an Active Match refundable by anyone one hour after it turns Active; assignment pushes that a
+    // full table window out, and only then can a stranger refund.
+    let deadline = env.load::<MatchState>(env.tmatch).inner.deadline;
     assert_eq!(deadline, T0 + vanguard::TABLE_WINDOW_SECS);
     env.set_time(T0 + tesoro_core::ledger::MATCH_TIMEOUT_SECS + 1);
-    let remaining = env.payout_metas(true);
     let caller = env.bob.kp.insecure_clone();
-    let refund = ix(
-        tesoro_core::ID,
-        tesoro_core::accounts::RefundMatch {
-            caller: a(caller.pubkey()),
-            config: tpda(&[CONFIG_SEED]),
-            match_state: tmatch_pda(env.id),
-            opener_protections: None,
-        },
-        tesoro_core::instruction::RefundMatch {},
-        remaining,
-    );
+    let refund = env.core_refund_ix(a(caller.pubkey()));
     let err = env
         .send(std::slice::from_ref(&refund), &caller, &[])
         .unwrap_err();
@@ -1224,117 +1778,456 @@ fn create_match_pushes_the_refund_deadline_a_full_table_window_out() {
         custom_code(&err),
         tesoro_core::error::CORE_ERROR_OFFSET + tesoro_core::ledger::CoreError::NotExpired.code()
     );
-    assert_eq!(env.tesoro_status(), MatchStatus::Active);
+    assert_eq!(env.tesoro_status(), Stage::Active);
     env.set_time(deadline);
     env.send(&[refund], &caller, &[])
         .expect("anyone refunds once the table window is over");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
+    env.run_settlement();
+    assert_eq!(env.tesoro_status(), Stage::Closed);
 }
 
 #[test]
-fn create_match_binds_the_tesoro_match_and_rejects_impostors() {
+fn only_the_operator_assigns_once_and_only_to_a_real_table_slot() {
     let mut env = Env::new();
-    let alice = env.alice.kp.insecure_clone();
-    // No tesoro Match yet: nothing to bind.
-    let too_early = env.create_ix(env.alice.key);
-    assert!(env.send(&[too_early], &alice, &[]).is_err());
-
+    env.ensure_deployed();
     env.open_and_join(1_000);
-    // Before the deploy step (set_config) there is nothing to create a Battle from.
-    let early = env.create_ix(env.alice.key);
-    assert!(env.send(&[early], &alice, &[]).is_err());
-    assert!(env.svm.get_account(&s(addrs(1).battle)).is_none());
-    env.ensure_config();
-    let stranger = Keypair::new();
-    env.svm
-        .airdrop(&stranger.pubkey(), 10 * SOL)
-        .expect("airdrop");
-    let bad = env.create_ix(a(stranger.pubkey()));
-    let err = env.send(&[bad], &stranger, &[]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::NotAPlayer));
+    let stranger = env.bob.kp.insecure_clone();
+    let by_stranger = env.assign_ix(env.tmatch, 0, 0, 0, a(stranger.pubkey()));
+    let err = env.send(&[by_stranger], &stranger, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotOperator));
+    for (g, i) in [(0, 4), (1, 0)] {
+        let err = env.assign(g, i, 0).unwrap_err();
+        assert_eq!(
+            custom_code(&err),
+            vcode(VanguardError::BadTableSlot),
+            "{g} {i}"
+        );
+    }
+    env.assign(0, 0, 0).expect("assign");
+    assert!(env.assign(0, 1, 0).is_err(), "write-once");
+    assert!(env.assign(0, 0, 0).is_err(), "write-once");
+}
 
-    env.create().expect("create");
+#[test]
+fn an_open_match_nobody_joined_cannot_be_assigned() {
+    let mut env = Env::new();
+    env.ensure_deployed();
+    let alice = env.alice.kp.insecure_clone();
+    let m = flow::open_match(&mut env.svm, &alice, vanguard::ID, 1_000, 1, false, 0)
+        .expect("open only");
+    env.tmatch = m.key;
+    let op = env.operator_kp();
+    let assign = env.assign_ix(env.tmatch, 0, 0, 0, a(op.pubkey()));
+    assert!(env.send(&[assign], &op, &[]).is_err());
+    assert!(env.svm.get_account(&s(assign_addr(env.tmatch))).is_none());
+}
+
+#[test]
+fn begin_reserves_a_ring_slot_and_binds_the_battle_from_the_assignment() {
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.begin().expect("begin");
+    let t = env.table();
+    assert_eq!(t.phase, vanguard::TABLE_WAITING);
+    assert_eq!(t.tesoro_match, env.tmatch);
+    assert_eq!(t.start_deadline, T0 + vanguard::START_WINDOW_SECS);
+    let (i, slot) = t.ring.find(&env.tmatch, 0).expect("slot");
+    assert_eq!((i, slot.state), (t.slot, table_kit::SLOT_RESERVED));
     let b = env.battle();
     assert_eq!(b.players, [env.alice.key, env.bob.key]);
-    assert_eq!(b.tesoro_match, tmatch_pda(1));
+    assert_eq!(b.tesoro_match, env.tmatch);
     assert_eq!(b.status, vanguard::STATUS_CREATED);
     assert_eq!(b.start_deadline, T0 + vanguard::START_WINDOW_SECS);
     assert_eq!(b.us_seat, vanguard::UNSET);
     assert_eq!(b.sq, [vanguard::NO_SQ; PIECE_SLOTS]);
-    let (_, bump) = APk::find_program_address(&[vanguard::AUTHORITY_SEED], &vanguard::ID);
-    assert_eq!(b.authority_bump, bump);
-    // The private accounts exist and are empty.
-    assert_eq!(env.secret().entropy, [0; 32]);
-    let army = env.army(1);
-    assert_eq!((army.player, army.ranks), (env.bob.key, [0; 30]));
-    // Each account holds the permission rent it needs before it is delegated.
-    let rent = ephemeral_rollups_sdk::ephemeral_accounts::rent(
-        ephemeral_rollups_sdk::access_control::structs::EphemeralPermission::size_of(2) as u32,
-    );
-    let ad = addrs(1);
-    for k in [ad.battle, ad.secret, ad.army_0, ad.army_1] {
-        assert!(env.svm.get_account(&s(k)).expect("account").lamports >= rent);
-    }
+    assert_eq!(b.layout_version, vanguard::LAYOUT_VERSION);
+    assert_eq!(b.rules_version, engine::RULES_VERSION);
+    assert_eq!(b.oracle_queue, QUEUE);
+    assert_eq!(b.payer, a(env.operator.pubkey()));
+    assert_eq!(b.action_seq, vanguard::Battle::first_action_seq(0));
+    let err = env.begin().unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::WrongPhase));
 }
 
 #[test]
-fn only_active_matches_may_be_bound() {
+fn begin_refuses_a_wrong_table_epoch_or_late_start_a_frozen_match_and_a_table_without_seats() {
+    use VanguardError::*;
+    // another table
     let mut env = Env::new();
-    let alice = env.alice.kp.insecure_clone();
-    let open = ix(
-        tesoro_core::ID,
-        tesoro_core::accounts::OpenMatch {
-            player_authority: env.alice.key,
-            config: tpda(&[CONFIG_SEED]),
-            player_account: env.alice.account,
-            protections: tpda(&[PROTECTIONS_SEED, env.alice.account.as_ref()]),
-            match_state: tmatch_pda(1),
-            system_program: anchor_lang::system_program::ID,
-        },
-        tesoro_core::instruction::OpenMatch {
-            match_id: 1,
-            game: vanguard::ID,
-            entry: 1_000,
-        },
-        vec![rem(env.a_holding)],
+    env.next_match_on(0);
+    env.table = table_addr(0, 1);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(NotAssigned));
+    // a future epoch
+    let mut env = Env::new();
+    env.ensure_deployed();
+    env.open_and_join(1_000);
+    env.assign(0, 0, 5).expect("assign epoch 5");
+    assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(NotAssigned));
+    // after the start deadline
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.set_time(T0 + vanguard::START_WINDOW_SECS + 1);
+    assert_eq!(
+        custom_code(&env.begin().unwrap_err()),
+        vcode(StartWindowPassed)
     );
-    env.send(&[open], &alice, &[]).expect("open only");
-    let create = env.create_ix(env.alice.key);
-    assert!(env.send(&[create], &alice, &[]).is_err());
-    assert!(env.svm.get_account(&s(addrs(1).battle)).is_none());
+    // a Match tesoro_core already froze
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.set_time(T0 + vanguard::TABLE_WINDOW_SECS + 1);
+    let caller = env.oracle.insecure_clone();
+    let refund = env.core_refund_ix(a(caller.pubkey()));
+    env.send(&[refund], &caller, &[]).expect("refund");
+    env.run_settlement();
+    assert_eq!(
+        custom_code(&env.begin().unwrap_err()),
+        vcode(BadTesoroMatch)
+    );
+    // a table whose seats were never made
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.patch_table(|t| t.seats_created = false);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(SeatsMissing));
+}
+
+#[test]
+fn a_full_ring_refuses_a_new_match() {
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.patch_table(|t| {
+        for (i, slot) in t.ring.slots.iter_mut().enumerate() {
+            *slot = table_kit::Slot {
+                state: table_kit::SLOT_DONE,
+                match_key: APk::new_from_array([i as u8 + 1; 32]),
+                epoch: 0,
+                outcome: table_kit::OUTCOME_WIN0,
+                at: 1,
+            };
+        }
+    });
+    let err = env.begin().unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::RingFull));
 }
 
 #[test]
 fn the_account_sizes_are_what_the_docs_say() {
     let mut env = ready();
-    let ad = addrs(env.id);
+    let ad = addrs(env.tmatch);
     let size = |env: &mut Env, k: APk| env.svm.get_account(&s(k)).expect("account").data.len();
     let sizes = (
         size(&mut env, ad.battle),
         size(&mut env, ad.army_0),
-        size(&mut env, ad.secret),
+        size(&mut env, ad.table),
     );
     println!(
-        "SIZES battle {} army {} secret {}",
+        "SIZES battle {} army {} table {}",
         sizes.0, sizes.1, sizes.2
     );
     assert!(sizes.0 <= 10_240);
     assert_eq!(sizes.0, 8 + core::mem::size_of::<Battle>());
+    assert_eq!(sizes.1, 8 + Army::INIT_SPACE);
+    assert_eq!(sizes.2, 8 + Table::INIT_SPACE);
 }
 
-// --- Setup: the draw -----------------------------------------------------------------------------
+// --- Check-in and setup windows -----------------------------------------------------------------
+
+#[test]
+fn both_players_check_in_and_the_second_one_opens_setup() {
+    use VanguardError::*;
+    let mut env = ready();
+    assert_eq!(
+        custom_code(&env.check_in(0).unwrap_err()),
+        vcode(SeatsNotOpen)
+    );
+    env.seat_players_standin();
+    // a stranger cannot check in
+    let stranger = env.admin.insecure_clone();
+    let ixn = env.check_in_ix(a(stranger.pubkey()));
+    assert_eq!(
+        custom_code(&env.send(&[ixn], &stranger, &[]).unwrap_err()),
+        vcode(NotAPlayer)
+    );
+    env.check_in(0).unwrap();
+    let t = env.table();
+    assert_eq!(
+        (t.phase, t.checked_in),
+        (vanguard::TABLE_WAITING, [true, false])
+    );
+    assert_eq!(env.battle().status, vanguard::STATUS_CREATED);
+    let secret = env.fresh_secret();
+    assert_eq!(
+        custom_code(&env.contribute(0, secret).unwrap_err()),
+        vcode(NotLive)
+    );
+    env.set_time(T0 + 5);
+    env.check_in(1).unwrap();
+    let t = env.table();
+    assert_eq!(t.phase, vanguard::TABLE_LIVE);
+    let b = env.battle();
+    assert_eq!(b.status, vanguard::STATUS_SETUP);
+    assert_eq!(b.entropy_deadline, T0 + 5 + vanguard::ENTROPY_SECS);
+    assert_eq!(b.setup_deadline, T0 + 5 + vanguard::SETUP_GRACE_SECS);
+    // The setup window is well inside tesoro_core's refund window.
+    assert!(b.setup_deadline < T0 + vanguard::TABLE_WINDOW_SECS);
+    // Checking in again does nothing more.
+    assert_eq!(
+        custom_code(&env.check_in(1).unwrap_err()),
+        vcode(WrongPhase)
+    );
+}
+
+#[test]
+fn a_late_check_in_is_refused_and_the_player_who_came_wins_when_the_other_never_did() {
+    use VanguardError::*;
+    let mut env = ready();
+    env.seat_players_standin();
+    env.check_in(0).unwrap();
+    let deadline = env.table().start_deadline;
+    let anyone = env.oracle.insecure_clone();
+    // not cancellable before the deadline
+    assert_eq!(
+        custom_code(&env.claim_timeout_declare(&anyone).unwrap_err()),
+        vcode(NotTimedOut)
+    );
+    env.set_time(deadline);
+    assert_eq!(
+        custom_code(&env.claim_timeout_declare(&anyone).unwrap_err()),
+        vcode(NotTimedOut)
+    );
+    env.set_time(deadline + 1);
+    assert_eq!(
+        custom_code(&env.check_in(1).unwrap_err()),
+        vcode(StartWindowPassed)
+    );
+    env.claim_timeout_declare(&anyone).expect("cancel");
+    let t = env.table();
+    assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, true));
+    let b = env.battle();
+    assert_eq!((b.status, b.winner), (vanguard::STATUS_OVER, 0));
+    assert_eq!(
+        t.ring.find(&env.tmatch, 0).unwrap().1.outcome,
+        table_kit::OUTCOME_WIN0
+    );
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.finalize(true).expect("settle from the ring");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
+    assert_eq!(
+        (env.gemas(&env.alice), env.gemas(&env.bob)),
+        (before.0 + 1_900, before.1),
+        "a normal win with the normal Fees"
+    );
+}
+
+#[test]
+fn the_second_seat_wins_when_only_it_checked_in_and_nobody_checking_in_is_a_no_show() {
+    let anyone_kp = |env: &Env| env.oracle.insecure_clone();
+    let mut env = ready();
+    env.seat_players_standin();
+    env.check_in(1).unwrap();
+    env.set_time(env.table().start_deadline + 1);
+    let anyone = anyone_kp(&env);
+    env.claim_timeout_declare(&anyone).expect("cancel");
+    let b = env.battle();
+    assert_eq!((b.status, b.winner), (vanguard::STATUS_OVER, 1));
+    assert_eq!(
+        env.table().ring.find(&env.tmatch, 0).unwrap().1.outcome,
+        table_kit::OUTCOME_WIN1
+    );
+    let before = env.gemas(&env.bob);
+    env.finalize(true).expect("settle");
+    assert_eq!(env.gemas(&env.bob), before + 1_900);
+
+    let mut env = ready();
+    env.set_time(env.table().start_deadline + 1);
+    let anyone = anyone_kp(&env);
+    env.claim_timeout_declare(&anyone).expect("cancel");
+    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    assert_eq!(
+        env.table().ring.find(&env.tmatch, 0).unwrap().1.outcome,
+        table_kit::OUTCOME_NO_SHOW
+    );
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.finalize(true).expect("no-show settlement");
+    let (ga, gb) = (
+        env.gemas(&env.alice) - before.0,
+        env.gemas(&env.bob) - before.1,
+    );
+    assert_eq!(ga, gb);
+    assert!(
+        ga < 1_000 && ga > 900,
+        "each loses the Platform Fee only, got {ga}"
+    );
+}
+
+#[test]
+fn setup_has_a_hard_deadline_well_inside_the_refund_window() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    let b = env.battle();
+    assert_eq!(b.setup_deadline, T0 + vanguard::SETUP_GRACE_SECS);
+    assert!(b.setup_deadline > b.entropy_deadline);
+    let refund = env.load::<MatchState>(env.tmatch).inner.deadline;
+    // Dealt on the last second, the Match still ends (cap) and settles with hours to spare.
+    assert!(b.setup_deadline + engine::CAP_SECS + 3_600 < refund);
+}
+
+// --- Setup: secrets, the request, the answer, the deal ------------------------------------------------
+
+#[test]
+fn contributing_touches_only_the_players_own_army_and_reads_the_table_and_battle() {
+    use VanguardError::*;
+    let mut env = ready();
+    env.open_setup();
+    let ixn = env.contribute_ix(0, [1; 32]);
+    let writable: Vec<_> = ixn.accounts.iter().filter(|m| m.is_writable).collect();
+    assert_eq!(
+        writable.len(),
+        1,
+        "only the Army is writable, and the signer is not paying: {writable:?}"
+    );
+    assert_eq!(writable[0].pubkey, s(addrs(env.tmatch).army_0));
+    let table_before = bytes_of_table(&env.table());
+    let battle_before = env
+        .svm
+        .get_account(&s(addrs(env.tmatch).battle))
+        .unwrap()
+        .data;
+
+    // Not a stranger, and not into the other seat.
+    let stranger = env.admin.insecure_clone();
+    let mut theirs = env.contribute_ix(1, [2; 32]);
+    theirs.accounts[0].pubkey = stranger.pubkey();
+    assert_eq!(
+        custom_code(&env.send(&[theirs], &stranger, &[]).unwrap_err()),
+        vcode(NotAPlayer)
+    );
+    let mut cross = env.contribute_ix(1, [2; 32]);
+    cross.accounts[3].pubkey = s(addrs(env.tmatch).army_0);
+    let bob = env.bob.kp.insecure_clone();
+    assert_eq!(
+        custom_code(&env.send(&[cross], &bob, &[]).unwrap_err()),
+        vcode(NotAPlayer)
+    );
+
+    env.contribute(0, [1; 32]).unwrap();
+    assert_eq!(
+        bytes_of_table(&env.table()),
+        table_before,
+        "the table is untouched"
+    );
+    assert_eq!(
+        env.svm
+            .get_account(&s(addrs(env.tmatch).battle))
+            .unwrap()
+            .data,
+        battle_before,
+        "so is the Battle"
+    );
+    let h = env.army(0);
+    assert!(h.contributed && h.secret == [1; 32]);
+    assert_eq!(
+        custom_code(&env.contribute(0, [9; 32]).unwrap_err()),
+        vcode(AlreadyContributed)
+    );
+    assert_eq!(
+        env.army(0).secret,
+        [1; 32],
+        "a second secret is not folded in"
+    );
+    assert!(!env.army(1).contributed);
+}
+
+#[test]
+fn entropy_after_the_window_is_refused_and_before_setup_too() {
+    use VanguardError::*;
+    let mut env = ready();
+    // The seats are not the Players' yet.
+    assert_eq!(
+        custom_code(&env.contribute(0, [1; 32]).unwrap_err()),
+        vcode(NotAPlayer)
+    );
+    env.seat_players_standin();
+    assert_eq!(
+        custom_code(&env.contribute(0, [1; 32]).unwrap_err()),
+        vcode(NotLive)
+    );
+    env.check_in(0).unwrap();
+    env.check_in(1).unwrap();
+    let end = env.battle().entropy_deadline;
+    env.set_time(end);
+    env.contribute(0, [1; 32]).expect("the last second counts");
+    env.set_time(end + 1);
+    assert_eq!(
+        custom_code(&env.contribute(1, [2; 32]).unwrap_err()),
+        vcode(SetupClosed)
+    );
+    assert!(!env.army(1).contributed);
+}
+
+#[test]
+fn the_request_needs_both_secrets_and_is_made_once_per_match() {
+    use VanguardError::*;
+    let mut env = ready();
+    env.open_setup();
+    env.magic_shell();
+    env.vrf_shell();
+    let ixn = env.request_ix(a(env.oracle.pubkey()));
+    assert_eq!(
+        custom_code(&env.rollup(ixn.clone()).unwrap_err()),
+        vcode(EntropyIncomplete)
+    );
+    env.contribute(0, [1; 32]).unwrap();
+    assert_eq!(
+        custom_code(&env.rollup(ixn.clone()).unwrap_err()),
+        vcode(EntropyIncomplete)
+    );
+    env.contribute(1, [2; 32]).unwrap();
+    // With both secrets the checks pass and the call reaches the VRF program, which LiteSVM does not have (devnet
+    // evidence, ticket 24).
+    let err = env.rollup(ixn.clone()).unwrap_err();
+    assert!(
+        !err.meta.logs.iter().any(|l| l.contains("Error Number: 6")),
+        "{:?}",
+        err.meta.logs
+    );
+    // Once a request is outstanding, or the answer is in, or the Match's request was made, a second one is refused.
+    env.request_standin();
+    assert_eq!(
+        custom_code(&env.rollup(ixn.clone()).unwrap_err()),
+        vcode(AlreadyDealt)
+    );
+    env.patch_table(|t| {
+        t.req_pending = false;
+        t.vrf_ready = true;
+    });
+    assert_eq!(
+        custom_code(&env.rollup(ixn.clone()).unwrap_err()),
+        vcode(AlreadyDealt),
+        "the answer is in and waits for the deal"
+    );
+    env.patch_table(|t| t.vrf_ready = false);
+    assert_eq!(
+        custom_code(&env.rollup(ixn).unwrap_err()),
+        vcode(AlreadyDealt),
+        "the request was made: it is never repeated and never re-rolled"
+    );
+}
 
 #[test]
 fn deal_needs_both_secrets_and_the_randomness_and_runs_once() {
     let mut env = ready();
     // Not in the setup phase yet.
     let err = env.deal().unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::WrongPhase));
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotLive));
     env.start_in_rollup(1);
-    env.patch_secret(|v| v.vrf_seen = false);
+    env.patch_table(|t| t.vrf_ready = false);
     let err = env.deal().unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::EntropyIncomplete));
-    env.patch_secret(|v| v.vrf_seen = true);
+    env.patch_table(|t| t.vrf_ready = true);
+    env.patch_army(1, |h| h.contributed = false);
+    let err = env.deal().unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::EntropyIncomplete));
+    env.patch_army(1, |h| h.contributed = true);
     env.deal().expect("deal");
     let err = env.deal().unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::WrongPhase));
@@ -1359,11 +2252,12 @@ fn deal_draws_the_armies_into_the_private_accounts_and_nothing_hidden_into_the_b
         );
         assert_eq!(b.shown, [0; PIECE_SLOTS], "no rank is public at the start");
         assert_eq!(b.sq.iter().filter(|q| **q != vanguard::NO_SQ).count(), 40);
-        let secret = env.secret();
-        assert!(secret.dealt);
-        assert!((engine::STORM_FROM..=engine::STORM_TO).contains(&secret.storm_at));
+        let (a0, a1) = (env.army(0), env.army(1));
+        let storm = (a0.storm_at ^ a1.storm_at, a0.storm_seed ^ a1.storm_seed);
+        assert!((engine::STORM_FROM..=engine::STORM_TO).contains(&storm.0));
         for seat in 0..2 {
             let army = env.army(seat);
+            assert!(army.dealt);
             let side = b.side_of_seat(seat).expect("sides drawn");
             assert_eq!(army.side, side.idx() as u8);
             assert_eq!(army.ranks.iter().filter(|r| **r != 0).count(), 20);
@@ -1399,143 +2293,1118 @@ fn the_same_secrets_deal_the_same_match_and_other_secrets_a_different_one() {
     assert_ne!(deal_with(3), deal_with(4));
 }
 
-/// The VRF callback only stores the output, and only while the Battle is still waiting to start. A late output
-/// after a cancel can never start the Match. LiteSVM cannot sign for the VRF program's identity PDA, so this test
-/// runs without signature verification (the transaction names the identity as a signer).
-#[test]
-fn a_late_vrf_after_a_cancel_cannot_start_the_match() {
-    let mut env = Env::build(false);
-    env.open_and_join(1_000);
-    env.create().expect("create");
-    env.start_in_rollup(1);
-    env.patch_secret(|v| {
-        v.vrf_seen = false;
-        v.vrf = [0; 32];
-    });
-    let identity = sdk_apk(ephemeral_rollups_sdk::vrf::consts::scoped_vrf_identity(
-        &ephemeral_rollups_sdk::compat::Pubkey::new_from_array(vanguard::ID.to_bytes()),
-    ));
-    let callback = |env: &Env, randomness: [u8; 32]| {
-        let ad = addrs(env.id);
-        ix(
-            vanguard::ID,
-            vanguard::accounts::VrfCallbackStore {
-                vrf_program_identity: identity,
-                secret: ad.secret,
-                battle: ad.battle,
-            },
-            vanguard::instruction::VrfCallbackStore { randomness },
-            vec![],
-        )
+/// The deal's arithmetic from the public derivation, as a client or a reviewer would repeat it.
+fn expected_seed(env: &Env, secrets: [[u8; 32]; 2], randomness: [u8; 32], nonce: u64) -> [u8; 32] {
+    let t = env.table();
+    let ctx = vanguard::setup::SetupContext {
+        tesoro_match: t.tesoro_match,
+        generation: t.generation,
+        index: t.index,
+        epoch: t.epoch,
+        nonce,
     };
-    let send_callback = |env: &mut Env, randomness: [u8; 32]| {
-        let payer = env.oracle.insecure_clone();
-        let i = callback(env, randomness);
-        env.svm.expire_blockhash();
-        let mut tx = Transaction::new_unsigned(Message::new(&[i], Some(&payer.pubkey())));
-        tx.partial_sign(&[&payer], env.svm.latest_blockhash());
-        env.run(tx)
-    };
-
-    // A first output is stored (and a second one refused).
-    send_callback(&mut env, [9; 32]).expect("the output is stored");
-    assert!(env.secret().vrf_seen);
-    assert_eq!(env.secret().vrf, [9; 32]);
-    let err = send_callback(&mut env, [8; 32]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::AlreadyDealt));
-
-    // Past the setup deadline an output is refused too.
-    env.patch_secret(|v| {
-        v.vrf_seen = false;
-        v.vrf = [0; 32];
-    });
-    let setup_deadline = env.battle().setup_deadline;
-    env.set_time(setup_deadline + 1);
-    let err = send_callback(&mut env, [6; 32]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::SetupClosed));
-    assert!(!env.secret().vrf_seen);
-
-    // Cancelled while the output was late: a delivery afterwards stores nothing and starts nothing.
-    env.patch_secret(|v| {
-        v.vrf_seen = false;
-        v.vrf = [0; 32];
-    });
-    env.set_time(T0 + vanguard::ENTROPY_SECS + 1);
-    env.patch_secret(|v| v.contributed = [true, false]);
-    let caller = env.bob.kp.insecure_clone();
-    env.claim_timeout(&caller).expect("cancel");
-    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
-    env.patch_secret(|v| v.contributed = [true, true]);
-    let err = send_callback(&mut env, [5; 32]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::WrongPhase));
-    assert!(!env.secret().vrf_seen);
-    let err = env.deal().unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::WrongPhase));
-    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    vanguard::setup::derive_seed(
+        &ctx,
+        &vanguard::setup::Contributions {
+            secrets,
+            halves: [
+                vanguard::setup::vrf_half(0, &randomness, nonce),
+                vanguard::setup::vrf_half(1, &randomness, nonce),
+            ],
+            ext: [[0; 32]; 2],
+        },
+    )
 }
 
 #[test]
-fn both_players_fold_secrets_in_and_nobody_else_can() {
-    let mut env = ready();
-    let contribute = |env: &mut Env, signer: &Keypair, secret: [u8; 32]| {
-        let ad = addrs(env.id);
-        let i = ix(
-            vanguard::ID,
-            vanguard::accounts::ContributeEntropy {
-                player: a(signer.pubkey()),
-                battle: ad.battle,
-                secret: ad.secret,
-            },
-            vanguard::instruction::ContributeEntropy { secret },
-            vec![],
-        );
-        env.send(&[i], signer, &[])
-    };
-    let (alice, bob) = (env.alice.kp.insecure_clone(), env.bob.kp.insecure_clone());
-    // Permissions do not exist yet.
-    let err = contribute(&mut env, &alice, [1; 32]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::WrongPhase));
+fn the_real_setup_deals_from_both_secrets_and_both_halves_and_leaves_no_trace() {
+    let mut env = Env::build(false);
+    env.next_match_on(0);
+    env.begin().unwrap();
+    env.open_setup();
+    let randomness = [0x5au8; 32];
+    let nonce = env.table().vrf_nonce;
+    let secrets = env.setup_and_deal(randomness).expect("setup and deal");
+    let seed = expected_seed(&env, secrets, randomness, nonce);
+    let drawn = engine::setup(&seed, engine::STORM_FROM, engine::STORM_TO);
+    let keys = engine::seal_keys(&seed);
+    let halves = [
+        vanguard::setup::vrf_half(0, &randomness, nonce),
+        vanguard::setup::vrf_half(1, &randomness, nonce),
+    ];
 
-    env.start_in_rollup(1);
-    env.patch_secret(|v| {
-        v.entropy = [0; 32];
-        v.contributed = [false; 2];
-        v.vrf_seen = false;
-        v.vrf = [0; 32];
-    });
-    let stranger = Keypair::new();
-    env.svm
-        .airdrop(&stranger.pubkey(), 10 * SOL)
-        .expect("airdrop");
-    let err = contribute(&mut env, &stranger, [3; 32]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::NotAPlayer));
-
-    contribute(&mut env, &alice, [1; 32]).expect("alice");
-    let after_alice = env.secret();
-    assert_eq!(after_alice.contributed, [true, false]);
-    assert_ne!(after_alice.entropy, [0; 32]);
-    assert_ne!(
-        after_alice.entropy, [1; 32],
-        "the secret itself is never stored"
+    let b = env.battle();
+    assert_eq!(
+        b.us_seat, drawn.us_seat,
+        "the public derivation gives the same draw"
     );
-    let err = contribute(&mut env, &alice, [9; 32]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::AlreadyContributed));
-    assert_eq!(env.secret().entropy, after_alice.entropy);
+    let (a0, a1) = (env.army(0), env.army(1));
+    // The storm is stored as shares, and neither share is the value.
+    assert_eq!(a0.storm_at ^ a1.storm_at, drawn.storm_at);
+    assert_eq!(a0.storm_seed ^ a1.storm_seed, drawn.storm_seed);
+    assert_ne!(a0.storm_at, drawn.storm_at);
+    assert_ne!(a1.storm_at, drawn.storm_at);
+    assert_ne!(a0.storm_seed, drawn.storm_seed);
+    assert_ne!(a1.storm_seed, drawn.storm_seed);
+    // Each Army holds its own sealing key and not the other's.
+    let side_of = |seat: usize| b.side_of_seat(seat).unwrap().idx();
+    assert_eq!(a0.reserved, keys[side_of(0)]);
+    assert_eq!(a1.reserved, keys[side_of(1)]);
 
-    contribute(&mut env, &bob, [2; 32]).expect("bob");
-    let both = env.secret();
-    assert_eq!(both.contributed, [true, true]);
-    assert_ne!(both.entropy, after_alice.entropy);
-    // Not dealt without the randomness; anyone deals once it arrives.
-    let err = env.deal().unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::EntropyIncomplete));
-    env.patch_secret(|v| {
-        v.vrf_seen = true;
-        v.vrf = [4; 32];
+    // A byte scan of every account the table owns: no seed, no secret, no half, no VRF output anywhere.
+    let ad = addrs(env.tmatch);
+    let needles: Vec<(&str, Vec<u8>)> = vec![
+        ("seed", seed.to_vec()),
+        ("secret 0", secrets[0].to_vec()),
+        ("secret 1", secrets[1].to_vec()),
+        ("half 0", halves[0].to_vec()),
+        ("half 1", halves[1].to_vec()),
+        ("vrf output", randomness.to_vec()),
+        (
+            "secret 0 hash",
+            vanguard::setup::secret_hash(&secrets[0]).to_vec(),
+        ),
+    ];
+    let accounts = [
+        ("table", ad.table),
+        ("battle", ad.battle),
+        ("army 0", ad.army_0),
+        ("army 1", ad.army_1),
+        ("assignment", assign_addr(env.tmatch)),
+        ("sponsor", sponsor_addr()),
+        ("table config", tables_addr()),
+        ("config", config_pda()),
+    ];
+    for (acct, key) in accounts {
+        let data = env.svm.get_account(&s(key)).expect("account").data;
+        for (what, needle) in &needles {
+            assert!(!contains(&data, needle), "{what} found in {acct}");
+        }
+    }
+    // The sealing keys: only in the Army that owns each, never in the public accounts.
+    for (acct, key) in [("table", ad.table), ("battle", ad.battle)] {
+        let data = env.svm.get_account(&s(key)).expect("account").data;
+        for k in keys {
+            assert!(!contains(&data, &k), "a sealing key is in {acct}");
+        }
+    }
+    for (seat, key) in [(0usize, ad.army_0), (1usize, ad.army_1)] {
+        let data = env.svm.get_account(&s(key)).expect("account").data;
+        assert!(contains(&data, &keys[side_of(seat)]));
+        assert!(
+            !contains(&data, &keys[1 - side_of(seat)]),
+            "seat {seat} holds the other key"
+        );
+    }
+    // The storm's real values are in no single account.
+    let storm_seed_bytes = drawn.storm_seed.to_le_bytes();
+    for (acct, key) in accounts {
+        let data = env.svm.get_account(&s(key)).expect("account").data;
+        assert!(!contains(&data, &storm_seed_bytes), "storm line in {acct}");
+    }
+    // The spent secrets and halves are zero in the seats, and the request is consumed.
+    for h in [&a0, &a1] {
+        assert!(!h.contributed && !h.half_set);
+        assert_eq!((h.secret, h.half), ([0; 32], [0; 32]));
+    }
+    let t = env.table();
+    assert!(!t.vrf_ready && !t.req_pending && t.req_made);
+}
+
+#[test]
+fn the_deal_logs_nothing() {
+    let mut env = Env::build(false);
+    env.next_match_on(0);
+    env.begin().unwrap();
+    env.open_setup();
+    env.setup_and_deal([0x11; 32]).expect("deal");
+    let program_logs: Vec<_> = env
+        .last_logs
+        .iter()
+        .filter(|l| l.starts_with("Program log:") || l.starts_with("Program data:"))
+        .collect();
+    assert!(program_logs.is_empty(), "{program_logs:?}");
+}
+
+#[test]
+fn nothing_one_army_holds_gives_the_storm_and_the_storm_differs_per_seed() {
+    let mut turns = std::collections::BTreeSet::new();
+    for seed in 0..24u8 {
+        let mut env = ready();
+        env.start_in_rollup(seed);
+        env.deal().unwrap();
+        let (a0, a1) = (env.army(0), env.army(1));
+        let storm = a0.storm_at ^ a1.storm_at;
+        turns.insert(storm);
+        assert!((engine::STORM_FROM..=engine::STORM_TO).contains(&storm));
+        // A single share is a uniform 16-bit value, usually far outside the storm window.
+        assert!(a0.storm_at != storm && a1.storm_at != storm, "seed {seed}");
+        // The public Battle names no storm turn: only the range it is drawn from.
+        let b = env.battle();
+        assert_eq!(
+            (b.storm_from, b.storm_to),
+            (engine::STORM_FROM as u8, engine::STORM_TO as u8)
+        );
+        assert_eq!(b.storm_done, 0);
+    }
+    assert!(
+        turns.len() > 3,
+        "the storm turn varies with the seed: {turns:?}"
+    );
+}
+
+/// The VRF callback only stores the answer to the one outstanding request, and only while the Match is still in
+/// setup. LiteSVM cannot sign for the VRF program's identity PDA, so these run without signature verification.
+#[test]
+fn only_the_answer_to_the_outstanding_request_is_accepted_and_only_once() {
+    use VanguardError::*;
+    let mut env = Env::build(false);
+    env.next_match_on(0);
+    env.begin().unwrap();
+    env.open_setup();
+    // No request yet.
+    let marker = vanguard::Table::request_marker(&env.table, 0);
+    assert_eq!(
+        custom_code(&env.callback_with([1; 32], marker).unwrap_err()),
+        vcode(StaleRequest)
+    );
+    env.contribute(0, [1; 32]).unwrap();
+    env.contribute(1, [2; 32]).unwrap();
+    env.request_standin();
+    // The marker of any other request is refused.
+    let wrong = vanguard::Table::request_marker(&env.table, 7);
+    assert_eq!(
+        custom_code(&env.callback_with([9; 32], wrong).unwrap_err()),
+        vcode(StaleRequest)
+    );
+    assert!(!env.army(0).half_set && !env.table().vrf_ready);
+    env.callback([3; 32]).expect("the answer to the request");
+    let t = env.table();
+    assert!(t.vrf_ready && !t.req_pending);
+    let (a0, a1) = (env.army(0), env.army(1));
+    assert!(a0.half_set && a1.half_set);
+    assert_ne!(a0.half, a1.half);
+    assert_ne!(a0.half, [3; 32], "the answer itself is never stored");
+    // Once only.
+    assert_eq!(
+        custom_code(&env.callback([4; 32]).unwrap_err()),
+        vcode(StaleRequest)
+    );
+    assert_eq!(env.army(0).half, a0.half);
+    // Past the setup deadline an answer is refused too.
+    env.patch_table(|t| {
+        t.vrf_ready = false;
+        t.req_pending = true;
     });
-    let deal = env.deal_ix(a(stranger.pubkey()));
-    env.send(&[deal], &stranger, &[]).expect("anyone may deal");
+    env.set_time(env.battle().setup_deadline + 1);
+    assert_eq!(
+        custom_code(&env.callback([5; 32]).unwrap_err()),
+        vcode(SetupClosed)
+    );
+}
+
+#[test]
+fn a_late_answer_after_a_cancel_a_wipe_or_a_reset_is_refused_and_leaves_the_seats_blank() {
+    use VanguardError::*;
+    let mut env = Env::build(false);
+    env.next_match_on(0);
+    env.begin().unwrap();
+    env.open_setup();
+    env.contribute(0, [1; 32]).unwrap();
+    env.contribute(1, [2; 32]).unwrap();
+    env.request_standin();
+    let marker = env.marker();
+    // The oracle is late: the setup deadline passes and anyone cancels.
+    let setup_deadline = env.battle().setup_deadline;
+    env.set_time(setup_deadline + 1);
+    let anyone = env.bob.kp.insecure_clone();
+    env.claim_timeout(&anyone).expect("cancel");
+    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    let t = env.table();
+    assert_eq!(t.phase, vanguard::TABLE_OVER);
+    assert!(!t.req_pending, "the cancel clears the request");
+    assert_eq!(
+        custom_code(&env.callback_with([5; 32], marker).unwrap_err()),
+        vcode(StaleRequest)
+    );
+    let (a0, a1) = (env.army(0), env.army(1));
+    assert!(!a0.half_set && !a1.half_set);
+    assert_eq!(
+        custom_code(&env.deal().unwrap_err()),
+        vcode(NotLive),
+        "a cancelled Match is never dealt"
+    );
+    // After the wipe and the reset the old marker still opens nothing, and the seats stay blank.
+    env.wipe_standin();
+    env.commit_standin();
+    env.set_time(env.now + vanguard::RESET_DELAY_SECS);
+    env.reset().expect("reset");
+    assert_eq!(
+        custom_code(&env.callback_with([6; 32], marker).unwrap_err()),
+        vcode(StaleRequest)
+    );
+    assert!(env.army(0).is_blank() && env.army(1).is_blank());
+    assert_eq!(env.table().epoch, 1);
+    assert!(env.table().vrf_nonce >= 1, "request numbers never reset");
+}
+
+#[test]
+fn the_next_match_on_a_table_gets_a_different_deal_from_the_same_inputs() {
+    let run = |env: &mut Env| {
+        env.next_match_on(0);
+        env.begin().unwrap();
+        env.open_setup();
+        env.setup_and_deal([0x42; 32]).unwrap();
+        (env.army(0).ranks, env.army(1).ranks, env.battle().us_seat)
+    };
+    let mut env = Env::build(false);
+    let first = run(&mut env);
+    // End it, free the table, and run the very same secrets and answer again.
+    env.stage_end_draw();
+    env.finish_and_reset();
+    env.secrets = 0;
+    let second = run(&mut env);
+    assert_ne!(
+        (first.0, first.1),
+        (second.0, second.1),
+        "epoch and request number are in the seed"
+    );
+}
+
+impl Env {
+    /// Ends the Match in the Battle and the ring as a draw, as a decided cap would.
+    fn stage_end_draw(&mut self) {
+        let now = self.now;
+        self.patch_battle(|b| {
+            b.status = vanguard::STATUS_OVER;
+            b.winner = vanguard::DRAW;
+        });
+        let b = self.battle();
+        self.patch_table(|t| {
+            let (slot, key, epoch) = (t.slot, t.tesoro_match, t.epoch);
+            t.ring
+                .record(slot, &key, epoch, table_kit::OUTCOME_DRAW, now)
+                .unwrap();
+            t.phase = vanguard::TABLE_OVER;
+            t.over_at = now;
+            t.dirty = true;
+        });
+        let _ = b;
+    }
+
+    /// The keeper's work after a result: commit, wipe the seats, wait, reset.
+    fn finish_and_reset(&mut self) {
+        self.ensure_committed();
+        self.wipe_standin();
+        self.set_time(self.now + vanguard::RESET_DELAY_SECS);
+        self.reset().expect("reset");
+    }
+}
+
+// --- After the Match: commit, wipe, reset, settle, reuse ---------------------------------------------
+
+#[test]
+fn commit_table_commits_only_the_two_public_accounts_and_only_while_owed() {
+    use VanguardError::*;
+    let mut env = ready();
+    let ixn = env.commit_ix();
+    // The bundle names the table and the Battle and no Army.
+    let keys: Vec<_> = ixn.accounts.iter().map(|m| m.pubkey).collect();
+    let ad = addrs(env.tmatch);
+    assert!(keys.contains(&s(ad.table)) && keys.contains(&s(ad.battle)));
+    assert!(!keys.contains(&s(ad.army_0)) && !keys.contains(&s(ad.army_1)));
+    // Nothing is owed before a result.
+    assert_eq!(
+        custom_code(&env.rollup(ixn.clone()).unwrap_err()),
+        vcode(NotDirty)
+    );
+    env.magic_shell();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    env.set_time(T0 + 2);
+    env.mv(0, id_of(70), 20).expect("capture");
+    assert!(env.table().dirty);
+    // With a result owed the checks pass and the call reaches the MagicBlock program, which LiteSVM does not have.
+    let err = env.rollup(ixn.clone()).unwrap_err();
+    assert!(
+        !err.meta.logs.iter().any(|l| l.contains("Error Number: 6")),
+        "{:?}",
+        err.meta.logs
+    );
+    // A wrong fee vault is refused.
+    let mut bad = ixn;
+    let n = bad.accounts.len();
+    let vault_ix = bad
+        .accounts
+        .iter()
+        .position(|m| m.pubkey == s(table_kit::fee_vault_address(&TEE)))
+        .unwrap();
+    bad.accounts[vault_ix].pubkey = Pk::new_unique();
+    let _ = n;
+    assert!(env.rollup(bad).is_err());
+}
+
+#[test]
+fn a_decided_match_writes_the_ring_and_finalize_pays_from_the_committed_table() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    assert_eq!(before.0 + before.1, 2 * 75_000 - 2_000, "entries in escrow");
+    env.set_time(T0 + 2);
+    env.mv(0, id_of(70), 20).expect("capture the Truck");
+    let t = env.table();
+    assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, true));
+    let (_, slot) = t.ring.find(&env.tmatch, 0).expect("slot");
+    assert_eq!(
+        (slot.state, slot.outcome),
+        (table_kit::SLOT_DONE, table_kit::OUTCOME_WIN0)
+    );
+    // Not settled from a table that never committed.
+    let err = env.finalize_start().unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NoResult));
+    env.finalize(false).expect("finalize");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
+    assert_eq!(env.gemas(&env.alice), before.0 + 1_900);
+    assert_eq!(env.gemas(&env.bob), before.1);
+}
+
+#[test]
+fn a_setup_with_nobody_contributing_is_a_no_show_and_with_one_missing_secret_the_other_wins() {
+    // both checked in, nobody contributed: no-show, each side pays the Platform Fee
+    let mut env = ready();
+    env.open_setup();
+    let bob = env.bob.kp.insecure_clone();
+    let err = env.claim_timeout(&bob).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
+    env.set_time(env.battle().entropy_deadline + 1);
+    env.claim_timeout(&bob).expect("anyone cancels");
+    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    let t = env.table();
+    assert_eq!(
+        t.ring.find(&env.tmatch, 0).unwrap().1.outcome,
+        table_kit::OUTCOME_NO_SHOW
+    );
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.finalize(true).expect("no-show settles");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
+    assert!(env.gemas(&env.alice) < before.0 + 1_000);
+    assert!(env.gemas(&env.bob) < before.1 + 1_000);
+
+    // one secret missing: the Player who contributed wins
+    let mut env = ready();
+    env.open_setup();
+    env.contribute(0, [1; 32]).unwrap();
+    env.set_time(env.battle().entropy_deadline + 1);
+    env.claim_timeout(&bob).expect("anyone cancels");
+    assert_eq!(
+        env.table().ring.find(&env.tmatch, 0).unwrap().1.outcome,
+        table_kit::OUTCOME_WIN0
+    );
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.finalize(true).expect("settle");
+    assert_eq!(
+        (env.gemas(&env.alice), env.gemas(&env.bob)),
+        (before.0 + 1_900, before.1)
+    );
+}
+
+#[test]
+fn a_claim_after_the_setup_deadline_still_makes_the_absent_player_lose() {
+    let mut env = ready();
+    env.open_setup();
+    env.contribute(0, [1; 32]).unwrap();
+    // The absent Player waits out every deadline and claims last.
+    env.set_time(env.battle().setup_deadline + 1);
+    let bob = env.bob.kp.insecure_clone();
+    env.claim_timeout(&bob).expect("late claim");
+    assert_eq!(
+        env.table().ring.find(&env.tmatch, 0).unwrap().1.outcome,
+        table_kit::OUTCOME_WIN0
+    );
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.finalize(true).expect("settle");
+    assert_eq!(
+        (env.gemas(&env.alice), env.gemas(&env.bob)),
+        (before.0 + 1_900, before.1)
+    );
+}
+
+#[test]
+fn a_table_is_reused_and_every_result_waits_in_the_ring_until_it_is_settled() {
+    let mut env = Env::new();
+    let mut played: Vec<(flow::MatchRef, APk)> = vec![];
+    for n in 0..3u64 {
+        env.next_match_on(0);
+        assert_eq!(env.table().epoch, n, "each Match runs in its own epoch");
+        env.begin().unwrap();
+        env.start_in_rollup(n as u8);
+        env.stage(&truck_raid_layout(), 0);
+        env.set_time(env.now + 2);
+        env.mv(0, id_of(70), 20).expect("capture the Truck");
+        played.push((env.mref.unwrap(), env.table));
+        env.finish_and_reset();
+        let t = env.table();
+        assert_eq!(
+            t.ring.used(),
+            (n + 1) as usize,
+            "results are kept across resets"
+        );
+        assert!(t.seats_created, "the seats outlive the Match");
+        assert!(t.vrf_nonce > n, "request numbers never reset");
+        assert!(env.army(0).is_blank() && env.army(1).is_blank());
+        assert_eq!(env.battle().status, 0, "the Battle is wiped");
+        assert_eq!(env.battle().tesoro_match, APk::default());
+        env.set_time(env.now + 10);
+    }
+    let committed = env.table_at_committed();
+    assert_eq!(committed.ring.used(), 3);
+    for (m, table) in played {
+        env.use_match(m, table);
+        let before = env.gemas(&env.alice);
+        env.finalize_start().expect("settle from the ring");
+        env.run_settlement();
+        assert_eq!(env.gemas(&env.alice), before + 1_900);
+    }
+}
+
+impl Env {
+    fn table_at_committed(&self) -> Table {
+        let bytes = self.committed.get(&self.table).expect("committed");
+        Table::try_deserialize(&mut bytes.as_slice()).expect("decode")
+    }
+}
+
+#[test]
+fn settle_is_refused_from_the_wrong_table_a_wrong_owner_or_garbage() {
+    use VanguardError::*;
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    env.set_time(T0 + 2);
+    env.mv(0, id_of(70), 20).unwrap();
+    env.commit_standin();
+    let table = env.table;
+    let bytes = env.committed.get(&table).cloned().unwrap();
+    for owner in [
+        anchor_lang::system_program::ID,
+        tesoro_core::ID,
+        APk::new_unique(),
+    ] {
+        let live = env.svm.get_account(&s(table)).unwrap();
+        env.svm
+            .set_account(
+                s(table),
+                Account {
+                    lamports: SOL,
+                    data: bytes.clone(),
+                    owner: s(owner),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .unwrap();
+        let caller = env.oracle.insecure_clone();
+        let ixn = env.finalize_ix(a(caller.pubkey()));
+        let err = env.send(&[ixn], &caller, &[]).unwrap_err();
+        assert_eq!(custom_code(&err), vcode(BadTable), "owner {owner}");
+        env.svm.set_account(s(table), live).unwrap();
+    }
+    // another table
+    env.table = table_addr(0, 1);
+    let wrong = env.table;
+    env.committed.insert(wrong, bytes);
+    let caller = env.oracle.insecure_clone();
+    let ixn = env.finalize_ix(a(caller.pubkey()));
+    let err = env
+        .on_base(wrong, |e| e.send(&[ixn], &caller, &[]))
+        .unwrap_err();
+    assert_eq!(custom_code(&err), vcode(BadTable));
+    // garbage
+    env.table = table;
+    env.committed.insert(table, vec![7u8; 400]);
+    let err = env.finalize_start().unwrap_err();
+    assert_eq!(custom_code(&err), vcode(BadTable));
+}
+
+#[test]
+fn a_stale_commit_never_refunds_a_match_that_has_a_result() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    env.set_time(T0 + 2);
+    env.mv(0, id_of(70), 20).unwrap();
+    // The result was never committed. Base's copy is the idle table from before the Match.
+    env.set_time(env.now + 1_000);
+    let err = env.finalize_start().unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NoResult));
+    env.set_time(T0 + 2 * vanguard::TABLE_WINDOW_SECS);
+    let err = env.finalize_start().unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NoResult));
+}
+
+#[test]
+fn a_match_assigned_to_a_past_epoch_never_begins_and_is_refunded_only_once_the_table_moved_on() {
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.begin().unwrap();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    env.set_time(T0 + 2);
+    env.mv(0, id_of(70), 20).unwrap();
+    env.finish_and_reset();
+    // The table's next commit shows base that it moved on.
+    env.commit_standin();
+    // A second Match is assigned to the old epoch.
+    env.open_and_join(1_000);
+    env.assign(0, 0, 0).unwrap();
+    assert_eq!(
+        custom_code(&env.begin().unwrap_err()),
+        vcode(VanguardError::NotAssigned)
+    );
+    env.set_time(env.now + 1_000);
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.finalize(true).expect("refund");
+    assert_eq!(
+        (env.gemas(&env.alice), env.gemas(&env.bob)),
+        (before.0 + 1_000, before.1 + 1_000)
+    );
+}
+
+#[test]
+fn a_slot_is_freed_only_on_the_cores_receipt_and_not_a_minute_too_soon() {
+    use VanguardError::*;
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    env.set_time(T0 + 2);
+    env.mv(0, id_of(70), 20).unwrap();
+    env.commit_standin();
+    let m = env.tmatch;
+    let slot = env.table().slot;
+    assert_eq!(
+        custom_code(&env.release(slot, m).unwrap_err()),
+        vcode(NoReceipt)
+    );
+    env.finalize(false).expect("settle");
+    assert_eq!(
+        custom_code(&env.release(slot, m).unwrap_err()),
+        vcode(NoReceipt)
+    );
+    assert_eq!(env.table().ring.used(), 1);
+    env.set_time(env.now + vanguard::RELEASE_DELAY_SECS);
+    // A forged receipt is refused.
+    let ixn = ix(
+        vanguard::ID,
+        vanguard::accounts::Release {
+            caller: a(env.oracle.pubkey()),
+            table: env.table,
+            receipt: env.alice.account,
+            match_state: m,
+        },
+        vanguard::instruction::ReleaseSlot { index: slot },
+        vec![],
+    );
+    assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), vcode(NoReceipt));
+    env.release(slot, m).expect("freed with the receipt");
+    assert_eq!(env.table().ring.used(), 0);
+    assert_eq!(
+        custom_code(&env.release(slot, m).unwrap_err()),
+        vcode(BadSlot)
+    );
+}
+
+#[test]
+fn a_reserved_or_unknown_slot_cannot_be_released() {
+    use VanguardError::*;
+    let mut env = ready();
+    let m = env.tmatch;
+    let slot = env.table().slot;
+    assert_eq!(
+        custom_code(&env.release(slot, m).unwrap_err()),
+        vcode(BadSlot)
+    );
+    assert_eq!(
+        custom_code(&env.release(200, m).unwrap_err()),
+        vcode(BadSlot)
+    );
+}
+
+#[test]
+fn a_table_is_reset_only_when_wiped_committed_and_a_moment_old_and_it_forgets_the_match() {
+    use VanguardError::*;
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    env.set_time(T0 + 2);
+    env.mv(0, id_of(70), 20).unwrap();
+    let over = env.table().over_at;
+    // The seats are still the Players', the result is not committed, and it is too early.
+    assert_eq!(custom_code(&env.reset().unwrap_err()), vcode(SeatsOpen));
+    env.wipe_standin();
+    assert_eq!(custom_code(&env.reset().unwrap_err()), vcode(NotCommitted));
+    env.commit_standin();
+    env.set_time(over + vanguard::RESET_DELAY_SECS - 1);
+    assert_eq!(custom_code(&env.reset().unwrap_err()), vcode(ResetTooEarly));
+    env.set_time(over + vanguard::RESET_DELAY_SECS);
+    env.reset().expect("reset");
+    let t = env.table();
+    assert_eq!(
+        (t.epoch, t.phase, t.tesoro_match),
+        (1, vanguard::TABLE_IDLE, APk::default())
+    );
+    assert_eq!(t.ring.used(), 1, "the ring is kept");
+    assert!(!t.dirty && !t.seats_open && !t.req_made);
+    // Not twice.
+    assert_eq!(custom_code(&env.reset().unwrap_err()), vcode(WrongPhase));
+}
+
+#[test]
+fn a_table_never_resets_while_its_battle_is_live() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    env.set_time(T0 + 2);
+    // Force the table into Over without the Battle ending: the reset refuses to wipe a live Battle.
+    env.patch_table(|t| {
+        t.phase = vanguard::TABLE_OVER;
+        t.seats_open = false;
+        t.dirty = false;
+        t.over_at = 0;
+    });
+    assert_eq!(
+        custom_code(&env.reset().unwrap_err()),
+        vcode(VanguardError::MatchNotOver)
+    );
     assert_eq!(env.battle().status, vanguard::STATUS_LIVE);
+}
+
+#[test]
+fn a_match_tesoro_core_refunded_before_a_result_voids_the_table_and_the_battle() {
+    use VanguardError::*;
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    let m = env.tmatch;
+    // No receipt yet: nothing to void.
+    assert_eq!(custom_code(&env.void(m).unwrap_err()), vcode(NoReceipt));
+    // tesoro_core refunds after an outage (past its deadline).
+    let deadline = env.load::<MatchState>(env.tmatch).inner.deadline;
+    env.set_time(deadline);
+    let caller = env.oracle.insecure_clone();
+    let refund = env.core_refund_ix(a(caller.pubkey()));
+    env.send(&[refund], &caller, &[]).expect("core refund");
+    env.run_settlement();
+    assert_eq!(
+        custom_code(&env.void(m).unwrap_err()),
+        vcode(NoReceipt),
+        "a minute must pass"
+    );
+    env.set_time(env.now + vanguard::RELEASE_DELAY_SECS);
+    // The Battle is live in the rollup: players could still declare. Void ends it with the table.
+    env.void(m).expect("void");
+    let t = env.table();
+    assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, false));
+    assert_eq!(t.ring.used(), 0, "the reserved slot is freed");
+    let b = env.battle();
+    assert_eq!(b.status, vanguard::STATUS_CANCELLED);
+    // Nothing more is accepted on the Battle, and the table can be wiped and reset.
+    let p = env.player(0);
+    let mv = env.move_ix(p.key, id_of(70), 20);
+    let err = env.send(&[mv], &p.kp, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(NotLive));
+    env.wipe_standin();
+    env.set_time(env.now + vanguard::RESET_DELAY_SECS);
+    env.reset().expect("reset");
+    assert_eq!(env.table().epoch, 1);
+}
+
+#[test]
+fn a_declare_signed_for_an_earlier_match_on_the_table_is_stale() {
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.begin().unwrap();
+    let first_seq = env.battle().action_seq;
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    env.set_time(T0 + 2);
+    env.mv(0, id_of(70), 20).unwrap();
+    env.finish_and_reset();
+    env.next_match_on(0);
+    env.begin().unwrap();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    env.set_time(env.now + 2);
+    assert_ne!(
+        env.battle().action_seq,
+        first_seq,
+        "the numbering is bound to the epoch"
+    );
+    let p = env.player(0);
+    let stale = env.declare_ix(
+        p.key,
+        vanguard::instruction::MovePiece {
+            piece: id_of(70),
+            to: 20,
+            expected_seq: first_seq,
+            sealed_switch: 0,
+        },
+    );
+    let err = env.send(&[stale], &p.kp, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::StaleSeq));
+}
+
+// --- Seats and permissions ------------------------------------------------------------------------
+
+/// Only these instructions reach the permission program. None is callable by a Player into a live Match.
+#[test]
+fn no_instruction_a_player_calls_can_reach_the_permission_program() {
+    let idl: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../target/idl/vanguard.json"
+        ))
+        .expect("build the IDL first: pnpm build:programs"),
+    )
+    .unwrap();
+    let mut reaching: Vec<String> = idl["instructions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|i| {
+            i["accounts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|acc| acc["name"] == "permission_program")
+        })
+        .map(|i| i["name"].as_str().unwrap().to_string())
+        .collect();
+    reaching.sort();
+    assert_eq!(
+        reaching,
+        ["init_seats", "retire_seats", "seat_players", "wipe_seats"]
+    );
+    // None of them undelegates or commits an Army: the program has no such call at all.
+    let src = include_str!("../src/lib.rs");
+    for banned in [
+        "commit_and_undelegate",
+        "undelegate",
+        "CloseEphemeralPermission",
+    ] {
+        let code: String = src
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !code.contains(banned),
+            "{banned} must not appear in the program"
+        );
+    }
+}
+
+/// LiteSVM has no permission program, so this checks the flags instead: the permission program takes the table (the payer)
+/// and each hidden account as writable, and the rollup refuses the whole step with `PrivilegeEscalation` when the Game passes
+/// one read-only (the first staging Match, 2026-10-21).
+#[test]
+fn every_account_the_permission_program_takes_is_writable() {
+    let ad = addrs(APk::new_unique());
+    let perm = |k: APk| permission_pda(k);
+    let common = |metas: Vec<solana_sdk::instruction::AccountMeta>| {
+        for (name, key) in [
+            ("table", ad.table),
+            ("army_0", ad.army_0),
+            ("army_1", ad.army_1),
+            ("army_0_permission", perm(ad.army_0)),
+            ("army_1_permission", perm(ad.army_1)),
+            ("ephemeral_vault", sdk_apk(EPHEMERAL_VAULT_ID)),
+        ] {
+            let meta = metas
+                .iter()
+                .find(|m| s(key) == m.pubkey)
+                .unwrap_or_else(|| panic!("{name} missing"));
+            assert!(
+                meta.is_writable,
+                "mark `{name}` #[account(mut)]: the permission CPI writes it"
+            );
+        }
+    };
+    let mk = |caller: APk| vanguard::accounts::WipeSeats {
+        caller,
+        table: ad.table,
+        army_0: ad.army_0,
+        army_1: ad.army_1,
+        army_0_permission: perm(ad.army_0),
+        army_1_permission: perm(ad.army_1),
+        permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
+        ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
+        magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+    };
+    let conv =
+        |m: Vec<anchor_lang::prelude::AccountMeta>| -> Vec<solana_sdk::instruction::AccountMeta> {
+            m.into_iter()
+                .map(|m| solana_sdk::instruction::AccountMeta {
+                    pubkey: s(m.pubkey),
+                    is_signer: m.is_signer,
+                    is_writable: m.is_writable,
+                })
+                .collect()
+        };
+    common(conv(mk(APk::new_unique()).to_account_metas(None)));
+    common(conv(
+        vanguard::accounts::SeatPlayers {
+            caller: APk::new_unique(),
+            table: ad.table,
+            battle: ad.battle,
+            army_0: ad.army_0,
+            army_1: ad.army_1,
+            army_0_permission: perm(ad.army_0),
+            army_1_permission: perm(ad.army_1),
+            permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
+            magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+        }
+        .to_account_metas(None),
+    ));
+    common(conv(
+        vanguard::accounts::RetireSeats {
+            operator: APk::new_unique(),
+            table_config: tables_addr(),
+            table: ad.table,
+            army_0: ad.army_0,
+            army_1: ad.army_1,
+            army_0_permission: perm(ad.army_0),
+            army_1_permission: perm(ad.army_1),
+            permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
+            magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+        }
+        .to_account_metas(None),
+    ));
+    common(conv(
+        vanguard::accounts::InitSeats {
+            caller: APk::new_unique(),
+            table: ad.table,
+            army_0: ad.army_0,
+            army_1: ad.army_1,
+            army_0_permission: perm(ad.army_0),
+            army_1_permission: perm(ad.army_1),
+            permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
+            magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+        }
+        .to_account_metas(None),
+    ));
+}
+
+/// Whatever ends a Match, the table and its Battle agree: a table that is Over holds a Battle that is Over or Cancelled, and
+/// no Battle is Live on a table that is not.
+#[test]
+fn the_table_and_the_battle_always_end_together() {
+    let check = |env: &Env, what: &str| {
+        let (t, b) = (env.table(), env.battle());
+        assert_eq!(t.phase, vanguard::TABLE_OVER, "{what}");
+        assert!(
+            b.status == vanguard::STATUS_OVER || b.status == vanguard::STATUS_CANCELLED,
+            "{what}: {}",
+            b.status
+        );
+    };
+    // a decided game
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    env.set_time(T0 + 2);
+    env.mv(0, id_of(70), 20).unwrap();
+    check(&env, "decided");
+    // the cap
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    env.set_time(env.now + engine::CAP_SECS + 1);
+    let caller = env.bob.kp.insecure_clone();
+    env.claim_timeout(&caller).unwrap();
+    check(&env, "cap");
+    // three lost turns
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    for _ in 0..5 {
+        if env.table().phase == vanguard::TABLE_OVER {
+            break;
+        }
+        env.set_time(env.battle().deadline + 1);
+        env.claim_timeout(&caller).unwrap();
+    }
+    check(&env, "timeouts");
+    // a cancelled start and a cancelled setup
+    let mut env = ready();
+    env.set_time(T0 + vanguard::START_WINDOW_SECS + 1);
+    env.claim_timeout(&caller).unwrap();
+    check(&env, "no check-in");
+    let mut env = ready();
+    env.open_setup();
+    env.set_time(env.battle().setup_deadline + 1);
+    env.claim_timeout(&caller).unwrap();
+    check(&env, "setup");
+    // Nothing is Live while the table is not.
+    let env = ready();
+    assert_eq!(env.battle().status, vanguard::STATUS_CREATED);
+}
+
+#[test]
+fn seats_are_made_once_and_handed_on_only_between_matches() {
+    use VanguardError::*;
+    let mut env = ready();
+    let op = env.operator_kp();
+    // A wipe is refused while the Match is not over, and the seats cannot be handed over twice; every one of the four
+    // stops at a phase check before any permission CPI.
+    let ad = addrs(env.tmatch);
+    let accounts = |op: APk| {
+        (
+            vanguard::accounts::WipeSeats {
+                caller: op,
+                table: ad.table,
+                army_0: ad.army_0,
+                army_1: ad.army_1,
+                army_0_permission: permission_pda(ad.army_0),
+                army_1_permission: permission_pda(ad.army_1),
+                permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
+                ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
+                magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+            },
+            vanguard::accounts::SeatPlayers {
+                caller: op,
+                table: ad.table,
+                battle: ad.battle,
+                army_0: ad.army_0,
+                army_1: ad.army_1,
+                army_0_permission: permission_pda(ad.army_0),
+                army_1_permission: permission_pda(ad.army_1),
+                permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
+                ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
+                magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+            },
+        )
+    };
+    let (wipe, seat) = accounts(a(op.pubkey()));
+    let wipe_ix = ix(
+        vanguard::ID,
+        wipe,
+        vanguard::instruction::WipeSeats {},
+        vec![],
+    );
+    let seat_ix = ix(
+        vanguard::ID,
+        seat,
+        vanguard::instruction::SeatPlayers {},
+        vec![],
+    );
+    // Waiting: no wipe.
+    assert_eq!(
+        custom_code(
+            &env.send(std::slice::from_ref(&wipe_ix), &op, &[])
+                .unwrap_err()
+        ),
+        vcode(WrongPhase)
+    );
+    // Handed over: no second hand-over.
+    env.seat_players_standin();
+    assert_eq!(
+        custom_code(
+            &env.send(std::slice::from_ref(&seat_ix), &op, &[])
+                .unwrap_err()
+        ),
+        vcode(SeatsOpen)
+    );
+    // Live: neither, and nobody can wipe a live Match's seats.
+    env.check_in(0).unwrap();
+    env.check_in(1).unwrap();
+    for ixn in [&wipe_ix, &seat_ix] {
+        assert_eq!(
+            custom_code(&env.send(std::slice::from_ref(ixn), &op, &[]).unwrap_err()),
+            vcode(WrongPhase)
+        );
+    }
+    // The retire is the operator's and needs an idle table.
+    let retire = |signer: APk| {
+        ix(
+            vanguard::ID,
+            vanguard::accounts::RetireSeats {
+                operator: signer,
+                table_config: tables_addr(),
+                table: ad.table,
+                army_0: ad.army_0,
+                army_1: ad.army_1,
+                army_0_permission: permission_pda(ad.army_0),
+                army_1_permission: permission_pda(ad.army_1),
+                permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
+                ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
+                magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+            },
+            vanguard::instruction::RetireSeats {},
+            vec![],
+        )
+    };
+    let player = env.alice.kp.insecure_clone();
+    let by_player = retire(a(player.pubkey()));
+    assert_eq!(
+        custom_code(&env.send(&[by_player], &player, &[]).unwrap_err()),
+        vcode(NotOperator)
+    );
+    let by_operator = retire(a(op.pubkey()));
+    assert_eq!(
+        custom_code(&env.send(&[by_operator], &op, &[]).unwrap_err()),
+        vcode(WrongPhase)
+    );
+}
+
+#[test]
+fn a_seat_that_still_holds_data_is_never_handed_on() {
+    let mut env = ready();
+    env.patch_army(0, |h| {
+        h.reserved = [9; 32];
+    });
+    let op = env.operator_kp();
+    let ad = addrs(env.tmatch);
+    let seat = ix(
+        vanguard::ID,
+        vanguard::accounts::SeatPlayers {
+            caller: a(op.pubkey()),
+            table: ad.table,
+            battle: ad.battle,
+            army_0: ad.army_0,
+            army_1: ad.army_1,
+            army_0_permission: permission_pda(ad.army_0),
+            army_1_permission: permission_pda(ad.army_1),
+            permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
+            magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+        },
+        vanguard::instruction::SeatPlayers {},
+        vec![],
+    );
+    let err = env.send(&[seat], &op, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::SeatNotBlank));
+}
+
+#[test]
+fn wiping_an_army_removes_the_key_every_rank_code_and_the_storm_share() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.deal().unwrap();
+    let key = env.army(0).reserved;
+    assert_ne!(key, [0; 32]);
+    env.patch_army(0, |h| h.wipe());
+    let army = env.army(0);
+    assert!(army.is_blank());
+    let mut bytes = vec![];
+    anchor_lang::AccountSerialize::try_serialize(&army, &mut bytes).unwrap();
+    assert!(!contains(&bytes, &key), "the key is gone");
+    assert_eq!(army.ranks, [0; 30]);
+    assert_eq!(army.reserved, [0; 32]);
+    assert_eq!((army.storm_at, army.storm_seed, army.dealt), (0, 0, false));
 }
 
 // --- Playing -------------------------------------------------------------------------------------
@@ -1575,10 +3444,9 @@ fn a_full_match_to_a_truck_capture_pays_the_winner_the_pot_minus_fees() {
     assert_eq!(custom_code(&err), vcode(VanguardError::NotLive));
 
     env.finalize(false).expect("finalize");
-    assert_eq!(env.tesoro_status(), MatchStatus::Settled);
+    assert_eq!(env.tesoro_status(), Stage::Closed);
     assert_eq!(env.gemas(&env.alice), before.0 + 1_900);
     assert_eq!(env.gemas(&env.bob), before.1);
-    assert_eq!(env.battle().finalized, 1);
 }
 
 #[test]
@@ -1844,7 +3712,7 @@ fn a_draw_refunds_both_entries_with_no_fees() {
     assert_eq!(b.status, vanguard::STATUS_OVER);
 
     env.finalize(true).expect("a draw refunds");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
+    assert_eq!(env.tesoro_status(), Stage::Closed);
     assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
     assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
 }
@@ -1876,26 +3744,39 @@ fn three_timeouts_in_a_row_lose_the_match() {
 // --- Endings -------------------------------------------------------------------------------------
 
 #[test]
-fn a_no_show_refunds_both_entries() {
+fn a_match_nobody_started_is_a_no_show_one_second_after_the_start_window() {
     let mut env = ready();
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    let anyone = env.bob.kp.insecure_clone();
     // Too early: the start window is still open.
-    let err = env.finalize_with(vec![]).unwrap_err();
+    let err = env.claim_timeout_declare(&anyone).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
+    env.set_time(T0 + vanguard::START_WINDOW_SECS);
+    let err = env.claim_timeout_declare(&anyone).unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
     env.set_time(T0 + vanguard::START_WINDOW_SECS + 1);
-    env.finalize(true).expect("no-show refund via tesoro_core");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
-    assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
-    assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
+    env.claim_timeout_declare(&anyone).expect("cancel");
+    env.finalize(true).expect("no-show settlement");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
+    for (now, was) in [
+        (env.gemas(&env.alice), before.0),
+        (env.gemas(&env.bob), before.1),
+    ] {
+        assert!(
+            now < was + 1_000 && now > was + 900,
+            "each loses the Platform Fee only"
+        );
+    }
 }
 
 #[test]
-fn a_player_who_never_contributes_entropy_cancels_the_match_and_both_are_refunded() {
+fn a_player_who_never_contributes_entropy_loses_the_match_to_the_one_who_did() {
     let mut env = ready();
     env.start_in_rollup(1);
-    env.patch_secret(|v| {
-        v.contributed = [true, false];
-        v.vrf_seen = false;
+    env.patch_army(1, |v| v.contributed = false);
+    env.patch_table(|t| {
+        t.vrf_ready = false;
+        t.req_made = false;
     });
     let bob = env.bob.kp.insecure_clone();
     let err = env.claim_timeout(&bob).unwrap_err();
@@ -1903,23 +3784,27 @@ fn a_player_who_never_contributes_entropy_cancels_the_match_and_both_are_refunde
     env.set_time(T0 + vanguard::ENTROPY_SECS + 1);
     env.claim_timeout(&bob)
         .expect("anyone may claim the timeout");
-    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
-    // A cancelled Match plays no more.
+    let b = env.battle();
+    assert_eq!((b.status, b.winner), (vanguard::STATUS_OVER, 0));
+    // An ended Match plays no more.
     let err = env.deal().unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::WrongPhase));
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotLive));
 
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-    env.finalize(true).expect("refund");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
-    assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
-    assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
+    env.finalize(true).expect("settle");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
+    assert_eq!(env.gemas(&env.alice), before.0 + 1_900);
+    assert_eq!(env.gemas(&env.bob), before.1);
 }
 
 #[test]
 fn late_randomness_does_not_cancel_the_match_it_pushes_the_deadline() {
     let mut env = ready();
     env.start_in_rollup(1);
-    env.patch_secret(|v| v.vrf_seen = false);
+    env.patch_table(|t| {
+        t.vrf_ready = false;
+        t.req_pending = true;
+    });
     let caller = env.bob.kp.insecure_clone();
     env.set_time(T0 + vanguard::ENTROPY_SECS + 1);
     env.claim_timeout(&caller).expect("claim");
@@ -1929,6 +3814,7 @@ fn late_randomness_does_not_cancel_the_match_it_pushes_the_deadline() {
         b.entropy_deadline,
         T0 + vanguard::ENTROPY_SECS + 1 + vanguard::ENTROPY_SECS
     );
+    assert_eq!(env.table().phase, vanguard::TABLE_LIVE);
 }
 
 #[test]
@@ -1940,39 +3826,11 @@ fn a_second_finalize_is_refused() {
     env.mv(0, id_of(70), 20).expect("capture");
     env.finalize(false).expect("finalize");
     let after = (env.gemas(&env.alice), env.gemas(&env.bob));
-    let err = env.finalize_with(vec![]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::AlreadyFinalized));
-    assert_eq!((env.gemas(&env.alice), env.gemas(&env.bob)), after);
-}
-
-#[test]
-fn finalize_marks_a_match_tesoro_core_already_refunded_and_moves_nothing() {
-    let mut env = ready();
-    let deadline = env.load::<MatchState>(tmatch_pda(env.id)).inner.deadline;
-    env.set_time(deadline);
-    let remaining = env.payout_metas(true);
-    let caller = env.bob.kp.insecure_clone();
-    let refund = ix(
-        tesoro_core::ID,
-        tesoro_core::accounts::RefundMatch {
-            caller: a(caller.pubkey()),
-            config: tpda(&[CONFIG_SEED]),
-            match_state: tmatch_pda(env.id),
-            opener_protections: None,
-        },
-        tesoro_core::instruction::RefundMatch {},
-        remaining,
+    assert!(
+        env.finalize_with(vec![]).is_err(),
+        "tesoro_core refuses a second settlement"
     );
-    env.send(&[refund], &caller, &[])
-        .expect("tesoro_core refund");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
-    let after = (env.gemas(&env.alice), env.gemas(&env.bob));
-
-    env.finalize_with(vec![]).expect("finalize still works");
-    assert_eq!(env.battle().finalized, 1);
     assert_eq!((env.gemas(&env.alice), env.gemas(&env.bob)), after);
-    let err = env.finalize_with(vec![]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::AlreadyFinalized));
 }
 
 #[test]
@@ -1980,63 +3838,20 @@ fn a_match_not_yet_over_cannot_be_finalized_and_only_the_authority_pda_settles()
     let mut env = ready();
     env.start_in_rollup(1);
     env.stage(&truck_raid_layout(), 0);
-    let err = env.finalize_with(vec![]).unwrap_err();
+    // The committed table shows the Match's slot reserved: no result yet.
+    env.commit_standin();
+    let err = env.finalize_start().unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::MatchNotOver));
 
     let intruder = Keypair::new();
     env.svm
         .airdrop(&intruder.pubkey(), 10 * SOL)
         .expect("airdrop");
-    let settle = ix(
-        tesoro_core::ID,
-        tesoro_core::accounts::SettleMatch {
-            game_authority: a(intruder.pubkey()),
-            config: tpda(&[CONFIG_SEED]),
-            match_state: tmatch_pda(env.id),
-        },
-        tesoro_core::instruction::SettleMatch {
-            result: tesoro_core::instructions::MatchResult::Opener,
-        },
-        vec![],
-    );
+    let settle = env.core_settle_ix(a(intruder.pubkey()), MatchResult::Opener);
     let err = env.send(&[settle], &intruder, &[]).unwrap_err();
     assert_eq!(custom_code(&err), 6000);
-    let config = env.load::<Config>(tpda(&[CONFIG_SEED]));
-    assert_eq!(
-        config.game(&vanguard::ID).expect("registered").authority,
-        authority_pda()
-    );
-}
-
-#[test]
-fn close_match_before_the_end_is_refused_and_close_unstarted_needs_a_cancel() {
-    let mut env = ready();
-    env.start_in_rollup(1);
-    env.stage(&truck_raid_layout(), 0);
-    let payer = env.bob.kp.insecure_clone();
-    for status in [
-        vanguard::STATUS_CREATED,
-        vanguard::STATUS_SETUP,
-        vanguard::STATUS_LIVE,
-    ] {
-        env.patch_battle(|b| b.status = status);
-        let close = close_match_ix(&env, a(payer.pubkey()));
-        let err = env.send(&[close], &payer, &[]).unwrap_err();
-        assert_eq!(custom_code(&err), vcode(VanguardError::MatchNotOver));
-        let close = close_unstarted_ix(&env, a(payer.pubkey()));
-        let err = env.send(&[close], &payer, &[]).unwrap_err();
-        assert_eq!(custom_code(&err), vcode(VanguardError::MatchNotOver));
-    }
-    // A cancel that happened after the permissions exist is closed by `close_match`, not `close_unstarted`.
-    env.patch_battle(|b| b.status = vanguard::STATUS_CANCELLED);
-    let close = close_unstarted_ix(&env, a(payer.pubkey()));
-    let err = env.send(&[close], &payer, &[]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::MatchNotOver));
-    // And one that never had permissions is refused by `close_match`.
-    env.patch_battle(|b| b.permissioned = 0);
-    let close = close_match_ix(&env, a(payer.pubkey()));
-    let err = env.send(&[close], &payer, &[]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::WrongPhase));
+    let record = env.load::<GameRecord>(game_record_pda());
+    assert_eq!(record.settle_authority, authority_pda());
 }
 
 // --- A whole dealt Match -------------------------------------------------------------------------
@@ -2044,9 +3859,8 @@ fn close_match_before_the_end_is_refused_and_close_unstarted_needs_a_cancel() {
 /// Every legal (piece, square) of the army to act, found with the engine's own scan.
 fn legal_moves(env: &Env) -> Vec<(u8, u8)> {
     let b = env.battle();
-    let secret = env.secret();
     let (a0, a1) = (env.army(0), env.army(1));
-    let g = b.game([&a0, &a1], &secret).expect("game");
+    let g = b.game([&a0, &a1]).expect("game");
     let army = if b.turn == 0 { Side::Us } else { Side::It };
     let mut out = vec![];
     for id in 0..PIECE_SLOTS {
@@ -2142,7 +3956,7 @@ fn whole_dealt_matches_end_and_settle_or_refund() {
         let after = (env.gemas(&env.alice), env.gemas(&env.bob));
         if draw {
             assert_eq!(after, (before.0 + 1_000, before.1 + 1_000));
-            assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
+            assert_eq!(env.tesoro_status(), Stage::Closed);
         } else {
             let (w, l) = if b.winner == 0 {
                 (after.0 - before.0, after.1 - before.1)
@@ -2150,7 +3964,7 @@ fn whole_dealt_matches_end_and_settle_or_refund() {
                 (after.1 - before.1, after.0 - before.0)
             };
             assert_eq!((w, l), (1_900, 0), "seed {seed} reason {}", b.reason);
-            assert_eq!(env.tesoro_status(), MatchStatus::Settled);
+            assert_eq!(env.tesoro_status(), Stage::Closed);
         }
         println!(
             "seed {seed}: {} moves, turn {}, winner {}, reason {}",
@@ -2265,39 +4079,17 @@ fn stranger(env: &mut Env) -> Keypair {
     k
 }
 
-/// A stranger who could run `init_permissions` would move every new Battle to SETUP before it is delegated, and the
-/// Match would die by no-show. Only a Player may.
+/// A stranger who could check in would start the entropy clock before the Players are there. Only a Player may.
 #[test]
 fn only_a_player_can_open_the_setup_phase() {
     let mut env = ready();
+    env.seat_players_standin();
     let outsider = stranger(&mut env);
-    let init = init_permissions_ix(&env, a(outsider.pubkey()));
-    let err = env.send(&[init], &outsider, &[]).unwrap_err();
+    let check = env.check_in_ix(a(outsider.pubkey()));
+    let err = env.send(&[check], &outsider, &[]).unwrap_err();
     assert!(is_vcode(&err, VanguardError::NotAPlayer), "{:?}", err.err);
     assert_eq!(env.battle().status, vanguard::STATUS_CREATED);
-    assert_eq!(env.battle().permissioned, 0);
-    // Either Player passes the guard. LiteSVM has no permission program, so the call stops further on and
-    // reverts: the Battle is untouched.
-    for seat in 0..2 {
-        let p = env.player(seat);
-        let init = init_permissions_ix(&env, p.key);
-        let err = env.send(&[init], &p.kp, &[]).unwrap_err();
-        assert!(!is_vcode(&err, VanguardError::NotAPlayer), "seat {seat}");
-        assert_eq!(env.battle().status, vanguard::STATUS_CREATED);
-    }
-}
-
-#[test]
-fn setup_has_a_hard_deadline_well_inside_the_refund_window() {
-    let env = ready();
-    let b = env.battle();
-    assert_eq!(
-        b.setup_deadline,
-        b.start_deadline + vanguard::SETUP_GRACE_SECS
-    );
-    let refund = env.load::<MatchState>(tmatch_pda(env.id)).inner.deadline;
-    // Dealt on the last second, the Match still ends (cap) and settles with hours to spare.
-    assert!(b.setup_deadline + engine::CAP_SECS + 3_600 < refund);
+    assert_eq!(env.table().phase, vanguard::TABLE_WAITING);
 }
 
 #[test]
@@ -2313,10 +4105,8 @@ fn nothing_goes_live_past_the_setup_deadline_and_claim_timeout_cancels() {
     let caller = env.bob.kp.insecure_clone();
     env.claim_timeout(&caller).expect("cancel");
     assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
-    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-    env.finalize(true).expect("refund");
-    assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
-    assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
+    env.finalize(true).expect("no-show settlement");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
 }
 
 /// A late oracle pushes the entropy deadline a minute at a time, never past the setup deadline.
@@ -2324,7 +4114,10 @@ fn nothing_goes_live_past_the_setup_deadline_and_claim_timeout_cancels() {
 fn the_wait_for_a_late_oracle_is_bounded_by_the_setup_deadline() {
     let mut env = ready();
     env.start_in_rollup(1);
-    env.patch_secret(|v| v.vrf_seen = false);
+    env.patch_table(|t| {
+        t.vrf_ready = false;
+        t.req_pending = true;
+    });
     let setup_deadline = env.battle().setup_deadline;
     let caller = env.bob.kp.insecure_clone();
     let mut claims = 0;
@@ -2347,9 +4140,9 @@ fn the_wait_for_a_late_oracle_is_bounded_by_the_setup_deadline() {
 fn randomness_nobody_asked_for_cancels_at_the_first_deadline() {
     let mut env = ready();
     env.start_in_rollup(1);
-    env.patch_secret(|v| {
-        v.vrf_seen = false;
-        v.vrf_requested = false;
+    env.patch_table(|t| {
+        t.vrf_ready = false;
+        t.req_made = false;
     });
     env.set_time(T0 + vanguard::ENTROPY_SECS + 1);
     let caller = env.bob.kp.insecure_clone();
@@ -2358,46 +4151,15 @@ fn randomness_nobody_asked_for_cancels_at_the_first_deadline() {
 }
 
 #[test]
-fn entropy_after_the_window_is_refused() {
-    let mut env = ready();
-    env.start_in_rollup(1);
-    env.patch_secret(|v| {
-        v.contributed = [false; 2];
-        v.vrf_seen = false;
-        v.vrf_requested = false;
-    });
-    env.set_time(env.battle().entropy_deadline + 1);
-    let ad = addrs(env.id);
-    let alice = env.alice.kp.insecure_clone();
-    let i = ix(
-        vanguard::ID,
-        vanguard::accounts::ContributeEntropy {
-            player: a(alice.pubkey()),
-            battle: ad.battle,
-            secret: ad.secret,
-        },
-        vanguard::instruction::ContributeEntropy { secret: [1; 32] },
-        vec![],
-    );
-    let err = env.send(&[i], &alice, &[]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::SetupClosed));
-    assert_eq!(env.secret().contributed, [false, false]);
-}
-
-#[test]
-fn a_battle_records_its_versions_and_rules_when_created() {
-    let mut env = Env::new();
-    env.open_and_join(1_000);
-    let bob = env.bob.kp.insecure_clone();
-    env.ensure_config();
-    let create = env.create_ix(env.bob.key);
-    env.send(&[create], &bob, &[]).expect("bob creates");
+fn a_battle_records_its_versions_and_rules_when_the_match_begins() {
+    let env = ready();
     let b = env.battle();
     assert_eq!(b.layout_version, vanguard::LAYOUT_VERSION);
     assert_eq!(b.rules_version, engine::RULES_VERSION);
     assert_eq!(
-        b.payer, env.bob.key,
-        "whoever pressed create prepaid the rent"
+        b.payer,
+        a(env.operator.pubkey()),
+        "the operator who assigned the Match prepaid it"
     );
     assert_eq!(
         b.oracle_queue, QUEUE,
@@ -2441,7 +4203,7 @@ fn a_battle_plays_by_the_rules_stored_when_it_was_created() {
     let b = env.battle();
     assert_eq!(b.deadline, T0 + 30 + 9 + 2 + 4);
     assert_eq!(b.cap_deadline, T0 + 30 + 100);
-    assert!((3..=4).contains(&env.secret().storm_at));
+    assert!((3..=4).contains(&(env.army(0).storm_at ^ env.army(1).storm_at)));
     // Two moves reach the stored move cap, not the compiled one.
     for _ in 0..2 {
         let (piece, to) = legal_moves(&env)[0];
@@ -2925,15 +4687,7 @@ fn nothing_is_declared_in_the_slot_of_the_deal() {
         assert_eq!(custom_code(&err), vcode(VanguardError::TooSoon), "declare");
     }
     let two = env.alice.kp.insecure_clone();
-    let ts = ix(
-        vanguard::ID,
-        vanguard::accounts::StartTwoStep {
-            player: a(two.pubkey()),
-            battle: addrs(env.id).battle,
-        },
-        vanguard::instruction::StartTwoStep {},
-        vec![],
-    );
+    let ts = env.declare_ix(a(two.pubkey()), vanguard::instruction::StartTwoStep {});
     let err = env.send(&[ts], &two, &[]).unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::TooSoon), "two-step");
     let caller = env.oracle.insecure_clone();
@@ -3030,56 +4784,6 @@ fn a_declared_illegal_move_costs_the_turn_and_three_lose_the_match() {
     );
 }
 
-/// After the Match is over, `resolve` followed by `finalize` in one transaction is only possible where both are
-/// callable (LiteSVM); either way the outcome shown is the committed one and nothing is half done.
-#[test]
-fn resolve_then_finalize_in_one_transaction_is_all_or_nothing() {
-    let mut env = declared_env();
-    let alice = env.alice.kp.insecure_clone();
-    let m = env.move_ix(env.alice.key, id_of(70), 20);
-    env.send(&[budget(), m], &alice, &[])
-        .expect("declare the Truck capture");
-    env.next_slot();
-    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-    let remaining = {
-        // The payout accounts of a win by seat 0.
-        let mut mt = env.load::<MatchState>(tmatch_pda(env.id)).inner;
-        let payouts = mt.settle(CoreOutcome::Winner(0)).expect("settle");
-        let mut metas = vec![];
-        for p in payouts {
-            let (recipient, source) = (
-                APk::new_from_array(p.recipient),
-                APk::new_from_array(p.source),
-            );
-            env.open_holding(recipient, source);
-            metas.push(rem(recipient));
-            metas.push(rem(holding_pda(recipient, source)));
-        }
-        metas
-    };
-    let ad = addrs(env.id);
-    let finalize = ix(
-        vanguard::ID,
-        vanguard::accounts::Finalize {
-            caller: a(alice.pubkey()),
-            battle: ad.battle,
-            tesoro_match: tmatch_pda(env.id),
-            config: tpda(&[CONFIG_SEED]),
-            authority: authority_pda(),
-            tesoro_program: tesoro_core::ID,
-        },
-        vanguard::instruction::Finalize {},
-        remaining,
-    );
-    let resolve = env.resolve_ix(env.alice.key);
-    env.send(&[budget(), resolve, finalize], &alice, &[])
-        .expect("the Match ends and settles");
-    assert_eq!(env.tesoro_status(), MatchStatus::Settled);
-    assert_eq!(env.gemas(&env.alice), before.0 + 1_900);
-    assert_eq!(env.battle().finalized, 1);
-}
-
-/// The opening turn's extra time is stored once, in the first deadline. Nothing re-grants it.
 #[test]
 fn the_opening_grace_is_consumed_exactly_once() {
     let mut env = ready();
@@ -3142,7 +4846,7 @@ fn put_core_treasury(svm: &mut litesvm::LiteSVM) {
         instant_fee_bps: 3_500,
         account: Default::default(),
         vault: Default::default(),
-        fee_minted: 0,
+        retired_fee_minted: 0,
         instant_units: 0,
         funded_shares: 0,
         withdrawn_units: 0,
@@ -3329,48 +5033,47 @@ fn a_move_at_the_cap_is_accepted_and_the_move_cap_ends_the_match_on_the_tiebreak
 
 /// The start window: the first second after it, anyone cancels; at it, nobody can.
 #[test]
-fn a_match_nobody_started_is_cancelled_one_second_after_the_start_window_and_refunded() {
+fn a_match_nobody_started_is_cancelled_one_second_after_the_start_window() {
     let mut env = ready();
     let caller = env.bob.kp.insecure_clone();
     let end = T0 + vanguard::START_WINDOW_SECS;
     env.set_time(end);
     let err = env.claim_timeout(&caller).unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
+    // Nothing was committed: base cannot refund a Match it has no result for.
     let err = env.finalize_with(vec![]).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
+    assert_eq!(custom_code(&err), vcode(VanguardError::NoResult));
     env.set_time(end + 1);
     env.claim_timeout(&caller).expect("cancel");
     assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
-    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-    env.finalize(true).expect("refund");
-    assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
-    assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
+    env.finalize(true).expect("no-show settlement");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
 }
 
 #[test]
 fn the_entropy_window_ends_exactly_at_its_deadline() {
     let mut env = ready();
     env.start_in_rollup(1);
-    env.patch_secret(|v| {
-        v.contributed = [true, false];
-        v.vrf_seen = false;
+    env.patch_army(1, |v| v.contributed = false);
+    env.patch_table(|t| {
+        t.vrf_ready = false;
+        t.req_made = false;
     });
     let caller = env.bob.kp.insecure_clone();
     env.set_time(env.battle().entropy_deadline);
     let err = env.claim_timeout(&caller).unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
     env.set_time(env.battle().entropy_deadline + 1);
-    env.claim_timeout(&caller).expect("cancel");
-    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    env.claim_timeout(&caller)
+        .expect("the Player who contributed wins");
+    let b = env.battle();
+    assert_eq!((b.status, b.winner), (vanguard::STATUS_OVER, 0));
 }
 
 /// A board with a row of two pieces for the storm to move; the storm blows on the first turn change.
 fn stormy_env() -> Env {
     let mut env = declared_env();
-    env.patch_secret(|v| {
-        v.storm_at = 1;
-        v.storm_seed = 3;
-    });
+    env.set_storm(1, 3);
     env
 }
 
@@ -3586,7 +5289,7 @@ fn compute_of_resolving_moves_under_the_new_rules() {
         env.start_in_rollup(seed);
         env.deal().expect("deal");
         if storm {
-            env.patch_secret(|v| v.storm_at = 1);
+            env.set_storm(1, 12_345);
         }
         let (piece, to) = legal_moves(&env)[0];
         env.set_time(env.now + 1);
@@ -3692,7 +5395,7 @@ impl Env {
         Snap {
             battle: self
                 .svm
-                .get_account(&s(addrs(self.id).battle))
+                .get_account(&s(addrs(self.tmatch).battle))
                 .expect("battle"),
             armies: [self.army(0), self.army(1)],
         }
@@ -3700,7 +5403,7 @@ impl Env {
 
     fn restore(&mut self, snap: &Snap) {
         self.svm
-            .set_account(s(addrs(self.id).battle), snap.battle.clone())
+            .set_account(s(addrs(self.tmatch).battle), snap.battle.clone())
             .expect("restore battle");
         for seat in 0..2 {
             let army = snap.armies[seat].clone();
@@ -3722,15 +5425,6 @@ impl Env {
 /// Army slots (`id % 30`) of the Generals of the Army in `power_layout`: US piece 55, Italy piece 5.
 const SLOT_US_GOTA: u8 = 25;
 const SLOT_IT_GOTA: u8 = 5;
-
-fn maybe_custom(err: &Failed) -> Option<u32> {
-    use solana_sdk::instruction::InstructionError;
-    use solana_sdk::transaction::TransactionError;
-    match &err.err {
-        TransactionError::InstructionError(_, InstructionError::Custom(c)) => Some(*c),
-        _ => None,
-    }
-}
 
 #[test]
 fn a_blast_removes_the_engineer_and_shows_every_neighbour_both_ways() {
@@ -4096,13 +5790,14 @@ fn a_deal_writes_a_fresh_key_per_army_from_its_own_stream() {
         [env.army(us).reserved, env.army(1 - us).reserved]
     };
     let a = key_of(1);
+    let env = ready();
     assert_ne!(a[0], [0; 32]);
     assert_ne!(a[1], [0; 32]);
     assert_ne!(a[0], a[1], "one key per Army");
     assert_eq!(key_of(1), a, "the same secrets give the same keys");
     assert_ne!(key_of(2), a, "other secrets give other keys");
-    let seed =
-        anchor_lang::solana_program::hash::hashv(&[&[1u8 + 7; 32], &[1u8 + 99; 32]]).to_bytes();
+    // seed 1: the secrets are [8; 32] and [9; 32] and the answer [100; 32] (see `start_in_rollup`), request number 0
+    let seed = expected_seed(&env, [[8; 32], [9; 32]], [100; 32], 0);
     assert_eq!(
         engine::seal_keys(&seed),
         a,
@@ -4446,122 +6141,42 @@ fn wiping_an_army_removes_the_key_and_every_rank_code_from_the_committed_bytes()
     assert_eq!(army.reserved, [0; 32]);
 }
 
-// --- Wind-down of Battles created under older rules ---------------------------------------------------
+// --- A Match that spans a rules change ----------------------------------------------------------------
 
-/// A Battle in a lifecycle state, created under rules version 5.
-fn old_battle(state: &str) -> Env {
-    let mut env = ready();
-    match state {
-        "created" => {}
-        "setup" => env.start_in_rollup(1),
-        _ => {
-            env.start_in_rollup(1);
-            env.stage(&power_layout(), 0);
-            env.set_time(T0 + 2);
-        }
-    }
-    env.patch_battle(|b| b.rules_version = 5);
-    let (slot, now) = (env.slot(), env.now);
-    match state {
-        "pending move" => env.patch_battle(|b| {
-            b.record_pending(
-                vanguard::PENDING_MOVE,
-                vanguard::Intent {
-                    piece: id_of(74),
-                    to: 64,
-                    sealed_switch: 0,
-                },
-                0,
-                slot,
-                now,
-            )
-        }),
-        "pending timeout" => env.patch_battle(|b| {
-            b.record_pending(
-                vanguard::PENDING_TIMEOUT,
-                vanguard::Intent::default(),
-                0,
-                slot,
-                now,
-            )
-        }),
-        _ => {}
-    }
-    env
-}
-
+/// Tables are reused, so a program upgrade can land while a Match is in flight. Nobody may use that to cancel it: the
+/// engine keeps every earlier version's rules, and the Battle plays by the version stored when it began.
 #[test]
-fn a_battle_on_older_rules_is_cancelled_by_claim_timeout_in_every_lifecycle_state_and_refunded() {
-    for state in [
-        "created",
-        "setup",
-        "live",
-        "pending move",
-        "pending timeout",
-    ] {
-        let mut env = old_battle(state);
-        let anyone = stranger(&mut env);
-        let before = (env.gemas(&env.alice), env.gemas(&env.bob));
-        // at once: no deadline of the old Battle has to pass
-        env.claim_timeout_declare(&anyone)
-            .unwrap_or_else(|e| panic!("{state}: {e:?}"));
-        let b = env.battle();
-        assert_eq!(b.status, vanguard::STATUS_CANCELLED, "{state}");
-        assert_eq!(b.pending_kind, vanguard::PENDING_NONE, "{state}");
-        // nothing but close and finalize is left: `resolve` is refused
-        let err = env.resolve(&anyone).unwrap_err();
-        assert!(is_vcode(&err, VanguardError::NotLive), "{state}");
-        // the close step passes its own checks (it then stops at the rollup programs, which LiteSVM lacks)
-        let payer = env.bob.kp.insecure_clone();
-        let close = if b.permissioned != 0 {
-            close_match_ix(&env, a(payer.pubkey()))
-        } else {
-            close_unstarted_ix(&env, a(payer.pubkey()))
-        };
-        if let Err(e) = env.send(&[close], &payer, &[]) {
-            if let Some(code) = maybe_custom(&e) {
-                assert!(
-                    code != vcode(VanguardError::MatchNotOver)
-                        && code != vcode(VanguardError::WrongPhase),
-                    "{state}: close refused with {code}"
-                );
+fn a_match_on_older_rules_is_not_cancellable_in_any_state_and_keeps_playing() {
+    for state in ["created", "setup", "live", "pending move"] {
+        let mut env = ready();
+        match state {
+            "created" => {}
+            "setup" => env.start_in_rollup(1),
+            _ => {
+                env.start_in_rollup(1);
+                env.stage(&power_layout(), 0);
+                env.set_time(T0 + 2);
             }
         }
-        env.finalize(true)
-            .unwrap_or_else(|e| panic!("{state}: finalize {e:?}"));
-        assert_eq!(env.tesoro_status(), MatchStatus::Refunded, "{state}");
-        assert_eq!(
-            (env.gemas(&env.alice), env.gemas(&env.bob)),
-            (before.0 + 1_000, before.1 + 1_000),
-            "{state}: both entries are back in full"
-        );
-        assert_eq!(env.battle().finalized, 1);
-    }
-}
-
-#[test]
-fn an_older_battle_that_is_over_still_finalizes_and_cannot_be_cancelled() {
-    let mut env = old_battle("live");
-    env.patch_battle(|b| {
-        b.status = vanguard::STATUS_OVER;
-        b.winner = 0;
-        b.reason = vanguard::reason_code(EndReason::Truck);
-    });
-    let anyone = stranger(&mut env);
-    let err = env.claim_timeout_declare(&anyone).unwrap_err();
-    assert!(is_vcode(&err, VanguardError::MatchOver));
-    assert_eq!(env.battle().status, vanguard::STATUS_OVER);
-    let before = env.gemas(&env.alice);
-    env.finalize(false).expect("a finished v5 Battle settles");
-    assert!(env.gemas(&env.alice) > before, "the winner is paid");
-}
-
-#[test]
-fn a_battle_on_the_current_rules_is_not_wound_down_early() {
-    for state in ["created", "setup", "live"] {
-        let mut env = old_battle(state);
-        env.patch_battle(|b| b.rules_version = engine::RULES_VERSION);
+        env.patch_battle(|b| b.rules_version = 5);
+        let (slot, now) = (env.slot(), env.now);
+        if state == "pending move" {
+            env.patch_battle(|b| {
+                b.record_pending(
+                    vanguard::PENDING_MOVE,
+                    vanguard::Intent {
+                        piece: id_of(74),
+                        to: 64,
+                        sealed_switch: 0,
+                    },
+                    0,
+                    slot,
+                    now,
+                )
+            });
+        }
         let anyone = stranger(&mut env);
+        let before = env.battle().status;
         let err = env.claim_timeout_declare(&anyone).unwrap_err();
         assert!(
             is_vcode(&err, VanguardError::NotTimedOut)
@@ -4569,7 +6184,9 @@ fn a_battle_on_the_current_rules_is_not_wound_down_early() {
                 || is_vcode(&err, VanguardError::ActionPending),
             "{state}: {err:?}"
         );
-        assert_ne!(env.battle().status, vanguard::STATUS_CANCELLED, "{state}");
+        assert_eq!(env.battle().status, before, "{state}");
+        assert_ne!(env.table().phase, vanguard::TABLE_OVER, "{state}");
+        assert_eq!(env.battle().rules_version, 5, "{state}");
     }
 }
 
@@ -4618,7 +6235,7 @@ fn compute_of_the_new_declares_and_resolves_has_headroom_in_the_client_budgets()
             env.start_in_rollup(seed);
             env.deal().expect("deal");
             if storm {
-                env.patch_secret(|v| v.storm_at = 1);
+                env.set_storm(1, 12_345);
             }
             let seat = if env.battle().side_of_seat(0) == Some(Side::Us) {
                 0
@@ -4901,4 +6518,189 @@ fn a_switch_that_dies_with_its_attack_keeps_its_change_in_the_army_and_the_end_m
         1u64 << id_of(95),
         "the dead switched 10 is in the end mask"
     );
+}
+
+// --- Fast refunds (ticket 35) ----------------------------------------------------------------
+
+impl Env {
+    fn refund_untabled_ix(&self, caller: APk) -> Instruction {
+        ix(
+            vanguard::ID,
+            vanguard::accounts::RefundUntabled {
+                caller,
+                assignment: assign_addr(self.tmatch),
+                tesoro_match: self.tmatch,
+                game_record: game_record_pda(),
+                authority: authority_pda(),
+                game_program: vanguard::ID,
+                program_data: program_data_pda(),
+                receipt: tpda(&[b"settled", self.tmatch.as_ref()]),
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
+                tesoro_program: tesoro_core::ID,
+            },
+            vanguard::instruction::RefundUntabled {},
+            vec![],
+        )
+    }
+
+    fn refund_untabled(&mut self) -> Result<(), Failed> {
+        let caller = self.oracle.insecure_clone();
+        let ixn = self.refund_untabled_ix(a(caller.pubkey()));
+        self.send(&[ixn], &caller, &[])?;
+        self.run_settlement();
+        Ok(())
+    }
+
+    fn skip_ix(&self) -> Instruction {
+        ix(
+            vanguard::ID,
+            vanguard::accounts::SkipEpoch {
+                caller: a(self.oracle.pubkey()),
+                assignment: assign_addr(self.tmatch),
+                table: self.table,
+            },
+            vanguard::instruction::SkipEpoch {},
+            vec![],
+        )
+    }
+
+    fn skip(&mut self) -> Result<(), Failed> {
+        let ixn = self.skip_ix();
+        self.rollup(ixn)
+    }
+}
+
+#[test]
+fn a_joined_match_with_no_table_refunds_after_the_table_wait_and_not_before() {
+    use vanguard::VanguardError::*;
+    let mut env = Env::new();
+    env.ensure_deployed();
+    env.open_and_join(1_000);
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.set_time(T0 + table_kit::TABLE_WAIT_SECS - 1);
+    assert_eq!(
+        custom_code(&env.refund_untabled().unwrap_err()),
+        vcode(TableWaitNotOver)
+    );
+    assert_eq!(env.tesoro_status(), Stage::Active);
+    env.set_time(T0 + table_kit::TABLE_WAIT_SECS);
+    env.refund_untabled().expect("refund after the wait");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
+    assert_eq!(
+        (env.gemas(&env.alice), env.gemas(&env.bob)),
+        (before.0 + 1_000, before.1 + 1_000)
+    );
+    // No double refund: the Match is no longer Active.
+    assert_eq!(
+        custom_code(&env.refund_untabled().unwrap_err()),
+        vcode(NotUntabled)
+    );
+}
+
+#[test]
+fn a_match_a_table_took_cannot_use_the_untabled_refund() {
+    use vanguard::VanguardError::*;
+    // Assigned, and the wait long past: the Assignment closes the path.
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.set_time(T0 + 10 * table_kit::TABLE_WAIT_SECS);
+    assert_eq!(
+        custom_code(&env.refund_untabled().unwrap_err()),
+        vcode(NotUntabled)
+    );
+    assert_eq!(env.tesoro_status(), Stage::Active);
+    // Started on the table: still refused.
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.begin().expect("begin");
+    env.set_time(T0 + 10 * table_kit::TABLE_WAIT_SECS);
+    assert_eq!(
+        custom_code(&env.refund_untabled().unwrap_err()),
+        vcode(NotUntabled)
+    );
+}
+
+#[test]
+fn a_lamport_sent_to_the_assignment_address_does_not_block_the_untabled_refund() {
+    let mut env = Env::new();
+    env.ensure_deployed();
+    env.open_and_join(1_000);
+    env.svm
+        .set_account(
+            s(assign_addr(env.tmatch)),
+            Account {
+                lamports: 1,
+                data: vec![],
+                owner: Pk::default(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("one lamport");
+    env.set_time(T0 + table_kit::TABLE_WAIT_SECS);
+    env.refund_untabled().expect("refund");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
+}
+
+#[test]
+fn a_match_that_never_began_is_refunded_promptly_by_skipping_its_epoch() {
+    use vanguard::VanguardError::*;
+    let mut env = Env::new();
+    env.next_match_on(0);
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    // The start window is still open: the Match may yet begin.
+    assert_eq!(custom_code(&env.skip().unwrap_err()), vcode(CannotSkip));
+    env.set_time(T0 + vanguard::START_WINDOW_SECS + 1);
+    env.skip().expect("skip");
+    let t = env.table();
+    assert_eq!((t.phase, t.epoch), (vanguard::TABLE_IDLE, 0));
+    assert!(t.dirty);
+    let (_, slot) = t.ring.find(&env.tmatch, 0).expect("slot");
+    assert_eq!(
+        (slot.state, slot.outcome),
+        (table_kit::SLOT_DONE, table_kit::OUTCOME_DRAW)
+    );
+    // Nothing is refunded until the commit lands on base.
+    assert_eq!(
+        custom_code(&env.finalize_start().unwrap_err()),
+        vcode(NoResult)
+    );
+    env.commit_standin();
+    env.finalize(true).expect("refund from the committed Draw");
+    assert_eq!(
+        (env.gemas(&env.alice), env.gemas(&env.bob)),
+        (before.0 + 1_000, before.1 + 1_000)
+    );
+    // Once per Match, and once settled it cannot be refunded again.
+    assert_eq!(custom_code(&env.skip().unwrap_err()), vcode(RingFull));
+    assert!(env.finalize_start().is_err());
+}
+
+#[test]
+fn skip_refuses_a_table_that_began_or_names_another_epoch() {
+    use vanguard::VanguardError::*;
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.begin().expect("begin");
+    env.set_time(T0 + vanguard::START_WINDOW_SECS + 1);
+    assert_eq!(custom_code(&env.skip().unwrap_err()), vcode(CannotSkip));
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.patch_table(|t| t.epoch = 1);
+    env.set_time(T0 + vanguard::START_WINDOW_SECS + 1);
+    assert_eq!(custom_code(&env.skip().unwrap_err()), vcode(CannotSkip));
+}
+
+#[test]
+fn a_skipped_epoch_can_still_start_another_match_assigned_to_it() {
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.set_time(T0 + vanguard::START_WINDOW_SECS + 1);
+    env.skip().expect("skip the first");
+    assert_eq!(env.table().epoch, 0, "the epoch is untouched");
+    env.next_match_on(0);
+    env.begin()
+        .expect("a later Assignment still begins on the skipped epoch");
+    assert_ne!(env.table().phase, vanguard::TABLE_IDLE);
 }

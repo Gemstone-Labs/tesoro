@@ -2,7 +2,7 @@
 import * as real from "../../../../../src/lib/chain/fixture";
 import { storyData } from "../../../../../stories/support/data";
 
-export const { match, backed, demoSnapshot, DEMO_NEW_ACCOUNT, DEMO_NO_ACCOUNT } = real;
+export const { match, backed, demoSnapshot, fixtureHolding, DEMO_NEW_ACCOUNT, DEMO_NO_ACCOUNT } = real;
 
 export const demoMode = () => true;
 export const demoBoard: typeof real.demoBoard = () => {

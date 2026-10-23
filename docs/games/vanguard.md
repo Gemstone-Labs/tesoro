@@ -1,6 +1,6 @@
 # Vanguard: Game program
 
-Program `vanguard` `TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH` (Solana devnet, upgradeable). Blitz Stratego on a 10x10 board, the US Army against the Royal Italian Army, in a MagicBlock Private Ephemeral Rollup (TEE). Each Player gets 20 hidden pieces and 10 seconds a move; capturing the enemy Supply Truck wins the Pot minus Fees through tesoro_core, and a draw or a cancelled Match refunds both entries.
+Program `vanguard` `TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH` (Solana devnet, upgradeable). Blitz Stratego on a 10x10 board, the US Army against the Royal Italian Army, in a MagicBlock Private Ephemeral Rollup (TEE). Each Player gets 20 hidden pieces and 10 seconds a move; capturing the enemy Supply Truck wins the Pot minus Fees through tesoro_core, a draw or a Match the oracle never answered refunds both entries, and a Player who never shows up loses to the one who did.
 
 Code: `programs/vanguard/src/{lib,state,engine}.rs`. Rules in TypeScript: `app/src/games/vanguard/rules.ts`. Client: `app/src/games/vanguard/chain.ts`. Registered in tesoro_core with studio_bps 300 and the `["authority"]` PDA (see `docs/addresses.md`); no tesoro_core change was needed, as for Hold'em.
 
@@ -51,7 +51,7 @@ The app has no Pass button (founder, 2026-10-22): a Player passes only by diggin
 
 ## What is public and what is private
 
-| Information | During the Match | After `close_match` |
+| Information | During the Match | After the Match |
 |---|---|---|
 | Piece positions, who moved where, whose turn, clocks, depots claimed, Two-Step Turns banked, missed turns, the storm | public | public |
 | The rank of a piece that has not fought, blasted or been rescued | readable only by its Player | public (the end reveal shows every piece) |
@@ -59,7 +59,7 @@ The app has no Pass button (founder, 2026-10-22): a Player passes only by diggin
 | A Blast: the Engineer and every piece around it, with their ranks | public | public |
 | A Rescue: the Colonel, the Truck and both squares | public | public |
 
-The hidden ranks live in each Player's own `Army` account, which only that Player's token can read. The public `Battle` account holds only what has been shown. `close_match` wipes the Armies' key and change codes before committing them to the base layer, and a test checks the committed bytes.
+Matches run on persistent tables (the table protocol of `docs/adr/0013-economy-upgrade.md`). A table is two public accounts, the small `Table` (epoch, phase, result ring, the VRF request) and the `Battle` (the board; one per table, reinitialised for every Match), and two `Army` seats. A seat is a rollup-only account behind a private permission, created once with the table and kept for its life: only the Player it is handed to can read it, and it can never be committed to Solana. A seat holds that Player's secret and half of the randomness until the deal, then the ranks of the side's pieces, the Truck's fuel, the sealing key and one XOR share of the storm. There is no shared Secret account. The public `Battle` holds only what has been shown. After a Match `wipe_seats` zeroes both seats and swaps their permission member to nobody before the next Match's Players are handed them, so a seat is never without a private permission, and a test checks the bytes.
 
 ### Inherent deductions
 
@@ -92,7 +92,9 @@ The chain shows each declared action in the open: the piece number and the targe
 
 **Authentication.** The Player's signature and the frozen pending intent authenticate the bytes: nobody else can declare for a seat, and `resolve` takes no payload. Each of the 256 values of a sealed byte decodes to something defined, with no panics, no unchecked indexing and no secret-dependent error, even under signer impersonation in simulation. Unsealing, the switch and the Dig in check run as masks with no branch on hidden values; the public state, the errors and the compute are identical whether or not a hidden change happened.
 
-**After the Match.** `close_match` commits the Match and makes its transaction history public; the setup seed becomes recoverable from it, so anyone can rebuild the key and every pad. That is the same moment the end reveal shows every piece.
+**After the Match.** The setup seed is a hash of both Players' secrets, both halves of the oracle's answer, the table, the Match, the epoch and the request number, and it is never stored. A table does not leave the rollup in normal running, so the history of its private transactions stays filtered. If a table is ever retired or forced out, that history becomes public and the seed, the sealing keys and which Major dug in and which General switched can be rebuilt from it (the founder accepts this, 2026-10-22): the layouts and the end reveal are public at the end anyway, and no later Match is affected, because every Match has its own secrets, answer and key.
+
+**The storm.** Its turn and its line seed are never in one place. Each seat holds a random XOR share; `resolve` combines the two for the length of one engine run. One seat alone, with the public Battle, shows a uniform number.
 
 **Where changes are remembered.** The Army's rank bytes take two private codes: 13 for a dug-in Major (plays as a Landmine) and 14 for a switched General of the Army (plays as a Spy). Ranks of dead pieces are never cleared, so the end reveal and the owner's badge survive death and reloads. The Battle keeps an 8-byte end mask (a bit per piece id) in its reserved bytes, written only at the end, that marks every piece whose rank changed, dead ones included, so the end panel says "Major, dug in" and "General of the Army, now a Spy". The account layout is unchanged (`LAYOUT_VERSION` 2).
 
@@ -101,18 +103,25 @@ The chain shows each declared action in the open: the piece number and the targe
 | Step | Layer | Instruction | Who |
 |---|---|---|---|
 | open / join | base | tesoro_core `open_match`, `join_match` (game = this program id) | the two Players |
-| bind | base | `create_match` | either Player |
-| delegate | base | `delegate_match` | anyone |
-| permissions | TEE | `init_permissions` | anyone |
-| entropy + VRF | TEE | `contribute_entropy`, `request_vrf`; the callback `vrf_callback_store` only stores the output | each Player, then anyone |
-| deal | TEE | `deal` once the output arrived (sets up both Armies and their keys) | anyone |
+| assign | base | `assign_match(generation, index, epoch)` (write-once; the Players come from the Match, the start deadline from the clock) | the operator (keeper) |
+| begin | TEE | `begin_match` (reserves a ring slot, binds the table's Battle) | anyone |
+| seats | TEE | `seat_players` (swaps each seat's permission member from nobody to its Player) | anyone |
+| check in | TEE | `check_in`; the second one opens setup (a minute for the secrets, three for the whole setup) | each Player |
+| entropy + VRF | TEE | `contribute_entropy` (into your own seat), `request_vrf` (no argument, once per Match, bound to the table, Match, epoch, request number and both secrets); the callback `vrf_callback_store` names its request and only splits the answer into a half per seat | each Player, then anyone |
+| deal | TEE | `deal` once the answer arrived (draws sides, layouts, storm; writes ranks, keys and storm shares into the seats; zeroes every secret and half) | anyone |
 | move | TEE | `move_piece(piece, to, expected_seq, sealed_switch)` | the Player to move |
 | powers | TEE | `blast(piece, expected_seq, sealed_switch)`, `rescue(piece, expected_seq, sealed_switch)`, `pass(expected_seq, sealed_slot, sealed_switch)` | the Player to move |
 | Two-Step Turn | TEE | `start_two_step` (public, no sealed field) | the Player to move |
-| apply | TEE | `resolve` (no arguments; applies the pending declare in a later slot) | anyone |
-| clock | TEE | `claim_timeout` (a missed turn, or the safety cap) | anyone |
-| commit | TEE | `close_match` (wipes keys and change codes, closes permissions, commit + undelegate) | anyone |
-| settle | base | `finalize` (CPI `settle_match`, or `refund_match` for a draw or cancel) | anyone |
+| apply | TEE | `resolve` (no arguments; applies the pending declare in a later slot; a decided game writes its result into the ring) | anyone |
+| clock | TEE | `claim_timeout` (a missed turn, the safety cap, a start nobody finished, a stalled setup) | anyone |
+| commit | TEE | `commit_table` (the table and its Battle, paid by the Sponsor; once per result, repeatable after a wait if it was lost) | anyone |
+| wipe, reset | TEE | `wipe_seats`, then `reset_table` (30 s later; the ring is kept) | anyone |
+| settle | base | `finalize` (reads the committed table's ring; CPI `settle_match`, or `refund_match` for a draw or cancel) | anyone |
+| free the slot | TEE | `release_slot` once tesoro_core's receipt is a minute old; `void_table` if tesoro_core refunded a Match the table never finished | anyone |
+
+Both Armies are read by `resolve` and `claim_timeout`, so those two transactions are private while the Match lives; the declares touch the Battle and the table (read only) and are public.
+
+A Match nobody finished starting is ended by `claim_timeout` and written into the ring by who showed up (`table_kit::absence_outcome`, the founder's rule of 2026-10-23): the Player who checked in (before the start deadline) or who contributed a secret (inside the setup window) wins a normal Match with the normal Fees; if neither showed up it is a no-show (each side pays the Platform Fee). When both contributed and only the oracle's answer is missing, nobody forfeits and both entries are refunded.
 
 A move is two steps: the Player declares it (public geometry checks: the turn, the clock, `expected_seq`, the deal slot, nothing pending, and a target on any line some rank could move along) and any account calls `resolve` in a later slot, which checks the piece's real rank. The split exists so the program never answers "is this rank allowed to go there?" in the declare, where a simulation could leak it. `move_piece`'s public check admits straight and diagonal lines, one square of 8, a straight jump over an occupied neighbour and a straight wadi crossing; the resolve decides.
 
@@ -128,16 +137,16 @@ The Battle keeps a ring of 16 event records, read by clients and spectators. Kin
 
 Measured on compiled SBF in LiteSVM, whole instructions. A declare is about 4,000 to 5,100 compute units. `resolve` is roughly flat, because it does constant-work scans so it never branches on a hidden rank: about 130,000 to 148,500 on every board, with the worst case (a dense dealt board on a Dust Storm turn) at 148,483. Blast, Rescue, Pass and Dig in resolves cost 130,000 to 138,000, and a Dig in costs the same as a Pass to the unit. The client budgets are 40,000 for a declare and 200,000 for a resolve (the worst case times 1.3 is 193,000). The runtime limit is 1,400,000 per instruction, and the design's own ceiling is 600,000.
 
-## Wind-down of older rules
+## Rules versions
 
-A Battle created on rules version 5 (the earlier Vanguard) keeps its old rules: four-direction steps, Engineers that defuse Landmines, no powers, no Pass. Before the upgrade to version 6 the keeper lets every Battle finish. After it, `claim_timeout` on any Battle whose `rules_version` is not 6 and that is Created, Setup or Live (any pending state) clears the pending action and cancels it at once, no deadline needed, so the normal `close_match` and `finalize` refund it in full and no rollup account stays delegated. Over version 5 Battles still close, finalize and decode, and their `defuse` events still decode for Match history. The app decodes both versions; `defuse` stays in the decoder for that reason only.
+A Battle stores the rules version it began under. A Match that spans a program upgrade plays on by that version (the engine keeps every earlier version's rules: four-direction steps and Engineers that defuse Landmines for version 5), and nobody can cancel it for that reason: tables are reused, so a free refund for whoever is losing would be a lever. Operators drain tables before an upgrade that changes the rules. The app decodes both versions; `defuse` stays in the decoder for that reason only.
 
 ## Verification and status
 
-- `cargo test -p vanguard`: engine unit tests, the pad's published known answers, a golden test that pins the account layouts and the event bytes, replay of the shared recordings (305 recordings, about 8,900 actions, 260 random positions with every piece's legal targets checked), and LiteSVM tests against the real `vanguard.so` and `tesoro_core.so`: every instruction, all 256 values of each sealed byte for both seats, stale `expected_seq`, a Dig in against a Pass against an invalid Dig in under tight compute limits (same public bytes, same compute, same result), signer impersonation in simulation, a hidden change leaving the opponent's next resolve identical, committed Army bytes holding no key or codes, and the wind-down of a version 5 Battle in every lifecycle state.
+- `cargo test -p vanguard`: engine unit tests, the pad's published known answers, a golden test that pins the account layouts and the event bytes, replay of the shared recordings (305 recordings, about 8,900 actions, 260 random positions with every piece's legal targets checked), and LiteSVM tests against the real `vanguard.so` and `tesoro_core.so`: every instruction, all 256 values of each sealed byte for both seats, stale `expected_seq`, a Dig in against a Pass against an invalid Dig in under tight compute limits (same public bytes, same compute, same result), signer impersonation in simulation, a hidden change leaving the opponent's next resolve identical, a byte scan after the deal (no seed, secret, half or oracle answer in any account; each sealing key only in its own seat; the storm in no single account), a stale oracle answer after a cancel, wipe or reset, a table reused three times with every result kept in the ring until it is settled, settlement refused from the wrong table, owner or epoch, and the table and the Battle always ending together.
 - `app/src/games/vanguard`: the TypeScript rules and bot (every power, Pass, the endings, the cap tiebreak with changed ranks), the seal known answers and retry ledger, the chain decoders, the owner's badge after a reload, the roster strip after a ring wrap, and the end-panel marks.
-- LiteSVM has no delegation or permission programs, so `close_match` and `init_permissions` are stood in for by their outputs.
-- Devnet (2026-10-22, QA Matches 3585262584381 and 3585263451521): every power, Pass and face-down Dig in and switch on both sides, played on the live program. While the Match was live, neither the opponent's token nor an outsider's could read an Army or the Secret. A face-down Dig in and a Pass gave the same records (`pass`, `turn`) and the same 14-byte instruction, and a face-down switch gave a plain `move`, `turn`. After the keeper's `close_match` and `finalize`, the base-layer Armies and Secret were back with the program and wiped (ranks with codes 13/14, keys, fuel, Truck turn, move counts, entropy, VRF, storm), the end mask named exactly the changed pieces, and the tesoro_core Match settled. Record in `docs/deployments.md`.
+- LiteSVM has no delegation, permission, VRF or MagicBlock commit programs, so `init_seats`, the permission half of `seat_players` and `wipe_seats`, the call in `request_vrf`, the commit and the delegation are stood in for by their outputs (the instruction list that reaches the permission program is checked from the IDL).
+- Devnet on the per-Match design (2026-10-22, QA Matches 3585262584381 and 3585263451521; the table design has not run on devnet yet, ticket 24): every power, Pass and face-down Dig in and switch on both sides, played on the live program. While the Match was live, neither the opponent's token nor an outsider's could read an Army or the Secret. A face-down Dig in and a Pass gave the same records (`pass`, `turn`) and the same 14-byte instruction, and a face-down switch gave a plain `move`, `turn`. After the keeper's `close_match` and `finalize`, the base-layer Armies and Secret were back with the program and wiped (ranks with codes 13/14, keys, fuel, Truck turn, move counts, entropy, VRF, storm), the end mask named exactly the changed pieces, and the tesoro_core Match settled. Record in `docs/deployments.md`.
 - Findings that shape the sealing: while the accounts are delegated, listing the rollup's transaction history for them reads empty to every token, and the listing opens at `close_match`. A transaction fetched by its signature shows its instruction data to any token during the Match (seen again 2026-10-22 for `move_piece` and `pass`), which is why the switch and Dig in bytes are sealed.
 
 ## Known limits

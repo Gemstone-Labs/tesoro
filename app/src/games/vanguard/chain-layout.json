@@ -1,18 +1,26 @@
 {
   "army": {
     "offsets": {
-      "battle": 9,
       "bump": 8,
+      "contributed": 144,
+      "dealt": 242,
+      "extEntropy": 210,
       "fuel": 105,
+      "half": 178,
+      "halfSet": 177,
       "moves": 110,
       "player": 42,
       "ranks": 75,
       "reserved": 112,
       "seat": 41,
+      "secret": 145,
       "side": 74,
+      "stormAt": 243,
+      "stormSeed": 245,
+      "table": 9,
       "truckTurn": 106
     },
-    "size": 144
+    "size": 249
   },
   "battle": {
     "noSquare": 255,

@@ -1,7 +1,6 @@
 import { fmtGemas } from "../format";
 import type { GameId, MatchResult } from "../mock/types";
 import { backerDelta, matchDelta, seatResult } from "./ledger";
-import { assetIndexOf, matchOpenedAt } from "./match-id";
 import type { ChainMatch } from "./read";
 
 /** One finished Match in an Account's history, as a Player or as the Backer who funded it. */
@@ -20,10 +19,12 @@ export interface HistoryRow {
   scores: [number, number] | null;
   /** TesoroAccount key of whoever played against this side, when anyone did. */
   opp: string | null;
-  /** Milliseconds since the epoch (Match ids embed their creation time). */
+  /** Milliseconds since the epoch the Match opened. */
   at: number;
-  /** Trading Duel only: the asset index the Match traded (0 SOL, 1 ETH, 2 HYPE), from its id. */
+  /** Trading Duel only: the asset index the Match traded (0 SOL, 1 ETH, 2 HYPE). */
   asset: number | null;
+  /** What the Backer of this Player's side gained (+) or lost (−); present on rows read from the Match history, null for an unbacked Match. */
+  backerDelta?: number | null;
 }
 
 /** The history row of a finished Match, or null while it is unfinished or its result is not read yet. */
@@ -45,7 +46,7 @@ export function historyRow(m: ChainMatch): HistoryRow | null {
   const backing = m.backing ? { other: role === "player" ? m.backing.funder : m.backing.player, shareBps: m.backing.shareBps } : null;
   const s = m.session;
   return {
-    id: m.id.toString(),
+    id: m.id,
     game: m.game,
     entry: m.entry,
     role,
@@ -54,8 +55,8 @@ export function historyRow(m: ChainMatch): HistoryRow | null {
     backing,
     scores: s && s.settled ? (seat === 0 ? s.scores : [s.scores[1], s.scores[0]]) : null,
     opp: m.sides[1 - seat]?.player ?? null,
-    at: matchOpenedAt(m.id, m.game),
-    asset: m.game === "trading-duel" ? assetIndexOf(m.id) : null,
+    at: m.openedAt,
+    asset: m.game === "trading-duel" ? m.asset : null,
   };
 }
 
@@ -68,9 +69,12 @@ export function accountHistory(played: ChainMatch[], funded: ChainMatch[] = []):
 }
 
 /** Every result a finished Match can have, in the order the filter shows them. */
-export const RESULTS: readonly MatchResult[] = ["won", "lost", "draw", "refunded"];
-/** What a Match history shows by default: Matches that were played. Refunds stay hidden until asked for. */
-export const PLAYED: readonly MatchResult[] = ["won", "lost", "draw"];
+export const RESULTS: readonly MatchResult[] = ["won", "lost", "draw", "no-show", "refunded"];
+/** What a Match history shows by default: Matches that were played, and no-shows (each side paid the Platform Fee). Refunds stay hidden until asked for. */
+export const PLAYED: readonly MatchResult[] = ["won", "lost", "draw", "no-show"];
+
+/** True for a Match that was never played (a refund or a no-show): left out of records, rematches and play counts. */
+export const unplayed = (r: MatchResult): boolean => r === "refunded" || r === "no-show";
 
 /** The results a `?result=` value shows: the played ones when it is absent or unreadable, none for "none". */
 export function resultFilter(v: string | null): MatchResult[] {
@@ -109,6 +113,7 @@ export const shortKey = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
 export function amountText(r: HistoryRow): string {
   if (r.result === "draw") return "Entry returned";
   if (r.result === "refunded") return "Entry refunded";
+  if (r.result === "no-show") return r.delta === 0 ? "No-show" : `No-show, Platform Fee ${fmtGemas(Math.abs(r.delta))} Gemas`;
   const sign = r.delta > 0 ? "+" : r.delta < 0 ? "−" : "";
   return `${sign}${fmtGemas(Math.abs(r.delta))} Gemas`;
 }

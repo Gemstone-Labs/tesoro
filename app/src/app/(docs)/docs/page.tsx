@@ -28,7 +28,7 @@ import { CHANGES } from "@/components/docs/changelog";
 import { StartCards } from "@/components/docs/StartCards";
 import { Cards, Row, Stats } from "@/components/docs/visual";
 import type { Tone } from "@/components/docs/visual";
-import { INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
+import { INSTANT_PAYOUT_PCT, REDEEM_PAYOUT_PCT, YIELD_FEE_PCT } from "@/lib/chain/yield";
 import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Overview", alternates: { canonical: "/docs" } };
@@ -142,8 +142,8 @@ export default function Page() {
         <Cards
           items={[
             { tag: "The problem", title: "Yield waits, play costs", icon: Hourglass, tone: "amber", body: "Locked tokens earn slowly, and anything you want to play with has to come out of the amount you locked." },
-            { tag: "The fix", title: "Play now, what you lock is never played", icon: Sprout, tone: "emerald", body: `An Advance pays your Lock's projected yield upfront as Gemas, net of ${BRAND.name}'s 20% Yield Fee. What you lock stays locked, and the Lock's own yield repays the Advance.` },
-            { tag: "Why it compounds", title: "Winners redeem as yield lands", icon: Repeat, tone: "emerald", body: `Gemas you win turn into the loser's coin as that yield arrives, or right away for ${INSTANT_PAYOUT_PCT}% with Redeem now. Backing and the weekly Leaderboard Pool give more Gemas a reason to move.` },
+            { tag: "The fix", title: "Play now, what you lock is never played", icon: Sprout, tone: "emerald", body: `An Advance pays your Lock's projected yield upfront as Gemas. What you lock stays locked, and the Lock's own yield repays the Advance. ${BRAND.name}'s ${YIELD_FEE_PCT}% Yield Fee is taken when Gemas are cashed out.` },
+            { tag: "Why it compounds", title: "Winners redeem as yield lands", icon: Repeat, tone: "emerald", body: `Gemas you win turn into the loser's coin as that yield arrives, or right away for ${INSTANT_PAYOUT_PCT}% of their value with Redeem now (a Redeem pays ${REDEEM_PAYOUT_PCT}%). Backing and the weekly Leaderboard Pool give more Gemas a reason to move.` },
           ]}
         />
         <div className="dx-works" aria-label="Built on">

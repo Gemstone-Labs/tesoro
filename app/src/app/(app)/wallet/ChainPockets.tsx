@@ -4,9 +4,12 @@ import { type ReactNode, useState } from "react";
 import { Button, ChainGlyph, Meter, Sheet } from "@/components/ui";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
+import { useRedeemCost } from "@/lib/chain/redeem-cost";
+import type { ReadyBy } from "@/lib/chain/ready-by";
 import { fmtAsset, fmtGemas, fmtGemasUsd, fmtInMinutes } from "@/lib/format";
 import type { Chain } from "@/lib/mock";
 
+const fmtUsdCents = (usd: number) => (usd < 0.01 ? "under $0.01" : `$${usd.toFixed(2)}`);
 const GLYPH = { SOL: 0, ETH: 1, HYPE: 2 } as const;
 const TOP = 5;
 const PAGE = 20;
@@ -38,6 +41,30 @@ export interface Pocket {
   sources: PocketSource[];
   /** When the soonest of your own repaying Positions covers its Debt (ms), so its Gemas turn redeemable; null when unknown. */
   nextRedeemAt?: number | null;
+  /** Ready now and "ready by" dates of the Gemas still waiting, from the lines' planned repayment. */
+  readyBy?: ReadyBy;
+  /** SOL price in micro-USD, to price the cross-chain fee of a small ETH or HYPE Redeem. */
+  solMicroUsd?: bigint | null;
+  /** "Redeem small leftovers" and anything else that tidies this chain's lines. */
+  tidy?: ReactNode;
+}
+
+const DATE = new Intl.DateTimeFormat("en", { month: "short", day: "numeric" });
+const fmtDay = (sec: number) => DATE.format(new Date(sec * 1000));
+
+/** "Ready by" for the waiting Gemas: up to three planned dates, soonest first. Dates are planned repayment, not promises. */
+export function ReadyByList({ ready, className }: { ready: ReadyBy; className?: string }) {
+  if (ready.rows.length === 0) return null;
+  return (
+    <ul className={className ?? "wl-readyby"} aria-label="When pending Gemas are ready">
+      {ready.rows.map((r, i) => (
+        <li key={r.at}>
+          <span className="tnum">{fmtGemas(Number(r.gemas))}</span> Gemas ready by {i === ready.rows.length - 1 && ready.rows.length > 1 && ready.last !== ready.next ? "about " : ""}
+          <b>{fmtDay(r.at)}</b>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /** "Next Gemas redeemable in ~24 min", counting down; the plain fallback when no time can be projected. */
@@ -81,6 +108,7 @@ function PocketCard({ p, hidden, onRedeem, onAll }: { p: Pocket; hidden: boolean
   const pending = Math.max(0, p.gemas - p.redeemable);
   const [closedOpen, setClosedOpen] = useState(false);
   const top = [...p.sources].sort((a, b) => b.gemas - a.gemas).slice(0, TOP);
+  const cost = useRedeemCost(p.chain, p.redeemable, p.solMicroUsd);
   return (
     <section className={`cut cut-card wl-pocket c-${p.chain}${hidden ? " phone-hidden" : ""}`} aria-label={`${p.chain}`}>
       <header className="wl-pocket-head">
@@ -109,15 +137,23 @@ function PocketCard({ p, hidden, onRedeem, onAll }: { p: Pocket; hidden: boolean
               <span className="meta wl-pocket-why">Nothing to redeem yet</span>
             )}
           </div>
+          {cost && p.redeemable > 0 && (
+            <span className={`meta wl-redeem-cost${cost.small ? " small" : ""}`} role={cost.small ? "note" : undefined}>
+              {cost.small
+                ? `Paying this out on ${p.chain} costs about ${fmtUsdCents(cost.usd)} in fees, ${Math.min(100, Math.round(cost.share * 100))}% of it. Redeem more at once and the fee stays the same.`
+                : `Paying out on ${p.chain} costs about ${fmtUsdCents(cost.usd)} in fees.`}
+            </span>
+          )}
           <Meter value={p.gemas ? p.redeemable / p.gemas : 0} label={`${p.chain}: share of your Gemas redeemable now`} />
           {pending > 0 ? (
             <>
               <span className="meta">{fmtGemas(pending)} Pending</span>
-              <NextRedeem at={p.nextRedeemAt} />
+              {p.readyBy && p.readyBy.rows.length > 0 ? <ReadyByList ready={p.readyBy} /> : <NextRedeem at={p.nextRedeemAt} />}
             </>
           ) : (
             <span className="meta">Nothing pending</span>
           )}
+          {p.tidy}
         </div>
       )}
 

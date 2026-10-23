@@ -44,9 +44,9 @@ export const Queue: Story = { render: () => <EnterMatch kind="queue" entry={1000
 export const QueueFailed: Story = { ...Queue, decorators: [withSigner] };
 export const QueueSignedOut: Story = { ...Queue, parameters: { ...route("/play/queue", { entry: "1000" }), auth: "signed-out" } };
 export const QueueNotEnoughGemas: Story = {
-  render: () => <EnterMatch kind="queue" entry={2500} game="holdem" />,
+  render: () => <EnterMatch kind="queue" entry={1000} game="holdem" />,
   parameters: {
-    ...route("/play/queue", { entry: "2500", game: "holdem" }),
+    ...route("/play/queue", { entry: "1000", game: "holdem" }),
     data: { snapshot: (a: string) => ({ ...demo(a), holdings: [], ownTotal: 0n, wonTotal: 0n }) },
   },
 };

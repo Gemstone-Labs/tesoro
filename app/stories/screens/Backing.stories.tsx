@@ -46,14 +46,14 @@ function offer(n: number, game: GameId, entry: number, o: Partial<ChainOffer> = 
     game,
     entry,
     shareBps: 5000,
-    directedTo: null,
     status: "open",
     expiresAt: now() + 20 * HOUR,
     useBy: now() + 20 * HOUR,
     player: null,
-    request: null,
+    request: at(1),
     lines: [{ source: pk(n + 50), isOwn: true, amount: BigInt(entry) }],
     matchId: null,
+    ticketOpen: false,
     ...o,
   };
 }
@@ -99,8 +99,8 @@ const offersForYou = () =>
   board(
     [MY_REQUEST],
     [
-      offer(941, "holdem", 1000, { backer: demoKey(703), directedTo: MY_REQUEST.address.toBase58(), shareBps: 6000, expiresAt: now() + 22 * HOUR }),
-      offer(942, "holdem", 1000, { backer: demoKey(705), directedTo: MY_REQUEST.address.toBase58(), shareBps: 4000, expiresAt: now() + 3 * HOUR }),
+      offer(941, "holdem", 1000, { backer: demoKey(703), request: MY_REQUEST.address.toBase58(), shareBps: 6000, expiresAt: now() + 22 * HOUR }),
+      offer(942, "holdem", 1000, { backer: demoKey(705), request: MY_REQUEST.address.toBase58(), shareBps: 4000, expiresAt: now() + 3 * HOUR }),
     ],
   );
 
@@ -122,7 +122,7 @@ export const BackedReadyToPlay: Story = {
           request(932, "trading-duel", 500, { status: "accepted", live: false }),
         ],
         [
-          offer(943, "holdem", 1000, { backer: demoKey(703), directedTo: MY_REQUEST.address.toBase58(), status: "accepted", shareBps: 6000, player: DEMO_ME, request: MY_REQUEST.address.toBase58(), useBy: now() + 50 * 60 }),
+          offer(943, "holdem", 1000, { backer: demoKey(703), status: "accepted", shareBps: 6000, player: DEMO_ME, request: MY_REQUEST.address.toBase58(), useBy: now() + 50 * 60 }),
           offer(944, "trading-duel", 500, { backer: demoKey(706), status: "accepted", shareBps: 3000, player: DEMO_ME, request: pk(932).toBase58(), useBy: now() + 5 * HOUR }),
         ],
       ),
@@ -133,23 +133,22 @@ export const BackedReadyToPlay: Story = {
 /** You already made an Offer on a Request: its card says Offer sent instead of Make an Offer. */
 export const OfferSentOnARequest: Story = {
   parameters: {
-    data: { board: board([], [offer(945, "block-puzzle", 1000, { directedTo: at(1), shareBps: 5500 })]) },
+    data: { board: board([], [offer(945, "block-puzzle", 1000, { request: at(1), shareBps: 5500 })]) },
   },
 };
 
 /**
- * Offers you funded, one in each state: waiting on a Player, an old public Offer (cancel only),
+ * Offers you funded, one in each state: waiting on a Player,
  * accepted and waiting for the Player to start, used in a Match, and expired (release the Gemas).
  */
 export const MyBackings: Story = {
   parameters: {
     data: {
       board: board([], [
-        offer(951, "block-puzzle", 1000, { directedTo: at(1), shareBps: 5500 }),
-        offer(952, "holdem", 1000, { shareBps: 5000 }),
+        offer(951, "block-puzzle", 1000, { request: at(1), shareBps: 5500 }),
         offer(953, "trading-duel", 500, { status: "accepted", shareBps: 6000, player: demoKey(705), request: at(5), useBy: now() + 40 * 60 }),
-        offer(954, "block-puzzle", 2500, { status: "consumed", shareBps: 4500, player: demoKey(703), request: at(3), matchId: BigInt(Date.now() - 25 * 60_000) << 1n }),
-        offer(955, "holdem", 500, { directedTo: at(2), shareBps: 5000, expiresAt: now() - HOUR }),
+        offer(954, "block-puzzle", 1000, { status: "consumed", shareBps: 4500, player: demoKey(703), request: at(3), matchId: `${"1".repeat(32)}-${Date.now() - 25 * 60_000}` }),
+        offer(955, "holdem", 500, { request: at(2), shareBps: 5000, expiresAt: now() - HOUR }),
       ]),
     },
   },

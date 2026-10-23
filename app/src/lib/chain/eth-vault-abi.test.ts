@@ -24,7 +24,7 @@ describe("vaultAbi matches the formula vault (contracts/src/PositionVault.sol)",
   it("decodes a Position as named fields", () => {
     const p = {
       owner: "0x00000000000000000000000000000000000A11cE", principalShares: 10n, principalUnderlying: 12n, openRate: 1n, paidUnderlying: 2n, frozenAccrued: 3n,
-      a: 4n, b: 5n, d: 6n, heldShares: 7n, apyBps: 0n, speedup: 0n, openTime: 8n, outSeq: 1n, inSeq: 0n, feeBps: 2000, horizonMonths: 12, unlocked: false,
+      a: 4n, b: 5n, d: 6n, heldShares: 7n, apyBps: 0n, speedup: 0n, openTime: 8n, outSeq: 1n, inSeq: 0n, horizonMonths: 12, unlocked: false,
     } as const;
     const data = encodeFunctionResult({ abi: vaultAbi, functionName: "getPosition", result: p });
     const out = decodeFunctionResult({ abi: vaultAbi, functionName: "getPosition", data });

@@ -7,6 +7,7 @@
  */
 import { PublicKey } from "@solana/web3.js";
 import layout from "./chain-layout.json";
+import type { EndState } from "../../server/history/end-state";
 import type { Army, Change, EndReason, GameEvent, Outcome, Rank, Square } from "./rules";
 
 const B = layout.battle;
@@ -17,12 +18,10 @@ const NO_PIECE = 255;
 
 export const NO_SQUARE = B.noSquare;
 /**
- * The 31 reserved bytes close the Battle and the 32 reserved bytes close the Army, so both sit at the end of their
- * accounts (the layout table has no entry for them): the end mask is the first 8 bytes of the Battle's, the sealing
- * key all 32 of the Army's.
+ * The 31 reserved bytes close the Battle, so they sit at the end of the account (the layout table has no entry for them):
+ * the end mask is their first 8 bytes. The Army's 32 reserved bytes (its sealing key) have an entry in the layout table.
  */
 const END_MASK_AT = B.size - 31;
-const SEAL_KEY_AT = A.size - 32;
 /** Battle status, as the program writes it. */
 export const STATUS = { created: 0, setup: 1, live: 2, over: 3, cancelled: 4 } as const;
 /** `Battle.winner` when the Match was a draw / nobody has won. */
@@ -130,7 +129,7 @@ export const PENDING = { none: 0, move: 1, timeout: 2, cap: 3, blast: 4, rescue:
 /** One side's private state. */
 export interface ArmyAccount {
   bump: number;
-  battle: PublicKey;
+  table: PublicKey;
   seat: number;
   player: PublicKey;
   /** 0 US, 1 Italy, 255 before the deal. */
@@ -142,6 +141,10 @@ export interface ArmyAccount {
   moves: number;
   /** The Player's 32-byte sealing key (`Army.reserved`), written at the deal and zeroed when the Match is wiped. Never leaves the client. */
   sealKey: Uint8Array;
+  /** This seat's secret for the Match is in (until the deal spends it). */
+  contributed: boolean;
+  /** The deal ran: ranks, key and storm share are in. */
+  dealt: boolean;
 }
 
 const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength);
@@ -224,7 +227,7 @@ export function decodeArmy(data: Uint8Array): ArmyAccount {
   const O2 = A.offsets;
   return {
     bump: data[O2.bump],
-    battle: key(data, O2.battle),
+    table: key(data, O2.table),
     seat: data[O2.seat],
     player: key(data, O2.player),
     side: data[O2.side],
@@ -232,7 +235,29 @@ export function decodeArmy(data: Uint8Array): ArmyAccount {
     fuel: data[O2.fuel],
     truckTurn: v.getInt32(O2.truckTurn, true),
     moves: v.getUint16(O2.moves, true),
-    sealKey: data.slice(SEAL_KEY_AT, SEAL_KEY_AT + 32),
+    sealKey: data.slice(O2.reserved, O2.reserved + 32),
+    contributed: data[O2.contributed] !== 0,
+    dealt: data[O2.dealt] !== 0,
+  };
+}
+
+/** The public end board kept in the Match history (see `vanguardEndState` in the keeper) as a Battle the board components can show. */
+export function battleFromEndState(s: Extract<EndState, { game: "vanguard" }>, match: PublicKey): Battle {
+  const b = decodeBattle(new Uint8Array(B.size));
+  return {
+    ...b,
+    tesoroMatch: match,
+    players: [new PublicKey(s.players[0]), new PublicKey(s.players[1])],
+    usSeat: s.usSeat,
+    winner: s.winner,
+    reason: s.reason,
+    moves: s.moves,
+    turnNo: s.turnNo,
+    sq: [...s.sq],
+    shown: [...s.shown],
+    endMask: BigInt(s.endMask),
+    depotClaimed: [s.depotClaimed[0], s.depotClaimed[1]],
+    status: STATUS.over,
   };
 }
 

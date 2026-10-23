@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
-import { PublicKey } from "@solana/web3.js";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
-import { getChain, getTradingDuel } from "@/lib/chain/client";
+import { getTradingDuel } from "@/lib/chain/client";
+import { matchAddressOf } from "@/lib/chain/match-id";
+import { NO_TABLE_NOTE } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
-import { ASSETS, DRAW, STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfMatchId, decodeDuel, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
-import { addSighting, clockOffsetMs, dropPending, settlePending, type ClockSighting, type PendingPicks } from "./matchView";
-import { commitPhase, isCommitPending, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
+import { ASSETS, DRAW, PHASE, STATUS, assetOfIndex, decodeDuel, type Assignment, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
+import { addSighting, canFinalize, clockOffsetMs, dropPending, settlePending, type ClockSighting, type PendingPicks } from "./matchView";
+import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
+import { absenceLine } from "@/lib/absence-copy";
 
 /** Where a Trading Duel Match is in its life, read from chain. */
 export type Stage = "loading" | "notfound" | "spectator" | "waiting" | "setup" | "live" | "closing" | "settled";
@@ -45,8 +46,9 @@ function pickError(e: unknown): string {
 }
 const now = () => Date.now();
 
+
 /** A key that changes whenever anything a Player can see in the Duel changes. */
-const duelKey = (d: Duel) => [d.status, d.winner, d.startsAt, d.endsAt, d.lastTick, d.scores, d.revealed, d.track.seen, d.track.lo, d.track.hi, d.track.last].join("|");
+const duelKey = (d: Duel) => [d.status, d.winner, d.checkedIn, d.seatsOpen, d.dirty, d.startsAt, d.endsAt, d.lastTick, d.scores, d.revealed, d.track.seen, d.track.lo, d.track.hi, d.track.last].join("|");
 const bookKey = (b: Book) => b.picks.join(",");
 
 /** How long the Player who does not act at once waits before doing a step either Player may do. */
@@ -62,21 +64,22 @@ const BACKOFF_MAX_MS = 4_000;
 const END_BACKOFF_MAX_MS = 1_000;
 
 /**
- * Drives one Trading Duel for one Player: creates and delegates the Duel, starts it, reads the
- * public Duel and your own Book from the private rollup, cranks `tick` about four times a second while
- * the grid runs, ends it when the window closes, then commits it back and settles. Both Players'
+ * Drives one Trading Duel for one Player on its persistent table: waits for the operator to assign the
+ * Match to a table, begins it, opens the seats, checks in, reads the table and your own Book from the
+ * private rollup, cranks `tick` about four times a second while the grid runs, ends it when the window
+ * closes, commits the result and settles from the committed ring. Closing the seats and resetting the
+ * table is the keeper's table scheduler. Both Players'
  * clients run the same driver; steps either Player may do are tried by one client first and by the
  * other after a grace period, and a lost race is harmless because every step re-reads chain state.
  * Picks are signed by the Account's wallet signer without a prompt (embedded or dev wallet), as in
  * Hold'em, and show at once; a refused pick is rolled back with a plain error.
  */
-export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSettled?: () => void) {
-  const asset = useMemo(() => (id === null ? ASSETS[0] : (assetOfMatchId(id) ?? ASSETS[0])), [id]);
+export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSettled?: () => void) {
   const [view, setView] = useState<DuelView>({
     stage: "loading",
     match: null,
     seat: null,
-    asset,
+    asset: ASSETS[0],
     duel: null,
     book: null,
     pending: {},
@@ -93,14 +96,14 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
   const working = useRef(false);
   const stage = useRef<Stage>("loading");
   const seatRef = useRef<0 | 1 | null>(null);
-  const delegated = useRef(false);
+  const assignRef = useRef<Assignment | null>(null);
   const shownDuel = useRef("");
   const shownBook = useRef("");
   const activeSince = useRef(0);
   const closingSince = useRef(0);
-  const lastClose = useRef(0);
+  const lastCommit = useRef(0);
   const commitSince = useRef(0);
-  const closeFailures = useRef(0);
+  const commitFailures = useRef(0);
   const duelRef = useRef<Duel | null>(null);
   const offsetRef = useRef(0);
   const sightings = useRef<ClockSighting[]>([]);
@@ -110,6 +113,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
   const finalRead = useRef(false);
   const failures = useRef(0);
 
+  const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
   const p = useMemo(() => (signer ? (signer as unknown as PlayerSigner) : null), [signer]);
 
   const setStage = useCallback((s: Stage, note = "") => {
@@ -154,13 +158,37 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
 
   // -- the driver (sequential; one step per tick) --------------------------------------------
 
+  /**
+   * Settles from the committed table once base has the result. The winner settles at once (seat 0 for a draw or a Match that
+   * never started); the other waits, so the loser of a race burns no fee. Until the commit lands there is nothing to settle from.
+   */
+  const settle = useCallback(
+    async (a: Assignment, seat: 0 | 1, d: Duel | null) => {
+      if (!p || !signer || id === null || mk === null) return;
+      const td = getTradingDuel();
+      if (!closingSince.current) closingSince.current = now();
+      const mine = !d ? seat === 0 : d.status === STATUS.cancelled || d.winner === DRAW ? seat === 0 : d.winner === seat;
+      if (!mine && now() - closingSince.current < GRACE_MS) return;
+      const base = await td.readTableOnBase(a);
+      if (!base || !canFinalize(base, a, Date.now() / 1000)) return;
+      setView((v) => (v.commit ? { ...v, commit: null } : v));
+      try {
+        await td.finalize(p, a);
+      } catch (e) {
+        const again = await fetchMatch(id, BlockPuzzleChain.coreAccount(signer.publicKey));
+        if (again && (again.status === "settled" || again.status === "refunded")) return;
+        if (++failures.current >= 3) throw e;
+      }
+    },
+    [p, signer, id, mk],
+  );
+
   const step = useCallback(async () => {
-    if (!p || !signer || id === null) return;
+    if (!p || !signer || id === null || mk === null) return;
     const td = getTradingDuel();
-    const ad = addresses(id);
-    const me = BlockPuzzleChain.coreAccount(signer.publicKey);
+      const me = BlockPuzzleChain.coreAccount(signer.publicKey);
     const m = await fetchMatch(id, me);
-    setView((v) => ({ ...v, match: m, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
+    setView((v) => ({ ...v, match: m, asset: (m && assetOfIndex(m.asset)) || v.asset, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
     if (!m) return setStage("notfound");
     if (m.seat === null) return setStage("spectator");
     const seat = m.seat;
@@ -171,7 +199,8 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       setStage("settled");
       if (!finalRead.current) {
         finalRead.current = true;
-        const d = await td.readDuelOnBase(id);
+        const a = await td.readAssignment(mk!);
+        const d = a ? await td.readDuelOnBase(a) : null;
         setView((v) => ({ ...v, duel: d ?? v.duel }));
       }
       if (!settledSeen.current) {
@@ -182,69 +211,52 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       return;
     }
 
-    // Active: the Duel has to exist, live on the rollup, and be started.
+    // Active: the operator binds the Match to a table; then the table begins it, seats the Players and both check in.
     if (!activeSince.current) activeSince.current = now();
-    // The joiner sets the Duel up; the opener steps in if that stalls.
+    // The joiner does the steps either Player may do; the opener steps in if that stalls.
     const late = now() - activeSince.current >= (seat === 1 ? 0 : 12_000);
-    const info = await td.base.getAccountInfo(ad.duel);
-
-    if (!info) {
-      setStage("setup", "Setting up the Match");
-      if (!late || !m.opponent) return;
-      const core = getChain().core;
-      const opp = (await core.account.tesoroAccount.fetch(new PublicKey(m.opponent))) as unknown as { authority: PublicKey };
-      const [a, b] = seat === 0 ? [signer.publicKey, opp.authority] : [opp.authority, signer.publicKey];
-      await td.createDuel(p, id, a, b);
+    const a = await td.readAssignment(mk!);
+    if (!a) {
+      setStage("setup", NO_TABLE_NOTE);
       return;
     }
-
-    if (info.owner.equals(TRADING_DUEL_PROGRAM_ID)) {
-      const d = decodeDuel(ad.duel, td.program.coder.accounts.decode("duel", info.data));
-      if (d.status === STATUS.created) {
-        setStage("setup", "Creating your session");
-        if (!late) return;
-        await td.delegateDuel(p, id);
-        return;
-      }
-      // Committed back after the Match ended: settle.
-      delegated.current = false;
-      setView((v) => ({ ...v, duel: d }));
+    assignRef.current = a;
+    const t = await td.readTable(p, a);
+    if (!t) return setStage("setup", "Setting up the Match");
+    const d = decodeDuel(a, t);
+    if (!d && t.phase === PHASE.idle && t.epoch === a.epoch) {
+      // Assigned, not begun: the table is Idle at the Match's epoch. Begin only inside the start window (the program refuses later).
+      if ((Date.now() + offsetRef.current) / 1000 > a.startDeadline) return setStage("setup", "The Match was never started: the entries come back soon");
+      setStage("setup", "Starting the Match");
+      if (late) await td.beginMatch(p, a).catch(() => undefined);
+      return;
+    }
+    if (!d) {
+      // The table has been wiped for its next Match: the result lives in the committed ring.
       setStage("closing", "Paying out the Pot");
-      setView((v) => (v.commit ? { ...v, commit: null } : v));
-      if (!closingSince.current) closingSince.current = now();
-      // The winner settles at once (seat 0 for a draw or a cancelled Duel); the other waits, so the loser of a race burns no fee.
-      const mine = d.status === STATUS.cancelled || d.winner === DRAW ? seat === 0 : d.winner === seat;
-      if (!mine && now() - closingSince.current < GRACE_MS) return;
-      try {
-        await td.finalize(p, id);
-      } catch (e) {
-        const again = await fetchMatch(id, me);
-        if (again && (again.status === "settled" || again.status === "refunded")) return;
-        if (++failures.current >= 3) throw e;
-      }
-      return;
+      return settle(a, seat, null);
     }
-
-    if (!info.owner.equals(DELEGATION_PROGRAM_ID)) return;
-    delegated.current = true;
-    const d = await td.readDuel(p, id);
-    if (!d) return setStage("setup", "Creating your session");
     applyDuel(d);
+    const nowS = (Date.now() + offsetRef.current) / 1000;
 
     if (d.status === STATUS.created) {
-      if ((Date.now() + offsetRef.current) / 1000 > d.startDeadline) {
-        // Delegated but never started in time: cancel it so both entries can be refunded.
-        setStage("setup", "The Duel was never started: cancelling");
-        if (seat === 1 || now() - activeSince.current > GRACE_MS) await td.claimTimeout(p, id).catch(() => undefined);
+      if (t.phase === 1 && nowS > d.startDeadline) {
+        // Never both checked in: the Player who came wins, nobody coming is a no-show.
+        setStage("setup", absenceLine(t.checkedIn, seat));
+        if (seat === 1 || now() - activeSince.current > GRACE_MS) await td.expireStart(p, a).catch(() => undefined);
         return;
       }
-      setStage("setup", "Starting the Match");
-      if (!late) return;
-      try {
-        await td.start(p, id, d.asset);
-      } catch (e) {
-        if ((await td.readDuel(p, id))?.status === STATUS.created) throw e;
+      if (!t.seatsOpen) {
+        setStage("setup", "Creating your session");
+        if (late) await td.openSeats(p, a).catch(() => undefined);
+        return;
       }
+      if (!t.checkedIn[seat]) {
+        setStage("setup", "Joining the Match");
+        await td.checkIn(p, a, d.asset);
+        return;
+      }
+      setStage("setup", "Waiting for your opponent");
       return;
     }
 
@@ -254,29 +266,33 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       return;
     }
 
-    // Over or cancelled: close the permissions and commit everything back.
+    // Over (or never started): commit the result, then settle from the committed ring.
     setStage("closing", "Saving the result");
     if (!closingSince.current) closingSince.current = now();
     const mine = d.status === STATUS.cancelled || d.winner === DRAW ? seat === 0 : d.winner === seat;
-    if (!mine && now() - closingSince.current < GRACE_MS) return;
+    if (d.dirty) {
+      if (!mine && now() - closingSince.current < GRACE_MS) return;
+      if (now() - lastCommit.current < 10_000) return;
+      lastCommit.current = now();
+      try {
+        await td.commitTable(p, a);
+        commitFailures.current = 0;
+      } catch (e) {
+        // The other Player committed first, or the commit is already in flight: only other errors count.
+        if (!/NotDirty/.test(String(e)) && ++commitFailures.current >= 3) throw e;
+        if (!/NotDirty/.test(String(e))) return;
+      }
+      if (!commitSince.current) commitSince.current = now();
+      setCommitPending(id, true);
+      setView((v) => ({ ...v, commit: { phase: "sending", won: mine } }));
+      return;
+    }
     if (commitSince.current) {
       const phase = commitPhase(commitSince.current, now());
       setView((v) => (v.commit?.phase === phase && v.commit.won === mine ? v : { ...v, commit: { phase, won: mine }, error: null }));
-      return;
     }
-    if (now() - lastClose.current < 30_000) return;
-    lastClose.current = now();
-    try {
-      await td.closeMatch(p, id);
-    } catch (e) {
-      // The other Player closed it first, or the commit is already in flight: only other errors count.
-      if (!isCommitPending(e) && ++closeFailures.current >= 3) throw e;
-      if (!isCommitPending(e)) return;
-    }
-    commitSince.current = now();
-    setCommitPending(id, true);
-    setView((v) => ({ ...v, commit: { phase: "sending", won: mine } }));
-  }, [p, signer, id, setStage, applyDuel, onSettled]);
+    await settle(a, seat, d);
+  }, [p, signer, id, mk, setStage, applyDuel, onSettled, settle]);
 
   const tick = useCallback(async () => {
     if (working.current) return;
@@ -309,11 +325,12 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     let busy = false;
     const poll = async () => {
       const seat = seatRef.current;
-      if (busy || stop || seat === null || !delegated.current || !["live", "closing", "setup"].includes(stage.current)) return;
+      const a = assignRef.current;
+      if (busy || stop || seat === null || !a || !["live", "closing", "setup"].includes(stage.current)) return;
       busy = true;
       try {
         const td = getTradingDuel();
-        const [d, b] = await Promise.all([td.readDuel(p, id), td.readOwnBook(p, id, seat)]);
+        const [d, b] = await Promise.all([td.readDuel(p, a), td.readOwnBook(p, a, seat)]);
         if (stop) return;
         if (d) applyDuel(d);
         if (b) applyBook(b);
@@ -328,7 +345,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       stop = true;
       clearInterval(t);
     };
-  }, [p, id, applyDuel, applyBook]);
+  }, [p, id, mk, applyDuel, applyBook]);
 
   // -- the crank: tick every quarter second through the grid, then end it ---------------------------
 
@@ -342,7 +359,8 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     const crank = async () => {
       const d = duelRef.current;
       const seat = seatRef.current;
-      if (sending || stop || !d || seat === null || stage.current !== "live" || d.status !== STATUS.live || now() < waitUntil) return;
+      const a = assignRef.current;
+      if (sending || stop || !d || !a || seat === null || stage.current !== "live" || d.status !== STATUS.live || now() < waitUntil) return;
       const nowS = (Date.now() + offsetRef.current) / 1000;
       if (nowS < d.startsAt) return;
       sending = true;
@@ -350,12 +368,12 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
         const td = getTradingDuel();
         if (nowS < d.endsAt) {
           // Records the live price into the line and reveals the columns that locked; a stale price just refuses it.
-          await td.tick(p, id, d.asset);
+          await td.tick(p, a, d.asset);
           failures = 0;
         } else {
           // The window is over: end it. The result is the same whoever does it and whenever, so seat 1 tries right away, seat 0 a couple of seconds later, and both retry every second.
           if (!endSince) endSince = now();
-          if (seat === 1 || now() - endSince >= END_GRACE_MS) await td.end(p, id);
+          if (seat === 1 || now() - endSince >= END_GRACE_MS) await td.end(p, a);
           failures = 0;
         }
       } catch {
@@ -371,7 +389,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       stop = true;
       clearInterval(t);
     };
-  }, [p, id]);
+  }, [p, id, mk]);
 
   // -- Player decisions -----------------------------------------------------------------------
 
@@ -397,7 +415,8 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
   const pick = useCallback(
     (column: number, band: number) => {
       const seat = seatRef.current;
-      if (!p || id === null || seat === null) return;
+      const a = assignRef.current;
+      if (!p || id === null || seat === null || !a) return;
       const set = (next: PendingPicks) => {
         pendingRef.current = next;
         setView((v) => ({ ...v, pending: next }));
@@ -407,8 +426,8 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       pickQueue.current = pickQueue.current.then(async () => {
         const td = getTradingDuel();
         try {
-          await td.setPick(p, id, seat, column, band);
-          const b = await td.readOwnBook(p, id, seat);
+          await td.setPick(p, a, seat, column, band);
+          const b = await td.readOwnBook(p, a, seat);
           if (b) applyBook(b);
           // Confirmed: the Book is the truth now, unless a newer pick for the column is in flight.
           if (pendingRef.current[column] === band) {

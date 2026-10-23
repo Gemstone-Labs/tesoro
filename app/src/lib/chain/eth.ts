@@ -5,9 +5,11 @@ import { HOODI_RPC, HYPEREVM_RPC, hoodi, hyperEvmTestnet } from "@/lib/chains";
 import { CLUSTER } from "@/lib/cluster-settings";
 
 export { HOODI_RPC, HYPEREVM_RPC };
-import { TESORO_CORE_ID, meta, parseSource, pda, rdU32, rdU64, s, sourcePda, treasuryAccountPda, treasuryPda, u64 } from "./native";
+import { TESORO_CORE_ID, meta, parseSource, pda, rdU32, rdU64, s, sourcePda, u64 } from "./native";
 import { unitsToRepay, type SourceMath } from "./ledger";
-import { DEFAULT_YIELD_FEE_BPS, accruedYield, advanceUnits, netOfYieldFee } from "./yield";
+import { basketPda, spillPda, type LineRef } from "./basket";
+import { coreIx } from "./core-ix";
+import { DEFAULT_YIELD_FEE_BPS, accruedYield, advanceUnits, cashOut } from "./yield";
 
 /**
  * EVM Positions (Ethereum Hoodi and HyperEVM testnet) on the Solana ledger, over LayerZero V2. Accounts and wire
@@ -150,10 +152,9 @@ export const vaultAbi = parseAbi([
   "function rateSource() view returns (address)",
   "function accruedYield(uint64) view returns (uint256)",
   "function payableYield(uint64) view returns (uint256)",
-  "function getPosition(uint64) view returns ((address owner, uint256 principalShares, uint256 principalUnderlying, uint256 openRate, uint256 paidUnderlying, uint256 frozenAccrued, uint256 a, uint256 b, uint256 d, uint256 heldShares, uint256 apyBps, uint256 speedup, uint64 openTime, uint64 outSeq, uint64 inSeq, uint16 feeBps, uint8 horizonMonths, bool unlocked))",
+  "function getPosition(uint64) view returns ((address owner, uint256 principalShares, uint256 principalUnderlying, uint256 openRate, uint256 paidUnderlying, uint256 frozenAccrued, uint256 a, uint256 b, uint256 d, uint256 heldShares, uint256 apyBps, uint256 speedup, uint64 openTime, uint64 outSeq, uint64 inSeq, uint8 horizonMonths, bool unlocked))",
   "function treasuryBalance() view returns (uint256)",
   "function reportedAccrued(uint64) view returns (uint256)",
-  "error YieldBelowReported(uint256 accrued, uint256 reported)",
   "error ExceedsAccruedYield(uint256 requested, uint256 available)",
   "error InsufficientShares(uint256 needed, uint256 spendable)",
   "function openPosition(uint256 lstAmount, uint8 horizonMonths) payable returns (uint64 id)",
@@ -254,7 +255,6 @@ export const claimPda = (account: PublicKey, source: PublicKey) => pda([s("claim
 /** The holder's Instant Redeems of one Source, recorded by `instant_redeem_to_evm`. */
 export const instantClaimPda = (account: PublicKey, source: PublicKey) => pda([s("instant"), account.toBuffer(), source.toBuffer()], BRIDGE_ID);
 export const sourceAuthPda = (net: EvmNet) => pda([s("source_auth"), Buffer.from([net.chainByte])]);
-export const holdingPda = (account: PublicKey, source: PublicKey) => pda([s("holding"), account.toBuffer(), source.toBuffer()]);
 export const configPda = () => pda([s("config")]);
 
 /** The text the EVM wallet signs (EIP-191) to link its address to the Account. */
@@ -290,15 +290,28 @@ export const setEvmAddressIx = (authority: PublicKey, evm: string) =>
   });
 
 /** Proves the EVM wallet controls `evm`: `signature` is its EIP-191 signature of `linkMessage(account)`. The bridge recovers the signer on chain. */
-export const linkEvmIx = (authority: PublicKey, evm: string, signature: Hex) =>
+export const linkEvmIx = (authority: PublicKey, evm: string, signature: Hex, payer: PublicKey = authority) =>
   new TransactionInstruction({
     programId: BRIDGE_ID,
-    keys: [meta(authority, true, true), meta(coreAccountPda(authority)), meta(evmLinkPda(evm), true), meta(SystemProgram.programId)],
+    keys: [meta(authority, false, true), meta(coreAccountPda(authority)), meta(evmLinkPda(evm), true), meta(SystemProgram.programId), meta(payer, true, true)],
     data: Buffer.concat([disc("link_evm"), hexBytes(evm, 20), hexBytes(signature, 65)]),
   });
 
-/** Redeems Gemas of an ETH or HYPE Source and records the payout owed on its EVM chain (never `tesoro_core::redeem`, which would burn them unrecorded). */
-export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, net: EvmNet) => {
+/** A `LineRef` as the bridge's Borsh instruction data carries it: side u8, due_at i64, class u8, tranche u8. */
+const lineBytes = (l: LineRef) => {
+  const b = Buffer.alloc(11);
+  b.writeUInt8(l.side, 0);
+  b.writeBigInt64LE(l.dueAt, 1);
+  b.writeUInt8(l.class, 9);
+  b.writeUInt8(l.tranche, 10);
+  return b;
+};
+
+/**
+ * Redeems Gemas of one line of an ETH or HYPE Source and records the payout owed on its EVM chain (never `tesoro_core::redeem`, which would burn
+ * them unrecorded). `target.accounts` are the Source's book and checkpoint pages. `send_pay_yield` then delivers the payout.
+ */
+export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, net: EvmNet, target: { line: LineRef; accounts: PublicKey[] }) => {
   const account = coreAccountPda(holder);
   return new TransactionInstruction({
     programId: BRIDGE_ID,
@@ -308,54 +321,30 @@ export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: Pu
       meta(pda([s("authority")], BRIDGE_ID)),
       meta(sourceAuthPda(net)),
       meta(account, true),
-      meta(position),
+      meta(position, true),
       meta(source, true),
-      meta(holdingPda(account, source), true),
+      meta(basketPda(account), true),
+      meta(spillPda(account), true),
       meta(claimPda(account, source), true),
       meta(TESORO_CORE_ID),
       meta(SystemProgram.programId),
+      ...target.accounts.map((k) => meta(k, true)),
     ],
-    data: Buffer.concat([disc("redeem_to_evm"), u64(gemas)]),
+    data: Buffer.concat([disc("redeem_to_evm"), lineBytes(target.line), u64(gemas)]),
   });
 };
 
 /**
- * Instant Redeem of won ETH or HYPE Gemas: Tesoro's Treasury buys them now (the bridge refuses when the vault's treasury could not pay) and records
- * what the vault owes the holder in an Instant Claim. `send_pay_instant` then delivers it.
+ * Debt must be zero. Returns the Principal on the vault's chain once `send_unlock` is delivered. `open` is the Position's open Advance
+ * (its Source, then its book and checkpoint pages), closed here.
  */
-export const instantRedeemToEvmIx = (holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, net: EvmNet, vault: string) => {
-  const account = coreAccountPda(holder);
-  const treasuryAccount = treasuryAccountPda();
-  return new TransactionInstruction({
-    programId: BRIDGE_ID,
-    keys: [
-      meta(holder, true, true),
-      meta(BRIDGE_STORE),
-      meta(BRIDGE_AUTHORITY),
-      meta(sourceAuthPda(net)),
-      meta(account, true),
-      meta(position),
-      meta(source),
-      meta(holdingPda(account, source), true),
-      meta(treasuryPda()),
-      meta(treasuryAccount, true),
-      meta(holdingPda(treasuryAccount, source), true),
-      meta(vaultTreasuryPda(net.eid, vault), true),
-      meta(instantClaimPda(account, source), true),
-      meta(TESORO_CORE_ID),
-      meta(SystemProgram.programId),
-    ],
-    data: Buffer.concat([disc("instant_redeem_to_evm"), u64(gemas)]),
-  });
-};
-
-/** Debt must be zero. Returns the Principal on Hoodi once `send_unlock` is delivered. */
-export const coreUnlockIx = (owner: PublicKey, position: PublicKey) =>
-  new TransactionInstruction({
-    programId: TESORO_CORE_ID,
-    keys: [meta(owner, false, true), meta(coreAccountPda(owner)), meta(position, true)],
-    data: disc("unlock"),
-  });
+export const coreUnlockIx = (owner: PublicKey, position: PublicKey, open: { index: number; accounts: PublicKey[] } | null = null) =>
+  coreIx(
+    "unlock",
+    { owner_authority: owner, owner_account: coreAccountPda(owner), economy: pda([s("economy")]), position },
+    {},
+    open ? [meta(sourcePda(position, open.index), true), ...open.accounts.map((k) => meta(k, true))] : [],
+  );
 
 // ---- Solana readers -----------------------------------------------------------------------------
 
@@ -615,19 +604,17 @@ export interface VaultPosition {
   paidUnderlying: bigint;
   /** Accrued Yield frozen at Unlock (the formula stops there). */
   frozenAccrued: bigint;
-  /** The Yield Fee this Position opened with (basis points, fixed per Position). */
-  feeBps: number;
   openTime: bigint;
   horizonMonths: number;
   unlocked: boolean;
   /**
-   * Accrued Yield right now by the vault's formula (underlying wei, net of the Yield Fee, cumulative: includes what was
+   * Accrued Yield right now by the vault's formula (underlying wei, gross: the Yield Fee is taken at cash-out; cumulative: includes what was
    * paid out). Computed on read, never recorded; Solana only learns it from a Yield Report.
    */
   accrued: bigint;
 }
 
-type VaultPositionRaw = Omit<VaultPosition, "accrued" | "feeBps" | "horizonMonths"> & { feeBps: number | bigint; horizonMonths: number | bigint };
+type VaultPositionRaw = Omit<VaultPosition, "accrued" | "horizonMonths"> & { horizonMonths: number | bigint };
 
 export async function fetchVaultPosition(vault: string, id: bigint): Promise<VaultPosition | null> {
   const c = evmClient(netOfVault(vault));
@@ -645,7 +632,6 @@ export async function fetchVaultPosition(vault: string, id: bigint): Promise<Vau
     heldShares: p.heldShares,
     paidUnderlying: p.paidUnderlying,
     frozenAccrued: p.frozenAccrued,
-    feeBps: Number(p.feeBps),
     openTime: p.openTime,
     horizonMonths: Number(p.horizonMonths),
     unlocked: p.unlocked,
@@ -662,11 +648,16 @@ export const withHeadroom = (fee: bigint) => (fee * (100n + LZ_FEE_HEADROOM_PCT)
 
 // ---- Math ---------------------------------------------------------------------------------------
 
-/** Advance sizing as `Position::open_advance`: the projected yield net of the Yield Fee, floored to whole Gemas ($0.01 each). */
-export function quoteEthAdvance(principalWei: bigint, rateBps: number, months: number, priceMicroUsd: bigint, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) {
-  const projectedUnits = advanceUnits(principalWei, rateBps, months, yieldFeeBps);
+/** Advance sizing as `Position::open_advance`: the whole projected yield (ticket 31), floored to whole Gemas ($0.01 each). */
+export function quoteEthAdvance(principalWei: bigint, rateBps: number, months: number, priceMicroUsd: bigint) {
+  const projectedUnits = advanceUnits(principalWei, rateBps, months);
   const gemas = (projectedUnits * priceMicroUsd) / 10n ** BigInt(ETH_DECIMALS + 4);
   return { projectedUnits, gemas };
+}
+
+/** The `min_gemas` argument of a `take_advance` or `take_advance_onchain` instruction: its last eight bytes, little-endian. */
+export function advanceFloorOf(data: Uint8Array): bigint {
+  return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(data.byteLength - 8, true);
 }
 
 /** Principal in underlying wei for `shares` at `rate` (as `openPosition` computes it). */
@@ -693,7 +684,6 @@ export function ethUnlockEstimateMs(args: {
   position: Pick<VaultPosition, "heldShares" | "principalUnderlying" | "paidUnderlying" | "accrued">;
   rate: SimRate;
   nowMs: number;
-  yieldFeeBps?: number;
 }): number | null {
   const { source, position, rate, nowMs } = args;
   if (!source || position.heldShares === 0n) return null;
@@ -702,22 +692,20 @@ export function ethUnlockEstimateMs(args: {
   if (have >= needed) return nowMs;
   // Yield is linear on the Position's own Principal (docs/yield-model.md): accrued(t) = accrued_now + per_second * t.
   const window = 1_000_000n;
-  const perWindow = netOfYieldFee(
-    accruedYield({
-      principal: position.principalUnderlying,
-      rateBps: Number(rate.apyBps),
-      elapsedSec: window,
-      speedup: rate.speedup,
-    }),
-    args.yieldFeeBps ?? DEFAULT_YIELD_FEE_BPS,
-  );
+  const perWindow = accruedYield({
+    principal: position.principalUnderlying,
+    rateBps: Number(rate.apyBps),
+    elapsedSec: window,
+    speedup: rate.speedup,
+  });
   if (perWindow === 0n) return null;
   const seconds = ((needed - have) * window + perWindow - 1n) / perWindow;
   return nowMs + Number(seconds) * 1000;
 }
 
-/** ETH base units a redeem of `gemas` pays (floor, as the program computes it). */
-export const redeemPayoutWei = (source: SourceMath, gemas: bigint) => (gemas * source.unitNum) / source.unitDen;
+/** ETH base units a redeem of `gemas` pays: their value (floor, as the program computes it) less the Yield Fee (one floor). */
+export const redeemPayoutWei = (source: SourceMath, gemas: bigint, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) =>
+  cashOut((gemas * source.unitNum) / source.unitDen, yieldFeeBps, 0).payout;
 
 export const fmtEth = (wei: bigint | number, digits = 4) =>
   (Number(wei) / 1e18).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });

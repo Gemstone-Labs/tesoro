@@ -5,6 +5,7 @@ import type { ChainMatch } from "@/lib/chain/read";
 import type { GameId } from "@/lib/mock";
 import type { Frame } from "./support/flow-store";
 import { FlowPlayer, type Flow } from "./support/flow";
+import { burstView } from "./support/burst";
 import { chainMatch, duelLive, duelSettled, holdemLive, holdemOver } from "./support/matches";
 import type { ScreenData } from "./support/screen";
 import { withSigner } from "./support/signer";
@@ -63,8 +64,8 @@ function queueSteps(game: GameId, via: "joined" | "opened", o: { backing?: boole
         label: "Joining a Match",
         status: "Joining a Match…",
         layers: ["wallet", "solana"],
-        what: `One transaction on Solana takes the second seat. ${holdingNote}${bp ? " For Block Burst the same transaction creates your hidden Board (join_session)." : ""} A send that times out is settled on chain first (\"Confirming your entry on Solana…\"); a definite failure tries the next candidate, three at most.`,
-        calls: [o.backing ? "tesoro_core.join_match_backed" : "tesoro_core.join_match", ...(bp ? ["block_puzzle.join_session"] : [])],
+        what: `One transaction on Solana takes the second seat. ${holdingNote} A send that times out is settled on chain first (\"Confirming your entry on Solana…\"); a definite failure tries the next candidate, three at most.`,
+        calls: [o.backing ? "tesoro_core.join_match_backed" : "tesoro_core.join_match"],
       },
       {
         label: "Opponent found",
@@ -81,11 +82,11 @@ function queueSteps(game: GameId, via: "joined" | "opened", o: { backing?: boole
         label: "Opening a Match",
         status: "Opening a Match…",
         layers: ["wallet", "solana"],
-        what: `Nobody was waiting at this entry, so you open a Match with a fresh even id (${game === "trading-duel" ? "ms × 8 + asset × 2" : "ms × 2"}). ${holdingNote}${bp ? " For Block Burst the same transaction opens the Session, your Board and the SeedVault (open_session), so you can play before anyone joins." : " It waits in the Queue for the next Player."}`,
-        calls: [o.backing ? "tesoro_core.open_match_backed" : "tesoro_core.open_match", ...(bp ? ["block_puzzle.open_session"] : [])],
+        what: `Nobody was waiting at this entry, so you open a Match with a fresh even id (${game === "trading-duel" ? "ms × 8 + asset × 2" : "ms × 2"}). ${holdingNote} It waits in the Queue for the next Player.`,
+        calls: [o.backing ? "tesoro_core.open_match_backed" : "tesoro_core.open_match"],
       },
       {
-        label: bp ? "Match opened" : "Entered the Queue",
+        label: "Entered the Queue",
         entered: "opened",
         layers: ["app"],
         what: "The open landed. The page says so and replaces the URL with the Match page.",
@@ -117,52 +118,91 @@ function frames(entry: { url: string; match: ChainMatch; steps: Step[] }, match:
 
 /* Block Burst */
 
-const run = (stage: NonNullable<ScreenData["run"]>["stage"], step?: string): ScreenData => ({ run: { stage, step } });
 
-function blockPuzzlePrep(opener: boolean): Step[] {
+const bv = (kind: Parameters<typeof burstView>[0], m: ChainMatch, over: Partial<NonNullable<ScreenData["burst"]>> = {}): ScreenData => ({ burst: { ...burstView(kind, m), ...over } });
+
+/** The Match from "found a table" to the result: the same for the opener and the joiner. */
+function blockBurstLive(m: ChainMatch, end: ChainMatch): (Step & { match?: ChainMatch })[] {
   return [
     {
-      label: "Creating your session",
-      screen: run("needs-prep", "Creating your session"),
-      layers: ["wallet", "solana", "er"],
-      what: opener
-        ? "MatchView reads the Match and probes your Board: it is still owned by block_puzzle on Solana, so prepareRun starts. delegate_opener hands your Board and the SeedVault to the Delegation Program, assigned to MagicBlock's private Ephemeral Rollup (TEE validator). Then it waits until both accounts show the delegation owner."
-        : "MatchView reads the Match and probes your Board: still on Solana. The opener's Board is usually delegated already (if not, either Player does it). delegate_joiner hands your Board to the Delegation Program, assigned to MagicBlock's private Ephemeral Rollup (TEE validator).",
-      calls: [opener ? "block_puzzle.delegate_opener (Board 0 + SeedVault)" : "block_puzzle.delegate_joiner (Board 1)", "poll owner == Delegation Program"],
-      ms: 3600,
-    },
-    {
-      label: "Securing your session",
-      screen: run("needs-prep", "Securing your session"),
-      layers: ["tee"],
-      what: "Your Board is now in the TEE rollup. The app signs in to the TEE (auth token from your wallet), reads your own Board, and init_permission makes it readable by you only: nobody, including the opponent, can see your pieces or score until the end.",
-      calls: ["TEE auth token", "fetchOwnBoard (TEE)", "block_puzzle.init_permission (TEE)"],
+      label: "Waiting for a table",
+      screen: bv("table", m),
+      layers: ["solana"],
+      what: "The Match is Active but no table has been chosen yet: the operator writes the Assignment (assign_match) on Solana, which binds this Match to one persistent table at its current epoch. Until it exists the page says so and gives the refund time: an unassigned Match has no 5-minute refund, only tesoro_core's own deadline.",
+      calls: ["fetchMatch every 2.5 s", "readAssignment (Assignment PDA)"],
       ms: 3200,
     },
     {
-      label: "Dealing your pieces",
-      screen: run("needs-prep", "Dealing your pieces"),
+      label: "Check in",
+      screen: bv("checkIn", m),
+      remount: true,
+      layers: ["tee"],
+      what: "The table begins the Match (begin_match) and seats both Players (seat_players): each Board becomes readable by its Player only. Your page checks you in the moment the seat is open. A Player who has not checked in after 60 s of rollup time loses the Match.",
+      calls: ["begin_match (anyone, keeper first)", "seat_players (anyone)", "check_in(binding)"],
+      ms: 3200,
+    },
+    {
+      label: "You are in",
+      screen: bv("checkedIn", m),
+      remount: true,
+      layers: ["tee"],
+      what: "You are checked in; the page counts the check-in window from the table's assigned slot, not from your clock.",
+      calls: ["watch the table (websocket + 1 s read)"],
+      ms: 3200,
+    },
+    {
+      label: "Dealing the pieces",
+      screen: bv("seeding", m),
+      remount: true,
       layers: ["tee", "vrf"],
-      what: "The Seed that deals both Players' pieces is drawn inside the rollup by MagicBlock VRF and stays hidden. init_vault_permission locks the SeedVault, request_seed asks for randomness, and check_seed is polled until it is drawn.",
-      calls: ["block_puzzle.init_vault_permission (TEE)", "block_puzzle.request_seed → VRF callback", "block_puzzle.check_seed (poll)"],
+      what: "Both are in. One VRF request (request_seed, anyone) draws the Seed inside the rollup into a Vault nobody can read. The request is retried every 20 s, at most 3 times.",
+      calls: ["request_seed", "seed_callback (oracle)", "start → start_slot = now + 10 s"],
+      ms: 3200,
+    },
+    {
+      label: "Get ready",
+      screen: bv("getReady", m),
+      remount: true,
+      layers: ["tee"],
+      what: "The Seed is in and the one shared clock is set: the run starts at the table's start_slot, 10 s from now. The count is the table's slot minus start_slot at 100 slots a second, never the page's clock.",
+      calls: ["currentSlot every 2 s, run forward in between"],
       ms: 3600,
     },
     {
-      label: "Ready to start",
-      screen: run("ready"),
+      label: "Playing",
+      screen: bv("playing", m),
+      remount: true,
       layers: ["tee"],
-      what: "probeRun reports ready only when Start will work (the Seed is drawn). The run clock does not start until you press Start run.",
-      calls: ["probeRun"],
-      ms: 2600,
+      what: "begin copies the Seed into your own Board. Every placement is sent in batches of up to 8 every half second (play), with your on-chain move count as the nonce. The opponent strip shows their last public score.",
+      calls: ["begin(binding)", "play(binding, expected_count, moves) ≤ 8 moves, every 0.5 s"],
+      ms: 4800,
     },
     {
-      label: "Playing (Start run pressed)",
-      screen: run("ready"),
-      click: "Start run",
-      layers: ["wallet", "tee"],
-      what: "begin_run stamps the start in the TEE and reveals the Seed to you only. Every placement is checked locally and sent to the rollup in batches (play, at most 40 moves per transaction) while you play; finish closes the run. The pieces here are made up and nothing is sent.",
-      calls: ["block_puzzle.begin_run (TEE)", "block_puzzle.play × n (TEE)", "block_puzzle.finish (TEE)"],
-      ms: 7000,
+      label: "Last 10 seconds",
+      screen: bv("last10", m),
+      remount: true,
+      layers: ["tee"],
+      what: "From 80 s both scores are hidden: your moves now go as play_hidden, which touches nothing public, and the opponent strip shows ?.",
+      calls: ["play_hidden(binding, expected_count, moves)"],
+      ms: 3600,
+    },
+    {
+      label: "Paying out",
+      screen: bv("closing", m),
+      remount: true,
+      layers: ["tee", "solana"],
+      what: "After 93 s (90 s plus 3 s grace) anyone may close the table: it writes the result and both run logs, commit_table sends the public table to Solana, and finalize settles the Match through tesoro_core. The keeper does each step first; your page does it after a few seconds of silence.",
+      calls: ["close", "commit_table", "finalize → tesoro_core.settle_match"],
+      ms: 3600,
+    },
+    {
+      label: "Result",
+      match: end,
+      screen: { burst: { stage: "settled", match: end, seat: end.seat, reason: 1 } },
+      remount: true,
+      layers: ["solana"],
+      what: "The Match is settled. The result screen shows both scores, the payout and the receipts.",
+      ms: 6000,
     },
   ];
 }
@@ -175,42 +215,16 @@ function blockPuzzleOpens(): Frame[] {
     { url: queueUrl("block-puzzle"), match: open, steps: queueSteps("block-puzzle", "opened") },
     {
       steps: [
-        ...blockPuzzlePrep(true),
         {
           label: "Waiting for an opponent",
-          screen: run("finished"),
+          screen: { burst: { stage: "waiting", match: open, seat: 0 } },
           remount: true,
-          layers: ["solana"],
-          what: "Your run is closed and stays hidden. The Match sits in the Queue until another Player joins; the page re-reads it every 3 s. Nobody joining before the refund deadline (1 h) makes it refundable.",
-          calls: ["fetchMatch every 3 s"],
+          layers: ["server", "solana"],
+          what: "You sit first: the Match starts when someone joins. While you wait the page tells the Queue you are here every 15 s (a presence lease); a Match whose opener has been gone for 30 s is skipped by the Queue and by the Play now count. Challenges ignore the lease. Leaving after you are paired loses the Match.",
+          calls: ["POST /api/queue/presence every 15 s", "fetchMatch every 2.5 s"],
+          ms: 4200,
         },
-        {
-          label: "Opponent joined, playing their run",
-          match: active,
-          screen: run("finished"),
-          remount: true,
-          layers: ["solana", "tee"],
-          what: "Someone joined from the Queue (join_match + join_session) and is playing their own hidden Board. Every 6 s trySettle tries to finish: it can only settle once both runs are done (or the joiner's time ran out).",
-          calls: ["trySettle every 6 s → waiting for the opponent"],
-          ms: 3600,
-        },
-        {
-          label: "Settling",
-          match: active,
-          screen: run("finished"),
-          layers: ["tee", "solana"],
-          what: "Both runs are done. seal and commit_boards in the TEE commit both Boards back to Solana (undelegating them); settle on block_puzzle compares the scores and CPIs into tesoro_core, which pays the Pot minus fees to the winner. Whichever Player's page gets there first sends it.",
-          calls: ["block_puzzle.seal + commit_boards (TEE → Solana)", "block_puzzle.settle → tesoro_core.settle_match"],
-        },
-        {
-          label: "Won",
-          match: won,
-          screen: run("committed"),
-          remount: true,
-          layers: ["solana"],
-          what: "The Match is settled. The result screen shows both scores, your payout in won Gemas and the receipts.",
-          ms: 6000,
-        },
+        ...blockBurstLive({ ...active, seat: 0 }, won),
       ],
     },
   );
@@ -219,38 +233,7 @@ function blockPuzzleOpens(): Frame[] {
 function blockPuzzleJoins(o: { backing?: boolean } = {}): Frame[] {
   const active = chainMatch("block-puzzle", "active", o.backing ? { backing: "player" } : {});
   const result = { ...chainMatch("block-puzzle", o.backing ? "won" : "lost", o.backing ? { backing: "player" } : {}), id: active.id };
-  return frames(
-    { url: queueUrl("block-puzzle", o.backing), match: active, steps: queueSteps("block-puzzle", "joined", o) },
-    {
-      steps: [
-        ...blockPuzzlePrep(false),
-        {
-          label: "Waiting for their score",
-          screen: run("finished"),
-          remount: true,
-          layers: ["solana", "tee"],
-          what: "Your run is closed. The opener may have finished long ago, or may still be playing. trySettle runs every 6 s; when the opener's time is up, Claim the Match appears.",
-          calls: ["trySettle every 6 s", "canClaimTimeout"],
-        },
-        {
-          label: "Settling",
-          screen: run("finished"),
-          layers: ["tee", "solana"],
-          what: "Both runs are done: seal and commit_boards commit both Boards back to Solana, then settle pays the Pot through tesoro_core.",
-          calls: ["block_puzzle.seal + commit_boards (TEE → Solana)", "block_puzzle.settle → tesoro_core.settle_match"],
-        },
-        {
-          label: o.backing ? "Won (Backed)" : "Lost",
-          match: result,
-          screen: run("committed"),
-          remount: true,
-          layers: ["solana"],
-          what: o.backing ? "Settled. The payout is split with your Backer by the Offer's share; the split is shown under the result." : "Settled. The opponent scored higher; your entry went into their payout.",
-          ms: 6000,
-        },
-      ],
-    },
-  );
+  return frames({ url: queueUrl("block-puzzle", o.backing), match: active, steps: queueSteps("block-puzzle", "joined", o) }, { steps: blockBurstLive(active, result) });
 }
 
 function blockPuzzleChallengeJoin(): Frame[] {
@@ -265,8 +248,8 @@ function blockPuzzleChallengeJoin(): Frame[] {
         {
           label: "Joining the Challenge",
           layers: ["server", "wallet", "solana"],
-          what: "A friend sent you their Challenge link; opening it is the confirmation. Under the one status line: SOL for fees and the Tesoro Account (as for the Queue), then the Challenge is re-read (it must exist, be a Challenge with an odd id, not be yours and still be open), then join_match + join_session in one transaction take the second seat.",
-          calls: ["ensureSol → POST /api/demo (fund)", "tesoro_core.create_account (first time only)", "fetchMatch", "tesoro_core.join_match", "block_puzzle.join_session"],
+          what: "A friend sent you their Challenge link; opening it is the confirmation. Under the one status line: SOL for fees and the Tesoro Account (as for the Queue), then the Challenge is re-read (it must exist, be a Challenge, not be yours and still be open), then join_match takes the second seat.",
+          calls: ["ensureSol → POST /api/demo (fund)", "tesoro_core.create_account (first time only)", "fetchMatch", "tesoro_core.join_match"],
           ms: 4200,
         },
         {
@@ -279,20 +262,7 @@ function blockPuzzleChallengeJoin(): Frame[] {
         },
       ],
     },
-    {
-      steps: [
-        ...blockPuzzlePrep(false),
-        {
-          label: "Won",
-          match: won,
-          screen: run("committed"),
-          remount: true,
-          layers: ["solana"],
-          what: "After both runs: seal, commit_boards and settle, exactly as in the Queue.",
-          ms: 6000,
-        },
-      ],
-    },
+    { steps: blockBurstLive(active, won) },
   );
 }
 
@@ -303,19 +273,18 @@ function blockPuzzleNobodyJoins(): Frame[] {
     { url: queueUrl("block-puzzle"), match: open, steps: queueSteps("block-puzzle", "opened") },
     {
       steps: [
-        ...blockPuzzlePrep(true),
         {
           label: "Waiting for an opponent",
-          screen: run("finished"),
+          screen: { burst: { stage: "waiting", match: open, seat: 0 } },
           remount: true,
           layers: ["solana"],
-          what: "Your run is closed and nobody has joined. Cancel and refund is on the page the whole time: it returns the entry to your Holdings.",
-          calls: ["fetchMatch every 3 s"],
+          what: "Nobody has joined. Cancel and refund is on the page the whole time: it returns the entry to your Holdings.",
+          calls: ["fetchMatch every 2.5 s"],
           ms: 3600,
         },
         {
           label: "Cancel and refund pressed",
-          screen: run("finished"),
+          screen: { burst: { stage: "waiting", match: open, seat: 0 } },
           click: "Cancel and refund",
           layers: ["wallet", "solana"],
           what: "refund_match on tesoro_core closes the open Match and returns your held entry; the Match page reads it as refunded.",
@@ -325,7 +294,7 @@ function blockPuzzleNobodyJoins(): Frame[] {
         {
           label: "Refunded",
           match: refunded,
-          screen: run("committed"),
+          screen: { burst: { stage: "settled", match: refunded, seat: 0, reason: null } },
           remount: true,
           layers: ["solana"],
           what: "The Match is refunded. The result screen says so and shows no scores.",
@@ -336,50 +305,16 @@ function blockPuzzleNobodyJoins(): Frame[] {
   );
 }
 
-function blockPuzzleOpponentNeverFinishes(): Frame[] {
+function blockPuzzleOpponentNeverShows(): Frame[] {
   const active = chainMatch("block-puzzle", "active");
-  const refunded = { ...chainMatch("block-puzzle", "refunded"), id: active.id };
+  const won = { ...chainMatch("block-puzzle", "won"), id: active.id };
   return frames(
     { url: queueUrl("block-puzzle"), match: active, steps: queueSteps("block-puzzle", "joined") },
     {
       steps: [
-        ...blockPuzzlePrep(false),
-        {
-          label: "Waiting for their score",
-          screen: run("finished"),
-          remount: true,
-          layers: ["solana", "tee"],
-          what: "Your run is closed. The opener has not finished theirs yet; trySettle runs every 6 s.",
-          calls: ["trySettle every 6 s", "canClaimTimeout"],
-          ms: 3600,
-        },
-        {
-          label: "Their time ran out",
-          screen: { run: { stage: "finished", timeout: true } },
-          remount: true,
-          layers: ["solana"],
-          what: "The opener's time to finish is over, so canClaimTimeout turns true and the page offers “Time’s up: refund both entries”.",
-          calls: ["canClaimTimeout"],
-          ms: 3600,
-        },
-        {
-          label: "Time’s up pressed",
-          screen: { run: { stage: "finished", timeout: true } },
-          click: "refund both entries",
-          layers: ["wallet", "solana"],
-          what: "claim_timeout on block_puzzle refunds both entries through tesoro_core.",
-          calls: ["block_puzzle.claim_timeout → tesoro_core.refund_match"],
-          ms: 2400,
-        },
-        {
-          label: "Refunded",
-          match: refunded,
-          screen: run("committed"),
-          remount: true,
-          layers: ["solana"],
-          what: "Both entries are back. The result screen says refunded.",
-          ms: 6000,
-        },
+        { label: "Check in", screen: bv("checkedIn", active), remount: true, layers: ["tee"], what: "You are checked in. Your opponent is not: they have 60 s of rollup time from the table's assigned slot.", calls: ["check_in(binding)"], ms: 3200 },
+        { label: "They never came", screen: bv("opponentGone", active), remount: true, layers: ["tee"], what: "The check-in window ended with one Player missing. close (anyone) writes the Match as a normal win for the Player who was there; neither there, each side pays the Platform Fee.", calls: ["close", "commit_table", "finalize"], ms: 3600 },
+        { label: "You win", match: won, screen: { burst: { stage: "settled", match: won, seat: won.seat, reason: 2 } }, remount: true, layers: ["solana"], what: "The result says why: your opponent didn’t show up.", ms: 6000 },
       ],
     },
   );
@@ -397,13 +332,13 @@ function blockPuzzleContinue(): Frame[] {
           label: "Unfinished Match found",
           entered: "existing",
           layers: ["solana"],
-          what: "unfinishedMatches found a Block Burst Match of yours that is still playable, so nothing new is entered. The page offers Continue and Lobby instead.",
+          what: "unfinishedMatches found a Block Burst Match of yours that is still open or active, so nothing new is entered. The page offers Continue and Lobby instead.",
           calls: ["unfinishedMatches"],
           ms: 4200,
         },
       ],
     },
-    { steps: [{ label: "Continue pressed: back in your Match", screen: run("ready"), layers: ["tee"], what: "Continue opens the Match page, which picks up where the Match is: here, ready to start your run.", ms: 4200 }] },
+    { steps: [{ label: "Continue pressed: back in your Match", screen: bv("playing", active), layers: ["tee"], what: "Continue opens the Match page, which picks up where the table is: it reads your own Board, rebuilds the run from the Seed and the move log, and resumes on the table's clock.", ms: 4200 }] },
   );
 }
 
@@ -656,9 +591,9 @@ function duelOpens(): Frame[] {
 
 const flow = (title: string, enter: Flow["enter"], build: () => Frame[]): Flow => ({ title, enter, frames: build });
 
-/** Nobody waiting: you open the Match, play your run straight away, then someone joins and the Match settles. */
+/** Nobody waiting: you open the Match and sit in the Queue until someone joins, then check in, get the Seed and play together. */
 export const BlockPuzzleQueueOpens: Story = { args: { flow: flow("Block Burst · Queue · opens", { kind: "queue", entry: 1000, game: "block-puzzle" }, blockPuzzleOpens) } };
-/** A Match was waiting: you join it, set up your own hidden Board and play. */
+/** A Match was waiting: you join it, the operator gives it a table, you check in and play at the same time as your opponent. */
 export const BlockPuzzleQueueJoins: Story = { args: { flow: flow("Block Burst · Queue · joins", { kind: "queue", entry: 1000, game: "block-puzzle" }, () => blockPuzzleJoins()) } };
 /** The entry is paid by a Backer's accepted Offer. */
 export const BlockPuzzleBackedQueue: Story = {
@@ -681,9 +616,9 @@ export const TradingDuelQueueOpens: Story = { args: { flow: flow("Trading Duel �
 
 /** Nobody joins: Cancel and refund returns the entry. */
 export const BlockPuzzleNobodyJoins: Story = { args: { flow: flow("Block Burst · nobody joins · refund", { kind: "queue", entry: 1000, game: "block-puzzle" }, blockPuzzleNobodyJoins) } };
-/** The opponent never finishes their run: Time’s up refunds both entries. */
-export const BlockPuzzleOpponentNeverFinishes: Story = {
-  args: { flow: flow("Block Burst · opponent never finishes", { kind: "queue", entry: 1000, game: "block-puzzle" }, blockPuzzleOpponentNeverFinishes) },
+/** The opponent never checks in: you win. */
+export const BlockPuzzleOpponentNeverShows: Story = {
+  args: { flow: flow("Block Burst · opponent never shows", { kind: "queue", entry: 1000, game: "block-puzzle" }, blockPuzzleOpponentNeverShows) },
 };
 /** You already have a Match to play: the Queue page offers Continue instead of a second entry. */
 export const BlockPuzzleContinueExistingMatch: Story = { args: { flow: flow("Block Burst · existing Match · Continue", { kind: "queue", entry: 1000, game: "block-puzzle" }, blockPuzzleContinue) } };

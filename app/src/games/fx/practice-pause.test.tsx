@@ -8,7 +8,7 @@ const pause = <PracticePauseButton paused={false} onToggle={() => {}} />;
 describe("practice pause controls", () => {
   it("offers pause in Block Burst practice, never in a real Match", () => {
     expect(renderToStaticMarkup(<BlockPuzzleGame />)).toContain('aria-label="Pause"');
-    const run = { seed: 1n, startedAt: 0, entry: 500, onMove: () => {}, onEnd: () => {} };
+    const run = { seed: 1n, startedAt: 0, entry: 500, onMove: () => {}, onEnd: () => {}, remainingMs: () => 0 };
     expect(renderToStaticMarkup(<BlockPuzzleGame run={run} />)).not.toContain('aria-label="Pause"');
   });
   it("keeps Vanguard pause beside its menu in Practice only", () => {

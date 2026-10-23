@@ -2,7 +2,7 @@ import { isGameId } from "@/lib/games";
 import { DemoHttpError } from "../request-auth";
 import type { NotifyEvent } from "./decide";
 
-const KINDS = ["opponent-played", "match-delayed", "match-refunded", "offer-made", "offer-accepted", "debt-cleared", "season-placed"];
+const KINDS = ["match-delayed", "match-refunded", "offer-made", "offer-accepted", "debt-cleared", "season-placed"];
 const MAX_EVENTS = 100;
 
 const bad = () => new DemoHttpError(400, "bad-request", "Malformed event.");
@@ -23,10 +23,6 @@ export function parseEvents(raw: unknown): NotifyEvent[] {
     const authority = str(b.authority, /^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
     const key = /^[A-Za-z0-9]{1,64}$/;
     switch (b.kind) {
-      case "opponent-played": {
-        const matchId = str(b.matchId, /^\d{1,20}$/);
-        return { kind: "opponent-played", id: `opponent-played:${matchId}:${authority}`, authority, matchId, game: game(b.game) };
-      }
       case "match-delayed": {
         const matchId = str(b.matchId, /^\d{1,20}$/);
         return { kind: "match-delayed", id: `match-delayed:${matchId}:${authority}`, authority, matchId, game: game(b.game), refundBy: num(b.refundBy), refundOpen: b.refundOpen === true };

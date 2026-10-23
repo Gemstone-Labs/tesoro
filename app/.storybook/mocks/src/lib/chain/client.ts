@@ -17,7 +17,7 @@ async function matchState() {
   return m ? { inner: { game: Array.from(PROGRAMS[m.game].toBytes()) } } : null;
 }
 
-export const { getHoldem, getVanguard } = real;
+export const { getHoldem, getVanguard, getBurst } = real;
 
 let duel: ReturnType<typeof real.getTradingDuel> | null = null;
 
@@ -38,8 +38,6 @@ export function getChain() {
   const matchStateClient = Object.assign(Object.create(core.account.matchState), { fetchNullable: matchState });
   wrapped = Object.assign(Object.create(chain), {
     core: Object.assign(Object.create(core), { account: Object.assign(Object.create(core.account), { matchState: matchStateClient }) }),
-    beginRun: async () => ({ sig: "demo-begin", seed: 0x5eed1234n }),
-    finish: async () => "demo-finish",
   });
   return wrapped!;
 }

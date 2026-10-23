@@ -1,17 +1,16 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { fmtGemas } from "@/lib/format";
-import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { ENTRY_SIZES } from "@/lib/cluster-settings";
 import { fmtEntryList } from "@/lib/format";
-import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
+import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT, REDEEM_PAYOUT_PCT, YIELD_FEE_PCT } from "@/lib/chain/yield";
 import { BRAND } from "@/lib/brand";
 
 export const STEPS: { title: string; text: string; href: string; cta: string }[] = [
   { title: "Get Gemas", text: "Lock a staking token in your Vault. What you lock is never played.", href: "/vault", cta: "Vault" },
-  { title: "Take an Advance", text: "Get 80% of its projected yield for 1–12 months upfront, as Gemas.", href: "/vault", cta: "Vault" },
+  { title: "Take an Advance", text: "Get its projected yield for 1–12 months upfront, as Gemas.", href: "/vault", cta: "Vault" },
   { title: "Play a Match", text: "Pick a game and an entry. Win the Pot minus Fees.", href: "/play", cta: "Play" },
-  { title: "Redeem", text: `Turn Gemas into the coin they came from as its yield lands, or now for ${INSTANT_PAYOUT_PCT}%.`, href: "/vault", cta: "Vault" },
+  { title: "Redeem", text: `Turn Gemas into the coin they came from as its yield lands (${REDEEM_PAYOUT_PCT}% of their value), or now for ${INSTANT_PAYOUT_PCT}%.`, href: "/vault", cta: "Vault" },
 ];
 
 export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[] = [
@@ -33,8 +32,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "Where do my Gemas come from?",
         a: (
           <p>
-            Get Gemas in your <Link href="/vault">Vault</Link> by locking a staking token, then take an Advance: 80% of the Lock&apos;s
-            projected yield over a Length of 1 to 12 months (the yield after {BRAND.name}&apos;s 20% Yield Fee), paid upfront as Gemas.
+            Get Gemas in your <Link href="/vault">Vault</Link> by locking a staking token, then take an Advance: the Lock&apos;s
+            projected yield over a Length of 1 to 12 months, paid upfront as Gemas. {BRAND.name}&apos;s {YIELD_FEE_PCT}% Yield Fee comes out later, when you cash Gemas out.
           </p>
         ),
       },
@@ -86,8 +85,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "How does a Match work?",
         a: (
           <p>
-            Two Players enter the same amount: {fmtEntryList(ENTRY_SIZES)} Gemas. The winner takes the Pot minus Fees. A draw, an abandoned Match or
-            a no-show refunds both entries. Every Match is settled once and recorded on Solana, where anyone can check it.
+            Two Players enter the same amount: {fmtEntryList(ENTRY_SIZES)} Gemas. The winner takes the Pot minus Fees. A draw or an abandoned Match refunds
+            both entries. A Player who doesn&apos;t show up loses; if neither does, each side pays the Platform Fee. Every Match is settled once and recorded on Solana, where anyone can check it.
           </p>
         ),
       },
@@ -96,12 +95,12 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <>
             <p>
-              You and your opponent get the same pieces and 90 seconds each; the higher score wins. Nobody can see the pieces before you press
-              Start, and your score is checked by replaying your moves, so it can&apos;t be faked.
+              You and your opponent play the same pieces at the same time for 90 seconds; the higher score wins. Nobody can see the pieces before
+              the countdown ends, and your score is checked by replaying your moves, so it can&apos;t be faked.
             </p>
             <p>
-              You don&apos;t have to play at the same time: you can play before an opponent is paired, and the next Player in the Queue gets the same pieces. If nobody joins
-              before the Queue window ends, you can cancel and get your entry back.
+              Stay on the page once you are paired: a Player who doesn&apos;t check in loses the Match. The full rules, including the 3 second
+              grace after time is up and what happens if the network stops, are in the <Link href="/docs/matches#block-puzzle">Docs</Link>.
             </p>
           </>
         ),
@@ -153,8 +152,9 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "What is the Yield Fee?",
         a: (
           <p>
-            {BRAND.name} keeps 20% of the yield your Lock earns, on SOL, ETH and HYPE alike. Your Lock keeps the other 80%, and your Advance is
-            sized on that 80%, so it is still repaid in the same time and your Unlock Estimate does not change. See <Link href="/docs/fees">Fees</Link>.
+            {BRAND.name} keeps {YIELD_FEE_PCT}% of the value of Gemas when they are cashed out, on SOL, ETH and HYPE alike. Your Advance is the whole projected yield, so it
+            is repaid in the Length you picked and your Unlock Estimate does not change. A Redeem pays {REDEEM_PAYOUT_PCT}% of the Gemas&apos; value: 1,000 Gemas worth $10.00 pay $8.00. Gemas
+            that pay a fee or a prize are not charged it again. See <Link href="/docs/fees">Fees</Link>.
           </p>
         ),
       },
@@ -162,7 +162,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "Is what I lock ever charged?",
         a: (
           <p>
-            No. The Yield Fee is taken from yield only, and no fee of any kind touches what you lock. It stays locked until your Advance is paid back, then
+            No. The Yield Fee is taken from Gemas when you cash them out, and no fee of any kind touches what you lock. It stays locked until your Advance is paid back, then
             it is yours to Unlock.
           </p>
         ),
@@ -172,7 +172,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <p>
             Yes. Redeem now pays you {INSTANT_PAYOUT_PCT}% of the Gemas&apos; value in the coin they came from today, instead of waiting for that Lock&apos;s yield to
-            land. It works for Gemas you won in SOL, ETH or HYPE. Your own Gemas cannot be redeemed this way.
+            land. It works for Gemas you won in SOL, ETH or HYPE, and for your own Gemas too. You choose how many.
           </p>
         ),
       },
@@ -180,8 +180,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: `Why only ${INSTANT_PAYOUT_PCT}% when I redeem now?`,
         a: (
           <p>
-            Because {BRAND.name} pays you today and waits for the yield itself. It takes your Gemas, keeps {INSTANT_FEE_PCT}% for the wait and the risk, and redeems the
-            Gemas at full value later. If you can wait, a normal Redeem pays 100%. If {BRAND.name}&apos;s balance for that asset is short, Instant Redeem is
+            Because {BRAND.name} pays you today and waits for the yield itself. It takes your Gemas, keeps {INSTANT_FEE_PCT}% of what a Redeem would pay for the wait and the risk, and redeems the
+            Gemas later. A normal Redeem pays {REDEEM_PAYOUT_PCT}% of the value (after the {YIELD_FEE_PCT}% Yield Fee), so if you can wait you get more: 1,000 Gemas pay $8.00 later or $6.00 now. If {BRAND.name}&apos;s balance for that asset is short, Instant Redeem is
             refused and nothing moves.
           </p>
         ),
@@ -361,8 +361,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "It says I don't have enough Gemas",
         a: (
           <p>
-            Gemas reserved for your open Offers can&apos;t be entered again until you cancel the Offer. An entry can also draw on at most{" "}
-            {MAX_ENTRY_SOURCES} Locks: if your Gemas are spread across many small batches, Redeem a few of them first.
+            Gemas reserved for your open Offers can&apos;t be entered again until you cancel the Offer, and Gemas staged for an entry that is still being prepared are held until it opens or you cancel it. Everything else counts, however many Locks it comes from.
           </p>
         ),
       },
@@ -394,8 +393,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "My opponent never showed up",
         a: (
           <p>
-            A no-show refunds both entries. In Block Burst, once the Queue window ends you can cancel and get your entry back from the
-            Match&apos;s page. In Hold&apos;em, claim the timeout when your opponent&apos;s clock runs out.
+            In every Game, a paired Player who doesn&apos;t check in, or doesn&apos;t take their first step, loses the Match, so you win with the normal Fees. If neither of you
+            shows up, each side pays the Platform Fee. In Hold&apos;em, claim the timeout when your opponent&apos;s clock runs out.
           </p>
         ),
       },

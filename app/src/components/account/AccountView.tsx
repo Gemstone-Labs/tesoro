@@ -12,7 +12,7 @@ import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
 import { RESULTS, historyPage, resultFilter } from "@/lib/chain/history";
-import { backingLine, playedRows, playerSummary, signed, type PlayedRow, type PlayerAccount, type PlayerSummary } from "@/lib/chain/player-account";
+import { backingLine, signed, summaryOfRows, type PlayedRow, type PlayerAccount, type PlayerSummary } from "@/lib/chain/player-account";
 import { timeLeft } from "@/lib/chain/useBackingBoard";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
 import { fmtGemas } from "@/lib/format";
@@ -64,8 +64,8 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
   const [now] = useState(() => Date.now());
   const [challenge, setChallenge] = useState(false);
 
-  const rows = useMemo(() => playedRows(data.played), [data.played]);
-  const summary = useMemo(() => playerSummary(data.played), [data.played]);
+  const rows = data.rows;
+  const summary = useMemo(() => summaryOfRows(rows), [rows]);
   const game = gameFilter(params.get("game"));
   const results = resultFilter(params.get("result"));
   const ofGame = game ? rows.filter((r) => r.game === game) : rows;

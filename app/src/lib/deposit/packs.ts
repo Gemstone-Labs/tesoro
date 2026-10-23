@@ -1,5 +1,4 @@
 import { CLUSTER } from "@/lib/cluster-settings";
-import { ratesOf } from "@/lib/chain/fees";
 import { LAMPORTS, MAX_PRICE_AGE_SECS, PRICE_QUOTE_MARGIN_SECS, quoteNativeAdvance, type NativeMarket } from "@/lib/chain/native";
 
 /** The three deposit packs of the Simple view. Every pack is a SOL Lock with a 12-month Length and its Advance taken at once. */
@@ -25,7 +24,6 @@ export interface PackMarket {
   priceMicroUsd: bigint;
   /** The APY an Advance is sized on: the test pool's, or the staking token's trailing rate on mainnet. */
   apyBps: number;
-  yieldFeeBps: number;
 }
 
 export function packMarket(market: NativeMarket | null | undefined, nowSec: number = Math.floor(Date.now() / 1000)): PackMarket | null {
@@ -33,7 +31,7 @@ export function packMarket(market: NativeMarket | null | undefined, nowSec: numb
   if (nowSec - market.price.updatedTs > MAX_PRICE_AGE_SECS - PRICE_QUOTE_MARGIN_SECS) return null;
   const apyBps = CLUSTER.yieldModel === "real" ? (market.stake?.open ? market.stake.sizingBps : 0) : market.pool.apyBps;
   if (apyBps <= 0) return null;
-  return { priceMicroUsd: market.price.microUsd, apyBps, yieldFeeBps: ratesOf(market.treasury).yieldFeeBps };
+  return { priceMicroUsd: market.price.microUsd, apyBps };
 }
 
 /** SOL base units worth `usd` at the price. */
@@ -46,37 +44,34 @@ export interface PackQuote {
   lockLamports: bigint;
   /** The checkout fee, US dollars. */
   feeUsd: number;
-  /** Gemas the pack promises: the Lock is sized so the Advance issues exactly this many (one more at most). */
+  /** Gemas the pack promises: the Lock is sized so the Advance issues exactly this many, and the Advance carries them as its floor. */
   gemas: number;
 }
 
 /**
- * The fewest lamports whose Advance issues `gemas`, with headroom: the Advance is taken at the on-chain price when the
- * transaction lands, and a small tick down between sizing and landing must not floor it to one Gema less. The headroom is
- * half a Gema or 0.035% of the Gemas, whichever is more (under one Gema for every pack, so it never issues two extra).
+ * The fewest lamports whose Advance issues at least `gemas`. The Advance carries `gemas` as its `min_gemas` floor, so the
+ * Lock is sized right on the line: a price move between sizing and landing refuses the Advance (and the caller re-sizes)
+ * instead of issuing fewer Gemas.
  */
 export function lamportsForGemas(gemas: bigint, m: PackMarket, months: number = PACK_MONTHS): bigint {
-  const issued = (lamports: bigint) => quoteNativeAdvance(lamports, m.apyBps, months, m.priceMicroUsd, m.yieldFeeBps).gemas;
-  // Thousandths of a Gema to size for.
-  const milli = gemas * 1_000n + (gemas * 35n > 50_000n ? (gemas * 35n) / 100n : 500n);
-  // gemas = lamports * apy * months * (1 - fee) / (BPS * BPS * 12) * price / 1e13, solved for lamports and rounded up.
-  const num = milli * 10n ** 13n * 10_000n * 10_000n * 12n;
-  const den = 1_000n * m.priceMicroUsd * BigInt(m.apyBps) * BigInt(months) * BigInt(10_000 - m.yieldFeeBps);
-  if (den <= 0n) return 0n;
-  let lamports = (num + den - 1n) / den;
-  // The two floors inside the Advance can still leave it short of the whole number: step up until it isn't.
-  while (issued(lamports) < gemas) lamports += lamports / 1_000_000n + 1n;
+  const issued = (lamports: bigint) => quoteNativeAdvance(lamports, m.apyBps, months, m.priceMicroUsd).gemas;
+  if (gemas <= 0n || m.priceMicroUsd <= 0n || m.apyBps <= 0 || months <= 0) return 0n;
+  // gemas = floor(units * price / 1e13) and units = floor(lamports * apy * months / (12 * BPS)): invert each floor, rounding up.
+  const units = (gemas * 10n ** 13n + m.priceMicroUsd - 1n) / m.priceMicroUsd;
+  const per = BigInt(m.apyBps) * BigInt(months);
+  let lamports = (units * 12n * 10_000n + per - 1n) / per;
+  while (issued(lamports) < gemas) lamports += 1n;
   return lamports;
 }
 
 /**
- * A pack's Gemas: the whole number its dollars are worth at 12 months of yield net of the Yield Fee, and the Lock that
- * issues exactly that. When the dollars fall a little short of that Lock, Tesoro covers the dust (cents) at the deposit.
+ * A pack's Gemas: the whole number its dollars are worth at 12 months of yield, and the Lock that issues exactly that.
+ * When the dollars fall a little short of that Lock, Tesoro covers the dust (cents) at the deposit.
  */
 export function quotePack(pack: DepositPack, m: PackMarket, checkoutFeeBps: number): PackQuote {
   const feeUsd = (pack.usd * checkoutFeeBps) / 10_000;
   const usd = pack.usd - feeUsd;
-  const gemas = Math.round((usd * m.apyBps * (10_000 - m.yieldFeeBps) * PACK_MONTHS) / 12 / 10_000 / 10_000 / 0.01);
+  const gemas = Math.round((usd * m.apyBps * PACK_MONTHS) / 12 / 10_000 / 0.01);
   return { pack, lockLamports: lamportsForGemas(BigInt(gemas), m), feeUsd, gemas };
 }
 

@@ -1,0 +1,15 @@
+.od-order { padding: 16px; display: grid; gap: 12px; }
+.od-order p { margin: 0; }
+.od-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.od-state { padding: 2px 10px; font-size: var(--fs-12); }
+.od-kind { color: var(--fg-2); font-size: var(--fs-13); }
+.od-who { font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.od-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; margin: 0; }
+.od-facts dt { color: var(--fg-2); font-size: var(--fs-12); }
+.od-facts dd { margin: 0; font-weight: 700; }
+.od-fill { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.od-fill label { display: grid; gap: 4px; }
+.od-fill input { min-width: 0; width: 9em; padding: 10px 12px; background: var(--surface-2, rgba(255, 255, 255, 0.06)); border: 1px solid var(--line); color: inherit; font: inherit; }
+.od-fill input[aria-invalid="true"] { border-color: var(--err, #ff6b6b); }
+.od-budget { display: grid; gap: 8px; }
+.od-budget h2 { margin: 0; }

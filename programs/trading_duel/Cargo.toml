@@ -16,14 +16,18 @@ no-log-ix-name = []
 custom-heap = []
 custom-panic = []
 anchor-debug = []
-idl-build = ["anchor-lang/idl-build", "tesoro_core/idl-build"]
+idl-build = ["anchor-lang/idl-build", "tesoro_core/idl-build", "table_kit/idl-build"]
 
 [dependencies]
 anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
 ephemeral-rollups-sdk = { version = "=0.16.2", features = ["anchor-compat", "access-control"] }
 tesoro_core = { path = "../tesoro_core", features = ["cpi"] }
+table_kit = { path = "../../crates/table_kit" }
 
 [dev-dependencies]
 serde_json = "1"
 litesvm = "=0.11.0"
 solana-sdk = "3.0.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

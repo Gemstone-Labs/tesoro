@@ -6,7 +6,7 @@ import { practiceHref } from "@/lib/game-params";
 import { appHref } from "@/lib/landing/config";
 import "@/components/win/win.css";
 import { GAME_NAMES } from "@/lib/mock";
-import { parseMatchId, winShareText } from "@/lib/win-card";
+import { parseWinKey, winShareText } from "@/lib/win-card";
 import { loadWin } from "@/server/win-card";
 import { CARD } from "@/server/spot-card";
 import { BRAND } from "@/lib/brand";
@@ -17,7 +17,7 @@ const cardUrl = (id: string) => `/win/${id}/card`;
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const raw = (await params).match;
-  const id = parseMatchId(raw);
+  const id = parseWinKey(raw);
   const win = id === null ? null : await loadWin(id);
   if (!win) return {};
   const title = `${win.name} won a ${GAME_NAMES[win.game]} Match on ${BRAND.name}`;
@@ -38,7 +38,7 @@ export const revalidate = 60;
 
 /** A shared win: the card, and the way into Tesoro. Only a settled Match with a winner has one. */
 export default async function WinPage({ params }: Props) {
-  const id = parseMatchId((await params).match);
+  const id = parseWinKey((await params).match);
   const win = id === null ? null : await loadWin(id);
   if (!win) notFound();
   const game = GAME_NAMES[win.game];

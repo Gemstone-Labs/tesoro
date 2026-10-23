@@ -1,6 +1,6 @@
 use crate::*;
 use anchor_lang::solana_program::system_program;
-use msg_codec::decode_inbound;
+use msg_codec::{decode_inbound, Inbound};
 use oapp::{
     common::{
         compact_accounts_with_alts, AccountMetaRef, AddressLocator, EXECUTION_CONTEXT_VERSION_1,
@@ -18,29 +18,55 @@ pub struct LzReceiveTypesV2<'info> {
 }
 
 impl LzReceiveTypesV2<'_> {
-    // The accounts lz_receive needs (peer, bridge position) are derived from src_eid, the sender
+    // The accounts lz_receive needs (peer, target record, route) are derived from src_eid, the sender
     // and the message body, so the message is decoded here too. Order must match `LzReceive`.
     pub fn apply(
         ctx: &Context<LzReceiveTypesV2>,
         params: &LzReceiveParams,
     ) -> Result<LzReceiveTypesV2Result> {
-        let (header, _) = decode_inbound(&params.message)?;
+        let (header, body) = decode_inbound(&params.message)?;
         let store_key = ctx.accounts.store.key();
 
         let (peer, _) = Pubkey::find_program_address(
             &[PEER_SEED, store_key.as_ref(), &params.src_eid.to_be_bytes(), &params.sender],
             ctx.program_id,
         );
-        let (position, _) = Pubkey::find_program_address(
-            &[POSITION_SEED, &params.src_eid.to_be_bytes(), &header.position_id],
+        let (route, _) = Pubkey::find_program_address(
+            &[ROUTE_SEED, &params.src_eid.to_be_bytes(), &params.sender],
             ctx.program_id,
         );
+        // The record the message is about.
+        let (target, _) = match body {
+            Inbound::Locked { .. } | Inbound::Yield { .. } => Pubkey::find_program_address(
+                &[POSITION_SEED, &params.src_eid.to_be_bytes(), &header.position_id],
+                ctx.program_id,
+            ),
+            Inbound::BatchResult { .. } => Pubkey::find_program_address(
+                &[
+                    BATCH_SEED,
+                    &params.src_eid.to_be_bytes(),
+                    &params.sender,
+                    &header.seq.to_be_bytes(),
+                ],
+                ctx.program_id,
+            ),
+            Inbound::PayPrizeResult { .. } => Pubkey::find_program_address(
+                &[
+                    PAYOUT_SEED,
+                    &params.src_eid.to_be_bytes(),
+                    &params.sender,
+                    &header.seq.to_be_bytes(),
+                ],
+                ctx.program_id,
+            ),
+        };
 
         let mut accounts = vec![
             AccountMetaRef { pubkey: AddressLocator::Payer, is_writable: true },
             AccountMetaRef { pubkey: store_key.into(), is_writable: false },
             AccountMetaRef { pubkey: peer.into(), is_writable: false },
-            AccountMetaRef { pubkey: position.into(), is_writable: true },
+            AccountMetaRef { pubkey: target.into(), is_writable: true },
+            AccountMetaRef { pubkey: route.into(), is_writable: true },
             AccountMetaRef { pubkey: system_program::ID.into(), is_writable: false },
         ];
         accounts.extend(get_accounts_for_clear(

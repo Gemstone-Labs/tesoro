@@ -11,14 +11,25 @@ use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
 use tesoro_core::instructions::MatchResult;
-use tesoro_core::ledger::{CoreError, MatchStatus, Outcome, SourceChain, PAYOUT_WINDOW_SECS};
+use tesoro_core::ledger::book::fp_ceil;
+use tesoro_core::ledger::line_store::{
+    CLASS_GENERAL, CLASS_LEADERBOARD, CLASS_PLATFORM, CLASS_STUDIO, SIDE_OWN, SIDE_WON,
+};
+use tesoro_core::ledger::{CoreError, SourceChain};
 use tesoro_core::state::*;
-use tesoro_core::{accounts, instruction};
+use tesoro_core::storage::*;
+use tesoro_core::{accounts, instruction, LineRef};
 
 mod common;
+use common::econ::{book_metas, gemas_in, read_book};
+use tesoro_core::ledger::lifecycle::Stage;
 
 const GAME: APk = APk::new_from_array([9; 32]);
+/// Slot the test Game was deployed in, and the slot the admin approves.
+const GAME_SLOT: u64 = 100;
+const LISTED_FOR_EVER: i64 = 4_000_000_000;
 const ENTRY: u64 = 1_000;
+const MATCH_NEEDS_TICKET: u32 = 6405;
 const SOL: u64 = 1_000_000_000;
 
 fn a(p: Pk) -> APk {
@@ -39,17 +50,36 @@ fn position_pda(id: u8) -> APk {
 fn source_pda(position: APk, index: u32) -> APk {
     pda(&[SOURCE_SEED, position.as_ref(), &index.to_le_bytes()])
 }
-fn holding_pda(account: APk, source: APk) -> APk {
-    pda(&[HOLDING_SEED, account.as_ref(), source.as_ref()])
+fn counters_pda(account: APk) -> APk {
+    pda(&[COUNTERS_SEED, account.as_ref()])
 }
-fn match_pda(id: u64) -> APk {
-    pda(&[MATCH_SEED, &id.to_le_bytes()])
+fn ticket_pda(account: APk, nonce: u64) -> APk {
+    pda(&[TICKET_SEED, account.as_ref(), &nonce.to_le_bytes()])
+}
+fn receipt_pda(m: APk) -> APk {
+    pda(&[RECEIPT_SEED, m.as_ref()])
+}
+fn event_authority() -> APk {
+    pda(&[b"__event_authority"])
+}
+
+/// A Match as the tests hold it: the local id indexes `Env::matches`.
+#[derive(Clone, Copy, Debug)]
+struct MRef {
+    key: APk,
+    #[allow(dead_code)]
+    opener: APk,
+    #[allow(dead_code)]
+    n: u64,
 }
 fn request_pda(account: APk, nonce: u64) -> APk {
     pda(&[REQUEST_SEED, account.as_ref(), &nonce.to_le_bytes()])
 }
 fn offer_pda(account: APk, nonce: u64) -> APk {
     pda(&[OFFER_SEED, account.as_ref(), &nonce.to_le_bytes()])
+}
+fn pair_pda(opener: APk, joiner: APk) -> APk {
+    pda(&[PAIR_SEED, opener.as_ref(), joiner.as_ref()])
 }
 fn protections_pda(account: APk) -> APk {
     pda(&[PROTECTIONS_SEED, account.as_ref()])
@@ -83,6 +113,11 @@ fn ix(
     }
 }
 
+fn bincode_len(tx: &solana_sdk::transaction::VersionedTransaction) -> usize {
+    let t = tx.clone();
+    t.message.serialize().len() + 1 + 64 * t.signatures.len()
+}
+
 fn rem(k: APk) -> AccountMeta {
     AccountMeta::new(s(k), false)
 }
@@ -98,13 +133,28 @@ struct Env {
     admin: Keypair,
     oracle: Keypair,
     game_auth: Keypair,
+    /// Upgrade authority of the test Game program.
+    game_ctl: Keypair,
     platform: Person,
     studio: Person,
-    next_match: u64,
+    matches: Vec<MRef>,
+    pot_nonce: u64,
+    person_seed: u8,
+    /// Do not grow spills for the caller (to test the room check).
+    skip_ensure: bool,
+    /// Instructions the next join sends in the same transaction, before it.
+    pre_ixs: Vec<Instruction>,
+    /// Name the overflow records of every Account the Match can credit when joining.
+    name_records: bool,
+    /// Do not grow the Game's outside studio's spill when joining (to test a full studio).
+    skip_studio_room: bool,
     last_cu: u64,
     /// Serialized size in bytes of the last transaction as a legacy transaction.
     last_size: usize,
     last_logs: Vec<String>,
+    /// Event-CPI data of the last transaction, and of the last settlement start.
+    last_events: Vec<Vec<u8>>,
+    start_events: Vec<Vec<u8>>,
 }
 
 fn custom_code(err: &litesvm::types::FailedTransactionMetadata) -> u32 {
@@ -132,7 +182,8 @@ impl Env {
         let admin = Keypair::new();
         let oracle = Keypair::new();
         let game_auth = Keypair::new();
-        for k in [&admin, &oracle, &game_auth] {
+        let game_ctl = Keypair::new();
+        for k in [&admin, &oracle, &game_auth, &game_ctl] {
             svm.airdrop(&k.pubkey(), 1_000 * SOL).expect("airdrop");
         }
         svm.set_sysvar(&Clock {
@@ -149,12 +200,21 @@ impl Env {
             admin,
             oracle,
             game_auth,
+            game_ctl,
             platform: placeholder(Keypair::new()),
             studio: placeholder(Keypair::new()),
-            next_match: 1,
+            matches: Vec::new(),
+            pot_nonce: 1_000,
+            person_seed: 0,
+            skip_ensure: false,
+            name_records: false,
+            skip_studio_room: false,
+            pre_ixs: Vec::new(),
             last_cu: 0,
             last_size: 0,
             last_logs: Vec::new(),
+            last_events: Vec::new(),
+            start_events: Vec::new(),
         };
         env.platform = env.person();
         env.studio = env.person();
@@ -181,20 +241,34 @@ impl Env {
         common::put_sim_sol_mint(&mut env.svm);
         let treasury = common::init_treasury_ix(a(admin.pubkey()), 0, 3_500);
         env.send(&[treasury], &admin, &[]).expect("init treasury");
-        let register = ix(
-            accounts::RegisterGame {
+        common::forge_upgradeable_program(
+            &mut env.svm,
+            s(GAME),
+            Some(env.game_ctl.pubkey()),
+            GAME_SLOT,
+        );
+        let game_ctl = env.game_ctl.insecure_clone();
+        let register = env.register_game_ix(&game_ctl, a(env.game_auth.pubkey()), 300, studio);
+        env.send(&[register], &admin, &[&game_ctl])
+            .expect("register game");
+        let list = env.list_game_ix(LISTED_FOR_EVER);
+        env.send(&[list], &admin, &[]).expect("list game");
+        let economy = ix(
+            accounts::SetEconomy {
                 admin: a(admin.pubkey()),
                 config,
-                studio_recipient: studio,
+                economy: pda(&[ECONOMY_SEED]),
+                system_program: anchor_lang::system_program::ID,
             },
-            instruction::RegisterGame {
-                game: GAME,
-                authority: a(env.game_auth.pubkey()),
-                studio_bps: 300,
+            instruction::SetEconomy {
+                season_keeper: APk::default(),
+                fill_keeper: APk::default(),
+                keeper_fills: false,
+                routes: [APk::default(); MAX_ROUTES],
             },
             vec![],
         );
-        env.send(&[register], &admin, &[]).expect("register game");
+        env.send(&[economy], &admin, &[]).expect("economy");
         env
     }
 
@@ -217,6 +291,12 @@ impl Env {
         match self.svm.send_transaction(tx) {
             Ok(meta) => {
                 self.last_cu = meta.compute_units_consumed;
+                self.last_events = meta
+                    .inner_instructions
+                    .iter()
+                    .flatten()
+                    .map(|i| i.instruction.data.clone())
+                    .collect();
                 self.last_logs = meta.logs;
                 Ok(())
             }
@@ -227,8 +307,64 @@ impl Env {
         }
     }
 
+    fn game_accounts(&self) -> (APk, APk, APk) {
+        (
+            common::game_record(GAME),
+            GAME,
+            a(common::program_data_address(s(GAME))),
+        )
+    }
+
+    fn register_game_ix(
+        &self,
+        control: &Keypair,
+        settle_authority: APk,
+        studio_bps: u16,
+        studio_recipient: APk,
+    ) -> Instruction {
+        let (game_record, game_program, program_data) = self.game_accounts();
+        ix(
+            accounts::RegisterGame {
+                payer: a(self.admin.pubkey()),
+                control: a(control.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                game_program,
+                program_data,
+                studio_recipient,
+                game_record,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::RegisterGame {
+                settle_authority,
+                studio_bps,
+            },
+            vec![],
+        )
+    }
+
+    /// The admin lists the Game for the build on chain right now, hashed the way it would off-chain.
+    fn list_game_ix(&self, listed_until: i64) -> Instruction {
+        let (game_record, game_program, program_data) = self.game_accounts();
+        ix(
+            accounts::ListGame {
+                admin: a(self.admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                game_record,
+                game_program,
+                program_data,
+            },
+            instruction::ListGame {
+                listed_until,
+                approved_hash: common::code_hash(&self.svm, s(GAME)),
+            },
+            vec![],
+        )
+    }
+
     fn person(&mut self) -> Person {
-        let kp = Keypair::new();
+        // fixed keys, so the address derivations (and their compute cost) repeat run to run
+        self.person_seed += 1;
+        let kp = Keypair::new_from_array([self.person_seed; 32]);
         self.svm
             .airdrop(&kp.pubkey(), 1_000 * SOL)
             .expect("airdrop");
@@ -238,8 +374,12 @@ impl Env {
             accounts::CreateAccount {
                 authority: key,
                 account,
+                basket: tesoro_core::storage::basket_address(&account).0,
+                spill: tesoro_core::storage::spill_address(&account).0,
                 invite_gate: invite_gate_pda(),
                 system_program: anchor_lang::system_program::ID,
+                payer: key,
+                sponsor: None,
             },
             instruction::CreateAccount {
                 evm_address: [0; 20],
@@ -247,6 +387,22 @@ impl Env {
             vec![],
         );
         self.send(&[create], &kp, &[]).expect("create account");
+        // Room for the Sources a Player collects: the tests below keep several at once.
+        let grow = ix(
+            accounts::GrowStore {
+                payer: key,
+                account,
+                basket: basket_address(&account).0,
+                spill: spill_address(&account).0,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::GrowStore {
+                which: tesoro_core::StoreKind::Basket,
+                extra_lines: 16,
+            },
+            vec![],
+        );
+        self.send(&[grow], &kp, &[]).expect("grow basket");
         Person { kp, key, account }
     }
 
@@ -266,13 +422,22 @@ impl Env {
     }
 
     /// Position + first Advance (6 months at $150): 100 tokens at 10% => 5 tokens => 75_000 Gemas.
-    fn stake(&mut self, p: &Person, id: u8) -> (APk, APk, APk) {
+    fn stake(&mut self, p: &Person, id: u8) -> (APk, APk) {
         self.stake_principal(p, id, 100 * SOL)
     }
 
     /// Opens a Position of `principal` lamports and takes a 6-month Advance at $150: 750 Gemas
     /// per SOL of principal at the 10% rate used here.
-    fn stake_principal(&mut self, p: &Person, id: u8, principal: u64) -> (APk, APk, APk) {
+    fn stake_principal(&mut self, p: &Person, id: u8, principal: u64) -> (APk, APk) {
+        let position = self.open_position_only(p, id, principal);
+        let source = source_pda(position, 0);
+        self.take_advance(p, position, 0, 6, 150_000_000)
+            .expect("advance");
+        (position, source)
+    }
+
+    /// Opens a Position of `principal` lamports; the Advance is the caller's.
+    fn open_position_only(&mut self, p: &Person, id: u8, principal: u64) -> APk {
         let position = position_pda(id);
         let config = pda(&[CONFIG_SEED]);
         let open = ix(
@@ -295,11 +460,7 @@ impl Env {
         );
         let oracle = self.oracle.insecure_clone();
         self.send(&[open], &oracle, &[]).expect("open position");
-        let source = source_pda(position, 0);
-        let holding = holding_pda(p.account, source);
-        self.take_advance(p, position, 0, 6, 150_000_000)
-            .expect("advance");
-        (position, source, holding)
+        position
     }
 
     fn take_advance(
@@ -311,13 +472,21 @@ impl Env {
         price: u64,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
         let source = source_pda(position, index);
-        let asset = {
+        let (asset, open_advance) = {
             let acct = self.svm.get_account(&s(position)).expect("position");
-            PositionState::try_deserialize(&mut acct.data.as_slice())
-                .expect("position")
-                .inner
-                .source_asset
+            let state =
+                PositionState::try_deserialize(&mut acct.data.as_slice()).expect("position");
+            (state.inner.source_asset, state.inner.open_advance)
         };
+        let mut remaining = vec![AccountMeta::new_readonly(
+            s(pda(&[ONCHAIN_PRICE_SEED, &asset])),
+            false,
+        )];
+        if let Some(prev) = open_advance {
+            let prev = source_pda(position, prev);
+            remaining.push(AccountMeta::new_readonly(s(prev), false));
+            remaining.extend(book_metas(&self.svm, prev));
+        }
         let advance = ix(
             accounts::TakeAdvance {
                 oracle: a(self.oracle.pubkey()),
@@ -328,20 +497,57 @@ impl Env {
                 protections: protections_pda(p.account),
                 position,
                 source,
-                holding: holding_pda(p.account, source),
+                book: book_address(&source).0,
+                basket: basket_address(&p.account).0,
+                spill: spill_address(&p.account).0,
+                economy: pda(&[ECONOMY_SEED]),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::TakeAdvance {
                 horizon_months: horizon,
                 price_micro_usd: price,
+                min_gemas: 1,
             },
-            vec![AccountMeta::new_readonly(
-                s(pda(&[ONCHAIN_PRICE_SEED, &asset])),
-                false,
-            )],
+            remaining,
         );
         let oracle = self.oracle.insecure_clone();
-        self.send(&[advance], &oracle, &[&p.kp])
+        self.send(&[advance], &oracle, &[&p.kp])?;
+        self.ensure_pages(source);
+        Ok(())
+    }
+
+    /// Creates page 0 of every class of the Source that writes checkpoint records.
+    fn ensure_pages(&mut self, source: APk) {
+        let n_ext = read_book(&self.svm, source).n_ext;
+        let payer = Keypair::new();
+        self.svm.airdrop(&payer.pubkey(), SOL).unwrap();
+        for class in std::iter::once(1u8).chain(3..4 + n_ext) {
+            let page = ckpt_address(&source, class, 0).0;
+            if self.svm.get_account(&s(page)).is_some() {
+                continue;
+            }
+            let init = ix(
+                accounts::InitCkptPage {
+                    payer: a(payer.pubkey()),
+                    book: book_address(&source).0,
+                    page,
+                    system_program: anchor_lang::system_program::ID,
+                },
+                instruction::InitCkptPage { class, page_no: 0 },
+                vec![],
+            );
+            self.send(&[init], &payer, &[]).expect("checkpoint page");
+        }
+    }
+
+    /// The owner's own General line of the Source, to name in Redeem and return_own.
+    fn line(&self, source: APk, side: u8) -> LineRef {
+        LineRef {
+            side,
+            due_at: self.load::<SourceState>(source).inner.due_at,
+            class: CLASS_GENERAL,
+            tranche: 0,
+        }
     }
 
     fn yield_to(
@@ -352,6 +558,7 @@ impl Env {
         seq: u64,
         cumulative: u64,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let remaining = source.map_or(vec![], |src| book_metas(&self.svm, src));
         let apply = ix(
             accounts::ApplyYield {
                 oracle: a(signer.pubkey()),
@@ -360,67 +567,9 @@ impl Env {
                 source,
             },
             instruction::ApplyYield { seq, cumulative },
-            vec![],
+            remaining,
         );
         self.send(&[apply], signer, &[])
-    }
-
-    fn holding_amount(&self, p: &Person, source: APk) -> u64 {
-        self.svm
-            .get_account(&s(holding_pda(p.account, source)))
-            .map(|_| {
-                self.load::<HoldingState>(holding_pda(p.account, source))
-                    .inner
-                    .amount
-            })
-            .unwrap_or(0)
-    }
-
-    fn open_holding(&mut self, account: APk, source: APk) {
-        let holding = holding_pda(account, source);
-        if self.svm.get_account(&s(holding)).is_some() {
-            return;
-        }
-        let open = ix(
-            accounts::OpenHolding {
-                payer: a(self.admin.pubkey()),
-                account,
-                source,
-                holding,
-                system_program: anchor_lang::system_program::ID,
-            },
-            instruction::OpenHolding {},
-            vec![],
-        );
-        let admin = self.admin.insecure_clone();
-        self.send(&[open], &admin, &[]).expect("open holding");
-    }
-
-    fn open_match(
-        &mut self,
-        p: &Person,
-        entry: u64,
-        holdings: &[APk],
-    ) -> Result<u64, litesvm::types::FailedTransactionMetadata> {
-        let id = self.next_match;
-        self.next_match += 1;
-        let open = ix(
-            accounts::OpenMatch {
-                player_authority: p.key,
-                config: pda(&[CONFIG_SEED]),
-                player_account: p.account,
-                protections: protections_pda(p.account),
-                match_state: match_pda(id),
-                system_program: anchor_lang::system_program::ID,
-            },
-            instruction::OpenMatch {
-                match_id: id,
-                game: GAME,
-                entry,
-            },
-            holdings.iter().map(|h| rem(*h)).collect(),
-        );
-        self.send(&[open], &p.kp, &[]).map(|_| id)
     }
 
     fn set_entry_limit(
@@ -488,101 +637,1090 @@ impl Env {
             .entry_limit
     }
 
+    // --- Forged Sources and lines, for the budget tests -------------------------------------
+
+    /// A Source with its Position and book, none of them reachable by an Advance: the lines issued
+    /// from it behave like any other (the book is real), and a fee cut on them can sync.
+    fn forge_source(&mut self, tag: u8, index: u32) -> APk {
+        let position = pda(&[POSITION_SEED, &[7], &[tag; 32]]);
+        let owner = [tag; 32];
+        let mut pos = tesoro_core::ledger::Position::new(
+            owner,
+            SourceChain::Solana,
+            [tag; 32],
+            9,
+            SOL,
+            1_000,
+        )
+        .expect("position");
+        pos.advances = index + 1;
+        let state = PositionState {
+            bump: 255,
+            position_id: [tag; 32],
+            inner: pos,
+        };
+        self.put_account(position, &state, PositionState::SPACE);
+        let source = source_pda(position, index);
+        let src_state = SourceState {
+            bump: APk::find_program_address(
+                &[SOURCE_SEED, position.as_ref(), &index.to_le_bytes()],
+                &tesoro_core::ID,
+            )
+            .1,
+            inner: tesoro_core::ledger::Source {
+                position: position.to_bytes(),
+                owner,
+                index,
+                horizon_months: 1,
+                unit_num: 1,
+                unit_den: 1,
+                issued: 0,
+                returned: 0,
+                redeemed: 0,
+                yield_units: 0,
+                redeemed_units: 0,
+                due_at: 0,
+                yield_fee_bps: 0,
+                pool_bps: 0,
+                fee_units: 0,
+                pool_units: 0,
+            },
+        };
+        self.put_account(source, &src_state, SourceState::SPACE);
+        let payer = Keypair::new();
+        self.svm.airdrop(&payer.pubkey(), 5 * SOL).unwrap();
+        let init = ix(
+            accounts::InitSourceBook {
+                payer: a(payer.pubkey()),
+                source,
+                book: book_address(&source).0,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::InitSourceBook {},
+            vec![],
+        );
+        self.send(&[init], &payer, &[]).expect("source book");
+        // a fully cut line closes a segment, which writes a record: the first page must exist
+        self.ensure_pages(source);
+        source
+    }
+
+    fn put_account<T: anchor_lang::AccountSerialize>(&mut self, k: APk, v: &T, len: usize) {
+        let mut buf = Vec::new();
+        v.try_serialize(&mut buf).expect("serialize");
+        buf.resize(len, 0);
+        self.svm
+            .set_account(
+                s(k),
+                solana_sdk::account::Account {
+                    lamports: self.svm.minimum_balance_for_rent_exemption(len),
+                    data: buf,
+                    owner: s(tesoro_core::ID),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("set account");
+    }
+
+    /// Grows the Account's basket until it holds `lines` lines.
+    fn grow_basket_to(&mut self, p: &Person, lines: usize) {
+        loop {
+            let d = self
+                .svm
+                .get_account(&s(basket_address(&p.account).0))
+                .expect("basket")
+                .data;
+            let cap = tesoro_core::ledger::line_store::LineStore::new(&d[DISC..])
+                .expect("basket")
+                .capacity();
+            if cap >= lines {
+                return;
+            }
+            let n = (lines - cap).min(MAX_GROW_LINES);
+            let grow = ix(
+                accounts::GrowStore {
+                    payer: p.key,
+                    account: p.account,
+                    basket: basket_address(&p.account).0,
+                    spill: spill_address(&p.account).0,
+                    system_program: anchor_lang::system_program::ID,
+                },
+                instruction::GrowStore {
+                    which: tesoro_core::StoreKind::Basket,
+                    extra_lines: n as u32,
+                },
+                vec![],
+            );
+            self.send(&[grow], &p.kp, &[]).expect("grow basket");
+        }
+    }
+
+    /// Issues `amount` Gemas of each Source as one own General line (due at `due(i)`) into the
+    /// Player's basket, through the Source's real book.
+    fn give_lines(&mut self, p: &Person, sources: &[APk], amount: u64, due: impl Fn(usize) -> i64) {
+        use tesoro_core::ledger::book::checkpoint::NoCheckpoints;
+        use tesoro_core::ledger::book::SourceBook;
+        use tesoro_core::ledger::line_store::LineStore;
+        for (i, src) in sources.iter().enumerate() {
+            let mut book = read_book(&self.svm, *src);
+            let mut line =
+                SourceBook::blank_line(SIDE_OWN, due(i), src.to_bytes(), CLASS_GENERAL, 0);
+            book.issue(&mut line, amount, &NoCheckpoints)
+                .expect("issue");
+            common::econ::write_book(&mut self.svm, *src, &book);
+            let store = basket_address(&p.account).0;
+            let mut acc = self.svm.get_account(&s(store)).expect("basket");
+            LineStore::new(&mut acc.data[DISC..])
+                .expect("basket")
+                .insert(&line)
+                .expect("room in the basket");
+            self.svm.set_account(s(store), acc).expect("set basket");
+        }
+    }
+
+    /// Sizes of `ix` sent alone as a legacy transaction and as a v0 transaction with a lookup
+    /// table of every account that is not a signer: (legacy bytes, v0 bytes, accounts).
+    fn tx_sizes(&self, ix: &Instruction, payer: &Keypair) -> (usize, usize, usize) {
+        use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
+        let legacy = Transaction::new_with_payer(std::slice::from_ref(ix), Some(&payer.pubkey()));
+        let legacy_len = legacy.message.serialize().len() + 1 + 64;
+        let table: Vec<Pk> = ix
+            .accounts
+            .iter()
+            .filter(|m| !m.is_signer)
+            .map(|m| m.pubkey)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let alt = AddressLookupTableAccount {
+            key: Pk::new_unique(),
+            addresses: table,
+        };
+        let msg = v0::Message::try_compile(
+            &payer.pubkey(),
+            std::slice::from_ref(ix),
+            &[alt],
+            self.svm.latest_blockhash(),
+        )
+        .expect("compile v0");
+        let v0_len = VersionedMessage::V0(msg).serialize().len() + 1 + 64;
+        (legacy_len, v0_len, ix.accounts.len())
+    }
+
+    /// Sends `ixs` as a v0 transaction whose lookup table holds every non-signer account (the
+    /// way the relayer sends big chunks). Returns the transaction's size in bytes.
+    fn send_v0(
+        &mut self,
+        ixs: &[Instruction],
+        payer: &Keypair,
+    ) -> Result<usize, litesvm::types::FailedTransactionMetadata> {
+        use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
+        use solana_sdk::transaction::VersionedTransaction;
+        let table: Vec<Pk> = ixs
+            .iter()
+            .flat_map(|i| i.accounts.iter())
+            .filter(|m| !m.is_signer)
+            .map(|m| m.pubkey)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        // the account the runtime reads: 56 bytes of meta, then the addresses
+        let alt_key = Pk::new_unique();
+        let mut data = vec![0u8; 56];
+        data[0..4].copy_from_slice(&1u32.to_le_bytes());
+        data[4..12].copy_from_slice(&u64::MAX.to_le_bytes());
+        for k in &table {
+            data.extend_from_slice(k.as_ref());
+        }
+        self.svm
+            .set_account(
+                alt_key,
+                solana_sdk::account::Account {
+                    lamports: 10 * SOL,
+                    data,
+                    owner: "AddressLookupTab1e1111111111111111111111111"
+                        .parse()
+                        .expect("alt program"),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("lookup table");
+        self.svm.warp_to_slot(10);
+        self.svm.expire_blockhash();
+        let alt = AddressLookupTableAccount {
+            key: alt_key,
+            addresses: table,
+        };
+        let msg =
+            v0::Message::try_compile(&payer.pubkey(), ixs, &[alt], self.svm.latest_blockhash())
+                .expect("compile v0");
+        let tx =
+            VersionedTransaction::try_new(VersionedMessage::V0(msg), &[payer]).expect("sign v0");
+        let size = bincode_len(&tx);
+        match self.svm.send_transaction(tx) {
+            Ok(meta) => {
+                self.last_cu = meta.compute_units_consumed;
+                self.last_events = meta
+                    .inner_instructions
+                    .iter()
+                    .flatten()
+                    .map(|i| i.instruction.data.clone())
+                    .collect();
+                self.last_logs = meta.logs;
+                Ok(size)
+            }
+            Err(e) => {
+                self.last_cu = e.meta.compute_units_consumed;
+                Err(e)
+            }
+        }
+    }
+
+    // --- Tickets -----------------------------------------------------------------------------
+
+    /// Opens an Entry Ticket with room for `lines` lines (the spill gets the room first).
+    fn open_ticket(
+        &mut self,
+        p: &Person,
+        nonce: u64,
+        entry: u64,
+        lines: u32,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        self.ensure_spill(&p.kp, p.account, lines as usize);
+        let open = ix(
+            accounts::OpenTicket {
+                payer: p.key,
+                authority: p.key,
+                requester: p.account,
+                owner: p.account,
+                basket: basket_address(&p.account).0,
+                spill: spill_address(&p.account).0,
+                ticket: ticket_pda(p.account, nonce),
+                offer: None,
+                sponsor: None,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::OpenTicket {
+                nonce,
+                kind: tesoro_core::TicketKindArg::Entry,
+                game: GAME,
+                target: entry,
+                lines,
+            },
+            vec![],
+        );
+        self.send(&[open], &p.kp, &[])
+    }
+
+    /// A Backing Ticket for the accepted `offer`, opened by the Requester `req` on the Backer's
+    /// basket.
+    fn open_backing_ticket(
+        &mut self,
+        backer: &Person,
+        req: &Person,
+        offer: APk,
+        nonce: u64,
+        entry: u64,
+        lines: u32,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        self.ensure_spill(&req.kp, backer.account, lines as usize);
+        let open = ix(
+            accounts::OpenTicket {
+                payer: req.key,
+                authority: req.key,
+                requester: req.account,
+                owner: backer.account,
+                basket: basket_address(&backer.account).0,
+                spill: spill_address(&backer.account).0,
+                ticket: ticket_pda(backer.account, nonce),
+                offer: Some(offer),
+                sponsor: None,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::OpenTicket {
+                nonce,
+                kind: tesoro_core::TicketKindArg::Backing,
+                game: GAME,
+                target: entry,
+                lines,
+            },
+            vec![],
+        );
+        self.send(&[open], &req.kp, &[])
+    }
+
+    fn cancel_backing_ticket(
+        &mut self,
+        signer: &Keypair,
+        backer: &Person,
+        nonce: u64,
+        offer: Option<APk>,
+        books: Vec<AccountMeta>,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let i = ix(
+            accounts::CancelTicket {
+                signer: a(signer.pubkey()),
+                owner: backer.account,
+                basket: basket_address(&backer.account).0,
+                spill: spill_address(&backer.account).0,
+                ticket: ticket_pda(backer.account, nonce),
+                offer,
+            },
+            instruction::CancelTicket { max_lines: 32 },
+            books,
+        );
+        self.send(&[i], signer, &[])
+    }
+
+    fn stage_with(
+        &mut self,
+        signer: &Keypair,
+        owner: &Person,
+        nonce: u64,
+        max_ops: u8,
+        books: Vec<AccountMeta>,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let i = ix(
+            accounts::StageEntry {
+                signer: a(signer.pubkey()),
+                owner: owner.account,
+                basket: basket_address(&owner.account).0,
+                spill: spill_address(&owner.account).0,
+                ticket: ticket_pda(owner.account, nonce),
+            },
+            instruction::StageEntry { max_ops },
+            books,
+        );
+        self.send(&[i], signer, &[])
+    }
+
+    fn cancel_ticket_with(
+        &mut self,
+        signer: &Keypair,
+        owner: &Person,
+        nonce: u64,
+        max_lines: u8,
+        books: Vec<AccountMeta>,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let i = ix(
+            accounts::CancelTicket {
+                signer: a(signer.pubkey()),
+                owner: owner.account,
+                basket: basket_address(&owner.account).0,
+                spill: spill_address(&owner.account).0,
+                ticket: ticket_pda(owner.account, nonce),
+                offer: None,
+            },
+            instruction::CancelTicket { max_lines },
+            books,
+        );
+        self.send(&[i], signer, &[])
+    }
+
+    fn close_ticket(
+        &mut self,
+        caller: &Keypair,
+        owner: &Person,
+        nonce: u64,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let i = ix(
+            accounts::CloseTicket {
+                caller: a(caller.pubkey()),
+                ticket: ticket_pda(owner.account, nonce),
+                payer: owner.key,
+                sponsor: None,
+            },
+            instruction::CloseTicket {},
+            vec![],
+        );
+        self.send(&[i], caller, &[])
+    }
+
+    fn ticket_state(&self, owner: &Person, nonce: u64) -> tesoro_core::ledger::draw::TicketState {
+        let d = self
+            .svm
+            .get_account(&s(ticket_pda(owner.account, nonce)))
+            .expect("ticket")
+            .data;
+        match d[8 + 3] {
+            0 => tesoro_core::ledger::draw::TicketState::Open,
+            1 => tesoro_core::ledger::draw::TicketState::Cancelling,
+            2 => tesoro_core::ledger::draw::TicketState::Closed,
+            _ => tesoro_core::ledger::draw::TicketState::Cancelled,
+        }
+    }
+
+    // --- Matches on baskets, Tickets and chunks ---------------------------------------------
+
+    fn counters_next(&self, account: APk) -> u64 {
+        self.svm
+            .get_account(&s(counters_pda(account)))
+            .map_or(0, |acc| {
+                AccountCounters::try_deserialize(&mut acc.data.as_slice())
+                    .expect("counters")
+                    .next_match
+            })
+    }
+
+    fn counters(&self, account: APk) -> AccountCounters {
+        self.load::<AccountCounters>(counters_pda(account))
+    }
+
+    /// Every Source that has a line in the Account's basket or spill.
+    fn sources_in(&self, account: APk) -> Vec<APk> {
+        let mut out: Vec<APk> = Vec::new();
+        for store in [basket_address(&account).0, spill_address(&account).0] {
+            for l in common::econ::read_lines(&self.svm, store) {
+                let k = APk::new_from_array(l.source);
+                if !out.contains(&k) {
+                    out.push(k);
+                }
+            }
+        }
+        out
+    }
+
+    /// The books (with pages) of the Sources the Account holds, as remaining accounts.
+    fn books_of(&self, account: APk) -> Vec<AccountMeta> {
+        let mut out = vec![];
+        // a transaction locks at most 64 accounts; the tests that need more pass their own
+        for src in self.sources_in(account).into_iter().take(6) {
+            out.extend(book_metas(&self.svm, src));
+        }
+        out
+    }
+
+    /// Grows the Account's spill (anyone may pay) until `free` slots are neither used nor held.
+    fn ensure_spill(&mut self, payer: &Keypair, account: APk, free: usize) {
+        if self.skip_ensure {
+            return;
+        }
+        let d = self
+            .svm
+            .get_account(&s(spill_address(&account).0))
+            .expect("spill")
+            .data;
+        let store = tesoro_core::ledger::line_store::LineStore::new(&d[DISC..]).expect("spill");
+        let have = store.capacity() - store.len() - store.room_reserved() as usize;
+        if have >= free {
+            return;
+        }
+        let mut need = free - have;
+        while need > 0 {
+            let n = need.min(MAX_GROW_LINES);
+            let grow = ix(
+                accounts::GrowStore {
+                    payer: a(payer.pubkey()),
+                    account,
+                    basket: basket_address(&account).0,
+                    spill: spill_address(&account).0,
+                    system_program: anchor_lang::system_program::ID,
+                },
+                instruction::GrowStore {
+                    which: tesoro_core::StoreKind::Spill,
+                    extra_lines: n as u32,
+                },
+                vec![],
+            );
+            self.send(&[grow], payer, &[]).expect("grow spill");
+            need -= n;
+        }
+    }
+
+    /// The overflow record of the Account for the Match, once it exists.
+    fn record_of(&self, owner: APk, id: u64) -> Option<APk> {
+        let seed = self.mstate(id).inner.id.seed();
+        let key = overflow_address(&owner, OVERFLOW_MATCH, &seed).0;
+        self.svm.get_account(&s(key)).map(|_| key)
+    }
+
+    fn mref(&self, id: u64) -> MRef {
+        self.matches[id as usize]
+    }
+
+    /// The Match state of the local id `id`.
+    /// Gemas the Entry Ticket has staged so far (its Pot store's totals).
+    fn load_ticket_staged(&self, p: &Person, nonce: u64) -> u64 {
+        let d = self
+            .svm
+            .get_account(&s(ticket_pda(p.account, nonce)))
+            .expect("ticket")
+            .data;
+        let st = tesoro_core::ledger::line_store::LineStore::new(&d[tesoro_core::pots::POT_AT..])
+            .expect("store");
+        st.own_total() + st.won_total()
+    }
+
+    fn mstate(&self, id: u64) -> MatchState {
+        self.load::<MatchState>(self.mref(id).key)
+    }
+
+    fn match_key(&self, id: u64) -> APk {
+        self.mref(id).key
+    }
+
+    fn open_match(
+        &mut self,
+        p: &Person,
+        entry: u64,
+    ) -> Result<u64, litesvm::types::FailedTransactionMetadata> {
+        self.open_match_with(p, entry, false, 0, 4)
+    }
+
+    /// A direct draw into a fresh Pot of `pot_lines` lines.
+    fn open_match_with(
+        &mut self,
+        p: &Person,
+        entry: u64,
+        challenge: bool,
+        asset: u8,
+        pot_lines: u32,
+    ) -> Result<u64, litesvm::types::FailedTransactionMetadata> {
+        let n = self.counters_next(p.account);
+        self.pot_nonce += 1;
+        let nonce = self.pot_nonce;
+        let pot = ticket_pda(p.account, nonce);
+        let remaining = self.books_of(p.account);
+        self.open_match_ix(
+            p, entry, n, nonce, challenge, asset, pot_lines, pot, remaining, None,
+        )
+    }
+
+    /// Opens with a complete Ticket as the Pot.
+    fn open_match_ticket(
+        &mut self,
+        p: &Person,
+        entry: u64,
+        ticket_nonce: u64,
+    ) -> Result<u64, litesvm::types::FailedTransactionMetadata> {
+        let n = self.counters_next(p.account);
+        let pot = ticket_pda(p.account, ticket_nonce);
+        // consuming a complete Ticket moves no line: no book is needed
+        self.open_match_ix(p, entry, n, ticket_nonce, false, 0, 1, pot, vec![], None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn open_match_ix(
+        &mut self,
+        p: &Person,
+        entry: u64,
+        n: u64,
+        pot_nonce: u64,
+        challenge: bool,
+        asset: u8,
+        pot_lines: u32,
+        pot: APk,
+        remaining: Vec<AccountMeta>,
+        backing: Option<(APk, APk)>,
+    ) -> Result<u64, litesvm::types::FailedTransactionMetadata> {
+        self.open_match_game(
+            p,
+            entry,
+            (n, pot_nonce, challenge, asset, pot_lines),
+            pot,
+            remaining,
+            backing,
+            None,
+        )
+    }
+
+    /// `programs` overrides the Game: its id and the ProgramData account passed with it.
+    #[allow(clippy::too_many_arguments)]
+    fn open_match_game(
+        &mut self,
+        p: &Person,
+        entry: u64,
+        (n, pot_nonce, challenge, asset, pot_lines): (u64, u64, bool, u8, u32),
+        pot: APk,
+        remaining: Vec<AccountMeta>,
+        backing: Option<(APk, APk)>,
+        programs: Option<(APk, APk)>,
+    ) -> Result<u64, litesvm::types::FailedTransactionMetadata> {
+        let (game_record, game_program, program_data) = match programs {
+            Some((game, pd)) => (common::game_record(game), game, pd),
+            None => self.game_accounts(),
+        };
+        let key = pda(&[MATCH_SEED, p.account.as_ref(), &n.to_le_bytes()]);
+        let backer = backing.map(|(_, b)| b);
+        let mut remaining = remaining;
+        if self.name_records {
+            let seed = tesoro_core::ledger::lifecycle::MatchId {
+                opener: p.account.to_bytes(),
+                n,
+            }
+            .seed();
+            remaining.push(rem(overflow_address(
+                &backer.unwrap_or(p.account),
+                OVERFLOW_MATCH,
+                &seed,
+            )
+            .0));
+        }
+        let room = 16 + 2 * pot_lines as usize;
+        self.ensure_spill(&p.kp, p.account, room);
+        if let Some(b) = backer {
+            self.ensure_spill(&p.kp, b, room);
+        }
+        let open = ix(
+            accounts::OpenMatch {
+                payer: p.key,
+                player_authority: p.key,
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                game_record,
+                game_program,
+                program_data,
+                player_account: p.account,
+                counters: counters_pda(p.account),
+                protections: protections_pda(p.account),
+                basket: basket_address(&p.account).0,
+                spill: spill_address(&p.account).0,
+                pot,
+                match_state: key,
+                offer: backing.map(|(o, _)| o),
+                backer_account: backer,
+                backer_counters: backer.map(counters_pda),
+                backer_protections: backer.map(protections_pda),
+                backer_basket: backer.map(|b| basket_address(&b).0),
+                backer_spill: backer.map(|b| spill_address(&b).0),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::OpenMatch {
+                game: game_program,
+                entry,
+                n,
+                pot_nonce,
+                challenge,
+                asset,
+                pot_lines,
+            },
+            remaining,
+        );
+        self.send(&[open], &p.kp, &[])?;
+        self.matches.push(MRef {
+            key,
+            opener: p.account,
+            n,
+        });
+        Ok(self.matches.len() as u64 - 1)
+    }
+
     fn join_match(
         &mut self,
         p: &Person,
         id: u64,
-        holdings: &[APk],
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        self.pot_nonce += 1;
+        let nonce = self.pot_nonce;
+        let pot = ticket_pda(p.account, nonce);
+        let remaining = self.books_of(p.account);
+        self.join_match_ix(p, id, nonce, 4, pot, remaining, None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn join_match_ix(
+        &mut self,
+        p: &Person,
+        id: u64,
+        pot_nonce: u64,
+        pot_lines: u32,
+        pot: APk,
+        remaining: Vec<AccountMeta>,
+        backing: Option<(APk, APk)>,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let (game_record, game_program, program_data) = self.game_accounts();
+        let backer = backing.map(|(_, b)| b);
+        let m = self.mstate(id);
+        let opener = APk::new_from_array(m.inner.a.player);
+        let opener_funder = APk::new_from_array(m.inner.a.funder);
+        let room = 16 + 2 * pot_lines as usize + 2 * m.inner.pot_lines[0] as usize;
+        for who in [p.account, opener, opener_funder] {
+            self.ensure_spill(&p.kp, who, room);
+        }
+        if let Some(b) = backer {
+            self.ensure_spill(&p.kp, b, room);
+        }
+        // the Game's outside studio gets its room too (its fee lines land in its basket)
+        let studio_owner = m
+            .inner
+            .terms
+            .studio_owner
+            .filter(|_| m.inner.terms.studio_bps > 0)
+            .map(APk::new_from_array);
+        if let Some(studio) = studio_owner.filter(|_| !self.skip_studio_room) {
+            self.ensure_spill(&p.kp, studio, room);
+        }
+        let mut remaining = remaining;
+        // a Game's outside studio is paid by a basket line: its stores travel with the join
+        if let Some(studio) = m
+            .inner
+            .terms
+            .studio_owner
+            .filter(|_| m.inner.terms.studio_bps > 0)
+        {
+            let studio = APk::new_from_array(studio);
+            remaining.push(rem(basket_address(&studio).0));
+            remaining.push(rem(spill_address(&studio).0));
+        }
+        if self.name_records {
+            let mut who = vec![p.account, opener, opener_funder];
+            who.extend(backer);
+            who.extend(m.inner.terms.studio_owner.map(APk::new_from_array));
+            who.sort();
+            who.dedup();
+            let seed = m.inner.id.seed();
+            for k in who {
+                remaining.push(rem(overflow_address(&k, OVERFLOW_MATCH, &seed).0));
+            }
+        }
         let join = ix(
             accounts::JoinMatch {
+                payer: p.key,
                 player_authority: p.key,
                 player_account: p.account,
+                counters: counters_pda(p.account),
                 protections: protections_pda(p.account),
-                match_state: match_pda(id),
-                opener_protections: protections_pda(self.opener_account(id)),
+                basket: basket_address(&p.account).0,
+                spill: spill_address(&p.account).0,
+                pot,
+                match_state: self.match_key(id),
+                opener_protections: protections_pda(opener),
+                opener_basket: basket_address(&opener).0,
+                opener_spill: spill_address(&opener).0,
+                opener_funder_basket: basket_address(&opener_funder).0,
+                opener_funder_spill: spill_address(&opener_funder).0,
+                pair: pair_pda(opener, p.account),
+                game_record,
+                game_program,
+                program_data,
+                offer: backing.map(|(o, _)| o),
+                backer_account: backer,
+                backer_counters: backer.map(counters_pda),
+                backer_protections: backer.map(protections_pda),
+                backer_basket: backer.map(|b| basket_address(&b).0),
+                backer_spill: backer.map(|b| spill_address(&b).0),
+                system_program: anchor_lang::system_program::ID,
             },
-            instruction::JoinMatch {},
-            holdings.iter().map(|h| rem(*h)).collect(),
+            instruction::JoinMatch {
+                pot_nonce,
+                pot_lines,
+            },
+            remaining,
         );
-        self.send(&[join], &p.kp, &[])
+        let mut ixs = std::mem::take(&mut self.pre_ixs);
+        ixs.push(join);
+        self.send(&ixs, &p.kp, &[])
     }
 
     fn opener_account(&self, id: u64) -> APk {
-        APk::new_from_array(self.load::<MatchState>(match_pda(id)).inner.a.player)
+        APk::new_from_array(self.mstate(id).inner.a.player)
     }
 
-    fn payout_accounts(&mut self, id: u64, result: MatchResult) -> Vec<AccountMeta> {
-        let mut m = self.load::<MatchState>(match_pda(id)).inner;
-        let outcome = match result {
-            MatchResult::Opener => Outcome::Winner(0),
-            MatchResult::Joiner => Outcome::Winner(1),
-            MatchResult::Draw => Outcome::Draw,
-        };
-        let lb = self.load::<Config>(pda(&[CONFIG_SEED])).leaderboard_terms();
-        let payouts = m.settle_with(outcome, &lb).expect("ledger settles");
-        self.payout_metas(&payouts)
+    /// Old suites passed payout accounts; settling now needs none.
+    fn payout_accounts(&mut self, _id: u64, _result: MatchResult) -> Vec<AccountMeta> {
+        vec![]
     }
 
-    fn refund_accounts(&mut self, id: u64) -> Vec<AccountMeta> {
-        let mut m = self.load::<MatchState>(match_pda(id)).inner;
-        let payouts = m.refund(i64::MAX, true).expect("ledger refunds");
-        self.payout_metas(&payouts)
+    fn refund_accounts(&mut self, _id: u64) -> Vec<AccountMeta> {
+        vec![]
     }
 
-    fn payout_metas(&mut self, payouts: &[tesoro_core::ledger::Payout]) -> Vec<AccountMeta> {
-        let mut metas = Vec::new();
-        for p in payouts {
-            let recipient = APk::new_from_array(p.recipient);
-            let source = APk::new_from_array(p.source);
-            self.open_holding(recipient, source);
-            metas.push(rem(recipient));
-            metas.push(rem(holding_pda(recipient, source)));
-        }
-        metas
+    /// Starts settling: freezes the outcome and fees, writes the receipt.
+    fn settle_start(
+        &mut self,
+        signer: &Keypair,
+        id: u64,
+        result: MatchResult,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let (game_record, game_program, program_data) = self.game_accounts();
+        let key = self.match_key(id);
+        let settle = ix(
+            accounts::SettleMatch {
+                game_authority: a(signer.pubkey()),
+                payer: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                game_record,
+                game_program,
+                program_data,
+                match_state: key,
+                receipt: receipt_pda(key),
+                system_program: anchor_lang::system_program::ID,
+                event_authority: event_authority(),
+                program: tesoro_core::ID,
+            },
+            instruction::SettleMatch { result },
+            vec![],
+        );
+        self.send(&[settle], signer, &[])?;
+        self.start_events = self.last_events.clone();
+        Ok(())
     }
 
+    /// Starts settling and runs every chunk (the Match record stays, in stage Closed).
+    fn settle_keep(
+        &mut self,
+        signer: &Keypair,
+        id: u64,
+        result: MatchResult,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        self.settle_start(signer, id, result)?;
+        self.run_chunks(id);
+        Ok(())
+    }
+
+    /// Starts settling, runs every chunk and closes the Match.
     fn settle(
         &mut self,
         signer: &Keypair,
         id: u64,
         result: MatchResult,
-        remaining: Vec<AccountMeta>,
+        _remaining: Vec<AccountMeta>,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        let settle = ix(
-            accounts::SettleMatch {
-                game_authority: a(signer.pubkey()),
-                config: pda(&[CONFIG_SEED]),
-                match_state: match_pda(id),
-            },
-            instruction::SettleMatch { result },
-            remaining,
-        );
-        self.send(&[settle], signer, &[])
+        self.settle_start(signer, id, result)?;
+        self.finish_run(id);
+        Ok(())
     }
 
-    fn refund(
+    fn refund_start(
         &mut self,
         caller: &Keypair,
         id: u64,
-        remaining: Vec<AccountMeta>,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let (_, _, program_data) = self.game_accounts();
+        self.refund_start_with(caller, id, program_data)
+    }
+
+    fn refund_start_with(
+        &mut self,
+        caller: &Keypair,
+        id: u64,
+        program_data: APk,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let (game_record, game_program, _) = self.game_accounts();
+        let key = self.match_key(id);
         let refund = ix(
             accounts::RefundMatch {
                 caller: a(caller.pubkey()),
-                config: pda(&[CONFIG_SEED]),
-                match_state: match_pda(id),
+                payer: a(caller.pubkey()),
+                game_record,
+                game_program,
+                program_data,
+                match_state: key,
+                receipt: receipt_pda(key),
                 opener_protections: Some(protections_pda(self.opener_account(id))),
+                system_program: anchor_lang::system_program::ID,
+                event_authority: event_authority(),
+                program: tesoro_core::ID,
             },
             instruction::RefundMatch {},
-            remaining,
+            vec![],
         );
         self.send(&[refund], caller, &[])
     }
 
+    /// Starts refunding and runs every chunk (the Match record stays, in stage Closed).
+    fn refund_keep(
+        &mut self,
+        caller: &Keypair,
+        id: u64,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        self.refund_start(caller, id)?;
+        self.run_chunks(id);
+        Ok(())
+    }
+
+    /// Starts refunding, runs every chunk and closes the Match.
+    fn refund(
+        &mut self,
+        caller: &Keypair,
+        id: u64,
+        _remaining: Vec<AccountMeta>,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        self.refund_start(caller, id)?;
+        self.finish_run(id);
+        Ok(())
+    }
+
+    /// The Accounts a Match can credit: both sides' players and funders, and the studio.
+    fn match_owners(&self, id: u64) -> Vec<APk> {
+        let m = self.mstate(id).inner;
+        let mut out: Vec<APk> = vec![];
+        let mut add = |k: [u8; 32]| {
+            let k = APk::new_from_array(k);
+            if !out.contains(&k) {
+                out.push(k);
+            }
+        };
+        add(m.a.player);
+        add(m.a.funder);
+        if let Some(b) = m.b {
+            add(b.player);
+            add(b.funder);
+        }
+        if let Some(st) = m.terms.studio_owner {
+            add(st);
+        }
+        out
+    }
+
+    /// Everything the next `steps` steps of this Match touch: the baskets and spills of the
+    /// Accounts credited, and for the Sources those steps reach, the book (and pages), the
+    /// Source and its Position. The client works this out with `MatchRecord::sources_ahead`.
+    fn chunk_remaining(&self, id: u64, steps: u8) -> Vec<AccountMeta> {
+        let mut out = vec![];
+        for o in self.match_owners(id) {
+            out.push(rem(basket_address(&o).0));
+            out.push(rem(spill_address(&o).0));
+            if let Some(r) = self.record_of(o, id) {
+                out.push(rem(r));
+            }
+        }
+        let m = self.mstate(id);
+        let pots: tesoro_core::ledger::lifecycle::Pots = [0, 1].map(|side| {
+            (m.pots[side] != APk::default()).then(|| {
+                let d = self.svm.get_account(&s(m.pots[side])).expect("pot").data;
+                tesoro_core::ledger::draw::PotPages::open(d[tesoro_core::pots::POT_AT..].to_vec())
+                    .expect("pot")
+            })
+        });
+        for src in m.inner.sources_ahead(&pots, steps as usize) {
+            let src = APk::new_from_array(src);
+            out.extend(book_metas(&self.svm, src));
+            out.push(AccountMeta::new_readonly(s(src), false));
+            let position = APk::new_from_array(self.load::<SourceState>(src).inner.position);
+            out.push(rem(position));
+        }
+        out
+    }
+
+    fn chunk_ix(&self, caller: APk, id: u64, max_steps: u8) -> Instruction {
+        let m = self.mstate(id);
+        ix(
+            accounts::MatchChunk {
+                caller,
+                match_state: self.match_key(id),
+                pot_a: m.pots[0],
+                pot_b: (m.pots[1] != APk::default()).then_some(m.pots[1]),
+                event_authority: event_authority(),
+                program: tesoro_core::ID,
+            },
+            instruction::MatchChunk { max_steps },
+            self.chunk_remaining(id, max_steps),
+        )
+    }
+
+    /// Runs one chunk of up to `steps` steps.
+    fn chunk(
+        &mut self,
+        id: u64,
+        steps: u8,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let payer = self.admin.insecure_clone();
+        // a transaction locks at most 64 accounts: the client takes fewer steps when the next
+        // ones reach many Sources (4 or 5 accounts each)
+        let mut steps = steps;
+        let mut i = self.chunk_ix(a(payer.pubkey()), id, steps);
+        while i.accounts.len() > 60 && steps > 1 {
+            steps -= 1;
+            i = self.chunk_ix(a(payer.pubkey()), id, steps);
+        }
+        self.send_v0(&[i], &payer).map(drop)
+    }
+
+    fn stage_of(&self, id: u64) -> tesoro_core::ledger::lifecycle::Stage {
+        self.mstate(id).inner.stage()
+    }
+
+    fn close_match_ix(&self, caller: APk, id: u64) -> Instruction {
+        let m = self.mstate(id);
+        let payer_of = |pot: APk| -> APk {
+            let d = self.svm.get_account(&s(pot)).expect("pot").data;
+            APk::new_from_array(d[8 + 72..8 + 104].try_into().unwrap())
+        };
+        let mut remaining = vec![];
+        for o in self.match_owners(id) {
+            remaining.push(rem(spill_address(&o).0));
+        }
+        let rec = &m.inner;
+        remaining.push(rem(counters_pda(APk::new_from_array(rec.a.player))));
+        if let Some(b) = rec.b {
+            remaining.push(rem(counters_pda(APk::new_from_array(b.player))));
+        }
+        ix(
+            accounts::CloseMatch {
+                caller,
+                match_state: self.match_key(id),
+                match_payer: m.payer,
+                pot_a: m.pots[0],
+                pot_a_payer: payer_of(m.pots[0]),
+                pot_b: (m.pots[1] != APk::default()).then_some(m.pots[1]),
+                pot_b_payer: (m.pots[1] != APk::default()).then(|| payer_of(m.pots[1])),
+                sponsor: None,
+            },
+            instruction::CloseMatch {},
+            remaining,
+        )
+    }
+
+    fn close_match(&mut self, id: u64) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let payer = self.admin.insecure_clone();
+        let i = self.close_match_ix(a(payer.pubkey()), id);
+        self.send(&[i], &payer, &[])
+    }
+
+    /// Runs chunks until the run is complete.
+    fn run_chunks(&mut self, id: u64) {
+        for _ in 0..200 {
+            if self.stage_of(id) == Stage::Closed {
+                break;
+            }
+            self.chunk(id, 12).expect("chunk");
+        }
+        assert_eq!(self.stage_of(id), Stage::Closed);
+    }
+
+    /// Runs chunks until the run is complete, then closes the Match.
+    fn finish_run(&mut self, id: u64) {
+        self.run_chunks(id);
+        self.close_match(id).expect("close match");
+    }
+
+    /// Gemas of `source` the Account holds (basket and spill, all classes).
+    fn gemas_of(&self, p: &Person, source: APk) -> u64 {
+        gemas_in(&self.svm, p.account, source)
+    }
+
+    /// Playable Gemas (own and won) in the Account's basket and spill.
     fn total_gemas(&self, p: &Person) -> u64 {
-        let acct = self.load::<TesoroAccount>(p.account).inner;
-        acct.own_total + acct.won_total
+        [basket_address(&p.account).0, spill_address(&p.account).0]
+            .into_iter()
+            .map(|st| {
+                let d = self.svm.get_account(&s(st)).expect("store").data;
+                let store =
+                    tesoro_core::ledger::line_store::LineStore::new(&d[DISC..]).expect("store");
+                store.own_total() + store.won_total()
+            })
+            .sum()
+    }
+
+    /// Fee-class Gemas (Studio Fee lines) in the Account's basket and spill.
+    fn fee_gemas(&self, p: &Person) -> u64 {
+        [basket_address(&p.account).0, spill_address(&p.account).0]
+            .into_iter()
+            .map(|st| {
+                let d = self.svm.get_account(&s(st)).expect("store").data;
+                tesoro_core::ledger::line_store::LineStore::new(&d[DISC..])
+                    .expect("store")
+                    .fee_total()
+            })
+            .sum()
+    }
+
+    /// What the Source's fee counter of `class` holds.
+    fn counter_amount(&self, source: APk, class: u8) -> u64 {
+        common::econ::counter(&self.svm, source, class).map_or(0, |l| l.amount)
     }
 }
 
@@ -593,26 +1731,22 @@ struct Duel {
     bob: Person,
     a_position: APk,
     a_source: APk,
-    a_holding: APk,
     b_source: APk,
-    b_holding: APk,
 }
 
 fn duel() -> Duel {
     let mut env = Env::new();
     let alice = env.person();
     let bob = env.person();
-    let (a_position, a_source, a_holding) = env.stake(&alice, 1);
-    let (_, b_source, b_holding) = env.stake(&bob, 2);
+    let (a_position, a_source) = env.stake(&alice, 1);
+    let (_, b_source) = env.stake(&bob, 2);
     Duel {
         env,
         alice,
         bob,
         a_position,
         a_source,
-        a_holding,
         b_source,
-        b_holding,
     }
 }
 
@@ -622,9 +1756,8 @@ fn advance_is_100_percent_of_projected_yield_in_gemas() {
     let src = d.env.load::<SourceState>(d.a_source).inner;
     assert_eq!(src.issued, 75_000);
     assert_eq!(src.debt(), 75_000);
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 75_000);
-    let acct = d.env.load::<TesoroAccount>(d.alice.account).inner;
-    assert_eq!((acct.own_total, acct.won_total), (75_000, 0));
+    assert_eq!(d.env.gemas_of(&d.alice, d.a_source), 75_000);
+    assert_eq!(d.env.total_gemas(&d.alice), 75_000);
 }
 
 #[test]
@@ -694,6 +1827,82 @@ fn only_the_oracle_authority_reports_yield_and_prices() {
     assert_eq!(custom_code(&err), 6000);
 }
 
+impl Env {
+    fn redeem_ix_reported(
+        &self,
+        p: &Person,
+        position: APk,
+        source: APk,
+        side: u8,
+        amount: u64,
+    ) -> Instruction {
+        ix(
+            accounts::Redeem {
+                holder_authority: p.key,
+                holder_account: p.account,
+                basket: basket_address(&p.account).0,
+                spill: spill_address(&p.account).0,
+                position,
+                source,
+            },
+            instruction::Redeem {
+                line: self.line(source, side),
+                amount,
+            },
+            book_metas(&self.svm, source),
+        )
+    }
+
+    fn unlock_ix_reported(&self, p: &Person, position: APk) -> Instruction {
+        let mut remaining = vec![];
+        let state = self.load::<PositionState>(position);
+        if let Some(open) = state.inner.open_advance {
+            let src = source_pda(position, open);
+            remaining.push(rem(src));
+            remaining.extend(book_metas(&self.svm, src));
+        }
+        ix(
+            accounts::Unlock {
+                owner_authority: p.key,
+                owner_account: p.account,
+                economy: pda(&[ECONOMY_SEED]),
+                position,
+            },
+            instruction::Unlock {},
+            remaining,
+        )
+    }
+
+    fn return_own_ix_reported(
+        &self,
+        p: &Person,
+        position: APk,
+        source: APk,
+        amount: u64,
+    ) -> Instruction {
+        ix(
+            accounts::ReturnOwn {
+                owner_authority: p.key,
+                owner_account: p.account,
+                basket: basket_address(&p.account).0,
+                spill: spill_address(&p.account).0,
+                position,
+                source,
+            },
+            instruction::ReturnOwn {
+                line: self.line(source, SIDE_OWN),
+                amount,
+            },
+            book_metas(&self.svm, source),
+        )
+    }
+
+    /// Left to pay back of a Source's book, in Gemas.
+    fn debt_of(&self, source: APk) -> u64 {
+        fp_ceil(read_book(&self.svm, source).uncovered_total()) as u64
+    }
+}
+
 #[test]
 fn yield_repays_debt_and_redeem_stops_at_accrued() {
     let mut d = duel();
@@ -702,12 +1911,11 @@ fn yield_repays_debt_and_redeem_stops_at_accrued() {
     d.env
         .yield_to(&oracle, d.a_position, Some(d.a_source), 1, 5 * SOL / 2)
         .expect("yield");
-    let src = d.env.load::<SourceState>(d.a_source).inner;
-    assert_eq!(src.debt(), 37_500);
-    assert_eq!(src.redeemable(), 37_500);
+    assert_eq!(d.env.debt_of(d.a_source), 37_500);
 
     // Replay of the same message and an older sequence change nothing.
     let before = d.env.load::<PositionState>(d.a_position).inner;
+    let book_before = read_book(&d.env.svm, d.a_source);
     d.env
         .yield_to(&oracle, d.a_position, Some(d.a_source), 1, 4 * SOL)
         .expect("replay is a no-op");
@@ -715,7 +1923,8 @@ fn yield_repays_debt_and_redeem_stops_at_accrued() {
         .yield_to(&oracle, d.a_position, Some(d.a_source), 0, 4 * SOL)
         .expect("stale is a no-op");
     assert_eq!(d.env.load::<PositionState>(d.a_position).inner, before);
-    assert_eq!(d.env.load::<SourceState>(d.a_source).inner.debt(), 37_500);
+    assert_eq!(read_book(&d.env.svm, d.a_source), book_before);
+    assert_eq!(d.env.debt_of(d.a_source), 37_500);
     // Cumulative yield never goes backwards.
     let err = d
         .env
@@ -724,18 +1933,9 @@ fn yield_repays_debt_and_redeem_stops_at_accrued() {
     assert_eq!(custom_code(&err), core(CoreError::CumulativeDecreased));
 
     let redeem = |d: &mut Duel, amount: u64| {
-        let position = d.a_position;
-        let ixn = ix(
-            accounts::Redeem {
-                holder_authority: d.alice.key,
-                holder_account: d.alice.account,
-                position,
-                source: d.a_source,
-                holding: d.a_holding,
-            },
-            instruction::Redeem { amount },
-            vec![],
-        );
+        let ixn = d
+            .env
+            .redeem_ix_reported(&d.alice, d.a_position, d.a_source, SIDE_OWN, amount);
         let alice = d.alice.kp.insecure_clone();
         d.env.send(&[ixn], &alice, &[])
     };
@@ -743,31 +1943,27 @@ fn yield_repays_debt_and_redeem_stops_at_accrued() {
     assert_eq!(custom_code(&err), core(CoreError::ExceedsRedeemable));
     redeem(&mut d, 37_500).expect("redeem accrued part");
     let src = d.env.load::<SourceState>(d.a_source).inner;
-    assert_eq!((src.redeemed, src.redeemed_units), (37_500, 2_500_000_000));
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 37_500);
+    // Whole shares round down: a lamport at most stays with the line.
+    assert_eq!(src.redeemed, 37_500);
+    assert!(
+        (2_499_999_999..=2_500_000_000).contains(&src.redeemed_units),
+        "{}",
+        src.redeemed_units
+    );
+    assert_eq!(gemas_in(&d.env.svm, d.alice.account, d.a_source), 37_500);
     let err = redeem(&mut d, 1).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::ExceedsRedeemable));
 
     // Debt remains, so the Position stays locked and cannot unlock.
-    let unlock = ix(
-        accounts::Unlock {
-            owner_authority: d.alice.key,
-            owner_account: d.alice.account,
-            position: d.a_position,
-        },
-        instruction::Unlock {},
-        vec![],
-    );
     let alice = d.alice.kp.insecure_clone();
-    let err = d
-        .env
-        .send(std::slice::from_ref(&unlock), &alice, &[])
-        .unwrap_err();
+    let unlock = d.env.unlock_ix_reported(&d.alice, d.a_position);
+    let err = d.env.send(&[unlock], &alice, &[]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::DebtOutstanding));
     d.env
         .yield_to(&oracle, d.a_position, Some(d.a_source), 3, 6 * SOL)
         .expect("more yield");
-    assert_eq!(d.env.load::<SourceState>(d.a_source).inner.debt(), 0);
+    assert_eq!(d.env.debt_of(d.a_source), 0);
+    let unlock = d.env.unlock_ix_reported(&d.alice, d.a_position);
     d.env
         .send(&[unlock], &alice, &[])
         .expect("unlock at zero debt");
@@ -776,204 +1972,187 @@ fn yield_repays_debt_and_redeem_stops_at_accrued() {
 #[test]
 fn return_own_cancels_debt_and_principal_never_does() {
     let mut d = duel();
-    let return_ix = |d: &Duel, who: &Person, amount: u64| {
-        ix(
-            accounts::ReturnOwn {
-                owner_authority: who.key,
-                owner_account: who.account,
-                position: d.a_position,
-                source: d.a_source,
-                holding: holding_pda(who.account, d.a_source),
-            },
-            instruction::ReturnOwn { amount },
-            vec![],
-        )
-    };
     let alice = d.alice.kp.insecure_clone();
-    d.env
-        .send(&[return_ix(&d, &d.alice, 10_000)], &alice, &[])
-        .expect("return own");
-    let src = d.env.load::<SourceState>(d.a_source).inner;
-    assert_eq!(
-        (src.returned, src.debt(), src.outstanding()),
-        (10_000, 65_000, 65_000)
-    );
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 65_000);
-    // More than the Debt is refused.
-    let err = d
+    let ret = d
         .env
-        .send(&[return_ix(&d, &d.alice, 65_001)], &alice, &[])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::ExceedsDebt));
+        .return_own_ix_reported(&d.alice, d.a_position, d.a_source, 10_000);
+    d.env.send(&[ret], &alice, &[]).expect("return own");
+    let src = d.env.load::<SourceState>(d.a_source).inner;
+    assert_eq!((src.returned, src.outstanding()), (10_000, 65_000));
+    assert_eq!(d.env.debt_of(d.a_source), 65_000);
+    assert_eq!(gemas_in(&d.env.svm, d.alice.account, d.a_source), 65_000);
+    // More Gemas than the line holds are refused.
+    let ret = d
+        .env
+        .return_own_ix_reported(&d.alice, d.a_position, d.a_source, 65_001);
+    let err = d.env.send(&[ret], &alice, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InsufficientGemas));
 
     // Bob wins some of Alice's Gemas; returning them (or anything else) as Bob cannot cut her Debt.
     let bob = d.bob.kp.insecure_clone();
-    let m = d
-        .env
-        .open_match(&d.alice, ENTRY, &[d.a_holding])
-        .expect("open");
-    d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
+    let m = d.env.open_match(&d.alice, ENTRY).expect("open");
+    d.env.join_match(&d.bob, m).expect("join");
     let game = d.env.game_auth.insecure_clone();
     let payouts = d.env.payout_accounts(m, MatchResult::Joiner);
     d.env
         .settle(&game, m, MatchResult::Joiner, payouts)
         .expect("settle");
-    assert!(d.env.holding_amount(&d.bob, d.a_source) > 0);
-    let debt = d.env.load::<SourceState>(d.a_source).inner.debt();
+    assert!(d.env.gemas_of(&d.bob, d.a_source) > 0);
+    let debt = d.env.debt_of(d.a_source);
     // Bob is not the Position owner: the ownership constraint rejects it.
-    assert!(d.env.send(&[return_ix(&d, &d.bob, 1)], &bob, &[]).is_err());
-    assert_eq!(d.env.load::<SourceState>(d.a_source).inner.debt(), debt);
+    let steal = d
+        .env
+        .return_own_ix_reported(&d.bob, d.a_position, d.a_source, 1);
+    assert!(d.env.send(&[steal], &bob, &[]).is_err());
+    assert_eq!(d.env.debt_of(d.a_source), debt);
 }
 
 #[test]
 fn match_settles_to_winner_minus_fees_exactly_once() {
     let mut d = duel();
-    let m = d
-        .env
-        .open_match(&d.alice, ENTRY, &[d.a_holding])
-        .expect("open");
+    let m = d.env.open_match(&d.alice, ENTRY).expect("open");
     let game = d.env.game_auth.insecure_clone();
     // Not Active yet.
     let err = d
         .env
-        .settle(&game, m, MatchResult::Opener, vec![])
+        .settle_start(&game, m, MatchResult::Opener)
         .unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidStatus));
-    d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 74_000);
+    d.env.join_match(&d.bob, m).expect("join");
+    assert_eq!(d.env.gemas_of(&d.alice, d.a_source), 74_000);
 
     // Only the registered Game authority settles.
-    let payouts = d.env.payout_accounts(m, MatchResult::Opener);
     let alice = d.alice.kp.insecure_clone();
     let err = d
         .env
-        .settle(&alice, m, MatchResult::Opener, payouts.clone())
+        .settle_start(&alice, m, MatchResult::Opener)
         .unwrap_err();
     assert_eq!(custom_code(&err), 6000);
     let stranger = Keypair::new();
     d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
     let err = d
         .env
-        .settle(&stranger, m, MatchResult::Opener, payouts.clone())
+        .settle_start(&stranger, m, MatchResult::Opener)
         .unwrap_err();
     assert_eq!(custom_code(&err), 6000);
-    // Wrong or short payout accounts are refused.
-    assert!(d.env.settle(&game, m, MatchResult::Opener, vec![]).is_err());
 
     d.env
-        .settle(&game, m, MatchResult::Opener, payouts.clone())
-        .expect("settle");
+        .settle_start(&game, m, MatchResult::Opener)
+        .expect("settle starts");
+    assert_eq!(d.env.stage_of(m), Stage::Settling);
+    // Exactly once: the receipt exists, so neither a second start nor a refund can begin.
+    assert!(d.env.settle_start(&game, m, MatchResult::Joiner).is_err());
+    assert!(d.env.refund_start(&game, m).is_err());
+    d.env.run_chunks(m);
     // Pot 2_000: platform 2% = 40, studio 3% = 60, Alice 1_000 back + 900 won.
-    assert_eq!(d.env.total_gemas(&d.env.platform), 40);
-    assert_eq!(d.env.total_gemas(&d.env.studio), 60);
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 74_000 + 1_000);
-    assert_eq!(d.env.holding_amount(&d.alice, d.b_source), 900);
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_PLATFORM), 40);
+    assert_eq!(d.env.fee_gemas(&d.env.studio), 60);
+    assert_eq!(d.env.gemas_of(&d.alice, d.a_source), 74_000 + 1_000);
+    assert_eq!(d.env.gemas_of(&d.alice, d.b_source), 900);
     assert_eq!(d.env.total_gemas(&d.alice), 75_000 + 900);
-    assert_eq!(d.env.holding_amount(&d.bob, d.b_source), 74_000);
-    assert_eq!(
-        d.env.load::<MatchState>(match_pda(m)).inner.status,
-        MatchStatus::Settled
-    );
+    assert_eq!(d.env.gemas_of(&d.bob, d.b_source), 74_000);
+    assert_eq!(d.env.stage_of(m), Stage::Closed);
     // Won Gemas keep their Source: Bob's Debt is untouched and Alice's own Debt is too.
     assert_eq!(d.env.load::<SourceState>(d.b_source).inner.debt(), 75_000);
 
-    // Exactly once.
-    let err = d
-        .env
-        .settle(&game, m, MatchResult::Opener, payouts.clone())
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::InvalidStatus));
-    let err = d
-        .env
-        .settle(&game, m, MatchResult::Joiner, payouts)
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::InvalidStatus));
-    let err = d.env.refund(&game, m, vec![]).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::InvalidStatus));
+    // A finished run does nothing more.
+    let before = d.env.mstate(m).inner.clone();
+    d.env.chunk(m, 12).expect("a finished chunk is a no-op");
+    assert_eq!(d.env.mstate(m).inner, before);
 
-    // Per-Source conservation across every Holding.
+    // Per-Source conservation across every basket and the fee counters.
     for src in [d.a_source, d.b_source] {
-        let total: u64 = [&d.alice, &d.bob, &d.env.platform, &d.env.studio]
+        let held: u64 = [&d.alice, &d.bob, &d.env.platform, &d.env.studio]
             .iter()
-            .map(|p| d.env.holding_amount(p, src))
+            .map(|p| d.env.gemas_of(p, src))
             .sum();
-        assert_eq!(total, d.env.load::<SourceState>(src).inner.outstanding());
+        let counters: u64 = [CLASS_PLATFORM, CLASS_LEADERBOARD]
+            .iter()
+            .map(|c| d.env.counter_amount(src, *c))
+            .sum();
+        assert_eq!(
+            held + counters,
+            d.env.load::<SourceState>(src).inner.outstanding()
+        );
     }
+
+    // Closing returns the rent, and the Match is gone.
+    d.env.close_match(m).expect("close");
+    assert!(d.env.svm.get_account(&s(d.env.match_key(m))).is_none());
+    assert_eq!(d.env.counters(d.alice.account).open_matches, 0);
 }
 
 #[test]
-fn unregistered_game_cannot_settle_and_bad_entries_are_refused() {
+fn the_smallest_default_entry_settles_to_whole_gema_fees() {
+    use tesoro_core::ledger::SEASON_EPOCH;
     let mut d = duel();
-    let err = d.env.open_match(&d.alice, 700, &[d.a_holding]).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::InvalidEntry));
+    d.env.enable_leaderboard(100);
+    d.env.set_time(SEASON_EPOCH + 3_600);
+    let game = d.env.game_auth.insecure_clone();
     let m = d
         .env
-        .open_match(&d.alice, 500, &[d.a_holding])
-        .expect("open");
-    d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
-    // A Game removed from the registry can no longer settle.
-    let remove = ix(
-        accounts::RemoveGame {
-            admin: a(d.env.admin.pubkey()),
-            config: pda(&[CONFIG_SEED]),
-        },
-        instruction::RemoveGame { game: GAME },
-        vec![],
-    );
-    let admin = d.env.admin.insecure_clone();
-    d.env.send(&[remove], &admin, &[]).expect("remove");
-    let game = d.env.game_auth.insecure_clone();
+        .open_match(&d.alice, 100)
+        .expect("100 is a default size");
+    d.env.join_match(&d.bob, m).expect("join");
+    d.env
+        .settle_start(&game, m, MatchResult::Opener)
+        .expect("settle starts");
+    d.env.run_chunks(m);
+    // Pot 200: platform 2% = 4, studio 3% = 6, Leaderboard 1% = 2, all from Bob's Source.
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_PLATFORM), 4);
+    assert_eq!(d.env.fee_gemas(&d.env.studio), 6);
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_LEADERBOARD), 2);
+    // Alice gets her 100 back whole plus 88 won; Bob loses exactly his entry.
+    assert_eq!(d.env.gemas_of(&d.alice, d.a_source), 75_000);
+    assert_eq!(d.env.gemas_of(&d.alice, d.b_source), 88);
+    assert_eq!(d.env.gemas_of(&d.bob, d.b_source), 75_000 - 100);
+    assert_eq!(d.env.stage_of(m), Stage::Closed);
+}
+
+#[test]
+fn only_the_settle_authority_settles_and_bad_entries_are_refused() {
+    let mut d = duel();
+    let err = d.env.open_match(&d.alice, 700).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InvalidEntry));
+    let m = d.env.open_match(&d.alice, 500).expect("open");
+    d.env.join_match(&d.bob, m).expect("join");
+    // Only the Game's settle authority settles its Matches.
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
     let payouts = d.env.payout_accounts(m, MatchResult::Opener);
     let err = d
         .env
-        .settle(&game, m, MatchResult::Opener, payouts)
+        .settle(&stranger, m, MatchResult::Opener, payouts)
         .unwrap_err();
-    assert_eq!(custom_code(&err), 6001);
+    assert_eq!(custom_code(&err), 6000);
 }
 
 #[test]
 fn entry_draws_own_sourced_gemas_first() {
     let mut d = duel();
-    // Bob wins 900 of Alice's Gemas, then enters with own and won holdings supplied.
-    let m = d
-        .env
-        .open_match(&d.alice, ENTRY, &[d.a_holding])
-        .expect("open");
-    d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
+    // Bob wins 900 of Alice's Gemas; both kinds sit in his basket now.
+    let m = d.env.open_match(&d.alice, ENTRY).expect("open");
+    d.env.join_match(&d.bob, m).expect("join");
     let game = d.env.game_auth.insecure_clone();
-    let payouts = d.env.payout_accounts(m, MatchResult::Joiner);
     d.env
-        .settle(&game, m, MatchResult::Joiner, payouts)
+        .settle(&game, m, MatchResult::Joiner, vec![])
         .expect("settle");
-    let won = holding_pda(d.bob.account, d.a_source);
-    // A won holding that would contribute nothing is refused: the entry comes from own Gemas.
-    let err = d
-        .env
-        .open_match(&d.bob, ENTRY, &[d.b_holding, won])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::NonCanonicalDraw));
-    // Won-first ordering is refused, too.
-    let err = d
-        .env
-        .open_match(&d.bob, ENTRY, &[won, d.b_holding])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::NonCanonicalDraw));
-    // Someone else's Holding cannot fund the entry.
-    let err = d.env.open_match(&d.bob, ENTRY, &[d.a_holding]).unwrap_err();
-    assert_eq!(custom_code(&err), 6003);
-    d.env
-        .open_match(&d.bob, ENTRY, &[d.b_holding])
-        .expect("own first");
+    assert_eq!(d.env.gemas_of(&d.bob, d.a_source), 900);
+    // The program chooses the lines: his own Gemas first, the won ones stay.
+    d.env.open_match(&d.bob, ENTRY).expect("own first");
+    assert_eq!(d.env.gemas_of(&d.bob, d.b_source), 75_000 - ENTRY);
+    assert_eq!(d.env.gemas_of(&d.bob, d.a_source), 900);
+    // Someone with no Gemas cannot enter, whatever they pass.
+    let carol = d.env.person();
+    let err = d.env.open_match(&carol, ENTRY).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InsufficientGemas));
 }
 
 #[test]
 fn draw_and_no_show_refund_both_entries_once() {
     let mut d = duel();
-    let m = d
-        .env
-        .open_match(&d.alice, ENTRY, &[d.a_holding])
-        .expect("open");
-    d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
+    let m = d.env.open_match(&d.alice, ENTRY).expect("open");
+    d.env.join_match(&d.bob, m).expect("join");
     let game = d.env.game_auth.insecure_clone();
     let payouts = d.env.payout_accounts(m, MatchResult::Draw);
     d.env
@@ -984,11 +2163,8 @@ fn draw_and_no_show_refund_both_entries_once() {
     assert_eq!(d.env.total_gemas(&d.env.platform), 0);
 
     // No-show: anybody refunds after the deadline, nobody before.
-    let m = d
-        .env
-        .open_match(&d.alice, ENTRY, &[d.a_holding])
-        .expect("open");
-    d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
+    let m = d.env.open_match(&d.alice, ENTRY).expect("open");
+    d.env.join_match(&d.bob, m).expect("join");
     let stranger = Keypair::new();
     d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
     let payouts = d.env.payout_accounts(m, MatchResult::Draw);
@@ -997,32 +2173,24 @@ fn draw_and_no_show_refund_both_entries_once() {
     let now = d.env.now();
     d.env.set_time(now + 3_601);
     d.env
-        .refund(&stranger, m, payouts.clone())
+        .refund_keep(&stranger, m)
         .expect("refund after timeout");
     assert_eq!(d.env.total_gemas(&d.alice), 75_000);
     assert_eq!(d.env.total_gemas(&d.bob), 75_000);
-    let err = d.env.refund(&stranger, m, payouts).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::InvalidStatus));
-    assert_eq!(
-        d.env.load::<MatchState>(match_pda(m)).inner.status,
-        MatchStatus::Refunded
-    );
+    assert!(d.env.refund_start(&stranger, m).is_err(), "a second start");
+    assert_eq!(d.env.mstate(m).inner.stage(), Stage::Closed);
 }
 
 #[test]
 fn only_the_game_authority_extends_a_deadline_forward_and_within_the_cap() {
     let mut d = duel();
-    let m = d
-        .env
-        .open_match(&d.alice, ENTRY, &[d.a_holding])
-        .expect("open");
-    d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
+    let m = d.env.open_match(&d.alice, ENTRY).expect("open");
+    d.env.join_match(&d.bob, m).expect("join");
     let extend = |d: &mut Duel, signer: &Keypair, deadline: i64| {
         let i = ix(
             accounts::ExtendMatchDeadline {
                 game_authority: a(signer.pubkey()),
-                config: pda(&[CONFIG_SEED]),
-                match_state: match_pda(m),
+                match_state: d.env.match_key(m),
             },
             instruction::ExtendMatchDeadline {
                 new_deadline: deadline,
@@ -1041,10 +2209,7 @@ fn only_the_game_authority_extends_a_deadline_forward_and_within_the_cap() {
     let err = extend(&mut d, &game, now + 8 * 86_400).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidDeadline));
     extend(&mut d, &game, now + 86_400).expect("extend");
-    assert_eq!(
-        d.env.load::<MatchState>(match_pda(m)).inner.deadline,
-        now + 86_400
-    );
+    assert_eq!(d.env.mstate(m).inner.deadline, now + 86_400);
 
     // Nobody may refund at the old deadline any more.
     let stranger = Keypair::new();
@@ -1058,12 +2223,9 @@ fn only_the_game_authority_extends_a_deadline_forward_and_within_the_cap() {
 #[test]
 fn the_game_authority_extends_an_open_match_so_a_queue_entry_can_wait_a_day() {
     let mut d = duel();
-    let m = d
-        .env
-        .open_match(&d.alice, ENTRY, &[d.a_holding])
-        .expect("open");
-    let opened = d.env.load::<MatchState>(match_pda(m)).inner;
-    assert_eq!(opened.status, MatchStatus::Open);
+    let m = d.env.open_match(&d.alice, ENTRY).expect("open");
+    let opened = d.env.mstate(m).inner;
+    assert_eq!(opened.stage(), Stage::Open);
     let now = d.env.now();
     assert_eq!(opened.deadline, now + 3_600);
     let game = d.env.game_auth.insecure_clone();
@@ -1072,8 +2234,7 @@ fn the_game_authority_extends_an_open_match_so_a_queue_entry_can_wait_a_day() {
         let i = ix(
             accounts::ExtendMatchDeadline {
                 game_authority: a(signer.pubkey()),
-                config: pda(&[CONFIG_SEED]),
-                match_state: match_pda(m),
+                match_state: d.env.match_key(m),
             },
             instruction::ExtendMatchDeadline {
                 new_deadline: deadline,
@@ -1085,10 +2246,7 @@ fn the_game_authority_extends_an_open_match_so_a_queue_entry_can_wait_a_day() {
     let err = extend(&mut d, &alice, now + 86_400).unwrap_err();
     assert_eq!(custom_code(&err), 6000);
     extend(&mut d, &game, now + 86_400).expect("extend open");
-    assert_eq!(
-        d.env.load::<MatchState>(match_pda(m)).inner.deadline,
-        now + 86_400
-    );
+    assert_eq!(d.env.mstate(m).inner.deadline, now + 86_400);
 
     // A stranger cannot refund at the old deadline; after 24 h anyone can.
     let stranger = Keypair::new();
@@ -1109,20 +2267,18 @@ struct Backing {
     carol: Person,
     dave: Person,
     c_source: APk,
-    c_holding: APk,
 }
 
 fn backing_setup() -> Backing {
     let mut d = duel();
     let carol = d.env.person();
     let dave = d.env.person();
-    let (_, c_source, c_holding) = d.env.stake(&carol, 3);
+    let (_, c_source) = d.env.stake(&carol, 3);
     Backing {
         d,
         carol,
         dave,
         c_source,
-        c_holding,
     }
 }
 
@@ -1133,6 +2289,7 @@ impl Backing {
             accounts::CreateRequest {
                 player_authority: self.dave.key,
                 config: pda(&[CONFIG_SEED]),
+                game_record: common::game_record(GAME),
                 player_account: self.dave.account,
                 protections: protections_pda(self.dave.account),
                 request,
@@ -1150,97 +2307,116 @@ impl Backing {
         request
     }
 
-    fn offer(&mut self, nonce: u64, entry: u64, share: u16, directed: Option<APk>) -> APk {
-        let offer = offer_pda(self.carol.account, nonce);
-        let create = ix(
+    /// Carol's Offer on `request`, for its game and entry.
+    fn offer_ix(&self, nonce: u64, request: APk, share: u16) -> Instruction {
+        ix(
             accounts::CreateOffer {
                 backer_authority: self.carol.key,
                 config: pda(&[CONFIG_SEED]),
+                request,
+                game_record: common::game_record(GAME),
                 backer_account: self.carol.account,
                 protections: protections_pda(self.carol.account),
-                offer,
+                basket: basket_address(&self.carol.account).0,
+                spill: spill_address(&self.carol.account).0,
+                counters: counters_pda(self.carol.account),
+                offer: offer_pda(self.carol.account, nonce),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::CreateOffer {
                 nonce,
-                game: GAME,
-                entry,
                 player_share_bps: share,
-                directed_request: directed,
             },
-            vec![rem(self.c_holding)],
-        );
-        let carol = self.carol.kp.insecure_clone();
-        self.d.env.send(&[create], &carol, &[]).expect("offer");
-        offer
+            vec![],
+        )
     }
 
-    fn accept_public(&mut self, offer: APk, request: APk) {
-        let apply = ix(
-            accounts::ApplyOffer {
+    fn offer(&mut self, nonce: u64, request: APk, share: u16) -> APk {
+        let create = self.offer_ix(nonce, request, share);
+        let carol = self.carol.kp.insecure_clone();
+        self.d.env.send(&[create], &carol, &[]).expect("offer");
+        offer_pda(self.carol.account, nonce)
+    }
+
+    /// Dave accepts the Offer made on his Request.
+    fn accept_ix(&self, offer: APk, request: APk) -> Instruction {
+        ix(
+            accounts::AcceptOffer {
                 player_authority: self.dave.key,
                 player_account: self.dave.account,
                 protections: protections_pda(self.dave.account),
                 request,
                 offer,
             },
-            instruction::ApplyOffer {},
+            instruction::AcceptOffer {},
             vec![],
-        );
+        )
+    }
+
+    fn accept(&mut self, offer: APk, request: APk) {
+        let accept = self.accept_ix(offer, request);
         let dave = self.dave.kp.insecure_clone();
-        self.d.env.send(&[apply], &dave, &[]).expect("apply");
-        let accept = ix(
-            accounts::AcceptApplicant {
-                backer_authority: self.carol.key,
-                backer_account: self.carol.account,
-                request,
-                player_protections: protections_pda(self.dave.account),
-                offer,
-            },
-            instruction::AcceptApplicant {},
-            vec![],
-        );
-        let carol = self.carol.kp.insecure_clone();
-        self.d.env.send(&[accept], &carol, &[]).expect("accept");
+        self.d.env.send(&[accept], &dave, &[]).expect("accept");
     }
 
     fn open_backed(
         &mut self,
         offer: APk,
         entry: u64,
-        holdings: &[APk],
     ) -> Result<u64, litesvm::types::FailedTransactionMetadata> {
-        let id = self.d.env.next_match;
-        self.d.env.next_match += 1;
-        let open = ix(
-            accounts::OpenMatchBacked {
-                player_authority: self.dave.key,
-                config: pda(&[CONFIG_SEED]),
-                player_account: self.dave.account,
-                protections: protections_pda(self.dave.account),
-                offer,
-                backer_account: self.carol.account,
-                backer_protections: protections_pda(self.carol.account),
-                match_state: match_pda(id),
-                system_program: anchor_lang::system_program::ID,
-            },
-            instruction::OpenMatchBacked {
-                match_id: id,
-                game: GAME,
-                entry,
-            },
-            holdings.iter().map(|h| rem(*h)).collect(),
-        );
-        let dave = self.dave.kp.insecure_clone();
-        self.d.env.send(&[open], &dave, &[]).map(|_| id)
+        let env = &mut self.d.env;
+        let n = env.counters_next(self.dave.account);
+        env.pot_nonce += 1;
+        let nonce = env.pot_nonce;
+        let pot = ticket_pda(self.carol.account, nonce);
+        let remaining = env.books_of(self.carol.account);
+        env.open_match_ix(
+            &self.dave,
+            entry,
+            n,
+            nonce,
+            false,
+            0,
+            4,
+            pot,
+            remaining,
+            Some((offer, self.carol.account)),
+        )
     }
 
+    fn join_backed(
+        &mut self,
+        offer: APk,
+        id: u64,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let env = &mut self.d.env;
+        env.pot_nonce += 1;
+        let nonce = env.pot_nonce;
+        let pot = ticket_pda(self.carol.account, nonce);
+        let remaining = env.books_of(self.carol.account);
+        env.join_match_ix(
+            &self.dave,
+            id,
+            nonce,
+            4,
+            pot,
+            remaining,
+            Some((offer, self.carol.account)),
+        )
+    }
+
+    /// Gemas of Carol's basket held back for her Offers.
     fn reserved(&self) -> u64 {
-        self.d
+        let d = self
+            .d
             .env
-            .load::<HoldingState>(self.c_holding)
-            .inner
-            .reserved
+            .svm
+            .get_account(&s(basket_address(&self.carol.account).0))
+            .expect("basket")
+            .data;
+        tesoro_core::ledger::line_store::LineStore::new(&d[DISC..])
+            .expect("store")
+            .reserved_total()
     }
 }
 
@@ -1248,17 +2424,12 @@ impl Backing {
 fn backing_win_returns_backer_entry_then_splits_and_player_has_no_debt() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 4_000, None);
+    let offer = b.offer(1, request, 4_000);
     assert_eq!(b.reserved(), 500);
-    b.accept_public(offer, request);
-    let id = b
-        .open_backed(offer, 500, &[b.c_holding])
-        .expect("backed entry");
-    assert_eq!(b.d.env.holding_amount(&b.carol, b.c_source), 75_000 - 500);
-    b.d.env
-        .join_match(&b.d.bob, id, &[b.d.b_holding])
-        .map(|_| ())
-        .expect("join");
+    b.accept(offer, request);
+    let id = b.open_backed(offer, 500).expect("backed entry");
+    assert_eq!(b.d.env.gemas_of(&b.carol, b.c_source), 75_000 - 500);
+    b.d.env.join_match(&b.d.bob, id).map(|_| ()).expect("join");
 
     // Backed Player Dave wins: Pot 1_000, fees 20 + 30, surplus 450 => Dave 180, Carol 500 + 270.
     let game = b.d.env.game_auth.insecure_clone();
@@ -1267,19 +2438,11 @@ fn backing_win_returns_backer_entry_then_splits_and_player_has_no_debt() {
         .settle(&game, id, MatchResult::Opener, payouts)
         .expect("settle");
     assert_eq!(b.d.env.total_gemas(&b.dave), 180);
-    assert_eq!(
-        b.d.env.holding_amount(&b.carol, b.c_source),
-        75_000 - 500 + 500
-    );
-    assert_eq!(b.d.env.holding_amount(&b.carol, b.d.b_source), 270);
-    assert_eq!(b.d.env.holding_amount(&b.dave, b.d.b_source), 180);
+    assert_eq!(b.d.env.gemas_of(&b.carol, b.c_source), 75_000 - 500 + 500);
+    assert_eq!(b.d.env.gemas_of(&b.carol, b.d.b_source), 270);
+    assert_eq!(b.d.env.gemas_of(&b.dave, b.d.b_source), 180);
     // Dave never gained a Position or Debt, and none of Carol's Sources moved to him.
-    assert!(b
-        .d
-        .env
-        .svm
-        .get_account(&s(holding_pda(b.dave.account, b.c_source)))
-        .is_none());
+    assert_eq!(b.d.env.gemas_of(&b.dave, b.c_source), 0);
     assert_eq!(b.d.env.load::<SourceState>(b.c_source).inner.debt(), 75_000);
     assert_eq!(
         b.d.env.load::<OfferState>(offer).inner.status,
@@ -1288,31 +2451,35 @@ fn backing_win_returns_backer_entry_then_splits_and_player_has_no_debt() {
 }
 
 #[test]
+fn the_start_record_carries_both_sides_backing_shares_so_history_needs_no_match_state() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, request, 4_000);
+    b.accept(offer, request);
+    let id = b.open_backed(offer, 500).expect("backed entry");
+    b.d.env.join_match(&b.d.bob, id).map(|_| ()).expect("join");
+    let game = b.d.env.game_auth.insecure_clone();
+    b.d.env
+        .settle_start(&game, id, MatchResult::Opener)
+        .expect("start");
+    let started: Vec<MatchRunStarted> =
+        b.d.env
+            .start_events
+            .iter()
+            .filter_map(|e| decode_event(e))
+            .collect();
+    assert_eq!(started.len(), 1);
+    assert_eq!((started[0].a_share_bps, started[0].b_share_bps), (4_000, 0));
+}
+
+#[test]
 fn backing_loss_costs_the_backer_the_entry_and_nothing_more() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 4_000, Some(request));
-    let accept = ix(
-        accounts::AcceptDirected {
-            player_authority: b.dave.key,
-            player_account: b.dave.account,
-            protections: protections_pda(b.dave.account),
-            request,
-            offer,
-        },
-        instruction::AcceptDirected {},
-        vec![],
-    );
-    let dave = b.dave.kp.insecure_clone();
-    b.d.env
-        .send(&[accept], &dave, &[])
-        .expect("accept directed");
-    let id = b
-        .open_backed(offer, 500, &[b.c_holding])
-        .expect("backed entry");
-    b.d.env
-        .join_match(&b.d.bob, id, &[b.d.b_holding])
-        .expect("join");
+    let offer = b.offer(1, request, 4_000);
+    b.accept(offer, request);
+    let id = b.open_backed(offer, 500).expect("backed entry");
+    b.d.env.join_match(&b.d.bob, id).expect("join");
     let game = b.d.env.game_auth.insecure_clone();
     let payouts = b.d.env.payout_accounts(id, MatchResult::Joiner);
     b.d.env
@@ -1321,40 +2488,73 @@ fn backing_loss_costs_the_backer_the_entry_and_nothing_more() {
     // Carol lost exactly 500 Gemas (75_000 -> 74_500); Bob got them minus the fees.
     assert_eq!(b.d.env.total_gemas(&b.carol), 74_500);
     assert_eq!(b.d.env.total_gemas(&b.dave), 0);
-    assert_eq!(b.d.env.holding_amount(&b.d.bob, b.c_source), 450);
+    assert_eq!(b.d.env.gemas_of(&b.d.bob, b.c_source), 450);
     assert_eq!(b.d.env.load::<SourceState>(b.c_source).inner.debt(), 75_000);
+}
+
+#[test]
+fn an_offer_answers_one_live_request_and_only_that_request_accepts_it() {
+    let mut b = backing_setup();
+    let request = b.request(1, 1_000);
+    let offer = b.offer(1, request, 5_000);
+    // The Offer takes the Request's game and entry.
+    let state = b.d.env.load::<OfferState>(offer).inner;
+    assert_eq!(state.request, request.to_bytes());
+    assert_eq!((state.game, state.entry), (GAME.to_bytes(), 1_000));
+    assert_eq!(b.reserved(), 1_000);
+    // Dave's other Request for the same game and entry cannot take it.
+    let other = b.request(2, 1_000);
+    let dave = b.dave.kp.insecure_clone();
+    let wrong = b.accept_ix(offer, other);
+    let err = b.d.env.send(&[wrong], &dave, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::WrongRequest));
+    // A cancelled Request takes no new Offer.
+    let cancel = ix(
+        accounts::CancelRequest {
+            player_authority: b.dave.key,
+            player_account: b.dave.account,
+            request: other,
+        },
+        instruction::CancelRequest {},
+        vec![],
+    );
+    b.d.env.send(&[cancel], &dave, &[]).expect("cancel request");
+    let late = b.offer_ix(2, other, 5_000);
+    let carol = b.carol.kp.insecure_clone();
+    let err = b.d.env.send(&[late], &carol, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::Expired));
+    assert_eq!(b.reserved(), 1_000);
+    b.accept(offer, request);
 }
 
 #[test]
 fn backing_cannot_be_revoked_after_start_and_backed_player_cannot_move_backer_gemas() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
-    // Dave cannot enter a plain Match with Carol's Holding.
-    let err =
-        b.d.env
-            .open_match(&b.dave, 500, &[b.c_holding])
-            .unwrap_err();
-    assert_eq!(custom_code(&err), 6003);
-    let id = b
-        .open_backed(offer, 500, &[b.c_holding])
-        .expect("backed entry");
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
+    // Dave cannot enter a plain Match with Carol's Gemas.
+    let err = b.d.env.open_match(&b.dave, 500).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InsufficientGemas));
+    let id = b.open_backed(offer, 500).expect("backed entry");
     // The Offer is Consumed once the Match started: it cannot be cancelled, reused or expired.
     let cancel = ix(
         accounts::CancelOffer {
             backer_authority: b.carol.key,
             backer_account: b.carol.account,
+            basket: basket_address(&b.carol.account).0,
+            spill: spill_address(&b.carol.account).0,
+            counters: counters_pda(b.carol.account),
             offer,
             request: None,
         },
         instruction::CancelOffer {},
-        vec![rem(b.c_holding)],
+        vec![],
     );
     let carol = b.carol.kp.insecure_clone();
     let err = b.d.env.send(&[cancel], &carol, &[]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidStatus));
-    let err = b.open_backed(offer, 500, &[b.c_holding]).unwrap_err();
+    let err = b.open_backed(offer, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidStatus));
     // A Match nobody joins refunds the Backer, not the Player.
     let now = b.d.env.now();
@@ -1373,36 +2573,26 @@ fn an_entry_limit_stops_opening_and_joining_over_it() {
     let mut d = duel();
     d.env.set_entry_limit(&d.alice, 1_000).unwrap();
     d.env.set_entry_limit(&d.bob, 500).unwrap();
-    let m1 = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
-    let m2 = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    let m1 = d.env.open_match(&d.alice, 500).unwrap();
+    let m2 = d.env.open_match(&d.alice, 500).unwrap();
     // The third entry of the period is over Alice's 1,000: refused, and no Gemas leave her.
-    let free = d
-        .env
-        .load::<TesoroAccount>(d.alice.account)
-        .inner
-        .own_free();
-    let err = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap_err();
+    let free = d.env.total_gemas(&d.alice);
+    let err = d.env.open_match(&d.alice, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
-    assert_eq!(
-        d.env
-            .load::<TesoroAccount>(d.alice.account)
-            .inner
-            .own_free(),
-        free
-    );
+    assert_eq!(d.env.total_gemas(&d.alice), free);
     assert_eq!(d.env.entry_limit(&d.alice).window_used, 1_000);
     // Bob's 500 covers one join, not two.
-    d.env.join_match(&d.bob, m1, &[d.b_holding]).unwrap();
-    let err = d.env.join_match(&d.bob, m2, &[d.b_holding]).unwrap_err();
+    d.env.join_match(&d.bob, m1).unwrap();
+    let err = d.env.join_match(&d.bob, m2).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
     assert_eq!(d.env.entry_limit(&d.bob).window_used, 500);
     // A new period (7 days after the first entry) opens room again.
     let now = d.env.now();
     d.env.set_time(now + 7 * DAY - 1);
-    let err = d.env.open_match(&d.bob, 500, &[d.b_holding]).unwrap_err();
+    let err = d.env.open_match(&d.bob, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
     d.env.set_time(now + 7 * DAY);
-    d.env.open_match(&d.bob, 500, &[d.b_holding]).unwrap();
+    d.env.open_match(&d.bob, 500).unwrap();
     assert_eq!(d.env.entry_limit(&d.bob).window_used, 500);
 }
 
@@ -1410,19 +2600,19 @@ fn an_entry_limit_stops_opening_and_joining_over_it() {
 fn a_raised_entry_limit_waits_a_day_and_a_lowered_one_applies_at_once() {
     let mut d = duel();
     d.env.set_entry_limit(&d.alice, 500).unwrap();
-    d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    d.env.open_match(&d.alice, 500).unwrap();
     d.env.set_entry_limit(&d.alice, 2_500).unwrap();
     let l = d.env.entry_limit(&d.alice);
     assert_eq!((l.gemas, l.pending_gemas), (500, 2_500));
-    let err = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap_err();
+    let err = d.env.open_match(&d.alice, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
     let now = d.env.now();
     d.env.set_time(now + DAY);
-    d.env.open_match(&d.alice, 1_000, &[d.a_holding]).unwrap();
+    d.env.open_match(&d.alice, 1_000).unwrap();
     assert_eq!(d.env.entry_limit(&d.alice).gemas, 2_500);
     // Lowering below what is used applies at once.
     d.env.set_entry_limit(&d.alice, 500).unwrap();
-    let err = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap_err();
+    let err = d.env.open_match(&d.alice, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
 }
 
@@ -1431,43 +2621,23 @@ fn removing_the_entry_limit_lifts_it_after_a_day() {
     let mut d = duel();
     d.env.set_entry_limit(&d.alice, 500).unwrap();
     d.env.set_entry_limit(&d.alice, 0).unwrap();
-    let err = d
-        .env
-        .open_match(&d.alice, 1_000, &[d.a_holding])
-        .unwrap_err();
+    let err = d.env.open_match(&d.alice, 1_000).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
     let now = d.env.now();
     d.env.set_time(now + DAY);
-    d.env.open_match(&d.alice, 1_000, &[d.a_holding]).unwrap();
-    d.env.open_match(&d.alice, 2_500, &[d.a_holding]).unwrap();
+    d.env.open_match(&d.alice, 1_000).unwrap();
+    d.env.open_match(&d.alice, 1_000).unwrap();
 }
 
 #[test]
 fn funding_a_backing_counts_toward_the_backers_entry_limit() {
     let mut b = backing_setup();
     b.d.env.set_entry_limit(&b.carol, 500).unwrap();
-    b.offer(1, 500, 5_000, None);
+    let request = b.request(1, 500);
+    b.offer(1, request, 5_000);
     assert_eq!(b.d.env.entry_limit(&b.carol).window_used, 500);
     // A second Offer would put 1,000 at risk in the period.
-    let offer = offer_pda(b.carol.account, 2);
-    let create = ix(
-        accounts::CreateOffer {
-            backer_authority: b.carol.key,
-            config: pda(&[CONFIG_SEED]),
-            backer_account: b.carol.account,
-            protections: protections_pda(b.carol.account),
-            offer,
-            system_program: anchor_lang::system_program::ID,
-        },
-        instruction::CreateOffer {
-            nonce: 2,
-            game: GAME,
-            entry: 500,
-            player_share_bps: 5_000,
-            directed_request: None,
-        },
-        vec![rem(b.c_holding)],
-    );
+    let create = b.offer_ix(2, request, 5_000);
     let carol = b.carol.kp.insecure_clone();
     let err = b.d.env.send(&[create], &carol, &[]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
@@ -1481,9 +2651,9 @@ fn a_backed_player_playing_with_the_backers_gemas_is_not_counted() {
     b.d.env.set_entry_limit(&b.dave, 1).unwrap();
     b.d.env.set_entry_limit(&b.carol, 500).unwrap();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
-    b.open_backed(offer, 500, &[b.c_holding]).expect("backed");
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
+    b.open_backed(offer, 500).expect("backed");
     assert_eq!(b.d.env.entry_limit(&b.dave).window_used, 0);
     // Using the Offer did not count Carol twice: it was counted when she funded it.
     assert_eq!(b.d.env.entry_limit(&b.carol).window_used, 500);
@@ -1503,18 +2673,21 @@ fn a_player_with_no_entry_limit_set_is_not_limited() {
 fn offers_and_requests_expire_after_24_hours() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
+    let offer = b.offer(1, request, 5_000);
     let expire = |b: &mut Backing| {
         let expire = ix(
             accounts::ExpireOffer {
                 caller: a(b.d.env.admin.pubkey()),
                 backer_account: b.carol.account,
+                basket: basket_address(&b.carol.account).0,
+                spill: spill_address(&b.carol.account).0,
+                counters: counters_pda(b.carol.account),
                 offer,
                 request: None,
                 backer_protections: None,
             },
             instruction::ExpireOffer {},
-            vec![rem(b.c_holding)],
+            vec![],
         );
         let admin = b.d.env.admin.insecure_clone();
         b.d.env.send(&[expire], &admin, &[])
@@ -1524,20 +2697,10 @@ fn offers_and_requests_expire_after_24_hours() {
     assert_eq!(b.reserved(), 500);
     let now = b.d.env.now();
     b.d.env.set_time(now + 24 * 3_600 + 1);
-    // Too late to apply or accept; anybody releases the reservation.
-    let apply = ix(
-        accounts::ApplyOffer {
-            player_authority: b.dave.key,
-            player_account: b.dave.account,
-            protections: protections_pda(b.dave.account),
-            request,
-            offer,
-        },
-        instruction::ApplyOffer {},
-        vec![],
-    );
+    // Too late to accept; anybody releases the reservation.
+    let accept = b.accept_ix(offer, request);
     let dave = b.dave.kp.insecure_clone();
-    let err = b.d.env.send(&[apply], &dave, &[]).unwrap_err();
+    let err = b.d.env.send(&[accept], &dave, &[]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::Expired));
     expire(&mut b).expect("expire");
     assert_eq!(b.reserved(), 0);
@@ -1547,63 +2710,28 @@ fn offers_and_requests_expire_after_24_hours() {
 #[test]
 fn reserved_gemas_cannot_enter_other_matches() {
     let mut b = backing_setup();
-    b.offer(1, 2_500, 5_000, None);
-    // 75_000 held, 2_500 reserved: still plenty free, but reserved units are excluded.
-    let acct = b.d.env.load::<TesoroAccount>(b.carol.account).inner;
-    assert_eq!(
-        (acct.own_total, acct.own_reserved, acct.own_free()),
-        (75_000, 2_500, 72_500)
-    );
-    let h = b.d.env.load::<HoldingState>(b.c_holding).inner;
-    assert_eq!(h.free(), 72_500);
-}
-
-/// CU readings for the matching hot path (run with `--nocapture`).
-#[test]
-fn cu_profile_matching() {
-    let mut d = duel();
-    let game = d.env.game_auth.insecure_clone();
-    let m = d.env.open_match(&d.alice, ENTRY, &[d.a_holding]).unwrap();
-    let open1 = d.env.last_cu;
-    d.env.join_match(&d.bob, m, &[d.b_holding]).unwrap();
-    let join1 = d.env.last_cu;
-    let payouts = d.env.payout_accounts(m, MatchResult::Joiner);
-    d.env
-        .settle(&game, m, MatchResult::Joiner, payouts)
-        .unwrap();
-    let settle = d.env.last_cu;
-
-    // Bob (Position owner) returns most of his own Gemas, leaving own < entry and won > 0, so the
-    // next entry draws from two Holdings (own first, then won).
-    let bob = d.bob.kp.insecure_clone();
-    let b_position = position_pda(2);
-    let ret = ix(
-        accounts::ReturnOwn {
-            owner_authority: d.bob.key,
-            owner_account: d.bob.account,
-            position: b_position,
-            source: d.b_source,
-            holding: d.b_holding,
-        },
-        instruction::ReturnOwn { amount: 74_800 },
-        vec![],
-    );
-    d.env.send(&[ret], &bob, &[]).expect("return own");
-    let won = holding_pda(d.bob.account, d.a_source);
-    let m2 = d.env.open_match(&d.bob, 500, &[d.b_holding, won]).unwrap();
-    let open2 = d.env.last_cu;
-    d.env.join_match(&d.alice, m2, &[d.a_holding]).unwrap();
-    let payouts = d.env.payout_accounts(m2, MatchResult::Opener);
-    let n = payouts.len() / 2;
-    d.env
-        .settle(&game, m2, MatchResult::Opener, payouts)
-        .unwrap();
-    let settle2 = d.env.last_cu;
-    println!(
-        "CU open_match(1 holding) {open1}; join_match(1 holding) {join1}; settle_match({} payouts) {settle}; open_match(2 holdings) {open2}; settle_match({n} payouts) {settle2}",
-        4
-    );
-    assert!(open2 < 200_000 && settle < 200_000 && settle2 < 200_000);
+    // Carol holds 1,500 Gemas only (2 SOL of principal), and reserves 1,000 of them for an Offer.
+    b.carol = b.d.env.person();
+    b.d.env.stake_principal(&b.carol, 9, 2 * SOL);
+    assert_eq!(b.d.env.total_gemas(&b.carol), 1_500);
+    let request = b.request(1, 1_000);
+    b.offer(1, request, 5_000);
+    assert_eq!(b.reserved(), 1_000);
+    let carol = Person {
+        kp: b.carol.kp.insecure_clone(),
+        key: b.carol.key,
+        account: b.carol.account,
+    };
+    // Only 500 are free: a bigger entry is refused, one that fits goes through, and the
+    // reservation is untouched either way.
+    let err = b.d.env.open_match(&carol, 1_000).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InsufficientGemas));
+    b.d.env
+        .open_match(&carol, 500)
+        .expect("the free part enters");
+    assert_eq!(b.reserved(), 1_000);
+    let err = b.d.env.open_match(&carol, 500).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InsufficientGemas));
 }
 
 // --- F-07 -----------------------------------------------------------------------------------
@@ -1643,24 +2771,17 @@ fn f07_plain_redeem_of_an_evm_sourced_gema_is_refused() {
     env.take_advance(&alice, position, 0, 6, 150_000_000)
         .expect("advance");
     let source = source_pda(position, 0);
-    let holding = holding_pda(alice.account, source);
     env.yield_to(&oracle, position, Some(source), 1, 5 * SOL / 2)
         .expect("yield");
 
-    let redeem = ix(
-        accounts::Redeem {
-            holder_authority: alice.key,
-            holder_account: alice.account,
-            position,
-            source,
-            holding,
-        },
-        instruction::Redeem { amount: 100 },
-        vec![],
-    );
+    let redeem = env.redeem_ix_reported(&alice, position, source, SIDE_OWN, 100);
     let err = env.send(&[redeem], &alice.kp, &[]).unwrap_err();
     assert_eq!(custom_code(&err), ERR_BRIDGED_SOURCE);
-    assert_eq!(env.holding_amount(&alice, source), 75_000, "nothing burned");
+    assert_eq!(
+        gemas_in(&env.svm, alice.account, source),
+        75_000,
+        "nothing burned"
+    );
 
     let register = ix(
         accounts::SetSourceAuthority {
@@ -1677,6 +2798,8 @@ fn f07_plain_redeem_of_an_evm_sourced_gema_is_refused() {
     );
     let admin = env.admin.insecure_clone();
     env.send(&[register], &admin, &[]).expect("register");
+    let bridge_line = env.line(source, SIDE_OWN);
+    let bridge_books = book_metas(&env.svm, source);
     let via_bridge = |signer: &Keypair| {
         ix(
             accounts::RedeemFromSource {
@@ -1684,12 +2807,16 @@ fn f07_plain_redeem_of_an_evm_sourced_gema_is_refused() {
                 source_signer: a(signer.pubkey()),
                 source_authority: pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
                 holder_account: alice.account,
+                basket: basket_address(&alice.account).0,
+                spill: spill_address(&alice.account).0,
                 position,
                 source,
-                holding,
             },
-            instruction::RedeemFromSource { amount: 100 },
-            vec![],
+            instruction::RedeemFromSource {
+                line: bridge_line,
+                amount: 100,
+            },
+            bridge_books.clone(),
         )
     };
     // Alice cannot stand in for the bridge.
@@ -1699,7 +2826,7 @@ fn f07_plain_redeem_of_an_evm_sourced_gema_is_refused() {
     assert_eq!(custom_code(&err), 6000);
     env.send(&[via_bridge(&bridge)], &alice.kp, &[&bridge])
         .expect("redeem through the bridge authority");
-    assert_eq!(env.holding_amount(&alice, source), 74_900);
+    assert_eq!(gemas_in(&env.svm, alice.account, source), 74_900);
     assert_eq!(
         env.load::<SourceState>(source).inner.redeemed_units,
         6_666_666
@@ -1718,8 +2845,8 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
     for expire in [false, true] {
         let mut b = backing_setup();
         let request = b.request(1, 500);
-        let offer = b.offer(1, 500, 5_000, None);
-        b.accept_public(offer, request);
+        let offer = b.offer(1, request, 5_000);
+        b.accept(offer, request);
         assert_eq!(request_status(&b, request), RequestStatus::Accepted);
 
         let end = |b: &mut Backing, request: Option<APk>| {
@@ -1731,12 +2858,15 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
                         accounts::ExpireOffer {
                             caller: a(b.d.env.admin.pubkey()),
                             backer_account: b.carol.account,
+                            basket: basket_address(&b.carol.account).0,
+                            spill: spill_address(&b.carol.account).0,
+                            counters: counters_pda(b.carol.account),
                             offer,
                             request,
                             backer_protections: None,
                         },
                         instruction::ExpireOffer {},
-                        vec![rem(b.c_holding)],
+                        vec![],
                     ),
                     b.d.env.admin.insecure_clone(),
                 )
@@ -1746,11 +2876,14 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
                         accounts::CancelOffer {
                             backer_authority: b.carol.key,
                             backer_account: b.carol.account,
+                            basket: basket_address(&b.carol.account).0,
+                            spill: spill_address(&b.carol.account).0,
+                            counters: counters_pda(b.carol.account),
                             offer,
                             request,
                         },
                         instruction::CancelOffer {},
-                        vec![rem(b.c_holding)],
+                        vec![],
                     ),
                     b.carol.kp.insecure_clone(),
                 )
@@ -1765,139 +2898,37 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
         if !expire {
             // Cancelling does not move time; the Request is live for a second Offer.
             assert_eq!(request_status(&b, request), RequestStatus::Open);
-            let offer2 = b.offer(2, 500, 5_000, Some(request));
-            let accept = ix(
-                accounts::AcceptDirected {
-                    player_authority: b.dave.key,
-                    player_account: b.dave.account,
-                    protections: protections_pda(b.dave.account),
-                    request,
-                    offer: offer2,
-                },
-                instruction::AcceptDirected {},
-                vec![],
-            );
-            let dave = b.dave.kp.insecure_clone();
-            b.d.env.send(&[accept], &dave, &[]).expect("answered again");
+            let offer2 = b.offer(2, request, 5_000);
+            b.accept(offer2, request);
         } else {
             assert_eq!(request_status(&b, request), RequestStatus::Open);
         }
     }
 }
 
-// --- Entry fragmentation: up to MAX_ENTRY_SOURCES Holdings per entry -----------------------------
+// --- Entry fragmentation: up to MAX_ENTRY_SOURCES lines per entry -----------------------------
 
-/// `n` Positions for `p`, each worth `gemas_each` Gemas of its own Source, returned as Holdings in
-/// the canonical (ascending Source) order. `first_id` keeps Position ids unique across people.
+/// `n` Positions for `p`, each worth `gemas_each` Gemas of its own Source, returned as Sources in
+/// ascending order. `first_id` keeps Position ids unique across people.
+#[allow(dead_code)]
 fn fragment(env: &mut Env, p: &Person, first_id: u8, n: u8, gemas_each: u64) -> Vec<APk> {
     // 750 Gemas per SOL of principal (see `stake_principal`).
     let principal = gemas_each * SOL / 750;
-    let mut sources: Vec<(APk, APk)> = (0..n)
+    let mut sources: Vec<APk> = (0..n)
         .map(|i| {
-            let (_, source, holding) = env.stake_principal(p, first_id + i, principal);
-            assert_eq!(env.holding_amount(p, source), gemas_each);
-            (source, holding)
+            let (_, source) = env.stake_principal(p, first_id + i, principal);
+            assert_eq!(env.gemas_of(p, source), gemas_each);
+            source
         })
         .collect();
-    sources.sort_by_key(|(source, _)| source.to_bytes());
-    sources.into_iter().map(|(_, holding)| holding).collect()
-}
-
-struct Fragmented {
-    open_cu: u64,
-    join_cu: u64,
-    settle_cu: u64,
-    settle_size: usize,
-    payouts: usize,
-}
-
-/// Both Players hold `k` own Sources and enter a 500 Match drawing on all of them; the opener
-/// wins. Checks conservation per Source and returns the CU and size readings.
-fn fragmented_match(k: u8) -> Fragmented {
-    // Every Holding is needed: the first k - 1 hold less than 500 together, all k at least 500.
-    let gemas_each = if k == 8 { 63 } else { 600 / k as u64 };
-    let held = gemas_each * k as u64;
-    let mut env = Env::new();
-    let alice = env.person();
-    let bob = env.person();
-    let a_holdings = fragment(&mut env, &alice, 10, k, gemas_each);
-    let b_holdings = fragment(&mut env, &bob, 100, k, gemas_each);
-    let game = env.game_auth.insecure_clone();
-
-    let m = env.open_match(&alice, 500, &a_holdings).expect("open");
-    let open_cu = env.last_cu;
-    env.join_match(&bob, m, &b_holdings).expect("join");
-    let join_cu = env.last_cu;
-    let mm = env.load::<MatchState>(match_pda(m)).inner;
-    assert_eq!(mm.a.lines.len(), k as usize);
-    assert_eq!(mm.b.as_ref().expect("joined").lines.len(), k as usize);
-
-    let payouts = env.payout_accounts(m, MatchResult::Opener);
-    let n = payouts.len() / 2;
-    env.settle(&game, m, MatchResult::Opener, payouts)
-        .expect("settle");
-    let (settle_cu, settle_size) = (env.last_cu, env.last_size);
-
-    // Pot 1_000: platform 20 + studio 30 are taken from Bob's lines; Alice gets 500 back + 450.
-    assert_eq!(env.total_gemas(&env.platform), 20);
-    assert_eq!(env.total_gemas(&env.studio), 30);
-    assert_eq!(env.total_gemas(&alice), held + 450);
-    assert_eq!(env.total_gemas(&bob), held - 500);
-    assert_eq!(
-        env.load::<MatchState>(match_pda(m)).inner.status,
-        MatchStatus::Settled
-    );
-    // Per-Source conservation across every Holding, for every Source involved.
-    for i in 0..k {
-        for first_id in [10u8, 100u8] {
-            let source = source_pda(position_pda(first_id + i), 0);
-            let total: u64 = [&alice, &bob, &env.platform, &env.studio]
-                .iter()
-                .map(|p| env.holding_amount(p, source))
-                .sum();
-            assert_eq!(total, env.load::<SourceState>(source).inner.outstanding());
-        }
-    }
-    Fragmented {
-        open_cu,
-        join_cu,
-        settle_cu,
-        settle_size,
-        payouts: n,
-    }
-}
-
-#[test]
-fn entries_draw_from_one_two_five_and_eight_holdings() {
-    for k in [1u8, 2, 5, 8] {
-        let f = fragmented_match(k);
-        println!(
-            "CU holdings={k}: open_match {} join_match {} settle_match({} payouts) {}; settle tx {} bytes",
-            f.open_cu, f.join_cu, f.payouts, f.settle_cu, f.settle_size
-        );
-        assert!(f.settle_cu < 150_000, "settle stays under the CU target");
-    }
-}
-
-#[test]
-fn a_ninth_holding_is_refused() {
-    let mut env = Env::new();
-    let alice = env.person();
-    let holdings = fragment(&mut env, &alice, 10, 9, 60);
-    let err = env.open_match(&alice, 500, &holdings).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::TooManySources));
+    sources.sort_by_key(|source| source.to_bytes());
+    sources
 }
 
 // --- Leaderboard ------------------------------------------------------------------------------
 
 fn pool_pda() -> APk {
     account_pda(pda(&[LEADERBOARD_SEED]))
-}
-fn window_pda(n: u32) -> APk {
-    pda(&[SEASON_WINDOW_SEED, &n.to_le_bytes()])
-}
-fn season_pda(n: u32) -> APk {
-    pda(&[SEASON_SEED, &n.to_le_bytes()])
 }
 
 impl Env {
@@ -1921,6 +2952,7 @@ impl Env {
                 config: pda(&[CONFIG_SEED]),
                 pool_authority: pda(&[LEADERBOARD_SEED]),
                 pool_account: pool_pda(),
+                treasury: common::treasury(),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::InitLeaderboard {
@@ -1931,341 +2963,59 @@ impl Env {
         let admin = self.admin.insecure_clone();
         self.send(&[init], &admin, &[]).expect("init leaderboard");
     }
-
-    fn record_season(
-        &mut self,
-        signer: &Keypair,
-        n: u32,
-        ranked: &[(&Person, u64)],
-    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        let record = ix(
-            accounts::RecordSeason {
-                authority: a(signer.pubkey()),
-                config: pda(&[CONFIG_SEED]),
-                pool_account: pool_pda(),
-                season: season_pda(n),
-                season_window: window_pda(n),
-                system_program: anchor_lang::system_program::ID,
-            },
-            instruction::RecordSeason {
-                number: n,
-                points: ranked.iter().map(|(_, p)| *p).collect(),
-            },
-            ranked.iter().map(|(p, _)| rem(p.account)).collect(),
-        );
-        self.send(&[record], signer, &[])
-    }
-
-    /// Pool Holdings of `candidates` that hold Gemas, ascending by Source (the canonical order).
-    fn pool_sources(&self, candidates: &[APk]) -> Vec<(APk, u64)> {
-        let mut out: Vec<(APk, u64)> = candidates
-            .iter()
-            .filter(|src| {
-                self.svm
-                    .get_account(&s(holding_pda(pool_pda(), **src)))
-                    .is_some()
-            })
-            .map(|src| {
-                (
-                    *src,
-                    self.load::<HoldingState>(holding_pda(pool_pda(), *src))
-                        .inner
-                        .amount,
-                )
-            })
-            .filter(|(_, n)| *n > 0)
-            .collect();
-        out.sort_by_key(|(src, _)| *src);
-        out
-    }
-
-    fn void_rank(
-        &mut self,
-        signer: &Keypair,
-        n: u32,
-        rank: u8,
-    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        let void = ix(
-            accounts::VoidSeasonRank {
-                admin: a(signer.pubkey()),
-                config: pda(&[CONFIG_SEED]),
-                season: season_pda(n),
-                season_window: window_pda(n),
-            },
-            instruction::VoidSeasonRank { rank },
-            vec![],
-        );
-        self.send(&[void], signer, &[])
-    }
-
-    fn pay_rank(
-        &mut self,
-        signer: &Keypair,
-        n: u32,
-        rank: u8,
-        winner: &Person,
-        sources: &[APk],
-    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        let mut remaining: Vec<AccountMeta> = sources
-            .iter()
-            .map(|src| rem(holding_pda(pool_pda(), *src)))
-            .collect();
-        for src in sources {
-            self.open_holding(winner.account, *src);
-            remaining.push(rem(holding_pda(winner.account, *src)));
-        }
-        let pay = ix(
-            accounts::PaySeasonRank {
-                authority: a(signer.pubkey()),
-                config: pda(&[CONFIG_SEED]),
-                season: season_pda(n),
-                season_window: window_pda(n),
-                pool_account: pool_pda(),
-                winner_account: winner.account,
-            },
-            instruction::PaySeasonRank { rank },
-            remaining,
-        );
-        self.send(&[pay], signer, &[])
-    }
 }
 
 #[test]
-fn leaderboard_fee_fills_the_pool_and_a_season_pays_the_top_ranks() {
-    use tesoro_core::ledger::{season_end, SEASON_EPOCH};
+fn leaderboard_fee_fills_the_pool() {
+    use tesoro_core::ledger::SEASON_EPOCH;
     let mut d = duel();
     d.env.enable_leaderboard(100);
     let cfg = d.env.load::<Config>(pda(&[CONFIG_SEED]));
     assert_eq!((cfg.leaderboard_bps, cfg.pool_account), (100, pool_pda()));
     assert_eq!(cfg.leaderboard_since, d.env.now());
-    assert_eq!(
-        d.env.load::<TesoroAccount>(pool_pda()).authority,
-        pda(&[LEADERBOARD_SEED])
-    );
     let game = d.env.game_auth.insecure_clone();
     d.env.set_time(SEASON_EPOCH + 3_600);
 
-    // Alice wins 1,000: pot 2,000, the pool takes 1% = 20 of Bob's own Source.
-    let m1 = d
-        .env
-        .open_match(&d.alice, ENTRY, &[d.a_holding])
-        .expect("open");
-    d.env.join_match(&d.bob, m1, &[d.b_holding]).expect("join");
-    let payouts = d.env.payout_accounts(m1, MatchResult::Opener);
+    // Alice wins 1,000: pot 2,000, the Leaderboard Fee takes 1% = 20 of Bob's own Source, into
+    // that Source's Leaderboard counter.
+    let m1 = d.env.open_match(&d.alice, ENTRY).expect("open");
+    d.env.join_match(&d.bob, m1).expect("join");
     d.env
-        .settle(&game, m1, MatchResult::Opener, payouts)
-        .expect("settle");
-    let won_events = d
+        .settle_start(&game, m1, MatchResult::Opener)
+        .expect("settle starts");
+    let won: Vec<MatchWon> = d
         .env
-        .last_logs
+        .start_events
         .iter()
-        .filter(|l| l.starts_with("Program data:"))
-        .count();
-    assert_eq!(won_events, 2, "MatchSettled and MatchWon");
-    let won: Vec<Vec<u8>> = d
-        .env
-        .last_logs
-        .iter()
-        .filter_map(|l| l.strip_prefix("Program data: "))
-        .map(decode_b64)
-        .filter(|b| b.len() == 8 + 172)
+        .filter_map(|e| decode_event::<MatchWon>(e))
         .collect();
-    assert_eq!(won.len(), 1, "one MatchWon, layout with the loser last");
-    assert_eq!(&won[0][8 + 48..8 + 80], d.alice.account.as_ref(), "player");
-    assert_eq!(&won[0][8 + 140..], d.bob.account.as_ref(), "loser");
-    assert_eq!(d.env.total_gemas(&d.env.platform), 40);
-    assert_eq!(d.env.total_gemas(&d.env.studio), 60);
-    let pool = d.env.load::<TesoroAccount>(pool_pda()).inner;
-    assert_eq!(pool.won_total + pool.own_total, 20);
+    assert_eq!(won.len(), 1, "one MatchWon, written by event-CPI");
+    assert_eq!(won[0].player, d.alice.account);
+    assert_eq!(won[0].loser, d.bob.account);
+    assert_eq!(won[0].pool_fee, 20);
+    d.env.run_chunks(m1);
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_PLATFORM), 40);
+    assert_eq!(d.env.fee_gemas(&d.env.studio), 60);
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_LEADERBOARD), 20);
     // Alice nets 880 on top of her entry (1,000 pot share less 4 + 6 + 2 percent of the pot).
     assert_eq!(d.env.total_gemas(&d.alice), 75_000 + 880);
 
-    // Bob wins 500 against Alice: Alice's own Source pays 10 into the pool.
-    let m2 = d.env.open_match(&d.bob, 500, &[d.b_holding]).expect("open");
+    // Bob wins 500 against Alice: Alice's own Source pays 10 into its counter.
+    let m2 = d.env.open_match(&d.bob, 500).expect("open");
+    d.env.join_match(&d.alice, m2).expect("join");
     d.env
-        .join_match(&d.alice, m2, &[d.a_holding])
-        .expect("join");
-    let payouts = d.env.payout_accounts(m2, MatchResult::Opener);
-    d.env
-        .settle(&game, m2, MatchResult::Opener, payouts)
+        .settle(&game, m2, MatchResult::Opener, vec![])
         .expect("settle");
-    let pool = d.env.load::<TesoroAccount>(pool_pda()).inner;
-    assert_eq!(pool.won_total + pool.own_total, 30);
-    let sources = d.env.pool_sources(&[d.a_source, d.b_source]);
-    assert_eq!(sources.len(), 2);
+    assert_eq!(d.env.counter_amount(d.a_source, CLASS_LEADERBOARD), 10);
 
-    // A draw never pays the pool.
-    let m3 = d
-        .env
-        .open_match(&d.alice, 500, &[d.a_holding])
-        .expect("open");
-    d.env.join_match(&d.bob, m3, &[d.b_holding]).expect("join");
-    let payouts = d.env.payout_accounts(m3, MatchResult::Draw);
+    // A draw never pays the Leaderboard.
+    let m3 = d.env.open_match(&d.alice, 500).expect("open");
+    d.env.join_match(&d.bob, m3).expect("join");
     d.env
-        .settle(&game, m3, MatchResult::Draw, payouts)
+        .settle(&game, m3, MatchResult::Draw, vec![])
         .expect("draw");
-    let pool = d.env.load::<TesoroAccount>(pool_pda()).inner;
-    assert_eq!(pool.won_total + pool.own_total, 30);
-
-    // The season is still running.
-    let admin = d.env.admin.insecure_clone();
-    let oracle = d.env.oracle.insecure_clone();
-    let err = d
-        .env
-        .record_season(&admin, 1, &[(&d.alice, 10), (&d.bob, 5)])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::SeasonNotEnded));
-    d.env.set_time(season_end(1).unwrap() + 60);
-    // Only the admin or the keeper records.
-    let stranger = Keypair::new();
-    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
-    let err = d
-        .env
-        .record_season(&stranger, 1, &[(&d.alice, 10), (&d.bob, 5)])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), 6000);
-    // Ranks are ordered and distinct.
-    let err = d
-        .env
-        .record_season(&oracle, 1, &[(&d.alice, 5), (&d.bob, 10)])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::SeasonInvalid));
-    d.env
-        .record_season(&oracle, 1, &[(&d.alice, 10), (&d.bob, 5)])
-        .expect("record");
-    let season = d.env.load::<SeasonState>(season_pda(1)).inner;
-    assert_eq!((season.pool_total, season.count), (30, 2));
-    // 25% of 30 = 7, 18% of 30 = 5.
-    assert_eq!(season.amounts[..3], [7, 5, 0]);
-    // Recorded once.
-    assert!(d.env.record_season(&admin, 1, &[(&d.alice, 10)]).is_err());
-
-    let window = d.env.load::<SeasonWindowState>(window_pda(1)).inner;
-    let recorded_at = season_end(1).unwrap() + 60;
-    assert_eq!((window.recorded_at, window.voided_mask), (recorded_at, 0));
-
-    // Inside the 48-hour window nothing is paid.
-    let all: Vec<APk> = sources.iter().map(|(src, _)| *src).collect();
-    let err = d
-        .env
-        .pay_rank(&oracle, 1, 0, &d.alice, &all[..1])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::PayoutWindowOpen));
-    // Only the admin voids; the keeper and strangers cannot.
-    let err = d.env.void_rank(&oracle, 1, 1).unwrap_err();
-    assert_eq!(custom_code(&err), 6000);
-    let err = d.env.void_rank(&stranger, 1, 1).unwrap_err();
-    assert_eq!(custom_code(&err), 6000);
-    let err = d.env.void_rank(&admin, 1, 2).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::SeasonInvalid));
-    d.env.void_rank(&admin, 1, 1).expect("void bob");
-    let err = d.env.void_rank(&admin, 1, 1).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::RankVoided));
-    assert_eq!(
-        d.env
-            .load::<SeasonWindowState>(window_pda(1))
-            .inner
-            .voided_mask,
-        0b10
-    );
-    // One second before the window ends: still refused.
-    d.env.set_time(recorded_at + PAYOUT_WINDOW_SECS - 1);
-    let err = d
-        .env
-        .pay_rank(&oracle, 1, 0, &d.alice, &all[..1])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::PayoutWindowOpen));
-    d.env.set_time(recorded_at + PAYOUT_WINDOW_SECS);
-    // Too late to void now.
-    let err = d.env.void_rank(&admin, 1, 0).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::PayoutWindowClosed));
-
-    // The wrong winner, the wrong Holding order and a stranger are refused.
-    let err = d
-        .env
-        .pay_rank(&oracle, 1, 0, &d.bob, &all[..1])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), 6003);
-    let err = d
-        .env
-        .pay_rank(&stranger, 1, 0, &d.alice, &all[..1])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), 6000);
-    let rev: Vec<APk> = all.iter().rev().cloned().collect();
-    let err = d.env.pay_rank(&oracle, 1, 0, &d.alice, &rev).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::NonCanonicalPrize));
-    let before = d.env.total_gemas(&d.alice);
-    d.env
-        .pay_rank(&oracle, 1, 0, &d.alice, &all[..1])
-        .expect("pay 1st");
-    assert_eq!(d.env.total_gemas(&d.alice), before + 7);
-    let err = d
-        .env
-        .pay_rank(&oracle, 1, 0, &d.alice, &all[..1])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::AlreadyPaid));
-    // The voided rank pays nothing.
-    let before = d.env.total_gemas(&d.bob);
-    let err = d
-        .env
-        .pay_rank(&oracle, 1, 1, &d.bob, &all[..1])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::RankVoided));
-    assert_eq!(d.env.total_gemas(&d.bob), before);
-    // No rank 2 was recorded.
-    assert!(d.env.pay_rank(&oracle, 1, 2, &d.alice, &all[..1]).is_err());
-
-    // 30 - 7 stays in the pool (the unfilled and the voided shares): it rolls into the next
-    // season, Sources intact.
-    let pool = d.env.load::<TesoroAccount>(pool_pda()).inner;
-    assert_eq!(pool.won_total + pool.own_total, 23);
-    assert_eq!(
-        d.env
-            .pool_sources(&[d.a_source, d.b_source])
-            .iter()
-            .map(|(_, n)| n)
-            .sum::<u64>(),
-        23
-    );
-    for src in [d.a_source, d.b_source] {
-        let total: u64 = [&d.alice, &d.bob, &d.env.platform, &d.env.studio]
-            .iter()
-            .map(|p| d.env.holding_amount(p, src))
-            .sum::<u64>()
-            + d.env
-                .svm
-                .get_account(&s(holding_pda(pool_pda(), src)))
-                .map(|_| {
-                    d.env
-                        .load::<HoldingState>(holding_pda(pool_pda(), src))
-                        .inner
-                        .amount
-                })
-                .unwrap_or(0);
-        assert_eq!(total, d.env.load::<SourceState>(src).inner.outstanding());
-    }
-}
-
-fn decode_b64(s: &str) -> Vec<u8> {
-    let val = |c: u8| match c {
-        b'A'..=b'Z' => c - b'A',
-        b'a'..=b'z' => c - b'a' + 26,
-        b'0'..=b'9' => c - b'0' + 52,
-        b'+' => 62,
-        _ => 63,
-    } as u32;
-    let mut out = Vec::new();
-    let (mut acc, mut bits) = (0u32, 0);
-    for c in s.bytes().take_while(|c| *c != b'=') {
-        acc = (acc << 6) | val(c);
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-            acc &= (1 << bits) - 1;
-        }
-    }
-    out
+    assert_eq!(d.env.counter_amount(d.a_source, CLASS_LEADERBOARD), 10);
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_LEADERBOARD), 20);
 }
 
 // --- Break and Self-Exclusion ---------------------------------------------------------------------
@@ -2273,47 +3023,34 @@ fn decode_b64(s: &str) -> Vec<u8> {
 #[test]
 fn a_break_stops_opening_and_joining_matches_until_it_ends() {
     let mut d = duel();
-    let open = d.env.open_match(&d.bob, 500, &[d.b_holding]).unwrap();
+    let open = d.env.open_match(&d.bob, 500).unwrap();
     d.env.set_break(&d.alice, 3).unwrap();
     let now = d.env.now();
     assert_eq!(d.env.protections(&d.alice).break_until, now + 3 * DAY);
-    let free = d
-        .env
-        .load::<TesoroAccount>(d.alice.account)
-        .inner
-        .own_free();
-    let err = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap_err();
+    let free = d.env.total_gemas(&d.alice);
+    let err = d.env.open_match(&d.alice, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
-    let err = d
-        .env
-        .join_match(&d.alice, open, &[d.a_holding])
-        .unwrap_err();
+    let err = d.env.join_match(&d.alice, open).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
-    assert_eq!(
-        d.env
-            .load::<TesoroAccount>(d.alice.account)
-            .inner
-            .own_free(),
-        free
-    );
+    assert_eq!(d.env.total_gemas(&d.alice), free);
     d.env.set_time(now + 3 * DAY);
-    let later = d.env.open_match(&d.bob, 500, &[d.b_holding]).unwrap();
-    d.env.join_match(&d.alice, later, &[d.a_holding]).unwrap();
-    d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    let later = d.env.open_match(&d.bob, 500).unwrap();
+    d.env.join_match(&d.alice, later).unwrap();
+    d.env.open_match(&d.alice, 500).unwrap();
 }
 
 #[test]
 fn a_self_exclusion_stops_matches_too_and_lasts_months() {
     let mut d = duel();
     d.env.set_self_exclusion(&d.alice, 6).unwrap();
-    let err = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap_err();
+    let err = d.env.open_match(&d.alice, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::SelfExcluded));
     let now = d.env.now();
     d.env.set_time(now + 6 * 30 * DAY - 1);
-    let err = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap_err();
+    let err = d.env.open_match(&d.alice, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::SelfExcluded));
     d.env.set_time(now + 6 * 30 * DAY);
-    d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    d.env.open_match(&d.alice, 500).unwrap();
 }
 
 #[test]
@@ -2348,7 +3085,7 @@ fn a_break_or_self_exclusion_cannot_be_shortened_or_given_bad_lengths() {
 fn a_break_keeps_the_entry_limit_and_the_limit_keeps_counting() {
     let mut d = duel();
     d.env.set_entry_limit(&d.alice, 1_000).unwrap();
-    d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    d.env.open_match(&d.alice, 500).unwrap();
     d.env.set_break(&d.alice, 1).unwrap();
     let l = d.env.entry_limit(&d.alice);
     assert_eq!((l.gemas, l.window_used), (1_000, 500));
@@ -2357,26 +3094,22 @@ fn a_break_keeps_the_entry_limit_and_the_limit_keeps_counting() {
 #[test]
 fn matches_already_paired_play_out_during_a_break() {
     let mut d = duel();
-    let id = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
-    d.env.join_match(&d.bob, id, &[d.b_holding]).unwrap();
+    let id = d.env.open_match(&d.alice, 500).unwrap();
+    d.env.join_match(&d.bob, id).unwrap();
     d.env.set_break(&d.alice, 7).unwrap();
     d.env.set_self_exclusion(&d.bob, 6).unwrap();
     let game = d.env.game_auth.insecure_clone();
-    let payouts = d.env.payout_accounts(id, MatchResult::Opener);
     d.env
-        .settle(&game, id, MatchResult::Opener, payouts)
+        .settle_keep(&game, id, MatchResult::Opener)
         .expect("settles");
-    assert_eq!(
-        d.env.load::<MatchState>(match_pda(id)).inner.status,
-        tesoro_core::ledger::MatchStatus::Settled
-    );
+    assert_eq!(d.env.mstate(id).inner.stage(), Stage::Closed);
 }
 
 #[test]
 fn a_paired_match_refunds_during_a_break_but_only_by_the_usual_rules() {
     let mut d = duel();
-    let id = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
-    d.env.join_match(&d.bob, id, &[d.b_holding]).unwrap();
+    let id = d.env.open_match(&d.alice, 500).unwrap();
+    d.env.join_match(&d.bob, id).unwrap();
     d.env.set_break(&d.alice, 7).unwrap();
     let stranger = d.env.admin.insecure_clone();
     let payouts = d.env.refund_accounts(id);
@@ -2392,28 +3125,22 @@ fn a_paired_match_refunds_during_a_break_but_only_by_the_usual_rules() {
 #[test]
 fn nobody_joins_a_match_whose_opener_started_a_break_and_anyone_refunds_it() {
     let mut d = duel();
-    let id = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    let id = d.env.open_match(&d.alice, 500).unwrap();
     let before = d.env.total_gemas(&d.alice);
     d.env.set_break(&d.alice, 2).unwrap();
-    let err = d.env.join_match(&d.bob, id, &[d.b_holding]).unwrap_err();
+    let err = d.env.join_match(&d.bob, id).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
     // A stranger refunds the unpaired Match at once because its opener is away.
     let stranger = d.env.admin.insecure_clone();
-    let payouts = d.env.refund_accounts(id);
-    d.env
-        .refund(&stranger, id, payouts)
-        .expect("refund at once");
+    d.env.refund_keep(&stranger, id).expect("refund at once");
     assert_eq!(d.env.total_gemas(&d.alice), before + 500);
-    assert_eq!(
-        d.env.load::<MatchState>(match_pda(id)).inner.status,
-        tesoro_core::ledger::MatchStatus::Refunded
-    );
+    assert_eq!(d.env.mstate(id).inner.stage(), Stage::Closed);
 }
 
 #[test]
 fn a_stranger_cannot_refund_an_unpaired_match_of_a_player_who_is_not_away() {
     let mut d = duel();
-    let id = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    let id = d.env.open_match(&d.alice, 500).unwrap();
     let stranger = d.env.admin.insecure_clone();
     let payouts = d.env.refund_accounts(id);
     let err = d.env.refund(&stranger, id, payouts).unwrap_err();
@@ -2425,13 +3152,14 @@ fn a_player_on_a_break_cannot_ask_to_be_backed_or_be_backed() {
     let mut b = backing_setup();
     // Dave's Request and Carol's Offer exist before the Break.
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
+    let offer = b.offer(1, request, 5_000);
     b.d.env.set_break(&b.dave, 5).unwrap();
     let create = |b: &mut Backing, nonce: u64| {
         let create = ix(
             accounts::CreateRequest {
                 player_authority: b.dave.key,
                 config: pda(&[CONFIG_SEED]),
+                game_record: common::game_record(GAME),
                 player_account: b.dave.account,
                 protections: protections_pda(b.dave.account),
                 request: request_pda(b.dave.account, nonce),
@@ -2449,69 +3177,10 @@ fn a_player_on_a_break_cannot_ask_to_be_backed_or_be_backed() {
     };
     let err = create(&mut b, 2).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
-    // Applying to a public Offer and accepting a directed one are refused.
-    let apply = ix(
-        accounts::ApplyOffer {
-            player_authority: b.dave.key,
-            player_account: b.dave.account,
-            protections: protections_pda(b.dave.account),
-            request,
-            offer,
-        },
-        instruction::ApplyOffer {},
-        vec![],
-    );
+    // Accepting an Offer made before the Break is refused.
+    let accept = b.accept_ix(offer, request);
     let dave = b.dave.kp.insecure_clone();
-    let err = b.d.env.send(&[apply], &dave, &[]).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::OnBreak));
-    let directed = b.offer(2, 500, 5_000, Some(request));
-    let accept = ix(
-        accounts::AcceptDirected {
-            player_authority: b.dave.key,
-            player_account: b.dave.account,
-            protections: protections_pda(b.dave.account),
-            request,
-            offer: directed,
-        },
-        instruction::AcceptDirected {},
-        vec![],
-    );
     let err = b.d.env.send(&[accept], &dave, &[]).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::OnBreak));
-}
-
-#[test]
-fn a_backer_cannot_accept_an_applicant_who_is_on_a_break() {
-    let mut b = backing_setup();
-    let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    let apply = ix(
-        accounts::ApplyOffer {
-            player_authority: b.dave.key,
-            player_account: b.dave.account,
-            protections: protections_pda(b.dave.account),
-            request,
-            offer,
-        },
-        instruction::ApplyOffer {},
-        vec![],
-    );
-    let dave = b.dave.kp.insecure_clone();
-    b.d.env.send(&[apply], &dave, &[]).expect("applied");
-    b.d.env.set_break(&b.dave, 5).unwrap();
-    let accept = ix(
-        accounts::AcceptApplicant {
-            backer_authority: b.carol.key,
-            backer_account: b.carol.account,
-            request,
-            player_protections: protections_pda(b.dave.account),
-            offer,
-        },
-        instruction::AcceptApplicant {},
-        vec![],
-    );
-    let carol = b.carol.kp.insecure_clone();
-    let err = b.d.env.send(&[accept], &carol, &[]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
 }
 
@@ -2520,8 +3189,8 @@ fn an_accepted_offer_cannot_start_a_match_once_the_player_or_backer_is_away() {
     for backer_away in [false, true] {
         let mut b = backing_setup();
         let request = b.request(1, 500);
-        let offer = b.offer(1, 500, 5_000, None);
-        b.accept_public(offer, request);
+        let offer = b.offer(1, request, 5_000);
+        b.accept(offer, request);
         let who = if backer_away {
             b.carol.account
         } else {
@@ -2543,7 +3212,7 @@ fn an_accepted_offer_cannot_start_a_match_once_the_player_or_backer_is_away() {
             };
             b.d.env.set_self_exclusion(&dave, 6).unwrap();
         }
-        let err = b.open_backed(offer, 500, &[b.c_holding]).unwrap_err();
+        let err = b.open_backed(offer, 500).unwrap_err();
         let code = custom_code(&err);
         assert!(
             code == core(CoreError::OnBreak) || code == core(CoreError::SelfExcluded),
@@ -2557,32 +3226,17 @@ fn an_accepted_offer_cannot_start_a_match_once_the_player_or_backer_is_away() {
 fn a_backed_match_cannot_be_joined_by_a_player_on_a_break() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
     // Dave is backed into the Match Bob opened; Bob's Break stops the join through the opener check.
-    let id = b.d.env.open_match(&b.d.bob, 500, &[b.d.b_holding]).unwrap();
+    let id = b.d.env.open_match(&b.d.bob, 500).unwrap();
     let bob = Person {
         kp: b.d.bob.kp.insecure_clone(),
         key: b.d.bob.key,
         account: b.d.bob.account,
     };
     b.d.env.set_break(&bob, 1).unwrap();
-    let join = ix(
-        accounts::JoinMatchBacked {
-            player_authority: b.dave.key,
-            player_account: b.dave.account,
-            protections: protections_pda(b.dave.account),
-            offer,
-            backer_account: b.carol.account,
-            backer_protections: protections_pda(b.carol.account),
-            match_state: match_pda(id),
-            opener_protections: protections_pda(b.d.bob.account),
-        },
-        instruction::JoinMatchBacked {},
-        vec![rem(b.c_holding)],
-    );
-    let dave = b.dave.kp.insecure_clone();
-    let err = b.d.env.send(&[join], &dave, &[]).unwrap_err();
+    let err = b.join_backed(offer, id).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
     assert_eq!(b.reserved(), 500);
 }
@@ -2595,25 +3249,9 @@ fn a_backer_on_a_break_cannot_fund_an_offer() {
         key: b.carol.key,
         account: b.carol.account,
     };
+    let request = b.request(1, 500);
     b.d.env.set_break(&carol, 2).unwrap();
-    let create = ix(
-        accounts::CreateOffer {
-            backer_authority: b.carol.key,
-            config: pda(&[CONFIG_SEED]),
-            backer_account: b.carol.account,
-            protections: protections_pda(b.carol.account),
-            offer: offer_pda(b.carol.account, 1),
-            system_program: anchor_lang::system_program::ID,
-        },
-        instruction::CreateOffer {
-            nonce: 1,
-            game: GAME,
-            entry: 500,
-            player_share_bps: 5_000,
-            directed_request: None,
-        },
-        vec![rem(b.c_holding)],
-    );
+    let create = b.offer_ix(1, request, 5_000);
     let err = b.d.env.send(&[create], &carol.kp, &[]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
     assert_eq!(b.reserved(), 0);
@@ -2623,7 +3261,7 @@ fn a_backer_on_a_break_cannot_fund_an_offer() {
 fn anyone_withdraws_the_requests_and_offers_of_a_player_who_started_a_break() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
+    let offer = b.offer(1, request, 5_000);
     let stranger = b.d.env.admin.insecure_clone();
     let (dave_acct, carol_acct) = (b.dave.account, b.carol.account);
     let clear = |b: &mut Backing, request: APk, who: APk| {
@@ -2643,12 +3281,15 @@ fn anyone_withdraws_the_requests_and_offers_of_a_player_who_started_a_break() {
             accounts::ExpireOffer {
                 caller: a(stranger.pubkey()),
                 backer_account: b.carol.account,
+                basket: basket_address(&b.carol.account).0,
+                spill: spill_address(&b.carol.account).0,
+                counters: counters_pda(b.carol.account),
                 offer,
                 request: None,
                 backer_protections,
             },
             instruction::ExpireOffer {},
-            vec![rem(b.c_holding)],
+            vec![],
         );
         b.d.env.send(&[expire], &stranger, &[])
     };
@@ -2697,8 +3338,8 @@ fn anyone_withdraws_the_requests_and_offers_of_a_player_who_started_a_break() {
 fn a_withdrawn_accepted_offer_hands_its_request_back() {
     let mut b = backing_setup();
     let request = b.request(1, 500);
-    let offer = b.offer(1, 500, 5_000, None);
-    b.accept_public(offer, request);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
     let carol = Person {
         kp: b.carol.kp.insecure_clone(),
         key: b.carol.key,
@@ -2710,12 +3351,15 @@ fn a_withdrawn_accepted_offer_hands_its_request_back() {
         accounts::ExpireOffer {
             caller: a(stranger.pubkey()),
             backer_account: b.carol.account,
+            basket: basket_address(&b.carol.account).0,
+            spill: spill_address(&b.carol.account).0,
+            counters: counters_pda(b.carol.account),
             offer,
             request: Some(request),
             backer_protections: Some(protections_pda(b.carol.account)),
         },
         instruction::ExpireOffer {},
-        vec![rem(b.c_holding)],
+        vec![],
     );
     b.d.env.send(&[expire], &stranger, &[]).expect("withdrawn");
     assert_eq!(
@@ -2734,32 +3378,16 @@ fn redeem_unlock_and_debt_repayment_still_work_under_a_self_exclusion() {
     d.env
         .yield_to(&oracle, d.a_position, Some(d.a_source), 1, 5 * SOL / 2)
         .expect("yield repays debt");
-    let redeem = ix(
-        accounts::Redeem {
-            holder_authority: d.alice.key,
-            holder_account: d.alice.account,
-            position: d.a_position,
-            source: d.a_source,
-            holding: d.a_holding,
-        },
-        instruction::Redeem { amount: 37_500 },
-        vec![],
-    );
+    let redeem = d
+        .env
+        .redeem_ix_reported(&d.alice, d.a_position, d.a_source, SIDE_OWN, 37_500);
     let alice = d.alice.kp.insecure_clone();
     d.env.send(&[redeem], &alice, &[]).expect("redeem");
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 37_500);
+    assert_eq!(gemas_in(&d.env.svm, d.alice.account, d.a_source), 37_500);
     d.env
         .yield_to(&oracle, d.a_position, Some(d.a_source), 2, 6 * SOL)
         .expect("more yield");
-    let unlock = ix(
-        accounts::Unlock {
-            owner_authority: d.alice.key,
-            owner_account: d.alice.account,
-            position: d.a_position,
-        },
-        instruction::Unlock {},
-        vec![],
-    );
+    let unlock = d.env.unlock_ix_reported(&d.alice, d.a_position);
     d.env.send(&[unlock], &alice, &[]).expect("unlock");
 }
 
@@ -2767,20 +3395,12 @@ fn redeem_unlock_and_debt_repayment_still_work_under_a_self_exclusion() {
 fn return_own_still_works_under_a_self_exclusion() {
     let mut d = duel();
     d.env.set_self_exclusion(&d.alice, 6).unwrap();
-    let ret = ix(
-        accounts::ReturnOwn {
-            owner_authority: d.alice.key,
-            owner_account: d.alice.account,
-            position: d.a_position,
-            source: d.a_source,
-            holding: d.a_holding,
-        },
-        instruction::ReturnOwn { amount: 1_000 },
-        vec![],
-    );
+    let ret = d
+        .env
+        .return_own_ix_reported(&d.alice, d.a_position, d.a_source, 1_000);
     let alice = d.alice.kp.insecure_clone();
     d.env.send(&[ret], &alice, &[]).expect("return own gemas");
-    assert_eq!(d.env.load::<SourceState>(d.a_source).inner.debt(), 74_000);
+    assert_eq!(d.env.debt_of(d.a_source), 74_000);
 }
 
 #[test]
@@ -2877,13 +3497,13 @@ fn entry_sizes_default_to_the_ladder_even_on_a_config_that_predates_the_field() 
     d.env.svm.set_account(config, acct).expect("legacy config");
     assert_eq!(
         d.env.load::<Config>(pda(&[CONFIG_SEED])).entries(),
-        vec![500, 1_000, 2_500]
+        vec![100, 500, 1_000]
     );
-    let err = d.env.open_match(&d.alice, 100, &[d.a_holding]).unwrap_err();
+    let err = d.env.open_match(&d.alice, 2_500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidEntry));
     d.env
-        .open_match(&d.alice, 500, &[d.a_holding])
-        .expect("500 is a default size");
+        .open_match(&d.alice, 100)
+        .expect("100 is a default size");
 }
 
 #[test]
@@ -2909,31 +3529,23 @@ fn admin_sets_entry_sizes_and_matches_outside_them_are_refused() {
         assert_eq!(custom_code(&err), core(CoreError::InvalidEntry), "{bad:?}");
     }
     d.env
-        .set_entry_sizes(&admin, &[100, 500, 1_000])
-        .expect("mainnet sizes");
+        .set_entry_sizes(&admin, &[500, 1_000, 2_500])
+        .expect("another ladder");
     assert_eq!(
         d.env.load::<Config>(pda(&[CONFIG_SEED])).entries(),
-        vec![100, 500, 1_000]
+        vec![500, 1_000, 2_500]
     );
-    // 100 now opens and 2,500 (a default size) no longer does.
-    let err = d
-        .env
-        .open_match(&d.alice, 2_500, &[d.a_holding])
-        .unwrap_err();
+    // 2,500 now opens and 100 (a default size) no longer does.
+    let err = d.env.open_match(&d.alice, 100).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidEntry));
-    let m = d
-        .env
-        .open_match(&d.alice, 100, &[d.a_holding])
-        .expect("100 is allowed");
-    d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
-    d.env
-        .open_match(&d.alice, 500, &[d.a_holding])
-        .expect("500 stays allowed");
+    let m = d.env.open_match(&d.alice, 2_500).expect("2,500 is allowed");
+    d.env.join_match(&d.bob, m).expect("join");
+    d.env.open_match(&d.alice, 500).expect("500 stays allowed");
     // Setting them again replaces the list.
     d.env
-        .set_entry_sizes(&admin, &[500, 1_000, 2_500])
+        .set_entry_sizes(&admin, &[100, 500, 1_000])
         .expect("back");
-    let err = d.env.open_match(&d.alice, 100, &[d.a_holding]).unwrap_err();
+    let err = d.env.open_match(&d.alice, 2_500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidEntry));
 }
 
@@ -3029,4 +3641,2131 @@ fn a_locked_oracle_cannot_register_positions_report_yield_or_price_advances() {
     env.set_oracle_lock(&admin, false).expect("unlock");
     env.take_advance(&p, position, 0, 6, 150_000_000)
         .expect("advance once unlocked");
+}
+
+// ---- Listing, upgrades and the pair limit ----
+
+/// An event written by event-CPI, from the inner instructions of a transaction.
+fn decode_event<T: anchor_lang::Event>(data: &[u8]) -> Option<T> {
+    // Anchor's EVENT_IX_TAG_LE, then the event's discriminator, then its Borsh bytes
+    const TAG: [u8; 8] = [228, 69, 165, 46, 81, 203, 154, 29];
+    if data.len() < 16 || data[..8] != TAG || data[8..16] != *T::DISCRIMINATOR {
+        return None;
+    }
+    T::try_from_slice(&data[16..]).ok()
+}
+
+/// The Points the last started settlement awarded (its one `MatchWon`).
+fn won_points(env: &Env) -> u64 {
+    let won: Vec<MatchWon> = env
+        .start_events
+        .iter()
+        .filter_map(|d| decode_event::<MatchWon>(d))
+        .collect();
+    assert_eq!(won.len(), 1, "one MatchWon");
+    won[0].points
+}
+
+fn play_a_win(d: &mut Duel, entry: u64) -> u64 {
+    let game = d.env.game_auth.insecure_clone();
+    let m = d.env.open_match(&d.alice, entry).expect("open");
+    d.env.join_match(&d.bob, m).expect("join");
+    d.env
+        .settle_keep(&game, m, MatchResult::Opener)
+        .expect("settle");
+    m
+}
+
+#[test]
+fn a_win_on_a_listed_game_earns_points() {
+    let mut d = duel();
+    let m = play_a_win(&mut d, ENTRY);
+    let st = d.env.mstate(m);
+    assert!(st.listed);
+    assert_eq!(st.inner.deploy_slot, GAME_SLOT);
+    assert_eq!(
+        won_points(&d.env),
+        tesoro_core::ledger::points_for_win(ENTRY)
+    );
+}
+
+#[test]
+fn upgrading_a_game_unlists_it_until_the_admin_approves_the_new_slot() {
+    let mut d = duel();
+    // The Game's authority upgrades the program: the ProgramData slot moves.
+    common::set_program_data(
+        &mut d.env.svm,
+        s(GAME),
+        Some(d.env.game_ctl.pubkey()),
+        GAME_SLOT + 7,
+    );
+    let m = play_a_win(&mut d, ENTRY);
+    let st = d.env.mstate(m);
+    assert!(!st.listed, "an upgraded Game counts as unlisted");
+    assert_eq!(st.inner.deploy_slot, GAME_SLOT + 7);
+    assert_eq!(won_points(&d.env), 0, "no Points while unlisted");
+    // Re-approval applies to Matches opened after it, not to the one already open.
+    let admin = d.env.admin.insecure_clone();
+    let list = d.env.list_game_ix(LISTED_FOR_EVER);
+    d.env.send(&[list], &admin, &[]).expect("approve");
+    let m2 = play_a_win(&mut d, ENTRY);
+    assert!(d.env.mstate(m2).listed);
+    assert!(won_points(&d.env) > 0);
+    assert!(!d.env.mstate(m).listed);
+}
+
+#[test]
+fn a_listing_that_ran_out_or_was_withdrawn_earns_no_points() {
+    let mut d = duel();
+    let now = d.env.now();
+    let admin = d.env.admin.insecure_clone();
+    let list = d.env.list_game_ix(now + 100);
+    d.env.send(&[list], &admin, &[]).expect("list");
+    d.env.set_time(now + 101);
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(!d.env.mstate(m).listed);
+    let list = d.env.list_game_ix(0);
+    d.env.send(&[list], &admin, &[]).expect("unlist");
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(!d.env.mstate(m).listed);
+}
+
+#[test]
+fn only_the_admin_lists_a_game() {
+    let mut d = duel();
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    let list = ix(
+        accounts::ListGame {
+            admin: a(stranger.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            game_record: common::game_record(GAME),
+            game_program: GAME,
+            program_data: a(common::program_data_address(s(GAME))),
+        },
+        instruction::ListGame {
+            listed_until: LISTED_FOR_EVER,
+            approved_hash: common::code_hash(&d.env.svm, s(GAME)),
+        },
+        vec![],
+    );
+    let err = d.env.send(&[list], &stranger, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), 6000);
+    // Not even the Game's own authority can list itself.
+    let ctl = d.env.game_ctl.insecure_clone();
+    let list = ix(
+        accounts::ListGame {
+            admin: a(ctl.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            game_record: common::game_record(GAME),
+            game_program: GAME,
+            program_data: a(common::program_data_address(s(GAME))),
+        },
+        instruction::ListGame {
+            listed_until: LISTED_FOR_EVER,
+            approved_hash: common::code_hash(&d.env.svm, s(GAME)),
+        },
+        vec![],
+    );
+    let err = d.env.send(&[list], &ctl, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), 6000);
+}
+
+#[test]
+fn a_backed_match_on_an_unlisted_game_is_refused_at_open() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, request, 4_000);
+    b.accept(offer, request);
+    // The Game is upgraded after the Offer was made.
+    common::set_program_data(
+        &mut b.d.env.svm,
+        s(GAME),
+        Some(b.d.env.game_ctl.pubkey()),
+        GAME_SLOT + 1,
+    );
+    let err = b.open_backed(offer, 500).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        anchor_code(tesoro_core::error::TesoroError::GameNotListed)
+    );
+    assert_eq!(b.reserved(), 500, "the Offer's Gemas stay reserved");
+    // The admin approves the new slot: the same Offer opens.
+    let admin = b.d.env.admin.insecure_clone();
+    let list = b.d.env.list_game_ix(LISTED_FOR_EVER);
+    b.d.env.send(&[list], &admin, &[]).expect("approve");
+    b.open_backed(offer, 500).expect("opens once listed");
+}
+
+#[test]
+fn an_unregistered_game_cannot_open_a_match_or_a_request() {
+    let mut d = duel();
+    let other = APk::new_unique();
+    let alice = d.alice.kp.insecure_clone();
+    let n = d.env.counters_next(d.alice.account);
+    let pot = ticket_pda(d.alice.account, 77);
+    let err = d
+        .env
+        .open_match_game(
+            &Person {
+                kp: alice.insecure_clone(),
+                key: d.alice.key,
+                account: d.alice.account,
+            },
+            ENTRY,
+            (n, 77, false, 0, 4),
+            pot,
+            vec![],
+            None,
+            Some((other, a(common::program_data_address(s(other))))),
+        )
+        .unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        3012,
+        "no Game record: AccountNotInitialized"
+    );
+}
+
+#[test]
+fn a_pair_cannot_start_more_than_twenty_matches_a_day() {
+    let mut d = duel();
+    let game = d.env.game_auth.insecure_clone();
+    for _ in 0..MAX_PAIR_MATCHES {
+        let m = d.env.open_match(&d.alice, 500).expect("open");
+        d.env.join_match(&d.bob, m).expect("join");
+        // a Draw closes it, so the open-Match cap is never the thing being tested
+        d.env
+            .settle(&game, m, MatchResult::Draw, vec![])
+            .expect("draw");
+    }
+    let m = d.env.open_match(&d.alice, 500).expect("open");
+    let err = d.env.join_match(&d.bob, m).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        anchor_code(tesoro_core::error::TesoroError::PairLimitReached)
+    );
+    // The other direction is its own pair; a new day resets the count.
+    let m2 = d.env.open_match(&d.bob, 500).expect("open");
+    d.env.join_match(&d.alice, m2).expect("other direction");
+    let now = d.env.now();
+    d.env.set_time(now + PAIR_WINDOW_SECS + 1);
+    let m3 = d.env.open_match(&d.alice, 500).expect("open next day");
+    d.env.join_match(&d.bob, m3).expect("next day");
+    let pair = d
+        .env
+        .load::<PairState>(pair_pda(d.alice.account, d.bob.account));
+    assert_eq!(pair.count, 1);
+}
+
+#[test]
+fn a_backed_join_is_refused_once_the_game_was_upgraded_after_the_match_opened() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
+    let id = b.d.env.open_match(&b.d.bob, 500).unwrap();
+    assert!(b.d.env.mstate(id).listed);
+    // The studio ships different code while the Match waits for an opponent.
+    common::set_program_code(
+        &mut b.d.env.svm,
+        s(GAME),
+        Some(b.d.env.game_ctl.pubkey()),
+        GAME_SLOT + 3,
+        &[0xCD; 64],
+    );
+    let err = b.join_backed(offer, id).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        anchor_code(tesoro_core::error::TesoroError::GameNotListed)
+    );
+    assert_eq!(b.reserved(), 500, "the Backer's Gemas stay reserved");
+    // Even after the admin approves the new build, this Match was opened for the old one.
+    let admin = b.d.env.admin.insecure_clone();
+    let list = b.d.env.list_game_ix(LISTED_FOR_EVER);
+    b.d.env.send(&[list], &admin, &[]).expect("approve");
+    let err = b.join_backed(offer, id).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        anchor_code(tesoro_core::error::TesoroError::GameNotListed)
+    );
+}
+
+#[test]
+fn a_stranger_extending_the_program_cannot_block_a_pending_backed_join() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
+    let id = b.d.env.open_match(&b.d.bob, 500).unwrap();
+    let stranger = Keypair::new();
+    b.d.env
+        .svm
+        .airdrop(&stranger.pubkey(), SOL)
+        .expect("airdrop");
+    common::extend_program(&mut b.d.env.svm, s(GAME), GAME_SLOT + 4, 10_240);
+    let err = b.join_backed(offer, id).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        anchor_code(tesoro_core::error::TesoroError::GameNotListed),
+        "unlisted until someone refreshes"
+    );
+    refresh(&mut b.d.env, &stranger).expect("anyone refreshes");
+    b.join_backed(offer, id)
+        .expect("the same build counts as the same Game");
+    assert_eq!(b.d.env.mstate(id).inner.stage(), Stage::Active);
+}
+
+#[test]
+fn relisting_the_same_build_keeps_a_pending_backed_join_alive() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
+    let id = b.d.env.open_match(&b.d.bob, 500).unwrap();
+    common::extend_program(&mut b.d.env.svm, s(GAME), GAME_SLOT + 4, 10_240);
+    let admin = b.d.env.admin.insecure_clone();
+    let list = b.d.env.list_game_ix(LISTED_FOR_EVER);
+    b.d.env
+        .send(&[list], &admin, &[])
+        .expect("relist same bytes");
+    b.join_backed(offer, id).expect("same hash, same epoch");
+}
+
+#[test]
+fn a_backed_join_works_while_the_game_is_unchanged() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
+    let id = b.d.env.open_match(&b.d.bob, 500).unwrap();
+    b.join_backed(offer, id).expect("join");
+    assert_eq!(b.d.env.mstate(id).inner.stage(), Stage::Active);
+}
+
+#[test]
+fn junk_program_accounts_cannot_strip_a_listed_match_of_its_points() {
+    let mut d = duel();
+    let junk = APk::new_unique();
+    let open = |d: &mut Duel, program_data: APk| {
+        let n = d.env.counters_next(d.alice.account);
+        d.env.pot_nonce += 1;
+        let nonce = d.env.pot_nonce;
+        let pot = ticket_pda(d.alice.account, nonce);
+        let remaining = d.env.books_of(d.alice.account);
+        let alice = Person {
+            kp: d.alice.kp.insecure_clone(),
+            key: d.alice.key,
+            account: d.alice.account,
+        };
+        d.env.open_match_game(
+            &alice,
+            ENTRY,
+            (n, nonce, false, 0, 4),
+            pot,
+            remaining,
+            None,
+            Some((GAME, program_data)),
+        )
+    };
+    // A real account that is not the Game's ProgramData, and an account that does not exist.
+    for bogus in [junk, d.alice.account, a(d.env.admin.pubkey())] {
+        let err = open(&mut d, bogus).unwrap_err();
+        assert_eq!(
+            custom_code(&err),
+            anchor_code(tesoro_core::error::TesoroError::GameProofInvalid)
+        );
+    }
+    // Once the admin has unlisted the Game, the same call opens an unlisted Match.
+    let admin = d.env.admin.insecure_clone();
+    let unlist = d.env.list_game_ix(0);
+    d.env.send(&[unlist], &admin, &[]).expect("unlist");
+    let id = open(&mut d, junk).expect("opens, unlisted");
+    assert!(!d.env.mstate(id).listed);
+}
+
+#[test]
+fn a_pair_counter_returns_its_rent_to_the_joiner_after_the_window() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, 500).expect("open");
+    d.env.join_match(&d.bob, m).expect("join");
+    let pair = pair_pda(d.alice.account, d.bob.account);
+    let pair_rent = d.env.svm.get_balance(&s(pair)).expect("pair counter");
+    let close = |d: &mut Duel, caller: &Keypair| {
+        let i = ix(
+            accounts::ClosePair {
+                caller: a(caller.pubkey()),
+                pair,
+                payer: d.bob.key,
+            },
+            instruction::ClosePair {
+                opener: d.alice.account,
+                joiner: d.bob.account,
+            },
+            vec![],
+        );
+        d.env.send(&[i], caller, &[])
+    };
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    let err = close(&mut d, &stranger).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        anchor_code(tesoro_core::error::TesoroError::PairWindowOpen)
+    );
+    let now = d.env.now();
+    d.env.set_time(now + PAIR_WINDOW_SECS);
+    // The rent can only go to the wallet that paid it.
+    let wrong = ix(
+        accounts::ClosePair {
+            caller: a(stranger.pubkey()),
+            pair,
+            payer: a(stranger.pubkey()),
+        },
+        instruction::ClosePair {
+            opener: d.alice.account,
+            joiner: d.bob.account,
+        },
+        vec![],
+    );
+    assert!(d.env.send(&[wrong], &stranger, &[]).is_err());
+    let before = d.env.svm.get_balance(&d.bob.kp.pubkey()).expect("balance");
+    close(&mut d, &stranger).expect("anyone closes it after the window");
+    assert!(d.env.svm.get_account(&s(pair)).is_none());
+    let after = d.env.svm.get_balance(&d.bob.kp.pubkey()).expect("balance");
+    assert_eq!(after, before + pair_rent, "the rent came back to Bob");
+}
+
+// ---- Code hash: the listing survives ExtendProgram, not a different build ----
+
+fn refresh_ix(env: &Env) -> Instruction {
+    let (game_record, game_program, program_data) = env.game_accounts();
+    ix(
+        accounts::RefreshListing {
+            game_record,
+            game_program,
+            program_data,
+        },
+        instruction::RefreshListing {},
+        vec![],
+    )
+}
+
+fn refresh(env: &mut Env, by: &Keypair) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+    let i = refresh_ix(env);
+    env.send(&[i], by, &[])
+}
+
+/// ComputeBudget `SetComputeUnitLimit`.
+fn cu_limit(units: u32) -> Instruction {
+    let mut data = vec![2u8];
+    data.extend_from_slice(&units.to_le_bytes());
+    Instruction {
+        program_id: "ComputeBudget111111111111111111111111111111"
+            .parse()
+            .expect("compute budget program"),
+        accounts: vec![],
+        data,
+    }
+}
+
+fn error_code(e: tesoro_core::error::TesoroError) -> u32 {
+    anchor_code(e)
+}
+
+#[test]
+fn a_stranger_extending_the_program_unlists_it_and_refresh_restores_it() {
+    let mut d = duel();
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    // ExtendProgram needs no authority on a loader without the checked variant: it appends zeros
+    // and moves the slot, nothing else.
+    common::extend_program(&mut d.env.svm, s(GAME), GAME_SLOT + 4, 10_240);
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(!d.env.mstate(m).listed, "slot moved: unlisted");
+    assert_eq!(won_points(&d.env), 0);
+
+    refresh(&mut d.env, &stranger).expect("anyone refreshes: the bytes are the approved ones");
+    let record = d.env.load::<GameRecord>(common::game_record(GAME));
+    assert_eq!(record.approved_slot, GAME_SLOT + 4);
+    let m2 = play_a_win(&mut d, ENTRY);
+    assert!(d.env.mstate(m2).listed);
+    assert!(won_points(&d.env) > 0);
+
+    // Nothing left to refresh.
+    let err = refresh(&mut d.env, &stranger).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        error_code(tesoro_core::error::TesoroError::ListingCurrent)
+    );
+}
+
+#[test]
+fn a_real_upgrade_is_not_restored_by_refresh_only_by_the_admin() {
+    let mut d = duel();
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    // The studio ships different code (and an extension on top of it).
+    let mut code = vec![0xCD; 64];
+    code.extend_from_slice(&[0; 10_240]);
+    common::set_program_code(
+        &mut d.env.svm,
+        s(GAME),
+        Some(d.env.game_ctl.pubkey()),
+        GAME_SLOT + 9,
+        &code,
+    );
+    let err = refresh(&mut d.env, &stranger).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        error_code(tesoro_core::error::TesoroError::CodeChanged)
+    );
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(!d.env.mstate(m).listed);
+    // A stranger cannot list it either; the admin approves the new build explicitly.
+    let admin = d.env.admin.insecure_clone();
+    let list = d.env.list_game_ix(LISTED_FOR_EVER);
+    d.env
+        .send(&[list], &admin, &[])
+        .expect("admin approves the new build");
+    let record = d.env.load::<GameRecord>(common::game_record(GAME));
+    assert_eq!(record.approved_slot, GAME_SLOT + 9);
+    assert_eq!(record.approved_hash, common::code_hash(&d.env.svm, s(GAME)));
+    let m2 = play_a_win(&mut d, ENTRY);
+    assert!(d.env.mstate(m2).listed);
+}
+
+#[test]
+fn the_admin_cannot_approve_a_hash_that_is_not_the_program_on_chain() {
+    let mut d = duel();
+    let admin = d.env.admin.insecure_clone();
+    let (game_record, game_program, program_data) = d.env.game_accounts();
+    let list = |hash: [u8; 32]| {
+        ix(
+            accounts::ListGame {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                game_record,
+                game_program,
+                program_data,
+            },
+            instruction::ListGame {
+                listed_until: LISTED_FOR_EVER,
+                approved_hash: hash,
+            },
+            vec![],
+        )
+    };
+    for bad in [[0u8; 32], [7u8; 32]] {
+        let err = d.env.send(&[list(bad)], &admin, &[]).unwrap_err();
+        assert_eq!(
+            custom_code(&err),
+            error_code(tesoro_core::error::TesoroError::CodeHashMismatch)
+        );
+    }
+    // The program changes between the admin's off-chain hash and the transaction.
+    let stale = common::code_hash(&d.env.svm, s(GAME));
+    common::set_program_code(
+        &mut d.env.svm,
+        s(GAME),
+        Some(d.env.game_ctl.pubkey()),
+        GAME_SLOT + 1,
+        &[0x11; 64],
+    );
+    let err = d.env.send(&[list(stale)], &admin, &[]).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        error_code(tesoro_core::error::TesoroError::CodeHashMismatch)
+    );
+}
+
+#[test]
+fn refresh_needs_a_listing_in_force() {
+    let mut d = duel();
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    common::extend_program(&mut d.env.svm, s(GAME), GAME_SLOT + 2, 10_240);
+    // Withdrawn by the admin: a refresh must not bring it back.
+    let admin = d.env.admin.insecure_clone();
+    let unlist = d.env.list_game_ix(0);
+    d.env.send(&[unlist], &admin, &[]).expect("unlist");
+    let err = refresh(&mut d.env, &stranger).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        error_code(tesoro_core::error::TesoroError::NotListed)
+    );
+    // Expired listing: same.
+    let now = d.env.now();
+    let list = d.env.list_game_ix(now + 50);
+    d.env.send(&[list], &admin, &[]).expect("list");
+    common::extend_program(&mut d.env.svm, s(GAME), GAME_SLOT + 3, 10_240);
+    d.env.set_time(now + 51);
+    let err = refresh(&mut d.env, &stranger).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        error_code(tesoro_core::error::TesoroError::NotListed)
+    );
+}
+
+#[test]
+fn hashing_the_largest_game_program_fits_one_transaction() {
+    let mut d = duel();
+    let admin = d.env.admin.insecure_clone();
+    let so = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../target/deploy/vanguard.so"
+    ))
+    .expect("vanguard.so (pnpm build:programs)");
+    assert!(so.len() > 700_000, "the largest game program");
+    common::set_program_code(
+        &mut d.env.svm,
+        s(GAME),
+        Some(d.env.game_ctl.pubkey()),
+        GAME_SLOT + 1,
+        &so,
+    );
+    let list = d.env.list_game_ix(LISTED_FOR_EVER);
+    d.env
+        .send(&[cu_limit(1_400_000), list], &admin, &[])
+        .expect("list_game hashes the program");
+    let list_cu = d.env.last_cu;
+    // A stranger extends it by one page; refresh hashes it again.
+    common::extend_program(&mut d.env.svm, s(GAME), GAME_SLOT + 2, 10_240);
+    let i = refresh_ix(&d.env);
+    d.env
+        .send(&[cu_limit(1_400_000), i], &admin, &[])
+        .expect("refresh_listing hashes the program");
+    let refresh_cu = d.env.last_cu;
+    eprintln!(
+        "CU list_game {list_cu} refresh_listing {refresh_cu} for {} bytes",
+        so.len()
+    );
+    assert!(list_cu < 1_000_000 && refresh_cu < 1_000_000);
+    // Worst case the registry accepts: the whole cap is padding the scan must walk.
+    common::extend_program(
+        &mut d.env.svm,
+        s(GAME),
+        GAME_SLOT + 3,
+        tesoro_core::registry::MAX_CODE_BYTES - so.len() - 45 - 10_240,
+    );
+    let i = refresh_ix(&d.env);
+    d.env
+        .send(&[cu_limit(1_400_000), i], &admin, &[])
+        .expect("refresh at the size cap");
+    eprintln!("CU refresh_listing at the size cap {}", d.env.last_cu);
+    assert!(d.env.last_cu < 1_400_000);
+}
+
+// --- Budgets: what a line costs, and how many fit one transaction ---------------------------
+
+fn person_with_lines(env: &mut Env, k: usize, tag: u8, entry: u64) -> (Person, Vec<APk>) {
+    let p = env.person();
+    env.grow_basket_to(&p, k + 4);
+    let sources: Vec<APk> = (0..k)
+        .map(|i| env.forge_source(tag.wrapping_add(i as u8), 0))
+        .collect();
+    env.give_lines(&p, &sources, entry / k as u64, |i| i as i64);
+    (p, sources)
+}
+
+#[test]
+fn the_per_transaction_line_cap_is_compute_not_accounts() {
+    // Moving a line is in-place work: no account per line, so the transaction does not grow with
+    // the number of lines, and the cap is set by compute alone (200,000 CU by default).
+    println!("lines | open_match CU | stage CU | stage tx bytes");
+    for k in [1usize, 2, 4, 5, 10, 20, 25, 50] {
+        let mut env = Env::new();
+        let (p, _) = person_with_lines(&mut env, k, 100, 1_000);
+        env.open_ticket(&p, 5, 1_000, k as u32 + 1).expect("ticket");
+        let kp = p.kp.insecure_clone();
+        // a transaction stages at most MAX_STAGE_OPS lines; the rest follow in the next one
+        let mut worst = 0;
+        let mut size = 0;
+        for _ in 0..3 {
+            env.stage_with(&kp, &p, 5, 255, vec![]).expect("stage");
+            worst = worst.max(env.last_cu);
+            size = size.max(env.last_size);
+            let t = env.load_ticket_staged(&p, 5);
+            if t == 1_000 {
+                break;
+            }
+        }
+        let open_cu = if k <= 10 {
+            let (q, _) = person_with_lines(&mut env, k, 160, 1_000);
+            env.open_match_ix(
+                &q,
+                1_000,
+                0,
+                9_000,
+                false,
+                0,
+                k as u32 + 1,
+                ticket_pda(q.account, 9_000),
+                vec![],
+                None,
+            )
+            .expect("direct draw");
+            env.last_cu
+        } else {
+            // more lines than one transaction draws: the program says so
+            let (q, _) = person_with_lines(&mut env, k, 160, 1_000);
+            let err = env
+                .open_match_ix(
+                    &q,
+                    1_000,
+                    0,
+                    9_000,
+                    false,
+                    0,
+                    18,
+                    ticket_pda(q.account, 9_000),
+                    vec![],
+                    None,
+                )
+                .unwrap_err();
+            assert_eq!(custom_code(&err), MATCH_NEEDS_TICKET, "{k} lines");
+            0
+        };
+        println!("{k:>5} | {open_cu:>13} | {worst:>8} | {size}");
+        assert!(
+            worst < 130_000,
+            "{k} lines: a staging transaction stays under budget"
+        );
+        assert!(
+            open_cu < 120_000,
+            "{k} lines: a direct draw stays under budget"
+        );
+        assert!(size < 400, "a staging transaction has no account per line");
+    }
+}
+
+#[test]
+fn a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table() {
+    // Worst case: every credit merges into a line of the same Source (its book swaps in), and
+    // the fee cuts sync Sources. The client loads only the Sources of the next steps.
+    println!("sources | start CU | chunk CU (<=12 steps) | accounts | legacy bytes | v0 bytes");
+    for k in [4usize, 5, 8, 10] {
+        let mut env = Env::new();
+        let alice = env.person();
+        let bob = env.person();
+        for p in [&alice, &bob] {
+            env.grow_basket_to(p, 2 * k + 8);
+        }
+        let sources: Vec<APk> = (0..k).map(|i| env.forge_source(100 + i as u8, 0)).collect();
+        env.give_lines(&alice, &sources, 1_000 / k as u64, |i| i as i64);
+        env.give_lines(&bob, &sources, 1_000 / k as u64, |i| i as i64);
+        env.give_lines(&bob, &sources, 4, |i| i as i64 + 1_000);
+        env.give_lines(&alice, &sources, 4, |i| i as i64 + 1_000);
+        let m = env
+            .open_match_ix(
+                &alice,
+                1_000,
+                0,
+                9_001,
+                false,
+                0,
+                k as u32 + 1,
+                ticket_pda(alice.account, 9_001),
+                env.books_of(alice.account),
+                None,
+            )
+            .expect("open");
+        env.join_match_ix(
+            &bob,
+            m,
+            9_002,
+            k as u32 + 1,
+            ticket_pda(bob.account, 9_002),
+            env.books_of(bob.account),
+            None,
+        )
+        .expect("join");
+        let game = env.game_auth.insecure_clone();
+        env.settle_start(&game, m, MatchResult::Opener)
+            .expect("start");
+        let start_cu = env.last_cu;
+        let mut worst = (0, 0, 0, 0);
+        while env.stage_of(m) != Stage::Closed {
+            let payer = env.admin.insecure_clone();
+            let mut fit = 12u8;
+            let mut probe = env.chunk_ix(a(payer.pubkey()), m, fit);
+            while probe.accounts.len() > 60 && fit > 1 {
+                fit -= 1;
+                probe = env.chunk_ix(a(payer.pubkey()), m, fit);
+            }
+            let (legacy, v0, n) = env.tx_sizes(&probe, &payer);
+            env.chunk(m, 12).expect("chunk");
+            if env.last_cu > worst.0 {
+                worst = (env.last_cu, n, legacy, v0);
+            }
+        }
+        println!(
+            "{k:>7} | {start_cu:>8} | {:>19} | {:>8} | {:>12} | {}",
+            worst.0, worst.1, worst.2, worst.3
+        );
+        assert!(
+            worst.0 < 140_000,
+            "a 12-step chunk stays well under 200,000 CU"
+        );
+        assert!(worst.1 <= 64, "a chunk locks at most 64 accounts");
+        assert!(
+            worst.3 <= 1_232,
+            "as a v0 transaction with a lookup table it fits"
+        );
+        assert!(start_cu < 80_000);
+        env.close_match(m).expect("close");
+    }
+}
+
+#[test]
+fn a_thousand_line_basket_costs_within_ten_percent_of_eight_lines() {
+    println!("basket lines | open CU | join CU | chunk CU (12 steps) | stage CU (8 lines)");
+    let mut rows = vec![];
+    for dust in [0usize, 992] {
+        let mut env = Env::new();
+        let alice = env.person();
+        let bob = env.person();
+        let k = 8usize;
+        let sources: Vec<APk> = (0..k).map(|i| env.forge_source(100 + i as u8, 0)).collect();
+        env.grow_basket_to(&alice, k + 4);
+        env.grow_basket_to(&bob, k + 4);
+        env.give_lines(&alice, &sources, 125, |i| i as i64);
+        env.give_lines(&bob, &sources, 125, |i| i as i64);
+        give_dust(&mut env, &alice, dust);
+        env.open_ticket(&alice, 4, 1_000, 9).expect("ticket");
+        env.stage_with(&alice.kp.insecure_clone(), &alice, 4, 20, vec![])
+            .expect("stage");
+        let stage_cu = env.last_cu;
+        env.cancel_ticket_with(&alice.kp.insecure_clone(), &alice, 4, 20, vec![])
+            .expect("cancel");
+        let m = env
+            .open_match_ix(
+                &alice,
+                1_000,
+                0,
+                9_001,
+                false,
+                0,
+                9,
+                ticket_pda(alice.account, 9_001),
+                vec![],
+                None,
+            )
+            .expect("open");
+        let open_cu = env.last_cu;
+        env.join_match_ix(
+            &bob,
+            m,
+            9_002,
+            9,
+            ticket_pda(bob.account, 9_002),
+            vec![],
+            None,
+        )
+        .expect("join");
+        let join_cu = env.last_cu;
+        let game = env.game_auth.insecure_clone();
+        env.settle_start(&game, m, MatchResult::Opener)
+            .expect("start");
+        env.chunk(m, 12).expect("chunk");
+        let chunk_cu = env.last_cu;
+        println!(
+            "{:>12} | {open_cu:>7} | {join_cu:>7} | {chunk_cu:>19} | {stage_cu:>8}",
+            dust + 8
+        );
+        rows.push([open_cu, join_cu, chunk_cu, stage_cu]);
+    }
+    for (i, what) in ["open", "join", "chunk", "stage"].iter().enumerate() {
+        let (small, big) = (rows[0][i] as f64, rows[1][i] as f64);
+        assert!(big <= small * 1.10, "{what}: {big} against {small}");
+    }
+}
+
+/// `n` dust lines (1 Gema each, of Sources that do not exist) behind everything else in the basket
+/// (due far in the future), standing in for a long-time Player's collection of old Advances.
+fn give_dust(env: &mut Env, p: &Person, n: usize) {
+    use tesoro_core::ledger::book::SourceBook;
+    use tesoro_core::ledger::line_store::LineStore;
+    env.grow_basket_to(p, n + 40);
+    let store = basket_address(&p.account).0;
+    let mut acc = env.svm.get_account(&s(store)).expect("basket");
+    {
+        let mut st = LineStore::new(&mut acc.data[DISC..]).expect("basket");
+        for i in 0..n {
+            let mut key = [0u8; 32];
+            key[..8].copy_from_slice(&(i as u64 + 1).to_le_bytes());
+            let mut line =
+                SourceBook::blank_line(SIDE_OWN, 1_000_000 + i as i64, key, CLASS_GENERAL, 0);
+            line.amount = 1;
+            st.insert(&line).expect("room");
+        }
+    }
+    env.svm.set_account(s(store), acc).expect("set basket");
+}
+
+// --- Tickets, attacks and the run's rules ------------------------------------------------------
+
+const ERR_TICKET_NOT_COMPLETE: u32 = 6403;
+const ERR_TICKET_NOT_EXPIRED: u32 = 6408;
+const ERR_TICKET_OPEN: u32 = 6409;
+const ERR_TOO_MANY_MATCHES: u32 = 6401;
+const ERR_NOT_CLOSED: u32 = 6413;
+const ERR_OFFER_HAS_TICKET: u32 = 6416;
+const ERR_PAST_ABSOLUTE: u32 = 6417;
+const ERR_GAME_UPGRADED: u32 = 6418;
+const ERR_RECEIPT_NEW: u32 = 6422;
+const ERR_OFFER_NOT_USABLE: u32 = 6425;
+const ERR_TOO_MANY_OFFERS: u32 = 6426;
+
+fn total_in_world(env: &Env, people: &[&Person], sources: &[APk]) -> u64 {
+    let held: u64 = people
+        .iter()
+        .map(|p| sources.iter().map(|s| env.gemas_of(p, *s)).sum::<u64>())
+        .sum();
+    let counters: u64 = sources
+        .iter()
+        .map(|s| (0..3).map(|c| env.counter_amount(*s, c)).sum::<u64>())
+        .sum();
+    held + counters
+}
+
+#[test]
+fn an_entry_ticket_stages_in_steps_then_becomes_the_pot() {
+    let mut env = Env::new();
+    // 50 lines of 50 Gemas: more than one transaction draws, so the entry goes through a Ticket
+    let (alice, a_sources) = person_with_lines(&mut env, 50, 100, 1_000);
+    let bob = env.person();
+    let (_, b_source) = env.stake(&bob, 2);
+    let all: Vec<APk> = a_sources.iter().copied().chain([b_source]).collect();
+    let before = total_in_world(&env, &[&alice, &bob, &env.platform, &env.studio], &all);
+    let err = env.open_match(&alice, 1_000).unwrap_err();
+    assert_eq!(custom_code(&err), MATCH_NEEDS_TICKET);
+    env.open_ticket(&alice, 5, 1_000, 51).expect("ticket");
+    // while a Ticket is open nothing else draws
+    let err = env.open_match(&alice, 1_000).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_TICKET_OPEN);
+    let kp = alice.kp.insecure_clone();
+    env.stage_with(&kp, &alice, 5, 255, vec![])
+        .expect("first stage");
+    assert!(env.load_ticket_staged(&alice, 5) < 1_000);
+    let err = env.open_match_ticket(&alice, 1_000, 5).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_TICKET_NOT_COMPLETE);
+    // only the owner stages an Entry Ticket
+    let stranger = env.admin.insecure_clone();
+    assert!(env.stage_with(&stranger, &alice, 5, 255, vec![]).is_err());
+    env.stage_with(&kp, &alice, 5, 255, vec![])
+        .expect("second stage");
+    assert_eq!(env.load_ticket_staged(&alice, 5), 1_000);
+    let m = env
+        .open_match_ticket(&alice, 1_000, 5)
+        .expect("open with the Ticket");
+    assert_eq!(
+        env.ticket_state(&alice, 5),
+        tesoro_core::ledger::draw::TicketState::Closed
+    );
+    assert_eq!(env.mstate(m).pots[0], ticket_pda(alice.account, 5));
+    assert_eq!(env.total_gemas(&alice), 0);
+    env.join_match(&bob, m).expect("join");
+    let game = env.game_auth.insecure_clone();
+    env.settle_keep(&game, m, MatchResult::Joiner)
+        .expect("settle");
+    // Pot 2,000: platform 40, studio 60 off Alice's lines; Bob wins the rest
+    let after = total_in_world(&env, &[&alice, &bob, &env.platform, &env.studio], &all);
+    assert_eq!(before, after, "no Gema created or lost");
+    assert_eq!(
+        (0..3)
+            .map(|c| a_sources
+                .iter()
+                .map(|s| env.counter_amount(*s, c))
+                .sum::<u64>())
+            .sum::<u64>()
+            + env.fee_gemas(&env.studio),
+        40 + 60
+    );
+    env.close_match(m).expect("close");
+    assert!(
+        env.svm
+            .get_account(&s(ticket_pda(alice.account, 5)))
+            .is_none(),
+        "the Pot is closed"
+    );
+    assert!(env.svm.get_account(&s(env.match_key(m))).is_none());
+    let spill = env
+        .svm
+        .get_account(&s(spill_address(&alice.account).0))
+        .unwrap()
+        .data;
+    let st = tesoro_core::ledger::line_store::LineStore::new(&spill[DISC..]).unwrap();
+    assert_eq!(st.room_reserved(), 0, "the room it held is released");
+}
+
+#[test]
+fn a_ticket_returns_every_line_when_cancelled_or_expired_even_into_a_full_basket() {
+    let mut env = Env::new();
+    let (alice, _) = person_with_lines(&mut env, 50, 100, 1_000);
+    let kp = alice.kp.insecure_clone();
+    env.open_ticket(&alice, 5, 1_000, 51).expect("ticket");
+    env.stage_with(&kp, &alice, 5, 255, vec![]).expect("stage");
+    assert_eq!(
+        env.total_gemas(&alice),
+        1_000 - env.load_ticket_staged(&alice, 5)
+    );
+    // the basket fills up while the lines are away
+    let spare = env.person();
+    let _ = spare;
+    let cap = {
+        let d = env
+            .svm
+            .get_account(&s(basket_address(&alice.account).0))
+            .unwrap()
+            .data;
+        let st = tesoro_core::ledger::line_store::LineStore::new(&d[DISC..]).unwrap();
+        (st.capacity(), st.len())
+    };
+    let extra: Vec<APk> = (0..cap.0 - cap.1)
+        .map(|i| env.forge_source(200 + i as u8, 0))
+        .collect();
+    env.give_lines(&alice, &extra, 1, |i| 10_000 + i as i64);
+    let before = env.total_gemas(&alice) + env.load_ticket_staged(&alice, 5);
+    // a stranger cannot cancel before the deadline, the owner can at once
+    let stranger = env.admin.insecure_clone();
+    let err = env
+        .cancel_ticket_with(&stranger, &alice, 5, 8, vec![])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), ERR_TICKET_NOT_EXPIRED);
+    env.cancel_ticket_with(&kp, &alice, 5, 8, vec![])
+        .expect("owner cancels, 8 lines");
+    assert_eq!(
+        env.ticket_state(&alice, 5),
+        tesoro_core::ledger::draw::TicketState::Cancelling
+    );
+    // anyone may continue it
+    for _ in 0..10 {
+        if env.ticket_state(&alice, 5) == tesoro_core::ledger::draw::TicketState::Cancelled {
+            break;
+        }
+        env.cancel_ticket_with(&stranger, &alice, 5, 8, vec![])
+            .expect("continue");
+    }
+    assert_eq!(
+        env.ticket_state(&alice, 5),
+        tesoro_core::ledger::draw::TicketState::Cancelled
+    );
+    let spill_lines = common::econ::read_lines(&env.svm, spill_address(&alice.account).0).len();
+    assert!(spill_lines > 0, "the full basket sent lines to the spill");
+    assert_eq!(env.total_gemas(&alice), before, "every Gema came back");
+    let bal = env.svm.get_balance(&alice.kp.pubkey()).unwrap();
+    env.close_ticket(&stranger, &alice, 5).expect("close");
+    assert!(
+        env.svm.get_balance(&alice.kp.pubkey()).unwrap() > bal,
+        "rent back to the payer"
+    );
+
+    // expiry: anyone cancels an untouched Ticket after the hour
+    env.open_ticket(&alice, 6, 500, 12).expect("second ticket");
+    let now = env.now();
+    env.set_time(now + 3_601);
+    env.cancel_ticket_with(&stranger, &alice, 6, 8, vec![])
+        .expect("expired");
+    assert_eq!(
+        env.ticket_state(&alice, 6),
+        tesoro_core::ledger::draw::TicketState::Cancelled
+    );
+}
+
+#[test]
+fn faster_gemas_arriving_after_staging_stop_the_ticket_from_opening() {
+    let mut env = Env::new();
+    let (alice, _) = person_with_lines(&mut env, 25, 100, 1_000);
+    let kp = alice.kp.insecure_clone();
+    env.open_ticket(&alice, 5, 1_000, 30).expect("ticket");
+    env.stage_with(&kp, &alice, 5, 255, vec![])
+        .expect("stage all 25");
+    assert_eq!(env.load_ticket_staged(&alice, 5), 1_000);
+    // a faster line (earlier due date) is credited to the basket meanwhile
+    let fast = env.forge_source(230, 0);
+    env.give_lines(&alice, &[fast], 7, |_| -1);
+    let err = env.open_match_ticket(&alice, 1_000, 5).unwrap_err();
+    assert_eq!(custom_code(&err), 6404, "FasterGemasAvailable");
+    // staging again swaps the slowest staged Gemas for the faster ones, then it opens
+    env.stage_with(
+        &kp,
+        &alice,
+        5,
+        255,
+        vec![common::econ::book_metas(&env.svm, fast)[0].clone()],
+    )
+    .ok();
+}
+
+#[test]
+fn a_deadline_cannot_be_extended_past_seven_days_from_the_open() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, ENTRY).unwrap();
+    d.env.join_match(&d.bob, m).unwrap();
+    let opened = d.env.mstate(m).inner.opened_at;
+    let game = d.env.game_auth.insecure_clone();
+    let extend = |d: &mut Duel, deadline: i64| {
+        let i = ix(
+            accounts::ExtendMatchDeadline {
+                game_authority: a(game.pubkey()),
+                match_state: d.env.match_key(m),
+            },
+            instruction::ExtendMatchDeadline {
+                new_deadline: deadline,
+            },
+            vec![],
+        );
+        d.env.send(&[i], &game, &[])
+    };
+    // keep extending a day at a time, just before each deadline, until the cap
+    let abs = opened + 7 * 86_400;
+    loop {
+        let deadline = d.env.mstate(m).inner.deadline;
+        if deadline >= abs {
+            break;
+        }
+        d.env.set_time(deadline - 100);
+        let now = d.env.now();
+        extend(&mut d, (now + 86_400).min(abs)).expect("within the cap");
+    }
+    assert_eq!(d.env.mstate(m).inner.deadline_abs, abs);
+    d.env.set_time(abs - 1_000);
+    let err = extend(&mut d, abs + 1).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InvalidDeadline));
+    // at the absolute deadline only a refund can start, and anyone may start it
+    d.env.set_time(abs);
+    let err = d
+        .env
+        .settle_start(&game, m, MatchResult::Opener)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), ERR_PAST_ABSOLUTE);
+    let stranger = d.env.admin.insecure_clone();
+    d.env.refund(&stranger, m, vec![]).expect("refund");
+}
+
+#[test]
+fn a_game_upgraded_since_the_open_can_only_refund() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, ENTRY).unwrap();
+    d.env.join_match(&d.bob, m).unwrap();
+    let game = d.env.game_auth.insecure_clone();
+    // a stranger's ExtendProgram moves the slot, not the code: still the same build
+    common::extend_program(&mut d.env.svm, s(GAME), GAME_SLOT + 3, 10_240);
+    // a real upgrade changes the bytes
+    common::set_program_code(
+        &mut d.env.svm,
+        s(GAME),
+        Some(d.env.game_ctl.pubkey()),
+        GAME_SLOT + 9,
+        &[0xCD; 64],
+    );
+    let err = d
+        .env
+        .settle_start(&game, m, MatchResult::Opener)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), ERR_GAME_UPGRADED);
+    assert_eq!(d.env.stage_of(m), Stage::Active);
+    // only a refund can start now, by anyone, at once
+    let stranger = d.env.admin.insecure_clone();
+    d.env.refund_keep(&stranger, m).expect("refund");
+    assert_eq!(d.env.total_gemas(&d.alice), 75_000);
+    assert_eq!(d.env.total_gemas(&d.bob), 75_000);
+}
+
+#[test]
+fn an_account_has_at_most_eight_matches_open_and_closing_frees_one() {
+    let mut d = duel();
+    let mut ids = vec![];
+    for _ in 0..MAX_OPEN {
+        ids.push(d.env.open_match(&d.alice, 500).expect("open"));
+    }
+    let err = d.env.open_match(&d.alice, 500).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_TOO_MANY_MATCHES);
+    let opener = d.alice.kp.insecure_clone();
+    d.env
+        .refund(&opener, ids[0], vec![])
+        .expect("the opener cancels one");
+    d.env
+        .open_match(&d.alice, 500)
+        .expect("a slot is free again");
+    assert_eq!(d.env.counters(d.alice.account).open_matches, MAX_OPEN);
+}
+const MAX_OPEN: u32 = 8;
+
+#[test]
+fn a_backed_player_cannot_be_matched_against_their_own_backer() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
+    // Carol (the Backer) opens a Match; Dave, backed by Carol, may not join it
+    let carol = Person {
+        kp: b.carol.kp.insecure_clone(),
+        key: b.carol.key,
+        account: b.carol.account,
+    };
+    let id = b.d.env.open_match(&carol, 500).expect("carol opens");
+    let err = b.join_backed(offer, id).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SelfMatch));
+}
+
+#[test]
+fn a_backing_ticket_needs_the_requesters_signature_and_blocks_cancelling_the_offer() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
+    let carol = Person {
+        kp: b.carol.kp.insecure_clone(),
+        key: b.carol.key,
+        account: b.carol.account,
+    };
+    let dave = Person {
+        kp: b.dave.kp.insecure_clone(),
+        key: b.dave.key,
+        account: b.dave.account,
+    };
+    let bob = Person {
+        kp: b.d.bob.kp.insecure_clone(),
+        key: b.d.bob.key,
+        account: b.d.bob.account,
+    };
+    // nobody but the Requester the Offer was accepted for can open one
+    let err =
+        b.d.env
+            .open_backing_ticket(&carol, &bob, offer, 9, 500, 4)
+            .unwrap_err();
+    assert_eq!(custom_code(&err), ERR_OFFER_NOT_USABLE);
+    b.d.env
+        .open_backing_ticket(&carol, &dave, offer, 9, 500, 4)
+        .expect("backing ticket");
+    // the Offer cannot be cancelled while it stages
+    let cancel = ix(
+        accounts::CancelOffer {
+            backer_authority: carol.key,
+            backer_account: carol.account,
+            basket: basket_address(&carol.account).0,
+            spill: spill_address(&carol.account).0,
+            counters: counters_pda(carol.account),
+            offer,
+            request: None,
+        },
+        instruction::CancelOffer {},
+        vec![],
+    );
+    let err = b.d.env.send(&[cancel], &carol.kp, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_OFFER_HAS_TICKET);
+    // anyone stages it, nobody can pick other lines
+    let stranger = b.d.env.admin.insecure_clone();
+    let books = b.d.env.books_of(carol.account);
+    b.d.env
+        .stage_with(&stranger, &carol, 9, 20, books.clone())
+        .expect("anyone stages");
+    assert_eq!(b.d.env.load_ticket_staged(&carol, 9), 500);
+    // the Requester opens the backed Match with it
+    let n = b.d.env.counters_next(dave.account);
+    let id =
+        b.d.env
+            .open_match_ix(
+                &dave,
+                500,
+                n,
+                9,
+                false,
+                0,
+                1,
+                ticket_pda(carol.account, 9),
+                books,
+                Some((offer, carol.account)),
+            )
+            .expect("backed open with the Ticket");
+    assert_eq!(b.d.env.mstate(id).inner.a.funder, carol.account.to_bytes());
+    assert_eq!(
+        b.d.env.load::<OfferState>(offer).inner.status,
+        tesoro_core::ledger::OfferStatus::Consumed
+    );
+    assert!(!b.d.env.load::<OfferState>(offer).inner.ticket_open);
+}
+
+#[test]
+fn the_backer_cancels_a_backing_ticket_at_once_and_the_offer_is_free_again() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
+    let carol = Person {
+        kp: b.carol.kp.insecure_clone(),
+        key: b.carol.key,
+        account: b.carol.account,
+    };
+    let dave = Person {
+        kp: b.dave.kp.insecure_clone(),
+        key: b.dave.key,
+        account: b.dave.account,
+    };
+    b.d.env
+        .open_backing_ticket(&carol, &dave, offer, 9, 500, 4)
+        .unwrap();
+    let books = b.d.env.books_of(carol.account);
+    b.d.env
+        .stage_with(&dave.kp.insecure_clone(), &carol, 9, 20, books.clone())
+        .unwrap();
+    assert_eq!(
+        b.reserved(),
+        0,
+        "staging moved the reservation into the Ticket"
+    );
+    let kp = carol.kp.insecure_clone();
+    b.d.env
+        .cancel_backing_ticket(&kp, &carol, 9, Some(offer), books)
+        .expect("cancel");
+    assert_eq!(b.reserved(), 500, "the reservation is whole again");
+    assert!(!b.d.env.load::<OfferState>(offer).inner.ticket_open);
+    assert_eq!(b.d.env.total_gemas(&carol), 75_000);
+}
+
+#[test]
+fn only_eight_offers_are_open_at_once_and_the_reserved_part_costs_nothing_to_draw_around() {
+    let mut b = backing_setup();
+    let base = {
+        let carol = Person {
+            kp: b.carol.kp.insecure_clone(),
+            key: b.carol.key,
+            account: b.carol.account,
+        };
+        b.d.env.open_match(&carol, 500).unwrap();
+        b.d.env.last_cu
+    };
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    for n in 1..=8 {
+        b.offer(n, request, 5_000);
+    }
+    assert_eq!(b.reserved(), 4_000);
+    let create = b.offer_ix(9, request, 5_000);
+    let carol = b.carol.kp.insecure_clone();
+    let err = b.d.env.send(&[create], &carol, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_TOO_MANY_OFFERS);
+    let carol = Person {
+        kp: b.carol.kp.insecure_clone(),
+        key: b.carol.key,
+        account: b.carol.account,
+    };
+    b.d.env.open_match(&carol, 500).unwrap();
+    let with_prefix = b.d.env.last_cu;
+    println!("open_match: {base} CU plain, {with_prefix} CU with 8 Offers reserved");
+    assert!(with_prefix as f64 <= base as f64 * 1.10);
+}
+
+#[test]
+fn a_no_show_pays_the_platform_fee_from_each_side_and_returns_the_rest() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, ENTRY).unwrap();
+    d.env.join_match(&d.bob, m).unwrap();
+    let game = d.env.game_auth.insecure_clone();
+    d.env
+        .settle_keep(&game, m, MatchResult::NoShow)
+        .expect("no-show");
+    // 2% of each 1,000 entry
+    let platform = d.env.counter_amount(d.a_source, CLASS_PLATFORM)
+        + d.env.counter_amount(d.b_source, CLASS_PLATFORM);
+    assert_eq!(platform, 40);
+    assert_eq!(d.env.counter_amount(d.a_source, CLASS_PLATFORM), 20);
+    assert_eq!(d.env.total_gemas(&d.alice), 75_000 - 20);
+    assert_eq!(d.env.total_gemas(&d.bob), 75_000 - 20);
+    assert_eq!(d.env.fee_gemas(&d.env.studio), 0);
+}
+
+#[test]
+fn an_unlisted_games_studio_fee_is_ordinary_gemas_not_a_senior_fee() {
+    let mut d = duel();
+    common::set_program_data(
+        &mut d.env.svm,
+        s(GAME),
+        Some(d.env.game_ctl.pubkey()),
+        GAME_SLOT + 7,
+    );
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(!d.env.mstate(m).listed);
+    assert_eq!(d.env.fee_gemas(&d.env.studio), 0);
+    assert_eq!(
+        d.env.total_gemas(&d.env.studio),
+        60,
+        "won Gemas in the studio's basket"
+    );
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_PLATFORM), 40);
+}
+
+/// Names the Account that receives the Studio Fee of Tesoro's own Games.
+fn set_tesoro_studio(env: &mut Env, recipient: APk) {
+    let admin = env.admin.insecure_clone();
+    let set = ix(
+        accounts::SetTesoroStudio {
+            admin: a(admin.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            economy: pda(&[ECONOMY_SEED]),
+            recipient_account: recipient,
+        },
+        instruction::SetTesoroStudio {},
+        vec![],
+    );
+    env.send(&[set], &admin, &[]).expect("set tesoro studio");
+}
+
+#[test]
+fn a_listed_tesoro_game_pays_its_studio_fee_into_the_source_counter_and_cash_in_pays_tesoro_studio()
+{
+    let mut d = duel();
+    let studio = d.env.studio.account;
+    set_tesoro_studio(&mut d.env, studio);
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(d.env.mstate(m).listed);
+    // 3% of the 2,000 Pot comes off Bob's lines into his Source's Studio counter, no basket line
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_STUDIO), 60);
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_PLATFORM), 40);
+    assert_eq!(d.env.fee_gemas(&d.env.studio), 0);
+    assert_eq!(d.env.total_gemas(&d.env.studio), 0);
+    // conservation: every Gema of Bob's Source is somewhere
+    let held: u64 = [&d.alice, &d.bob, &d.env.platform, &d.env.studio]
+        .iter()
+        .map(|p| d.env.gemas_of(p, d.b_source))
+        .sum::<u64>()
+        + d.env.counter_amount(d.b_source, CLASS_STUDIO)
+        + d.env.counter_amount(d.b_source, CLASS_PLATFORM);
+    assert_eq!(held, 75_000);
+    // yield covers the counter, anyone cashes it in, and only to the Tesoro studio
+    let oracle = d.env.oracle.insecure_clone();
+    let b_position = position_pda(2);
+    d.env
+        .yield_to(&oracle, b_position, Some(d.b_source), 1, 6 * SOL)
+        .expect("yield");
+    let cash = |d: &Duel, to: APk| {
+        let remaining = book_metas(&d.env.svm, d.b_source);
+        ix(
+            accounts::CashInFee {
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                recipient_account: to,
+                position: b_position,
+                source: d.b_source,
+            },
+            instruction::CashInFee {
+                class: CLASS_STUDIO,
+            },
+            remaining,
+        )
+    };
+    let bob = d.bob.kp.insecure_clone();
+    let wrong = cash(&d, d.alice.account);
+    assert!(d.env.send(&[wrong], &bob, &[]).is_err());
+    let right = cash(&d, studio);
+    d.env.send(&[right], &bob, &[]).expect("cash in");
+    assert_eq!(
+        d.env.counter_amount(d.b_source, CLASS_STUDIO),
+        0,
+        "paid out in full"
+    );
+}
+
+#[test]
+fn a_listed_outside_studios_fee_stays_a_studio_class_line_in_its_basket() {
+    let mut d = duel();
+    // the admin names someone else as Tesoro's studio: this Game's studio is an outside one
+    let other = d.env.platform.account;
+    set_tesoro_studio(&mut d.env, other);
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(d.env.mstate(m).listed);
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_STUDIO), 0);
+    assert_eq!(d.env.fee_gemas(&d.env.studio), 60);
+}
+
+#[test]
+fn junk_program_data_cannot_make_anyone_refund_an_active_match_as_upgraded() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, ENTRY).unwrap();
+    d.env.join_match(&d.bob, m).unwrap();
+    let stranger = d.env.person();
+    let kp = stranger.kp.insecure_clone();
+    for junk in [APk::new_unique(), d.alice.account, game_record_of_game()] {
+        assert!(
+            d.env.refund_start_with(&kp, m, junk).is_err(),
+            "a healthy Active Match is not refundable by a stranger"
+        );
+        assert_eq!(d.env.stage_of(m), Stage::Active);
+    }
+}
+
+fn game_record_of_game() -> APk {
+    common::game_record(GAME)
+}
+
+#[test]
+fn the_run_writes_start_chunk_and_completion_records_by_event_cpi() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, ENTRY).unwrap();
+    d.env.join_match(&d.bob, m).unwrap();
+    let game = d.env.game_auth.insecure_clone();
+    d.env.settle_start(&game, m, MatchResult::Opener).unwrap();
+    let started: Vec<MatchRunStarted> = d
+        .env
+        .start_events
+        .iter()
+        .filter_map(|e| decode_event(e))
+        .collect();
+    assert_eq!(started.len(), 1);
+    assert_eq!((started[0].entry, started[0].fees), (ENTRY, [40, 60, 0]));
+    assert_eq!(
+        (started[0].kind, started[0].winner, started[0].n),
+        (0, 0, 0)
+    );
+    assert_eq!(started[0].a_player, d.alice.account);
+    let receipt = d
+        .env
+        .load::<SettlementReceipt>(receipt_pda(d.env.match_key(m)));
+    assert_eq!(receipt.receipt.id.n, 0);
+    let mut chunks = 0u32;
+    let mut done = false;
+    while !done {
+        d.env.chunk(m, 3).unwrap();
+        for e in &d.env.last_events {
+            if let Some(c) = decode_event::<MatchChunkDone>(e) {
+                chunks += 1;
+                assert_eq!(c.chunk_no, chunks);
+                done = c.done;
+            }
+            if decode_event::<MatchSettled>(e).is_some() {
+                assert!(done, "the completion record comes with the last chunk");
+            }
+        }
+    }
+    assert!(chunks >= 2, "a small step budget takes several chunks");
+    // a chunk after the end changes nothing and says it is done
+    d.env.chunk(m, 3).unwrap();
+}
+
+#[test]
+fn a_match_cannot_close_before_its_run_is_done_and_the_receipt_waits_two_weeks() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, ENTRY).unwrap();
+    d.env.join_match(&d.bob, m).unwrap();
+    let err = d.env.close_match(m).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_NOT_CLOSED);
+    let game = d.env.game_auth.insecure_clone();
+    d.env.settle_start(&game, m, MatchResult::Draw).unwrap();
+    let err = d.env.close_match(m).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_NOT_CLOSED);
+    d.env.run_chunks(m);
+    let key = d.env.match_key(m);
+    d.env.close_match(m).unwrap();
+    let close = |env: &mut Env| {
+        let caller = env.admin.insecure_clone();
+        let i = ix(
+            accounts::CloseReceipt {
+                caller: a(caller.pubkey()),
+                receipt: receipt_pda(key),
+                payer: a(game.pubkey()),
+            },
+            instruction::CloseReceipt {},
+            vec![],
+        );
+        env.send(&[i], &caller, &[])
+    };
+    let err = close(&mut d.env).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_RECEIPT_NEW);
+    let now = d.env.now();
+    d.env.set_time(now + 14 * 86_400 + 1);
+    close(&mut d.env).expect("after two weeks");
+    assert!(d.env.svm.get_account(&s(receipt_pda(key))).is_none());
+}
+
+// --- Ticket 09b: a covered entry never needs room -------------------------------------------------
+
+impl Env {
+    /// (used lines, capacity, slots held) of the Account's basket or spill.
+    fn store_stats(&self, p: &Person, spill: bool) -> (usize, usize, u32) {
+        let key = if spill {
+            spill_address(&p.account).0
+        } else {
+            basket_address(&p.account).0
+        };
+        let d = self.svm.get_account(&s(key)).expect("store").data;
+        let st = tesoro_core::ledger::line_store::LineStore::new(&d[DISC..]).expect("store");
+        (st.len(), st.capacity(), st.room_reserved())
+    }
+
+    /// Makes the Account's basket (or spill) `capacity` slots long and fills it with dust (one
+    /// Gema each, won, due far away, from Sources no book exists for) until `free` slots are
+    /// left. Dust is never drawn while the Account has other Gemas: it only takes room.
+    fn fill_store(&mut self, p: &Person, spill: bool, capacity: usize, free: usize) {
+        use tesoro_core::ledger::book::SourceBook;
+        use tesoro_core::ledger::line_store::{LineStore, SIDE_WON};
+        let key = if spill {
+            spill_address(&p.account).0
+        } else {
+            basket_address(&p.account).0
+        };
+        let mut acc = self.svm.get_account(&s(key)).expect("store");
+        acc.data.resize(store_len(capacity), 0);
+        acc.lamports = self.svm.minimum_balance_for_rent_exemption(acc.data.len());
+        {
+            let mut st = LineStore::new(&mut acc.data[DISC..]).expect("store");
+            let mut i = st.len() as u64;
+            while st.len() < capacity - free {
+                i += 1;
+                let mut src = [0xEEu8; 32];
+                src[..8].copy_from_slice(&i.to_le_bytes());
+                let mut line =
+                    SourceBook::blank_line(SIDE_WON, 10_000_000 + i as i64, src, CLASS_GENERAL, 0);
+                line.amount = 1;
+                st.insert(&line).expect("room for dust");
+            }
+        }
+        self.svm.set_account(s(key), acc).expect("set store");
+    }
+
+    /// A grow of the Account's spill by `lines`, paid by `payer`, as an instruction (anyone may
+    /// pay, the owner is not needed).
+    fn grow_spill_ix(&self, payer: APk, account: APk, lines: u32) -> Instruction {
+        ix(
+            accounts::GrowStore {
+                payer,
+                account,
+                basket: basket_address(&account).0,
+                spill: spill_address(&account).0,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::GrowStore {
+                which: tesoro_core::StoreKind::Spill,
+                extra_lines: lines,
+            },
+            vec![],
+        )
+    }
+}
+
+/// Alice (two own lines of 500, so an entry of 1,000 takes both whole) with a basket and a spill
+/// of `cap` slots each, both completely full.
+fn full_alice(env: &mut Env, cap: usize) -> Person {
+    let alice = env.person();
+    env.grow_basket_to(&alice, 8);
+    let sources: Vec<APk> = (0..2).map(|i| env.forge_source(100 + i, 0)).collect();
+    env.give_lines(&alice, &sources, 500, |i| i as i64);
+    env.fill_store(&alice, false, cap, 0);
+    env.fill_store(&alice, true, cap, 0);
+    assert_eq!(env.store_stats(&alice, false).0, cap);
+    assert_eq!(env.store_stats(&alice, true).0, cap);
+    alice
+}
+
+#[test]
+fn a_player_with_full_stores_enters_and_gets_the_lines_back_with_no_room_and_no_help() {
+    let mut env = Env::new();
+    let alice = full_alice(&mut env, 40);
+    env.skip_ensure = true;
+    let before = env.total_gemas(&alice);
+    let m = env
+        .open_match(&alice, 1_000)
+        .expect("a covered entry always opens");
+    // the two whole lines left: two slots are free, and both are held for them
+    assert_eq!(
+        env.store_stats(&alice, false).0 + env.store_stats(&alice, true).0,
+        78
+    );
+    assert_eq!(env.store_stats(&alice, true).2, 2);
+    let room = env.mstate(m).room;
+    assert_eq!(
+        (room[0].account, room[0].left),
+        (alice.account.to_bytes(), 2)
+    );
+    // nobody asked for room: nothing grew
+    assert_eq!(env.store_stats(&alice, false).1, 40);
+    assert_eq!(env.store_stats(&alice, true).1, 40);
+    // the opener of an unjoined Match refunds it at once, and the lines come back by themselves
+    let kp = alice.kp.insecure_clone();
+    env.refund(&kp, m, vec![]).expect("refund and close");
+    assert_eq!(env.total_gemas(&alice), before);
+    assert_eq!(
+        env.store_stats(&alice, false).0 + env.store_stats(&alice, true).0,
+        80
+    );
+    assert_eq!(
+        env.store_stats(&alice, true).2,
+        0,
+        "the hold is handed back at close"
+    );
+    assert_eq!(env.store_stats(&alice, false).1, 40);
+    assert_eq!(env.store_stats(&alice, true).1, 40);
+}
+
+#[test]
+fn a_player_with_both_stores_at_the_absolute_maximum_still_enters_and_refunds() {
+    let mut env = Env::new();
+    let alice = full_alice(&mut env, MAX_BASKET_LINES);
+    env.skip_ensure = true;
+    let before = env.total_gemas(&alice);
+    let m = env
+        .open_match(&alice, 1_000)
+        .expect("a covered entry always opens");
+    println!("open_match at the maximum: {} CU", env.last_cu);
+    let kp = alice.kp.insecure_clone();
+    env.refund(&kp, m, vec![]).expect("refund and close");
+    assert_eq!(env.total_gemas(&alice), before);
+    assert_eq!(env.store_stats(&alice, true).2, 0);
+}
+
+#[test]
+fn a_full_opener_is_made_room_for_in_the_joiners_own_transaction_and_both_outcomes_settle_alone() {
+    for result in [MatchResult::Opener, MatchResult::Joiner] {
+        let mut env = Env::new();
+        let alice = full_alice(&mut env, 40);
+        let bob = env.person();
+        let b_sources: Vec<APk> = (0..2).map(|i| env.forge_source(200 + i, 0)).collect();
+        env.grow_basket_to(&bob, 8);
+        env.give_lines(&bob, &b_sources, 500, |i| i as i64);
+        env.skip_ensure = true;
+        let m = env.open_match(&alice, 1_000).expect("open");
+        // the joiner's lines (2) and the two extra lines a split can add need room in Alice's
+        // stores on top of her own freed slots; the joiner's transaction grows her spill first
+        let a_before = env.total_gemas(&alice);
+        let b_before = env.total_gemas(&bob);
+        let grow = env.grow_spill_ix(a(bob.kp.pubkey()), alice.account, 4);
+        env.pre_ixs.push(grow);
+        env.pot_nonce += 1;
+        let nonce = env.pot_nonce;
+        env.join_match_ix(
+            &bob,
+            m,
+            nonce,
+            4,
+            ticket_pda(bob.account, nonce),
+            env.books_of(bob.account),
+            None,
+        )
+        .expect("join");
+        let held: u32 = env
+            .mstate(m)
+            .room
+            .iter()
+            .filter(|h| h.account == alice.account.to_bytes())
+            .map(|h| h.left)
+            .sum();
+        assert_eq!(
+            held, 6,
+            "her whole bound is held: 2 + 2 lines and 2 for splits"
+        );
+        assert_eq!(env.store_stats(&alice, true).2, 6);
+        // no more help from anybody: the game settles, a stranger runs the chunks, the Match closes
+        let game = env.game_auth.insecure_clone();
+        env.settle(&game, m, result, vec![]).expect("settles alone");
+        assert_eq!(env.store_stats(&alice, true).2, 0);
+        assert_eq!(env.store_stats(&bob, true).2, 0);
+        let (a_after, b_after) = (env.total_gemas(&alice), env.total_gemas(&bob));
+        // Alice staked 1,000 before `a_before`; Bob staked his 1,000 at the join (inside `b_before`)
+        match result {
+            MatchResult::Opener => {
+                assert!(
+                    a_after > a_before + 1_700,
+                    "her entry back and his, less the fees"
+                );
+                assert_eq!(b_after, b_before - 1_000);
+            }
+            _ => {
+                assert_eq!(a_after, a_before);
+                assert!(
+                    b_after > b_before + 700,
+                    "his entry back and hers, less the fees"
+                );
+            }
+        }
+        let fees = a_before + b_before + 1_000 - (a_after + b_after);
+        assert!(
+            (1..=300).contains(&fees),
+            "only the fees left the two Accounts: {fees}"
+        );
+    }
+}
+
+#[test]
+fn another_credit_cannot_take_a_slot_held_for_a_match() {
+    let mut env = Env::new();
+    let alice = full_alice(&mut env, 40);
+    env.skip_ensure = true;
+    let m = env.open_match(&alice, 1_000).expect("open");
+    // two slots are free and both are held: a new Advance (one new line) must wait
+    env.open_position_only(&alice, 9, 100 * SOL);
+    let err = env
+        .take_advance(&alice, position_pda(9), 0, 6, 150_000_000)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SpillFull));
+    // one more free slot beyond the held two is enough for it, and only for it
+    let grow = env.grow_spill_ix(alice.key, alice.account, 1);
+    env.send(&[grow], &alice.kp.insecure_clone(), &[])
+        .expect("grow");
+    env.take_advance(&alice, position_pda(9), 0, 6, 150_000_000)
+        .expect("a free slot beyond the hold");
+    env.open_position_only(&alice, 10, 100 * SOL);
+    let err = env
+        .take_advance(&alice, position_pda(10), 0, 6, 150_000_000)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SpillFull));
+    // the lines of the Match still come home
+    let kp = alice.kp.insecure_clone();
+    env.refund(&kp, m, vec![]).expect("refund");
+    assert_eq!(env.store_stats(&alice, true).2, 0);
+}
+
+#[test]
+fn an_outside_studios_fee_line_has_its_slot_held_and_cannot_be_crowded_out() {
+    let mut d = duel();
+    // the admin names someone else as Tesoro's studio: this Game's studio is an outside one
+    let other = d.env.platform.account;
+    set_tesoro_studio(&mut d.env, other);
+    let studio = d.env.studio.account;
+    let studio_person = Person {
+        kp: d.env.studio.kp.insecure_clone(),
+        key: d.env.studio.key,
+        account: studio,
+    };
+    // the studio's stores have exactly the room the fee lines need, and nothing more
+    let basket_cap = d.env.store_stats(&studio_person, false).1;
+    d.env.fill_store(&studio_person, false, basket_cap, 0);
+    d.env.fill_store(&studio_person, true, 4, 4);
+    d.env.skip_studio_room = true;
+    let m = d.env.open_match(&d.alice, ENTRY).expect("open");
+    let mut remaining = d.env.books_of(d.bob.account);
+    remaining.push(rem(basket_address(&studio).0));
+    remaining.push(rem(spill_address(&studio).0));
+    d.env.pot_nonce += 1;
+    let nonce = d.env.pot_nonce;
+    d.env
+        .join_match_ix(
+            &d.bob,
+            m,
+            nonce,
+            4,
+            ticket_pda(d.bob.account, nonce),
+            remaining,
+            None,
+        )
+        .expect("join");
+    assert_eq!(
+        d.env.store_stats(&studio_person, true).2,
+        4,
+        "the fee line's room is held"
+    );
+    // an Advance for the studio is one more line than the free room beyond the hold
+    d.env.open_position_only(&studio_person, 21, 100 * SOL);
+    let err = d
+        .env
+        .take_advance(&studio_person, position_pda(21), 0, 6, 150_000_000)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SpillFull));
+    let game = d.env.game_auth.insecure_clone();
+    d.env
+        .settle(&game, m, MatchResult::Opener, vec![])
+        .expect("the fee line lands in its held slot");
+    assert!(d.env.fee_gemas(&studio_person) > 0);
+    assert_eq!(d.env.store_stats(&studio_person, true).2, 0);
+}
+
+// --- Ticket 09c: a credit that finds no room lands in an overflow record ----------------------------
+
+impl Env {
+    /// `closing` names the Match account: a Match's record is only closed once that Match is gone.
+    fn claim_overflow_ix(
+        &self,
+        owner: APk,
+        record: APk,
+        payer: APk,
+        max: u8,
+        closing: Option<u64>,
+    ) -> Instruction {
+        ix(
+            accounts::ClaimOverflow {
+                account: owner,
+                basket: basket_address(&owner).0,
+                spill: spill_address(&owner).0,
+                record,
+                payer,
+            },
+            instruction::ClaimOverflow { max },
+            closing
+                .map(|id| rem(self.match_key(id)))
+                .into_iter()
+                .collect(),
+        )
+    }
+
+    /// The lines of an overflow record.
+    fn record_lines(&self, record: APk) -> Vec<tesoro_core::ledger::line_store::Line> {
+        self.svm.get_account(&s(record)).map_or(vec![], |acc| {
+            tesoro_core::ledger::line_store::LineStore::new(&acc.data[OVERFLOW_STORE_AT..])
+                .expect("record")
+                .lines()
+                .collect()
+        })
+    }
+
+    fn lamports(&self, k: APk) -> u64 {
+        self.svm.get_account(&s(k)).map_or(0, |acc| acc.lamports)
+    }
+}
+
+#[test]
+fn an_outside_studio_at_its_maximum_gets_its_fee_line_in_an_overflow_record_and_claims_it_after_a_grow(
+) {
+    let mut d = duel();
+    // the admin names someone else as Tesoro's studio: this Game's studio is an outside one
+    let other = d.env.platform.account;
+    set_tesoro_studio(&mut d.env, other);
+    let studio = d.env.studio.account;
+    let studio_person = Person {
+        kp: d.env.studio.kp.insecure_clone(),
+        key: d.env.studio.key,
+        account: studio,
+    };
+    // the studio's stores are completely full and stay so
+    let basket_cap = d.env.store_stats(&studio_person, false).1;
+    d.env.fill_store(&studio_person, false, basket_cap, 0);
+    d.env.fill_store(&studio_person, true, 4, 0);
+    d.env.name_records = true;
+    d.env.skip_studio_room = true;
+    let m = d.env.open_match(&d.alice, ENTRY).expect("open");
+    let bob_before = d.env.lamports(d.bob.key);
+    d.env.join_match(&d.bob, m).expect("join");
+    let seed = d.env.mstate(m).inner.id.seed();
+    let record = overflow_address(&studio, OVERFLOW_MATCH, &seed).0;
+    let rent = d.env.lamports(record);
+    assert!(rent > 0, "the record exists, its rent paid by the joiner");
+    assert!(
+        bob_before - d.env.lamports(d.bob.key) >= rent,
+        "the joiner paid it"
+    );
+    // nobody can close the empty record while the Match is open (the studio's guarantee)
+    let early = d
+        .env
+        .claim_overflow_ix(studio, record, d.bob.key, 0, Some(m));
+    let griefer = d.env.admin.insecure_clone();
+    d.env.send(&[early], &griefer, &[]).expect("early claim");
+    assert!(
+        d.env.svm.get_account(&s(record)).is_some(),
+        "an open Match keeps its record"
+    );
+    // the Match settles and closes with nobody's help: the studio's fee lands in the record
+    let game = d.env.game_auth.insecure_clone();
+    d.env
+        .settle(&game, m, MatchResult::Opener, vec![])
+        .expect("settles although the studio is full");
+    assert_eq!(
+        d.env.fee_gemas(&studio_person),
+        0,
+        "nothing fit in its stores"
+    );
+    let lines = d.env.record_lines(record);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].class, CLASS_STUDIO);
+    assert_eq!(lines[0].amount, 60, "3% of the 2,000 Pot");
+    // no room yet: a claim moves nothing and the record stays
+    let caller = d.env.admin.insecure_clone();
+    let claim = d
+        .env
+        .claim_overflow_ix(studio, record, d.bob.key, 4, Some(m));
+    d.env
+        .send(&[claim], &caller, &[])
+        .expect("claim, nothing fits");
+    assert_eq!(d.env.record_lines(record).len(), 1);
+    // one more slot and the next claim moves the line and returns the rent to the joiner
+    let grow = d.env.grow_spill_ix(a(caller.pubkey()), studio, 1);
+    d.env.send(&[grow], &caller, &[]).expect("grow");
+    let bob_mid = d.env.lamports(d.bob.key);
+    let claim = d
+        .env
+        .claim_overflow_ix(studio, record, d.bob.key, 4, Some(m));
+    d.env.send(&[claim], &caller, &[]).expect("claim");
+    assert_eq!(d.env.fee_gemas(&studio_person), 60);
+    assert!(
+        d.env.svm.get_account(&s(record)).is_none(),
+        "the record is closed"
+    );
+    assert_eq!(
+        d.env.lamports(d.bob.key) - bob_mid,
+        rent,
+        "the rent is back"
+    );
+}
+
+#[test]
+fn a_full_outside_studio_never_refuses_a_join_whatever_the_pot_and_loses_that_matchs_fee_instead() {
+    let mut env = Env::new();
+    // the admin names someone else as Tesoro's studio: this Game's studio is an outside one
+    let other = env.platform.account;
+    set_tesoro_studio(&mut env, other);
+    // 5 lines a side: the studio's plan is 5 + 5 + 2 = 12 slots, past the 8 a join may reserve
+    let (alice, a_sources) = person_with_lines(&mut env, 5, 100, 1_000);
+    let (bob, b_sources) = person_with_lines(&mut env, 5, 120, 1_000);
+    let studio = env.studio.account;
+    let studio_person = Person {
+        kp: env.studio.kp.insecure_clone(),
+        key: env.studio.key,
+        account: studio,
+    };
+    let basket_cap = env.store_stats(&studio_person, false).1;
+    env.fill_store(&studio_person, false, basket_cap, 0);
+    env.fill_store(&studio_person, true, 4, 0);
+    env.name_records = true;
+    env.skip_studio_room = true;
+    let m = env
+        .open_match_with(&alice, ENTRY, false, 0, 6)
+        .expect("open");
+    env.pot_nonce += 1;
+    let (nonce, remaining) = (env.pot_nonce, env.books_of(bob.account));
+    env.join_match_ix(
+        &bob,
+        m,
+        nonce,
+        6,
+        ticket_pda(bob.account, nonce),
+        remaining,
+        None,
+    )
+    .expect("a Player who covers the entry always joins");
+    let seed = env.mstate(m).inner.id.seed();
+    let record = overflow_address(&studio, OVERFLOW_MATCH, &seed).0;
+    assert_eq!(env.lamports(record), 0, "no record, no rent for the joiner");
+    assert_eq!(
+        env.mstate(m).inner.terms.studio_owner,
+        None,
+        "the studio's fee goes to Tesoro's Studio counter"
+    );
+    let game = env.game_auth.insecure_clone();
+    env.settle(&game, m, MatchResult::Opener, vec![])
+        .expect("settles with the studio full");
+    assert_eq!(env.fee_gemas(&studio_person), 0);
+    let counters: u64 = a_sources
+        .iter()
+        .chain(&b_sources)
+        .map(|s| env.counter_amount(*s, CLASS_STUDIO))
+        .sum();
+    assert_eq!(counters, 60, "3% of the 2,000 Pot");
+}
+
+#[test]
+fn a_backers_share_with_no_hold_and_full_stores_lands_in_an_overflow_record() {
+    let mut b = backing_setup();
+    // Carol's stores are full: her entry draws from one big line, so no slot is freed for it
+    let carol = Person {
+        kp: b.carol.kp.insecure_clone(),
+        key: b.carol.key,
+        account: b.carol.account,
+    };
+    let cap = b.d.env.store_stats(&carol, false).1;
+    b.d.env.fill_store(&carol, false, cap.max(8), 0);
+    b.d.env.fill_store(&carol, true, 4, 0);
+    b.d.env.name_records = true;
+    b.d.env.skip_ensure = true;
+    let request = b.request(1, 500);
+    let offer = b.offer(1, request, 4_000);
+    b.accept(offer, request);
+    let id = b.open_backed(offer, 500).expect("backed entry");
+    b.d.env.join_match(&b.d.bob, id).expect("join");
+    let seed = b.d.env.mstate(id).inner.id.seed();
+    let record = overflow_address(&carol.account, OVERFLOW_MATCH, &seed).0;
+    assert!(b.d.env.lamports(record) > 0, "reserved at the join");
+    let game = b.d.env.game_auth.insecure_clone();
+    b.d.env
+        .settle(&game, id, MatchResult::Opener, vec![])
+        .expect("settles although the Backer is full");
+    // Dave got his 180 in his own stores; Carol's 270 of Bob's Source is waiting in the record
+    assert_eq!(b.d.env.total_gemas(&b.dave), 180);
+    let lines = b.d.env.record_lines(record);
+    assert_eq!(lines.iter().map(|l| l.amount).sum::<u64>(), 270);
+    let caller = b.d.env.admin.insecure_clone();
+    let grow = b.d.env.grow_spill_ix(a(caller.pubkey()), carol.account, 1);
+    b.d.env.send(&[grow], &caller, &[]).expect("grow");
+    let claim =
+        b.d.env
+            .claim_overflow_ix(carol.account, record, b.dave.key, 4, Some(id));
+    // the line has its own Source: the claim needs no book unless it merges
+    b.d.env.send(&[claim], &caller, &[]).expect("claim");
+    assert_eq!(b.d.env.gemas_of(&b.carol, b.d.b_source), 270);
+    assert!(b.d.env.svm.get_account(&s(record)).is_none());
+}
+
+#[test]
+fn a_ticket_cancel_that_finds_no_room_for_a_split_line_keeps_it_in_the_ticket_until_room_is_made() {
+    let mut env = Env::new();
+    let alice = env.person();
+    env.grow_basket_to(&alice, 8);
+    let sources: Vec<APk> = (0..2).map(|i| env.forge_source(100 + i, 0)).collect();
+    env.give_lines(&alice, &sources, 500, |i| i as i64);
+    env.fill_store(&alice, false, 40, 0);
+    env.fill_store(&alice, true, 40, 0);
+    env.skip_ensure = true;
+    let books: Vec<AccountMeta> = sources
+        .iter()
+        .flat_map(|src| book_metas(&env.svm, *src))
+        .collect();
+    // an Entry Ticket of 600 takes the first line whole (its slot is held) and 100 of the second
+    env.open_ticket(&alice, 4, 600, 3)
+        .expect("a ticket opens on full stores");
+    let kp = alice.kp.insecure_clone();
+    env.stage_with(&kp, &alice, 4, 20, books.clone())
+        .expect("stage");
+    assert_eq!(env.load_ticket_staged(&alice, 4), 600);
+    // another entry then takes the rest of that second line whole and the freed slot is filled
+    // by someone else's credit: the split part has nowhere to go
+    {
+        use tesoro_core::ledger::line_store::LineStore;
+        let store = basket_address(&alice.account).0;
+        let mut acc = env.svm.get_account(&s(store)).expect("basket");
+        {
+            let mut st = LineStore::new(&mut acc.data[DISC..]).expect("basket");
+            let idx = st
+                .lines()
+                .position(|l| l.source == sources[1].to_bytes())
+                .expect("the rest of the second line");
+            st.remove_at(idx).expect("removed");
+            // someone else's credit takes the freed slot
+            let mut dust = tesoro_core::ledger::book::SourceBook::blank_line(
+                SIDE_WON,
+                99_999_999,
+                [0xDD; 32],
+                CLASS_GENERAL,
+                0,
+            );
+            dust.amount = 1;
+            st.insert(&dust).expect("the freed slot");
+        }
+        env.svm.set_account(s(store), acc).expect("set basket");
+    }
+    // the cancel returns the slowest line (the split part) into the held slot and keeps the next
+    // one in the Ticket, without an error
+    env.cancel_ticket_with(&kp, &alice, 4, 20, books.clone())
+        .expect("a cancel never fails for room");
+    assert_eq!(
+        env.ticket_state(&alice, 4),
+        tesoro_core::ledger::draw::TicketState::Cancelling
+    );
+    assert_eq!(
+        env.load_ticket_staged(&alice, 4),
+        500,
+        "the other line waits in the Ticket"
+    );
+    assert_eq!(
+        env.gemas_of(&alice, sources[1]),
+        100,
+        "the split part came home"
+    );
+    // one more slot and the next cancel finishes; the Ticket closes
+    let grow = env.grow_spill_ix(alice.key, alice.account, 1);
+    env.send(&[grow], &kp, &[]).expect("grow");
+    env.cancel_ticket_with(&kp, &alice, 4, 20, books)
+        .expect("cancel");
+    assert_eq!(
+        env.ticket_state(&alice, 4),
+        tesoro_core::ledger::draw::TicketState::Cancelled
+    );
+    assert_eq!(env.gemas_of(&alice, sources[0]), 500);
+    env.close_ticket(&kp, &alice, 4).expect("close");
 }

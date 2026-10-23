@@ -85,7 +85,10 @@ export default function Terms() {
             We may change which staking token and provider (for example Jito, Lido or Kinetiq) new Locks use. Existing Locks keep the token they started with.
           </li>
           <li>
-            We take a <b>Yield Fee</b> of 20% of the yield a Lock earns, before it counts toward paying back, redemption or free yield. We never charge it on a Locked amount.
+            We take a <b>Yield Fee</b> of 20% of yield when it is cashed out: when Gemas are Redeemed (you receive 80% of their value), when Gemas are sold by Instant Redeem, when we
+            redeem Gemas we bought, and on a Lock&apos;s free yield when it is unlocked. We take it once per cash-out and never on a Locked amount, on fee Gemas or on prize Gemas.
+            Half of the Yield Fee is ours and half is owed to the Leaderboard Pool for Season prizes, both counted when the cash-out happens. We do not spend the Pool&apos;s half, or
+            what holders of an unlocked Lock are still owed.
           </li>
         </ul>
       </Section>
@@ -96,25 +99,58 @@ export default function Terms() {
           currency, a security, a deposit or a stored value account with us, and it is not insured. Gemas are equal at the table but not at redemption: what a
           Gema redeems for follows the asset of that Advance and the yield actually earned.
         </p>
+        <p>
+          Gemas that have been repaid are claims on the staking token their yield was worth when it landed, not on a fixed amount of the coin. <b>If the staking token is
+          slashed or loses value, the value of your repaid Gemas falls with it, as if you held the token yourself, and we do not make up the difference.</b> We keep no cushion for this.
+        </p>
         <ul>
-          <li><b>Redeem</b> turns Gemas into the asset they came from, only as far as the yield of the Lock they came from has actually been earned. Winning Gemas never shortens your own lock.</li>
+          <li><b>Redeem</b> turns Gemas into the asset they came from, only as far as the yield of the Lock they came from has actually been earned and has reached those Gemas under the payout order below. Winning Gemas never shortens your own lock. The amount you can Redeem now does not go down unless you Redeem or spend those Gemas.</li>
           <li>
-            <b>Instant Redeem</b> turns Gemas you won into the asset they came from before that yield has landed, for 75% of their value, and only while {BRAND.name}&apos;s
-            Treasury for that asset holds enough to pay. The other 25% is {BRAND.name}&apos;s fee. When the Treasury is short, the request is refused.
+            <b>Payout order.</b> Yield that lands on an Advance after a fee was taken from it repays that Advance&apos;s Gemas in this order: first the Platform Fee Gemas, then the Studio
+            Fee Gemas of Listed Games, then the Leaderboard Fee Gemas, then all other Gemas of the Advance in proportion to what each still waits for, and last the Gemas added by each
+            Extend, each after everything issued before it. A Gema keeps its place in this order for its whole life. The order changes who is paid first; it does not change what the owner of the
+            Lock has left to pay back or the Unlock Estimate. The Fee Gemas we receive are therefore repaid before yours, and winners can wait longer for Gemas of Advances where fees were taken.
+          </li>
+          <li>
+            <b>Instant Redeem</b> is an order. You ask us to buy Gemas, won or your own, whose yield has not landed yet. The Gemas wait in the order and cannot be played. We may fill the order in
+            full, in part or not at all, by hand or by a rule we switch on, only while the Treasury for that asset has enough that we may spend. When we fill, the Yield Fee comes off the value of
+            the filled Gemas at that moment and then a 25% Instant Redeem Fee: you receive 60% of their value. One fifth of the Instant Redeem Fee is owed to the Leaderboard Pool and the rest is
+            {BRAND.name}&apos;s. You may cancel an unfilled order at any time, and an order nobody fills expires and returns the Gemas unchanged. Yield that landed on your Gemas, also while the
+            order waits, is Redeemed for you (less the Yield Fee) and is not sold.
           </li>
           <li>Won Gemas can wait a long time, or without an end date, if the yield of the loser&apos;s Lock collapses.</li>
-          <li>Gemas can be used to play and redeem as described here. They cannot be sold to or bought from us for money.</li>
+          <li>Gemas can be used to play and redeem as described here. They cannot be sold to or bought from us for money, except through Instant Redeem as described above.</li>
+          <li>
+            <b>Which Gemas an entry uses.</b> The program chooses them, not you or the app: your own Gemas first, then Gemas you won with the earliest planned repayment date first. The Gemas an opponent
+            wins from you are therefore the fastest ones you had. If an entry needs more pieces than one transaction can carry, it is put together in steps (an Entry Ticket) that you can cancel and that
+            expire back to you untouched.
+          </li>
         </ul>
       </Section>
 
       <Section id="matches" title="Matches, entries and fees">
         <p>
-          A Match is a head-to-head contest of skill between two Players with equal Gema entries, settled once. The winner takes the Pot minus fees. A draw, an
-          abandoned Match or a no-show refunds both entries. Some Games, such as Hold&apos;em, include chance within a hand. You can lose everything you enter.
+          A Match is a head-to-head contest of skill between two Players with equal Gema entries, settled once. The winner takes the Pot minus fees. A draw or an
+          abandoned Match refunds both entries. A Player who is paired and does not show up loses the Match. Some Games, such as Hold&apos;em, include chance within a hand. You can lose everything you enter.
         </p>
         <ul>
-          <li>Fees on every Pot are fixed when the Match opens: a Platform Fee of 2%, a Studio Fee of 3% (set by the Game&apos;s Studio) and a Leaderboard Fee of 1%. A draw or refund pays none.</li>
+          <li>Fees on every Pot are fixed when the Match opens: a Platform Fee of 2%, a Studio Fee of 3% (set by the Game&apos;s Studio, never more than 10% of the Pot) and a Leaderboard Fee of 1%. A draw or refund pays none, except that a no-show (neither Player showed up, or both checked in and neither acted) costs each side the Platform Fee.</li>
+          <li>
+            <b>7-day limit.</b> No Match can start settling more than 7 days after it opened, in any Game. After that, or if the Game&apos;s program was upgraded to different code after the Match opened,
+            the Match can only be refunded, and anyone can run the refund. Big Pots are settled or refunded in steps that anyone can continue.
+          </li>
+          <li>
+            <b>Listed Games.</b> Anyone who controls a Game&apos;s program may register it. We list the Games we accept (free to apply, then US$500 a year), tied to the exact build we approved. Only a Listed Game
+            earns Points, has its Studio Fee repaid ahead of other holders, can be Backed, and has its network costs paid by us. We do not warn you about unlisted Games and are not responsible for them: they
+            are run by their own Studios outside our control. Our own Games are Listed.
+          </li>
+          <li>
+            <b>Network costs.</b> In Listed Games we pay the network costs (such as Solana fees and refundable storage rent) of your Matches and redemptions on Solana, only for Accounts that hold Gemas and within
+            limits per Account and in total. We may pause this for new Matches at any time. Settling, refunding and redeeming keep working, and if you hold SOL you can pay your own costs. Storage rent we paid
+            comes back to us when the storage is no longer needed.
+          </li>
           <li>Results are decided by the Game&apos;s program. For Games with a shared Seed, a score counts only as the server&apos;s replay of your inputs.</li>
+          <li>In Block Burst, a paired Player who does not check in loses that Match.</li>
           <li>You are playing other people, not us. We do not guarantee that an opponent will be found, will finish, or will play fairly.</li>
           <li>{BRAND.name} is not a casino, a sportsbook or a lottery. We do not offer games against the house.</li>
         </ul>
@@ -122,7 +158,7 @@ export default function Terms() {
 
       <Section id="backing" title="Backing">
         <p>
-          A Backing is an agreement between a Backer and a Player, accepted by both, in which the Backer funds the Player&apos;s full entry into one Match. On
+          A Backing is an agreement between a Backer and a Player, accepted by both, in which the Backer funds the Player&apos;s full entry into one Match of a Listed Game. An Offer holds back an amount of the Backer&apos;s Gemas; the program draws the actual Gemas by the rule above when the Match opens. On
           a win the Backer&apos;s entry is returned first and the remainder is split as the Offer said. It cannot be revoked once the Match starts. Only the
           Backer bears a loss. We are not a party to the Backing, do not advise on it, and do not guarantee any return. Back only what you can lose.
         </p>
@@ -131,7 +167,7 @@ export default function Terms() {
       <Section id="seasons" title="Seasons and the Leaderboard">
         <p>
           Each Season runs one week, Monday 00:00 UTC to the next Monday. Wins earn Points as the Docs describe, with a cap on Points from repeat wins against the
-          same opponent. The Leaderboard Pool, funded by Leaderboard Fees, is paid to top Players 48 hours after a Season ends. In that window we may review the
+          same opponent. The Leaderboard Pool, funded by Leaderboard Fees and by half of the Yield Fee, is paid to top Players 48 hours after a Season ends. The Pool&apos;s budget is fixed when the Season is recorded, and every rank is paid the same mix of coins (SOL, ETH, HYPE) from it. Prize Gemas are backed by the staking tokens set aside for them and can be Redeemed at once, but their value follows the staking token. Only wins in Listed Games earn Points. In that window we may review the
           Season and void any Player we find has broken these Terms; their share and anything not paid rolls into the next Season. Anyone can rebuild a Season
           from public events to check our numbers. Our decision on a void is final.
         </p>
@@ -172,7 +208,7 @@ export default function Terms() {
         </p>
         <ul>
           <li>{BRAND.name} runs on experimental software. Smart contracts can have bugs, even after review or audit, and could lose some or all of what they hold.</li>
-          <li>Staking tokens carry the risk of their own protocol, price, smart contracts, slashing and depeg. Yield is variable and can be zero.</li>
+          <li>Staking tokens carry the risk of their own protocol, price, smart contracts, slashing and depeg. Yield is variable and can be zero. Holders of repaid Gemas carry a slash as described under Gemas.</li>
           <li>Some parts are trusted rather than enforced: the issuance price key, the Invite and keeper keys, the program upgrade keys, MagicBlock&apos;s secure environment and LayerZero&apos;s message delivery.</li>
           <li>Third-party services (blockchains, wallets, sign-in, hosting, email, price feeds, staking providers) can fail, change or stop. We are not responsible for them.</li>
           <li>Crypto transactions are final. Prices move. Taxes may apply to you; you alone are responsible for yours.</li>
@@ -182,8 +218,8 @@ export default function Terms() {
 
       <Section id="our-rights" title="Our rights to change and pause">
         <p>
-          We may update {BRAND.name}, change fees for new Matches and Advances, add or remove Games, pause queues, settlements or
-          redemptions to protect Players or fix a problem, upgrade programs, and stop the service. If we change these Terms in a way that matters we will tell you
+          We may update {BRAND.name}, change fees for new Matches and Advances, list or unlist Games, pause queues, sponsored costs or
+          Instant Redeem fills to protect Players or fix a problem, upgrade programs, and stop the service. We will not pause settling or refunding a Match you are in, or Redeem and Unlock. If we change these Terms in a way that matters we will tell you
           in the app or by email, and the new Terms apply from the date shown. If you keep using {BRAND.name} after that, you accept them.
         </p>
       </Section>

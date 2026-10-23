@@ -1,5 +1,7 @@
 # A weekly Leaderboard paid from a 1% Leaderboard Fee, ranked off-chain from on-chain events
 
+> Superseded in part by ADR 0013: the Pool is also funded by half the Yield Fee, every rank is paid the same mix of coins from a frozen Season budget (not by draining Holdings in Source order), the Pool holds a basket (Holdings are gone), the ranking reads only events the core program wrote, and the Leaderboard Fee is repaid third in the payout order. Points, Seasons and the prize shares stand.
+
 Decided (founder, Oct 10, 2026). Every Match in every game pays a **Leaderboard Fee** of 1% of the Pot (`Config.leaderboard_bps`, 100) into the **Leaderboard Pool**, on top of the Platform Fee and the Studio Fee. Each won Match earns its Player **points** (entry / 100: 5, 10, 25). Each **Season** (one week, Monday 00:00 UTC, Season 1 from 2026-10-05) ends by paying the pool to the top ten on a sliding scale, 25 / 18 / 13 / 10 / 8 / 7 / 6 / 5 / 4 / 4%.
 
 ## How it is built

@@ -1,292 +1,172 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Notice } from "@/components/ui";
-import { BlockPuzzleGame, type MatchRun } from "@/games/block-puzzle/BlockPuzzleGame";
-import { BlockPuzzleChain, type Seat } from "@/games/block-puzzle/chain";
+import { useEffect, useState } from "react";
+import { Notice } from "@/components/ui";
+import { BlockPuzzleGame } from "@/games/block-puzzle/BlockPuzzleGame";
+import { ELSEWHERE_LINE, QUEUE_SIT_LINE, QUEUE_STAY_LINE, needTableLine, resultLine } from "@/games/block-puzzle/burst-copy";
+import { CHECKIN_SECS, REASON } from "@/games/block-puzzle/live-chain";
+import { getReadySecs, slotNow } from "@/games/block-puzzle/live-clock";
+import { stripOf } from "@/games/block-puzzle/opponent";
+import { useBurstMatch } from "@/games/block-puzzle/useBurstMatch";
 import { useAccount } from "@/lib/account";
-import { commitPendingSince, commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
-import { getChain } from "@/lib/chain/client";
 import { backerDelta, matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
-import { canClaimTimeout, runSubmitter, ensureJoined, claimTimeout, prepareRun, probeRun, refundMatch, trySettle } from "@/lib/chain/match-flow";
-import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
-import type { RunSubmitter } from "@/lib/chain/run-submitter";
+import { parseMatchKey } from "@/lib/chain/match-id";
+import { refundMatch } from "@/lib/chain/match-flow";
+import { delayedOf } from "@/lib/chain/match-status";
+import { useQueuePresence } from "@/lib/chain/usePresence";
+import { useNowSecs } from "@/lib/chain/useNowSecs";
+import { plainError } from "@/lib/errors";
 import { BackingSplit } from "./BackingSplit";
+import { BurstOpponentStrip } from "./BurstOpponentStrip";
 import { MatchResult } from "./MatchResult";
 import { MatchSpectate } from "./MatchSpectate";
-import { delayedOf } from "@/lib/chain/match-status";
-import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { MatchStage, MatchStageLoading, StageAction, type StageKind } from "./MatchStage";
 import { Receipts } from "./Receipts";
-import { plainError } from "@/lib/errors";
 
-type Phase =
-  | "loading"
-  | "notfound"
-  | "spectator"
-  | "queued"
-  | "backer-watch"
-  | "prep"
-  | "ready"
-  | "starting"
-  | "playing"
-  | "submitting"
-  | "awaiting"
-  | "result";
-
-const errText = plainError;
-const SETTLE_TRY_MS = 6000;
+/** Re-renders every `ms`, so the get-ready count and the check-in clock follow the rollup's slot clock. */
+function useTicker(ms: number, on: boolean): number {
+  const [t, setT] = useState(() => (typeof performance === "undefined" ? 0 : performance.now()));
+  useEffect(() => {
+    if (!on) return;
+    const i = setInterval(() => setT(performance.now()), ms);
+    return () => clearInterval(i);
+  }, [ms, on]);
+  return t;
+}
 
 /**
- * One Block Burst Match, driven by what is on chain: waiting for an opponent, preparing the
- * private Boards, playing (moves are submitted to the private rollup as you place), waiting for the
- * opponent, then the result. Every step re-reads chain state, so a reload resumes where you were.
+ * One Block Burst Match, driven by the table it runs on: waiting for an opponent, waiting for a table, check-in, the
+ * Seed, the get-ready count, the 90 s run (both Players at once, the timer from the table's start slot), then the result.
+ * Every step re-reads the chain, so a reload resumes where you were.
  */
 export function MatchView({ matchId }: { matchId: string }) {
   const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
   const nowSecs = useNowSecs();
-  const id = (() => {
-    try {
-      return BigInt(matchId);
-    } catch {
-      return null;
-    }
-  })();
-
-  const [match, setMatch] = useState<ChainMatch | null>(null);
-  const [phase, setPhaseState] = useState<Phase>("loading");
-  const [step, setStep] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [run, setRun] = useState<MatchRun | null>(null);
-  const [final, setFinal] = useState<{ score: number; moves: number } | null>(null);
-  const [sigs, setSigs] = useState<{ label: string; sig: string }[]>([]);
-  const [timeoutOk, setTimeoutOk] = useState(false);
+  const id = parseMatchKey(matchId) ? matchId : null;
+  const me = snapshot?.accountKey.toBase58() ?? null;
+  const { view } = useBurstMatch(id, signer, me, refresh);
+  const { stage, match: m, seat, table, clock, assignment } = view;
   const [busy, setBusy] = useState<string | null>(null);
-  const [refundable, setRefundable] = useState(false);
+  const [refundError, setRefundError] = useState<string | null>(null);
+  const [refundSig, setRefundSig] = useState<{ label: string; sig: string; layer: "base" | "tee" }[]>([]);
+  const perf = useTicker(250, stage === "setup" || stage === "getReady" || stage === "playing" || stage === "closing");
 
-  const phaseRef = useRef<Phase>("loading");
-  const setPhase = useCallback((p: Phase) => {
-    phaseRef.current = p;
-    setPhaseState(p);
-  }, []);
-  const working = useRef(false);
-  const submitter = useRef<RunSubmitter | null>(null);
-  const movesLost = useRef<string | null>(null);
-  const lastSettle = useRef(0);
-  const settledSeen = useRef(false);
-  const commitSince = useRef(0);
-  const [commit, setCommit] = useState<CommitState | null>(null);
-
-  const addSig = useCallback((label: string, sig?: string) => {
-    if (sig) setSigs((s) => (s.some((x) => x.sig === sig) ? s : [...s, { label, sig }]));
-  }, []);
-
-  const markSent = useCallback(() => {
-    if (id === null) return;
-    commitSince.current ||= Date.now();
-    setCommitPending(id, true);
-  }, [id]);
-
-  const tick = useCallback(async () => {
-    if (!signer || id === null || working.current) return;
-    if (["playing", "starting", "submitting"].includes(phaseRef.current)) return;
-    working.current = true;
-    try {
-      const me = BlockPuzzleChain.coreAccount(signer.publicKey);
-      const m = await fetchMatch(id, me);
-      setMatch(m);
-      const now = Date.now() / 1000;
-      setRefundable(!!m && (m.status === "open" || !m.session?.joined || delayedOf(m, now)?.refundOpen === true) && now > m.deadline);
-      if (!m) return setPhase("notfound");
-      if (m.seat === null && m.backerSeat === null) return setPhase("spectator");
-      if (m.status === "settled" || m.status === "refunded") {
-        if (!settledSeen.current) {
-          settledSeen.current = true;
-          setCommitPending(m.id, false);
-          setCommit(null);
-          // A settle race or a retry that failed earlier no longer matters once the Match is final.
-          setError(movesLost.current);
-          void refresh();
-        }
-        return setPhase("result");
-      }
-      // The Backer funds a side without playing it: they watch until the result.
-      if (m.seat === null) return setPhase("backer-watch");
-
-      await ensureJoined(signer, m);
-      // The opener plays as soon as the Match exists; the joiner plays after joining. Same steps.
-      const stage = await probeRun(signer, m, phaseRef.current !== "ready");
-      if (stage === "needs-prep") {
-        setPhase("prep");
-        setError(null);
-        await prepareRun(signer, id, m.seat, setStep);
-        setMatch(await fetchMatch(id, me));
-        return setPhase("ready");
-      }
-      if (stage === "ready") return setPhase("ready");
-      if (stage === "lost-run") {
-        // The page was reloaded mid-run: the run cannot be resumed, so close it with what landed.
-        await getChain().finish(signer, id, m.seat).catch(() => undefined);
-      }
-      if (m.status === "open") return setPhase("queued");
-      setPhase("awaiting");
-      if (await canClaimTimeout(m)) setTimeoutOk(true);
-      commitSince.current ||= commitPendingSince(id) ?? 0;
-      if (Date.now() - lastSettle.current >= SETTLE_TRY_MS) {
-        lastSettle.current = Date.now();
-        const r = await trySettle(signer, id, m.session, { sealed: commitSince.current > 0, onSent: markSent });
-        if (r.sig) addSig("settle", r.sig);
-        if (r.outcome === "settled") setMatch(await fetchMatch(id, me));
-        if (r.outcome === "failed") setError(r.error ?? "Couldn’t finish the Match. Try again.");
-        if (r.outcome === "commit-pending") markSent();
-      }
-      if (commitSince.current) {
-        const phase = commitPhase(commitSince.current, Date.now());
-        setCommit((c) => (c?.phase === phase ? c : { phase, won: false }));
-        setError(null);
-      }
-    } catch (e) {
-      setError(errText(e));
-    } finally {
-      working.current = false;
-    }
-  }, [signer, id, setPhase, addSig, refresh, markSent]);
-
-  useEffect(() => {
-    if (!signer || id === null) return;
-    const first = setTimeout(() => void tick(), 0);
-    const t = setInterval(() => void tick(), 3000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(t);
-    };
-  }, [signer, id, tick]);
-
-  const begin = async () => {
-    if (!signer || id === null || !match || match.seat === null || !match.session) return;
-    const seat: Seat = match.seat;
-    setError(null);
-    setPhase("starting");
-    try {
-      const startedAt = performance.now();
-      const { sig, seed } = await getChain().beginRun(signer, id, seat);
-      addSig("begin_run", sig);
-      const sub = runSubmitter(signer, id, seat);
-      submitter.current = sub;
-      setRun({
-        seed,
-        startedAt,
-        entry: match.entry,
-        onMove: (mv) => sub.push(mv),
-        onEnd: (f) => {
-          setFinal(f);
-          setPhase("submitting");
-          void (async () => {
-            await sub.finish();
-            if (sub.error) {
-              movesLost.current = `Some moves were not accepted: ${errText(sub.error)}`;
-              setError(movesLost.current);
-            }
-            setRun(null);
-            lastSettle.current = 0;
-            setPhase("awaiting");
-          })();
-        },
-      });
-      setPhase("playing");
-    } catch (e) {
-      setError(errText(e));
-      setPhase("ready");
-    }
-  };
-
-  const act = async (label: string, fn: () => Promise<unknown>) => {
-    setBusy(label);
-    setError(null);
-    try {
-      await fn();
-      lastSettle.current = 0;
-      working.current = false;
-      await tick();
-      void refresh();
-    } catch (e) {
-      setError(errText(e));
-    } finally {
-      setBusy(null);
-    }
-  };
+  // The Queue lease: while you sit alone in the Queue the page tells the Queue it is here.
+  useQueuePresence(m?.id ?? null, !!m && m.status === "open" && !m.challenge && m.seat === 0);
 
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
   if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
-  if (!signer) return <MatchStageLoading game="block-puzzle" me={snapshot?.accountKey.toBase58() ?? null} step="Getting your wallet ready" />;
-  if (phase === "loading") return <MatchStageLoading game="block-puzzle" me={snapshot?.accountKey.toBase58() ?? null} />;
-  if (phase === "notfound") return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
-  if (phase === "spectator") return <MatchSpectate matchId={matchId} />;
+  if (!signer) return <MatchStageLoading game="block-puzzle" me={me} step="Getting your wallet ready" />;
+  if (stage === "loading") return <MatchStageLoading game="block-puzzle" me={me} />;
+  if (stage === "notfound") return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
+  if (stage === "spectator") return <MatchSpectate matchId={matchId} />;
 
-  if (phase === "playing" && run) {
+  const slot = clock ? slotNow(clock, perf) : 0;
+  const strip = stripOf({ table, assigned: !!assignment, slot, seat: seat ?? 0, ownOver: view.ownOver });
+  const sigs = [...view.sigs, ...refundSig];
+
+  if (view.run && (stage === "playing" || stage === "closing") && m) {
     return (
       <div className="stack">
         <BlockPuzzleGame
-          run={run}
-          matchPanel={error ? <p className="status err" role="alert">{error}</p> : null}
+          run={view.run}
+          matchPanel={
+            <div className="bpx-status">
+              <BurstOpponentStrip account={m.opponent} state={strip} />
+              {view.reconnecting && <p className="note">Reconnecting…</p>}
+              {view.error && <p className="status err" role="alert">{view.error}</p>}
+            </div>
+          }
         />
       </div>
     );
   }
 
-  const m = match;
-  const link = typeof window === "undefined" || !m ? "" : `${window.location.origin}/play/challenge/${m.id.toString()}`;
-  const session = m?.session;
-  const mineIdx = m?.seat ?? m?.backerSeat ?? 0;
   const asBacker = !!m && m.seat === null && m.backerSeat !== null;
   const playerBacked = !!m && m.seat !== null && m.backing !== null;
-  const scores = session ? [session.scores[mineIdx], session.scores[1 - mineIdx]] : null;
-  const delta = !m ? 0 : asBacker && m.backing ? backerDelta({ ...m, backerSeat: m.backing.seat, shareBps: m.backing.shareBps }) : matchDelta(m);
-  const outcome = !m || m.status === "open" || m.status === "active" ? null : !session || !session.settled ? "refunded" : session.result === "draw" ? "draw" : seatResult(m, mineIdx) === "won" ? "won" : "lost";
+  const mineIdx = (m?.seat ?? m?.backerSeat ?? 0) as 0 | 1;
+  const result = view.result ?? m?.session ?? null;
 
-  if (phase === "result" && m && outcome) {
+  if (stage === "settled" && m) {
+    const draw = result?.result === "draw";
+    const known = result ? (draw ? "draw" : seatResult({ session: result }, mineIdx)) : null;
+    const delta = asBacker && m.backing ? backerDelta({ ...m, backerSeat: m.backing.seat, shareBps: m.backing.shareBps }) : matchDelta(m);
+    const outcome = m.status === "refunded" ? "refunded" : (known ?? (delta > 0 ? "won" : delta < 0 ? "lost" : "draw"));
+    const scores = result && outcome !== "refunded" ? ([String(result.scores[mineIdx]), String(result.scores[1 - mineIdx])] as [string, string]) : null;
+    const why = resultLine(view.reason, outcome);
     return (
       <MatchResult
         game="block-puzzle"
         outcome={outcome}
         delta={delta}
         entry={m.entry}
-        fee={Number(fmtFee(m))}
+        fee={matchFee(m)}
         role={asBacker ? "backer" : "player"}
         backed={!!m.backing}
-        scores={scores && outcome !== "refunded" ? [String(scores[0]), String(scores[1])] : null}
+        scores={scores}
         momentKey={m.id.toString()}
         matchId={m.id.toString()}
         playAgainHref={`/play/queue?entry=${m.entry}`}
         opponent={m.opponent}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
-        {error && <p className="status err" role="alert">{error}</p>}
+        {why && <p className="note">{why}</p>}
+        {view.error && <p className="status err" role="alert">{view.error}</p>}
         <Receipts items={sigs} />
         <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
       </MatchResult>
     );
   }
+  if (!m) return <MatchStageLoading game="block-puzzle" me={me} />;
 
-  const kind: StageKind | null =
-    phase === "backer-watch"
-      ? "backer-watch"
-      : phase === "queued"
-        ? "waiting-run"
-        : phase === "prep"
-          ? "setup"
-          : phase === "ready" || phase === "starting"
-            ? "ready"
-            : phase === "submitting"
-              ? "saving-run"
-              : phase === "awaiting"
-                ? commit
-                  ? "closing"
-                  : "awaiting"
-                : null;
-  if (!kind || !m) return <MatchStageLoading game="block-puzzle" me={snapshot?.accountKey.toBase58() ?? null} />;
-  const refund = () => act("refund", async () => addSig("refund", await refundMatch(signer, m.id)));
+  const refund = async () => {
+    setBusy("refund");
+    setRefundError(null);
+    try {
+      const sig = await refundMatch(signer, m.id, auth.getAccessToken);
+      setRefundSig((s) => [...s, { label: "refund", sig, layer: "base" }]);
+    } catch (e) {
+      setRefundError(plainError(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const link = typeof window === "undefined" ? "" : `${window.location.origin}/play/challenge/${m.id.toString()}`;
+  const checkInLeft = table && clock ? Math.max(0, Math.ceil(CHECKIN_SECS - (slot - table.assignedSlot) / 100)) : null;
+  const readyIn = table && clock ? getReadySecs(table, clock, perf) : null;
+
+  let kind: StageKind;
+  let words: { kicker?: string; title?: string; line?: string } | undefined;
+  let step: string | undefined;
+  if (stage === "backer") kind = "backer-watch";
+  else if (stage === "waiting") {
+    kind = "waiting";
+    words = m.challenge ? undefined : { line: `${QUEUE_SIT_LINE} ${QUEUE_STAY_LINE}` };
+  } else if (stage === "table") {
+    kind = "setup";
+    words = { kicker: "Block Burst · opponent found", title: "Waiting for a table", line: needTableLine(m.deadline, nowSecs * 1000) };
+  } else if (stage === "getReady") {
+    kind = "setup";
+    words = { title: readyIn === null ? "Get ready" : `Starting in ${readyIn}`, line: "Same pieces for you both, at the same time. Your 90 seconds start on zero." };
+  } else if (view.elsewhere) {
+    kind = "awaiting";
+    words = { title: "Playing in another tab", line: ELSEWHERE_LINE };
+  } else if (stage === "closing") {
+    kind = "closing";
+  } else {
+    kind = "setup";
+    const t = table;
+    if (t && t.seatsOpen && !t.checkedIn[seat ?? 0] && t.phase === 1) step = "Checking you in";
+    words = {
+      title: t && t.phase === 2 ? "Dealing your pieces" : "Get ready",
+      line:
+        t && t.phase === 1 && t.checkedIn[seat ?? 0] && checkInLeft !== null
+          ? `You’re in. Waiting for your opponent to check in (${checkInLeft} s). If they don’t, you win.`
+          : "Your pieces are drawn in secret.",
+    };
+  }
 
   return (
     <MatchStage
@@ -294,52 +174,26 @@ export function MatchView({ matchId }: { matchId: string }) {
       kind={kind}
       entry={m.entry}
       pot={m.entry * 2 - matchFee(m)}
-      me={asBacker ? (m.backing?.player ?? null) : (snapshot?.accountKey.toBase58() ?? null)}
+      me={asBacker ? (m.backing?.player ?? null) : me}
       opponent={m.opponent}
-      score={final?.score ?? null}
-      step={kind === "setup" ? step || "Creating your session" : kind === "saving-run" ? "Saving your last moves" : undefined}
-      deadline={m.deadline || undefined}
-      challengeLink={m.challenge && kind === "waiting-run" ? link : null}
+      step={step}
+      deadline={kind === "waiting" ? m.deadline || undefined : undefined}
+      challengeLink={m.challenge && kind === "waiting" ? link : null}
       backedShareBps={playerBacked && m.backing ? m.backing.shareBps : null}
-      commit={commit}
+      opponentAbsent={kind === "closing" && !!table && table.reason === REASON.absent && !table.checkedIn[1 - (seat ?? 0)]}
+      commit={view.commit}
       delayed={delayedOf(m, nowSecs)}
-      error={error}
-      start={
-        kind === "ready" && (
-          <Button variant="money" size="lg" block disabled={phase === "starting"} onClick={begin}>
-            {phase === "starting" ? "Starting…" : "Start · 90 s"}
-          </Button>
-        )
-      }
+      error={refundError ?? view.error}
+      words={words}
       actions={
         <>
-          {kind === "waiting-run" && (
-            <StageAction disabled={busy !== null} onClick={refund}>
+          {kind === "waiting" && (
+            <StageAction disabled={busy !== null} onClick={() => void refund()}>
               {busy === "refund" ? "Refunding…" : playerBacked ? "Cancel (Gemas return to your Backer)" : "Cancel and refund"}
             </StageAction>
           )}
-          {kind === "awaiting" && (
-            <StageAction
-              disabled={busy !== null}
-              onClick={() =>
-                act("settle", async () => {
-                  const r = await trySettle(signer, m.id, undefined, { sealed: commitSince.current > 0, onSent: markSent });
-                  if (r.sig) addSig("settle", r.sig);
-                  if (r.outcome === "waiting-opponent") setError("Your opponent is still playing.");
-                  if (r.outcome === "failed") setError(r.error ?? "Couldn’t finish the Match. Try again.");
-                })
-              }
-            >
-              {busy === "settle" ? "Checking…" : "Check now"}
-            </StageAction>
-          )}
-          {kind === "awaiting" && timeoutOk && (
-            <StageAction disabled={busy !== null} onClick={() => act("timeout", async () => addSig("claim_timeout", await claimTimeout(signer, m.id)))}>
-              Time’s up: refund both entries
-            </StageAction>
-          )}
-          {refundable && (kind === "awaiting" || kind === "closing" || kind === "ready" || kind === "setup") && (
-            <StageAction disabled={busy !== null} onClick={refund}>
+          {view.refundable && kind !== "waiting" && (
+            <StageAction disabled={busy !== null} onClick={() => void refund()}>
               Refund Match
             </StageAction>
           )}
@@ -351,8 +205,3 @@ export function MatchView({ matchId }: { matchId: string }) {
     </MatchStage>
   );
 }
-
-function fmtFee(m: ChainMatch): string {
-  return String(matchFee(m));
-}
-

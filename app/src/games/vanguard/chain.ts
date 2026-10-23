@@ -1,42 +1,42 @@
 /**
  * On-chain client for the Vanguard Game (programs/vanguard).
  *
- * Layers: the tesoro_core Match is opened and joined on the base layer (Solana devnet). The Battle, the two
- * Armies and the Secret are delegated to the MagicBlock private rollup (TEE); every gameplay call goes there,
- * authenticated with a token the Player signs for. `finalize` runs on the base layer once the rollup has
- * committed the Battle back.
+ * Matches run on persistent tables that stay delegated to the MagicBlock private rollup (TEE). On the base layer an
+ * operator binds a tesoro_core Match to one table and epoch with a write-once Assignment. Everything else happens on the
+ * table in the rollup: `begin_match`, `seat_players` (each Player's Army seat becomes readable by that Player only),
+ * `check_in` (the second one opens setup), `contribute_entropy`, `request_vrf`, the oracle's callback, `deal`, the declares
+ * and `resolve`; `commit_table` publishes the result (the table and its public Battle) and `finalize` settles on the base
+ * layer from the committed table's result ring. Wiping the seats, resetting the table, freeing ring slots and choosing
+ * tables belong to the keeper's table scheduler (ticket 19t); this client has the instructions.
  *
- * Privacy: the Battle is readable by everyone, an Army only by its own Player, the Secret by nobody. A read of
- * an account the connection may not see returns `null`, indistinguishable from "does not exist".
+ * Privacy: the Battle is readable by everyone, an Army only by its own Player. A read of an account the connection may not
+ * see returns `null`, indistinguishable from "does not exist".
  */
+import type { Vanguard } from "../../lib/chain/idl/vanguard.types";
 import * as anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
-import {
-  DELEGATION_PROGRAM_ID,
-  GetCommitmentSignature,
-  MAGIC_PROGRAM_ID,
-  PERMISSION_PROGRAM_ID,
-  getAuthToken,
-  permissionPdaFromAccount,
-} from "@magicblock-labs/ephemeral-rollups-sdk";
+import { DELEGATION_PROGRAM_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID, getAuthToken, permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
 import nacl from "tweetnacl";
-import { fetchLeaderboardTerms } from "../../lib/chain/leaderboard";
 import {
+  OUTCOME,
+  SLOT,
+  TABLE_PHASE,
   TEE_RPC,
   TEE_WS,
   TESORO_CORE_PROGRAM_ID,
-  computePayouts,
   defaultBaseConnection,
   keypairSigner,
   tesoroAccountPda,
   tesoroConfigPda,
-  tesoroHoldingPda,
-  tesoroMatchPda,
+  settledPda,
+  eventAuthorityPda,
   type PlayerSigner,
+  type Slot,
 } from "../holdem/chain";
-import { STATUS, decodeArmy, decodeBattle, type ArmyAccount, type Battle } from "./decode";
+import { decodeArmy, decodeBattle, type ArmyAccount, type Battle } from "./decode";
+import { gameAccounts } from "../../lib/chain/game-record";
 
-export { keypairSigner, tesoroAccountPda, tesoroMatchPda, type PlayerSigner };
+export { keypairSigner, tesoroAccountPda, type PlayerSigner };
 
 export const VANGUARD_PROGRAM_ID = new PublicKey("TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH");
 const EPHEMERAL_VAULT = new PublicKey("MagicVau1t999999999999999999999999999999999");
@@ -46,10 +46,10 @@ const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111
  * Compute limits. A declare (a move, a timeout claim) checks public state only: about 4-6k CU in LiteSVM. The resolve
  * does the rank rules, the fight, the turn pass and the "any action left?" scan over every shape a rank could make
  * (rules version 6): 135-145k in LiteSVM on compiled SBF whatever the board (a lost turn the same; endings that skip
- * the scan are cheaper). 200k leaves 30% over the worst reading (see ticket vgp 05). Delegation is Hold'em's 600k;
- * `finalize` pays out.
+ * the scan are cheaper). 200k leaves 30% over the worst reading (see ticket vgp 05). The seat and commit steps make
+ * permission and MagicBlock calls: Hold'em's 400k. `finalize` pays out.
  */
-export const CU = { declare: 40_000, resolve: 200_000, delegate: 600_000, finalize: 400_000 } as const;
+export const CU = { declare: 40_000, resolve: 200_000, finalize: 400_000, assign: 300_000, seats: 400_000, commit: 400_000 } as const;
 
 /** What every declare carries: the `action_seq` it was built for (public) and the sealed Become a Spy byte. */
 export interface DeclareSeal {
@@ -57,30 +57,152 @@ export interface DeclareSeal {
   sealedSwitch: number;
 }
 
-const le64 = (n: bigint | number) => new anchor.BN(n.toString()).toArrayLike(Buffer, "le", 8);
-
 export interface Addresses {
+  table: PublicKey;
   battle: PublicKey;
-  secret: PublicKey;
   army0: PublicKey;
   army1: PublicKey;
   authority: PublicKey;
+  /** The cluster settings (TEE validator, oracle queue). */
   config: PublicKey;
+  /** The table settings (operator, generation, table cap). */
+  tables: PublicKey;
+  sponsor: PublicKey;
 }
 
-/** PDAs of one Battle. `matchId` is the tesoro_core Match id. */
-export function addresses(matchId: bigint | number): Addresses {
-  const pda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, VANGUARD_PROGRAM_ID)[0];
-  const battle = pda([Buffer.from("battle"), le64(matchId)]);
+const pda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, VANGUARD_PROGRAM_ID)[0];
+const u16le = (n: number) => {
+  const b = Buffer.alloc(2);
+  b.writeUInt16LE(n);
+  return b;
+};
+
+/** The program's VanguardConfig (the TEE validator and oracle queue). */
+export const configPda = () => pda([Buffer.from("config")]);
+/** The table settings (`TableConfig`): the operator, the current generation and the table cap. */
+export const tablesPda = () => pda([Buffer.from("tables")]);
+export const sponsorPda = () => pda([Buffer.from("sponsor")]);
+export const fuelPda = (n: number) => pda([Buffer.from("fuel"), Buffer.from([n])]);
+export const authorityPda = () => pda([Buffer.from("authority")]);
+export const tablePda = (generation: number, index: number) => pda([Buffer.from("table"), u16le(generation), u16le(index)]);
+export const battlePda = (table: PublicKey) => pda([Buffer.from("battle"), table.toBuffer()]);
+/** A Player's hidden seat on the table (an ephemeral account only that Player can read). */
+export const armyPda = (table: PublicKey, seat: 0 | 1) => pda([Buffer.from("army"), table.toBuffer(), Buffer.from([seat])]);
+/** The write-once binding of a tesoro_core Match (`["match", opener, n]`) to a table and epoch. */
+export const assignmentPda = (match: PublicKey) => pda([Buffer.from("assign"), match.toBuffer()]);
+/** The magic fee vault of a TEE validator: the commit fee goes there. */
+export const magicFeeVaultPda = (validator: PublicKey) => PublicKey.findProgramAddressSync([Buffer.from("magic-fee-vault"), validator.toBuffer()], DELEGATION_PROGRAM_ID)[0];
+
+/** Which table: what most instructions need of an Assignment. */
+export interface TableRef {
+  generation: number;
+  index: number;
+}
+
+/** PDAs of one table. */
+export function addresses(ref: TableRef): Addresses {
+  const table = tablePda(ref.generation, ref.index);
   return {
-    battle,
-    secret: pda([Buffer.from("secret"), battle.toBuffer()]),
-    army0: pda([Buffer.from("army"), battle.toBuffer(), Buffer.from([0])]),
-    army1: pda([Buffer.from("army"), battle.toBuffer(), Buffer.from([1])]),
-    authority: pda([Buffer.from("authority")]),
-    config: pda([Buffer.from("config")]),
+    table,
+    battle: battlePda(table),
+    army0: armyPda(table, 0),
+    army1: armyPda(table, 1),
+    authority: authorityPda(),
+    config: configPda(),
+    tables: tablesPda(),
+    sponsor: sponsorPda(),
   };
 }
+
+/** The Assignment of a Match: which table and epoch, written once by the operator. */
+export interface Assignment extends TableRef {
+  address: PublicKey;
+  tesoroMatch: PublicKey;
+  epoch: number;
+  players: [PublicKey, PublicKey];
+  startDeadline: number;
+  payer: PublicKey;
+}
+
+export function decodeAssignment(address: PublicKey, a: any): Assignment {
+  return {
+    address,
+    tesoroMatch: a.tesoroMatch,
+    generation: a.generation,
+    index: a.index,
+    epoch: a.epoch.toNumber(),
+    players: a.players,
+    startDeadline: a.startDeadline.toNumber(),
+    payer: a.payer,
+  };
+}
+
+/** The public table: the protocol around the Match (the board itself is the Battle). */
+export interface TableState extends TableRef {
+  address: PublicKey;
+  /** Rises at every reset; a Match is bound to one epoch. */
+  epoch: number;
+  /** `TABLE_PHASE`. */
+  phase: number;
+  seatsCreated: boolean;
+  seatsOpen: boolean;
+  /** The result is in and has not been committed to Solana yet. */
+  dirty: boolean;
+  tesoroMatch: PublicKey;
+  slot: number;
+  startDeadline: number;
+  checkedIn: [boolean, boolean];
+  overAt: number;
+  /** Number of the latest VRF request, whether one is outstanding, whether the Match's one request was made, and whether its answer waits for `deal`. */
+  reqNonce: number;
+  reqPending: boolean;
+  reqMade: boolean;
+  vrfReady: boolean;
+  ring: Slot[];
+}
+
+export function decodeTable(address: PublicKey, t: any): TableState {
+  return {
+    address,
+    generation: t.generation,
+    index: t.index,
+    epoch: t.epoch.toNumber(),
+    phase: t.phase,
+    seatsCreated: t.seatsCreated,
+    seatsOpen: t.seatsOpen,
+    dirty: t.dirty,
+    tesoroMatch: t.tesoroMatch,
+    slot: t.slot,
+    startDeadline: t.startDeadline.toNumber(),
+    checkedIn: [t.checkedIn[0], t.checkedIn[1]],
+    overAt: t.overAt.toNumber(),
+    reqNonce: t.reqNonce.toNumber(),
+    reqPending: t.reqPending,
+    reqMade: t.reqMade,
+    vrfReady: t.vrfReady,
+    ring: (t.ring.slots as any[]).map((x) => ({ state: x.state, tesoroMatch: x.matchKey, epoch: x.epoch.toNumber(), outcome: x.outcome, at: x.at.toNumber() })),
+  };
+}
+
+/** The ring slot of a Match, if the table still holds one. */
+export const slotOf = (t: Pick<TableState, "ring">, match: PublicKey, epoch: number): Slot | null =>
+  t.ring.find((s) => s.state !== SLOT.free && s.epoch === epoch && s.tesoroMatch.equals(match)) ?? null;
+
+/**
+ * Whether base's copy of the table can settle the Match: its ring holds the Match's result, or the table has moved past the
+ * Match's epoch without ever running it (a refund, once the start deadline has passed). Mirrors `finalize` on chain.
+ */
+export function canFinalizeTable(base: Pick<TableState, "ring" | "epoch">, a: Pick<Assignment, "tesoroMatch" | "epoch" | "startDeadline">, nowS: number): boolean {
+  const slot = slotOf(base, a.tesoroMatch, a.epoch);
+  if (slot) return slot.state === SLOT.done;
+  return base.epoch > a.epoch && nowS > a.startDeadline;
+}
+
+/** Whether the table's turn is the Assignment's: false once the table moved on (it has been wiped for its next Match). */
+export const tableOf = (a: Pick<Assignment, "tesoroMatch" | "epoch">, t: Pick<TableState, "epoch" | "tesoroMatch">): boolean =>
+  t.epoch === a.epoch && t.tesoroMatch.equals(a.tesoroMatch);
+
+export { OUTCOME, SLOT, TABLE_PHASE };
 
 export interface VanguardChainOptions {
   base?: Connection;
@@ -108,7 +230,7 @@ const BLOCKHASH_TTL_MS = 20_000;
 
 export class VanguardChain {
   readonly base: Connection;
-  readonly program: anchor.Program<any>;
+  readonly program: anchor.Program<Vanguard>;
   readonly tesoro: anchor.Program<any>;
   private readonly teeRpc: string;
   private readonly teeWs: string;
@@ -118,7 +240,7 @@ export class VanguardChain {
   /** Step logger; a UI may replace it while it is mounted. */
   onTx?: VanguardChainOptions["onTx"];
 
-  constructor(vanguardIdl: any, tesoroIdl: any, opts: VanguardChainOptions = {}) {
+  constructor(vanguardIdl: Vanguard, tesoroIdl: any, opts: VanguardChainOptions = {}) {
     this.base = opts.base ?? defaultBaseConnection();
     this.teeRpc = opts.teeRpc ?? TEE_RPC;
     this.teeWs = opts.teeWs ?? TEE_WS;
@@ -143,7 +265,7 @@ export class VanguardChain {
   readConfig(): Promise<{ teeValidator: PublicKey; oracleQueue: PublicKey }> {
     if (!this.configRead) {
       const read: Promise<{ teeValidator: PublicKey; oracleQueue: PublicKey }> = (this.program.account as any).vanguardConfig
-        .fetch(addresses(0).config)
+        .fetch(configPda())
         .then((c: any) => ({ teeValidator: c.teeValidator as PublicKey, oracleQueue: c.oracleQueue as PublicKey }));
       read.catch(() => {
         this.configRead = null;
@@ -252,335 +374,68 @@ export class VanguardChain {
     if (seen) seen.at = 0;
   }
 
-  private pause = sleep;
+  // -- reads: the Assignment (base) and the table (rollup, or base once committed) ----------------
 
-  private async waitOwner(address: PublicKey, owner: PublicKey, tries = 60): Promise<boolean> {
-    for (let i = 0; i < tries; i++) {
-      const info = await this.base.getAccountInfo(address).catch(() => null);
-      if (info?.owner.equals(owner)) return true;
-      await sleep(1000);
-    }
-    return false;
+  private readonly assignments = new Map<string, Assignment>();
+
+  /** The Match's Assignment on the base layer (it never changes once written), or `null` while the operator has not made it. */
+  async readAssignment(match: PublicKey): Promise<Assignment | null> {
+    const key = match.toBase58();
+    const known = this.assignments.get(key);
+    if (known) return known;
+    const address = assignmentPda(match);
+    const info = await this.base.getAccountInfo(address);
+    if (!info || !info.owner.equals(VANGUARD_PROGRAM_ID)) return null;
+    const a = decodeAssignment(address, this.program.coder.accounts.decode("assignment", info.data));
+    this.assignments.set(key, a);
+    return a;
   }
 
-  // -- base layer ----------------------------------------------------------------------------
-
-  /** Base layer. Binds a Battle to an Active tesoro_core Match. `seatA` / `seatB` are the opener and the joiner. */
-  async createMatch(creator: PlayerSigner, matchId: bigint | number, seatA: PublicKey, seatB: PublicKey): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .createMatch(new anchor.BN(matchId.toString()))
-      .accountsPartial({
-        creator: creator.publicKey,
-        tesoroMatch: tesoroMatchPda(matchId),
-        config: tesoroConfigPda(),
-        vanguardConfig: ad.config,
-        accountA: tesoroAccountPda(seatA),
-        accountB: tesoroAccountPda(seatB),
-        authority: ad.authority,
-        battle: ad.battle,
-        secret: ad.secret,
-        army0: ad.army0,
-        army1: ad.army1,
-      } as any)
-      .instruction();
-    return this.sendBase("create_match", [ix], [creator]);
-  }
-
-  /** Base layer. Delegates a created Battle (and its private accounts) to the TEE. */
-  async delegateMatch(payer: PlayerSigner, matchId: bigint | number): Promise<Addresses> {
-    const ad = addresses(matchId);
-    const { teeValidator } = await this.readConfig();
-    const ix = await this.program.methods
-      .delegateMatch(new anchor.BN(matchId.toString()))
-      .accountsPartial({
-        payer: payer.publicKey,
-        battle: ad.battle,
-        secret: ad.secret,
-        army0: ad.army0,
-        army1: ad.army1,
-        config: ad.config,
-        validator: teeValidator,
-      } as any)
-      .instruction();
-    await this.sendBase("delegate_match", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.delegate }), ix], [payer]);
-    await this.waitOwner(ad.battle, DELEGATION_PROGRAM_ID);
-    await this.waitOwner(ad.army0, DELEGATION_PROGRAM_ID);
-    await this.pause(4000);
-    return ad;
-  }
-
-  async readTesoroMatch(matchId: bigint | number): Promise<any | null> {
-    const info = await this.base.getAccountInfo(tesoroMatchPda(matchId));
+  async readTesoroMatch(match: PublicKey): Promise<any | null> {
+    const info = await this.base.getAccountInfo(match);
     return info ? this.tesoro.coder.accounts.decode("matchState", info.data) : null;
   }
 
   /** A tesoro_core Match that can still be settled (Active); false once settled, refunded or gone. */
   private isLive(tesoroMatch: any | null): boolean {
-    return !!tesoroMatch && "active" in tesoroMatch.inner.status;
+    return !!tesoroMatch && "active" in tesoroMatch.inner.stage;
   }
 
-  /**
-   * Base layer, permissionless. After the rollup committed the Battle back, settles or refunds the tesoro_core
-   * Match by CPI as the Game authority PDA, creating the Holdings the payout needs first. Returns "" without
-   * sending when the Match is already settled or refunded (the other Player or the keeper got there first).
-   */
-  async finalize(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
-    if (!(await this.waitOwner(ad.battle, VANGUARD_PROGRAM_ID, 90))) {
-      throw new Error("the Battle has not been committed back to the base layer yet");
-    }
-    const battle = await this.readBattleOnBase(matchId);
-    const tesoroMatch = await this.readTesoroMatch(matchId);
-    if (!battle || !this.isLive(tesoroMatch)) return "";
-    // a win names the winning seat (0 opener, 1 joiner); a draw, or a Match that never started, refunds
-    const winner = battle.status === STATUS.over && (battle.winner === 0 || battle.winner === 1) ? battle.winner : null;
-    const payouts = computePayouts(tesoroMatch.inner, winner, await fetchLeaderboardTerms(this.base));
-    const holdings = payouts.map((p) => tesoroHoldingPda(p.recipient, p.source));
-    const existing = await this.base.getMultipleAccountsInfo(holdings);
-    const missing: TransactionInstruction[] = [];
-    for (let i = 0; i < payouts.length; i++) {
-      if (existing[i]) continue;
-      missing.push(
-        await this.tesoro.methods
-          .openHolding()
-          .accountsPartial({ payer: payer.publicKey, account: payouts[i].recipient, source: payouts[i].source, holding: holdings[i] } as any)
-          .instruction(),
-      );
-    }
-    for (let i = 0; i < missing.length; i += 5) await this.sendBase("open_holding", missing.slice(i, i + 5), [payer]);
-    const remaining: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
-    payouts.forEach((p, i) => remaining.push({ pubkey: p.recipient, isSigner: false, isWritable: true }, { pubkey: holdings[i], isSigner: false, isWritable: true }));
-    // Opening Holdings takes a few seconds: look again before paying for a transaction that would fail.
-    if (!this.isLive(await this.readTesoroMatch(matchId))) return "";
-    const ix = await this.program.methods
-      .finalize()
-      .accountsPartial({
-        caller: payer.publicKey,
-        battle: ad.battle,
-        tesoroMatch: tesoroMatchPda(matchId),
-        config: tesoroConfigPda(),
-        authority: ad.authority,
-        tesoroProgram: TESORO_CORE_PROGRAM_ID,
-      } as any)
-      .remainingAccounts(remaining)
-      .instruction();
-    return this.sendBase("finalize", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.finalize }), ix], [payer]);
+  /** The table in the rollup, through a Player's (or the keeper's) token; the table itself is public. */
+  async readTable(viewer: PlayerSigner, ref: TableRef): Promise<TableState | null> {
+    const address = tablePda(ref.generation, ref.index);
+    const conn = await this.teeConnection(viewer);
+    const info = await conn.getAccountInfo(address).catch(() => null);
+    if (!info || (!info.owner.equals(DELEGATION_PROGRAM_ID) && !info.owner.equals(VANGUARD_PROGRAM_ID))) return null;
+    return decodeTable(address, this.program.coder.accounts.decode("table", info.data));
   }
 
-  // -- rollup --------------------------------------------------------------------------------
-
-  /** Rollup. Creates the permissions. Anyone. */
-  async initPermissions(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .initPermissions()
-      .accountsPartial({
-        payer: payer.publicKey,
-        battle: ad.battle,
-        secret: ad.secret,
-        army0: ad.army0,
-        army1: ad.army1,
-        battlePermission: permissionPdaFromAccount(ad.battle),
-        secretPermission: permissionPdaFromAccount(ad.secret),
-        army0Permission: permissionPdaFromAccount(ad.army0),
-        army1Permission: permissionPdaFromAccount(ad.army1),
-        permissionProgram: PERMISSION_PROGRAM_ID,
-        ephemeralVault: EPHEMERAL_VAULT,
-        magicProgram: MAGIC_PROGRAM_ID,
-      } as any)
-      .instruction();
-    return this.sendTee("init_permissions", [ix], payer);
+  /** The table as the base layer last saw it (what the last commit left): the result ring `finalize` reads. */
+  async readTableOnBase(ref: TableRef): Promise<TableState | null> {
+    const address = tablePda(ref.generation, ref.index);
+    const info = await this.base.getAccountInfo(address);
+    if (!info || (!info.owner.equals(DELEGATION_PROGRAM_ID) && !info.owner.equals(VANGUARD_PROGRAM_ID))) return null;
+    return decodeTable(address, this.program.coder.accounts.decode("table", info.data));
   }
-
-  /**
-   * Rollup. A Player's fresh secret, generated here and sent only inside the TEE. `withVrf` also requests the
-   * randomness in the same transaction: pass it from the Player who contributes second. `oracleQueue` is the
-   * Battle's own (default: the program config's).
-   */
-  async contributeEntropy(player: PlayerSigner, matchId: bigint | number, withVrf = false, oracleQueue?: PublicKey): Promise<string> {
-    const ad = addresses(matchId);
-    const secret = Array.from(nacl.randomBytes(32));
-    const ixs: TransactionInstruction[] = [
-      await this.program.methods.contributeEntropy(secret).accountsPartial({ player: player.publicKey, battle: ad.battle, secret: ad.secret } as any).instruction(),
-    ];
-    if (withVrf) ixs.push(await this.requestVrfIx(player.publicKey, matchId, oracleQueue));
-    return this.sendTee(withVrf ? "contribute_entropy+request_vrf" : "contribute_entropy", ixs, player);
-  }
-
-  /** The `request_vrf` instruction, for a caller that sends or simulates it itself. */
-  async requestVrfIx(payer: PublicKey, matchId: bigint | number, oracleQueue?: PublicKey): Promise<TransactionInstruction> {
-    const ad = addresses(matchId);
-    const queue = oracleQueue ?? (await this.readConfig()).oracleQueue;
-    return this.program.methods
-      .requestVrf(7)
-      .accountsPartial({ payer, battle: ad.battle, secret: ad.secret, oracleQueue: queue } as any)
-      .instruction();
-  }
-
-  /** Rollup. Re-requests the randomness if it has not arrived. */
-  async requestVrf(payer: PlayerSigner, matchId: bigint | number, oracleQueue?: PublicKey): Promise<string> {
-    return this.sendTee("request_vrf", [await this.requestVrfIx(payer.publicKey, matchId, oracleQueue)], payer);
-  }
-
-  /** The `deal` instruction, for a caller that sends or simulates it itself. */
-  dealIx(payer: PublicKey, matchId: bigint | number): Promise<TransactionInstruction> {
-    const ad = addresses(matchId);
-    return this.program.methods
-      .deal()
-      .accountsPartial({ payer, battle: ad.battle, secret: ad.secret, army0: ad.army0, army1: ad.army1 } as any)
-      .instruction();
-  }
-
-  /** Rollup, permissionless. Sets the board up once both secrets and the randomness are in. */
-  async deal(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    return this.sendTee("deal", [await this.dealIx(payer.publicKey, matchId)], payer);
-  }
-
-  /**
-   * Rollup. Declare a move (or an attack) of `piece` to square `to` (`row * 10 + col`) on your turn. The program
-   * checks only public state now; the rank rules and the fight are applied by `resolve` in a later slot, and a move
-   * the rank rules refuse costs the turn. A declare cannot be taken back. Send `resolve` as soon as it lands.
-   * `seal` is the Battle's `action_seq` you saw and the sealed Become a Spy byte (always sent, 0 sealed like any other).
-   */
-  async movePiece(player: PlayerSigner, matchId: bigint | number, piece: number, to: number, seal: DeclareSeal): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .movePiece(piece, to, seal.expectedSeq, seal.sealedSwitch)
-      .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
-      .instruction();
-    return this.sendTee("move_piece", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
-  }
-
-  /** Rollup. Declare an Engineer's Blast by `piece`. Whether it is an Engineer is decided by `resolve`; anything else costs the turn. */
-  async blast(player: PlayerSigner, matchId: bigint | number, piece: number, seal: DeclareSeal): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .blast(piece, seal.expectedSeq, seal.sealedSwitch)
-      .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
-      .instruction();
-    return this.sendTee("blast", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
-  }
-
-  /** Rollup. Declare a Colonel's Rescue of the Truck by `piece`. Whether it is a Colonel with a Truck on the board is decided by `resolve`. */
-  async rescue(player: PlayerSigner, matchId: bigint | number, piece: number, seal: DeclareSeal): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .rescue(piece, seal.expectedSeq, seal.sealedSwitch)
-      .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
-      .instruction();
-    return this.sendTee("rescue", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
-  }
-
-  /**
-   * Rollup. Declare a pass, which counts as a missed turn. `sealedSlot` seals the Dig in (0 sealed is a plain pass): a
-   * face-down Dig in is this very instruction, so nothing public tells the two apart.
-   */
-  async pass(player: PlayerSigner, matchId: bigint | number, seal: DeclareSeal & { sealedSlot: number }): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .pass(seal.expectedSeq, seal.sealedSlot, seal.sealedSwitch)
-      .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
-      .instruction();
-    return this.sendTee("pass", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
-  }
-
-  /** Rollup. Spend a banked Two-Step Turn before the first step of your turn. */
-  async startTwoStep(player: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods.startTwoStep().accountsPartial({ player: player.publicKey, battle: ad.battle } as any).instruction();
-    return this.sendTee("start_two_step", [ix], player);
-  }
-
-  /**
-   * Rollup, permissionless. Once the turn's deadline has passed it declares a timeout (the turn is lost); past the
-   * time cap it declares the tiebreak ending; past the start window it cancels. Declared timeouts are applied by
-   * `resolve`.
-   */
-  async claimTimeout(caller: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .claimTimeout()
-      .accountsPartial({ caller: caller.publicKey, battle: ad.battle, secret: ad.secret } as any)
-      .instruction();
-    return this.sendTee("claim_timeout", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], caller);
-  }
-
-  /**
-   * Rollup, permissionless, no arguments. Applies the pending action (a declared move or timeout) in a slot after
-   * its declare. Both Players' clients and the keeper send it as soon as the Battle shows a pending action; the
-   * program refuses it in the declare's own slot (`TooSoon`), so a caller retries after a moment.
-   */
-  async resolve(caller: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .resolve()
-      .accountsPartial({ caller: caller.publicKey, battle: ad.battle, army0: ad.army0, army1: ad.army1, secret: ad.secret } as any)
-      .instruction();
-    return this.sendTee("resolve", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.resolve }), ix], caller);
-  }
-
-  /**
-   * Rollup. When the Battle is over or cancelled: wipes the private accounts, closes their permissions and
-   * commits everything back. Returns the rollup signature and the base-layer commitment signature.
-   */
-  async closeMatch(payer: PlayerSigner, matchId: bigint | number): Promise<{ tee: string; commit: string }> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .closeMatch()
-      .accountsPartial({
-        payer: payer.publicKey,
-        battle: ad.battle,
-        secret: ad.secret,
-        army0: ad.army0,
-        army1: ad.army1,
-        battlePermission: permissionPdaFromAccount(ad.battle),
-        secretPermission: permissionPdaFromAccount(ad.secret),
-        army0Permission: permissionPdaFromAccount(ad.army0),
-        army1Permission: permissionPdaFromAccount(ad.army1),
-        permissionProgram: PERMISSION_PROGRAM_ID,
-        ephemeralVault: EPHEMERAL_VAULT,
-        magicProgram: MAGIC_PROGRAM_ID,
-        magicContext: MAGIC_CONTEXT,
-      } as any)
-      .instruction();
-    const tee = await this.sendTee("close_match", [ix], payer);
-    const conn = await this.teeConnection(payer);
-    const commit = await GetCommitmentSignature(tee, conn);
-    this.onTx?.("close_match commit", "base", commit);
-    return { tee, commit };
-  }
-
-  /** Rollup. Commits back a Battle that was cancelled before its permissions existed. */
-  async closeUnstarted(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .closeUnstarted()
-      .accountsPartial({ payer: payer.publicKey, battle: ad.battle, secret: ad.secret, army0: ad.army0, army1: ad.army1, magicProgram: MAGIC_PROGRAM_ID, magicContext: MAGIC_CONTEXT } as any)
-      .instruction();
-    return this.sendTee("close_unstarted", [ix], payer);
-  }
-
-  // -- reads ---------------------------------------------------------------------------------
 
   /** The public Battle from the rollup. `null` if it does not exist there (yet, or any more). */
-  async readBattle(viewer: PlayerSigner, matchId: bigint | number): Promise<Battle | null> {
+  async readBattle(viewer: PlayerSigner, ref: TableRef): Promise<Battle | null> {
     const conn = await this.teeConnection(viewer);
-    const info = await conn.getAccountInfo(addresses(matchId).battle).catch(() => null);
+    const info = await conn.getAccountInfo(addresses(ref).battle).catch(() => null);
     if (!info || (!info.owner.equals(DELEGATION_PROGRAM_ID) && !info.owner.equals(VANGUARD_PROGRAM_ID))) return null;
     return decodeBattle(info.data);
   }
 
-  /** The Battle on the base layer (the final result once committed back). */
-  async readBattleOnBase(matchId: bigint | number): Promise<Battle | null> {
-    const info = await this.base.getAccountInfo(addresses(matchId).battle);
-    if (!info || !info.owner.equals(VANGUARD_PROGRAM_ID)) return null;
+  /** The Battle on the base layer: the last Match committed on this table (the final board until a later Match's commit replaces it). */
+  async readBattleOnBase(ref: TableRef): Promise<Battle | null> {
+    const info = await this.base.getAccountInfo(addresses(ref).battle);
+    if (!info || (!info.owner.equals(VANGUARD_PROGRAM_ID) && !info.owner.equals(DELEGATION_PROGRAM_ID))) return null;
     return decodeBattle(info.data);
   }
 
-  /** Your own Army, read with your TEE token. `null` before it exists; the opponent's reads as null too. */
-  async readOwnArmy(player: PlayerSigner, matchId: bigint | number, seat: 0 | 1): Promise<ArmyAccount | null> {
-    const ad = addresses(matchId);
+  /** Your own Army through your TEE token. `null` before the deal, and for anything you may not read (the opponent's reads as null too). */
+  async readOwnArmy(player: PlayerSigner, ref: TableRef, seat: 0 | 1): Promise<ArmyAccount | null> {
+    const ad = addresses(ref);
     const conn = await this.teeConnection(player);
     const info = await conn.getAccountInfo(seat === 0 ? ad.army0 : ad.army1).catch(() => null);
     if (!info || info.data.length === 0) return null;
@@ -592,16 +447,30 @@ export class VanguardChain {
     }
   }
 
+  /** Whether your own seat has your secret for the Match in it (a refused retry must never send a second secret). */
+  async hasContributed(player: PlayerSigner, ref: TableRef, seat: 0 | 1): Promise<boolean> {
+    const ad = addresses(ref);
+    const conn = await this.teeConnection(player);
+    const info = await conn.getAccountInfo(seat === 0 ? ad.army0 : ad.army1).catch(() => null);
+    if (!info || info.data.length === 0) return false;
+    try {
+      const a = decodeArmy(info.data);
+      return a.contributed || a.dealt;
+    } catch {
+      return false;
+    }
+  }
+
   /** Calls `onBattle` on every change of the Battle on the rollup. Returns the unsubscribe. */
-  async watchBattle(viewer: PlayerSigner, matchId: bigint | number, onBattle: (b: Battle) => void): Promise<() => void> {
+  async watchBattle(viewer: PlayerSigner, ref: TableRef, onBattle: (b: Battle) => void): Promise<() => void> {
     const conn = await this.teeConnection(viewer);
     const id = conn.onAccountChange(
-      addresses(matchId).battle,
+      addresses(ref).battle,
       (info) => {
         try {
           onBattle(decodeBattle(info.data));
         } catch {
-          // an account that is mid-undelegation can be empty; the poll covers it
+          // an account that is mid-update can be empty; the poll covers it
         }
       },
       "confirmed",
@@ -612,5 +481,338 @@ export class VanguardChain {
   /** Seat of `wallet` in this Battle, or -1. */
   static seatOf(battle: Battle, wallet: PublicKey): number {
     return battle.players.findIndex((p) => p.equals(wallet));
+  }
+
+  // -- base layer ----------------------------------------------------------------------------
+
+  /**
+   * Base layer, operator only (the table scheduler, ticket 19t). Binds an Active tesoro_core Match to `generation`/`index` at
+   * the table's current `epoch`, once. The Players are copied from the Match.
+   */
+  async assignMatch(operator: PlayerSigner, match: PublicKey, seatA: PublicKey, seatB: PublicKey, generation: number, index: number, epoch: number): Promise<string> {
+    const ix = await this.program.methods
+      .assignMatch(generation, index, new anchor.BN(epoch))
+      .accountsPartial({
+        operator: operator.publicKey,
+        tableConfig: tablesPda(),
+        tesoroMatch: match,
+        accountA: tesoroAccountPda(seatA),
+        accountB: tesoroAccountPda(seatB),
+        authority: authorityPda(),
+        assignment: assignmentPda(match),
+        tesoroProgram: TESORO_CORE_PROGRAM_ID,
+      } as any)
+      .instruction();
+    return this.sendBase("assign_match", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.assign }), ix], [operator]);
+  }
+
+  /**
+   * Base layer, permissionless. Settles (or, for a draw, a cancelled setup, a no-start or a table that moved past the Match,
+   * refunds) the tesoro_core Match from the result in the committed table's ring, by CPI as the Game authority PDA. Returns ""
+   * when it is already settled. Fails with `NoResult` / `MatchNotOver` until the commit has landed.
+   */
+  async finalize(payer: PlayerSigner, a: Assignment): Promise<string> {
+    if (!this.isLive(await this.readTesoroMatch(a.tesoroMatch))) return "";
+    const ix = await this.program.methods
+      .finalize()
+      .accountsPartial({
+        caller: payer.publicKey,
+        assignment: a.address,
+        table: tablePda(a.generation, a.index),
+        tesoroMatch: a.tesoroMatch,
+        config: tesoroConfigPda(),
+        ...gameAccounts(VANGUARD_PROGRAM_ID),
+        authority: authorityPda(),
+        receipt: settledPda(a.tesoroMatch),
+        eventAuthority: eventAuthorityPda(),
+        tesoroProgram: TESORO_CORE_PROGRAM_ID,
+      } as any)
+      .instruction();
+    return this.sendBase("finalize", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.finalize }), ix], [payer]);
+  }
+
+  /**
+   * Base layer, permissionless. Refunds a joined Match that no table was ever assigned to, once it has waited
+   * `TABLE_WAIT_SECS` (5 minutes) for one. Refused while an Assignment exists for the Match.
+   */
+  async refundUntabled(payer: PlayerSigner, tesoroMatch: PublicKey): Promise<string> {
+    const ix = await this.program.methods
+      .refundUntabled()
+      .accountsPartial({
+        caller: payer.publicKey,
+        assignment: assignmentPda(tesoroMatch),
+        tesoroMatch,
+        ...gameAccounts(VANGUARD_PROGRAM_ID),
+        authority: authorityPda(),
+        receipt: settledPda(tesoroMatch),
+        eventAuthority: eventAuthorityPda(),
+        tesoroProgram: TESORO_CORE_PROGRAM_ID,
+      } as any)
+      .instruction();
+    return this.sendBase("refund_untabled", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], [payer]);
+  }
+
+  /**
+   * Rollup, permissionless. Gives up an Assignment whose Match never began (its table is Idle at the Assignment's epoch and the
+   * start window passed): writes a Draw into the ring so `finalize` refunds the Match once the table is committed.
+   */
+  async skipEpoch(caller: PlayerSigner, a: Assignment): Promise<string> {
+    const ix = await this.program.methods
+      .skipEpoch()
+      .accountsPartial({ caller: caller.publicKey, assignment: a.address, table: tablePda(a.generation, a.index) } as any)
+      .instruction();
+    return this.sendTee("skip_epoch", [ix], caller);
+  }
+
+  /** Base layer, permissionless. Closes the Assignment once tesoro_core has frozen the Match (needs its settlement receipt); the rent goes back to the operator. */
+  async closeAssignment(payer: PlayerSigner, a: Assignment): Promise<string> {
+    const ix = await this.program.methods
+      .closeAssignment()
+      .accountsPartial({ caller: payer.publicKey, assignment: a.address, payer: a.payer, receipt: settledPda(a.tesoroMatch), matchState: a.tesoroMatch } as any)
+      .instruction();
+    return this.sendBase("close_assignment", [ix], [payer]);
+  }
+
+  // -- rollup: seats and starting -------------------------------------------------------------
+
+  private seatAccounts(caller: PublicKey, ref: TableRef) {
+    const ad = addresses(ref);
+    return {
+      caller,
+      table: ad.table,
+      army0: ad.army0,
+      army1: ad.army1,
+      army0Permission: permissionPdaFromAccount(ad.army0),
+      army1Permission: permissionPdaFromAccount(ad.army1),
+      permissionProgram: PERMISSION_PROGRAM_ID,
+      ephemeralVault: EPHEMERAL_VAULT,
+      magicProgram: MAGIC_PROGRAM_ID,
+    } as any;
+  }
+
+  /** Rollup, permissionless, once per table (the operator's setup). Creates the two Army seats, private to nobody until a Match is begun. */
+  async initSeats(payer: PlayerSigner, ref: TableRef): Promise<string> {
+    const ix = await this.program.methods.initSeats().accountsPartial(this.seatAccounts(payer.publicKey, ref)).instruction();
+    return this.sendTee("init_seats", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.seats }), ix], payer);
+  }
+
+  /** Rollup, permissionless. Starts the Assignment's Match on its table (reserves a ring slot, binds the Battle); the seats are then handed over and the Players check in. */
+  async beginMatch(payer: PlayerSigner, a: Assignment): Promise<string> {
+    const ad = addresses(a);
+    const ix = await this.program.methods
+      .beginMatch()
+      .accountsPartial({ caller: payer.publicKey, assignment: a.address, table: ad.table, battle: ad.battle, tesoroMatch: a.tesoroMatch, vanguardConfig: configPda() } as any)
+      .instruction();
+    return this.sendTee("begin_match", [ix], payer);
+  }
+
+  /** Rollup, permissionless. Hands each seat to its Player (the seat becomes readable by that Player only). */
+  async seatPlayers(payer: PlayerSigner, ref: TableRef): Promise<string> {
+    const ad = addresses(ref);
+    const ix = await this.program.methods
+      .seatPlayers()
+      .accountsPartial({ ...this.seatAccounts(payer.publicKey, ref), battle: ad.battle })
+      .instruction();
+    return this.sendTee("seat_players", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.seats }), ix], payer);
+  }
+
+  /** Rollup. You are here. When both Players have, setup opens: each has a minute to fold a secret in. */
+  async checkIn(player: PlayerSigner, ref: TableRef): Promise<string> {
+    const ad = addresses(ref);
+    const ix = await this.program.methods.checkIn().accountsPartial({ player: player.publicKey, table: ad.table, battle: ad.battle } as any).instruction();
+    return this.sendTee("check_in", [ix], player);
+  }
+
+  // -- rollup: setup ---------------------------------------------------------------------------
+
+  /**
+   * Rollup. A Player's fresh secret, generated here and sent once, only inside the TEE, into your own seat. Never call it again
+   * for the same Match after it was sent (a retry would send a second secret): `hasContributed` says. `withVrf` also requests the
+   * randomness in the same transaction: pass it from the Player who contributes second.
+   */
+  async contributeEntropy(player: PlayerSigner, ref: TableRef, seat: 0 | 1, withVrf = false, oracleQueue?: PublicKey): Promise<string> {
+    const ad = addresses(ref);
+    const secret = Array.from(nacl.randomBytes(32));
+    const ixs: TransactionInstruction[] = [
+      await this.program.methods
+        .contributeEntropy(secret)
+        .accountsPartial({ player: player.publicKey, table: ad.table, battle: ad.battle, army: seat === 0 ? ad.army0 : ad.army1 } as any)
+        .instruction(),
+    ];
+    if (withVrf) ixs.push(await this.requestVrfIx(player.publicKey, ref, oracleQueue));
+    return this.sendTee(withVrf ? "contribute_entropy+request_vrf" : "contribute_entropy", ixs, player);
+  }
+
+  /** The `request_vrf` instruction, for a caller that sends or simulates it itself. The program accepts one request per Match; a second is refused. */
+  async requestVrfIx(payer: PublicKey, ref: TableRef, oracleQueue?: PublicKey): Promise<TransactionInstruction> {
+    const ad = addresses(ref);
+    const queue = oracleQueue ?? (await this.readConfig()).oracleQueue;
+    return this.program.methods
+      .requestVrf()
+      .accountsPartial({ payer, table: ad.table, battle: ad.battle, army0: ad.army0, army1: ad.army1, oracleQueue: queue } as any)
+      .instruction();
+  }
+
+  /** Rollup, permissionless. Asks the oracle for this Match's randomness. Once per Match. */
+  async requestVrf(payer: PlayerSigner, ref: TableRef, oracleQueue?: PublicKey): Promise<string> {
+    return this.sendTee("request_vrf", [await this.requestVrfIx(payer.publicKey, ref, oracleQueue)], payer);
+  }
+
+  /** The `deal` instruction, for a caller that sends or simulates it itself. */
+  dealIx(payer: PublicKey, ref: TableRef): Promise<TransactionInstruction> {
+    const ad = addresses(ref);
+    return this.program.methods
+      .deal()
+      .accountsPartial({ payer, table: ad.table, battle: ad.battle, army0: ad.army0, army1: ad.army1 } as any)
+      .instruction();
+  }
+
+  /** Rollup, permissionless. Sets the board up once both secrets and the randomness are in. */
+  async deal(payer: PlayerSigner, ref: TableRef): Promise<string> {
+    return this.sendTee("deal", [await this.dealIx(payer.publicKey, ref)], payer);
+  }
+
+  // -- rollup: playing -----------------------------------------------------------------------
+
+  private declareAccounts(player: PublicKey, ref: TableRef) {
+    const ad = addresses(ref);
+    return { player, table: ad.table, battle: ad.battle } as any;
+  }
+
+  /**
+   * Rollup. Declare a move (or an attack) of `piece` to square `to` (`row * 10 + col`) on your turn. The program
+   * checks only public state now; the rank rules and the fight are applied by `resolve` in a later slot, and a move
+   * the rank rules refuse costs the turn. A declare cannot be taken back. Send `resolve` as soon as it lands.
+   * `seal` is the Battle's `action_seq` you saw and the sealed Become a Spy byte (always sent, 0 sealed like any other).
+   */
+  async movePiece(player: PlayerSigner, ref: TableRef, piece: number, to: number, seal: DeclareSeal): Promise<string> {
+    const ix = await this.program.methods.movePiece(piece, to, seal.expectedSeq, seal.sealedSwitch).accountsPartial(this.declareAccounts(player.publicKey, ref)).instruction();
+    return this.sendTee("move_piece", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
+  }
+
+  /** Rollup. Declare an Engineer's Blast by `piece`. Whether it is an Engineer is decided by `resolve`; anything else costs the turn. */
+  async blast(player: PlayerSigner, ref: TableRef, piece: number, seal: DeclareSeal): Promise<string> {
+    const ix = await this.program.methods.blast(piece, seal.expectedSeq, seal.sealedSwitch).accountsPartial(this.declareAccounts(player.publicKey, ref)).instruction();
+    return this.sendTee("blast", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
+  }
+
+  /** Rollup. Declare a Colonel's Rescue of the Truck by `piece`. Whether it is a Colonel with a Truck on the board is decided by `resolve`. */
+  async rescue(player: PlayerSigner, ref: TableRef, piece: number, seal: DeclareSeal): Promise<string> {
+    const ix = await this.program.methods.rescue(piece, seal.expectedSeq, seal.sealedSwitch).accountsPartial(this.declareAccounts(player.publicKey, ref)).instruction();
+    return this.sendTee("rescue", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
+  }
+
+  /**
+   * Rollup. Declare a pass, which counts as a missed turn. `sealedSlot` seals the Dig in (0 sealed is a plain pass): a
+   * face-down Dig in is this very instruction, so nothing public tells the two apart.
+   */
+  async pass(player: PlayerSigner, ref: TableRef, seal: DeclareSeal & { sealedSlot: number }): Promise<string> {
+    const ix = await this.program.methods.pass(seal.expectedSeq, seal.sealedSlot, seal.sealedSwitch).accountsPartial(this.declareAccounts(player.publicKey, ref)).instruction();
+    return this.sendTee("pass", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
+  }
+
+  /** Rollup. Spend a banked Two-Step Turn before the first step of your turn. */
+  async startTwoStep(player: PlayerSigner, ref: TableRef): Promise<string> {
+    const ix = await this.program.methods.startTwoStep().accountsPartial(this.declareAccounts(player.publicKey, ref)).instruction();
+    return this.sendTee("start_two_step", [ix], player);
+  }
+
+  /** The `claim_timeout` instruction, for a caller that simulates it first. */
+  claimTimeoutIx(caller: PublicKey, ref: TableRef): Promise<TransactionInstruction> {
+    const ad = addresses(ref);
+    return this.program.methods
+      .claimTimeout()
+      .accountsPartial({ caller, table: ad.table, battle: ad.battle, army0: ad.army0, army1: ad.army1 } as any)
+      .instruction();
+  }
+
+  /**
+   * Rollup, permissionless. Once the turn's deadline has passed it declares a timeout (the turn is lost); past the
+   * time cap it declares the tiebreak ending; past the start window or the setup windows it cancels (the ring gets a refund).
+   * Declared timeouts are applied by `resolve`.
+   */
+  async claimTimeout(caller: PlayerSigner, ref: TableRef): Promise<string> {
+    const ix = await this.claimTimeoutIx(caller.publicKey, ref);
+    return this.sendTee("claim_timeout", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], caller);
+  }
+
+  /**
+   * Rollup, permissionless, no arguments. Applies the pending action (a declared move or timeout) in a slot after
+   * its declare. Both Players' clients and the keeper send it as soon as the Battle shows a pending action; the
+   * program refuses it in the declare's own slot (`TooSoon`), so a caller retries after a moment.
+   */
+  async resolve(caller: PlayerSigner, ref: TableRef): Promise<string> {
+    const ad = addresses(ref);
+    const ix = await this.program.methods
+      .resolve()
+      .accountsPartial({ caller: caller.publicKey, table: ad.table, battle: ad.battle, army0: ad.army0, army1: ad.army1 } as any)
+      .instruction();
+    return this.sendTee("resolve", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.resolve }), ix], caller);
+  }
+
+  // -- rollup: after the Match ---------------------------------------------------------------
+
+  /**
+   * Rollup, permissionless, once per result (the table is `dirty` until then). Commits the public table and its Battle to
+   * Solana, paid by the Sponsor.
+   */
+  async commitTable(payer: PlayerSigner, ref: TableRef): Promise<string> {
+    const ad = addresses(ref);
+    const { teeValidator } = await this.readConfig();
+    const ix = await this.program.methods
+      .commitTable()
+      .accountsPartial({
+        caller: payer.publicKey,
+        table: ad.table,
+        battle: ad.battle,
+        sponsor: sponsorPda(),
+        vanguardConfig: configPda(),
+        magicFeeVault: magicFeeVaultPda(teeValidator),
+        magicContext: MAGIC_CONTEXT,
+        magicProgram: MAGIC_PROGRAM_ID,
+      } as any)
+      .instruction();
+    return this.sendTee("commit_table", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.commit }), ix], payer);
+  }
+
+  /** Rollup, permissionless, table scheduler (19t). Once the Match is over: zeroes both seats and swaps their permission members to nobody. */
+  async wipeSeats(payer: PlayerSigner, ref: TableRef): Promise<string> {
+    const ix = await this.program.methods.wipeSeats().accountsPartial(this.seatAccounts(payer.publicKey, ref)).instruction();
+    return this.sendTee("wipe_seats", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.seats }), ix], payer);
+  }
+
+  /** Rollup, permissionless, table scheduler (19t). Wipes a finished, committed table with wiped seats and moves it to the next epoch. */
+  async resetTable(payer: PlayerSigner, ref: TableRef): Promise<string> {
+    const ad = addresses(ref);
+    const ix = await this.program.methods.resetTable().accountsPartial({ caller: payer.publicKey, table: ad.table, battle: ad.battle } as any).instruction();
+    return this.sendTee("reset_table", [ix], payer);
+  }
+
+  /** Rollup, permissionless, table scheduler (19t). Frees a Done ring slot once tesoro_core's settlement receipt for its Match is 60 s old. */
+  async releaseSlot(payer: PlayerSigner, table: PublicKey, index: number, match: PublicKey): Promise<string> {
+    const ix = await this.program.methods
+      .releaseSlot(index)
+      .accountsPartial({ caller: payer.publicKey, table, receipt: settledPda(match), matchState: match } as any)
+      .instruction();
+    return this.sendTee("release_slot", [ix], payer);
+  }
+
+  /** Rollup, permissionless, table scheduler (19t). Gives up the table's unfinished Match once tesoro_core has refunded it. */
+  async voidTable(payer: PlayerSigner, ref: TableRef, match: PublicKey): Promise<string> {
+    const ad = addresses(ref);
+    const ix = await this.program.methods
+      .voidTable()
+      .accountsPartial({ caller: payer.publicKey, table: ad.table, battle: ad.battle, receipt: settledPda(match) } as any)
+      .instruction();
+    return this.sendTee("void_table", [ix], payer);
+  }
+
+  /** Rollup, operator (19t). Moves lamports from a Fuel reserve into the Sponsor. */
+  async refillSponsor(operator: PlayerSigner, fuel: number, amount: bigint): Promise<string> {
+    const ix = await this.program.methods
+      .refillSponsor(new anchor.BN(amount.toString()))
+      .accountsPartial({ operator: operator.publicKey, tableConfig: tablesPda(), fuel: fuelPda(fuel), sponsor: sponsorPda() } as any)
+      .instruction();
+    return this.sendTee("refill_sponsor", [ix], operator);
   }
 }

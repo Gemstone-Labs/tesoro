@@ -13,7 +13,7 @@ describe("legal pages", () => {
     const html = renderToStaticMarkup(<Terms />);
     expect(html).toContain(ENTITY.name);
     for (const id of ["eligibility", "gemas", "matches", "fair-play", "protections", "risks", "law"]) expect(html).toContain(`id="${id}"`);
-    expect(html).toContain("75%");
+    expect(html).toContain("60%");
   });
 
   it("renders the Privacy Policy with its providers", () => {

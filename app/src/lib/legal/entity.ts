@@ -14,7 +14,7 @@ export const ENTITY = {
   address: "251 Little Falls Drive, Wilmington, New Castle County, Delaware 19808",
   contactEmail: "contact@playtesoro.com",
   privacyEmail: "contact@playtesoro.com",
-  effectiveDate: "October 19, 2026",
+  effectiveDate: "October 21, 2026",
   /** The Privacy Policy changes on its own when only what we store changes (Friends: October 22, 2026). */
   privacyEffectiveDate: "October 22, 2026",
   minAge: 18,

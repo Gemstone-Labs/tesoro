@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { parseAccountKey, accountKeyOf } from "@/lib/chain/account-key";
 import type { GameId } from "@/lib/mock/types";
+import { parseMatchKey } from "@/server/history/match-key";
 import { DemoHttpError, NonceStore, envFromProcess, verifySignedRequest, type AuthEnv } from "../request-auth";
 import { LINK_REDEEMS_PER_DAY, SESSION_DAYS, isLinkCode, newLinkCode } from "./rules";
 import type { FriendsList, FriendsSession, FriendsStore } from "./store";
@@ -152,7 +153,7 @@ export async function handleFriends(deps: FriendsDeps, body: unknown, ctx: Frien
       return { result: r };
     }
     case "challenge": {
-      const matchId = typeof b.matchId === "string" && /^\d{1,20}$/.test(b.matchId) && BigInt(b.matchId) < 2n ** 64n ? b.matchId : null;
+      const matchId = typeof b.matchId === "string" && parseMatchKey(b.matchId) ? b.matchId : null;
       if (!matchId) throw new DemoHttpError(400, "bad-request", "Malformed request.");
       const to = account(b.to);
       const open = await deps.openChallenge(matchId);

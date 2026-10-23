@@ -1,55 +1,52 @@
+import { Keypair } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
-import { duelMatchId, assetOfMatchId } from "../../games/trading-duel/chain";
-import { assetIndexFromParam, assetIndexOf, matchOpenedAt } from "./match-id";
-import { newMatchId, isChallengeId } from "./match-flow";
+import { matchPda } from "./basket";
+import { ASSET_PARAMS, assetIndexFromParam, matchAddressOf, matchKeyOf, parseMatchKey } from "./match-id";
+import { sessionOf } from "./game-accounts";
 import { gameFromParam, gameQuery } from "../game-params";
 
-const MS = 1_790_000_000_000;
+describe("Match keys", () => {
+  const opener = Keypair.generate().publicKey;
 
-describe("Match ids", () => {
-  it("Block Burst and Hold'em ids are ms * 2 + challenge; their opening time reads back", () => {
-    const id = BigInt(MS) * 2n + 1n;
-    expect(matchOpenedAt(id, "holdem")).toBe(MS);
-    expect(matchOpenedAt(id, "block-puzzle")).toBe(MS);
+  it("a Match is its opener's Account and the opener's counter, `<opener>-<n>`", () => {
+    const key = matchKeyOf({ opener: opener.toBase58(), n: 12n });
+    expect(key).toBe(`${opener.toBase58()}-12`);
+    expect(parseMatchKey(key)).toEqual({ opener: opener.toBase58(), n: 12n });
   });
 
-  it("a Vanguard id is ms * 2 + challenge, with no asset in it", () => {
-    for (const challenge of [false, true]) {
-      const id = newMatchId(challenge, "vanguard");
-      expect(isChallengeId(id)).toBe(challenge);
-      expect(Math.abs(matchOpenedAt(id, "vanguard") - Date.now())).toBeLessThan(5_000);
+  it("names the MatchState PDA the program derives from the same two numbers", () => {
+    expect(matchAddressOf(`${opener.toBase58()}-12`)?.equals(matchPda(opener, 12n))).toBe(true);
+    expect(matchAddressOf(`${opener.toBase58()}-13`)?.equals(matchPda(opener, 12n))).toBe(false);
+  });
+
+  it("refuses anything that is not a Match key (old numeric ids, padded counters, junk)", () => {
+    for (const bad of ["3585151916926", "", "-5", `${opener.toBase58()}-`, `${opener.toBase58()}-05`, `${opener.toBase58()}-x`, "short-1"]) {
+      expect(parseMatchKey(bad)).toBeNull();
+      expect(matchAddressOf(bad)).toBeNull();
     }
   });
 
-  it("a Trading Duel id is ms * 8 + asset * 2 + challenge", () => {
-    for (const asset of [0, 1, 2] as const) {
-      for (const challenge of [false, true]) {
-        const id = duelMatchId(asset, challenge, MS);
-        expect(id).toBe(BigInt(MS) * 8n + BigInt(asset) * 2n + (challenge ? 1n : 0n));
-        expect(assetIndexOf(id)).toBe(asset);
-        expect(assetOfMatchId(id)?.id).toBe(asset);
-        expect(isChallengeId(id)).toBe(challenge);
-        expect(matchOpenedAt(id, "trading-duel")).toBe(MS);
-      }
-    }
+  it("Block Burst keys its Session by the tesoro_core Match address, so no two Matches share one", () => {
+    const a = matchPda(opener, 1n);
+    const b = matchPda(opener, 2n);
+    expect(sessionOf(a).equals(sessionOf(b))).toBe(false);
+    expect(sessionOf(a).equals(sessionOf(a))).toBe(true);
   });
+});
 
-  it("newMatchId keeps the old formula for the other Games and encodes the asset for Trading Duel", () => {
-    const bp = newMatchId(false, "block-puzzle");
-    expect(bp % 2n).toBe(0n);
-    const td = newMatchId(true, "trading-duel", 2);
-    expect(assetIndexOf(td)).toBe(2);
-    expect(isChallengeId(td)).toBe(true);
-  });
-
-  it("the asset query value maps to an index and unknown values are SOL", () => {
+describe("asset params", () => {
+  it("maps ?asset= to an asset index, SOL for anything unknown", () => {
+    expect(ASSET_PARAMS).toEqual(["sol", "eth", "hype"]);
     expect(assetIndexFromParam("eth")).toBe(1);
     expect(assetIndexFromParam("HYPE")).toBe(2);
-    expect(assetIndexFromParam("doge")).toBe(0);
+    expect(assetIndexFromParam("nope")).toBe(0);
     expect(assetIndexFromParam(undefined)).toBe(0);
+    expect(assetIndexFromParam(["hype", "eth"])).toBe(2);
   });
+});
 
-  it("play links carry the game and the asset", () => {
+describe("play links", () => {
+  it("carry the game and the asset", () => {
     expect(gameQuery("block-puzzle")).toBe("");
     expect(gameQuery("holdem")).toBe("game=holdem&");
     expect(gameQuery("trading-duel", 1)).toBe("game=trading-duel&asset=eth&");

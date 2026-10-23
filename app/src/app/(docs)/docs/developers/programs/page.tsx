@@ -93,7 +93,7 @@ export default function Page() {
         <li>
           <b>Fees.</b> Read the Config account (PDA seed <code>config</code> of tesoro_core). The Platform Fee is a u16 after the admin and oracle keys;
           each registered Game carries its own Studio Fee in basis points. The Yield Fee and the Instant Redeem Fee are on the Treasury account
-          (PDA seed <code>treasury</code>); each EVM vault reports its own <code>yieldFeeBps()</code> and treasury balance.
+          (PDA seed <code>treasury</code>); each EVM vault reports its treasury balance and takes the cash-out split from the PayYield message Solana sends.
         </li>
         <li>
           <b>Matches.</b> Every Match is a tesoro_core account and its settlement is an ordinary Solana transaction. Rollup (TEE) transactions are

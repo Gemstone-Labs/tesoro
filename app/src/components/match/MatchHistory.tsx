@@ -44,7 +44,7 @@ export function GameTabs({ base, game, results = PLAYED }: { base: string; game:
   );
 }
 
-const RESULT_LABEL: Record<MatchResult, string> = { won: "Won", lost: "Lost", draw: "Draw", refunded: "Refunded" };
+const RESULT_LABEL: Record<MatchResult, string> = { won: "Won", lost: "Lost", draw: "Draw", "no-show": "No-show", refunded: "Refunded" };
 
 /** Which results a Match history shows, one toggle each with its count; results with no Matches are left out. Refunded starts off. */
 export function ResultFilter({ base, game, results, counts }: { base: string; game: GameId | null; results: readonly MatchResult[]; counts: Record<MatchResult, number> }) {
@@ -74,7 +74,7 @@ export function ResultFilter({ base, game, results, counts }: { base: string; ga
 
 /** How many Matches have each result. */
 export function resultCounts(rows: readonly { result: MatchResult }[]): Record<MatchResult, number> {
-  const counts: Record<MatchResult, number> = { won: 0, lost: 0, draw: 0, refunded: 0 };
+  const counts: Record<MatchResult, number> = { won: 0, lost: 0, draw: 0, "no-show": 0, refunded: 0 };
   for (const r of rows) counts[r.result] += 1;
   return counts;
 }

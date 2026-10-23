@@ -1,12 +1,16 @@
 import { BN } from "@coral-xyz/anchor";
 import { PublicKey, type AccountInfo } from "@solana/web3.js";
-import { debtGemas, debtUnits, instantSplit, redeemableFor, type SourceMath } from "./ledger";
 import { CLUSTER } from "../cluster-settings";
-import { SIM_SOL_MINT, TESORO_CORE_ID, marketFrom, marketKeys, nativeInfoFrom, nativeNow, sourceAtClock, speedupOf, stakeGrowthOf, type NativeInfo } from "./native";
+import { basketPda, decodeStore, lineRefOf, mergedLines, spillPda, bookPda, SIDE_OWN, type Line, type Store } from "./basket";
+import { debtGemasOf, decodeBook, fpFloor, readyNow, syncPreview, type SourceBookView } from "./book";
+import { bookAccounts } from "./draw";
+import { SIM_SOL_MINT, TESORO_CORE_ID, marketFrom, marketKeys, nativeInfoFrom, nativeNow, speedupOf, stakeGrowthOf, type NativeInfo } from "./native";
 import { stakeMarketFrom, stakeMarketKeys } from "./stake";
-import type { StakeGrowth } from "./yield";
+import { positionAccrued } from "./yield";
+import { clockOf } from "./native";
 import { parseEthPositionId } from "./eth";
-import type { AccountSnapshot, ChainAdvance, ChainHolding, ChainPosition } from "./read";
+import type { WaitingRecord } from "./overflow";
+import type { AccountSnapshot, ChainAdvance, ChainHolding, ChainPosition, StoreSummary } from "./read";
 
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
 const big = (n: { toString(): string }) => BigInt(n.toString());
@@ -19,13 +23,15 @@ type Row = { publicKey: PublicKey; account: any };
 
 /** Where an Account's state is read from: the browser (its own connection) or the server route (cached lists, its own connection). */
 export interface StateSource {
-  /** Every Holding and Position of one TesoroAccount, decoded. List reads may lag the chain. */
-  lists(accountKey: PublicKey): Promise<[Row[], Row[]]>;
+  /** Every Position of one TesoroAccount, decoded. List reads may lag the chain. */
+  lists(accountKey: PublicKey): Promise<Row[]>;
+  /** The Account's overflow records (Gemas waiting for room). A source without it, or a failed read, shows none. */
+  overflow?(accountKey: PublicKey): Promise<WaitingRecord[]>;
   /** Raw accounts in key order, null where missing. At most 100 keys. */
   infos(keys: PublicKey[]): Promise<Info[]>;
   balance(authority: PublicKey): Promise<number>;
   /** Decodes a tesoro_core account by IDL name; throws on a layout it does not know. */
-  decode(name: "tesoroAccount" | "sourceState" | "holdingState" | "positionState", data: Buffer): any;
+  decode(name: "tesoroAccount" | "sourceState" | "positionState", data: Buffer): any;
 }
 
 const decodeOr = (src: StateSource, name: Parameters<StateSource["decode"]>[0], info: Info) => {
@@ -40,45 +46,54 @@ const decodeOr = (src: StateSource, name: Parameters<StateSource["decode"]>[0], 
 const sourceOf = (position: PublicKey, index: number) =>
   PublicKey.findProgramAddressSync([Buffer.from("source"), position.toBuffer(), new BN(index).toArrayLike(Buffer, "le", 4)], TESORO_CORE_ID)[0];
 
-function sourceMath(inner: any): SourceMath {
-  return {
-    issued: big(inner.issued),
-    returned: big(inner.returned),
-    redeemed: big(inner.redeemed),
-    yieldUnits: big(inner.yieldUnits),
-    unitNum: big(inner.unitNum),
-    unitDen: big(inner.unitDen),
-  };
-}
-
-/**
- * The Source as it stands now. A native Position's Debt and redeemable amount are derived from the clock (ADR 0010),
- * never read from the stored `yieldUnits`; every other Source is as stored.
- */
-function sourceMathNow(pos: any, inner: any, speedup: number, nowSec: number, stake?: StakeGrowth): SourceMath {
-  const math = sourceMath(inner);
-  if (!isNativePosition(pos)) return math;
-  const p = pos.inner;
-  const facts = { principal: big(p.principal), rateBps: p.rateBps, yieldFeeBps: p.yieldFeeBps, openedAt: Number(big(p.openedAt)), openAdvance: p.openAdvance ?? null, appliedNet: big(p.appliedNet), stakeRateOpen: big(p.stakeRateOpen ?? 0) };
-  return sourceAtClock(facts, inner.index, math, speedup, nowSec, stake);
-}
-
 /** A Solana Position whose yield the program computes from the clock: simSOL custody, or a staking token (marked by the pool's rate at open). */
 const isNativePosition = (pos: any) =>
   !!pos && enumKey(pos.inner.sourceChain) === "solana" && (pk(pos.inner.sourceAsset).equals(SIM_SOL_MINT) || big(pos.inner.stakeRateOpen ?? 0) !== 0n);
 
+const summary = (st: Store | null): StoreSummary => ({
+  len: st?.header.len ?? 0,
+  capacity: st?.header.capacity ?? 0,
+  roomReserved: st?.header.roomReserved ?? 0,
+  flags: st?.header.flags ?? 0,
+  sponsoredLamports: st?.header.sponsoredLamports ?? 0n,
+});
+
+const readStore = (info: Info): Store | null => {
+  if (!info) return null;
+  try {
+    return decodeStore(info.data);
+  } catch {
+    return null;
+  }
+};
+
+/** The coverage a Source's open Advance has earned by the clock and not yet landed, for the Redeem / Debt preview. Null when nothing is derived (reported or closed Sources are as stored). */
+function syncedBook(book: SourceBookView, pos: any, srcState: any, speedup: number, nowSec: number, stake: ReturnType<typeof stakeGrowthOf>): SourceBookView {
+  if (!isNativePosition(pos) || pos.inner.openAdvance !== srcState.inner.index || enumKey(pos.inner.status) !== "locked") return book;
+  const p = pos.inner;
+  const clock = clockOf({ principalLamports: big(p.principal), rateBps: p.rateBps, openedAt: Number(big(p.openedAt)), stakeRateOpen: big(p.stakeRateOpen ?? 0) });
+  const net = positionAccrued(clock, speedup, nowSec, stake);
+  const applied = big(p.appliedNet);
+  const counted = net > applied ? net - applied : 0n;
+  return syncPreview(book, counted, { unitNum: big(srcState.inner.unitNum), unitDen: big(srcState.inner.unitDen) });
+}
+
 /**
  * The Account without its Matches (`matchesLoaded` false): SOL, Gemas, Positions and the simSOL market.
- * Rounds of reads, each batching everything the previous one made known: (1) the lists, the Account, the
- * market and the balance; (2) every Holding, Source and Position of the Account;
- * (3) only when held Gemas come from other Accounts' Positions, those Positions.
- * Native Positions need no other account: their Debt is derived from the clock and the pool's speedup.
+ * Rounds of reads, each batching everything the previous one made known: (1) the Account, its basket and
+ * spill, the market, the balance and the Position list; (2) every Source the lines come from with its book,
+ * the Positions and Sources of own Advances; (3) only when held Gemas come from other Accounts' Positions, those Positions.
+ * Native Positions need no other account: their Debt is the Source book with the clock's coverage landed.
  */
 export async function readAccountState(src: StateSource, authority: PublicKey, accountKey: PublicKey): Promise<AccountSnapshot> {
   const lists = src.lists(accountKey);
   lists.catch(() => undefined);
-  const [accountAndMarket, lamports] = await Promise.all([src.infos([accountKey, ...(REAL ? stakeMarketKeys(authority) : marketKeys(authority))]), src.balance(authority).catch(() => 0)]);
-  const [accountInfo, ...marketInfos] = accountAndMarket;
+  const waiting = (src.overflow ? src.overflow(accountKey) : Promise.resolve([])).catch(() => [] as WaitingRecord[]);
+  const [accountAndMarket, lamports] = await Promise.all([
+    src.infos([accountKey, basketPda(accountKey), spillPda(accountKey), ...(REAL ? stakeMarketKeys(authority) : marketKeys(authority))]),
+    src.balance(authority).catch(() => 0),
+  ]);
+  const [accountInfo, basketInfo, spillInfo, ...marketInfos] = accountAndMarket;
   let market = null;
   try {
     market = REAL ? stakeMarketFrom(marketInfos) : marketFrom(marketInfos);
@@ -92,6 +107,10 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     lamports,
     ownTotal: 0n,
     wonTotal: 0n,
+    reservedTotal: 0n,
+    ticketNeed: 0n,
+    feeTotal: 0n,
+    stores: null,
     holdings: [],
     positions: [],
     matches: [],
@@ -101,24 +120,41 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     fetchedAt: Date.now(),
   };
   if (!acct) return empty;
-  const [holdingRows, listedPositions] = await lists;
+  const basket = readStore(basketInfo);
+  const spill = readStore(spillInfo);
+  const listedPositions = await lists;
+  const lines = mergedLines(basket ?? { header: summaryHeader(), lines: [] }, spill);
+  const inSpill = new Set((spill?.lines ?? []).map(keyOf));
 
-  // The list route may answer from its cache (up to 2 min old): re-read every Holding and Position of the list so amounts and states are current.
-  const heldSources = holdingRows.map((h) => pk(h.account.inner.source));
+  const heldSources = [...new Map(lines.map((l) => [l.source.toBase58(), l.source])).values()];
   const withAdvance = listedPositions.filter((r) => r.account.inner.openAdvance !== null && r.account.inner.openAdvance !== undefined);
   const listedNative = listedPositions.filter((r) => isNativePosition(r.account));
   const read = batch(src);
   const wanted = [
-    ...holdingRows.map((r) => r.publicKey),
     ...heldSources,
+    ...heldSources.map(bookPda),
     ...listedPositions.map((r) => r.publicKey),
-    ...withAdvance.map((r) => sourceOf(r.publicKey, r.account.inner.openAdvance)),
+    ...withAdvance.flatMap((r) => [sourceOf(r.publicKey, r.account.inner.openAdvance), bookPda(sourceOf(r.publicKey, r.account.inner.openAdvance))]),
     ...listedNative.filter((r) => r.account.inner.advances > 0).map((r) => sourceOf(r.publicKey, r.account.inner.advances - 1)),
   ];
   await read.load(wanted);
 
-  const sources = heldSources.map((k) => decodeOr(src, "sourceState", read.get(k)));
-  const freshHoldings = holdingRows.map((r) => decodeOr(src, "holdingState", read.get(r.publicKey)));
+  const sourceStates = new Map(heldSources.map((k) => [k.toBase58(), decodeOr(src, "sourceState", read.get(k))]));
+  const books = new Map<string, SourceBookView | null>();
+  const bookOf = (source: PublicKey) => {
+    const id = source.toBase58();
+    if (!books.has(id)) {
+      const info = read.get(bookPda(source));
+      let view: SourceBookView | null = null;
+      try {
+        view = info ? decodeBook(info.data) : null;
+      } catch {
+        view = null;
+      }
+      books.set(id, view);
+    }
+    return books.get(id) ?? null;
+  };
   const openSources = withAdvance.map((r) => decodeOr(src, "sourceState", read.get(sourceOf(r.publicKey, r.account.inner.openAdvance))));
   const positionRows: Row[] = listedPositions.map((r) => ({ publicKey: r.publicKey, account: decodeOr(src, "positionState", read.get(r.publicKey)) ?? r.account }));
   const ownNative = positionRows.filter((r) => isNativePosition(r.account));
@@ -127,7 +163,7 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
 
   // Positions behind Gemas won or backed from other Accounts: read them in one batch.
   const positionByKey = new Map<string, any>(positionRows.map((r) => [r.publicKey.toBase58(), r.account]));
-  const foreign = [...new Map<string, PublicKey>(sources.filter(Boolean).map((s: any) => [pk(s.inner.position).toBase58(), pk(s.inner.position)])).entries()]
+  const foreign = [...new Map<string, PublicKey>([...sourceStates.values()].filter(Boolean).map((s: any) => [pk(s.inner.position).toBase58(), pk(s.inner.position)])).entries()]
     .filter(([k]) => !positionByKey.has(k))
     .map(([, key]) => key);
   await Promise.all([moved, read.load(foreign)]);
@@ -157,38 +193,58 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
   const speedup = speedupOf(market?.pool);
   const nowSec = Math.floor(Date.now() / 1000);
   const stake = stakeGrowthOf(market, nowSec);
+  const syncedOf = (source: PublicKey, state: any, pos: any): SourceBookView | null => {
+    const book = bookOf(source);
+    return book && pos ? syncedBook(book, pos, state, speedup, nowSec, stake) : book;
+  };
+
   const holdings: ChainHolding[] = [];
-  holdingRows.forEach((row, i) => {
-    const source: any = sources[i];
-    if (!source) return;
-    const h = (freshHoldings[i] ?? row.account).inner;
-    const amount = big(h.amount);
-    const reserved = big(h.reserved);
-    const free = amount - reserved;
-    const pos = positionByKey.get(pk(source.inner.position).toBase58());
-    const math = sourceMathNow(pos, source.inner, speedup, nowSec, stake);
-    const native = nativeKeys.has(pk(source.inner.position).toBase58());
-    const redeemable = redeemableFor(math, free);
+  for (const line of lines) {
+    const state: any = sourceStates.get(line.source.toBase58());
+    if (!state) continue;
+    const position = pk(state.inner.position);
+    const pos = positionByKey.get(position.toBase58());
+    const book = syncedOf(line.source, state, pos);
+    if (!book) continue;
+    let ready = 0n;
+    try {
+      ready = fpFloor(readyNow(book, line));
+    } catch {
+      continue;
+    }
+    const isOwn = line.side === SIDE_OWN;
+    const chainIdx = pos ? ["solana", "ethereum", "hyperEvm"].indexOf(enumKey(pos.inner.sourceChain)) : 0;
+    const native = nativeKeys.has(position.toBase58());
     holdings.push({
-      holding: row.publicKey,
-      source: heldSources[i],
-      position: pk(source.inner.position),
-      isOwn: h.isOwn,
-      amount,
-      reserved,
-      free,
-      redeemable,
-      pending: h.isOwn ? 0n : native ? instantSplit(math, free).pending : free - redeemable,
-      sourceDebt: debtGemas(math),
-      unitNum: big(source.inner.unitNum),
-      unitDen: big(source.inner.unitDen),
-      sourceOwner: pk(source.inner.owner).toBase58(),
+      key: keyOf(line),
+      line: lineRefOf(line),
+      store: inSpill.has(keyOf(line)) ? "spill" : "basket",
+      source: line.source,
+      position,
+      isOwn,
+      classId: line.classId,
+      tranche: line.tranche,
+      dueAt: Number(line.dueAt),
+      amount: line.amount,
+      reserved: 0n,
+      free: line.amount,
+      redeemable: ready,
+      pending: line.amount - ready,
+      yieldFeeBps: line.classId < 3 ? 0 : Number(state.inner.yieldFeeBps ?? 0),
+      poolBps: line.classId < 3 ? 0 : Number(state.inner.poolBps ?? 0),
+      sourceDebt: debtGemasOf(book),
+      unitNum: big(state.inner.unitNum),
+      unitDen: big(state.inner.unitDen),
+      sourceOwner: pk(state.inner.owner).toBase58(),
       native,
       stakeMint: native && big(pos?.inner.stakeRateOpen ?? 0) !== 0n ? pk(pos.inner.sourceAsset) : null,
       eth: pos && ["ethereum", "hyperEvm"].includes(enumKey(pos.inner.sourceChain)) ? parseEthPositionId(Uint8Array.from(pos.positionId)) : null,
-      asset: ASSETS[pos ? ["solana", "ethereum", "hyperEvm"].indexOf(enumKey(pos.inner.sourceChain)) : 0] ?? "SOL",
+      asset: ASSETS[chainIdx] ?? "SOL",
+      sourceIndex: state.inner.index,
+      open: pos?.inner.openAdvance === state.inner.index,
+      accounts: bookAccounts(line.source, [line], (c) => book.classes[c]?.ck ?? 0),
     });
-  });
+  }
 
   const openSourceOf = new Map<string, any>(withAdvance.map((r, i) => [r.publicKey.toBase58(), openSources[i]]));
   const positions: ChainPosition[] = positionRows.map((row) => {
@@ -200,14 +256,19 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     const open: any = openSourceOf.get(row.publicKey.toBase58());
     const native = ownInfo.get(row.publicKey.toBase58()) ?? null;
     if (open) {
-      const m = sourceMathNow(row.account, open.inner, speedup, nowSec, stake);
+      const sourceKey = sourceOf(row.publicKey, p.openAdvance);
+      const rawBook = bookOf(sourceKey);
+      const book = rawBook ? syncedBook(rawBook, row.account, open, speedup, nowSec, stake) : null;
+      const debtG = book ? debtGemasOf(book) : 0n;
       advance = {
-        source: sourceOf(row.publicKey, p.openAdvance),
-        gemasIssued: Number(m.issued),
+        source: sourceKey,
+        gemasIssued: Number(big(open.inner.issued)),
         horizonMonths: open.inner.horizonMonths,
-        debtGemas: Number(debtGemas(m)),
+        debtGemas: Number(debtG),
       };
-      debt = Number(debtUnits(m)) / decimals;
+      const num = big(open.inner.unitNum);
+      const den = big(open.inner.unitDen);
+      debt = den === 0n ? 0 : Number((debtG * num + den - 1n) / den) / decimals;
     }
     return {
       address: row.publicKey,
@@ -224,8 +285,24 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     };
   });
 
-  return { ...empty, exists: true, ownTotal: big(acct.inner.ownTotal), wonTotal: big(acct.inner.wonTotal), holdings, positions };
+  const records = await waiting;
+  return {
+    ...empty,
+    exists: true,
+    ...(records.length ? { waiting: records } : {}),
+    ownTotal: (basket?.header.ownTotal ?? 0n) + (spill?.header.ownTotal ?? 0n),
+    wonTotal: (basket?.header.wonTotal ?? 0n) + (spill?.header.wonTotal ?? 0n),
+    reservedTotal: basket?.header.reservedTotal ?? 0n,
+    ticketNeed: basket?.header.ticketNeed ?? 0n,
+    feeTotal: (basket?.header.feeTotal ?? 0n) + (spill?.header.feeTotal ?? 0n),
+    stores: { basket: summary(basket), spill: summary(spill) },
+    holdings,
+    positions,
+  };
 }
+
+const keyOf = (l: Line) => `${l.side}:${l.dueAt}:${l.source.toBase58()}:${l.classId}:${l.tranche}`;
+const summaryHeader = (): Store["header"] => ({ version: 3, bump: 0, flags: 0, len: 0, first: 0, account: PublicKey.default, ownTotal: 0n, wonTotal: 0n, feeTotal: 0n, reservedTotal: 0n, sponsoredLamports: 0n, ticketNeed: 0n, roomReserved: 0, capacity: 0 });
 
 /** Raw accounts by key, 100 keys per request (the getMultipleAccounts limit), requests in parallel; a key is read once. */
 function batch(src: StateSource) {

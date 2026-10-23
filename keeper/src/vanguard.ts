@@ -1,221 +1,240 @@
-import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
+import { PublicKey } from "@solana/web3.js";
 import { ComputeBudgetProgram, type Connection } from "@solana/web3.js";
-import { VANGUARD_PROGRAM_ID, CU, addresses } from "../../app/src/games/vanguard/chain.ts";
-import { PENDING, STATUS, decodeBattle } from "../../app/src/games/vanguard/decode.ts";
-import { RULES_VERSION } from "../../app/src/games/vanguard/rules.ts";
-import { commitInFlight, commits, noteClose } from "./commits.ts";
+import {
+  CU,
+  SLOT,
+  TABLE_PHASE,
+  canFinalizeTable,
+  tableOf,
+  type Assignment,
+  type TableState,
+} from "../../app/src/games/vanguard/chain.ts";
+import { PENDING, STATUS, type Battle } from "../../app/src/games/vanguard/decode.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { refund } from "./blockpuzzle.ts";
-import { shortKey } from "./env.ts";
+import { holdemTableStep, type HoldemTableFacts } from "./holdem.ts";
+import { needsRecommit } from "./recommit.ts";
 import { simulate, when } from "./tee.ts";
+
+/**
+ * Vanguard on persistent tables (the Game's keeper hook).
+ *
+ * A Match runs on a table that stays in the rollup. The Players' clients do the moves; the keeper only steps in for what either
+ * Player may do and a stalled client leaves undone. The table and its Battle are public (the two Army seats are not, and the
+ * keeper never reads them), so every decision below is made from the table, the Battle and the Assignment alone: `vanguardStep`
+ * is that decision, pure.
+ *
+ * Between Matches a table needs committing, wiping, resetting and its ring slots freed: that is `holdemTableStep` (the table
+ * protocol is the same for every table Game) and the table scheduler (`scheduler.ts`, ticket 19t), per table and independent of any Match.
+ */
 
 /** Seconds past an expired turn or the time cap before the keeper claims it, so the Players' clients get the first try. */
 export const GRACE_SECS = Number(process.env.KEEPER_VANGUARD_GRACE_SECS ?? 2);
 
 /** The keeper leaves the first seconds of setup to the Players' clients, which bundle the randomness request with their secret. */
 export const SETUP_ASSIST_SECS = 8;
-/** A randomness request that has not been answered is repeated after this long. */
-export const VRF_RETRY_SECS = 15;
 /** `ENTROPY_SECS` in programs/vanguard: setup opens this long before the entropy deadline. */
 const ENTROPY_SECS = 60;
 
-export interface BattleFacts {
-  status: number;
-  finalized: boolean;
-  /** The Battle has permissions, so closing it takes `close_match` rather than `close_unstarted`. */
-  permissioned: boolean;
+export interface VanguardFacts {
+  /** The Assignment exists. */
+  assigned: boolean;
+  /** The table's turn is this Match's (same epoch and Match); false when the table moved on, cannot be read, or runs another Match. */
+  ours: boolean;
+  tablePhase: number;
+  seatsOpen: boolean;
+  dirty: boolean;
+  /** The Assignment's start deadline (Unix seconds): both Players must have checked in by then. */
   startDeadline: number;
+  /** The Battle's status (`STATUS`) and clocks; ignored while the table is not Live or Over. */
+  status: number;
   entropyDeadline: number;
   setupDeadline: number;
   deadline: number;
   capDeadline: number;
   pendingKind: number;
   pendingSlot: bigint;
-  /** The rules the Battle was created under. The program only plays RULES_VERSION; older Battles are wound down. */
-  rulesVersion: number;
+  /** Base's committed copy of the table can settle the Match (a Done result, or the table is past the epoch). */
+  finalizable: boolean;
 }
 
 export type VanguardStep = {
-  do: "finalize" | "refund" | "resolve" | "claim_timeout" | "assist_setup" | "close_match" | "close_unstarted" | "wait";
+  do: "assign" | "finalize" | "begin_match" | "seat_players" | "resolve" | "claim_timeout" | "assist_setup" | "commit_table" | "refund" | "wait";
   why: string;
 };
 
 /**
- * What to do with a Battle. `layer` says where it was read; `slot` is the rollup's current slot (ignored on base).
- *  - "base": only `finalize` moves it; a Battle stuck there is refunded through tesoro_core at the Match deadline.
- *  - "tee": past the tesoro_core deadline an unfinished Battle is refunded on the base layer whatever the rollup
- *    serves (or stopped serving); a finished one is closed and settled instead. A Battle on older rules that is not over
- *    is wound down at once (see `windDown`). Otherwise a declared action comes first: any caller may `resolve` it from a later slot than its declare, and
- *    while one is pending nothing else is accepted. Then the start, setup, turn and cap clocks: each is a
- *    `claim_timeout` (a cancel, or a declare of a lost turn that the next pass resolves) once GRACE_SECS past.
- *    The rollup clock may be behind the base clock, so the caller simulates `claim_timeout` and waits if refused.
+ * What to do with one unsettled Vanguard Match. `slot` is the rollup's current slot.
+ *  - No Assignment: the table scheduler binds the Match to an Idle table (`assign`), while it is young enough to start.
+ *  - Base's committed table can settle it: `finalize`, whatever else is going on.
+ *  - Idle at the Match's epoch: `begin_match`. Waiting: `seat_players` once, then both Players check in (their clients); past the
+ *    start deadline with one missing: `claim_timeout`, which ends it in the ring (the Player who checked in wins; nobody did: a no-show).
+ *  - Past the tesoro_core deadline an unfinished Match is refunded on the base layer whatever the rollup serves.
+ *  - Live: a declared action comes first: any caller may `resolve` it from a later slot than its declare, and while one is pending
+ *    nothing else is accepted. Then the setup, turn and cap clocks: each is a `claim_timeout` (a cancel, or a declare of a lost turn
+ *    that the next pass resolves) once GRACE_SECS past. The rollup clock may be behind the base clock, so the caller simulates
+ *    `claim_timeout` and waits if refused.
+ *  - Over and not committed: `commit_table` (the table is `dirty` until then, so this runs once per result).
+ *  - Anything else: wait for tesoro_core's own refund at the Match deadline.
  */
-export function vanguardStep(b: BattleFacts, layer: "base" | "tee", now: number, deadline: number, slot: bigint): VanguardStep {
-  if (layer === "base") {
-    if (b.finalized) return { do: "wait", why: "already finalized" };
-    if (b.status === STATUS.over || b.status === STATUS.cancelled) return { do: "finalize", why: `Battle ${b.status === STATUS.over ? "over" : "cancelled"}` };
-    if (b.status === STATUS.created) {
-      if (now > b.startDeadline) return { do: "finalize", why: "no-show: never delegated before its start deadline, refunds both entries" };
-      return { do: "wait", why: `created, not delegated; finalize refunds ${when(b.startDeadline + 1, now)}` };
-    }
-    if (now >= deadline) return { do: "refund", why: "Battle never finished before the Match deadline" };
-    return { do: "wait", why: `Battle on base layer (status ${b.status}), refundable ${when(deadline, now)}` };
+export function vanguardStep(f: VanguardFacts, now: number, deadline: number, slot: bigint): VanguardStep {
+  if (!f.assigned) {
+    if (now >= deadline) return { do: "refund", why: "no table was assigned before the Match deadline" };
+    return { do: "assign", why: "the Match has no table yet" };
   }
-  if (now >= deadline && b.status !== STATUS.over && b.status !== STATUS.cancelled) return { do: "refund", why: "Battle never finished before the Match deadline" };
-  if (windDown(b)) {
-    return { do: "claim_timeout", why: `rules version ${b.rulesVersion} Battle on the version ${RULES_VERSION} program: cancelled at once so both entries are refunded` };
+  if (f.finalizable) return { do: "finalize", why: "the committed table holds the result" };
+  if (!f.ours) {
+    if (now >= deadline) return { do: "refund", why: "the table never settled the Match before the Match deadline" };
+    return { do: "wait", why: `table is on another Match or epoch; refundable ${when(deadline, now)}` };
   }
-  if (b.pendingKind !== PENDING.none) {
-    if (slot > b.pendingSlot) return { do: "resolve", why: `declared action (kind ${b.pendingKind}) waiting since slot ${b.pendingSlot}` };
-    return { do: "wait", why: `action declared in slot ${b.pendingSlot}, resolvable from the next slot` };
+  if (f.tablePhase === TABLE_PHASE.over) {
+    if (f.dirty) return { do: "commit_table", why: "the result is not committed yet" };
+    return { do: "wait", why: `committed, waiting for the base layer to show it; refundable ${when(deadline, now)}` };
   }
-  if (b.status === STATUS.created) {
-    if (now > b.startDeadline) return { do: "claim_timeout", why: "delegated but never started before its start deadline" };
-    return { do: "wait", why: `delegated, not started; cancellable ${when(b.startDeadline + 1, now)}` };
+  if (now >= deadline) return { do: "refund", why: "Match never finished before the Match deadline" };
+  if (f.tablePhase === TABLE_PHASE.idle) {
+    if (now <= f.startDeadline) return { do: "begin_match", why: "assigned table is Idle at the Match's epoch" };
+    return { do: "wait", why: `start window passed; refundable ${when(deadline, now)}` };
   }
-  if (b.status === STATUS.setup) {
-    const at = Math.min(b.entropyDeadline, b.setupDeadline) + GRACE_SECS;
+  if (f.tablePhase === TABLE_PHASE.waiting) {
+    if (now > f.startDeadline) return { do: "claim_timeout", why: "a Player never checked in before the start deadline" };
+    if (!f.seatsOpen) return { do: "seat_players", why: "Match begun, seats not handed to the Players" };
+    return { do: "wait", why: `waiting for check-ins until ${when(f.startDeadline, now)}` };
+  }
+  // Live
+  if (f.pendingKind !== PENDING.none) {
+    if (slot > f.pendingSlot) return { do: "resolve", why: `declared action (kind ${f.pendingKind}) waiting since slot ${f.pendingSlot}` };
+    return { do: "wait", why: `action declared in slot ${f.pendingSlot}, resolvable from the next slot` };
+  }
+  if (f.status === STATUS.setup) {
+    const at = Math.min(f.entropyDeadline, f.setupDeadline) + GRACE_SECS;
     if (now > at) return { do: "claim_timeout", why: "setup past its entropy deadline" };
     return { do: "assist_setup", why: `in setup, cancellable ${when(at + 1, now)}` };
   }
-  if (b.status === STATUS.live) {
-    const turnAt = b.deadline + GRACE_SECS;
-    const capAt = b.capDeadline + GRACE_SECS;
+  if (f.status === STATUS.live) {
+    const turnAt = f.deadline + GRACE_SECS;
+    const capAt = f.capDeadline + GRACE_SECS;
     if (now > capAt) return { do: "claim_timeout", why: "time cap passed" };
     if (now > turnAt) return { do: "claim_timeout", why: "turn expired and nobody claimed it" };
-    return { do: "wait", why: `live, turn ends ${when(b.deadline, now)}, keeper steps in ${when(turnAt + 1, now)}` };
+    return { do: "wait", why: `live, turn ends ${when(f.deadline, now)}, keeper steps in ${when(turnAt + 1, now)}` };
   }
-  if (b.status === STATUS.over || b.status === STATUS.cancelled) {
-    const what = b.status === STATUS.over ? "over" : "cancelled";
-    if (b.status === STATUS.cancelled && !b.permissioned) return { do: "close_unstarted", why: `Battle ${what} before permissions, still in the rollup` };
-    return { do: "close_match", why: `Battle ${what}, still in the rollup` };
-  }
-  return { do: "wait", why: `status ${b.status}` };
+  return { do: "wait", why: `table live, battle status ${f.status}` };
 }
 
-/**
- * A Battle made under other rules than the program plays (the upgrade to RULES_VERSION left it behind) that is not over yet:
- * `claim_timeout` cancels it whatever its clocks and any pending action say, and the normal close and finalize refund it in
- * full. Before the upgrade the program refuses this claim until a deadline passes, and the keeper simulates every claim, so
- * running the new keeper first is harmless.
- */
-export const windDown = (b: Pick<BattleFacts, "status" | "rulesVersion">): boolean =>
-  b.rulesVersion !== RULES_VERSION && (b.status === STATUS.created || b.status === STATUS.setup || b.status === STATUS.live);
+/** Facts for `vanguardStep` from the Assignment, the table and its Battle in the rollup, and base's copy of the table. */
+export function vanguardFacts(a: Assignment | null, live: TableState | null, b: Battle | null, base: TableState | null, nowS: number): VanguardFacts {
+  const ours = !!a && !!live && tableOf(a, live) && !!b && b.tesoroMatch.equals(a.tesoroMatch);
+  return {
+    assigned: !!a,
+    ours,
+    tablePhase: live?.phase ?? TABLE_PHASE.idle,
+    seatsOpen: live?.seatsOpen ?? false,
+    dirty: live?.dirty ?? false,
+    startDeadline: a?.startDeadline ?? 0,
+    status: b?.status ?? STATUS.created,
+    entropyDeadline: b?.entropyDeadline ?? 0,
+    setupDeadline: b?.setupDeadline ?? 0,
+    deadline: b?.deadline ?? 0,
+    capDeadline: b?.capDeadline ?? 0,
+    pendingKind: b?.pendingKind ?? PENDING.none,
+    pendingSlot: b?.pendingSlot ?? 0n,
+    finalizable: !!a && !!base && canFinalizeTable(base, a, nowS),
+  };
+}
 
 export type SetupMove = "deal" | "request_vrf" | "wait";
 
 /**
- * Setup the Players' clients did not finish. The Secret is never read, so what is possible comes from simulations:
+ * Setup the Players' clients did not finish. The Armies are never read, so what is possible comes from simulations:
  * `canDeal` (the deal would go through: both secrets and the randomness are in) wins; `canRequest` (the request
- * would go through: both secrets are in and no output is stored) asks for the randomness again, no sooner than
- * SETUP_ASSIST_SECS into setup and VRF_RETRY_SECS after the last ask.
+ * would go through: both secrets are in and the Match's one request was not made) asks for the randomness, no sooner
+ * than SETUP_ASSIST_SECS into setup. The request is made once per Match; a lost answer ends in a cancel and a refund.
  */
-export function setupMove(i: { canDeal: boolean; canRequest: boolean; now: number; lastRequestAt: number; setupStartedAt: number }): SetupMove {
+export function setupMove(i: { canDeal: boolean; canRequest: boolean; now: number; setupStartedAt: number }): SetupMove {
   if (i.canDeal) return "deal";
   if (!i.canRequest || i.now < i.setupStartedAt + SETUP_ASSIST_SECS) return "wait";
-  return i.now - i.lastRequestAt >= VRF_RETRY_SECS ? "request_vrf" : "wait";
+  return "request_vrf";
 }
 
-const lastRequest = new Map<string, number>();
+// ---- tables ------------------------------------------------------------------------------------
 
-/** Vanguard hygiene for one unsettled tesoro_core Match. Returns the number of actions taken. */
-export async function vanguard(ctx: Ctx, id: bigint, m: any, st: string, subject: string): Promise<number> {
-  const now = ctx.now;
-  const deadline = Number(m.deadline.toString());
-  const tag = `[vanguard ${st}]`;
-  const ad = addresses(id);
-  const info = await ctx.conn.getAccountInfo(ad.battle);
-
-  if (!info) {
-    if (now < deadline) {
-      log("match", subject, `${tag} wait: no Battle yet, refundable ${when(deadline, now)}`);
-      return 0;
-    }
-    return +(await refund(ctx, id, subject, st === "open" ? "no opponent before deadline" : "no Battle before deadline")).ok;
-  }
-
-  if (info.owner.equals(VANGUARD_PROGRAM_ID)) {
-    const b = decodeBattle(info.data);
-    commits.clear(subject);
-    const step = vanguardStep(factsOf(b), "base", now, deadline, 0n);
-    if (step.do === "finalize") return +(await act(ctx, "match", subject, `finalize (${step.why})`, () => ctx.vanguard.finalize(ctx.hsigner, id))).ok;
-    if (step.do === "refund") return +(await refund(ctx, id, subject, step.why)).ok;
-    log("match", subject, `${tag} wait: ${step.why}`);
-    return 0;
-  }
-  if (!info.owner.equals(DELEGATION_PROGRAM_ID)) {
-    log("match", subject, `${tag} SKIP: Battle owned by ${shortKey(info.owner)}`);
-    return 0;
-  }
-
-  // Delegated: the Battle is public in the rollup, read it with the keeper's token. Armies and the Secret are never read.
-  const b = await ctx.vanguard.readBattle(ctx.hsigner, id).catch(() => null);
-  if (!b) {
-    // The rollup does not serve it: the Match deadline still refunds both entries.
-    if (now >= deadline) return +(await refund(ctx, id, subject, "Battle not served by the rollup before the Match deadline")).ok;
-    log("match", subject, `${tag} wait: Battle not readable in the rollup yet`);
-    return 0;
-  }
-  const tee = await ctx.vanguard.teeConnection(ctx.hsigner);
-  const slot = BigInt(await tee.getSlot().catch(() => 0));
-  const step = vanguardStep(factsOf(b), "tee", now, deadline, slot);
-
-  if (step.do === "refund") return +(await refund(ctx, id, subject, step.why)).ok;
-  if (step.do === "assist_setup") return assistSetup(ctx, id, b, tee, subject, tag);
-  if (step.do === "resolve") return +(await act(ctx, "match", subject, `resolve (${step.why})`, () => ctx.vanguard.resolve(ctx.hsigner, id))).ok;
-  if (step.do === "claim_timeout") {
-    const ix = await ctx.vanguard.program.methods
-      .claimTimeout()
-      .accountsPartial({ caller: ctx.payer.publicKey, battle: ad.battle, secret: ad.secret } as any)
-      .instruction();
-    const why = await simulate(tee, ctx.payer, [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix]);
-    if (why) {
-      log("match", subject, `${tag} wait: claim_timeout not yet possible (${why.slice(0, 120)}), retrying next pass`);
-      return 0;
-    }
-    return +(await act(ctx, "match", subject, `claim_timeout (${step.why})`, () => ctx.vanguard.claimTimeout(ctx.hsigner, id))).ok;
-  }
-  if (step.do === "close_match" || step.do === "close_unstarted") {
-    const teeInfo = await tee.getAccountInfo(ad.battle).catch(() => null);
-    if (commitInFlight(subject, tag, teeInfo?.owner ?? null)) return 0;
-    const r = await act(ctx, "match", subject, `${step.do} (${step.why})`, () =>
-      step.do === "close_match" ? ctx.vanguard.closeMatch(ctx.hsigner, id).then((x) => x.tee) : ctx.vanguard.closeUnstarted(ctx.hsigner, id),
-    );
-    noteClose(subject, tag, r);
-    return +r.ok;
-  }
-  log("match", subject, `${tag} wait: ${step.why}`);
-  return 0;
-}
-
-function factsOf(b: ReturnType<typeof decodeBattle>): BattleFacts {
+/** Rollup facts for one table; `receiptAge(match)` is the age in seconds of tesoro_core's settlement receipt, or `null` if there is none. */
+export function vanguardTableFacts(t: TableState, nowS: number, receiptAge: (match: PublicKey) => number | null, base: TableState | null = null, lastRecommit = 0): HoldemTableFacts {
+  const doneSlots = t.ring
+    .map((s, index) => ({ s, index }))
+    .filter(({ s }) => s.state === SLOT.done)
+    .map(({ s, index }) => ({ index, match: s.tesoroMatch.toBase58(), receiptOld: (receiptAge(s.tesoroMatch) ?? -1) >= 60 }));
+  const onMatch = t.phase === TABLE_PHASE.waiting || t.phase === TABLE_PHASE.live;
   return {
-    status: b.status,
-    finalized: b.finalized !== 0,
-    permissioned: b.permissioned !== 0,
-    startDeadline: b.startDeadline,
-    entropyDeadline: b.entropyDeadline,
-    setupDeadline: b.setupDeadline,
-    deadline: b.deadline,
-    capDeadline: b.capDeadline,
-    pendingKind: b.pendingKind,
-    pendingSlot: b.pendingSlot,
-    rulesVersion: b.rulesVersion,
+    tablePhase: t.phase,
+    seatsOpen: t.seatsOpen,
+    dirty: t.dirty,
+    sinceOver: t.phase === TABLE_PHASE.over ? Math.max(0, Math.floor(nowS - t.overAt)) : 0,
+    doneSlots,
+    matchFrozen: onMatch && (receiptAge(t.tesoroMatch) ?? -1) >= 60,
+    recommit: needsRecommit(t, base, nowS, lastRecommit),
   };
 }
 
-/** Deals, or asks for the randomness again, when the Players' clients have not. Sends nothing a simulation refuses. */
-async function assistSetup(ctx: Ctx, id: bigint, b: ReturnType<typeof decodeBattle>, tee: Connection, subject: string, tag: string): Promise<number> {
+/** Vanguard hygiene for one unsettled tesoro_core Match. Returns the number of actions taken. */
+export async function vanguard(ctx: Ctx, match: PublicKey, m: any, st: string, subject: string): Promise<number> {
+  const now = ctx.now;
+  const deadline = Number(m.deadline.toString());
+  const tag = `[vanguard ${st}]`;
+  let actions = 0;
+
+  if (st === "open") {
+    if (now < deadline) log("match", subject, `${tag} wait: no opponent yet, refundable ${when(deadline, now)}`);
+    else return actions + +(await refund(ctx, m, subject, "no opponent before deadline")).ok;
+    return actions;
+  }
+
+  const a = await ctx.vanguard.readAssignment(match);
+  const live = a ? await ctx.vanguard.readTable(ctx.hsigner, a).catch(() => null) : null;
+  const base = a ? await ctx.vanguard.readTableOnBase(a).catch(() => null) : null;
+  const ours = !!a && !!live && tableOf(a, live);
+  const battle = a && ours ? await ctx.vanguard.readBattle(ctx.hsigner, a).catch(() => null) : null;
+  const tee: Connection | null = a ? await ctx.vanguard.teeConnection(ctx.hsigner).catch(() => null) : null;
+  const slot = tee ? BigInt(await tee.getSlot().catch(() => 0)) : 0n;
+  const step = vanguardStep(vanguardFacts(a, live, battle, base, now), now, deadline, slot);
+
+  // Table upkeep, assignment and commits belong to the table scheduler (scheduler.ts); this hook drives the Match on its table.
+  if (step.do === "assign") {
+    log("match", subject, `${tag} wait: the table scheduler assigns a table`);
+    return actions;
+  }
+  if (step.do === "refund") return actions + +(await refund(ctx, m, subject, step.why)).ok;
+  if (!a) return actions;
+  const send = (what: string, fn: () => Promise<string>) => act(ctx, "match", subject, `${what} (${step.why})`, fn);
+  if (step.do === "finalize") return actions + +(await send("finalize", () => ctx.vanguard.finalize(ctx.hsigner, a))).ok;
+  if (step.do === "begin_match") return actions + +(await send("begin_match", () => ctx.vanguard.beginMatch(ctx.hsigner, a))).ok;
+  if (step.do === "seat_players") return actions + +(await send("seat_players", () => ctx.vanguard.seatPlayers(ctx.hsigner, a))).ok;
+  if (step.do === "resolve") return actions + +(await send("resolve", () => ctx.vanguard.resolve(ctx.hsigner, a))).ok;
+  if (step.do === "assist_setup" && battle && tee) return actions + (await assistSetup(ctx, a, battle, tee, subject, tag));
+  if (step.do === "claim_timeout" && tee) {
+    const ix = await ctx.vanguard.claimTimeoutIx(ctx.payer.publicKey, a);
+    const why = await simulate(tee, ctx.payer, [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix]);
+    if (why) {
+      log("match", subject, `${tag} wait: claim_timeout not yet possible (${why.slice(0, 120)}), retrying next pass`);
+      return actions;
+    }
+    return actions + +(await send("claim_timeout", () => ctx.vanguard.claimTimeout(ctx.hsigner, a))).ok;
+  }
+  log("match", subject, `${tag} wait: ${step.why}`);
+  return actions;
+}
+
+/** Deals, or asks for the randomness, when the Players' clients have not. Sends nothing a simulation refuses. */
+async function assistSetup(ctx: Ctx, a: Assignment, b: Battle, tee: Connection, subject: string, tag: string): Promise<number> {
   const limit = ComputeBudgetProgram.setComputeUnitLimit({ units: CU.resolve });
-  const deal = await ctx.vanguard.dealIx(ctx.payer.publicKey, id);
+  const deal = await ctx.vanguard.dealIx(ctx.payer.publicKey, a);
   const canDeal = !(await simulate(tee, ctx.payer, [limit, deal]));
-  const request = canDeal ? null : await ctx.vanguard.requestVrfIx(ctx.payer.publicKey, id, b.oracleQueue);
+  const request = canDeal ? null : await ctx.vanguard.requestVrfIx(ctx.payer.publicKey, a, b.oracleQueue);
   const canRequest = request ? !(await simulate(tee, ctx.payer, [request])) : false;
-  const move = setupMove({ canDeal, canRequest, now: ctx.now, lastRequestAt: lastRequest.get(subject) ?? 0, setupStartedAt: b.entropyDeadline - ENTROPY_SECS });
-  if (move === "deal") return +(await act(ctx, "match", subject, "deal (both secrets and the randomness are in)", () => ctx.vanguard.deal(ctx.hsigner, id))).ok;
+  const move = setupMove({ canDeal, canRequest, now: ctx.now, setupStartedAt: b.entropyDeadline - ENTROPY_SECS });
+  if (move === "deal") return +(await act(ctx, "match", subject, "deal (both secrets and the randomness are in)", () => ctx.vanguard.deal(ctx.hsigner, a))).ok;
   if (move === "request_vrf") {
-    lastRequest.set(subject, ctx.now);
-    return +(await act(ctx, "match", subject, "request_vrf (both secrets are in, no randomness yet)", () => ctx.vanguard.requestVrf(ctx.hsigner, id, b.oracleQueue))).ok;
+    return +(await act(ctx, "match", subject, "request_vrf (both secrets are in, no request yet)", () => ctx.vanguard.requestVrf(ctx.hsigner, a, b.oracleQueue))).ok;
   }
   log("match", subject, `${tag} wait: setup in progress`);
   return 0;

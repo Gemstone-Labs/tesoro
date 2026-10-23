@@ -41,9 +41,16 @@ const steps = a.value("steps")?.split(",").map((s) => {
 });
 const games: GameInput[] = a.values("game").map((g) => {
   const [name, rest] = g.split("=");
-  const [studio, bps] = (rest ?? "").split(",");
-  if (!(["block_puzzle", "holdem", "trading_duel"] as string[]).includes(name) || !studio) throw new Error(`--game ${g}: expected <block_puzzle|holdem|trading_duel>=<studio wallet>[,<studio bps>]`);
-  return { name: name as GameInput["name"], studio: new PublicKey(studio), studioBps: bps ? Number(bps) : 300 };
+  const [studio, bps, control, hash, until] = (rest ?? "").split(",");
+  if (!(["block_puzzle", "holdem", "trading_duel"] as string[]).includes(name) || !studio) throw new Error(`--game ${g}: expected <block_puzzle|holdem|trading_duel>=<studio wallet>[,<studio bps>[,<upgrade authority>[,<approved build hash>,<listed until unix>]]]`);
+  return {
+    name: name as GameInput["name"],
+    studio: new PublicKey(studio),
+    studioBps: bps ? Number(bps) : 300,
+    control: control ? new PublicKey(control) : undefined,
+    approvedHash: hash || undefined,
+    listedUntil: until ? Number(until) : undefined,
+  };
 });
 
 const admin = resolveKey(a.need("admin"));
@@ -89,6 +96,10 @@ if (!signer.publicKey.equals(admin)) throw new Error(`--keypair is ${signer.publ
 const conn = new Connection(rpc, "confirmed");
 for (const s of plan) {
   if (!s.signer || s.proposal || !s.ixs.length) continue;
+  if (!s.signer.equals(signer.publicKey)) {
+    console.log(`[${s.id}] skipped ${s.title}: signed by ${s.signer.toBase58()}, not by this keypair`);
+    continue;
+  }
   const tx = new Transaction().add(...s.ixs);
   tx.feePayer = signer.publicKey;
   console.log(`[${s.id}] sending ${s.title}`);

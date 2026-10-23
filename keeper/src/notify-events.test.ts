@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { debtClearedFacts, digestDue, matchFacts, offerFacts, opponentPlayedFact, pushDigest, pushEvents, seasonFacts, sendEvents, type MatchFacts, type OfferFacts } from "./notify-events.ts";
+import { debtClearedFacts, digestDue, matchFacts, offerFacts, pushDigest, pushEvents, seasonFacts, seasonFactsInput, sendEvents, type MatchFacts, type OfferFacts } from "./notify-events.ts";
 
 const NOW = 1_800_000_000;
-const base: MatchFacts = { id: 7n, game: "holdem", status: "active", deadline: NOW + 600, entry: 500, players: ["a", "b"], session: null };
+const base: MatchFacts = { id: 7n, game: "holdem", status: "active", deadline: NOW + 600, entry: 500, players: ["a", "b"] };
 
 describe("Match refunded and Delayed", () => {
   it("tells both Players of a refund", () => {
@@ -38,10 +38,10 @@ describe("Match refunded and Delayed", () => {
     assert.deepEqual(matchFacts({ ...vg, status: "refunded" }, NOW).map((x) => [x.kind, (x as any).game]), [["match-refunded", "vanguard"], ["match-refunded", "vanguard"]]);
   });
 
-  it("a Block Burst Match is Delayed after both Session deadlines plus the grace", () => {
-    const bp: MatchFacts = { ...base, game: "block-puzzle", deadline: NOW + 3000, session: { deadline: NOW + 100, openerDeadline: NOW + 50 } };
-    assert.deepEqual(matchFacts(bp, NOW + 200), []);
-    assert.equal(matchFacts(bp, NOW + 221)[0].kind, "match-delayed");
+  it("a Block Burst Match is Delayed only once its refund deadline is reached", () => {
+    const bp: MatchFacts = { ...base, game: "block-puzzle", deadline: NOW + 3000 };
+    assert.deepEqual(matchFacts(bp, NOW + 2999), []);
+    assert.equal(matchFacts(bp, NOW + 3000)[0].kind, "match-delayed");
   });
 
   it("an open, settled or very old Match says nothing", () => {
@@ -51,22 +51,9 @@ describe("Match refunded and Delayed", () => {
   });
 });
 
-describe("Block Burst opponent played", () => {
-  const played = { delegated: true, sealed: false };
-  const idle = { delegated: false, sealed: false };
-  it("tells the opener once both Boards have played", () => {
-    assert.deepEqual(opponentPlayedFact({ id: 9n, opener: "a" }, true, [played, played]), { account: "a", kind: "opponent-played", matchId: "9", game: "block-puzzle" });
-    assert.equal(opponentPlayedFact({ id: 9n, opener: "a" }, true, [played, { delegated: false, sealed: true }])?.kind, "opponent-played");
-  });
-  it("says nothing before the opponent joins or plays, or if the opener has not played", () => {
-    assert.equal(opponentPlayedFact({ id: 9n, opener: "a" }, false, [played, played]), null);
-    assert.equal(opponentPlayedFact({ id: 9n, opener: "a" }, true, [played, idle]), null);
-    assert.equal(opponentPlayedFact({ id: 9n, opener: "a" }, true, [idle, played]), null);
-  });
-});
 
 describe("Offers", () => {
-  const offer: OfferFacts = { address: "O1", backer: "backer", game: "block-puzzle", entry: 1000, status: "open", expiresAt: NOW + 100, useBy: NOW + 200, directedTo: "R1" };
+  const offer: OfferFacts = { address: "O1", backer: "backer", game: "block-puzzle", entry: 1000, status: "open", expiresAt: NOW + 100, useBy: NOW + 200, request: "R1" };
   const requests = new Map([["R1", "player"]]);
   it("an open Offer on a Request tells the Request's Player", () => {
     assert.deepEqual(offerFacts([offer], requests, NOW), [{ account: "player", kind: "offer-made", offerId: "O1", game: "block-puzzle", entry: 1000 }]);
@@ -74,8 +61,8 @@ describe("Offers", () => {
   it("an accepted Offer tells its Backer", () => {
     assert.deepEqual(offerFacts([{ ...offer, status: "accepted" }], requests, NOW), [{ account: "backer", kind: "offer-accepted", offerId: "O1", game: "block-puzzle", entry: 1000 }]);
   });
-  it("skips lapsed, public and unmatched Offers and ones that are over", () => {
-    assert.deepEqual(offerFacts([{ ...offer, expiresAt: NOW - 1 }, { ...offer, directedTo: null }, { ...offer, directedTo: "R2" }, { ...offer, status: "cancelled" }, { ...offer, status: "accepted", useBy: NOW - 1 }], requests, NOW), []);
+  it("skips lapsed and unmatched Offers and ones that are over", () => {
+    assert.deepEqual(offerFacts([{ ...offer, expiresAt: NOW - 1 }, { ...offer, request: "R2" }, { ...offer, status: "cancelled" }, { ...offer, status: "accepted", useBy: NOW - 1 }], requests, NOW), []);
   });
 });
 
@@ -97,11 +84,19 @@ describe("Debt reached 0", () => {
 
 describe("Season placed", () => {
   it("tells each paid rank with its place and Gemas", () => {
-    const f = seasonFacts({ number: 2, count: 3, winners: ["a", "b", "c"], amounts: [900n, 500n, 100n], paidMask: 0b101 });
+    const f = seasonFacts({ number: 2, count: 3, winners: ["a", "b", "c"], gemas: [900n, 500n, 100n], paid: [true, false, true] });
     assert.deepEqual(f, [
       { account: "a", kind: "season-placed", season: 2, rank: 1, gemas: 900 },
       { account: "c", kind: "season-placed", season: 2, rank: 3, gemas: 100 },
     ]);
+  });
+});
+
+describe("Season placed from a recorded Season", () => {
+  it("counts a rank as paid once all its budget lines are, and tells its total", () => {
+    const k = (n: number) => ({ toBase58: () => `k${n}` }) as any;
+    const rec = { number: 2, count: 2, winners: [k(1), k(2)], points: [9n, 4n], lines: [{ source: k(0), amount: 1000n, paid: 0n }, { source: k(0), amount: 400n, paid: 0n }], cursor: [2, 1, 0, 0, 0, 0, 0, 0, 0, 0], recordedAt: 1, voidedMask: 0, closed: false };
+    assert.deepEqual(seasonFacts(seasonFactsInput(rec)), [{ account: "k1", kind: "season-placed", season: 2, rank: 1, gemas: 350 }]);
   });
 });
 

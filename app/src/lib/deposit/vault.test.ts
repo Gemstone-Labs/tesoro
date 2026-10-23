@@ -1,31 +1,14 @@
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { NATIVE_MARKET, nativePosition } from "../../../stories/components/wallet/support";
+import { fixtureHolding } from "@/lib/chain/fixture";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { depositProgress, fmtBackAt, fmtTimeLeft, likelyPack, monthMs, vaultView, type VaultSnapshot } from "./vault";
 
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 
-const holding = (n: number, over: Partial<ChainHolding> = {}): ChainHolding => ({
-  holding: key(n),
-  source: key(n + 50),
-  position: key(n + 100),
-  isOwn: false,
-  amount: 1000n,
-  reserved: 0n,
-  free: 1000n,
-  redeemable: 400n,
-  pending: 600n,
-  sourceDebt: 0n,
-  unitNum: 10_000_000_000_000n,
-  unitDen: 110_000_000n,
-  sourceOwner: "Other",
-  asset: "SOL",
-  native: true,
-  stakeMint: null,
-  eth: null,
-  ...over,
-});
+const holding = (n: number, over: Partial<ChainHolding> = {}): ChainHolding =>
+  fixtureHolding(n, { source: key(n + 50), position: key(n + 100), isOwn: false, amount: 1000n, free: 1000n, redeemable: 400n, pending: 600n, ...over });
 
 const snap = (positions: ChainPosition[], holdings: ChainHolding[] = []): VaultSnapshot => ({ positions, holdings, market: NATIVE_MARKET });
 const view = (s: VaultSnapshot | null, gemasAvailable = 0) => vaultView({ snapshot: s, gemasAvailable, nowMs: Date.now() });

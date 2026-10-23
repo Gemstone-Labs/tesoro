@@ -58,6 +58,9 @@ function world(opts: { env?: AuthEnv } = {}) {
   return { store, notices, open, deps, player, advance };
 }
 
+/** A Match key: the opener's Account and its counter value. */
+const mk = (n: number) => `${"1".repeat(32)}-${n}`;
+
 describe("Friends session", () => {
   it("starts from one signature and names the Account, not the wallet", async () => {
     const w = world();
@@ -258,19 +261,19 @@ describe("friend Challenges", () => {
 
   it("records only an open Challenge the sender opened, for a Friend, and shows it while it is open", async () => {
     const { w, a, b } = await friends();
-    w.open.set("11", { game: "holdem", entry: 500, opener: b.account });
-    expect(await code(a.call({ op: "challenge", matchId: "11", to: b.account }))).toBe("not-your-challenge");
-    expect(await code(a.call({ op: "challenge", matchId: "13", to: b.account }))).toBe("not-your-challenge");
-    w.open.set("13", { game: "holdem", entry: 500, opener: a.account });
+    w.open.set(mk(11), { game: "holdem", entry: 500, opener: b.account });
+    expect(await code(a.call({ op: "challenge", matchId: mk(11), to: b.account }))).toBe("not-your-challenge");
+    expect(await code(a.call({ op: "challenge", matchId: mk(13), to: b.account }))).toBe("not-your-challenge");
+    w.open.set(mk(13), { game: "holdem", entry: 500, opener: a.account });
     const stranger = await w.player();
-    expect(await a.call({ op: "challenge", matchId: "13", to: stranger.account })).toEqual({ status: "not-friends" });
-    expect(await a.call({ op: "challenge", matchId: "13", to: b.account })).toEqual({ status: "recorded" });
-    expect(await a.call({ op: "challenge", matchId: "13", to: b.account })).toEqual({ status: "duplicate" });
-    expect(w.notices).toEqual([{ kind: "friend-challenge", id: "friend-challenge:13", to: b.account, matchId: "13", game: "holdem", entry: 500 }]);
+    expect(await a.call({ op: "challenge", matchId: mk(13), to: stranger.account })).toEqual({ status: "not-friends" });
+    expect(await a.call({ op: "challenge", matchId: mk(13), to: b.account })).toEqual({ status: "recorded" });
+    expect(await a.call({ op: "challenge", matchId: mk(13), to: b.account })).toEqual({ status: "duplicate" });
+    expect(w.notices).toEqual([{ kind: "friend-challenge", id: `friend-challenge:${mk(13)}`, to: b.account, matchId: mk(13), game: "holdem", entry: 500 }]);
     const bv = await b.call({ op: "list" });
-    expect(bv.challenges).toEqual([{ matchId: "13", from: a.account, at: NOW, game: "holdem", entry: 500 }]);
+    expect(bv.challenges).toEqual([{ matchId: mk(13), from: a.account, at: NOW, game: "holdem", entry: 500 }]);
     expect(bv.badge).toBe(1);
-    w.open.delete("13"); // joined, or refunded
+    w.open.delete(mk(13)); // joined, or refunded
     expect((await b.call({ op: "list" })).challenges).toEqual([]);
   });
 
@@ -281,20 +284,20 @@ describe("friend Challenges", () => {
     await c.call({ op: "accept", from: a.account });
     w.notices.length = 0;
     for (let i = 0; i < 10; i++) {
-      const id = String(101 + 2 * i);
+      const id = mk(101 + 2 * i);
       w.open.set(id, { game: "block-puzzle", entry: 500, opener: a.account });
       expect(await a.call({ op: "challenge", matchId: id, to: i < 5 ? b.account : c.account })).toEqual({ status: "recorded" });
     }
     expect(w.notices.filter((n) => n.to === b.account)).toHaveLength(3);
     expect(w.notices.filter((n) => n.to === c.account)).toHaveLength(3);
-    w.open.set("999", { game: "block-puzzle", entry: 500, opener: a.account });
-    expect(await a.call({ op: "challenge", matchId: "999", to: b.account })).toEqual({ status: "challenge-cap" });
+    w.open.set(mk(999), { game: "block-puzzle", entry: 500, opener: a.account });
+    expect(await a.call({ op: "challenge", matchId: mk(999), to: b.account })).toEqual({ status: "challenge-cap" });
   });
 
   it("drops Challenges from someone who is no longer a Friend", async () => {
     const { w, a, b } = await friends();
-    w.open.set("15", { game: "holdem", entry: 500, opener: a.account });
-    await a.call({ op: "challenge", matchId: "15", to: b.account });
+    w.open.set(mk(15), { game: "holdem", entry: 500, opener: a.account });
+    await a.call({ op: "challenge", matchId: mk(15), to: b.account });
     await b.call({ op: "remove", account: a.account });
     expect((await b.call({ op: "list" })).challenges).toEqual([]);
   });
@@ -313,13 +316,13 @@ describe("request checks", () => {
     const [a, b] = [await w.player(), await w.player()];
     await a.call({ op: "request", to: b.account });
     await b.call({ op: "accept", from: a.account });
-    w.open.set("21", { game: "holdem", entry: 500, opener: a.account });
-    w.open.set("23", { game: "holdem", entry: 500, opener: a.account });
-    await a.call({ op: "challenge", matchId: "21", to: b.account });
-    await a.call({ op: "challenge", matchId: "23", to: b.account });
+    w.open.set(mk(21), { game: "holdem", entry: 500, opener: a.account });
+    w.open.set(mk(23), { game: "holdem", entry: 500, opener: a.account });
+    await a.call({ op: "challenge", matchId: mk(21), to: b.account });
+    await a.call({ op: "challenge", matchId: mk(23), to: b.account });
     const batches: string[][] = [];
     w.deps.openChallenges = async (ids) => (batches.push(ids), ids.map((id) => w.open.get(id) ?? null));
-    expect((await b.call({ op: "list" })).challenges.map((c: { matchId: string }) => c.matchId).sort()).toEqual(["21", "23"]);
+    expect((await b.call({ op: "list" })).challenges.map((c: { matchId: string }) => c.matchId).sort()).toEqual([mk(21), mk(23)]);
     expect(batches).toHaveLength(1);
   });
 

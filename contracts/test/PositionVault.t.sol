@@ -52,7 +52,15 @@ abstract contract VaultBase is Test {
     }
 
     function _payMsg(uint64 id, uint64 seq, address to, uint256 amt) internal pure returns (bytes memory) {
-        return abi.encode(uint8(4), CHAIN, id, seq, bytes32(uint256(uint160(to))), amt);
+        return _payFeeMsg(id, seq, to, amt, 0, 0);
+    }
+
+    function _payFeeMsg(uint64 id, uint64 seq, address to, uint256 amt, uint256 fee, uint256 pool)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encode(uint8(4), CHAIN, id, seq, bytes32(uint256(uint160(to))), amt, fee, pool);
     }
 
     function _deliver(bytes memory m) internal {
@@ -101,18 +109,17 @@ contract PositionVaultSimTest is VaultBase {
         vm.warp(block.timestamp + 5 minutes);
         uint64 b = _open(4 ether); // opens later, earns from its own open time
         vm.warp(block.timestamp + 10 minutes);
-        // 5% APY, speedup 4380: yield = P * 500 * 4380 * dt / (10_000 * 365 days), 80% of it after the Yield Fee
-        uint256 ya = (uint256(6 ether) * 500 * 4380 * 15 minutes) / (10_000 * 365 days) * 8 / 10;
-        uint256 yb = (uint256(4 ether) * 500 * 4380 * 10 minutes) / (10_000 * 365 days) * 8 / 10;
+        // 5% APY, speedup 4380: yield = P * 500 * 4380 * dt / (10_000 * 365 days), all of it Gemas (no fee yet)
+        uint256 ya = (uint256(6 ether) * 500 * 4380 * 15 minutes) / (10_000 * 365 days);
+        uint256 yb = (uint256(4 ether) * 500 * 4380 * 10 minutes) / (10_000 * 365 days);
         assertApproxEqAbs(vault.accruedYield(a), ya, 2);
         assertApproxEqAbs(vault.accruedYield(b), yb, 2);
         assertEq(lst.underlyingPerShare(), 1e18, "rate does not move");
     }
 
-    /// An Advance of N months (principal * apy * N / 12) is repaid at exactly N * 10 minutes (speedup 4,380)
-    /// when no Yield Fee is taken.
+    /// An Advance of N months (principal * apy * N / 12) is repaid at exactly N * 10 minutes (speedup 4,380):
+    /// the vault reports gross yield, so the Yield Fee never stretches the Debt.
     function test_advanceOfNMonthsIsRepaidInNTimesTenMinutes() public {
-        vault.setYieldFeeBps(0);
         uint64 id = _open(10 ether);
         for (uint256 n = 1; n <= 12; n++) {
             uint256 advance = (10 ether * 500 * n) / (10_000 * 12);
@@ -165,7 +172,7 @@ contract PositionVaultSimTest is VaultBase {
         for (uint256 i; i < dts.length; i++) {
             vm.warp(t0 + dts[i]);
             uint256 g = _gross(10 ether, dts[i]);
-            assertEq(vault.accruedYield(id), g - (g * 2000) / 10_000);
+            assertEq(vault.accruedYield(id), g, "gross, no fee");
         }
     }
 
@@ -177,75 +184,78 @@ contract PositionVaultSimTest is VaultBase {
         assertEq(vault.getPosition(a).apyBps, 500);
         assertEq(vault.getPosition(b).apyBps, 1000);
         assertApproxEqAbs(vault.accruedYield(b), vault.accruedYield(a) * 2, 2);
-        // the Treasury claim matches both Positions' own fees
-        assertApproxEqAbs(vault.treasuryBalance(), _fee(a) + _fee(b), 2);
+        assertEq(vault.treasuryBalance(), 0, "yield of open Positions is never the Treasury's");
     }
 
-    function _fee(uint64 id) internal view returns (uint256) {
-        PositionVault.Position memory p = vault.getPosition(id);
-        uint256 gross = (p.a * block.timestamp - p.b) / (10_000 * 365 days);
-        return (gross * p.feeBps) / 10_000;
-    }
-
-    function test_treasuryClaimEqualsSumOfPerPositionFees() public {
-        uint64[] memory ids = new uint64[](5);
-        for (uint256 i; i < 5; i++) {
-            ids[i] = _open(i * 0.5 ether + 0.5 ether);
-            vm.warp(block.timestamp + (i + 1) * 3 minutes + 17);
-        }
-        uint256 sum;
-        for (uint256 i; i < 5; i++) {
-            sum += _fee(ids[i]);
-        }
-        assertApproxEqAbs(vault.treasuryBalance(), sum, 5);
-        // closing a Position moves its fee from the open sums to the realised total without changing the claim
-        uint256 before = vault.treasuryBalance();
-        _deliver(_unlockMsg(ids[1], 1));
-        assertApproxEqAbs(vault.treasuryBalance(), before, 2);
-        vm.warp(block.timestamp + 1 hours);
-        sum = 0;
-        for (uint256 i; i < 5; i++) {
-            PositionVault.Position memory p = vault.getPosition(ids[i]);
-            uint256 g = p.unlocked ? 0 : (p.a * block.timestamp - p.b) / (10_000 * 365 days);
-            sum += p.unlocked ? (vault.accruedYield(ids[i]) * 2000) / 8000 : (g * 2000) / 10_000;
-        }
-        assertApproxEqAbs(vault.treasuryBalance(), sum, 10);
-    }
-
-    function test_feeIsFlooredPerPosition() public {
-        uint64 id = _open(10 ether);
-        vm.warp(block.timestamp + 7 minutes + 13);
-        uint256 g = _gross(10 ether, 7 minutes + 13);
-        assertEq(vault.accruedYield(id), g - (g * 2000) / 10_000);
-    }
-
-    function test_zeroFeeKeepsTheWholeYieldWithThePosition() public {
-        vault.setYieldFeeBps(0);
+    function test_treasuryStaysEmptyWhileYieldIsOpenAndAtUnlock() public {
         uint64 id = _open(10 ether);
         vm.warp(block.timestamp + 10 minutes);
-        assertEq(vault.accruedYield(id), _gross(10 ether, 10 minutes));
+        assertEq(vault.treasuryBalance(), 0);
+        _deliver(_unlockMsg(id, 1));
+        assertEq(vault.treasuryBalance(), 0, "Unlock realises no fee");
+        assertEq(vault.realisedFees(), 0);
+        assertEq(vault.poolOwedUnits(), 0, "Unlock owes the Pool nothing");
+        assertEq(vault.accruedYield(id), _gross(10 ether, 10 minutes), "frozen at the gross yield");
+    }
+
+    function test_holderPayYieldWithFeePaysNetAndGrowsTreasuryAndPool() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 20 minutes);
+        uint256 amount = vault.payableYield(id) / 2;
+        uint256 fee = amount / 5;
+        uint256 pool = fee / 2;
+        uint256 supply = lst.totalSupply();
+        _deliver(_payFeeMsg(id, 1, redeemer, amount, fee, pool));
+        assertEq(lst.balanceOf(redeemer), amount - fee, "holder gets amount minus fee");
+        assertEq(vault.getPosition(id).paidUnderlying, amount, "the Position is debited the gross");
+        assertEq(vault.realisedFees(), fee);
+        assertEq(vault.poolOwedUnits(), pool);
+        assertEq(vault.treasuryBalance(), fee - pool, "Treasury keeps the fee minus the Pool's part");
+        assertEq(lst.totalSupply(), supply + amount - fee, "the fee is not minted until it is spent");
+    }
+
+    function test_exemptPayYieldPaysTheFullAmount() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 20 minutes);
+        uint256 amount = vault.payableYield(id) / 2;
+        _deliver(_payFeeMsg(id, 1, redeemer, amount, 0, 0));
+        assertEq(lst.balanceOf(redeemer), amount);
+        assertEq(vault.realisedFees(), 0);
         assertEq(vault.treasuryBalance(), 0);
     }
 
-    function test_feeChangeOnlyAffectsNewPositions() public {
-        uint64 a = _open(4 ether);
-        vault.setYieldFeeBps(5000);
-        uint64 b = _open(4 ether);
-        vm.warp(block.timestamp + 10 minutes);
-        uint256 g = _gross(4 ether, 10 minutes);
-        assertEq(vault.accruedYield(a), g - (g * 2000) / 10_000);
-        assertEq(vault.accruedYield(b), g - g / 2);
-        assertApproxEqAbs(vault.treasuryBalance(), (g * 2000) / 10_000 + g / 2, 2);
+    function test_refillPayYieldKeepsEverythingAndOwesThePool() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 20 minutes);
+        uint256 amount = vault.payableYield(id) / 2;
+        uint256 pool = amount / 4;
+        uint256 supply = lst.totalSupply();
+        _deliver(_payFeeMsg(id, 1, address(vault), amount, amount / 5, pool));
+        assertEq(lst.totalSupply(), supply, "a refill moves nothing");
+        assertEq(vault.treasuryCredited(), amount);
+        assertEq(vault.poolOwedUnits(), pool);
+        assertEq(vault.treasuryBalance(), amount - pool);
     }
 
-    function test_setYieldFeeIsAdminOnlyAndCapped() public {
-        vm.prank(alice);
-        vm.expectRevert(PositionVault.NotAdmin.selector);
-        vault.setYieldFeeBps(100);
-        vm.expectRevert(PositionVault.FeeTooHigh.selector);
-        vault.setYieldFeeBps(5001);
-        vault.setYieldFeeBps(5000);
-        assertEq(vault.yieldFeeBps(), 5000);
+    function test_payYieldRefusesAFeeOrPoolAboveTheAmount() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 20 minutes);
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.BadFeeSplit.selector, 100, 101, 0));
+        _deliver(_payFeeMsg(id, 1, redeemer, 100, 101, 0));
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.BadFeeSplit.selector, 100, 10, 101));
+        _deliver(_payFeeMsg(id, 1, redeemer, 100, 10, 101));
+    }
+
+    /// Defence in depth (red-team 31 #10): a bridge bug can never take more than the 50% Yield Fee cap of a holder's
+    /// yield; the cap itself still passes.
+    function test_payYieldRefusesAFeeAboveTheYieldFeeCap() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 20 minutes);
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.BadFeeSplit.selector, 100, 51, 0));
+        _deliver(_payFeeMsg(id, 1, redeemer, 100, 51, 0));
+        uint256 before = lst.balanceOf(redeemer);
+        _deliver(_payFeeMsg(id, 1, redeemer, 100, 50, 25));
+        assertEq(lst.balanceOf(redeemer) - before, 50);
     }
 
     function test_noAccrualAfterUnlock() public {
@@ -285,9 +295,12 @@ contract PositionVaultSimTest is VaultBase {
     function test_withdrawTreasuryTakesFeesAndFundingAndNothingMore() public {
         uint64 id = _open(10 ether);
         _fundTreasury(1 ether);
+        uint256 supply0 = lst.totalSupply();
         vm.warp(block.timestamp + 10 minutes);
+        uint256 fee = _gross(10 ether, 10 minutes) / 5;
+        _deliver(_payFeeMsg(id, 1, redeemer, fee * 5 / 2, fee / 2, fee / 4)); // a cash-out takes a fee
         uint256 treasury = vault.treasuryBalance();
-        assertApproxEqAbs(treasury, 1 ether + (_gross(10 ether, 10 minutes) * 2000) / 10_000, 2);
+        assertEq(treasury, 1 ether + fee / 2 - fee / 4);
 
         vm.prank(alice);
         vm.expectRevert(PositionVault.NotAdmin.selector);
@@ -296,14 +309,18 @@ contract PositionVaultSimTest is VaultBase {
         vault.withdrawTreasury(treasury + 1e18, address(0xC0FFEE));
 
         // more than the funding: the excess is a fee that was never minted, so it is minted now
-        uint256 supply = lst.totalSupply();
         uint256 take = treasury - 1;
         vault.withdrawTreasury(take, address(0xC0FFEE));
         assertEq(lst.balanceOf(address(0xC0FFEE)), take);
-        assertEq(lst.totalSupply(), supply + take - 1 ether, "funded shares are paid before anything is minted");
+        // the cash-out holder (net of the fee) and the withdrawal are paid from the funded shares first
+        assertEq(
+            lst.totalSupply(),
+            supply0 + (fee * 5 / 2 - fee / 2) + take - 1 ether,
+            "funded shares are paid before anything is minted"
+        );
         assertApproxEqAbs(vault.treasuryBalance(), 1, 3);
         assertEq(lst.balanceOf(address(vault)), 10 ether, "Principal untouched");
-        _deliver(_unlockMsg(id, 1));
+        _deliver(_unlockMsg(id, 2));
         assertEq(lst.balanceOf(alice), lst.faucetAmount(), "Principal back in full");
     }
 
@@ -326,10 +343,12 @@ contract PositionVaultSimTest is VaultBase {
     function test_payInstantFromUnmintedFeesMintsAtPayout() public {
         uint64 id = _open(10 ether);
         vm.warp(block.timestamp + 20 minutes);
+        uint256 amount = vault.payableYield(id) / 2;
+        _deliver(_payFeeMsg(id, 1, address(0xDEAD), amount, amount / 5, 0));
         uint256 fee = vault.treasuryBalance();
-        assertGt(fee, 0);
+        assertEq(fee, amount / 5);
         assertEq(lst.balanceOf(address(vault)), 10 ether);
-        _deliver(_instantMsg(id, 1, redeemer, fee / 2));
+        _deliver(_instantMsg(id, 2, redeemer, fee / 2));
         assertEq(lst.balanceOf(redeemer), fee / 2);
         assertEq(lst.balanceOf(address(vault)), 10 ether);
     }
@@ -358,6 +377,7 @@ contract PositionVaultSimTest is VaultBase {
         uint64 id = _open(10 ether);
         vm.warp(block.timestamp + 10 minutes);
         uint256 amt = vault.payableYield(id) / 2;
+        _fundTreasury(1 ether);
         uint256 fees = vault.treasuryBalance();
         uint256 supply = lst.totalSupply();
         _deliver(_payMsg(id, 1, address(vault), amt));
@@ -380,6 +400,7 @@ contract PositionVaultSimTest is VaultBase {
 
     function test_reportYieldOnDemandCarriesAccruedAndTreasuryBalance() public {
         uint64 id = _open(10 ether);
+        _fundTreasury(1 ether);
         vm.warp(block.timestamp + 10 minutes);
         vault.reportYield(id);
         vm.warp(block.timestamp + 10 minutes);
@@ -393,8 +414,9 @@ contract PositionVaultSimTest is VaultBase {
         assertGt(a1, 0);
         assertGt(a2, a1);
         assertEq(a2, vault.accruedYield(id));
+        assertEq(a2, _gross(10 ether, 20 minutes), "the report carries the gross yield");
         assertEq(t2, vault.treasuryBalance());
-        assertGt(t2, t1);
+        assertEq(t2, t1, "open yield adds nothing to the Treasury");
         // spending the Treasury lowers the next report
         _deliver(_instantMsg(id, 1, redeemer, t2 / 2));
         vault.reportYield(id);
@@ -411,7 +433,7 @@ contract PositionVaultSimTest is VaultBase {
         assertEq(lst.balanceOf(address(vault)), 10 ether);
     }
 
-    function testFuzz_treasuryClaimMatchesFeesForRandomOpens(uint8 n, uint256 seed) public {
+    function testFuzz_treasuryStaysEmptyForRandomOpensAndUnlocks(uint8 n, uint256 seed) public {
         n = uint8(bound(n, 1, 12));
         uint64[] memory ids = new uint64[](n);
         for (uint256 i; i < n; i++) {
@@ -426,15 +448,8 @@ contract PositionVaultSimTest is VaultBase {
         vm.warp(block.timestamp + (seed % 2 days));
         if (n > 2) _deliver(_unlockMsg(ids[1], 1));
         vm.warp(block.timestamp + 1 hours);
-        uint256 sum;
-        for (uint256 i; i < n; i++) {
-            PositionVault.Position memory p = vault.getPosition(ids[i]);
-            uint256 acc = vault.accruedYield(ids[i]);
-            // fee = gross - accrued, gross reconstructed from the per-Position coefficients (or frozen accrued)
-            if (p.unlocked) sum += (acc * 2000) / 8000;
-            else sum += _fee(ids[i]);
-        }
-        assertApproxEqAbs(vault.treasuryBalance(), sum, uint256(n) * 2 + 2);
+        assertEq(vault.treasuryBalance(), 0);
+        assertEq(vault.poolOwedUnits(), 0);
     }
 
     function test_vaultIsTheOnlyMinter() public {
@@ -617,19 +632,22 @@ contract PositionVaultWstETHTest is VaultBase {
         assertEq(wst.balanceOf(alice), 100 ether);
     }
 
-    // Gross yield at the moved rate is Principal * (rate now / rate at open - 1); the Yield Fee (20%) is taken
-    // from it as for a SimLST, and nothing is minted.
+    // Yield at the moved rate is Principal * (rate now / rate at open - 1), all of it Gemas; the Yield Fee is taken
+    // when yield leaves (PayYield names it), and nothing is minted.
 
     function test_movingRateDrivesYield() public {
         vm.prank(alice);
         uint64 id = vault.openPosition(10 ether, 6);
         assertEq(vault.accruedYield(id), 0);
         wst.setRate(1.0403e18);
-        assertApproxEqAbs(vault.accruedYield(id), 0.0824 ether, 2); // 10 * (1.0403 - 1.03) * 80%
-        assertApproxEqAbs(vault.treasuryBalance(), 0.0206 ether, 2);
+        assertApproxEqAbs(vault.accruedYield(id), 0.103 ether, 2); // 10 * (1.0403 - 1.03)
+        assertEq(vault.treasuryBalance(), 0, "open yield is not spendable");
         wst.setRate(1.0506e18);
-        assertApproxEqAbs(vault.accruedYield(id), 0.1648 ether, 2);
-        assertApproxEqAbs(vault.treasuryBalance(), 0.0412 ether, 2);
+        assertApproxEqAbs(vault.accruedYield(id), 0.206 ether, 2);
+        assertEq(vault.treasuryBalance(), 0);
+        _deliver(_unlockMsg(id, 1));
+        assertEq(vault.treasuryBalance(), 0, "Unlock takes no fee");
+        assertEq(vault.poolOwedShares(), 0);
     }
 
     function test_payYieldInSharesWorthUnderlyingFromTheHeldShares() public {
@@ -656,25 +674,33 @@ contract PositionVaultWstETHTest is VaultBase {
         vm.prank(alice);
         uint64 id = vault.openPosition(10 ether, 6);
         wst.setRate(1.0403e18);
+        _deliver(_payFeeMsg(id, 1, redeemer, 0.05 ether, 0.02 ether, 0)); // a cash-out takes a fee
         uint256 fee = vault.treasuryBalance();
-        _deliver(abi.encode(uint8(5), CHAIN, id, uint64(1), bytes32(uint256(uint160(redeemer))), fee));
+        assertApproxEqAbs(fee, 0.02 ether, 2);
+        uint256 holderGot = wst.balanceOf(redeemer);
+        _deliver(abi.encode(uint8(5), CHAIN, id, uint64(2), bytes32(uint256(uint160(redeemer))), fee));
         assertEq(vault.instantPaid(), fee);
-        assertApproxEqAbs(wst.balanceOf(redeemer) * 1.0403e18 / 1e18, fee, 2);
+        assertApproxEqAbs((wst.balanceOf(redeemer) - holderGot) * 1.0403e18 / 1e18, fee, 2);
         // the next one finds an empty Treasury: it waits, never touching Principal
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1 ether, 0));
-        _deliver(abi.encode(uint8(5), CHAIN, id, uint64(2), bytes32(uint256(uint160(redeemer))), 1 ether));
+        vm.expectPartialRevert(PositionVault.InsufficientTreasury.selector);
+        _deliver(abi.encode(uint8(5), CHAIN, id, uint64(3), bytes32(uint256(uint160(redeemer))), 1 ether));
     }
 
     function test_withdrawTreasuryPaysFromHeldSharesAndNeverMintsOrEatsPrincipal() public {
         vm.prank(alice);
         uint64 id = vault.openPosition(10 ether, 6);
         wst.setRate(1.0403e18);
+        assertEq(vault.treasuryBalance(), 0, "open yield is not withdrawable");
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1, 0));
+        vault.withdrawTreasury(1, address(0xC0FFEE));
+        _deliver(_payFeeMsg(id, 1, redeemer, 0.05 ether, 0.02 ether, 0)); // a cash-out takes a fee
+        _deliver(_unlockMsg(id, 2));
+        assertApproxEqAbs((wst.balanceOf(alice) - 90 ether) * 1.0403e18 / 1e18, 10.3 ether, 2);
         uint256 fee = vault.treasuryBalance();
+        assertApproxEqAbs(fee, 0.02 ether, 2);
         vault.withdrawTreasury(fee, address(0xC0FFEE));
         assertApproxEqAbs(wst.balanceOf(address(0xC0FFEE)) * 1.0403e18 / 1e18, fee, 2);
-        assertEq(vault.treasuryBalance(), 0);
-        _deliver(_unlockMsg(id, 1));
-        assertApproxEqAbs((wst.balanceOf(alice) - 90 ether) * 1.0403e18 / 1e18, 10.3 ether, 2);
+        assertLe(vault.treasuryBalance(), 1, "at most a wei of rounding dust stays");
     }
 
     function test_unlockReleasesPrincipalAtTheCurrentRateAndFreezesTheYield() public {
@@ -687,7 +713,9 @@ contract PositionVaultWstETHTest is VaultBase {
         wst.setRate(1.2e18);
         assertEq(vault.accruedYield(id), accrued, "frozen at Unlock");
         _deliver(_payMsg(id, 2, redeemer, accrued));
-        assertApproxEqAbs(wst.balanceOf(redeemer) * 1.2e18 / 1e18, accrued, 1e10);
+        // Holders of an unlocked Position are owed shares fixed at the Unlock rate (they carry the move, up or
+        // down): worth `accrued` at 1.0403, more at 1.2.
+        assertApproxEqAbs(wst.balanceOf(redeemer) * 1.0403e18 / 1e18, accrued, 4);
     }
 
     function test_payYieldBeyondTheSpendableSharesRevertsRetryable() public {
@@ -713,46 +741,86 @@ contract PositionVaultWstETHTest is VaultBase {
         assertEq(wst.balanceOf(address(vault)), 10 ether - wst.balanceOf(redeemer));
         wst.setRate(1.2e18);
         vault.reportYield(id);
-        // gross = 10 shares-worth above Principal: (10 - 0.4/1.1) * 1.2 + 0.4 - 10 = 2.327..; net 80%
+        // yield = (10 - paid/1.1) * 1.2 + paid - 10, all of it reported
         uint256 held = 10 ether - wst.balanceOf(redeemer);
-        uint256 gross = held * 1.2e18 / 1e18 + 0.4 ether - 10 ether;
-        assertApproxEqAbs(vault.accruedYield(id), gross - gross * 2000 / 10_000, 4);
+        uint256 gross = held * 1.2e18 / 1e18 + vault.getPosition(id).paidUnderlying - 10 ether;
+        assertApproxEqAbs(vault.accruedYield(id), gross, 4);
         (,,, uint64 seq, uint256 accrued,,, uint256 treasury) =
             abi.decode(ep.outboxPayload(1), (uint8, uint32, uint64, uint64, uint256, uint256, uint256, uint256));
         assertEq(seq, 2);
         assertEq(accrued, vault.accruedYield(id));
         assertEq(treasury, vault.treasuryBalance());
+        assertEq(treasury, 0, "the open Position's yield is not spendable");
 
         uint256 claim = vault.payableYield(id);
         _deliver(_payMsg(id, 2, redeemer, claim)); // no InsufficientShares
         uint256 paid = vault.getPosition(id).paidUnderlying;
         // paid + Treasury never exceeds the value above Principal that the shares represent
         uint256 above = wst.balanceOf(address(vault)) * 1.2e18 / 1e18 + paid - 10 ether;
-        assertLe(paid + vault.treasuryBalance(), above + 4);
-        assertApproxEqAbs(paid + vault.treasuryBalance(), above, 6, "all of it is accounted for");
+        assertLe(paid, above + 4);
+        assertApproxEqAbs(paid, above, 6, "all of it is accounted for");
 
-        // the Treasury pays out in full, then Principal is intact for Unlock
-        vault.withdrawTreasury(vault.treasuryBalance(), address(0xC0FFEE));
+        // Principal is intact for Unlock, and Unlock takes no fee
         _deliver(_unlockMsg(id, 3));
         assertApproxEqAbs((wst.balanceOf(alice) - 90 ether) * 1.2e18 / 1e18, 10 ether, 2);
+        assertEq(vault.treasuryBalance(), 0);
     }
 
-    /// With several Positions the Treasury claim (from share totals) matches each Position's own fee.
-    function test_realRateTreasuryClaimFollowsPayoutsAcrossPositions() public {
+    /// With several Positions the Treasury holds exactly the fees cash-outs took, and the Pool's part of them.
+    function test_realRateTreasuryFollowsFeesTakenAtCashOut() public {
         wst.setRate(1e18);
         vm.startPrank(alice);
         uint64 a = vault.openPosition(10 ether, 12);
         uint64 b = vault.openPosition(5 ether, 12);
         vm.stopPrank();
         wst.setRate(1.1e18);
-        _deliver(_payMsg(a, 1, redeemer, vault.payableYield(a) / 2));
+        uint256 amtA = vault.payableYield(a) / 2;
+        _deliver(_payFeeMsg(a, 1, redeemer, amtA, amtA / 5, amtA / 10));
         wst.setRate(1.3e18);
-        _deliver(_payMsg(b, 1, redeemer, vault.payableYield(b)));
-        uint256 feeA = _realGross(a) * 2000 / 10_000;
-        uint256 feeB = _realGross(b) * 2000 / 10_000;
-        assertApproxEqAbs(vault.treasuryBalance(), feeA + feeB, 6);
+        uint256 amtB = vault.payableYield(b);
+        _deliver(_payFeeMsg(b, 1, redeemer, amtB, amtB / 5, amtB / 10));
+        // shares are fixed at each cash-out's rate (1.1 and 1.3); the Treasury figure values them at the live rate
+        uint256 poolShares = (amtA / 10) * 1e18 / 1.1e18 + (amtB / 10) * 1e18 / 1.3e18;
+        uint256 keptShares = (amtA / 5 - amtA / 10) * 1e18 / 1.1e18 + (amtB / 5 - amtB / 10) * 1e18 / 1.3e18;
+        assertApproxEqAbs(vault.poolOwedShares(), poolShares, 4, "the Pool's part, in shares");
+        assertApproxEqAbs(vault.treasuryBalance(), keptShares * 1.3e18 / 1e18, 8, "Treasury keeps the rest");
+
         _deliver(_unlockMsg(b, 2));
-        assertApproxEqAbs(vault.treasuryBalance(), feeA + feeB, 6);
+        _deliver(_unlockMsg(a, 2));
+        assertApproxEqAbs(vault.treasuryBalance(), keptShares * 1.3e18 / 1e18, 8, "Unlock changes nothing");
+        assertLe(
+            vault.owedShares() + vault.poolOwedShares() + vault.escrowShares() + vault.reservedShares(),
+            vault.treasuryShares()
+        );
+    }
+
+    /// An unlocked Position pays a holder with a fee: owed shares fall by the whole debit, the Treasury keeps the fee.
+    function test_realUnlockedHolderPayYieldWithFee() public {
+        vm.prank(alice);
+        uint64 id = vault.openPosition(10 ether, 6);
+        wst.setRate(1.0403e18);
+        _deliver(_unlockMsg(id, 1));
+        uint256 owedBefore = vault.owedShares();
+        uint256 tBefore = vault.treasuryShares();
+        uint256 amount = vault.accruedYield(id);
+        uint256 fee = amount / 5;
+        _deliver(_payFeeMsg(id, 2, redeemer, amount, fee, fee / 2));
+        assertEq(vault.owedShares(), owedBefore - (amount * 1e18 / vault.unlockRate(id)), "owed falls by the gross");
+        assertApproxEqAbs(wst.balanceOf(redeemer) * 1.0403e18 / 1e18, amount - fee, 4);
+        assertApproxEqAbs(vault.treasuryBalance(), fee - fee / 2, 6);
+        assertEq(tBefore - vault.treasuryShares(), wst.balanceOf(redeemer));
+    }
+
+    /// A refill (to == vault) on a real vault keeps all the shares in the Treasury and owes the Pool its part.
+    function test_realRefillKeepsEverythingAndOwesThePool() public {
+        vm.prank(alice);
+        uint64 id = vault.openPosition(10 ether, 6);
+        wst.setRate(1.0403e18);
+        uint256 amount = 0.05 ether;
+        _deliver(_payFeeMsg(id, 1, address(vault), amount, 0.01 ether, 0.02 ether));
+        assertApproxEqAbs(vault.treasuryBalance(), amount - 0.02 ether, 4);
+        assertApproxEqAbs(vault.poolOwedShares() * 1.0403e18 / 1e18, 0.02 ether, 4);
+        assertEq(wst.balanceOf(redeemer), 0);
     }
 
     function _realGross(uint64 id) internal view returns (uint256) {

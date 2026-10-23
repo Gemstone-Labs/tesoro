@@ -1,19 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
-import { getChain, getVanguard } from "@/lib/chain/client";
+import { getVanguard } from "@/lib/chain/client";
+import { matchAddressOf } from "@/lib/chain/match-id";
+import { NO_TABLE_NOTE } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { commitPhase, isCommitPending, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
+import { absenceLine } from "@/lib/absence-copy";
 import { isStale, refusalLine } from "./refusal";
-import { PublicKey } from "@solana/web3.js";
-import { VANGUARD_PROGRAM_ID, addresses, type DeclareSeal, type PlayerSigner } from "./chain";
+import { TABLE_PHASE, canFinalizeTable, tableOf, type Assignment, type DeclareSeal, type PlayerSigner, type TableState } from "./chain";
 import { SealLedger, SealLocked, sealDeclare, sealPad, type SealedEntry } from "./seal";
 import { turnKey } from "./clock";
-import { actionsDue, canDelegate, contributeBundled, readDue, tickDelayMs } from "./driver";
-import { STATUS, battleKey, decodeBattle, type ArmyAccount, type Battle } from "./decode";
+import { actionsDue, contributeBundled, readDue, tickDelayMs } from "./driver";
+import { STATUS, battleKey, type ArmyAccount, type Battle } from "./decode";
 
 /** Where a Vanguard Match is in its life, read from chain. */
 export type Stage = "loading" | "notfound" | "spectator" | "waiting" | "setup" | "live" | "closing" | "settled";
@@ -45,7 +46,7 @@ export interface ActionOptions {
 }
 
 /** The sealed-bytes ledger survives a reload of the page (sessionStorage), so a retry after a reload still resends the same bytes. */
-function sealStore(matchId: bigint, seat: number) {
+function sealStore(matchId: string, seat: number) {
   const key = `vanguard-seal:${matchId}:${seat}`;
   return {
     load: (): SealedEntry[] => {
@@ -74,14 +75,20 @@ const FINALIZE_GRACE_MS = 20_000;
 const OPENER_LATE_MS = 12_000;
 const now = () => Date.now();
 
+/** The table the Match is assigned to; a Player's action before it exists is refused. */
+const must = (a: Assignment | null): Assignment => {
+  if (!a) throw new Error("Not ready");
+  return a;
+};
+
 /**
- * Drives one Vanguard Match for one Player: reads the Battle and your own Army from the private rollup and does
- * every step that is not a move (create and delegate the Battle, permissions, entropy and the deal, close and
- * settle, and a timeout claim once a deadline has passed). Both Players' clients run the same driver; a step
- * that either may do is tried by one client first and by the other after a grace period, and a lost race is
- * harmless because each step re-reads chain state.
+ * Drives one Vanguard Match for one Player: reads the table, the Battle and your own Army from the private rollup and
+ * does every step that is not a move (begin the Match on its table, seat the Players, check in, entropy and the deal,
+ * commit the result and settle from it, and a timeout claim once a deadline has passed). The operator binds the Match to a
+ * table; both Players' clients run the same driver; a step that either may do is tried by one client first and by the
+ * other after a grace period, and a lost race is harmless because each step re-reads chain state.
  */
-export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, onSettled?: () => void) {
+export function useVanguardMatch(id: string | null, signer: ChainSigner | null, onSettled?: () => void) {
   const [view, setView] = useState<VanguardView>({
     stage: "loading",
     match: null,
@@ -112,6 +119,8 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
   const contributed = useRef(false);
   const contributedAt = useRef(0);
   const lastVrf = useRef(0);
+  const assignRef = useRef<Assignment | null>(null);
+  const [assignment, setAssignment] = useState<Assignment | null>(null);
   const lastClaim = useRef(0);
   const lastResolve = useRef(0);
   const battleRef = useRef<Battle | null>(null);
@@ -123,13 +132,13 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
   const tickRef = useRef<() => void>(() => undefined);
   const settledSeen = useRef(false);
   const finalRead = useRef(false);
-  const delegated = useRef(false);
   const failures = useRef(0);
   const turnSeenRef = useRef(0);
 
   useEffect(() => {
     turnSeenRef.current = view.turnSeenAt;
   }, [view.turnSeenAt]);
+  const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
   const p = useMemo(() => (signer ? (signer as unknown as PlayerSigner) : null), [signer]);
 
   const setStage = useCallback((s: Stage, note = "") => {
@@ -142,6 +151,8 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
   }, []);
 
   const applyBattle = useCallback((b: Battle) => {
+    // The table's Battle is reused by later Matches: only this Match's is shown.
+    if (mk !== null && !b.tesoroMatch.equals(mk)) return;
     battleRef.current = b;
     const k = battleKey(b);
     if (k === shownKey.current) return;
@@ -150,7 +161,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
     const fresh = tk !== turnId.current;
     turnId.current = tk;
     setView((v) => ({ ...v, battle: b, turnSeenAt: fresh ? now() : v.turnSeenAt }));
-  }, []);
+  }, [mk]);
 
   useEffect(() => {
     const vg = getVanguard();
@@ -162,10 +173,36 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
 
   // -- the driver (sequential; one step per tick) --------------------------------------------
 
+  /**
+   * Settles from the committed table once base has the result. One Player settles at once (the winner; seat 0 for a refund), the
+   * other waits and settles only if the Match is still open then, so the loser of a race does not burn a fee.
+   */
+  const settle = useCallback(
+    async (a: Assignment, seat: 0 | 1, b: Battle | null) => {
+      if (!p || !signer || id === null) return;
+      const vg = getVanguard();
+      if (!closingSince.current) closingSince.current = now();
+      const refund = !b || b.status === STATUS.cancelled || b.winner !== 0 && b.winner !== 1;
+      const mine = refund ? seat === 0 : b!.winner === seat;
+      if (!mine && now() - closingSince.current < FINALIZE_GRACE_MS) return;
+      const base = await vg.readTableOnBase(a);
+      if (!base || !canFinalizeTable(base, a, Date.now() / 1000)) return;
+      setView((v) => (v.commit ? { ...v, commit: null } : v));
+      try {
+        await vg.finalize(p, a);
+      } catch (e) {
+        // The other Player may have settled it in the same moment.
+        const again = await fetchMatch(id, BlockPuzzleChain.coreAccount(signer.publicKey));
+        if (again && (again.status === "settled" || again.status === "refunded")) return;
+        if (++failures.current >= 3) throw e;
+      }
+    },
+    [p, signer, id],
+  );
+
   const step = useCallback(async () => {
-    if (!p || !signer || id === null) return;
+    if (!p || !signer || id === null || mk === null) return;
     const vg = getVanguard();
-    const ad = addresses(id);
     const me = BlockPuzzleChain.coreAccount(signer.publicKey);
     const m = await fetchMatch(id, me);
     setView((v) => ({ ...v, match: m, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
@@ -179,8 +216,10 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       setStage("settled");
       if (!finalRead.current) {
         finalRead.current = true;
-        const b = await vg.readBattleOnBase(id);
-        if (b) setView((v) => ({ ...v, battle: b }));
+        // The board of a Match whose table was reused is gone from base: the screen then shows the core result alone.
+        const a = await vg.readAssignment(mk!);
+        const b = a ? await vg.readBattleOnBase(a) : null;
+        if (b && b.tesoroMatch.equals(mk!)) setView((v) => ({ ...v, battle: b }));
       }
       if (!settledSeen.current) {
         settledSeen.current = true;
@@ -190,128 +229,118 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       return;
     }
 
-    // Active: the Battle has to exist, live on the rollup, and be set up.
+    // Active: the operator binds the Match to a table; then the table begins it, seats the Players and both check in.
     if (!activeSince.current) activeSince.current = now();
-    // The joiner sets the Battle up; the opener steps in if that stalls.
+    // The joiner does the steps either Player may do; the opener steps in if that stalls.
     const late = now() - activeSince.current >= (seat === 1 ? 0 : OPENER_LATE_MS);
-    const info = await vg.base.getAccountInfo(ad.battle);
+    const a = await vg.readAssignment(mk!);
+    if (!a) return setStage("setup", NO_TABLE_NOTE);
+    if (assignRef.current?.address.toBase58() !== a.address.toBase58()) {
+      assignRef.current = a;
+      setAssignment(a);
+    }
+    const t = await vg.readTable(p, a);
+    if (!t) return setStage("setup", "Setting up the Match");
+    if (!tableOf(a, t)) {
+      // The table has been wiped for its next Match: the result lives in the committed ring.
+      setStage("closing", "Paying out the Pot");
+      return settle(a, seat, null);
+    }
+    const b = await vg.readBattle(p, a);
+    if (!b || !b.tesoroMatch.equals(mk!)) return setStage("setup", "Setting up the Match");
+    applyBattle(b);
+    const nowS = Math.floor(Date.now() / 1000);
 
-    if (!info) {
-      setStage("setup", "Setting up the Match");
-      if (!late || !m.opponent) return;
-      const core = getChain().core;
-      const opp: any = await core.account.tesoroAccount.fetch(new PublicKey(m.opponent));
-      const [a, b] = seat === 0 ? [signer.publicKey, opp.authority] : [opp.authority, signer.publicKey];
-      await vg.createMatch(p, id, a, b);
+    if (t.phase === TABLE_PHASE.idle) {
+      setStage("setup", "Starting the Match");
+      if (late && nowS <= a.startDeadline) await vg.beginMatch(p, a).catch(() => undefined);
       return;
     }
-
-    if (info.owner.equals(VANGUARD_PROGRAM_ID)) {
-      const b = decodeBattle(info.data);
-      if (b.status === STATUS.created && canDelegate(b, Math.floor(now() / 1000))) {
-        setStage("setup", "Creating your session");
-        if (!late) return;
-        await vg.delegateMatch(p, id);
+    if (t.phase === TABLE_PHASE.waiting) {
+      if (nowS > t.startDeadline) {
+        // Never both checked in: the Player who came wins, nobody coming is a no-show.
+        setStage("setup", absenceLine(t.checkedIn, seat));
+        if (seat === 1 || now() - activeSince.current > OPENER_LATE_MS) await vg.claimTimeout(p, a).catch(() => undefined);
         return;
       }
-      // Committed back after the Match ended, or never started in time (a no-show is refunded): settle.
-      delegated.current = false;
-      setView((v) => ({ ...v, battle: b }));
-      setStage("closing", b.status === STATUS.created ? "Refunding your entry" : "Paying out the Pot");
-      setView((v) => (v.commit ? { ...v, commit: null } : v));
-      if (!closingSince.current) closingSince.current = now();
-      // One Player settles at once (the winner; seat 0 for a draw or a cancel). The other waits and settles
-      // only if the Match is still open then, so the loser of a race does not burn a fee.
-      const mine = b.winner === 0 || b.winner === 1 ? b.winner === seat : seat === 0;
-      if (!mine && now() - closingSince.current < FINALIZE_GRACE_MS) return;
-      try {
-        await vg.finalize(p, id);
-      } catch (e) {
-        const again = await fetchMatch(id, me);
-        if (again && (again.status === "settled" || again.status === "refunded")) return;
-        if (++failures.current >= 3) throw e;
+      if (!t.seatsOpen) {
+        setStage("setup", "Creating your session");
+        if (late) await vg.seatPlayers(p, a).catch(() => undefined);
+        return;
       }
-      return;
-    }
-
-    if (!info.owner.equals(DELEGATION_PROGRAM_ID)) return;
-    delegated.current = true;
-    const b = await vg.readBattle(p, id);
-    if (!b) return setStage("setup", "Creating your session");
-    applyBattle(b);
-
-    if (b.status === STATUS.created) {
-      setStage("setup", "Setting up the Match");
-      if (!late) return;
-      try {
-        await vg.initPermissions(p, id);
-      } catch (e) {
-        if ((await vg.readBattle(p, id))?.status === STATUS.created) throw e;
+      if (!t.checkedIn[seat]) {
+        setStage("setup", "Joining the Match");
+        await vg.checkIn(p, a);
+        return;
       }
+      setStage("setup", "Waiting for your opponent");
       return;
     }
 
-    if (b.status === STATUS.setup) {
-      setStage("setup", "Drawing the armies in secret");
-      await setUp(seat, b);
-      return;
-    }
-
-    if (b.status === STATUS.live) {
+    if (t.phase === TABLE_PHASE.live) {
+      if (b.status === STATUS.setup) {
+        setStage("setup", "Drawing the armies in secret");
+        await setUp(seat, a, t, b);
+        return;
+      }
       setStage("live");
       return;
     }
 
-    // Over or cancelled: wipe the private accounts and commit everything back.
+    // Over: commit the public result, then settle from the committed ring.
     setStage("closing", "Saving the result");
     if (!closingSince.current) closingSince.current = now();
-    const mine = b.winner === 0 || b.winner === 1 ? b.winner === seat : seat === 0;
-    if (!mine && now() - closingSince.current < 15_000) return;
+    const refund = b.status === STATUS.cancelled || (b.winner !== 0 && b.winner !== 1);
+    const mine = refund ? seat === 0 : b.winner === seat;
+    if (t.dirty) {
+      if (!mine && now() - closingSince.current < 15_000) return;
+      if (now() - lastClose.current < 10_000) return;
+      lastClose.current = now();
+      try {
+        await vg.commitTable(p, a);
+        closeFailures.current = 0;
+      } catch (e) {
+        // The other Player committed first, or the commit is already in flight: only other errors count.
+        if (!isCommitPending(e) && !/NotDirty/.test(String(e)) && ++closeFailures.current >= 3) throw e;
+        if (!isCommitPending(e) && !/NotDirty/.test(String(e))) return;
+      }
+      if (!commitSince.current) commitSince.current = now();
+      setCommitPending(id, true);
+      setView((v) => ({ ...v, commit: { phase: "sending", won: mine } }));
+      return;
+    }
     if (commitSince.current) {
       const phase = commitPhase(commitSince.current, now());
       setView((v) => (v.commit?.phase === phase && v.commit.won === mine ? v : { ...v, commit: { phase, won: mine }, error: null }));
-      return;
     }
-    if (now() - lastClose.current < 30_000) return;
-    lastClose.current = now();
-    try {
-      if (b.permissioned) await vg.closeMatch(p, id);
-      else await vg.closeUnstarted(p, id);
-    } catch (e) {
-      // The other Player closed it first, or the commit is already in flight: only other errors count.
-      if (!isCommitPending(e) && ++closeFailures.current >= 3) throw e;
-      if (!isCommitPending(e)) return;
-    }
-    commitSince.current = now();
-    setCommitPending(id, true);
-    setView((v) => ({ ...v, commit: { phase: "sending", won: mine } }));
+    await settle(a, seat, b);
 
-    async function setUp(s: 0 | 1, current: Battle) {
+    async function setUp(s: 0 | 1, ref: Assignment, tb: TableState, current: Battle) {
       if (!p || id === null) return;
+      // The secret is sent once per Match: a retry would send a second one, so the seat is asked first.
       if (!contributed.current) {
-        await contributeBundled(vg, p, id, current.oracleQueue);
+        if (!(await vg.hasContributed(p, ref, s))) await contributeBundled(vg, p, ref, s, current.oracleQueue);
         contributed.current = true;
         contributedAt.current = now();
         lastVrf.current = 0;
         return;
       }
-      // The second contributor already asked with its secret. Either Player asks again if the output is late.
-      if (s === 0 && now() - contributedAt.current < 6_000) return;
-      if (now() - lastVrf.current > 15_000) {
+      if (tb.vrfReady) {
+        await vg.deal(p, ref).catch(() => undefined);
+        return;
+      }
+      // The request is made once per Match (the program refuses a second one): the second contributor asked with its secret;
+      // either Player asks if that did not happen.
+      if (!tb.reqMade && !tb.reqPending && (s === 1 || now() - contributedAt.current > 6_000) && now() - lastVrf.current > 5_000) {
+        lastVrf.current = now();
         try {
-          await vg.requestVrf(p, id, current.oracleQueue);
-          lastVrf.current = now();
+          await vg.requestVrf(p, ref, current.oracleQueue);
         } catch {
-          // Refused until both secrets are in.
+          // Refused until the other Player's secret is in, or the other Player asked first.
         }
       }
-      try {
-        await vg.deal(p, id);
-      } catch {
-        // Refused until the randomness has arrived, or the other Player dealt first.
-      }
     }
-  }, [p, signer, id, setStage, applyBattle, onSettled]);
+  }, [p, signer, id, mk, setStage, applyBattle, onSettled, settle]);
 
   const tick = useCallback(async () => {
     if (working.current) return;
@@ -350,13 +379,14 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
   // -- the reader (fast, independent of the driver) -------------------------------------------
 
   useEffect(() => {
-    if (!p || id === null) return;
+    if (!p || id === null || !assignment) return;
+    const ref = assignment;
     let stop = false;
     let busy = false;
     let unwatch: (() => void) | null = null;
     const live = () => {
       const seat = seatRef.current;
-      return seat !== null && delegated.current && ["live", "closing", "setup"].includes(stage.current) ? seat : null;
+      return seat !== null && ["live", "closing", "setup"].includes(stage.current) ? seat : null;
     };
     const readArmy = async (b: Battle) => {
       const seat = live();
@@ -364,8 +394,8 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       const key = [b.status, b.turnNo, b.moves, b.actionSeq].join(":");
       if (key === armyKey.current) return;
       armyKey.current = key;
-      const army = await getVanguard().readOwnArmy(p, id, seat).catch(() => null);
-      if (army && army.ranks.some((r) => r !== 0) && !stop) {
+      const army = await getVanguard().readOwnArmy(p, ref, seat).catch(() => null);
+      if (army && army.dealt && army.ranks.some((r) => r !== 0) && !stop) {
         armyRef.current = army;
         setView((v) => (v.army && sameArmy(v.army, army) ? v : { ...v, army }));
       }
@@ -380,16 +410,16 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       const vg = getVanguard();
       if (due.resolve) {
         lastResolve.current = now();
-        await vg.resolve(p, id).catch(() => undefined);
+        await vg.resolve(p, ref).catch(() => undefined);
       }
       if (due.claim) {
         lastClaim.current = now();
-        await vg.claimTimeout(p, id).catch(() => undefined);
+        await vg.claimTimeout(p, ref).catch(() => undefined);
       }
     };
     void getVanguard()
-      .watchBattle(p, id, (b) => {
-        if (stop) return;
+      .watchBattle(p, ref, (b) => {
+        if (stop || (mk !== null && !b.tesoroMatch.equals(mk))) return;
         lastUpdate.current = now();
         applyBattle(b);
         void readArmy(b);
@@ -407,9 +437,9 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       busy = true;
       try {
         if (readDue(now(), lastUpdate.current, lastRead.current)) {
-          const b = await getVanguard().readBattle(p, id);
+          const b = await getVanguard().readBattle(p, ref);
           lastRead.current = now();
-          if (!b || stop) return;
+          if (!b || stop || (mk !== null && !b.tesoroMatch.equals(mk))) return;
           setView((v) => (v.reconnecting ? { ...v, reconnecting: false } : v));
           applyBattle(b);
           await readArmy(b);
@@ -428,7 +458,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       unwatch?.();
       clearInterval(t);
     };
-  }, [p, id, applyBattle]);
+  }, [p, id, mk, assignment, applyBattle]);
 
   // -- Player decisions -----------------------------------------------------------------------
 
@@ -441,15 +471,16 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       const b = battleRef.current;
       const army = armyRef.current;
       const seat = seatRef.current;
-      if (!b || !army || seat === null || id === null) throw new Error("Not ready");
+      if (!b || !army || seat === null || id === null || mk === null) throw new Error("Not ready");
       const hex = Array.from(army.sealKey, (x) => x.toString(16).padStart(2, "0")).join("");
       if (ledgerRef.current?.key !== hex) {
-        const battle = addresses(id).battle.toBytes();
-        ledgerRef.current = { key: hex, ledger: new SealLedger((seq, field) => sealPad(army.sealKey, battle, seat, seq, field), sealStore(id, seat)) };
+        // The pad is bound to the tesoro_core Match (the Battle address is the same for every Match on a table).
+        const binding = mk.toBytes();
+        ledgerRef.current = { key: hex, ledger: new SealLedger((seq, field) => sealPad(army.sealKey, binding, seat, seq, field), sealStore(id, seat)) };
       }
       return sealDeclare(ledgerRef.current.ledger, b.actionSeq, army, { spy: !!o.spy, withSlot, digIn });
     },
-    [id],
+    [id, mk],
   );
 
   /** A declare landed: the program applies it in a later slot. Try right away; the poll keeps trying if this misses. */
@@ -457,7 +488,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
     if (!p || id === null) return;
     const vg = getVanguard();
     for (let i = 0; i < 4; i++) {
-      if (await vg.resolve(p, id).then(() => true, () => false)) break;
+      if (await vg.resolve(p, must(assignRef.current)).then(() => true, () => false)) break;
       await new Promise((r) => setTimeout(r, 250));
     }
   }, [p, id]);
@@ -472,7 +503,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
       } catch (e) {
         if (e instanceof SealLocked) throw new Error(e.message);
         if (isStale(e)) {
-          const fresh = await getVanguard().readBattle(p, id).catch(() => null);
+          const fresh = await getVanguard().readBattle(p, must(assignRef.current)).catch(() => null);
           if (fresh) applyBattle(fresh);
         }
         throw new Error(refusalLine(e));
@@ -486,9 +517,9 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
     async (piece: number, to: number, o: ActionOptions = {}) =>
       declare(async () => {
         const seal = await sealFor(o, false, null);
-        return getVanguard().movePiece(p!, id!, piece, to, seal);
+        return getVanguard().movePiece(p!, must(assignRef.current), piece, to, seal);
       }),
-    [declare, sealFor, p, id],
+    [declare, sealFor, p],
   );
 
   /** Blast or Rescue with `piece`, or Dig in (a pass whose sealed slot names the Major). */
@@ -496,18 +527,18 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
     async (kind: "blast" | "rescue" | "dig_in", piece: number, o: ActionOptions = {}) =>
       declare(async () => {
         const vg = getVanguard();
-        if (kind === "dig_in") return vg.pass(p!, id!, await sealFor(o, true, piece));
+        if (kind === "dig_in") return vg.pass(p!, must(assignRef.current), await sealFor(o, true, piece));
         const seal = await sealFor(o, false, null);
-        return kind === "blast" ? vg.blast(p!, id!, piece, seal) : vg.rescue(p!, id!, piece, seal);
+        return kind === "blast" ? vg.blast(p!, must(assignRef.current), piece, seal) : vg.rescue(p!, must(assignRef.current), piece, seal);
       }),
-    [declare, sealFor, p, id],
+    [declare, sealFor, p],
   );
 
 
   const twoStep = useCallback(async () => {
     if (!p || id === null) throw new Error("Not ready");
     try {
-      await getVanguard().startTwoStep(p, id);
+      await getVanguard().startTwoStep(p, must(assignRef.current));
     } catch (e) {
       throw new Error(plainError(e));
     }

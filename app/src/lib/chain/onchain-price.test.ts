@@ -43,9 +43,9 @@ describe("Pyth push feeds", () => {
     expect(parsePythPrice(null, "SOL")).toBeNull();
   });
 
-  it("sizes an Advance on the feed price like the program (12 SOL, 7%, a month, 80% -> 840 Gemas at $150)", () => {
+  it("sizes an Advance on the feed price like the program (12 SOL, 7%, a month -> 1,050 Gemas at $150)", () => {
     const price = parsePythPrice(image("SOL", 15_000_000_000n, 0n, 1_000), "SOL")!;
-    expect(quoteNativeAdvance(12_000_000_000n, 700, 1, price.microUsd).gemas).toBe(840n);
+    expect(quoteNativeAdvance(12_000_000_000n, 700, 1, price.microUsd).gemas).toBe(1050n);
   });
 });
 
@@ -56,7 +56,7 @@ describe("Advance accounts per cluster", () => {
   });
 
   it("test mode prices from the keeper's account", () => {
-    const ix = takeNativeAdvanceIx(Keypair.generate().publicKey, Keypair.generate().publicKey, 0, 3);
+    const ix = takeNativeAdvanceIx(Keypair.generate().publicKey, Keypair.generate().publicKey, 0, 3, 1n);
     expect(ix.keys[4].pubkey.equals(solPriceKey())).toBe(true);
     expect(solPriceKey().equals(pythFeedAddress("SOL"))).toBe(false);
   });
@@ -69,7 +69,7 @@ describe("Advance accounts per cluster", () => {
     const n = await import("./native");
     const mint = n.SIM_SOL_MINT;
     const owner = Keypair.generate().publicKey;
-    const ix = n.takeNativeAdvanceIx(owner, Keypair.generate().publicKey, 0, 12);
+    const ix = n.takeNativeAdvanceIx(owner, Keypair.generate().publicKey, 0, 12, 1n);
     const keys = ix.keys.map((k) => k.pubkey.toBase58());
     expect(keys[2]).toBe(n.protectionsPda(n.accountPda(owner)).toBase58());
     expect(keys[4]).toBe(n.onchainPricePda(mint).toBase58());

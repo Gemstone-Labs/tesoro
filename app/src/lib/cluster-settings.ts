@@ -76,7 +76,7 @@ const MAGICBLOCK_PRICE_FEEDS = {
 export const CLUSTERS: Record<ClusterId, ClusterSettings> = {
   test: {
     id: "test",
-    entrySizes: [500, 1000, 2500],
+    entrySizes: [100, 500, 1000],
     defaultHorizonMonths: 1,
     yieldModel: "simulated",
     priceSource: "keeper",

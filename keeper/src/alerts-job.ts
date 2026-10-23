@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { createPublicClient, http, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { log, type Ctx } from "./act.ts";
-import { AlertManager, alertConfig, conditionsOf, postAlert, readBalances, type AlertConfig, type Watch } from "./alerts.ts";
+import { AlertManager, alertConfig, conditionsOf, postAlert, raisedConditions, readBalances, type AlertConfig, type Watch } from "./alerts.ts";
 import { keeperCluster } from "./cluster.ts";
 import { NETS } from "./evm-nets.ts";
 import type { Health } from "./health.ts";
@@ -49,7 +49,7 @@ export function alertsJob(health: Health, env: NodeJS.ProcessEnv = process.env, 
   return async (ctx: Ctx): Promise<number> => {
     if (!manager) return 0;
     const balances = await readBalances(watches(ctx, cfg, env), (w) => balanceOf(ctx, w));
-    const active = conditionsOf({ health: health.status(), jobs: jobs.entries(), balances }, cfg, Date.now());
+    const active = [...conditionsOf({ health: health.status(), jobs: jobs.entries(), balances }, cfg, Date.now()), ...raisedConditions()];
     for (const c of active) log("alerts", c.key, `ACTIVE ${c.title}`);
     await manager.update(active);
     return active.length;

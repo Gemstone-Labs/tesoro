@@ -39,6 +39,7 @@ export const DOC_GROUPS: DocGroup[] = [
       { href: "/docs/developers/settlement", title: "How settlement works", summary: "How a Game program settles a Pot through tesoro_core.", keywords: "settle_match cpi authority register_game fees pot lines" },
       { href: "/docs/developers/rollups", title: "Private Ephemeral Rollups", summary: "Hidden state with MagicBlock: delegation, permissions, randomness.", keywords: "magicblock per tee tdx vrf delegate permission seed deck" },
       { href: "/docs/developers/cross-chain", title: "Cross-chain with LayerZero V2", summary: "How EVM Locks reach the Solana ledger and back.", keywords: "layerzero oapp bridge hoodi hyperevm message dvn" },
+      { href: "/docs/developers/list", title: "List your Game", summary: "Apply for free, get accepted, then $500 a year to be listed and featured.", keywords: "studio listing apply featured fee points sponsored backed upgrade approve" },
     ],
   },
 ];

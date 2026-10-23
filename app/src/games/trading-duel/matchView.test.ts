@@ -3,9 +3,9 @@ import { PublicKey } from "@solana/web3.js";
 import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
 import { Connection } from "@solana/web3.js";
 import idl from "../../lib/chain/idl/trading_duel.json";
-import { ASSETS, DRAW, NO_WINNER, STATUS, decodeBook, decodeDuel, type Book, type Duel } from "./chain";
+import { ASSETS, DRAW, NO_WINNER, OUTCOME, PHASE, SLOT, STATUS, decodeAssignment, decodeBook, decodeDuel, decodeTable, slotOf, type Book, type Duel } from "./chain";
 import { NO_PICK, newTrack, record } from "./grid";
-import { addSighting, clockOffsetMs, gridInputs, mergePicks, settlePending } from "./matchView";
+import { addSighting, canFinalize, clockOffsetMs, gridInputs, mergePicks, settlePending } from "./matchView";
 
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 const blank = () => Array.from({ length: 12 }, () => NO_PICK);
@@ -13,12 +13,14 @@ const row = (over: Record<number, number>) => blank().map((v, c) => over[c] ?? v
 
 const duel = (over: Partial<Duel> = {}): Duel => ({
   address: key(1),
-  matchId: 1n,
+  epoch: 0,
+  checkedIn: [true, true],
+  seatsOpen: true,
+  dirty: false,
   tesoroMatch: key(2),
   players: [key(3), key(4)],
   asset: ASSETS[0],
   status: STATUS.live,
-  finalized: false,
   winner: NO_WINNER,
   startDeadline: 0,
   startsAt: 1000,
@@ -32,7 +34,7 @@ const duel = (over: Partial<Duel> = {}): Duel => ({
   scores: [0, 0],
   ...over,
 });
-const book = (seat: 0 | 1, picks: number[]): Book => ({ address: key(9), duel: key(1), player: key(3 + seat), seat, picks, pickCount: picks.filter((p) => p !== NO_PICK).length });
+const book = (seat: 0 | 1, picks: number[]): Book => ({ address: key(9), table: key(1), player: key(3 + seat), seat, picks, pickCount: picks.filter((p) => p !== NO_PICK).length });
 
 describe("your picks", () => {
   it("come from your Book with unconfirmed picks laid over them", () => {
@@ -81,17 +83,32 @@ describe("decoding accounts with the program IDL", () => {
   // The same construction as the app client, so field names come out as the app reads them.
   const coder = new Program(idl as unknown as Idl, new AnchorProvider(new Connection("http://localhost:8899"), {} as never, {})).coder.accounts;
   const bn = (n: number | bigint) => new BN(n.toString());
-  const raw = {
-    bump: 255, authorityBump: 254, matchId: bn(5), tesoroMatch: key(2), players: [key(3), key(4)], asset: 1, status: 1, finalized: false, winner: 255,
-    startDeadline: bn(1), startsAt: bn(1000), gridAt: bn(1030), endsAt: bn(1150), anchor: bn(300000000000n), step: bn(60000000n), lastTick: bn(1001),
+  const slot = (over: Record<string, unknown> = {}) => ({ state: 0, matchKey: PublicKey.default, epoch: bn(0), outcome: 0, at: bn(0), ...over });
+  const rawTable = (over: Record<string, unknown> = {}) => ({
+    bump: 255, generation: 0, index: 3, epoch: bn(7), phase: PHASE.live, seatsOpen: true, dirty: false,
+    tesoroMatch: key(2), slot: 1, players: [key(3), key(4)], asset: 1, startDeadline: bn(1), checkedIn: [true, true],
+    startsAt: bn(1000), gridAt: bn(1030), endsAt: bn(1150), overAt: bn(0), anchor: bn(300000000000n), step: bn(60000000n), lastTick: bn(1001),
     track: { lo: Array.from({ length: 12 }, (_, c) => bn(c)), hi: Array.from({ length: 12 }, (_, c) => bn(c + 1)), seen: 0b101, last: bn(0), lastCol: -1 },
-    revealed: [row({ 0: 3 }), row({ 0: 5 })], scores: [0, 100],
-  };
+    revealed: [row({ 0: 3 }), row({ 0: 5 })], scores: [0, 100], winner: 255,
+    ring: { slots: [slot(), slot({ state: SLOT.done, matchKey: key(2), epoch: bn(7), outcome: OUTCOME.win1, at: bn(1200) }), ...Array.from({ length: 6 }, () => slot())] },
+    ...over,
+  });
+  const rawAssignment = { bump: 254, tesoroMatch: key(2), generation: 0, index: 3, epoch: bn(7), players: [key(3), key(4)], asset: 1, startDeadline: bn(1300), payer: key(8) };
+  const table = async (over: Record<string, unknown> = {}) => decodeTable(key(1), coder.decode("table", await coder.encode("table", rawTable(over))));
+  const assignment = async () => decodeAssignment(key(5), coder.decode("assignment", await coder.encode("assignment", rawAssignment)));
 
-  it("reads the Duel: bitmask to Track, no price yet, revealed picks by seat", async () => {
-    const d = decodeDuel(key(1), coder.decode("duel", await coder.encode("duel", raw)));
+  it("reads the Assignment", async () => {
+    const a = await assignment();
+    expect([a.generation, a.index, a.epoch, a.asset.symbol, a.startDeadline]).toEqual([0, 3, 7, "ETH", 1300]);
+    expect(a.players[1].equals(key(4))).toBe(true);
+  });
+
+  it("reads the Duel off its table: bitmask to Track, no price yet, revealed picks by seat", async () => {
+    const d = decodeDuel(await assignment(), await table())!;
     expect(d.asset.symbol).toBe("ETH");
+    expect(d.status).toBe(STATUS.live);
     expect(d.startsAt).toBe(1000);
+    expect(d.startDeadline).toBe(1300);
     expect(d.anchor).toBe(300000000000n);
     expect(d.track.seen.slice(0, 4)).toEqual([true, false, true, false]);
     expect(d.track.last).toBeNull();
@@ -101,8 +118,46 @@ describe("decoding accounts with the program IDL", () => {
     expect(d.scores).toEqual([0, 100]);
   });
 
+  it("maps the table's phase to the screens' status", async () => {
+    const a = await assignment();
+    const status = async (over: Record<string, unknown>) => decodeDuel(a, await table(over))!.status;
+    expect(await status({ phase: PHASE.idle })).toBe(STATUS.created);
+    expect(await status({ phase: PHASE.waiting })).toBe(STATUS.created);
+    expect(await status({ phase: PHASE.over })).toBe(STATUS.over);
+    // Over with no start: nobody checked in in time.
+    expect(await status({ phase: PHASE.over, startsAt: bn(0), winner: DRAW })).toBe(STATUS.cancelled);
+  });
+
+  it("shows nothing of another Match or another epoch on the same table", async () => {
+    const a = await assignment();
+    expect(decodeDuel(a, await table({ epoch: bn(8) }))).toBeNull();
+    expect(decodeDuel(a, await table({ tesoroMatch: key(9) }))).toBeNull();
+  });
+
+  it("finds a Match's ring slot by key and epoch", async () => {
+    const t = await table();
+    expect(slotOf(t, key(2), 7)?.outcome).toBe(OUTCOME.win1);
+    expect(slotOf(t, key(2), 6)).toBeNull();
+    expect(slotOf(t, key(9), 7)).toBeNull();
+  });
+
+  it("settles from base's copy only with a Done result, or after the table moved past the epoch", async () => {
+    const a = await assignment();
+    expect(canFinalize(await table(), a, 2000)).toBe(true);
+    // The Match's slot is only Reserved: still running.
+    const running = await table({ ring: { slots: [slot({ state: SLOT.reserved, matchKey: key(2), epoch: bn(7) }), ...Array.from({ length: 7 }, () => slot())] } });
+    expect(canFinalize(running, a, 2000)).toBe(false);
+    // No slot at the same epoch: a stale copy proves nothing.
+    const none = await table({ ring: { slots: Array.from({ length: 8 }, () => slot()) } });
+    expect(canFinalize(none, a, 2000)).toBe(false);
+    // The table is past the epoch without the Match: a refund, after the start deadline.
+    const past = await table({ epoch: bn(8), ring: { slots: Array.from({ length: 8 }, () => slot()) } });
+    expect(canFinalize(past, a, 1300)).toBe(false);
+    expect(canFinalize(past, a, 1301)).toBe(true);
+  });
+
   it("reads a Book", async () => {
-    const b = decodeBook(key(9), coder.decode("book", await coder.encode("book", { bump: 1, duel: key(1), player: key(3), seat: 1, picks: row({ 2: 6 }), pickCount: 1 })));
+    const b = decodeBook(key(9), coder.decode("book", await coder.encode("book", { bump: 1, table: key(1), player: key(3), seat: 1, picks: row({ 2: 6 }), pickCount: 1 })));
     expect(b.seat).toBe(1);
     expect(b.picks).toEqual(row({ 2: 6 }));
     expect(b.pickCount).toBe(1);

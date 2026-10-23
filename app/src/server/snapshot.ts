@@ -2,6 +2,7 @@ import { Program, utils, type Idl, type Provider } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
+import { OVERFLOW_DISC, OVERFLOW_OWNER_AT, decodeOverflowRecord } from "@/lib/chain/overflow";
 import { isCurrentPosition } from "@/lib/chain/position-size";
 import { readAccountState, type StateSource } from "@/lib/chain/account-state";
 import { baseRpc } from "@/lib/chain/rpc-config";
@@ -20,8 +21,12 @@ const discOf = (name: string) => {
 /** The base58 discriminator, the form `parseQuery` takes. */
 const encodeDisc = (name: string) => utils.bytes.bs58.encode(discOf(name));
 
-const query = (name: "HoldingState" | "PositionState", offset: number, accountKey: PublicKey): GpaQuery =>
+const query = (name: "PositionState", offset: number, accountKey: PublicKey): GpaQuery =>
   parseQuery(new URLSearchParams([["program", CORE], ["filter", `m:0:${encodeDisc(name)}`], ["filter", `m:${offset}:${accountKey.toBase58()}`]]));
+
+/** The Account's overflow records: the owner Account's key sits in the store header of each record. */
+const overflowQuery = (accountKey: PublicKey): GpaQuery =>
+  parseQuery(new URLSearchParams([["program", CORE], ["filter", `m:0:${utils.bytes.bs58.encode(OVERFLOW_DISC)}`], ["filter", `m:${OVERFLOW_OWNER_AT}:${accountKey.toBase58()}`]]));
 
 type GpaRow = { pubkey: string; account: { data: [string, string] } };
 
@@ -41,23 +46,28 @@ function mergeOwned(cached: GpaRow[], owned: GpaRow[]): GpaRow[] {
 
 /** The Account's state for the app: the same read the browser makes, with the lists from the server cache and the rest on the server's RPC. */
 export function serverStateSource(deps: SnapshotDeps, opts: { fresh?: boolean } = {}): StateSource {
-  const decodeRows = (name: "holdingState" | "positionState") => (rows: GpaRow[]) =>
+  const decodeRows = (rows: GpaRow[]) =>
     rows
       .map((r) => ({ key: r.pubkey, data: Buffer.from(r.account.data[0], "base64") }))
-      .filter((r) => name !== "positionState" || isCurrentPosition(r.data))
-      .map((r) => ({ publicKey: new PublicKey(r.key), account: coder.decode(name, r.data) }));
+      .filter((r) => isCurrentPosition(r.data))
+      .map((r) => ({ publicKey: new PublicKey(r.key), account: coder.decode("positionState", r.data) }));
   return {
     lists: async (key) => {
-      const list = async (name: "HoldingState" | "PositionState", offset: number) => {
-        const q = query(name, offset, key);
-        const cached = await deps.lists(q);
-        if (!opts.fresh) return cached;
-        // The global lists stay as cached; this Account's own rows are read directly and win. If that read fails, the cached rows answer.
-        const owned = await deps.owned(q).catch(() => []);
-        return mergeOwned(cached, owned);
-      };
-      const [holdings, positions] = await Promise.all([list("HoldingState", 9), list("PositionState", 41)]);
-      return [decodeRows("holdingState")(holdings), decodeRows("positionState")(positions)];
+      const q = query("PositionState", 41, key);
+      const cached = await deps.lists(q);
+      if (!opts.fresh) return decodeRows(cached);
+      // The global list stays as cached; this Account's own rows are read directly and win. If that read fails, the cached rows answer.
+      const owned = await deps.owned(q).catch(() => []);
+      return decodeRows(mergeOwned(cached, owned));
+    },
+    overflow: async (key) => {
+      const q = overflowQuery(key);
+      const cached = await deps.lists(q);
+      // After this tab's own transaction, records the cache still shows are read upstream (a Claim just emptied them); an
+      // Account with none costs no extra query, and a record made since the cache was filled shows within its 2 minutes.
+      const owned = opts.fresh && cached.length > 0 ? await deps.owned(q).catch(() => null) : null;
+      const rows = owned ?? cached;
+      return rows.flatMap((r) => decodeOverflowRecord(new PublicKey(r.pubkey), Buffer.from(r.account.data[0], "base64")) ?? []);
     },
     infos: async (keys) => (await deps.connection.getMultipleAccountsInfo(keys, "confirmed")) as never,
     balance: (authority) => deps.connection.getBalance(authority, "confirmed"),
@@ -68,7 +78,7 @@ export function serverStateSource(deps: SnapshotDeps, opts: { fresh?: boolean } 
 let conn: Connection | null = null;
 const connection = () => (conn ??= new Connection(baseRpc(process.env.TESORO_BASE_RPC), { commitment: "confirmed" }));
 
-/** JSON for `/api/account/<authority>`. `fresh`: the Account just sent a transaction, so its own Holdings and Positions are read upstream and merged over the cached lists. */
+/** JSON for `/api/account/<authority>`. `fresh`: the Account just sent a transaction, so its own Positions are read upstream and merged over the cached lists. */
 export async function getAccountState(authority: PublicKey, opts: { fresh?: boolean } = {}, deps: SnapshotDeps = { lists: getAccounts, owned: getOwnedFresh, connection: connection() }): Promise<unknown> {
   const state = await readAccountState(serverStateSource(deps, opts), authority, BlockPuzzleChain.coreAccount(authority));
   return encodeState(state);

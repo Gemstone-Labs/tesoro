@@ -1,25 +1,52 @@
-use crate::error::TesoroError;
+use super::basket::{move_lamports, store_err};
+use super::ticket::sponsor_rent;
+use crate::error::{BasketError, TesoroError};
+use crate::ledger::line_store::LineStore;
 use crate::state::*;
+use crate::storage::*;
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct CreateAccount<'info> {
-    #[account(mut)]
+    /// The wallet the Account belongs to. It signs but pays nothing: a wallet with no SOL can own an
+    /// Account whose rent the sponsor covers.
     pub authority: Signer<'info>,
     #[account(
         init,
-        payer = authority,
+        payer = payer,
         space = TesoroAccount::SPACE,
         seeds = [ACCOUNT_SEED, authority.key().as_ref()],
         bump
     )]
     pub account: Account<'info, TesoroAccount>,
+    #[account(
+        init,
+        payer = payer,
+        space = store_len(INITIAL_BASKET_LINES),
+        seeds = [BASKET_SEED, account.key().as_ref()],
+        bump
+    )]
+    pub basket: AccountLoader<'info, BasketHead>,
+    #[account(
+        init,
+        payer = payer,
+        space = store_len(0),
+        seeds = [SPILL_SEED, account.key().as_ref()],
+        bump
+    )]
+    pub spill: AccountLoader<'info, SpillHead>,
     /// CHECK: the Invite gate setting (`["invite_gate"]`); read by hand because it does not exist
     /// until the admin first sets it, and no account means the gate is off. When the gate is on the
     /// Invite key must also sign, passed as the first remaining account.
     #[account(seeds = [INVITE_GATE_SEED], bump)]
     pub invite_gate: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+    /// Pays the rent: the authority itself, or (with `sponsor`) the sponsor's relayer, which is
+    /// repaid in the same instruction. Placed after the original accounts so their order is kept.
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
+    pub sponsor: Option<Account<'info, SponsorState>>,
 }
 
 fn require_invite(ctx: &Context<CreateAccount>) -> Result<()> {
@@ -41,11 +68,123 @@ fn require_invite(ctx: &Context<CreateAccount>) -> Result<()> {
 
 pub(crate) fn create_account(ctx: Context<CreateAccount>, evm_address: [u8; 20]) -> Result<()> {
     require_invite(&ctx)?;
+    // Anyone but the wallet itself pays only through the sponsor, who repays them: the relayer
+    // can never be left holding rent that does not come back.
+    require!(
+        ctx.accounts.sponsor.is_some() || ctx.accounts.payer.key() == ctx.accounts.authority.key(),
+        BasketError::PayerNeedsSponsor
+    );
     let account = &mut ctx.accounts.account;
     account.bump = ctx.bumps.account;
     account.authority = ctx.accounts.authority.key();
     account.evm_address = evm_address;
-    account.inner = Default::default();
+    let key = account.key();
+    let (basket, spill) = (
+        ctx.accounts.basket.to_account_info(),
+        ctx.accounts.spill.to_account_info(),
+    );
+    super::basket::format_stores(&basket, &spill, &key, (ctx.bumps.basket, ctx.bumps.spill))?;
+    if let Some(sponsor) = ctx.accounts.sponsor.as_mut() {
+        // The lines of the basket can be shrunk away later and their rent goes back to the sponsor
+        // (recorded in the store). Everything else (the Account, the headers, the spill's base)
+        // stays for good: it is counted in `accounts_spent` against `accounts_cap`.
+        let rent = Rent::get()?;
+        let account_info = account.to_account_info();
+        let total = rent
+            .minimum_balance(account_info.data_len())
+            .checked_add(rent.minimum_balance(basket.data_len()))
+            .and_then(|t| t.checked_add(rent.minimum_balance(spill.data_len())))
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        let refundable = rent
+            .minimum_balance(store_len(INITIAL_BASKET_LINES))
+            .saturating_sub(rent.minimum_balance(store_len(0)));
+        let permanent = total
+            .checked_sub(refundable)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        let payer = ctx.accounts.payer.to_account_info();
+        sponsor_rent(sponsor, &payer, 0, refundable)?;
+        repay_permanent(sponsor, &payer, permanent, Spend::Account)?;
+        let mut data = basket.try_borrow_mut_data()?;
+        LineStore::new(&mut data[DISC..])
+            .map_err(store_err)?
+            .set_sponsored_lamports(refundable);
+    }
+    Ok(())
+}
+
+/// Which cap a permanent sponsored rent counts against.
+#[derive(Clone, Copy)]
+enum Spend {
+    Account,
+    Profile,
+}
+
+/// Repays the relayer that fronted rent the sponsor can never get back (a new Account against
+/// `accounts_cap`, a new Profile against `profiles_cap`). The caller has checked that the payer is
+/// not the wallet itself.
+fn repay_permanent<'info>(
+    sponsor: &mut Account<'info, SponsorState>,
+    payer: &AccountInfo<'info>,
+    amount: u64,
+    spend: Spend,
+) -> Result<()> {
+    require!(!sponsor.paused, BasketError::SponsorPaused);
+    require_keys_eq!(sponsor.relayer, *payer.key, BasketError::NotSponsorRelayer);
+    let (spent, cap, over) = match spend {
+        Spend::Account => (
+            sponsor.accounts_spent,
+            sponsor.accounts_cap,
+            BasketError::AccountsSponsorCap,
+        ),
+        Spend::Profile => (
+            sponsor.profiles_spent,
+            sponsor.profiles_cap,
+            BasketError::ProfilesSponsorCap,
+        ),
+    };
+    if !spent.checked_add(amount).is_some_and(|v| v <= cap) {
+        return Err(over.into());
+    }
+    let sponsor_info = sponsor.to_account_info();
+    let keep = Rent::get()?.minimum_balance(sponsor_info.data_len());
+    require!(
+        sponsor_info.lamports() >= amount && sponsor_info.lamports() - amount >= keep,
+        BasketError::SponsorShort
+    );
+    move_lamports(&sponsor_info, payer, amount)?;
+    let counter = match spend {
+        Spend::Account => &mut sponsor.accounts_spent,
+        Spend::Profile => &mut sponsor.profiles_spent,
+    };
+    *counter = counter
+        .checked_add(amount)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    Ok(())
+}
+
+/// A payer other than the wallet itself pays only through the sponsor, who repays them.
+fn require_payer(payer: &Pubkey, authority: &Pubkey, has_sponsor: bool) -> Result<()> {
+    require!(
+        has_sponsor || payer == authority,
+        BasketError::PayerNeedsSponsor
+    );
+    Ok(())
+}
+
+/// After a Profile was created: the sponsor repays what the relayer fronted for it.
+fn repay_profile<'info>(
+    fresh: bool,
+    sponsor: Option<&mut Account<'info, SponsorState>>,
+    payer: &AccountInfo<'info>,
+) -> Result<()> {
+    if let (true, Some(sponsor)) = (fresh, sponsor) {
+        repay_permanent(
+            sponsor,
+            payer,
+            Rent::get()?.minimum_balance(Profile::SPACE),
+            Spend::Profile,
+        )?;
+    }
     Ok(())
 }
 
@@ -65,51 +204,10 @@ pub(crate) fn set_evm_address(ctx: Context<SetEvmAddress>, evm_address: [u8; 20]
     Ok(())
 }
 
-/// Anyone may create the Holding an Account needs to receive Gemas of a Source (payouts never
-/// depend on the recipient being online). Own-sourced iff the Source belongs to the Account.
-#[derive(Accounts)]
-pub struct OpenHolding<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    #[account(
-        seeds = [ACCOUNT_SEED, account.authority.as_ref()],
-        bump = account.bump
-    )]
-    pub account: Account<'info, TesoroAccount>,
-    #[account(
-        seeds = [SOURCE_SEED, source.inner.position.as_ref(), &source.inner.index.to_le_bytes()],
-        bump = source.bump
-    )]
-    pub source: Account<'info, SourceState>,
-    #[account(
-        init,
-        payer = payer,
-        space = HoldingState::SPACE,
-        seeds = [HOLDING_SEED, account.key().as_ref(), source.key().as_ref()],
-        bump
-    )]
-    pub holding: Account<'info, HoldingState>,
-    pub system_program: Program<'info, System>,
-}
-
-pub(crate) fn open_holding(ctx: Context<OpenHolding>) -> Result<()> {
-    let source_key = ctx.accounts.source.key();
-    let account_key = ctx.accounts.account.key();
-    let holding = &mut ctx.accounts.holding;
-    holding.bump = ctx.bumps.holding;
-    holding.account = account_key;
-    holding.inner = crate::ledger::Holding::new(
-        source_key.to_bytes(),
-        ctx.accounts.source.inner.owner == account_key.to_bytes(),
-    );
-    Ok(())
-}
-
 /// The Account's authority sets its display name and picture. The first call creates the Profile
-/// (the authority pays its rent); later calls overwrite name and picture and keep the linked names.
+/// (the authority pays its rent, or the sponsor does); later calls overwrite name and picture and keep the linked names.
 #[derive(Accounts)]
 pub struct SetProfile<'info> {
-    #[account(mut)]
     pub authority: Signer<'info>,
     #[account(
         seeds = [ACCOUNT_SEED, authority.key().as_ref()],
@@ -118,13 +216,18 @@ pub struct SetProfile<'info> {
     pub account: Account<'info, TesoroAccount>,
     #[account(
         init_if_needed,
-        payer = authority,
+        payer = payer,
         space = Profile::SPACE,
         seeds = [PROFILE_SEED, account.key().as_ref()],
         bump
     )]
     pub profile: Account<'info, Profile>,
     pub system_program: Program<'info, System>,
+    /// Pays the Profile's rent: the authority, or the sponsor's relayer (repaid in the instruction).
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
+    pub sponsor: Option<Account<'info, SponsorState>>,
 }
 
 /// Sets the Profile's identity fields on first use; later calls keep the linked names.
@@ -151,14 +254,21 @@ pub(crate) fn set_profile(
         TesoroError::InvalidProfileName
     );
     require!(Profile::avatar_is_valid(avatar), TesoroError::InvalidAvatar);
+    require_payer(
+        &ctx.accounts.payer.key(),
+        &ctx.accounts.authority.key(),
+        ctx.accounts.sponsor.is_some(),
+    )?;
     let profile = &mut ctx.accounts.profile;
+    let fresh = profile.account == Pubkey::default();
     touch_profile(profile, ctx.accounts.account.key(), ctx.bumps.profile);
     // `name_is_valid` bounds the length by PROFILE_NAME_MAX.
     profile.name_len = bytes.len() as u8;
     profile.name = [0; PROFILE_NAME_MAX];
     profile.name[..bytes.len()].copy_from_slice(bytes);
     profile.avatar = avatar;
-    Ok(())
+    let payer = ctx.accounts.payer.to_account_info();
+    repay_profile(fresh, ctx.accounts.sponsor.as_mut(), &payer)
 }
 
 /// Attaches a Solana wallet whose .sol name should show for this Player. The wallet must sign the
@@ -200,7 +310,6 @@ pub(crate) fn set_name_wallet(ctx: Context<SetNameWallet>) -> Result<()> {
 /// on chain), and that link is verified here. An all-zero address clears it.
 #[derive(Accounts)]
 pub struct SetNameEvm<'info> {
-    #[account(mut)]
     pub authority: Signer<'info>,
     #[account(
         seeds = [ACCOUNT_SEED, authority.key().as_ref()],
@@ -209,7 +318,7 @@ pub struct SetNameEvm<'info> {
     pub account: Account<'info, TesoroAccount>,
     #[account(
         init_if_needed,
-        payer = authority,
+        payer = payer,
         space = Profile::SPACE,
         seeds = [PROFILE_SEED, account.key().as_ref()],
         bump
@@ -218,6 +327,10 @@ pub struct SetNameEvm<'info> {
     /// CHECK: the bridge's `EvmLink` for `evm_address`; owner, address and contents are verified in the handler.
     pub evm_link: Option<UncheckedAccount<'info>>,
     pub system_program: Program<'info, System>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
+    pub sponsor: Option<Account<'info, SponsorState>>,
 }
 
 /// Bridge `EvmLink`: discriminator, evm_address, account, authority, bump.
@@ -242,6 +355,11 @@ fn evm_link_proves(link: &AccountInfo, evm: &[u8; 20], account: &Pubkey) -> bool
 
 pub(crate) fn set_name_evm(ctx: Context<SetNameEvm>, evm_address: [u8; 20]) -> Result<()> {
     let account_key = ctx.accounts.account.key();
+    require_payer(
+        &ctx.accounts.payer.key(),
+        &ctx.accounts.authority.key(),
+        ctx.accounts.sponsor.is_some(),
+    )?;
     if evm_address != [0; 20] {
         let link = ctx
             .accounts
@@ -254,7 +372,9 @@ pub(crate) fn set_name_evm(ctx: Context<SetNameEvm>, evm_address: [u8; 20]) -> R
         );
     }
     let profile = &mut ctx.accounts.profile;
+    let fresh = profile.account == Pubkey::default();
     touch_profile(profile, account_key, ctx.bumps.profile);
     profile.name_evm = evm_address;
-    Ok(())
+    let payer = ctx.accounts.payer.to_account_info();
+    repay_profile(fresh, ctx.accounts.sponsor.as_mut(), &payer)
 }

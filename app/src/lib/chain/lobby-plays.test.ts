@@ -40,6 +40,14 @@ describe("lobby plays", () => {
     expect(waitingByEntry(seats, [500, 1000, 2500], "me")).toEqual({ 500: 2, 1000: 0, 2500: 0 });
   });
 
+  it("does not count a Match whose seat the viewer funds (their friend's backed Match is not one they can join)", () => {
+    const seats = [
+      { player: "friend", funder: "me", entry: 500, asset: 0 },
+      { player: "other", funder: "other", entry: 500, asset: 0 },
+    ];
+    expect(waitingByEntry(seats, [500], "me")).toEqual({ 500: 1 });
+  });
+
   it("a Player the viewer backs is not a seat the viewer can take", () => {
     const seats = [
       { player: "A", funder: "me", entry: 500, asset: 0 },

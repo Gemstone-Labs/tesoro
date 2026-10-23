@@ -7,13 +7,10 @@
 //! ledger owes is in lamports; only a payout converts to tokens, at the rate of that moment, so
 //! nothing is minted, cranked or recorded per Position.
 //!
-//! Treasury. The Yield Fee is a running claim in tokens, kept in the vault: for the Locked
-//! Positions `i` with shares `S_i`, Principal `P_i` and fee `f_i` the fee value is
-//! `f_i * (S_i * r / SCALE - P_i)`, so the claim in tokens is `(sum f_i S_i - sum f_i P_i * SCALE / r)
-//! / BPS`, computed from two sums that change only when a Position opens or unlocks.
+//! Treasury. The Yield Fee is taken when yield leaves (ticket 31, `ledger::yield_fee`): its
+//! shares stay in the vault as the route's `treasury_shares`.
 
 use super::*;
-use anchor_lang::prelude::{borsh, AnchorDeserialize, AnchorSerialize};
 
 /// Staking Rate fixed point: lamports per pool token, 1e12. Finer than the 1e9 of sim_lst so the
 /// ratio `now / open` carries no visible rounding on a Position of any size.
@@ -100,10 +97,10 @@ pub fn stake_growth(rate_open: u64, rate_now: u64) -> CoreResult<Growth> {
     })
 }
 
-/// Net Accrued Yield of a stake Position now.
-pub fn stake_position_accrued(position: &Position, rate_now: u64) -> CoreResult<AccruedYield> {
+/// Accrued Yield of a stake Position now, gross (the Yield Fee is taken at cash-out).
+pub fn stake_position_accrued(position: &Position, rate_now: u64) -> CoreResult<u64> {
     let growth = stake_growth(position.stake_rate_open, rate_now)?;
-    accrued_yield_at(position.principal, growth, position.yield_fee_bps)
+    accrued_yield_at(position.principal, growth)
 }
 
 /// Pool tokens worth `units` lamports at `rate`, rounded down (what a payout sends).
@@ -153,112 +150,11 @@ pub fn unlock_tokens(
     Ok(tokens_for_units(owed, rate_now)?.min(shares))
 }
 
-/// Pool-wide totals behind the Treasury's Yield Fee claim in tokens. Change only on open and unlock.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
-pub struct StakeTotals {
-    /// `sum Principal` of Locked Positions, lamports.
-    pub principal: u128,
-    /// `sum shares * fee_bps` of Locked Positions.
-    pub fee_shares: u128,
-    /// `sum Principal * fee_bps` of Locked Positions.
-    pub fee_principal: u128,
-    /// Yield Fees of Positions already unlocked, tokens.
-    pub realised_fee_shares: u128,
-    /// Locked Positions in the totals; sizes the rounding allowance.
-    pub open_positions: u64,
-}
-
-/// Rounding allowance per open Position, tokens: each Position floors its gross yield, its fee and
-/// the token conversion, and the pooled value uses the unrounded share count.
-const ALLOWANCE_PER_POSITION: u128 = 3;
-
-impl StakeTotals {
-    pub fn add_position(&mut self, shares: u64, principal: u64, fee_bps: u16) -> CoreResult<()> {
-        if fee_bps > MAX_YIELD_FEE_BPS {
-            return Err(CoreError::InvalidBps);
-        }
-        let next = Self {
-            principal: self
-                .principal
-                .checked_add(principal as u128)
-                .ok_or(CoreError::Math)?,
-            fee_shares: self
-                .fee_shares
-                .checked_add(shares as u128 * fee_bps as u128)
-                .ok_or(CoreError::Math)?,
-            fee_principal: self
-                .fee_principal
-                .checked_add(principal as u128 * fee_bps as u128)
-                .ok_or(CoreError::Math)?,
-            open_positions: self.open_positions.checked_add(1).ok_or(CoreError::Math)?,
-            ..*self
-        };
-        *self = next;
-        Ok(())
-    }
-
-    /// Removes a Position (same arguments as [`StakeTotals::add_position`]) and books its fee, in
-    /// tokens, into the realised total.
-    pub fn remove_position(
-        &mut self,
-        shares: u64,
-        principal: u64,
-        fee_bps: u16,
-        fee_tokens: u64,
-    ) -> CoreResult<()> {
-        let next = Self {
-            principal: self
-                .principal
-                .checked_sub(principal as u128)
-                .ok_or(CoreError::Math)?,
-            fee_shares: self
-                .fee_shares
-                .checked_sub(shares as u128 * fee_bps as u128)
-                .ok_or(CoreError::Math)?,
-            fee_principal: self
-                .fee_principal
-                .checked_sub(principal as u128 * fee_bps as u128)
-                .ok_or(CoreError::Math)?,
-            realised_fee_shares: self
-                .realised_fee_shares
-                .checked_add(fee_tokens as u128)
-                .ok_or(CoreError::Math)?,
-            open_positions: self.open_positions.checked_sub(1).ok_or(CoreError::Math)?,
-        };
-        *self = next;
-        Ok(())
-    }
-
-    /// Yield Fee earned by the Treasury at `rate_now`, in tokens: the pooled claim of the Locked
-    /// Positions less a rounding allowance, plus the realised total. Conservative: never more than
-    /// the sum of the per-Position fees (a Position under water counts against it, never for it).
-    pub fn earned_fee_shares(&self, rate_now: u64) -> CoreResult<u64> {
-        let reserve = tokens_for_units_ceil(self.fee_principal, rate_now)?;
-        let live = self
-            .fee_shares
-            .saturating_sub(reserve)
-            .checked_div(BPS)
-            .ok_or(CoreError::Math)?
-            .saturating_sub(ALLOWANCE_PER_POSITION * self.open_positions as u128);
-        to_u64(
-            live.checked_add(self.realised_fee_shares)
-                .ok_or(CoreError::Math)?,
-        )
-    }
-
-    /// Tokens the vault must keep to return every Locked Position's Principal at `rate_now`.
-    pub fn principal_reserve(&self, rate_now: u64) -> CoreResult<u64> {
-        to_u64(tokens_for_units_ceil(self.principal, rate_now)?)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proptest::prelude::*;
 
     const SOL: u64 = 1_000_000_000;
-    const FEE: u16 = 2_000;
     /// A rate of 1.30 lamports per token.
     const R0: u64 = 1_300_000_000_000;
 
@@ -295,18 +191,12 @@ mod tests {
         let g = stake_growth(R0, R0 + R0 / 100).unwrap();
         let mut p = Position::new([1; 32], SourceChain::Solana, [9; 32], 9, 10 * SOL, 0).unwrap();
         p.stake_rate_open = R0;
-        p.yield_fee_bps = FEE;
         let a = stake_position_accrued(&p, R0 + R0 / 100).unwrap();
-        // 10 SOL grew 1%: 0.1 SOL gross, 20% fee.
-        assert_eq!(a.gross, 100_000_000);
-        assert_eq!(a.fee, 20_000_000);
-        assert_eq!(a.net, 80_000_000);
-        assert_eq!(accrued_yield_at(10 * SOL, g, FEE).unwrap(), a);
+        // 10 SOL grew 1%: 0.1 SOL, all of it counted (the fee waits for the cash-out).
+        assert_eq!(a, 100_000_000);
+        assert_eq!(accrued_yield_at(10 * SOL, g).unwrap(), a);
         // A pool that lost value yields nothing.
-        assert_eq!(
-            stake_position_accrued(&p, R0 - 1).unwrap(),
-            AccruedYield::default()
-        );
+        assert_eq!(stake_position_accrued(&p, R0 - 1).unwrap(), 0);
         assert_eq!(stake_growth(0, R0), Err(CoreError::Math));
     }
 
@@ -367,13 +257,11 @@ mod tests {
         let net = stake_position_accrued(
             &Position {
                 stake_rate_open: R0,
-                yield_fee_bps: 0,
                 ..Position::new([1; 32], SourceChain::Solana, [9; 32], 9, principal, 0).unwrap()
             },
             r1,
         )
-        .unwrap()
-        .net;
+        .unwrap();
         let all = unlock_tokens(principal, net, shares, r1).unwrap();
         assert!(shares - all <= 2);
         // Rate fell: the Position gets its shares, not its old Principal.
@@ -381,87 +269,5 @@ mod tests {
             unlock_tokens(principal, 0, shares, R0 - R0 / 10),
             Ok(shares)
         );
-    }
-
-    #[test]
-    fn the_treasury_claim_is_the_fee_on_every_positions_growth() {
-        let mut t = StakeTotals::default();
-        let shares_a = 10 * SOL;
-        let shares_b = 4 * SOL;
-        let (pa, pb) = (
-            principal_for_shares(shares_a, R0).unwrap(),
-            principal_for_shares(shares_b, R0).unwrap(),
-        );
-        t.add_position(shares_a, pa, FEE).unwrap();
-        t.add_position(shares_b, pb, FEE).unwrap();
-        assert_eq!(t.earned_fee_shares(R0), Ok(0));
-        let r1 = R0 + R0 / 20; // +5%
-        let sum: u64 = [(pa, shares_a), (pb, shares_b)]
-            .iter()
-            .map(|(p, _)| {
-                let g = accrued_yield_at(*p, stake_growth(R0, r1).unwrap(), FEE).unwrap();
-                tokens_for_units(g.fee, r1).unwrap()
-            })
-            .sum();
-        let pooled = t.earned_fee_shares(r1).unwrap();
-        assert!(pooled <= sum, "pooled {pooled} > per-Position sum {sum}");
-        assert!(sum - pooled <= 8, "pooled {pooled} far below sum {sum}");
-        // Unlocking one moves its fee into the realised total.
-        let fee_a = accrued_yield_at(pa, stake_growth(R0, r1).unwrap(), FEE)
-            .unwrap()
-            .fee;
-        let fee_tokens = tokens_for_units(fee_a, r1).unwrap();
-        t.remove_position(shares_a, pa, FEE, fee_tokens).unwrap();
-        assert_eq!(t.open_positions, 1);
-        assert!(t.earned_fee_shares(r1).unwrap() + 8 >= pooled);
-        assert!(t.earned_fee_shares(r1).unwrap() <= sum);
-        // Removing what was never added fails and changes nothing.
-        let before = t;
-        assert_eq!(
-            t.remove_position(shares_a, pa, FEE, 0),
-            Err(CoreError::Math)
-        );
-        assert_eq!(t, before);
-    }
-
-    #[test]
-    fn the_principal_reserve_rounds_up_and_falls_as_the_rate_rises() {
-        let mut t = StakeTotals::default();
-        t.add_position(10 * SOL, principal_for_shares(10 * SOL, R0).unwrap(), FEE)
-            .unwrap();
-        assert_eq!(t.principal_reserve(R0), Ok(10 * SOL));
-        assert!(t.principal_reserve(R0 + R0 / 10).unwrap() < 10 * SOL);
-    }
-
-    proptest! {
-        #![proptest_config(ProptestConfig { cases: 400, ..ProptestConfig::default() })]
-
-        /// The pooled claim never exceeds the sum of per-Position fees (in tokens) and stays within
-        /// a few tokens per Position of it, for Positions opened at different rates.
-        #[test]
-        fn pooled_claim_is_conservative_and_tight(
-            opens in proptest::collection::vec((1_000_000u64..5_000_000_000_000, 1_000_000_000_000u64..2_000_000_000_000, 0u16..=5_000), 1..12),
-            rise_bps in 0u64..5_000,
-        ) {
-            let mut t = StakeTotals::default();
-            let mut positions = vec![];
-            let mut r_max = 0;
-            for (shares, rate, fee) in &opens {
-                let p = principal_for_shares(*shares, *rate).unwrap();
-                if p == 0 { continue; }
-                t.add_position(*shares, p, *fee).unwrap();
-                positions.push((*shares, p, *rate, *fee));
-                r_max = r_max.max(*rate);
-            }
-            prop_assume!(!positions.is_empty());
-            let r1 = r_max + (r_max as u128 * rise_bps as u128 / 10_000) as u64;
-            let sum: u128 = positions.iter().map(|(_, p, r0, fee)| {
-                let g = accrued_yield_at(*p, stake_growth(*r0, r1).unwrap(), *fee).unwrap();
-                tokens_for_units(g.fee, r1).unwrap() as u128
-            }).sum();
-            let pooled = t.earned_fee_shares(r1).unwrap() as u128;
-            prop_assert!(pooled <= sum, "pooled {pooled} > sum {sum}");
-            prop_assert!(sum - pooled <= 8 * positions.len() as u128, "pooled {pooled} sum {sum}");
-        }
     }
 }

@@ -2,16 +2,17 @@ import { Keypair } from "@solana/web3.js";
 import { utils } from "@coral-xyz/anchor";
 import { describe, expect, it } from "vitest";
 import coreIdl from "../lib/chain/idl/tesoro_core.json";
+import { OVERFLOW_DISC, OVERFLOW_OWNER_AT } from "../lib/chain/overflow";
 import { GpaInputError, GpaUpstreamError, createListCache, parseQuery } from "./gpa";
 
 const CORE = coreIdl.address;
 const disc = (name: string) => utils.bytes.bs58.encode(Uint8Array.from(coreIdl.accounts.find((a) => a.name === name)!.discriminator));
 const MATCH = disc("MatchState");
-const HOLDING = disc("HoldingState");
+const HOLDING = disc("TesoroAccount");
 const POSITION = disc("PositionState");
 const q = (s: string) => parseQuery(new URLSearchParams(s));
 
-/** A HoldingState-shaped row whose owner key sits at offset 9. */
+/** A TesoroAccount-shaped row whose owner key sits at offset 9. */
 function row(owner: Uint8Array, i: number) {
   const data = Buffer.alloc(80);
   Buffer.from(owner).copy(data, 9);
@@ -36,6 +37,10 @@ describe("gpa parseQuery", () => {
     const owner = Keypair.generate().publicKey.toBase58();
     expect(q(`program=${CORE}&filter=m:0:${HOLDING}&filter=m:9:${owner}`).owner?.key.toBase58()).toBe(owner);
     expect(q(`program=${CORE}&filter=m:0:${POSITION}&filter=m:41:${owner}`).owner?.offset).toBe(41);
+    // overflow records are not in the IDL; the owner Account's key sits in the store header
+    const records = utils.bytes.bs58.encode(OVERFLOW_DISC);
+    expect(q(`program=${CORE}&filter=m:0:${records}&filter=m:${OVERFLOW_OWNER_AT}:${owner}`).owner?.offset).toBe(OVERFLOW_OWNER_AT);
+    expect(() => q(`program=${CORE}&filter=m:0:${records}&filter=m:41:${owner}`)).toThrow(GpaInputError);
   });
 
   it("rejects everything else", () => {

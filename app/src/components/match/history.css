@@ -42,6 +42,6 @@
 .mh-result.on i { background: var(--tone); }
 .mh-result.won { --tone: var(--em-hi); }
 .mh-result.lost { --tone: var(--danger); }
-.mh-result.draw, .mh-result.refunded { --tone: var(--fg-2); }
+.mh-result.draw, .mh-result.no-show, .mh-result.refunded { --tone: var(--fg-2); }
 @media (max-width: 640px) { .mh-result { min-height: 44px; } }
 .mh-finished-h { font-size: var(--fs-20); margin-top: 4px; }

@@ -2,15 +2,23 @@
 //! Ledger identities (`Key`) are the addresses of the PDAs below; `Account` (CONTEXT.md) is
 //! `TesoroAccount` on chain because `Account` is Anchor's wrapper type.
 
-use crate::ledger::{self, Holding, Key, Match, Offer, Position, Request, Source};
+use crate::ledger::{self, Key, Offer, Position, Request, Source};
 use anchor_lang::prelude::*;
 
 pub const CONFIG_SEED: &[u8] = b"config";
 pub const ACCOUNT_SEED: &[u8] = b"account";
 pub const POSITION_SEED: &[u8] = b"position";
 pub const SOURCE_SEED: &[u8] = b"source";
-pub const HOLDING_SEED: &[u8] = b"holding";
+/// A Match: `["match", opener Account, counter as u64 LE]`. The counter lives in the opener's
+/// `AccountCounters` and only grows, so no id is ever reused.
 pub const MATCH_SEED: &[u8] = b"match";
+/// An Account's counters (next Match id, open Matches, open Offers): `["counters", account]`.
+pub const COUNTERS_SEED: &[u8] = b"counters";
+/// An Entry or Backing Ticket, and later the Pot of the side that used it:
+/// `["ticket", account, nonce as u64 LE]`.
+pub const TICKET_SEED: &[u8] = b"ticket";
+/// The settlement receipt of a Match: `["settled", match]`.
+pub const RECEIPT_SEED: &[u8] = crate::ledger::lifecycle::RECEIPT_SEED;
 pub const REQUEST_SEED: &[u8] = b"request";
 pub const OFFER_SEED: &[u8] = b"offer";
 pub const NATIVE_SEED: &[u8] = b"native";
@@ -51,6 +59,13 @@ pub const MAX_PRICE_AGE_SECS: i64 = 24 * 60 * 60;
 pub const SOURCE_AUTHORITY_SEED: &[u8] = b"source_auth";
 /// The Invite gate setting (ADR 0012): `["invite_gate"]`. Its own account so `Config` keeps its layout.
 pub const INVITE_GATE_SEED: &[u8] = b"invite_gate";
+/// One record per Game: `["game", program_id]`.
+pub const GAME_SEED: &[u8] = b"game";
+/// The PDA an immutable Game program signs registration changes with: `["tesoro-register"]` of the
+/// Game program (not of this program).
+pub const REGISTER_SEED: &[u8] = b"tesoro-register";
+/// Matches one opener-to-joiner pair may start in a window: `["pair", opener Account, joiner Account]`.
+pub const PAIR_SEED: &[u8] = b"pair";
 
 /// Address of the Invite gate account (it may not exist yet: no account means the gate is off).
 pub fn invite_gate_pda() -> Pubkey {
@@ -69,17 +84,109 @@ impl InviteGate {
     pub const SPACE: usize = 8 + 1 + 1 + 32;
 }
 
-pub const MAX_GAMES: usize = 8;
+/// A Game's Studio Fee never exceeds this share of the Pot.
+pub const MAX_STUDIO_BPS: u16 = 1_000;
+/// Wait between proposing a change to a Game's record and applying it.
+pub const GAME_CHANGE_DELAY_SECS: i64 = 7 * 24 * 60 * 60;
+/// The 8-entry list that `Config` carried before the per-Game records: kept so an account written
+/// with it still reads. Nothing reads or writes it.
+const LEGACY_GAMES: usize = 8;
 
 #[derive(Clone, Copy, AnchorSerialize, AnchorDeserialize)]
-pub struct GameEntry {
-    /// Identity of the Game (its program id).
+pub struct LegacyGameEntry {
+    pub game: Pubkey,
+    pub authority: Pubkey,
+    pub studio_bps: u16,
+    pub studio_recipient: Pubkey,
+}
+
+/// One Game. Registered once by whoever controls its program (see `registry`); changed only by
+/// that same control, after `GAME_CHANGE_DELAY_SECS`. Listing is written by the admin.
+#[account]
+pub struct GameRecord {
+    pub bump: u8,
+    /// The Game program's id.
     pub game: Pubkey,
     /// Only this key may settle the Game's Matches (a PDA of the Game program, or a server key).
-    pub authority: Pubkey,
+    pub settle_authority: Pubkey,
     pub studio_bps: u16,
     /// `TesoroAccount` that receives the Studio Fee.
     pub studio_recipient: Pubkey,
+    /// Unix time a proposed change was made; zero while none is waiting.
+    pub pending_at: i64,
+    /// The control key that proposed it. Applying needs the same key to be in control still.
+    pub pending_by: Pubkey,
+    pub pending_settle_authority: Pubkey,
+    pub pending_studio_bps: u16,
+    pub pending_studio_recipient: Pubkey,
+    /// The Game counts as listed until this unix time (admin). Zero: never listed.
+    pub listed_until: i64,
+    /// The deploy slot the admin approved. A program upgraded since has a different slot and
+    /// counts as unlisted until the admin approves again.
+    pub approved_slot: u64,
+    /// SHA-256 of the approved build's executable bytes without trailing zeros (`registry::code_hash`).
+    /// A moved slot keeps the listing only through `refresh_listing`, which proves the bytes are these.
+    pub approved_hash: [u8; 32],
+    /// Counts the builds the admin approved: bumped by `list_game` only when it sets a different
+    /// hash, never by `refresh_listing`. A Match remembers the epoch it opened under, so a moved
+    /// deploy slot with the same epoch is the same build.
+    pub listing_epoch: u32,
+}
+
+impl GameRecord {
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 2 + 32 + 8 + 32 + 32 + 2 + 32 + 8 + 8 + 32 + 4;
+
+    /// Listed right now, for the deploy slot the loader reports (`None`: it could not be read).
+    pub fn is_listed(&self, now: i64, deploy_slot: Option<u64>) -> bool {
+        self.listed_until > now && deploy_slot == Some(self.approved_slot)
+    }
+
+    /// The Game program is still the build a Match opened under: the deploy slot is unchanged, or
+    /// it moved (ExtendProgram) and `refresh_listing` proved the same bytes in the same epoch.
+    pub fn same_build(&self, m: &MatchState, current_slot: u64) -> bool {
+        current_slot == m.inner.deploy_slot
+            || (current_slot == self.approved_slot && self.listing_epoch == m.listing_epoch)
+    }
+
+    pub fn fee_terms(&self, config: &Config) -> ledger::FeeTerms {
+        ledger::FeeTerms {
+            platform_bps: config.platform_bps,
+            studio_bps: self.studio_bps,
+            platform_recipient: config.platform_recipient.to_bytes(),
+            studio_recipient: self.studio_recipient.to_bytes(),
+        }
+    }
+}
+
+/// How many Matches one opener-to-joiner pair has started in the current window.
+#[account]
+pub struct PairState {
+    pub bump: u8,
+    /// Who paid the counter's rent (the joiner's wallet); `close_pair` returns it there.
+    pub payer: Pubkey,
+    pub window_start: i64,
+    pub count: u16,
+}
+
+/// Matches one opener-to-joiner pair may start per window.
+pub const MAX_PAIR_MATCHES: u16 = 20;
+pub const PAIR_WINDOW_SECS: i64 = 24 * 60 * 60;
+
+impl PairState {
+    pub const SPACE: usize = 8 + 1 + 32 + 8 + 2;
+
+    /// Counts one more Match started at `now`; `false` when the pair is at its limit for the window.
+    pub fn record(&mut self, now: i64) -> bool {
+        if now >= self.window_start.saturating_add(PAIR_WINDOW_SECS) {
+            self.window_start = now;
+            self.count = 0;
+        }
+        if self.count >= MAX_PAIR_MATCHES {
+            return false;
+        }
+        self.count += 1;
+        true
+    }
 }
 
 #[account]
@@ -92,7 +199,8 @@ pub struct Config {
     pub platform_bps: u16,
     /// `TesoroAccount` that receives the Platform Fee.
     pub platform_recipient: Pubkey,
-    pub games: Vec<GameEntry>,
+    /// Unused since the per-Game records; its bytes stay so older accounts keep their layout.
+    pub legacy_games: Vec<LegacyGameEntry>,
     /// Leaderboard Fee in basis points of the Pot. Appended after `games`: an account created
     /// before it reads the fields as zero (the unused tail of the account is zeroed) and is
     /// extended by `init_leaderboard`.
@@ -103,8 +211,8 @@ pub struct Config {
     /// Unix time `init_leaderboard` first ran: Matches opened before it were not charged the fee, so
     /// readers show the fee only for Matches opened at or after it. Zero until then.
     pub leaderboard_since: i64,
-    /// Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default 500 /
-    /// 1,000 / 2,500 apply, so an older Config needs no call. Appended after the Leaderboard
+    /// Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default ladder
+    /// (100 / 500 / 1,000) applies, so an older Config needs no call. Appended after the Leaderboard
     /// fields: an account created before reads them as zero from its zeroed tail.
     pub entry_sizes: [u64; ledger::MAX_ENTRY_SIZES],
     /// Set by the admin on mainnet (`set_oracle_lock`): the oracle key can no longer register
@@ -116,11 +224,8 @@ pub struct Config {
 impl Config {
     pub const SPACE: usize = Self::LEGACY_SPACE + 2 + 32 + 8 + 8 * ledger::MAX_ENTRY_SIZES + 1;
     /// The layout before the Leaderboard fields.
-    pub const LEGACY_SPACE: usize = 8 + 1 + 32 + 32 + 2 + 32 + 4 + MAX_GAMES * (32 + 32 + 2 + 32);
-
-    pub fn game(&self, game: &Pubkey) -> Option<&GameEntry> {
-        self.games.iter().find(|g| g.game == *game)
-    }
+    pub const LEGACY_SPACE: usize =
+        8 + 1 + 32 + 32 + 2 + 32 + 4 + LEGACY_GAMES * (32 + 32 + 2 + 32);
 
     /// The entry sizes in force: the admin's list, or the default ladder while none is set.
     pub fn entries(&self) -> Vec<u64> {
@@ -146,40 +251,29 @@ impl Config {
             recipient: self.pool_account.to_bytes(),
         }
     }
-
-    pub fn fee_terms(&self, g: &GameEntry) -> ledger::FeeTerms {
-        ledger::FeeTerms {
-            platform_bps: self.platform_bps,
-            studio_bps: g.studio_bps,
-            platform_recipient: self.platform_recipient.to_bytes(),
-            studio_recipient: g.studio_recipient.to_bytes(),
-        }
-    }
 }
 
-/// A finished season: the ranking and prizes recorded by `record_season`, paid by
-/// `pay_season_rank`. Seeds `["season", number as u32 LE]`.
+/// A recorded Season: the ranking, the frozen prize budget and the per-rank payout cursors, with
+/// the 48-hour payout window. Created by `record_season`, paid by `pay_season_rank` one
+/// (rank, budget line) step at a time. Seeds `["season", number as u32 LE]`.
 #[account]
 pub struct SeasonState {
     pub bump: u8,
-    pub inner: ledger::Season,
+    pub inner: ledger::PrizeSeason,
 }
 
 impl SeasonState {
-    pub const SPACE: usize = 8 + 1 + 4 + 8 + 1 + ledger::PRIZE_PLACES * (32 + 8 + 8) + 2;
-}
-
-/// The payout window of a recorded season (ADR 0012): when it was recorded and which ranks the
-/// admin voided. A separate account so `SeasonState` keeps its layout. Created by
-/// `record_season`; seeds `["season_window", number as u32 LE]`.
-#[account]
-pub struct SeasonWindowState {
-    pub bump: u8,
-    pub inner: ledger::SeasonWindow,
-}
-
-impl SeasonWindowState {
-    pub const SPACE: usize = 8 + 1 + 4 + 8 + 2;
+    /// `PrizeSeason` with its most budget lines.
+    pub const SPACE: usize = 8
+        + 1
+        + (4 + (4 + 8 + 2)
+            + 1
+            + ledger::PRIZE_PLACES * 32
+            + ledger::PRIZE_PLACES * 8
+            + 4
+            + ledger::MAX_BUDGET_LINES * ledger::BUDGET_LINE_LEN
+            + ledger::PRIZE_PLACES
+            + 1);
 }
 
 /// The signer allowed to report `PositionLocked` / `YieldAccrued` for Positions of one source
@@ -202,11 +296,10 @@ pub struct TesoroAccount {
     pub authority: Pubkey,
     /// The EVM family address of the Account (zero until set).
     pub evm_address: [u8; 20],
-    pub inner: ledger::Account,
 }
 
 impl TesoroAccount {
-    pub const SPACE: usize = 8 + 1 + 32 + 20 + 4 * 8;
+    pub const SPACE: usize = 8 + 1 + 32 + 20;
 }
 
 #[account]
@@ -217,8 +310,31 @@ pub struct PositionState {
 }
 
 impl PositionState {
-    pub const SPACE: usize =
-        8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 2 + 8;
+    pub const SPACE: usize = 8
+        + 1
+        + 32
+        + 32
+        + 1
+        + 32
+        + 1
+        + 8
+        + 2
+        + 1
+        + 4
+        + 5
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 2
+        + 8
+        + 16
+        + 16
+        + 8
+        + 2;
 }
 
 #[account]
@@ -228,31 +344,84 @@ pub struct SourceState {
 }
 
 impl SourceState {
-    pub const SPACE: usize = 8 + 1 + 32 + 32 + 4 + 1 + 16 + 8 + 5 * 8;
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 4 + 1 + 16 + 8 + 5 * 8 + 8 + 2 + 2 + 2 * 8;
 }
 
+/// The most Matches one Account may have open at once (an Open, Active, Settling or Refunding
+/// Match counts until it is closed). Idle Matches cannot hold tables for free.
+pub const MAX_OPEN_MATCHES: u32 = 8;
+
+/// What an Account has counted: the id of its next Match, how many of its Matches are open, how
+/// many Offers it has open. Created with the first Match or Offer; never closed.
 #[account]
-pub struct HoldingState {
+pub struct AccountCounters {
     pub bump: u8,
-    pub account: Pubkey,
-    pub inner: Holding,
+    pub next_match: u64,
+    pub open_matches: u32,
+    pub open_offers: u32,
 }
 
-impl HoldingState {
-    pub const SPACE: usize = 8 + 1 + 32 + 32 + 1 + 8 + 8;
+impl AccountCounters {
+    pub const SPACE: usize = 8 + 1 + 8 + 4 + 4;
 }
 
-const SIDE: usize = 32 + 32 + 2 + 4 + ledger::MAX_ENTRY_SOURCES * 40;
-
+/// A Match. The Pots (the Tickets' lines) live in the two Ticket accounts named in `pots`.
 #[account]
 pub struct MatchState {
     pub bump: u8,
-    pub id: u64,
-    pub inner: Match,
+    pub inner: ledger::lifecycle::MatchRecord,
+    /// The Game was listed when the Match opened: only then does a win earn Points.
+    pub listed: bool,
+    /// `GameRecord.listing_epoch` when the Match opened.
+    pub listing_epoch: u32,
+    /// Who paid the rent of this account; it goes back there when the Match is closed.
+    pub payer: Pubkey,
+    /// The Ticket account that is each side's Pot (the default key until the side joined).
+    pub pots: [Pubkey; 2],
+    /// Slots held in Accounts' stores for the lines this Match will credit (`room_reserved` of
+    /// each spill counts them). Every credit that takes a new slot pays the holder's share down;
+    /// `close_match` hands back what is left.
+    pub room: [RoomHold; ROOM_HOLDS],
+}
+
+/// Slots of one Account's stores held for a Match.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
+pub struct RoomHold {
+    pub account: [u8; 32],
+    pub left: u32,
+}
+
+/// Distinct Accounts a Match can credit: both Players, both funders and an outside Studio.
+pub const ROOM_HOLDS: usize = 5;
+
+impl RoomHold {
+    pub const LEN: usize = 32 + 4;
 }
 
 impl MatchState {
-    pub const SPACE: usize = 8 + 1 + 8 + 32 + 8 + 68 + 1 + SIDE + 1 + SIDE + 8;
+    /// Largest Borsh size of `MatchRecord` (a Match with a joiner and a run in progress), checked
+    /// by a unit test.
+    pub const RECORD_LEN: usize = 486;
+    pub const SPACE: usize =
+        8 + 1 + Self::RECORD_LEN + 1 + 4 + 32 + 64 + ROOM_HOLDS * RoomHold::LEN;
+
+    pub fn id(&self) -> ledger::lifecycle::MatchId {
+        self.inner.id
+    }
+}
+
+/// Written when a Match enters Settling or Refunding: proof, in core, that its outcome is frozen
+/// and its table's result slot is spent. Refundable to whoever paid it.
+#[account]
+pub struct SettlementReceipt {
+    pub bump: u8,
+    pub match_key: Pubkey,
+    pub payer: Pubkey,
+    pub receipt: ledger::lifecycle::Receipt,
+}
+
+impl SettlementReceipt {
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 50;
 }
 
 #[account]
@@ -274,26 +443,12 @@ pub struct OfferState {
 }
 
 impl OfferState {
-    pub const SPACE: usize = 8
-        + 1
-        + 8
-        + 32
-        + 32
-        + 8
-        + 2
-        + 33
-        + 1
-        + 8
-        + 8
-        + 33
-        + 33
-        + 4
-        + ledger::MAX_APPLICANTS * 32
-        + 4
-        + ledger::MAX_ENTRY_SOURCES * 41;
+    // discriminator, bump, nonce, backer, game, entry, player_share_bps, request, status,
+    // expires_at, use_by, player, ticket_open
+    pub const SPACE: usize = 8 + 1 + 8 + 32 + 32 + 8 + 2 + 32 + 1 + 8 + 8 + 33 + 1;
 }
 
-/// The one custody of every native Position (ADR 0010): a single simSOL vault holding their
+/// The one custody of every native Position (ADR 0010): a single simSOL vault that keeps their
 /// Principal, and the pool totals behind the Treasury's Yield Fee claim. Seeds `["native"]`; the
 /// vault is `["native_vault"]` with this account as authority. Yield is never held here: it is
 /// minted by `sim_lst` at the moment it is paid out.
@@ -304,35 +459,47 @@ pub struct NativeCustody {
     /// The canonical `sim_lst` Pool (test APY and speedup live there).
     pub pool: Pubkey,
     pub mint: Pubkey,
-    /// Token account (PDA) holding the Principal of every Locked native Position.
+    /// Token account (PDA) that keeps the Principal of every Locked native Position.
     pub vault: Pubkey,
-    /// `PoolTotals` (`ledger::yield_math`), updated only on open and unlock.
+    /// Principal of the Locked native Positions, SOL units (informational).
     pub principal: u128,
-    pub fee_weight: u128,
-    pub fee_weight_time: u128,
-    pub realised_fee: u128,
+    /// The pooled fee totals of the old Yield Fee model, unused since ticket 31. Kept so an account
+    /// written before the upgrade still decodes every later field at its own offset.
+    pub retired_fee_totals: [u128; 3],
     pub open_positions: u64,
+    /// The Treasury's shares of this route: what it holds, what holders and the Pool are owed
+    /// (Yield Fees realised at cash-out), the prize escrow. Simulated shares are minted at payout,
+    /// so most of these are virtual until paid.
+    pub route: ledger::RouteLedger,
 }
 
 impl NativeCustody {
-    pub const SPACE: usize = 8 + 1 + 1 + 3 * 32 + 4 * 16 + 8;
+    pub const SPACE: usize = 8 + 1 + 1 + 3 * 32 + 4 * 16 + 8 + ledger::RouteLedger::SPACE;
 
-    pub fn totals(&self) -> ledger::PoolTotals {
-        ledger::PoolTotals {
-            principal: self.principal,
-            fee_weight: self.fee_weight,
-            fee_weight_time: self.fee_weight_time,
-            realised_fee: self.realised_fee,
-            open_positions: self.open_positions,
-        }
+    /// A Position joined the custody.
+    pub fn add_position(&mut self, principal: u64) -> Result<()> {
+        self.principal = self
+            .principal
+            .checked_add(u128::from(principal))
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        self.open_positions = self
+            .open_positions
+            .checked_add(1)
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        Ok(())
     }
 
-    pub fn set_totals(&mut self, t: ledger::PoolTotals) {
-        self.principal = t.principal;
-        self.fee_weight = t.fee_weight;
-        self.fee_weight_time = t.fee_weight_time;
-        self.realised_fee = t.realised_fee;
-        self.open_positions = t.open_positions;
+    /// A Position unlocked.
+    pub fn remove_position(&mut self, principal: u64) -> Result<()> {
+        self.principal = self
+            .principal
+            .checked_sub(u128::from(principal))
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        self.open_positions = self
+            .open_positions
+            .checked_sub(1)
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        Ok(())
     }
 }
 
@@ -354,8 +521,7 @@ impl StakeConfig {
 }
 
 /// The shared custody of one staking token. Every stake Position of that token holds its
-/// `custody_shares` in `vault`; the totals behind the Treasury's Yield Fee claim change only on
-/// open and unlock (`ledger::stake`). Seeds `["stake_custody", mint]`; the vault is a token account
+/// `custody_shares` in `vault`. Seeds `["stake_custody", mint]`; the vault is a token account
 /// at `["stake_vault", mint]` with this account as authority.
 #[account]
 pub struct StakeCustody {
@@ -365,10 +531,11 @@ pub struct StakeCustody {
     /// The SPL stake pool account the token's Staking Rate is read from.
     pub pool: Pubkey,
     pub vault: Pubkey,
+    /// Principal of the Locked stake Positions, lamports (informational).
     pub principal: u128,
-    pub fee_shares: u128,
-    pub fee_principal: u128,
-    pub realised_fee_shares: u128,
+    /// The pooled fee totals of the old Yield Fee model, unused since ticket 31. Kept so an account
+    /// written before the upgrade still decodes every later field at its own offset.
+    pub retired_fee_totals: [u128; 3],
     pub open_positions: u64,
     /// Tokens the Treasury bought back by redeeming Gemas (their yield stays in the vault).
     pub refilled_shares: u64,
@@ -376,67 +543,65 @@ pub struct StakeCustody {
     pub instant_shares: u64,
     /// Tokens withdrawn to the company wallet, cumulative.
     pub withdrawn_shares: u64,
+    /// The Treasury's shares of this route. The vault holds exactly the open Positions' custody
+    /// plus `route.treasury_shares` plus the prize escrow (`route.escrow_total()`).
+    pub route: ledger::RouteLedger,
 }
 
 impl StakeCustody {
-    pub const SPACE: usize = 8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8;
+    pub const SPACE: usize = 8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8 + ledger::RouteLedger::SPACE;
 
-    pub fn totals(&self) -> ledger::StakeTotals {
-        ledger::StakeTotals {
-            principal: self.principal,
-            fee_shares: self.fee_shares,
-            fee_principal: self.fee_principal,
-            realised_fee_shares: self.realised_fee_shares,
-            open_positions: self.open_positions,
-        }
+    /// A Position joined the custody.
+    pub fn add_position(&mut self, principal: u64) -> Result<()> {
+        self.principal = self
+            .principal
+            .checked_add(u128::from(principal))
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        self.open_positions = self
+            .open_positions
+            .checked_add(1)
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        Ok(())
     }
 
-    pub fn set_totals(&mut self, t: ledger::StakeTotals) {
-        self.principal = t.principal;
-        self.fee_shares = t.fee_shares;
-        self.fee_principal = t.fee_principal;
-        self.realised_fee_shares = t.realised_fee_shares;
-        self.open_positions = t.open_positions;
-    }
-
-    /// The Treasury's balance in tokens at `rate`: the earned Yield Fee plus what it redeemed,
-    /// less what it paid out; never more than the vault holds above the Principal reserve.
-    pub fn treasury_balance(&self, rate: u64, vault_amount: u64) -> Result<u64> {
-        use crate::error::core_err;
-        let totals = self.totals();
-        let earned = totals.earned_fee_shares(rate).map_err(core_err)?;
-        let claim = earned
-            .saturating_add(self.refilled_shares)
-            .saturating_sub(self.instant_shares)
-            .saturating_sub(self.withdrawn_shares);
-        let headroom =
-            vault_amount.saturating_sub(totals.principal_reserve(rate).map_err(core_err)?);
-        Ok(claim.min(headroom))
+    /// A Position unlocked.
+    pub fn remove_position(&mut self, principal: u64) -> Result<()> {
+        self.principal = self
+            .principal
+            .checked_sub(u128::from(principal))
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        self.open_positions = self
+            .open_positions
+            .checked_sub(1)
+            .ok_or_else(|| crate::error::core_err(ledger::CoreError::Math))?;
+        Ok(())
     }
 }
 
-/// Tesoro's Treasury (CONTEXT.md): its Yield Fee on Solana-native Positions is computed from the
-/// `NativeCustody` pool totals (ADR 0010) and minted lazily: its balance is the unminted fee
-/// (`earned_fee - fee_minted`) plus the simSOL in `vault`. It pays Solana Instant Redeems and
-/// `withdraw_treasury` from `vault` first, then by minting the shortfall out of the unminted fee, and holds the Gemas it bought in `account`, a
+/// Tesoro's Treasury (CONTEXT.md). Its Yield Fee is taken when yield is cashed out (ticket 31) and
+/// kept as the route's shares (`NativeCustody.route`; native shares are minted lazily). It pays
+/// Solana Instant Redeems and `withdraw_treasury` from `vault` first, then by minting the
+/// shortfall out of its route's virtual shares, and holds the Gemas it bought in `account`, a
 /// `TesoroAccount` whose authority is this PDA. Seeds `["treasury"]`. Its fee rates apply on every
-/// chain: `yield_fee_bps` sizes every Advance, and EVM vaults take the same fee at the source.
+/// chain: each new Source keeps `yield_fee_bps` as its cash-out fee.
 #[account]
 pub struct Treasury {
     pub bump: u8,
     pub vault_bump: u8,
     pub account_bump: u8,
-    /// Yield Fee, basis points of every yield increment (2,000 at launch).
+    /// Yield Fee, basis points of yield cashed out (2,000 at launch).
     pub yield_fee_bps: u16,
-    /// Instant Redeem Fee, basis points of the redeemed Gemas' value (3,500 on devnet; 2,500 on mainnet, ADR 0011).
+    /// Reserved bytes. The program never reads this: the Instant Redeem Fee is the flat
+    /// `ledger::INSTANT_REDEEM_FEE_BPS` (25%). `init_treasury` still accepts and stores the argument so the
+    /// instruction layout does not change; the app and keeper ignore it.
     pub instant_fee_bps: u16,
     /// The Treasury Account (`["account", treasury]`).
     pub account: Pubkey,
     /// simSOL token account (`["treasury_vault"]`), authority = this PDA.
     pub vault: Pubkey,
-    /// SOL units of earned Yield Fee already minted out as simSOL (to a withdrawal or an Instant
-    /// Redeem payout). Never above `PoolTotals::earned_fee`; the difference is the unminted fee.
-    pub fee_minted: u64,
+    /// The old model's minted-fee counter, unused since ticket 31. Kept so an account written before
+    /// the upgrade still decodes every later field at its own offset.
+    pub retired_fee_minted: u64,
     /// SOL units paid out by Solana Instant Redeems, cumulative.
     pub instant_units: u64,
     /// simSOL shares the admin funded the vault with, cumulative.
@@ -505,6 +670,229 @@ impl OnchainPrice {
             PythError::Stale => error!(TesoroError::StalePrice),
             PythError::LowConfidence => error!(TesoroError::PriceTooUncertain),
         })
+    }
+}
+
+#[event]
+pub struct InstantRequested {
+    pub order: Pubkey,
+    pub account: Pubkey,
+    pub source: Pubkey,
+    pub gemas: u64,
+    pub expires_at: i64,
+}
+
+#[event]
+pub struct InstantFilled {
+    pub order: Pubkey,
+    pub source: Pubkey,
+    pub gemas: u64,
+    /// Shares the Treasury paid the seller.
+    pub payout_shares: u64,
+    pub fee_bps: u16,
+}
+
+#[event]
+pub struct InstantReturned {
+    pub order: Pubkey,
+    pub gemas: u64,
+    pub expired: bool,
+}
+
+#[event]
+pub struct Harvested {
+    pub source: Pubkey,
+    pub gemas: u64,
+    pub shares: u64,
+}
+
+#[event]
+pub struct SeasonFunded {
+    pub season: u32,
+    pub route: Pubkey,
+    pub moved_shares: u64,
+    pub prize_source: Pubkey,
+    pub gemas: u64,
+}
+
+#[event]
+pub struct PrizeRedeemed {
+    pub prize_source: Pubkey,
+    pub account: Pubkey,
+    pub gemas: u64,
+    pub shares: u64,
+}
+
+/// Seed of the economy settings: `["economy"]`.
+pub const ECONOMY_SEED: &[u8] = b"economy";
+/// Seed of an Instant Redeem order: `["instant", holder account, nonce LE]`.
+pub const INSTANT_ORDER_SEED: &[u8] = b"instant";
+/// Seed of a prize Source: `["prize", route (custody), season LE]`.
+pub const PRIZE_SOURCE_SEED: &[u8] = b"prize";
+/// Seed of the Pool's Season reservations: `["pool_reservations"]`.
+pub const POOL_RESERVATIONS_SEED: &[u8] = b"pool_reservations";
+
+/// How many routes (custodies) `record_season` waits for.
+pub const MAX_ROUTES: usize = 4;
+
+/// Who may do what in the economy upgrade, as explicit settings (never the oracle authority).
+/// Seeds `["economy"]`; created by the admin's `set_economy`.
+#[account]
+pub struct EconomyConfig {
+    pub bump: u8,
+    /// Runs Seasons (`fund_season_prize`, `record_season`, `pay_season_rank`) besides the admin.
+    pub season_keeper: Pubkey,
+    /// May fill Instant Redeem orders while `keeper_fills` is on (the admin always may).
+    pub fill_keeper: Pubkey,
+    /// Off by default: only the admin fills.
+    pub keeper_fills: bool,
+    /// The Pool's share of every realised Yield Fee, changeable from a Season announced ahead.
+    pub pool_share: ledger::PoolShare,
+    /// Custodies whose prize escrow `record_season` waits for (zero = unused slot).
+    pub routes: [Pubkey; MAX_ROUTES],
+    /// The Account that receives the Studio Fee counters of Tesoro's own Games (`cash_in_fee`);
+    /// zero until the admin names it.
+    pub tesoro_studio: Pubkey,
+}
+
+impl EconomyConfig {
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 1 + (2 + 4 + 2) + 32 * MAX_ROUTES + 32;
+
+    pub fn fill_authority(&self, admin: &Pubkey) -> ledger::FillAuthority {
+        ledger::FillAuthority {
+            admin: admin.to_bytes(),
+            keeper: self.fill_keeper.to_bytes(),
+            keeper_fills: self.keeper_fills,
+        }
+    }
+}
+
+/// An open Instant Redeem order (ticket 07's `InstantOrder` on chain): the unsold Gemas sit in
+/// `line`, off the owner's basket, until a fill buys them, the owner cancels or the order expires.
+/// Seeds `["instant", holder account, nonce LE]`; the owner pays the rent and gets it back, or the
+/// sponsor does for a Player with no SOL (it is repaid first).
+#[account]
+pub struct InstantOrderState {
+    pub bump: u8,
+    pub nonce: u64,
+    /// The seller's `TesoroAccount`.
+    pub account: Pubkey,
+    /// The seller's wallet.
+    pub owner: Pubkey,
+    /// `Line` bytes (`LINE_LEN`).
+    pub line: [u8; ledger::LINE_LEN],
+    pub requested: u64,
+    pub created_at: i64,
+    pub expires_at: i64,
+    pub sold: u64,
+    pub redeemed_while_open: u64,
+    pub paid_shares: u128,
+    /// Who paid the order's rent and gets it back at the close: the seller, or the sponsor's
+    /// relayer (then `sponsored_lamports` of it return to the sponsor first).
+    pub payer: Pubkey,
+    pub sponsored_lamports: u64,
+}
+
+impl InstantOrderState {
+    pub const SPACE: usize =
+        8 + 1 + 8 + 32 + 32 + ledger::LINE_LEN + 8 + 8 + 8 + 8 + 8 + 16 + 32 + 8;
+
+    /// The Source whose Gemas the order holds.
+    pub fn line_source(&self) -> Pubkey {
+        Pubkey::new_from_array(ledger::line_store::Line::decode(&self.line).source)
+    }
+
+    pub fn order(&self) -> ledger::InstantOrder {
+        ledger::InstantOrder {
+            owner: self.account.to_bytes(),
+            line: ledger::line_store::Line::decode(&self.line),
+            requested: self.requested,
+            created_at: self.created_at,
+            expires_at: self.expires_at,
+            sold: self.sold,
+            redeemed_while_open: self.redeemed_while_open,
+            paid_shares: self.paid_shares,
+        }
+    }
+
+    pub fn set_order(&mut self, o: &ledger::InstantOrder) {
+        o.line.encode(&mut self.line);
+        self.requested = o.requested;
+        self.created_at = o.created_at;
+        self.expires_at = o.expires_at;
+        self.sold = o.sold;
+        self.redeemed_while_open = o.redeemed_while_open;
+        self.paid_shares = o.paid_shares;
+    }
+}
+
+/// A prize Source: Gemas issued against a quantity of shares held in a route's prize escrow
+/// (ticket 06's `PrizeSource`). It has no book and no unpaid Gemas. Seeds
+/// `["prize", route, season LE]`.
+#[account]
+pub struct PrizeSourceState {
+    pub bump: u8,
+    /// The custody (route) whose escrow backs it.
+    pub route: Pubkey,
+    pub season: u32,
+    pub inner: ledger::PrizeSource,
+}
+
+impl PrizeSourceState {
+    pub const SPACE: usize = 8 + 1 + 32 + 4 + (32 + 16 + 8);
+}
+
+/// One reservation of a Pool line by a recorded Season's budget (Borsh form of
+/// `ledger::PoolReservations`' entries).
+#[derive(Clone, Copy, AnchorSerialize, AnchorDeserialize)]
+pub struct ReservationEntry {
+    pub side: u8,
+    pub due_at: i64,
+    pub source: Key,
+    pub class: u8,
+    pub tranche: u8,
+    pub amount: u64,
+}
+
+/// The Pool's lines that Seasons have promised (`ledger::PoolReservations`). Seeds
+/// `["pool_reservations"]`.
+#[account]
+pub struct PoolReservationsState {
+    pub bump: u8,
+    pub entries: Vec<ReservationEntry>,
+}
+
+impl PoolReservationsState {
+    pub const SPACE: usize = 8 + 1 + 4 + ledger::MAX_RESERVATION_ENTRIES * 51;
+
+    pub fn reservations(&self) -> ledger::PoolReservations {
+        ledger::PoolReservations::from_entries(self.entries.iter().map(|e| {
+            (
+                ledger::LineKey {
+                    side: e.side,
+                    due_at: e.due_at,
+                    source: e.source,
+                    class: e.class,
+                    tranche: e.tranche,
+                },
+                e.amount,
+            )
+        }))
+    }
+
+    pub fn set_reservations(&mut self, r: &ledger::PoolReservations) {
+        self.entries = r
+            .entries()
+            .iter()
+            .map(|(k, a)| ReservationEntry {
+                side: k.side,
+                due_at: k.due_at,
+                source: k.source,
+                class: k.class,
+                tranche: k.tranche,
+                amount: *a,
+            })
+            .collect();
     }
 }
 
@@ -626,6 +1014,18 @@ pub struct PositionUnlocked {
     pub position: Pubkey,
 }
 
+/// A stake Unlock found the custody short of the owner's Principal and free yield. A shortfall from
+/// holders' landed shares growing with the pool is topped up by the Treasury from what it can spend
+/// (founder, 2026-10-22: Tesoro covers it); a slash is the owner's (D2). `gap_shares` is what the
+/// owner did not get. Unlock never fails.
+#[event]
+pub struct UnlockShortfall {
+    pub position: Pubkey,
+    pub shortfall_shares: u64,
+    pub topped_up_shares: u64,
+    pub gap_shares: u64,
+}
+
 #[event]
 pub struct NativePositionOpened {
     pub position: Pubkey,
@@ -723,23 +1123,94 @@ pub struct PriceSet {
 }
 
 /// A Match was won. The Player is the Account that played (a Backer's win is the Player's for
-/// points). Every season standing is the sum of these events, so anyone can recompute it.
+/// points). Every season standing is the sum of these events, so anyone can recompute it. Written
+/// by event-CPI when the outcome is frozen (the start of Settling), so it cannot be forged by
+/// another program's log: readers check the program id of the inner instruction.
 #[event]
 pub struct MatchWon {
-    pub match_id: u64,
+    /// The opener's Account and its counter value: the Match id.
+    pub opener: Pubkey,
+    pub n: u64,
     pub game: Pubkey,
     pub entry: u64,
     pub player: Pubkey,
     pub funder: Pubkey,
     pub points: u64,
-    /// Gemas this Match paid into the Leaderboard Pool.
+    /// Gemas this Match pays into the Leaderboard Pool.
     pub pool_fee: u64,
     pub season: u32,
     pub ts: i64,
-    /// The Account that played on the losing side (the opponent of `player`); all zeroes if that
-    /// seat was empty. Last field, so events from before it was added are the same bytes minus
-    /// these 32 and read as having no known opponent (ADR 0012).
+    /// The Account that played on the losing side (the opponent of `player`).
     pub loser: Pubkey,
+    pub challenge: bool,
+    pub asset: u8,
+    pub opened_at: i64,
+}
+
+/// Settling or Refunding started: the outcome and the fees are frozen. Start record of a run.
+#[event]
+pub struct MatchRunStarted {
+    pub opener: Pubkey,
+    pub n: u64,
+    pub game: Pubkey,
+    /// 0 win, 1 no-show, 2 draw, 3 cancelled, 4 abandoned, 5 game upgraded, 6 refunded by game.
+    pub kind: u8,
+    /// Index of the winning side (0 opened, 1 joined); 255 when there is none.
+    pub winner: u8,
+    pub entry: u64,
+    pub fees: [u64; 3],
+    pub a_player: Pubkey,
+    pub a_funder: Pubkey,
+    pub b_player: Pubkey,
+    pub b_funder: Pubkey,
+    pub challenge: bool,
+    pub asset: u8,
+    pub opened_at: i64,
+    pub ts: i64,
+    /// Each side's Player share of a Backing, in bps (0 for an unbacked side).
+    pub a_share_bps: u16,
+    pub b_share_bps: u16,
+}
+
+/// One chunk of a run did work. Stable ids: the Match id and the chunk number.
+#[event]
+pub struct MatchChunkDone {
+    pub opener: Pubkey,
+    pub n: u64,
+    pub chunk_no: u32,
+    pub steps: u32,
+    pub done: bool,
+    /// A step could not run (missing account or room); nothing was skipped.
+    pub blocked: bool,
+    /// Credits this chunk wrote into overflow records instead of the Accounts' stores.
+    pub overflowed: u32,
+}
+
+/// A join found the Game's outside studio with full stores and a Pot too big for a capped overflow
+/// record: the Match's Studio Fee goes to Tesoro's own Studio counter instead.
+#[event]
+pub struct StudioFeeWaived {
+    pub match_state: Pubkey,
+    pub studio: Pubkey,
+}
+
+/// Lines moved out of an overflow record into their owner's stores.
+#[event]
+pub struct OverflowClaimed {
+    pub account: Pubkey,
+    pub kind: u8,
+    pub moved: u32,
+    /// Lines still waiting in the record; zero means it was closed and its rent returned.
+    pub left: u32,
+}
+
+/// The run is complete: every obligation is a durable basket or spill line.
+#[event]
+pub struct MatchSettled {
+    pub opener: Pubkey,
+    pub n: u64,
+    pub kind: u8,
+    pub chunks: u32,
 }
 
 #[event]
@@ -762,12 +1233,6 @@ pub struct SeasonPrizePaid {
     pub rank: u8,
     pub account: Pubkey,
     pub amount: u64,
-}
-
-#[event]
-pub struct MatchSettled {
-    pub match_id: u64,
-    pub result: u8,
 }
 
 /// Number of animal-head avatars the app ships (`app/src/lib/art.ts`). `AvatarChoice::Animal(i)` takes `i` in `0..AVATAR_COUNT`.
@@ -864,10 +1329,160 @@ mod profile_tests {
 
 /// An account of the world before the yield-by-math reset was closed by the admin. `kind`:
 /// 0 custody (`amount` = simSOL returned to its owner), 1 Position, 2 Source, 3 Holding
-/// (`amount` = Gemas taken out of the Account), 4 Request, 5 Offer, 6 Treasury.
+/// (`amount` 0), 4 Request, 5 Offer, 6 Treasury.
 #[event]
 pub struct OldAccountRetired {
     pub kind: u8,
     pub account: Pubkey,
     pub amount: u64,
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use crate::ledger::lifecycle::*;
+    use anchor_lang::AnchorSerialize;
+
+    /// The fullest Match: joined, Backed, an outside studio, a run started, every room hold used.
+    pub(crate) fn fullest_match_state() -> MatchState {
+        // the fullest record: a joined Match with a Backed side, an outside studio and a run
+        let party = Party {
+            player: [1; 32],
+            funder: [2; 32],
+            share_bps: 1,
+        };
+        let mut rec = MatchRecord::open(
+            MatchId {
+                opener: [1; 32],
+                n: u64::MAX,
+            },
+            MatchMeta {
+                challenge: true,
+                asset: 9,
+                listed: true,
+            },
+            [3; 32],
+            [4; 32],
+            u64::MAX,
+            Terms {
+                platform_bps: 1,
+                studio_bps: 1,
+                studio_owner: Some([5; 32]),
+                studio_priority: true,
+            },
+            500,
+            &[500],
+            party,
+            &{
+                let mut p = crate::ledger::draw::PotPages::new([2; 32]);
+                let mut l = crate::ledger::book::SourceBook::blank_line(
+                    0,
+                    0,
+                    [7; 32],
+                    crate::ledger::line_store::CLASS_GENERAL,
+                    0,
+                );
+                l.amount = 500;
+                p.push(&l).unwrap();
+                p
+            },
+            1,
+        )
+        .unwrap();
+        let mut p = crate::ledger::draw::PotPages::new([9; 32]);
+        let mut l = crate::ledger::book::SourceBook::blank_line(
+            0,
+            0,
+            [8; 32],
+            crate::ledger::line_store::CLASS_GENERAL,
+            0,
+        );
+        l.amount = 500;
+        p.push(&l).unwrap();
+        rec.join(
+            Party {
+                player: [10; 32],
+                funder: [11; 32],
+                share_bps: 2,
+            },
+            &p,
+            2,
+        )
+        .unwrap();
+        rec.start_settle(3, &[4; 32], u64::MAX, Outcome::NoShow, 1)
+            .unwrap();
+        let state = MatchState {
+            bump: 255,
+            inner: rec,
+            listed: true,
+            listing_epoch: u32::MAX,
+            payer: Pubkey::new_from_array([60; 32]),
+            pots: [
+                Pubkey::new_from_array([61; 32]),
+                Pubkey::new_from_array([62; 32]),
+            ],
+            room: std::array::from_fn(|i| RoomHold {
+                account: [40 + i as u8; 32],
+                left: 3 + i as u32,
+            }),
+        };
+        state
+    }
+
+    #[test]
+    fn the_match_record_never_outgrows_its_account() {
+        let state = fullest_match_state();
+        let mut bytes = Vec::new();
+        state.serialize(&mut bytes).unwrap();
+        // 8 discriminator + bump, then the Borsh of the rest
+        assert!(
+            8 + 1 + bytes.len() - 1 <= MatchState::SPACE,
+            "{} bytes against {}",
+            bytes.len(),
+            MatchState::SPACE
+        );
+        assert!(
+            MatchState::RECORD_LEN
+                >= bytes.len() - 1 - 1 - 4 - 32 - 64 - ROOM_HOLDS * RoomHold::LEN
+        );
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    use anchor_lang::AnchorSerialize;
+
+    /// Red-team 31 #3: ticket 31 retired fields of the Treasury and the custodies without moving
+    /// anything after them, so an account written before the upgrade still decodes in place.
+    #[test]
+    fn retired_fields_keep_the_old_offsets() {
+        assert_eq!(Treasury::SPACE, 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8 + 8 + 32);
+        let t = Treasury {
+            bump: 0,
+            vault_bump: 0,
+            account_bump: 0,
+            yield_fee_bps: 0,
+            instant_fee_bps: 0,
+            account: Pubkey::default(),
+            vault: Pubkey::default(),
+            retired_fee_minted: 0,
+            instant_units: 7,
+            funded_shares: 0,
+            withdrawn_units: 0,
+            company: Pubkey::default(),
+        };
+        let bytes = t.try_to_vec().unwrap();
+        // instant_units sat after fee_minted before ticket 31 (offsets without the discriminator).
+        assert_eq!(bytes[3 + 2 + 2 + 64 + 8], 7);
+        assert_eq!(bytes.len() + 8, Treasury::SPACE);
+        assert_eq!(
+            NativeCustody::SPACE,
+            8 + 1 + 1 + 3 * 32 + 4 * 16 + 8 + ledger::RouteLedger::SPACE
+        );
+        assert_eq!(
+            StakeCustody::SPACE,
+            8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8 + ledger::RouteLedger::SPACE
+        );
+    }
 }

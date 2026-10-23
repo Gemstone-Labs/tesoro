@@ -1,13 +1,11 @@
-import anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import type { GameId } from "../../app/src/lib/mock/types.ts";
 import { gameOfProgram } from "../../app/src/lib/chain/games.ts";
-import { backedSplit, feeGemas } from "../../app/src/lib/chain/ledger.ts";
-import { fetchLeaderboardTerms } from "../../app/src/lib/chain/leaderboard.ts";
-import { matchOpenedAt } from "../../app/src/lib/chain/match-id.ts";
-import { leaderboardBpsFor } from "../../app/src/lib/chain/season.ts";
+import type { MatchRunStartedRecord } from "../../app/src/server/history/events.ts";
+import { partiesOf } from "../../app/src/server/history/ingest.ts";
+import { matchKeyOf } from "../../app/src/server/history/match-key.ts";
 import { log, type Ctx } from "./act.ts";
-import { pk } from "./runtime.ts";
+import { startedRuns } from "./history.ts";
 
 export type { GameId };
 
@@ -19,34 +17,20 @@ export interface SettledPush {
   participants: { authority: string; result: "won" | "lost" | "draw"; gemas: number }[];
 }
 
-export interface SettledMatch {
-  id: bigint;
-  game: GameId;
-  entry: bigint;
-  fees: { platformBps: number; studioBps: number };
-  leaderboardBps: number;
-  /** MatchSettled.result: 0 the opener won, 1 the joiner won, 2 a draw. */
-  result: number;
-  /** The Players' wallet authority and whether a Backer funded them, by side (the joiner may be absent). */
-  sides: [{ authority: string; backedShareBps: number | null }, { authority: string; backedShareBps: number | null } | null];
-}
-
-/** Each Player's result and Gemas won or lost after Fees. A backed Player never loses Gemas. */
-export function settledPush(m: SettledMatch): SettledPush {
-  const entry = Number(m.entry);
-  const participants = m.sides.flatMap((side, i) => {
-    if (!side) return [];
-    const result = m.result === 2 ? "draw" : (m.result === i ? "won" : "lost");
-    let gemas = 0;
-    if (result === "won") {
-      gemas =
-        side.backedShareBps !== null
-          ? backedSplit({ entry, ...m.fees, leaderboardBps: m.leaderboardBps, shareBps: side.backedShareBps, won: true }).playerNet
-          : entry - Number(feeGemas(m.entry, m.fees.platformBps, m.fees.studioBps, m.leaderboardBps));
-    } else if (result === "lost") gemas = side.backedShareBps !== null ? 0 : entry;
-    return [{ authority: side.authority, result, gemas }] as SettledPush["participants"];
-  });
-  return { matchId: m.id.toString(), game: m.game, entry, participants };
+/**
+ * Each Player's result and Gemas won or lost after Fees, from the run-start record core emitted when the Match settled.
+ * `partiesOf` (the history rules) gives the Gema change of every side; a backed Player never loses Gemas. Refunds and
+ * no-shows are not "settled" Matches (the Delayed and refunded events speak for those).
+ */
+export function settledPush(start: MatchRunStartedRecord, game: GameId, authorityOf: (account: string) => string | undefined): SettledPush | null {
+  if (start.kind !== 0 && start.kind !== 2) return null;
+  const participants = partiesOf(start)
+    .filter((p) => p.role === "player" && p.result !== "refunded")
+    .flatMap((p) => {
+      const authority = authorityOf(p.account);
+      return authority ? [{ authority, result: p.result as "won" | "lost" | "draw", gemas: Math.abs(p.delta) }] : [];
+    });
+  return participants.length ? { matchId: matchKeyOf(start), game, entry: start.entry, participants } : null;
 }
 
 /**
@@ -68,69 +52,57 @@ export async function postToApp(url: string, secret: string, body: unknown, fetc
 export const pushSettled = (url: string, secret: string, push: SettledPush, fetchFn: typeof fetch = fetch) => postToApp(url, secret, push, fetchFn);
 
 /** Matches settled longer ago than this are not announced (a restart does not replay old history). */
-const WINDOW_MS = 3 * 24 * 3_600_000;
+const WINDOW_SECS = 3 * 24 * 3600;
 const PER_PASS = 15;
 const pushed = new Set<string>();
 
 /** The Game a tesoro_core Match's program id belongs to; null for a program the app does not play. */
 export const gameOfKey = gameOfProgram;
 
-/** The `result` of a Match's `MatchSettled` event, found in the transactions that touched the Match account. */
-async function settledResult(ctx: Ctx, match: PublicKey, id: bigint): Promise<number | null> {
-  const parser = new anchor.EventParser(ctx.core.programId, new anchor.BorshCoder(ctx.coreIdl));
-  for (const s of await ctx.conn.getSignaturesForAddress(match, { limit: 25 }, "confirmed")) {
-    if (s.err) continue;
-    const tx = await ctx.conn.getTransaction(s.signature, { maxSupportedTransactionVersion: 0, commitment: "confirmed" });
-    for (const ev of parser.parseLogs(tx?.meta?.logMessages ?? [])) {
-      const d: any = ev.data;
-      if ((ev.name === "MatchSettled" || ev.name === "matchSettled") && (d.matchId ?? d.match_id).toString() === id.toString()) return Number(d.result);
-    }
-  }
-  return null;
-}
-
 /**
- * Job: tells the app server about Matches that settled, so it can email the Players. The server holds the
- * once-only record (per Match and Player); `pushed` just stops this process asking again.
+ * Job: tells the app server about Matches that settled, so it can email the Players. It reads the run starts the history
+ * scan saw (`startedRuns`), so it needs no Match account (a settled Match is closed away). The server holds the once-only
+ * record (per Match and Player); `pushed` just stops this process asking again.
  */
-export async function notifyJob(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): Promise<number> {
+export async function notifyJob(ctx: Ctx, env: NodeJS.ProcessEnv = process.env, queue = startedRuns, fetchFn: typeof fetch = fetch): Promise<number> {
   const url = env.NOTIFY_URL;
   const secret = env.NOTIFY_SECRET;
   if (!url || !secret) return 0;
-  await fetchLeaderboardTerms(ctx.conn);
-  const all: any[] = await ctx.core.account.matchState.all();
+  const authorities = new Map<string, string>();
   let sent = 0;
   let looked = 0;
-  for (const { publicKey, account } of all) {
-    if (Object.keys(account.inner.status)[0] !== "settled") continue;
-    const id = BigInt(account.id.toString());
-    const game = gameOfKey(pk(account.inner.game));
-    if (!game || pushed.has(id.toString())) continue;
-    const opened = matchOpenedAt(id, game);
-    if (Date.now() - opened > WINDOW_MS) continue;
+  for (const entry of [...queue]) {
+    const { start, blockTime } = entry;
+    const id = matchKeyOf(start);
+    const drop = () => void queue.splice(queue.indexOf(entry), 1);
+    if (pushed.has(id) || (blockTime !== null && ctx.now - blockTime > WINDOW_SECS)) {
+      drop();
+      continue;
+    }
+    const game = gameOfKey(new PublicKey(start.game));
+    if (!game || (start.kind !== 0 && start.kind !== 2)) {
+      drop();
+      continue;
+    }
     if (looked++ >= PER_PASS) break;
     try {
-      const result = await settledResult(ctx, publicKey, id);
-      if (result === null) continue;
-      const m = account.inner;
-      const authorityOf = async (side: any) => (await ctx.core.account.tesoroAccount.fetch(pk(side.player))).authority.toBase58();
-      const sideOf = async (side: any) => ({ authority: await authorityOf(side), backedShareBps: pk(side.funder).equals(pk(side.player)) ? null : Number(side.shareBps) });
-      const push = settledPush({
-        id,
-        game,
-        entry: BigInt(m.entry.toString()),
-        fees: { platformBps: Number(m.fees.platformBps), studioBps: Number(m.fees.studioBps) },
-        leaderboardBps: leaderboardBpsFor(opened),
-        result,
-        sides: [await sideOf(m.a), m.b ? await sideOf(m.b) : null],
-      });
-      const res = await pushSettled(url, secret, push);
+      for (const account of [start.aPlayer, start.bPlayer]) {
+        if (account && !authorities.has(account)) authorities.set(account, (await ctx.core.account.tesoroAccount.fetch(new PublicKey(account))).authority.toBase58());
+      }
+      const push = settledPush(start, game, (a) => authorities.get(a));
+      if (!push) {
+        drop();
+        continue;
+      }
+      const res = await pushSettled(url, secret, push, fetchFn);
       if (res === "sent") {
-        pushed.add(id.toString());
+        pushed.add(id);
+        drop();
         sent++;
         log("notify", `match=${id}`, "DONE settled Match sent to the app");
       } else if (res === "rejected") {
-        pushed.add(id.toString());
+        pushed.add(id);
+        drop();
         log("notify", `match=${id}`, `SKIP the app does not take ${game} events`);
       } else log("notify", `match=${id}`, "FAIL the app did not take the event, will retry");
     } catch (e) {

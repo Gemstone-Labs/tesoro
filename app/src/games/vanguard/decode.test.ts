@@ -63,7 +63,8 @@ describe("the Army decoder", () => {
     const e = golden.army.expected;
     const a = decodeArmy(bytes(golden.army.bytes));
     expect([a.bump, a.seat, a.side, a.fuel, a.truckTurn, a.moves]).toEqual([e.bump, e.seat, e.side, e.fuel, e.truckTurn, e.moves]);
-    expect(hexOf(a.battle)).toBe(e.battle);
+    expect(hexOf(a.table)).toBe(e.table);
+    expect([a.contributed, a.dealt]).toEqual([e.contributed, e.dealt]);
     expect(hexOf(a.player)).toBe(e.player);
     expect(hexOf(Uint8Array.from(a.ranks))).toBe(e.ranks);
   });
@@ -119,22 +120,23 @@ describe("the account tails the layout table does not name", () => {
   const battleBytes = () => bytes(golden.battle.bytes).slice();
   const armyBytes = () => bytes(golden.army.bytes).slice();
 
-  it("puts the sealing key in the last 32 bytes of the Army, after the move counter, and the end mask in the Battle's last 31", () => {
-    // the Rust offsets test pins Battle.reserved at 8 + 1481 and the Army is Borsh with `reserved: [u8; 32]` last
-    expect(layout.army.offsets.moves + 2).toBe(layout.army.size - 32);
+  it("puts the sealing key right after the move counter in the Army, and the end mask in the Battle's last 31", () => {
+    // the Rust offsets test pins Battle.reserved at 8 + 1481 and the Army is Borsh with `reserved: [u8; 32]` after `moves`
+    expect(layout.army.offsets.moves + 2).toBe(layout.army.offsets.reserved);
+    expect(layout.army.offsets.reserved + 32).toBe(layout.army.offsets.contributed);
     expect(layout.battle.offsets.resolveSlackSecs + 1).toBe(layout.battle.size - 31);
   });
 
   it("decodes the Army key and keeps the ranks and counters it had", () => {
     const raw = armyBytes();
-    for (let i = 0; i < 32; i++) raw[layout.army.size - 32 + i] = 0xa0 + i;
+    for (let i = 0; i < 32; i++) raw[layout.army.offsets.reserved + i] = 0xa0 + i;
     const a = decodeArmy(raw);
     expect(Array.from(a.sealKey)).toEqual(Array.from({ length: 32 }, (_, i) => 0xa0 + i));
     expect(a.moves).toBe(golden.army.expected.moves);
     expect(hexOf(Uint8Array.from(a.ranks))).toBe(golden.army.expected.ranks);
     // the Rust golden Army carries the known key 0xA0..0xBF (programs/vanguard/tests/golden.rs)
     expect(hexOf(decodeArmy(armyBytes()).sealKey)).toBe(golden.army.expected.reserved);
-    raw.fill(0, layout.army.size - 32);
+    raw.fill(0, layout.army.offsets.reserved, layout.army.offsets.reserved + 32);
     expect(Array.from(decodeArmy(raw).sealKey)).toEqual(Array(32).fill(0)); // wiped: no key
   });
 

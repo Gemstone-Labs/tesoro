@@ -3,7 +3,41 @@ use crate::ledger::{FeeTerms, LeaderboardTerms};
 use crate::state::*;
 use anchor_lang::prelude::*;
 
-fn validate_fees(platform_bps: u16, studio_bps: u16, leaderboard_bps: u16) -> Result<()> {
+/// The Studio Fee is exempt from the Yield Fee; routing Gemas through one must never pay
+/// (founder 2026-10-22, red-team 31 #4). Every setter of the Platform, Leaderboard or Yield Fee
+/// checks it at the largest Studio Fee a Game may set.
+pub(crate) fn require_studio_exemption_safe(
+    yield_fee_bps: u16,
+    platform_bps: u16,
+    leaderboard_bps: u16,
+) -> Result<()> {
+    require!(
+        crate::ledger::yield_fee::studio_exemption_safe(
+            yield_fee_bps,
+            platform_bps,
+            leaderboard_bps,
+            MAX_STUDIO_BPS
+        ),
+        TesoroError::StudioFeeLaundering
+    );
+    Ok(())
+}
+
+/// The Yield Fee of the Treasury at the `["treasury"]` PDA; 0 while it does not exist yet.
+pub(crate) fn treasury_yield_fee(info: &AccountInfo) -> Result<u16> {
+    if info.data_is_empty() {
+        return Ok(0);
+    }
+    require_keys_eq!(*info.owner, crate::ID, TesoroError::InvalidAccount);
+    let data = info.try_borrow_data()?;
+    Ok(Treasury::try_deserialize(&mut &data[..])?.yield_fee_bps)
+}
+
+pub(crate) fn validate_fees(
+    platform_bps: u16,
+    studio_bps: u16,
+    leaderboard_bps: u16,
+) -> Result<()> {
     let fees = FeeTerms {
         platform_bps,
         studio_bps,
@@ -51,7 +85,7 @@ pub(crate) fn initialize_config(
     config.oracle_authority = oracle_authority;
     config.platform_bps = platform_bps;
     config.platform_recipient = ctx.accounts.platform_recipient.key();
-    config.games = Vec::new();
+    config.legacy_games = Vec::new();
     config.leaderboard_bps = 0;
     config.pool_account = Pubkey::default();
     config.leaderboard_since = 0;
@@ -75,6 +109,9 @@ pub struct UpdateConfig<'info> {
         bump = platform_recipient.bump
     )]
     pub platform_recipient: Account<'info, TesoroAccount>,
+    /// CHECK: the Treasury PDA, read for its Yield Fee; may not exist yet.
+    #[account(seeds = [TREASURY_SEED], bump)]
+    pub treasury: UncheckedAccount<'info>,
 }
 
 /// Replaces the oracle authority and the Platform Fee terms. Matches already open keep the
@@ -84,17 +121,14 @@ pub(crate) fn update_config(
     oracle_authority: Pubkey,
     platform_bps: u16,
 ) -> Result<()> {
-    let max_studio = ctx
-        .accounts
-        .config
-        .games
-        .iter()
-        .map(|g| g.studio_bps)
-        .max()
-        .unwrap_or(0);
     validate_fees(
         platform_bps,
-        max_studio,
+        MAX_STUDIO_BPS,
+        ctx.accounts.config.leaderboard_bps,
+    )?;
+    require_studio_exemption_safe(
+        treasury_yield_fee(&ctx.accounts.treasury)?,
+        platform_bps,
         ctx.accounts.config.leaderboard_bps,
     )?;
     let config = &mut ctx.accounts.config;
@@ -126,67 +160,6 @@ pub(crate) fn set_admin(ctx: Context<SetAdmin>, new_admin: Pubkey) -> Result<()>
     Ok(())
 }
 
-#[derive(Accounts)]
-pub struct RegisterGame<'info> {
-    pub admin: Signer<'info>,
-    #[account(
-        mut,
-        seeds = [CONFIG_SEED],
-        bump = config.bump,
-        has_one = admin @ TesoroError::Unauthorized
-    )]
-    pub config: Box<Account<'info, Config>>,
-    #[account(
-        seeds = [ACCOUNT_SEED, studio_recipient.authority.as_ref()],
-        bump = studio_recipient.bump
-    )]
-    pub studio_recipient: Account<'info, TesoroAccount>,
-}
-
-/// Registers a Game or replaces its entry.
-pub(crate) fn register_game(
-    ctx: Context<RegisterGame>,
-    game: Pubkey,
-    authority: Pubkey,
-    studio_bps: u16,
-) -> Result<()> {
-    let platform_bps = ctx.accounts.config.platform_bps;
-    let leaderboard_bps = ctx.accounts.config.leaderboard_bps;
-    validate_fees(platform_bps, studio_bps, leaderboard_bps)?;
-    let entry = GameEntry {
-        game,
-        authority,
-        studio_bps,
-        studio_recipient: ctx.accounts.studio_recipient.key(),
-    };
-    let games = &mut ctx.accounts.config.games;
-    match games.iter_mut().find(|g| g.game == game) {
-        Some(existing) => *existing = entry,
-        None => {
-            require!(games.len() < MAX_GAMES, TesoroError::GameRegistryFull);
-            games.push(entry);
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn remove_game(ctx: Context<RemoveGame>, game: Pubkey) -> Result<()> {
-    ctx.accounts.config.games.retain(|g| g.game != game);
-    Ok(())
-}
-
-#[derive(Accounts)]
-pub struct RemoveGame<'info> {
-    pub admin: Signer<'info>,
-    #[account(
-        mut,
-        seeds = [CONFIG_SEED],
-        bump = config.bump,
-        has_one = admin @ TesoroError::Unauthorized
-    )]
-    pub config: Box<Account<'info, Config>>,
-}
-
 /// Sets up the Leaderboard on a Config that predates it, or changes its fee: extends the Config
 /// account, creates the Leaderboard Pool Account (owned by the `["leaderboard"]` address, which
 /// nobody can sign for, so only this program ever moves its Gemas) and sets the fee. Safe to
@@ -216,6 +189,9 @@ pub struct InitLeaderboard<'info> {
         bump
     )]
     pub pool_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Treasury PDA, read for its Yield Fee; may not exist yet.
+    #[account(seeds = [TREASURY_SEED], bump)]
+    pub treasury: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -225,19 +201,15 @@ pub(crate) fn init_leaderboard(ctx: Context<InitLeaderboard>, leaderboard_bps: u
         pool.bump = ctx.bumps.pool_account;
         pool.authority = ctx.accounts.pool_authority.key();
         pool.evm_address = [0; 20];
-        pool.inner = Default::default();
     }
-    let max_studio = ctx
-        .accounts
-        .config
-        .games
-        .iter()
-        .map(|g| g.studio_bps)
-        .max()
-        .unwrap_or(0);
     validate_fees(
         ctx.accounts.config.platform_bps,
-        max_studio,
+        MAX_STUDIO_BPS,
+        leaderboard_bps,
+    )?;
+    require_studio_exemption_safe(
+        treasury_yield_fee(&ctx.accounts.treasury)?,
+        ctx.accounts.config.platform_bps,
         leaderboard_bps,
     )?;
     let pool_key = ctx.accounts.pool_account.key();

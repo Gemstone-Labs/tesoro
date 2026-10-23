@@ -1,17 +1,20 @@
 import "./polyfill";
 import { BN } from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import type { GameId } from "@/lib/mock/types";
+import { gameRecordPda } from "./game-record";
 import { protectionsPda } from "./native";
 import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
-import { EntryError, matchDelta } from "./ledger";
-import { ChallengeError, GAME_IDS, ensureReady, entryHoldings, isChallengeId, newMatchId, queueDeps, refundMatch } from "./match-flow";
-import { decodeAll, fetchMatch, gameOf, requireGame } from "./read";
-import { matchOpenedAt } from "./match-id";
-import { queueEntry, type Entered } from "./queue";
-import { leaderboardBpsFor } from "./season";
+import { EntryError } from "./ledger";
+import { ChallengeError, GAME_IDS, enterQueue, createChallenge, joinChallenge, ensureReady, refundMatch } from "./match-flow";
+import { coreIx } from "./entry";
+import { basketPda, countersPda, spillPda } from "./basket";
+import { freeOf, readEntryStores, type BackingRef } from "./entry";
+import { DrawError } from "./draw";
+import { fetchMatch, gameOf, matchKeyOfState, requireGame } from "./read";
+import type { Entered } from "./queue";
 
 /**
  * Backing on chain (tesoro_core Requests and Offers). Reads are public; writes are signed by the
@@ -63,18 +66,18 @@ export interface ChainOffer {
   game: GameId;
   entry: number;
   shareBps: number;
-  /** The Request this Offer answers; null only for an old public Offer (no longer offered). */
-  directedTo: string | null;
   status: "open" | "accepted" | "consumed" | "cancelled" | "expired";
   expiresAt: number;
   useBy: number;
   /** TesoroAccount key of the accepted Player. */
   player: string | null;
-  /** Address of the accepted Player's Request. */
-  request: string | null;
+  /** The Request this Offer answers: every Offer is made on one Request. */
+  request: string;
   lines: OfferLine[];
-  /** The Match this Offer funded, once consumed. */
-  matchId: bigint | null;
+  /** Key (`<opener>-<n>`) of the live Match this Offer funded, once consumed; null when that Match is closed or unknown. */
+  matchId: string | null;
+  /** A Backing Ticket is open on this Offer (the Requester is staging the Backer's entry). */
+  ticketOpen: boolean;
 }
 
 export interface BackingBoard {
@@ -92,75 +95,21 @@ interface PlayerForm {
 }
 const noForm = (): PlayerForm => ({ record: { matches: 0, wins: 0 }, pnl: [] });
 
-/** Wins, settled count and Gema change per Player over all Matches, from Block Burst Sessions, Hold'em tables and Trading Duels. */
-async function fetchRecords(players: Set<string>): Promise<Map<string, PlayerForm>> {
-  const chain = getChain();
-  const rows: any[] = await chain.core.account.matchState.all();
-  const settled = rows.filter((m) => enumKey(m.account.inner.status) === "settled" && gameOf(pk(m.account.inner.game)) !== null);
-  const bp = settled.filter((m) => gameOf(pk(m.account.inner.game)) === "block-puzzle");
-  const sessions = await decodeAll(
-    bp.map((m) => BlockPuzzleChain.addresses(big(m.account.id)).session),
-    (data) => chain.bp.coder.accounts.decode("session", data),
-  );
-  const winnerSeat = new Map<string, 0 | 1>();
-  bp.forEach((m, i) => {
-    const r = sessions[i]?.result;
-    if (sessions[i]?.settled && (r === 0 || r === 1)) winnerSeat.set(big(m.account.id).toString(), r);
-  });
-  const hd = settled.filter((m) => gameOf(pk(m.account.inner.game)) === "holdem");
-  if (hd.length) {
-    const { getHoldem } = await import("./client");
-    const { addresses } = await import("@/games/holdem/chain");
-    const program = getHoldem().program;
-    const tables = await decodeAll(hd.map((m) => addresses(big(m.account.id)).gameMatch), (data) => program.coder.accounts.decode("gameMatch", data));
-    hd.forEach((m, i) => {
-      const w = tables[i]?.winner;
-      if (w === 0 || w === 1) winnerSeat.set(big(m.account.id).toString(), w);
-    });
-  }
-  const td = settled.filter((m) => gameOf(pk(m.account.inner.game)) === "trading-duel");
-  if (td.length) {
-    const { getTradingDuel } = await import("./client");
-    const { addresses } = await import("@/games/trading-duel/chain");
-    const program = getTradingDuel().program;
-    const duels = await decodeAll(td.map((m) => addresses(big(m.account.id)).duel), (data) => program.coder.accounts.decode("duel", data));
-    td.forEach((m, i) => {
-      const w = duels[i]?.winner;
-      if (w === 0 || w === 1) winnerSeat.set(big(m.account.id).toString(), w);
-    });
-  }
-  const vg = settled.filter((m) => gameOf(pk(m.account.inner.game)) === "vanguard");
-  if (vg.length) {
-    const { addresses } = await import("@/games/vanguard/chain");
-    const { decodeBattle } = await import("@/games/vanguard/decode");
-    const battles = await decodeAll(vg.map((m) => addresses(big(m.account.id)).battle), (data) => decodeBattle(data));
-    vg.forEach((m, i) => {
-      const w = battles[i]?.winner;
-      if (w === 0 || w === 1) winnerSeat.set(big(m.account.id).toString(), w);
-    });
-  }
+/**
+ * Wins, settled count and Gema change per Player over all finished Matches, from the Match history
+ * (`/api/player-forms`): a finished Match's account is closed, so the chain no longer has them. An
+ * unavailable history gives every Player an empty record.
+ */
+async function fetchRecords(players: Set<string>, fetcher: typeof fetch = (...a) => fetch(...a)): Promise<Map<string, PlayerForm>> {
   const out = new Map<string, PlayerForm>([...players].map((p) => [p, noForm()]));
-  const changes = new Map<string, { at: number; delta: number }[]>();
-  for (const m of settled) {
-    const w = winnerSeat.get(big(m.account.id).toString());
-    if (w === undefined) continue;
-    const inner = m.account.inner;
-    const id = big(m.account.id);
-    const at = matchOpenedAt(id, gameOf(pk(inner.game)));
-    const fees = { platformBps: inner.fees.platformBps, studioBps: inner.fees.studioBps, leaderboardBps: leaderboardBpsFor(at) };
-    const sides = [inner.a, inner.b];
-    sides.forEach((s: any, seat: number) => {
-      const player = s && pk(s.player).toBase58();
-      const form = player && out.get(player);
-      if (!form) return;
-      form.record.matches += 1;
-      if (seat === w) form.record.wins += 1;
-      const backing = pk(s.funder).equals(pk(s.player)) ? null : { shareBps: s.shareBps };
-      const delta = matchDelta({ session: null, winner: w === 0 ? "opener" : "joiner", seat: seat as 0 | 1, entry: Number(inner.entry.toString()), fees, backing });
-      changes.set(player, [...(changes.get(player) ?? []), { at, delta }]);
-    });
+  try {
+    const res = await fetcher(`/api/player-forms?players=${[...players].join(",")}`);
+    if (!res.ok) return out;
+    const forms = (await res.json()) as Record<string, { matches: number; wins: number; pnl: number[] }>;
+    for (const [player, f] of Object.entries(forms)) if (out.has(player)) out.set(player, { record: { matches: f.matches, wins: f.wins }, pnl: f.pnl });
+  } catch {
+    // no history: records stay empty
   }
-  for (const [player, list] of changes) out.get(player)!.pnl = list.sort((a, b) => a.at - b.at).map((c) => c.delta);
   return out;
 }
 
@@ -182,16 +131,8 @@ function toRequest(row: any, { record, pnl }: PlayerForm): ChainRequest {
   };
 }
 
-const kindOf = (k: any): string | null => {
-  const v = k.directed ?? null;
-  if (!v) return null;
-  const inner = Array.isArray(v) ? v[0] : (v[0] ?? v._0 ?? v);
-  return pk(inner).toBase58();
-};
-
-function toOffer(row: any, matchId: bigint | null): ChainOffer {
+function toOffer(row: any, matchId: string | null): ChainOffer {
   const o = row.account.inner;
-  const directed = kindOf(o.kind);
   const requestKey = (k: number[] | null) => (k ? pk(k).toBase58() : null);
   return {
     address: row.publicKey,
@@ -200,14 +141,15 @@ function toOffer(row: any, matchId: bigint | null): ChainOffer {
     game: requireGame(pk(o.game)),
     entry: Number(o.entry.toString()),
     shareBps: o.playerShareBps,
-    directedTo: directed,
     status: offerStatus(o.status),
     expiresAt: Number(o.expiresAt.toString()),
     useBy: Number(o.useBy.toString()),
     player: requestKey(o.player),
-    request: requestKey(o.request),
-    lines: (o.lines as any[]).map((l) => ({ source: pk(l.source), isOwn: l.isOwn, amount: big(l.amount) })),
+    request: pk(o.request).toBase58(),
+    // An Offer reserves an amount in the Backer's basket, not lines: kept empty for callers written for line reservations.
+    lines: [],
     matchId,
+    ticketOpen: !!o.ticketOpen,
   };
 }
 
@@ -226,9 +168,9 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
     .map((r) => toRequest(r, records.get(pk(r.account.inner.player).toBase58()) ?? noForm()))
     .sort((a, b) => b.expiresAt - a.expiresAt);
   // A consumed Offer funded the newest Match with the same Backer, Player, Game and entry.
-  const matchOf = (o: any): bigint | null => {
+  const matchOf = (o: any): string | null => {
     const inner = o.account.inner;
-    const ids = matchRows
+    const rows = matchRows
       .filter((m) =>
         [m.account.inner.a, m.account.inner.b].some(
           (s: any) => s && pk(s.funder).equals(pk(inner.backer)) && inner.player && pk(s.player).equals(pk(inner.player)),
@@ -236,8 +178,8 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
         pk(m.account.inner.game).equals(pk(inner.game)) &&
         m.account.inner.entry.toString() === inner.entry.toString(),
       )
-      .map((m) => big(m.account.id));
-    return ids.length ? ids.reduce((x, y) => (x > y ? x : y)) : null;
+      .sort((x, y) => Number(big(y.account.inner.openedAt) - big(x.account.inner.openedAt)));
+    return rows.length ? matchKeyOfState(rows[0].account) : null;
   };
   const offers = offerRows
     .filter((o) => gameOf(pk(o.account.inner.game)) !== null)
@@ -263,13 +205,8 @@ export async function fetchOffer(address: PublicKey): Promise<ChainOffer | null>
 
 // ---- writes ---------------------------------------------------------------------------------
 
-const config = () => BlockPuzzleChain.addresses(0n).config;
+const config = () => PublicKey.findProgramAddressSync([Buffer.from("config")], getChain().core.programId)[0];
 const nonce = () => new BN((BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000))).toString());
-const metas = (keys: PublicKey[]) => keys.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true }));
-
-/** Holdings of an Offer's reserved lines, in the order the program reserved them. */
-export const offerHoldings = (backerAccount: PublicKey, lines: OfferLine[]) =>
-  lines.map((l) => BlockPuzzleChain.holding(backerAccount, l.source));
 
 /**
  * Before a Break or Self-Exclusion: withdraws everything of the signed-in Account that has not started a Match. Their Match
@@ -287,8 +224,8 @@ export async function withdrawOwnOpenItems(signer: ChainSigner): Promise<number>
   const mine = (bytes: number[]) => pk(bytes).equals(me);
   let n = 0;
   for (const m of matchRows) {
-    if (enumKey(m.account.inner.status) === "open" && mine(m.account.inner.a.player)) {
-      await refundMatch(signer, big(m.account.id));
+    if (enumKey(m.account.inner.stage) === "open" && mine(m.account.inner.a.player)) {
+      await refundMatch(signer, matchKeyOfState(m.account));
       n++;
     }
   }
@@ -315,7 +252,7 @@ export async function postRequest(signer: ChainSigner, game: GameId, entry: numb
   const address = PublicKey.findProgramAddressSync([Buffer.from("request"), snap.accountKey.toBuffer(), n.toArrayLike(Buffer, "le", 8)], chain.core.programId)[0];
   const ix = await chain.core.methods
     .createRequest(n, GAME_IDS[game], new BN(entry))
-    .accountsPartial({ playerAuthority: signer.publicKey, config: config(), playerAccount: snap.accountKey, protections: protectionsPda(snap.accountKey), request: address, systemProgram: SystemProgram.programId })
+    .accountsPartial({ playerAuthority: signer.publicKey, config: config(), gameRecord: gameRecordPda(GAME_IDS[game]), playerAccount: snap.accountKey, protections: protectionsPda(snap.accountKey), request: address, systemProgram: SystemProgram.programId })
     .instruction();
   return { address, sig: await chain.sendBase(signer, [ix]) };
 }
@@ -329,7 +266,7 @@ export async function cancelRequest(signer: ChainSigner, request: PublicKey) {
   return chain.sendBase(signer, [ix]);
 }
 
-/** A Backer answers a Request with an Offer and reserves the entry from their own Gemas. */
+/** A Backer answers a Request with an Offer for its game and entry, reserving the entry from their own Gemas. */
 export async function postOffer(
   signer: ChainSigner,
   a: { game: GameId; entry: number; shareBps: number; request: PublicKey },
@@ -337,22 +274,36 @@ export async function postOffer(
 ): Promise<{ address: PublicKey; sig: string }> {
   const chain = getChain();
   const snap = await ensureReady(signer, getToken);
-  const holdings = entryHoldings(snap, a.entry);
+  // The Offer reserves the entry in the Backer's pool: the Gemas must be free (not already reserved, not in a Ticket).
+  const stores = await readEntryStores(snap.accountKey);
+  if (freeOf(stores) < BigInt(a.entry)) throw new DrawError("insufficient");
   const n = nonce();
   const address = PublicKey.findProgramAddressSync([Buffer.from("offer"), snap.accountKey.toBuffer(), n.toArrayLike(Buffer, "le", 8)], chain.core.programId)[0];
-  const ix = await chain.core.methods
-    .createOffer(n, GAME_IDS[a.game], new BN(a.entry), a.shareBps, a.request)
-    .accountsPartial({ backerAuthority: signer.publicKey, config: config(), backerAccount: snap.accountKey, offer: address, systemProgram: SystemProgram.programId })
-    .remainingAccounts(metas(holdings))
-    .instruction();
+  const ix = coreIx(
+    "create_offer",
+    {
+      backerAuthority: signer.publicKey,
+      config: config(),
+      request: a.request,
+      gameRecord: gameRecordPda(GAME_IDS[a.game]),
+      backerAccount: snap.accountKey,
+      protections: protectionsPda(snap.accountKey),
+      basket: basketPda(snap.accountKey),
+      spill: spillPda(snap.accountKey),
+      counters: countersPda(snap.accountKey),
+      offer: address,
+      systemProgram: SystemProgram.programId,
+    },
+    { nonce: new BN(n.toString()), playerShareBps: a.shareBps },
+  );
   return { address, sig: await chain.sendBase(signer, [ix]) };
 }
 
-/** The Player accepts an Offer directed at their Request. */
-export async function acceptDirected(signer: ChainSigner, request: PublicKey, offer: PublicKey) {
+/** The Player accepts an Offer made on their Request. */
+export async function acceptOffer(signer: ChainSigner, request: PublicKey, offer: PublicKey) {
   const chain = getChain();
   const ix = await chain.core.methods
-    .acceptDirected()
+    .acceptOffer()
     .accountsPartial({ playerAuthority: signer.publicKey, playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey), protections: protectionsPda(BlockPuzzleChain.coreAccount(signer.publicKey)), request, offer })
     .instruction();
   return chain.sendBase(signer, [ix]);
@@ -362,17 +313,16 @@ export async function acceptDirected(signer: ChainSigner, request: PublicKey, of
 export async function cancelOffer(signer: ChainSigner, offer: ChainOffer) {
   const chain = getChain();
   const backerAccount = BlockPuzzleChain.coreAccount(signer.publicKey);
-  const ix = await chain.core.methods
-    .cancelOffer()
-    .accountsPartial({
-      backerAuthority: signer.publicKey,
-      backerAccount,
-      offer: offer.address,
-      // An accepted Offer hands its Request back to Open, so the Request comes with the call.
-      request: offer.status === "accepted" && offer.request ? new PublicKey(offer.request) : null,
-    })
-    .remainingAccounts(metas(offerHoldings(backerAccount, offer.lines)))
-    .instruction();
+  const ix = coreIx("cancel_offer", {
+    backerAuthority: signer.publicKey,
+    backerAccount,
+    basket: basketPda(backerAccount),
+    spill: spillPda(backerAccount),
+    counters: countersPda(backerAccount),
+    offer: offer.address,
+    // An accepted Offer hands its Request back to Open, so the Request comes with the call.
+    request: offer.status === "accepted" ? new PublicKey(offer.request) : undefined,
+  });
   return chain.sendBase(signer, [ix]);
 }
 
@@ -380,17 +330,16 @@ export async function cancelOffer(signer: ChainSigner, offer: ChainOffer) {
 export async function expireOffer(signer: ChainSigner, offer: ChainOffer) {
   const chain = getChain();
   const backerAccount = new PublicKey(offer.backer);
-  const ix = await chain.core.methods
-    .expireOffer()
-    .accountsPartial({
-      caller: signer.publicKey,
-      backerAccount,
-      offer: offer.address,
-      request: offer.status === "accepted" && offer.request ? new PublicKey(offer.request) : null,
-      backerProtections: null,
-    })
-    .remainingAccounts(metas(offerHoldings(backerAccount, offer.lines)))
-    .instruction();
+  const ix = coreIx("expire_offer", {
+    caller: signer.publicKey,
+    backerAccount,
+    basket: basketPda(backerAccount),
+    spill: spillPda(backerAccount),
+    counters: countersPda(backerAccount),
+    offer: offer.address,
+    request: offer.status === "accepted" ? new PublicKey(offer.request) : undefined,
+    backerProtections: undefined,
+  });
   return chain.sendBase(signer, [ix]);
 }
 
@@ -422,95 +371,34 @@ async function requireBacking(signer: ChainSigner, address: string, game: GameId
   return offer;
 }
 
-const backerAccountOf = (o: ChainOffer) => new PublicKey(o.backer);
-
-/**
- * The async Block Burst client opens (and joins) its Session in the same transaction as the core
- * instruction. When the client has those builders, bundle them; the earlier flow starts the
- * Session after pairing and needs nothing here.
- */
-type SessionIxs = {
-  openSessionIx?: (payer: PublicKey, id: bigint, opener: PublicKey) => Promise<TransactionInstruction>;
-  joinSessionIx?: (payer: PublicKey, id: bigint, joiner: PublicKey) => Promise<TransactionInstruction>;
-};
-const sessionIxs = (chain: object) => chain as SessionIxs;
-
-async function openBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
-  const chain = getChain();
-  const a = BlockPuzzleChain.addresses(id);
-  const backerAccount = backerAccountOf(offer);
-  const ix = await chain.core.methods
-    .openMatchBacked(new BN(id.toString()), GAME_IDS[offer.game], new BN(offer.entry))
-    .accountsPartial({
-      playerAuthority: signer.publicKey,
-      config: a.config,
-      playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey),
-      protections: protectionsPda(BlockPuzzleChain.coreAccount(signer.publicKey)),
-      offer: offer.address,
-      backerAccount,
-      backerProtections: protectionsPda(backerAccount),
-      matchState: a.match,
-      systemProgram: SystemProgram.programId,
-    })
-    .remainingAccounts(metas(offerHoldings(backerAccount, offer.lines)))
-    .instruction();
-  const session = offer.game === "block-puzzle" ? await sessionIxs(chain).openSessionIx?.(signer.publicKey, id, signer.publicKey) : undefined;
-  return chain.sendBase(signer, session ? [ix, session] : [ix]);
-}
-
-async function joinBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
-  const chain = getChain();
-  const backerAccount = backerAccountOf(offer);
-  const ix = await chain.core.methods
-    .joinMatchBacked()
-    .accountsPartial({
-      playerAuthority: signer.publicKey,
-      playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey),
-      protections: protectionsPda(BlockPuzzleChain.coreAccount(signer.publicKey)),
-      offer: offer.address,
-      backerAccount,
-      backerProtections: protectionsPda(backerAccount),
-      matchState: BlockPuzzleChain.addresses(id).match,
-      openerProtections: await chain.openerProtections(id),
-    })
-    .remainingAccounts(metas(offerHoldings(backerAccount, offer.lines)))
-    .instruction();
-  const session = offer.game === "block-puzzle" ? await sessionIxs(chain).joinSessionIx?.(signer.publicKey, id, signer.publicKey) : undefined;
-  return chain.sendBase(signer, session ? [ix, session] : [ix]);
-}
+const backingRefOf = (o: ChainOffer): BackingRef => ({ offer: o.address, backerAccount: new PublicKey(o.backer) });
 
 /** Queue under a Backing: join the oldest open Match at this entry, else open one. The Player is never debited. */
 export async function enterQueueBacked(signer: ChainSigner, backing: string, game: GameId, entry: number, getToken: GetToken, onStep?: (s: string) => void, asset: 0 | 1 | 2 = 0): Promise<Entered> {
-  const snap = await ensureReady(signer, getToken);
+  await ensureReady(signer, getToken);
   const offer = await requireBacking(signer, backing, game, entry);
-  return queueEntry({
-    ...queueDeps(signer, snap.accountKey, game, entry, asset, backerAccountOf(offer)),
-    join: (id) => joinBacked(signer, id, offer),
-    open: (id) => openBacked(signer, id, offer),
-    // Another Player joined first: only move on while the Offer is still ours to use.
-    canRetry: async () => (await fetchOffer(offer.address))?.status === "accepted",
-    onStep,
-  });
+  // Another Player joined first: only move on while the Offer is still ours to use.
+  return enterQueue(signer, entry, getToken, game, onStep, asset, backingRefOf(offer), async () => (await fetchOffer(offer.address))?.status === "accepted");
 }
 
 /** Challenge under a Backing: open a Match only reachable through its link. */
 export async function createChallengeBacked(signer: ChainSigner, backing: string, game: GameId, entry: number, getToken: GetToken, asset: 0 | 1 | 2 = 0) {
   await ensureReady(signer, getToken);
   const offer = await requireBacking(signer, backing, game, entry);
-  const id = newMatchId(true, game, asset);
-  return { id, sig: await openBacked(signer, id, offer) };
+  const id = await createChallenge(signer, entry, getToken, game, asset, undefined, backingRefOf(offer));
+  return { id };
 }
 
 /** Opening a Challenge link under a Backing joins it with the Backer's reserved Gemas. */
-export async function joinChallengeBacked(signer: ChainSigner, backing: string, id: bigint, getToken: GetToken) {
+export async function joinChallengeBacked(signer: ChainSigner, backing: string, key: string, getToken: GetToken) {
   const snap = await ensureReady(signer, getToken);
-  const m = await fetchMatch(id, snap.accountKey);
+  const m = await fetchMatch(key, snap.accountKey);
   if (!m) throw new ChallengeError("missing");
-  if (!m.challenge && !isChallengeId(id)) throw new ChallengeError("not-challenge");
+  if (!m.challenge) throw new ChallengeError("not-challenge");
   if (m.seat !== null) return;
   if (m.status !== "open") throw new ChallengeError("taken");
   const offer = await requireBacking(signer, backing, m.game, m.entry);
-  await joinBacked(signer, id, offer);
+  await joinChallenge(signer, key, getToken, backingRefOf(offer));
 }
 
 export { EntryError };

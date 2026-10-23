@@ -1,0 +1,16 @@
+[package]
+name = "mock_endpoint"
+version = "0.1.0"
+description = "Test double of the LayerZero V2 endpoint for the bridge's LiteSVM flow tests. Never deployed."
+edition = "2021"
+rust-version = "1.84"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "mock_endpoint"
+
+[features]
+default = []
+
+[dependencies]
+anchor-lang = "0.31.1"

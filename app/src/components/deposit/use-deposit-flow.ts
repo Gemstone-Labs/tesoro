@@ -36,7 +36,7 @@ export function useDepositFlow(intent: DepositIntent | null) {
     () => (pm ? DEPOSIT_PACKS.map((p) => quotePack(p, pm, checkout?.feeBps ?? 0)) : null),
     // packMarket builds a new object each render; its inputs are what matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pm?.priceMicroUsd, pm?.apyBps, pm?.yieldFeeBps, checkout?.feeBps],
+    [pm?.priceMicroUsd, pm?.apyBps, checkout?.feeBps],
   );
   const shortfall = intent?.need ? Math.max(0, intent.need - gemas.available) : 0;
   const highlight = quotes ? packFor(shortfall, quotes) : null;

@@ -5,7 +5,7 @@ import { ChartCandlestick, Check, ChevronDown, Clock, Copy, EyeOff, Hourglass, L
 import { Busy, CountUp, GemaMark } from "@/components/ui";
 import { PlayerAvatar } from "@/components/account/Player";
 import { commitCopy, type CommitState } from "@/lib/chain/commit-pending";
-import { refundByText } from "@/lib/chain/match-status";
+import { NO_TABLE_NOTE, refundByText, tableWaitLine } from "@/lib/chain/match-status";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES, type GameId } from "@/lib/mock";
 import "./match-stage.css";
@@ -33,15 +33,19 @@ export interface StageInfo {
   challengeLink?: string | null;
   /** The Player is backed: their Backer funded the entry. */
   backedShareBps?: number | null;
+  /** Closing: the opponent never showed up, so their side stays idle instead of showing a finished run. */
+  opponentAbsent?: boolean;
   /** Closing: the result is in and waiting to be committed to the chain. */
   commit?: CommitState | null;
   /** The Match is past its settle time and not settled (from `matchStanding`): it refunds by `refundBy`. */
   delayed?: { refundBy: number; refundOpen: boolean } | null;
+  /** Words that replace the stage's own (Block Burst's table steps have a line of their own). */
+  words?: { kicker?: string; title?: string; line?: string };
 }
 
 /** The line under "Waiting for an opponent", by Game. */
 const WAITING_LINE: Record<GameId, (asset?: string | null) => string> = {
-  "block-puzzle": () => "Your run starts the moment they join.",
+  "block-puzzle": () => "The Match starts when someone joins. You both play the same pieces at the same time.",
   holdem: () => "The cards are dealt the moment they sit down.",
   "trading-duel": (asset) => `A 30 second head start on ${asset ?? "SOL"}/USD starts the moment they join.`,
   vanguard: () => "Both armies are drawn in secret the moment they join.",
@@ -68,6 +72,10 @@ export function delayedCopy(d: { refundBy: number; refundOpen: boolean }): { tit
 
 /** Title and one line per state: everything else is a chip or sits behind "How this works". */
 function copy(m: StageInfo): { kicker: string; title: string; line: string } {
+  return { ...stock(m), ...m.words };
+}
+
+function stock(m: StageInfo): { kicker: string; title: string; line: string } {
   const g = GAME_NAMES[m.game];
   const opp = "your opponent";
   if (m.delayed && (m.kind === "awaiting" || m.kind === "closing")) return { kicker: `${g} · Match delayed`, ...delayedCopy(m.delayed) };
@@ -81,6 +89,7 @@ function copy(m: StageInfo): { kicker: string; title: string; line: string } {
         line: WAITING_LINE[m.game](m.asset),
       };
     case "setup":
+      if (m.step === NO_TABLE_NOTE) return { kicker: `${g} · opponent found`, title: "Waiting for a table", line: tableWaitLine(m.deadline, Date.now()) };
       return {
         kicker: `${g} · opponent found`,
         title: "Get ready",
@@ -110,7 +119,7 @@ function details(m: StageInfo): { icon: LucideIcon; title: string; text: string 
       : { icon: Lock, title: "Your entry", text: `Your ${fmtGemas(m.entry)} Gemas are held for the Match. The winner takes ${fmtGemas(m.pot)}.` },
   ];
   const play = {
-    "block-puzzle": "You and your opponent get the same pieces, 90 seconds each, one after the other. Nobody sees a move until both runs are closed.",
+    "block-puzzle": "You and your opponent play the same pieces at the same time for 90 seconds. You see their last score until the final 10 seconds, when both scores are hidden. Higher score wins.",
     holdem: "1,500 Chips each, blinds rise every hand, 30 seconds per action. Your cards stay hidden from your opponent, and from us.",
     "trading-duel": "Pick a box in each of 12 columns; the live line passing through it scores 100 points. More points takes the Pot. Your picks stay hidden until each column locks.",
     vanguard: "Blitz Stratego: 20 pieces each, 10 seconds a move, every rank has a power, capture the enemy Supply Truck to win. Only you can see your pieces' ranks; an enemy piece shows its rank only once it has fought.",
@@ -238,7 +247,9 @@ function arenaMotion(m: StageInfo): { me: SeatState; opp: SeatState; left: RailF
     case "backer-watch":
       return { me: "playing", opp: opp ? "playing" : "seeking", left: "lit", right: opp ? "in" : "scan", fountain: false };
     case "closing":
-      return { me: "done", opp: "done", left: "lit", right: "lit", fountain: true };
+      return m.opponentAbsent
+        ? { me: "done", opp: "idle", left: "lit", right: "off", fountain: true }
+        : { me: "done", opp: "done", left: "lit", right: "lit", fountain: true };
   }
 }
 

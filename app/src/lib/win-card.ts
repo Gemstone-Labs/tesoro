@@ -7,6 +7,7 @@ import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
 import { GEMS } from "@/lib/waitlist-spot";
 import { BRAND } from "./brand";
+import { parseMatchKey } from "./chain/match-id";
 
 /** What the win card shows: one won, settled Match. */
 export interface WinCardData {
@@ -22,14 +23,8 @@ export interface WinCardData {
   hex: string;
 }
 
-const MAX_U64 = (1n << 64n) - 1n;
-
-/** A Match id from a URL segment, or null when it is not a whole number that fits a u64. */
-export function parseMatchId(raw: string): bigint | null {
-  if (!/^[1-9]\d{0,19}$/.test(raw)) return null;
-  const n = BigInt(raw);
-  return n <= MAX_U64 ? n : null;
-}
+/** A Match key (`<opener>-<n>`) from a URL segment, or null when it is not one. */
+export const parseWinKey = parseMatchKey;
 
 /** The winning seat of a settled Match; null for open, active, refunded and drawn ones, or when the result is unread. */
 export function winningSeat(m: ChainMatch): 0 | 1 | null {
@@ -50,10 +45,20 @@ export function winCardData(m: ChainMatch, profile: ProfileData | null): WinCard
   const gemas = Math.max(0, matchDelta({ ...m, seat, backing }));
   const pick = profile?.avatar;
   const index = pick?.kind === "animal" && pick.index < GEMS.length ? pick.index : avatarIndexFor(side.player);
-  return { id: m.id.toString(), game: m.game, entry: m.entry, gemas, name: profile?.name ?? shortKey(side.player), avatar: index + 1, hex: GEMS[index].hex };
+  return { id: m.id, game: m.game, entry: m.entry, gemas, name: profile?.name ?? shortKey(side.player), avatar: index + 1, hex: GEMS[index].hex };
 }
 
-export const winPath = (id: string | bigint) => `/win/${id}`;
+/** The card of a settled Match with a winner, as the Match history keeps it (`win_card`): the winning Player and what they gained. */
+export function winCardFromRow(card: { id: string; game: string; entry: number; winner: string; gemas: number }, profile: ProfileData | null): WinCardData | null {
+  if (!GAMES.includes(card.game as GameId)) return null;
+  const pick = profile?.avatar;
+  const index = pick?.kind === "animal" && pick.index < GEMS.length ? pick.index : avatarIndexFor(card.winner);
+  return { id: card.id, game: card.game as GameId, entry: card.entry, gemas: card.gemas, name: profile?.name ?? shortKey(card.winner), avatar: index + 1, hex: GEMS[index].hex };
+}
+
+const GAMES: readonly GameId[] = ["block-puzzle", "holdem", "trading-duel", "vanguard"];
+
+export const winPath = (id: string) => `/win/${id}`;
 
 export function winShareText(w: Pick<WinCardData, "game" | "gemas" | "entry">): string {
   const won = w.gemas > 0 ? `won ${w.gemas.toLocaleString("en-US")} Gemas` : "won";
