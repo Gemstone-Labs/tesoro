@@ -9,6 +9,7 @@ import { Button } from "@/components/ui";
 import { challengeHref, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
+import { isHiddenGame } from "@/lib/games";
 import { awayNotice } from "@/lib/chain/protections";
 import { useAway } from "@/lib/chain/useAway";
 import type { QueueSeat } from "@/lib/chain/read";
@@ -26,12 +27,12 @@ interface Slide {
 }
 
 /** The featured Games. Entry, Queue and Challenge live on each Game's page; the hero only leads there. */
-export const SLIDES: Slide[] = [
+export const SLIDES: Slide[] = ([
   { game: "vanguard", title: "Vanguard", sub: "Strategy · 10-second turns · hidden ranks", image: art.vanguardHero },
   { game: "holdem", title: "Buckshot Hold'em", sub: "Real-time · 2 players", image: art.holdemHero, long: true },
   { game: "trading-duel", title: "Trading Duel", sub: "Live price · 2.5 minutes · most hits wins", image: art.tradingDuelHero },
   { game: "block-puzzle", title: "Block Burst", sub: "Same pieces · 90 seconds · higher score wins", image: art.blockPuzzleHero },
-];
+] as Slide[]).filter((s) => !isHiddenGame(s.game));
 
 const ADVANCE_MS = 7000;
 

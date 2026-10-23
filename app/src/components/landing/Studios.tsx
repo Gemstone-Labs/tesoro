@@ -2,17 +2,18 @@ import type { CSSProperties } from "react";
 import { Plus } from "lucide-react";
 import { GemaMark } from "@/components/ui/gema";
 import { art } from "@/lib/art";
+import { isHiddenGame } from "@/lib/games";
 import { OUTBOUND } from "@/lib/landing/config";
 import { ArriveFlow } from "./ArriveFlow";
 import { BRAND } from "@/lib/brand";
 
-const CATALOGUE = [
+const CATALOGUE = ([
   { src: art.blockPuzzleTile, name: "Block Burst", live: true },
   { src: art.holdemTile, name: "Buckshot Hold’em", live: true },
   { src: art.tradingDuelTile, name: "Trading Duel", live: true },
   { src: art.vanguardTile, name: "Vanguard", live: true },
   { src: art.comingSoon["word-duel"], name: "Word Duel" },
-];
+] as { src: string; name: string; live?: boolean }[]).filter((g) => g.name !== "Vanguard" || !isHiddenGame("vanguard"));
 
 /** The Pot at settlement as a ring: illustrative proportions only. */
 function PotRing() {

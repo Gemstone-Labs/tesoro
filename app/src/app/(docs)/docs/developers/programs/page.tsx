@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Addr, DataTable, DocPage, H2, H3, explorer, hoodi, purrsec } from "@/components/docs/prose";
 import { CopyButton } from "@/components/docs/CopyButton";
 import { BRAND } from "@/lib/brand";
+import { isHiddenGame } from "@/lib/games";
 
 export const metadata: Metadata = { title: "Programs and addresses", alternates: { canonical: "/docs/developers/programs" } };
 
@@ -26,7 +27,7 @@ export default function Page() {
           [<code key="2">block_puzzle</code>, <ProgramId key="2a" id="5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj" />],
           [<code key="3">holdem</code>, <ProgramId key="3a" id="CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE" />],
           [<code key="4">trading_duel</code>, <ProgramId key="4a" id="CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj" />],
-          [<code key="4v">vanguard</code>, <ProgramId key="4va" id="TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH" />],
+          ...(isHiddenGame("vanguard") ? [] : [[<code key="4v">vanguard</code>, <ProgramId key="4va" id="TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH" />]]),
           [<code key="5">sim_lst</code>, <ProgramId key="5a" id="WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F" />],
           [<code key="6">tesoro_bridge</code>, <ProgramId key="6a" id="5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ" />],
         ]}

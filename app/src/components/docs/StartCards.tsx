@@ -2,15 +2,16 @@ import Link from "next/link";
 import { ArrowRight, BookOpenCheck, Code2 } from "lucide-react";
 import { CopyButton } from "./CopyButton";
 import { IconTile } from "./visual";
+import { isHiddenGame } from "@/lib/games";
 
-const PROGRAMS = [
+const PROGRAMS = ([
   ["tesoro_core", "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"],
   ["block_puzzle", "5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj"],
   ["holdem", "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"],
   ["trading_duel", "CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj"],
   ["vanguard", "TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH"],
   ["sim_lst", "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"],
-] as const;
+] as const).filter(([name]) => name !== "vanguard" || !isHiddenGame("vanguard"));
 
 const short = (id: string) => `${id.slice(0, 6)}…${id.slice(-4)}`;
 

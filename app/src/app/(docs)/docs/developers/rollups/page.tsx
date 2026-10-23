@@ -3,10 +3,12 @@ import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
 import { Cpu, GitCommitHorizontal, KeyRound, Landmark, Play, Send } from "lucide-react";
 import { Pipeline } from "@/components/docs/visual";
+import { isHiddenGame } from "@/lib/games";
 
 export const metadata: Metadata = { title: "Private Ephemeral Rollups", alternates: { canonical: "/docs/developers/rollups" } };
 
 export default function Page() {
+  const vg = !isHiddenGame("vanguard");
   return (
     <DocPage href="/docs/developers/rollups" hero={<Pipeline label="Life of a Match on a table" items={[
   { icon: Landmark, tone: "sapphire", title: "Base layer", body: "Match opens in tesoro_core." },
@@ -18,7 +20,7 @@ export default function Page() {
 ]} />}>
       <p>
         A Match&apos;s result must reach the Solana settlement program without trusting a Studio server&apos;s signature, and some of its state must stay hidden:
-        a Player&apos;s hole cards, a Block Burst run, a Trading Duel pick, a Vanguard army. ADR 0003 decides that each Game is a Solana program whose
+        a Player&apos;s hole cards, a Block Burst run, a Trading Duel pick{vg ? ", a Vanguard army" : ""}. ADR 0003 decides that each Game is a Solana program whose
         tables are delegated to a <b>MagicBlock Private Ephemeral Rollup</b>, which runs in an Intel TDX trusted execution environment (TEE).
       </p>
 
@@ -55,7 +57,7 @@ export default function Page() {
           ["Block Burst", "The Seed, then each Player's Board (moves), and the opponent's score for the last 10 seconds", "The Seed is written by the VRF callback into a vault seat with no members and copied into a Player's own Board by begin, in the transaction that starts that Player's clock. Each Board's only member is its Player. From 80 s into the 90 s run, moves go through play_hidden, which writes no public score.", "At the end of the Match: the Seed, both move logs and their timing, in the table's result ring."],
           ["Hold'em", "Each Player's hole cards", "Hole accounts are seats readable only by their Player. There is no stored deck: cards are drawn from a seed that folds the VRF output with both Players' fresh secrets, which sit in seats and are never an instruction argument.", "Board cards as dealt; hole cards only at a showdown. The seats are wiped before the table is committed."],
           ["Trading Duel", "Each Player's Book: picks for columns that have not locked", "Each Book is a seat readable only by its Player. When a column locks, both picks for it are copied into the public table.", "As columns lock: both picks. After the Match: both full Books."],
-          ["Vanguard", "Both armies and each Player's secret", "Each army is a seat readable only by its Player; the setup uses both Players' secrets and the VRF output.", "The board as it is played, and every piece left standing at the end."],
+          ...(vg ? [["Vanguard", "Both armies and each Player's secret", "Each army is a seat readable only by its Player; the setup uses both Players' secrets and the VRF output.", "The board as it is played, and every piece left standing at the end."]] : []),
         ]}
       />
 
@@ -85,7 +87,7 @@ export default function Page() {
       <H2 id="liveness">Liveness</H2>
       <p>
         Clocks live in the programs: every Game gives a paired Player 60 s to check in or take the first step. Block Burst 60 s to check in, 60 s for the pieces, a 10 s countdown, a 90 s run and 3 s of grace; Hold&apos;em 30 s per action and 60 s
-        to contribute entropy, with three missed turns in a row a forfeit; Trading Duel a two-and-a-half-minute grid; Vanguard 10 s per move, three missed turns in a row a forfeit, and a 15 minute limit on the whole Battle. <code>claim_timeout</code>,{" "}
+        to contribute entropy, with three missed turns in a row a forfeit; Trading Duel a two-and-a-half-minute grid{vg ? "; Vanguard 10 s per move, three missed turns in a row a forfeit, and a 15 minute limit on the whole Battle" : ""}. <code>claim_timeout</code>,{" "}
         <code>close</code>, <code>finalize</code> and <code>settle</code> can be sent by anyone, and the keeper sends them when no Player does.
       </p>
 

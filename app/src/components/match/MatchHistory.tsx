@@ -4,16 +4,16 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { PLAYED, RESULTS, resultParam, toggleResult } from "@/lib/chain/history";
 import { GAME_NAMES } from "@/lib/mock";
 import type { GameId, MatchResult } from "@/lib/mock";
-import { isGameId } from "@/lib/games";
+import { isGameId, isHiddenGame } from "@/lib/games";
 import "./history.css";
 
-const FILTERS: [GameId | null, string][] = [
+const FILTERS: [GameId | null, string][] = ([
   [null, "All"],
   ["block-puzzle", GAME_NAMES["block-puzzle"]],
   ["holdem", "Hold'em"],
   ["trading-duel", "Trading Duel"],
   ["vanguard", "Vanguard"],
-];
+] as [GameId | null, string][]).filter(([g]) => !g || !isHiddenGame(g));
 
 /** The game a `?game=` value names, null for all games. */
 export const gameFilter = (v: string | null): GameId | null => (isGameId(v) ? v : null);

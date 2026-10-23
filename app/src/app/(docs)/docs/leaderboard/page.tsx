@@ -5,10 +5,12 @@ import Link from "next/link";
 import { DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { SeasonDiagram, Shot } from "@/components/docs/visual";
 import { BRAND } from "@/lib/brand";
+import { isHiddenGame } from "@/lib/games";
 
 export const metadata: Metadata = { title: "Leaderboard", alternates: { canonical: "/docs/leaderboard" } };
 
 export default function Page() {
+  const vg = !isHiddenGame("vanguard");
   return (
     <DocPage href="/docs/leaderboard" hero={<Shot name="leaderboard" url={`${BRAND.domain}/leaderboard`} alt="The Leaderboard with the current Pool, time left in the season and the top Players" priority caption="The live Leaderboard: the Pool, the time left in the season and the standings." />}>
       <p>
@@ -41,7 +43,7 @@ export default function Page() {
         head={["Entry", "Points for a win"]}
         rows={ENTRY_SIZES.map((e) => [`${fmtGemas(e)} Gemas`, String(e / 100)])}
       />
-      <p>Losses, draws and refunds earn nothing. The game does not matter: a win in Block Burst, Hold&apos;em, Trading Duel or Vanguard counts the same at the same entry.</p>
+      <p>Losses, draws and refunds earn nothing. The game does not matter: a win in Block Burst, Hold&apos;em, Trading Duel{vg ? " or Vanguard" : ""} counts the same at the same entry.</p>
       <p>
         When a <Link href="/docs/backing">Backer</Link> funds the entry, the points go to the Player who played, not to the Backer. If two Players finish
         on the same points, the one who won first that week ranks higher. Only your first 3 wins against the same opponent in a season earn points;

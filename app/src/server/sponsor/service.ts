@@ -17,6 +17,8 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import nacl from "tweetnacl";
+import { GAME_IDS } from "@/lib/chain/games";
+import { HIDDEN_GAMES } from "@/lib/games";
 import { DemoHttpError } from "../request-auth";
 import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
 import { CORE_ID, PRIORITY_MICROLAMPORTS, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
@@ -129,6 +131,14 @@ const macOk = (key: Buffer, message: Uint8Array, meta: string, given: string) =>
 
 const refuse = (e: RuleError) => new DemoHttpError(e.code === "sponsor-paused" ? 503 : e.code.endsWith("limit") || e.code.startsWith("too-many") ? 429 : 400, e.code, e.message);
 
+/** A hand-built request must not play a Game this environment hides: no instruction may call or name its program. */
+export function refuseHiddenGames(ixs: Ix[]) {
+  for (const g of HIDDEN_GAMES) {
+    const id = GAME_IDS[g];
+    if (ixs.some((ix) => ix.programId.equals(id) || ix.keys.some((k) => k.pubkey.equals(id)))) throw refuse(new RuleError("game-hidden", "That Game is not available."));
+  }
+}
+
 export class Sponsor {
   constructor(private readonly d: SponsorDeps) {}
 
@@ -151,6 +161,7 @@ export class Sponsor {
   }
 
   private async plan(ixs: Ix[], player: PublicKey): Promise<Plan> {
+    refuseHiddenGames(ixs);
     const listed = new Set<string>();
     for (const p of new Set(ixs.map((i) => i.programId.toBase58()))) if (p !== CORE_ID.toBase58() && (await this.d.isListed(new PublicKey(p)))) listed.add(p);
     try {
