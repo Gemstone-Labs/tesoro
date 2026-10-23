@@ -11,7 +11,7 @@
  *   pnpm --filter @tesoro/keeper exec tsx scripts/register-game.ts <game program id> --list --keypair <admin file> \
  *     [--listed-days 365] [--rpc <url>]     (lists the build deployed now; its hash is computed here and checked again on chain)
  */
-import { PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { ComputeBudgetProgram, PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import anchor from "@coral-xyz/anchor";
 import { adminSigning, parseArgs, programOverrides } from "../src/cli-args.ts";
 import { codeHash, configPda, coreAccountPda, coreIx, gameAuthorityPda, gameRecordPda, programDataPda } from "../src/launch-admin.ts";
@@ -24,7 +24,8 @@ const { conn: c, keypair: signer, program: core } = await adminSigning(a, progra
 const record = await c.getAccountInfo(gameRecordPda(core, game));
 
 async function send(ix: ReturnType<typeof coreIx>, what: string) {
-  const tx = new Transaction().add(ix);
+  // list_game hashes the whole deployed program: 400,000 to 1,160,000 CU (ticket 10)
+  const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ix);
   if (a.flag("dry-run")) {
     tx.feePayer = signer.publicKey;
     tx.recentBlockhash = (await c.getLatestBlockhash()).blockhash;
