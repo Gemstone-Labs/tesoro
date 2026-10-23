@@ -194,3 +194,12 @@ describe("vertical camera", () => {
     expect(offscreen(-20, revealU(-20, 0, l), l)).toBe(0);
   });
 });
+
+describe("layoutFor fillH", () => {
+  it("grows the band area to the height left on a phone, never below the default and at most twice it", () => {
+    const base = layoutFor(390).bodyH;
+    expect(layoutFor(390, undefined, 520).bodyH).toBe(520);
+    expect(layoutFor(390, undefined, 100).bodyH).toBe(base);
+    expect(layoutFor(390, undefined, 5000).bodyH).toBe(base * 2);
+  });
+});
