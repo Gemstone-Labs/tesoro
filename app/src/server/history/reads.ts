@@ -1,4 +1,5 @@
 import { HISTORY_PAGE, type HistoryRow } from "@/lib/chain/history";
+import { HIDDEN_GAMES } from "@/lib/games";
 import type { Win } from "@/lib/chain/season";
 import { matchKeyOf, type MatchKey } from "./match-key";
 import type { Rpc } from "./rpc";
@@ -63,6 +64,29 @@ export interface RecentWin {
   /** Block Burst only: [winner score, loser score]. */
   scores: [number, number] | null;
   at: number;
+}
+
+const VISIBLE_PAGE = 200;
+const VISIBLE_MAX_PAGES = 10;
+
+/**
+ * `accountHistory` with the Games this environment hides taken out of the rows, the total and the page count.
+ * A request for one visible Game passes straight through; otherwise it reads up to 2,000 of the newest rows and cuts the page itself.
+ */
+export async function visibleAccountHistory(rpc: Rpc, account: string, page: number, size: number, game: string | null, hidden: ReadonlySet<string> = HIDDEN_GAMES) {
+  if (hidden.size === 0 || game) return accountHistory(rpc, account, page, size, game);
+  const first = await accountHistory(rpc, account, 1, VISIBLE_PAGE, null);
+  const rest = await Promise.all(Array.from({ length: Math.max(0, Math.min(first.pages, VISIBLE_MAX_PAGES) - 1) }, (_, i) => accountHistory(rpc, account, i + 2, VISIBLE_PAGE, null)));
+  const rows = [first, ...rest].flatMap((r) => r.rows).filter((r) => !hidden.has(r.game));
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const at = Math.min(Math.max(1, page), pages);
+  return { rows: rows.slice((at - 1) * size, at * size), page: at, pages, total: rows.length };
+}
+
+/** `recentWins` without the Games this environment hides. */
+export async function visibleRecentWins(rpc: Rpc, q: { game?: string; since?: number; limit: number }, hidden: ReadonlySet<string> = HIDDEN_GAMES): Promise<RecentWin[]> {
+  if (hidden.size === 0) return recentWins(rpc, q);
+  return (await recentWins(rpc, { ...q, limit: 200 })).filter((w) => !hidden.has(w.game)).slice(0, q.limit);
 }
 
 /** The newest settled Matches with a winner, optionally of one game and created at or after `since` (ms). */

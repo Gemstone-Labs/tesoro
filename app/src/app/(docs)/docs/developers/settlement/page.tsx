@@ -4,6 +4,7 @@ import { Callout, Code, DataTable, DocPage, H2, H3 } from "@/components/docs/pro
 import { Sequence } from "@/components/docs/visual";
 import { INSTANT_FEE_PCT, YIELD_FEE_PCT } from "@/lib/chain/yield";
 import { BRAND } from "@/lib/brand";
+import { isHiddenGame } from "@/lib/games";
 
 export const metadata: Metadata = { title: "How settlement works", alternates: { canonical: "/docs/developers/settlement" } };
 
@@ -21,6 +22,7 @@ tesoro_core::cpi::settle_match(
 )?;`;
 
 export default function Page() {
+  const vg = !isHiddenGame("vanguard");
   return (
     <DocPage href="/docs/developers/settlement">
       <p>
@@ -59,7 +61,7 @@ export default function Page() {
       <ol>
         <li>A program id and an <b>authority</b>: a PDA of the Game program is the norm (seeds <code>[&quot;authority&quot;]</code>), signing by <code>invoke_signed</code>. A server key also works but is the weaker trust boundary.</li>
         <li>Registration by whoever controls the Game program: <code>register_game(settle_authority, studio_bps)</code>, signed by the program&apos;s upgrade authority (or, for a program that can no longer be upgraded, by the program itself through its <code>[&quot;tesoro-register&quot;]</code> address). Each Game has its own record. The Studio Fee is at most 1,000 bps (10%) and Platform plus Studio Fee together are capped at 5,000 bps. The Studio recipient cannot be the Pool, the Treasury or the Platform recipient. A change waits 7 days.</li>
-        <li>A way to compute the winner from state the Game controls. Block Burst replays moves against the Seed; Hold&apos;em plays out the chips; Trading Duel scores both Books&apos; picks against the recorded price line, closed by a pinned final price; Vanguard applies each move to the Battle and ends it on a captured Supply Truck, or on the surviving ranks at the limit.</li>
+        <li>A way to compute the winner from state the Game controls. Block Burst replays moves against the Seed; Hold&apos;em plays out the chips; Trading Duel scores both Books&apos; picks against the recorded price line, closed by a pinned final price{vg ? "; Vanguard applies each move to the Battle and ends it on a captured Supply Truck, or on the surviving ranks at the limit" : ""}.</li>
         <li>Liveness: timeouts and forfeits enforced by the program, with <code>extend_match_deadline</code> where the Game&apos;s own clock exceeds the one-hour default.</li>
       </ol>
       <Code label="rust, abridged">{CPI}</Code>

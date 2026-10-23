@@ -1,11 +1,12 @@
 import { supabaseRpc } from "@/server/history/db";
-import { HISTORY_PAGE_SIZE, accountHistory } from "@/server/history/reads";
+import { HISTORY_PAGE_SIZE, visibleAccountHistory as accountHistory } from "@/server/history/reads";
+import { isGameId } from "@/lib/games";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ACCOUNT = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-const GAMES = new Set(["block-puzzle", "holdem", "trading-duel", "vanguard"]);
+const GAMES = { has: isGameId };
 
 const ALL_PAGE = 200;
 const ALL_MAX_PAGES = 10;

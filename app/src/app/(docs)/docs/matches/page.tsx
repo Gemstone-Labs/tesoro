@@ -5,10 +5,12 @@ import { GameCards, PayoutBar, Shot } from "@/components/docs/visual";
 import { BRAND } from "@/lib/brand";
 import { ENTRY_SIZES } from "@/lib/cluster-settings";
 import { GEMA_USD_AT_ISSUANCE, fmtEntryList, fmtGemas, orList } from "@/lib/format";
+import { GAME_LIST, isHiddenGame } from "@/lib/games";
 
 export const metadata: Metadata = { title: "Games and Matches", alternates: { canonical: "/docs/matches" } };
 
 export default function Page() {
+  const vg = !isHiddenGame("vanguard");
   return (
     <DocPage href="/docs/matches" hero={<GameCards />}>
       <H2 id="match">A Match</H2>
@@ -52,14 +54,14 @@ export default function Page() {
         <li>has its network costs paid by {BRAND.name} (see <Link href="/docs/fees#network-costs">Network costs</Link>).</li>
       </ul>
       <p>
-        {BRAND.name}&apos;s four Games are Listed. A Game stops being listed when its code changes to a build {BRAND.name} has not approved; extending the size of
+        {BRAND.name}&apos;s {GAME_LIST.length === 4 ? "four" : "three"} Games are Listed. A Game stops being listed when its code changes to a build {BRAND.name} has not approved; extending the size of
         the same program does not unlist it. A Game&apos;s record can be changed only by whoever controls its program, after a 7-day wait, and a Studio Fee is never
         more than 10% of the Pot. Unlisted Games still work, but they run under their own Studio, outside {BRAND.name}&apos;s control.
       </p>
 
       <H2 id="tables">Tables</H2>
       <p>
-        Block Burst, Hold&apos;em, Trading Duel and Vanguard play at a <b>Table</b> that is kept ready between Matches, so a Match starts fast and costs almost nothing to set up.
+        Block Burst, Hold&apos;em, Trading Duel{vg ? " and Vanguard" : ""} play at a <b>Table</b> that is kept ready between Matches, so a Match starts fast and costs almost nothing to set up.
         A Table shows nothing from the Match before it: no old cards, picks, moves or secrets. Your Match is tied to exactly one Table, and your result is kept
         there until the ledger has settled it. If the network that runs the Tables is down, your entry is refundable on Solana after the Match&apos;s deadline.
       </p>
@@ -128,6 +130,8 @@ export default function Page() {
         <li>At the end, more points wins. Equal points, including neither Player picking, are a draw and both entries are refunded.</li>
       </ul>
 
+      {vg && (
+        <>
       <H2 id="vanguard">Vanguard</H2>
       <p>
         Blitz Stratego for two: 20 pieces each on a 10 by 10 desert board, the US Army against the Royal Italian Army, with your side drawn at random.
@@ -160,6 +164,9 @@ export default function Page() {
         A Dig in uses your turn and counts as a missed turn. Your opponent sees that a Major dug in, never which one. Blast, Rescue and Dig in use your turn and can&apos;t be used inside a Two-Step Turn.
         The <Link href="/docs/fairness#hidden-information">hidden information</Link> note says what stays secret.
       </p>
+
+        </>
+      )}
 
       <H3 id="chips">Chips are not Gemas</H3>
       <p>

@@ -17,6 +17,11 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import nacl from "tweetnacl";
+import { BN, BorshInstructionCoder, type Idl } from "@coral-xyz/anchor";
+import coreIdl from "@/lib/chain/idl/tesoro_core.json";
+import { gameRecordPda } from "@/lib/chain/game-record";
+import { GAME_IDS } from "@/lib/chain/games";
+import { HIDDEN_GAMES } from "@/lib/games";
 import { DemoHttpError } from "../request-auth";
 import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
 import { CORE_ID, PRIORITY_MICROLAMPORTS, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
@@ -129,6 +134,36 @@ const macOk = (key: Buffer, message: Uint8Array, meta: string, given: string) =>
 
 const refuse = (e: RuleError) => new DemoHttpError(e.code === "sponsor-paused" ? 503 : e.code.endsWith("limit") || e.code.startsWith("too-many") ? 429 : 400, e.code, e.message);
 
+const coreCoder = new BorshInstructionCoder(coreIdl as Idl);
+
+const namesKey = (v: unknown, ids: Set<string>): boolean => {
+  if (v instanceof PublicKey) return ids.has(v.toBase58());
+  if (Array.isArray(v) || ArrayBuffer.isView(v)) {
+    const bytes = Uint8Array.from(v as ArrayLike<number>);
+    return bytes.length === 32 && ids.has(new PublicKey(bytes).toBase58());
+  }
+  if (v && typeof v === "object" && !BN.isBN(v)) return Object.values(v).some((x) => namesKey(x, ids));
+  return false;
+};
+
+/**
+ * A hand-built request must not play a Game this environment hides: no instruction may call or name its program,
+ * name its Game record account, or carry its program id as an argument (open_match, create_request, open_ticket).
+ */
+export function refuseHiddenGames(ixs: Ix[]) {
+  if (HIDDEN_GAMES.size === 0) return;
+  const ids = new Set<string>();
+  for (const g of HIDDEN_GAMES) {
+    ids.add(GAME_IDS[g].toBase58());
+    ids.add(gameRecordPda(GAME_IDS[g]).toBase58());
+  }
+  for (const ix of ixs) {
+    const named = ids.has(ix.programId.toBase58()) || ix.keys.some((k) => ids.has(k.pubkey.toBase58()));
+    const decoded = ix.programId.equals(CORE_ID) ? coreCoder.decode(Buffer.from(ix.data)) : null;
+    if (named || (decoded && namesKey(decoded.data, ids))) throw refuse(new RuleError("game-hidden", "That Game is not available."));
+  }
+}
+
 export class Sponsor {
   constructor(private readonly d: SponsorDeps) {}
 
@@ -151,6 +186,7 @@ export class Sponsor {
   }
 
   private async plan(ixs: Ix[], player: PublicKey): Promise<Plan> {
+    refuseHiddenGames(ixs);
     const listed = new Set<string>();
     for (const p of new Set(ixs.map((i) => i.programId.toBase58()))) if (p !== CORE_ID.toBase58() && (await this.d.isListed(new PublicKey(p)))) listed.add(p);
     try {
