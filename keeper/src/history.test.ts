@@ -6,7 +6,7 @@ import { databaseSink, memoryCursor, notifySink, scanHistory, startedRuns, type 
 import { collectSignatures } from "./events-scan.ts";
 import { GAME_IDS } from "../../app/src/lib/chain/games.ts";
 
-/** The app's throwaway Postgres (pglite + migration 0007). Loaded by a computed path: it belongs to the app's build, not the keeper's. */
+/** The app's throwaway Postgres (pglite + migration 0010). Loaded by a computed path: it belongs to the app's build, not the keeper's. */
 const testDb = async (): Promise<{ rpc: (fn: string, args: Record<string, unknown>) => Promise<any>; sql: { query: (q: string) => Promise<{ rows: any[] }> } }> => {
   const path = "../../app/src/server/history/test-db.ts";
   return (await import(path)).testDb();

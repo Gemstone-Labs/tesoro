@@ -6,7 +6,7 @@
  *   pnpm --filter @tesoro/keeper exec tsx scripts/history-backfill.ts [--rpc <url>] [--from <unix seconds>] \
  *     [--max-pages 200] [--set-cursor] [--dry-run]
  *
- * Needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (migration 0007 applied there). `--set-cursor` writes the newest
+ * Needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (migration 0010 applied there). `--set-cursor` writes the newest
  * signature to the keeper's cursor file when the whole range was written, so the live job starts from there.
  * `--dry-run` only counts the transactions and records.
  */
