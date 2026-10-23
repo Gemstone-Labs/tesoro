@@ -233,7 +233,18 @@ contract PositionVaultOAppTest is Test {
         vm.expectRevert(PositionVaultOApp.WrongVault.selector);
         _recv(abi.encodePacked(uint8(5), HOODI, dirty, uint64(1), bytes32(uint256(uint160(redeemer))), uint128(1)));
         vm.expectRevert(PositionVaultOApp.WrongVault.selector);
-        _recv(abi.encodePacked(uint8(4), HOODI, dirty, uint64(1), bytes32(uint256(uint160(redeemer))), uint128(1), uint128(0), uint128(0)));
+        _recv(
+            abi.encodePacked(
+                uint8(4),
+                HOODI,
+                dirty,
+                uint64(1),
+                bytes32(uint256(uint160(redeemer))),
+                uint128(1),
+                uint128(0),
+                uint128(0)
+            )
+        );
     }
 
     function test_pay_instant_pays_from_the_treasury() public {
