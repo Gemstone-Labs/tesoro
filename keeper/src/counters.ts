@@ -1,3 +1,4 @@
+import { CURRENT_SIZE } from "../../app/src/lib/chain/account-sizes.ts";
 import { PublicKey, SystemProgram, TransactionInstruction, type AccountMeta, type Keypair } from "@solana/web3.js";
 import { act, log, type Ctx } from "./act.ts";
 import { cashInFeeIx, harvestIx } from "./core-ix.ts";
@@ -89,7 +90,7 @@ const scans = new WeakMap<object, { at: number; rows: Promise<SourceRow[]> }>();
 export async function sourceRows(ctx: Ctx, d: CounterDeps): Promise<SourceRow[]> {
   const hit = scans.get(ctx);
   if (hit && d.now() - hit.at < SCAN_TTL_MS) return hit.rows;
-  const rows = d.list("SourceState").then((all) => {
+  const rows = d.list("SourceState", { dataSize: CURRENT_SIZE.sourceState }).then((all) => {
     const out: SourceRow[] = all.map((r) => ({ address: r.pubkey, position: keyOf((ctx.core.coder.accounts.decode("sourceState", r.data) as any).inner.position) }));
     return out.sort((a, b) => byKey(a.address.toBase58(), b.address.toBase58()));
   });
