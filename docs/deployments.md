@@ -2,6 +2,45 @@
 
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
 
+## Economy upgrade on devnet (2026-10-23, ticket 24)
+
+From `feat/economy-upgrade-20-10-2026` (tip `c4a6ade5` + `eb707d58`), merged into `staging` (not `main`). Deployer `7zr1j185…qh7M` through `https://rpc.magicblock.app/devnet`, keeper stopped on the VPS first. Previous programs dumped to `~/.cache/tesoro-tmp/rollback-2026-10-23/` (with `SHA256SUMS`). Every upgrade was extended first, written to a buffer, upgraded, and the on-chain bytes compared with the build.
+
+| Program | Upgrade slot | Signature | Size (B) | sha256 |
+|---|---|---|---|---|
+| `sim_lst` | 514285518 | `4cAzTrJP…Ukox5h` | 401,160 | `37183fd7…9450e1` |
+| `trading_duel` | 514285813 | `62gu1JEK…RnPwAwH` | 744,264 | `a19bea9a…7103cc` |
+| `holdem` | 514285902 | `4ugASqwr…cgw56` | 959,616 | `39587a4c…c194d6` |
+| `block_puzzle` (Block Burst Live) | 514286027 | `TujVM98N…8DMVw` | 981,112 | `c7b886d6…c05` |
+| `vanguard` | 514286112 | `gsUxrBth…MNXy` | 1,095,312 | `b7c0a6dd…c91a` |
+| `tesoro_bridge` | 514286198 | `tw4qrDye…enHkxT` | 1,107,024 | `43df4c46…286b` |
+| `tesoro_core` | 514286411 | `KkSMP8q2…NUgRG` | 3,089,112 | `e6ecffad…a854` |
+
+Extends: core +1,125,752, block_puzzle +347,720, bridge +305,376, holdem +301,400, vanguard +288,600, trading_duel +168,512. Deployer 15.4 SOL before, 75 SOL after the faucet (about 60 SOL dripped by the MagicBlock faucet, 1 SOL per 45 s), 49.3 SOL after the keeper and relayer top-ups. The deployer's extra buffer `3uFcuLdJ…` (3.94 SOL, probably the Dungeons & Moles session) was closed by an early `solana program close --buffers` in the upgrade script: never use `--buffers`, close only the buffer you made.
+
+Setup (`keeper/scripts/economy-setup.ts`, `register-game.ts`, all by the deployer key):
+
+- `set_economy`: Season keeper and fill keeper = the keeper key `9X8L11Be…yVit`, `keeper_fills` off, route 0 = the native custody (prize escrow stays off). `set_tesoro_studio`: the Account of the company wallet `Dqwxcyh7…FX97` (created first, funded 0.1 SOL by the deployer).
+- `init_sponsor` (relayer `G7zDD6Kf…cTYP`; per Account 0.2 SOL, total 20 SOL, pages 2 SOL), `set_accounts_cap` 3 SOL, `set_profiles_cap` 1 SOL (all placeholders for the founder). The Sponsor PDA `4F8LcgHk…` holds 5 SOL, the relayer 4.8 SOL.
+- The Treasury (143 B) and the native custody (178 B) already have the new layout (ticket 31 kept the old offsets): no retire, `init_native_custody` and `init_treasury` were not needed. `init_stores` for the platform recipient, the Pool Account and the Treasury Account (they predate baskets).
+- Four Games `register_game` (Studio Fee 300 bps, Studio recipient = the company Account = `tesoro_studio`, so their Studio Fee goes to Tesoro's counter) and `list_game` for a year (needs a 1.4M compute limit, now set in `register-game.ts`).
+- Per Game `TableConfig`: operator = the keeper key, generation 1, 64 tables (`set_config`; Vanguard `set_table_config`, its `VanguardConfig` stayed).
+- No `set_entry_sizes` (the program default is 100 / 500 / 1,000; the Lobby shows them).
+
+Wipe: `retire-old-accounts.ts` retired the 23 old Positions (3 tx); `retire_offer` closed the 2 old Offers (the script's Offer phase is stale against ticket 32: it waits for Sources to be gone, so `economy-setup.ts retire-offers` does it). **Not retired:** 23 old `SourceState` (142 B, the new one is 170 B so `retire_source` cannot read them) and the 42 old Holdings that need those Sources gone: they are inert, cost rent only, and the app and keeper lists now skip every account that is not of the current layout (`app/src/lib/chain/account-sizes.ts`: MatchState 776 B, SourceState 170 B, OfferState 174 B). The 167 old Matches stay as unreadable history, one Open old Match and the old Season 2 record are skipped too.
+
+**EVM vaults: not deployed.** The new `PositionVaultOApp` is 28,322 B of runtime code, EIP-170 allows 24,576 (the Hoodi deploy was refused: "max code size exceeded"). `optimizer_runs 1` gives 28,088 B, `via_ir` 26,062 B; it needs a source change. Until new vaults exist, ETH and HYPE Locks cannot work on the new bridge (the old vaults send 101-byte reports, the bridge expects 133).
+
+Supabase (the production project the app uses): migrations 0010 to 0014 applied, one transaction each (`match_history`, `match_parties`, `match_events`, `match_end_states`, `sponsor_usage`, `sponsor_hold`, `studio_applications`, `studio_payments`, `queue_presence`). They only add tables.
+
+App: branch `staging` (merge `88db5de9` plus the fixes below), Preview env for branch `staging` gained `TESORO_SPONSOR_MAC_SECRET`; alias `tesoro-staging.vercel.app` set by hand. Keeper: VPS checkout on `staging`, new env `KEEPER_MAX_SOL_PER_HOUR=3`, per Game `KEEPER_<G>_SPONSOR_INIT` 0.1 SOL, `FUEL` 1, `FUEL_INIT` 0.3 SOL, `TABLE_MIN` (Block Burst 20, others 4), `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (Match history). The keeper created each Game's Sponsor and Fuel and the first tables.
+
+Found on the way (fixed on `staging`, commits `526850b4`, `dbf41477`):
+
+- A Season record of the old layout (504 B) made `/api/leaderboard` 502 and would have made the keeper record Season 2 again: both skip it.
+- Keeper and app resolved two copies of `@solana/web3.js` (`utf-8-validate` 5 vs 6), so `keyOf`'s `instanceof PublicKey` returned the zero key for a Config key read through the app's Program. Fixed by pinning `utf-8-validate@6.0.6` in the keeper.
+- Old Matches ("Invalid bool"), old Sources (offset out of range) broke every `.all()` list.
+
 ## Vanguard on devnet (2026-10-19)
 
 Played only on the staging app (branch `staging`) until launch; the app on `main` leaves Vanguard Matches, Requests and Offers out.
