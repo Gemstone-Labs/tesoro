@@ -88,7 +88,7 @@ export const REASON = {
   played: 1,
   /** one Player never checked in: the other won */
   absent: 2,
-  /** neither checked in: refund */
+  /** neither checked in: a no-show, each side pays the Platform Fee */
   neither: 3,
   /** the Seed never arrived: refund */
   noSeed: 4,

@@ -88,7 +88,7 @@ export default function Page() {
       <ul>
         <li>
           <b>Before the run.</b> Once you are paired, you have 60 seconds to check in, then the pieces are drawn, then a 10 second countdown. Stay on the
-          page: a paired Player who does not check in loses the Match, and if neither does, both entries are refunded.
+          page: a paired Player who does not check in loses the Match, and if neither does, each side pays the Platform Fee.
         </li>
         <li>The pieces are generated for the Match, and nobody, including you, can see them before the countdown ends.</li>
         <li>Your score is not something you report. It is what the game program calculates by replaying your moves, and an illegal move is rejected.</li>
