@@ -3,6 +3,8 @@ import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
 import { GameCards, PayoutBar, Shot } from "@/components/docs/visual";
 import { BRAND } from "@/lib/brand";
+import { ENTRY_SIZES } from "@/lib/cluster-settings";
+import { GEMA_USD_AT_ISSUANCE, fmtEntryList, fmtGemas, orList } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Games and Matches", alternates: { canonical: "/docs/matches" } };
 
@@ -11,8 +13,8 @@ export default function Page() {
     <DocPage href="/docs/matches" hero={<GameCards />}>
       <H2 id="match">A Match</H2>
       <p>
-        A <b>Match</b> is a head-to-head contest between two Players with equal Gema entries: <b>500, 1,000 or 2,500</b> (at issuance prices, $5, $10 or
-        $25). The two entries form the <b>Pot</b>, held in escrow until the Match is settled, and a Match is settled exactly once.
+        A <b>Match</b> is a head-to-head contest between two Players with equal Gema entries: <b>{fmtEntryList(ENTRY_SIZES)}</b> (at issuance prices,{" "}
+        {orList(ENTRY_SIZES.map((e) => `$${fmtGemas(e * GEMA_USD_AT_ISSUANCE)}`))}). The two entries form the <b>Pot</b>, held in escrow until the Match is settled, and a Match is settled exactly once.
       </p>
       <DataTable
         head={["Result", "What happens"]}

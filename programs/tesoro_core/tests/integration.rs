@@ -2083,6 +2083,33 @@ fn match_settles_to_winner_minus_fees_exactly_once() {
 }
 
 #[test]
+fn the_smallest_default_entry_settles_to_whole_gema_fees() {
+    use tesoro_core::ledger::SEASON_EPOCH;
+    let mut d = duel();
+    d.env.enable_leaderboard(100);
+    d.env.set_time(SEASON_EPOCH + 3_600);
+    let game = d.env.game_auth.insecure_clone();
+    let m = d
+        .env
+        .open_match(&d.alice, 100)
+        .expect("100 is a default size");
+    d.env.join_match(&d.bob, m).expect("join");
+    d.env
+        .settle_start(&game, m, MatchResult::Opener)
+        .expect("settle starts");
+    d.env.run_chunks(m);
+    // Pot 200: platform 2% = 4, studio 3% = 6, Leaderboard 1% = 2, all from Bob's Source.
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_PLATFORM), 4);
+    assert_eq!(d.env.fee_gemas(&d.env.studio), 6);
+    assert_eq!(d.env.counter_amount(d.b_source, CLASS_LEADERBOARD), 2);
+    // Alice gets her 100 back whole plus 88 won; Bob loses exactly his entry.
+    assert_eq!(d.env.gemas_of(&d.alice, d.a_source), 75_000);
+    assert_eq!(d.env.gemas_of(&d.alice, d.b_source), 88);
+    assert_eq!(d.env.gemas_of(&d.bob, d.b_source), 75_000 - 100);
+    assert_eq!(d.env.stage_of(m), Stage::Closed);
+}
+
+#[test]
 fn only_the_settle_authority_settles_and_bad_entries_are_refused() {
     let mut d = duel();
     let err = d.env.open_match(&d.alice, 700).unwrap_err();
@@ -2599,7 +2626,7 @@ fn removing_the_entry_limit_lifts_it_after_a_day() {
     let now = d.env.now();
     d.env.set_time(now + DAY);
     d.env.open_match(&d.alice, 1_000).unwrap();
-    d.env.open_match(&d.alice, 2_500).unwrap();
+    d.env.open_match(&d.alice, 1_000).unwrap();
 }
 
 #[test]
@@ -2683,13 +2710,13 @@ fn offers_and_requests_expire_after_24_hours() {
 #[test]
 fn reserved_gemas_cannot_enter_other_matches() {
     let mut b = backing_setup();
-    // Carol holds 3,000 Gemas only (4 SOL of principal), and reserves 2,500 of them for an Offer.
+    // Carol holds 1,500 Gemas only (2 SOL of principal), and reserves 1,000 of them for an Offer.
     b.carol = b.d.env.person();
-    b.d.env.stake_principal(&b.carol, 9, 4 * SOL);
-    assert_eq!(b.d.env.total_gemas(&b.carol), 3_000);
-    let request = b.request(1, 2_500);
+    b.d.env.stake_principal(&b.carol, 9, 2 * SOL);
+    assert_eq!(b.d.env.total_gemas(&b.carol), 1_500);
+    let request = b.request(1, 1_000);
     b.offer(1, request, 5_000);
-    assert_eq!(b.reserved(), 2_500);
+    assert_eq!(b.reserved(), 1_000);
     let carol = Person {
         kp: b.carol.kp.insecure_clone(),
         key: b.carol.key,
@@ -2702,7 +2729,7 @@ fn reserved_gemas_cannot_enter_other_matches() {
     b.d.env
         .open_match(&carol, 500)
         .expect("the free part enters");
-    assert_eq!(b.reserved(), 2_500);
+    assert_eq!(b.reserved(), 1_000);
     let err = b.d.env.open_match(&carol, 500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InsufficientGemas));
 }
@@ -3470,13 +3497,13 @@ fn entry_sizes_default_to_the_ladder_even_on_a_config_that_predates_the_field() 
     d.env.svm.set_account(config, acct).expect("legacy config");
     assert_eq!(
         d.env.load::<Config>(pda(&[CONFIG_SEED])).entries(),
-        vec![500, 1_000, 2_500]
+        vec![100, 500, 1_000]
     );
-    let err = d.env.open_match(&d.alice, 100).unwrap_err();
+    let err = d.env.open_match(&d.alice, 2_500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidEntry));
     d.env
-        .open_match(&d.alice, 500)
-        .expect("500 is a default size");
+        .open_match(&d.alice, 100)
+        .expect("100 is a default size");
 }
 
 #[test]
@@ -3502,23 +3529,23 @@ fn admin_sets_entry_sizes_and_matches_outside_them_are_refused() {
         assert_eq!(custom_code(&err), core(CoreError::InvalidEntry), "{bad:?}");
     }
     d.env
-        .set_entry_sizes(&admin, &[100, 500, 1_000])
-        .expect("mainnet sizes");
+        .set_entry_sizes(&admin, &[500, 1_000, 2_500])
+        .expect("another ladder");
     assert_eq!(
         d.env.load::<Config>(pda(&[CONFIG_SEED])).entries(),
-        vec![100, 500, 1_000]
+        vec![500, 1_000, 2_500]
     );
-    // 100 now opens and 2,500 (a default size) no longer does.
-    let err = d.env.open_match(&d.alice, 2_500).unwrap_err();
+    // 2,500 now opens and 100 (a default size) no longer does.
+    let err = d.env.open_match(&d.alice, 100).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidEntry));
-    let m = d.env.open_match(&d.alice, 100).expect("100 is allowed");
+    let m = d.env.open_match(&d.alice, 2_500).expect("2,500 is allowed");
     d.env.join_match(&d.bob, m).expect("join");
     d.env.open_match(&d.alice, 500).expect("500 stays allowed");
     // Setting them again replaces the list.
     d.env
-        .set_entry_sizes(&admin, &[500, 1_000, 2_500])
+        .set_entry_sizes(&admin, &[100, 500, 1_000])
         .expect("back");
-    let err = d.env.open_match(&d.alice, 100).unwrap_err();
+    let err = d.env.open_match(&d.alice, 2_500).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidEntry));
 }
 
@@ -4248,8 +4275,8 @@ fn the_per_transaction_line_cap_is_compute_not_accounts() {
     println!("lines | open_match CU | stage CU | stage tx bytes");
     for k in [1usize, 2, 4, 5, 10, 20, 25, 50] {
         let mut env = Env::new();
-        let (p, _) = person_with_lines(&mut env, k, 100, 2_500);
-        env.open_ticket(&p, 5, 2_500, k as u32 + 1).expect("ticket");
+        let (p, _) = person_with_lines(&mut env, k, 100, 1_000);
+        env.open_ticket(&p, 5, 1_000, k as u32 + 1).expect("ticket");
         let kp = p.kp.insecure_clone();
         // a transaction stages at most MAX_STAGE_OPS lines; the rest follow in the next one
         let mut worst = 0;
@@ -4259,15 +4286,15 @@ fn the_per_transaction_line_cap_is_compute_not_accounts() {
             worst = worst.max(env.last_cu);
             size = size.max(env.last_size);
             let t = env.load_ticket_staged(&p, 5);
-            if t == 2_500 {
+            if t == 1_000 {
                 break;
             }
         }
         let open_cu = if k <= 10 {
-            let (q, _) = person_with_lines(&mut env, k, 160, 2_500);
+            let (q, _) = person_with_lines(&mut env, k, 160, 1_000);
             env.open_match_ix(
                 &q,
-                2_500,
+                1_000,
                 0,
                 9_000,
                 false,
@@ -4281,11 +4308,11 @@ fn the_per_transaction_line_cap_is_compute_not_accounts() {
             env.last_cu
         } else {
             // more lines than one transaction draws: the program says so
-            let (q, _) = person_with_lines(&mut env, k, 160, 2_500);
+            let (q, _) = person_with_lines(&mut env, k, 160, 1_000);
             let err = env
                 .open_match_ix(
                     &q,
-                    2_500,
+                    1_000,
                     0,
                     9_000,
                     false,
@@ -4506,31 +4533,31 @@ fn total_in_world(env: &Env, people: &[&Person], sources: &[APk]) -> u64 {
 fn an_entry_ticket_stages_in_steps_then_becomes_the_pot() {
     let mut env = Env::new();
     // 50 lines of 50 Gemas: more than one transaction draws, so the entry goes through a Ticket
-    let (alice, a_sources) = person_with_lines(&mut env, 50, 100, 2_500);
+    let (alice, a_sources) = person_with_lines(&mut env, 50, 100, 1_000);
     let bob = env.person();
     let (_, b_source) = env.stake(&bob, 2);
     let all: Vec<APk> = a_sources.iter().copied().chain([b_source]).collect();
     let before = total_in_world(&env, &[&alice, &bob, &env.platform, &env.studio], &all);
-    let err = env.open_match(&alice, 2_500).unwrap_err();
+    let err = env.open_match(&alice, 1_000).unwrap_err();
     assert_eq!(custom_code(&err), MATCH_NEEDS_TICKET);
-    env.open_ticket(&alice, 5, 2_500, 51).expect("ticket");
+    env.open_ticket(&alice, 5, 1_000, 51).expect("ticket");
     // while a Ticket is open nothing else draws
-    let err = env.open_match(&alice, 2_500).unwrap_err();
+    let err = env.open_match(&alice, 1_000).unwrap_err();
     assert_eq!(custom_code(&err), ERR_TICKET_OPEN);
     let kp = alice.kp.insecure_clone();
     env.stage_with(&kp, &alice, 5, 255, vec![])
         .expect("first stage");
-    assert!(env.load_ticket_staged(&alice, 5) < 2_500);
-    let err = env.open_match_ticket(&alice, 2_500, 5).unwrap_err();
+    assert!(env.load_ticket_staged(&alice, 5) < 1_000);
+    let err = env.open_match_ticket(&alice, 1_000, 5).unwrap_err();
     assert_eq!(custom_code(&err), ERR_TICKET_NOT_COMPLETE);
     // only the owner stages an Entry Ticket
     let stranger = env.admin.insecure_clone();
     assert!(env.stage_with(&stranger, &alice, 5, 255, vec![]).is_err());
     env.stage_with(&kp, &alice, 5, 255, vec![])
         .expect("second stage");
-    assert_eq!(env.load_ticket_staged(&alice, 5), 2_500);
+    assert_eq!(env.load_ticket_staged(&alice, 5), 1_000);
     let m = env
-        .open_match_ticket(&alice, 2_500, 5)
+        .open_match_ticket(&alice, 1_000, 5)
         .expect("open with the Ticket");
     assert_eq!(
         env.ticket_state(&alice, 5),
@@ -4575,13 +4602,13 @@ fn an_entry_ticket_stages_in_steps_then_becomes_the_pot() {
 #[test]
 fn a_ticket_returns_every_line_when_cancelled_or_expired_even_into_a_full_basket() {
     let mut env = Env::new();
-    let (alice, _) = person_with_lines(&mut env, 50, 100, 2_500);
+    let (alice, _) = person_with_lines(&mut env, 50, 100, 1_000);
     let kp = alice.kp.insecure_clone();
-    env.open_ticket(&alice, 5, 2_500, 51).expect("ticket");
+    env.open_ticket(&alice, 5, 1_000, 51).expect("ticket");
     env.stage_with(&kp, &alice, 5, 255, vec![]).expect("stage");
     assert_eq!(
         env.total_gemas(&alice),
-        2_500 - env.load_ticket_staged(&alice, 5)
+        1_000 - env.load_ticket_staged(&alice, 5)
     );
     // the basket fills up while the lines are away
     let spare = env.person();
@@ -4649,16 +4676,16 @@ fn a_ticket_returns_every_line_when_cancelled_or_expired_even_into_a_full_basket
 #[test]
 fn faster_gemas_arriving_after_staging_stop_the_ticket_from_opening() {
     let mut env = Env::new();
-    let (alice, _) = person_with_lines(&mut env, 25, 100, 2_500);
+    let (alice, _) = person_with_lines(&mut env, 25, 100, 1_000);
     let kp = alice.kp.insecure_clone();
-    env.open_ticket(&alice, 5, 2_500, 30).expect("ticket");
+    env.open_ticket(&alice, 5, 1_000, 30).expect("ticket");
     env.stage_with(&kp, &alice, 5, 255, vec![])
         .expect("stage all 25");
-    assert_eq!(env.load_ticket_staged(&alice, 5), 2_500);
+    assert_eq!(env.load_ticket_staged(&alice, 5), 1_000);
     // a faster line (earlier due date) is credited to the basket meanwhile
     let fast = env.forge_source(230, 0);
     env.give_lines(&alice, &[fast], 7, |_| -1);
-    let err = env.open_match_ticket(&alice, 2_500, 5).unwrap_err();
+    let err = env.open_match_ticket(&alice, 1_000, 5).unwrap_err();
     assert_eq!(custom_code(&err), 6404, "FasterGemasAvailable");
     // staging again swaps the slowest staged Gemas for the faster ones, then it opens
     env.stage_with(
