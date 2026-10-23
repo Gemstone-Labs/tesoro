@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useGuideHidden } from "@/components/guide/Guide";
-import { Button, CountUp, Label } from "@/components/ui";
+import { Button, CountUp, GemaMark, Label } from "@/components/ui";
+import { PlayerAvatar } from "@/components/account/Player";
+import { useAccount } from "@/lib/account";
+import { Rows3, Zap } from "lucide-react";
 import { apply, EngineFailure, MAX_MOVES, SIZE, dims, fitsAt, handBase, newState, pieceAt, pieceCells } from "./engine";
 import type { Piece, State } from "./engine";
-import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, burst, burstAt, prefersReducedMotion, sfx, shake } from "../fx";
+import { Arena, Callout, Countdown, GameMenu, burst, burstAt, prefersReducedMotion, sfx, shake } from "../fx";
 import type { CalloutTone } from "../fx";
 import { clearCallout, comboHeat, wouldClear } from "./feel";
 import { readBest, writeBest } from "./best";
@@ -103,11 +106,13 @@ const RING_R = 54;
 const RING_C = 2 * Math.PI * RING_R;
 
 /**
- * The Block Burst play screen: a slim bar (score, 90 s ring, combo and lines, entry and pot) over the
- * centred board and tray; recent clears show on the game-over card. No character anywhere on it. `matchPanel` is the Match status the
+ * The Block Burst play screen: a versus bar (you and your score, the 90 s ring, the Pot or PRACTICE), the board, the tray,
+ * then combo and lines as icons with numbers. No sentences during play; sound and full screen sit in the ⋯ menu. Recent
+ * clears show on the game-over card. No character anywhere on it. `matchPanel` is the Match status the
  * caller owns (who we wait for); without a `run` this is practice.
  */
 export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPanel?: ReactNode }) {
+  const me = useAccount().snapshot?.accountKey.toBase58();
   const [phase, setPhase] = useState<Phase>("idle");
   const [combo, setCombo] = useState(0);
   useGuideHidden(phase === "play");
@@ -499,10 +504,15 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   return (
     <Arena game="block-puzzle" autoFull={phase !== "over"}>
     <div className="bpx">
+      <div className="bpx-top">
+        <GameMenu leaveHref={run ? undefined : "/play"} />
+      </div>
       <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
         <div className="bpx-score">
-          <Label>Score</Label>
-          <span ref={scoreEl} className="bp-score-n tnum" aria-live="off"><CountUp key={runId} value={st.score} from={0} format={String} duration={500} /></span>
+          <span className="cut bpx-face" aria-hidden="true">
+            {me ? <PlayerAvatar account={me} size={44} /> : null}
+          </span>
+          <span ref={scoreEl} className="bp-score-n tnum" aria-label="Score" aria-live="off"><CountUp key={runId} value={st.score} from={0} format={String} duration={500} /></span>
         </div>
         <div className={`bpx-ring${timeLow && phase === "play" ? " low" : ""}`} role="timer" aria-label="Time left">
           <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
@@ -519,22 +529,17 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           </svg>
           <span className="mono">{fmtClock(phase === "idle" || phase === "count" ? DURATION_MS : remaining)}</span>
         </div>
-        <div className="bpx-run" aria-label="Run">
-          <span className={`bpx-combo${fizzle ? " fizzle" : ""}`} data-heat={comboHeat(combo)} aria-label={`Combo ${combo}`}>
-            <span className="bpx-combo-l">Combo</span>
-            <i className="bpx-combo-m" aria-hidden="true"><s /><s /><s /><s /></i>
-            <b className="tnum">×{combo}</b>
-          </span>
-          <span>Lines <b className="tnum">{game.lines}</b></span>
-        </div>
         <div className="bpx-stake">
           {run ? (
-            <span>Entry <b className="tnum">{fmtN(run.entry)}</b> · Pot <b className="tnum">{fmtN(run.entry * 2)}</b></span>
+            <span className="bpx-pot" aria-label={`Pot ${fmtN(run.entry * 2)} Gemas, entry ${fmtN(run.entry)}`}>
+              <small>Pot</small>
+              <b className="tnum">
+                <GemaMark size={16} /> {fmtN(run.entry * 2)}
+              </b>
+            </span>
           ) : (
-            <span>Practice · nothing staked</span>
+            <span className="cut cut-chip game-tag">Practice</span>
           )}
-          <MuteToggle />
-          <FullScreenToggle />
         </div>
       </header>
 
@@ -574,10 +579,9 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
                 ))}
               </ul>
               {run ? (
-                <p className="note">Run over. Sending it to the chain…</p>
+                <p className="note">Sending…</p>
               ) : (
                 <>
-                  <p className="note">Practice: nothing was staked and no Gemas moved.</p>
                   <div className="bp-actions">
                     <Button onClick={start}>Play again</Button>
                     <Button href="/play">Play</Button>
@@ -631,17 +635,19 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           );
         })}
       </div>
-      <p className="note bp-help">Drag a piece onto the board, or tap a piece then a cell.</p>
+      <div className="bpx-run" aria-label="Run">
+        <span className={`cut cut-chip bpx-combo${fizzle ? " fizzle" : ""}`} data-heat={comboHeat(combo)} aria-label={`Combo ${combo}`}>
+          <Zap aria-hidden="true" />
+          <b className="tnum">×{combo}</b>
+        </span>
+        <span className="cut cut-chip bpx-lines" aria-label={`Lines ${game.lines}`}>
+          <Rows3 aria-hidden="true" />
+          <b className="tnum">{game.lines}</b>
+        </span>
+      </div>
       </section>
 
-      {(matchPanel || run) && (
-        <div className="bpx-foot">
-          {matchPanel}
-          <span className="mono bpx-seed" title="Your opponent gets this exact set of pieces">
-            {phase === "idle" ? "Pieces —" : `Pieces #${st.seed.toString(16).padStart(16, "0").slice(0, 6)}`}
-          </span>
-        </div>
-      )}
+      {matchPanel && <div className="bpx-foot">{matchPanel}</div>}
 
       {drag && (
         <div className="bp-ghost" style={{ transform: `translate(${drag.px}px, ${drag.py}px) translate(-50%, -50%)` }} aria-hidden="true">

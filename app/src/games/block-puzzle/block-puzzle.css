@@ -1,30 +1,37 @@
 /* Block Burst: the board and pieces are the colourful game art; chrome around it stays neutral.
    Emerald appears only on gem cells. */
 
-/* ——— Play screen: a slim bar (score, timer ring, run, stake) over a centred board ——— */
-.bpx { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); justify-items: center; position: relative; }
+/* ——— Play screen: the ⋯ menu, a versus bar (you and your score · the timer ring · the Pot or PRACTICE), the board, the
+   tray, then combo and lines as icons with numbers ——— */
+.bpx { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); justify-items: center; position: relative; }
+.bpx-top { width: 100%; max-width: 760px; display: flex; justify-content: flex-end; margin-bottom: -4px; }
 .bpx-bar {
-  --edge: var(--edge-1); background: var(--surface); width: 100%; max-width: 760px; padding: 12px 20px;
-  display: grid; grid-template-columns: auto auto 1fr; grid-template-areas: "score ring run" "stake stake stake"; align-items: center; gap: 8px 20px;
+  --edge: var(--edge-1); background: var(--surface); width: 100%; max-width: 760px; padding: 10px 14px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px;
 }
-.bpx-score { grid-area: score; display: grid; gap: 0; }
-.bpx-ring { grid-area: ring; position: relative; width: 68px; height: 68px; display: grid; place-items: center; }
+.bpx-score { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bpx-face { --c: 10px; flex: none; display: grid; width: 44px; height: 44px; overflow: hidden; background: var(--surface-2); --edge: var(--edge-2); }
+.bpx-face img { width: 100%; height: 100%; object-fit: cover; }
+.bpx-ring { position: relative; width: 60px; height: 60px; display: grid; place-items: center; }
 .bpx-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .bpx-ring circle { fill: none; stroke-width: 10; }
 .bpx-ring-bg { stroke: rgba(234, 239, 236, 0.14); }
 .bpx-ring-fg { stroke: var(--fg); stroke-linecap: butt; transition: stroke-dashoffset 120ms linear; }
 .bpx-ring.low .bpx-ring-fg { stroke: var(--warn); }
 .bpx-ring span { position: relative; font-size: var(--fs-13); font-weight: 500; font-variant-numeric: tabular-nums; }
-.bpx-run { grid-area: run; display: flex; justify-content: flex-end; gap: 20px; font-size: var(--fs-14); color: var(--fg-2); }
-.bpx-run b { color: var(--fg); font-size: var(--fs-18); font-weight: 800; margin-left: 4px; }
-.bpx-stake { grid-area: stake; font-size: var(--fs-14); color: var(--fg-2); padding-top: 8px; border-top: 1px solid var(--line); }
-.bpx-stake { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
-.bpx-stake b { color: var(--fg); font-weight: 700; }
+.bpx-stake { display: flex; justify-content: flex-end; }
+.bpx-pot { display: grid; justify-items: end; line-height: 1.05; }
+.bpx-pot small { font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
+.bpx-pot b { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-20); font-weight: 800; color: var(--em-hi); }
+.bpx-run { display: flex; justify-content: center; gap: 12px; font-size: var(--fs-14); color: var(--fg-2); }
+.bpx-run > span { display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; background: var(--surface); --edge: var(--edge-1); }
+.bpx-run svg { width: 18px; height: 18px; }
+.bpx-run b { color: var(--fg); font-size: var(--fs-18); font-weight: 800; }
 .bp-score-n { font-size: 36px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
 /* The board is square and as wide as .bpx-mid, so cap that width by the viewport height left after the
-   top bar, score bar, tray and hint (~380px): the whole play screen fits without scrolling. */
-.bpx-mid { display: grid; gap: 14px; justify-items: center; width: 100%; max-width: clamp(300px, calc(100dvh - 380px), 640px); }
-.bpx-mid .bp-stage, .bpx-mid .bp-tray, .bpx-mid .bp-help { width: 100%; }
+   menu, the versus bar, the tray and the run line (~330px): the whole play screen fits without scrolling. */
+.bpx-mid { display: grid; gap: 14px; justify-items: center; width: 100%; max-width: clamp(300px, calc(100dvh - 330px), 640px); }
+.bpx-mid .bp-stage, .bpx-mid .bp-tray { width: 100%; }
 .bpx-foot { display: grid; gap: 6px; justify-items: center; width: 100%; max-width: 640px; font-size: var(--fs-14); color: var(--fg-2); text-align: center; }
 .bpx-status { font-size: var(--fs-15); color: var(--fg-2); }
 .bpx-status p { font-size: var(--fs-15); color: var(--fg-2); }
@@ -32,20 +39,15 @@
 .bpx-spin { width: 28px; height: 28px; border: 3px solid rgba(234, 239, 236, 0.16); border-top-color: var(--fg); border-radius: 50%; animation: bpx-spin 1s linear infinite; }
 @keyframes bpx-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .bpx-spin { animation-duration: 3s; } }
-.bpx-seed { color: var(--fg-2); font-size: var(--fs-12); }
 .bpx-clears { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: var(--fs-14); color: var(--fg-2); }
 .bpx-clears b { color: var(--fg); margin-left: 6px; }
-@media (min-width: 640px) {
-  .bpx-bar { grid-template-columns: auto auto 1fr auto; grid-template-areas: "score ring run stake"; }
-  .bpx-stake { border-top: 0; padding-top: 0; text-align: right; }
-}
 /* Short screens (laptops, zoomed browsers): slimmer bar and tray so the board keeps more of the height. */
 @media (max-height: 860px) {
-  .bpx { gap: 12px; }
-  .bpx-bar { padding: 8px 16px; }
-  .bpx-ring { width: 56px; height: 56px; }
+  .bpx { gap: 10px; }
+  .bpx-bar { padding: 8px 14px; }
+  .bpx-ring { width: 54px; height: 54px; }
   .bp-score-n { font-size: 30px; }
-  .bpx-mid { gap: 10px; max-width: clamp(300px, calc(100dvh - 320px), 640px); }
+  .bpx-mid { gap: 10px; max-width: clamp(300px, calc(100dvh - 300px), 640px); }
   .bp-slot { height: 72px; }
   .bp-overlay .bp-final { font-size: 48px; }
 }
@@ -117,7 +119,6 @@
 .bp-slot.stuck { opacity: 0.45; }
 .bp-mini { display: grid; gap: 2px; }
 
-.bp-help { text-align: center; }
 
 .bp-ghost { position: fixed; left: 0; top: 0; z-index: 50; pointer-events: none; opacity: 0.9; }
 .bp-ghost .bp-mini { gap: 3px; }
@@ -154,14 +155,12 @@
 .bp-fly.gem { color: var(--em-hi); }
 
 .bpx-combo { display: inline-flex; align-items: center; gap: 8px; position: relative; }
-.bpx-combo-l { font-size: var(--fs-14); }
-.bpx-combo-m { display: inline-flex; gap: 3px; font-style: normal; }
-.bpx-combo-m s { text-decoration: none; width: 6px; height: 16px; background: rgba(234, 239, 236, 0.14); clip-path: polygon(0 20%, 20% 0, 80% 0, 100% 20%, 100% 100%, 0 100%); transition: background-color 120ms, box-shadow 120ms; }
-.bpx-combo[data-heat="1"] s:nth-child(-n+1), .bpx-combo[data-heat="2"] s:nth-child(-n+2), .bpx-combo[data-heat="3"] s:nth-child(-n+3), .bpx-combo[data-heat="4"] s { background: #ffb43a; }
-.bpx-combo[data-heat="3"] s:nth-child(-n+3) { background: #ff7e5f; }
-.bpx-combo[data-heat="4"] s { background: #ff4d9b; animation: bpx-flame 520ms ease-in-out infinite alternate; }
+/* combo heat: the bolt warms from amber to pink as the streak grows */
+.bpx-combo[data-heat="1"] svg, .bpx-combo[data-heat="2"] svg { color: #ffb43a; }
+.bpx-combo[data-heat="3"] svg { color: #ff7e5f; }
+.bpx-combo[data-heat="4"] svg { color: #ff4d9b; animation: bpx-flame 520ms ease-in-out infinite alternate; }
 .bpx-combo[data-heat="4"] b, .bpx-combo[data-heat="3"] b { color: #ffb43a; text-shadow: 0 0 14px rgba(255, 126, 95, 0.7); }
-@keyframes bpx-flame { to { filter: brightness(1.5); transform: scaleY(1.2); } }
+@keyframes bpx-flame { to { filter: brightness(1.5); transform: scale(1.15); } }
 .bpx-combo.fizzle b { animation: bpx-fizzle 600ms ease-out; }
 .bpx-combo.fizzle::after { content: ""; position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; translate: -50% -50%; border-radius: 50%; border: 2px solid #ffb43a; opacity: 0; animation: bpx-fizzle-ring 600ms ease-out; }
 @keyframes bpx-fizzle { 0% { transform: scale(1.4); color: #ff7e5f; } 100% { transform: none; } }
@@ -171,7 +170,7 @@
 @keyframes bp-deal { 0% { opacity: 0; transform: translateY(26px) scale(0.6); } 100% { opacity: 1; transform: none; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .bp-cell.drop, .bp-cell.hint, .bp-sweep, .bp-deal, .bpx-combo s, .bpx-combo.fizzle b, .bpx-combo.fizzle::after { animation: none; }
+  .bp-cell.drop, .bp-cell.hint, .bp-sweep, .bp-deal, .bpx-combo svg, .bpx-combo.fizzle b, .bpx-combo.fizzle::after { animation: none; }
   .bp-cell.pop { animation-duration: 1ms; }
   .bp-sweep { display: none; }
 }
