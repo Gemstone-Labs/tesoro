@@ -6,7 +6,7 @@
  *   pnpm --filter @tesoro/keeper exec tsx scripts/holdem-no-show.ts [entry Gemas: 500 (default), 100 or 1000]
  *
  * Uses the two test wallets in ~/.config/tesoro/block-puzzle-testers.json and their own-sourced Holdings (position
- * ids 11 and 12, as scripts/both-runs-closed.ts); each wallet pays its own fees.
+ * ids 11 and 12); each wallet pays its own fees.
  */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";

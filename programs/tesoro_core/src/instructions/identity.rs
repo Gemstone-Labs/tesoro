@@ -142,10 +142,9 @@ fn repay_permanent<'info>(
             BasketError::ProfilesSponsorCap,
         ),
     };
-    require!(
-        spent.checked_add(amount).is_some_and(|v| v <= cap),
-        over
-    );
+    if !spent.checked_add(amount).is_some_and(|v| v <= cap) {
+        return Err(over.into());
+    }
     let sponsor_info = sponsor.to_account_info();
     let keep = Rent::get()?.minimum_balance(sponsor_info.data_len());
     require!(

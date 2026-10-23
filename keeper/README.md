@@ -49,7 +49,7 @@ The last job of each pass (`src/alerts.ts`, `src/alerts-job.ts`) emails both fou
    - The two sends pay the LayerZero fee in SOL from the keeper payer: the fee is quoted by simulating `quote_send`, refused above `--max-lz-fee-sol`, and counted against `--max-lz-sol-per-hour`. Every base transaction is simulated first, so a step that would fail is logged as `wait: ... would fail (...)` and costs nothing.
 6. **EVM yield: no job.** An ETH or HYPE Position's Debt is computed by the vault (ADR 0010); anyone may call `reportYield(id)` on the vault (the Player's app does when they want Debt lowered) and the bridge job below applies the arrived report. The keeper holds no EVM sending key; `KEEPER_EVM_PRIVATE_KEY` only names an address whose balance the alerts watch.
 
-Fixture (pre-upgrade flow: `both-runs-closed.ts`, `holdem-no-show.ts` and `turn-latency-spike.ts` open Matches with the Holdings client and do not run against the upgraded programs; they return with the game tickets 12 to 15): `pnpm --filter @tesoro/keeper exec tsx scripts/both-runs-closed.ts` plays a real devnet Block Burst Match up to "both runs closed" (test wallets from `~/.config/tesoro/block-puzzle-testers.json`) and stops, so the keeper does the seal, commit and settle.
+Fixtures (pre-upgrade flow): `holdem-no-show.ts` and `turn-latency-spike.ts` open Matches with the Holdings client and do not run against the upgraded programs; they return with the game tickets 12 to 15. The Block Burst fixture `both-runs-closed.ts` was deleted: it called the removed per-Match Session API, and Block Burst now runs on tables (the keeper's `burst.ts` and the table scheduler drive them).
 
 ## Admin scripts
 

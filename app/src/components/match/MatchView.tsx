@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Notice } from "@/components/ui";
 import { BlockPuzzleGame } from "@/games/block-puzzle/BlockPuzzleGame";
 import { ELSEWHERE_LINE, QUEUE_SIT_LINE, QUEUE_STAY_LINE, needTableLine, resultLine } from "@/games/block-puzzle/burst-copy";
-import { CHECKIN_SECS } from "@/games/block-puzzle/live-chain";
+import { CHECKIN_SECS, REASON } from "@/games/block-puzzle/live-chain";
 import { getReadySecs, slotNow } from "@/games/block-puzzle/live-clock";
 import { stripOf } from "@/games/block-puzzle/opponent";
 import { useBurstMatch } from "@/games/block-puzzle/useBurstMatch";
@@ -180,6 +180,7 @@ export function MatchView({ matchId }: { matchId: string }) {
       deadline={kind === "waiting" ? m.deadline || undefined : undefined}
       challengeLink={m.challenge && kind === "waiting" ? link : null}
       backedShareBps={playerBacked && m.backing ? m.backing.shareBps : null}
+      opponentAbsent={kind === "closing" && !!table && table.reason === REASON.absent && !table.checkedIn[1 - (seat ?? 0)]}
       commit={view.commit}
       delayed={delayedOf(m, nowSecs)}
       error={refundError ?? view.error}
