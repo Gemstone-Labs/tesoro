@@ -4569,7 +4569,7 @@ fn an_entry_ticket_stages_in_steps_then_becomes_the_pot() {
     let game = env.game_auth.insecure_clone();
     env.settle_keep(&game, m, MatchResult::Joiner)
         .expect("settle");
-    // Pot 5,000: platform 100, studio 150 off Alice's lines; Bob wins the rest
+    // Pot 2,000: platform 40, studio 60 off Alice's lines; Bob wins the rest
     let after = total_in_world(&env, &[&alice, &bob, &env.platform, &env.studio], &all);
     assert_eq!(before, after, "no Gema created or lost");
     assert_eq!(
@@ -4580,7 +4580,7 @@ fn an_entry_ticket_stages_in_steps_then_becomes_the_pot() {
                 .sum::<u64>())
             .sum::<u64>()
             + env.fee_gemas(&env.studio),
-        100 + 150
+        40 + 60
     );
     env.close_match(m).expect("close");
     assert!(
