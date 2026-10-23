@@ -57,7 +57,7 @@ await writeFile(join(out, 'sequence.json'), JSON.stringify({ seed, sequence }, (
 const browser = await chromium.launch({ executablePath: process.env.CHROME ?? join(homedir(), '.cache/ms-playwright/chromium-1228/chrome-linux64/chrome') });
 const results = [];
 try {
-  for (const mode of (process.env.MODES ?? 'touch,reduced,unsupported').split(',')) {
+  for (const mode of (process.env.MODES ?? 'touch,settings,reduced,unsupported').split(',')) {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: mode === 'reduced' ? 'reduce' : 'no-preference' });
     await context.addInitScript(({ seed, supported }) => {
       const original = crypto.getRandomValues.bind(crypto);
@@ -86,7 +86,7 @@ try {
     await page.locator('.fx-countdown').waitFor({ state: 'hidden' });
     await page.addStyleTag({ content: 'nextjs-portal { display:none !important; }' });
     // Test time advances explicitly so a busy host cannot exhaust the actual 90s game mid-replay.
-    await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 100);
+    await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 5000);
     const cdp = await context.newCDPSession(page);
     const touch = async (type, p) => {
       await cdp.send('Input.dispatchTouchEvent', { type, touchPoints: p ? [p] : [] });
@@ -147,7 +147,7 @@ try {
     await touch('touchStart',from); await touch('touchMove',{x:180,y:400}); await touch('touchCancel');
     await page.locator('.bp-ghost').waitFor({state:'detached'});
     assert.equal(await boardState(), '0'.repeat(64));
-    const count = mode === 'touch' ? sequence.length : 12;
+    const count = mode === 'touch' ? sequence.length : mode === 'settings' ? 1 : 12;
     const seen = { lines: 0, doubles: 0, gems: 0, combos: 0 };
     for (let i=0; i<count; i++) {
       const move=sequence[i];
@@ -180,6 +180,8 @@ try {
     if(mode==='touch') {
       assert.ok(feedback.haptics.some(p=>JSON.stringify(p)==='[18,24,12]'),'multi-line haptic');
       assert.ok(feedback.haptics.some(p=>JSON.stringify(p)==='[12,20,22]'),'gem haptic');
+    }
+    if(mode==='settings') {
       await page.getByRole('button',{name:'Game menu',exact:true}).tap();
       await page.getByRole('menuitemcheckbox',{name:'Vibration on',exact:true}).tap();
       await page.getByRole('menuitemcheckbox',{name:'Vibration off',exact:true}).waitFor();
@@ -194,7 +196,7 @@ try {
       await page.reload({waitUntil:'domcontentloaded'});
       await page.locator('.bp-board.live').waitFor();
       await page.locator('.fx-countdown').waitFor({state:'hidden'});
-      await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 100);
+      await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 5000);
       await dragMove(sequence[0]);
       assert.deepEqual(await page.evaluate(()=>({haptics:window.__haptics,tones:window.__tones})),{haptics:[],tones:[]});
     }

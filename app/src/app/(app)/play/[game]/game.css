@@ -106,9 +106,12 @@
 .gp-hero .asset span { min-height: 60px; }
 .gp-hero .asset b { font-size: var(--fs-18); }
 
-@media (max-width: 639px) {
-  .gp-art { aspect-ratio: auto; height: clamp(200px, 62vw, 260px); }
-  .gp-hero-art { object-fit: cover; object-position: 50% 40%; }
+/* phones and tablets: the art keeps its full square; the name and the panel ride up over its lower part instead */
+@media (max-width: 1023px) {
+  .gp-hero { --gp-lift: min(38vw, 180px); }
+  .gp-hero-body { margin-top: calc(-1 * var(--gp-lift)); }
+  .gp-art-title { bottom: calc(var(--gp-lift) + 10px); }
+  .gp-art::after { background: linear-gradient(180deg, transparent 22%, rgba(6, 10, 16, 0.7) 50%, rgba(6, 10, 16, 0.95) 68%); }
 }
 
 @media (max-width: 420px) {
