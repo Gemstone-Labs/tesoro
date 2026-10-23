@@ -4,10 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ArrowRight, Dumbbell, UserPlus, Users } from "lucide-react";
+import { ArrowRight, Dumbbell, Info, UserPlus, Users } from "lucide-react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { MatchBanner } from "@/components/match/MatchBanner";
-import { AssetPicker, BustCard, Button, EntryPicker } from "@/components/ui";
+import { AssetPicker, Button, EntryPicker, GemaMark, Sheet } from "@/components/ui";
 import { gameQuery, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
@@ -59,6 +59,7 @@ export function GamePage({ game }: { game: GameId }) {
   const router = useRouter();
   const [entry, setEntry] = useState<EntrySize>(game === "block-puzzle" ? 1000 : 500);
   const [asset, setAsset] = useState<0 | 1 | 2>(0);
+  const [how, setHow] = useState(false);
   const top = useTopScoresToday(game === "block-puzzle");
   const queue = useQueue();
   const [now] = useState(() => Date.now());
@@ -79,18 +80,22 @@ export function GamePage({ game }: { game: GameId }) {
 
   return (
     <div className="gp">
-      <section className="cut cut-frame gp-hero" aria-label={name}>
-        <Image className="gp-hero-art" src={copy.hero} alt="" fill sizes="(min-width: 1024px) 1400px, 100vw" priority />
-        <span className="sparkles" aria-hidden="true">
-          {Array.from({ length: 10 }, (_, i) => (
-            <i key={i} />
-          ))}
-        </span>
-        <div className="gp-hero-body">
-          <h1 className="gp-title">{name}</h1>
-          <p className="gp-sub">
-            {copy.sub[0]}
-          </p>
+      <section className="gp-hero" aria-label={name}>
+        <div className="gp-art">
+          <Image className="gp-hero-art" src={copy.hero} alt="" fill sizes="(min-width: 1024px) 900px, 100vw" priority />
+          <span className="sparkles" aria-hidden="true">
+            {Array.from({ length: 10 }, (_, i) => (
+              <i key={i} />
+            ))}
+          </span>
+          <div className="gp-art-title">
+            <h1 className="gp-title">{name}</h1>
+            <button type="button" className="gp-info" aria-label={`How to play ${name}`} onClick={() => setHow(true)}>
+              <Info aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+        <div className="cut cut-frame gp-hero-body">
           {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="gp-asset" />}
           <EntryPicker value={entry} onChange={setEntry} name={`gp-entry-${game}`} />
           <div className="gp-cta">
@@ -100,24 +105,23 @@ export function GamePage({ game }: { game: GameId }) {
               <Button variant="money" size="lg" block onClick={() => auth.gate("Enter a Match", () => router.push(query("queue")))}>
                 <span className="gp-play-label">Play now</span>
                 <span className="gp-play-sub">
-                  {fmtGemas(entry)} entry · win {fmtGemas(estimatedWin(entry))}
                   {waiting ? (
                     <>
-                      {" · "}
-                      <Users aria-hidden="true" /> {waiting} waiting
+                      <Users aria-hidden="true" /> {waiting} waiting ·{" "}
                     </>
                   ) : null}
+                  win <GemaMark size={13} /> {fmtGemas(estimatedWin(entry))}
                 </span>
               </Button>
             )}
             <div className="gp-more">
               {!awayText && (
-                <Button size="lg" onClick={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}>
+                <Button onClick={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}>
                   <UserPlus aria-hidden="true" />
                   Challenge a friend
                 </Button>
               )}
-              <Button size="lg" href={practiceHref(game, asset)}>
+              <Button href={practiceHref(game, asset)}>
                 <Dumbbell aria-hidden="true" />
                 Practice free
               </Button>
@@ -125,6 +129,18 @@ export function GamePage({ game }: { game: GameId }) {
           </div>
         </div>
       </section>
+
+      <Sheet open={how} onClose={() => setHow(false)} title={`How to play ${name}`} className="gp-how-sheet">
+        <div className="gp-how">
+          <p className="gp-how-sub">{copy.sub.join(" · ")}</p>
+          <b>{copy.how}</b>
+          <ol>
+            {copy.steps.map((s) => (
+              <li key={s}>{s}</li>
+            ))}
+          </ol>
+        </div>
+      </Sheet>
 
       <div className="gp-grid">
         <section className="cut cut-frame gp-panel" aria-labelledby="gp-recent">
@@ -178,17 +194,6 @@ export function GamePage({ game }: { game: GameId }) {
 
         </section>
 
-        <div className="gp-right">
-          <BustCard bust="himExplain" size={190} className="gp-how">
-            <h2 className="h-section">How to play</h2>
-            <b>{copy.how}</b>
-            <ol>
-              {copy.steps.map((s) => (
-                <li key={s}>{s}</li>
-              ))}
-            </ol>
-          </BustCard>
-        </div>
       </div>
     </div>
   );
