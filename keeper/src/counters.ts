@@ -48,6 +48,9 @@ export function nextSlice<T>(items: T[], after: string | null, n: number, keyOf:
   return { slice, next: keyOf(slice[slice.length - 1]) };
 }
 
+/** Code-unit order, the one `nextSlice` pages by: `localeCompare` orders base58 letters by case-folded value and would disagree. */
+export const byKey = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
 export interface CounterDeps {
   list: Lister;
   read: Reader;
@@ -88,7 +91,7 @@ export async function sourceRows(ctx: Ctx, d: CounterDeps): Promise<SourceRow[]>
   if (hit && d.now() - hit.at < SCAN_TTL_MS) return hit.rows;
   const rows = d.list("SourceState").then((all) => {
     const out: SourceRow[] = all.map((r) => ({ address: r.pubkey, position: keyOf((ctx.core.coder.accounts.decode("sourceState", r.data) as any).inner.position) }));
-    return out.sort((a, b) => a.address.toBase58().localeCompare(b.address.toBase58()));
+    return out.sort((a, b) => byKey(a.address.toBase58(), b.address.toBase58()));
   });
   scans.set(ctx, { at: d.now(), rows });
   rows.catch(() => scans.delete(ctx));

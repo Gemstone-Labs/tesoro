@@ -1186,6 +1186,14 @@ pub struct MatchChunkDone {
     pub overflowed: u32,
 }
 
+/// A join found the Game's outside studio with full stores and a Pot too big for a capped overflow
+/// record: the Match's Studio Fee goes to Tesoro's own Studio counter instead.
+#[event]
+pub struct StudioFeeWaived {
+    pub match_state: Pubkey,
+    pub studio: Pubkey,
+}
+
 /// Lines moved out of an overflow record into their owner's stores.
 #[event]
 pub struct OverflowClaimed {

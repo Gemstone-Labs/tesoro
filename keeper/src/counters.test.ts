@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { Budget, type Ctx } from "./act.ts";
-import { cashInJob, counterAmounts, createAtaIdempotentIx, harvestJob, nextSlice, type CounterDeps, type Recipients } from "./counters.ts";
+import { byKey, cashInJob, counterAmounts, createAtaIdempotentIx, harvestJob, nextSlice, type CounterDeps, type Recipients } from "./counters.ts";
 import { accountBytes, bookBytes, chainOf, ixNameOf } from "./fixtures.ts";
 import { bookOf, pda } from "./kit.ts";
 import { ata } from "./kind-pay.ts";
@@ -26,6 +26,19 @@ describe("counters", () => {
     assert.deepEqual(nextSlice(["b", "c", "d", "e"], "b", 2), { slice: ["c", "d"], next: "d" });
     // the cursor's own Source closed: it continues with the next key
     assert.deepEqual(nextSlice(["a", "c", "e"], "b", 2), { slice: ["c", "e"], next: "e" });
+  });
+  it("sorts addresses in the order the cursor pages by, upper case before lower case", () => {
+    const keys = ["b9", "A1", "a2", "B3"].sort(byKey);
+    assert.deepEqual(keys, ["A1", "B3", "a2", "b9"]);
+    // a walk over that order never repeats or skips a key
+    let after: string | null = null;
+    const seen: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const { slice, next } = nextSlice(keys, after, 1);
+      seen.push(slice[0]);
+      after = next;
+    }
+    assert.deepEqual(seen, keys);
   });
   it("creates an associated token account idempotently", () => {
     const [payer, owner, mint] = [k(), k(), k()];

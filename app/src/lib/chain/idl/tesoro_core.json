@@ -15661,6 +15661,19 @@
       ]
     },
     {
+      "name": "StudioFeeWaived",
+      "discriminator": [
+        3,
+        115,
+        205,
+        114,
+        173,
+        104,
+        180,
+        56
+      ]
+    },
+    {
       "name": "TreasuryFunded",
       "discriminator": [
         172,
@@ -19989,6 +20002,26 @@
           },
           {
             "name": "Spill"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StudioFeeWaived",
+      "docs": [
+        "A join found the Game's outside studio with full stores and a Pot too big for a capped overflow",
+        "record: the Match's Studio Fee goes to Tesoro's own Studio counter instead."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          },
+          {
+            "name": "studio",
+            "type": "pubkey"
           }
         ]
       }

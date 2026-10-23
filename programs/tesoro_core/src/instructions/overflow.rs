@@ -38,7 +38,8 @@ use anchor_lang::Key as _;
 use std::collections::BTreeMap;
 
 /// Most lines a join may reserve in the studio's overflow record (about 0.008 SOL of rent). A studio
-/// whose stores are full and whose Pots need more than this cannot take new Matches.
+/// whose stores are full and whose Pot needs more than this does not get that Match's Studio Fee:
+/// the fee goes to Tesoro's own Studio counter, so no Player is ever refused for the studio's room.
 pub const STUDIO_RECORD_MAX_LINES: usize = 8;
 
 /// Whether a join may reserve `lines` lines in a studio's overflow record.
@@ -217,7 +218,9 @@ pub(crate) fn reserve_record<'info>(
 /// room for the lines that have no hold. An Account in `plan` whose stores are missing is an
 /// error for the studio named in `must_pass` (a Game's own studio cannot make its settlements
 /// depend on stores nobody sees) and skipped for any other Account; the same goes for its
-/// record.
+/// record. Returns `true` when the studio's stores are full and its record would pass
+/// [`STUDIO_RECORD_MAX_LINES`]: nothing is reserved for it and the caller waives its Studio Fee,
+/// so the join never fails for the studio's room and the cost falls on the studio.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn cover_room<'info>(
     room: &mut [RoomHold; ROOM_HOLDS],
@@ -228,8 +231,9 @@ pub(crate) fn cover_room<'info>(
     payer: &AccountInfo<'info>,
     system: &AccountInfo<'info>,
     must_pass: Option<Key>,
-) -> Result<()> {
+) -> Result<bool> {
     let seed = id.seed();
+    let mut studio_waived = false;
     for (account, want) in plan {
         let have = room
             .iter()
@@ -251,12 +255,13 @@ pub(crate) fn cover_room<'info>(
             crate::instructions::matching::add_hold(room, *account, extra)?;
         } else {
             // The studio's record is paid by whoever joins, and a studio can keep its stores full on
-            // purpose, so the rent a join can be asked for is capped: past the cap the join is
-            // refused and the studio has to make room. Entrants' own records are their own cost.
-            require!(
-                must_pass != Some(*account) || studio_record_fits(extra as usize),
-                MatchError::StudioStoresFull
-            );
+            // purpose, so the rent a join can be asked for is capped. Past the cap the studio loses
+            // this Match's fee instead of the Player losing the Match. Entrants' own records are
+            // their own cost.
+            if must_pass == Some(*account) && !studio_record_fits(extra as usize) {
+                studio_waived = true;
+                continue;
+            }
             // A record nobody named is skipped for an entrant's own Accounts (entering must
             // never fail for room: the credit then waits like before); the studio's is
             // required, or its owner could stop the Game's settlements by filling its stores.
@@ -275,7 +280,7 @@ pub(crate) fn cover_room<'info>(
             )?;
         }
     }
-    Ok(())
+    Ok(studio_waived)
 }
 
 fn store_among<'info>(

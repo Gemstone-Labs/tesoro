@@ -593,6 +593,32 @@ mod tests {
         assert_eq!(hex, vector);
     }
 
+    /// The vault refuses a Position key with its low 32 bits set and a recipient word wider than an address
+    /// (`PositionVaultOApp._lzReceive`). Every outbound message built from a vault-format key and a padded
+    /// address passes both checks.
+    #[test]
+    fn outbound_messages_pass_the_vaults_key_and_recipient_checks() {
+        // vault address (20 bytes) | vault position id u64 BE | 4 zero bytes
+        let mut key = [0u8; 32];
+        key[..20].copy_from_slice(&[0xAB; 20]);
+        key[20..28].copy_from_slice(&77u64.to_be_bytes());
+        let to = pad_address(&[0xCC; 20]);
+        let msgs = [
+            encode_unlock(40449, key, 1),
+            encode_pay_yield(40449, key, 2, to, YieldPayment { amount: 42, fee: 8, pool: 4 }),
+            encode_pay_instant(40449, key, 3, to, 65),
+        ];
+        for m in &msgs {
+            assert_eq!(&m[33..37], &[0u8; 4], "the low 32 bits of the key are zero");
+            assert_eq!(&m[5..25], &[0xAB; 20], "the vault address leads the key");
+            assert_eq!(&m[25..33], &77u64.to_be_bytes(), "then the id");
+        }
+        for m in &msgs[1..] {
+            let word: [u8; 32] = m[45..77].try_into().unwrap();
+            assert_eq!(unpad_address(&word), Some([0xCC; 20]));
+        }
+    }
+
     #[test]
     fn pay_instant_layout_matches_the_solidity_side() {
         let pay = encode_pay_instant(40362, [3; 32], 7, pad_address(&[0xDD; 20]), 65);

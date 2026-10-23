@@ -5596,6 +5596,61 @@ fn an_outside_studio_at_its_maximum_gets_its_fee_line_in_an_overflow_record_and_
 }
 
 #[test]
+fn a_full_outside_studio_never_refuses_a_join_whatever_the_pot_and_loses_that_matchs_fee_instead() {
+    let mut env = Env::new();
+    // the admin names someone else as Tesoro's studio: this Game's studio is an outside one
+    let other = env.platform.account;
+    set_tesoro_studio(&mut env, other);
+    // 5 lines a side: the studio's plan is 5 + 5 + 2 = 12 slots, past the 8 a join may reserve
+    let (alice, a_sources) = person_with_lines(&mut env, 5, 100, 1_000);
+    let (bob, b_sources) = person_with_lines(&mut env, 5, 120, 1_000);
+    let studio = env.studio.account;
+    let studio_person = Person {
+        kp: env.studio.kp.insecure_clone(),
+        key: env.studio.key,
+        account: studio,
+    };
+    let basket_cap = env.store_stats(&studio_person, false).1;
+    env.fill_store(&studio_person, false, basket_cap, 0);
+    env.fill_store(&studio_person, true, 4, 0);
+    env.name_records = true;
+    env.skip_studio_room = true;
+    let m = env
+        .open_match_with(&alice, ENTRY, false, 0, 6)
+        .expect("open");
+    env.pot_nonce += 1;
+    let (nonce, remaining) = (env.pot_nonce, env.books_of(bob.account));
+    env.join_match_ix(
+        &bob,
+        m,
+        nonce,
+        6,
+        ticket_pda(bob.account, nonce),
+        remaining,
+        None,
+    )
+    .expect("a Player who covers the entry always joins");
+    let seed = env.mstate(m).inner.id.seed();
+    let record = overflow_address(&studio, OVERFLOW_MATCH, &seed).0;
+    assert_eq!(env.lamports(record), 0, "no record, no rent for the joiner");
+    assert_eq!(
+        env.mstate(m).inner.terms.studio_owner,
+        None,
+        "the studio's fee goes to Tesoro's Studio counter"
+    );
+    let game = env.game_auth.insecure_clone();
+    env.settle(&game, m, MatchResult::Opener, vec![])
+        .expect("settles with the studio full");
+    assert_eq!(env.fee_gemas(&studio_person), 0);
+    let counters: u64 = a_sources
+        .iter()
+        .chain(&b_sources)
+        .map(|s| env.counter_amount(*s, CLASS_STUDIO))
+        .sum();
+    assert_eq!(counters, 60, "3% of the 2,000 Pot");
+}
+
+#[test]
 fn a_backers_share_with_no_hold_and_full_stores_lands_in_an_overflow_record() {
     let mut b = backing_setup();
     // Carol's stores are full: her entry draws from one big line, so no slot is freed for it
