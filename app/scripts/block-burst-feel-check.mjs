@@ -205,7 +205,7 @@ try {
     }
     // Clear bonuses arrive after their nonblocking flight, then the total counts up.
     if(mode==="capture") await page.waitForTimeout(1100); else if(mode!=="profile-effects") await page.clock.runFor(1100);
-    if (process.env.LATE === '1') await page.locator('.bp-board.live.low').waitFor();
+    if (process.env.LATE === '1' && mode !== 'expiry') await page.locator('.bp-board.live.low').waitFor();
     if(mode!=='profile-effects') await page.waitForFunction((score)=>Number(document.querySelector('.bp-score-n').textContent)===score,sequence[count-1].state.score);
     const feedback = await page.evaluate(()=>({haptics:window.__haptics,tones:window.__tones}));
     if (mode==='unsupported') assert.equal(feedback.haptics.length,0);
