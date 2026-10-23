@@ -577,3 +577,7 @@ button.select { font: inherit; text-align: start; white-space: nowrap; overflow:
 /* ——— Leaderboard Pool: gold is its colour and nothing else's ——— */
 /* the chest art sits on its own dark ground: lighten drops that ground onto the card, the mask feathers the square */
 .pool-fig { background: var(--gold-facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* A page title shown on desktop only: phones keep it for screen readers and save the space (founder 2026-10-23). */
+@media (max-width: 1023px) {
+  .title-desk { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}

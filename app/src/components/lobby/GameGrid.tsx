@@ -2,13 +2,19 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import type { PointerEvent } from "react";
+import { useMemo, type PointerEvent } from "react";
 import { Clock, Users } from "lucide-react";
-import { ENTRY_SIZES } from "@/components/ui";
+import { ENTRY_SIZES, GemaMark } from "@/components/ui";
+import { CheckIcon, MinusIcon, XIcon } from "@/components/ui/icons";
 import { useAccount } from "@/lib/account";
-import { waitingByEntry } from "@/lib/chain/lobby-plays";
+import { accountHistory } from "@/lib/chain/history";
+import { gameFacts, waitingByEntry } from "@/lib/chain/lobby-plays";
 import { CATALOGUE } from "@/lib/catalogue";
+import { fmtGemas } from "@/lib/format";
+import { practiceHref } from "@/lib/game-params";
 import { useQueue } from "./useQueue";
+
+const RESULT_WORD = { won: ["Won", CheckIcon], lost: ["Lost", XIcon], draw: ["Draw", MinusIcon], refunded: ["Refunded", MinusIcon] } as const;
 
 /** Tilt a tile toward the pointer and move its glare with it (mouse only; still under reduced motion). */
 function tilt(e: PointerEvent<HTMLElement>) {
@@ -27,10 +33,18 @@ function untilt(e: PointerEvent<HTMLElement>) {
   ["--rx", "--ry", "--gx", "--gy"].forEach((p) => el.style.removeProperty(p));
 }
 
-/** GAMES: every live Game as an art tile with its name and how many Players wait. A tile opens the Game page (entry, Play now). */
+/**
+ * GAMES: every live Game as an art tile that opens its page (entry, Play now). Phones: a 2×2 grid, the name and how many
+ * Players wait. Desktop: two wide tiles a row with each entry and who waits at it, your last result and Practice free.
+ */
 export function GameGrid() {
   const queue = useQueue();
-  const me = useAccount().snapshot?.accountKey.toBase58();
+  const { auth, snapshot } = useAccount();
+  const me = snapshot?.accountKey.toBase58();
+  const facts = useMemo(
+    () => (auth.status === "signed-in" && snapshot?.matchesLoaded ? gameFacts(accountHistory(snapshot.matches, snapshot.funded)) : {}),
+    [auth.status, snapshot],
+  );
   const live = CATALOGUE.filter((g) => g.live);
   const soon = CATALOGUE.filter((g) => !g.live);
 
@@ -39,20 +53,51 @@ export function GameGrid() {
       <h2 id="games-h" className="h-section">Games</h2>
       <div className="games-grid">
         {live.map((g, i) => {
-          const waiting = g.game && queue ? Object.values(waitingByEntry(queue[g.game], ENTRY_SIZES, me)).reduce((a, n) => a + n, 0) : 0;
+          const byEntry = g.game && queue ? waitingByEntry(queue[g.game], ENTRY_SIZES, me) : {};
+          const waiting = Object.values(byEntry).reduce((a, n) => a + n, 0);
+          const fact = g.game ? facts[g.game] : undefined;
+          const [word, Icon] = fact ? RESULT_WORD[fact.last] : [null, null];
           return (
-            <Link key={g.key} href={`/play/${g.game}`} className="cut cut-frame tile game-tile" onPointerMove={tilt} onPointerLeave={untilt}>
-              <Image src={g.tile} alt="" fill sizes="(min-width: 1024px) 22vw, 50vw" loading={i < 2 ? "eager" : undefined} />
-              <span className="tile-shade" aria-hidden="true" />
-              <span className="tile-glare" aria-hidden="true" />
-              {waiting > 0 && (
-                <span className="cut cut-chip game-waiting">
-                  <Users aria-hidden="true" />
-                  {waiting} waiting
+            <div key={g.key} className="game-cell">
+              <Link href={`/play/${g.game}`} className="cut cut-frame tile game-tile" onPointerMove={tilt} onPointerLeave={untilt}>
+                <Image src={g.tile} alt="" fill sizes="(min-width: 1024px) 45vw, 50vw" loading={i < 2 ? "eager" : undefined} />
+                <span className="tile-shade" aria-hidden="true" />
+                <span className="tile-glare" aria-hidden="true" />
+                {waiting > 0 && (
+                  <span className="cut cut-chip game-waiting">
+                    <Users aria-hidden="true" />
+                    {waiting} waiting
+                  </span>
+                )}
+                <span className="game-label">
+                  <strong className="game-name">{g.name}</strong>
+                  <span className="game-info">
+                    {ENTRY_SIZES.map((e) => {
+                      const n = byEntry[e] ?? 0;
+                      return (
+                        <span key={e} className={`cut cut-chip tile-entry${n > 0 ? " has" : ""}`} aria-label={`Entry ${fmtGemas(e)}${queue ? `, ${n} waiting` : ""}`}>
+                          <GemaMark size={12} />
+                          {fmtGemas(e)}
+                          {n > 0 && <em>· {n} waiting</em>}
+                        </span>
+                      );
+                    })}
+                    {fact && Icon && (
+                      <span className="tile-last">
+                        <Icon aria-hidden="true" />
+                        Last: {word}
+                        {fact.best !== null && ` · Best ${fmtGemas(fact.best)}`}
+                      </span>
+                    )}
+                  </span>
                 </span>
+              </Link>
+              {g.game && (
+                <Link href={practiceHref(g.game)} className="cut cut-chip game-practice">
+                  Practice free
+                </Link>
               )}
-              <strong className="game-name">{g.name}</strong>
-            </Link>
+            </div>
           );
         })}
       </div>

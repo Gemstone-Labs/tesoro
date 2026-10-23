@@ -44,7 +44,7 @@ export function AllMatches() {
   return (
     <div className="mh-page">
       <header className="mh-head">
-        <h1 className="sr-only">Matches</h1>
+        <h1 className="page-title title-desk">Matches</h1>
         <GameTabs base="/matches" game={game} results={results} />
         {snapshot?.matchesLoaded && <ResultFilter base="/matches" game={game} results={results} counts={resultCounts(rows)} />}
       </header>

@@ -7,10 +7,16 @@ vi.mock("@/lib/account", () => ({ useAccount: () => ({ auth: { status: "signed-o
 const { GameGrid } = await import("./GameGrid");
 
 describe("GameGrid", () => {
-  it("shows every live Game as a tile that opens its page, with no entry chips or Play buttons on the tile", () => {
+  it("shows every live Game as a tile that opens its page, with no Play now on the tile", () => {
     const html = renderToStaticMarkup(<GameGrid />);
     for (const name of ["Vanguard", "Buckshot Hold", "Trading Duel", "Block Burst"]) expect(html).toContain(name);
     expect(html).toContain('href="/play/vanguard"');
-    expect(html).not.toMatch(/Play now|Practice free|tile-entry/);
+    expect(html).not.toMatch(/Play now/);
+  });
+
+  it("carries the entries and Practice free for the desktop tiles", () => {
+    const html = renderToStaticMarkup(<GameGrid />);
+    expect(html.match(/class="cut cut-chip game-practice"/g)).toHaveLength(4);
+    expect(html).toContain("tile-entry");
   });
 });

@@ -66,7 +66,7 @@ export function Leaderboard() {
 
   return (
     <div className="lb">
-      <h1 className="sr-only">Leaderboard</h1>
+      <h1 className="page-title title-desk">Leaderboard</h1>
 
       {!data ? (
         error ? (

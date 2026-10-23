@@ -11,7 +11,7 @@ export function VaultHeader() {
   const { mode } = useViewMode();
   return (
     <header className="vt-head">
-      <h1 className="sr-only">Vault</h1>
+      <h1 className="page-title title-desk">Vault</h1>
       <div className="vt-head-actions">
         <Button variant="money" size="lg" onClick={() => (mode === "simple" ? requestDeposit() : requestGetGemas())}>Buy Gemas</Button>
         <Button size="lg" href={POST_REQUEST_HREF}>Borrow Gemas</Button>

@@ -80,7 +80,7 @@ export function GamePage({ game }: { game: GameId }) {
 
   return (
     <div className="gp">
-      <section className="gp-hero" aria-label={name}>
+      <section className="cut cut-frame gp-hero" aria-label={name}>
         <div className="gp-art">
           <Image className="gp-hero-art" src={copy.hero} alt="" fill sizes="(min-width: 1024px) 900px, 100vw" priority />
           <span className="sparkles" aria-hidden="true">
@@ -96,6 +96,13 @@ export function GamePage({ game }: { game: GameId }) {
           </div>
         </div>
         <div className="cut cut-frame gp-hero-body">
+          {/* desktop: the name sits over the art's dark side with the panel under it (phones show it on the art above) */}
+          <div className="gp-body-title">
+            <h1 className="gp-title">{name}</h1>
+            <button type="button" className="gp-info" aria-label={`How to play ${name}`} onClick={() => setHow(true)}>
+              <Info aria-hidden="true" />
+            </button>
+          </div>
           {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="gp-asset" />}
           <EntryPicker value={entry} onChange={setEntry} name={`gp-entry-${game}`} />
           <div className="gp-cta">

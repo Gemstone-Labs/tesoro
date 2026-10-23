@@ -71,3 +71,4 @@
 .vt-backing svg:last-child { width: 16px; height: 16px; color: var(--fg-2); }
 .vt-backing:hover { background: var(--surface-2); }
 @media (min-width: 1024px) { .vt-backing { bottom: 24px; right: 28px; } }
+@media (min-width: 1024px) { .vt-head { display: flex; align-items: center; justify-content: space-between; gap: 24px; } .vt-head-actions { flex: 0 1 460px; } }
