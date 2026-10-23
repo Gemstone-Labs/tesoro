@@ -1,10 +1,13 @@
 //! Vanguard accounts and their conversion to and from the pure engine's `Game`.
 //!
-//! Three kinds of state, by who may read them:
-//! - `Battle` (public): everything both Players and spectators may see, including the event ring.
-//! - `Army` (one per seat, private to its Player): the ranks of that side's pieces, the Truck's fuel and the
-//!   turn it last moved, and a move count. Anything that could reveal a hidden rank lives here.
-//! - `Secret` (no reader): the folded entropy, the randomness output, the storm's turn and seed.
+//! Matches run on persistent tables (see `table-protocol.md` and `crates/table_kit`). By who may read them:
+//! - `Table` (public, small): the table protocol: epoch, phase, the result ring, the VRF request state.
+//! - `Battle` (public): everything both Players and spectators may see, including the event ring. One per table,
+//!   reinitialised for every Match.
+//! - `Army` (one per seat, a rollup-only account behind a private permission that lives as long as the table):
+//!   this Player's secret and half of the randomness until `deal`; then the ranks of that side's pieces, the Truck's
+//!   fuel and the turn it last moved, a move count, the sealing key and one XOR share of the storm. Anything that
+//!   could reveal a hidden rank lives here. There is no shared Secret account.
 //!
 //! A piece's number is the index of its start square (Italy 0-29, US 30-59), so `id % 30` indexes the ranks of its
 //! army and the number says nothing about the rank.
@@ -16,27 +19,56 @@ use crate::engine::{
 };
 use crate::VanguardError;
 use anchor_lang::prelude::*;
+pub use table_kit::{CommitGuard, Ring, Slot};
 
 pub const BATTLE_SEED: &[u8] = b"battle";
 pub const ARMY_SEED: &[u8] = b"army";
-pub const SECRET_SEED: &[u8] = b"secret";
 pub const PROGRAM_CONFIG_SEED: &[u8] = b"config";
+/// The table settings (operator, generation, table cap). Not `config`: that is the cluster settings above.
+pub const TABLES_SEED: &[u8] = b"tables";
+pub const SPONSOR_SEED: &[u8] = b"sponsor";
+pub const FUEL_SEED: &[u8] = b"fuel";
+pub const TABLE_SEED: &[u8] = b"table";
+pub const ASSIGN_SEED: &[u8] = b"assign";
+/// The address the VRF callback of one request must name (see `Table::vrf_nonce`).
+pub const VRF_REQUEST_SEED: &[u8] = b"vrfreq";
 /// The PDA registered in tesoro_core as this Game's settlement authority.
 pub const AUTHORITY_SEED: &[u8] = b"authority";
 
-/// Seconds after creation within which both Players must have delegated and started the Match.
+/// Seconds from the assignment within which both Players must have checked in.
 pub const START_WINDOW_SECS: i64 = 300;
-/// How long tesoro_core keeps refunds closed to everyone but this Game. The longest Match is the 15-minute cap
-/// plus the start window, closing and settling.
+/// How long tesoro_core keeps refunds closed to everyone but this Game, counted from the assignment. The longest
+/// Match is the 15-minute cap plus the start window and the setup, with room for the rollup and the keeper.
 pub const TABLE_WINDOW_SECS: i64 = 24 * 60 * 60;
-/// Seconds each Player has to contribute entropy once the permissions exist.
+/// Seconds each Player has to contribute entropy once both have checked in.
 pub const ENTROPY_SECS: i64 = 60;
-/// Seconds after the start deadline by which the Match must be dealt. Past `setup_deadline` nothing can go Live and
+/// Seconds after the second check-in by which the Match must be dealt. Past `setup_deadline` nothing can go Live and
 /// `claim_timeout` cancels, so a Match whose Players or oracle stall is refunded long before tesoro_core's deadline.
 pub const SETUP_GRACE_SECS: i64 = 180;
+/// A finished table waits this long before it is reset, so clients can read the final board.
+pub const RESET_DELAY_SECS: i64 = 30;
+/// A receipt is trusted only this long after it was written (the rollup copies base accounts a moment after they
+/// change).
+pub const RELEASE_DELAY_SECS: i64 = 60;
+/// A ring slot whose core Match account has vanished is freed after this long.
+pub const STALE_SLOT_SECS: i64 = 15 * 24 * 60 * 60;
+/// Hard ceiling on tables per generation, whatever the table settings say.
+pub const MAX_TABLES_HARD: u16 = 256;
+/// Lamports a new table gets for the rent of its two ephemeral seats and their permissions.
+pub const TABLE_BUFFER_LAMPORTS: u64 = 20_000_000;
+
+/// A table between Matches.
+pub const TABLE_IDLE: u8 = 0;
+/// A Match began; the seats are handed to its Players and they check in.
+pub const TABLE_WAITING: u8 = 1;
+/// Both Players checked in: setup (entropy, randomness, deal) and play.
+pub const TABLE_LIVE: u8 = 2;
+/// The result is in the ring; the table waits to be committed, wiped and reset.
+pub const TABLE_OVER: u8 = 3;
 /// `Battle.layout_version`. Bump it when the field layout of `Battle` changes, so a client reading a Battle that was
-/// created before an upgrade knows which offsets to use.
-pub const LAYOUT_VERSION: u8 = 2;
+/// created before an upgrade knows which offsets to use. Version 3: same offsets as 2; `payer` is the Assignment's
+/// payer, `authority_bump` and `finalized` are unused, `permissioned` means the seats were handed to the Players.
+pub const LAYOUT_VERSION: u8 = 3;
 /// `Battle.pending_kind`: nothing is waiting to be resolved.
 pub const PENDING_NONE: u8 = 0;
 /// A declared move (`pending_piece`, `pending_to`) waits for `resolve`.
@@ -54,7 +86,7 @@ pub const PENDING_RESCUE: u8 = 5;
 pub const PENDING_PASS: u8 = 6;
 
 pub const STATUS_CREATED: u8 = 0;
-/// Permissions exist; waiting for both secrets, the randomness and `deal`.
+/// Both Players checked in; waiting for both secrets, the randomness and `deal`.
 pub const STATUS_SETUP: u8 = 1;
 pub const STATUS_LIVE: u8 = 2;
 pub const STATUS_OVER: u8 = 3;
@@ -361,22 +393,30 @@ pub struct Intent {
     pub sealed_switch: u8,
 }
 
-/// What `create_match` knows when it binds a Battle to a tesoro_core Match.
+/// What `begin_match` knows when it binds the table's Battle to a tesoro_core Match.
 pub struct NewBattle {
-    pub bump: u8,
-    pub authority_bump: u8,
     pub match_id: u64,
     pub tesoro_match: Pubkey,
     pub players: [Pubkey; 2],
     pub start_deadline: i64,
     pub payer: Pubkey,
     pub oracle_queue: Pubkey,
+    /// The table epoch the Match plays in. It seeds `action_seq`, so a declare signed for an earlier Match of this
+    /// table can never be valid in this one (the Battle address is the same for every Match on a table).
+    pub epoch: u64,
 }
 
 impl Battle {
-    /// Bind a freshly created (zeroed) Battle to a tesoro_core Match. In place: a Battle is too big to build on
-    /// the stack.
+    /// The first `action_seq` of a Match on a table at `epoch`: a declare carries it as `expected_seq`.
+    pub fn first_action_seq(epoch: u64) -> u32 {
+        (epoch as u32).wrapping_shl(16)
+    }
+
+    /// Bind a Battle to a tesoro_core Match, for a new Match on the table. In place: a Battle is too big to build on
+    /// the stack. The whole body is zeroed first (only the PDA bump survives), so nothing of the previous Match
+    /// is left in it.
     pub fn init(&mut self, new: NewBattle) {
+        self.zero();
         self.layout_version = LAYOUT_VERSION;
         self.rules_version = RULES_VERSION;
         self.payer = new.payer;
@@ -390,8 +430,6 @@ impl Battle {
         self.storm_from = STORM_FROM as u8;
         self.storm_to = STORM_TO as u8;
         self.setup_deadline = new.start_deadline.saturating_add(SETUP_GRACE_SECS);
-        self.bump = new.bump;
-        self.authority_bump = new.authority_bump;
         self.match_id = new.match_id;
         self.tesoro_match = new.tesoro_match;
         self.players = new.players;
@@ -401,7 +439,15 @@ impl Battle {
         self.winner = NO_WINNER;
         self.reason = NO_REASON;
         self.steps_left = 1;
+        self.action_seq = Self::first_action_seq(new.epoch);
         self.sq = [NO_SQ; PIECE_SLOTS];
+    }
+
+    /// Back to an all-zero body, keeping only the PDA bump.
+    pub fn zero(&mut self) {
+        let bump = self.bump;
+        anchor_lang::__private::bytemuck::bytes_of_mut(self).fill(0);
+        self.bump = bump;
     }
 
     /// Record a declared action. It is bound to the n-th declare of the Match and cannot be changed.
@@ -509,7 +555,7 @@ impl Battle {
     }
 
     /// The engine's `Game` from the public Battle alone: every piece on the board stands in as rank 1. Enough for the
-    /// checks that need no rank (`check_declared_move`, `timeout_class`), so a declare reads no Army and no Secret.
+    /// checks that need no rank (`check_declared_move`, `timeout_class`), so a declare reads no Army.
     pub fn public_game(&self) -> Result<Box<Game>> {
         let mut g = self.shell(0, 0)?;
         for id in 0..PIECE_SLOTS {
@@ -534,9 +580,11 @@ impl Battle {
         Ok(g)
     }
 
-    /// The engine's `Game`, with the ranks of both armies filled in from their private accounts.
-    pub fn game(&self, armies: [&Army; 2], secret: &Secret) -> Result<Box<Game>> {
-        let mut g = self.shell(secret.storm_at, secret.storm_seed)?;
+    /// The engine's `Game`, with the ranks of both armies filled in from their private accounts. The storm's turn
+    /// and line are each Army's XOR share combined; they exist as a value only inside this call.
+    pub fn game(&self, armies: [&Army; 2]) -> Result<Box<Game>> {
+        let (storm_at, storm_seed) = storm_from_shares(armies);
+        let mut g = self.shell(storm_at, storm_seed)?;
         for id in 0..PIECE_SLOTS {
             let sq = self.sq[id];
             if sq == NO_SQ {
@@ -642,13 +690,25 @@ const fn side_from(code: u8) -> Option<Side> {
     }
 }
 
-/// One side's private state.
+/// The storm's turn and line from the two Armies' shares.
+pub fn storm_from_shares(armies: [&Army; 2]) -> (u16, u32) {
+    (
+        armies[0].storm_at ^ armies[1].storm_at,
+        armies[0].storm_seed ^ armies[1].storm_seed,
+    )
+}
+
+/// One side's private state: a hidden seat of the table. It is a rollup-only account behind a private permission,
+/// created once with the table and kept for its life. Between Matches its data is zeroed and the permission's member
+/// is swapped to nobody and then to the next Player; the account and its permission are never closed or left without
+/// a private permission while a Match may be live.
 #[account]
-#[derive(InitSpace, Debug)]
+#[derive(InitSpace, Debug, PartialEq, Eq)]
 pub struct Army {
     pub bump: u8,
-    pub battle: Pubkey,
+    pub table: Pubkey,
     pub seat: u8,
+    /// The Player who may read this seat now; default while the seat is wiped.
     pub player: Pubkey,
     /// 0 US, 1 Italy; `UNSET` until `deal`.
     pub side: u8,
@@ -663,22 +723,64 @@ pub struct Army {
     /// The 32-byte sealing key of this Army (`engine::seal_keys`), written at `deal`, private to its Player and
     /// zeroed by `wipe`. It seals the switch and Dig in bytes this Player sends (`engine::seal_pad`).
     pub reserved: [u8; 32],
+    /// This Player folded a secret in for the Match.
+    pub contributed: bool,
+    /// This Player's secret, until `deal` spends it.
+    pub secret: [u8; 32],
+    /// This seat's half of the oracle's output, until `deal` spends it.
+    pub half_set: bool,
+    pub half: [u8; 32],
+    /// Reserved for entropy a future confidential source may write; mixed into the seed. Zero today, and no
+    /// instruction writes it.
+    pub ext_entropy: [u8; 32],
+    /// `deal` ran: ranks, key and storm share are in.
+    pub dealt: bool,
+    /// This Army's XOR share of the storm's turn. The other Army holds the rest; neither alone says anything.
+    pub storm_at: u16,
+    /// This Army's XOR share of the storm's line seed.
+    pub storm_seed: u32,
 }
 
 impl Army {
-    pub fn blank(bump: u8, battle: Pubkey, seat: u8, player: Pubkey) -> Army {
+    /// A seat with no Player and no data.
+    pub fn blank(bump: u8, table: Pubkey, seat: u8) -> Army {
         Army {
             bump,
-            battle,
+            table,
             seat,
-            player,
+            player: Pubkey::default(),
             side: UNSET,
             ranks: [0; 30],
             fuel: 0,
             truck_turn: -9,
             moves: 0,
             reserved: [0; 32],
+            contributed: false,
+            secret: [0; 32],
+            half_set: false,
+            half: [0; 32],
+            ext_entropy: [0; 32],
+            dealt: false,
+            storm_at: 0,
+            storm_seed: 0,
         }
+    }
+
+    /// Nothing the previous Match left is readable: the seat is back to a blank state.
+    pub fn wipe(&mut self) {
+        *self = Army::blank(self.bump, self.table, self.seat);
+    }
+
+    pub fn is_blank(&self) -> bool {
+        *self == Army::blank(self.bump, self.table, self.seat)
+    }
+
+    /// The secret and the half are spent at the deal and zeroed; nothing of them stays.
+    pub fn spend_secrets(&mut self) {
+        self.contributed = false;
+        self.secret = [0; 32];
+        self.half_set = false;
+        self.half = [0; 32];
     }
 
     /// Write the drawn layout of `side` into the ranks.
@@ -723,58 +825,146 @@ impl Army {
             self.ranks[i] = (p.rank & live) | (dead_code & !live);
         }
     }
-
-    /// Everything private to the Player goes before the Army is committed to the base layer: the rank codes (a Dig in
-    /// or a switch included) and the sealing key.
-    pub fn wipe(&mut self) {
-        self.ranks = [0; 30];
-        self.fuel = 0;
-        self.truck_turn = 0;
-        self.moves = 0;
-        self.reserved = [0; 32];
-    }
 }
 
-/// The hidden randomness. No permission member can read it.
+/// The program's table settings: the operator (the key that creates tables and assigns Matches), the current table
+/// generation (which may only rise) and the table cap. Not named `Config`: tesoro_core owns that name in the IDL.
 #[account]
 #[derive(InitSpace, Debug)]
-pub struct Secret {
+pub struct TableConfig {
     pub bump: u8,
-    pub battle: Pubkey,
-    pub entropy: [u8; 32],
-    pub contributed: [bool; 2],
-    pub vrf: [u8; 32],
-    pub vrf_seen: bool,
-    pub dealt: bool,
-    /// The turn number on which the Dust Storm may blow.
-    pub storm_at: u16,
-    pub storm_seed: u32,
-    /// Set by `request_vrf`: a Match where both Players are in but nobody asked for randomness cancels at the first
-    /// entropy deadline instead of waiting.
-    pub vrf_requested: bool,
+    pub operator: Pubkey,
+    pub generation: u16,
+    pub max_tables: u16,
 }
 
-impl Secret {
-    pub fn blank(bump: u8, battle: Pubkey) -> Secret {
-        Secret {
+/// A program-owned lamport holder, delegated once, that pays the commits as the fee payer.
+#[account]
+#[derive(InitSpace, Debug)]
+pub struct Sponsor {
+    pub bump: u8,
+}
+
+/// A delegated lamport reserve the operator empties into the Sponsor inside the rollup (a base transfer to a
+/// delegated PDA is not seen there).
+#[account]
+#[derive(InitSpace, Debug)]
+pub struct Fuel {
+    pub bump: u8,
+    pub n: u8,
+}
+
+/// The write-once binding of one tesoro_core Match to one table and one epoch. Created on base by the operator, read
+/// by the table in the rollup and by `finalize` on base.
+#[account]
+#[derive(InitSpace, Debug)]
+pub struct Assignment {
+    pub bump: u8,
+    pub tesoro_match: Pubkey,
+    pub generation: u16,
+    pub index: u16,
+    pub epoch: u64,
+    /// Seat 0 opened the tesoro_core Match, seat 1 joined (the Players' authorities).
+    pub players: [Pubkey; 2],
+    /// Unix time by which both Players must have checked in.
+    pub start_deadline: i64,
+    /// Who paid this account's rent; it goes back there when the Assignment is closed.
+    pub payer: Pubkey,
+}
+
+/// A persistent table. Delegated once and never undelegated in normal running; only this account and the public
+/// `Battle` are ever committed to Solana. Its two `Army` seats are rollup-only accounts that live as long as it does.
+#[account]
+#[derive(InitSpace, Debug)]
+pub struct Table {
+    pub bump: u8,
+    pub generation: u16,
+    pub index: u16,
+    /// Rises at every reset; a Match is bound to one epoch.
+    pub epoch: u64,
+    pub phase: u8,
+    /// The two Army seats exist (created once, kept for the table's life).
+    pub seats_created: bool,
+    /// The seats belong to the current Match's Players.
+    pub seats_open: bool,
+    /// The result is in and not yet committed.
+    pub dirty: bool,
+    /// The Match on the table (default key while Idle).
+    pub tesoro_match: Pubkey,
+    /// Its ring slot.
+    pub slot: u8,
+    pub start_deadline: i64,
+    pub checked_in: [bool; 2],
+    pub over_at: i64,
+    /// Counts VRF requests on this table, never reset. The callback of request `n` must name the address
+    /// `["vrfreq", table, n]`, so an answer to any other request is refused.
+    pub vrf_nonce: u64,
+    /// The number of the latest request.
+    pub req_nonce: u64,
+    /// A VRF request is outstanding.
+    pub req_pending: bool,
+    pub req_epoch: u64,
+    /// The one request of this Match was made (never cleared until the next Match).
+    pub req_made: bool,
+    pub req_at: i64,
+    /// The answer arrived and waits for `deal`.
+    pub vrf_ready: bool,
+    /// Results of finished Matches, kept until tesoro_core has frozen them.
+    pub ring: Ring,
+    /// When the table may be committed again if a commit was lost on its way to base.
+    pub commit: CommitGuard,
+}
+
+impl Table {
+    pub fn new(bump: u8, generation: u16, index: u16) -> Self {
+        Self {
             bump,
-            battle,
-            entropy: [0; 32],
-            contributed: [false; 2],
-            vrf: [0; 32],
-            vrf_seen: false,
-            dealt: false,
-            storm_at: 0,
-            storm_seed: 0,
-            vrf_requested: false,
+            generation,
+            index,
+            epoch: 0,
+            phase: TABLE_IDLE,
+            seats_created: false,
+            seats_open: false,
+            dirty: false,
+            tesoro_match: Pubkey::default(),
+            slot: 0,
+            start_deadline: 0,
+            checked_in: [false; 2],
+            over_at: 0,
+            vrf_nonce: 0,
+            req_nonce: 0,
+            req_pending: false,
+            req_epoch: 0,
+            req_made: false,
+            req_at: 0,
+            vrf_ready: false,
+            ring: Ring::default(),
+            commit: CommitGuard::default(),
         }
     }
 
-    pub fn wipe(&mut self) {
-        self.entropy = [0; 32];
-        self.vrf = [0; 32];
-        self.storm_at = 0;
-        self.storm_seed = 0;
+    /// Forgets the finished Match and moves to the next epoch. The ring, the seats' existence, the request counter
+    /// and the commit guard stay.
+    pub fn reset(&mut self) -> Option<()> {
+        let epoch = self.epoch.checked_add(1)?;
+        let (ring, nonce, created, commit) =
+            (self.ring, self.vrf_nonce, self.seats_created, self.commit);
+        *self = Self::new(self.bump, self.generation, self.index);
+        self.epoch = epoch;
+        self.ring = ring;
+        self.vrf_nonce = nonce;
+        self.seats_created = created;
+        self.commit = commit;
+        Some(())
+    }
+
+    /// The address a VRF callback must name for the request numbered `nonce`.
+    pub fn request_marker(table: &Pubkey, nonce: u64) -> Pubkey {
+        Pubkey::find_program_address(
+            &[VRF_REQUEST_SEED, table.as_ref(), &nonce.to_le_bytes()],
+            &crate::ID,
+        )
+        .0
     }
 }
 
@@ -787,7 +977,9 @@ mod tests {
         for (name, size) in [
             ("battle", 8 + core::mem::size_of::<Battle>()),
             ("army", 8 + Army::INIT_SPACE),
-            ("secret", 8 + Secret::INIT_SPACE),
+            ("table", 8 + Table::INIT_SPACE),
+            ("table settings", 8 + TableConfig::INIT_SPACE),
+            ("assignment", 8 + Assignment::INIT_SPACE),
             ("config", 8 + VanguardConfig::INIT_SPACE),
         ] {
             assert!(size <= 10_240, "{name} is {size} bytes");
@@ -808,7 +1000,7 @@ mod changes {
         CHAIN_CLOCK, DUG_IN, GENERAL, GENERAL_OF_THE_ARMY, MAJOR, NO_PIECE, RECON, SPY, SWITCHED,
     };
 
-    type Parts = (Box<Battle>, Army, Army, Secret);
+    type Parts = (Box<Battle>, Army, Army);
 
     /// A live Battle laid out as `deal` leaves it: Alice (seat 0) plays the US Army, Bob (seat 1) Italy.
     fn live(layout: &[LayoutPiece]) -> Parts {
@@ -828,14 +1020,14 @@ mod changes {
         b.absorb(&g);
         b.status = STATUS_LIVE;
         let key = Pubkey::new_unique();
-        let mut a0 = Army::blank(1, key, 0, Pubkey::new_unique());
-        let mut a1 = Army::blank(1, key, 1, Pubkey::new_unique());
+        let mut a0 = Army::blank(1, key, 0);
+        let mut a1 = Army::blank(1, key, 1);
         a0.place(Side::Us, layout);
         a1.place(Side::It, layout);
-        let mut secret = Secret::blank(1, key);
-        secret.storm_at = 99;
-        secret.storm_seed = 12_345;
-        (b, a0, a1, secret)
+        // the storm is stored as shares: Alice's holds the whole value, Bob's is zero
+        a0.storm_at = 99;
+        a0.storm_seed = 12_345;
+        (b, a0, a1)
     }
 
     fn bytes(b: &Battle) -> Vec<u8> {
@@ -864,11 +1056,8 @@ mod changes {
         let mut plain = live(&layout());
         let mut dug = live(&layout());
         for (parts, dig) in [(&mut plain, NO_PIECE), (&mut dug, MAJOR_ID)] {
-            let (b, a0, a1, secret) = parts;
-            crate::run(b, a0, a1, secret, |g, out| {
-                g.resolve_pass(dig, false, 1_005, out)
-            })
-            .unwrap();
+            let (b, a0, a1) = parts;
+            crate::run(b, a0, a1, |g, out| g.resolve_pass(dig, false, 1_005, out)).unwrap();
         }
         assert_eq!(
             bytes(&plain.0),
@@ -885,8 +1074,8 @@ mod changes {
         let mut plain = live(&layout());
         let mut switched = live(&layout());
         for (parts, sw) in [(&mut plain, false), (&mut switched, true)] {
-            let (b, a0, a1, secret) = parts;
-            crate::run(b, a0, a1, secret, |g, out| {
+            let (b, a0, a1) = parts;
+            crate::run(b, a0, a1, |g, out| {
                 g.resolve_move(99 - 40, 89, sw, 1_005, out)
             })
             .unwrap();
@@ -898,9 +1087,9 @@ mod changes {
 
     #[test]
     fn a_rank_change_persists_across_engine_runs_and_dead_pieces_keep_their_code() {
-        let (mut b, mut a0, mut a1, secret) = live(&layout());
+        let (mut b, mut a0, mut a1) = live(&layout());
         // run 1: Alice digs in and switches her 10 (a Dig in is a pass)
-        crate::run(&mut b, &mut a0, &mut a1, &secret, |g, out| {
+        crate::run(&mut b, &mut a0, &mut a1, |g, out| {
             g.resolve_pass(MAJOR_ID, true, 1_005, out)
         })
         .unwrap();
@@ -912,7 +1101,7 @@ mod changes {
             (DUG_IN, SWITCHED)
         );
         // run 2, from the accounts alone: the engine reads them as a Landmine and a Spy
-        let g = b.game([&a0, &a1], &secret).unwrap();
+        let g = b.game([&a0, &a1]).unwrap();
         assert_eq!(
             (
                 g.pieces[MAJOR_ID as usize].rank,
@@ -923,7 +1112,7 @@ mod changes {
         assert_eq!(g.changed, 1 << MAJOR_ID | 1 << TEN_ID);
         // Italy's piece 26, played as a General (9), stands next to Alice's switched 10 and attacks it: the Spy loses
         // (a 10 would lose to it: the Spy beats the 10 whichever attacks)
-        crate::run(&mut b, &mut a0, &mut a1, &secret, |g, out| {
+        crate::run(&mut b, &mut a0, &mut a1, |g, out| {
             g.pieces[26].rank = GENERAL;
             let from = g.pieces[26].sq;
             g.cells[from as usize] = 0;
@@ -949,7 +1138,7 @@ mod changes {
             "and so does the one that did not move"
         );
         // a third run from the accounts still knows both changes, the dead one included
-        let g = b.game([&a0, &a1], &secret).unwrap();
+        let g = b.game([&a0, &a1]).unwrap();
         assert_eq!(g.changed, 1 << MAJOR_ID | 1 << TEN_ID);
         // the Army's other twenty-nine bytes were written back unchanged
         assert_eq!(a0.ranks[RECON as usize], 0);
@@ -959,9 +1148,9 @@ mod changes {
 
     #[test]
     fn a_face_up_major_that_digs_in_shows_a_landmine() {
-        let (mut b, mut a0, mut a1, secret) = live(&layout());
+        let (mut b, mut a0, mut a1) = live(&layout());
         b.shown[MAJOR_ID as usize] = MAJOR;
-        crate::run(&mut b, &mut a0, &mut a1, &secret, |g, out| {
+        crate::run(&mut b, &mut a0, &mut a1, |g, out| {
             g.pieces[MAJOR_ID as usize].known = true;
             g.resolve_pass(MAJOR_ID, false, 1_005, out)
         })

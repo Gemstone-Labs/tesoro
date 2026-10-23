@@ -370,14 +370,8 @@ impl GameMatch {
                 }
                 self.cancel();
             }
-            [seat0, _] => {
-                let present = if seat0 { 0 } else { 1 };
-                if self.hand_no == 1 {
-                    self.cancel();
-                } else {
-                    self.forfeit(present)?;
-                }
-            }
+            // One Player took part and the other never did: the one who showed up wins a normal Match.
+            [seat0, _] => self.forfeit(if seat0 { 0 } else { 1 })?,
         }
         Ok(())
     }
@@ -832,7 +826,7 @@ mod tests {
     }
 
     #[test]
-    fn no_show_at_the_start_cancels_the_match() {
+    fn the_player_who_showed_up_at_the_start_wins_and_nobody_showing_is_a_no_show() {
         let board = [0u8; 5];
         let holes = [[0u8; 2]; 2];
         // A Player never contributes entropy to hand one.
@@ -842,9 +836,13 @@ mod tests {
             .is_err());
         m.timeout(waiting([true, false]), &board, &holes, m.deadline + 1)
             .unwrap();
-        assert_eq!(m.status, STATUS_CANCELLED);
-        assert_eq!(m.winner, NO_WINNER);
+        assert_eq!(m.status, STATUS_OVER);
+        assert_eq!(m.winner, 0, "the Player who contributed wins");
         assert!(!m.no_show);
+        let mut m = table(SPEED_STANDARD);
+        m.timeout(waiting([false, true]), &board, &holes, m.deadline + 1)
+            .unwrap();
+        assert_eq!((m.status, m.winner), (STATUS_OVER, 1));
 
         // Neither does: both checked in and nobody took part, a no-show.
         let mut m = table(SPEED_STANDARD);

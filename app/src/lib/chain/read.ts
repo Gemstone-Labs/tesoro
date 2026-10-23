@@ -1,14 +1,11 @@
 import { PublicKey, type AccountInfo } from "@solana/web3.js";
 import bs58 from "bs58";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
-import { decodeBattle } from "@/games/vanguard/decode";
-import { VANGUARD_PROGRAM_ID } from "@/games/vanguard/chain";
 import type { MatchPage } from "@/server/history/reads";
 import type { GameId } from "@/lib/mock/types";
-import { getChain, getHoldem, getTradingDuel } from "./client";
+import { getChain } from "./client";
 import { gameOfProgram } from "./games";
 import { matchAddressOf, matchKeyOf, parseMatchKey } from "./match-id";
-import { battleOf, duelOf, holdemTableOf } from "./game-accounts";
 import { burstSession, type BurstSession } from "./burst-read";
 import { canJoinSeat as seatsCanPair } from "./queue";
 import { fetchLeaderboardTerms } from "./leaderboard";
@@ -210,7 +207,14 @@ export function requireGame(game: PublicKey): GameId {
 export const matchKeyOfState = (state: any): string => matchKeyOf({ opener: pk(state.inner.id.opener).toBase58(), n: big(state.inner.id.n) });
 
 /** Anchor's decoded `MatchState` (camelCase) plus the finished game account that names the winner, as a ChainMatch. */
-export function toChainMatch(state: any, me: PublicKey | null, session: BurstSession | null, table: any | null = null): ChainMatch {
+/** The winning side of a Match that ended in a win, from tesoro_core's own record of how it ended (a Game's table is reused and cannot be asked). */
+function winnerOfRun(run: any): "opener" | "joiner" | null {
+  const kind = run?.kind;
+  const won = kind && typeof kind === "object" && "win" in kind ? kind.win?.winner : undefined;
+  return won === 0 ? "opener" : won === 1 ? "joiner" : null;
+}
+
+export function toChainMatch(state: any, me: PublicKey | null, session: BurstSession | null): ChainMatch {
   const m = state.inner;
   const a = pk(m.a.player).toBase58();
   const b = m.b ? pk(m.b.player).toBase58() : null;
@@ -250,7 +254,7 @@ export function toChainMatch(state: any, me: PublicKey | null, session: BurstSes
         ? { seat: backedSeat, player: backedSide.player, funder: backedSide.funder, shareBps: backedSide.shareBps }
         : null,
     fees: { platformBps: m.terms.platformBps, studioBps: m.terms.studioBps, leaderboardBps: leaderboardBpsFor(openedAt) },
-    winner: status === "settled" && table ? (table.winner === 0 ? "opener" : table.winner === 1 ? "joiner" : null) : null,
+    winner: status === "settled" ? winnerOfRun(m.run) : null,
     session,
   };
 }
@@ -269,9 +273,8 @@ export async function fetchMatch(id: string, me: PublicKey | null): Promise<Chai
   const game = gameOf(pk(state.inner.game));
   if (game === null) return null;
   const finished = enumKey(state.inner.stage) === "closed" || enumKey(state.inner.stage) === "settling" || enumKey(state.inner.stage) === "refunding";
-  if (game === "holdem") return toChainMatch(state, me, null, finished ? await holdemTable(address) : null);
-  if (game === "trading-duel") return toChainMatch(state, me, null, finished ? await duelAccount(address) : null);
-  if (game === "vanguard") return toChainMatch(state, me, null, finished ? await battleOnBase(address) : null);
+  // Hold'em, Trading Duel and Vanguard play on reused tables: the winner is in tesoro_core's record, there is no per-Match account to read.
+  if (game !== "block-puzzle") return toChainMatch(state, me, null);
   return toChainMatch(state, me, finished ? await burstSession(address) : null);
 }
 
@@ -331,29 +334,6 @@ export function chainMatchFromPage(p: MatchPage, me: PublicKey | null): ChainMat
   };
 }
 
-/** A finished Vanguard Battle on the base layer (committed back by `close_match`); its `winner` is the winning seat. */
-async function battleOnBase(match: PublicKey): Promise<{ winner: number } | null> {
-  const info = await getChain().base.getAccountInfo(battleOf(match)).catch(() => null);
-  if (!info || !info.owner.equals(VANGUARD_PROGRAM_ID)) return null;
-  try {
-    return decodeBattle(info.data);
-  } catch {
-    return null;
-  }
-}
-
-/** A finished Hold'em table on the base layer (committed back by `close_match`). */
-async function holdemTable(match: PublicKey): Promise<any | null> {
-  const acc = getHoldem().program.account as Record<string, any>;
-  return (await acc.gameMatch.fetchNullable(holdemTableOf(match)).catch(() => null)) ?? null;
-}
-
-/** A finished Trading Duel on the base layer (committed back by `close_match`). */
-async function duelAccount(match: PublicKey): Promise<any | null> {
-  const acc = getTradingDuel().program.account as Record<string, any>;
-  return (await acc.duel.fetchNullable(duelOf(match)).catch(() => null)) ?? null;
-}
-
 /** Fetches and decodes many accounts; one that is missing or fails to decode (a Session from an older program layout) is null, not an error. */
 export async function decodeAll(keys: PublicKey[], decode: (data: Buffer) => any): Promise<any[]> {
   return (await accountInfos(keys)).map((info) => (info ? decodeOr(info.data, decode) : null));
@@ -374,27 +354,6 @@ function decodeOr(data: Buffer, decode: (data: Buffer) => any): any {
   }
 }
 
-/** Sessions and tables of finished Matches, by Match key: they never change again, so each is read once per tab. */
-const finished = new Map<string, any>();
-
-async function gameAccounts(rows: any[], address: (match: PublicKey) => PublicKey, decode: (data: Buffer) => any): Promise<Map<string, any>> {
-  const out = new Map<string, any>();
-  const unread = rows.filter((m) => {
-    const id = matchKeyOfState(m.account);
-    const hit = finished.get(id);
-    if (hit) out.set(id, hit);
-    return !hit;
-  });
-  const read = await decodeAll(unread.map((m) => address(m.publicKey)), decode);
-  unread.forEach((m, i) => {
-    const id = matchKeyOfState(m.account);
-    const stage = enumKey(m.account.inner.stage);
-    out.set(id, read[i]);
-    if (read[i] && stage === "closed") finished.set(id, read[i]);
-  });
-  return out;
-}
-
 /** Every MatchState the program holds, decoded. Closed Matches are gone from here: their record is the history. */
 async function allMatchStates(): Promise<{ publicKey: PublicKey; account: any }[]> {
   return (await getChain().core.account.matchState.all()) as { publicKey: PublicKey; account: any }[];
@@ -413,35 +372,17 @@ export async function fetchAccountMatches(key: PublicKey): Promise<{ played: Cha
   const mine = all.filter((m) => gameOf(pk(m.account.inner.game)) !== null && involves(m.account.inner, key));
   const isGame = (g: GameId) => (m: any) => gameOf(pk(m.account.inner.game)) === g;
   const closed = (m: any) => ["closed", "settling", "refunding"].includes(enumKey(m.account.inner.stage));
-  const holdem = getHoldem().program;
-  const duelProgram = getTradingDuel().program;
-  const [sessions, tables, duels, battles] = await Promise.all([
-    // A finished Block Burst Match shows its scores while its table still holds them; one that is still live has no result yet.
-    (async () => {
-      const finished = mine.filter((m) => isGame("block-puzzle")(m) && closed(m));
-      const sessions = await Promise.all(finished.map((m) => burstSession(matchPda(pk(m.account.inner.id.opener), big(m.account.inner.id.n))).catch(() => null)));
-      return new Map(finished.flatMap((m, i) => (sessions[i] ? [[matchKeyOfState(m.account), sessions[i]] as const] : [])));
-    })(),
-    gameAccounts(
-      mine.filter((m) => isGame("holdem")(m) && closed(m)),
-      holdemTableOf,
-      (data) => holdem.coder.accounts.decode("gameMatch", data),
-    ),
-    gameAccounts(
-      mine.filter((m) => isGame("trading-duel")(m) && closed(m)),
-      duelOf,
-      (data) => duelProgram.coder.accounts.decode("duel", data),
-    ),
-    gameAccounts(
-      mine.filter((m) => isGame("vanguard")(m) && closed(m)),
-      battleOf,
-      (data) => decodeBattle(data),
-    ),
-  ]);
+  // A finished Block Burst Match shows its scores while its table still holds them; one that is still live has no result yet.
+  // The other Games' winners come from tesoro_core's own record.
+  const sessions = await (async () => {
+    const finished = mine.filter((m) => isGame("block-puzzle")(m) && closed(m));
+    const sessions = await Promise.all(finished.map((m) => burstSession(matchPda(pk(m.account.inner.id.opener), big(m.account.inner.id.n))).catch(() => null)));
+    return new Map(finished.flatMap((m, i) => (sessions[i] ? [[matchKeyOfState(m.account), sessions[i]] as const] : [])));
+  })();
   const all_ = mine
     .map((m) => {
       const id = matchKeyOfState(m.account);
-      return toChainMatch(m.account, key, sessions.get(id) ?? null, tables.get(id) ?? duels.get(id) ?? battles.get(id) ?? null);
+      return toChainMatch(m.account, key, sessions.get(id) ?? null);
     })
     .sort((x, y) => y.openedAt - x.openedAt);
   return { played: all_.filter((m) => m.seat !== null), funded: all_.filter((m) => m.seat === null && m.backerSeat !== null) };

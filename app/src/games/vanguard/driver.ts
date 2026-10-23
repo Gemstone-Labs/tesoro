@@ -1,11 +1,7 @@
 import type { PublicKey } from "@solana/web3.js";
 import { claimDue } from "./clock";
 import { STATUS, type Battle } from "./decode";
-import type { VanguardChain } from "./chain";
-import type { PlayerSigner } from "./chain";
-
-/** A Battle may be delegated until its start deadline (whole seconds); after that `finalize` refunds it as a no-show. */
-export const canDelegate = (b: Pick<Battle, "startDeadline">, nowSec: number): boolean => nowSec <= b.startDeadline;
+import type { PlayerSigner, TableRef, VanguardChain } from "./chain";
 
 const ALREADY = /AlreadyContributed/;
 
@@ -17,17 +13,18 @@ const ALREADY = /AlreadyContributed/;
 export async function contributeBundled(
   vg: Pick<VanguardChain, "contributeEntropy">,
   player: PlayerSigner,
-  match: PublicKey,
+  ref: TableRef,
+  seat: 0 | 1,
   oracleQueue?: PublicKey,
 ): Promise<void> {
   try {
-    await vg.contributeEntropy(player, match, true, oracleQueue);
+    await vg.contributeEntropy(player, ref, seat, true, oracleQueue);
     return;
   } catch (e) {
     if (ALREADY.test(String(e))) return;
   }
   try {
-    await vg.contributeEntropy(player, match, false, oracleQueue);
+    await vg.contributeEntropy(player, ref, seat, false, oracleQueue);
   } catch (e) {
     if (!ALREADY.test(String(e))) throw e;
   }

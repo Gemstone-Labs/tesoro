@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { Keypair } from "@solana/web3.js";
-import { CAPTURE_GIVE_UP_SECS, _resetCaptured, burstEndState, duelEndState, holdemEndState, resetMayProceed } from "./end-state.ts";
+import { CAPTURE_GIVE_UP_SECS, _resetCaptured, burstEndState, duelEndState, holdemEndState, resetMayProceed, vanguardEndState } from "./end-state.ts";
 
 const match = Keypair.generate().publicKey;
 
@@ -37,8 +37,18 @@ describe("end state per game", () => {
     assert.equal(burstEndState({ ...burst, startSlot: 0 }), null);
     assert.equal((burstEndState({ ...burst, logs: [] }) as any).log, null);
   });
+  it("Vanguard keeps the public end board and the end mask, and nothing for a Match that was never dealt", () => {
+    const battle: any = { usSeat: 1, winner: 0, reason: 0, moves: 12, turnNo: 20, sq: [5, 255], shown: [3, 12], endMask: (1n << 40n) | 8n, depotClaimed: [0, 1], players: [match, match] };
+    const s: any = vanguardEndState(battle);
+    assert.deepEqual([s.game, s.usSeat, s.winner, s.moves], ["vanguard", 1, 0, 12]);
+    assert.deepEqual([s.sq, s.shown, s.endMask], [[5, 255], [3, 12], ((1n << 40n) | 8n).toString()]);
+    assert.equal(vanguardEndState({ ...battle, usSeat: 255 }), null);
+    // no seat account field can be in it: the capture takes the Battle alone
+    assert.equal(JSON.stringify(s).includes("ranks"), false);
+  });
   it("is JSON, with no bigint or bytes left", () => {
-    for (const s of [duelEndState(duel), holdemEndState(holdem), burstEndState(burst)]) JSON.stringify(s);
+    const vg: any = { usSeat: 0, winner: 1, reason: 2, moves: 1, turnNo: 2, sq: [1], shown: [2], endMask: 3n, depotClaimed: [0, 0], players: [match, match] };
+    for (const s of [duelEndState(duel), holdemEndState(holdem), burstEndState(burst), vanguardEndState(vg)]) JSON.stringify(s);
   });
 });
 
@@ -87,7 +97,7 @@ describe("capture before reset", () => {
 });
 
 describe("every table upkeep captures before it resets", () => {
-  for (const file of ["tables.ts", "holdem.ts", "burst.ts"]) {
+  for (const file of ["tables.ts", "holdem.ts", "burst.ts", "vanguard.ts"]) {
     it(`${file}: the capture gate comes before the reset call`, async () => {
       const { readFileSync } = await import("node:fs");
       const src = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");

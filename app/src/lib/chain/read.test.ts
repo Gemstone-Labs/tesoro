@@ -124,3 +124,17 @@ describe("a closed Match from the history", () => {
     expect(chainMatchFromPage({ ...page, game: "chess" }, null)).toBeNull();
   });
 });
+
+describe("who won, from tesoro_core's own record", () => {
+  it("reads the winning side of a Closed win; a draw, a refund or a missing side names nobody", async () => {
+    const a = key();
+    const b = key();
+    const sides = { a: { player: a, funder: a }, b: { player: b, funder: b } };
+    const run = (kind: object) => ({ kind, receipt: { id: { opener: arr(a), n: new BN(5) }, kind, at: new BN(1) }, fees: [0, 0, 0].map((n) => new BN(n)), phases: Array.from({ length: 4 }, () => ({ cuts: {} })), nPhases: 0, phaseI: 0, lineI: 0, cutLeft: [[0, 0, 0], [0, 0, 0]].map((r) => r.map((n) => new BN(n))), playerLeft: new BN(0), chunks: 0, steps: 0 });
+    const read = async (kind: object) => toChainMatch(await state({ ...sides, stage: { closed: {} }, run: run(kind) }), a, null);
+    expect((await read({ win: { winner: 0 } })).winner).toBe("opener");
+    expect((await read({ win: { winner: 1 } })).winner).toBe("joiner");
+    expect((await read({ draw: {} })).winner).toBeNull();
+    expect((await read({ noShow: {} })).winner).toBeNull();
+  });
+});

@@ -29,9 +29,9 @@ use ephemeral_rollups_sdk::{
     cpi::DelegateConfig,
 };
 use table_kit::{
-    close_private_seat, match_state_gone, move_lamports, open_private_seat, read_table, receipt_at,
-    sponsor_commit, KitError, SeatAccounts, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0,
-    OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
+    absence_outcome, close_private_seat, match_state_gone, move_lamports, open_private_seat,
+    read_table, receipt_at, sponsor_commit, KitError, SeatAccounts, OUTCOME_DRAW, OUTCOME_NO_SHOW,
+    OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -698,15 +698,21 @@ pub mod trading_duel {
     }
 
     /// Rollup, permissionless. A table whose Players did not both check in before the start
-    /// deadline records a refund, so the Match can be settled from the ring like any other.
+    /// deadline ends the Match so it can be settled from the ring like any other: the Player who
+    /// checked in wins, and if neither did it is a no-show (`table_kit::absence_outcome`).
     pub fn expire_start(ctx: Context<TableOnly>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
         require!(table.phase == PHASE_WAITING, DuelError::WrongPhase);
         require!(now > table.start_deadline, DuelError::NotTimedOut);
+        let outcome = absence_outcome(table.checked_in).ok_or(DuelError::WrongPhase)?;
         let (slot, key, epoch) = (table.slot, table.tesoro_match, table.epoch);
-        kit(table.ring.record(slot, &key, epoch, OUTCOME_DRAW, now))?;
-        table.winner = DRAW;
+        kit(table.ring.record(slot, &key, epoch, outcome, now))?;
+        table.winner = match outcome {
+            OUTCOME_WIN0 => 0,
+            OUTCOME_WIN1 => 1,
+            _ => DRAW,
+        };
         table.phase = PHASE_OVER;
         table.over_at = now;
         table.dirty = true;

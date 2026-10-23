@@ -130,11 +130,11 @@ export default function Terms() {
 
       <Section id="matches" title="Matches, entries and fees">
         <p>
-          A Match is a head-to-head contest of skill between two Players with equal Gema entries, settled once. The winner takes the Pot minus fees. A draw, an
-          abandoned Match or a no-show refunds both entries. Some Games, such as Hold&apos;em, include chance within a hand. You can lose everything you enter.
+          A Match is a head-to-head contest of skill between two Players with equal Gema entries, settled once. The winner takes the Pot minus fees. A draw or an
+          abandoned Match refunds both entries. A Player who is paired and does not show up loses the Match. Some Games, such as Hold&apos;em, include chance within a hand. You can lose everything you enter.
         </p>
         <ul>
-          <li>Fees on every Pot are fixed when the Match opens: a Platform Fee of 2%, a Studio Fee of 3% (set by the Game&apos;s Studio, never more than 10% of the Pot) and a Leaderboard Fee of 1%. A draw or refund pays none, except that a no-show (both Players checked in, neither acted) costs each side the Platform Fee.</li>
+          <li>Fees on every Pot are fixed when the Match opens: a Platform Fee of 2%, a Studio Fee of 3% (set by the Game&apos;s Studio, never more than 10% of the Pot) and a Leaderboard Fee of 1%. A draw or refund pays none, except that a no-show (neither Player showed up, or both checked in and neither acted) costs each side the Platform Fee.</li>
           <li>
             <b>7-day limit.</b> No Match can start settling more than 7 days after it opened, in any Game. After that, or if the Game&apos;s program was upgraded to different code after the Match opened,
             the Match can only be refunded, and anyone can run the refund. Big Pots are settled or refunded in steps that anyone can continue.

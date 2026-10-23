@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { getVanguard } from "@/lib/chain/client";
 import type { ChainMatch } from "@/lib/chain/read";
-import { STATUS, type Battle } from "./decode";
+import { useEndState } from "@/lib/end-state";
+import { STATUS, battleFromEndState, type Battle } from "./decode";
 import { VanguardBoard } from "./VanguardBoard";
 import { readPublicBattle, publicConnection, spectatorPieces } from "./spectate";
 import { depotsFor, piecesLeft } from "./view";
@@ -19,7 +20,11 @@ const POLL_MS = 2500;
 export function VanguardSpectate({ m }: { m: ChainMatch }) {
   const [battle, setBattle] = useState<Battle | null>(null);
   const [hidden, setHidden] = useState(false);
+  /** A finished Match's table read is over (found the board or not): the screen never waits on it forever. */
+  const [chainDone, setChainDone] = useState(false);
   const finished = m.status === "settled" || m.status === "refunded";
+  // The table's committed Battle holds the board only until the next Match on that table commits; then the history has it.
+  const end = useEndState(m.address.toBase58(), finished && chainDone && !battle, "vanguard");
 
   useEffect(() => {
     let live = true;
@@ -27,12 +32,23 @@ export function VanguardSpectate({ m }: { m: ChainMatch }) {
     const conn = publicConnection();
     const read = async () => {
       try {
-        const b = finished ? await getVanguard().readBattleOnBase(m.address) : await readPublicBattle(conn, m.address);
+        const vg = getVanguard();
+        const a = await vg.readAssignment(m.address);
+        let b: Battle | null = null;
+        if (a) {
+          b = finished ? await vg.readBattleOnBase(a) : await readPublicBattle(conn, a, m.address);
+          // A finished Match whose table ran another Match since has no board on base any more.
+          if (b && !b.tesoroMatch.equals(m.address)) b = null;
+        }
         if (!live) return;
         setBattle(b);
         setHidden(!b);
+        setChainDone(true);
       } catch {
-        if (live) setHidden(true);
+        if (live) {
+          setHidden(true);
+          setChainDone(true);
+        }
       }
       if (live && !finished) timer = setTimeout(read, POLL_MS);
     };
@@ -44,7 +60,13 @@ export function VanguardSpectate({ m }: { m: ChainMatch }) {
   }, [m.id, m.address, m.status, finished]);
 
   if (m.status === "open") return null;
-  return <VanguardSpectateView battle={battle} hidden={hidden} />;
+  // A finished Match whose table moved on: the board kept in the history, or a line saying it is gone. Never an endless loader.
+  if (finished && !battle && chainDone) {
+    if (end.status === "found" && end.state.game === "vanguard") return <VanguardSpectateView battle={battleFromEndState(end.state, m.address)} />;
+    if (end.status === "none") return <p className="mr-copy">The board of this Match is no longer available. The result above is final.</p>;
+    return <p className="mr-copy">Loading the board…</p>;
+  }
+  return <VanguardSpectateView battle={battle} hidden={hidden && !finished} />;
 }
 
 /** The read-only board for a public Battle (or the reason there is none). */

@@ -1745,7 +1745,8 @@
       "name": "expire_start",
       "docs": [
         "Rollup, permissionless. A table whose Players did not both check in before the start",
-        "deadline records a refund, so the Match can be settled from the ring like any other."
+        "deadline ends the Match so it can be settled from the ring like any other: the Player who",
+        "checked in wins, and if neither did it is a no-show (`table_kit::absence_outcome`)."
       ],
       "discriminator": [
         99,

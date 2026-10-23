@@ -46,7 +46,7 @@ export type HoldemStep = {
  *  - No Assignment: the table scheduler binds the Match to an Idle table (`assign`), while it is young enough to start.
  *  - Base's committed table can settle it: `finalize`, whatever else is going on.
  *  - Idle at the Match's epoch: `begin_match`. Waiting: `seat_players` once, then both Players check in (their clients); past the
- *    start deadline with one missing: `expire_start`, which writes a refund into the ring.
+ *    start deadline with one missing: `expire_start`, which ends it in the ring (the Player who checked in wins; nobody did: a no-show).
  *  - Live, at the shuffle: when the oracle's answer is in, `deal` after a short grace; past the hand's clock, `claim_timeout`.
  *    Live, in a hand: past the turn clock, `claim_timeout` (checks or folds the idle Player, forfeits after three misses).
  *  - Over and not committed: `commit_table` (the table is `dirty` until then, so this runs once per result).

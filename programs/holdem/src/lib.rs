@@ -44,9 +44,9 @@ use ephemeral_rollups_sdk::{
     },
 };
 use table_kit::{
-    close_private_seat, create_hidden_seat, match_state_gone, move_lamports, read_table,
-    receipt_at, sponsor_commit, swap_seat_members, KitError, SeatAccounts, OUTCOME_DRAW,
-    OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
+    absence_outcome, close_private_seat, create_hidden_seat, match_state_gone, move_lamports,
+    read_table, receipt_at, sponsor_commit, swap_seat_members, KitError, SeatAccounts,
+    OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -740,13 +740,28 @@ pub mod holdem {
     }
 
     /// Rollup, permissionless. A table whose Players did not both check in before the start
-    /// deadline records a refund, so the Match can be settled from the ring like any other.
+    /// deadline ends the Match so it can be settled from the ring like any other: the Player who
+    /// checked in wins, and if neither did it is a no-show (`table_kit::absence_outcome`).
     pub fn expire_start(ctx: Context<TableOnly>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
         require!(table.phase == TABLE_WAITING, HoldemError::WrongPhase);
         require!(now > table.start_deadline, HoldemError::NotTimedOut);
-        table.game.status = STATUS_CANCELLED;
+        match absence_outcome(table.checked_in) {
+            Some(OUTCOME_WIN0) => {
+                table.game.status = STATUS_OVER;
+                table.game.winner = 0;
+            }
+            Some(OUTCOME_WIN1) => {
+                table.game.status = STATUS_OVER;
+                table.game.winner = 1;
+            }
+            _ => {
+                table.game.status = STATUS_CANCELLED;
+                table.game.no_show = true;
+            }
+        }
+        table.game.phase = PHASE_NONE;
         conclude(table, now)
     }
 
