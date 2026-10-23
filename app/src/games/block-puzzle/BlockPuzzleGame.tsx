@@ -249,7 +249,8 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
         setRemaining(0);
         finish("time");
       } else {
-        setRemaining(left);
+        // Keep expiry on the real clock; only redraw the displayed whole second.
+        setRemaining(Math.ceil(left / 1000) * 1000);
       }
     }, 100);
     return () => clearInterval(t);
@@ -536,7 +537,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       <section className="bpx-mid" aria-label="Board">
         <h1 className="sr-only">Block Burst</h1>
       <div className="bp-stage">
-        <div className="bp-board-space" ref={spaceRef}>
+        <div className={`bp-board-space${timeLow && phase === "play" ? " low" : ""}`} ref={spaceRef}>
           {board}
           <div className="bp-clear-grid" aria-hidden="true">
             {ghosts.filter((g) => !((st.occ >> BigInt(g.i)) & 1n)).map((g) => (

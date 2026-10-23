@@ -87,6 +87,11 @@ try {
     await page.addStyleTag({ content: 'nextjs-portal { display:none !important; }' });
     // Test time advances explicitly so a busy host cannot exhaust the actual 90s game mid-replay.
     await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 5000);
+    // Exercise clear effects together with the final-seconds warning, not only at the start.
+    if (process.env.LATE === '1') {
+      await page.clock.fastForward(76000);
+      await page.locator('.bp-board.low').waitFor();
+    }
     const cdp = await context.newCDPSession(page);
     const touch = async (type, p) => {
       await cdp.send('Input.dispatchTouchEvent', { type, touchPoints: p ? [p] : [] });
@@ -169,6 +174,7 @@ try {
       }
     }
     await page.clock.runFor(160);
+    if (process.env.LATE === '1') await page.locator('.bp-board.live.low').waitFor();
     await page.waitForFunction((score)=>Number(document.querySelector('.bp-score-n').textContent)===score,sequence[count-1].state.score);
     const feedback = await page.evaluate(()=>({haptics:window.__haptics,tones:window.__tones}));
     if (mode==='unsupported') assert.equal(feedback.haptics.length,0);
