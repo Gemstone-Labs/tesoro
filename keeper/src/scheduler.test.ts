@@ -8,15 +8,19 @@ import { PHASE } from "../../app/src/games/trading-duel/chain.ts";
 import { tableStep, type TableFacts } from "./tables.ts";
 import {
   assignmentClosable,
+  dueForRefund,
   gameSettings,
   isAvailable,
   newGameState,
   planAssignments,
   planGrowth,
+  planSkips,
   quiet,
   runGame,
   schedulerSettings,
   stuckReason,
+  TABLE_WAIT_SECS,
+  untabledSince,
   type GameAdapter,
   type GameSettings,
   type SetupStep,
@@ -160,6 +164,7 @@ class Fake {
   fuel: TableRow["base"] = "delegated";
   sponsorBalance: number | null = 50_000_000;
   refillFails = false;
+  refundFails = false;
   operator = Keypair.generate().publicKey;
   maxTables = 8;
   assignments = new Map<string, { generation: number; index: number; epoch: number; startDeadline: number } | null | undefined>();
@@ -207,6 +212,11 @@ class Fake {
         if (me.refillFails) throw new Error("fuel empty");
         return me.log("refill");
       },
+      refundUntabled: async (_c, m) => {
+        if (me.refundFails) throw new Error("refused");
+        return me.log(`refund_untabled ${m.toBase58().slice(0, 4)}`);
+      },
+      skip: async (_c, m) => me.log(`skip ${m.toBase58().slice(0, 4)}`),
       assignmentMatches: async () => me.assignmentAccounts,
       closeAssignment: async (_c, m) => me.log(`close_assignment ${m.toBase58().slice(0, 4)}`),
     };
@@ -403,6 +413,7 @@ describe("assignment", () => {
   it("raises an alert for a Match that has waited for a table longer than TABLE_WAIT, and clears it when placed", async () => {
     const f = new Fake();
     f.maxTables = 0;
+    f.refundFails = true;
     const st = newGameState();
     await go(f, [matchOf(12)], st, NOW);
     assert.ok(!keys().includes("tables:fake:wait"));
@@ -412,6 +423,94 @@ describe("assignment", () => {
     withTable(f, 0, {});
     await go(f, [matchOf(12)], st, NOW + 302);
     assert.ok(!keys().includes("tables:fake:wait"));
+  });
+});
+
+describe("fast refunds (ticket 35)", () => {
+  beforeEach(() => raisedConditions().forEach((c) => clearRaised(c.key)));
+  const go = (f: Fake, matches: ReturnType<typeof matchOf>[], now = NOW, set = STILL) => runGame(ctxOf(f, { now }), f.adapter(), set, matches as never, newGameState(), { gate: gateOk, settings: SCHED });
+  const refunds = (f: Fake) => f.calls.filter((c) => c.startsWith("refund_untabled"));
+  const label = (n: number) => key(n).toBase58().slice(0, 4);
+
+  it("refunds a joined Match no table took once the wait is over, and not a second sooner", async () => {
+    const f = new Fake();
+    f.maxTables = 0;
+    await go(f, [matchOf(12)], NOW + 299);
+    assert.deepEqual(refunds(f), []);
+    await go(f, [matchOf(12)], NOW + 300);
+    assert.deepEqual(refunds(f), [`refund_untabled ${label(12)}`]);
+  });
+
+  it("tries a free table first: a Match that can be placed at the wait's end is assigned, not refunded", async () => {
+    const f = new Fake();
+    withTable(f, 0, {});
+    await go(f, [matchOf(12)], NOW + 400);
+    assert.deepEqual(refunds(f), []);
+    assert.deepEqual(f.calls.filter((c) => c.startsWith("assign")), [`assign ${label(12)}->0@3`]);
+  });
+
+  it("never refunds a Match that has an Assignment, one still Open, or one whose deadline was clamped", async () => {
+    const f = new Fake();
+    f.maxTables = 0;
+    f.assignments.set(key(12).toBase58(), { generation: 1, index: 5, epoch: 1, startDeadline: NOW + 1000 });
+    const clamped = matchOf(14, { deadlineAbs: { toString: () => String(NOW + 3600) } });
+    await go(f, [matchOf(12), { ...matchOf(13), stage: "open" }, clamped], NOW + 1000);
+    assert.deepEqual(refunds(f), []);
+  });
+
+  it("raises no alarm for a Match it refunded, and still does for one it could not", async () => {
+    const f = new Fake();
+    f.maxTables = 0;
+    const st = newGameState();
+    const again = (now: number) => runGame(ctxOf(f, { now }), f.adapter(), STILL, [matchOf(12)] as never, st, { gate: gateOk, settings: SCHED });
+    await again(NOW);
+    await again(NOW + 301);
+    assert.ok(!keys().includes("tables:fake:wait"));
+    f.refundFails = true;
+    st.firstSeen.set(key(12).toBase58(), NOW);
+    await again(NOW + 302);
+    assert.ok(keys().includes("tables:fake:wait"));
+  });
+
+  it("gives up an Assignment whose window closed with its table Idle at its epoch", async () => {
+    const f = new Fake();
+    withTable(f, 0, {}, undefined);
+    f.assignments.set(key(12).toBase58(), { generation: 1, index: 0, epoch: 3, startDeadline: NOW - 10 });
+    await go(f, [matchOf(12)]);
+    assert.deepEqual(f.calls.filter((c) => c.startsWith("skip")), [`skip ${label(12)}`]);
+  });
+
+  it("does not skip while the window is open, after the table moved on, or with a slot already written", async () => {
+    const f = new Fake();
+    withTable(f, 0, {});
+    f.assignments.set(key(12).toBase58(), { generation: 1, index: 0, epoch: 3, startDeadline: NOW + 100 });
+    await go(f, [matchOf(12)]);
+    withTable(f, 1, { epoch: 4 });
+    f.assignments.set(key(13).toBase58(), { generation: 1, index: 1, epoch: 3, startDeadline: NOW - 100 });
+    withTable(f, 2, { ring: [{ state: 2, tesoroMatch: key(14), epoch: 3, at: NOW - 50 }, free] });
+    f.assignments.set(key(14).toBase58(), { generation: 1, index: 2, epoch: 3, startDeadline: NOW - 100 });
+    await go(f, [matchOf(13), matchOf(14)]);
+    assert.deepEqual(f.calls.filter((c) => c.startsWith("skip")), []);
+  });
+
+  it("does not skip a table that is on a Match or has no free ring slot", () => {
+    const a = { match: key(12), index: 0, epoch: 3, startDeadline: NOW - 100 };
+    assert.equal(planSkips([row(0, "delegated", { coarse: "match" })], [a], NOW).length, 0);
+    assert.equal(planSkips([row(0, "delegated", { ring: fullRing() })], [a], NOW).length, 0);
+    assert.equal(planSkips([row(0, "program", {})], [a], NOW).length, 0);
+    assert.equal(planSkips([row(0)], [a], NOW).length, 1);
+  });
+
+  it("writes one slot per free ring slot when several Assignments expired on one table", () => {
+    const mk = (n: number) => ({ match: key(n), index: 0, epoch: 3, startDeadline: NOW - 100 });
+    assert.equal(planSkips([row(0)], [mk(12), mk(13), mk(14)], NOW).length, 2, "the view has two free slots");
+  });
+
+  it("derives a join time from the deadline like table_kit does", () => {
+    assert.equal(untabledSince(NOW + 3600, NOW + 99999), NOW);
+    assert.equal(untabledSince(NOW + 3600, NOW + 3600), null);
+    assert.equal(dueForRefund([{ address: key(1), deadline: NOW + 3600, deadlineAbs: NOW + 9999 }], NOW + TABLE_WAIT_SECS).length, 1);
+    assert.equal(dueForRefund([{ address: key(1), deadline: NOW + 3600, deadlineAbs: NOW + 9999 }], NOW + TABLE_WAIT_SECS - 1).length, 0);
   });
 });
 

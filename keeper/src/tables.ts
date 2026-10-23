@@ -36,6 +36,7 @@ export function tableStep(f: TableFacts): TableStep {
   if (free) return { do: "release_slot", why: `tesoro_core froze ${shortKey(new PublicKey(free.match))}`, slot: { index: free.index, match: free.match } };
   if ((f.phase === PHASE.waiting || f.phase === PHASE.live) && f.matchFrozen) return { do: "void_table", why: "tesoro_core already refunded the Match the table is on" };
   if (f.recommit) return { do: "commit_table", why: "a result is in the ring but not on base: its commit was probably lost, repeating it" };
+  if (f.phase === PHASE.idle && f.dirty) return { do: "commit_table", why: "a Match that never began was given up (skip_epoch): its refund result is not committed yet" };
   if (f.phase !== PHASE.over) return { do: "wait", why: `table phase ${f.phase}` };
   if (f.dirty) return { do: "commit_table", why: "the result is not committed yet" };
   if (f.seatsOpen) return { do: "close_seats", why: "Match over, Books still open" };

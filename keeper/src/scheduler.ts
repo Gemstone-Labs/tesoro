@@ -123,6 +123,10 @@ export interface GameAdapter {
   /** The Assignment of a Match, or null. */
   assignmentOf(ctx: Ctx, match: PublicKey): Promise<{ generation: number; index: number; epoch: number; startDeadline: number } | null>;
   assign(ctx: Ctx, match: PublicKey, inner: any, pick: AssignPick): Promise<string>;
+  /** Base: refunds a joined Match no table was assigned to (the Game's `refund_untabled`). */
+  refundUntabled(ctx: Ctx, match: PublicKey): Promise<string>;
+  /** Rollup: gives up the Assignment of a Match that never began (the Game's `skip_epoch`). */
+  skip(ctx: Ctx, match: PublicKey): Promise<string>;
   /** Setup transactions (base for create and delegate, rollup for init_seats). */
   setup(ctx: Ctx, step: SetupStep, ref: Ref, init: Init): Promise<string>;
   sponsorBalance(ctx: Ctx): Promise<number | null>;
@@ -223,6 +227,64 @@ export function planAssignments(rows: TableRow[], waiting: Waiting[], promised: 
   const free = rows.filter((r) => isAvailable(r, promised, now)).sort((a, b) => a.index - b.index);
   const queue = [...waiting].sort((a, b) => a.openedAt - b.openedAt || a.address.toBase58().localeCompare(b.address.toBase58()));
   return free.slice(0, queue.length).map((row, i) => ({ match: queue[i], row }));
+}
+
+/** How long a joined Match waits for a table before the Game refunds it: `table_kit::TABLE_WAIT_SECS`. */
+export const TABLE_WAIT_SECS = 300;
+/** tesoro_core's `MATCH_TIMEOUT_SECS`: a Match's deadline is this far past the moment it was joined. */
+export const MATCH_TIMEOUT_SECS = 3600;
+/** Rollup and keeper clocks may differ by a few seconds; a window is skipped only this long after it closed. */
+export const SKIP_MARGIN_SECS = 5;
+
+/**
+ * When a joined Match no Assignment names was joined, mirroring `table_kit::untabled_since`: its deadline less core's timeout, or
+ * null once the deadline was clamped to the absolute deadline (then core's own deadline is near).
+ */
+export function untabledSince(deadline: number, deadlineAbs: number): number | null {
+  return deadline >= deadlineAbs ? null : deadline - MATCH_TIMEOUT_SECS;
+}
+
+export interface Unassigned {
+  address: PublicKey;
+  deadline: number;
+  deadlineAbs: number;
+}
+
+/** The joined Matches without an Assignment that have waited for a table long enough to be refunded. */
+export function dueForRefund<T extends Unassigned>(unplaced: T[], now: number): T[] {
+  return unplaced.filter((m) => {
+    const since = untabledSince(m.deadline, m.deadlineAbs);
+    return since !== null && now >= since + TABLE_WAIT_SECS;
+  });
+}
+
+export interface ExpiredAssignment {
+  match: PublicKey;
+  index: number;
+  epoch: number;
+  startDeadline: number;
+}
+
+/**
+ * Assignments to give up with `skip_epoch`: the table is delegated, Idle at the Assignment's epoch, the start window closed, and the
+ * ring has a free slot and none for that Match yet. Never an Assignment whose table is on a Match (that one is not Idle) or has
+ * moved on (its Match refunds through `finalize` already).
+ */
+export function planSkips(rows: TableRow[], assignments: ExpiredAssignment[], now: number): ExpiredAssignment[] {
+  const free = new Map<number, number>();
+  const out: ExpiredAssignment[] = [];
+  for (const a of assignments) {
+    const row = rows.find((r) => r.index === a.index);
+    const v = row?.view;
+    if (!row || row.base !== "delegated" || !v || v.coarse !== "idle" || v.epoch !== a.epoch) continue;
+    if (now <= a.startDeadline + SKIP_MARGIN_SECS) continue;
+    if (v.ring.some((s) => s.state !== SLOT_FREE && s.tesoroMatch.equals(a.match))) continue;
+    const left = free.get(a.index) ?? v.ring.filter((s) => s.state === SLOT_FREE).length;
+    if (left <= 0) continue;
+    free.set(a.index, left - 1);
+    out.push(a);
+  }
+  return out;
 }
 
 export interface GrowthInput {
@@ -431,18 +493,22 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
   const mine = matches.filter((m) => m.stage === "active" && m.inner.b && pk(m.inner.game).equals(a.programId));
   const promised: Promised[] = [];
   const waiting: (Waiting & { inner: any })[] = [];
+  const expired: ExpiredAssignment[] = [];
   const assignments = await pool(mine, 8, (m) => a.assignmentOf(ctx, m.address).catch(() => undefined));
   mine.forEach((m, i) => {
     const as = assignments[i];
     if (as === undefined) return; // unreadable this pass: leave it alone
-    if (as) promised.push({ index: as.index, epoch: as.epoch, startDeadline: as.startDeadline });
-    else if (Number(m.inner.deadline.toString()) - ctx.now > 60) waiting.push({ address: m.address, openedAt: Number(m.inner.openedAt.toString()), inner: m.inner });
+    if (as) {
+      promised.push({ index: as.index, epoch: as.epoch, startDeadline: as.startDeadline });
+      expired.push({ match: m.address, index: as.index, epoch: as.epoch, startDeadline: as.startDeadline });
+    } else if (Number(m.inner.deadline.toString()) - ctx.now > 60) waiting.push({ address: m.address, openedAt: Number(m.inner.openedAt.toString()), inner: m.inner });
   });
   const seen = new Set(waiting.map((w) => w.address.toBase58()));
   for (const k of [...st.firstSeen.keys()]) if (!seen.has(k)) st.firstSeen.delete(k);
   for (const k of seen) if (!st.firstSeen.has(k)) st.firstSeen.set(k, ctx.now);
 
   let assigned = 0;
+  const assignedNow = new Set<string>();
   if (operatorOk && sponsorReady) {
     for (const { match, row } of planAssignments(rows, waiting, promised, ctx.now)) {
       const w = waiting.find((x) => x.address.equals(match.address))!;
@@ -450,14 +516,36 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
       const ok = await run(`match=${matchLabel(matchRefOf(w.inner.id))}`, `assign_match to table ${pick.generation}/${pick.index} epoch ${pick.epoch}`, () => a.assign(ctx, match.address, w.inner, pick));
       if (ok) {
         assigned++;
+        assignedNow.add(match.address.toBase58());
         promised.push({ index: pick.index, epoch: pick.epoch, startDeadline: Number.MAX_SAFE_INTEGER });
         st.firstSeen.delete(match.address.toBase58());
       }
     }
   }
 
+  // 3b. fast refunds (ticket 35) -----------------------------------------------------------------------------
+  // An Assignment whose Match never began is given up so its Match refunds from a committed result; a joined Match that no
+  // table took within TABLE_WAIT_SECS is refunded at once. Both come after assignment: a free table is always tried first.
+  if (operatorOk) {
+    for (const x of planSkips(rows, expired, ctx.now)) {
+      await run(`match=${shortKey(x.match)}`, `skip_epoch (table ${x.index} epoch ${x.epoch}, the Match never began)`, () => a.skip(ctx, x.match));
+    }
+  }
+  const stillWaiting = waiting.filter((w) => !assignedNow.has(w.address.toBase58()));
+  let refundedUntabled = 0;
+  for (const w of dueForRefund(
+    stillWaiting.map((w) => ({ ...w, deadline: Number(w.inner.deadline.toString()), deadlineAbs: Number(w.inner.deadlineAbs?.toString() ?? Number.MAX_SAFE_INTEGER) })),
+    ctx.now,
+  )) {
+    const ok = await run(`match=${matchLabel(matchRefOf(w.inner.id))}`, "refund_untabled (no table within the wait)", () => a.refundUntabled(ctx, w.address));
+    if (ok) {
+      refundedUntabled++;
+      st.firstSeen.delete(w.address.toBase58());
+    }
+  }
+
   // 4. growth ----------------------------------------------------------------------------------------------
-  const unplaced = waiting.length - assigned;
+  const unplaced = waiting.length - assigned - refundedUntabled;
   const growth = planGrowth({ rows, promised, waiting: Math.max(0, unplaced), cap: set.cap, maxTables: cfg.maxTables, spare: set.spare, min: set.min, createPerPass: sched.createPerPass, preSeated: a.preSeated, now: ctx.now });
   if (operatorOk && sponsorBase !== "missing") {
     for (const s of growth.steps) {
@@ -468,7 +556,7 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
   condition(key("cap"), growth.capReached, `${a.label} tables: cap reached`, `${unplaced} ${a.label} Match(es) wait for a table and the Game already has ${growth.existing} of at most ${Math.min(set.cap, cfg.maxTables)} (KEEPER_${a.env}_TABLE_CAP, TableConfig.max_tables). Raise the cap or the Matches will be refunded at their deadline.`);
   const oldest = [...st.firstSeen.values()].reduce((m, t) => Math.min(m, t), Infinity);
   const late = unplaced > 0 && ctx.now - oldest >= sched.tableWaitSecs;
-  condition(key("wait"), late, `${a.label}: a Match is waiting for a table`, `${unplaced} joined ${a.label} Match(es) have had no table for ${Math.round((ctx.now - oldest) / 60)} min (limit ${Math.round(sched.tableWaitSecs / 60)} min). tesoro_core refunds each at its deadline; check the tables and the cap.`);
+  condition(key("wait"), late, `${a.label}: a Match is waiting for a table`, `${unplaced} joined ${a.label} Match(es) have had no table for ${Math.round((ctx.now - oldest) / 60)} min (limit ${Math.round(sched.tableWaitSecs / 60)} min). the keeper refunds each after ${Math.round(TABLE_WAIT_SECS / 60)} min (refund_untabled) and that did not happen; check the tables, the cap and the keeper's payer.`);
 
   // 5. the Sponsor's fuel ------------------------------------------------------------------------------------
   if (sponsorReady) {

@@ -530,6 +530,39 @@ export class VanguardChain {
     return this.sendBase("finalize", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.finalize }), ix], [payer]);
   }
 
+  /**
+   * Base layer, permissionless. Refunds a joined Match that no table was ever assigned to, once it has waited
+   * `TABLE_WAIT_SECS` (5 minutes) for one. Refused while an Assignment exists for the Match.
+   */
+  async refundUntabled(payer: PlayerSigner, tesoroMatch: PublicKey): Promise<string> {
+    const ix = await this.program.methods
+      .refundUntabled()
+      .accountsPartial({
+        caller: payer.publicKey,
+        assignment: assignmentPda(tesoroMatch),
+        tesoroMatch,
+        ...gameAccounts(VANGUARD_PROGRAM_ID),
+        authority: authorityPda(),
+        receipt: settledPda(tesoroMatch),
+        eventAuthority: eventAuthorityPda(),
+        tesoroProgram: TESORO_CORE_PROGRAM_ID,
+      } as any)
+      .instruction();
+    return this.sendBase("refund_untabled", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], [payer]);
+  }
+
+  /**
+   * Rollup, permissionless. Gives up an Assignment whose Match never began (its table is Idle at the Assignment's epoch and the
+   * start window passed): writes a Draw into the ring so `finalize` refunds the Match once the table is committed.
+   */
+  async skipEpoch(caller: PlayerSigner, a: Assignment): Promise<string> {
+    const ix = await this.program.methods
+      .skipEpoch()
+      .accountsPartial({ caller: caller.publicKey, assignment: a.address, table: tablePda(a.generation, a.index) } as any)
+      .instruction();
+    return this.sendTee("skip_epoch", [ix], caller);
+  }
+
   /** Base layer, permissionless. Closes the Assignment once tesoro_core has frozen the Match (needs its settlement receipt); the rent goes back to the operator. */
   async closeAssignment(payer: PlayerSigner, a: Assignment): Promise<string> {
     const ix = await this.program.methods

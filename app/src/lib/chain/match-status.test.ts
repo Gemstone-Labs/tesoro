@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { SETTLE_GRACE_SECS, delayedMatches, matchStanding, settleBy } from "./match-status";
+import { SETTLE_GRACE_SECS, TABLE_WAIT_SECS, delayedMatches, matchStanding, settleBy, tableRefundBy, tableWaitLine } from "./match-status";
 
 const T = 1_000_000;
+const DAY = 24 * 3600;
 const bp = (over = {}) => ({ status: "active" as const, game: "block-puzzle" as const, deadline: T + 3600, ...over });
 const duel = (joinedAt: number) => ({ status: "active" as const, game: "trading-duel" as const, deadline: joinedAt + 3600 });
 const holdem = { status: "active" as const, game: "holdem" as const, deadline: T };
@@ -61,7 +62,6 @@ describe("matchStanding", () => {
 });
 
 describe("Vanguard", () => {
-  const DAY = 24 * 3600;
   /** assign_match pushes the refund deadline to a full day after the Match is assigned a table. */
   const vg = (createdAt: number) => ({ status: "active" as const, game: "vanguard" as const, deadline: createdAt + DAY });
 
@@ -96,5 +96,24 @@ describe("delayedMatches", () => {
     const live = bp({ deadline: T + 9000 });
     expect(delayedMatches([a, live, b], T + 3500)).toEqual([b]);
     expect(delayedMatches([a, live, b], T + 4500)).toEqual([b, a]);
+  });
+});
+
+describe("the wait for a table (ticket 35)", () => {
+  it("counts the refund five minutes after the join, back from the hour deadline", () => {
+    expect(tableRefundBy(T + 3600, T + 20)).toBe(T + TABLE_WAIT_SECS);
+  });
+
+  it("says nothing once an Assignment pushed the deadline a day out", () => {
+    expect(tableRefundBy(T + DAY, T + 20)).toBeNull();
+  });
+
+  it("names the time while the wait runs, then says the entry is on its way back", () => {
+    expect(tableWaitLine(T + 3600, (T + 20) * 1000)).toMatch(/If none opens by .*, your entry comes back\./);
+    expect(tableWaitLine(T + 3600, (T + TABLE_WAIT_SECS + 1) * 1000)).toBe("No table opened in time. Your entry is on its way back.");
+  });
+
+  it("falls back to the refund deadline when the Match already has a table", () => {
+    expect(tableWaitLine(T + DAY, T * 1000)).toMatch(/your entry comes back by /);
   });
 });

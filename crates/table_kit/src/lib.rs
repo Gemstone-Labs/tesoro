@@ -15,6 +15,7 @@ pub mod commit;
 pub mod ring;
 pub mod seat;
 pub mod sponsor;
+pub mod untabled;
 
 use anchor_lang::prelude::*;
 pub use commit::*;
@@ -23,6 +24,7 @@ pub use ring::*;
 pub use seat::*;
 pub use sponsor::*;
 use tesoro_core::state::{SettlementReceipt, RECEIPT_SEED};
+pub use untabled::*;
 
 /// The MagicBlock delegation program: the owner of a delegated account.
 pub const DELEGATION_PROGRAM: Pubkey = ephemeral_rollups_sdk::cpi::DELEGATION_PROGRAM_ID;

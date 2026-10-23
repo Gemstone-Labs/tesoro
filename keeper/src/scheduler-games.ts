@@ -116,6 +116,11 @@ export const duelAdapter: GameAdapter = {
   sponsorBalance: async (ctx) => (await (await ctx.duel.teeConnection(ctx.hsigner)).getBalance(duelChain.sponsorPda()).catch(() => null)),
   refill: (ctx, fuel, amount) => ctx.duel.refillSponsor(ctx.hsigner, fuel, amount),
   assignmentMatches: async (ctx) => ((await (ctx.duel.program.account as any).assignment.all()) as any[]).map((x) => x.account.tesoroMatch as PublicKey),
+  refundUntabled: (ctx, m) => ctx.duel.refundUntabled(ctx.hsigner, m),
+  skip: async (ctx, m) => {
+    const a = await ctx.duel.readAssignment(m);
+    return a ? ctx.duel.skipEpoch(ctx.hsigner, a) : "";
+  },
   closeAssignment: async (ctx, m) => {
     const a = await ctx.duel.readAssignment(m);
     if (!a) return "";
@@ -173,6 +178,11 @@ export const holdemAdapter: GameAdapter = {
   sponsorBalance: async (ctx) => (await (await ctx.holdem.teeConnection(ctx.hsigner)).getBalance(holdemChain.sponsorPda()).catch(() => null)),
   refill: (ctx, fuel, amount) => ctx.holdem.refillSponsor(ctx.hsigner, fuel, amount),
   assignmentMatches: async (ctx) => ((await (ctx.holdem.program.account as any).assignment.all()) as any[]).map((x) => x.account.tesoroMatch as PublicKey),
+  refundUntabled: (ctx, m) => ctx.holdem.refundUntabled(ctx.hsigner, m),
+  skip: async (ctx, m) => {
+    const a = await ctx.holdem.readAssignment(m);
+    return a ? ctx.holdem.skipEpoch(ctx.hsigner, a) : "";
+  },
   closeAssignment: async (ctx, m) => {
     const a = await ctx.holdem.readAssignment(m);
     return a ? ctx.holdem.closeAssignment(ctx.hsigner, a) : "";
@@ -229,6 +239,11 @@ export const burstAdapter: GameAdapter = {
   sponsorBalance: async (ctx) => (await (await ctx.burst.teeConnection(ctx.hsigner)).getBalance(burstChain.sponsorPda()).catch(() => null)),
   refill: (ctx, fuel, amount) => ctx.burst.refillSponsor(ctx.hsigner, fuel, amount),
   assignmentMatches: async (ctx) => ((await (ctx.burst.program.account as any).assignment.all()) as any[]).map((x) => x.account.tesoroMatch as PublicKey),
+  refundUntabled: (ctx, m) => ctx.burst.refundUntabled(ctx.hsigner, m),
+  skip: async (ctx, m) => {
+    const a = await ctx.burst.readAssignment(m);
+    return a ? ctx.burst.skipEpoch(ctx.hsigner, a) : "";
+  },
   closeAssignment: async (ctx, m) => {
     const a = await ctx.burst.readAssignment(m);
     return a ? ctx.burst.closeAssignment(ctx.hsigner, a) : "";
@@ -293,6 +308,11 @@ export const vanguardAdapter: GameAdapter = {
   sponsorBalance: async (ctx) => (await (await ctx.vanguard.teeConnection(ctx.hsigner)).getBalance(vanguardChain.sponsorPda()).catch(() => null)),
   refill: (ctx, fuel, amount) => ctx.vanguard.refillSponsor(ctx.hsigner, fuel, amount),
   assignmentMatches: async (ctx) => ((await (ctx.vanguard.program.account as any).assignment.all()) as any[]).map((x) => x.account.tesoroMatch as PublicKey),
+  refundUntabled: (ctx, m) => ctx.vanguard.refundUntabled(ctx.hsigner, m),
+  skip: async (ctx, m) => {
+    const a = await ctx.vanguard.readAssignment(m);
+    return a ? ctx.vanguard.skipEpoch(ctx.hsigner, a) : "";
+  },
   closeAssignment: async (ctx, m) => {
     const a = await ctx.vanguard.readAssignment(m);
     return a ? ctx.vanguard.closeAssignment(ctx.hsigner, a) : "";

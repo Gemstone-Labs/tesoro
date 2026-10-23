@@ -91,6 +91,11 @@ describe("Hold'em table upkeep", () => {
     assert.equal(holdemTableStep(tfacts()).do, "reset_table");
   });
 
+  it("commits a table whose never-begun Match was given up (Idle and dirty), and leaves a clean Idle table alone", () => {
+    assert.equal(holdemTableStep(tfacts({ tablePhase: TABLE_PHASE.idle, dirty: true })).do, "commit_table");
+    assert.equal(holdemTableStep(tfacts({ tablePhase: TABLE_PHASE.idle })).do, "wait");
+  });
+
   it("does nothing for a table that is playing", () => {
     assert.equal(holdemTableStep(tfacts({ tablePhase: TABLE_PHASE.live })).do, "wait");
   });

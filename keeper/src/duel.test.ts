@@ -81,6 +81,11 @@ describe("Trading Duel table upkeep", () => {
     assert.equal(tableStep(table({ sinceOver: 30 })).do, "reset_table");
   });
 
+  it("commits a table whose never-begun Match was given up (Idle and dirty)", () => {
+    assert.equal(tableStep(table({ phase: PHASE.idle, dirty: true })).do, "commit_table");
+    assert.equal(tableStep(table({ phase: PHASE.live, dirty: true })).do, "wait");
+  });
+
   it("leaves a table that is idle or running alone", () => {
     assert.equal(tableStep(table({ phase: PHASE.idle })).do, "wait");
     assert.equal(tableStep(table({ phase: PHASE.live })).do, "wait");

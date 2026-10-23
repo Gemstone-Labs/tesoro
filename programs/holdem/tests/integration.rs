@@ -3427,3 +3427,186 @@ fn nothing_in_the_program_can_undelegate_a_table_or_a_seat() {
         assert!(!source.contains(needle), "{needle} appears in the program");
     }
 }
+
+// --- Fast refunds (ticket 35) ----------------------------------------------------------------
+
+impl Env {
+    fn refund_untabled_ix(&self, caller: APk) -> Instruction {
+        ix(
+            holdem::ID,
+            holdem::accounts::RefundUntabled {
+                caller,
+                assignment: assign_addr(self.tmatch),
+                tesoro_match: self.tmatch,
+                game_record: game_record_pda(),
+                authority: authority_pda(),
+                game_program: holdem::ID,
+                program_data: program_data_pda(),
+                receipt: tpda(&[b"settled", self.tmatch.as_ref()]),
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
+                tesoro_program: tesoro_core::ID,
+            },
+            holdem::instruction::RefundUntabled {},
+            vec![],
+        )
+    }
+
+    fn refund_untabled(&mut self) -> Result<(), Failed> {
+        let caller = self.oracle.insecure_clone();
+        let ixn = self.refund_untabled_ix(a(caller.pubkey()));
+        self.send(&[ixn], &caller, &[])?;
+        self.run_settlement();
+        Ok(())
+    }
+
+    fn skip_ix(&self) -> Instruction {
+        ix(
+            holdem::ID,
+            holdem::accounts::SkipEpoch {
+                caller: a(self.oracle.pubkey()),
+                assignment: assign_addr(self.tmatch),
+                table: self.table,
+            },
+            holdem::instruction::SkipEpoch {},
+            vec![],
+        )
+    }
+
+    fn skip(&mut self) -> Result<(), Failed> {
+        let ixn = self.skip_ix();
+        self.rollup(ixn)
+    }
+}
+
+#[test]
+fn a_joined_match_with_no_table_refunds_after_the_table_wait_and_not_before() {
+    use holdem::HoldemError::*;
+    let mut env = Env::new();
+    env.open_and_join(1_000);
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.set_time(T0 + table_kit::TABLE_WAIT_SECS - 1);
+    assert_eq!(
+        custom_code(&env.refund_untabled().unwrap_err()),
+        dcode(TableWaitNotOver)
+    );
+    assert_eq!(env.tesoro_status(), Stage::Active);
+    env.set_time(T0 + table_kit::TABLE_WAIT_SECS);
+    env.refund_untabled().expect("refund after the wait");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
+    assert_eq!(
+        (env.gemas(&env.alice), env.gemas(&env.bob)),
+        (before.0 + 1_000, before.1 + 1_000)
+    );
+    // No double refund: the Match is no longer Active.
+    assert_eq!(
+        custom_code(&env.refund_untabled().unwrap_err()),
+        dcode(NotUntabled)
+    );
+}
+
+#[test]
+fn a_match_a_table_took_cannot_use_the_untabled_refund() {
+    use holdem::HoldemError::*;
+    // Assigned, and the wait long past: the Assignment closes the path.
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.set_time(T0 + 10 * table_kit::TABLE_WAIT_SECS);
+    assert_eq!(
+        custom_code(&env.refund_untabled().unwrap_err()),
+        dcode(NotUntabled)
+    );
+    assert_eq!(env.tesoro_status(), Stage::Active);
+    // Started on the table: still refused.
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.begin().expect("begin");
+    env.set_time(T0 + 10 * table_kit::TABLE_WAIT_SECS);
+    assert_eq!(
+        custom_code(&env.refund_untabled().unwrap_err()),
+        dcode(NotUntabled)
+    );
+}
+
+#[test]
+fn a_lamport_sent_to_the_assignment_address_does_not_block_the_untabled_refund() {
+    let mut env = Env::new();
+    env.open_and_join(1_000);
+    env.svm
+        .set_account(
+            s(assign_addr(env.tmatch)),
+            Account {
+                lamports: 1,
+                data: vec![],
+                owner: Pk::default(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("one lamport");
+    env.set_time(T0 + table_kit::TABLE_WAIT_SECS);
+    env.refund_untabled().expect("refund");
+    assert_eq!(env.tesoro_status(), Stage::Closed);
+}
+
+#[test]
+fn a_match_that_never_began_is_refunded_promptly_by_skipping_its_epoch() {
+    use holdem::HoldemError::*;
+    let mut env = Env::new();
+    env.next_match_on(0);
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    // The start window is still open: the Match may yet begin.
+    assert_eq!(custom_code(&env.skip().unwrap_err()), dcode(CannotSkip));
+    env.set_time(T0 + holdem::START_WINDOW_SECS + 1);
+    env.skip().expect("skip");
+    let t = env.table();
+    assert_eq!((t.phase, t.epoch), (holdem::TABLE_IDLE, 0));
+    assert!(t.dirty);
+    let (_, slot) = t.ring.find(&env.tmatch, 0).expect("slot");
+    assert_eq!(
+        (slot.state, slot.outcome),
+        (table_kit::SLOT_DONE, table_kit::OUTCOME_DRAW)
+    );
+    // Nothing is refunded until the commit lands on base.
+    assert_eq!(
+        custom_code(&env.finalize_start().unwrap_err()),
+        dcode(NoResult)
+    );
+    env.commit_standin();
+    env.finalize().expect("refund from the committed Draw");
+    assert_eq!(
+        (env.gemas(&env.alice), env.gemas(&env.bob)),
+        (before.0 + 1_000, before.1 + 1_000)
+    );
+    // Once per Match, and once settled it cannot be refunded again.
+    assert_eq!(custom_code(&env.skip().unwrap_err()), dcode(RingFull));
+    assert!(env.finalize_start().is_err());
+}
+
+#[test]
+fn skip_refuses_a_table_that_began_or_names_another_epoch() {
+    use holdem::HoldemError::*;
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.begin().expect("begin");
+    env.set_time(T0 + holdem::START_WINDOW_SECS + 1);
+    assert_eq!(custom_code(&env.skip().unwrap_err()), dcode(CannotSkip));
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.patch_table(|t| t.epoch = 1);
+    env.set_time(T0 + holdem::START_WINDOW_SECS + 1);
+    assert_eq!(custom_code(&env.skip().unwrap_err()), dcode(CannotSkip));
+}
+
+#[test]
+fn a_skipped_epoch_can_still_start_another_match_assigned_to_it() {
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.set_time(T0 + holdem::START_WINDOW_SECS + 1);
+    env.skip().expect("skip the first");
+    assert_eq!(env.table().epoch, 0, "the epoch is untouched");
+    env.next_match_on(0);
+    env.begin()
+        .expect("a later Assignment still begins on the skipped epoch");
+    assert_ne!(env.table().phase, holdem::TABLE_IDLE);
+}

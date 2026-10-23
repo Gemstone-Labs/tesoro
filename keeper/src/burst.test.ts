@@ -108,6 +108,11 @@ describe("Block Burst table upkeep", () => {
     assert.equal(burstTableStep(tbl({ tablePhase: TABLE_PHASE.closed, sinceOver: RESET_DELAY_SECS })).do, "reset_table");
   });
 
+  it("commits a table whose never-begun Match was given up (Idle and dirty)", () => {
+    assert.equal(burstTableStep(tbl({ tablePhase: TABLE_PHASE.idle, dirty: true })).do, "commit_table");
+    assert.equal(burstTableStep(tbl({ tablePhase: TABLE_PHASE.idle })).do, "wait");
+  });
+
   it("never touches a table in the middle of a Match", () => {
     for (const p of [TABLE_PHASE.assigned, TABLE_PHASE.seeding, TABLE_PHASE.getReady]) assert.equal(burstTableStep(tbl({ tablePhase: p, seatsOpen: true })).do, "wait");
   });

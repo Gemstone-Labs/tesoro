@@ -156,6 +156,7 @@ export function burstTableStep(f: BurstTableFacts): BurstTableStep {
   const onMatch = f.tablePhase >= TABLE_PHASE.assigned && f.tablePhase <= TABLE_PHASE.getReady;
   if (onMatch && f.matchFrozen) return { do: "void_table", why: "tesoro_core already refunded the Match the table is on" };
   if (f.recommit) return { do: "commit_table", why: "a result is in the ring but not on base: its commit was probably lost, repeating it" };
+  if (f.tablePhase === TABLE_PHASE.idle && f.dirty) return { do: "commit_table", why: "a Match that never began was given up (skip_epoch): its refund result is not committed yet" };
   if (f.tablePhase !== TABLE_PHASE.closed) return { do: "wait", why: `table phase ${f.tablePhase}` };
   if (f.dirty) return { do: "commit_table", why: "the result is not committed yet" };
   if (f.seatsOpen) return { do: "wipe_seats", why: "Match over, seats still hold the Players" };

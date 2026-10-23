@@ -122,6 +122,7 @@ export function holdemTableStep(f: HoldemTableFacts): HoldemTableStep {
   if (free) return { do: "release_slot", why: `tesoro_core froze ${shortKey(new PublicKey(free.match))}`, slot: { index: free.index, match: free.match } };
   if ((f.tablePhase === TABLE_PHASE.waiting || f.tablePhase === TABLE_PHASE.live) && f.matchFrozen) return { do: "void_table", why: "tesoro_core already refunded the Match the table is on" };
   if (f.recommit) return { do: "commit_table", why: "a result is in the ring but not on base: its commit was probably lost, repeating it" };
+  if (f.tablePhase === TABLE_PHASE.idle && f.dirty) return { do: "commit_table", why: "a Match that never began was given up (skip_epoch): its refund result is not committed yet" };
   if (f.tablePhase !== TABLE_PHASE.over) return { do: "wait", why: `table phase ${f.tablePhase}` };
   if (f.dirty) return { do: "commit_table", why: "the result is not committed yet" };
   if (f.seatsOpen) return { do: "wipe_seats", why: "Match over, seats still hold the Players" };

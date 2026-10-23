@@ -2606,6 +2606,375 @@
       ]
     },
     {
+      "name": "refund_untabled",
+      "docs": [
+        "Base, permissionless. Refunds a joined Match that no table was ever assigned to, once it has",
+        "waited `TABLE_WAIT_SECS`, by CPI signed by this Game's `authority` PDA. Refused whenever an",
+        "Assignment exists for the Match, so it can never touch a Match a table has claimed."
+      ],
+      "discriminator": [
+        86,
+        179,
+        79,
+        68,
+        70,
+        100,
+        97,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Pays the settlement receipt's rent in tesoro_core."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "assignment",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  115,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tesoro_match"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tesoro_match",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tesoro_match.inner.id.opener",
+                "account": "MatchState"
+              },
+              {
+                "kind": "account",
+                "path": "tesoro_match.inner.id.n",
+                "account": "MatchState"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  174,
+                  96,
+                  200,
+                  103,
+                  127,
+                  104,
+                  62,
+                  170,
+                  232,
+                  90,
+                  29,
+                  158,
+                  38,
+                  83,
+                  120,
+                  138,
+                  228,
+                  74,
+                  166,
+                  86,
+                  92,
+                  73,
+                  111,
+                  43,
+                  52,
+                  38,
+                  103,
+                  98,
+                  92,
+                  102,
+                  245,
+                  169
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program",
+          "address": "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tesoro_match"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "tesoro_program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "release_slot",
       "docs": [
         "Rollup, permissionless. Frees a Done ring slot once tesoro_core has frozen its Match (the",
@@ -3312,6 +3681,85 @@
           "type": "u16"
         }
       ]
+    },
+    {
+      "name": "skip_epoch",
+      "docs": [
+        "Rollup, permissionless. Gives up an Assignment whose Match never began: the table is Idle at",
+        "the Assignment's epoch and the start window has passed, so `begin_match` can never accept it.",
+        "Writes a Draw for it into the ring (the way `expire_start` writes one) and marks the table",
+        "for a commit, so `finalize` refunds the Match from a committed result without waiting for the",
+        "table's next Match. The epoch is untouched, so a later Assignment for it can still begin. At",
+        "most once per Match (the ring refuses a second slot)."
+      ],
+      "discriminator": [
+        188,
+        198,
+        173,
+        71,
+        75,
+        24,
+        224,
+        183
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "assignment",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  115,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "assignment.tesoro_match",
+                "account": "Assignment"
+              }
+            ]
+          }
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table.generation",
+                "account": "Table"
+              },
+              {
+                "kind": "account",
+                "path": "table.index",
+                "account": "Table"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
     },
     {
       "name": "void_table",

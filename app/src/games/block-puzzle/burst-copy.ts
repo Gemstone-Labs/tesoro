@@ -29,8 +29,8 @@ export function resultLine(reason: number | null, outcome: Outcome): string | nu
   }
 }
 
-/** While there is no table yet: where the entry is safe, and until when. */
-export const needTableLine = (refundBy: string) => `We’re finding you a table. If none starts, your entry comes back by ${refundBy}.`;
+/** While there is no table yet: where the entry is safe, and when it comes back if none opens (`tableWaitLine`). */
+export { tableWaitLine as needTableLine } from "@/lib/chain/match-status";
 
 /** A second tab is already playing this Match for you. */
 export const ELSEWHERE_LINE = "This Match is being played in another tab.";
