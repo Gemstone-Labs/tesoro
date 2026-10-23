@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowRight, Clock } from "lucide-react";
 import { GemaMark } from "@/components/ui";
 import { CATALOGUE } from "@/lib/catalogue";
+import { art } from "@/lib/art";
 import { commitPendingKey } from "@/lib/chain/commit-pending";
 import { matchFee } from "@/lib/chain/ledger";
 import { probeRun, type RunStage } from "@/lib/chain/match-flow";
@@ -151,7 +152,7 @@ export function ContinueRail({
           return (
             <Link key={m.id.toString()} href={`/play/match/${m.id.toString()}`} className={`cut cut-card continue-card${s.ready ? " ready" : ""}`}>
               <span className="continue-art" aria-hidden="true">
-                <Image src={tileOf(m.game)} alt="" fill sizes="(min-width: 1024px) 220px, 60vw" />
+                <Image src={art.hero[m.game]} alt="" fill sizes="(max-width: 700px) 100vw, 980px" />
               </span>
               <span className="cut continue-face" aria-hidden="true">
                 {m.opponent ? <PlayerAvatar account={m.opponent} size={64} /> : <Image src={tileOf(m.game)} alt="" fill sizes="64px" />}
@@ -186,7 +187,7 @@ export function ContinueRail({
         {challenges.map((c) => (
           <Link key={c.matchId} href={`/play/challenge/${c.matchId}`} className="cut cut-card continue-card ready">
             <span className="continue-art" aria-hidden="true">
-              <Image src={tileOf(c.game)} alt="" fill sizes="(min-width: 1024px) 220px, 60vw" />
+              <Image src={art.hero[c.game]} alt="" fill sizes="(max-width: 700px) 100vw, 980px" />
             </span>
             <span className="cut continue-face" aria-hidden="true">
               <PlayerAvatar account={c.from} size={64} />

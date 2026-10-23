@@ -2,13 +2,12 @@
    Phones: one wide card at a time, swiped sideways (the next one peeks), dots under it. Wider: a grid. */
 .continue { display: grid; gap: 12px; }
 .continue-row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); }
-.continue-card { position: relative; display: flex; align-items: center; gap: 14px; min-height: 132px; padding: 14px 14px 14px 14px; overflow: hidden; background: var(--surface); }
+.continue-card { position: relative; isolation: isolate; display: flex; align-items: center; gap: 14px; min-height: 132px; padding: 14px 14px 14px 14px; overflow: hidden; background: #0b1013; }
 .continue-card.ready { --edge: rgba(234, 239, 236, 0.5); }
-/* the game's art fills the right of the card and fades into it on the left */
-.continue-art { position: absolute; inset: 0 0 0 38%; }
-.continue-art img { object-fit: cover; object-position: center; }
-.continue-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, var(--surface) 0%, rgba(17, 22, 26, 0.75) 30%, rgba(17, 22, 26, 0.1) 75%); }
-.continue-card:hover .continue-art img { filter: brightness(1.08); }
+/* Match Finished banners: full-width hero art, with a dark scrim keeping every label legible. */
+.continue-art { position: absolute; inset: 0; z-index: -1; }
+.continue-art img { object-fit: cover; object-position: right center; opacity: 0.6; }
+.continue-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, #0b1013 0, rgba(11, 16, 19, 0.96) 32%, rgba(11, 16, 19, 0.7) 58%, rgba(11, 16, 19, 0.38) 100%); }
 .continue-face { --c: 12px; position: relative; z-index: 1; flex: none; display: grid; width: 64px; height: 64px; overflow: hidden; background: var(--surface-2); --edge: var(--edge-2); }
 .continue-face img { object-fit: cover; width: 100%; height: 100%; }
 .continue-body { position: relative; z-index: 1; display: grid; gap: 4px; flex: 1; min-width: 0; justify-items: start; }
@@ -22,6 +21,7 @@
 .continue-cta { margin-top: 4px; gap: 6px; }
 .continue-cta svg { width: 14px; height: 14px; }
 .continue-card.skel .skel-line { height: 1lh; }
+.continue-card.skel { background: var(--surface); }
 .continue-cta-skel { width: 100px; background: var(--raised-2); }
 .continue-cta.ready { background: var(--fg); color: #0b0f12; --edge: transparent; }
 .continue-card:hover .continue-cta.ready { background: #fff; }
@@ -38,18 +38,18 @@
   .continue-card { flex: 0 0 calc(100% - 28px); scroll-snap-align: start; }
   .continue-card:only-child { flex-basis: 100%; }
   .continue-dots { display: flex; }
+  .continue-art::after { background: linear-gradient(90deg, rgba(11, 16, 19, 0.95) 0, rgba(11, 16, 19, 0.84) 55%, rgba(11, 16, 19, 0.64) 100%); }
 }
 @media (min-width: 640px) and (max-width: 1023px) {
   .continue-row { margin-inline: -20px; padding-inline: 20px; scroll-padding-inline: 20px; }
   .continue-card { flex-basis: min(440px, calc(100% - 28px)); }
 }
 
-/* the Matches page: open Matches as a plain list of slim rows, no art behind them */
+/* the Matches page: open Matches as a plain list of slim rows */
 .continue.rows .h-section { font-size: var(--fs-20); }
 .continue-n { color: var(--fg-2); }
 .continue.rows .continue-row { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0; padding: 0; overflow: visible; }
 .continue.rows .continue-card { flex: none; min-height: 0; padding: 8px 10px; gap: 10px; }
-.continue.rows .continue-art { inset: 0 0 0 55%; opacity: 0.5; }
 .continue.rows .continue-face { width: 44px; height: 44px; --c: 9px; }
 .continue.rows .continue-game { font-size: var(--fs-16); }
 .continue.rows .continue-status { font-size: var(--fs-12); }
