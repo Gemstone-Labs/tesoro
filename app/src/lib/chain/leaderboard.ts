@@ -145,7 +145,11 @@ export async function fetchSeasonRecord(conn: Connection, n: number): Promise<Se
   const info = await conn.getAccountInfo(seasonPda(n), "confirmed");
   if (!info) return null;
   const coder = new anchor.BorshAccountsCoder(coreIdl as any);
-  return seasonRecordOf(coder.decode("SeasonState", Buffer.from(info.data)));
+  try {
+    return seasonRecordOf(coder.decode("SeasonState", Buffer.from(info.data)));
+  } catch {
+    return null; // a record written by the pre-economy program has another layout: it was paid by that program
+  }
 }
 
 const winCache = new Map<string, Win[]>();

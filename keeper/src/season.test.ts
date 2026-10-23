@@ -5,7 +5,7 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { Budget, type Ctx } from "./act.ts";
 import { PAYOUT_WINDOW_SECS, SEASON_EPOCH, SEASON_SECS, type Standing } from "../../app/src/lib/chain/season.ts";
 import { accountBytes, chainOf, ixNameOf } from "./fixtures.ts";
-import { basketOf, economyAddress, pda, spillOf } from "./kit.ts";
+import { basketOf, economyAddress, pda, seasonAddress, spillOf } from "./kit.ts";
 import { storeBytes } from "./fixtures.ts";
 import { loadIdl } from "./runtime.ts";
 import { groupsOf, payPlan, rankShare, rankTotal, readRoute, routesToFund, seasonJob, seasonOf, seasonPoints, seasonSigner, seasonsToCheck, topRanks, type SeasonDeps, type SeasonRecord } from "./season.ts";
@@ -175,6 +175,13 @@ describe("the season job", () => {
 
   it("does nothing for a season with no wins", async () => {
     const { sent, go } = run(await world(), []);
+    assert.equal(await go(), 0);
+    assert.deepEqual(sent, []);
+  });
+
+  it("skips a Season record written by the earlier program instead of recording it again", async () => {
+    const accounts = await world(new Map([[seasonAddress(1).toBase58(), Buffer.alloc(504)]]));
+    const { sent, go } = run(accounts, wins);
     assert.equal(await go(), 0);
     assert.deepEqual(sent, []);
   });
