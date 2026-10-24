@@ -1,17 +1,15 @@
 "use client";
 
-import { BookOpen } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Label } from "@/components/ui";
 import { art } from "@/lib/art";
-import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../fx";
+import { Arena, Callout, Countdown, prefersReducedMotion, sfx, type CalloutTone } from "../fx";
 import { STATUS, changeOfCode, rankOfCode, type ArmyAccount, type Battle } from "./decode";
 import { catchUp, pendingOf, turnLine } from "./catchup";
 import { NAMES, rankOf as playedRank, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
 import { endLine } from "./end";
 import { START_COUNTDOWN, getReadyLeft, isOpening, missedLabel, ringLeft, ringStart, turnKey, turnMsOf } from "./clock";
-import { VanguardScreen, type TurnInfo } from "./VanguardScreen";
+import { ArmyCount, VanguardScreen, VgBar, type TurnInfo } from "./VanguardScreen";
 import { VanguardBoard, type HitSide, type Mark, type Preview, type ShownFx, type ShownPiece, type ShownStorm } from "./VanguardBoard";
 import { RulesSheet } from "./RulesSheet";
 import { blastSquares, canSwitch, isHopMove, isJump, powerBlockedLine, powerFor } from "./powers-ui";
@@ -469,7 +467,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onPower,
         </span>
         <span className="vg-who">
           <b>{mineP ? "You" : "Opponent"}</b>
-          <small>{a === "us" ? "US Army" : "Royal Italian Army"} · {piecesLeft(battle, a)} of 20</small>
+          <ArmyCount army={a} left={piecesLeft(battle, a)} />
         </span>
         {missed && <span className={`vg-missed${battle.timeouts[a === "us" ? 0 : 1] >= 2 ? " last" : ""}`}>{missed}</span>}
         {!mineP && banked > 0 && <span className="vg-tok">Two-Step ×{banked}</span>}
@@ -505,11 +503,6 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onPower,
           {n}/{of}
         </span>
       ))}
-      {rv.tenOrSpy && (
-        <span className="vg-notes" role="note">
-          <em>10 or Spy?</em>
-        </span>
-      )}
     </div>
   );
   const shownOnBoard = tenId === undefined ? pieces : pieces.map((p) => (p.id === tenId ? { ...p, rank: "1" as Rank, changed: "spy" as const } : p));
@@ -517,18 +510,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onPower,
   return (
     <Arena game="vanguard" autoFull={!ended}>
       <VanguardScreen
-        bar={
-          <div className="vg-bar">
-            <Label>Vanguard</Label>
-            <span className="vg-bar-tools">
-              <button type="button" className="cut cut-chip fx-mute" onClick={() => setRulesOpen((o) => !o)} aria-expanded={rulesOpen} aria-label="Ranks and powers" title="Ranks and powers">
-                <BookOpen size={16} aria-hidden="true" />
-              </button>
-              <MuteToggle />
-              <FullScreenToggle />
-            </span>
-          </div>
-        }
+        bar={<VgBar onRules={() => setRulesOpen((o) => !o)} />}
         foe={plate(foe)}
         roster={roster}
         me={plate(side)}

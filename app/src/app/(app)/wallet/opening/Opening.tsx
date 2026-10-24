@@ -150,7 +150,7 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
         <SimulatedYieldLabel />
         <div className="op-actions">
           {finished && (
-            <Button variant="money" href="/lobby">
+            <Button variant="money" href="/play">
               Play now <ArrowRight aria-hidden="true" />
             </Button>
           )}

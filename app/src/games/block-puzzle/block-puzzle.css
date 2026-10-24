@@ -1,30 +1,38 @@
 /* Block Burst: the board and pieces are the colourful game art; chrome around it stays neutral.
    Emerald appears only on gem cells. */
 
-/* ——— Play screen: a slim bar (score, timer ring, run, stake) over a centred board ——— */
-.bpx { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); justify-items: center; position: relative; }
+/* Phones put the score above the board, with the timer at the left of the toolbar.
+   Wider screens keep the score and timer together in the toolbar. */
+.bpx { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); justify-items: center; position: relative; }
+.bpx-hud { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; width: 100%; max-width: 760px; }
 .bpx-bar {
-  --edge: var(--edge-1); background: var(--surface); width: 100%; max-width: 760px; padding: 12px 20px;
-  display: grid; grid-template-columns: auto auto 1fr; grid-template-areas: "score ring run" "stake stake stake"; align-items: center; gap: 8px 20px;
+  grid-area: 1 / 1 / 2 / -1;
+  --edge: var(--edge-1); background: var(--surface); width: 100%; max-width: 760px; padding: 10px 14px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px;
 }
-.bpx-score { grid-area: score; display: grid; gap: 0; }
-.bpx-ring { grid-area: ring; position: relative; width: 68px; height: 68px; display: grid; place-items: center; }
+.bpx-score { grid-area: 1 / 1; z-index: 1; margin-left: 14px; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bpx-face { --c: 10px; flex: none; display: grid; width: 44px; height: 44px; overflow: hidden; background: var(--surface-2); --edge: var(--edge-2); }
+.bpx-face img { width: 100%; height: 100%; object-fit: cover; }
+.bpx-ring { grid-column: 2; position: relative; width: 60px; height: 60px; display: grid; place-items: center; }
 .bpx-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .bpx-ring circle { fill: none; stroke-width: 10; }
 .bpx-ring-bg { stroke: rgba(234, 239, 236, 0.14); }
-.bpx-ring-fg { stroke: var(--fg); stroke-linecap: butt; transition: stroke-dashoffset 120ms linear; }
+.bpx-ring-fg { stroke: var(--fg); stroke-linecap: butt; }
 .bpx-ring.low .bpx-ring-fg { stroke: var(--warn); }
 .bpx-ring span { position: relative; font-size: var(--fs-13); font-weight: 500; font-variant-numeric: tabular-nums; }
-.bpx-run { grid-area: run; display: flex; justify-content: flex-end; gap: 20px; font-size: var(--fs-14); color: var(--fg-2); }
-.bpx-run b { color: var(--fg); font-size: var(--fs-18); font-weight: 800; margin-left: 4px; }
-.bpx-stake { grid-area: stake; font-size: var(--fs-14); color: var(--fg-2); padding-top: 8px; border-top: 1px solid var(--line); }
-.bpx-stake { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
-.bpx-stake b { color: var(--fg); font-weight: 700; }
-.bp-score-n { font-size: 36px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
+.bpx-stake { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.bpx-pot { display: grid; justify-items: end; line-height: 1.05; }
+.bpx-pot small { font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
+.bpx-pot b { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-20); font-weight: 800; color: var(--em-hi); }
+.bpx-run { display: flex; justify-content: center; gap: 12px; font-size: var(--fs-14); color: var(--fg-2); }
+.bpx-run > span { display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; background: var(--surface); --edge: var(--edge-1); }
+.bpx-run svg { width: 18px; height: 18px; }
+.bpx-run b { color: var(--fg); font-size: var(--fs-18); font-weight: 800; }
+.bp-score-n { position: relative; isolation: isolate; display: inline-block; font-size: 36px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
 /* The board is square and as wide as .bpx-mid, so cap that width by the viewport height left after the
-   top bar, score bar, tray and hint (~380px): the whole play screen fits without scrolling. */
-.bpx-mid { display: grid; gap: 14px; justify-items: center; width: 100%; max-width: clamp(300px, calc(100dvh - 380px), 640px); }
-.bpx-mid .bp-stage, .bpx-mid .bp-tray, .bpx-mid .bp-help { width: 100%; }
+   versus bar, the tray and the run line (~280px): the whole play screen fits without scrolling. */
+.bpx-mid { display: grid; gap: 14px; justify-items: center; width: 100%; max-width: clamp(300px, calc(100dvh - 280px), 640px); }
+.bpx-mid .bp-stage, .bpx-mid .bp-tray { width: 100%; }
 .bpx-foot { display: grid; gap: 6px; justify-items: center; width: 100%; max-width: 640px; font-size: var(--fs-14); color: var(--fg-2); text-align: center; }
 .bpx-status { font-size: var(--fs-15); color: var(--fg-2); }
 .bpx-status p { font-size: var(--fs-15); color: var(--fg-2); }
@@ -38,25 +46,22 @@
 .bpx-opp.k-gone .bpx-opp-line { color: var(--warn, #ffb43a); }
 @keyframes bpx-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .bpx-spin { animation-duration: 3s; } }
-.bpx-seed { color: var(--fg-2); font-size: var(--fs-12); }
 .bpx-clears { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: var(--fs-14); color: var(--fg-2); }
 .bpx-clears b { color: var(--fg); margin-left: 6px; }
-@media (min-width: 640px) {
-  .bpx-bar { grid-template-columns: auto auto 1fr auto; grid-template-areas: "score ring run stake"; }
-  .bpx-stake { border-top: 0; padding-top: 0; text-align: right; }
-}
 /* Short screens (laptops, zoomed browsers): slimmer bar and tray so the board keeps more of the height. */
 @media (max-height: 860px) {
-  .bpx { gap: 12px; }
-  .bpx-bar { padding: 8px 16px; }
-  .bpx-ring { width: 56px; height: 56px; }
+  .bpx { gap: 10px; }
+  .bpx-bar { padding: 8px 14px; }
+  .bpx-ring { width: 54px; height: 54px; }
   .bp-score-n { font-size: 30px; }
-  .bpx-mid { gap: 10px; max-width: clamp(300px, calc(100dvh - 320px), 640px); }
+  .bpx-mid { gap: 10px; max-width: clamp(300px, calc(100dvh - 260px), 640px); }
   .bp-slot { height: 72px; }
   .bp-overlay .bp-final { font-size: 48px; }
 }
 .bp-final { font-size: 64px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
 .bp-stage { position: relative; }
+.bp-board-visual { position: relative; }
+.bp-board-space { width: 100%; position: relative; container-type: inline-size; }
 .bp-actions { display: flex; gap: 8px; margin-top: 4px; }
 
 .bp-board {
@@ -123,61 +128,63 @@
 .bp-slot.stuck { opacity: 0.45; }
 .bp-mini { display: grid; gap: 2px; }
 
-.bp-help { text-align: center; }
 
-.bp-ghost { position: fixed; left: 0; top: 0; z-index: 50; pointer-events: none; opacity: 0.9; }
-.bp-ghost .bp-mini { gap: 3px; }
+.bp-ghost { position: fixed; left: 0; top: 0; z-index: 75; pointer-events: none; opacity: 0.96; transform-origin: 0 0; will-change: transform; }
+.bp-pickup { transform-origin: 0 0; animation: bp-pickup 100ms cubic-bezier(.2,.8,.2,1) both; }
+@keyframes bp-pickup { from { transform: translate(var(--pickup-x), var(--pickup-y)) scale(var(--pickup-scale)); } to { transform: none; } }
+.bp-return .bp-pickup { animation: none; }
+.bp-slot.held .bp-deal { opacity: 0.2; }
+.bp-slot.held { cursor: grabbing; }
 .bp-ghost .bp-cell { --bev: 5px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5), 0 0 18px -4px var(--k); }
 
-/* the score pops each time it changes */
+.bp-score-n[hidden] { display: none; }
+.bp-score-aura { position: absolute; width: 1.1em; height: 1.1em; left: calc(50% - .55em); top: calc(50% - .55em); z-index: -1; opacity: 0; pointer-events: none; background: radial-gradient(closest-side, rgba(106, 248, 214, .7), rgba(63, 198, 255, .15)); border: 2px solid rgba(106, 248, 214, .55); box-shadow: 0 0 16px rgba(63, 198, 255, .4); }
 
 /* ——— Game feel: drop, line hints, sweeps, combo, deal ——— */
-.bp-cell.drop { animation: bp-drop 420ms cubic-bezier(0.2, 0.9, 0.3, 1.2); z-index: 1; }
-@keyframes bp-drop {
-  0% { transform: translateY(-34%) scale(1.22); filter: brightness(1.7); }
-  55% { transform: translateY(3%) scale(0.94); filter: brightness(1.2); }
-  100% { transform: none; filter: none; }
-}
+.bp-cell.drop { animation: bp-drop 160ms cubic-bezier(.16,1,.3,1); z-index: 1; }
+@keyframes bp-drop { 0% { transform: scale(1.09); } 50% { transform: scale(.97); } 100% { transform: none; } }
+.bp-cell.drop::after, .bp-cell.pop::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: rgba(255,255,255,.7); pointer-events: none; animation: bp-impact 280ms ease-out both; }
+@keyframes bp-impact { from { opacity: .85; } to { opacity: 0; } }
 /* rows and columns the held piece would complete */
-.bp-cell.hint { background-color: color-mix(in oklab, var(--hk, #eaefec) 30%, transparent); animation: bp-hint 700ms ease-in-out infinite alternate; }
+.bp-cell.hint { background-color: color-mix(in oklab, var(--hk, #eaefec) 30%, transparent);  }
 .bp-cell.hint:not(.pv):not(.on) { box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--hk, #eaefec) 55%, transparent); }
-.bp-cell.on.hint { filter: brightness(1.35) saturate(1.2); box-shadow: 0 0 14px 1px var(--hk, #fff), inset 0 0 0 1px rgba(255, 255, 255, 0.4); }
+.bp-cell.on.hint::before { content: ""; position: absolute; inset: 0; background: color-mix(in oklab, var(--hk) 35%, transparent); box-shadow: inset 0 0 0 2px var(--hk), 0 0 8px var(--hk); pointer-events: none; }
 @keyframes bp-hint { to { filter: brightness(1.35); } }
 
-.bp-cell.pop { animation: bp-pop 380ms ease-out both; z-index: 1; }
+.bp-cell.pop { animation: bp-pop 360ms cubic-bezier(.16,1,.3,1) both; z-index: 1; }
 @keyframes bp-pop {
-  0% { transform: scale(1); filter: brightness(1); opacity: 1; }
-  30% { transform: scale(1.14); filter: brightness(2.6); opacity: 1; }
-  100% { transform: scale(0.2) rotate(18deg); filter: brightness(2); opacity: 0; }
+  0% { transform: scale(1); opacity: 1; }
+  25% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(.2); opacity: 0; }
 }
-.bp-sweep { position: absolute; pointer-events: none; z-index: 2; opacity: 0; --at: 0; }
-.bp-sweep.row { left: 8px; right: 8px; top: calc(8px + (100% - 16px) / 8 * var(--at)); height: calc((100% - 16px) / 8); background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85) 50%, transparent); background-size: 40% 100%; background-repeat: no-repeat; animation: bp-sweep-x 520ms ease-out; }
-.bp-sweep.col { top: 8px; bottom: 8px; left: calc(8px + (100% - 16px) / 8 * var(--at)); width: calc((100% - 16px) / 8); background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.85) 50%, transparent); background-size: 100% 40%; background-repeat: no-repeat; animation: bp-sweep-y 520ms ease-out; }
-@keyframes bp-sweep-x { 0% { opacity: 1; background-position: -60% 0; } 100% { opacity: 0; background-position: 160% 0; } }
-@keyframes bp-sweep-y { 0% { opacity: 1; background-position: 0 -60%; } 100% { opacity: 0; background-position: 0 160%; } }
+.bp-sweep { position: absolute; pointer-events: none; z-index: 2; --at: 0; overflow: hidden; }
+.bp-sweep[data-axis="row"] { left: 9px; right: 9px; top: calc(9px + (100% - 14px) / 8 * var(--at)); height: calc((100% - 46px) / 8); }
+.bp-sweep[data-axis="col"] { top: 9px; bottom: 9px; left: calc(9px + (100% - 14px) / 8 * var(--at)); width: calc((100% - 46px) / 8); }
+.bp-sweep::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.95), transparent); animation: bp-sweep-x 360ms cubic-bezier(.16,1,.3,1) both; }
+.bp-sweep[data-axis="col"]::after { background: linear-gradient(180deg, transparent, rgba(255,255,255,.95), transparent); animation-name: bp-sweep-y; }
+@keyframes bp-sweep-x { from { transform: translateX(-100%); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
+@keyframes bp-sweep-y { from { transform: translateY(-100%); opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
 
-.bp-fly { position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none; font-weight: 900; font-size: var(--fs-24); color: var(--fg); text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8), 0 0 14px rgba(234, 239, 236, 0.5); }
+.bp-fly { position: fixed; left: 0; top: 0; z-index: 80; pointer-events: none; font-weight: 900; font-size: clamp(26px, 7vw, 38px); color: var(--fg); text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8), 0 0 14px rgba(234, 239, 236, 0.5); }
 .bp-fly.gem { color: var(--em-hi); }
 
 .bpx-combo { display: inline-flex; align-items: center; gap: 8px; position: relative; }
-.bpx-combo-l { font-size: var(--fs-14); }
-.bpx-combo-m { display: inline-flex; gap: 3px; font-style: normal; }
-.bpx-combo-m s { text-decoration: none; width: 6px; height: 16px; background: rgba(234, 239, 236, 0.14); clip-path: polygon(0 20%, 20% 0, 80% 0, 100% 20%, 100% 100%, 0 100%); transition: background-color 120ms, box-shadow 120ms; }
-.bpx-combo[data-heat="1"] s:nth-child(-n+1), .bpx-combo[data-heat="2"] s:nth-child(-n+2), .bpx-combo[data-heat="3"] s:nth-child(-n+3), .bpx-combo[data-heat="4"] s { background: #ffb43a; }
-.bpx-combo[data-heat="3"] s:nth-child(-n+3) { background: #ff7e5f; }
-.bpx-combo[data-heat="4"] s { background: #ff4d9b; animation: bpx-flame 520ms ease-in-out infinite alternate; }
+/* combo heat: the bolt warms from amber to pink as the streak grows */
+.bpx-combo[data-heat="1"] svg, .bpx-combo[data-heat="2"] svg { color: #ffb43a; }
+.bpx-combo[data-heat="3"] svg { color: #ff7e5f; }
+.bpx-combo[data-heat="4"] svg { color: #ff4d9b; animation: bpx-flame 520ms ease-in-out infinite alternate; }
 .bpx-combo[data-heat="4"] b, .bpx-combo[data-heat="3"] b { color: #ffb43a; text-shadow: 0 0 14px rgba(255, 126, 95, 0.7); }
-@keyframes bpx-flame { to { filter: brightness(1.5); transform: scaleY(1.2); } }
+@keyframes bpx-flame { to { transform: scale(1.15); } }
 .bpx-combo.fizzle b { animation: bpx-fizzle 600ms ease-out; }
 .bpx-combo.fizzle::after { content: ""; position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; translate: -50% -50%; border-radius: 50%; border: 2px solid #ffb43a; opacity: 0; animation: bpx-fizzle-ring 600ms ease-out; }
-@keyframes bpx-fizzle { 0% { transform: scale(1.4); color: #ff7e5f; } 100% { transform: none; } }
+@keyframes bpx-fizzle { 0% { transform: scale(1.4); } 100% { transform: none; } }
 @keyframes bpx-fizzle-ring { 0% { opacity: 0.8; transform: scale(0.4); } 100% { opacity: 0; transform: scale(1.8); } }
 
-.bp-deal { display: grid; place-items: center; animation: bp-deal 360ms cubic-bezier(0.2, 0.9, 0.3, 1.15) both; }
-@keyframes bp-deal { 0% { opacity: 0; transform: translateY(26px) scale(0.6); } 100% { opacity: 1; transform: none; } }
+.bp-deal { display: grid; place-items: center; animation: bp-deal 150ms cubic-bezier(.2,.8,.2,1) both; }
+@keyframes bp-deal { 0% { opacity: 0; transform: translateY(6px) scale(0.92); } 100% { opacity: 1; transform: none; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .bp-cell.drop, .bp-cell.hint, .bp-sweep, .bp-deal, .bpx-combo s, .bpx-combo.fizzle b, .bpx-combo.fizzle::after { animation: none; }
+  .bp-moment, .bp-cell.drop::after, .bp-pickup, .bp-cell.drop, .bp-cell.hint, .bp-sweep, .bp-deal, .bpx-combo svg, .bpx-combo.fizzle b, .bpx-combo.fizzle::after { animation: none; }
   .bp-cell.pop { animation-duration: 1ms; }
   .bp-sweep { display: none; }
 }
@@ -185,11 +192,14 @@
 /* ——— Run moments: start card, last 10 seconds, game over ——— */
 .bp-over { justify-items: center; text-align: center; }
 
-.bpx-ring.low { animation: bpx-pulse 1s ease-in-out infinite; }
 .bpx-ring.low span { color: var(--warn); }
-@keyframes bpx-pulse { 50% { transform: scale(1.08); filter: drop-shadow(0 0 8px rgba(242, 185, 75, 0.6)); } }
-.bp-board.low { box-shadow: inset 0 1px 0 rgba(200, 215, 255, 0.12), inset 0 0 40px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(242, 185, 75, 0.55), 0 0 36px -4px rgba(242, 185, 75, 0.5); animation: bp-edge 1s ease-in-out infinite; }
-@keyframes bp-edge { 50% { box-shadow: inset 0 1px 0 rgba(200, 215, 255, 0.12), inset 0 0 40px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(242, 185, 75, 0.9), 0 0 56px 0 rgba(242, 185, 75, 0.7); } }
+/* Paint the warning once on its own layer; never animate the board's blurred shadow. */
+.bp-board-space.low::after {
+  content: ""; position: absolute; inset: -2px; pointer-events: none;
+  border: 2px solid var(--warn); box-shadow: 0 0 16px rgba(242, 185, 75, 0.45);
+  opacity: 0.5; will-change: opacity; animation: bp-warning 1s ease-in-out infinite;
+}
+@keyframes bp-warning { 50% { opacity: 1; } }
 
 .bp-best { font-size: var(--fs-14); font-weight: 700; color: var(--fg-2); letter-spacing: 0.04em; text-transform: uppercase; }
 .bp-best.new { color: #ffb43a; font-size: var(--fs-18); animation: bp-best 700ms 600ms cubic-bezier(0.2, 1.6, 0.4, 1) both; }
@@ -204,5 +214,31 @@
   .bp-final { font-size: 52px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .bpx-ring.low, .bp-board.low, .bp-best.new, .bp-stats li { animation: none; }
+  .bp-board-space.low::after, .bp-best.new, .bp-stats li { animation: none; }
 }
+
+@media (max-width: 639px) {
+  .bpx { --bpx-score-height: clamp(48px, calc(100dvh - 720px), 112px); --bpx-tray-height: clamp(64px, 10dvh, 92px); }
+  .bpx-hud { display: flex; flex-direction: column; gap: 12px; }
+  .bpx-bar { order: -1; padding: 8px; gap: 6px; grid-template-columns: minmax(0, 1fr) auto; }
+  .bpx-ring { grid-column: 1; }
+  .bpx-score { margin: 0; justify-content: center; min-height: var(--bpx-score-height); }
+  .bp-score-n { font-size: clamp(40px, 8dvh, 72px); }
+  .bpx-face { display: none; }
+  /* Reserve the score, toolbar, tray, counters and gaps before sizing the square board. */
+  .bpx-mid { max-width: min(100%, max(180px, calc(100dvh - 220px - var(--bpx-score-height) - var(--bpx-tray-height))), 640px); }
+  .bp-slot { height: var(--bpx-tray-height); }
+  .bpx-stake { gap: 4px; }
+  .bpx-bar .game-tag { padding-inline: 6px; font-size: var(--fs-10); }
+}
+
+/* Clear ghosts have their own cells, so animation never changes a playable cell's opacity. */
+.bp-clear-grid { position: absolute; inset: 0; padding: 9px; display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); gap: 4px; pointer-events: none; }
+.bp-moment { --moment-offset: 24px; position: absolute; left: 50%; width: max-content; max-width: 95%; z-index: 8; pointer-events: none; text-align: center; transform: translate(-50%, var(--moment-offset)); animation: bp-moment 1000ms cubic-bezier(.16,1,.3,1) both; color: #fff; text-shadow: 0 2px 2px #080c14, 0 0 14px rgba(63,198,255,.6); }
+.bp-moment[data-placement="above"] { --moment-offset: calc(-100% - 40px); }
+.bp-moment strong { display: block; font-size: clamp(24px, 6.5vw, 34px); font-weight: 900; line-height: 1.05; }
+.bp-moment small { display: block; margin-top: 4px; font-size: 20px; font-weight: 800; color: #ffcf6b; }
+.bp-moment.gem { color: var(--em-hi); }
+.bp-moment.up { color: #6ea8ff; }
+@keyframes bp-moment { 0% { opacity: 0; transform: translate(-50%, calc(var(--moment-offset) + 8px)) scale(.85); } 12% { opacity: 1; transform: translate(-50%, var(--moment-offset)) scale(1.08); } 25%, 70% { opacity: 1; transform: translate(-50%, var(--moment-offset)) scale(1); } 100% { opacity: 0; transform: translate(-50%, calc(var(--moment-offset) - 8px)) scale(1); } }
+@media (prefers-reduced-motion: reduce) { .bp-moment { animation: none; } }

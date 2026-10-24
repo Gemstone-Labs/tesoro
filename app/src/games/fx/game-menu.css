@@ -1,0 +1,17 @@
+/* ——— The game menu: one ⋯ button in a game's corner; its list holds sound, full screen, the game's items and Leave ——— */
+.gmenu { position: relative; z-index: 30; }
+.gmenu-btn { --c: 10px; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; background: rgba(8, 12, 16, 0.72); --edge: var(--edge-2); color: var(--fg); border: 0; }
+.gmenu-btn svg { width: 20px; height: 20px; }
+.gmenu-btn:hover { background: rgba(8, 12, 16, 0.92); }
+.gmenu-list {
+  position: fixed; z-index: 100; width: 216px; overflow-y: auto; overscroll-behavior: contain; padding: 8px; display: grid; gap: 2px;
+  background: var(--raised-2); --edge: var(--edge-2); animation: micro-menu-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1); transform-origin: top right;
+}
+.gmenu-list > * {
+  display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; background: transparent; border: 0; text-align: left;
+  font: inherit; font-size: var(--fs-14); font-weight: 600; color: var(--fg); width: 100%; cursor: pointer;
+}
+.gmenu-list > :hover { background: rgba(255, 255, 255, 0.06); }
+.gmenu-list svg { width: 18px; height: 18px; color: var(--fg-2); flex: none; }
+/* Practice: one small tag in the game's header, instead of a sentence */
+.game-tag { --c: 6px; display: inline-flex; align-items: center; padding: 3px 9px; font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); background: rgba(255, 255, 255, 0.06); --edge: var(--edge-1); }

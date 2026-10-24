@@ -25,7 +25,7 @@ export function StartCards() {
           <h2>Play</h2>
         </header>
         <p>Open the app, get Gemas from your Wallet and play your first Match in a few minutes.</p>
-        <Link href="/lobby" className="btn neutral cut cut-btn">
+        <Link href="/play" className="btn neutral cut cut-btn">
           Launch app <ArrowRight aria-hidden />
         </Link>
       </section>

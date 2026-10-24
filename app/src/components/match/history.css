@@ -1,11 +1,18 @@
 /* ——— All Matches (/matches) ——— */
-.mh-page { display: grid; gap: 24px; max-width: 980px; width: 100%; margin: 0 auto; }
-.mh-head { display: grid; gap: 16px; }
-.mh-tabs { display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; max-width: 100%; box-shadow: inset 0 -1px var(--line); scrollbar-width: none; }
+.mh-page { display: grid; gap: 16px; max-width: 980px; width: 100%; margin: 0 auto; }
+.mh-head { display: grid; gap: 10px; }
+.mh-tabs { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; max-width: 100%; scrollbar-width: none; margin-inline: -16px; padding-inline: 16px; }
 .mh-tabs::-webkit-scrollbar { display: none; }
-.mh-tabs a { padding: 12px 18px 13px; font-size: var(--fs-17); font-weight: 500; color: var(--fg-2); border-bottom: 2px solid transparent; white-space: nowrap; }
-.mh-tabs a.on { color: var(--fg); font-weight: 700; border-bottom-color: var(--fg); }
+.mh-tabs a {
+  --c: 8px; flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 6px;
+  font-size: var(--fs-13); font-weight: 600; color: var(--fg-2); background: var(--surface); --edge: var(--edge-1); white-space: nowrap;
+}
+.mh-tabs a.on { color: var(--fg); font-weight: 700; background: var(--surface-2); --edge: var(--edge-2); }
 .mh-tabs a:hover { color: var(--fg); }
+.mh-tab-art { --c: 5px; display: grid; place-items: center; width: 30px; height: 30px; overflow: hidden; background: var(--raised-2); }
+.mh-tab-art img { width: 100%; height: 100%; object-fit: cover; }
+.mh-tab-art svg { width: 16px; height: 16px; }
+@media (min-width: 640px) { .mh-tabs { margin-inline: 0; padding-inline: 0; } }
 .mh-state { display: grid; gap: 12px; justify-items: start; padding: 8px 2px; color: var(--fg-2); }
 .mh-pages { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; }
 .mh-page-link svg { width: 18px; height: 18px; }
@@ -37,3 +44,4 @@
 .mh-result.lost { --tone: var(--danger); }
 .mh-result.draw, .mh-result.no-show, .mh-result.refunded { --tone: var(--fg-2); }
 @media (max-width: 640px) { .mh-result { min-height: 44px; } }
+.mh-finished-h { font-size: var(--fs-20); margin-top: 4px; }

@@ -18,7 +18,7 @@ export function ProViewSwitch({ on, onChange, tip = true, className }: { on: boo
         <span id={label}>Pro view</span>
         {tip && <InfoTip label="About Pro view" align="end">{PRO_VIEW_TIP}</InfoTip>}
       </span>
-      <button type="button" role="switch" className="vs-switch" aria-checked={on} aria-labelledby={label} onClick={() => onChange(!on)}>
+      <button type="button" role="switch" className="cut vs-switch" aria-checked={on} aria-labelledby={label} onClick={() => onChange(!on)}>
         <span aria-hidden="true" />
       </button>
     </div>

@@ -57,12 +57,12 @@ function seedFor(steps: [number, Action][], want: (p: Practice) => boolean): num
 const wonShowdown = (p: Practice) => p.table.lastHand.showdown && p.table.lastHand.result === 0;
 const lostShowdown = (p: Practice) => p.table.lastHand.showdown && p.table.lastHand.result === 1;
 
-function Table({ p, entry = 1000 }: { p: Practice; entry?: number }) {
+function Table({ p }: { p: Practice }) {
   const t = p.table;
   const playing = t.phase >= PHASE.preflop && t.phase <= PHASE.river;
   const ended = t.status === STATUS.over;
   const hole = p.lastHoles ? { handNo: playing ? t.handNo : t.lastHand.handNo, cards: p.lastHoles[0] } : null;
-  return <HoldemTable table={t} seat={0} hole={hole} busy={null} ended={ended} entry={entry} onAct={noop} onClaim={noop} practice />;
+  return <HoldemTable table={t} seat={0} hole={hole} busy={null} ended={ended} onAct={noop} onClaim={noop} practice />;
 }
 
 const meta = {
@@ -71,7 +71,7 @@ const meta = {
 } satisfies Meta;
 export default meta;
 
-const story = (build: () => Practice, entry?: number): StoryObj => ({ render: () => <Table p={build()} entry={entry} /> });
+const story = (build: () => Practice): StoryObj => ({ render: () => <Table p={build()} /> });
 
 /** Hand 1, you are the small blind and must act on the big blind. */
 export const Preflop = story(() => hand(5, []));

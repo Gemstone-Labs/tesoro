@@ -1,17 +1,10 @@
 import { redirect } from "next/navigation";
 import { isGameId } from "@/lib/games";
-import { PlayNowRail } from "@/components/lobby/PlayNowRail";
+import { PlayHome } from "./PlayHome";
 
-/** Play picks the Game: every live Game as a tile, each opening its detail page. `/play?game=holdem` still deep-links to Hold'em. */
+/** Home. `/play?game=holdem` still deep-links to a visible Game's page. */
 export default async function Play({ searchParams }: PageProps<"/play">) {
   const sp = await searchParams;
-  if (sp.game === "holdem") redirect("/play/holdem");
-  if (sp.game === "block-puzzle") redirect("/play/block-puzzle");
-  if (sp.game === "trading-duel") redirect("/play/trading-duel");
-  if (sp.game === "vanguard" && isGameId("vanguard")) redirect("/play/vanguard");
-  return (
-    <div className="lobby">
-      <PlayNowRail />
-    </div>
-  );
+  if (isGameId(sp.game)) redirect(`/play/${sp.game}`);
+  return <PlayHome />;
 }

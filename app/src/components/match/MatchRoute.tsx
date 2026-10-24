@@ -12,6 +12,7 @@ import { useAccount } from "@/lib/account";
 import type { GameId } from "@/lib/mock";
 import { BRAND } from "@/lib/brand";
 import { MatchStageLoading } from "./MatchStage";
+import { Arena } from "@/games/fx";
 import { MatchView } from "./MatchView";
 
 type RouteGame = GameId | "unknown";
@@ -41,13 +42,13 @@ export function MatchRoute({ matchId }: { matchId: string }) {
 
   switch (game) {
     case "holdem":
-      return <HoldemMatchView matchId={matchId} />;
+      return <Arena key={matchId} game="holdem"><HoldemMatchView matchId={matchId} /></Arena>;
     case "trading-duel":
-      return <TradingDuelMatchView matchId={matchId} />;
+      return <Arena key={matchId} game="trading-duel"><TradingDuelMatchView matchId={matchId} /></Arena>;
     case "vanguard":
-      return <VanguardMatchView matchId={matchId} />;
+      return <Arena key={matchId} game="vanguard"><VanguardMatchView matchId={matchId} /></Arena>;
     case "block-puzzle":
-      return <MatchView matchId={matchId} />;
+      return <Arena key={matchId} game="block-puzzle"><MatchView matchId={matchId} /></Arena>;
     case "unknown":
       return <p className="status" role="status">This Match belongs to a Game this version of {BRAND.name} cannot show.</p>;
     case null:

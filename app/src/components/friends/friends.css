@@ -1,5 +1,5 @@
 /* ——— Friends page (founder pick F1: stacked list, add-me link at the top right) ——— */
-.fr-page { display: grid; gap: 18px; }
+.fr-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
 .fr-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px 24px; flex-wrap: wrap; }
 .fr-count { color: var(--fg); font-size: var(--fs-18); font-weight: 600; margin-top: 4px; }
 
@@ -60,10 +60,11 @@
 .fr-more:hover { background: var(--surface-2); }
 .fr-more svg { width: 18px; height: 18px; }
 
-.fr-link { --edge: var(--edge-1); background: var(--surface); padding: 12px 14px; display: grid; gap: 8px; min-width: min(100%, 460px); }
+.fr-link { --edge: var(--edge-1); background: var(--surface); padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: min(100%, 460px); max-width: 100%; }
 .fr-link-label { font-size: var(--fs-13); color: var(--fg-2); }
-.fr-link-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.fr-link-url { --c: 6px; flex: 1 1 220px; min-width: 0; padding: 8px 10px; background: var(--shell); font-size: var(--fs-14); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-link-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fr-link-row > .btn { flex: none; }
+.fr-link-url { --c: 6px; flex: 1 1 0; min-width: 0; padding: 8px 10px; background: var(--shell); font-size: var(--fs-14); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fr-link-help { color: var(--fg-2); font-size: var(--fs-13); }
 .fr-link-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 16px; flex-wrap: wrap; }
 /* a setting, not an action: quiet text, away from Copy */

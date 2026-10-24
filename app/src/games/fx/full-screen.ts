@@ -23,3 +23,19 @@ export function setFullScreen(next: boolean) {
   document.documentElement.classList.toggle(CLASS, on);
   emit();
 }
+
+/** A route's first game enters automatically; board/result replacements respect the Player's toggle. */
+export function createCoverSession() {
+  let entered = false;
+  return {
+    enter() {
+      if (entered) return;
+      entered = true;
+      setFullScreen(true);
+    },
+    leave() {
+      entered = false;
+      setFullScreen(false);
+    },
+  };
+}

@@ -9,7 +9,7 @@ describe("TurnBox", () => {
   it("shows an enabled Two-Step Turn button next to your turn once one is banked", () => {
     const h = html({});
     expect(h).toContain("Your turn");
-    expect(h).toContain("Use Two-Step Turn");
+    expect(h).toMatch(/>Two-Step</);
     expect(h).toContain("move twice this turn");
     expect(h).not.toContain("disabled");
   });

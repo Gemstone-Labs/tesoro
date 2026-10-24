@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
+import { BookOpen } from "lucide-react";
+import { GameMenu } from "../fx";
 import { pushFeed } from "./feed";
 import "./vanguard.css";
 
@@ -33,6 +35,51 @@ export interface TurnInfo {
   spy?: SpyInfo | null;
 }
 
+/** The bar over the opponent: PRACTICE in Practice and the ⋯ menu (Ranks and powers, sound, full screen, Leave in Practice). */
+export const vanguardMenuItems = (onRules: () => void) => [{ label: "Ranks and powers", icon: <BookOpen aria-hidden="true" />, onSelect: onRules }];
+
+export function VgBar({ practice = false, onRules, pause }: { pause?: ReactNode; practice?: boolean; onRules: () => void }) {
+  return (
+    <div className="cut cut-card vg-bar">
+      <h1 className="sr-only">Vanguard</h1>
+      {practice && <span className="cut cut-chip game-tag">Practice</span>}
+      {practice && pause}
+      <GameMenu items={vanguardMenuItems(onRules)} leaveHref={practice ? "/play" : undefined} />
+    </div>
+  );
+}
+
+/** Small cut-corner flags, with the stars and stripes drawn at their native proportions. */
+function ArmyFlag({ army }: { army: "us" | "it" }) {
+  const clip = useId();
+  const edge = "M3 .5H37L39.5 3V25L37 27.5H3L.5 25V3Z";
+  return <svg className="vg-flag" viewBox="0 0 40 28" width="20" height="14" aria-hidden="true">
+    <defs><clipPath id={clip}><path d={edge} /></clipPath></defs>
+    <g clipPath={`url(#${clip})`}>
+      <path fill="#f5f1e7" d="M0 0H40V28H0Z" />
+      {army === "us" ? <>
+        {Array.from({ length: 7 }, (_, i) => <rect key={i} x="0" y={i * 56 / 13} width="40" height={28 / 13} fill="#b83139" />)}
+        <path fill="#263b6a" d="M0 0H16V15.08H0Z" />
+        {Array.from({ length: 9 }, (_, row) => Array.from({ length: row % 2 ? 5 : 6 }, (_, col) => <path key={`${row}-${col}`} fill="#fffaf0" d="M0 -1L.24 -.33 .95 -.31 .38 .12 .59 .81 0 .4 -.59 .81 -.38 .12 -.95 -.31 -.24 -.33Z" transform={`translate(${1.4 + col * 2.65 + (row % 2 ? 1.325 : 0)},${1.4 + row * 1.53}) scale(.65)`} />))}
+      </> : <>
+        <path fill="#21834c" d="M0 0H13.33V28H0Z" />
+        <path fill="#be3239" d="M26.67 0H40V28H26.67Z" />
+      </>}
+    </g>
+    <path d={edge} fill="none" stroke="#160e07" strokeWidth="1.5" />
+  </svg>;
+}
+
+/** An army's flag and the pieces it has left: a number, not a sentence. */
+export function ArmyCount({ army, left }: { army: "us" | "it"; left: number }) {
+  return (
+    <span className={`vg-army ${army}`} aria-label={`${army === "us" ? "US Army" : "Royal Italian Army"}, ${left} of 20 pieces left`}>
+      <ArmyFlag army={army} />
+      <b className="tnum">{left}</b>
+    </span>
+  );
+}
+
 /** Where the Two-Step Turn button is and what it tells you: next to whose turn it is, never tucked in a seat bar. */
 export function TurnBox({ turn }: { turn: TurnInfo }) {
   const { banked, active, yourTurn, moved } = turn;
@@ -52,19 +99,19 @@ export function TurnBox({ turn }: { turn: TurnInfo }) {
   if (!turn.label) return null;
   return (
     <div className="vg-turnbox">
-      <span className="vg-turn">{turn.label}</span>
+      <span className="vg-turn" role="status">{turn.label}</span>
       {showButton && (
-        <button key={earned} type="button" className={`vg-two${ready ? " ready" : ""}${earned ? " earned" : ""}`} onClick={turn.onUse} disabled={!ready}>
-          Use Two-Step Turn{banked > 1 ? ` ×${banked}` : ""}
+        <button key={earned} type="button" className={`cut cut-btn vg-two${ready ? " ready" : ""}${earned ? " earned" : ""}`} onClick={turn.onUse} disabled={!ready}>
+          Two-Step{banked > 1 ? ` ×${banked}` : ""}
         </button>
       )}
       {yourTurn && power && (
-        <button type="button" className="vg-power" onClick={power.onPress}>
+        <button type="button" className="cut cut-btn vg-power" onClick={power.onPress}>
           {power.label}
         </button>
       )}
       {yourTurn && spy && (
-        <button type="button" className={`vg-power${spy.on ? " on" : ""}`} aria-pressed={spy.on} onClick={spy.onPress}>
+        <button type="button" className={`cut cut-btn vg-power${spy.on ? " on" : ""}`} aria-pressed={spy.on} onClick={spy.onPress}>
           {spy.on ? "Undo Spy" : "Become a Spy"}
         </button>
       )}

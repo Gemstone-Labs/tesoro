@@ -117,7 +117,7 @@ export function DocsHeader() {
         <button type="button" className="icon-btn cut" onClick={toggleTheme} aria-pressed={theme === "light"} aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
           {theme === "dark" ? <Sun aria-hidden /> : <Moon aria-hidden />}
         </button>
-        <Link className="btn neutral cut cut-btn docs-launch" href="/lobby">
+        <Link className="btn neutral cut cut-btn docs-launch" href="/play">
           Launch app
         </Link>
       </div>

@@ -25,7 +25,7 @@ import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables, ethYieldWaiting }
 import { vaultsOn, type EthVault } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, OpenIntentContext, type OpenIntent } from "./OpenPanel";
 import { BalanceHero } from "@/components/money/BalanceHero";
-import { CARD, NextIn } from "@/components/money/card-copy";
+import { CARD } from "@/components/money/card-copy";
 import { HoverHint } from "@/components/money/Tip";
 import { instantCandidates, useInstantRedeem } from "./instant";
 import { ChainPockets, type Pocket, type PocketSource } from "./ChainPockets";
@@ -57,7 +57,6 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   const [now] = useState(() => Date.now());
   const [openSheet, setOpenSheet] = useState(false);
   const [intent, setIntent] = useState<OpenIntent | null>(null);
-  // Phones fold the balance to the Total; wider screens always show all of it.
   const router = useRouter();
   const { orders } = useInstantRedeem();
   const { setMode } = useViewMode();
@@ -96,10 +95,6 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   const canFetchYield = onChain && ethYieldWaiting(snapshot?.holdings ?? []).length > 0;
   // Pending is what is left of the Total after Redeemable now, so the hero adds up and matches the chain cards (which use the same figures).
   const pendingAmount = Math.max(0, gemas.total - redeemAmount);
-  // Pending split by who pays it: your own Locks' yield (just waits) and other Players' (won: Instant Redeem can buy it now).
-  const heldOnChain = snapshot?.holdings ?? [];
-  const ownPending = heldOnChain.filter((h) => h.isOwn).reduce((t, h) => t + Number(h.free - h.redeemable), 0);
-  const wonPendingGemas = heldOnChain.filter((h) => !h.isOwn).reduce((t, h) => t + Number(h.free - h.redeemable), 0);
   // Which sheet opens is decided when it renders, not when the tap happened: a tap while the session
   // is still loading must not open the offline sheet once the Account turns out to be on chain.
   const openRedeem = (chain?: Chain) =>
@@ -189,25 +184,17 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
     .map((chain) => ({ chain, nextRedeemAt: nextRedeemAt(chain), ...chainTiles(chain), ...(onChain && snapshot ? chainGemas(snapshot.holdings, chain) : mockGemas(holdings, chain)), ...(onChain && snapshot ? lineFacts(snapshot, chain, Math.floor(now / 1000)) : {}), fetchYield: onChain && ethYieldWaiting(snapshot?.holdings ?? [], chain).length > 0 }))
     .filter((p) => p.positions.length > 0 || p.closed.length > 0 || p.gemas > 0);
   const hasPositions = pockets.some((p) => p.positions.length > 0 || p.closed.length > 0);
-  const heroNext = pockets.filter((p) => p.gemas > p.redeemable && p.nextRedeemAt).reduce<number | null>((m, p) => (m === null || p.nextRedeemAt! < m ? p.nextRedeemAt! : m), null);
 
   return (
     <div className={part === "all" ? "wl" : "wl-part"}>
       {card && <BalanceHero
-        label={CARD.total}
+        label="Gemas"
+        labelInfo={REAL ? undefined : <>Test mode · simulated yield, 1 month = 10 min. 1 Gema = $0.01.</>}
         figure={ready ? <CountUp value={gemas.total} /> : "—"}
         usdOf={ready ? gemas.total : undefined}
-        busy={!ready}
-        simulated={!REAL}
-        summary={ready && (
-          <>
-            <span>Redeemable <b className="tnum">{fmtGemas(redeemAmount)}</b></span>
-            <span aria-hidden="true">·</span>
-            <span>Pending <b className="tnum">{fmtGemas(pendingAmount)}</b></span>
-          </>
-        )}
+        busy={!ready && !error}
         totalNote={ready && gemas.reserved > 0 ? <>In play: <b className="tnum">{fmtGemas(gemas.reserved)}</b> {CARD.inPlay}</> : undefined}
-        columns={[
+        rows={[
           {
             label: CARD.now,
             figure: ready ? fmtGemas(redeemAmount) : "—",
@@ -215,26 +202,16 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
             emerald: true,
             info: CARD.nowInfo(!REAL),
             action: (
-              <HoverHint hint={ready && redeemAmount === 0 ? (canFetchYield ? CARD.redeemCheck : CARD.redeemEmpty) : null}>
-                <Button variant="money" disabled={redeemAmount === 0 && !canFetchYield} onClick={() => openRedeem()}>{CARD.redeem}</Button>
+              <HoverHint align="end" hint={ready && redeemAmount === 0 ? (canFetchYield ? CARD.redeemCheck : CARD.redeemEmpty) : null}>
+                <Button variant="money" disabled={!ready || (redeemAmount === 0 && !canFetchYield)} onClick={() => openRedeem()}>{CARD.redeem}</Button>
               </HoverHint>
             ),
           },
           {
-            label: CARD.own,
-            figure: ready ? fmtGemas(onChain ? ownPending : pendingAmount) : "—",
-            usdOf: ready ? (onChain ? ownPending : pendingAmount) : undefined,
-            info: (
-              <>
-                {CARD.ownInfo} {ready && ownPending > 0 && <NextIn at={heroNext} />}
-              </>
-            ),
-          },
-          {
-            label: CARD.won,
-            figure: ready ? fmtGemas(onChain ? wonPendingGemas : 0) : "—",
-            usdOf: ready ? (onChain ? wonPendingGemas : 0) : undefined,
-            info: CARD.wonInfo(100 - (instantOffer?.feePct ?? 25)),
+            label: "Pending",
+            figure: ready ? fmtGemas(pendingAmount) : "—",
+            usdOf: ready ? pendingAmount : undefined,
+            info: `${CARD.ownInfo} ${CARD.wonInfo(100 - (instantOffer?.feePct ?? 25))}`,
             action: (
               <HoverHint
                 align="end"
@@ -256,7 +233,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
       />}
 
       {body && <section className="wl-positions" aria-label="Your Gemas and Locks by chain">
-        {onChain && loading && positions.length === 0 && (
+        {loading && !ready && !error && (
           <div className="wl-pockets">
             <SkeletonCards count={2} avatar={false} className="wl-tile" label="Loading your Locks…" />
           </div>

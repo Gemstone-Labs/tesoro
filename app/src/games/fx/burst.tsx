@@ -15,6 +15,10 @@ export interface BurstOptions {
   kind?: BurstKind;
   /** Launch speed multiplier, 1 by default. */
   power?: number;
+  /** Optional shorter life for rapid puzzle feedback; other games retain their default. */
+  lifetime?: number;
+  /** Base shard size in CSS pixels, if the game needs smaller debris. */
+  size?: number;
 }
 
 interface Particle {
@@ -126,7 +130,7 @@ export function FxLayer() {
       raf = parts.length ? requestAnimationFrame(frame) : 0;
     };
 
-    active = ({ x, y, colors, count = 18, kind = "shards", power = 1 }) => {
+    active = ({ x, y, colors, count = 18, kind = "shards", power = 1, lifetime, size: particleSize }) => {
       for (let i = 0; i < count; i++) {
         const a = Math.random() * Math.PI * 2;
         const v = (80 + Math.random() * 360) * power;
@@ -137,8 +141,8 @@ export function FxLayer() {
           vy: Math.sin(a) * v - 140 * power,
           rot: Math.random() * Math.PI,
           vr: (Math.random() - 0.5) * 14,
-          size: kind === "sparks" ? 3 + Math.random() * 4 : 5 + Math.random() * 8,
-          life: 0.55 + Math.random() * 0.6,
+          size: particleSize !== undefined ? particleSize * (0.75 + Math.random() * 0.5) : kind === "sparks" ? 3 + Math.random() * 4 : 5 + Math.random() * 8,
+          life: lifetime === undefined ? 0.55 + Math.random() * 0.6 : lifetime * (0.8 + Math.random() * 0.4),
           age: 0,
           color: colors[i % colors.length],
           kind,

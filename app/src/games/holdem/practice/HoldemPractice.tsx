@@ -72,23 +72,19 @@ export function HoldemPractice() {
           over && (
             <div className="cut cut-frame hd-practice-end">
               <div className="hd-end-text">
-                <Label>{t.winner === YOU ? "You won the practice Match" : "The bot won the practice Match"}</Label>
+                <Label>{t.winner === YOU ? "You won" : "Bot won"}</Label>
                 <p className="hd-end-chips mono">
-                  You <b>{Number(t.stacks[YOU]).toLocaleString("en-US")}</b> · Bot <b>{Number(t.stacks[BOT]).toLocaleString("en-US")}</b> Chips
-                </p>
-                <p className="note">
-                  {t.handNo} {t.handNo === 1 ? "hand" : "hands"} played. Practice: nothing was staked and no Gemas moved.
+                  You <b>{Number(t.stacks[YOU]).toLocaleString("en-US")}</b> · Bot <b>{Number(t.stacks[BOT]).toLocaleString("en-US")}</b>
                 </p>
               </div>
               <div className="bp-actions">
                 <Button onClick={() => setGame(newPractice(nowSecs()))}>Play again</Button>
-                <Button href="/lobby">Lobby</Button>
+                <Button href="/play">Back to games</Button>
               </div>
             </div>
           )
         }
       />
-      {!over && <p className="note hd-note">Practice · nothing staked · heads-up against a bot, turbo blinds rising every hand, no turn clock.</p>}
     </div>
   );
 }

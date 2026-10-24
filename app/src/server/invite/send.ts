@@ -36,7 +36,7 @@ export interface RunResult {
 
 /** The Invite email: what Tesoro is, the code, a link that pre-fills it, and that it works once. */
 export function inviteEmail(site: string, code: string): Omit<Email, "to"> {
-  const link = `${site}/lobby?invite=${code}`;
+  const link = `${site}/play?invite=${code}`;
   return {
     subject: `Your ${BRAND.name} Invite`,
     text: [

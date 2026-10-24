@@ -152,7 +152,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
           clockOffsetMs={view.clockOffsetMs}
           payingOut={stage === "closing" && duel.status === STATUS.over}
           onPick={pick}
-          exitHref="/lobby"
+          exitHref="/play"
           banner={
             stage === "closing" ? (
               <div className="cut cut-frame td-card td-banner" role="status">

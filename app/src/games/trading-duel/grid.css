@@ -9,13 +9,16 @@
 .tg-bar-l, .tg-bar-r { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .tg-title { font-family: var(--f-display); text-transform: uppercase; font-weight: 800; line-height: 1; font-size: 26px; letter-spacing: 0.005em; margin: 0; }
 .tg-asset { --edge: var(--edge-2); white-space: nowrap; padding: 4px 10px; font-size: var(--fs-13); font-weight: 800; background: var(--raised); color: var(--fg); }
-.tg-feed { font-size: var(--fs-12); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
-.tg-feed::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; background: var(--up); vertical-align: 1px; transform: rotate(45deg); }
+.tg-feed { display: inline-grid; place-items: center; width: 14px; height: 14px; }
+.tg-feed::before { content: ""; display: block; width: 7px; height: 7px; background: var(--up); transform: rotate(45deg); }
 .tg-feed.stale { color: var(--warn); }
 .tg-feed.stale::before { background: var(--warn); }
 
 /* score */
-.tg-scoreboard { --edge: var(--edge-2); background: linear-gradient(180deg, rgba(23, 30, 37, 0.9), rgba(13, 18, 22, 0.92)); padding: 12px clamp(12px, 2vw, 22px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 280px) minmax(0, 1fr); gap: 8px clamp(10px, 2vw, 28px); align-items: center; }
+.tg-summary { display: contents; }
+.tg-summary::after { display: none; }
+.tg-scoreboard { --edge: var(--edge-2); background: linear-gradient(180deg, rgba(23, 30, 37, 0.9), rgba(13, 18, 22, 0.92)); padding: 12px clamp(12px, 2vw, 22px); }
+.tg-scoreboard-in { max-width: 900px; margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 280px) minmax(0, 1fr); gap: 8px clamp(10px, 2vw, 28px); align-items: center; }
 .tg-side { display: grid; gap: 4px 12px; grid-template-columns: auto auto; grid-template-areas: "who score" "tally tally"; align-items: center; min-width: 0; }
 .tg-side.foe { direction: rtl; }
 .tg-side.foe > * { direction: ltr; }
@@ -65,6 +68,18 @@
 .tg-strip.last { --edge: linear-gradient(180deg, var(--warn), rgba(242, 166, 59, 0.25)); animation: tg-last 1s ease-in-out infinite; }
 .tg-strip.last .tg-strip-main { color: var(--warn); }
 @keyframes tg-last { 50% { background: rgba(60, 40, 10, 0.78); } }
+@media (min-width: 1024px) {
+  .tg-summary { display: grid; grid-template-columns: minmax(0, 1fr) 244px; align-items: center; --edge: var(--edge-2); background: linear-gradient(180deg, rgba(23, 30, 37, 0.9), rgba(13, 18, 22, 0.92)); }
+  .tg-summary::after { display: block; }
+  .tg-summary > * { min-width: 0; clip-path: none; background: transparent; }
+  .tg-summary > *::after { display: none; }
+  .tg-summary .tg-score { font-size: 48px; }
+  .tg-summary .tg-scoreboard-in { grid-template-columns: minmax(0, 1fr) minmax(120px, 220px) minmax(0, 1fr); gap: 16px; }
+  .tg-summary .tg-strip { align-self: stretch; display: grid; grid-template-columns: 1fr auto; align-content: center; gap: 8px 12px; border-left: 1px solid var(--line-2); padding: 12px 20px; }
+  .tg-summary .tg-strip-main { grid-column: 1; grid-row: 1; }
+  .tg-summary .tg-strip-clock { grid-column: 2; grid-row: 1; }
+  .tg-summary .tg-strip-lock { grid-column: 1 / -1; grid-row: 2; }
+}
 .tg-error { margin: 0; color: var(--warn); font-size: var(--fs-14); }
 
 /* the stage */
@@ -234,17 +249,18 @@
 .tg-review { background: transparent; border: 0; color: var(--fg-2); padding: 0 14px; min-height: 40px; font-weight: 700; cursor: pointer; --edge: var(--edge-1); }
 .tg-review:hover { color: var(--fg); }
 
-.tg-legend { list-style: none; margin: 0; padding: 0 4px; display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: var(--fs-13); color: var(--fg-2); }
+.tg-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; font-size: var(--fs-15); color: var(--fg); }
 .tg-legend li { display: inline-flex; align-items: center; gap: 7px; }
 
 @media (max-width: 520px) {
   .tg { gap: 8px; }
   .tg-bar { padding: 8px 12px; flex-wrap: nowrap; }
   .tg-title { font-size: var(--fs-22); }
-  .tg-feed, .tg-bar-r .meta, .tg-strip-clock, .tg-lockbar, .tg-head-chip { display: none; }
+  .tg-lockbar, .tg-head-chip { display: none; }
   .tg-bar-l { flex-wrap: nowrap; gap: 8px; }
   .tg-bar-r { flex-wrap: nowrap; gap: 6px; }
-  .tg-scoreboard { gap: 4px 8px; padding: 8px 12px; }
+  .tg-scoreboard { padding: 8px 12px; }
+  .tg-scoreboard-in { gap: 4px 8px; }
   .tg-score { font-size: 36px; }
   .tg-sub { display: none; }
   .tg-side { gap: 2px 8px; }
@@ -258,15 +274,14 @@
   .tg-legend { font-size: var(--fs-12); gap: 4px 14px; }
 }
 @media (max-width: 720px) {
-  .tg-scoreboard { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "a b" "v v"; padding: 10px 12px; }
-  .tg-scoreboard > :nth-child(1) { grid-area: a; }
-  .tg-scoreboard > :nth-child(3) { grid-area: b; }
-  .tg-scoreboard > :nth-child(2) { grid-area: v; order: 3; }
+  .tg-scoreboard-in { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "a b" "v v"; }
+  .tg-scoreboard-in > :nth-child(1) { grid-area: a; }
+  .tg-scoreboard-in > :nth-child(3) { grid-area: b; }
+  .tg-scoreboard-in > :nth-child(2) { grid-area: v; order: 3; }
   .tg-name { max-width: 9ch; font-size: var(--fs-14); }
   .tg-avatar { width: 32px; height: 32px; }
   .tg-tally li { width: 7px; height: 10px; }
   .tg-gl { font-size: var(--fs-11); right: 4px; }
-  .tg-strip-lock { flex: 1 1 100%; }
   .tg-strip-clock { margin-left: 0; }
 }
 
@@ -274,3 +289,11 @@
   .tg-float { display: none; }
   .tg *, .tg *::before, .tg *::after { animation: none !important; transition: none !important; }
 }
+
+/* the header's Pot and the strip's numbers (no sentences during play) */
+.tg-pot-chip { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-15); color: var(--em-hi); }
+.tg-strip-main > span, .tg-strip-lock { display: inline-flex; align-items: center; gap: 6px; }
+.tg-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--up); box-shadow: 0 0 0 3px rgba(80, 220, 160, 0.2); }
+.tg-strip-clock { font-size: var(--fs-16); }
+
+@media (max-width: 520px) { .tg-bar { padding: 6px 8px; gap: 6px; } .tg-bar-l { gap: 5px; } .tg-bar .game-tag { font-size: var(--fs-10); padding-inline: 5px; } .tg-asset { padding-inline: 6px; } }

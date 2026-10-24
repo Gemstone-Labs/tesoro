@@ -46,3 +46,22 @@ describe("game full screen", () => {
     expect(seen).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("game cover session", () => {
+  it("keeps the cover at the result, preserves a manual exit on remount and clears it on Leave", async () => {
+    const d = fakeDocument();
+    const fs = await import("./full-screen");
+    const session = fs.createCoverSession();
+    session.enter();
+    expect(d.classes.has("game-full")).toBe(true);
+    session.enter();
+    expect(fs.isFullScreen()).toBe(true);
+    fs.setFullScreen(false);
+    session.enter();
+    expect(fs.isFullScreen()).toBe(false);
+    fs.setFullScreen(true);
+    session.leave();
+    expect(fs.isFullScreen()).toBe(false);
+    expect(d.requestFullscreen).not.toHaveBeenCalled();
+  });
+});

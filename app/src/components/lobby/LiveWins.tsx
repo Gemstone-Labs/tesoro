@@ -12,10 +12,11 @@ import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 
 /** Recent wins, settled on Solana devnet, as one slow strip under the hero. Pauses on hover and focus. */
 export function LiveWins() {
-  const { matches } = useRecentSettled(12);
+  const { matches, loading } = useRecentSettled(12);
   const { snapshot } = useAccount();
   const me = snapshot?.accountKey.toBase58();
-  if (matches.length === 0) return null;
+  const pending = loading && matches.length === 0;
+  if (!pending && matches.length === 0) return null;
 
   const item = (m: SettledMatch, copy: boolean) => (
     <li key={`${copy ? "c" : "o"}${m.id.toString()}`} aria-hidden={copy || undefined}>
@@ -37,16 +38,26 @@ export function LiveWins() {
   );
 
   return (
-    <section className="cut cut-card live-wins" aria-label="Recent wins">
+    <section className="cut cut-card live-wins" aria-label="Recent wins" aria-busy={pending || undefined}>
       <span className="live-tag">
         <i className="live-dot" aria-hidden="true" />
         Live wins
       </span>
       <div className="lw-viewport">
-        <ul className="lw-track" style={{ ["--dur" as string]: `${Math.max(36, matches.length * 6)}s` }}>
+        {pending ? (
+          <div className="lw-placeholders" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="lw-placeholder skel">
+                <span className="cut cut-btn lw-av skel-av" />
+                <span className="skel-line" style={{ width: 64 }} />
+                <span className="skel-line lg" style={{ width: 48 }} />
+              </div>
+            ))}
+          </div>
+        ) : <ul className="lw-track" style={{ ["--dur" as string]: `${Math.max(36, matches.length * 6)}s` }}>
           {matches.map((m) => item(m, false))}
           {matches.map((m) => item(m, true))}
-        </ul>
+        </ul>}
       </div>
     </section>
   );

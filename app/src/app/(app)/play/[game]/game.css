@@ -1,30 +1,37 @@
 /* ——— Game detail page (take-1: game-block-puzzle) ——— */
 .gp { display: grid; gap: var(--section-gap); }
-.gp-hero { --edge: var(--edge-2); position: relative; overflow: hidden; background: #060a10; min-height: 460px; display: grid; align-items: center; }
-.gp-hero-art { object-fit: cover; object-position: 70% 50%; }
-.gp-hero::before { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(90deg, rgba(6, 10, 16, 0.94) 0 32%, rgba(6, 10, 16, 0.55) 55%, transparent 80%); }
-.gp-hero-body { position: relative; z-index: 2; display: grid; gap: 22px; justify-items: start; padding: 40px 18px; max-width: 760px; }
+/* G2: the game's art on top (its top corners cut like the Gema), the name and an ⓘ on it; the entry and the buttons in a
+   panel that overlaps the art's foot. How to play opens from the ⓘ. */
+.gp-hero { position: relative; display: grid; }
+.gp-art {
+  --c: var(--cut-frame); position: relative; overflow: hidden; aspect-ratio: 1; background: #060a10;
+  clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% 100%, 0 100%, 0 var(--c));
+}
+.gp-hero-art { object-fit: cover; object-position: center; }
+.gp-art::after { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, transparent 40%, rgba(6, 10, 16, 0.7) 78%, rgba(6, 10, 16, 0.95)); }
+.gp-art-title { position: absolute; z-index: 2; left: 16px; right: 8px; bottom: 44px; display: flex; align-items: flex-end; gap: 8px; }
+.gp-info { flex: none; display: grid; place-items: center; width: 44px; height: 44px; background: transparent; border: 0; color: var(--fg); }
+.gp-info svg { width: 22px; height: 22px; }
+.gp-hero-body { position: relative; z-index: 3; margin-top: -32px; display: grid; gap: 14px; padding: 16px; background: var(--surface); --edge: var(--edge-2); }
 .gp-tag { --edge: var(--edge-2); background: rgba(9, 13, 15, 0.8); display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: var(--fs-15); color: var(--fg-2); }
 .gp-tag svg { width: 20px; height: 20px; color: var(--fg); }
-.gp-title { font-family: var(--f-display); text-transform: uppercase; font-size: clamp(52px, 6.4vw, 120px); font-weight: 800; line-height: 0.9; color: #fff; }
-.gp-sub { font-size: clamp(16px, 1.5vw, 24px); color: var(--fg); line-height: 1.35; }
-.gp-hero .entries { width: min(100%, 470px); }
-.gp-hero .entry span { min-height: 58px; font-size: var(--fs-20); }
+.gp-title { font-family: var(--f-display); text-transform: uppercase; font-size: clamp(40px, 11vw, 96px); font-weight: 800; line-height: 0.9; color: #fff; }
+.gp-hero .entries { width: 100%; }
+.gp-hero .entry span { min-height: 54px; font-size: var(--fs-18); }
 /* one two-line money action (entry, who is waiting), the two free ways to play paired under it */
-.gp-cta { display: grid; gap: 12px; width: min(100%, 470px); }
-.gp-cta > .btn.money { display: grid; justify-items: center; align-content: center; gap: 4px; min-height: 80px; padding: 10px 20px 13px; line-height: 1.1; }
+.gp-cta { display: grid; gap: 10px; width: 100%; }
+.gp-cta > .btn.money { display: grid; justify-items: center; align-content: center; gap: 4px; min-height: 72px; padding: 10px 20px 12px; line-height: 1.1; }
 .gp-play-label { font-size: var(--fs-24); font-weight: 900; }
 .gp-play-sub { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-14); font-weight: 700; word-spacing: normal; opacity: 0.82; }
 .gp-play-sub svg { width: 15px; height: 15px; }
 /* side by side when both labels fit, stacked full width when they do not */
-.gp-more { display: flex; flex-wrap: wrap; gap: 12px; }
-.gp-more > .btn { flex: 1 1 auto; }
-.gp-more .btn.neutral { min-width: 0; min-height: 52px; gap: 9px; padding: 0 12px; font-size: var(--fs-16); white-space: nowrap; background: rgba(14, 19, 24, 0.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.gp-more { display: flex; flex-wrap: wrap; gap: 10px; }
+.gp-more > .btn { flex: 1 1 13rem; }
+.gp-more .btn.neutral { min-width: 0; min-height: 48px; gap: 7px; padding: 0 16px; font-size: var(--fs-14); white-space: nowrap; background: rgba(14, 19, 24, 0.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .gp-more .btn.neutral:hover { background: var(--surface-2); }
 .gp-more .btn svg { width: 18px; height: 18px; color: var(--fg-2); }
 
 .gp-grid { display: grid; gap: var(--section-gap); grid-template-columns: minmax(0, 1fr); }
-.gp-right { display: grid; gap: 16px; align-content: start; min-width: 0; }
 .gp-panel { --edge: transparent; clip-path: none; background: transparent; padding: 0; display: grid; gap: 16px; align-content: start; min-width: 0; }
 .gp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .gp-head .h-section { font-size: clamp(28px, 2.4vw, 42px); color: #fff; }
@@ -39,46 +46,73 @@
 .gp-topname { font-size: var(--fs-17); font-weight: 700; }
 .gp-score { font-size: var(--fs-22); font-weight: 800; }
 
-.gp-how { min-height: 200px; }
-.gp-how .h-section { font-size: clamp(28px, 2.4vw, 42px); color: #fff; margin-bottom: 2px; }
-.gp-how .bust-card-body b { font-size: var(--fs-17); }
-.gp-how ol { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; counter-reset: s; }
+.gp-how { display: grid; gap: 10px; }
+.gp-how-sub { color: var(--fg-2); font-size: var(--fs-14); }
+.gp-how b { font-size: var(--fs-17); }
+.gp-how ol { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; counter-reset: s; }
 .gp-how li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 10px; font-size: var(--fs-15); color: var(--fg); }
 .gp-how li::before { content: counter(s); display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--fg-2); font-size: var(--fs-13); font-weight: 700; }
 
-@media (max-width: 639px) {
-  .gp-hero { min-height: 0; }
-  .gp-hero::before { background: linear-gradient(0deg, rgba(6, 10, 16, 0.92) 0 55%, rgba(6, 10, 16, 0.35)); }
-  .gp-hero-art { object-position: 60% 20%; height: 55% !important; }
-  .gp-hero-body { padding-top: 150px; }
-  .gp-how .bust-card-body { padding-right: 0; }
-}
+.gp-body-title { display: none; align-items: flex-end; gap: 10px; }
+/* the hero's own cut and edge show on desktop only; phones cut the art's top and the panel instead */
+.gp-hero.cut { clip-path: none; }
+.gp-hero.cut::after { display: none; }
 @media (min-width: 1024px) {
-  .gp-hero-body { padding: 56px 56px; }
-  .gp-grid { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
-  .gp-grid.solo { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+  /* desktop keeps the earlier hero: the art fills the card, the name and the panel sit on its dark left side */
+  .gp-hero.cut { clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c)); --edge: var(--edge-2); background: #060a10; min-height: 380px; }
+  .gp-hero.cut::after { display: block; }
+  .gp-art { position: absolute; inset: 0; height: auto; aspect-ratio: auto; clip-path: none; background: transparent; }
+  .gp-hero-art { object-position: 70% 50%; }
+  .gp-art::after { background: linear-gradient(90deg, rgba(6, 10, 16, 0.94) 0 32%, rgba(6, 10, 16, 0.55) 55%, transparent 80%); }
+  .gp-art-title { display: none; }
+  .gp-hero-body { margin: 0; padding: 36px 48px; width: min(100%, 580px); gap: 18px; background: transparent; clip-path: none; align-content: center; }
+  .gp-hero-body.cut::after { display: none; }
+  .gp-body-title { display: flex; }
+  .gp-title { font-size: clamp(52px, 5.6vw, 104px); }
 }
 
 .gp-panel::after { display: none; }
 .gp-top-wrap { display: grid; gap: 10px; margin-top: 24px; }
 .gp-sub-h { font-size: var(--fs-18); font-weight: 700; }
 
-/* phones: the hero controls take the full width */
-@media (max-width: 639px) {
-  .gp-cta { width: 100%; }
-  .gp-hero .entries { width: 100%; }
-}
-
-/* the game page hero shares the Lobby hero's entrance */
-.gp-hero-art { animation: hero-settle 9s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+/* the art settles in, the panel rises, light catches the stones */
+@media (min-width: 1024px) { .gp-hero-art { animation: hero-settle 9s cubic-bezier(0.2, 0.7, 0.2, 1) both; } }
 .gp-hero .sparkles { z-index: 1; }
 .gp-hero-body > * { animation: hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 .gp-hero-body > :nth-child(2) { animation-delay: 70ms; }
 .gp-hero-body > :nth-child(3) { animation-delay: 140ms; }
-.gp-hero-body > :nth-child(4) { animation-delay: 210ms; }
-.gp-hero .assets { width: min(100%, 470px); }
+@keyframes hero-settle { from { transform: scale(1.09) translateX(1.5%); } }
+@keyframes hero-rise { from { opacity: 0; translate: 0 18px; } }
+.sparkles { position: absolute; inset: 0; pointer-events: none; }
+.sparkles i {
+  position: absolute; width: 16px; height: 16px; opacity: 0;
+  background: radial-gradient(circle, #fff 0 18%, rgba(180, 235, 255, 0.85) 32%, transparent 68%);
+  clip-path: polygon(50% 0, 58% 42%, 100% 50%, 58% 58%, 50% 100%, 42% 58%, 0 50%, 42% 42%);
+  animation: twinkle 3.8s ease-in-out infinite;
+}
+.sparkles i:nth-child(1) { left: 58%; top: 22%; animation-delay: 0.2s; }
+.sparkles i:nth-child(2) { left: 71%; top: 12%; animation-delay: 1.4s; width: 22px; height: 22px; }
+.sparkles i:nth-child(3) { left: 84%; top: 30%; animation-delay: 2.6s; }
+.sparkles i:nth-child(4) { left: 64%; top: 58%; animation-delay: 0.9s; width: 12px; height: 12px; }
+.sparkles i:nth-child(5) { left: 92%; top: 64%; animation-delay: 3.1s; width: 20px; height: 20px; }
+.sparkles i:nth-child(6) { left: 77%; top: 78%; animation-delay: 1.9s; }
+.sparkles i:nth-child(7) { left: 53%; top: 82%; animation-delay: 2.2s; width: 12px; height: 12px; }
+.sparkles i:nth-child(8) { left: 88%; top: 8%; animation-delay: 0.6s; width: 12px; height: 12px; }
+.sparkles i:nth-child(9) { left: 68%; top: 40%; animation-delay: 3.4s; width: 18px; height: 18px; }
+.sparkles i:nth-child(10) { left: 96%; top: 44%; animation-delay: 1.1s; }
+@keyframes twinkle { 0%, 100% { opacity: 0; transform: scale(0.3) rotate(0deg); } 45% { opacity: 1; transform: scale(1) rotate(45deg); } 60% { opacity: 0.2; } }
+@media (prefers-reduced-motion: reduce) { .gp-hero-art, .gp-hero-body > *, .sparkles i { animation: none; } }
+.gp-hero .assets { width: 100%; }
 .gp-hero .asset span { min-height: 60px; }
 .gp-hero .asset b { font-size: var(--fs-18); }
+
+/* phones and tablets: the art keeps its full square; the name and the panel ride up over its lower part instead */
+@media (max-width: 1023px) {
+  .gp-hero { --gp-lift: min(38vw, 180px); }
+  .gp-hero-body { margin-top: calc(-1 * var(--gp-lift)); }
+  .gp-art-title { bottom: calc(var(--gp-lift) + 10px); }
+  .gp-art::after { background: linear-gradient(180deg, transparent 22%, rgba(6, 10, 16, 0.7) 50%, rgba(6, 10, 16, 0.95) 68%); }
+}
 
 @media (max-width: 420px) {
   .gp-hero .entry span { font-size: var(--fs-18); }

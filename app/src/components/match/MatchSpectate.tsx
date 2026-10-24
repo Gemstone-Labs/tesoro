@@ -152,7 +152,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
             Play {GAME_NAMES[m.game]}
           </Button>
         )}
-        <Button size="lg" href="/lobby">Lobby</Button>
+        <Button size="lg" href="/play">Back to games</Button>
         <Button size="lg" href="/matches">All Matches</Button>
       </div>
     </div>

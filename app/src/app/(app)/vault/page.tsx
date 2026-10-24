@@ -11,7 +11,8 @@ import { requestGetGemas } from "@/lib/get-gemas";
 import { WalletView } from "../wallet/WalletView";
 import { SimpleVault } from "./SimpleVault";
 import { ProViewSwitch } from "@/components/deposit/ProViewSwitch";
-import { VaultHeader } from "./VaultHeader";
+import { VaultBacking } from "./VaultBacking";
+import { VaultActions, VaultHeader } from "./VaultHeader";
 import "./vault.css";
 
 export default function VaultPage() {
@@ -64,12 +65,14 @@ function Vault() {
       {resolved && (
         <div className="wl">
           <WalletView part="card" />
+          <VaultActions mobile />
           <div className="vt-below">
-            <ProViewSwitch className="vt-pro" on={!simple} onChange={(on) => setMode(on ? "advanced" : "simple")} />
+            <ProViewSwitch className="vt-pro" tip={false} on={!simple} onChange={(on) => setMode(on ? "advanced" : "simple")} />
             {simple ? <SimpleVault /> : <WalletView part="body" />}
           </div>
         </div>
       )}
+      {signedIn && <VaultBacking />}
     </>
   );
 }

@@ -28,7 +28,7 @@ export function FriendLinkCard({ code, owner }: { code: string; owner: string | 
         <div className="stack">
           <h1 className="page-title">Add-me link</h1>
           <p className="meta">This link no longer works. Ask your friend for their new add-me link.</p>
-          <Button href="/lobby">Go to the Lobby</Button>
+          <Button href="/play">Play</Button>
         </div>
       </Card>
     );

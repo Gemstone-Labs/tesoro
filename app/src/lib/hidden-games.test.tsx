@@ -2,9 +2,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { PublicKey } from "@solana/web3.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/components/shell/SearchContext", () => ({ useSearch: () => ({ query: "", setQuery: () => undefined }), matchesQuery: () => true }));
 vi.mock("@/components/lobby/useQueue", () => ({ useQueue: () => null }));
-vi.mock("@/lib/account", () => ({ useAccount: () => ({ auth: { status: "signed-out" }, snapshot: null }) }));
+vi.mock("@/lib/account", () => ({ useAccount: () => ({ auth: { status: "signed-out" }, snapshot: null, openMatches: [], error: null }) }));
+
+vi.mock("@/lib/friends/FriendsProvider", () => ({ useFriends: () => ({ status: "ready", view: { challenges: [] } }) }));
+vi.mock("@/lib/chain/useRecentSettled", () => ({ useRecentSettled: () => ({ matches: [], loading: false, error: null }) }));
 
 /** Loads a module fresh with NEXT_PUBLIC_HIDDEN_GAMES set (or unset), as a build would see it. */
 async function withSwitch<T>(value: string | undefined, load: () => Promise<T>): Promise<T> {
@@ -35,8 +37,6 @@ describe("NEXT_PUBLIC_HIDDEN_GAMES", () => {
     expect(c.LOBBY_ORDER).toEqual(["holdem", "trading-duel", "block-puzzle"]);
     expect(c.CATALOGUE.some((e) => e.game === "vanguard")).toBe(false);
     expect(c.CATALOGUE.some((e) => e.name === "Word Duel")).toBe(true);
-    const hero = await import("@/components/lobby/HeroCarousel");
-    expect(hero.SLIDES.map((s) => s.game)).toEqual(["holdem", "trading-duel", "block-puzzle"]);
   });
 
   it("keeps the Game when the switch is unset", async () => {
@@ -44,10 +44,12 @@ describe("NEXT_PUBLIC_HIDDEN_GAMES", () => {
     expect(c.LOBBY_ORDER[0]).toBe("vanguard");
   });
 
-  it("leaves Vanguard out of the rendered Lobby rail, the landing Games and the Docs lists", async () => {
+  it("leaves Vanguard out of the rendered Play home, the landing Games and the Docs lists", async () => {
     await withSwitch("vanguard", async () => undefined);
-    const { PlayNowRail } = await import("@/components/lobby/PlayNowRail");
-    expect(renderToStaticMarkup(<PlayNowRail />)).not.toMatch(/vanguard/i);
+    const { PlayHome } = await import("@/app/(app)/play/PlayHome");
+    const home = renderToStaticMarkup(<PlayHome />);
+    expect(home).not.toMatch(/vanguard/i);
+    expect(home).toContain('href="/play/holdem"');
     const { GameCards } = await import("@/components/docs/visual");
     expect(renderToStaticMarkup(<GameCards />)).not.toMatch(/vanguard/i);
     const { StartCards } = await import("@/components/docs/StartCards");

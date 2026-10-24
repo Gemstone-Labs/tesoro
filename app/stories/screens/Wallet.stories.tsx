@@ -76,7 +76,7 @@ export const FromNotEnoughGemas: Story = { parameters: { screen: { search: "open
 /** The Get Gemas sheet on its first tab, SOL. */
 export const OpenSolPosition: Story = {
   play: async ({ canvasElement }) => {
-    const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Get Gemas/ })[0], { timeout: 10_000 });
+    const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Buy Gemas/ })[0], { timeout: 10_000 });
     await userEvent.click(open);
   },
 };
