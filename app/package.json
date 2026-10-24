@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prototype:block-burst": "vite --config src/games/block-puzzle/prototype/vite.config.mts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

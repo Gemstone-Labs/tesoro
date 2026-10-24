@@ -1,0 +1,6 @@
+{
+  "extends": "../../../../tsconfig.json",
+  "compilerOptions": { "target": "ES2022", "incremental": false, "types": ["vite/client"] },
+  "include": ["./*.ts", "./*.mts"],
+  "exclude": ["node_modules"]
+}
