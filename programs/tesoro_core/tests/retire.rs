@@ -725,3 +725,63 @@ fn only_an_old_treasury_closes_and_init_treasury_recreates_it() {
     assert_eq!(custom_code(&err), NOT_OLD_WORLD);
     assert!(!env.gone(common::treasury()));
 }
+
+const PRE_ROUTE_CUSTODY_LEN: usize = 178;
+
+fn migrate_ix(admin: APk) -> Instruction {
+    ix(
+        accounts::MigrateNativeCustody {
+            admin,
+            config: pda(&[CONFIG_SEED]),
+            custody: pda(&[NATIVE_SEED]),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::MigrateNativeCustody {},
+    )
+}
+
+#[test]
+fn a_custody_from_before_the_route_grows_to_the_current_layout() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    let custody = pda(&[NATIVE_SEED]);
+    let mut old = with_disc(NativeCustody::DISCRIMINATOR, PRE_ROUTE_CUSTODY_LEN);
+    old[8] = 254;
+    old[170..178].copy_from_slice(&7u64.to_le_bytes());
+    put(&mut env.svm, custody, tesoro_core::ID, old);
+
+    env.send(&[migrate_ix(a(admin.pubkey()))], &[&admin])
+        .expect("migrate");
+
+    let got = env.svm.get_account(&s(custody)).expect("custody");
+    assert_eq!(got.data.len(), NativeCustody::SPACE);
+    assert!(got.lamports >= 1_000_000, "rent paid");
+    let decoded = NativeCustody::try_deserialize(&mut &got.data[..]).expect("decodes now");
+    assert_eq!(decoded.bump, 254);
+    assert_eq!(decoded.open_positions, 7);
+    assert_eq!(decoded.route, ledger::RouteLedger::default());
+
+    // Done once: a custody of the current layout is refused.
+    let err = env
+        .send(&[migrate_ix(a(admin.pubkey()))], &[&admin])
+        .expect_err("second run");
+    assert_eq!(custom_code(&err), NOT_OLD_WORLD);
+}
+
+#[test]
+fn only_the_admin_migrates_the_custody() {
+    let mut env = Env::new();
+    let custody = pda(&[NATIVE_SEED]);
+    put(
+        &mut env.svm,
+        custody,
+        tesoro_core::ID,
+        with_disc(NativeCustody::DISCRIMINATOR, PRE_ROUTE_CUSTODY_LEN),
+    );
+    let stranger = Keypair::new();
+    env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    let err = env
+        .send(&[migrate_ix(a(stranger.pubkey()))], &[&stranger])
+        .expect_err("stranger");
+    assert_eq!(custom_code(&err), UNAUTHORIZED);
+}

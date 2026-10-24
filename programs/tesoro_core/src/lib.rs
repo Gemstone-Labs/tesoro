@@ -545,6 +545,12 @@ pub mod tesoro_core {
         instructions::native::init_native_custody(ctx)
     }
 
+    /// Admin, once: extends a native custody created before `route` existed (178 B) to the
+    /// current layout, with an empty route.
+    pub fn migrate_native_custody(ctx: Context<MigrateNativeCustody>) -> Result<()> {
+        instructions::native::migrate_native_custody(ctx)
+    }
+
     // --- Mainnet SOL Positions on a real staking token (ADR 0011) -----------------------------
 
     /// Admin: the staking token new SOL Positions open with (creates its custody and vault the
