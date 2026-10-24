@@ -5,7 +5,7 @@ import { useGuideHidden } from "@/components/guide/Guide";
 import { Button, CountUp, GemaMark, Label } from "@/components/ui";
 import { PlayerAvatar } from "@/components/account/Player";
 import { useAccount } from "@/lib/account";
-import { Rows3, Vibrate, Zap } from "lucide-react";
+import { Rows3, Vibrate, VibrateOff, Zap } from "lucide-react";
 import { apply, EngineFailure, MAX_MOVES, SIZE, dims, fitsAnywhere, handBase, newState, pieceAt, pieceCells } from "./engine";
 import type { Piece, State } from "./engine";
 import { Arena, Countdown, GameMenu, burst, prefersReducedMotion, sfx } from "../fx";
@@ -20,7 +20,6 @@ import { blockSound } from "../fx/sfx";
 import { useTransientEffects } from "./use-transient-effects";
 import { useBoardPreview } from "./use-board-preview";
 import { createScorePresentation } from "./score-presentation";
-import { VibrationCheck } from "./VibrationCheck";
 import "./block-puzzle.css";
 
 const DURATION_MS = 90_000;
@@ -159,21 +158,12 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   const { later, animate, reset: resetEffects } = useTransientEffects();
   const vibration = useSyncExternalStore(blockHaptics.subscribe, blockHaptics.enabled, () => true);
   const supportsVibration = useSyncExternalStore(blockHaptics.subscribe, blockHaptics.supported, () => false);
-  const [checkingVibration, setCheckingVibration] = useState(false);
-  const resumeAfterCheck = useRef(false);
   const gameItems = [...(supportsVibration ? [{
     label: vibration ? "Vibration on" : "Vibration off",
-    icon: <Vibrate aria-hidden="true" />,
+    icon: vibration ? <Vibrate aria-hidden="true" /> : <VibrateOff aria-hidden="true" />,
     checked: vibration,
     keepOpen: true,
     onSelect: () => { blockHaptics.setEnabled(!vibration); if (!vibration) blockHaptics.play(0, 0); },
-  }] : []), ...(!run ? [{
-    label: "Test vibration", icon: <Vibrate aria-hidden="true" />,
-    onSelect: () => {
-      resumeAfterCheck.current = phase === "play" && !paused;
-      if (resumeAfterCheck.current) { onTrayCancel(); togglePause(); }
-      setCheckingVibration(true);
-    },
   }] : [])];
   const popupId = useRef(0);
   const scoreEl = useRef<HTMLSpanElement>(null);
@@ -576,7 +566,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
             ))}
           </div>
           {sweeps.map((w) => (
-            <span key={w.id} className={`bp-sweep ${w.axis}`} style={{ "--at": w.at } as React.CSSProperties} aria-hidden="true" />
+            <span key={w.id} className="bp-sweep" data-axis={w.axis} style={{ "--at": w.at } as React.CSSProperties} aria-hidden="true" />
           ))}
           </div>
         </div>
@@ -626,7 +616,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           </div>
         )}
 
-        {moment && <div key={moment.id} className={`bp-moment ${moment.tone}`} style={{ top: `${moment.y}%` }} aria-hidden="true">
+        {moment && <div key={moment.id} className={`bp-moment ${moment.tone}`} data-placement={moment.y >= 50 ? "above" : "below"} style={{ top: `${moment.y}%` }} aria-hidden="true">
           <strong>{moment.text}</strong>
           {(moment.combo ?? 0) >= 2 && !moment.text.startsWith("Combo") && <small>Combo ×{moment.combo}</small>}
         </div>}
@@ -692,12 +682,6 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           </div>
         </div>
       )}
-      {checkingVibration && <VibrationCheck onClose={() => {
-        setCheckingVibration(false);
-        if (resumeAfterCheck.current) togglePause();
-        resumeAfterCheck.current = false;
-        document.querySelector<HTMLButtonElement>('button[aria-label="Game menu"]')?.focus();
-      }} />}
       <span className="sr-only" role="status" aria-live="polite">{announce}</span>
     </div>
     </Arena>

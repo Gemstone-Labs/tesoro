@@ -158,10 +158,10 @@
   100% { transform: scale(.2); opacity: 0; }
 }
 .bp-sweep { position: absolute; pointer-events: none; z-index: 2; --at: 0; overflow: hidden; }
-.bp-sweep.row { left: 9px; right: 9px; top: calc(9px + (100% - 14px) / 8 * var(--at)); height: calc((100% - 46px) / 8); }
-.bp-sweep.col { top: 9px; bottom: 9px; left: calc(9px + (100% - 14px) / 8 * var(--at)); width: calc((100% - 46px) / 8); }
+.bp-sweep[data-axis="row"] { left: 9px; right: 9px; top: calc(9px + (100% - 14px) / 8 * var(--at)); height: calc((100% - 46px) / 8); }
+.bp-sweep[data-axis="col"] { top: 9px; bottom: 9px; left: calc(9px + (100% - 14px) / 8 * var(--at)); width: calc((100% - 46px) / 8); }
 .bp-sweep::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.95), transparent); animation: bp-sweep-x 360ms cubic-bezier(.16,1,.3,1) both; }
-.bp-sweep.col::after { background: linear-gradient(180deg, transparent, rgba(255,255,255,.95), transparent); animation-name: bp-sweep-y; }
+.bp-sweep[data-axis="col"]::after { background: linear-gradient(180deg, transparent, rgba(255,255,255,.95), transparent); animation-name: bp-sweep-y; }
 @keyframes bp-sweep-x { from { transform: translateX(-100%); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
 @keyframes bp-sweep-y { from { transform: translateY(-100%); opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
 
@@ -234,18 +234,11 @@
 
 /* Clear ghosts have their own cells, so animation never changes a playable cell's opacity. */
 .bp-clear-grid { position: absolute; inset: 0; padding: 9px; display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); gap: 4px; pointer-events: none; }
-.bp-moment { position: absolute; left: 50%; width: max-content; max-width: 95%; z-index: 8; pointer-events: none; text-align: center; transform: translate(-50%, -100%); animation: bp-moment 1000ms cubic-bezier(.16,1,.3,1) both; color: #fff; text-shadow: 0 2px 2px #080c14, 0 0 14px rgba(63,198,255,.6); }
+.bp-moment { --moment-offset: 24px; position: absolute; left: 50%; width: max-content; max-width: 95%; z-index: 8; pointer-events: none; text-align: center; transform: translate(-50%, var(--moment-offset)); animation: bp-moment 1000ms cubic-bezier(.16,1,.3,1) both; color: #fff; text-shadow: 0 2px 2px #080c14, 0 0 14px rgba(63,198,255,.6); }
+.bp-moment[data-placement="above"] { --moment-offset: calc(-100% - 40px); }
 .bp-moment strong { display: block; font-size: clamp(24px, 6.5vw, 34px); font-weight: 900; line-height: 1.05; }
 .bp-moment small { display: block; margin-top: 4px; font-size: 20px; font-weight: 800; color: #ffcf6b; }
 .bp-moment.gem { color: var(--em-hi); }
 .bp-moment.up { color: #6ea8ff; }
-@keyframes bp-moment { 0% { opacity: 0; transform: translate(-50%, -80%) scale(.85); } 12% { opacity: 1; transform: translate(-50%, -100%) scale(1.08); } 25%, 70% { opacity: 1; transform: translate(-50%, -100%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -125%) scale(1); } }
+@keyframes bp-moment { 0% { opacity: 0; transform: translate(-50%, calc(var(--moment-offset) + 8px)) scale(.85); } 12% { opacity: 1; transform: translate(-50%, var(--moment-offset)) scale(1.08); } 25%, 70% { opacity: 1; transform: translate(-50%, var(--moment-offset)) scale(1); } 100% { opacity: 0; transform: translate(-50%, calc(var(--moment-offset) - 8px)) scale(1); } }
 @media (prefers-reduced-motion: reduce) { .bp-moment { animation: none; } }
-
-.bp-vibration-check { width: min(420px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; background: #111922; color: var(--fg); border: 1px solid var(--edge-2); padding: 24px; }
-.bp-vibration-check::backdrop { background: rgba(0,0,0,.7); }
-.bp-vibration-check h2 { font-size: 24px; margin: 0 0 12px; }
-.bp-vibration-check p { line-height: 1.5; margin: 14px 0; }
-.bp-vibration-check button { margin: 8px 0; min-height: 44px; }
-.bp-vibration-answers { display: flex; flex-wrap: wrap; gap: 8px; }
-.bp-vibration-check details { font-size: 13px; margin: 16px 0; color: var(--fg-2); }
