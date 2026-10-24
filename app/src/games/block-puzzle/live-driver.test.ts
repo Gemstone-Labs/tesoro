@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PublicKey } from "@solana/web3.js";
 import { ASSIGNED, SECS, blankTable, fixtureAssignment, fixtureBoard } from "./live-fixtures";
 import { CHECKIN_SLOTS, REASON, SEED_RETRY_SLOTS, SLOT, TABLE_PHASE, type Table } from "./live-chain";
 import { OPENER_EXTRA_MS, STEP_IN_MS, nextStep, steppedIn, type DriveInput } from "./live-driver";
@@ -34,7 +35,7 @@ describe("nextStep", () => {
   });
 
   describe("begin_match", () => {
-    const idle = { table: blankTable({ phase: TABLE_PHASE.idle }) };
+    const idle = { table: blankTable({ phase: TABLE_PHASE.idle, tesoroMatch: PublicKey.default }) };
     it("leaves it to the keeper at first", () => expect(nextStep(input(idle))).toEqual({ kind: "wait", why: "setup" }));
     it("does it when the table has not moved (keeper down)", () => expect(kind(input({ ...idle, stalledMs: LATE }))).toBe("beginMatch"));
     it("not after the start window: tesoro_core refunds at its deadline", () => expect(nextStep(input({ ...idle, stalledMs: LATE, nowS: 5_001 }))).toEqual({ kind: "wait", why: "setup" }));

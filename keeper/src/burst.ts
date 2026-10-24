@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { atAssignedEpoch } from "../../app/src/lib/chain/table-epoch.ts";
 import {
   CHECKIN_SLOTS,
   MAX_SEED_REQUESTS,
@@ -108,7 +109,7 @@ export function burstStep(d: BurstFacts, now: number, deadline: number): BurstSt
 
 /** Facts for `burstStep` from the Assignment, the table in the rollup, base's copy of it and the rollup's slot. */
 export function burstFacts(a: Assignment | null, live: Table | null, base: Table | null, nowS: number, slot: number): BurstFacts {
-  const ours = !!a && !!live && !!tableOf(a, live);
+  const ours = !!a && !!live && (!!tableOf(a, live) || (live.phase === TABLE_PHASE.idle && atAssignedEpoch(a, live)));
   return {
     assigned: !!a,
     ours,

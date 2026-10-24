@@ -1,5 +1,7 @@
 "use client";
 
+import { atAssignedEpoch } from "@/lib/chain/table-epoch";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getVanguard } from "@/lib/chain/client";
@@ -241,6 +243,12 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
     }
     const t = await vg.readTable(p, a);
     if (!t) return setStage("setup", "Setting up the Match");
+    const nowS = Math.floor(Date.now() / 1000);
+    if (t.phase === TABLE_PHASE.idle && atAssignedEpoch(a, t)) {
+      setStage("setup", "Starting the Match");
+      if (late && nowS <= a.startDeadline) await vg.beginMatch(p, a).catch(() => undefined);
+      return;
+    }
     if (!tableOf(a, t)) {
       // The table has been wiped for its next Match: the result lives in the committed ring.
       setStage("closing", "Paying out the Pot");
@@ -249,13 +257,6 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
     const b = await vg.readBattle(p, a);
     if (!b || !b.tesoroMatch.equals(mk!)) return setStage("setup", "Setting up the Match");
     applyBattle(b);
-    const nowS = Math.floor(Date.now() / 1000);
-
-    if (t.phase === TABLE_PHASE.idle) {
-      setStage("setup", "Starting the Match");
-      if (late && nowS <= a.startDeadline) await vg.beginMatch(p, a).catch(() => undefined);
-      return;
-    }
     if (t.phase === TABLE_PHASE.waiting) {
       if (nowS > t.startDeadline) {
         // Never both checked in: the Player who came wins, nobody coming is a no-show.

@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { atAssignedEpoch } from "../../app/src/lib/chain/table-epoch.ts";
 import { PHASE, bookPda, canFinalizeTable, decodeDuel, type Assignment, type Table } from "../../app/src/games/trading-duel/chain.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { refund } from "./blockpuzzle.ts";
@@ -73,7 +74,7 @@ export function duelFacts(a: Assignment | null, live: Table | null, base: Table 
   const duel = a && live ? decodeDuel(a, live) : null;
   return {
     assigned: !!a,
-    ours: !!duel,
+    ours: !!duel || (!!a && !!live && live.phase === PHASE.idle && atAssignedEpoch(a, live)),
     phase: live?.phase ?? PHASE.idle,
     seatsOpen: live?.seatsOpen ?? false,
     dirty: live?.dirty ?? false,

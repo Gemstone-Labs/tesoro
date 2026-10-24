@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { atAssignedEpoch } from "../../app/src/lib/chain/table-epoch.ts";
 import { ComputeBudgetProgram, type Connection } from "@solana/web3.js";
 import {
   CU,
@@ -123,7 +124,7 @@ export function vanguardStep(f: VanguardFacts, now: number, deadline: number, sl
 
 /** Facts for `vanguardStep` from the Assignment, the table and its Battle in the rollup, and base's copy of the table. */
 export function vanguardFacts(a: Assignment | null, live: TableState | null, b: Battle | null, base: TableState | null, nowS: number): VanguardFacts {
-  const ours = !!a && !!live && tableOf(a, live) && !!b && b.tesoroMatch.equals(a.tesoroMatch);
+  const ours = !!a && !!live && ((live.phase === TABLE_PHASE.idle && atAssignedEpoch(a, live)) || (tableOf(a, live) && !!b && b.tesoroMatch.equals(a.tesoroMatch)));
   return {
     assigned: !!a,
     ours,

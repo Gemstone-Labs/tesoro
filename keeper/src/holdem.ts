@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { atAssignedEpoch } from "../../app/src/lib/chain/table-epoch.ts";
 import { PHASE, SLOT, TABLE_PHASE, canFinalizeTable, tableOf, type Assignment, type Table } from "../../app/src/games/holdem/chain.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { refund } from "./blockpuzzle.ts";
@@ -80,7 +81,7 @@ export function holdemStep(d: HoldemFacts, now: number, deadline: number): Holde
 
 /** Facts for `holdemStep` from the Assignment, the table in the rollup and base's copy of it. */
 export function holdemFacts(a: Assignment | null, live: Table | null, base: Table | null, nowS: number): HoldemFacts {
-  const ours = !!a && !!live && !!tableOf(a, live);
+  const ours = !!a && !!live && (!!tableOf(a, live) || (live.tablePhase === TABLE_PHASE.idle && atAssignedEpoch(a, live)));
   return {
     assigned: !!a,
     ours,

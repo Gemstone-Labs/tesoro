@@ -21,6 +21,7 @@ import {
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
 import { absenceLine } from "@/lib/absence-copy";
+import { atAssignedEpoch } from "@/lib/chain/table-epoch";
 
 /** Where a Hold'em Match is in its life, read from chain. */
 export type Stage =
@@ -201,19 +202,19 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
     assignRef.current = a;
     const t = await hd.readTable(p, a);
     if (!t) return setStage("setup", "Setting up the Match");
+    const nowS = Date.now() / 1000;
+    // An idle table receives its Match key in begin_match, after the Assignment exists.
+    if (t.tablePhase === TABLE_PHASE.idle && atAssignedEpoch(a, t)) {
+      setStage("setup", "Starting the Match");
+      if (late && nowS <= a.startDeadline) await hd.beginMatch(p, a).catch(() => undefined);
+      return;
+    }
     if (!tableOf(a, t)) {
       // The table has been wiped for its next Match: the result lives in the committed ring.
       setStage("closing", "Paying out the Pot");
       return settle(a, seat, null);
     }
     applyTable(t);
-    const nowS = Date.now() / 1000;
-
-    if (t.tablePhase === TABLE_PHASE.idle) {
-      setStage("setup", "Starting the Match");
-      if (late && nowS <= a.startDeadline) await hd.beginMatch(p, a).catch(() => undefined);
-      return;
-    }
     if (t.tablePhase === TABLE_PHASE.waiting) {
       if (nowS > t.startDeadline) {
         // Never both checked in: the Player who came wins, nobody coming is a no-show.
