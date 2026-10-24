@@ -12,7 +12,10 @@ mkdir -p target/deploy target/idl target/types
 for key in ~/.config/tesoro/deploy-keys/*-keypair.json; do
   [ -f "target/deploy/$(basename "$key")" ] || cp "$key" target/deploy/
 done
-anchor build --no-idl -- --tools-version v1.54
+build_log=$(mktemp "$TMPDIR/tesoro-sbf-build.XXXXXX.log")
+anchor build --no-idl -- --tools-version v1.54 2>&1 | tee "$build_log"
+# LLVM can report an unsafe frame while Cargo still exits zero.
+python3 scripts/check-sbf-build-log.py "$build_log"
 for dir in programs/*/; do
   so="target/deploy/$(basename "$dir").so"
   if [ ! "$so" -nt "$stamp" ]; then echo "error: $so was not rebuilt" >&2; exit 1; fi
