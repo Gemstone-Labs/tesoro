@@ -21,9 +21,14 @@ Staging fixes found by real Matches:
 
 - Hold'em, Vanguard and Block Burst clients, and all four keeper adapters, recognize an assigned idle table by generation/index/epoch before `begin_match` writes its Match key.
 - Fee settlement creates missing checkpoint pages before syncing a Source or sealing its paid Studio tranche. A second Match can otherwise stall with `AccountMissing`; initializing the missing Studio page made the same live transaction succeed.
+- ETH/HYPE Advances atomically initialize missing baskets/spills for legacy linked Accounts before crediting Gemas. The oracle pays; the client locates the Advance floor after optional setup instructions.
 - Instant Redeem order lists use the server's allowed discriminator/owner query, and discard obsolete lengths when decoding.
 
 Real devnet checks completed: SOL Lock + Advance, zero-SOL admission and settlement across all four Games, private Book/Board/Army reads denied to opponents and outsiders, native Redeem, and an admin-filled Instant Redeem order with its unsold remainder returned. Vanguard's Match used legal Passes to a forfeit; this does not verify its tactical powers. A 100-Gema entry takes 4/6/2 Gemas in fees from the 200-Gema Pot. A Season payout and the founder's two-browser interaction checks remain separate checks.
+
+Cross-chain smoke: both new vaults accepted a 0.1-token test Lock (12-month horizon). HYPE delivered `PositionLocked` to Solana and an Advance succeeded (`587khT5j…yhzMbJt`). Hoodi delivery remained pending at this check; a deployed/wired contract does not prove that route's LayerZero delivery.
+
+Devnet lookup table `HcQqickLYCgnPkkmWZgHFjq5sThNeow19WnLZDwKF3KZ` contains 37 common and QA Source keys. It is configured on Vercel staging Preview and Production as `TESORO_SPONSOR_LOOKUP_TABLES`, and the keeper uses `KEEPER_LOOKUP_TABLES`. New Source books may need extending into the table; a many-source stress settlement has not been proved.
 
 Production must have `NEXT_PUBLIC_HIDDEN_GAMES=vanguard` **before** the main merge builds. Preview/staging leaves it unset. This hides player-facing pages and sponsor access; the game code and art may remain in the deployed files.
 

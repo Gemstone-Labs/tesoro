@@ -12,7 +12,7 @@ import { sendSponsoredOrOwn } from "./sponsored-or-own";
 import { DemoError, type GetToken } from "./demo-client";
 import {
   ETH_VAULTS,
-  advanceFloorOf,
+  advanceFloorIn,
   corePositionPda,
   ethPositionId,
   parseCorePosition,
@@ -396,7 +396,7 @@ export async function takeEthAdvance(ctx: Pick<EthCtx, "signer" | "getToken">, v
   if (!pos || !rates) throw new Error("Your Lock or the fees could not be read. Try again in a moment.");
   const core = parseCorePosition(position, pos.data);
   const mine = quoteEthAdvance(core.principalWei, core.rateBps, months, BigInt(r.priceMicroUsd)).gemas;
-  if (advanceFloorOf(tx.instructions[0].data) !== mine || mine <= 0n) throw new Error("The Advance did not match your quote, so it was not signed. Try again.");
+  if (advanceFloorIn(tx.instructions) !== mine || mine <= 0n) throw new Error("The Advance did not match your quote, so it was not signed. Try again.");
   return getChain().sendSigned(await ctx.signer.signTransaction(tx));
 }
 

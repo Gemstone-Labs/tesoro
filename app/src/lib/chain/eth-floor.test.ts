@@ -1,7 +1,7 @@
 import { Keypair } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { coreIx } from "./core-ix";
-import { advanceFloorOf, quoteEthAdvance } from "./eth";
+import { advanceFloorOf, advanceFloorIn, quoteEthAdvance } from "./eth";
 import { PRICE_MOVED, plainError } from "@/lib/errors";
 
 describe("the Gemas floor of an ETH or HYPE Advance", () => {
@@ -12,6 +12,15 @@ describe("the Gemas floor of an ETH or HYPE Advance", () => {
     expect(advanceFloorOf(a.data)).toBe(12_345n);
     const b = coreIx("take_advance_onchain", { ...common, onchain_price: k(), price_feed: k() }, { horizon_months: 6, min_gemas: 99n });
     expect(advanceFloorOf(b.data)).toBe(99n);
+  });
+
+  it("checks the Advance floor when store initialization precedes it", () => {
+    const common = Object.fromEntries(["oracle", "owner_authority", "config", "treasury", "owner_account", "protections", "position", "source", "book", "basket", "spill", "economy"].map((n) => [n, k()]));
+    const setup = coreIx("init_stores", { payer: k(), account: k(), basket: k(), spill: k() });
+    const advance = coreIx("take_advance", common, { horizon_months: 12, price_micro_usd: 40_000_000n, min_gemas: 42n });
+    expect(advanceFloorIn([setup, advance])).toBe(42n);
+    expect(() => advanceFloorIn([setup])).toThrow(/Advance/);
+    expect(() => advanceFloorIn([advance, advance])).toThrow(/Advance/);
   });
 
   it("quotes whole Gemas, floored, so the floor never exceeds what the program issues", () => {

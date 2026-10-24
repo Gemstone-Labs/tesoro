@@ -12,6 +12,7 @@
  * Server only: keys are read from disk here and never leave this module.
  */
 import "server-only";
+import { advanceSetup } from "./eth-advance";
 import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { createPublicClient, createWalletClient, http, parseEther, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -577,7 +578,8 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
     ? coreIx("take_advance_onchain", { ...common, onchain_price: priceKey, price_feed: pythFeedAddress(asset) }, { horizon_months: months, min_gemas: minGemas })
     // The oracle names the price; the asset's OnchainPrice address follows as the first remaining account (it must not exist to be used).
     : coreIx("take_advance", common, { horizon_months: months, price_micro_usd: price.microUsd, min_gemas: minGemas }, [key(priceKey)]);
-  const tx = new Transaction().add(ix);
+  const setup = await advanceSetup(conn, oracle.publicKey, ownerAccount);
+  const tx = new Transaction().add(...setup, ix);
   tx.feePayer = oracle.publicKey;
   tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
   tx.partialSign(oracle);

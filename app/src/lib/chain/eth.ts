@@ -660,6 +660,13 @@ export function advanceFloorOf(data: Uint8Array): bigint {
   return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(data.byteLength - 8, true);
 }
 
+/** Finds the single Advance after optional setup instructions in an oracle-signed transaction. */
+export function advanceFloorIn(ixs: readonly TransactionInstruction[]): bigint {
+  const advances = ixs.filter((ix) => ix.programId.equals(TESORO_CORE_ID) && [DISC.take_advance, DISC.take_advance_onchain].some((d) => d === Buffer.from(ix.data.subarray(0, 8)).toString("hex")));
+  if (advances.length !== 1) throw new Error("The transaction must contain exactly one Advance.");
+  return advanceFloorOf(advances[0].data);
+}
+
 /** Principal in underlying wei for `shares` at `rate` (as `openPosition` computes it). */
 export const underlyingOf = (shares: bigint, rate: bigint) => (shares * rate) / WEI;
 
