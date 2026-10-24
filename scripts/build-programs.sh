@@ -23,3 +23,5 @@ for dir in programs/*/; do
 done
 # The app reads tesoro_core's instructions and types from its own copy of the IDL: keep it in step (keeps the app's `errors`).
 node scripts/sync-idl.mjs
+# Compile the actual Rust SPACE/INIT_SPACE constants and bind them to these freshly built ELFs.
+python3 scripts/predeploy-size-check.py collect --program tesoro_core --program sim_lst --program block_puzzle --program holdem --program trading_duel --program vanguard

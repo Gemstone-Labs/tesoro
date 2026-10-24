@@ -251,3 +251,6 @@ pub mod tesoro_bridge {
         LzReceiveTypesInfo::apply(&ctx, &params)
     }
 }
+
+#[cfg(test)]
+mod predeploy_layouts;

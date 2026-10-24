@@ -1,5 +1,23 @@
 # Deployments
 
+## Required account-size preflight
+
+Before a Solana program upgrade, build the candidate with `pnpm build:programs`. The build now compiles host probes of the program's actual `SPACE`, `INIT_SPACE`, and dynamic size formulas, checks discriminator coverage, and binds the resulting manifests to the Rust inputs, IDLs and built ELF hashes. Build the bridge separately and collect its manifest with `python3 scripts/predeploy-size-check.py collect --program tesoro_bridge`.
+
+Run against the intended testnet, retaining the JSON and terminal report:
+
+```sh
+python3 scripts/predeploy-size-check.py check \
+  --rpc https://rpc.magicblock.app/devnet --out account-size-preflight.json
+```
+
+Every program-owned account is classified, including unknown discriminators and old layouts. A length/version mismatch, stale or absent build seal, missing program, failed RPC or incomplete schema coverage refuses the check. Do not exempt old Sources, Matches or Seasons because the app skips them: diagnose the required migration/retirement and repeat the preflight after it is authorized and performed. This command sends no transactions.
+
+The metadata-only inventory (`collect --metadata-only`, followed by `check --inventory-only`) is useful before a rebuild and **always exits nonzero**. It cannot approve an upgrade. Size compatibility also does not establish semantic compatibility: delegated/private rollup accounts and current Matches require their own inventory and upgrade prerequisites, and a same-size field reinterpretation still needs migration/reuse review.
+
+Regression commands: `cargo test -p tesoro_core --lib predeploy_layouts -- --nocapture` writes/reads both the historical 178-byte and current 327-byte custody fixtures in LiteSVM; `python3 scripts/test-predeploy-size-check.py` exercises mismatch, unknown discriminator, dynamic capacity and version refusals. Preserve the LiteSVM fixture rows and use them in the Python test as described by its skip message.
+
+
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
 
 ## Economy upgrade continuation (2026-10-24)

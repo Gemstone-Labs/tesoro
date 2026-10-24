@@ -927,3 +927,6 @@ pub mod tesoro_core {
         instructions::retire::retire_treasury(ctx)
     }
 }
+
+#[cfg(test)]
+mod predeploy_layouts;

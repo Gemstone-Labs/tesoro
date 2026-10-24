@@ -1475,3 +1475,6 @@ pub struct RefillSponsor<'info> {
     #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
     pub sponsor: Account<'info, Sponsor>,
 }
+
+#[cfg(test)]
+mod predeploy_layouts;
