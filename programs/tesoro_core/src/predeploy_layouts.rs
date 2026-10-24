@@ -1,6 +1,7 @@
 //! Account sizes for the required deployment preflight (host tests only).
-#[path = "../../../scripts/predeploy-probe.rs"]
-mod probe;
+mod probe {
+    include!("../../../scripts/predeploy-probe.rs");
+}
 use anchor_lang::{AccountDeserialize, Discriminator};
 use probe::fixed;
 
