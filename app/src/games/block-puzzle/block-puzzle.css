@@ -238,6 +238,13 @@
 .bp-ready-line { min-width: 0; min-height: 0; border: 1px solid color-mix(in oklab, var(--hk, #eaefec) 58%, white); border-radius: 3px; background: color-mix(in oklab, var(--hk, #eaefec) 12%, transparent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .48), 0 0 10px -3px color-mix(in oklab, var(--hk, #eaefec) 78%, transparent); pointer-events: none; }
 .bp-ready-line[data-axis="row"] { grid-column: 1 / -1; }
 .bp-ready-line[data-axis="col"] { grid-row: 1 / -1; }
+
+@media (max-width: 360px) {
+  .bpx-bar { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "score ring" "run run" "stake stake"; column-gap: 12px; }
+  .bpx-run { min-width: 0; justify-content: space-between; gap: 8px; }
+  .bpx-stake { font-size: var(--fs-12); gap: 6px; }
+  .bp-slot { height: 80px; }
+}
 .bp-moment { --moment-offset: 24px; position: absolute; left: 50%; width: max-content; max-width: 95%; z-index: 8; pointer-events: none; text-align: center; transform: translate(-50%, var(--moment-offset)); animation: bp-moment 1000ms cubic-bezier(.16,1,.3,1) both; color: #fff; text-shadow: 0 2px 2px #080c14, 0 0 14px rgba(63,198,255,.6); }
 .bp-moment[data-placement="above"] { --moment-offset: calc(-100% - 40px); }
 .bp-moment strong { display: block; font-size: clamp(24px, 6.5vw, 34px); font-weight: 900; line-height: 1.05; }
