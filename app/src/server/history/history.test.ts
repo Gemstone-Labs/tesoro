@@ -28,7 +28,10 @@ const [ALICE, BOB, CARL, DANA, ERIN] = [1, 2, 3, 4, 5].map(key);
 /** One event-CPI inner instruction exactly as core emits it: tag + discriminator + Borsh body. */
 function cpi(name: string, body: Record<string, unknown>, programId = CORE, authority = EVENT_AUTHORITY): InnerInstruction {
   const wire = (v: unknown): unknown => (typeof v === "bigint" ? new BN(v.toString()) : Array.isArray(v) ? v.map(wire) : v);
-  const bytes = coder.types.encode(name, Object.fromEntries(Object.entries(body).map(([k, v]) => [k, wire(v)])));
+  const legacy = name === "MatchChunkDone" && !Object.hasOwn(body, "lines");
+  const input = legacy ? { ...body, record_version: 1, first_step: 0, lines: [] } : body;
+  const encoded = coder.types.encode(name, Object.fromEntries(Object.entries(input).map(([k, v]) => [k, wire(v)])));
+  const bytes = legacy ? encoded.subarray(0, 54) : encoded;
   const disc = Buffer.from((coreIdl as any).events.find((e: any) => e.name === name).discriminator);
   return { programId, accounts: [authority], data: Buffer.concat([TAG, disc, bytes]) };
 }

@@ -1117,6 +1117,14 @@ pub(crate) fn settle_match(ctx: Context<SettleMatch>, result: MatchResult) -> Re
         }
     }
     emit_cpi!(started);
+    emit_cpi!(MatchLinesStarted {
+        opener: Pubkey::new_from_array(m.inner.id.opener),
+        n: m.inner.id.n,
+        version: 1,
+        pot_lines: m.inner.pot_lines,
+        studio_owner: Pubkey::new_from_array(m.inner.terms.studio_owner.unwrap_or([0; 32])),
+        studio_priority: m.inner.terms.studio_priority,
+    });
     Ok(())
 }
 
@@ -1207,6 +1215,14 @@ pub(crate) fn refund_match(ctx: Context<RefundMatch>) -> Result<()> {
     let m = &ctx.accounts.match_state;
     let started = started_event(m, receipt.kind, [0; 3], ts);
     emit_cpi!(started);
+    emit_cpi!(MatchLinesStarted {
+        opener: Pubkey::new_from_array(m.inner.id.opener),
+        n: m.inner.id.n,
+        version: 1,
+        pot_lines: m.inner.pot_lines,
+        studio_owner: Pubkey::new_from_array(m.inner.terms.studio_owner.unwrap_or([0; 32])),
+        studio_priority: m.inner.terms.studio_priority,
+    });
     Ok(())
 }
 
@@ -1279,16 +1295,8 @@ pub(crate) fn match_chunk<'info>(
     );
     let kind = state.inner.run().map(|r| kind_code(r.kind)).unwrap_or(0);
     drop(pots);
-    emit_cpi!(MatchChunkDone {
-        opener,
-        n,
-        chunk_no: report.chunk_no,
-        steps: report.steps,
-        done: report.done,
-        blocked: report.blocked.is_some(),
-        overflowed,
-    });
-    if report.done {
+    emit_line_records(&ctx, opener, n, &report, overflowed)?;
+    if report.done && report.steps > 0 {
         emit_cpi!(MatchSettled {
             opener,
             n,
@@ -1297,6 +1305,149 @@ pub(crate) fn match_chunk<'info>(
         });
     }
     Ok(())
+}
+
+/// Keep the full Line event's serialization out of settlement's SBF stack frame.
+#[inline(never)]
+fn emit_line_records(
+    ctx: &Context<MatchChunk>,
+    opener: Pubkey,
+    n: u64,
+    report: &lifecycle::ChunkReport,
+    overflowed: u32,
+) -> Result<()> {
+    use anchor_lang::solana_program::{
+        instruction::{AccountMeta, Instruction},
+        program::invoke_signed,
+    };
+    let authority = ctx.accounts.event_authority.to_account_info();
+    let bump = [ctx.bumps.event_authority];
+    let ix = Instruction {
+        program_id: crate::ID,
+        accounts: vec![AccountMeta::new_readonly(*authority.key, true)],
+        data: encode_line_batch(opener, n, report, overflowed)?,
+    };
+    invoke_signed(&ix, &[authority], &[&[b"__event_authority", &bump]])?;
+    Ok(())
+}
+
+/// At most 4,015 bytes, below Solana's 10 KiB CPI data limit, with one payload allocation.
+#[inline(never)]
+fn encode_line_batch(
+    opener: Pubkey,
+    n: u64,
+    report: &lifecycle::ChunkReport,
+    overflowed: u32,
+) -> Result<Vec<u8>> {
+    require!(
+        report.lines.len() <= MAX_CHUNK_STEPS as usize
+            && report.lines.len() == report.steps as usize
+            && (report.steps > 0 || (report.done && report.blocked.is_none())),
+        MatchError::Inconsistent
+    );
+    let mut data = Vec::with_capacity(
+        79 + report.lines.len() * std::mem::size_of::<lifecycle::SettlementLine>(),
+    );
+    let step = if report.lines.is_empty() {
+        0
+    } else {
+        report
+            .prior_steps
+            .checked_add(1)
+            .ok_or_else(|| error!(MatchError::Inconsistent))?
+    };
+    let event = MatchChunkDone {
+        opener,
+        n,
+        record_version: 1,
+        chunk_no: report.chunk_no,
+        first_step: step,
+        steps: report.steps,
+        done: report.done,
+        blocked: report.blocked.is_some(),
+        overflowed,
+        lines: Vec::new(),
+    };
+    write_line_event(&mut data, &event)?;
+    require_eq!(data.len(), 79, MatchError::Inconsistent);
+    // The Pod derive rejects padding; its byte-for-byte Borsh equivalence is tested.
+    // Fill the vector length and copy the already canonical records in one operation.
+    data[75..79].copy_from_slice(&(report.lines.len() as u32).to_le_bytes());
+    data.extend_from_slice(bytemuck::cast_slice(&report.lines));
+    Ok(data)
+}
+
+fn write_line_event<T: AnchorSerialize + anchor_lang::Discriminator>(
+    data: &mut Vec<u8>,
+    event: &T,
+) -> Result<()> {
+    data.clear();
+    data.extend_from_slice(anchor_lang::event::EVENT_IX_TAG_LE);
+    data.extend_from_slice(T::DISCRIMINATOR);
+    event
+        .serialize(data)
+        .map_err(|_| anchor_lang::error::ErrorCode::InstructionDidNotSerialize.into())
+}
+
+#[cfg(test)]
+mod line_batch_tests {
+    use super::*;
+
+    #[test]
+    fn fast_batch_bytes_equal_the_derived_event_serializer() {
+        assert_eq!(std::mem::size_of::<lifecycle::SettlementLine>(), 328);
+        assert_eq!(std::mem::align_of::<lifecycle::SettlementLine>(), 1);
+        for count in [1, 2, 12] {
+            for done in [false, true] {
+                let lines = (0..count)
+                    .map(|i| {
+                        let mut line: lifecycle::SettlementLine = bytemuck::Zeroable::zeroed();
+                        line.pot_side = (i % 2) as u8;
+                        line.pot_index_le = (0x01020304u32 + i).to_le_bytes();
+                        line.purpose = (i % 5) as u8;
+                        line.incoming = [i as u8 + 1; 144];
+                        line.outgoing = [i as u8 + 7; 144];
+                        line.recipient_kind = (i % 2) as u8;
+                        line.recipient = [i as u8 + 11; 32];
+                        line.placement = (i % 4) as u8;
+                        line
+                    })
+                    .collect::<Vec<_>>();
+                let opener = Pubkey::new_from_array([17; 32]);
+                let report = lifecycle::ChunkReport {
+                    id: lifecycle::MatchId {
+                        opener: opener.to_bytes(),
+                        n: u64::MAX,
+                    },
+                    chunk_no: 77,
+                    prior_steps: u32::MAX - 12,
+                    steps: count,
+                    done,
+                    blocked: None,
+                    lines,
+                };
+                let expected = MatchChunkDone {
+                    opener,
+                    n: u64::MAX,
+                    record_version: 1,
+                    chunk_no: 77,
+                    first_step: report.prior_steps + 1,
+                    steps: count,
+                    done,
+                    blocked: false,
+                    overflowed: 7,
+                    lines: report.lines.clone(),
+                };
+                let mut bytes = anchor_lang::event::EVENT_IX_TAG_LE.to_vec();
+                bytes.extend_from_slice(&anchor_lang::Event::data(&expected));
+                assert_eq!(
+                    encode_line_batch(opener, u64::MAX, &report, 7).expect("fast serializer"),
+                    bytes
+                );
+                assert_eq!(bytes.len(), 79 + 328 * count as usize);
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
