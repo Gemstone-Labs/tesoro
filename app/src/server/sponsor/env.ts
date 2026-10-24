@@ -16,6 +16,7 @@ import { inviteKeypair } from "../invite/key";
 import { supabaseInviteStore } from "../invite/supabase-store";
 import { MemoryUsageStore, type UsageStore } from "./store";
 import { supabaseUsageStore } from "./supabase-store";
+import { sendConfirmed } from "./chain-send";
 
 const LAMPORTS = 1_000_000_000n;
 const coder = new BorshAccountsCoder(coreIdl as unknown as Idl);
@@ -24,21 +25,13 @@ const sponsorPda = PublicKey.findProgramAddressSync([Buffer.from("sponsor")], CO
 function chainReads(conn: Connection): ChainReads {
   return {
     balance: async (k) => BigInt(await conn.getBalance(k, "confirmed")),
+    rent: async (bytes) => BigInt(await conn.getMinimumBalanceForRentExemption(bytes, "confirmed")),
     account: async (k) => {
       const a = await conn.getAccountInfo(k, "confirmed");
       return a ? { owner: a.owner, data: a.data } : null;
     },
     latestBlockhash: async () => (await conn.getLatestBlockhash("confirmed")).blockhash,
-    send: async (raw) => {
-      const sig = await conn.sendRawTransaction(raw, { skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 });
-      for (let i = 0; i < 60; i++) {
-        const st = (await conn.getSignatureStatuses([sig])).value[0];
-        if (st?.err) throw new Error(JSON.stringify(st.err));
-        if (st?.confirmationStatus === "confirmed" || st?.confirmationStatus === "finalized") return sig;
-        await new Promise((r) => setTimeout(r, 500));
-      }
-      throw new Error("not confirmed in time");
-    },
+    send: (raw) => sendConfirmed(conn, raw),
   };
 }
 

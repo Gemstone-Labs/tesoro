@@ -5,6 +5,7 @@ import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
 import { withdrawOwnOpenItems } from "./backing";
 import { accountReady, createAccountIx } from "./match-flow";
+import { advanceSetup } from "./advance-setup";
 import { exitSend, prevAdvanceOf, redeemLine, sourceAccounts, unlockPosition } from "./redeem";
 import type { ChainHolding } from "./read";
 import { sourcePda } from "./native";
@@ -81,9 +82,10 @@ export async function openPositionWithAdvance(
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   const nonce = BigInt(Date.now());
   const position = await positionPda(signer.publicKey, nonce);
+  const setup = account ? await advanceSetup(getChain().base, signer.publicKey, BlockPuzzleChain.coreAccount(signer.publicKey)) : [await createAccountIx(signer.publicKey)];
   const ixs = [openNativePositionIx(signer.publicKey, nonce, simSolBaseUnits, position), takeNativeAdvanceIx(signer.publicKey, position, 0, months, minGemas)];
   onStep("Locking your SOL");
-  const signature = await send(signer, account ? ixs : [await createAccountIx(signer.publicKey), ...ixs]);
+  const signature = await send(signer, [...setup, ...ixs]);
   return { signature, position: position.toBase58() };
 }
 
@@ -105,6 +107,7 @@ export async function takeNextAdvance(
   const token = info.stakeRateOpen > 0n ? tokenFor(info.mint) : null;
   const { prev, create } = await prevAdvanceOf(getChain().base, info.position, info.openAdvance, signer.publicKey);
   return send(signer, [
+    ...await advanceSetup(getChain().base, signer.publicKey, BlockPuzzleChain.coreAccount(signer.publicKey)),
     ...create,
     token
       ? takeStakeAdvanceIx(signer.publicKey, info.position, info.advances, months, minGemas, prev, token)
@@ -129,6 +132,7 @@ export async function extendAdvance(
     const token = info.stakeRateOpen > 0n ? tokenFor(info.mint) : null;
     const { accounts, create } = await sourceAccounts(getChain().base, sourcePda(info.position, info.source.index), [], signer.publicKey);
     return await send(signer, [
+      ...await advanceSetup(getChain().base, signer.publicKey, BlockPuzzleChain.coreAccount(signer.publicKey)),
       ...create,
       token
         ? extendStakeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths, minGemas, accounts, token)
@@ -209,7 +213,7 @@ export async function openStakePositionWithAdvance(
   const nonce = BigInt(Date.now());
   const position = await stakePositionPda(me, nonce);
   const advance = takeStakeAdvanceIx(me, position, 0, months, minGemas, null, token);
-  const prefix = account ? [] : [await createAccountIx(me)];
+  const prefix = account ? await advanceSetup(base, me, BlockPuzzleChain.coreAccount(me)) : [await createAccountIx(me)];
   if (deposit.from === "token") {
     onStep("Locking your SOL");
     const signature = await send(signer, [...prefix, openStakePositionIx(me, nonce, deposit.shares, position, token), advance]);

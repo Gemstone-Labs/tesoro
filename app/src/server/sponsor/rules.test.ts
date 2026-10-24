@@ -4,6 +4,7 @@ import { SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, growIx, linkEvmBridgeIx, signUpIx, joinMatchIx, key, openMatchIx, playerIx } from "./fixtures";
 import { CORE_ID, ORDER_RENT, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
+import { GAME_IDS } from "@/lib/chain/games";
 
 const relayer = key();
 const player = key();
@@ -41,6 +42,20 @@ describe("accepted", () => {
     expect(p).toMatchObject({ names: ["match_chunk"], class: "exit" });
     expect(p.signers).toEqual([]);
   });
+  it("stages a fragmented entry with the Source books and pages required by the draw", async () => {
+    const owner = accountOf(player);
+    const ix = await coreIx("stage_entry", [32], { signer: player, owner, ticket: key() });
+    for (let i = 0; i < 4; i++) ix.keys.push({ pubkey: key(), isSigner: false, isWritable: true });
+    expect(plan([ix])).toMatchObject({ names: ["stage_entry"], class: "continue" });
+    ix.keys.at(-1)!.isSigner = true;
+    refused([ix], "bad-accounts");
+    ix.keys.at(-1)!.isSigner = false;
+    ix.keys.at(-1)!.pubkey = relayer;
+    refused([ix], "bad-accounts");
+    ix.keys.at(-1)!.pubkey = key();
+    for (let i = 4; i < 61; i++) ix.keys.push({ pubkey: key(), isSigner: false, isWritable: true });
+    refused([ix], "bad-accounts");
+  });
   it("a Game instruction without the relayer, signed by the Player, for a listed Game", () => {
     const p = plan([{ programId: game, keys: [{ pubkey: player, isSigner: true, isWritable: true }, { pubkey: key(), isSigner: false, isWritable: true }], data: new Uint8Array([1, 2, 3]) }]);
     expect(p).toMatchObject({ kind: "game", class: "continue" });
@@ -48,6 +63,13 @@ describe("accepted", () => {
 });
 
 describe("refused", () => {
+  it("refuses a known Trading Duel's unsupported asset before the keeper pays to assign it", async () => {
+    const ix = await openMatchIx(relayer, player, GAME_IDS["trading-duel"]);
+    ix.data = new Uint8Array(ix.data);
+    // open_match: discriminator8, game32, entry8, counter8, nonce8, challenge1, asset1.
+    ix.data[65] = 255;
+    refused([ix], "bad-asset");
+  });
   it("the relayer anywhere but its slot, writable or not", async () => {
     const ix = await chunkIx(relayer, key());
     const potA = ix.keys.findIndex((k) => k.isWritable && !k.isSigner);

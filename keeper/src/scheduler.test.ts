@@ -262,7 +262,7 @@ const withTable = (f: Fake, i: number, v: Partial<TableView>, facts?: Partial<Ta
 const matchOf = (n: number, over: Record<string, unknown> = {}) => ({
   address: key(n),
   stage: "active",
-  inner: { game: Array.from(PROGRAM.toBytes()), b: {}, deadline: { toString: () => String(NOW + 3600) }, openedAt: { toString: () => String(NOW - 100 * (20 - n)) }, id: { opener: Array.from(key(1).toBytes()), n: { toString: () => String(n) } }, ...over },
+  inner: { game: Array.from(PROGRAM.toBytes()), meta: { asset: 0 }, b: {}, deadline: { toString: () => String(NOW + 3600) }, openedAt: { toString: () => String(NOW - 100 * (20 - n)) }, id: { opener: Array.from(key(1).toBytes()), n: { toString: () => String(n) } }, ...over },
 });
 
 describe("table upkeep, one case per branch", () => {
@@ -360,6 +360,15 @@ describe("table upkeep, one case per branch", () => {
 describe("assignment", () => {
   beforeEach(() => raisedConditions().forEach((c) => clearRaised(c.key)));
   const go = (f: Fake, matches: ReturnType<typeof matchOf>[], st = newGameState(), now = NOW) => runGame(ctxOf(f, { now }), f.adapter(), STILL, matches as never, st, { gate: gateOk, settings: SCHED });
+
+  it("does not repeatedly pay to assign an unsupported Trading Duel asset, but still refunds it", async () => {
+    const f = new Fake(); withTable(f, 0, {});
+    const match = matchOf(12, { meta: { asset: 255 }, deadline: { toString: () => String(NOW + 3600 - 301) } });
+    const adapter = { ...f.adapter(), id: "trading-duel" as const };
+    await runGame(ctxOf(f), adapter, STILL, [match] as never, newGameState(), { gate: gateOk, settings: SCHED });
+    assert.deepEqual(f.calls.filter((c) => c.startsWith("assign")), []);
+    assert.equal(f.calls.filter((c) => c.startsWith("refund_untabled")).length, 1);
+  });
 
   it("puts the oldest joined Match on an Idle table", async () => {
     const f = new Fake();

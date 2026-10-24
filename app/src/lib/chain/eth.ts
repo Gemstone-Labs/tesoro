@@ -301,7 +301,7 @@ export const linkEvmIx = (authority: PublicKey, evm: string, signature: Hex, pay
 const lineBytes = (l: LineRef) => {
   const b = Buffer.alloc(11);
   b.writeUInt8(l.side, 0);
-  b.writeBigInt64LE(l.dueAt, 1);
+  new DataView(b.buffer, b.byteOffset, b.byteLength).setBigInt64(1, l.dueAt, true);
   b.writeUInt8(l.class, 9);
   b.writeUInt8(l.tranche, 10);
   return b;

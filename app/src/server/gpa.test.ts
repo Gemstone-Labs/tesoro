@@ -1,7 +1,9 @@
 import { Keypair } from "@solana/web3.js";
-import { utils } from "@coral-xyz/anchor";
+import { AnchorProvider, Program, type Idl, utils } from "@coral-xyz/anchor";
 import { describe, expect, it, vi } from "vitest";
 import { fetchInstantOrders } from "../lib/chain/instant-order";
+import { onlyCurrentLayouts } from "../lib/chain/account-sizes";
+import { findOpenTickets } from "../lib/chain/ticket";
 import { SplitConnection, routeGpa } from "../lib/chain/split-connection";
 import coreIdl from "../lib/chain/idl/tesoro_core.json";
 import { OVERFLOW_DISC, OVERFLOW_OWNER_AT } from "../lib/chain/overflow";
@@ -64,6 +66,54 @@ describe("gpa parseQuery", () => {
 });
 
 describe("gpa list cache (OC-03)", () => {
+  it("keeps old Match layouts out without creating extra upstream queries", async () => {
+    const data = (n: number) => ({ pubkey: `size${n}`, account: { data: [Buffer.alloc(n).toString("base64"), "base64"] as [string, string] } });
+    const up = upstream(() => [data(776), data(600)]);
+    const lists = createListCache({ fetch: up.fetch });
+    expect(await lists.getAccounts(q(`program=${CORE}&filter=m:0:${MATCH}&filter=s:776`))).toHaveLength(1);
+    expect(await lists.getAccounts(q(`program=${CORE}&filter=m:0:${MATCH}`))).toHaveLength(2);
+    expect(up.calls()).toBe(1);
+    expect(() => q(`program=${CORE}&filter=m:0:${MATCH}&filter=s:776&filter=s:776`)).toThrow(GpaInputError);
+  });
+
+  it("accepts actual Anchor Match and Offer lists with current layout size filters", async () => {
+    const seen: URLSearchParams[] = [];
+    vi.stubGlobal("fetch", async (input: string) => {
+      const params = new URL(input, "http://127.0.0.1").searchParams;
+      parseQuery(params);
+      seen.push(params);
+      return Response.json([]);
+    });
+    try {
+      const conn = new SplitConnection("http://127.0.0.1:1", routeGpa);
+      const wallet = { publicKey: Keypair.generate().publicKey, signTransaction: vi.fn(), signAllTransactions: vi.fn() };
+      const program = new Program(coreIdl as Idl, new AnchorProvider(conn, wallet, {}));
+      const accounts = program.account as unknown as Record<string, { all(): Promise<unknown[]> }>;
+      onlyCurrentLayouts(program);
+      await expect(accounts.matchState.all()).resolves.toEqual([]);
+      await expect(accounts.offerState.all()).resolves.toEqual([]);
+      expect(seen).toHaveLength(2);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("accepts the real client's owner-filtered Ticket list used after a reload", async () => {
+    const owner = Keypair.generate().publicKey;
+    const seen: URLSearchParams[] = [];
+    vi.stubGlobal("fetch", async (input: string) => {
+      const params = new URL(input, "http://127.0.0.1").searchParams;
+      const parsed = parseQuery(params);
+      expect(parsed.owner?.key.equals(owner)).toBe(true);
+      expect(parsed.owner?.offset).toBe(16);
+      seen.push(params);
+      return Response.json([]);
+    });
+    try {
+      await expect(findOpenTickets(owner)).resolves.toEqual([]);
+      expect(seen).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it("accepts the real client's owner-filtered Instant Redeem order list", async () => {
     const owner = Keypair.generate().publicKey;
     const seen: URLSearchParams[] = [];

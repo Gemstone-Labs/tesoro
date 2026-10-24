@@ -51,3 +51,6 @@ export function coreIx(name: string, accounts: AccountsByName, args: Record<stri
 }
 
 export const metaOf = (pubkey: PublicKey, isWritable = false, isSigner = false): AccountMeta => ({ pubkey, isSigner, isWritable });
+
+export const coreIxName = (ix: Pick<TransactionInstruction, "programId" | "data">): string | null =>
+  ix.programId.equals(CORE_PROGRAM_ID) ? coder.decode(ix.data)?.name ?? null : null;

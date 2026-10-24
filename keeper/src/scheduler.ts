@@ -7,6 +7,7 @@ import { matchLabel, matchRefOf } from "./kit.ts";
 import { shortKey } from "./env.ts";
 import { pk } from "./runtime.ts";
 import { settledPda } from "../../app/src/lib/chain/basket.ts";
+import { assetOfIndex } from "../../app/src/games/trading-duel/chain.ts";
 
 /**
  * The table scheduler (ticket 19t): one job, one loop, for every Game that plays on persistent tables.
@@ -510,8 +511,9 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
 
   let assigned = 0;
   const assignedNow = new Set<string>();
+  const assignable = waiting.filter((w) => a.id !== "trading-duel" || assetOfIndex(Number(w.inner.meta?.asset)) !== null);
   if (operatorOk && sponsorReady) {
-    for (const { match, row } of planAssignments(rows, waiting, promised, ctx.now)) {
+    for (const { match, row } of planAssignments(rows, assignable, promised, ctx.now)) {
       const w = waiting.find((x) => x.address.equals(match.address))!;
       const pick = { generation: cfg.generation, index: row.index, epoch: row.view!.epoch };
       const ok = await run(`match=${matchLabel(matchRefOf(w.inner.id))}`, `assign_match to table ${pick.generation}/${pick.index} epoch ${pick.epoch}`, () => a.assign(ctx, match.address, w.inner, pick));
@@ -547,7 +549,8 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
 
   // 4. growth ----------------------------------------------------------------------------------------------
   const unplaced = waiting.length - assigned - refundedUntabled;
-  const growth = planGrowth({ rows, promised, waiting: Math.max(0, unplaced), cap: set.cap, maxTables: cfg.maxTables, spare: set.spare, min: set.min, createPerPass: sched.createPerPass, preSeated: a.preSeated, now: ctx.now });
+  const demand = assignable.filter((w) => !assignedNow.has(w.address.toBase58()) && st.firstSeen.has(w.address.toBase58())).length;
+  const growth = planGrowth({ rows, promised, waiting: demand, cap: set.cap, maxTables: cfg.maxTables, spare: set.spare, min: set.min, createPerPass: sched.createPerPass, preSeated: a.preSeated, now: ctx.now });
   if (operatorOk && sponsorBase !== "missing") {
     for (const s of growth.steps) {
       const ref = { generation: cfg.generation, index: s.index };

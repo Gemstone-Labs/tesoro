@@ -2,6 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { utils } from "@coral-xyz/anchor";
 import coreIdl from "../lib/chain/idl/tesoro_core.json";
 import { OVERFLOW_DISC, OVERFLOW_OWNER_AT } from "../lib/chain/overflow";
+import { CURRENT_SIZE } from "../lib/chain/account-sizes";
 import { gpaRpc } from "../lib/chain/rpc-config";
 import { WindowLimiter } from "./rate-limit";
 
@@ -21,6 +22,8 @@ const LISTS: Record<string, { ownerOffset: number | null; disc?: number[] }> = {
   PositionState: { ownerOffset: 41 },
   // InstantOrderState: disc 8 + bump 1 + nonce 8, then the seller's Account.
   InstantOrderState: { ownerOffset: 17 },
+  // TicketHead: disc 8 + version/kind/state/flags 4 + padding 4, then the owner's Account.
+  TicketHead: { ownerOffset: 16 },
   // OverflowHead: disc 8 + payer 32 + kind 1 + id 40, then the line store, whose header keeps the owner Account at byte 8.
   // No instruction names this account type, so the IDL has no discriminator for it.
   OverflowHead: { ownerOffset: OVERFLOW_OWNER_AT, disc: [...OVERFLOW_DISC] },
@@ -42,6 +45,7 @@ export interface GpaQuery {
   disc: string;
   /** Rows kept from that list: the 32 bytes at `offset` equal `key`. */
   owner: { offset: number; key: PublicKey } | null;
+  size?: number;
 }
 
 export class GpaInputError extends Error {}
@@ -55,15 +59,22 @@ export class GpaUpstreamError extends Error {
   }
 }
 
-/** Accepts exactly `program=<tesoro_core>&filter=m:0:<disc>[&filter=m:<ownerOffset>:<pubkey>]`; anything else is a 400. */
+/** Accepts allowlisted discriminator/owner queries and the exact current Match/Offer layout sizes; all share one cache per discriminator. */
 export function parseQuery(params: URLSearchParams): GpaQuery {
   for (const k of params.keys()) if (k !== "program" && k !== "filter") throw new GpaInputError("Unsupported list query.");
   if (params.getAll("program").length !== 1 || params.get("program") !== CORE) throw new GpaInputError("Unsupported list query.");
-  const [first, second, ...rest] = params.getAll("filter");
+  const [first, ...filters] = params.getAll("filter");
   const shape = first?.startsWith("m:0:") ? SHAPES.get(first.slice(4)) : undefined;
-  if (!shape || rest.length) throw new GpaInputError("Unsupported list query.");
+  if (!shape) throw new GpaInputError("Unsupported list query.");
   const disc = first.slice(4);
-  if (second === undefined) return { program: CORE, disc, owner: null };
+  const expectedSize = ({ MatchState: CURRENT_SIZE.matchState, OfferState: CURRENT_SIZE.offerState } as Record<string, number>)[shape.name];
+  const sizes = filters.filter((f) => f.startsWith("s:"));
+  if (sizes.length > 1 || (sizes.length && sizes[0] !== `s:${expectedSize}`)) throw new GpaInputError("Unsupported list query.");
+  const owners = filters.filter((f) => !f.startsWith("s:"));
+  if (owners.length > 1) throw new GpaInputError("Unsupported list query.");
+  const second = owners[0];
+  const size = sizes.length ? { size: expectedSize } : {};
+  if (second === undefined) return { program: CORE, disc, owner: null, ...size };
   const m = /^m:(\d+):([1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(second);
   if (!m || shape.ownerOffset === null || Number(m[1]) !== shape.ownerOffset) throw new GpaInputError("Unsupported list query.");
   let key: PublicKey;
@@ -73,7 +84,7 @@ export function parseQuery(params: URLSearchParams): GpaQuery {
     throw new GpaInputError("Unsupported list query.");
   }
   if (key.toBase58() !== m[2]) throw new GpaInputError("Unsupported list query.");
-  return { program: CORE, disc, owner: { offset: shape.ownerOffset, key } };
+  return { program: CORE, disc, owner: { offset: shape.ownerOffset, key }, ...size };
 }
 
 type Row = { pubkey: string; account: { data: [string, string] } };
@@ -199,10 +210,12 @@ export function createListCache(opts: ListCacheOptions = {}) {
     async getOwnedFresh(q: GpaQuery): Promise<Row[]> {
       if (!q.owner) throw new GpaInputError("Unsupported list query.");
       if (now() < backoffUntil) throw new GpaUpstreamError("Rate limited upstream.", 429);
-      return fetchUpstream(q, true);
+      const rows = await fetchUpstream(q, true);
+      return q.size === undefined ? rows : rows.filter((r) => Buffer.from(r.account.data[0], "base64").length === q.size);
     },
     async getAccounts(q: GpaQuery): Promise<Row[]> {
-      const rows = await list(q);
+      const all = await list(q);
+      const rows = q.size === undefined ? all : all.filter((r) => Buffer.from(r.account.data[0], "base64").length === q.size);
       if (!q.owner) return rows;
       const { offset, key } = q.owner;
       const want = key.toBuffer();

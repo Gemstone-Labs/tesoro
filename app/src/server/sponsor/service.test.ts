@@ -6,6 +6,15 @@ import { DEFAULT_LIMITS, type Limits } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type WireIx } from "./service";
 import { MemoryUsageStore } from "./store";
+import { encodeBook, freshClass } from "@/lib/chain/basket-fixture";
+import { fp } from "@/lib/chain/book";
+import { bookPda, ckptPda } from "@/lib/chain/basket";
+import { SIM_SOL_MINT, sourcePda } from "@/lib/chain/native";
+import { redeemLineIxs } from "@/lib/chain/redeem";
+import { JITOSOL } from "@/lib/chain/stake";
+import { createAtaIdempotentIx, tokenAta } from "@/lib/chain/stake-pool";
+import coreIdl from "@/lib/chain/idl/tesoro_core.json";
+import { ChainTransactionFailed } from "./chain-send";
 
 const SOL = 1_000_000_000n;
 const wire = (ixs: Ix[]): { ixs: WireIx[] } => ({
@@ -17,7 +26,7 @@ const basketData = (gemas: bigint) => {
   return d;
 };
 
-function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean; noAccount?: boolean; invite?: { redeemed: boolean } } = {}) {
+function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean; sendError?: Error; noAccount?: boolean; invite?: { redeemed: boolean } } = {}) {
   const relayer = Keypair.generate();
   const player = Keypair.generate();
   const game = key();
@@ -32,10 +41,12 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
   for (const k of over.existing ?? []) accounts.set(k.toBase58(), { owner: CORE_ID, data: new Uint8Array(10) });
   const chain: ChainReads = {
     balance: async () => balance,
+    rent: async (bytes) => BigInt(bytes + 128) * 6960n,
     account: async (k) => accounts.get(k.toBase58()) ?? null,
     latestBlockhash: async () => "11111111111111111111111111111111",
     send: async (raw) => {
-      if (over.sendFails) throw new Error("custom program error 0x1");
+      if (over.sendError) throw over.sendError;
+      if (over.sendFails) throw new ChainTransactionFailed("custom program error 0x1");
       const tx = VersionedTransaction.deserialize(raw);
       sent.push(tx);
       return "sig" + sent.length;
@@ -59,6 +70,83 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
   };
   return { accounts, sponsor: new Sponsor(deps), deps, relayer, player, game, sent, alerts, onboardingAlerts, inviteKey, setBalance: (b: bigint) => (balance = b), tick: (ms: number) => (t += ms) };
 }
+
+async function firstPayout(s: ReturnType<typeof setup>, threePages = false) {
+  const position = key(), source = sourcePda(position, 0);
+  const disc = (name: string) => Buffer.from(coreIdl.accounts.find((a) => a.name === name)!.discriminator);
+  const p = Buffer.alloc(235); p.set(disc("PositionState")); p.fill(7, 9, 41); p.set(accountPda(s.player.publicKey).toBytes(), 41); p.set(SIM_SOL_MINT.toBytes(), 74);
+  const src = Buffer.alloc(170); src.set(disc("SourceState")); src.set(position.toBytes(), 9);
+  s.accounts.set(position.toBase58(), { owner: CORE_ID, data: p });
+  s.accounts.set(source.toBase58(), { owner: CORE_ID, data: src });
+  const unpaid = () => ({ ...freshClass(), uncovered: fp(10n), w: fp(10n) });
+  const book = encodeBook([freshClass(), threePages ? unpaid() : freshClass(), freshClass(), unpaid(), ...(threePages ? [unpaid()] : [])]);
+  book.set(disc("SourceBookHead")); book[9] = 1; book.set(source.toBytes(), 16);
+  s.accounts.set(bookPda(source).toBase58(), { owner: CORE_ID, data: book });
+  const reader = { getMultipleAccountsInfo: (keys: PublicKey[]) => Promise.all(keys.map((k) => s.deps.chain.account(k))) };
+  const h = { line: { side: 1, dueAt: 9n, class: 3, tranche: 0 }, accounts: [] as PublicKey[], source, position, stakeMint: null };
+  const ixs = await redeemLineIxs(reader, s.player.publicKey, h, 1n);
+  for (const ix of ixs.slice(0, -1)) ix.keys[0].pubkey = s.relayer.publicKey;
+  return { ixs, source, position, book };
+}
+
+describe("first payout account funding", () => {
+  it("funds all three required landing pages on an extended Source", async () => {
+    const s = setup(); const { ixs } = await firstPayout(s, true);
+    expect(ixs).toHaveLength(5);
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).resolves.toHaveProperty("class", "exit");
+  });
+  it("funds a zero-SOL Player's missing ATA and required checkpoint while admissions are paused and exhausted", async () => {
+    const s = setup({ paused: true, gemas: 0n, limits: { accountPerDay: 0, globalPerDay: 0 } });
+    const { ixs } = await firstPayout(s);
+    const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
+    expect(built.class).toBe("exit");
+    expect(BigInt(JSON.parse(built.meta).cost)).toBeGreaterThan(14_000_000n);
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    expect(s.sent).toHaveLength(1);
+    expect(s.sent[0].message.staticAccountKeys[0]).toEqual(s.relayer.publicKey);
+  });
+  it("does not gift replacement ATA rent after a successful Player closes the funded account", async () => {
+    const s = setup(); const { ixs } = await firstPayout(s);
+    const b = await s.sponsor.build(s.player.publicKey, wire(ixs));
+    await s.sponsor.submit(playerSigns(b, s.player), b.meta, b.mac);
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "setup-already-funded" });
+    const bare = await s.sponsor.build(s.player.publicKey, wire([ixs.at(-1)!]));
+    await s.sponsor.submit(playerSigns(bare, s.player), bare.meta, bare.mac);
+    expect(s.sent).toHaveLength(2);
+  });
+  it("returns the first-use grant after a definitive atomic failure", async () => {
+    const s = setup({ sendFails: true }); const { ixs } = await firstPayout(s);
+    const b = await s.sponsor.build(s.player.publicKey, wire(ixs));
+    await expect(s.sponsor.submit(playerSigns(b, s.player), b.meta, b.mac)).rejects.toMatchObject({ code: "chain" });
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).resolves.toHaveProperty("class", "exit");
+  });
+  it("retains the first-use grant after an ambiguous broadcast failure", async () => {
+    const s = setup({ sendError: new Error("network timeout") }); const { ixs } = await firstPayout(s);
+    const b = await s.sponsor.build(s.player.publicKey, wire(ixs));
+    await expect(s.sponsor.submit(playerSigns(b, s.player), b.meta, b.mac)).rejects.toMatchObject({ code: "chain" });
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "setup-already-funded" });
+  });
+  it("rechecks rent plus fees when the relayer balance falls between build and submit", async () => {
+    const s = setup(); const { ixs } = await firstPayout(s);
+    const b = await s.sponsor.build(s.player.publicKey, wire(ixs));
+    s.setBalance(100_000n);
+    await expect(s.sponsor.submit(playerSigns(b, s.player), b.meta, b.mac)).rejects.toMatchObject({ code: "sponsor-empty" });
+    expect(s.sent).toHaveLength(0);
+  });
+  it("rejects a canonical Player ATA for a different payout mint", async () => {
+    const s = setup(); const { ixs } = await firstPayout(s);
+    const old = ixs[1].keys[1].pubkey, wrong = tokenAta(s.player.publicKey, JITOSOL.mint);
+    ixs[1] = createAtaIdempotentIx(s.relayer.publicKey, s.player.publicKey, JITOSOL.mint);
+    for (const k of ixs.at(-1)!.keys) if (k.pubkey.equals(old)) k.pubkey = wrong;
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+  it("refuses a Source page that is not needed at this landing", async () => {
+    const s = setup(); const { ixs, source } = await firstPayout(s);
+    const extra = await coreIx("init_ckpt_page", [3, 1], { payer: s.relayer.publicKey, book: bookPda(source), page: ckptPda(source, 3, 1) });
+    ixs.at(-1)!.keys.push({ pubkey: ckptPda(source, 3, 1), isWritable: true, isSigner: false });
+    await expect(s.sponsor.build(s.player.publicKey, wire([extra, ...ixs]))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+});
 
 /** Every wallet in `players` that must sign the message we built does so, in any order. */
 function signedBy(built: { message: string }, players: Keypair[]): string {

@@ -11,9 +11,9 @@ import type { GetToken } from "./demo-client";
 import type { ChainHolding } from "./read";
 import { NATIVE_ROUTE_AT } from "./fees";
 import { exitSend, sourceAccounts } from "./redeem";
-import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
-import { RATE_SCALE, TESORO_CORE_ID, accountPda, createSimSolAtaIx, economyPda, lineArg, meta, nativePayingAccounts, pda, s, simSolAta, treasuryAccountPda, treasuryPda, treasuryVaultPda, nativeKindAccounts, CONFIG } from "./native";
-import { JITOSOL, stakePayingAccounts, stakeRateRemaining, stakeTokenOf, type StakeToken } from "./stake";
+import { SponsorError, sponsorStatus } from "./sponsor-client";
+import { SIM_SOL_MINT, RATE_SCALE, TESORO_CORE_ID, accountPda, createSimSolAtaIx, economyPda, lineArg, meta, nativePayingAccounts, pda, s, simSolAta, treasuryAccountPda, treasuryPda, treasuryVaultPda, nativeKindAccounts, CONFIG } from "./native";
+import { stakePayingAccounts, stakeRateRemaining, stakeTokenOf, type StakeToken } from "./stake";
 import { createAtaIdempotentIx, tokenAta } from "./stake-pool";
 
 /**
@@ -32,7 +32,7 @@ const BPS = 10_000n;
 
 export const instantOrderPda = (account: PublicKey, nonce: bigint | number) => {
   const n = Buffer.alloc(8);
-  n.writeBigUInt64LE(BigInt(nonce));
+  new DataView(n.buffer, n.byteOffset, n.byteLength).setBigUint64(0, BigInt(nonce), true);
   return pda([s("instant"), account.toBuffer(), n]);
 };
 export const sponsorPdaKey = () => pda([s("sponsor")]);
@@ -127,7 +127,12 @@ export async function fetchInstantOrders(accountKey: PublicKey, conn: Pick<Conne
 type Reader = { getMultipleAccountsInfo(keys: PublicKey[]): Promise<(AccountInfo<Buffer> | { data: Uint8Array } | null)[]> };
 type LineHolding = Pick<ChainHolding, "line" | "accounts" | "source" | "position" | "stakeMint" | "native" | "eth">;
 
-const tokenOf = (mint: PublicKey | null | undefined): StakeToken | null => (mint ? (stakeTokenOf(mint) ?? JITOSOL) : null);
+const tokenOf = (mint: PublicKey | null | undefined): StakeToken | null => {
+  if (!mint) return null;
+  const token = stakeTokenOf(mint);
+  if (!token) throw new Error("This Lock's staking token is not supported by this version of the app.");
+  return token;
+};
 
 /**
  * `request_instant_redeem`: sells `sell` Gemas of one won line. The line's ready Gemas are redeemed at full value first (paid to the
@@ -165,14 +170,14 @@ export async function requestInstantRedeem(signer: ChainSigner, getToken: GetTok
   const token = tokenOf(h.stakeMint);
   const ata = h.eth ? null : token ? tokenAta(me, token.mint) : simSolAta(me);
   const have = ata ? (await conn.getMultipleAccountsInfo([ata]))[0] : true;
-  const prefix = have ? [] : [token ? createAtaIdempotentIx(me, me, token!.mint) : createSimSolAtaIx(me, me)];
+  const prefix = have ? [] : [createAtaIdempotentIx(me, me, token?.mint ?? SIM_SOL_MINT)];
   const own = requestInstantRedeemIx({ holder: me, payer: me, sponsored: false, h, sell, nonce, book: accounts });
-  // EVM Sources cannot be sponsored (the bridge fills them and cannot return a sponsor's rent), and a missing token account or checkpoint page is the Player's own cost.
-  if (!h.eth && prefix.length === 0 && create.length === 0 && signer.signSerialized) {
+  // EVM Sources cannot return an order's rent to the sponsor; native first-use preparation is atomic with the request.
+  if (!h.eth && signer.signSerialized) {
     try {
       const { relayer, paused } = await sponsorStatus();
       if (!paused) {
-        return await sponsoredSend(signer, getToken, [requestInstantRedeemIx({ holder: me, payer: new PublicKey(relayer), sponsored: true, h, sell, nonce, book: accounts })]);
+        return await exitSend(signer, getToken, [...create, ...prefix, requestInstantRedeemIx({ holder: me, payer: new PublicKey(relayer), sponsored: true, h, sell, nonce, book: accounts })], { selfPayIxs: [...create, ...prefix, own] });
       }
     } catch (e) {
       if (!(e instanceof SponsorError) || !(e.selfPay || e.code === "unsupported-wallet")) throw e;

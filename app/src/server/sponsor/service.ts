@@ -25,7 +25,9 @@ import { HIDDEN_GAMES } from "@/lib/games";
 import { DemoHttpError } from "../request-auth";
 import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
 import { CORE_ID, PRIORITY_MICROLAMPORTS, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
+import { EXIT_ATA_WINDOW_MS, verifyExitSetup } from "./exit-setup";
 import type { UsageStore } from "./store";
+import { ChainTransactionFailed } from "./chain-send";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -35,6 +37,7 @@ export const BUILD_TTL_MS = 75_000;
 export interface ChainReads {
   balance(key: PublicKey): Promise<bigint>;
   account(key: PublicKey): Promise<{ owner: PublicKey; data: Uint8Array } | null>;
+  rent?(bytes: number): Promise<bigint>;
   latestBlockhash(): Promise<string>;
   /** Sends and waits for confirmation; throws when the transaction fails. Returns the signature. */
   send(raw: Uint8Array): Promise<string>;
@@ -123,6 +126,10 @@ interface Meta {
   onboard: string | null;
   /** The Invite key signs this transaction too. */
   invite: boolean;
+  /** Full fee and rent cost authenticated with the built message. Older builds expire in75s. */
+  cost?: string;
+  admission?: boolean;
+  ataGrant?: string | null;
 }
 
 const mac = (key: Buffer, message: Uint8Array, meta: string) => createHmac("sha256", key).update(message).update("|").update(meta).digest("base64");
@@ -223,6 +230,9 @@ export class Sponsor {
     const who = player.toBase58();
     const ixs = parseIntent(raw);
     const plan = await this.plan(ixs, player);
+    const setup = await verifyExitSetup(plan, player, this.d.chain);
+    plan.spend.sunk += setup.rent;
+    if (setup.ataGrant && await this.d.store.used(setup.ataGrant, EXIT_ATA_WINDOW_MS, now) >= 1) throw new DemoHttpError(409, "setup-already-funded", "This payout token account was already funded. Restore it using the SOL returned when it was closed.");
     if (plan.class === "admission" && !plan.signers.some((s) => s.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
     if (plan.playerSigns && !plan.signers.some((sg) => sg.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
     // Admissions and exits have separate build counters: spam on one can never use up the other (exits always work).
@@ -278,7 +288,7 @@ export class Sponsor {
       await this.requireAccount(player);
       await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
-      if (!exitFits(balance, fee)) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
+      if (!exitFits(balance, fee + plan.spend.sunk + plan.spend.refundable)) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
       if (plan.names.some((n) => n === "close_match" || n === "close_ticket")) release.push(...plan.obligations.map((o) => o.toBase58()));
     }
 
@@ -291,8 +301,15 @@ export class Sponsor {
     const message = new TransactionMessage({ payerKey: this.relayer, recentBlockhash: await this.d.chain.latestBlockhash(), instructions }).compileToV0Message(
       await this.d.lookupTables(),
     );
-    const bytes = message.serialize();
-    const meta: Meta = { player: who, exp: now + BUILD_TTL_MS, release, hold, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite };
+    let bytes: Uint8Array;
+    try {
+      bytes = message.serialize();
+      if (new VersionedTransaction(message).serialize().length > 1232) throw new RangeError("packet size");
+    } catch (e) {
+      if (!(e instanceof RangeError)) throw e;
+      throw new DemoHttpError(400, "too-large", "This transaction is too large. Prepare fewer items at a time.");
+    }
+    const meta: Meta = { player: who, exp: now + BUILD_TTL_MS, release, hold, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite, cost: (fee + plan.spend.sunk + plan.spend.refundable).toString(), admission: plan.class === "admission", ataGrant: setup.ataGrant };
     const metaText = JSON.stringify(meta);
     return { message: Buffer.from(bytes).toString("base64"), meta: metaText, mac: mac(this.d.macKey, bytes, metaText), expiresAt: meta.exp, class: plan.class };
   }
@@ -321,10 +338,10 @@ export class Sponsor {
       const sig = tx.signatures[i];
       if (!sig || !nacl.sign.detached.verify(bytes, sig, keys[i].toBytes())) throw new DemoHttpError(400, "unsigned", "The transaction is not signed by the Player.");
     }
-    if (!exitFits(await this.balance(), BigInt(meta.fee))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL.");
+    if (!exitFits(await this.balance(), BigInt(meta.cost ?? meta.fee))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL.");
     // The completion reserve is held only for transactions that are really sent, so an unsent build holds nothing.
     const held: string[] = [];
-    if (meta.hold.length) {
+    if (meta.admission || meta.hold.length) {
       if (!admissionFits(this.d.limits, await this.balance(), BigInt(meta.fronted), BigInt(meta.reserve))) {
         throw new DemoHttpError(503, "sponsor-paused", "Free transactions are used up for now. You can still play: pay the network fee from your own SOL.");
       }
@@ -341,6 +358,11 @@ export class Sponsor {
         throw e;
       }
     }
+    if (meta.ataGrant && !(await this.d.store.take(meta.ataGrant, 1, 1, EXIT_ATA_WINDOW_MS, now))) {
+      await giveBack?.();
+      for (const o of held) await this.d.store.release(o);
+      throw new DemoHttpError(409, "setup-already-funded", "This payout token account was already funded.");
+    }
     tx.sign(inviteKey ? [this.d.relayer, inviteKey] : [this.d.relayer]);
 
     let signature: string;
@@ -349,6 +371,8 @@ export class Sponsor {
     } catch (e) {
       await recordFailure(this.d.store, meta.player, now);
       await giveBack?.();
+      // An unknown broadcast outcome retains the grant: it may still land. Definite atomic failures spent no rent.
+      if (meta.ataGrant && e instanceof ChainTransactionFailed) await this.d.store.refund(meta.ataGrant, 1, now);
       for (const o of held) await this.d.store.release(o);
       throw new DemoHttpError(502, "chain", `Transaction failed: ${(e as Error).message}`.slice(0, 300));
     }

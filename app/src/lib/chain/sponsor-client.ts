@@ -19,7 +19,7 @@ export class SponsorError extends Error {
   }
   /** The server cannot pay right now (paused, floor reached, empty): the Player may send the same instructions and pay the fee. */
   get selfPay(): boolean {
-    return this.code === "sponsor-paused" || this.code === "sponsor-empty";
+    return this.code === "sponsor-paused" || this.code === "sponsor-empty" || this.code === "setup-already-funded";
   }
 }
 

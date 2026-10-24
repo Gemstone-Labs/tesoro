@@ -13,6 +13,7 @@
  */
 import "server-only";
 import { advanceSetup } from "./eth-advance";
+import { applyYieldInstructions } from "./eth-yield";
 import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { createPublicClient, createWalletClient, http, parseEther, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -55,7 +56,6 @@ import {
   quoteEthAdvance,
   sourceAuthPda,
   vaultAbi,
-  vaultTreasuryPda,
   withHeadroom,
   fetchVaultPosition,
   type EvmNet,
@@ -292,30 +292,15 @@ async function applyLocked(vault: string, pid: Buffer) {
 
 async function applyYield(vault: string, pid: Buffer) {
   const conn = relayConn();
-  const net = netOfVault(vault);
   const cp = corePositionPda(pid);
   const [bp, core] = await conn.getMultipleAccountsInfo([bridgePositionPda(pid), cp]);
   if (!bp || !core) throw new DemoHttpError(409, "not-opened", "The Lock is not open on Solana yet.");
   const view = parseBridgePosition(bp.data);
   if (!view) throw new DemoHttpError(409, "abandoned", "This Lock is on a retired contract and can no longer be updated.");
   if (view.lastYieldSeq === 0n || view.lastYieldSeq <= view.appliedYieldSeq) return { skipped: true };
-  const openAdvance = core.data[8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4] === 1 ? core.data.readUInt32LE(8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 1) : null;
-  const ix = new TransactionInstruction({
-    programId: BRIDGE_ID,
-    keys: [
-      key(bridgeStore()),
-      key(bridgePositionPda(pid), false, true),
-      key(vaultTreasuryPda(net.eid, vault), false, true),
-      key(BRIDGE_AUTHORITY),
-      key(sourceAuthPda(net)),
-      key(cp, false, true),
-      // Optional account: the program id stands for `None`.
-      openAdvance === null ? key(BRIDGE_ID) : key(sourcePda(cp, openAdvance), false, true),
-      key(TESORO_CORE_ID),
-    ],
-    data: Buffer.concat([disc("apply_yield"), u32le(net.eid), pid]),
-  });
-  return { skipped: false, signature: await relaySend([ix]) };
+  const openAdvance = parseCorePosition(cp, core.data).openAdvance;
+  const ixs = await applyYieldInstructions(conn, relayerKey().publicKey, vault, pid, openAdvance);
+  return { skipped: false, signature: await relaySend(ixs) };
 }
 
 // ---- Yield Report request (test mode: the relayer's EVM key) -------------------------------------

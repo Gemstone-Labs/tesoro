@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { BorshInstructionCoder, type Idl } from "@coral-xyz/anchor";
 import idl from "@/lib/chain/idl/tesoro_core.json";
 import { basketPda, spillPda } from "@/lib/chain/basket";
+import { encodeStore } from "@/lib/chain/basket-fixture";
 import { advanceSetup } from "./eth-advance";
 
 describe("ETH/HYPE Advance for a pre-economy Account", () => {
@@ -18,9 +19,9 @@ describe("ETH/HYPE Advance for a pre-economy Account", () => {
     expect(ix.keys[1].pubkey).toEqual(account);
   });
   it("leaves current Accounts alone", async () => {
-    expect(await advanceSetup({ getMultipleAccountsInfo: async () => [{}, {}] }, payer, account)).toEqual([] as TransactionInstruction[]);
+    expect(await advanceSetup({ getMultipleAccountsInfo: async () => [{ data: encodeStore([], { account, capacity: 4 }) }, { data: encodeStore([], { account }) }] }, payer, account)).toEqual([] as TransactionInstruction[]);
   });
   it("refuses a partial store pair instead of trying to overwrite an existing store", async () => {
-    await expect(advanceSetup({ getMultipleAccountsInfo: async () => [{}, null] }, payer, account)).rejects.toThrow(/incomplete/);
+    await expect(advanceSetup({ getMultipleAccountsInfo: async () => [{ data: encodeStore([], { account }) }, null] }, payer, account)).rejects.toThrow(/incomplete/);
   });
 });

@@ -1,16 +1,16 @@
 import "./polyfill";
-import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import { bookPda, ckptPda, CLASS_PLATFORM, CLASS_LEADERBOARD } from "./basket";
 import { decodeBook, type SourceBookView } from "./book";
-import { coreIx } from "./core-ix";
+import { coreIx, coreIxName } from "./core-ix";
 import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
 import type { ChainHolding } from "./read";
-import { SponsorError, sponsoredSend } from "./sponsor-client";
-import { TESORO_CORE_ID, accountPda, createSimSolAtaIx, redeemIx, simSolAta, sourcePda, unlockIx, type LineTarget, type PrevAdvance } from "./native";
+import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, SIM_SOL_MINT, TESORO_CORE_ID, accountPda, redeemIx, simSolAta, sourcePda, unlockIx, type LineTarget, type PrevAdvance } from "./native";
 import { createAtaIdempotentIx, tokenAta } from "./stake-pool";
-import { JITOSOL, redeemStakeIx, stakeTokenOf, unlockStakeIx, type StakeToken } from "./stake";
+import { redeemStakeIx, stakeTokenOf, unlockStakeIx, type StakeToken } from "./stake";
 
 /**
  * Redeem and Unlock on baskets: the right instruction for the kind of Position, with the Source's book and the checkpoint
@@ -72,28 +72,40 @@ export async function sourceAccounts(conn: Reader, source: PublicKey, known: Pub
   return { accounts: unique([bookPda(source), ...known, ...plan.accounts]), create: plan.create };
 }
 
-/** Sends `ixs` with the relayer paying the fee when the allow-list takes them (Core instructions only: a token account or a checkpoint page to create is the Player's own cost), else the Player pays. */
-export async function exitSend(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[], opts: { sponsor?: boolean } = {}): Promise<string> {
-  const pageDisc = initCkptPageIx(signer.publicKey, signer.publicKey, 1, 0).data.subarray(0, 8);
-  const free = ixs.every((ix) => ix.programId.equals(TESORO_CORE_ID) && !ix.data.subarray(0, 8).equals(pageDisc));
+/** The first payout's canonical token account and checkpoint pages may be funded with its Redeem. */
+export async function exitSend(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[], opts: { sponsor?: boolean; selfPayIxs?: TransactionInstruction[] } = {}): Promise<string> {
+  const setup = (ix: TransactionInstruction) => coreIxName(ix) === "init_ckpt_page" || ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID);
+  const prefix = ixs.slice(0, -1);
+  const prepared = prefix.length > 0 && ["redeem", "request_instant_redeem"].includes(coreIxName(ixs.at(-1)!) ?? "") && prefix.every(setup);
+  const free = prepared || ixs.every((ix) => ix.programId.equals(TESORO_CORE_ID) && coreIxName(ix) !== "init_ckpt_page");
   if (free && opts.sponsor !== false) {
     try {
-      return await sponsoredSend(signer, getToken, ixs);
+      const relayer = prepared ? new PublicKey((await sponsorStatus()).relayer) : null;
+      const sponsored = relayer ? ixs.map((ix, i) => i === ixs.length - 1 ? ix : new TransactionInstruction({
+        programId: ix.programId, data: ix.data,
+        keys: ix.keys.map((k, j) => j === 0 ? { ...k, pubkey: relayer } : k),
+      })) : ixs;
+      return await sponsoredSend(signer, getToken, sponsored);
     } catch (e) {
       if (!(e instanceof SponsorError) || !(e.selfPay || e.code === "unsupported-wallet")) throw e;
     }
   }
-  return getChain().sendBase(signer, ixs);
+  return getChain().sendBase(signer, opts.selfPayIxs ?? ixs);
 }
 
-const tokenOf = (mint: PublicKey | null | undefined): StakeToken | null => (mint ? (stakeTokenOf(mint) ?? JITOSOL) : null);
+const tokenOf = (mint: PublicKey | null | undefined): StakeToken | null => {
+  if (!mint) return null;
+  const token = stakeTokenOf(mint);
+  if (!token) throw new Error("This Lock's staking token is not supported by this version of the app.");
+  return token;
+};
 
 /** The instruction that creates the holder's simSOL or staking-token account, or nothing when it exists (then the exit can be free). */
 async function ataIx(conn: Reader, me: PublicKey, token: StakeToken | null): Promise<TransactionInstruction[]> {
   const ata = token ? tokenAta(me, token.mint) : simSolAta(me);
   const [info] = await conn.getMultipleAccountsInfo([ata]);
   if (info) return [];
-  return [token ? createAtaIdempotentIx(me, me, token.mint) : createSimSolAtaIx(me, me)];
+  return [createAtaIdempotentIx(me, me, token?.mint ?? SIM_SOL_MINT)];
 }
 
 /** The instructions that Redeem `gemas` of one line of a Solana Source, with the token account created if missing. */

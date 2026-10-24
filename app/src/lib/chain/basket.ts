@@ -51,7 +51,7 @@ const utf = (s: string) => Buffer.from(s);
 const pda = (seeds: (Buffer | Uint8Array)[]) => PublicKey.findProgramAddressSync(seeds, TESORO_CORE)[0];
 const le64 = (n: bigint | number) => {
   const b = Buffer.alloc(8);
-  b.writeBigUInt64LE(BigInt(n));
+  new DataView(b.buffer, b.byteOffset, b.byteLength).setBigUint64(0, BigInt(n), true);
   return b;
 };
 const le32 = (n: number) => {

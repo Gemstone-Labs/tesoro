@@ -7,9 +7,14 @@
  * A new compound shape, for instance "grow the spill, then open the Match" (ticket 09b), is one entry in `TX_SHAPES`.
  */
 import { BorshInstructionCoder, type Idl } from "@coral-xyz/anchor";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { BRIDGE_ID, DISC, evmLinkPda } from "@/lib/chain/eth";
+import { bookPda, ckptPda } from "@/lib/chain/basket";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, SIM_SOL_MINT, TOKEN_PROGRAM_ID } from "@/lib/chain/native";
+import { STAKE_TOKENS } from "@/lib/chain/stake";
+import { tokenAta } from "@/lib/chain/stake-pool";
+import { assetOfIndex, TRADING_DUEL_PROGRAM_ID } from "@/games/trading-duel/chain";
 
 export const CORE_ID = new PublicKey((coreIdl as { address: string }).address);
 const CORE_IDL = coreIdl as unknown as Idl;
@@ -95,7 +100,7 @@ export const ROWS: Readonly<Record<string, Row>> = {
   open_ticket: { class: "admission", relayer: ["payer"], cu: 300_000, spend: (a) => ({ refundable: TICKET_HEAD_RENT + lines(a.lines) * LINE_RENT, sunk: 0n }) },
   grow_store_sponsored: { class: "admission", relayer: ["relayer"], cu: 200_000, spend: (a) => ({ refundable: lines(a.extra_lines) * LINE_RENT, sunk: 0n }) },
   init_ckpt_page_sponsored: { class: "admission", relayer: ["relayer"], cu: 200_000, spend: () => ({ refundable: CKPT_PAGE_RENT, sunk: 0n }) },
-  stage_entry: { class: "continue", relayer: [], cu: 400_000 },
+  stage_entry: { class: "continue", relayer: [], cu: 400_000, extra: 60 },
   claim_spill: { class: "continue", relayer: [], cu: 300_000, extra: 40 },
   // Ticket 09c: moves the lines an overflow record holds into the owner's stores; the rent goes back to whoever paid it.
   claim_overflow: { class: "exit", relayer: [], cu: 400_000, extra: 12 },
@@ -109,7 +114,7 @@ export const ROWS: Readonly<Record<string, Row>> = {
   redeem_from_source: { class: "exit", relayer: [], cu: 400_000, extra: 4 },
   // Ticket 18b: the Player's own exits. The Player signs as the authority, the relayer only pays the fee, so none has a
   // relayer slot. `extra` is the books (and pages) of the Sources a Redeem or an order touches.
-  redeem: { class: "exit", relayer: [], cu: 600_000, extra: 12, playerSigns: true },
+  redeem: { class: "exit", relayer: [], cu: 600_000, extra: 60, playerSigns: true },
   redeem_prize: { class: "exit", relayer: [], cu: 400_000, extra: 12, playerSigns: true },
   unlock: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
   claim_free_yield: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
@@ -126,7 +131,7 @@ export const ROWS: Readonly<Record<string, Row>> = {
   take_stake_advance: { class: "admission", relayer: [], cu: 600_000, extra: 12, playerSigns: true },
   // A sponsored order: the relayer fronts the rent as `payer` and the sponsor pays it back in the same instruction;
   // closing the order (cancel, expire or a fill) returns it to the sponsor first. Needs the sponsor account.
-  request_instant_redeem: { class: "admission", relayer: ["payer"], cu: 400_000, extra: 12, playerSigns: true, spend: () => ({ refundable: ORDER_RENT, sunk: 0n }) },
+  request_instant_redeem: { class: "admission", relayer: ["payer"], cu: 400_000, extra: 60, playerSigns: true, spend: () => ({ refundable: ORDER_RENT, sunk: 0n }) },
   // A new Player's Account: the relayer fronts the rent as `payer` and the sponsor pays it back in the same instruction. The one
   // extra account is the Invite key's signature while the Invite gate is on (only the Invite key, see `inviteKey`).
   // Sign-up steps (ticket 18c): the Profile (and the .eth name) is a one-time permanent account, fronted by the relayer as `payer`
@@ -203,6 +208,51 @@ export interface Plan {
   invite: boolean;
   /** An admission that needs no Gemas: the Account exists but may hold none yet (the bridge `link_evm`). */
   noGemas: boolean;
+  /** Only atomic first-payout preparation; live Position and Book semantics are verified by the service. */
+  setup?: {
+    position: PublicKey;
+    source: PublicKey;
+    pages: { book: PublicKey; page: PublicKey; classId: number; pageNo: number }[];
+    ata?: { address: PublicKey; mint: PublicKey };
+  };
+}
+
+/** A canonical first-payout prefix cannot be sponsored alone or attached to a different obligation. */
+function planPreparedExit(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
+  const terminal = ixs.at(-1)!;
+  const decoded = terminal.programId.equals(CORE_ID) ? coder.decode(Buffer.from(terminal.data)) : null;
+  if (!decoded || !["redeem", "request_instant_redeem"].includes(decoded.name) || ixs.length > 32) throw new RuleError("bad-shape", "Payout setup must finish with one Redeem or Instant Redeem request.");
+  const plan = planCore([terminal], relayer);
+  const def = idlIx(decoded.name)!;
+  const named = new Map(def.accounts.map((a, i) => [a.name, terminal.keys[i].pubkey]));
+  if (!named.get("holder_authority")?.equals(player)) throw new RuleError("bad-signer", "The Player must own the payout being prepared.");
+  const source = named.get("source")!, position = named.get("position")!;
+  const setup: NonNullable<Plan["setup"]> = { source, position, pages: [] };
+  const used = new Set<string>();
+  const inPayout = (key: PublicKey) => terminal.keys.some((k) => k.pubkey.equals(key) && k.isWritable);
+  for (const ix of ixs.slice(0, -1)) {
+    if (ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) {
+      if (setup.ata || ix.keys.length !== 6 || ix.data.length !== 1 || ix.data[0] !== 1) throw new RuleError("bad-shape", "Only one idempotent payout token account may be prepared.");
+      const [payer, ata, owner, mint, system, token] = ix.keys;
+      const flags = [[true, true], [false, true], [false, false], [false, false], [false, false], [false, false]];
+      if (ix.keys.some((k, i) => k.isSigner !== flags[i][0] || k.isWritable !== flags[i][1])) throw new RuleError("bad-flags", "Payout token account flags are invalid.");
+      if (!payer.pubkey.equals(relayer) || !owner.pubkey.equals(player) || !system.pubkey.equals(SystemProgram.programId) || !token.pubkey.equals(TOKEN_PROGRAM_ID)) throw new RuleError("bad-account", "Payout token account owner or programs are invalid.");
+      if (![SIM_SOL_MINT, ...STAKE_TOKENS.map((t) => t.mint)].some((m) => m.equals(mint.pubkey)) || !ata.pubkey.equals(tokenAta(player, mint.pubkey)) || !inPayout(ata.pubkey)) throw new RuleError("bad-account", "The token account must be this Player's payout account.");
+      setup.ata = { address: ata.pubkey, mint: mint.pubkey };
+    } else {
+      const page = ix.programId.equals(CORE_ID) ? coder.decode(Buffer.from(ix.data)) : null;
+      if (page?.name !== "init_ckpt_page" || ix.data.length !== 13 || ix.keys.length !== 4) throw new RuleError("bad-shape", "Only payout token and checkpoint accounts may precede a Redeem.");
+      const [payer, book, address, system] = ix.keys;
+      const flags = [[true, true], [false, false], [false, true], [false, false]];
+      if (ix.keys.some((k, i) => k.isSigner !== flags[i][0] || k.isWritable !== flags[i][1])) throw new RuleError("bad-flags", "Payout checkpoint flags are invalid.");
+      const args = page.data as { class: number; pageNo?: number; page_no?: number };
+      const pageNo = args.pageNo ?? args.page_no!;
+      if (!payer.pubkey.equals(relayer) || !system.pubkey.equals(SystemProgram.programId) || !book.pubkey.equals(bookPda(source)) || !address.pubkey.equals(ckptPda(source, args.class, pageNo)) || !inPayout(book.pubkey) || !inPayout(address.pubkey) || used.has(address.pubkey.toBase58())) throw new RuleError("bad-account", "The checkpoint must belong to this payout's Source and appear only once.");
+      used.add(address.pubkey.toBase58());
+      setup.pages.push({ book: book.pubkey, page: address.pubkey, classId: args.class, pageNo });
+    }
+  }
+  return { ...plan, setup, names: [...ixs.slice(0, -1).map((i) => i.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) ? "payout_ata" : "init_ckpt_page"), ...plan.names], cu: Math.min(1_400_000, plan.cu + setup.pages.length * 100_000 + (setup.ata ? 50_000 : 0)) };
 }
 
 const seedBytes = (type: unknown, v: unknown): Buffer | null => {
@@ -267,6 +317,7 @@ function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): Plan {
     if (!row || !def) throw new RuleError("unknown-instruction", `${name} is not one we pay for.`);
     if (ix.data.length > MAX_DATA_BYTES) throw new RuleError("too-large", "Instruction data is too large.");
     const args = decoded.data as Args;
+    if (name === "open_match" && (args.game as PublicKey).equals(TRADING_DUEL_PROGRAM_ID) && !assetOfIndex(Number(args.asset))) throw new RuleError("bad-asset", "That Trading Duel asset is not supported.");
     const own = def.accounts.length;
     if (ix.keys.length < own || ix.keys.length > own + (row.extra ?? 0)) throw new RuleError("bad-accounts", `${name} has the wrong number of accounts.`);
 
@@ -404,6 +455,7 @@ function planGame(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
  * listed Game (the service answers from the registry).
  */
 export function planTransaction(ixs: Ix[], ctx: { relayer: PublicKey; player: PublicKey; isGame: (program: PublicKey) => boolean; inviteKey?: PublicKey }): Plan {
+  if (ixs.length > 1 && ixs.slice(0, -1).some((i) => i.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) || (i.programId.equals(CORE_ID) && coder.decode(Buffer.from(i.data))?.name === "init_ckpt_page"))) return planPreparedExit(ixs, ctx.relayer, ctx.player);
   if (ixs.length === 0 || ixs.length > MAX_IXS) throw new RuleError("bad-shape", `A sponsored transaction has between one and ${MAX_IXS} instructions.`);
   if (ixs.every((i) => i.programId.equals(BRIDGE_ID))) return planBridge(ixs, ctx.relayer);
   const core = ixs.filter((i) => i.programId.equals(CORE_ID)).length;
