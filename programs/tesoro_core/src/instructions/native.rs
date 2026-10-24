@@ -135,6 +135,56 @@ pub(crate) fn init_native_custody(ctx: Context<InitNativeCustody>) -> Result<()>
     Ok(())
 }
 
+/// Extends a native custody written before `route` existed to the current layout. The route
+/// starts empty, which is right: the old layout carried no Treasury shares.
+#[derive(Accounts)]
+pub struct MigrateNativeCustody<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        has_one = admin @ TesoroError::Unauthorized
+    )]
+    pub config: Box<Account<'info, Config>>,
+    /// CHECK: the one native custody at `["native"]`, in the layout before `route`: it does not
+    /// decode as a `NativeCustody`, so it is checked by discriminator and length.
+    #[account(mut, seeds = [NATIVE_SEED], bump)]
+    pub custody: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn migrate_native_custody(ctx: Context<MigrateNativeCustody>) -> Result<()> {
+    let a = ctx.accounts;
+    let custody = a.custody.to_account_info();
+    require!(custody.owner == &crate::ID, TesoroError::NotOldWorld);
+    {
+        let data = custody.try_borrow_data()?;
+        require!(
+            data.len() == NativeCustody::SPACE - ledger::RouteLedger::SPACE
+                && data[..8] == *NativeCustody::DISCRIMINATOR,
+            TesoroError::NotOldWorld
+        );
+    }
+    let short = Rent::get()?
+        .minimum_balance(NativeCustody::SPACE)
+        .saturating_sub(custody.lamports());
+    if short > 0 {
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                a.system_program.to_account_info(),
+                anchor_lang::system_program::Transfer {
+                    from: a.admin.to_account_info(),
+                    to: custody.clone(),
+                },
+            ),
+            short,
+        )?;
+    }
+    custody.resize(NativeCustody::SPACE)?;
+    Ok(())
+}
+
 // --- Open ------------------------------------------------------------------------------------
 
 /// The owner deposits simSOL into the shared vault. Principal is recorded in SOL at the current

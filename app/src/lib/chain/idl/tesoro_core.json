@@ -6821,6 +6821,78 @@
       ]
     },
     {
+      "name": "migrate_native_custody",
+      "docs": [
+        "Admin, once: extends a native custody created before `route` existed (178 B) to the",
+        "current layout, with an empty route."
+      ],
+      "discriminator": [
+        124,
+        242,
+        127,
+        237,
+        151,
+        47,
+        181,
+        115
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody",
+          "docs": [
+            "decode as a `NativeCustody`, so it is checked by discriminator and length."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "open_match",
       "docs": [
         "Opens a Match for `game` at `entry`. `n` is the opener's next Match id; `pot` is a fresh",
