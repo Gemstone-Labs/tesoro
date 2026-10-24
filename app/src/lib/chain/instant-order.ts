@@ -108,9 +108,10 @@ const discOf = (name: string) => Buffer.from((coreIdl.accounts as { name: string
 /** The Account's open orders, oldest first. One filtered `getProgramAccounts` on the discriminator and the seller's Account. */
 export async function fetchInstantOrders(accountKey: PublicKey, conn: Pick<Connection, "getProgramAccounts"> = getChain().base): Promise<InstantOrder[]> {
   const rows = await conn.getProgramAccounts(TESORO_CORE_ID, {
-    filters: [{ dataSize: INSTANT_ORDER_LEN }, { memcmp: { offset: 0, bytes: bs58Codec.encode(discOf("InstantOrderState")) } }, { memcmp: { offset: 17, bytes: accountKey.toBase58() } }],
+    filters: [{ memcmp: { offset: 0, bytes: bs58Codec.encode(discOf("InstantOrderState")) } }, { memcmp: { offset: 17, bytes: accountKey.toBase58() } }],
   });
   return rows.flatMap((r) => {
+    if (r.account.data.length !== INSTANT_ORDER_LEN) return [];
     try {
       const o = decodeOrder(r.pubkey, r.account.data);
       return o.line.amount > 0n ? [o] : [];

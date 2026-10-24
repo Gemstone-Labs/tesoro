@@ -19,6 +19,8 @@ const LISTS: Record<string, { ownerOffset: number | null; disc?: number[] }> = {
   TesoroAccount: { ownerOffset: 9 },
   // PositionState: disc 8 + bump 1 + position_id 32, then `inner.owner`.
   PositionState: { ownerOffset: 41 },
+  // InstantOrderState: disc 8 + bump 1 + nonce 8, then the seller's Account.
+  InstantOrderState: { ownerOffset: 17 },
   // OverflowHead: disc 8 + payer 32 + kind 1 + id 40, then the line store, whose header keeps the owner Account at byte 8.
   // No instruction names this account type, so the IDL has no discriminator for it.
   OverflowHead: { ownerOffset: OVERFLOW_OWNER_AT, disc: [...OVERFLOW_DISC] },

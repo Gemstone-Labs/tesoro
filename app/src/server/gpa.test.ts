@@ -1,6 +1,8 @@
 import { Keypair } from "@solana/web3.js";
 import { utils } from "@coral-xyz/anchor";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { fetchInstantOrders } from "../lib/chain/instant-order";
+import { SplitConnection, routeGpa } from "../lib/chain/split-connection";
 import coreIdl from "../lib/chain/idl/tesoro_core.json";
 import { OVERFLOW_DISC, OVERFLOW_OWNER_AT } from "../lib/chain/overflow";
 import { GpaInputError, GpaUpstreamError, createListCache, parseQuery } from "./gpa";
@@ -62,6 +64,25 @@ describe("gpa parseQuery", () => {
 });
 
 describe("gpa list cache (OC-03)", () => {
+  it("accepts the real client's owner-filtered Instant Redeem order list", async () => {
+    const owner = Keypair.generate().publicKey;
+    const seen: URLSearchParams[] = [];
+    vi.stubGlobal("fetch", async (input: string) => {
+      const params = new URL(input, "http://127.0.0.1").searchParams;
+      const parsed = parseQuery(params);
+      expect(parsed.owner?.key.equals(owner)).toBe(true);
+      expect(parsed.owner?.offset).toBe(17);
+      seen.push(params);
+      return Response.json([]);
+    });
+    try {
+      const conn = new SplitConnection("http://127.0.0.1:1", routeGpa);
+      await expect(fetchInstantOrders(owner, conn)).resolves.toEqual([]);
+      expect(seen).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   // The offline repro (docs/reviews/2026-09-30-evidence/oc-gpa-amplification.log): 50 distinct slices
   // made 50 upstream calls, and after one 429 a never-cached legitimate query was refused.
   it("50 distinct queries make no upstream calls; distinct owners share one", async () => {
