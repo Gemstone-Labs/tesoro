@@ -2,6 +2,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createScorePresentation } from "./score-presentation";
 afterEach(() => vi.useRealTimers());
 describe("score receipts", () => {
+  it("credits placed cells immediately while only the clear bonus remains pending", () => {
+    vi.useFakeTimers(); const seen: number[] = [];
+    const score = createScorePresentation((n) => seen.push(n));
+    score.award(4, 0, 1); score.award(10, 780, 2);
+    expect(seen).toEqual([4]);
+    score.award(3, 0, 1);
+    expect(seen).toEqual([4, 7]);
+    vi.advanceTimersByTime(780);
+    expect(seen).toEqual([4, 7, 17]);
+  });
   it("credits overlapping rewards once even when a later placement arrives first", () => {
     vi.useFakeTimers(); const seen: number[] = [];
     const score = createScorePresentation((n) => seen.push(n));

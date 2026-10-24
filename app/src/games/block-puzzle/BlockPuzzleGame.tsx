@@ -20,6 +20,7 @@ import { blockSound } from "../fx/sfx";
 import { useTransientEffects } from "./use-transient-effects";
 import { useBoardPreview } from "./use-board-preview";
 import { createScorePresentation } from "./score-presentation";
+import { urgencyFor } from "./board-feedback";
 import "./block-puzzle.css";
 
 const DURATION_MS = 90_000;
@@ -152,7 +153,9 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   const boardRef = useRef<HTMLDivElement>(null);
   const spaceRef = useRef<HTMLDivElement>(null);
   const visualRef = useRef<HTMLDivElement>(null);
+  const readyRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef(game);
+  const dragState = useCallback(() => gameRef.current.st, []);
   const comboRef = useRef(0);
   const accepting = useRef(false);
   const { later, animate, reset: resetEffects } = useTransientEffects();
@@ -191,7 +194,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   const available = useMemo(() => hand.map((piece) => fitsAnywhere(st, piece)), [hand, st]);
   const selPiece = phase === "play" && (st.used >> (sel - base)) & 1 ? null : hand[sel - base] ?? null;
 
-  const setPreview = useBoardPreview(boardRef, st, selPiece);
+  const setPreview = useBoardPreview(boardRef, st, selPiece, readyRef);
 
   const runRef = useRef(run);
   useEffect(() => {
@@ -349,6 +352,8 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   const place = useCallback(
     (idx: number, x: number, y: number) => {
       if (phase !== "play" || paused || !accepting.current) return false;
+      const left = runRef.current ? runRef.current.remainingMs() : endsAt.current - practiceNow();
+      if (left <= 0) { finish("time"); return false; }
       const current = gameRef.current;
       let next;
       try {
@@ -414,7 +419,9 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
         setAnnounce(`Placed, plus ${next.result.gained}`);
       } else {
         const newCombo = ++comboRef.current;
-        celebrate(next.result.lines, next.result.gems, newCombo, next.result.gained, gone, next.result.cleared, id);
+        const placementPoints = pieceCells(piece).length;
+        scorePresentation.award(placementPoints, 0, 1);
+        celebrate(next.result.lines, next.result.gems, newCombo, next.result.gained - placementPoints, gone, next.result.cleared, id);
         setCombo(newCombo);
         setBestCombo((b) => Math.max(b, newCombo));
         setAnnounce(`Cleared ${next.result.lines} ${next.result.lines === 1 ? "line" : "lines"}, plus ${next.result.gained}`);
@@ -428,7 +435,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       }
       return true;
     },
-    [phase, paused, finish, celebrate, later, scorePresentation, setPreview],
+    [phase, paused, finish, celebrate, later, scorePresentation, setPreview, practiceNow],
   );
 
   const reject = useCallback(() => {
@@ -438,7 +445,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       { outline: "2px solid var(--danger)", outlineOffset: "-2px" }, { outline: "2px solid transparent", outlineOffset: "-2px" },
     ], { duration: 180 });
   }, [animate]);
-  const { held, gesture: dragMeta, ghost: ghostRef, down: beginDrag, move: moveDrag, up: endDrag, cancel: onTrayCancel } = usePieceDrag({ space: spaceRef, board: boardRef, preview: setPreview, place, reject });
+  const { held, gesture: dragMeta, ghost: ghostRef, down: beginDrag, move: moveDrag, up: endDrag, cancel: onTrayCancel } = usePieceDrag({ space: spaceRef, board: boardRef, getState: dragState, preview: setPreview, place, reject });
   useEffect(() => { if (phase !== "play" || paused) onTrayCancel(); }, [phase, paused, onTrayCancel]);
   const onTrayDown = (e: React.PointerEvent<HTMLButtonElement>, idx: number) => {
     if (paused || phase !== "play" || (st.used >> (idx - base)) & 1) return;
@@ -464,6 +471,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
 
   const timeLow = remaining <= 10_000;
   const secondsLeft = Math.ceil(remaining / 1000);
+  const boardUrgency = urgencyFor(secondsLeft, phase === "play" && !paused, false);
   useEffect(() => {
     if (phase === "play" && timeLow && secondsLeft > 0) sfx("tick");
   }, [phase, timeLow, secondsLeft]);
@@ -557,9 +565,10 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       <section className="bpx-mid" aria-label="Board">
         <h1 className="sr-only">Block Burst</h1>
       <div className="bp-stage">
-        <div className={`bp-board-space${timeLow && phase === "play" ? " low" : ""}`} ref={spaceRef}>
+        <div className="bp-board-space" data-urgency={boardUrgency === "none" ? undefined : boardUrgency} ref={spaceRef}>
           <div className="bp-board-visual" ref={visualRef}>
           {board}
+          <div ref={readyRef} className="bp-ready-grid" aria-hidden="true" />
           <div className="bp-clear-grid" aria-hidden="true">
             {ghosts.filter((g) => !((st.occ >> BigInt(g.i)) & 1n)).map((g) => (
               <i key={`${g.id}:${g.i}`} className={`bp-cell pop k${g.color}${g.gem ? " gem" : ""}`} style={{ gridColumn: g.i % SIZE + 1, gridRow: Math.floor(g.i / SIZE) + 1, animationDelay: `${g.delay}ms` }} />
@@ -677,7 +686,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
 
       {held && (
         <div ref={ghostRef} className="bp-ghost" style={{ transform: `translate3d(${held.px}px, ${held.py}px, 0)` }} aria-hidden="true">
-          <div className="bp-pickup" style={{ "--pickup-x": `${held.pickupX}px`, "--pickup-y": `${held.pickupY}px`, "--pickup-scale": held.scale } as React.CSSProperties}>
+          <div className="bp-pickup" data-touch={held.touch || undefined} style={{ "--pickup-x": `${held.pickupX}px`, "--pickup-y": `${held.pickupY}px`, "--pickup-scale": held.scale } as React.CSSProperties}>
             <PieceArt piece={held.piece} cell={held.grid.cell} gap={held.grid.gap} />
           </div>
         </div>

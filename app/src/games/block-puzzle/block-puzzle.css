@@ -131,9 +131,10 @@
 
 .bp-ghost { position: fixed; left: 0; top: 0; z-index: 75; pointer-events: none; opacity: 0.96; transform-origin: 0 0; will-change: transform; }
 .bp-pickup { transform-origin: 0 0; animation: bp-pickup 100ms cubic-bezier(.2,.8,.2,1) both; }
+.bp-pickup[data-touch="true"] { animation: none; }
 @keyframes bp-pickup { from { transform: translate(var(--pickup-x), var(--pickup-y)) scale(var(--pickup-scale)); } to { transform: none; } }
 .bp-return .bp-pickup { animation: none; }
-.bp-slot.held .bp-deal { opacity: 0.2; }
+.bp-slot.held .bp-deal { visibility: hidden; }
 .bp-slot.held { cursor: grabbing; }
 .bp-ghost .bp-cell { --bev: 5px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5), 0 0 18px -4px var(--k); }
 
@@ -148,7 +149,7 @@
 /* rows and columns the held piece would complete */
 .bp-cell.hint { background-color: color-mix(in oklab, var(--hk, #eaefec) 30%, transparent);  }
 .bp-cell.hint:not(.pv):not(.on) { box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--hk, #eaefec) 55%, transparent); }
-.bp-cell.on.hint::before { content: ""; position: absolute; inset: 0; background: color-mix(in oklab, var(--hk) 35%, transparent); box-shadow: inset 0 0 0 2px var(--hk), 0 0 8px var(--hk); pointer-events: none; }
+.bp-cell.on.hint::before { content: none; }
 @keyframes bp-hint { to { filter: brightness(1.35); } }
 
 .bp-cell.pop { animation: bp-pop 360ms cubic-bezier(.16,1,.3,1) both; z-index: 1; }
@@ -193,13 +194,28 @@
 .bp-over { justify-items: center; text-align: center; }
 
 .bpx-ring.low span { color: var(--warn); }
-/* Paint the warning once on its own layer; never animate the board's blurred shadow. */
-.bp-board-space.low::after {
-  content: ""; position: absolute; inset: -2px; pointer-events: none;
-  border: 2px solid var(--warn); box-shadow: 0 0 16px rgba(242, 185, 75, 0.45);
-  opacity: 0.5; will-change: opacity; animation: bp-warning 1s ease-in-out infinite;
+/* The solid rim stays visible throughout the halo's opacity-only pulse. */
+.bp-board-space[data-urgency="low"], .bp-board-space[data-urgency="critical"] {
+  --bp-urgency-color: #ffd16b;
+  --bp-urgency-glow: rgba(255, 190, 69, .6);
 }
-@keyframes bp-warning { 50% { opacity: 1; } }
+.bp-board-space[data-urgency="low"]::before, .bp-board-space[data-urgency="critical"]::before {
+  content: ""; position: absolute; inset: -3px; z-index: 5; pointer-events: none;
+  border: 3px solid var(--bp-urgency-color); border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 225, 158, .3), inset 0 0 0 1px rgba(255, 225, 158, .25);
+}
+.bp-board-space[data-urgency="low"]::after, .bp-board-space[data-urgency="critical"]::after {
+  content: ""; position: absolute; inset: -3px; z-index: 5; pointer-events: none;
+  border: 3px solid var(--bp-urgency-color); border-radius: 3px;
+  box-shadow: 0 0 24px var(--bp-urgency-glow), inset 0 0 24px rgba(255, 190, 69, .15);
+  opacity: .45; animation: bp-warning 1100ms ease-in-out infinite;
+}
+.bp-board-space[data-urgency="critical"] {
+  --bp-urgency-color: #ffe3a0;
+  --bp-urgency-glow: rgba(255, 190, 69, .85);
+}
+.bp-board-space[data-urgency="critical"]::after { animation-duration: 800ms; }
+@keyframes bp-warning { 50% { opacity: .95; } }
 
 .bp-best { font-size: var(--fs-14); font-weight: 700; color: var(--fg-2); letter-spacing: 0.04em; text-transform: uppercase; }
 .bp-best.new { color: #ffb43a; font-size: var(--fs-18); animation: bp-best 700ms 600ms cubic-bezier(0.2, 1.6, 0.4, 1) both; }
@@ -214,7 +230,8 @@
   .bp-final { font-size: 52px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .bp-board-space.low::after, .bp-best.new, .bp-stats li { animation: none; }
+  .bp-best.new, .bp-stats li { animation: none; }
+  .bp-board-space[data-urgency="low"]::after, .bp-board-space[data-urgency="critical"]::after { animation: none; opacity: .75; }
 }
 
 @media (max-width: 639px) {
@@ -234,6 +251,11 @@
 
 /* Clear ghosts have their own cells, so animation never changes a playable cell's opacity. */
 .bp-clear-grid { position: absolute; inset: 0; padding: 9px; display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); gap: 4px; pointer-events: none; }
+/* Connected completion lanes retain the existing cell bevels and gem artwork. */
+.bp-ready-grid { position: absolute; inset: 0; z-index: 3; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); gap: 4px; padding: 9px; pointer-events: none; }
+.bp-ready-line { min-width: 0; min-height: 0; border: 1px solid color-mix(in oklab, var(--hk, #eaefec) 58%, white); border-radius: 3px; background: color-mix(in oklab, var(--hk, #eaefec) 12%, transparent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .48), 0 0 10px -3px color-mix(in oklab, var(--hk, #eaefec) 78%, transparent); pointer-events: none; }
+.bp-ready-line[data-axis="row"] { grid-column: 1 / -1; }
+.bp-ready-line[data-axis="col"] { grid-row: 1 / -1; }
 .bp-moment { --moment-offset: 24px; position: absolute; left: 50%; width: max-content; max-width: 95%; z-index: 8; pointer-events: none; text-align: center; transform: translate(-50%, var(--moment-offset)); animation: bp-moment 1000ms cubic-bezier(.16,1,.3,1) both; color: #fff; text-shadow: 0 2px 2px #080c14, 0 0 14px rgba(63,198,255,.6); }
 .bp-moment[data-placement="above"] { --moment-offset: calc(-100% - 40px); }
 .bp-moment strong { display: block; font-size: clamp(24px, 6.5vw, 34px); font-weight: 900; line-height: 1.05; }

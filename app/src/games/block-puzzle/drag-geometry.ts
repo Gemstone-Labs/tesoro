@@ -9,17 +9,29 @@ export function boardGeometry(box: { left: number; top: number; width: number },
 
 export const pieceExtent = (count: number, grid: GridGeometry) => count * grid.cell + (count - 1) * grid.gap;
 
-/** The held piece's top-left and the preview share the same geometry, including even-width shapes. */
-export function dragAnchor(piece: Piece, left: number, top: number, grid: GridGeometry): { x: number; y: number } | null {
+export function pickupGeometry(piece: Piece, rect: { left: number; top: number; width: number; height: number }, pointer: { x: number; y: number }, grid: GridGeometry, touch: boolean, boardBottom: number) {
   const [w, h] = dims(piece);
-  const cx = left + pieceExtent(w, grid) / 2;
-  const cy = top + pieceExtent(h, grid) / 2;
-  const extent = pieceExtent(SIZE, grid);
-  if (cx < grid.left - grid.cell / 2 || cy < grid.top - grid.cell / 2 || cx > grid.left + extent + grid.cell / 2 || cy > grid.top + extent + grid.cell / 2) return null;
-  return {
-    x: Math.max(0, Math.min(SIZE - w, Math.round((left - grid.left) / grid.pitch))),
-    y: Math.max(0, Math.min(SIZE - h, Math.round((top - grid.top) / grid.pitch))),
-  };
+  const width = pieceExtent(w, grid);
+  const height = pieceExtent(h, grid);
+  if (touch) {
+    return { left: rect.left + rect.width / 2 - width / 2, top: boardBottom - height / 2, width, height, gain: 1.5 };
+  }
+  const offsetX = Math.max(0, Math.min(1, (pointer.x - rect.left) / rect.width)) * width;
+  const offsetY = Math.max(0, Math.min(1, (pointer.y - rect.top) / rect.height)) * height;
+  return { left: pointer.x - offsetX, top: pointer.y - offsetY, width, height, gain: 1 };
+}
+
+export function dragPosition(start: { x: number; y: number; left: number; top: number }, pointer: { x: number; y: number }, gain: number) {
+  return { left: start.left + (pointer.x - start.x) * gain, top: start.top + (pointer.y - start.y) * gain };
+}
+
+/** Occupied-cell centers choose a grid anchor; outside poses do not clamp to an edge. */
+export function dragAnchor(piece: Piece, left: number, top: number, grid: GridGeometry): { x: number; y: number } | null {
+  if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+  const [w, h] = dims(piece);
+  const x = Math.floor((left - grid.left + grid.cell / 2) / grid.pitch);
+  const y = Math.floor((top - grid.top + grid.cell / 2) / grid.pitch);
+  return x >= 0 && y >= 0 && x + w <= SIZE && y + h <= SIZE ? { x, y } : null;
 }
 
 /** Read from the stationary space, never from the visually shaking board. */
