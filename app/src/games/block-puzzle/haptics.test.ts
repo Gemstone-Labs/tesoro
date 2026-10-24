@@ -32,18 +32,18 @@ describe("Block Burst haptics", () => {
   });
 });
 
-describe("physical vibration diagnostic", () => {
+describe("game vibration request results", () => {
   it("separates rejected, unavailable, accepted and throwing requests", () => {
-    expect(createHaptics(() => null, () => undefined).test()).toBe("unavailable");
-    expect(createHaptics(() => null, () => () => false).test()).toBe("blocked");
-    expect(createHaptics(() => null, () => () => { throw Error("device"); }).test()).toBe("error");
+    expect(createHaptics(() => null, () => undefined).play(1, 0)).toBe("unavailable");
+    expect(createHaptics(() => null, () => () => false).play(1, 0)).toBe("blocked");
+    expect(createHaptics(() => null, () => () => { throw Error("device"); }).play(1, 0)).toBe("error");
     const motor = vi.fn(() => true);
-    expect(createHaptics(() => null, () => motor).test()).toBe("accepted");
-    expect(motor).toHaveBeenCalledWith(160);
+    expect(createHaptics(() => null, () => motor).play(1, 0)).toBe("accepted");
+    expect(motor).toHaveBeenCalledWith([24]);
   });
-  it("allows an explicit test without silently changing a saved off preference", () => {
+  it("preserves a saved off preference when feedback is requested", () => {
     const h = createHaptics(() => ({getItem: () => "off", setItem: vi.fn()}), () => () => true);
-    expect(h.test()).toBe("accepted"); expect(h.enabled()).toBe(false);
+    expect(h.play(1, 0)).toBe("off"); expect(h.enabled()).toBe(false);
     expect(h.play(1,0)).toBe("off");
   });
 });

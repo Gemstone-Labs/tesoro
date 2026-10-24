@@ -35,7 +35,6 @@ export function createHaptics(storage: () => StorageLike | null, device: () => V
       listeners.forEach((listener) => listener());
     },
     play: (lines: number, gems: number): HapticResult => enabled() ? invoke(hapticPattern(lines, gems)) : "off",
-    test: () => invoke(160),
   };
 }
 

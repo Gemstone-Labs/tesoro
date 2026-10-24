@@ -58,7 +58,7 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME ?? jo
 const results = [];
 try {
   for (const mode of (process.env.MODES ?? 'touch,settings,reduced,unsupported').split(',')) {
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, ...(mode==='capture' ? {recordVideo:{dir:join(out,'video'),size:{width:390,height:844}}} : {}), reducedMotion: mode === 'reduced' ? 'reduce' : 'no-preference' });
+    const context = await browser.newContext({ viewport: { width: Number(process.env.WIDTH ?? 390), height: Number(process.env.HEIGHT ?? 844) }, hasTouch: true, isMobile: true, ...(mode==='capture' ? {recordVideo:{dir:join(out,'video'),size:{width:390,height:844}}} : {}), reducedMotion: mode === 'reduced' ? 'reduce' : 'no-preference' });
     await context.addInitScript(({ seed, supported, hapticMode }) => {
       const original = crypto.getRandomValues.bind(crypto);
       crypto.getRandomValues = (array) => { if (array instanceof BigUint64Array && array.length === 1) { array[0] = BigInt(seed); return array; } return original(array); };
@@ -177,6 +177,32 @@ try {
       seen.gems += move.result.gems;
       seen.combos += Number(move.combo>=2);
       if (move.result.lines && ['touch','capture'].includes(mode)) {
+        const sweeps = await page.locator('.bp-sweep').evaluateAll(nodes => nodes.map(el => {
+          const style = getComputedStyle(el);
+          return { background: style.backgroundColor, image: style.backgroundImage, padding: style.padding,
+            width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height };
+        }));
+        // Inspect the readable onset at a fixed animation time, not a screenshot-dependent instant.
+        await page.evaluate(() => {
+          const bonus = [...document.querySelectorAll('.bp-fly')].at(-1);
+          for (const el of [document.querySelector('.bp-moment'), bonus]) for (const animation of el?.getAnimations() ?? []) { animation.pause(); animation.currentTime = 100; }
+        });
+        await page.screenshot({path:join(out, `sweep-${i}.png`)});
+        assert.ok(sweeps.length > 0, 'clear mounts its sweep');
+        for (const sweep of sweeps) {
+          assert.equal(sweep.background, 'rgba(0, 0, 0, 0)', 'clear sweep must not paint a dark card over the board');
+          assert.equal(sweep.image, 'none', 'only the animated light paints, never its container');
+          assert.equal(sweep.padding, '0px', 'sweep must not inherit card padding');
+          assert.ok(Math.min(sweep.width,sweep.height) <= metrics.cell + 1, 'sweep stays within one cell thickness');
+        }
+        const label = await page.locator('.bp-moment').boundingBox();
+        const bonus = await page.locator('.bp-fly').last().boundingBox();
+        assert.ok(label && bonus && (label.y + label.height <= bonus.y || bonus.y + bonus.height <= label.y), 'clear label and bonus must be readable separately');
+        const area = await page.locator('.bp-board').boundingBox();
+        assert.ok(label.y >= area.y && label.y + label.height <= area.y + area.height, 'reward label stays inside the board');
+        await page.evaluate(() => {
+          for (const el of [document.querySelector('.bp-moment'), [...document.querySelectorAll('.bp-fly')].at(-1)]) for (const animation of el?.getAnimations() ?? []) animation.play();
+        });
         const anim = await page.evaluate(() => ({
           shake:document.querySelector('.bp-board-visual, .bp-board').getAnimations().map(a=>a.effect.getTiming().duration),
           space:getComputedStyle(document.querySelector('.bp-board-space')).transform,
@@ -218,38 +244,21 @@ try {
       assert.ok(feedback.haptics.some(p=>JSON.stringify(p)==='[30,35,18]'),'multi-line haptic');
       assert.ok(feedback.haptics.some(p=>JSON.stringify(p)==='[20,30,35]'),'gem haptic');
     }
-    if (['settings','blocked','error','unsupported'].includes(mode)) {
-      await page.getByRole('button',{name:'Game menu',exact:true}).tap();
-      await page.getByRole('menuitem',{name:'Test vibration',exact:true}).tap();
-      const diagnostic = page.getByRole('dialog',{name:'Test vibration',exact:true});
-      await diagnostic.getByRole('button',{name:'Send test pulse',exact:true}).tap();
-      const expectedStatus = mode==='blocked' ? 'browser declined' : mode==='error' ? 'could not send' : mode==='unsupported' ? 'does not offer vibration' : 'Did you feel';
-      await diagnostic.getByRole('status').filter({hasText:expectedStatus}).waitFor();
-      if(mode==='settings') {
-        assert.ok((await page.evaluate(()=>window.__haptics)).includes(160),'explicit motor check sends the long test pulse');
-        await diagnostic.getByRole('button',{name:'Nothing happened',exact:true}).tap();
-        await diagnostic.getByRole('status').filter({hasText:'No vibration felt'}).waitFor();
-        await diagnostic.getByRole('button',{name:'Send test pulse',exact:true}).tap();
-        await diagnostic.getByRole('button',{name:'I felt it',exact:true}).tap();
-        await diagnostic.getByRole('status').filter({hasText:'Vibration confirmed'}).waitFor();
-      }
-      await page.screenshot({path:join(out,`${mode}-vibration-check.png`)});
-      await diagnostic.getByRole('button',{name:'Back to game',exact:true}).tap();
-      assert.equal(await page.getByRole('dialog',{name:'Paused',exact:true}).count(),0,'diagnostic resumes a game it paused');
-    }
     if(mode==='settings') {
       await page.getByRole('button',{name:'Game menu',exact:true}).tap();
+      assert.equal(await page.getByRole('menuitemcheckbox',{name:'Vibration on',exact:true}).locator('svg.lucide-vibrate').count(),1);
       await page.getByRole('menuitemcheckbox',{name:'Vibration on',exact:true}).tap();
       await page.getByRole('menuitemcheckbox',{name:'Vibration off',exact:true}).waitFor();
+      assert.equal(await page.getByRole('menuitemcheckbox',{name:'Vibration off',exact:true}).locator('svg.lucide-vibrate-off').count(),1,'disabled vibration uses the off icon');
+      assert.equal(await page.getByRole('menuitem',{name:'Test vibration',exact:true}).count(),0,'no diagnostic action in game menu');
       await page.getByRole('menuitemcheckbox',{name:'Sound on',exact:true}).tap();
       await page.getByRole('button',{name:'Game menu',exact:true}).tap();
       await page.getByRole('button',{name:'Pause',exact:true}).tap();
       await page.getByRole('dialog',{name:'Paused'}).getByRole('button',{name:'Vibration off'}).waitFor();
       await page.getByRole('dialog',{name:'Paused'}).getByRole('button',{name:'Sound off'}).waitFor();
       await page.screenshot({path:join(out,'pause-settings.png')});
-      await page.getByRole('dialog',{name:'Paused',exact:true}).getByRole('button',{name:'Test vibration',exact:true}).tap();
-      await page.getByRole('dialog',{name:'Test vibration',exact:true}).getByRole('button',{name:'Back to game',exact:true}).tap();
-      await page.getByRole('dialog',{name:'Paused',exact:true}).waitFor();
+      assert.equal(await page.getByRole('dialog',{name:'Paused'}).getByRole('button',{name:'Vibration off',exact:true}).locator('svg.lucide-vibrate-off').count(),1);
+      assert.equal(await page.getByRole('button',{name:'Test vibration',exact:true}).count(),0,'no diagnostic action while paused');
       // Reload proves preference persistence; an actual move proves sound and haptics stay off.
       await page.clock.resume();
       await page.reload({waitUntil:'domcontentloaded'});
