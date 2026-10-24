@@ -2,11 +2,11 @@ import type { AccountMeta, PublicKey } from "@solana/web3.js";
 import { decodeMatchRecords, innerInstructionsOf, type MatchChunkRecord } from "../../app/src/server/history/events.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { creditedAccounts, runOf, sourcesAhead } from "./chunks.ts";
-import { closeMatchIx, growStoreIx, matchChunkIx, meta, type Core } from "./core-ix.ts";
+import { closeMatchIx, growStoreIx, initCkptPageIx, matchChunkIx, meta, type Core } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
-import { OVERFLOW_MATCH, POT_AT, basketOf, countersOf, decodeStore, decodeTicketHead, keyOf, matchAddress, matchLabel, matchOverflowId, matchRefOf, overflowAddress, slack, sponsorAddress, spillOf, type MatchRef, type Store } from "./kit.ts";
+import { OVERFLOW_MATCH, POT_AT, basketOf, bookOf, countersOf, decodeStore, decodeTicketHead, keyOf, matchAddress, matchLabel, matchOverflowId, matchRefOf, overflowAddress, slack, sponsorAddress, spillOf, type MatchRef, type Store } from "./kit.ts";
 import { fits, lookupTables, sendIxs, type SendOpts } from "./send.ts";
-import { connReader, dedupe, supplySources, type Reader } from "./supply.ts";
+import { connReader, dedupe, missingCutPages, supplySources, type Reader } from "./supply.ts";
 
 export type Stage = "open" | "active" | "settling" | "refunding" | "closed";
 
@@ -182,6 +182,16 @@ export async function driveMatch(ctx: Ctx, view: MatchView, deps: Deps = realDep
       log("settle", subject, "WARN Pot A is gone; nothing to run");
       return actions;
     }
+    const run = runOf(current.inner.run);
+    const pages = run ? await missingCutPages(read, sourcesAhead(run, l.stores, CHUNK_STEPS)) : [];
+    for (const page of pages) {
+      const r = await act(ctx, "settle", subject, `init_ckpt_page class ${page.cls} page ${page.pageNo} of ${shortKey(page.source)} before a fee cut`, async () =>
+        send([await initCkptPageIx(ctx.core, { payer: ctx.payer.publicKey, book: bookOf(page.source), page: page.address, cls: page.cls, pageNo: page.pageNo })], { units: 200_000 }),
+      );
+      if (!r.ok) return actions;
+      if (r.detail !== "dry-run") actions++;
+    }
+    if (pages.length && ctx.settings.dryRun) return actions;
     const plan = await planChunk(ctx.core, read, ctx.payer.publicKey, l, CHUNK_STEPS, opts);
     if (!plan) return actions;
     if (plan.missing.length) log("settle", subject, `WARN no book for ${plan.missing.map(shortKey).join(", ")}: the chunk cannot run those steps`);

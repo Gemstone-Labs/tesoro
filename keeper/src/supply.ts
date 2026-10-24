@@ -64,6 +64,26 @@ export interface SourceSupply {
   missing: PublicKey[];
 }
 
+/** Pages a fee cut's sync or paid Studio tranche can write; old pages cannot be recreated. */
+export async function missingCutPages(read: Reader, ahead: Ahead[]): Promise<{ source: PublicKey; cls: number; pageNo: number; address: PublicKey }[]> {
+  const cuts = ahead.filter((a) => a.cut);
+  const books = await read.many(cuts.map((a) => bookOf(a.source)));
+  const candidates: { source: PublicKey; cls: number; pageNo: number; address: PublicKey }[] = [];
+  cuts.forEach((a, i) => {
+    const book = books[i];
+    if (!book) return;
+    bookCheckpointCounts(book.data).forEach((ck, cls) => {
+      if (cls === 0 || cls === 2) return;
+      // A sync closes up to three segments; the fee cut can then seal a paid Studio segment.
+      const first = Math.floor(ck / CKPT_PER_PAGE);
+      const last = Math.floor((ck + 3) / CKPT_PER_PAGE);
+      for (let pageNo = first; pageNo <= last; pageNo++) candidates.push({ source: a.source, cls, pageNo, address: ckptOf(a.source, cls, pageNo) });
+    });
+  });
+  const pages = await read.many(candidates.map((c) => c.address));
+  return candidates.filter((_, i) => !pages[i]);
+}
+
 const dedupe = (metas: AccountMeta[]): AccountMeta[] => {
   const seen = new Map<string, AccountMeta>();
   for (const m of metas) {

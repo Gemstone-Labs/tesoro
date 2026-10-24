@@ -148,6 +148,28 @@ describe("driving a Match", () => {
     assert.equal(n, 3);
   });
 
+  it("creates missing checkpoint pages before a fee cut seals the paid Studio tranche", async () => {
+    const source = k();
+    const accounts = world([source]);
+    const settling = await matchView({ phases: [{ cuts: [1] }], cut: [1n, 1n, 1n] });
+    const closed = await matchView({ stage: { closed: {} } });
+    const { d, sent } = deps({ next: [closed], reports: [{ done: true, blocked: false }], accounts });
+    const send = d.send;
+    d.send = async (ixs, opts) => {
+      for (const ix of ixs) {
+        if (ixNameOf(core, ix) === "initCkptPage") accounts.set(ix.keys[2].pubkey.toBase58(), Buffer.alloc(10));
+        if (ixNameOf(core, ix) === "matchChunk") {
+          const studioPage = ckptOf(source, 1, 0).toBase58();
+          assert.ok(accounts.has(studioPage), "Create the Studio checkpoint page before settling a fee cut");
+          assert.ok(ix.keys.some((k) => k.pubkey.toBase58() === studioPage));
+        }
+      }
+      return send(ixs, opts);
+    };
+    await driveMatch(ctxOf(), settling, d);
+    assert.deepEqual(sent, ["initCkptPage", "initCkptPage", "matchChunk", "closeMatch"]);
+  });
+
   it("grows the spill of the Account that has no room when the chunk reports blocked, then goes on", async () => {
     const accounts = world([k()], { fullSpillOf: bob });
     const settling = await matchView();
