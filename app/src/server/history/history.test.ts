@@ -73,8 +73,8 @@ function instructionsFor(s: Seed): InnerInstruction[] {
       pool_fee: bn(fees[2]), season: s.season ?? 3, ts: bn(s.at + 600), loser: pk(l[0]), challenge: s.challenge ?? false, asset: s.asset ?? 0, opened_at: bn(s.at),
     }));
   }
-  out.push(cpi("MatchChunkDone", { opener: pk(s.opener), n: bn(s.n), chunk_no: 0, steps: 4, done: false, blocked: false }));
-  out.push(cpi("MatchChunkDone", { opener: pk(s.opener), n: bn(s.n), chunk_no: 1, steps: 2, done: true, blocked: false }));
+  out.push(cpi("MatchChunkDone", { opener: pk(s.opener), n: bn(s.n), chunk_no: 1, steps: 4, done: false, blocked: false }));
+  out.push(cpi("MatchChunkDone", { opener: pk(s.opener), n: bn(s.n), chunk_no: 2, steps: 2, done: true, blocked: false }));
   out.push(cpi("MatchSettled", { opener: pk(s.opener), n: bn(s.n), kind, chunks: 2 }));
   return out;
 }

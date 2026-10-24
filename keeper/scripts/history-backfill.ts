@@ -13,7 +13,8 @@
 import { join } from "node:path";
 import { loadAppEnv } from "../src/env.ts";
 import { parseArgs } from "../src/cli-args.ts";
-import { collectSignatures, pooled, transactionRecords } from "../src/events-scan.ts";
+import { collectSignatures } from "../src/events-scan.ts";
+import { backfillHistory } from "../src/history-backfill.ts";
 import { databaseSink, fileCursor, historyRpc, stateDir } from "../src/history.ts";
 import { newConnection } from "../src/runtime.ts";
 import { settings } from "../src/env.ts";
@@ -31,23 +32,9 @@ const sink = rpc ? databaseSink(rpc) : null;
 const sigs = (await collectSignatures(conn, { olderThan: from, maxPages: Number(a.value("max-pages") ?? 200) })).reverse();
 console.log(`${sigs.length} transaction(s) touched core's event authority${from ? ` since ${new Date(from * 1000).toISOString()}` : ""}`);
 
-let records = 0;
-let written = 0;
-const BATCH = 60;
-for (let i = 0; i < sigs.length; i += BATCH) {
-  const batch = sigs.slice(i, i + BATCH);
-  const txs = await pooled(batch, 6, (sig) => transactionRecords(conn, sig));
-  for (let j = 0; j < batch.length; j++) {
-    const tx = txs[j];
-    if (!tx) throw new Error(`transaction ${batch[j].signature} could not be read; run again`);
-    records += tx.records.length;
-    if (sink && tx.records.length) {
-      await sink(tx);
-      written++;
-    }
-  }
-  console.log(`${Math.min(i + BATCH, sigs.length)}/${sigs.length} transactions, ${records} records`);
-}
+const { records, written } = await backfillHistory(conn, sigs, { dryRun, sink,
+  progress: (handled, count) => console.log(`${handled}/${sigs.length} transactions, ${count} records`),
+});
 console.log(`${dryRun ? "would write" : "wrote"} ${records} record(s) from ${dryRun ? sigs.length : written} transaction(s)`);
 if (!dryRun && a.flag("set-cursor") && sigs.length) {
   const path = join(stateDir(), "history-cursor.json");

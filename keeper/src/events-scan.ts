@@ -50,8 +50,7 @@ export async function collectSignatures(conn: ScanConn, opts: CollectOpts = {}):
     }
     before = batch[batch.length - 1].signature;
   }
-  // A scan bounded by a start time (a Season) that ran out of pages before reaching it would rank on part of the week.
-  if (!reachedEnd && opts.olderThan !== undefined) throw new Error(`event scan stopped after ${opts.maxPages ?? 20} page(s) before reaching ${new Date(opts.olderThan * 1000).toISOString()}; raise maxPages`);
+  if (!reachedEnd) throw new Error(`event scan stopped after ${opts.maxPages ?? 20} page(s) before reaching ${opts.olderThan !== undefined ? new Date(opts.olderThan * 1000).toISOString() : opts.until ?? "the end of history"}; raise maxPages`);
   return out;
 }
 

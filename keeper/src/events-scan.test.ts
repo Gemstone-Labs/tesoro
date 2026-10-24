@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { GAME_IDS } from "../../app/src/lib/chain/games.ts";
-import { pooled, seasonWinsFromChain, winOf } from "./events-scan.ts";
+import { collectSignatures, pooled, seasonWinsFromChain, winOf } from "./events-scan.ts";
 import { eventTx, scriptedConn } from "./fixtures.ts";
 
 const k = () => Keypair.generate().publicKey;
@@ -16,6 +16,10 @@ const won = (n: number, winner: PublicKey, loser: PublicKey, season: number, ts:
 });
 
 describe("a Season's wins from core's events", () => {
+  it("refuses a truncated full-history scan even without a Season start bound", async () => {
+    const conn = scriptedConn(Array.from({ length: 3 }, (_, i) => ({ signature: `truncated${i}`, tx: eventTx({ blockTime: T0, events: [] }) })));
+    await assert.rejects(collectSignatures(conn as any, { pageSize: 1, maxPages: 2 }), /event scan stopped after 2 page/);
+  });
   it("reads each MatchWon of the season, oldest first, by the season in the record", async () => {
     const conn = scriptedConn([
       { signature: "s3", tx: eventTx({ blockTime: T0 + 300, events: [won(3, BOB, ALICE, 7, T0 + 300)] }) },

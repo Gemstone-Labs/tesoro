@@ -2,13 +2,13 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import type { Rpc } from "./rpc";
 
-const MIGRATIONS = ["0010_match_history.sql", "0013_match_end_states.sql"].map((f) => new URL(`../../../supabase/migrations/${f}`, import.meta.url));
+const MIGRATIONS = ["0010_match_history.sql", "0013_match_end_states.sql", "0015_match_history_chunks.sql"].map((f) => new URL(`../../../supabase/migrations/${f}`, import.meta.url));
 
 /** A throwaway in-process Postgres (pglite) with migrations 0010 and 0013 applied, called the way the app calls Supabase. */
 export async function testDb(): Promise<{ rpc: Rpc; sql: PGlite }> {
   const sql = new PGlite();
   await sql.exec("create role anon; create role authenticated;");
-  for (const m of MIGRATIONS) await sql.exec(readFileSync(m, "utf8"));
+  for (const m of MIGRATIONS) await sql.exec("begin;\n" + readFileSync(m, "utf8") + "\ncommit;");
   const rpc: Rpc = async (fn, args) => {
     const names = Object.keys(args);
     const params = names.map((k) => (args[k] !== null && typeof args[k] === "object" && !Array.isArray(args[k]) ? JSON.stringify(args[k]) : args[k]));

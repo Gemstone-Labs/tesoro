@@ -91,15 +91,20 @@ describe("the Match history scan", () => {
     assert.deepEqual(seen, ["sig001", "sig002", "sig003", "sig004", "sig005", "sig006", "sig007"]);
   });
 
-  it("waits on an unreadable transaction a few passes, then skips it with a warning", async () => {
+  it("never advances past an unreadable transaction, and resumes when it becomes readable", async () => {
     const txs = history(3);
     txs[1] = { signature: txs[1].signature, tx: null };
     const seen: string[] = [];
-    const deps = depsOf(scriptedConn(txs), [async (tx) => void seen.push(tx.signature)], { skipAfter: 3 });
+    const conn = scriptedConn(txs);
+    const deps = depsOf(conn, [async (tx) => void seen.push(tx.signature)], { skipAfter: 3 });
     assert.equal((await scanHistory(deps)).stoppedAt, "sig002");
     assert.equal((await scanHistory(deps)).stoppedAt, "sig002");
-    assert.equal((await scanHistory(deps)).stoppedAt, null);
-    assert.deepEqual(seen, ["sig001", "sig003"]);
+    assert.equal((await scanHistory(deps)).stoppedAt, "sig002");
+    assert.equal(deps.cursor.load(), "sig001");
+    assert.deepEqual(seen, ["sig001"]);
+    const readable = scriptedConn(history(3));
+    await scanHistory({ ...deps, conn: readable as any });
+    assert.deepEqual(seen, ["sig001", "sig002", "sig003"]);
   });
 
   it("ignores failed transactions", async () => {

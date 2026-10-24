@@ -96,7 +96,7 @@ export interface HistoryDeps {
   /** Signature pages read on the very first run, with no cursor (the backfill script reads them all). */
   firstRunPages: number;
   fetchConcurrency: number;
-  /** An unreadable transaction is skipped after this many passes. */
+  /** Warn after this many unreadable passes; the cursor still waits for complete history. */
   skipAfter: number;
 }
 
@@ -120,8 +120,8 @@ export async function scanHistory(deps: HistoryDeps): Promise<{ handled: number;
     if (!tx) {
       const tries = (unreadable.get(sig) ?? 0) + 1;
       unreadable.set(sig, tries);
-      if (tries < deps.skipAfter) return { handled, stoppedAt: sig };
-      log("history", sig.slice(0, 8), `WARN transaction unreadable after ${tries} passes, skipped`);
+      if (tries >= deps.skipAfter) log("history", sig.slice(0, 8), `WARN transaction unreadable after ${tries} passes; cursor retained`);
+      return { handled, stoppedAt: sig };
     } else {
       try {
         for (const sink of deps.sinks) await sink(tx);
