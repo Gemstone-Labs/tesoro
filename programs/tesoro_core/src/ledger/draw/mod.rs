@@ -55,6 +55,7 @@
 //! existing line, goes through [`SourceBook::transfer`], which brings both lines up to date and
 //! moves the ready part proportionally.
 
+#[cfg(not(target_os = "solana"))]
 use std::collections::BTreeMap;
 
 use super::book::checkpoint::CheckpointStore;

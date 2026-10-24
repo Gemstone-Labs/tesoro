@@ -13,7 +13,8 @@ use solana_sdk::transaction::Transaction;
 use tesoro_core::instructions::MatchResult;
 use tesoro_core::ledger::book::fp_ceil;
 use tesoro_core::ledger::line_store::{
-    CLASS_GENERAL, CLASS_LEADERBOARD, CLASS_PLATFORM, CLASS_STUDIO, SIDE_OWN, SIDE_WON,
+    Line, CLASS_GENERAL, CLASS_LEADERBOARD, CLASS_PLATFORM, CLASS_STUDIO, LINE_LEN, SIDE_OWN,
+    SIDE_WON,
 };
 use tesoro_core::ledger::{CoreError, SourceChain};
 use tesoro_core::state::*;
@@ -3655,6 +3656,31 @@ fn decode_event<T: anchor_lang::Event>(data: &[u8]) -> Option<T> {
     T::try_from_slice(&data[16..]).ok()
 }
 
+/// Optional public CPI replay fixture for the real decoder/database tests. Contains no signing material.
+fn source_record_fixture(phase: &str, events: &[Vec<u8>]) {
+    use std::io::Write;
+    if let Ok(path) = std::env::var("TESORO_SOURCE_RECORD_FIXTURE") {
+        let records: Vec<String> = events
+            .iter()
+            .map(|bytes| {
+                let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+                format!("\"{hex}\"")
+            })
+            .collect();
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .expect("fixture file");
+        writeln!(
+            file,
+            "{{\"phase\":\"{phase}\",\"events\":[{}]}}",
+            records.join(",")
+        )
+        .expect("public fixture write");
+    }
+}
+
 /// The Points the last started settlement awarded (its one `MatchWon`).
 fn won_points(env: &Env) -> u64 {
     let won: Vec<MatchWon> = env
@@ -4344,6 +4370,7 @@ fn a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table() {
     // Worst case: every credit merges into a line of the same Source (its book swaps in), and
     // the fee cuts sync Sources. The client loads only the Sources of the next steps.
     println!("sources | start CU | chunk CU (<=12 steps) | accounts | legacy bytes | v0 bytes");
+    let mut chunk_budgets = Vec::new();
     for k in [4usize, 5, 8, 10] {
         let mut env = Env::new();
         let alice = env.person();
@@ -4383,6 +4410,32 @@ fn a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table() {
         let game = env.game_auth.insecure_clone();
         env.settle_start(&game, m, MatchResult::Opener)
             .expect("start");
+        source_record_fixture("start", &env.start_events);
+        let manifest: Vec<MatchLinesStarted> = env
+            .start_events
+            .iter()
+            .filter_map(|e| decode_event(e))
+            .collect();
+        assert_eq!(manifest.len(), 1);
+        assert_eq!(manifest[0].version, 1);
+        let state = env.mstate(m);
+        let mut original = std::collections::BTreeMap::new();
+        for (side, key) in state.pots.iter().enumerate() {
+            let bytes = env.svm.get_account(&s(*key)).expect("Pot").data;
+            let pot = tesoro_core::ledger::draw::PotPages::open(
+                bytes[tesoro_core::pots::POT_AT..].to_vec(),
+            )
+            .expect("Pot lines");
+            assert_eq!(pot.len(), manifest[0].pot_lines[side] as usize);
+            for (i, line) in pot.lines().into_iter().enumerate() {
+                let mut raw = [0; LINE_LEN];
+                line.encode(&mut raw);
+                original.insert((side as u8, i as u32), raw);
+            }
+        }
+        let mut reconstructed = std::collections::BTreeMap::new();
+        let mut stream_steps = 0u32;
+        let mut credited = 0u64;
         let start_cu = env.last_cu;
         let mut worst = (0, 0, 0, 0);
         while env.stage_of(m) != Stage::Closed {
@@ -4395,6 +4448,48 @@ fn a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table() {
             }
             let (legacy, v0, n) = env.tx_sizes(&probe, &payer);
             env.chunk(m, 12).expect("chunk");
+            source_record_fixture("chunk", &env.last_events);
+            let chunk: Vec<MatchChunkDone> = env
+                .last_events
+                .iter()
+                .filter_map(|e| decode_event(e))
+                .collect();
+            let batches: Vec<MatchChunkDone> = env
+                .last_events
+                .iter()
+                .filter_map(|e| decode_event(e))
+                .collect();
+            assert_eq!(
+                batches.iter().map(|b| b.lines.len()).sum::<usize>(),
+                chunk[0].steps as usize,
+                "every successful credit has its durable record"
+            );
+            println!(
+                "{k} Sources, chunk {}: {} steps, done={}, {} CU",
+                chunk[0].chunk_no, chunk[0].steps, chunk[0].done, env.last_cu
+            );
+            for batch in batches {
+                let derived = anchor_lang::Event::data(&batch);
+                assert!(
+                    env.last_events
+                        .iter()
+                        .any(|raw| raw.get(8..) == Some(derived.as_slice())),
+                    "actual SBF emitter matches the derived event wire format"
+                );
+                assert!((1..=12).contains(&batch.steps));
+                assert_eq!(batch.lines.len(), batch.steps as usize);
+                assert_eq!(batch.first_step, stream_steps + 1);
+                assert_eq!(batch.chunk_no, chunk[0].chunk_no);
+                assert_eq!(batch.record_version, 1);
+                assert_eq!(batch.done, chunk[0].done);
+                for line in &batch.lines {
+                    stream_steps += 1;
+                    reconstructed
+                        .entry((line.pot_side, line.pot_index()))
+                        .or_insert(line.incoming);
+                    credited += Line::decode(&line.outgoing).amount;
+                }
+            }
             if env.last_cu > worst.0 {
                 worst = (env.last_cu, n, legacy, v0);
             }
@@ -4403,18 +4498,40 @@ fn a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table() {
             "{k:>7} | {start_cu:>8} | {:>19} | {:>8} | {:>12} | {}",
             worst.0, worst.1, worst.2, worst.3
         );
-        assert!(
-            worst.0 < 140_000,
-            "a 12-step chunk stays well under 200,000 CU"
-        );
+        chunk_budgets.push(worst.0);
         assert!(worst.1 <= 64, "a chunk locks at most 64 accounts");
         assert!(
             worst.3 <= 1_232,
             "as a v0 transaction with a lookup table it fits"
         );
         assert!(start_cu < 80_000);
+        assert_eq!(
+            reconstructed, original,
+            "all original Source lines survive Pot closure in the event stream"
+        );
+        assert_eq!(credited, 2_000);
+        env.chunk(m, 12).expect("closed replay");
+        source_record_fixture("closed-retry", &env.last_events);
+        assert!(env
+            .last_events
+            .iter()
+            .all(|e| decode_event::<MatchSettled>(e).is_none()));
+        let retry: Vec<MatchChunkDone> = env
+            .last_events
+            .iter()
+            .filter_map(|e| decode_event(e))
+            .collect();
+        assert_eq!(retry.len(), 1);
+        assert_eq!(
+            (retry[0].steps, retry[0].first_step, retry[0].lines.len()),
+            (0, 0, 0)
+        );
         env.close_match(m).expect("close");
     }
+    assert!(
+        chunk_budgets.iter().all(|cu| *cu < 140_000),
+        "every 12-step Source case stays under 140,000 CU: {chunk_budgets:?}"
+    );
 }
 
 #[test]

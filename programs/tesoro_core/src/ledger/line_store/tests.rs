@@ -39,6 +39,20 @@ fn layout_constants_are_what_the_docs_say() {
 }
 
 #[test]
+fn raw_snapshot_matches_the_full_encoded_slot_and_checks_its_boundary() {
+    let mut raw = fresh(2);
+    let mut store = LineStore::new(&mut raw[..]).unwrap();
+    let value = line(SIDE_WON, -99, 7, CLASS_GENERAL, 0, 123);
+    store.insert(&value).unwrap();
+    let mut expected = [0xAA; LINE_LEN];
+    value.encode(&mut expected);
+    assert_eq!(store.snapshot(0), Some(expected));
+    assert_eq!(store.snapshot(1), None);
+    assert_eq!(store.amount_at(0), Some(value.amount));
+    assert_eq!(store.amount_at(1), None);
+}
+
+#[test]
 fn init_writes_version_bump_account_and_rejects_bad_bodies() {
     let buf = fresh(2);
     let s = LineStore::new(&buf[..]).unwrap();

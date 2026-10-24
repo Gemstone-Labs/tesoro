@@ -479,7 +479,41 @@ fn a_win_cuts_the_fees_from_the_losers_lines_in_line_order_class_by_class() {
     rec.start_settle(20, &key(AUTH), SLOT, Outcome::Winner(0), 100)
         .unwrap();
     assert_eq!(rec.run().unwrap().fees, [10, 6, 2]);
-    run_all(&mut w, &mut rec, 2);
+    let originals: BTreeMap<(u8, u32), Line> = rec
+        .pots
+        .iter()
+        .enumerate()
+        .flat_map(|(side, pot)| {
+            pot.as_ref().into_iter().flat_map(move |p| {
+                p.lines()
+                    .into_iter()
+                    .enumerate()
+                    .map(move |(i, line)| ((side as u8, i as u32), line))
+            })
+        })
+        .collect();
+    let reports = run_all(&mut w, &mut rec, 2);
+    let mut first = BTreeMap::new();
+    let mut paid = 0u64;
+    let mut count = 0u32;
+    for report in reports {
+        assert_eq!(report.prior_steps, count);
+        assert_eq!(report.lines.len(), report.steps as usize);
+        for line in report.lines {
+            first
+                .entry((line.pot_side, line.pot_index()))
+                .or_insert(Line::decode(&line.incoming));
+            let out = Line::decode(&line.outgoing);
+            assert_eq!(out.source, Line::decode(&line.incoming).source);
+            paid += out.amount;
+            count += 1;
+        }
+    }
+    assert_eq!(
+        first, originals,
+        "closed Pots can be reconstructed exactly from the first successful step of every slot"
+    );
+    assert_eq!(paid, 200, "all original entry Gemas have one destination");
     // Platform takes the first 10 Gemas of the loser's lines: 5 of line 0, 5 of line 1; Studio the
     // next 6: the last 2 of line 1 and 4 of line 2; Leaderboard the next 2 of line 2
     let cuts: Vec<(u8, Key, u64)> =
@@ -759,7 +793,21 @@ fn no_show_charges_the_platform_fee_once_per_side_and_returns_the_rest() {
     join_with(&mut w, &mut rec, party(2, 2, 0), &[(102, 0, 100)], 5);
     rec.start_settle(6, &key(AUTH), SLOT, Outcome::NoShow, 100)
         .unwrap();
-    run_all(&mut w, &mut rec, 4);
+    let reports = run_all(&mut w, &mut rec, 4);
+    let trace: Vec<_> = reports.iter().flat_map(|r| &r.lines).collect();
+    assert_eq!(trace.iter().filter(|r| r.purpose == 0).count(), 2);
+    for line in trace.iter().filter(|r| r.purpose == 0) {
+        let outgoing = Line::decode(&line.outgoing);
+        assert_eq!(
+            (line.recipient_kind, line.recipient, line.placement),
+            (1, outgoing.source, 3)
+        );
+        assert_eq!((outgoing.class, outgoing.amount), (CLASS_PLATFORM, 5));
+    }
+    assert!(trace
+        .iter()
+        .filter(|r| r.purpose == 3)
+        .all(|r| r.recipient == key(r.pot_side + 1) && r.incoming == r.outgoing));
     let f = fees(&w, rec.id);
     // 5% of each 100-Gema entry, from the first line of each side
     assert_eq!(f.values().sum::<u64>(), 10);
@@ -797,7 +845,40 @@ fn a_backed_win_returns_the_backers_entry_then_splits_the_surplus_by_the_offers_
         .unwrap();
     // surplus 100 - 10 = 90; the Player's 25% = 22
     assert_eq!(rec.run().unwrap().player_left, 22);
-    run_all(&mut w, &mut rec, 1);
+    let reports = run_all(&mut w, &mut rec, 1);
+    let trace: Vec<_> = reports.iter().flat_map(|r| &r.lines).collect();
+    assert!(reports
+        .iter()
+        .enumerate()
+        .all(|(i, r)| r.prior_steps == i as u32 && r.lines.len() == 1));
+    let returns: Vec<_> = trace.iter().filter(|r| r.purpose == 3).collect();
+    assert_eq!(returns.len(), 1);
+    assert_eq!(
+        (
+            returns[0].recipient,
+            Line::decode(&returns[0].outgoing).amount
+        ),
+        (key(5), 100)
+    );
+    let surplus: Vec<_> = trace
+        .iter()
+        .filter(|r| r.purpose == 4)
+        .map(|r| {
+            (
+                r.recipient,
+                Line::decode(&r.outgoing).source,
+                Line::decode(&r.outgoing).amount,
+            )
+        })
+        .collect();
+    assert_eq!(
+        surplus,
+        vec![
+            (key(1), key(101), 22),
+            (key(5), key(101), 18),
+            (key(5), key(102), 50)
+        ]
+    );
     let c = credits(&w, rec.id);
     let player: u64 = c
         .iter()
@@ -857,9 +938,31 @@ fn without_reserved_room_a_chunk_blocks_changes_nothing_and_resumes_after_growth
     assert_eq!(e, LifecycleError::Draw(DrawError::SpillFull));
     assert_eq!(rec, before);
     assert_eq!(w.lines_of(&key(1)), before_lines);
-    w.grow_spill(&key(1), 2);
+    w.grow_spill(&key(1), 1);
+    let partial = rec.chunk(&mut w, 5).unwrap();
+    assert_eq!(
+        (partial.prior_steps, partial.steps, partial.lines.len()),
+        (0, 1, 1)
+    );
+    assert!(!partial.done && partial.blocked.is_some());
+    assert_eq!(partial.lines[0].pot_index(), 0);
+    let after_partial = rec.clone();
+    assert_eq!(
+        rec.chunk(&mut w, 5).unwrap_err(),
+        LifecycleError::Draw(DrawError::SpillFull)
+    );
+    assert_eq!(
+        rec, after_partial,
+        "a blocked retry neither skips nor duplicates a record"
+    );
+    w.grow_spill(&key(1), 1);
     let r = rec.chunk(&mut w, 5).unwrap();
-    assert!(r.done && r.steps == 2 && r.blocked.is_none());
+    assert!(r.done && r.steps == 1 && r.blocked.is_none());
+    assert_eq!(
+        (r.prior_steps, r.lines.len(), r.lines[0].pot_index()),
+        (1, 1, 1)
+    );
+    assert!(rec.chunk(&mut w, 5).unwrap().lines.is_empty());
     assert_eq!(credits(&w, rec.id).values().sum::<u64>(), 100);
 }
 

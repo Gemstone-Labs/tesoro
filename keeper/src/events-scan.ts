@@ -12,6 +12,7 @@ export interface TxRecords {
   slot: number;
   blockTime: number | null;
   records: MatchRecord[];
+  finalized?: boolean;
 }
 
 export interface CollectOpts {
@@ -34,7 +35,7 @@ export async function collectSignatures(conn: ScanConn, opts: CollectOpts = {}):
   let before: string | undefined;
   let reachedEnd = false;
   for (let page = 0; page < (opts.maxPages ?? 20); page++) {
-    const batch = await conn.getSignaturesForAddress(eventAuthority, { before, until: opts.until, limit: size }, "confirmed");
+    const batch = await conn.getSignaturesForAddress(eventAuthority, { before, until: opts.until, limit: size }, "finalized");
     if (!batch.length) {
       reachedEnd = true;
       break;
@@ -56,9 +57,9 @@ export async function collectSignatures(conn: ScanConn, opts: CollectOpts = {}):
 
 /** The Match records of one transaction; null when it cannot be read (pruned, dropped). */
 export async function transactionRecords(conn: ScanConn, sig: ConfirmedSignatureInfo): Promise<TxRecords | null> {
-  const tx = await conn.getTransaction(sig.signature, { maxSupportedTransactionVersion: 0, commitment: "confirmed" });
+  const tx = await conn.getTransaction(sig.signature, { maxSupportedTransactionVersion: 0, commitment: "finalized" });
   if (!tx) return null;
-  return { signature: sig.signature, slot: tx.slot, blockTime: tx.blockTime ?? sig.blockTime ?? null, records: decodeMatchRecords(innerInstructionsOf(tx as any)) };
+  return { signature: sig.signature, slot: tx.slot, blockTime: tx.blockTime ?? sig.blockTime ?? null, records: decodeMatchRecords(innerInstructionsOf(tx as any)), finalized: true };
 }
 
 /** `fn` over `items` with at most `n` in flight; results keep the order of `items`. */
@@ -83,7 +84,7 @@ export const winOf = (r: MatchWonRecord): Win => ({ player: r.winner, points: r.
 /**
  * Every Match won in Season `n`, from core's events. `startSecs`..`endSecs` is the Season's time span; transactions up
  * to `slackSecs` after it are read too (a settle at the boundary), and each record's own `season` decides. Records
- * are cached per signature for good: a confirmed transaction never changes.
+ * are cached per signature only after finalization.
  */
 export async function seasonWinsFromChain(conn: ScanConn, n: number, startSecs: number, endSecs: number, slackSecs = 2 * 3600, concurrency = 6, scan: CollectOpts = {}): Promise<Win[]> {
   const sigs = (await collectSignatures(conn, { olderThan: startSecs, maxPages: 200, ...scan })).filter((s) => s.blockTime == null || (s.blockTime >= startSecs && s.blockTime < endSecs + slackSecs));
