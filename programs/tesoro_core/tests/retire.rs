@@ -7,6 +7,7 @@ mod common;
 
 use anchor_lang::prelude::Pubkey as APk;
 use anchor_lang::solana_program::program_pack::Pack;
+use anchor_lang::AccountDeserialize;
 use anchor_lang::{AccountSerialize, Discriminator, InstructionData, ToAccountMetas};
 use anchor_spl::associated_token::get_associated_token_address;
 use anchor_spl::token::{spl_token, ID as TOKEN_PROGRAM_ID};
