@@ -9,18 +9,21 @@ import { createScorePresentation } from "../score-presentation";
 import { blockHaptics } from "../haptics";
 import { armSound, blockSound, isMuted, setMuted } from "../../fx/sfx";
 import { FIXTURES, initialFixture, hand, attemptPlacement, guidedSteps, EMPTY_COLOR, type FixtureId, type PlacementOutcome } from "./model";
-import { heldPosition, pickupGeometry, placementTarget, measuredMotion, splitCredit, type Variant } from "./motion";
+import { heldPosition, pickupGeometry, placementTarget, measuredMotion, splitCredit, refinedInteractions, type Variant } from "./motion";
+import { resolveDragTarget, type Landing } from "./landing";
+import { urgencyFor } from "./feedback";
 import "./prototype.css";
+import "./feedback.css";
 
 const app = document.querySelector<HTMLElement>("#app")!;
 const params = new URLSearchParams(location.search);
-const variants: Variant[] = ["current", "motion", "credit", "combined"];
+const variants: Variant[] = ["current", "motion", "credit", "combined", "previous"];
 let variant: Variant = variants.includes(params.get("variant") as Variant) ? params.get("variant") as Variant : "combined";
 let fixture: FixtureId = FIXTURES.some(f => f.id === params.get("fixture")) ? params.get("fixture") as FixtureId : "single";
 app.innerHTML = `<div class="lab">
   <header class="lab-header"><h1>Block Burst</h1><span class="lab-tag">Interaction prototype</span></header>
   <div class="lab-controls">
-    <select id="variant" aria-label="Comparison variant"><option value="current">A · Current</option><option value="combined">B · Measured</option><option value="motion">Motion only</option><option value="credit">Score only</option></select>
+    <select id="variant" aria-label="Comparison variant"><option value="previous">A · Before</option><option value="combined">B · Updated</option><option value="current">Original mapping</option><option value="motion">Motion only</option><option value="credit">Score only</option></select>
     <select id="fixture" aria-label="Controlled sequence">${FIXTURES.map(f => `<option value="${f.id}">${f.label}</option>`).join("")}</select>
     <button id="reset" class="lab-button">Reset</button>
   </div>
@@ -33,7 +36,8 @@ app.innerHTML = `<div class="lab">
   <p class="lab-guide" id="guide"></p>
   <details class="lab-readout"><summary>Comparison and event record</summary>
     <p id="comparison"></p><p>Fixture boards only. Competitive points, seeded piece order and the 90-second limit use the current rules. Combo still resets on an ordinary placement; the reference’s complete reset rule is unknown.</p>
-    <p>Both variants use the same lightweight renderer, artwork, sounds, vibration and clear timing. A reproduces current motion and score timing; it does not reproduce the production app’s performance.</p>
+    <p>A preserves the previous prototype; B adds stable landing previews and stronger board cues. Both use the same artwork, sounds, vibration and clear timing. These are local interaction comparisons, not a production performance benchmark.</p>
+    <button id="preview-ending" class="lab-button">Try final 10 seconds</button>
     <p id="truth"></p><ol class="lab-events" id="events"></ol>
   </details>
   <p class="lab-footer">Compare B with Block Blast on your Seeker. Reset repeats the same board and pieces. Dashed cells mark the next guided target; free placement also works.</p>
@@ -44,6 +48,10 @@ const space = app.querySelector<HTMLDivElement>(".bp-board-space")!;
 const visual = app.querySelector<HTMLDivElement>(".bp-board-visual")!;
 const effects = app.querySelector<HTMLDivElement>(".lab-effects")!;
 const tray = app.querySelector<HTMLDivElement>(".bp-tray")!;
+const ready = document.createElement("div");
+ready.className = "lab-ready-grid";
+ready.setAttribute("aria-hidden", "true");
+visual.appendChild(ready);
 const score = app.querySelector<HTMLElement>("#score")!;
 const status = app.querySelector<HTMLElement>("#status")!;
 const events: { ms: number; type: string; detail: string }[] = [];
@@ -133,6 +141,7 @@ function mini(piece: Piece, cell: number, gap: number) {
 }
 
 function render() {
+  renderBoardOnly();
   const nextStep = guidedSteps(fixture)[state.st.moves];
   const target = new Set(nextStep ? pieceCells(hand(state)[nextStep.slot].piece).map(c => (nextStep.y + c.dy) * 8 + nextStep.x + c.dx) : []);
   for (let i = 0; i < 64; i++) {
@@ -151,25 +160,53 @@ function render() {
   app.dataset.occupancy = state.st.occ.toString();
 }
 
-function preview(anchor: { x: number; y: number } | null, piece: Piece) {
-  renderBoardOnly();
-  if (!anchor) return;
+let previewKey: string | null = null;
+const painted = new Map<number, string[]>();
+function preview(anchor: Landing | null, piece: Piece) {
+  const key = `${state.st.moves}:${piece.kind}:${piece.gem}:${anchor?.x},${anchor?.y}`;
+  if (key === previewKey) return;
+  previewKey = key;
+  if (!anchor) { renderBoardOnly(); return; }
   const valid = fitsAt(state.st, piece, anchor.x, anchor.y);
   const hint = valid ? wouldClear(state.st, piece, anchor.x, anchor.y) : { rows: [], cols: [] };
+  const next = new Map<number, string[]>();
   for (const c of pieceCells(piece)) {
-    const cell = cells[(anchor.y + c.dy) * 8 + anchor.x + c.dx];
-    cell?.classList.add("pv", valid ? `pk${piece.kind % 4}` : "bad");
+    next.set((anchor.y + c.dy) * 8 + anchor.x + c.dx, ["pv", valid ? `pk${piece.kind % 4}` : "bad"]);
   }
-  board.style.setProperty("--hk", ["#ffb43a", "#3fc6ff", "#ff4d9b", "#9d74ff"][piece.kind % 4]);
-  cells.forEach((cell, i) => { if (hint.rows.includes(Math.floor(i / 8)) || hint.cols.includes(i % 8)) cell.classList.add("hint"); });
+  cells.forEach((_, i) => {
+    if (hint.rows.includes(Math.floor(i / 8)) || hint.cols.includes(i % 8)) next.set(i, [...(next.get(i) ?? []), "hint"]);
+  });
+  for (const i of new Set([...painted.keys(), ...next.keys()])) {
+    const before = painted.get(i) ?? [], after = next.get(i) ?? [];
+    if (before.join(" ") === after.join(" ")) continue;
+    if (before.length) cells[i]?.classList.remove(...before);
+    if (after.length) cells[i]?.classList.add(...after);
+  }
+  painted.clear();
+  next.forEach((classes, i) => painted.set(i, classes));
+  ready.replaceChildren();
+  if (refinedInteractions(variant)) for (const axis of ["row", "col"] as const) {
+    for (const at of axis === "row" ? hint.rows : hint.cols) {
+      const line = document.createElement("span");
+      line.className = "lab-ready-line";
+      line.dataset.axis = axis;
+      if (axis === "row") line.style.gridRow = String(at + 1);
+      else line.style.gridColumn = String(at + 1);
+      ready.appendChild(line);
+    }
+  }
 }
 function renderBoardOnly() {
-  for (const cell of cells) cell.classList.remove("pv", "pk0", "pk1", "pk2", "pk3", "bad", "hint");
+  for (const [i, classes] of painted) cells[i]?.classList.remove(...classes);
+  painted.clear();
+  previewKey = null;
+  if (ready.childElementCount) ready.replaceChildren();
 }
 
 interface Gesture {
   pointer: number; slot: number; node: HTMLButtonElement; piece: Piece; grid: GridGeometry;
-  sx: number; sy: number; startLeft: number; startTop: number; left: number; top: number; gain: number; moved: boolean; ghost: HTMLElement;
+  sx: number; sy: number; latestX: number; latestY: number; startLeft: number; startTop: number; left: number; top: number; gain: number; moved: boolean; ghost: HTMLElement;
+  target: Landing | null; lastValid: Landing | null;
 }
 let gesture: Gesture | null = null;
 
@@ -196,7 +233,10 @@ function begin(e: PointerEvent, slot: number) {
   ghost.appendChild(pickup);
   ghost.style.transform = `translate3d(${geometry.left}px,${geometry.top}px,0)`;
   document.body.appendChild(ghost);
-  gesture = { pointer: e.pointerId, slot, node, piece, grid, sx: e.clientX, sy: e.clientY, startLeft: geometry.left, startTop: geometry.top, left: geometry.left, top: geometry.top, gain: geometry.gain, moved: false, ghost };
+  gesture = { pointer: e.pointerId, slot, node, piece, grid, sx: e.clientX, sy: e.clientY, latestX: e.clientX, latestY: e.clientY, startLeft: geometry.left, startTop: geometry.top, left: geometry.left, top: geometry.top, gain: geometry.gain, moved: false, ghost, target: null, lastValid: null };
+  const color = ["#ffb43a", "#3fc6ff", "#ff4d9b", "#9d74ff"][piece.kind % 4];
+  board.style.setProperty("--hk", color);
+  ready.style.setProperty("--hk", color);
   node.classList.add("held");
   node.setPointerCapture(e.pointerId);
   if (deadline === null) deadline = performance.now() + 90_000;
@@ -206,11 +246,21 @@ function begin(e: PointerEvent, slot: number) {
 function move(e: PointerEvent) {
   const g = gesture;
   if (!g || e.pointerId !== g.pointer) return;
+  g.latestX = e.clientX; g.latestY = e.clientY;
   g.moved ||= Math.hypot(e.clientX - g.sx, e.clientY - g.sy) >= 4;
   const p = heldPosition({ x: g.sx, y: g.sy, left: g.startLeft, top: g.startTop }, { x: e.clientX, y: e.clientY }, g.gain);
   g.left = p.left; g.top = p.top;
   g.ghost.style.transform = `translate3d(${p.left}px,${p.top}px,0)`;
-  if (g.moved) preview(placementTarget(g.piece, p.left, p.top, g.grid), g.piece);
+  if (g.moved) updateLanding(g);
+}
+
+function updateLanding(g: Gesture) {
+  if (refinedInteractions(variant)) {
+    const next = resolveDragTarget(state.st, g.piece, { left: g.left, top: g.top }, g.grid, g.lastValid);
+    g.target = next.anchor;
+    if (next.anchor && !next.retained) g.lastValid = next.anchor;
+  } else g.target = placementTarget(g.piece, g.left, g.top, g.grid);
+  preview(g.target, g.piece);
 }
 
 function cancel(reason?: string) {
@@ -227,8 +277,8 @@ function cancel(reason?: string) {
 function release(e: PointerEvent) {
   const g = gesture;
   if (!g || e.pointerId !== g.pointer) return;
-  move(e);
-  const anchor = g.moved ? placementTarget(g.piece, g.left, g.top, g.grid) : null;
+  if (!refinedInteractions(variant)) move(e);
+  const anchor = g.moved ? g.target : null;
   const accepted = anchor && place(g.slot, anchor.x, anchor.y);
   if (!accepted && g.moved) {
     status.textContent = "Returned · no points spent";
@@ -338,16 +388,23 @@ function expire() {
   receipts.settle(state.st.score);
   status.textContent = "90 seconds · Reset to repeat";
   render();
+  updateClock();
 }
-setInterval(() => {
+function updateClock() {
   const remaining = deadline === null ? 90 : Math.max(0, Math.ceil((deadline - performance.now()) / 1000));
   app.querySelector("#timer")!.textContent = String(remaining);
+  const urgency = refinedInteractions(variant) ? urgencyFor(remaining, deadline !== null, expired) : "none";
+  if (urgency === "none") delete space.dataset.urgency;
+  else if (space.dataset.urgency !== urgency) space.dataset.urgency = urgency;
   if (remaining === 0) expire();
-}, 100);
+}
+setInterval(updateClock, 100);
 
 function controls() {
   app.querySelector<HTMLSelectElement>("#variant")!.value = variant;
   app.querySelector<HTMLSelectElement>("#fixture")!.value = fixture;
+  app.querySelector(".lab")!.classList.toggle("lab-refined", refinedInteractions(variant));
+  space.classList.toggle("lab-board-feedback", refinedInteractions(variant));
   app.querySelector("#comparison")!.textContent = `${measuredMotion(variant) ? "Touch travel 1.5×; immediate full-size pickup centered above the tray at the board’s bottom (source plus device evidence)." : "Touch travel 1×; initial lift 64px (current code)."} ${splitCredit(variant) ? "Placement points arrive immediately; clear bonus arrives separately." : "All clear-move points arrive together after 780ms (current code)."} Clear effects retain current timings in every variant.`;
   app.querySelector("#vibration")!.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="4" width="10" height="16" rx="2"/><path d="M3 8v8M21 8v8"/>${blockHaptics.enabled() ? "" : '<path d="M2 2l20 20"/>'}</svg>`;
   app.querySelector("#vibration")!.setAttribute("aria-label", `Turn vibration ${blockHaptics.enabled() ? "off" : "on"}`);
@@ -365,10 +422,19 @@ function reset() {
   status.textContent = "Drag a piece onto the board";
   app.querySelector("#timer")!.textContent = "90";
   render(); controls();
+  updateClock();
   const url = new URL(location.href); url.searchParams.set("variant", variant); url.searchParams.set("fixture", fixture); history.replaceState(null, "", url);
   record("reset", `${fixture}; ${variant}`);
 }
 app.querySelector("#reset")!.addEventListener("click", reset);
+app.querySelector("#preview-ending")!.addEventListener("click", () => {
+  cancel();
+  if (expired) reset();
+  deadline = performance.now() + 10_000;
+  expired = false;
+  updateClock();
+  record("ending preview", "10 seconds; Reset restores 90 seconds");
+});
 app.querySelector("#variant")!.addEventListener("change", e => { variant = (e.target as HTMLSelectElement).value as Variant; reset(); });
 app.querySelector("#fixture")!.addEventListener("change", e => { fixture = (e.target as HTMLSelectElement).value as FixtureId; reset(); });
 app.querySelector("#vibration")!.addEventListener("click", () => { blockHaptics.setEnabled(!blockHaptics.enabled()); controls(); });
@@ -380,8 +446,31 @@ app.querySelector("#fullscreen")!.addEventListener("click", async () => {
 document.addEventListener("fullscreenchange", () => {
   app.querySelector("#fullscreen")!.setAttribute("aria-label", document.fullscreenElement ? "Exit full screen" : "Enter full screen");
 });
-window.addEventListener("resize", () => cancel("viewport changed"));
+let viewportWidth = window.innerWidth;
+function refreshDragViewport() {
+  const g = gesture;
+  if (!g) return;
+  if (!refinedInteractions(variant)) { cancel("viewport changed"); return; }
+  const grid = measureGrid(space, board);
+  if (grid.cell !== g.grid.cell) {
+    const [w, h] = dims(g.piece);
+    g.left += (pieceExtent(w, g.grid) - pieceExtent(w, grid)) / 2;
+    g.top += (pieceExtent(h, g.grid) - pieceExtent(h, grid)) / 2;
+    g.ghost.querySelector(".bp-pickup")!.replaceChildren(mini(g.piece, grid.cell, grid.gap));
+    g.ghost.style.transform = `translate3d(${g.left}px,${g.top}px,0)`;
+  }
+  g.grid = grid;
+  g.sx = g.latestX; g.sy = g.latestY;
+  g.startLeft = g.left; g.startTop = g.top;
+  if (g.moved) updateLanding(g);
+}
+window.addEventListener("resize", () => {
+  const widthChanged = window.innerWidth !== viewportWidth;
+  viewportWidth = window.innerWidth;
+  if (widthChanged) cancel("viewport width changed");
+  else refreshDragViewport();
+});
 window.addEventListener("blur", () => cancel("focus lost"));
-window.addEventListener("scroll", () => cancel("page scrolled"), true);
+window.addEventListener("scroll", refreshDragViewport, true);
 armSound();
 reset();

@@ -6,9 +6,10 @@
 import { dragAnchor, type GridGeometry } from "../drag-geometry";
 import { dims, type Piece } from "../engine";
 
-export type Variant = "current" | "motion" | "credit" | "combined";
-export const measuredMotion = (variant: Variant) => variant === "motion" || variant === "combined";
-export const splitCredit = (variant: Variant) => variant === "credit" || variant === "combined";
+export type Variant = "current" | "motion" | "credit" | "combined" | "previous";
+export const measuredMotion = (variant: Variant) => variant === "motion" || variant === "combined" || variant === "previous";
+export const splitCredit = (variant: Variant) => variant === "credit" || variant === "combined" || variant === "previous";
+export const refinedInteractions = (variant: Variant) => variant === "motion" || variant === "combined";
 
 export function heldPosition(start: { x: number; y: number; left: number; top: number }, pointer: { x: number; y: number }, gain: number) {
   return { left: start.left + (pointer.x - start.x) * gain, top: start.top + (pointer.y - start.y) * gain };

@@ -1,0 +1,82 @@
+/* Prototype-only feedback. The rim remains visible throughout the halo pulse. */
+.lab-board-feedback[data-urgency="low"],
+.lab-board-feedback[data-urgency="critical"] {
+  --lab-urgency-color: #ffd16b;
+  --lab-urgency-glow: rgba(255, 190, 69, .6);
+}
+
+.lab-board-feedback[data-urgency="low"]::before,
+.lab-board-feedback[data-urgency="critical"]::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  z-index: 5;
+  border: 3px solid var(--lab-urgency-color);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 225, 158, .3), inset 0 0 0 1px rgba(255, 225, 158, .25);
+  pointer-events: none;
+}
+
+.lab-board-feedback[data-urgency="low"]::after,
+.lab-board-feedback[data-urgency="critical"]::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  z-index: 5;
+  border: 3px solid var(--lab-urgency-color);
+  border-radius: 3px;
+  box-shadow: 0 0 24px var(--lab-urgency-glow), inset 0 0 24px rgba(255, 190, 69, .15);
+  opacity: .45;
+  pointer-events: none;
+  animation: lab-board-urgency 1100ms ease-in-out infinite;
+}
+
+.lab-board-feedback[data-urgency="critical"] {
+  --lab-urgency-color: #ffe3a0;
+  --lab-urgency-glow: rgba(255, 190, 69, .85);
+}
+
+.lab-board-feedback[data-urgency="critical"]::after {
+  animation-duration: 800ms;
+}
+
+@keyframes lab-board-urgency {
+  50% { opacity: .95; }
+}
+
+/* A single luminous lane connects the cells that will clear. Its interior is
+   translucent so existing bevels, gems and the landing footprint stay legible. */
+.lab-ready-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-rows: repeat(8, minmax(0, 1fr));
+  gap: 4px;
+  padding: 9px;
+  pointer-events: none;
+}
+
+.lab-ready-line {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid color-mix(in oklab, var(--hk, #eaefec) 58%, white);
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--hk, #eaefec) 12%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .48), 0 0 10px -3px color-mix(in oklab, var(--hk, #eaefec) 78%, transparent);
+  pointer-events: none;
+}
+
+.lab-ready-line[data-axis="row"] { grid-column: 1 / -1; }
+.lab-ready-line[data-axis="col"] { grid-row: 1 / -1; }
+
+.lab-board-feedback .bp-cell.on.hint::before { content: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lab-board-feedback[data-urgency="low"]::after,
+  .lab-board-feedback[data-urgency="critical"]::after {
+    animation: none;
+    opacity: .75;
+  }
+}

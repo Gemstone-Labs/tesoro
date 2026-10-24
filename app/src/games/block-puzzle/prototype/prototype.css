@@ -24,6 +24,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--em-hi); ou
 .lab .bp-tray { margin-top: 14px; }
 .lab .bp-slot { height: 78px; border: 1px solid #263247; border-radius: 4px; }
 .lab .bp-slot.held .bp-mini { opacity: .2; }
+.lab.lab-refined .bp-slot.held .bp-mini { visibility: hidden; }
 .lab-ghost { z-index: 100; }
 .lab .bp-clear-grid { z-index: 2; }
 .lab-effect { pointer-events: none; }
