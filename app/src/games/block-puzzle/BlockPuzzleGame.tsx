@@ -1,28 +1,37 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { Button, CountUp, Label } from "@/components/ui";
-import { apply, EngineFailure, MAX_MOVES, SIZE, dims, fitsAt, handBase, newState, pieceAt, pieceCells } from "./engine";
+import { Vibrate, VibrateOff } from "lucide-react";
+import { apply, EngineFailure, MAX_MOVES, SIZE, dims, fitsAnywhere, handBase, newState, pieceAt, pieceCells } from "./engine";
 import type { Piece, State } from "./engine";
-import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, burst, burstAt, prefersReducedMotion, sfx, shake } from "../fx";
+import { Arena, Countdown, FullScreenToggle, MuteToggle, burst, prefersReducedMotion, sfx } from "../fx";
 import type { CalloutTone } from "../fx";
-import { clearCallout, comboHeat, wouldClear } from "./feel";
+import { clearCallout, comboHeat } from "./feel";
 import { readBest, writeBest } from "./best";
+import { blockHaptics } from "./haptics";
+import { usePieceDrag } from "./use-piece-drag";
+import { measureGrid } from "./drag-geometry";
+import { blockSound } from "../fx/sfx";
+import { useTransientEffects } from "./use-transient-effects";
+import { useBoardPreview } from "./use-board-preview";
+import { createScorePresentation } from "./score-presentation";
+import { urgencyFor } from "./board-feedback";
 import "./block-puzzle.css";
 
 const DURATION_MS = 90_000;
-const CLEAR_MS = 760;
-const DROP_MS = 420;
+const CLEAR_MS = 450;
+const DROP_MS = 280;
 const BLOCK_HEX = ["#ffb43a", "#3fc6ff", "#ff4d9b", "#9d74ff"];
 const GEM_HEX = ["#6af8d6", "#24d8a8", "#c8fff0"];
 const NO_COLOR = 255;
-const LIFT_TOUCH_PX = 64;
 
 type Phase = "idle" | "count" | "play" | "over";
 type Reason = "time" | "stuck" | "limit";
 
 interface Ghost {
+  id: number;
   i: number;
   color: number;
   gem: boolean;
@@ -38,6 +47,8 @@ interface Moment {
   id: number;
   text: string;
   tone: CalloutTone;
+  y: number;
+  combo?: number;
 }
 interface Game {
   st: State;
@@ -67,12 +78,12 @@ function anchorFor(piece: Piece, cx: number, cy: number): { x: number; y: number
   return { x, y };
 }
 
-function PieceArt({ piece, cell }: { piece: Piece; cell: number }) {
+function PieceArt({ piece, cell, gap = 2 }: { piece: Piece; cell: number; gap?: number }) {
   const [w, h] = dims(piece);
   return (
     <span
       className="bp-mini"
-      style={{ gridTemplateColumns: `repeat(${w}, ${cell}px)`, gridTemplateRows: `repeat(${h}, ${cell}px)` }}
+      style={{ gridTemplateColumns: `repeat(${w}, ${cell}px)`, gridTemplateRows: `repeat(${h}, ${cell}px)`, gap }}
       aria-hidden="true"
     >
       {pieceCells(piece).map((c) => (
@@ -123,22 +134,46 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   const [fizzle, setFizzle] = useState(0);
   const [runId, setRunId] = useState(0);
   const [best, setBest] = useState({ value: 0, fresh: false, set: false });
-  const [preview, setPreview] = useState<{ x: number; y: number } | null>(null);
-  const [drag, setDrag] = useState<{ idx: number; px: number; py: number; cell: number } | null>(null);
   const [focusCell, setFocusCell] = useState(0);
   const [announce, setAnnounce] = useState("");
   const [goOn, setGoOn] = useState(false);
 
   const endsAt = useRef(0);
   const boardRef = useRef<HTMLDivElement>(null);
-  const dragMeta = useRef<{ idx: number; sx: number; sy: number; moved: boolean; lift: number; cell: number } | null>(null);
+  const spaceRef = useRef<HTMLDivElement>(null);
+  const visualRef = useRef<HTMLDivElement>(null);
+  const readyRef = useRef<HTMLDivElement>(null);
+  const gameRef = useRef(game);
+  const comboRef = useRef(0);
+  const accepting = useRef(false);
+  const { later, animate, reset: resetEffects } = useTransientEffects();
+  const vibration = useSyncExternalStore(blockHaptics.subscribe, blockHaptics.enabled, () => true);
+  const supportsVibration = useSyncExternalStore(blockHaptics.subscribe, blockHaptics.supported, () => false);
   const popupId = useRef(0);
   const scoreEl = useRef<HTMLSpanElement>(null);
+  const scoreAura = useRef<HTMLSpanElement>(null);
+  const [scoreReceipt, setScoreReceipt] = useState({ total: 0, impact: 0 });
+  const [scorePresentation] = useState(() => createScorePresentation((total, impact) => setScoreReceipt({ total, impact })));
+  useEffect(() => {
+    const { impact } = scoreReceipt;
+    if (!impact || prefersReducedMotion()) return;
+    if (scoreEl.current) animate(scoreEl.current, [
+      { transform: `scale(${impact > 1 ? 1.16 : 1.07})` },
+      { transform: "scale(1)" },
+    ], { duration: impact > 1 ? 280 : 170, easing: "cubic-bezier(.16,1,.3,1)" });
+    if (scoreAura.current) animate(scoreAura.current, [
+      { opacity: impact > 1 ? .85 : .35, transform: "rotate(45deg) scale(.65)" },
+      { opacity: 0, transform: "rotate(45deg) scale(1.2)" },
+    ], { duration: impact > 1 ? 420 : 240, easing: "ease-out" });
+  }, [scoreReceipt, animate]);
+  useEffect(() => () => scorePresentation.dispose(), [scorePresentation]);
 
   const { st } = game;
   const base = handBase(st);
   const hand = useMemo(() => [0, 1, 2].map((n) => pieceAt(st.seed, base + n)), [st.seed, base]);
+  const available = useMemo(() => hand.map((piece) => fitsAnywhere(st, piece)), [hand, st]);
   const selPiece = phase === "play" && (st.used >> (sel - base)) & 1 ? null : hand[sel - base] ?? null;
+  const setPreview = useBoardPreview(boardRef, st, selPiece, readyRef);
 
   const runRef = useRef(run);
   useEffect(() => {
@@ -146,8 +181,13 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   }, [run]);
   const scoreRef = useRef({ score: 0, moves: 0 });
   const finish = useCallback((why: Reason, final?: Game) => {
+    if (!accepting.current) return;
+    accepting.current = false;
     const st = final?.st;
     runRef.current?.onEnd({ score: st?.score ?? scoreRef.current.score, moves: st?.moves ?? scoreRef.current.moves, reason: why });
+    resetEffects();
+    scorePresentation.settle(st?.score ?? scoreRef.current.score);
+    setMoment(null); setGhosts([]); setSweeps([]);
     setPhase("over");
     setReason(why);
     if (!runRef.current) {
@@ -163,14 +203,19 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       }
     }
     setPreview(null);
-    setDrag(null);
-    dragMeta.current = null;
-    if (final) setGame(final);
-  }, []);
+    if (final) { gameRef.current = final; setGame(final); }
+  }, [setPreview, scorePresentation, resetEffects]);
 
   const start = () => {
     const seed = run ? run.seed : randomSeed();
-    setGame({ st: newState(seed), colors: Array<number>(64).fill(NO_COLOR), lines: 0, gemsCleared: 0 });
+    resetEffects();
+    scorePresentation.reset();
+    const initial = { st: newState(seed), colors: Array<number>(64).fill(NO_COLOR), lines: 0, gemsCleared: 0 };
+    gameRef.current = initial;
+    scoreRef.current = { score: 0, moves: 0 };
+    comboRef.current = 0;
+    accepting.current = !!run;
+    setGame(initial);
     setSel(0);
     setGhosts([]);
     setBestCombo(0);
@@ -189,7 +234,8 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       endsAt.current = run.startedAt + DURATION_MS;
       setPhase("play");
       sfx("go");
-      setMoment({ id: -1, text: "Go!", tone: "up" });
+      setMoment({ id: -1, text: "Go!", tone: "up", y: 45 });
+      later(() => setMoment(m => m?.id === -1 ? null : m), 900);
     } else {
       setPhase("count");
     }
@@ -197,6 +243,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
 
   /** Practice: the clock starts the moment "Go!" shows. */
   const beginPractice = useCallback(() => {
+    accepting.current = true;
     endsAt.current = performance.now() + DURATION_MS;
     setPhase("play");
   }, []);
@@ -218,7 +265,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
         setRemaining(0);
         finish("time");
       } else {
-        setRemaining(left);
+        setRemaining((prev) => Math.ceil(prev / 1000) === Math.ceil(left / 1000) ? prev : left);
       }
     }, 100);
     return () => clearInterval(t);
@@ -232,71 +279,80 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       if ((cleared & (0xffn << BigInt(i * SIZE))) === 0xffn << BigInt(i * SIZE)) sw.push({ id: id * 20 + i, axis: "row", at: i });
       if ((cleared & (0x0101010101010101n << BigInt(i))) === 0x0101010101010101n << BigInt(i)) sw.push({ id: id * 20 + 10 + i, axis: "col", at: i });
     }
-    setSweeps(sw);
-    setTimeout(() => setSweeps((cur) => (cur === sw ? [] : cur)), 700);
+    setSweeps((cur) => [...cur, ...sw]);
+    later(() => setSweeps((cur) => cur.filter((item) => !sw.includes(item))), CLEAR_MS);
 
-    sfx(gems > 0 ? "gem" : "clear");
-    if (comboNow >= 2) setTimeout(() => sfx("combo"), 110);
+    blockSound(lines, gems, comboNow);
+    blockHaptics.play(lines, gems);
 
     const text = clearCallout(lines, gems, comboNow);
-    if (text) setMoment({ id, text, tone: gems > 0 ? "gem" : "plain" });
-
-    if (!board || prefersReducedMotion()) return;
-    const cells = board.querySelectorAll<HTMLElement>("button");
-    const per = Math.min(5, 2 + lines);
+    const row = gone.reduce((n, g) => n + Math.floor(g.i / SIZE) + 0.5, 0) / gone.length;
+    setMoment(text ? { id, text, tone: gems > 0 ? "gem" : "plain", y: Math.max(18, Math.min(82, row / SIZE * 100)), combo: comboNow } : null);
+    later(() => setMoment(m => m?.id === id ? null : m), 1000);
+    const reduced = prefersReducedMotion();
+    scorePresentation.award(gained, reduced ? 0 : 780, lines + (gems ? 1 : 0) + 1);
+    if (!board || !spaceRef.current || reduced) return;
+    const grid = measureGrid(spaceRef.current, board);
+    const per = Math.min(4, 1 + lines);
     for (const g of gone) {
-      const el = cells[g.i];
-      if (!el) continue;
-      setTimeout(() => burstAt(el, { colors: g.gem ? GEM_HEX : [BLOCK_HEX[g.color] ?? "#eaefec", "#ffffff"], kind: "shards", count: g.gem ? per + 4 : per }), g.delay);
+      burst({ x: grid.left + (g.i % SIZE) * grid.pitch + grid.cell / 2,
+        y: grid.top + Math.floor(g.i / SIZE) * grid.pitch + grid.cell / 2,
+        colors: g.gem ? GEM_HEX : [BLOCK_HEX[g.color] ?? "#eaefec", "#ffffff"],
+        kind: "shards", count: g.gem ? per + 2 : per, power: 0.45 });
     }
-    shake(board, Math.min(1, 0.18 + lines * 0.22 + (gems > 0 ? 0.15 : 0)));
+    const kick = Math.min(7, 2.5 + lines + (gems ? 1 : 0));
+    animate(visualRef.current ?? board, [
+      { transform: "translate(0, 0)" },
+      { transform: `translate(${-kick}px, 2px)`, offset: 0.12 },
+      { transform: `translate(${kick * 0.6}px, -1px)`, offset: 0.4 },
+      { transform: `translate(${-kick * 0.25}px, 0)`, offset: 0.7 },
+      { transform: "translate(0, 0)" },
+    ], { duration: 190, easing: "ease-out" });
 
-    const to = scoreEl.current?.getBoundingClientRect();
-    const from = board.getBoundingClientRect();
-    if (to && typeof document !== "undefined") {
-      const fly = document.createElement("span");
-      fly.textContent = `+${gained}`;
-      fly.className = `bp-fly${gems > 0 ? " gem" : ""}`;
-      fly.setAttribute("aria-hidden", "true");
-      document.body.appendChild(fly);
-      const sx = from.left + from.width / 2;
-      const sy = from.top + from.height / 2;
-      const dx = to.left + to.width / 2 - sx;
-      const dy = to.top + to.height / 2 - sy;
-      const anim = fly.animate(
-        [
-          { transform: `translate(${sx}px, ${sy}px) translate(-50%, -50%) scale(0.6)`, opacity: 0 },
-          { transform: `translate(${sx}px, ${sy - 18}px) translate(-50%, -50%) scale(1.25)`, opacity: 1, offset: 0.28 },
-          { transform: `translate(${sx + dx}px, ${sy + dy}px) translate(-50%, -50%) scale(0.7)`, opacity: 0.2 },
-        ],
-        { duration: 780, easing: "cubic-bezier(0.5, 0, 0.2, 1)" },
-      );
-      anim.onfinish = () => fly.remove();
-      anim.oncancel = () => fly.remove();
-    }
-  }, []);
+    const sx = grid.left + gone.reduce((n, g) => n + g.i % SIZE, 0) / gone.length * grid.pitch + grid.cell / 2;
+    const sy = grid.top + row * grid.pitch;
+    const score = scoreEl.current?.getBoundingClientRect();
+    if (!score) return;
+    const tx = score.left + score.width / 2, ty = score.top + score.height / 2;
+    const fly = document.createElement("span");
+    fly.textContent = `+${gained}`;
+    fly.className = `bp-fly${gems > 0 ? " gem" : ""}`;
+    fly.setAttribute("aria-hidden", "true");
+    document.body.appendChild(fly);
+    const at = (x: number, y: number, scale: number) => `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${scale})`;
+    animate(fly, [
+      { transform: at(sx, sy, .7), opacity: 0 },
+      { transform: at(sx, sy - 8, 1.15), opacity: 1, offset: .12 },
+      { transform: at(sx, sy - 12, 1), opacity: 1, offset: .46 },
+      { transform: at(tx, ty, .45), opacity: 1, offset: .94 },
+      { transform: at(tx, ty, .3), opacity: 0 },
+    ], { duration: 780, easing: "cubic-bezier(.2,.7,.3,1)" }, () => fly.remove());
+  }, [animate, later, scorePresentation]);
 
   const place = useCallback(
     (idx: number, x: number, y: number) => {
-      if (phase !== "play") return false;
+      if (phase !== "play" || !accepting.current) return false;
+      if (performance.now() >= endsAt.current) { finish("time"); return false; }
+      const current = gameRef.current;
       let next;
       try {
-        next = apply(game.st, { piece: idx, x, y });
+        next = apply(current.st, { piece: idx, x, y });
       } catch (e) {
         if (e instanceof EngineFailure) return false;
         throw e;
       }
-      const piece = pieceAt(game.st.seed, idx);
-      const colors = game.colors.slice();
+      const piece = pieceAt(current.st.seed, idx);
+      const colors = current.colors.slice();
       for (const c of pieceCells(piece)) colors[(y + c.dy) * SIZE + x + c.dx] = colorOf(piece);
       const gone: Ghost[] = [];
       for (let i = 0; i < 64; i++) {
         if ((next.result.cleared >> BigInt(i)) & 1n) {
           gone.push({
+            id: popupId.current + 1,
             i,
             color: colors[i],
-            gem: ((game.st.gems | footprintGem(piece, x, y)) >> BigInt(i)) & 1n ? true : false,
-            delay: Math.round(Math.hypot((i % SIZE) - (x + 0.5), Math.floor(i / SIZE) - (y + 0.5)) * 28),
+            gem: ((current.st.gems | footprintGem(piece, x, y)) >> BigInt(i)) & 1n ? true : false,
+            delay: Math.round(Math.hypot((i % SIZE) - (x + 0.5), Math.floor(i / SIZE) - (y + 0.5)) * 7),
           });
           colors[i] = NO_COLOR;
         }
@@ -304,9 +360,10 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       const g: Game = {
         st: next.state,
         colors,
-        lines: game.lines + next.result.lines,
-        gemsCleared: game.gemsCleared + next.result.gems,
+        lines: current.lines + next.result.lines,
+        gemsCleared: current.gemsCleared + next.result.gems,
       };
+      gameRef.current = g;
       setGame(g);
       scoreRef.current = { score: next.state.score, moves: next.state.moves };
       runRef.current?.onMove({ piece: idx, x, y });
@@ -315,22 +372,35 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       const id = popupId.current;
       const placed = new Set(pieceCells(piece).map((c) => (y + c.dy) * SIZE + x + c.dx));
       setFresh(placed);
-      setTimeout(() => setFresh((f) => (f === placed ? new Set() : f)), DROP_MS);
+      later(() => setFresh((f) => (f === placed ? new Set() : f)), DROP_MS);
       if (gone.length) {
-        setGhosts(gone);
-        setTimeout(() => setGhosts((cur) => (cur === gone ? [] : cur)), CLEAR_MS);
+        setGhosts((cur) => [...cur, ...gone]);
+        later(() => setGhosts((cur) => cur.filter((ghost) => ghost.id !== id)), CLEAR_MS);
       }
       if (next.result.lines === 0) {
-        sfx("check");
-        if (combo > 0) {
-          setFizzle(id);
-          setTimeout(() => setFizzle((f) => (f === id ? 0 : f)), 700);
+        blockSound(0, 0, 0);
+        blockHaptics.play(0, 0);
+        scorePresentation.award(next.result.gained, 0, 1);
+        if (boardRef.current && spaceRef.current && !prefersReducedMotion()) {
+          const grid = measureGrid(spaceRef.current, boardRef.current);
+          for (const c of pieceCells(piece)) burst({
+            x: grid.left + (x + c.dx + .5) * grid.pitch,
+            y: grid.top + (y + c.dy + .5) * grid.pitch,
+            colors: [BLOCK_HEX[colorOf(piece)], "#fff"], kind: "shards", count: 2, power: .15,
+          });
         }
+        if (comboRef.current > 0) {
+          setFizzle(id);
+          later(() => setFizzle((f) => (f === id ? 0 : f)), 700);
+        }
+        comboRef.current = 0;
         setCombo(0);
         setAnnounce(`Placed, plus ${next.result.gained}`);
       } else {
-        const newCombo = combo + 1;
-        celebrate(next.result.lines, next.result.gems, newCombo, next.result.gained, gone, next.result.cleared, id);
+        const newCombo = ++comboRef.current;
+        const placementPoints = pieceCells(piece).length;
+        scorePresentation.award(placementPoints, 0, 1);
+        celebrate(next.result.lines, next.result.gems, newCombo, next.result.gained - placementPoints, gone, next.result.cleared, id);
         setCombo(newCombo);
         setBestCombo((b) => Math.max(b, newCombo));
         setAnnounce(`Cleared ${next.result.lines} ${next.result.lines === 1 ? "line" : "lines"}, plus ${next.result.gained}`);
@@ -344,56 +414,24 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       }
       return true;
     },
-    [phase, game, finish, combo, celebrate],
+    [phase, finish, celebrate, later, scorePresentation, setPreview],
   );
 
-  const cellFromPoint = (px: number, py: number) => {
-    const r = boardRef.current?.getBoundingClientRect();
-    if (!r) return null;
-    const cell = r.width / SIZE;
-    const cx = Math.floor((px - r.left) / cell);
-    const cy = Math.floor((py - r.top) / cell);
-    if (cx < -1 || cy < -1 || cx > SIZE || cy > SIZE) return null;
-    return { cx: Math.min(Math.max(cx, 0), SIZE - 1), cy: Math.min(Math.max(cy, 0), SIZE - 1), cell };
-  };
-
+  const reject = useCallback(() => {
+    setAnnounce("That piece does not fit there");
+    const slot = boardRef.current?.closest(".bpx")?.querySelector<HTMLElement>(".bp-slot.sel");
+    if (slot && !prefersReducedMotion()) animate(slot, [
+      { outline: "2px solid var(--danger)", outlineOffset: "-2px" },
+      { outline: "2px solid transparent", outlineOffset: "-2px" },
+    ], { duration: 180 });
+  }, [animate]);
+  const getDragState = useCallback(() => gameRef.current.st, []);
+  const { held, gesture: dragMeta, ghost: ghostRef, down: beginDrag, move: moveDrag, up: endDrag, cancel: onTrayCancel } = usePieceDrag({ space: spaceRef, board: boardRef, getState: getDragState, preview: setPreview, place, reject });
   const onTrayDown = (e: React.PointerEvent<HTMLButtonElement>, idx: number) => {
-    if (phase !== "play" || (st.used >> (idx - base)) & 1) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const cell = (boardRef.current?.getBoundingClientRect().width ?? 320) / SIZE;
-    dragMeta.current = { idx, sx: e.clientX, sy: e.clientY, moved: false, lift: e.pointerType === "touch" ? LIFT_TOUCH_PX : 0, cell };
-    setSel(idx);
+    if (phase !== "play" || !accepting.current || (st.used >> (idx - base)) & 1) return;
+    if (beginDrag(e, idx, pieceAt(st.seed, idx))) setSel(idx);
   };
-
-  const onTrayMove = (e: React.PointerEvent<HTMLButtonElement>) => {
-    const m = dragMeta.current;
-    if (!m) return;
-    if (!m.moved && Math.hypot(e.clientX - m.sx, e.clientY - m.sy) < 8) return;
-    m.moved = true;
-    setDrag({ idx: m.idx, px: e.clientX, py: e.clientY - m.lift, cell: m.cell });
-    const hit = cellFromPoint(e.clientX, e.clientY - m.lift);
-    const piece = pieceAt(st.seed, m.idx);
-    setPreview(hit ? anchorFor(piece, hit.cx, hit.cy) : null);
-  };
-
-  const onTrayUp = (e: React.PointerEvent<HTMLButtonElement>) => {
-    const m = dragMeta.current;
-    dragMeta.current = null;
-    setDrag(null);
-    if (!m || !m.moved) return;
-    const hit = cellFromPoint(e.clientX, e.clientY - m.lift);
-    setPreview(null);
-    if (hit) {
-      const a = anchorFor(pieceAt(st.seed, m.idx), hit.cx, hit.cy);
-      place(m.idx, a.x, a.y);
-    }
-  };
-
-  const onTrayCancel = () => {
-    dragMeta.current = null;
-    setDrag(null);
-    setPreview(null);
-  };
+  useEffect(() => { if (phase !== "play") onTrayCancel(); }, [phase, onTrayCancel]);
 
   const hover = (cx: number, cy: number) => {
     if (!selPiece || dragMeta.current) return;
@@ -412,36 +450,9 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
     boardRef.current?.querySelectorAll<HTMLButtonElement>("button")[ny * SIZE + nx]?.focus();
   };
 
-  const previewInfo = useMemo(() => {
-    if (!preview || !selPiece) return null;
-    const cells = new Set(pieceCells(selPiece).map((c) => (preview.y + c.dy) * SIZE + preview.x + c.dx));
-    return { cells, valid: fitsAt(st, selPiece, preview.x, preview.y), color: colorOf(selPiece) };
-  }, [preview, selPiece, st]);
-
-  const hint = useMemo(
-    () => (preview && selPiece && previewInfo?.valid ? wouldClear(st, selPiece, preview.x, preview.y) : null),
-    [preview, selPiece, previewInfo, st],
-  );
-  const hinting = hint !== null && hint.rows.length + hint.cols.length > 0;
-
-  const prevScore = useRef(0);
-  useEffect(() => {
-    const el = scoreEl.current;
-    if (el && st.score > prevScore.current && typeof el.animate === "function" && !prefersReducedMotion()) {
-      el.animate(
-        [
-          { transform: "scale(1.28)", color: "#fff", textShadow: "0 0 18px rgba(234,239,236,0.6)" },
-          { transform: "scale(1)" },
-        ],
-        { duration: 320, easing: "cubic-bezier(0.2, 1.6, 0.4, 1)" },
-      );
-    }
-    prevScore.current = st.score;
-  }, [st.score]);
-
-  const ghostAt = useMemo(() => new Map(ghosts.map((g) => [g.i, g])), [ghosts]);
   const timeLow = remaining <= 10_000;
   const secondsLeft = Math.ceil(remaining / 1000);
+  const urgency = urgencyFor(secondsLeft, phase === "play", phase === "over");
   useEffect(() => {
     if (phase === "play" && timeLow && secondsLeft > 0) sfx("tick");
   }, [phase, timeLow, secondsLeft]);
@@ -450,8 +461,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
 
   const board = (
     <div
-      className={`bp-board${phase === "play" ? " live" : ""}${timeLow && phase === "play" ? " low" : ""}`}
-      style={hinting && previewInfo ? ({ "--hk": BLOCK_HEX[previewInfo.color] } as React.CSSProperties) : undefined}
+      className={`bp-board${phase === "play" ? " live" : ""}`}
       ref={boardRef}
       role="grid"
       aria-label="Block Burst board, 8 by 8"
@@ -463,22 +473,16 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
         const filled = (st.occ >> BigInt(i)) & 1n;
         const isGem = (st.gems >> BigInt(i)) & 1n;
         const color = game.colors[i];
-        const gh = filled ? undefined : ghostAt.get(i);
-        const pv = previewInfo?.cells.has(i);
         const cls = ["bp-cell"];
         if (filled) cls.push(`k${color}`, "on");
         if (filled && fresh.has(i)) cls.push("drop");
-        if (hinting && (hint.rows.includes(cy) || hint.cols.includes(cx))) cls.push("hint");
         if (filled && isGem) cls.push("gem");
-        if (gh) cls.push(`k${gh.color}`, "pop", ...(gh.gem ? ["gem"] : []));
-        if (pv) cls.push(previewInfo?.valid ? `pv pk${previewInfo.color}` : "pv bad");
         return (
           <button
             key={i}
             type="button"
             role="gridcell"
             className={cls.join(" ")}
-            style={gh ? ({ animationDelay: `${gh.delay}ms` } as React.CSSProperties) : undefined}
             tabIndex={i === focusCell ? 0 : -1}
             aria-label={`Row ${cy + 1}, column ${cx + 1}${filled ? (isGem ? ", gem block" : ", filled") : ""}`}
             disabled={phase !== "play"}
@@ -502,7 +506,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
         <div className="bpx-score">
           <Label>Score</Label>
-          <span ref={scoreEl} className="bp-score-n tnum" aria-live="off"><CountUp key={runId} value={st.score} from={0} format={String} duration={500} /></span>
+          <span ref={scoreEl} className="bp-score-n tnum" hidden={phase === "over"} aria-label="Score" aria-live="off"><span ref={scoreAura} className="bp-score-aura" aria-hidden="true" /><CountUp key={runId} value={scoreReceipt.total} from={0} format={String} duration={180} /></span>
         </div>
         <div className={`bpx-ring${timeLow && phase === "play" ? " low" : ""}`} role="timer" aria-label="Time left">
           <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
@@ -534,6 +538,18 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
             <span>Practice · nothing staked</span>
           )}
           <MuteToggle />
+          {supportsVibration && (
+            <button
+              type="button"
+              className="cut cut-chip fx-mute"
+              aria-pressed={vibration}
+              aria-label={vibration ? "Vibration on. Turn vibration off" : "Vibration off. Turn vibration on"}
+              title={vibration ? "Vibration on" : "Vibration off"}
+              onClick={() => { blockHaptics.setEnabled(!vibration); if (!vibration) blockHaptics.play(0, 0); }}
+            >
+              {vibration ? <Vibrate size={16} aria-hidden="true" /> : <VibrateOff size={16} aria-hidden="true" />}
+            </button>
+          )}
           <FullScreenToggle />
         </div>
       </header>
@@ -541,7 +557,19 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       <section className="bpx-mid" aria-label="Board">
         <h1 className="sr-only">Block Burst</h1>
       <div className="bp-stage">
-        {board}
+        <div className="bp-board-space" ref={spaceRef} data-urgency={urgency === "none" ? undefined : urgency}>
+        <div className="bp-board-visual" ref={visualRef}>
+          {board}
+          <div ref={readyRef} className="bp-ready-grid" aria-hidden="true" />
+          <div className="bp-clear-grid" aria-hidden="true">
+            {ghosts.filter((g) => !((st.occ >> BigInt(g.i)) & 1n)).map((g) => (
+              <span key={`${g.id}-${g.i}`} className={`bp-cell pop k${g.color}${g.gem ? " gem" : ""}`} style={{ gridColumn: g.i % SIZE + 1, gridRow: Math.floor(g.i / SIZE) + 1, animationDelay: `${g.delay}ms` }} />
+            ))}
+          </div>
+          {sweeps.map((w) => (
+            <span key={w.id} className="bp-sweep" data-axis={w.axis} style={{ "--at": w.at } as React.CSSProperties} aria-hidden="true" />
+          ))}
+        </div>
         {(phase === "count" || goOn) && (
           <Countdown
             from={3}
@@ -587,10 +615,13 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
             </div>
           </div>
         )}
-        {sweeps.map((w) => (
-          <span key={w.id} className={`bp-sweep ${w.axis}`} style={{ "--at": w.at } as React.CSSProperties} aria-hidden="true" />
-        ))}
-        {moment && <Callout key={moment.id} text={moment.text} tone={moment.tone} onDone={() => setMoment((m) => (m?.id === moment.id ? null : m))} />}
+        {moment && (
+          <div key={moment.id} className={`bp-moment ${moment.tone}`} data-placement={moment.y > 55 ? "above" : undefined} style={{ top: `${moment.y}%` }} aria-hidden="true">
+            <strong>{moment.text}</strong>
+            {(moment.combo ?? 0) >= 2 && !moment.text.startsWith("Combo") && <small>Combo ×{moment.combo}</small>}
+          </div>
+        )}
+        </div>
       </div>
 
       <div className="bp-tray" aria-label="Pieces">
@@ -599,19 +630,20 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           const used = phase === "idle" ? false : ((st.used >> n) & 1) === 1;
           const piece = hand[n];
           const isSel = phase === "play" && !used && sel === idx;
-          const stuck = phase === "play" && !used && ![...Array(64).keys()].some((i) => fitsAt(st, piece, i % SIZE, Math.floor(i / SIZE)));
+          const stuck = phase === "play" && !used && !available[n];
           return (
             <button
               key={n}
               type="button"
-              className={`cut cut-btn bp-slot${isSel ? " sel" : ""}${used ? " used" : ""}${stuck ? " stuck" : ""}`}
+              className={`cut cut-btn bp-slot${isSel ? " sel" : ""}${held?.idx === idx ? " held" : ""}${used ? " used" : ""}${stuck ? " stuck" : ""}`}
               disabled={phase !== "play" || used}
               aria-pressed={isSel}
               aria-label={`Piece ${n + 1}${piece.gem !== null ? ", has a gem" : ""}${stuck ? ", does not fit" : ""}`}
               onPointerDown={(e) => onTrayDown(e, idx)}
-              onPointerMove={onTrayMove}
-              onPointerUp={onTrayUp}
+              onPointerMove={moveDrag}
+              onPointerUp={endDrag}
               onPointerCancel={onTrayCancel}
+              onLostPointerCapture={() => { if (dragMeta.current) onTrayCancel(); }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
@@ -623,7 +655,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
               }}
             >
               {!used && phase !== "over" && (
-                <span key={base} className="bp-deal" style={{ animationDelay: `${n * 90}ms` }}>
+                <span key={base} className="bp-deal">
                   <PieceArt piece={piece} cell={16} />
                 </span>
               )}
@@ -643,9 +675,11 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
         </div>
       )}
 
-      {drag && (
-        <div className="bp-ghost" style={{ transform: `translate(${drag.px}px, ${drag.py}px) translate(-50%, -50%)` }} aria-hidden="true">
-          <PieceArt piece={pieceAt(st.seed, drag.idx)} cell={drag.cell} />
+      {held && phase === "play" && (
+        <div ref={ghostRef} className="bp-ghost" style={{ transform: `translate3d(${held.px}px, ${held.py}px, 0)` }} aria-hidden="true">
+          <div className="bp-pickup" data-touch={held.touch || undefined} style={{ "--pickup-x": `${held.pickupX}px`, "--pickup-y": `${held.pickupY}px`, "--pickup-scale": held.scale } as React.CSSProperties}>
+            <PieceArt piece={held.piece} cell={held.grid.cell} gap={held.grid.gap} />
+          </div>
         </div>
       )}
       <span className="sr-only" role="status" aria-live="polite">{announce}</span>

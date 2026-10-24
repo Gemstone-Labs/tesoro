@@ -20,12 +20,12 @@ export function wouldClear(st: State, piece: Piece, x: number, y: number): { row
   return { rows, cols };
 }
 
-/** Punchy line for a clear, or null when it is an ordinary single line. */
+/** Punchy line for a clear, at the clear location. */
 export function clearCallout(lines: number, gems: number, combo: number): string | null {
   const big = lines >= 4 ? "Board shaker!" : lines === 3 ? "Triple!" : lines === 2 ? "Double!" : null;
   if (gems > 0) return big ? `${big} Gem ×${1 + gems}` : `Gem ×${1 + gems}`;
   if (big) return big;
-  return combo >= 3 ? `Combo ×${combo}` : null;
+  return combo >= 2 ? `Combo ×${combo}` : lines > 0 ? "Line!" : null;
 }
 
 /** How hot the combo meter burns, 0 (cold) to 4. */
