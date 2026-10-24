@@ -2,6 +2,31 @@
 
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
 
+## Economy upgrade continuation (2026-10-24)
+
+The native custody migration is live: `NativeCustody` is 327 bytes, and the deployed core equals the tested custody-fix build (sha256 `65827773ca73dbc238f776b6ac32668bc2a14587e52ee44317f91f43c1742cd9`). The previous 178-byte singleton could not deserialize; the Treasury's 143-byte layout was already current.
+
+The replacement SimLST vaults are deployed and wired. Each constructor creates its own immutable `PrizeModule`; both deployed runtimes were compared with the tested artifacts, excluding their constructor-populated immutable slots, and their immutable values were checked separately.
+
+| Network | Vault | PrizeModule | Deployment transaction |
+|---|---|---|---|
+| Hoodi (560048 / eid 40449) | `0x7A996874B9Ffc35cC36bF154D02a23D16863a087` | `0x56bFe556c1AF56f73146dB472a291f0233b700bB` | `0x463a288d22b6146a1a21cfeb86ff395950e4ef75b286ed07cb21cceac67ca296` |
+| HyperEVM testnet (998 / eid 40362) | `0xdD12E37A9C35137Be8a4F871507986dA4671B20B` | `0x8DfcB8dea604f04FDCd918f12E85Ca00510F400B` | `0x935f5e903083dd406f6f74e731c80f2ec65e69ea3eefe9bc1a6d7140ae9f31e9` |
+
+The existing SimLST tokens now name these vaults as minters. Both vaults have a 2-token simulated Treasury and 0.05 native gas tokens for acknowledgements. HyperEVM used big blocks for deployment and returned to small blocks afterwards. The old vaults and their test Positions are retired, without migrating their balances.
+
+Bridge wiring now includes the `VaultRoute` account required by `set_peer_config`. Before wiring a new vault, run `pnpm --dir bridge lz check-wire <eid> <vault> 18 500`: it simulates registration and sends nothing. `wire` defaults to 1,500,000 EVM receive gas for the largest eight-entry batch. Both new routes have their SimLST asset configured, **escrow disabled**, and no EVM escrow keeper. Prize escrow remains a separate activation step after the slashing work is accepted.
+
+Staging fixes found by real Matches:
+
+- Hold'em, Vanguard and Block Burst clients, and all four keeper adapters, recognize an assigned idle table by generation/index/epoch before `begin_match` writes its Match key.
+- Fee settlement creates missing checkpoint pages before syncing a Source or sealing its paid Studio tranche. A second Match can otherwise stall with `AccountMissing`; initializing the missing Studio page made the same live transaction succeed.
+- Instant Redeem order lists use the server's allowed discriminator/owner query, and discard obsolete lengths when decoding.
+
+Real devnet checks completed: SOL Lock + Advance, zero-SOL admission and settlement across all four Games, private Book/Board/Army reads denied to opponents and outsiders, native Redeem, and an admin-filled Instant Redeem order with its unsold remainder returned. Vanguard's Match used legal Passes to a forfeit; this does not verify its tactical powers. A 100-Gema entry takes 4/6/2 Gemas in fees from the 200-Gema Pot. A Season payout and the founder's two-browser interaction checks remain separate checks.
+
+Production must have `NEXT_PUBLIC_HIDDEN_GAMES=vanguard` **before** the main merge builds. Preview/staging leaves it unset. This hides player-facing pages and sponsor access; the game code and art may remain in the deployed files.
+
 ## Economy upgrade on devnet (2026-10-23, ticket 24)
 
 From `feat/economy-upgrade-20-10-2026` (tip `c4a6ade5` + `eb707d58`), merged into `staging` (not `main`). Deployer `7zr1j185…qh7M` through `https://rpc.magicblock.app/devnet`, keeper stopped on the VPS first. Previous programs dumped to `~/.cache/tesoro-tmp/rollback-2026-10-23/` (with `SHA256SUMS`). Every upgrade was extended first, written to a buffer, upgraded, and the on-chain bytes compared with the build.
@@ -22,14 +47,14 @@ Setup (`keeper/scripts/economy-setup.ts`, `register-game.ts`, all by the deploye
 
 - `set_economy`: Season keeper and fill keeper = the keeper key `9X8L11Be…yVit`, `keeper_fills` off, route 0 = the native custody (prize escrow stays off). `set_tesoro_studio`: the Account of the company wallet `Dqwxcyh7…FX97` (created first, funded 0.1 SOL by the deployer).
 - `init_sponsor` (relayer `G7zDD6Kf…cTYP`; per Account 0.2 SOL, total 20 SOL, pages 2 SOL), `set_accounts_cap` 3 SOL, `set_profiles_cap` 1 SOL (all placeholders for the founder). The Sponsor PDA `4F8LcgHk…` holds 5 SOL, the relayer 4.8 SOL.
-- The Treasury (143 B) and the native custody (178 B) already have the new layout (ticket 31 kept the old offsets): no retire, `init_native_custody` and `init_treasury` were not needed. `init_stores` for the platform recipient, the Pool Account and the Treasury Account (they predate baskets).
+- The Treasury (143 B) was current. The native custody (178 B) was incorrectly reported as current; it needed the 327-byte migration described above. `init_stores` ran for the platform recipient, the Pool Account and the Treasury Account (they predate baskets).
 - Four Games `register_game` (Studio Fee 300 bps, Studio recipient = the company Account = `tesoro_studio`, so their Studio Fee goes to Tesoro's counter) and `list_game` for a year (needs a 1.4M compute limit, now set in `register-game.ts`).
 - Per Game `TableConfig`: operator = the keeper key, generation 1, 64 tables (`set_config`; Vanguard `set_table_config`, its `VanguardConfig` stayed).
 - No `set_entry_sizes` (the program default is 100 / 500 / 1,000; the Lobby shows them).
 
 Wipe: `retire-old-accounts.ts` retired the 23 old Positions (3 tx); `retire_offer` closed the 2 old Offers (the script's Offer phase is stale against ticket 32: it waits for Sources to be gone, so `economy-setup.ts retire-offers` does it). **Not retired:** 23 old `SourceState` (142 B, the new one is 170 B so `retire_source` cannot read them) and the 42 old Holdings that need those Sources gone: they are inert, cost rent only, and the app and keeper lists now skip every account that is not of the current layout (`app/src/lib/chain/account-sizes.ts`: MatchState 776 B, SourceState 170 B, OfferState 174 B). The 167 old Matches stay as unreadable history, one Open old Match and the old Season 2 record are skipped too.
 
-**EVM vaults: not deployed.** The new `PositionVaultOApp` is 28,322 B of runtime code, EIP-170 allows 24,576 (the Hoodi deploy was refused: "max code size exceeded"). `optimizer_runs 1` gives 28,088 B, `via_ir` 26,062 B; it needs a source change. Until new vaults exist, ETH and HYPE Locks cannot work on the new bridge (the old vaults send 101-byte reports, the bridge expects 133).
+**EVM vaults were blocked on October 23; resolved October 24 above.** The original economy `PositionVaultOApp` was 28,322 B of runtime code and Hoodi refused deployment. The helper split reduced it to 23,409 B; the replacements use the 133-byte report the upgraded bridge expects.
 
 Supabase (the production project the app uses): migrations 0010 to 0014 applied, one transaction each (`match_history`, `match_parties`, `match_events`, `match_end_states`, `sponsor_usage`, `sponsor_hold`, `studio_applications`, `studio_payments`, `queue_presence`). They only add tables.
 

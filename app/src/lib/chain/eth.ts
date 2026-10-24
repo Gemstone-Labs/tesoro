@@ -60,8 +60,8 @@ export const NETS: Record<NetKey, EvmNet> = {
  * for the new vault. The keeper reads vaults off the Position ids on chain and needs no address.
  */
 const SIM_VAULT_ADDRESSES = {
-  hoodi: { vault: "0xd545886F5CC70A6F9fa69D104e8f438e3a0F48Dc", lst: "0xD82840623A7a00C37b0883d221Fa84e39ddA2a28" },
-  hyperevm: { vault: "0xfBc91D795d12Df73Cadc1fE217F587cC0484eD23", lst: "0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3" },
+  hoodi: { vault: "0x7A996874B9Ffc35cC36bF154D02a23D16863a087", lst: "0xD82840623A7a00C37b0883d221Fa84e39ddA2a28" },
+  hyperevm: { vault: "0xdD12E37A9C35137Be8a4F871507986dA4671B20B", lst: "0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3" },
 } as const satisfies Record<NetKey, { vault: Address; lst: Address }>;
 
 export interface EthVault {
