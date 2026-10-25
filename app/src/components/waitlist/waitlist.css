@@ -1,5 +1,4 @@
-/* The waitlist (/): the form bottom left, a band of jewel blocks along a diagonal, casual-game clips behind it
-   top right. An art surface, dark in both themes, so the frame (and the pack over it) carries the dark tokens itself. */
+/* Living Honeycomb: real gameplay drifts up/right behind a stationary centered signup. */
 html:has(.wl), body:has(.wl) { background: #090d0f; }
 .wl, .pk {
   --shell: #090d0f; --raised: #11161a; --raised-2: #171e25;
@@ -17,82 +16,98 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
   --money-off: linear-gradient(180deg, #15201d, #101816);
 }
 .wl {
-  --sweep: #ffffff;
   --pad: clamp(22px, 4vw, 64px);
   position: relative; isolation: isolate; overflow: clip;
-  height: 100dvh; min-height: 640px;
+  min-height: 100svh; padding: 94px var(--pad) 56px;
+  display: flex; align-items: center; justify-content: center;
   background: #090d0f; color: var(--fg); color-scheme: dark;
   font-size: 16px; line-height: 1.5;
 }
 
-/* Video wall: tilted columns drifting in opposite directions, clipped to the region above the diagonal. */
-.vw { position: absolute; inset: 0; z-index: 1; clip-path: var(--above-wide); }
-.vw-tilt { position: absolute; right: -10%; top: -25%; width: 92%; height: 150%; display: flex; gap: 8px; transform: rotate(-8deg); }
-.vw-col { flex: 1 1 0; min-width: 0; height: 100%; overflow: hidden; }
-/* A column's track is its clip list twice over (8 tiles a copy, taller than the column), moving by exactly one copy, so it
-   covers the column top to bottom at every moment of the loop. Columns differ in speed and direction (even ones run
-   backwards, from -50% to 0), and in where they start in the loop (a negative delay), never by an offset that would leave the top bare. */
-.vw-track { animation: vw-drift 150s linear infinite; }
-.vw-col-1 .vw-track { animation-direction: reverse; animation-duration: 175s; animation-delay: -61s; }
-.vw-col-2 .vw-track { animation-duration: 135s; animation-delay: -40s; }
-.vw-col-3 .vw-track { animation-direction: reverse; animation-duration: 165s; animation-delay: -97s; }
-.vw-col-4 .vw-track { animation-duration: 190s; animation-delay: -20s; }
-.vw-col-5 .vw-track { animation-direction: reverse; animation-duration: 155s; animation-delay: -73s; }
-.vw-col-6 .vw-track { animation-duration: 180s; animation-delay: -125s; }
-.vw-clip { display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; margin-bottom: 8px; background: #0c1215; }
-/* Without JavaScript browsers draw their own player controls on a video: the wall has none. */
-.vw-clip::-webkit-media-controls, .vw-clip::-webkit-media-controls-enclosure { display: none !important; }
-/* Tiles stay about 140-220px wide: seven columns on a wide screen, six on a laptop, five on a tablet, four on a phone. */
-@media (max-width: 1439px) { .vw-col-6 { display: none; } .vw-tilt { width: 90%; } }
-@media (max-width: 1099px) { .vw-col-5 { display: none; } .vw-tilt { width: 98%; } }
-@keyframes vw-drift { to { transform: translateY(-50%); } }
+/* One linear transform gives every tile the same constant diagonal velocity. */
+.vw { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+.vw-track {
+  position: absolute; inset: 0 auto 0 0; width: calc(2 * var(--vw-period));
+  transform: translate(calc(-1 * var(--vw-period)), var(--vw-rise));
+  animation: vw-diagonal var(--vw-duration) linear infinite;
+  will-change: transform;
+}
+@keyframes vw-diagonal { to { transform: translate(0, 0); } }
+.vw[data-motion="paused"] .vw-track,
+.vw[data-motion="paused"] .vw-tile .vw-face,
+.vw[data-motion="paused"] .vw-tile .vw-hex::before { animation-play-state: paused; }
+.vw-tile {
+  --hex: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+  position: absolute; width: var(--vw-width); height: var(--vw-height);
+}
+.vw-face { position: absolute; inset: 0; opacity: 0.4; transform: scale(1); }
+.vw-hex {
+  position: absolute; inset: 0; padding: 2px; clip-path: var(--hex);
+  background: linear-gradient(140deg, #75828d, #293849 50%, #617181);
+}
+.vw-hex video {
+  position: relative; display: block; width: 100%; height: 100%; object-fit: cover;
+  clip-path: var(--hex); background: #0c1215;
+}
+.vw-hex::before { content: ""; position: absolute; inset: 0; background: #dce9f4; opacity: 0; }
+/* The outgoing face returns to its base before the next tile starts. Geometry stays on the unscaled parent. */
+.vw-tile[data-highlighted="true"] { z-index: 2; }
+.vw-tile[data-highlighted="true"] .vw-face {
+  animation: vw-spotlight var(--vw-highlight-duration) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.vw-tile[data-highlighted="true"] .vw-hex::before {
+  animation: vw-rim var(--vw-highlight-duration) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes vw-spotlight {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  20%, 80% { opacity: 1; transform: scale(1.04); }
+}
+@keyframes vw-rim { 0%, 100% { opacity: 0; } 20%, 80% { opacity: 1; } }
+.vw[data-still="true"] .vw-tile[data-highlighted="true"] .vw-face { animation: none; opacity: 1; transform: none; }
+.vw[data-still="true"] .vw-tile[data-highlighted="true"] .vw-hex::before { animation: none; opacity: 1; }
+.vw-hex video::-webkit-media-controls, .vw-hex video::-webkit-media-controls-enclosure { display: none !important; }
+.vw-shade {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 37% 47% at 50% 51%, #090d0ffa 30%, #090d0fe8 58%, #090d0f80 82%, transparent 115%),
+    linear-gradient(180deg, #090d0f75, transparent 22%, transparent 80%, #090d0f85);
+}
+.vw-toggle {
+  position: absolute; z-index: 5; right: var(--pad); bottom: 20px;
+  display: inline-grid; place-items: center; width: 44px; height: 44px;
+  border: 0; background: transparent; color: var(--fg-2); padding: 6px;
+  font-size: 12px; border-radius: 50%;
+}
+.vw-toggle > span { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: #090d0fba; }
+.vw-toggle:hover { color: var(--fg); }
+.vw-toggle:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
 
-/* The floor: solid below the diagonal and carrying the landing's octagon texture (the same file as the landing's
-   `--lp-texture`, repeated here because the light theme redefines that variable and this frame stays dark), with a
-   soft shade on the footage along the edge. */
-.wl { --wl-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='300' fill='none' stroke='%23eaefec' stroke-opacity='.045'%3E%3Cpath d='M70 40h180l40 40v120l-40 40H70l-40-40V80z'/%3E%3Cpath d='M98 68h124l28 28v88l-28 28H98l-28-28V96z'/%3E%3Cpath d='M270 220l80 80M350 0l10 10M0 10l50 50M50 220L0 270M360 270l-30 30M330 0l-60 60'/%3E%3C/svg%3E"); }
-.wl-floor { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
-.wl-floor-in { position: absolute; inset: 0; clip-path: var(--in-wide); background: var(--wl-texture) 0 0 / 360px 300px, #090d0f; }
-/* and a fade from the left so the top bar and headline never sit on footage */
-.vw::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9, 13, 15, 0.92) 0, rgba(9, 13, 15, 0.5) 30%, rgba(9, 13, 15, 0.12) 62%, rgba(9, 13, 15, 0.22) 100%); }
-
-/* Divider: gems in the panel's own colour and texture. The server's design-size layout is there from the first paint; the
-   exact one fades in over it. */
-.dv { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
-.dv-ssr-tall { display: none; }
-.dv-ssr { transition: opacity 0.6s ease-out; }
-.dv-live { animation: dv-in 0.6s ease-out both; }
-.wl:has(.dv-live) .dv-ssr { opacity: 0; }
-@keyframes dv-in { from { opacity: 0; } to { opacity: 1; } }
-/* Light on the texture (LivingTexture): above the divider so its band and gems take it too, masked to the panel. */
-.wl-light { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; pointer-events: none; }
-
-/* Frame content */
-.wl-top::before { content: ""; position: absolute; z-index: -1; inset: 0 0 -36px 0; background: linear-gradient(180deg, rgba(9, 13, 15, 0.82) 0, rgba(9, 13, 15, 0.5) 55%, transparent 100%); pointer-events: none; }
-.wl-top { position: absolute; z-index: 5; inset: 0 0 auto 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px var(--pad); }
+.wl-top::before { content: ""; position: absolute; z-index: -1; inset: 0 0 -36px; background: linear-gradient(180deg, #090d0fe0, #090d0f70 55%, transparent); pointer-events: none; }
+.wl-top { position: absolute; z-index: 5; inset: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 26px var(--pad); }
 .wl-logo { display: inline-flex; }
-.wl-nav { display: flex; align-items: center; gap: 22px; font-weight: 700; font-size: 14.5px; }
+.wl-nav { display: flex; gap: 26px; font-weight: 700; font-size: 14px; }
 .wl-nav a { color: var(--fg-2); padding-block: 6px; }
 .wl-nav a:hover { color: var(--fg); }
 .wl-nav a:focus-visible, .wl-logo:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
 
-.wl-main { position: absolute; z-index: 5; left: var(--pad); bottom: clamp(28px, 6vh, 64px); width: min(480px, calc(100% - 2 * var(--pad))); }
-.wl-kicker { margin-bottom: clamp(8px, 1.6vh, 14px); font-size: 12.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
-.wl-h1 { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; letter-spacing: 0.005em; font-size: clamp(38px, 7.4vh, 68px); line-height: 0.95; max-width: 17ch; text-wrap: balance; }
-.wl-form { margin-top: clamp(16px, 3vh, 28px); display: grid; gap: 6px; }
-.wl-row { display: flex; gap: 10px; }
-.wl-row .ctl { flex: 1 1 auto; min-width: 0; }
-.wl-join { flex: none; min-height: 48px; padding-inline: 20px; }
+.wl-main { position: relative; z-index: 4; width: min(840px, 100%); text-align: center; }
+.wl-kicker { margin-bottom: clamp(8px, 1.6svh, 16px); font-size: 13px; font-weight: 600; letter-spacing: 0.04em; color: var(--fg-2); }
+.wl-h1 { font-family: var(--f-display); font-weight: 800; font-size: clamp(60px, 5.8vw, 84px); line-height: 0.98; letter-spacing: -0.015em; max-width: 100%; margin-inline: auto; text-wrap: balance; }
+.wl-lede { margin: clamp(12px, 2svh, 24px) auto 0; font-size: clamp(14px, 1.9svh, 17px); line-height: 1.6; color: var(--fg-2); max-width: 60ch; }
+.wl-form { margin: clamp(14px, 2.5svh, 28px) auto 0; max-width: 570px; display: grid; gap: 6px; text-align: left; }
+.wl-row { display: flex; gap: 12px; }
+.wl-row .ctl { flex: 1 1 auto; min-width: 0; background-color: #090d0f; }
+.wl-row .input { min-height: 50px; }
+.wl-join { flex: none; min-height: 52px; padding-inline: 24px; }
 .wl-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 .wl-error { min-height: 1.4em; font-size: 14px; color: var(--danger, #f2685a); }
-.wl-try { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
-.wl-strip { position: absolute; z-index: 5; inset: 66px 0 auto 0; pointer-events: none; }
-.wl-strip > * { pointer-events: auto; }
-@media (max-width: 767px) { .wl-strip { top: 70px; } }
-.wl-try .btn { min-height: 46px; padding-inline: 18px; }
+.wl-error:empty { display: none; }
+.wl-links { display: flex; align-items: center; justify-content: center; gap: 22px; margin-top: 4px; }
+.wl-try { margin: 0; }
+.wl-try a { display: inline-flex; align-items: center; min-height: 44px; text-decoration: underline; text-underline-offset: 5px; font-size: 15px; font-weight: 600; }
 .wl-count { margin-top: 4px; font-size: 13px; color: var(--fg-2); }
-.wl-more { display: none; gap: 18px; margin-top: 14px; font-size: 13.5px; font-weight: 700; }
-.wl-more a { color: var(--fg-2); white-space: nowrap; }
+.wl-more { display: none; justify-content: center; gap: 22px; margin: 0; font-size: 13px; }
+.wl-more a { display: inline-flex; align-items: center; min-height: 44px; color: var(--fg-2); }
 .wl-more a:hover { color: var(--fg); }
 .wl-more a:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
 
@@ -109,61 +124,40 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .wl-done-links { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 10px; }
 .wl-done-links .btn { min-height: 46px; padding-inline: 18px; }
 
-/* Phone: footage across the top half, the form below the diagonal. */
+
+.wl-gem, .wl-done-links { justify-content: center; }
 @media (max-width: 640px) {
-  .wl { min-height: 680px; }
-  .vw { clip-path: var(--above-tall); }
-  .wl-floor-in { clip-path: var(--in-tall); }
-  .dv-ssr-wide { display: none; }
-  .dv-ssr-tall { display: block; }
-  .vw-col-4 { display: none; }
-  .vw-tilt { right: -26%; top: -14%; width: 150%; height: 120%; gap: 6px; }
-  .vw-clip { margin-bottom: 6px; }
-  .wl-top { padding-block: 16px; }
+  .wl { --pad: 20px; padding: 76px var(--pad) 62px; }
+  .wl-top { padding-block: 20px; }
   .wl-hide-phone { display: none; }
-  .wl-more { display: flex; }
-  .wl-main { bottom: 24px; }
-  .wl-h1 { font-size: clamp(34px, 9.2vw, 42px); }
   .wl-nav a { white-space: nowrap; }
-  .wl-kicker:not(.wl-kicker-invite) { display: none; }
-  .wl-row { flex-direction: column; }
-  .wl-join { width: 100%; min-height: 52px; }
+  .wl-main { max-width: 400px; }
+  .wl-kicker { font-size: 12px; margin-bottom: 12px; }
+  .wl-h1 { font-size: clamp(38px, 11.6vw, 48px); line-height: 1; }
+  .wl-lede { margin-top: 12px; font-size: 14px; line-height: 1.5; }
+  .wl-form { margin-top: 16px; }
+  .wl-row { gap: 8px; }
+  .wl-row .input { min-height: 44px; padding-inline: 10px; }
+  .wl-join { min-height: 44px; padding-inline: 12px; font-size: 12px; }
+  .wl-links, .wl-more { gap: 18px; }
+  .wl-try a { font-size: 13px; }
+  .wl-more { display: flex; }
+  .vw-shade { background: radial-gradient(ellipse 85% 55% at 50% 50%, #090d0ff5 25%, #090d0fe8 65%, #090d0f50 100%); }
+  .vw-toggle { right: 50%; transform: translateX(50%); bottom: 8px; white-space: nowrap; }
 }
-
 @media (prefers-reduced-motion: reduce) {
-  .vw-track, .dv-live { animation: none; }
-  /* Still, but not in lockstep: each column rests part of the way through its loop (0 to 50%, so it always covers). */
-  .vw-col-1 .vw-track { transform: translateY(-17%); }
-  .vw-col-2 .vw-track { transform: translateY(-31%); }
-  .vw-col-3 .vw-track { transform: translateY(-9%); }
-  .vw-col-4 .vw-track { transform: translateY(-43%); }
-  .vw-col-5 .vw-track { transform: translateY(-24%); }
-  .vw-col-6 .vw-track { transform: translateY(-37%); }
-  .dv-ssr { transition: none; }
+  .vw-track { animation: none; }
+  .vw-toggle { display: none; }
 }
 
-/* With JavaScript the divider is laid out for the real screen after hydration. Rather than show the server's design-size
-   layout and cross-fade (the edge dips while both are half transparent), the art waits for the exact layout and the wall,
-   floor texture, divider and light fade in once, together. The headline and form show straight away. Without
-   JavaScript the server's layout stays. */
-@media (scripting: enabled) {
-  .wl .dv-ssr { display: none; }
-  .vw, .wl-floor, .wl-light { opacity: 0; transition: opacity 0.7s ease-out; }
-  .wl:has(.dv-live) :is(.vw, .wl-floor, .wl-light) { opacity: 1; }
-  .dv-live { animation-duration: 0.7s; }
-}
-@media (scripting: enabled) and (prefers-reduced-motion: reduce) {
-  .vw, .wl-floor, .wl-light { transition: none; }
-}
-
-/* Optional "who are you" chips (RolePicker). The picks print on the waitlist card. */
+/* Optional interests stay visible together, including on narrow screens. */
 .wl-role { display: grid; gap: 8px; }
 .wl-role-label { margin: 0; font-size: 13.5px; font-weight: 700; color: var(--fg); }
 .wl-role-hint { font-weight: 400; color: var(--fg-2); }
-.wl-role-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.wl-role-chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .wl-role-chip {
   all: unset; box-sizing: border-box; --c: var(--cut-chip); --edge: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
-  min-height: 38px; padding: 0 14px; font-size: 14px; font-weight: 700; color: var(--fg-2); background: var(--surface);
+  min-height: 44px; padding: 4px 12px; font-size: 14px; font-weight: 700; color: var(--fg-2); background: var(--surface);
   transition: color 0.15s;
 }
 .wl-role-chip::before { content: "+" / ""; font-weight: 800; color: var(--fg-3); }
@@ -171,13 +165,46 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .wl-role-chip[aria-pressed="true"] { color: var(--fg); background: linear-gradient(rgba(36, 216, 168, 0.16), rgba(36, 216, 168, 0.16)), #11171b; }
 .wl-role-chip[aria-pressed="true"]::before { content: "✓" / ""; color: var(--em); }
 .wl-form > .wl-role { margin-bottom: 8px; }
-.wl-studio { display: grid; gap: 4px; flex-basis: 100%; }
+.wl-studio { grid-column: 1 / -1; min-width: 0; }
 .wl-studio .input { width: 100%; }
-/* Phones: the chips are one swipeable row and the Studio field opens beside its chip, so the email comes sooner. */
-@media (max-width: 639px) {
-  .wl-role-chips { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; margin-inline: -4px; padding: 2px 4px; }
-  .wl-role-chips::-webkit-scrollbar { display: none; }
-  .wl-role-chip { flex: none; white-space: nowrap; min-height: 44px; }
-  .wl-studio { flex: 0 0 220px; align-self: end; gap: 0; }
-  .wl-studio .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 640px) {
+  .wl-role-chips { gap: 6px; }
+  .wl-role-chip { padding: 4px 8px; gap: 5px; font-size: 12px; line-height: 1.3; }
+}
+@media (max-width: 640px) and (max-height: 740px) {
+  .wl { padding-top: 66px; padding-bottom: 52px; }
+  .wl-top { padding-block: 14px; }
+  .wl-h1 { font-size: clamp(36px, 10.7vw, 42px); }
+  .wl-kicker { margin-bottom: 8px; }
+  .wl-lede { margin-top: 10px; font-size: 13px; }
+  .wl-form { margin-top: 12px; gap: 4px; }
+  .wl-role { gap: 6px; }
+  .wl-form > .wl-role { margin-bottom: 4px; }
+  .wl-error { font-size: 12px; }
+  .wl-count { margin-top: 0; font-size: 12px; }
+}
+/* Short landscape screens use the available width instead of stacking everything. */
+@media (min-width: 641px) and (max-height: 540px) {
+  .wl { padding: 70px var(--pad) 52px; }
+  .wl-top { padding-block: 14px; }
+  .wl-main { width: min(1040px, 100%); display: grid; grid-template-columns: 1fr 1fr; column-gap: 32px; align-items: center; }
+  .wl-kicker, .wl-h1, .wl-lede, .wl-links, .wl-count { grid-column: 1; }
+  .wl-kicker { margin-bottom: 8px; }
+  .wl-h1 { font-size: clamp(28px, 4vw, 40px); }
+  .wl-lede { font-size: 13px; line-height: 1.4; margin-top: 10px; }
+  .wl-form, .wl-done { grid-column: 2; grid-row: 1 / span 5; width: 100%; margin: 0; }
+  .wl-role-chip { padding-inline: 8px; font-size: 12px; }
+  .wl-row { gap: 8px; }
+  .wl-row .input { min-height: 44px; padding-inline: 10px; }
+  .wl-join { min-height: 44px; padding-inline: 12px; font-size: 12px; }
+  .wl-error { font-size: 12px; }
+  .vw-toggle { bottom: 4px; }
+}
+
+@media (max-width: 640px) and (max-height: 600px) {
+  .wl { padding-top: 64px; padding-bottom: 48px; }
+  .wl-h1 { font-size: 32px; max-width: 100%; }
+  .wl-kicker { margin-bottom: 6px; }
+  .wl-lede { margin-top: 8px; line-height: 1.4; }
+  .wl-form { margin-top: 8px; }
 }
