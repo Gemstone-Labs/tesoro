@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import bs58 from "bs58";
 import { PublicKey, VersionedTransaction, type Connection, type VersionedTransactionResponse, type TransactionInstruction } from "@solana/web3.js";
+import type { ObservationStore } from "./observed-completion.ts";
 
 const CORE = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
 export interface ReservationRef { key: string; generation: string }
@@ -101,10 +102,13 @@ export async function reconcileCompletion(store: CompletionStore, chain: Complet
 }
 
 /** The same narrow RPC adapter is used by app and keeper; it never writes sponsor_hold directly. */
-export function completionStore(rpc: (name: string, args: Record<string, unknown>) => Promise<unknown>): CompletionStore {
+export function completionStore(rpc: (name: string, args: Record<string, unknown>) => Promise<unknown>): CompletionStore & ObservationStore {
   return {
     prepareCompletion: async (input) => Boolean(await rpc("sponsor_prepare_completion", { p_input: input })),
     finishCompletion: async (signature, success, preflight = false) => { await rpc("sponsor_finish_completion", { p_signature: signature, p_success: success, p_preflight: preflight }); },
     pendingCompletions: async (limit = 50) => await rpc("sponsor_pending_completions", { p_limit: limit }) as CompletionJournal[],
+    claimReservations: async (limit = 3) => await rpc("sponsor_claim_reservations", { p_limit: limit }) as Awaited<ReturnType<ObservationStore["claimReservations"]>>,
+    advanceReservation: async (ref, before) => { await rpc("sponsor_advance_reservation", { p_ref: ref, p_before: before }); },
+    releaseObservedCompletion: async (ref, signature) => Boolean(await rpc("sponsor_release_observed", { p_ref: ref, p_signature: signature })),
   };
 }

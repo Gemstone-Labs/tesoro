@@ -314,6 +314,18 @@ describe("sendEntryTx", () => {
     await expect(sendEntryTx(signer, async () => null, async () => [])).rejects.toThrow(/no gemas/);
     expect(sendBase).not.toHaveBeenCalled();
   });
+
+  it("keeps the original rent destination when a Ticket close falls back after sponsor-empty", async () => {
+    const { sendEntryTx } = await import("./entry");
+    sponsoredSend.mockRejectedValue(new SponsorError("empty", "sponsor-empty", 503));
+    sendBase.mockResolvedValue("self-paid-close");
+    const originalPayer = k();
+    const close = closeTicketIx((signer as { publicKey: PublicKey }).publicKey, k(), originalPayer, true);
+    expect(await sendEntryTx(signer, async () => null, async () => [close])).toEqual({ sig: "self-paid-close", sponsored: false });
+    const sent = sendBase.mock.calls[0][1][0];
+    expect(sent.keys[2].pubkey.equals(originalPayer)).toBe(true);
+    expect(sent.keys[3].pubkey.equals(sponsorPda())).toBe(true);
+  });
 });
 
 void ticketPda;

@@ -131,5 +131,5 @@ function failClosed(): UsageStore {
   const refuse = async () => {
     throw new DemoHttpError(503, "not-configured", "Free transactions are not configured on this server.");
   };
-  return { take: refuse, refund: refuse, add: refuse, used: refuse, hold: refuse, release: refuse, held: refuse, prepareCompletion: refuse, finishCompletion: refuse, pendingCompletions: refuse } as UsageStore;
+  return { take: refuse, refund: refuse, add: refuse, used: refuse, held: refuse, prepareCompletion: refuse, finishCompletion: refuse, pendingCompletions: refuse };
 }

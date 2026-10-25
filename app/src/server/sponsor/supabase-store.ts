@@ -43,12 +43,6 @@ export const supabaseUsageStore: UsageStore = {
   async used(key, windowMs) {
     return take(key, 0, null, windowMs);
   },
-  async hold() {
-    throw new Error("Persistent reserves require prepareCompletion before broadcast");
-  },
-  async release() {
-    throw new Error("Persistent reserves require generation-bound completion evidence");
-  },
   async held() {
     const { data, error } = await db().from("sponsor_hold").select("lamports");
     fail("held", error);

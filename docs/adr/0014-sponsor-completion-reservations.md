@@ -35,6 +35,19 @@ finalized and its blockhash remains valid, recovery may rebroadcast the exact sa
 prevents a second execution. Expired transactions unavailable from the RPC remain reserved until authoritative evidence
 can be obtained; there is deliberately no address sweep or timeout refund.
 
+Self-paying clients can close sponsored Tickets without passing through either sender. The keeper also observes closes
+against a snapshot of a live reservation's generation and originating admission signature. That finalized admission must
+name the address in an exact Core create/ensure role and leave it funded. A later finalized physical close with positive
+pre-balance and zero post-balance can retire only that generation and origin, with an audit record written atomically.
+Same-slot ordering requires the signatures' positions in the finalized block; address-history order is insufficient.
+Missing transactions or block positions retain the reservation. A durable per-generation cursor advances only through
+fully examined history pages, so unrelated transactions cannot permanently push a close beyond a fixed scan limit.
+
+This proof depends on two current Core rules: Match IDs use a permanent increasing `next_match` counter, while a new
+sponsored Ticket cannot adopt an existing reservation. A self-paid Ticket recreation therefore cannot turn the old reserve
+into a new sponsored lifecycle. Legacy rows without an originating signature remain outside this observer and need a
+generation captured before closure or separately reviewed historical provenance.
+
 ## Rollout and rollback
 
 Migration `0017` is additive and leaves the history migrations `0015`/`0016` untouched. Existing reservations retain their

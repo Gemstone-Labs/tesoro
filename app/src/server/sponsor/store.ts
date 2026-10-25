@@ -15,10 +15,6 @@ export interface UsageStore extends CompletionStore {
   add(key: string, cost: number, windowMs: number, now: number): Promise<number>;
   /** The window total of `key`. */
   used(key: string, windowMs: number, now: number): Promise<number>;
-  /** Holds `lamports` for an obligation. A second hold on the same key changes nothing. True when it was new. */
-  hold(key: string, lamports: bigint): Promise<boolean>;
-  /** Frees an obligation's hold; returns what it held (0 when it held nothing). */
-  release(key: string): Promise<bigint>;
   /** Everything held for exits right now. */
   held(): Promise<bigint>;
 }

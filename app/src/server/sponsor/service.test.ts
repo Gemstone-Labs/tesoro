@@ -63,7 +63,7 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
     },
   };
   let t = 1_000_000;
-  const deps: SponsorDeps = {
+  const deps: SponsorDeps & { store: MemoryUsageStore } = {
     relayer,
     macKey: Buffer.from("test-mac-key"),
     store: new MemoryUsageStore(),

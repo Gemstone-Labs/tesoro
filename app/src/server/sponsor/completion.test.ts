@@ -3,7 +3,8 @@ import { PGlite } from "@electric-sql/pglite";
 import { AddressLookupTableAccount, Keypair, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction, type VersionedTransactionResponse } from "@solana/web3.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { completionEffects, completionInput, completionStore, recoverCompletions, type CompletionChain, type CompletionStore } from "./completion";
-import { coreIx, key } from "./fixtures";
+import { coreIx, key, openMatchIx } from "./fixtures";
+import { recoverObservedCompletions, type ObservationStore } from "./observed-completion";
 import { MemoryUsageStore } from "./store";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 
@@ -11,6 +12,17 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 const payer = Keypair.generate();
 const capturedMatch = new PublicKey("ACcQQF3FK7ujjKa8qeu1zRv8gR3U1JSVAAC9qttbdueZ");
 const core = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
+
+async function admission(address: PublicKey) {
+  const open = await openMatchIx(payer.publicKey, payer.publicKey, key(), { matchState: address });
+  const tx = new VersionedTransaction(new TransactionMessage({ payerKey: payer.publicKey, recentBlockhash: key().toBase58(), instructions: [new TransactionInstruction({ ...open, data: Buffer.from(open.data) })] }).compileToV0Message());
+  tx.sign([payer]);
+  const input = completionInput(tx, completionEffects([open]), 300_000n);
+  const proof: VersionedTransactionResponse = { transaction: { message: tx.message, signatures: [input.signature] }, meta: { err: null, fee: 5000, preBalances: tx.message.staticAccountKeys.map(() => 0), postBalances: tx.message.staticAccountKeys.map(() => 1) }, slot: 90, version: 0 };
+  await sql.prepareCompletion(input);
+  await sql.finishCompletion(input.signature, true);
+  return { input, proof };
+}
 
 async function transaction(kind: "close_match" | "close_ticket" = "close_match", address = capturedMatch, pots = [key(), key()]) {
   const ix = kind === "close_match"
@@ -26,7 +38,7 @@ async function transaction(kind: "close_match" | "close_ticket" = "close_match",
 }
 
 let db: PGlite;
-let sql: CompletionStore;
+let sql: CompletionStore & ObservationStore;
 beforeAll(async () => {
   db = new PGlite();
   await db.exec("create role anon; create role authenticated; create role service_role;");
@@ -44,6 +56,84 @@ afterAll(async () => { await db?.close(); });
 const heldSql = async () => BigInt((await db.query<{ total: string }>("select coalesce(sum(lamports),0)::text as total from sponsor_hold")).rows[0].total);
 
 describe("persistent sponsor completion", () => {
+  it("recovers a self-paid close after restart using its successful originating admission", async () => {
+    const address = key();
+    const origin = await admission(address);
+    const close = await transaction("close_match", address);
+    const before = await heldSql();
+    const history = {
+      getTransaction: async (sig: string) => sig === origin.input.signature ? origin.proof : close.proof,
+      getSignaturesForAddress: async () => [{ signature: close.input.signature, slot: 100, err: null, memo: null, blockTime: null }, { signature: origin.input.signature, slot: 90, err: null, memo: null, blockTime: null }],
+    };
+    expect(await recoverObservedCompletions(sql, history)).toBe(1);
+    expect(await heldSql()).toBe(before - 300_000n);
+    expect(await recoverObservedCompletions(sql, history)).toBe(0);
+  });
+
+  it("orders same-slot closes by finalized block positions and retains ambiguous or old evidence", async () => {
+    const address = key(), origin = await admission(address), close = await transaction("close_match", address);
+    close.proof.slot = origin.proof.slot;
+    const chain = {
+      getTransaction: async (sig: string) => sig === origin.input.signature ? origin.proof : close.proof,
+      // Deliberately unreliable same-slot list order: only the finalized block may establish execution order.
+      getSignaturesForAddress: async () => [origin.input.signature, close.input.signature].map((signature) => ({ signature, slot: 90, err: null, memo: null, blockTime: null })),
+    };
+    const before = await heldSql();
+    expect(await recoverObservedCompletions(sql, chain)).toBe(0);
+    expect(await recoverObservedCompletions(sql, { ...chain, blockSignatures: async () => [close.input.signature, origin.input.signature] })).toBe(0);
+    expect(await heldSql()).toBe(before);
+    expect(await recoverObservedCompletions(sql, { ...chain, blockSignatures: async () => [origin.input.signature, close.input.signature] })).toBe(1);
+    expect(await heldSql()).toBe(before - 300_000n);
+  });
+
+  it("never releases a replacement generation or writes an audit when an old observer finishes late", async () => {
+    const address = key(), origin = await admission(address), close = await transaction("close_match", address);
+    const old = (await sql.claimReservations(20)).find((r) => r.key === address.toBase58())!;
+    expect(await sql.releaseObservedCompletion(old, close.input.signature)).toBe(true);
+    const replacement = await admission(address);
+    const before = await heldSql();
+    expect(await sql.releaseObservedCompletion(old, close.input.signature)).toBe(false);
+    const history = {
+      getTransaction: async (sig: string) => sig === replacement.input.signature ? replacement.proof : close.proof,
+      getSignaturesForAddress: async () => [{ signature: close.input.signature, slot: 100, err: null, memo: null, blockTime: null }],
+    };
+    replacement.proof.slot = 110;
+    expect(await recoverObservedCompletions(sql, history)).toBe(0);
+    expect(await heldSql()).toBe(before);
+    expect((await db.query("select * from sponsor_completion_observation where key=$1", [address.toBase58()])).rows).toHaveLength(1);
+    await db.query("delete from sponsor_hold where key=$1", [address.toBase58()]);
+    void origin;
+  });
+
+  it("rolls back observed retirement if its atomic audit cannot be written", async () => {
+    const address = key();
+    await admission(address);
+    const ref = (await sql.claimReservations(20)).find((r) => r.key === address.toBase58())!;
+    const before = await heldSql();
+    await db.exec("create function reject_observation() returns trigger language plpgsql as $$ begin raise exception 'audit unavailable'; end $$; create trigger reject_observation before insert on sponsor_completion_observation for each row execute function reject_observation();");
+    await expect(sql.releaseObservedCompletion(ref, "finalized-close")).rejects.toThrow("audit unavailable");
+    expect(await heldSql()).toBe(before);
+    await db.exec("drop trigger reject_observation on sponsor_completion_observation; drop function reject_observation();");
+    await db.query("delete from sponsor_hold where key=$1", [address.toBase58()]);
+  });
+
+  it("retains a missing transaction and pages durably past irrelevant signatures", async () => {
+    const address = key(), origin = await admission(address), close = await transaction("close_match", address);
+    const noise = Array.from({ length: 20 }, (_, i) => ({ signature: `noise-${i}`, slot: 105, err: null, memo: null, blockTime: null }));
+    const before = await heldSql();
+    const missing = { getTransaction: async (sig: string) => sig === origin.input.signature ? origin.proof : null, getSignaturesForAddress: async () => noise };
+    expect(await recoverObservedCompletions(sql, missing)).toBe(0);
+    expect((await sql.claimReservations(20)).find((r) => r.key === address.toBase58())!.before).toBe(null);
+    // A real finalized non-close transaction provides complete evidence for advancing this page.
+    const chain = { ...missing,
+      getTransaction: async (sig: string) => sig === origin.input.signature ? origin.proof : sig === close.input.signature ? close.proof : { ...origin.proof, slot: 105, transaction: { ...origin.proof.transaction, signatures: [sig] } },
+      getSignaturesForAddress: async (_address: PublicKey, opts: { before?: string }) => opts.before ? [{ signature: close.input.signature, slot: 100, err: null, memo: null, blockTime: null }] : noise,
+    };
+    expect(await recoverObservedCompletions(sql, chain)).toBe(0);
+    expect((await sql.claimReservations(20)).find((r) => r.key === address.toBase58())!.before).toBe("noise-19");
+    expect(await recoverObservedCompletions(sql, chain)).toBe(1);
+    expect(await heldSql()).toBe(before - 300_000n);
+  });
   it("repairs the captured 300,000-lamport hold after a physical close, preserving unrelated reserves", async () => {
     await db.query("insert into sponsor_hold(key,lamports) values ('unrelated',900)");
     expect(await heldSql()).toBe(300_900n);
