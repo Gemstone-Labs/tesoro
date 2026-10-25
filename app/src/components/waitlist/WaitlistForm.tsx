@@ -93,11 +93,11 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
         after={{
           studio: (
             <div className="wl-studio">
-              <label className="label" htmlFor="wl-studio">
-                Studio or game <span className="wl-role-hint">(optional)</span>
+              <label className="sr-only" htmlFor="wl-studio">
+                Studio or game (optional)
               </label>
               <span className="cut cut-chip ctl">
-                <input id="wl-studio" name="studio" className="input" maxLength={120} placeholder="Studio name or a link" autoComplete="organization" />
+                <input id="wl-studio" name="studio" className="input" maxLength={120} placeholder="Studio or game (optional)" autoComplete="organization" />
               </span>
             </div>
           ),
