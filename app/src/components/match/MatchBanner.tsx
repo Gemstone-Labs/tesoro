@@ -10,7 +10,7 @@ import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import "./match-banner.css";
 
-const RESULT = { won: { text: "Won", Icon: CheckIcon }, lost: { text: "Lost", Icon: XIcon }, draw: { text: "Draw", Icon: MinusIcon }, refunded: { text: "Refunded", Icon: MinusIcon } } as const;
+const RESULT = { won: { text: "Won", Icon: CheckIcon }, lost: { text: "Lost", Icon: XIcon }, draw: { text: "Draw", Icon: MinusIcon }, "no-show": { text: "No-show", Icon: MinusIcon }, refunded: { text: "Refunded", Icon: MinusIcon } } as const;
 
 /**
  * One finished Match as a banner over the Game's hero art: the result as a poster word, the two

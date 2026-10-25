@@ -98,21 +98,21 @@ describe("Trading Duel history", () => {
 
 describe("Match history result filter", () => {
   it("hides refunded Matches unless the ?result= value asks for them", () => {
-    expect(resultFilter(null)).toEqual(["won", "lost", "draw"]);
+    expect(resultFilter(null)).toEqual(["won", "lost", "draw", "no-show"]);
     expect(resultFilter("refunded,won")).toEqual(["won", "refunded"]);
     expect(resultFilter("none")).toEqual([]);
     expect(resultFilter("nonsense")).toEqual(PLAYED);
   });
 
   it("writes the default as no ?result= value and keeps a stable order", () => {
-    expect(resultParam(["draw", "won", "lost"])).toBeNull();
-    expect(resultParam(["refunded", "won", "lost", "draw"])).toBe("won,lost,draw,refunded");
+    expect(resultParam(["draw", "won", "lost", "no-show"])).toBeNull();
+    expect(resultParam(["refunded", "won", "lost", "draw", "no-show"])).toBe("won,lost,draw,no-show,refunded");
     expect(resultParam([])).toBe("none");
     expect(resultFilter(resultParam(["lost"]))).toEqual(["lost"]);
   });
 
   it("toggles one result in or out", () => {
-    expect(toggleResult(PLAYED, "refunded")).toEqual(["won", "lost", "draw", "refunded"]);
-    expect(toggleResult(PLAYED, "won")).toEqual(["lost", "draw"]);
+    expect(toggleResult(PLAYED, "refunded")).toEqual(["won", "lost", "draw", "no-show", "refunded"]);
+    expect(toggleResult(PLAYED, "won")).toEqual(["lost", "draw", "no-show"]);
   });
 });

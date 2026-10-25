@@ -2,8 +2,8 @@
 
 import { readMuted, writeMuted } from "./sfx-pref";
 
-export type Cue = "deal" | "flip" | "chip" | "check" | "fold" | "clear" | "combo" | "gem" | "tick" | "fill" | "win" | "lose" | "go";
-export const CUES: Cue[] = ["deal", "flip", "chip", "check", "fold", "clear", "combo", "gem", "tick", "fill", "win", "lose", "go"];
+export type Cue = "deal" | "flip" | "chip" | "check" | "fold" | "clear" | "combo" | "gem" | "tick" | "fill" | "win" | "lose" | "go" | "knock" | "clash" | "blast" | "wind";
+export const CUES: Cue[] = ["deal", "flip", "chip", "check", "fold", "clear", "combo", "gem", "tick", "fill", "win", "lose", "go", "knock", "clash", "blast", "wind"];
 
 let muted: boolean | null = null;
 const listeners = new Set<() => void>();
@@ -83,7 +83,7 @@ function tone(freq: number, at: number, dur: number, o: { type?: OscillatorType;
   osc.stop(t + dur + 0.05);
 }
 
-function noise(at: number, dur: number, o: { from: number; to: number; gain?: number; q?: number }) {
+function noise(at: number, dur: number, o: { from: number; to: number; gain?: number; q?: number; attack?: number }) {
   if (!ctx || !master) return;
   const t = ctx.currentTime + at;
   const len = Math.ceil(ctx.sampleRate * dur);
@@ -98,7 +98,11 @@ function noise(at: number, dur: number, o: { from: number; to: number; gain?: nu
   f.frequency.setValueAtTime(o.from, t);
   f.frequency.exponentialRampToValueAtTime(o.to, t + dur);
   const g = ctx.createGain();
-  g.gain.setValueAtTime(o.gain ?? 0.4, t);
+  if (o.attack) {
+    // swell in (wind), then fade out
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(o.gain ?? 0.4, t + o.attack);
+  } else g.gain.setValueAtTime(o.gain ?? 0.4, t);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   src.connect(f).connect(g).connect(master);
   src.start(t);
@@ -108,6 +112,24 @@ function noise(at: number, dur: number, o: { from: number; to: number; gain?: nu
 const N = { c5: 523.25, d5: 587.33, e5: 659.25, g5: 783.99, a5: 880, c6: 1046.5, e6: 1318.5, g6: 1568 };
 
 const PLAY: Record<Cue, () => void> = {
+  // Vanguard: a wooden marker set down, two markers meeting, a landmine, the dust storm
+  knock: () => {
+    tone(190, 0, 0.07, { type: "triangle", gain: 0.45, to: 120 });
+    noise(0, 0.05, { from: 900, to: 400, gain: 0.25, q: 1.5 });
+  },
+  clash: () => {
+    noise(0, 0.14, { from: 4200, to: 1500, gain: 0.4, q: 3 });
+    tone(880, 0, 0.12, { type: "square", gain: 0.12, to: 620 });
+    tone(140, 0.01, 0.14, { gain: 0.45, to: 90 });
+  },
+  blast: () => {
+    tone(90, 0, 0.5, { gain: 0.7, to: 38 });
+    noise(0, 0.7, { from: 1400, to: 90, gain: 0.6, q: 0.6 });
+  },
+  wind: () => {
+    noise(0, 2.6, { from: 500, to: 900, gain: 0.22, q: 0.7, attack: 0.9 });
+    noise(0.4, 2.2, { from: 1400, to: 700, gain: 0.1, q: 1.2, attack: 0.8 });
+  },
   deal: () => {
     noise(0, 0.09, { from: 2400, to: 900, gain: 0.5 });
     tone(220, 0.02, 0.05, { type: "triangle", gain: 0.25 });

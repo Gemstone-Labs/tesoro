@@ -1,6 +1,108 @@
 # Deployments
 
+## Required account-size preflight
+
+Before a Solana program upgrade, build the candidate with `pnpm build:programs`. The build now compiles host probes of the program's actual `SPACE`, `INIT_SPACE`, and dynamic size formulas, checks discriminator coverage, and binds the resulting manifests to the Rust inputs, IDLs and built ELF hashes. Build the bridge separately and collect its manifest with `python3 scripts/predeploy-size-check.py collect --program tesoro_bridge`.
+
+Run against the intended testnet, retaining the JSON and terminal report:
+
+```sh
+python3 scripts/predeploy-size-check.py check \
+  --rpc https://rpc.magicblock.app/devnet --out account-size-preflight.json
+```
+
+Every program-owned account is classified, including unknown discriminators and old layouts. A length/version mismatch, stale or absent build seal, missing program, failed RPC or incomplete schema coverage refuses the check. Do not exempt old Sources, Matches or Seasons because the app skips them: diagnose the required migration/retirement and repeat the preflight after it is authorized and performed. This command sends no transactions.
+
+The metadata-only inventory (`collect --metadata-only`, followed by `check --inventory-only`) is useful before a rebuild and **always exits nonzero**. It cannot approve an upgrade. Size compatibility also does not establish semantic compatibility: delegated/private rollup accounts and current Matches require their own inventory and upgrade prerequisites, and a same-size field reinterpretation still needs migration/reuse review.
+
+Regression commands: `cargo test -p tesoro_core --lib predeploy_layouts -- --nocapture` writes/reads both the historical 178-byte and current 327-byte custody fixtures in LiteSVM; `python3 scripts/test-predeploy-size-check.py` exercises mismatch, unknown discriminator, dynamic capacity and version refusals. Preserve the LiteSVM fixture rows and use them in the Python test as described by its skip message.
+
+
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
+
+## Economy upgrade continuation (2026-10-24)
+
+The native custody migration is live: `NativeCustody` is 327 bytes, and the deployed core equals the tested custody-fix build (sha256 `65827773ca73dbc238f776b6ac32668bc2a14587e52ee44317f91f43c1742cd9`). The previous 178-byte singleton could not deserialize; the Treasury's 143-byte layout was already current.
+
+The replacement SimLST vaults are deployed and wired. Each constructor creates its own immutable `PrizeModule`; both deployed runtimes were compared with the tested artifacts, excluding their constructor-populated immutable slots, and their immutable values were checked separately.
+
+| Network | Vault | PrizeModule | Deployment transaction |
+|---|---|---|---|
+| Hoodi (560048 / eid 40449) | `0x7A996874B9Ffc35cC36bF154D02a23D16863a087` | `0x56bFe556c1AF56f73146dB472a291f0233b700bB` | `0x463a288d22b6146a1a21cfeb86ff395950e4ef75b286ed07cb21cceac67ca296` |
+| HyperEVM testnet (998 / eid 40362) | `0xdD12E37A9C35137Be8a4F871507986dA4671B20B` | `0x8DfcB8dea604f04FDCd918f12E85Ca00510F400B` | `0x935f5e903083dd406f6f74e731c80f2ec65e69ea3eefe9bc1a6d7140ae9f31e9` |
+
+The existing SimLST tokens now name these vaults as minters. Both vaults have a 2-token simulated Treasury and 0.05 native gas tokens for acknowledgements. HyperEVM used big blocks for deployment and returned to small blocks afterwards. The old vaults and their test Positions are retired, without migrating their balances.
+
+Bridge wiring now includes the `VaultRoute` account required by `set_peer_config`. Before wiring a new vault, run `pnpm --dir bridge lz check-wire <eid> <vault> 18 500`: it simulates registration and sends nothing. `wire` defaults to 1,500,000 EVM receive gas for the largest eight-entry batch. Both new routes have their SimLST asset configured, **escrow disabled**, and no EVM escrow keeper. Prize escrow remains a separate activation step after the slashing work is accepted.
+
+Staging fixes found by real Matches:
+
+- Hold'em, Vanguard and Block Burst clients, and all four keeper adapters, recognize an assigned idle table by generation/index/epoch before `begin_match` writes its Match key.
+- Fee settlement creates missing checkpoint pages before syncing a Source or sealing its paid Studio tranche. A second Match can otherwise stall with `AccountMissing`; initializing the missing Studio page made the same live transaction succeed.
+- ETH/HYPE Advances atomically initialize missing baskets/spills for legacy linked Accounts before crediting Gemas. The oracle pays; the client locates the Advance floor after optional setup instructions.
+- Instant Redeem order lists use the server's allowed discriminator/owner query, and discard obsolete lengths when decoding.
+
+Real devnet checks completed: SOL Lock + Advance, zero-SOL admission and settlement across all four Games, private Book/Board/Army reads denied to opponents and outsiders, native Redeem, and an admin-filled Instant Redeem order with its unsold remainder returned. Vanguard's Match used legal Passes to a forfeit; this does not verify its tactical powers. A 100-Gema entry takes 4/6/2 Gemas in fees from the 200-Gema Pot. A Season payout and the founder's two-browser interaction checks remain separate checks.
+
+Cross-chain smoke: both new vaults accepted a 0.1-token test Lock (12-month horizon). HYPE delivered `PositionLocked` to Solana and an Advance succeeded (`587khT5j…yhzMbJt`). Hoodi delivery remained pending at this check; a deployed/wired contract does not prove that route's LayerZero delivery.
+
+Devnet lookup table `HcQqickLYCgnPkkmWZgHFjq5sThNeow19WnLZDwKF3KZ` contains 37 common and QA Source keys. It is configured on Vercel staging Preview and Production as `TESORO_SPONSOR_LOOKUP_TABLES`, and the keeper uses `KEEPER_LOOKUP_TABLES`. New Source books may need extending into the table; a many-source stress settlement has not been proved.
+
+Production must have `NEXT_PUBLIC_HIDDEN_GAMES=vanguard` **before** the main merge builds. Preview/staging leaves it unset. This hides player-facing pages and sponsor access; the game code and art may remain in the deployed files.
+
+## Economy upgrade on devnet (2026-10-23, ticket 24)
+
+From `feat/economy-upgrade-20-10-2026` (tip `c4a6ade5` + `eb707d58`), merged into `staging` (not `main`). Deployer `7zr1j185…qh7M` through `https://rpc.magicblock.app/devnet`, keeper stopped on the VPS first. Previous programs dumped to `~/.cache/tesoro-tmp/rollback-2026-10-23/` (with `SHA256SUMS`). Every upgrade was extended first, written to a buffer, upgraded, and the on-chain bytes compared with the build.
+
+| Program | Upgrade slot | Signature | Size (B) | sha256 |
+|---|---|---|---|---|
+| `sim_lst` | 514285518 | `4cAzTrJP…Ukox5h` | 401,160 | `37183fd7…9450e1` |
+| `trading_duel` | 514285813 | `62gu1JEK…RnPwAwH` | 744,264 | `a19bea9a…7103cc` |
+| `holdem` | 514285902 | `4ugASqwr…cgw56` | 959,616 | `39587a4c…c194d6` |
+| `block_puzzle` (Block Burst Live) | 514286027 | `TujVM98N…8DMVw` | 981,112 | `c7b886d6…c05` |
+| `vanguard` | 514286112 | `gsUxrBth…MNXy` | 1,095,312 | `b7c0a6dd…c91a` |
+| `tesoro_bridge` | 514286198 | `tw4qrDye…enHkxT` | 1,107,024 | `43df4c46…286b` |
+| `tesoro_core` | 514286411 | `KkSMP8q2…NUgRG` | 3,089,112 | `e6ecffad…a854` |
+
+Extends: core +1,125,752, block_puzzle +347,720, bridge +305,376, holdem +301,400, vanguard +288,600, trading_duel +168,512. Deployer 15.4 SOL before, 75 SOL after the faucet (about 60 SOL dripped by the MagicBlock faucet, 1 SOL per 45 s), 49.3 SOL after the keeper and relayer top-ups. The deployer's extra buffer `3uFcuLdJ…` (3.94 SOL, probably the Dungeons & Moles session) was closed by an early `solana program close --buffers` in the upgrade script: never use `--buffers`, close only the buffer you made.
+
+Setup (`keeper/scripts/economy-setup.ts`, `register-game.ts`, all by the deployer key):
+
+- `set_economy`: Season keeper and fill keeper = the keeper key `9X8L11Be…yVit`, `keeper_fills` off, route 0 = the native custody (prize escrow stays off). `set_tesoro_studio`: the Account of the company wallet `Dqwxcyh7…FX97` (created first, funded 0.1 SOL by the deployer).
+- `init_sponsor` (relayer `G7zDD6Kf…cTYP`; per Account 0.2 SOL, total 20 SOL, pages 2 SOL), `set_accounts_cap` 3 SOL, `set_profiles_cap` 1 SOL (all placeholders for the founder). The Sponsor PDA `4F8LcgHk…` holds 5 SOL, the relayer 4.8 SOL.
+- The Treasury (143 B) was current. The native custody (178 B) was incorrectly reported as current; it needed the 327-byte migration described above. `init_stores` ran for the platform recipient, the Pool Account and the Treasury Account (they predate baskets).
+- Four Games `register_game` (Studio Fee 300 bps, Studio recipient = the company Account = `tesoro_studio`, so their Studio Fee goes to Tesoro's counter) and `list_game` for a year (needs a 1.4M compute limit, now set in `register-game.ts`).
+- Per Game `TableConfig`: operator = the keeper key, generation 1, 64 tables (`set_config`; Vanguard `set_table_config`, its `VanguardConfig` stayed).
+- No `set_entry_sizes` (the program default is 100 / 500 / 1,000; the Lobby shows them).
+
+Wipe: `retire-old-accounts.ts` retired the 23 old Positions (3 tx); `retire_offer` closed the 2 old Offers (the script's Offer phase is stale against ticket 32: it waits for Sources to be gone, so `economy-setup.ts retire-offers` does it). **Not retired:** 23 old `SourceState` (142 B, the new one is 170 B so `retire_source` cannot read them) and the 42 old Holdings that need those Sources gone: they are inert, cost rent only, and the app and keeper lists now skip every account that is not of the current layout (`app/src/lib/chain/account-sizes.ts`: MatchState 776 B, SourceState 170 B, OfferState 174 B). The 167 old Matches stay as unreadable history, one Open old Match and the old Season 2 record are skipped too.
+
+**EVM vaults were blocked on October 23; resolved October 24 above.** The original economy `PositionVaultOApp` was 28,322 B of runtime code and Hoodi refused deployment. The helper split reduced it to 23,409 B; the replacements use the 133-byte report the upgraded bridge expects.
+
+Supabase (the production project the app uses): migrations 0010 to 0014 applied, one transaction each (`match_history`, `match_parties`, `match_events`, `match_end_states`, `sponsor_usage`, `sponsor_hold`, `studio_applications`, `studio_payments`, `queue_presence`). They only add tables.
+
+App: branch `staging` (merge `88db5de9` plus the fixes below), Preview env for branch `staging` gained `TESORO_SPONSOR_MAC_SECRET`; alias `tesoro-staging.vercel.app` set by hand. Keeper: VPS checkout on `staging`, new env `KEEPER_MAX_SOL_PER_HOUR=3`, per Game `KEEPER_<G>_SPONSOR_INIT` 0.1 SOL, `FUEL` 1, `FUEL_INIT` 0.3 SOL, `TABLE_MIN` (Block Burst 20, others 4), `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (Match history). The keeper created each Game's Sponsor and Fuel and the first tables.
+
+Found on the way (fixed on `staging`, commits `526850b4`, `dbf41477`):
+
+- A Season record of the old layout (504 B) made `/api/leaderboard` 502 and would have made the keeper record Season 2 again: both skip it.
+- Keeper and app resolved two copies of `@solana/web3.js` (`utf-8-validate` 5 vs 6), so `keyOf`'s `instanceof PublicKey` returned the zero key for a Config key read through the app's Program. Fixed by pinning `utf-8-validate@6.0.6` in the keeper.
+- Old Matches ("Invalid bool"), old Sources (offset out of range) broke every `.all()` list.
+
+## Vanguard on devnet (2026-10-19)
+
+Played only on the staging app (branch `staging`) until launch; the app on `main` leaves Vanguard Matches, Requests and Offers out.
+
+- **Program:** `vanguard` `TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH`, 774,712 B, sha256 `6a504a27…`, slot 512819688, sig `cRGf4q1Z…`. Upgrade authority: the deployer.
+- **Upgrade 2026-10-22 (Spy beats the 10 both ways, Landmine shows its victim, 4718868):** still `RULES_VERSION` 6 (no Vanguard Match was open, 12 on devnet, checked twice, so no Battle changed rules mid-game). A General of the Army that attacks a Spy now loses; a Landmine that goes off flashes the attacker it killed too. Slot 513748446, sig `67Eh6ffN…`, 806,696 B (fits the account, no extend), sha256 `2ed71aff…` (on-chain bytes compared). Previous program at `~/.cache/tesoro-tmp/rollback-2026-10-22/vanguard-before-spy-rule.so`. Checked by the shared recordings, LiteSVM, and on devnet in QA Match 3585280238137 (qsA vs qsB, script `~/.cache/tesoro-tmp/vg-powers-08/vg-rules.mts`): the US 10 attacked the Italian Spy and lost (Spy stayed hidden, the 10 shown to Italy); a US Recon attacked a dug-in Major and died with `flash` [Recon, Landmine] (Recon shown to Italy as 2, the Landmine face up); the keeper closed and finalized it, Armies and Secret wiped.
+- **Upgrade 2026-10-22 (powers, `RULES_VERSION` 6, 801e42f):** a power per rank, Pass, sealed Dig in and switch; v5 Battles wind down to a full refund. No Vanguard Match was open (9 on devnet, all settled or refunded, checked twice). `solana program extend` +32,000 B, then slot 513710077, sig `2Ud5ezes…`, 806,504 B, sha256 `eb4ce521…` (on-chain bytes compared). Previous program at `~/.cache/tesoro-tmp/rollback-2026-10-22/vanguard-before-powers.so` (sha256 `1c96bfb0…`). Staging 2bcc187, VPS keeper on it. QA Matches 3585262584381 and 3585263451521 (qsA vs qsB, script `~/.cache/tesoro-tmp/vg-powers-08/`): every power on devnet; the opponent's and an outsider's tokens read no Army and no Secret; a face-down Dig in and a Pass look the same (`pass`, `turn`, 14-byte instruction); after the keeper's `close_match` + `finalize` the base-layer Armies and Secret are wiped and the end mask names exactly the changed pieces (3 and 43 the dug-in Majors, 54 the switched US 10); the core Match settled. The first QA Match found a client bug: `resolve` takes no arguments, so a Player's second resolve under the 20 s cached rollup blockhash was byte-identical to the first, reused its signature and did nothing, leaving the action for the keeper (~23 s later). Fixed in the chain client (it never sends the same bytes twice under one hash).
+- **Upgrade 2026-10-21 (10 s turns, a285554):** `TURN_SECS` 5 -> 10, `RULES_VERSION` 5. Each Battle stores its clock at creation, so Matches created before keep 5 s; the app times the ring and timeout claims from the Battle. Slot 513502456, sig `4VVoHHNj…`, 774,352 B, sha256 `eb598e45…` (on-chain bytes compared). Previous program at `~/.cache/tesoro-tmp/rollback-2026-10-21/vanguard-before-turn10.so`. VPS keeper on a285554. A real QA Match (3585162198649, qsA vs qsB) reached live in 18 s with `turn_secs` 10, `rules_version` 5, first deadline start + 21 s, each Player reading only their own Army.
+- **Upgrade 2026-10-21 (`init_permissions` fix, d31878b):** the Secret and both Armies are writable in `init_permissions`. Before this the rollup refused the step with `PrivilegeEscalation`, so no Match could start. Slot 513466509, sig `5AC3PXeJ…`, 774,352 B, sha256 `d446f7fa…` (on-chain bytes compared). The previous program is kept at `~/.cache/tesoro-tmp/rollback-2026-10-21/vanguard-prev.so`. A real QA Match (3585146036139) reached live in 14 s with each Player reading only their own Army, then the keeper played it out by timeouts: `close_match` 09:01:24Z, `finalize` 09:01:46Z.
+- **Config:** `keeper/scripts/vanguard-config.ts`: TEE `MTEWGuqx…`, VRF queue `5hBR571x…` (sig `4BgTpKYc…`).
+- **TEE whitelist:** `whitelist-tee.ts` (sig `m4HE1feP…`).
+- **Registered in tesoro_core:** `register-game.ts <id> 300`, authority `ApLcUhNF…`, Studio recipient = Platform recipient (sig `3Z91BCcK…`).
+- **Keeper:** the VPS keeper runs the `staging` branch until launch (its Vanguard job settles, claims, deals and refunds Battles). It drops email events the live app refuses as malformed (Vanguard ones), so the other Games' emails still go out.
+- **Launch:** merge `staging` into `main` (Vanguard joins the Lobby first), then put the VPS keeper back on `main`.
 
 ## ETH/HYPE on the computed model: new vaults + bridge (2026-10-19)
 
@@ -131,7 +233,7 @@ The app and keeper also skip an old-sized Position while any is left (`app/src/l
 
 Test mode needs almost nothing, by design:
 
-- **Entry sizes:** none. Unset means 500 / 1,000 / 2,500 (the test cluster setting). Do NOT call `set_entry_sizes` with the mainnet ladder on devnet.
+- **Entry sizes:** none. Unset means the default ladder, which the test cluster mirrors (500 / 1,000 / 2,500 at this upgrade; 100 / 500 / 1,000 from the economy upgrade). A call that differs from `cluster-settings.ts` breaks entry in the app.
 - **Invite gate:** none. No `InviteGate` account means off; test mode has no Invites. Do not call `set_invite_gate`.
 - **On-chain price mapping:** none. Do not call `set_onchain_price` on devnet: it would force Advances of that asset onto the Pyth path. The keeper keeps publishing `set_price`.
 - **Treasury Instant Redeem Fee to 2,500 bps (75% paid): REQUIRED.** The devnet `Treasury` still reads Yield Fee 2,000 and Instant Redeem Fee **3,500** bps (read 2026-10-15), while the app, the deck and `DEFAULT_INSTANT_FEE_BPS` say 2,500. Run, from the repo root after the `tesoro_core` upgrade (admin key `~/.config/solana/dev-2026-10.json`):

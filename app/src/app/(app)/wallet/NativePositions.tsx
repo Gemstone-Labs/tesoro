@@ -29,18 +29,19 @@ import {
   type NativeInfo,
   type NativeMarket,
 } from "@/lib/chain/native";
-import { advanceUnits, netApyPct } from "@/lib/chain/yield";
-import { extendAdvance, friendlyError, setExtendLimit, getTestSimSol, instantRedeemNative, openPositionWithAdvance, openStakePositionWithAdvance, redeemNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
+import { advanceUnits, cashOut } from "@/lib/chain/yield";
+import { cancelInstantRedeem, requestInstantRedeem } from "@/lib/chain/instant-order";
+import { extendAdvance, friendlyError, setExtendLimit, getTestSimSol, openPositionWithAdvance, openStakePositionWithAdvance, redeemNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
 import { quoteDepositSol } from "@/lib/chain/stake-pool";
 import { tokenSymbol } from "@/lib/chain/stake-pool";
 import { tokensForUnits, unitsForTokens } from "@/lib/chain/stake";
-import { runInstant } from "@/lib/chain/instant-run";
 import { MAX_ADVANCE_MONTHS, blockedLabel, extendLimitView, fetchExtendLimit, type ExtendLimitData } from "@/lib/chain/extend-limit";
 import { getChain } from "@/lib/chain/client";
 import type { Chain } from "@/lib/mock";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
-import { NOTHING_REDEEMABLE_YET, ethRedeemables, ethYieldWaiting, freshenHoldings, instantRedeemEthSource, redeemEthHoldings, useEthCtx } from "./EthPositions";
+import { NOTHING_REDEEMABLE_YET, ethRedeemables, ethYieldWaiting, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { useInstantRedeem } from "./instant";
+import { allocate } from "./pick-amount";
 import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type RedeemPayout } from "./MoneySheets";
 import { GemasLabel } from "./AdvanceQuote";
 import { AdvanceFormView, AdvanceTakenNote } from "./AdvanceSheet";
@@ -176,12 +177,12 @@ function StakeOpenForm({ market, loading, onDone }: { market: NativeMarket | nul
   const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - PRICE_QUOTE_MARGIN_SECS;
   const { yieldFeeBps } = ratesOf(market?.treasury);
   const apyBps = stake?.sizingBps ?? 0;
-  const quote = market && stake && priceOk && apyBps > 0 ? quoteNativeAdvance(principal, apyBps, months, market.price!.microUsd, yieldFeeBps) : null;
+  const quote = market && stake && priceOk && apyBps > 0 ? quoteNativeAdvance(principal, apyBps, months, market.price!.microUsd) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   const estimate =
     stake && quote && shares > 0n && gemas > 0
       ? unlockEstimateMs({
-          clock: { principal, rateBps: apyBps, yieldFeeBps, openedAt: Math.floor(now / 1000), stakeRateOpen: stake.rate },
+          clock: { principal, rateBps: apyBps, openedAt: Math.floor(now / 1000), stakeRateOpen: stake.rate },
           speedup: 1,
           appliedNet: 0n,
           source: { issued: quote.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: market!.price!.microUsd },
@@ -256,7 +257,7 @@ function StakeOpenForm({ market, loading, onDone }: { market: NativeMarket | nul
       onSubmit={() =>
         auth.signer &&
         stake &&
-        a.run("open", async () => (await openStakePositionWithAdvance(auth.signer!, auth.getAccessToken, from === "token" ? { from: "token", shares } : { from: "sol", lamports: units }, months, stake.token, setStep)).signature)
+        a.run("open", async () => (await openStakePositionWithAdvance(auth.signer!, auth.getAccessToken, from === "token" ? { from: "token", shares } : { from: "sol", lamports: units }, months, BigInt(gemas), stake.token, setStep)).signature)
       }
     />
   );
@@ -284,7 +285,7 @@ function SimOpenForm({ market, loading, onDone }: { market: NativeMarket | null;
     const floor3 = (n: number) => Math.floor(n * 1000) / 1000;
     const short = intent?.need ? intent.need - held.available : 0;
     if (short > 0 && priceOk) {
-      const perSol = quoteNativeAdvance(sharesValue(BigInt(LAMPORTS), rate), market.pool.apyBps, months, market.price!.microUsd, yieldFeeBps).gemas;
+      const perSol = quoteNativeAdvance(sharesValue(BigInt(LAMPORTS), rate), market.pool.apyBps, months, market.price!.microUsd).gemas;
       const sol = perSol > 0n ? Math.ceil((short / Number(perSol)) * 1.02 * 1000) / 1000 : balance;
       seed = String(sol <= balance ? sol : floor3(balance));
     } else if (!intent) {
@@ -295,12 +296,12 @@ function SimOpenForm({ market, loading, onDone }: { market: NativeMarket | null;
   const amount = Number(text);
   const shares = market && Number.isFinite(amount) && amount > 0 ? BigInt(Math.round(amount * LAMPORTS)) : 0n;
   const principal = market ? sharesValue(shares, rate) : 0n;
-  const quote = market && priceOk ? quoteNativeAdvance(principal, market.pool.apyBps, months, market.price!.microUsd, yieldFeeBps) : null;
+  const quote = market && priceOk ? quoteNativeAdvance(principal, market.pool.apyBps, months, market.price!.microUsd) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   // A fresh Position's Debt is the whole Advance: the Estimate is when its Accrued Yield covers it.
   const estimate = market && quote && shares > 0n && gemas > 0
     ? unlockEstimateMs({
-        clock: { principal, rateBps: market.pool.apyBps, yieldFeeBps, openedAt: Math.floor(now / 1000) },
+        clock: { principal, rateBps: market.pool.apyBps, openedAt: Math.floor(now / 1000) },
         speedup: speedupOf(market.pool),
         appliedNet: 0n,
         source: { issued: quote.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: market.price!.microUsd },
@@ -369,7 +370,7 @@ function SimOpenForm({ market, loading, onDone }: { market: NativeMarket | null;
         a.busy ? `${step}…` : tooMuch ? "Not enough test SOL" : shares === 0n ? "Enter an amount" : market && !priceOk ? "Waiting for the SOL price" : <GemasLabel action="Get Gemas" gemas={gemas} />
       }
       disabled={!valid || !priceOk || a.busy !== null || !auth.signer}
-      onSubmit={() => auth.signer && a.run("open", async () => (await openPositionWithAdvance(auth.signer!, auth.getAccessToken, shares, months, setStep)).signature)}
+      onSubmit={() => auth.signer && a.run("open", async () => (await openPositionWithAdvance(auth.signer!, auth.getAccessToken, shares, months, BigInt(gemas), setStep)).signature)}
     />
   );
 }
@@ -380,20 +381,18 @@ function SimOpenForm({ market, loading, onDone }: { market: NativeMarket | null;
 export function NativePositionCard({
   position,
   market,
-  onRedeem,
   extend = EXTEND_ADVANCE_ENABLED,
   label = "SOL Lock",
   compact,
 }: {
   position: ChainPosition;
   market: NativeMarket | null;
-  onRedeem: () => void;
   extend?: boolean;
   label?: string;
   compact?: boolean;
 }) {
   const info = position.native as NativeInfo;
-  const { auth, snapshot, refresh } = useAccount();
+  const { auth, refresh } = useAccount();
   const a = useAction(refresh);
   const now = useNow(5000);
   const signer = auth.signer;
@@ -415,7 +414,6 @@ export function NativePositionCard({
   const locked = info.status === "locked";
   const canUnlock = locked && debt === 0n;
   const canExtend = extend && locked && !!src && info.openAdvance === info.source?.index && debt > 0n && info.source.horizonMonths < MAX_ADVANCE_MONTHS;
-  const redeemable = (snapshot?.holdings ?? []).some((h) => h.native && h.position.equals(position.address) && h.redeemable > 0n);
   const series = src && locked && debt > 0n ? sampledSeries((at) => Number(debtGemasAt(info, speedup, at, stake)), now, estimate ? estimate - now : 10 * 60_000) : null;
 
   return (
@@ -427,36 +425,34 @@ export function NativePositionCard({
       principal={`${fmtSol(info.principalLamports, 3)} SOL`}
       debt={!src ? null : debt > 0n ? `${fmtGemas(Number(debt))} Gemas` : "0"}
       debtAsset={debt > 0n ? `${fmtSol(debtSol, 3)} SOL` : undefined}
-      apy={`${netApyPct(info.rateBps, yieldFeeBps).toFixed(1)}%`}
-      yieldFeeBps={yieldFeeBps}
+      apy={`${(info.rateBps / 100).toFixed(1)}%`}
       unlockAt={estimate}
       now={now}
       series={series}
       notes={
         <>
           <p className="note">Earned {fmtSol(cur.accrued, 5)} SOL{info.stakeRateOpen > 0n ? ` (${symbol} yield rate)` : " (simulated)"}. {BRAND.name} keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
-          {locked && !canUnlock && <p className="note">Unlock returns your SOL once it is paid back. Only this Lock&apos;s own yield pays it back.</p>}
-          {canUnlock && <p className="note">Paid back: Unlock to get your SOL back, or take another Advance on the same SOL.</p>}
+          {locked && !canUnlock && <p className="note">Unlock deposit returns your SOL once it is paid back. Only this Lock&apos;s own yield pays it back.</p>}
+          {canUnlock && <p className="note">Paid back: Unlock deposit to get your SOL back, or Extend deposit for more Gemas on the same SOL.</p>}
         </>
       }
     >
       {locked && (
         <>
-          {canUnlock && (
-            <Button variant="money" size="sm" block disabled={!signer || a.busy !== null} onClick={() => setAdvancing(true)}>Take another Advance</Button>
-          )}
-          {canExtend && (
-            <Button variant="money" size="sm" block disabled={!signer || a.busy !== null} onClick={() => setExtending(true)}>Extend</Button>
-          )}
+          {/* Redeem lives on the chain card above: it pays every SOL Gema, not this Lock's. */}
           <div className="wl-actions-row">
-            <Button variant="money" size="sm" disabled={!signer || a.busy !== null || !redeemable} onClick={onRedeem}>Redeem</Button>
-            <Button size="sm" disabled={!signer || a.busy !== null || !canUnlock} onClick={() => signer && a.run("unlock", () => unlockNative(signer, info))}>
-              {a.busy === "unlock" ? "Unlocking…" : "Unlock"}
-            </Button>
+            {canUnlock && (
+              <Button variant="money" size="sm" disabled={!signer || a.busy !== null} onClick={() => signer && a.run("unlock", () => unlockNative(signer, auth.getAccessToken, info))}>
+                {a.busy === "unlock" ? "Unlocking…" : "Unlock deposit"}
+              </Button>
+            )}
+            {(canUnlock || canExtend) && (
+              <Button size="sm" disabled={!signer || a.busy !== null} onClick={() => (canUnlock ? setAdvancing(true) : setExtending(true))}>Extend deposit</Button>
+            )}
+            {returnable > 0n && (
+              <Button size="sm" disabled={!signer || a.busy !== null} onClick={() => setReturning(true)}>Return Gemas</Button>
+            )}
           </div>
-          {returnable > 0n && (
-            <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => setReturning(true)}>Return Gemas</Button>
-          )}
           <ReturnOwnSheet position={position} open={returning} onClose={() => setReturning(false)} />
           <NativeAdvanceSheet info={info} market={market} open={advancing} onClose={() => setAdvancing(false)} />
           {canExtend && <NativeExtendSheet info={info} market={market} open={extending} onClose={() => setExtending(false)} />}
@@ -473,7 +469,7 @@ export function NativePositionCard({
 /** A new Advance on a locked SOL Position whose Debt is zero: the same Principal, a new Horizon. */
 export function NativeAdvanceSheet({ info, market, open, onClose }: { info: NativeInfo; market: NativeMarket | null; open: boolean; onClose: () => void }) {
   return (
-    <Sheet open={open} onClose={onClose} title="Take another Advance" className="adv-sheet">
+    <Sheet open={open} onClose={onClose} title="Extend deposit" className="adv-sheet">
       {open && <NativeAdvanceForm info={info} market={market} onClose={onClose} />}
     </Sheet>
   );
@@ -491,9 +487,9 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
   const real = info.stakeRateOpen > 0n;
   // On mainnet the Advance is sized on the pool's recent growth under the admin's ceiling, not on the rate the Position opened with.
   const rateBps = real ? (market?.stake?.sizingBps ?? 0) : info.rateBps;
-  const quote = priceOk && rateBps > 0 ? quoteNativeAdvance(info.principalLamports, rateBps, months, market!.price!.microUsd, yieldFeeBps) : null;
+  const quote = priceOk && rateBps > 0 ? quoteNativeAdvance(info.principalLamports, rateBps, months, market!.price!.microUsd) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
-  // Simulated: the Advance is the Horizon's projected yield net of the Yield Fee, so yield repays it in exactly the Horizon. Real: an estimate from the pool's recent growth.
+  // Simulated: the Advance is the Horizon's whole projected yield, so yield repays it in exactly the Horizon. Real: an estimate from the pool's recent growth.
   const growth = stakeGrowthOf(market);
   const unlock =
     gemas <= 0
@@ -540,7 +536,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
       }
       buttonLabel={a.busy ? `${step}…` : <GemasLabel action="Take Advance" gemas={gemas} />}
       disabled={gemas <= 0 || a.busy !== null || !auth.signer}
-      onSubmit={() => auth.signer && a.run("advance", () => takeNextAdvance(auth.signer!, auth.getAccessToken, info, months, setStep))}
+      onSubmit={() => auth.signer && a.run("advance", () => takeNextAdvance(auth.signer!, auth.getAccessToken, info, months, BigInt(gemas), setStep))}
     />
   );
 }
@@ -550,7 +546,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
 /** Commit more of a Position's future yield on its open Advance: Gemas now, more Debt, a later Unlock Estimate. */
 export function NativeExtendSheet({ info, market, open, onClose, limit }: { info: NativeInfo; market: NativeMarket | null; open: boolean; onClose: () => void; limit?: ExtendLimitData | null | "unknown" }) {
   return (
-    <Sheet open={open} onClose={onClose} title="Extend your Advance" className="adv-sheet">
+    <Sheet open={open} onClose={onClose} title="Extend deposit" className="adv-sheet">
       {open && <NativeExtendForm info={info} market={market} onClose={onClose} limit={limit} />}
     </Sheet>
   );
@@ -594,9 +590,9 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
   const pool = market?.pool ?? null;
   const yieldFeeBps = info.yieldFeeBps;
   const rateBps = info.stakeRateOpen > 0n ? (market?.stake?.sizingBps ?? 0) : info.rateBps;
-  const quote = quoteExtendAdvance(info.principalLamports, rateBps, source.math, source.horizonMonths, months, yieldFeeBps);
+  const quote = quoteExtendAdvance(info.principalLamports, rateBps, source.math, source.horizonMonths, months);
   const gemas = Number(quote.gemas);
-  const addedYield = advanceUnits(info.principalLamports, rateBps, source.horizonMonths + months, yieldFeeBps) - advanceUnits(info.principalLamports, rateBps, source.horizonMonths, yieldFeeBps);
+  const addedYield = advanceUnits(info.principalLamports, rateBps, source.horizonMonths + months) - advanceUnits(info.principalLamports, rateBps, source.horizonMonths);
   const unlock = gemas > 0 ? unlockEstimateMs({ clock: clockOf(info), speedup: speedupOf(pool), appliedNet: info.appliedNet, source: quote.extended, nowMs: now, stake: stakeGrowthOf(market) }) : null;
   const title = `${fmtSol(info.principalLamports, 3)} SOL Lock`;
 
@@ -639,7 +635,7 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
       buttonLabel={a.busy ? `${step}…` : view.blocked ? blockedLabel(view.blocked) : <GemasLabel action="Extend" gemas={gemas} />}
       dimmed={view.blocked !== null}
       disabled={gemas <= 0 || a.busy !== null || !auth.signer || view.blocked !== null || lim.loading}
-      onSubmit={() => auth.signer && a.run("extend", () => extendAdvance(auth.signer!, auth.getAccessToken, info, months, setStep))}
+      onSubmit={() => auth.signer && a.run("extend", () => extendAdvance(auth.signer!, auth.getAccessToken, info, months, BigInt(gemas), setStep))}
     />
   );
 }
@@ -675,67 +671,53 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
   const from = (h: ChainHolding) => (h.isOwn ? `Your ${h.asset} Lock` : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`);
   const payouts: RedeemPayout[] = [
     ...rows.map((h) => ({
-      key: h.holding.toBase58(),
+      key: h.key,
       asset: "SOL" as const,
       from: from(h),
       gemas: Number(h.redeemable),
+      // What the holder is paid: the shares the Gemas are worth, less the Source's Yield Fee (one floor, as on chain).
       amount: h.stakeMint && snapshot?.market?.stake
-        ? Number(tokensForUnits((h.redeemable * h.unitNum) / h.unitDen, snapshot.market.stake.rate)) / LAMPORTS
+        ? Number(cashOut(tokensForUnits((h.redeemable * h.unitNum) / h.unitDen, snapshot.market.stake.rate), h.yieldFeeBps, 0).payout) / LAMPORTS
         : pool && !h.stakeMint
-          ? Number(redeemPayoutShares(h, h.redeemable, rateAt(pool))) / LAMPORTS
+          ? Number(cashOut(redeemPayoutShares(h, h.redeemable, rateAt(pool)), h.yieldFeeBps, 0).payout) / LAMPORTS
           : null,
       token: h.stakeMint ? (snapshot?.market?.stake?.token.symbol ?? tokenSymbol(h.stakeMint)) : "test SOL",
       later: false,
+      yieldFeeBps: h.yieldFeeBps,
     })),
     ...ethRows.map((h) => ({
-      key: h.holding.toBase58(),
+      key: h.key,
       asset: h.asset,
       from: from(h),
       gemas: Number(h.redeemable),
-      amount: gemasInAsset(h.redeemable, h),
+      amount: (gemasInAsset(h.redeemable, h) * (10_000 - h.yieldFeeBps)) / 10_000,
       token: h.asset,
       later: true,
+      yieldFeeBps: h.yieldFeeBps,
     })),
   ];
 
-  const { offer: instant, plan, behind, freshPlan } = useInstantRedeem(asset);
+  const { offer: instant, orders, freshPlan, reloadOrders } = useInstantRedeem(asset);
 
-  const redeemNow = async () => {
+  /** Offers every won line that is waiting on yield: one order each, bought by Tesoro when it can. */
+  const redeemNow = async (pick: number) => {
     if (!auth.signer) return;
     setBusy(true);
     setError(null);
     try {
       const signer = auth.signer;
-      if (ethCtx && plan.some((p) => p.holding.eth)) await freshenHoldings(ethCtx, plan.map((p) => p.holding), "instant", setNote, behind);
-      let latest = plan;
-      const run = await runInstant(
-        plan.map((p) => p.line),
-        async () => {
-          latest = await freshPlan(signer.publicKey);
-          return latest.map((p) => p.line);
-        },
-        async (line) => {
-          const h = (latest.find((p) => p.line.key === line.key) ?? plan.find((p) => p.line.key === line.key))!.holding;
-          if (h.native) sigs.current.push(await instantRedeemNative(signer, h.position, h.source, line.gemas, h.redeemable, h.stakeMint));
-          else {
-            if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
-            await instantRedeemEthSource(ethCtx, h.eth!, h.source, line.gemas);
-          }
-        },
-      );
-      if (run.kind !== "sent") {
-        const part = run.sent.length > 0 ? "Part of it went through. " : "";
-        setError(
-          run.kind === "none"
-            ? `${part}Yield landed while you were confirming, so none of the rest can be redeemed now. Redeem them at full value instead.`
-            : `${part}Yield landed while you were confirming. Redeem now would sell ${fmtGemas(Number(run.gemas))} Gemas instead. Press Redeem now again to confirm the refreshed amounts.`,
-        );
+      const fresh = await freshPlan(signer.publicKey);
+      if (fresh.length === 0) {
         await refresh();
-        return;
+        throw new Error("Yield landed while you were confirming, so none of these Gemas are waiting any more. Redeem them as their yield lands instead.");
       }
-      const lines = run.sent.map((line) => ({ line, holding: (latest.find((p) => p.line.key === line.key) ?? plan.find((p) => p.line.key === line.key))!.holding }));
-      setDone({ gemas: lines.reduce((s, p) => s + Number(p.line.gemas), 0), later: lines.some((p) => !p.holding.native), instant: true, receipts: sigs.current.map((sig) => ({ label: "Redeemed now", sig })) });
-      await refresh();
+      // The fresh plan lists the lines in the same order as the sheet; the pick is split over them the same way.
+      const parts = allocate(fresh.map((p) => ({ gemas: Number(p.gemas) })), pick).map(BigInt);
+      const chosen = fresh.map((p, i) => ({ ...p, gemas: parts[i] })).filter((p) => p.gemas > 0n);
+      if (chosen.length === 0) throw new Error("Pick how many Gemas to offer.");
+      for (const p of chosen) sigs.current.push(await requestInstantRedeem(signer, auth.getAccessToken, p.holding, p.gemas));
+      setDone({ gemas: chosen.reduce((sum, p) => sum + Number(p.gemas), 0), later: chosen.some((p) => !p.holding.native), instant: true, receipts: sigs.current.map((sig) => ({ label: "Offered for sale", sig })) });
+      await Promise.all([refresh(), reloadOrders()]);
     } catch (e) {
       setError(friendlyError(e));
       await refresh();
@@ -744,18 +726,44 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     }
   };
 
-  const redeem = async () => {
-    if (!auth.signer) return;
-    const gemas = payouts.reduce((s, p) => s + p.gemas, 0);
+  /** Takes an order's unsold Gemas back (after its deadline anyone may; here the seller does). */
+  const cancelOrder = async (key: string) => {
+    const order = orders.find((o) => o.address.toBase58() === key);
+    if (!order || !auth.signer) return;
     setBusy(true);
     setError(null);
     try {
-      for (const h of rows) sigs.current.push(await redeemNative(auth.signer, h.position, h.source, h.redeemable, h.stakeMint));
+      const sig = await cancelInstantRedeem(auth.signer, auth.getAccessToken, order);
+      setDone({ gemas: Number(order.line.amount), later: false, cancelled: true, receipts: [{ label: "Taken back", sig }] });
+      await Promise.all([refresh(), reloadOrders()]);
+    } catch (e) {
+      setError(friendlyError(e));
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const redeem = async (pick: number) => {
+    if (!auth.signer) return;
+    const gemas = Math.min(pick, payouts.reduce((s, p) => s + p.gemas, 0));
+    // The pick is split over the lines in the order the sheet lists them: SOL lines, then ETH and HYPE lines.
+    const split = allocate(payouts, pick);
+    const parts = new Map(payouts.map((p, i) => [p.key, split[i]]));
+    setBusy(true);
+    setError(null);
+    try {
+      for (const h of rows) {
+        const part = parts.get(h.key) ?? 0;
+        if (part > 0) sigs.current.push(await redeemNative(auth.signer, auth.getAccessToken, h, BigInt(part)));
+      }
       let ethGemas = 0;
       let ethCount = 0;
-      if (ethRows.length > 0 || ethWaiting.length > 0) {
+      const wantsEth = ethRows.some((h) => (parts.get(h.key) ?? 0) > 0) || (ethRows.length === 0 && ethWaiting.length > 0);
+      if (wantsEth) {
         if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
-        const r = await redeemEthHoldings(ethCtx, snapshot?.holdings ?? [], setNote);
+        const limits = ethRows.length > 0 ? new Map(ethRows.map((h) => [h.key, BigInt(parts.get(h.key) ?? 0)])) : undefined;
+        const r = await redeemEthHoldings(ethCtx, snapshot?.holdings ?? [], setNote, limits);
         ethGemas = Number(r.gemas);
         ethCount = r.count;
       }
@@ -763,7 +771,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
         await refresh();
         throw new Error(NOTHING_REDEEMABLE_YET);
       }
-      setDone({ gemas: rows.reduce((s, h) => s + Number(h.redeemable), 0) + ethGemas || gemas, later: ethCount > 0, receipts: sigs.current.map((sig) => ({ label: "Redeemed", sig })) });
+      setDone({ gemas: rows.reduce((s, h) => s + (parts.get(h.key) ?? 0), 0) + ethGemas || gemas, later: ethCount > 0, receipts: sigs.current.map((sig) => ({ label: "Redeemed", sig })) });
       await refresh();
     } catch (e) {
       setError(friendlyError(e));
@@ -773,5 +781,5 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     }
   };
 
-  return <RedeemExchange payouts={payouts} instant={instant} busy={busy} busyNote={note} yieldCheck={ethWaiting.length > 0 ? [...new Set(ethWaiting.map((h) => h.asset))].join(" and ") : null} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={() => void redeem()} onInstant={() => void redeemNow()} onClose={onClose} />;
+  return <RedeemExchange payouts={payouts} instant={instant} busy={busy} busyNote={note} yieldCheck={ethWaiting.length > 0 ? [...new Set(ethWaiting.map((h) => h.asset))].join(" and ") : null} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={(g) => void redeem(g)} onInstant={(g) => void redeemNow(g)} onCancelOrder={(k) => void cancelOrder(k)} onClose={onClose} />;
 }

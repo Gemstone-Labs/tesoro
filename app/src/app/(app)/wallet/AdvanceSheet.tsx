@@ -48,7 +48,7 @@ export function AdvanceFormView({
   yieldText: string;
   gemas: number;
   unlock: string;
-  /** The Yield Fee the quote is net of (the launch rate while the Treasury is unread). */
+  /** The Yield Fee a later cash-out of these Gemas pays (the launch rate while the Treasury is unread). */
   yieldFeeBps?: number;
   /** Extend adds to a Horizon already running: the slider stops at what is left of the 12 months. */
   maxMonths?: number;

@@ -25,12 +25,6 @@ interface Base {
   id: string;
   authority: string;
 }
-/** Block Burst: you played first and your opponent has now played too. */
-export interface OpponentPlayedEvent extends Base {
-  kind: "opponent-played";
-  matchId: string;
-  game: GameId;
-}
 /** An Active Match that should have settled by now (the Delayed rule in lib/chain/match-status). */
 export interface MatchDelayedEvent extends Base {
   kind: "match-delayed";
@@ -73,9 +67,22 @@ export interface SeasonPlacedEvent extends Base {
   gemas: number;
 }
 
+/** Another Player sent this Player a Friend request. Names stay out: a Profile name is free text. */
+export interface FriendRequestEvent extends Base {
+  kind: "friend-request";
+}
+/** A Friend opened a Challenge for this Player. */
+export interface FriendChallengeEvent extends Base {
+  kind: "friend-challenge";
+  matchId: string;
+  game: GameId;
+  entry: number;
+}
+
 export type NotifyEvent =
+  | FriendRequestEvent
+  | FriendChallengeEvent
   | MatchSettledEvent
-  | OpponentPlayedEvent
   | MatchDelayedEvent
   | MatchRefundedEvent
   | OfferMadeEvent
@@ -109,7 +116,7 @@ export interface Decision {
   skipped?: "no-address" | "unverified" | "off";
 }
 
-const GAMES: Record<GameId, string> = { "block-puzzle": "Block Burst", holdem: "Hold'em", "trading-duel": "Trading Duel" } as Record<GameId, string>;
+const GAMES: Record<GameId, string> = { "block-puzzle": "Block Burst", holdem: "Hold'em", "trading-duel": "Trading Duel", vanguard: "Vanguard" };
 const gemas = (n: number) => `${n.toLocaleString("en-US")} Gemas`;
 
 const ordinal = (n: number) => `${n}${["th", "st", "nd", "rd"][n % 100 >= 11 && n % 100 <= 13 ? 0 : n % 10 < 4 ? n % 10 : 0]}`;
@@ -125,12 +132,14 @@ const utc = (secs: number) => {
 export function describe(e: NotifyEvent): Message {
   const game = "game" in e ? (GAMES[e.game] ?? "Match") : "Match";
   switch (e.kind) {
+    case "friend-request":
+      return { subject: "You have a Friend request", body: "A Player sent you a Friend request. Open Friends to accept or decline it." };
+    case "friend-challenge":
+      return { subject: `A Friend challenged you to ${game}`, body: `A Friend challenged you to a ${game} Match for an entry of ${gemas(e.entry)}. Open Friends to see it and play.` };
     case "match-settled":
       if (e.result === "won") return { subject: `You won your ${game} Match`, body: `You won your ${game} Match and ${gemas(e.gemas)}. The Pot was ${gemas(e.pot)}.` };
       if (e.result === "lost") return { subject: `You lost your ${game} Match`, body: `You lost your ${game} Match and ${gemas(e.gemas)}. The Pot was ${gemas(e.pot)}.` };
       return { subject: `Your ${game} Match was a draw`, body: `Your ${game} Match was a draw. Your entry came back and nothing was won or lost.` };
-    case "opponent-played":
-      return { subject: `Your opponent has played your ${game} Match`, body: `Your opponent has played your ${game} Match. It is being settled now, and you will get another email with the result.` };
     case "match-delayed":
       return {
         subject: `Your ${game} Match is delayed`,

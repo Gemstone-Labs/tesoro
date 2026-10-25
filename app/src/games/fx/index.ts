@@ -3,6 +3,7 @@ export { burst, burstAt, FxLayer, type BurstKind, type BurstOptions } from "./bu
 export { Callout, type CalloutTone } from "./Callout";
 export { Countdown } from "./Countdown";
 export { FullScreenToggle } from "./FullScreenToggle";
+export { GameMenu, type GameMenuItem } from "./GameMenu";
 export { isFullScreen, setFullScreen } from "./full-screen";
 export { MuteToggle } from "./MuteToggle";
 export { prefersReducedMotion, useReducedMotion } from "./reduced-motion";

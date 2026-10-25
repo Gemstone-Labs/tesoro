@@ -57,7 +57,10 @@ pub struct ApplyYield<'info> {
 }
 
 impl ApplyYield<'_> {
-    pub fn apply(ctx: &mut Context<ApplyYield>, _params: &PositionRef) -> Result<()> {
+    pub fn apply<'info>(
+        ctx: &mut Context<'_, '_, '_, 'info, ApplyYield<'info>>,
+        _params: &PositionRef,
+    ) -> Result<()> {
         let position = &mut ctx.accounts.bridge_position;
         require!(position.opened, BridgeError::NotOpened);
         require!(position.last_yield_seq > position.applied_yield_seq, BridgeError::NothingToApply);
@@ -65,6 +68,7 @@ impl ApplyYield<'_> {
             .map_err(|_| error!(BridgeError::AmountOverflow))?;
 
         let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &[ctx.accounts.store.authority_bump]]];
+        // The Source's book and checkpoint pages are the remaining accounts: core lands the yield.
         let cpi = CpiContext::new_with_signer(
             ctx.accounts.core_program.to_account_info(),
             ApplyYieldFromSource {
@@ -74,7 +78,8 @@ impl ApplyYield<'_> {
                 source: ctx.accounts.core_source.as_ref().map(|s| s.to_account_info()),
             },
             signer_seeds,
-        );
+        )
+        .with_remaining_accounts(ctx.remaining_accounts.to_vec());
         tesoro_core::cpi::apply_yield_from_source(cpi, position.last_yield_seq, cumulative)?;
         position.applied_yield_seq = position.last_yield_seq;
         ctx.accounts.vault_treasury.apply_report(

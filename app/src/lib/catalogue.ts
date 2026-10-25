@@ -1,5 +1,6 @@
 import { art } from "./art";
 import type { GameId } from "./mock/types";
+import { isHiddenGame } from "./games";
 
 export interface CatalogueEntry {
   key: string;
@@ -11,10 +12,11 @@ export interface CatalogueEntry {
 }
 
 /** The order the Lobby shows the live Games in, in the hero carousel and the Play Now grid (founder pick). */
-export const LOBBY_ORDER: GameId[] = ["holdem", "trading-duel", "block-puzzle"];
+export const LOBBY_ORDER: GameId[] = (["vanguard", "holdem", "trading-duel", "block-puzzle"] as GameId[]).filter((g) => !isHiddenGame(g));
 
-/** The Lobby's Play Now rail: the live Games first, then the announced ones. */
-export const CATALOGUE: CatalogueEntry[] = [
+/** The Lobby's Play Now rail: the live Games, then the announced ones. */
+export const CATALOGUE: CatalogueEntry[] = ([
+  { key: "vanguard", name: "Vanguard", tile: art.vanguardTile, live: true, game: "vanguard" },
   { key: "holdem", name: "Buckshot Hold'em", tile: art.holdemTile, live: true, game: "holdem" },
   { key: "trading-duel", name: "Trading Duel", tile: art.tradingDuelTile, live: true, game: "trading-duel" },
   { key: "block-puzzle", name: "Block Burst", tile: art.blockPuzzleTile, live: true, game: "block-puzzle" },
@@ -22,7 +24,7 @@ export const CATALOGUE: CatalogueEntry[] = [
   { key: "bubble-burst", name: "Bubble Burst", tile: art.comingSoon["bubble-burst"], live: false },
   { key: "pocket-pool", name: "Pocket Pool", tile: art.comingSoon["pocket-pool"], live: false },
   { key: "trivia-sprint", name: "Trivia Sprint", tile: art.comingSoon["trivia-sprint"], live: false },
-];
+] as CatalogueEntry[]).filter((e) => !e.game || !isHiddenGame(e.game));
 
 /** "2m ago" / "4h ago" / "1d ago". */
 export function ago(ms: number, now = Date.now()): string {

@@ -1,0 +1,134 @@
+/* Deposit packs: a store-style modal of three cards, and the steps after a pick. */
+dialog.sheet.dep-sheet { max-width: 920px; }
+dialog.sheet.dep-sheet.ack { max-width: 720px; }
+dialog.sheet.dep-sheet.done, dialog.sheet.dep-sheet.working { max-width: 640px; }
+dialog.sheet.dep-sheet.packs .sheet-head h2 { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: clamp(34px, 4vw, 52px); letter-spacing: 0.005em; line-height: 1; }
+/* phones: the title stays on one line beside the Pro view switch */
+@media (max-width: 639px) {
+  dialog.sheet.dep-sheet.packs .sheet-head { gap: 8px; }
+  dialog.sheet.dep-sheet.packs .sheet-head h2 { font-size: 26px; white-space: nowrap; }
+}
+.dep { display: grid; gap: 18px; }
+/* "Pro view ⓘ" and its switch (ProViewSwitch): on the Vault and in both Buy Gemas modals */
+.pv { display: inline-flex; align-items: center; gap: 10px; }
+.pv-label { display: inline-flex; align-items: flex-start; font-size: var(--fs-15); font-weight: 700; color: var(--fg); white-space: nowrap; }
+/* the ⓘ sits small at the label's top right, like a footnote mark */
+.pv-label .tip-btn { width: 14px; height: 14px; margin: -5px -4px 0 1px; }
+.pv-label .tip-btn svg { width: 12px; height: 12px; }
+/* the switch is cut like everything else: an octagon track with an octagon knob */
+.vs-switch {
+  --c: 9px; --edge: var(--edge-2); appearance: none; border: 0; margin: 0; cursor: pointer; flex: none; position: relative; width: 56px; height: 30px; padding: 0;
+  background: var(--surface-2); transition: background 0.2s ease;
+}
+.vs-switch > span {
+  position: absolute; top: 4px; left: 4px; width: 22px; height: 22px; background: var(--fg-2);
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+}
+.vs-switch[aria-checked="true"] { background: var(--em); --edge: transparent; }
+.vs-switch[aria-checked="true"] > span { transform: translateX(26px); background: #fff; }
+.vs-switch:focus-visible { outline: 0; }
+@media (prefers-reduced-motion: reduce) { .vs-switch, .vs-switch > span { transition: none; } }
+
+/* ack and done draw their own big title: the sheet's one stays for screen readers, the close button floats */
+.dep-sheet.ack .sheet-in, .dep-sheet.done .sheet-in, .dep-sheet.working .sheet-in { position: relative; }
+.dep-sheet.ack .sheet-head, .dep-sheet.done .sheet-head, .dep-sheet.working .sheet-head { position: absolute; top: 12px; right: 12px; z-index: 2; }
+.dep-sheet.ack .sheet-head h2, .dep-sheet.done .sheet-head h2, .dep-sheet.working .sheet-head h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.dep-sheet.ack .sheet-in { padding: 0; gap: 0; }
+
+/* packs: the Player pack sits in the middle, bigger and raised */
+.dep-packs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: center; padding-top: 4px; }
+.dep-card {
+  --edge: var(--edge-1); --c: var(--cut-card);
+  position: relative; display: grid; gap: 10px; justify-items: center; text-align: center;
+  padding: 26px 16px 18px; background: var(--surface);
+}
+.dep-card.feat { --edge: var(--edge-2); background: var(--surface-2); padding: 38px 20px 22px; gap: 12px; margin-block: -10px; }
+.dep-card.hot { --edge: var(--edge-em); background: radial-gradient(90% 60% at 50% 0, rgba(36, 216, 168, 0.14), transparent 70%), var(--surface); }
+.dep-tag {
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 1;
+  padding: 3px 12px; font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  background: var(--raised-2); color: var(--fg); white-space: nowrap;
+}
+.dep-tag.hot { background: var(--facet); color: var(--em-ink); }
+.dep-art { width: min(100%, 210px, 22vh); height: auto; aspect-ratio: 1; object-fit: contain; }
+.dep-card.feat .dep-art { width: min(100%, 280px, 30vh); }
+.dep-name { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: var(--fs-24); letter-spacing: 0.02em; line-height: 1; }
+.dep-card.feat .dep-name { font-size: 32px; }
+.dep-gemas { display: grid; gap: 2px; justify-items: center; align-content: start; margin: 0; }
+.dep-gemas b { display: inline-flex; align-items: center; gap: 8px; font-size: 32px; line-height: 1; font-weight: 900; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: var(--em-hi); }
+.dep-card.feat .dep-gemas b { font-size: 40px; }
+.dep-gemas span { font-size: var(--fs-13); color: var(--fg-2); font-weight: 700; }
+.dep-card .btn { width: 100%; }
+
+/* three small notes under the cards */
+.dep-notes { list-style: none; margin: 0; padding: 14px 0 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
+.dep-note { display: flex; align-items: center; gap: 12px; padding: 2px 18px; font-size: var(--fs-13); line-height: 1.35; color: var(--fg-2); }
+.dep-note + .dep-note { border-left: 1px solid var(--line); }
+.dep-note:first-child { padding-left: 0; }
+.dep-note-icon { flex: none; display: grid; place-items: center; width: 32px; height: 32px; color: var(--fg); }
+.dep-note-icon svg { width: 26px; height: 26px; stroke-width: 1.5; }
+.dep-small { display: grid; gap: 6px; }
+.dep-link { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
+
+/* acknowledgment: numbered points, then "Don't show this again" left and "I understand" right */
+.dep-ack { display: grid; gap: 20px; padding: 34px 32px 28px; }
+.dep-ack-title { margin: 0; padding-right: 48px; font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: clamp(34px, 4vw, 52px); line-height: 1; letter-spacing: 0.005em; }
+.dep-ack-points { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.dep-ack-points li { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 16px; align-items: center; }
+.dep-ack-num { --edge: var(--edge-2); --c: var(--cut-chip); display: grid; place-items: center; width: 36px; height: 36px; background: var(--raised); font-weight: 800; font-size: var(--fs-15); font-variant-numeric: tabular-nums; }
+.dep-ack-points p { margin: 0; font-size: var(--fs-15); line-height: 1.5; color: var(--fg); }
+.dep-ack-foot { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; justify-content: space-between; margin-top: 4px; padding-top: 18px; border-top: 1px solid var(--line); }
+.dep-ack-foot .btn { min-width: 240px; }
+.dep-check { display: flex; gap: 10px; align-items: center; font-weight: 600; cursor: pointer; font-size: var(--fs-14); }
+.dep-check input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--em); }
+.dep-actions { display: grid; gap: 8px; }
+
+.dep-pack-line { margin: 0; color: var(--fg-2); font-size: var(--fs-13); }
+
+/* working (W1): the case small on top, the title, the pack line, two steps, the reassurance */
+.dep-work { display: grid; justify-items: center; text-align: center; gap: 12px; padding: 18px 8px 4px; }
+.dep-work .dep-art { width: min(44%, 180px, 22vh); filter: drop-shadow(0 0 30px rgba(36, 216, 168, 0.32)); }
+.dep-work-title { margin: 4px 0 0; font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: clamp(34px, 5vw, 52px); line-height: 1; letter-spacing: 0.005em; }
+.dep-work-pack { margin: 0; color: var(--fg-2); font-size: var(--fs-15); }
+.dep-work-steps { list-style: none; margin: 14px 0 6px; padding: 0; display: grid; gap: 22px; justify-self: center; text-align: left; position: relative; }
+.dep-work-steps li { display: grid; grid-template-columns: 36px auto; gap: 16px; align-items: center; font-weight: 700; font-size: var(--fs-16); color: var(--fg-2); position: relative; }
+.dep-work-steps li.done, .dep-work-steps li.now { color: var(--fg); }
+.dep-work-steps li + li::before { content: ""; position: absolute; left: 17px; top: -22px; height: 22px; width: 1px; background: var(--line-2); }
+.dep-work-mark { --c: var(--cut-chip); --edge: var(--edge-2); display: grid; place-items: center; width: 36px; height: 36px; background: var(--raised); }
+.dep-work-steps li.done .dep-work-mark { --edge: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.3)); color: #0b1012; background: linear-gradient(180deg, #f4f7f6, #c3cbc7); }
+.dep-work-mark svg { width: 20px; height: 20px; stroke-width: 2.5; }
+.dep-work-mark .spinner { width: 18px; height: 18px; }
+.dep-work-note { margin: 6px 0 0; color: var(--fg-2); font-size: var(--fs-14); }
+
+/* done: a big counter */
+.dep-done { display: grid; gap: 12px; justify-items: center; text-align: center; padding: 10px 0 2px; background: radial-gradient(42% 34% at 50% 56%, rgba(36, 216, 168, 0.2), rgba(36, 216, 168, 0.06) 55%, transparent 75%); }
+.dep-done-fig { margin: 0; font-family: var(--f-display); font-weight: 800; text-transform: none; font-size: clamp(54px, 9vw, 96px); line-height: 0.95; letter-spacing: 0.005em; font-variant-numeric: tabular-nums; color: var(--em-hi); background: linear-gradient(180deg, #8dfbe3, var(--em)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.dep-done-ready { margin: 0; display: inline-flex; align-items: center; gap: 12px; font-size: var(--fs-20); font-weight: 800; color: var(--fg); }
+.dep-done-check { --c: var(--cut-chip); --edge: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.3)); display: grid; place-items: center; width: 40px; height: 40px; color: #0b1012; background: linear-gradient(180deg, #f4f7f6, #c3cbc7); }
+.dep-done-check svg { width: 22px; height: 22px; stroke-width: 2.5; }
+.dep-done .dep-art { width: min(88%, 400px, 38dvh); margin-block: -6px -14px; filter: drop-shadow(0 0 40px rgba(36, 216, 168, 0.4)); }
+.dep-done .dep-actions { position: relative; width: 100%; max-width: 440px; justify-items: center; gap: 12px; }
+.dep-done .dep-actions .btn.neutral { min-width: 160px; }
+
+.dep-error { display: grid; gap: 12px; }
+
+@media (max-width: 639px) {
+  .dep-ack { padding: 20px 18px; gap: 14px; }
+  .dep-ack-title { font-size: 32px; }
+  .dep-ack-points li { grid-template-columns: 30px minmax(0, 1fr); gap: 12px; }
+  .dep-ack-num { width: 30px; height: 30px; }
+  .dep-ack-foot .btn { width: 100%; min-width: 0; }
+  .dep-packs { grid-template-columns: 1fr; gap: 12px; padding-top: 0; }
+  .dep-card { grid-template-columns: 110px 1fr; grid-template-rows: auto auto auto; column-gap: 14px; row-gap: 8px; text-align: left; justify-items: start; align-items: center; padding: 28px 14px 14px; }
+  .dep-card.feat { order: -1; margin-block: 0; padding: 28px 14px 14px; }
+  .dep-card .dep-name, .dep-card.feat .dep-name { font-size: var(--fs-24); grid-column: 2; grid-row: 1; }
+  .dep-card .dep-art, .dep-card.feat .dep-art { grid-column: 1; grid-row: 1 / span 2; width: 110px; }
+  .dep-card .dep-gemas { grid-column: 2; grid-row: 2; justify-items: start; }
+  .dep-card .btn { grid-column: 1 / -1; }
+  .dep-gemas b, .dep-card.feat .dep-gemas b { font-size: 28px; }
+  .dep-tag { left: 14px; transform: none; }
+  .dep-notes { grid-template-columns: 1fr; gap: 10px; }
+  .dep-note, .dep-note + .dep-note { padding: 0; border-left: 0; }
+
+}
+@media (prefers-reduced-motion: reduce) { .dep-done-fig { animation: none; } }

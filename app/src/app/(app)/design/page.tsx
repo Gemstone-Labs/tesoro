@@ -169,7 +169,7 @@ export default function Design() {
         </div>
       </Section>
 
-      <Section title="EntryPicker" note="500 / 1,000 / 2,500. The chosen entry is emerald and carries the Gema mark. Disabled when unaffordable.">
+      <Section title="EntryPicker" note="100 / 500 / 1,000. The chosen entry is emerald and carries the Gema mark. Disabled when unaffordable.">
         <div className="stack" style={{ maxWidth: 420 }}>
           <EntryPicker value={entry} onChange={setEntry} name="ds-entry" legend="Entry" />
           <EntryPicker value={1000} onChange={() => {}} name="ds-entry-lim" legend="Entry, limited" maxAffordable={1200} />

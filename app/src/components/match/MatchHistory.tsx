@@ -1,20 +1,21 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, LayoutGrid } from "lucide-react";
 import { PLAYED, RESULTS, resultParam, toggleResult } from "@/lib/chain/history";
 import { GAME_NAMES } from "@/lib/mock";
 import type { GameId, MatchResult } from "@/lib/mock";
+import { isGameId } from "@/lib/games";
+import { CATALOGUE, LOBBY_ORDER } from "@/lib/catalogue";
 import "./history.css";
 
-const FILTERS: [GameId | null, string][] = [
-  [null, "All"],
-  ["block-puzzle", GAME_NAMES["block-puzzle"]],
-  ["holdem", "Hold'em"],
-  ["trading-duel", "Trading Duel"],
-];
+const SHORT: Partial<Record<GameId, string>> = { holdem: "Hold'em" };
+/** All, then the games in Play's order. */
+const FILTERS: [GameId | null, string][] = [[null, "All"], ...LOBBY_ORDER.map((g): [GameId, string] => [g, SHORT[g] ?? GAME_NAMES[g]])];
+const tileOf = (g: GameId) => CATALOGUE.find((c) => c.game === g)?.tile;
 
 /** The game a `?game=` value names, null for all games. */
-export const gameFilter = (v: string | null): GameId | null => (v === "block-puzzle" || v === "holdem" || v === "trading-duel" ? v : null);
+export const gameFilter = (v: string | null): GameId | null => (isGameId(v) ? v : null);
 
 /** A Match history address: the game, the results shown and the page live in the URL. */
 export function historyHref(base: string, game: GameId | null, page: number, results: readonly MatchResult[] = PLAYED): string {
@@ -27,12 +28,15 @@ export function historyHref(base: string, game: GameId | null, page: number, res
   return s ? `${base}?${s}` : base;
 }
 
-/** All / Block Burst / Hold'em over a Match history. */
+/** All and one chip per game (its art and short name) over a Match history; scrolls sideways when it does not fit. */
 export function GameTabs({ base, game, results = PLAYED }: { base: string; game: GameId | null; results?: readonly MatchResult[] }) {
   return (
     <nav className="mh-tabs" aria-label="Game">
       {FILTERS.map(([id, label]) => (
-        <Link key={label} href={historyHref(base, id, 1, results)} scroll={false} aria-current={game === id ? "page" : undefined} className={game === id ? "on" : undefined}>
+        <Link key={label} href={historyHref(base, id, 1, results)} scroll={false} aria-current={game === id ? "page" : undefined} className={`cut cut-chip${game === id ? " on" : ""}`}>
+          <span className="cut mh-tab-art" aria-hidden="true">
+            {id ? <Image src={tileOf(id) ?? ""} alt="" width={28} height={28} /> : <LayoutGrid />}
+          </span>
           {label}
         </Link>
       ))}
@@ -40,7 +44,7 @@ export function GameTabs({ base, game, results = PLAYED }: { base: string; game:
   );
 }
 
-const RESULT_LABEL: Record<MatchResult, string> = { won: "Won", lost: "Lost", draw: "Draw", refunded: "Refunded" };
+const RESULT_LABEL: Record<MatchResult, string> = { won: "Won", lost: "Lost", draw: "Draw", "no-show": "No-show", refunded: "Refunded" };
 
 /** Which results a Match history shows, one toggle each with its count; results with no Matches are left out. Refunded starts off. */
 export function ResultFilter({ base, game, results, counts }: { base: string; game: GameId | null; results: readonly MatchResult[]; counts: Record<MatchResult, number> }) {
@@ -70,7 +74,7 @@ export function ResultFilter({ base, game, results, counts }: { base: string; ga
 
 /** How many Matches have each result. */
 export function resultCounts(rows: readonly { result: MatchResult }[]): Record<MatchResult, number> {
-  const counts: Record<MatchResult, number> = { won: 0, lost: 0, draw: 0, refunded: 0 };
+  const counts: Record<MatchResult, number> = { won: 0, lost: 0, draw: 0, "no-show": 0, refunded: 0 };
   for (const r of rows) counts[r.result] += 1;
   return counts;
 }

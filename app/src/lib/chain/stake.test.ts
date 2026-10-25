@@ -19,14 +19,11 @@ import {
   JITOSOL,
   STAKE_CONFIG_LEN,
   STAKE_CUSTODY_LEN,
-  earnedFeeShares,
   extendStakeAdvanceIx,
   initTreasuryStakeIx,
   parseStakeConfig,
-  instantRedeemStakeIx,
   openStakePositionIx,
   parseStakeCustody,
-  principalReserve,
   redeemStakeIx,
   redeemTreasuryStakeIx,
   setStakeApyCeilingIx,
@@ -36,7 +33,6 @@ import {
   stakeMarketFrom,
   stakeMarketKeys,
   stakePositionPda,
-  stakeTreasuryBalance,
   stakeVaultPda,
   takeStakeAdvanceIx,
   tokensForUnits,
@@ -50,6 +46,7 @@ import { accruedYieldAt, positionAccrued, stakeGrowthAt, type StakeGrowth } from
 const SOL = 1_000_000_000n;
 const owner = Keypair.generate().publicKey;
 const position = Keypair.generate().publicKey;
+const target = { line: { side: 1, dueAt: 5n, class: 3, tranche: 0 }, accounts: [] as PublicKey[] };
 const R0 = 1_300_000_000_000n;
 
 type Spec = { name: string; accounts: { writable?: boolean; signer?: boolean; optional?: boolean }[] };
@@ -58,9 +55,8 @@ const spec = (name: string) => (idl.instructions as Spec[]).find((i) => i.name =
 describe("instruction encoders match the IDL", () => {
   const cases: [string, ReturnType<typeof openStakePositionIx>][] = [
     ["open_stake_position", openStakePositionIx(owner, 1, SOL, position)],
-    ["take_stake_advance", takeStakeAdvanceIx(owner, position, 1, 3, 0)],
-    ["extend_stake_advance", extendStakeAdvanceIx(owner, position, 0, 2)],
-    ["instant_redeem_stake", instantRedeemStakeIx(owner, position, position, 5n)],
+    ["take_stake_advance", takeStakeAdvanceIx(owner, position, 1, 3, 560n)],
+    ["extend_stake_advance", extendStakeAdvanceIx(owner, position, 0, 2, 3n, [])],
     ["withdraw_treasury_stake", withdrawTreasuryStakeIx(owner, owner, 5n)],
     ["set_stake_token", setStakeTokenIx(owner)],
     ["set_stake_apy_ceiling", setStakeApyCeilingIx(owner, 800)],
@@ -79,26 +75,32 @@ describe("instruction encoders match the IDL", () => {
   });
 
   it("appends the stake tail to redeem, unlock, return_own and redeem_treasury", () => {
-    const rdm = redeemStakeIx(owner, position, position, 5n);
+    const rdm = redeemStakeIx(owner, position, position, 5n, target);
     expect(rdm.keys).toHaveLength(spec("redeem").accounts.length + 5);
-    expect(rdm.keys.slice(5).map((k) => k.pubkey.toBase58())).toEqual(
+    expect(rdm.keys.slice(6).map((k) => k.pubkey.toBase58())).toEqual(
       [stakeCustodyPda(JITOSOL.mint), JITOSOL.pool, stakeVaultPda(JITOSOL.mint), tokenAta(owner, JITOSOL.mint), TOKEN_PROGRAM_ID].map((k) => k.toBase58()),
     );
-    const unl = unlockStakeIx(owner, position, 2);
+    const unl = unlockStakeIx(owner, position, { index: 2, accounts: [] });
     expect(unl.keys).toHaveLength(spec("unlock").accounts.length + 5 + 1);
     expect(unl.keys[unl.keys.length - 1].pubkey.equals(sourcePda(position, 2))).toBe(true);
     expect(unlockStakeIx(owner, position).keys).toHaveLength(spec("unlock").accounts.length + 5);
-    expect(redeemTreasuryStakeIx(position, position, 5n).keys).toHaveLength(spec("redeem_treasury").accounts.length + 2);
+    expect(redeemTreasuryStakeIx(position, position, 5n, target).keys).toHaveLength(spec("redeem_treasury").accounts.length + 2);
+  });
+
+  it("carries the Gemas floor as the last argument of take_stake_advance and extend_stake_advance", () => {
+    expect(takeStakeAdvanceIx(owner, position, 0, 1, 560n).data.subarray(8).toString("hex")).toBe("01" + "3002000000000000");
+    expect(extendStakeAdvanceIx(owner, position, 0, 2, 3n, []).data.subarray(8).toString("hex")).toBe("02" + "0300000000000000");
   });
 
   it("prices only from the token's Pyth mapping and the SOL/USD sponsored feed", () => {
-    const ix = takeStakeAdvanceIx(owner, position, 0, 1);
+    const ix = takeStakeAdvanceIx(owner, position, 0, 1, 560n);
     expect(ix.keys[4].pubkey.toBase58()).toBe(PublicKey.findProgramAddressSync([Buffer.from("onchain_price"), JITOSOL.mint.toBuffer()], TESORO_CORE_ID)[0].toBase58());
     expect(ix.keys[5].pubkey.equals(pythFeedAddress("SOL"))).toBe(true);
     expect(ix.keys[2].pubkey.equals(accountPda(owner))).toBe(false);
-    expect(ix.keys[9].pubkey.equals(TESORO_CORE_ID)).toBe(true);
-    expect(ix.keys[9].isWritable).toBe(false);
-    expect(takeStakeAdvanceIx(owner, position, 1, 3, 0).keys[9].pubkey.equals(sourcePda(position, 0))).toBe(true);
+    expect(ix.keys[9].pubkey.equals(sourcePda(position, 0))).toBe(true);
+    expect(ix.keys).toHaveLength(spec("take_stake_advance").accounts.length);
+    const prev = takeStakeAdvanceIx(owner, position, 1, 3, 560n, { index: 0, accounts: [] });
+    expect(prev.keys[spec("take_stake_advance").accounts.length].pubkey.equals(sourcePda(position, 0))).toBe(true);
   });
 
   it("derives the Position id the way the program does: sha256('stake' || owner || nonce)", async () => {
@@ -111,19 +113,19 @@ describe("instruction encoders match the IDL", () => {
 });
 
 describe("growth since open is the Staking Rate ratio (same numbers as ledger/stake.rs)", () => {
-  const clock = { principal: 13n * SOL, rateBps: 649, yieldFeeBps: 2000, openedAt: 1_000_000, stakeRateOpen: R0 };
+  const clock = { principal: 13n * SOL, rateBps: 649, openedAt: 1_000_000, stakeRateOpen: R0 };
 
-  it("1% growth on 13 SOL: 0.13 gross, 20% fee, 0.104 net", () => {
+  it("1% growth on 13 SOL: 0.13 SOL, all of it (the Yield Fee waits for the cash-out)", () => {
     const now = 1_000_100;
     const stake: StakeGrowth = { rateNow: 1_313_000_000_000n, atSec: now, apyBps: 649 };
     const a = positionAccrued(clock, 1, now, stake);
-    expect([a.gross, a.fee, a.net]).toEqual([130_000_000n, 26_000_000n, 104_000_000n]);
-    expect(accruedYieldAt(13n * SOL, { num: stake.rateNow, den: R0 }, 2000)).toEqual(a);
+    expect(a).toBe(130_000_000n);
+    expect(accruedYieldAt(13n * SOL, { num: stake.rateNow, den: R0 })).toBe(a);
   });
 
   it("shows no growth without a rate and none when the pool lost value", () => {
-    expect(positionAccrued(clock, 1, 2_000_000).net).toBe(0n);
-    expect(positionAccrued(clock, 1, 1_000_100, { rateNow: R0 - 1n, atSec: 1_000_100, apyBps: 649 }).net).toBe(0n);
+    expect(positionAccrued(clock, 1, 2_000_000)).toBe(0n);
+    expect(positionAccrued(clock, 1, 1_000_100, { rateNow: R0 - 1n, atSec: 1_000_100, apyBps: 649 })).toBe(0n);
   });
 
   it("projects ahead of the read at the sizing APY, and is exact at the read", () => {
@@ -133,15 +135,15 @@ describe("growth since open is the Staking Rate ratio (same numbers as ledger/st
     expect(stakeGrowthAt(R0, stake, 1_000_000 + 31_536_000).num).toBe(R0 + R0 / 10n);
   });
 
-  it("the Unlock Estimate of a Debt is when projected net yield covers it", () => {
+  it("the Unlock Estimate of a Debt is when projected yield covers it", () => {
     const stake: StakeGrowth = { rateNow: R0, atSec: 1_000_000, apyBps: 649 };
     const source = { issued: 2_500n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: 150_000_000n };
     const at = unlockEstimateMs({ clock, speedup: 1, appliedNet: 0n, source, nowMs: 1_000_000_000, stake });
     expect(at).not.toBeNull();
-    // 2,500 Gemas = $25 = 0.1667 SOL owed; 13 SOL at 6.49% less the 20% fee earns 0.675 SOL a year: about 0.25 years.
+    // 2,500 Gemas = $25 = 0.1667 SOL owed; 13 SOL at 6.49% earns 0.844 SOL a year: about 0.2 years.
     const years = (at! - 1_000_000_000) / 1000 / 31_536_000;
-    expect(years).toBeGreaterThan(0.2);
-    expect(years).toBeLessThan(0.3);
+    expect(years).toBeGreaterThan(0.17);
+    expect(years).toBeLessThan(0.23);
     // No projection without a growth source.
     expect(unlockEstimateMs({ clock, speedup: 1, appliedNet: 0n, source, nowMs: 1_000_000_000 })).toBeNull();
   });
@@ -192,7 +194,7 @@ describe("a stake Position as the app reads it", () => {
   it("derives its Accrued Yield from the pool's rate through nativeNow, with no speedup", () => {
     const info: NativeInfo = nativeInfoFrom(position, pos, null);
     const stake = stakeGrowthOf({ stake: { rate: 1_313_000_000_000n, sizingBps: 649 } as never }, 1_000_050);
-    expect(nativeNow(info, 1, 1_000_050, stake).accrued).toBe(104_000_000n);
+    expect(nativeNow(info, 1, 1_000_050, stake).accrued).toBe(130_000_000n);
     // A simulated Position (no rate at open) is unchanged by a stake growth source.
     const sim = nativeInfoFrom(position, { ...pos, data: positionData({ mint: JITOSOL.mint, stakeRateOpen: 0n, shares: 10n * SOL, principal: 13n * SOL }) } as AccountInfo<Buffer>, null);
     expect(nativeNow(sim, 4380, 1_000_600, stake).accrued).toBe(nativeNow(sim, 4380, 1_000_600).accrued);
@@ -200,40 +202,6 @@ describe("a stake Position as the app reads it", () => {
 });
 
 describe("the Treasury mirror equals the program's", () => {
-  const custody = (over: Partial<ReturnType<typeof parseStakeCustody> & object> = {}) => ({
-    mint: JITOSOL.mint,
-    pool: JITOSOL.pool,
-    vault: stakeVaultPda(JITOSOL.mint),
-    principal: 13n * SOL,
-    feeShares: 10n * SOL * 2000n,
-    feePrincipal: 13n * SOL * 2000n,
-    realisedFeeShares: 0n,
-    openPositions: 1n,
-    refilledShares: 0n,
-    instantShares: 0n,
-    withdrawnShares: 0n,
-    ...over,
-  });
-
-  it("is empty at the opening rate and grows with the pool, a few tokens under the exact fee", () => {
-    expect(earnedFeeShares(custody(), R0)).toBe(0n);
-    // +10%: gross 1.3 SOL, fee 0.26 SOL, at 1.43 that is 0.18181818 tokens (less the 3-token allowance).
-    const r1 = 1_430_000_000_000n;
-    const exact = tokensForUnits(260_000_000n, r1);
-    const got = earnedFeeShares(custody(), r1);
-    expect(got <= exact && exact - got <= 3n).toBe(true);
-  });
-
-  it("never pays below the Principal reserve and nets out what it paid", () => {
-    const r1 = 1_430_000_000_000n;
-    const c = custody();
-    const reserve = principalReserve(c, r1);
-    expect(stakeTreasuryBalance(c, r1, reserve + 1_000n)).toBe(1_000n);
-    const earned = earnedFeeShares(c, r1);
-    expect(stakeTreasuryBalance(custody({ instantShares: 5n, withdrawnShares: 7n, refilledShares: 2n }), r1, 10n * SOL)).toBe(earned + 2n - 12n);
-    expect(stakeTreasuryBalance(custody({ instantShares: earned + 100n }), r1, 10n * SOL)).toBe(0n);
-  });
-
   it("converts at the rate of the moment and rounds down", () => {
     expect(tokensForUnits(1_300_000_000n, R0)).toBe(SOL);
     expect(tokensForUnits(1n, R0)).toBe(0n);
@@ -281,6 +249,14 @@ describe("the mainnet market", () => {
     expect(parseStakeConfig(Buffer.alloc(10))).toBeNull();
     const c = parseStakeCustody(custodyBytes())!;
     expect(c.mint.equals(JITOSOL.mint) && c.pool.equals(JITOSOL.pool)).toBe(true);
+    // principal u128 at 106, three retired fee totals, open_positions, refilled, instant, withdrawn u64, then the route.
+    const b = custodyBytes();
+    b.writeBigUInt64LE(13n * SOL, 106);
+    b.writeBigUInt64LE(2n, 170);
+    b.writeBigUInt64LE(9n, 194);
+    b.writeBigUInt64LE(77n, 202);
+    const f = parseStakeCustody(b)!;
+    expect([f.principal, f.openPositions, f.withdrawnShares, f.route.treasuryShares]).toEqual([13n * SOL, 2n, 9n, 77n]);
     expect(parseStakeCustody(Buffer.alloc(10))).toBeNull();
   });
 

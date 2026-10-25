@@ -1,171 +1,30 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IRateSource, IERC20Minimal, IMessageEndpoint, IYieldMinter} from "./IRateSource.sol";
+import {IMessageEndpoint} from "./IRateSource.sol";
+import {PositionVaultBase} from "./PositionVaultBase.sol";
+import {PrizeModule} from "./PrizeModule.sol";
 
 /// @title PositionVault
-/// @notice Holds a Position's Principal in an LST and reports its yield to Solana, where Gemas and Debt live.
+/// @notice Holds a Position's Principal in an LST and reports its yield to Solana (design notes in `PositionVaultBase`).
 ///
-/// Accrued Yield is computed when needed, never recorded by a crank (docs/adr/0010):
-///   gross(now) = principalUnderlying * (growth since open - 1)
-///   fee        = gross * feeBps / BPS          (feeBps fixed per Position at open, floored)
-///   accrued    = gross - fee                   (cumulative: includes what was already paid out)
-/// Only `growth` depends on the asset:
-///  - SimLST (`yieldMinter != 0`): 1 + apyBps/BPS * (now - openTime) * speedup / YEAR, with apyBps and speedup read
-///    from the SimLST when the Position opens. The SimLST rate stays flat; shares are minted only when a payout
-///    needs them (`_payShares`).
-///  - Real rate source (`yieldMinter == 0`, e.g. wstETH): computed from what the Position actually holds, so yield
-///    is never counted on shares already paid out: gross = heldShares * rate + paidUnderlying - principalUnderlying.
-///    Nothing is minted. A payout lowers heldShares and raises paidUnderlying by the same value, so gross is unchanged.
-///
-/// Every Position's gross yield is linear in one clock X (SimLST: block.timestamp; real: the rate):
-/// gross_i = (a_i * X + d_i - b_i) / DEN, with (a, b, d) = (apy*speedup*Pu, a*openTime, 0) for a SimLST and
-/// (heldShares, Pu*1e18, paidUnderlying*1e18) for a real LST. The vault keeps the fee-weighted sums over open Positions
-/// (sumFeeA, sumFeeB, sumFeeD), updated on open, payout and Unlock, so the Treasury's share of the fees is a running
-/// claim computed from totals with no loop and no crank.
-///
-/// A rate fall (kHYPE can be slashed) never makes Accrued Yield negative: growth below the open rate counts as zero.
-/// A Yield Report that would carry less than an earlier one is refused (`YieldBelowReported`), because Solana would
-/// reject the lower cumulative after the Player paid for the message.
-///
-/// Treasury (underlying units) = fees of open Positions + fees of closed Positions (realised at Unlock)
-///   + funding + refills - withdrawals - Instant Redeem payouts.
-/// `reportYield(id)` is permissionless and sends `(accrued, treasuryBalance, instantPaid)`: what the vault Treasury can still pay
-/// now, the Instant Redeem payouts the vault has made so far (Solana subtracts the payouts it recorded that this count does not include yet) and the block time, so Solana can tell a newer snapshot from an older one. An Instant Redeem payout the Treasury cannot cover reverts and waits: the same message pays once the Treasury holds enough.
-///
-/// Messaging seam: outbound goes through `_send(bytes)`; inbound enters through `receiveMessage(bytes)`, which is
-/// authorised to the endpoint and forwards to `_receive(bytes)`. A LayerZero OApp subclass overrides `_send` and
-/// calls `_receive` from `_lzReceive` (after its own peer check); the payload format does not change.
-contract PositionVault {
-    uint256 public constant RATE_SCALE = 1e18;
-    uint8 public constant MSG_POSITION_LOCKED = 1;
-    uint8 public constant MSG_YIELD_ACCRUED = 2;
-    uint8 public constant MSG_UNLOCK = 3;
-    uint8 public constant MSG_PAY_YIELD = 4;
-    uint8 public constant MSG_PAY_INSTANT = 5;
-    uint16 public constant MAX_YIELD_FEE_BPS = 5000;
-
-    struct Position {
-        address owner;
-        uint256 principalShares;
-        uint256 principalUnderlying;
-        uint256 openRate;
-        uint256 paidUnderlying;
-        uint256 frozenAccrued;
-        /// @dev gross yield = (a * X + d - b) / DEN, X = timestamp (SimLST) or rate (real). See `_open`.
-        uint256 a;
-        uint256 b;
-        uint256 d;
-        /// @dev Real LSTs only: shares the Position still holds in the vault (backing Principal and unpaid yield).
-        uint256 heldShares;
-        uint256 apyBps;
-        uint256 speedup;
-        uint64 openTime;
-        uint64 outSeq;
-        uint64 inSeq;
-        uint16 feeBps;
-        uint8 horizonMonths;
-        bool unlocked;
-    }
-
-    IERC20Minimal public immutable lst;
-    IRateSource public immutable rateSource;
-    address public immutable messageEndpoint;
-    /// @notice Tesoro chain id carried in every payload; the Solana side keys Positions by (sourceChain, positionId).
-    uint32 public immutable sourceChain;
-    /// @notice SimLST that mints simulated yield into this vault; address(0) for rate-based LSTs.
-    address public immutable yieldMinter;
+/// EIP-170 split: the cash-in batch and prize payout code lives in `PrizeModule`, deployed by this constructor and
+/// called by `delegatecall` (it runs on this contract's storage; both inherit `PositionVaultBase`, so the layout is
+/// shared by construction). The module address is immutable and the module can only be reached from `_delegate`.
+contract PositionVault is PositionVaultBase {
     /// @notice Account allowed to set the Yield Fee, fund the Treasury and withdraw from it (the deployer; the owner
     ///         in the OApp).
     address public immutable admin = msg.sender;
-    uint256 internal constant BPS = 10_000;
-    uint256 internal constant YEAR = 365 days;
+    /// @notice Cash-in batch and prize code this vault delegatecalls (same immutables as the vault).
+    PrizeModule public immutable prizeModule;
 
-    /// @notice Yield Fee for Positions opened from now on, in basis points. A Position keeps the fee it opened with.
-    uint16 public yieldFeeBps = 2000;
-
-    // Sums over open Positions (see the header).
-    uint256 public sumFeeA; // sum of a_i * feeBps_i
-    uint256 public sumFeeB; // sum of b_i * feeBps_i
-    uint256 public sumFeeD; // sum of d_i * feeBps_i
-    /// @notice Sum of principalUnderlying over open Positions: the shares that back it are never spent on payouts.
-    uint256 public openPrincipalUnderlying;
-    /// @notice Fees of Positions already unlocked (fixed at Unlock).
-    uint256 public realisedFees;
-    /// @notice Cumulative underlying added by `fundTreasury` and by refills (PayYield to the vault).
-    uint256 public treasuryCredited;
-    /// @notice Cumulative underlying taken by `withdrawTreasury`.
-    uint256 public treasuryWithdrawn;
-    /// @notice Cumulative underlying paid out by Instant Redeem.
-    uint256 public instantPaid;
-
-    uint64 public nextPositionId;
-    mapping(uint64 => Position) internal _positions;
-    /// @dev Inbound seqs already processed, per position. Delivery order is not guaranteed by the transport
-    ///      (LayerZero executes verified messages in any order and retries reverted ones), so idempotency is
-    ///      per seq, not "strictly increasing".
-    mapping(uint64 => mapping(uint64 => bool)) internal _handled;
-    /// @notice Highest Accrued Yield a Yield Report has carried for a Position.
-    mapping(uint64 => uint256) public reportedAccrued;
-
-    event PositionLocked(
-        uint64 indexed positionId, address indexed owner, uint256 shares, uint8 horizonMonths, uint64 seq
-    );
-    event YieldAccrued(
-        uint64 indexed positionId,
-        uint256 cumulativeAccrued,
-        uint256 rate,
-        uint64 seq,
-        uint256 treasuryBalance,
-        uint256 instantPaid
-    );
-    event PositionUnlocked(uint64 indexed positionId, address indexed owner, uint256 sharesReleased, uint64 seq);
-    event YieldPaid(
-        uint64 indexed positionId, address indexed to, uint256 amountUnderlying, uint256 shares, uint64 seq
-    );
-    event TreasuryFunded(address indexed from, uint256 shares, uint256 underlying);
-    event TreasuryRefilled(uint64 indexed positionId, uint256 amountUnderlying, uint64 seq);
-    event TreasuryWithdrawn(address indexed to, uint256 amountUnderlying, uint256 shares);
-    event InstantPaid(
-        uint64 indexed positionId, address indexed to, uint256 amountUnderlying, uint256 shares, uint64 seq
-    );
-    event YieldFeeSet(uint16 bps);
-    event YieldMinted(uint256 shares);
-    event MessageIgnored(uint64 indexed positionId, uint8 msgType, uint64 seq, string reason);
-
-    error NotEndpoint();
-    error BadHorizon();
-    error ZeroAmount();
-    error UnknownPosition();
-    error UnknownMessage();
-    error TransferFailed();
-    error ExceedsAccruedYield(uint256 requested, uint256 available);
-    error InsufficientShares(uint256 needed, uint256 spendable);
-    error PrincipalTooLarge();
-    error NotAdmin();
-    error FeeTooHigh();
-    error InsufficientTreasury(uint256 needed, uint256 available);
-    /// @dev Solana refuses a cumulative lower than one it applied (CumulativeDecreased); a rate fall can push the
-    ///      Accrued Yield under what an earlier report said, so that report waits for the rate to recover.
-    error YieldBelowReported(uint256 accrued, uint256 reported);
-
-    constructor(address lst_, address rateSource_, address endpoint_, uint32 sourceChain_, address yieldMinter_) {
-        lst = IERC20Minimal(lst_);
-        rateSource = IRateSource(rateSource_);
-        messageEndpoint = endpoint_;
-        sourceChain = sourceChain_;
-        yieldMinter = yieldMinter_;
+    constructor(address lst_, address rateSource_, address endpoint_, uint32 sourceChain_, address yieldMinter_)
+        PositionVaultBase(lst_, rateSource_, endpoint_, sourceChain_, yieldMinter_)
+    {
+        prizeModule = new PrizeModule(lst_, rateSource_, endpoint_, sourceChain_, yieldMinter_);
     }
 
     // ---------------------------------------------------------------- admin
-
-    /// @notice Sets the Yield Fee for Positions opened afterwards; open Positions keep theirs.
-    function setYieldFeeBps(uint16 bps) external {
-        _checkAdmin();
-        if (bps > MAX_YIELD_FEE_BPS) revert FeeTooHigh();
-        yieldFeeBps = bps;
-        emit YieldFeeSet(bps);
-    }
 
     /// @notice Moves LST shares from the admin into the Treasury.
     function fundTreasury(uint256 shares) external {
@@ -173,7 +32,8 @@ contract PositionVault {
         if (shares == 0) revert ZeroAmount();
         if (!lst.transferFrom(msg.sender, address(this), shares)) revert TransferFailed();
         uint256 underlying = _value(shares, rateSource.underlyingPerShare());
-        treasuryCredited += underlying;
+        if (_real()) treasuryShares += shares;
+        else treasuryCredited += underlying;
         emit TreasuryFunded(msg.sender, shares, underlying);
     }
 
@@ -183,30 +43,85 @@ contract PositionVault {
         if (amount == 0) revert ZeroAmount();
         uint256 available = treasuryBalance();
         if (amount > available) revert InsufficientTreasury(amount, available);
-        treasuryWithdrawn += amount;
         uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
+        if (_real()) treasuryShares -= shares;
+        else treasuryWithdrawn += amount;
         _payShares(to, shares);
         emit TreasuryWithdrawn(to, amount, shares);
     }
 
+    function setEscrowKeeper(address keeper) external {
+        _checkAdmin();
+        escrowKeeper = keeper;
+        emit EscrowKeeperSet(keeper);
+    }
+
+    /// @notice Moves the Pool's part of the fees into the prize escrow (called by the keeper at Season
+    ///         end). `shares == 0` moves all of it. Real vaults move shares between two claims that both sit inside T,
+    ///         so the vault stays solvent by construction; SimLST vaults mint the shares. The cumulative `escrowed*`
+    ///         figures rise, and the next Yield Report or batch result carries them to Solana.
+    function fundPrizeEscrow(uint256 shares) external {
+        if (!_isAdmin(msg.sender) && msg.sender != escrowKeeper) revert NotAdminOrKeeper();
+        uint256 rate = rateSource.underlyingPerShare();
+        uint256 moved;
+        uint256 units;
+        if (_real()) {
+            moved = shares == 0 ? poolOwedShares : shares;
+            if (moved > poolOwedShares) revert EscrowTooSmall(moved, poolOwedShares);
+            poolOwedShares -= moved;
+            units = _value(moved, rate);
+        } else {
+            uint256 owedUnits = poolOwedUnits();
+            units = shares == 0 ? owedUnits : (shares * rate) / RATE_SCALE;
+            if (units > owedUnits) revert EscrowTooSmall(units, owedUnits);
+            poolFundedUnits += units;
+            moved = (units * RATE_SCALE) / rate;
+            _mintToEscrow(moved);
+        }
+        if (moved == 0) revert ZeroAmount();
+        _addEscrow(moved, units, false);
+    }
+
+    function _isAdmin(address who) internal view virtual returns (bool) {
+        return who == admin;
+    }
+
     function _checkAdmin() internal view virtual {
-        if (msg.sender != admin) revert NotAdmin();
+        if (!_isAdmin(msg.sender)) revert NotAdmin();
     }
 
     // ---------------------------------------------------------------- views
 
     /// @notice What the vault Treasury can still pay now, in underlying units (the figure a Yield Report carries).
     function treasuryBalance() public view returns (uint256) {
-        uint256 inflow = _openFees(_clock()) + realisedFees + treasuryCredited;
-        uint256 outflow = treasuryWithdrawn + instantPaid;
+        if (_real()) return _value(spendableTreasuryShares(), rateSource.underlyingPerShare());
+        uint256 inflow = realisedFees + treasuryCredited;
+        uint256 outflow = treasuryWithdrawn + instantPaid + _poolEntitledUnits();
         return inflow > outflow ? inflow - outflow : 0;
+    }
+
+    /// @notice SimLST vaults: the Pool's part of the fees taken so far, in underlying, not yet moved into the escrow.
+    function poolOwedUnits() public view returns (uint256) {
+        if (_real()) return 0;
+        uint256 entitled = _poolEntitledUnits();
+        return entitled > poolFundedUnits ? entitled - poolFundedUnits : 0;
+    }
+
+    function _poolEntitledUnits() internal view returns (uint256) {
+        return _real() ? 0 : poolAccruedUnits;
+    }
+
+    /// @notice Real-LST vaults: Treasury shares nobody else has a claim on.
+    function spendableTreasuryShares() public view returns (uint256) {
+        uint256 claimed = owedShares + poolOwedShares + escrowShares + reservedShares;
+        return treasuryShares > claimed ? treasuryShares - claimed : 0;
     }
 
     function getPosition(uint64 id) external view returns (Position memory) {
         return _positions[id];
     }
 
-    /// @notice Cumulative accrued yield (net of the Yield Fee, including what was paid) right now.
+    /// @notice Cumulative accrued (gross) yield, including what was paid, right now.
     function accruedYield(uint64 id) public view returns (uint256) {
         return _accrued(_positions[id]);
     }
@@ -215,6 +130,11 @@ contract PositionVault {
         Position storage p = _positions[id];
         uint256 accrued = _accrued(p);
         return accrued > p.paidUnderlying ? accrued - p.paidUnderlying : 0;
+    }
+
+    /// @notice What a PayYield may take now: payable yield minus what pending cash-in batches hold back.
+    function unreservedYield(uint64 id) external view returns (uint256) {
+        return _unreservedYield(id, _positions[id]);
     }
 
     // ---------------------------------------------------------------- outbound
@@ -250,7 +170,6 @@ contract PositionVault {
         p.openRate = rate;
         p.openTime = uint64(block.timestamp);
         p.horizonMonths = horizonMonths;
-        p.feeBps = yieldFeeBps;
         _open(p);
         uint64 seq = ++p.outSeq;
 
@@ -278,15 +197,30 @@ contract PositionVault {
     function reportYield(uint64 id) external payable {
         Position storage p = _positions[id];
         if (p.owner == address(0)) revert UnknownPosition();
+        // Solana refuses a lower cumulative, so after a rate fall the report carries the high-water mark and the
+        // Treasury balance and Instant payouts still go out fresh. The shortfall is the holders' (founder rule D2).
         uint256 accrued = _accrued(p);
-        if (accrued < reportedAccrued[id]) revert YieldBelowReported(accrued, reportedAccrued[id]);
-        reportedAccrued[id] = accrued;
+        uint256 reported = reportedAccrued[id];
+        if (accrued < reported) accrued = reported;
+        else reportedAccrued[id] = accrued;
         uint256 treasury = treasuryBalance();
         uint64 seq = ++p.outSeq;
         uint256 rate = rateSource.underlyingPerShare();
         emit YieldAccrued(id, accrued, rate, seq, treasury, instantPaid);
         _send(
-            abi.encode(MSG_YIELD_ACCRUED, sourceChain, id, seq, accrued, rate, block.timestamp, treasury, instantPaid)
+            abi.encode(
+                MSG_YIELD_ACCRUED,
+                sourceChain,
+                id,
+                seq,
+                accrued,
+                rate,
+                block.timestamp,
+                treasury,
+                instantPaid,
+                escrowedShares,
+                escrowedUnits
+            )
         );
     }
 
@@ -300,6 +234,10 @@ contract PositionVault {
 
     function _receive(bytes memory payload) internal virtual {
         (uint8 msgType, uint32 chain, uint64 id, uint64 seq) = abi.decode(payload, (uint8, uint32, uint64, uint64));
+        if (msgType == MSG_CASH_IN_BATCH || msgType == MSG_PAY_PRIZE) {
+            if (chain != sourceChain) return _ignore(id, msgType, seq, "wrong chain");
+            return _delegate(abi.encodeCall(PrizeModule.receivePayload, (payload)));
+        }
         if (msgType != MSG_UNLOCK && msgType != MSG_PAY_YIELD && msgType != MSG_PAY_INSTANT) revert UnknownMessage();
 
         Position storage p = _positions[id];
@@ -313,21 +251,37 @@ contract PositionVault {
         if (msgType == MSG_UNLOCK) {
             _onUnlock(id, p, seq);
         } else {
-            (,,,, bytes32 to, uint256 amount) = abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, uint256));
-            if (msgType == MSG_PAY_YIELD) _onPayYield(id, p, seq, address(uint160(uint256(to))), amount);
-            else _onPayInstant(id, seq, address(uint160(uint256(to))), amount);
+            if (msgType == MSG_PAY_YIELD) {
+                (,,,, bytes32 to, uint256 amount, uint256 fee, uint256 pool) =
+                    abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, uint256, uint256, uint256));
+                _onPayYield(id, p, seq, address(uint160(uint256(to))), amount, fee, pool);
+            } else {
+                (,,,, bytes32 to, uint256 amount) =
+                    abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, uint256));
+                _onPayInstant(id, seq, address(uint160(uint256(to))), amount);
+            }
         }
     }
 
-    /// @dev Freezes the Position's accrued yield and fee at this block, drops it from the open sums and releases
+    /// @dev Runs a `PrizeModule` entry point on this contract's storage and sends the acknowledgement it returns.
+    ///      A revert inside the module reverts the delivery with the same reason.
+    function _delegate(bytes memory data) internal {
+        (bool ok, bytes memory ret) = address(prizeModule).delegatecall(data);
+        if (!ok) {
+            assembly {
+                revert(add(ret, 32), mload(ret))
+            }
+        }
+        bytes memory ack = abi.decode(ret, (bytes));
+        if (ack.length != 0) _sendAck(ack);
+    }
+
+    /// @dev Freezes the Position's accrued yield at this block, drops it from the open sums and releases
     ///      Principal (worth principalUnderlying at the current rate) to the owner. Unpaid yield stays claimable
     ///      by redeemers.
     function _onUnlock(uint64 id, Position storage p, uint64 seq) internal {
         if (p.unlocked) return _ignore(id, MSG_UNLOCK, seq, "already unlocked");
-        uint256 gross = _gross(p, _clock());
-        uint256 fee = (gross * p.feeBps) / BPS;
-        p.frozenAccrued = gross - fee;
-        realisedFees += fee;
+        p.frozenAccrued = _gross(p, _clock());
         _close(p);
         p.unlocked = true;
 
@@ -336,31 +290,91 @@ contract PositionVault {
         if (release > p.principalShares) release = p.principalShares;
         if (yieldMinter == address(0)) {
             if (release > p.heldShares) release = p.heldShares;
-            p.heldShares -= release;
+            _moveLeftoverToTreasury(id, p, rate, release);
         }
         if (!lst.transfer(p.owner, release)) revert TransferFailed();
         emit PositionUnlocked(id, p.owner, release, seq);
     }
 
-    function _onPayYield(uint64 id, Position storage p, uint64 seq, address to, uint256 amount) internal {
-        uint256 accrued = _accrued(p);
-        uint256 available = accrued > p.paidUnderlying ? accrued - p.paidUnderlying : 0;
+    /// @dev Real LSTs: everything the Position still holds beyond the shares released to its owner joins the Treasury
+    ///      (the unpaid yield, owed to its holders). The unpaid yield becomes `owedShares` at the Unlock rate, rounded
+    ///      down and never above what moved, so the Treasury always holds at least what it owes.
+    function _moveLeftoverToTreasury(uint64 id, Position storage p, uint256 rate, uint256 release) internal {
+        uint256 rest = p.heldShares - release;
+        openHeldShares -= p.heldShares;
+        p.heldShares = 0;
+        treasuryShares += rest;
+        uint256 unpaid = p.frozenAccrued > p.paidUnderlying ? p.frozenAccrued - p.paidUnderlying : 0;
+        uint256 owed = (unpaid * RATE_SCALE) / rate;
+        if (owed > rest) owed = rest;
+        unlockRate[id] = rate;
+        owedSharesOf[id] = owed;
+        owedShares += owed;
+    }
+
+    /// @dev `amount` leaves the Position's yield; `fee` of it (at most the Yield Fee cap) stays with the Treasury and
+    ///      the holder gets the rest.
+    ///      `pool` is the part of the Treasury's share owed to the Leaderboard Pool, never above what the Treasury
+    ///      gains here, so the Treasury always holds what the Pool is owed. A refill (`to == vault`) keeps all of it.
+    function _onPayYield(
+        uint64 id,
+        Position storage p,
+        uint64 seq,
+        address to,
+        uint256 amount,
+        uint256 fee,
+        uint256 pool
+    ) internal {
+        if (fee * BPS > amount * MAX_YIELD_FEE_BPS || pool > amount) revert BadFeeSplit(amount, fee, pool);
+        uint256 available = _unreservedYield(id, p);
         if (amount > available) revert ExceedsAccruedYield(amount, available);
 
-        p.paidUnderlying += amount;
-        uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
-        _recordPayout(p, shares, amount);
+        (uint256 shares, bool settled) = _debitYield(id, p, amount);
+        uint256 rate = settled ? unlockRate[id] : rateSource.underlyingPerShare();
         if (to == address(this)) {
             // Tesoro redeemed the Gemas it bought with Instant Redeems: the yield goes back to the Treasury. No
-            // tokens move; the yield was never minted (SimLST) or is already among the held shares (real).
-            treasuryCredited += amount;
+            // tokens move; the yield was never minted (SimLST) or is already among the held shares (real). With the
+            // holders' claim gone, shares of an unlocked Position become spendable.
+            if (!settled) {
+                if (_real()) treasuryShares += shares;
+                else treasuryCredited += amount;
+            }
+            _owePool(pool, amount, shares, rate);
             emit TreasuryRefilled(id, amount, seq);
             return;
         }
         // Shares rounded down (less than one share-wei of value): paying never lowers the reported cumulative,
-        // which tesoro_core refuses (CumulativeDecreased).
-        _payShares(to, shares);
-        emit YieldPaid(id, to, amount, shares, seq);
+        // which tesoro_core refuses (CumulativeDecreased). The fee shares are what is left of the debit.
+        uint256 holderShares = ((amount - fee) * RATE_SCALE) / rate;
+        uint256 feeShares = shares - holderShares;
+        if (_real()) {
+            if (settled) treasuryShares -= holderShares;
+            else treasuryShares += feeShares;
+        } else {
+            realisedFees += fee;
+        }
+        _owePool(pool, fee, feeShares, rate);
+        _payShares(to, holderShares);
+        emit YieldPaid(id, to, amount - fee, holderShares, seq);
+    }
+
+    /// @dev Records `poolUnits` as owed to the Leaderboard Pool, capped at `capUnits` / `capShares`, the part the
+    ///      Treasury gained in this cash-out. Shares are floored.
+    function _owePool(uint256 poolUnits, uint256 capUnits, uint256 capShares, uint256 rate) internal {
+        if (_real()) {
+            uint256 poolShares = (poolUnits * RATE_SCALE) / rate;
+            poolOwedShares += poolShares < capShares ? poolShares : capShares;
+        } else {
+            poolAccruedUnits += poolUnits < capUnits ? poolUnits : capUnits;
+        }
+    }
+
+    /// @dev Yield a PayYield may take now: what the Position can still pay minus what pending batches reserved.
+    function _unreservedYield(uint64 id, Position storage p) internal view returns (uint256) {
+        uint256 accrued = _accrued(p);
+        uint256 available = accrued > p.paidUnderlying ? accrued - p.paidUnderlying : 0;
+        uint256 held = reservedUnits[id];
+        return available > held ? available - held : 0;
     }
 
     /// @dev Pays `amount` underlying out of the Treasury, independent of the Position's own shares and lock state.
@@ -372,126 +386,43 @@ contract PositionVault {
         uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
         if (amount > available) revert InsufficientTreasury(amount, available);
         if (shares > _spendable()) revert InsufficientShares(shares, _spendable());
+        if (_real()) treasuryShares -= shares;
         instantPaid += amount;
         _payShares(to, shares);
         emit InstantPaid(id, to, amount, shares, seq);
     }
 
-    function _ignore(uint64 id, uint8 msgType, uint64 seq, string memory reason) internal {
-        emit MessageIgnored(id, msgType, seq, reason);
+    // ---------------------------------------------------------------- cash-in batches and prizes
+
+    /// @notice The persistent receipt of a batch: what was asked, what was paid so far, what is held back.
+    function batchOf(uint64 batchId)
+        external
+        view
+        returns (bool exists, uint8 kind, bytes32 recipient, BatchEntry[] memory entries)
+    {
+        Batch storage b = _batches[batchId];
+        return (b.exists, b.kind, b.recipient, b.entries);
     }
 
-    // ---------------------------------------------------------------- math
-
-    function _value(uint256 shares, uint256 rate) internal pure returns (uint256) {
-        return (shares * rate) / RATE_SCALE;
+    /// @notice Regenerates the acknowledgement of a batch (the vault pays nothing; the caller pays the message fee in
+    ///         a LayerZero subclass).
+    function resendBatchResult(uint64 batchId) external payable {
+        if (!_batches[batchId].exists) revert UnknownMessage();
+        _send(_batchResult(batchId));
     }
 
-    /// @dev The clock the gross yield is linear in: time for a SimLST, the rate for a real LST.
-    function _clock() internal view returns (uint256) {
-        return yieldMinter != address(0) ? block.timestamp : rateSource.underlyingPerShare();
-    }
-
-    function _den() internal view returns (uint256) {
-        return yieldMinter != address(0) ? BPS * YEAR : RATE_SCALE;
-    }
-
-    /// @dev Stores the Position's linear coefficients and adds it to the open sums.
-    function _open(Position storage p) internal {
-        uint256 pu = p.principalUnderlying;
-        uint256 a;
-        uint256 b;
-        if (yieldMinter != address(0)) {
-            IYieldMinter m = IYieldMinter(yieldMinter);
-            p.apyBps = m.apyBps();
-            p.speedup = m.speedup();
-            a = pu * p.apyBps * p.speedup;
-            b = a * block.timestamp;
-        } else {
-            a = p.principalShares;
-            b = pu * RATE_SCALE;
-            p.heldShares = a;
-        }
-        p.a = a;
-        p.b = b;
-        sumFeeA += a * p.feeBps;
-        sumFeeB += b * p.feeBps;
-        openPrincipalUnderlying += pu;
-    }
-
-    function _close(Position storage p) internal {
-        sumFeeA -= p.a * p.feeBps;
-        sumFeeB -= p.b * p.feeBps;
-        sumFeeD -= p.d * p.feeBps;
-        openPrincipalUnderlying -= p.principalUnderlying;
-    }
-
-    /// @dev The Position's gross yield (before the Yield Fee) at clock `x`; zero if the rate fell below its open rate.
-    function _gross(Position storage p, uint256 x) internal view returns (uint256) {
-        uint256 hi = p.a * x + p.d;
-        return hi > p.b ? (hi - p.b) / _den() : 0;
-    }
-
-    /// @dev Yield Fees accrued so far by all open Positions.
-    function _openFees(uint256 x) internal view returns (uint256) {
-        uint256 hi = sumFeeA * x + sumFeeD;
-        return hi > sumFeeB ? (hi - sumFeeB) / (_den() * BPS) : 0;
-    }
-
-    /// @dev Cumulative Accrued Yield: gross minus the Yield Fee, frozen at Unlock.
-    function _accrued(Position storage p) internal view returns (uint256) {
-        if (p.unlocked) return p.frozenAccrued;
-        uint256 gross = _gross(p, _clock());
-        return gross - (gross * p.feeBps) / BPS;
-    }
-
-    /// @dev Real LSTs: shares that leave the Position stop earning, so move their value from heldShares to the paid
-    ///      total. Gross yield (heldShares * rate + paid - Principal) is unchanged by the move. After Unlock the
-    ///      Position is frozen and out of the sums.
-    function _recordPayout(Position storage p, uint256 shares, uint256 amount) internal {
-        if (yieldMinter != address(0) || p.unlocked) return;
-        uint256 f = p.feeBps;
-        p.a -= shares;
-        p.heldShares -= shares;
-        p.d += amount * RATE_SCALE;
-        sumFeeA -= shares * f;
-        sumFeeD += amount * RATE_SCALE * f;
-    }
-
-    /// @dev Shares a real-LST vault may pay out: its balance minus the shares that back open Principal.
-    function _spendable() internal view returns (uint256) {
-        if (yieldMinter != address(0)) return type(uint256).max; // short shares are minted
-        uint256 bal = lst.balanceOf(address(this));
-        uint256 reserve = _reserve();
-        return bal > reserve ? bal - reserve : 0;
-    }
-
-    function _reserve() internal view returns (uint256) {
-        uint256 rate = rateSource.underlyingPerShare();
-        return (openPrincipalUnderlying * RATE_SCALE + rate - 1) / rate;
-    }
-
-    /// @dev Sends `shares` to `to`. A SimLST vault pays from shares it holds beyond open Principal first (funding,
-    ///      leftovers) and mints the rest, so yield is only minted at the moment it is paid. A real-LST vault
-    ///      pays from its balance and reverts (retryable) when that would eat open Principal.
-    function _payShares(address to, uint256 shares) internal {
-        if (shares == 0) return;
-        if (yieldMinter != address(0)) {
-            uint256 bal = lst.balanceOf(address(this));
-            uint256 reserve = _reserve();
-            uint256 free = bal > reserve ? bal - reserve : 0;
-            if (shares > free) {
-                IYieldMinter(yieldMinter).mint(address(this), shares - free);
-                emit YieldMinted(shares - free);
-            }
-        } else {
-            uint256 spendable = _spendable();
-            if (shares > spendable) revert InsufficientShares(shares, spendable);
-        }
-        if (!lst.transfer(to, shares)) revert TransferFailed();
+    function resendPayPrizeResult(uint64 payoutId) external payable {
+        if (payouts[payoutId].status == 0) revert UnknownMessage();
+        _send(_payoutResult(payoutId));
     }
 
     // ---------------------------------------------------------------- transport seam
+
+    /// @dev Acknowledgements are sent from inside a delivery, where there is no caller to charge. A LayerZero subclass
+    ///      pays from the vault's own balance and never reverts the delivery when it cannot; `resend*Result` answers again.
+    function _sendAck(bytes memory payload) internal virtual {
+        _send(payload);
+    }
 
     /// @dev Override to send through LayerZero. Default: the configured endpoint.
     function _send(bytes memory payload) internal virtual {

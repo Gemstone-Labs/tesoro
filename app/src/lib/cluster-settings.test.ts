@@ -1,10 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CLUSTERS, magicblockSettings, resolveCluster } from "./cluster-settings";
 
 describe("cluster settings", () => {
   it("test mode keeps today's values", () => {
     const t = CLUSTERS.test;
-    expect(t.entrySizes).toEqual([500, 1000, 2500]);
+    expect(t.entrySizes).toEqual([100, 500, 1000]);
     expect(t.defaultHorizonMonths).toBe(1);
     expect(t).toMatchObject({ yieldModel: "simulated", priceSource: "keeper", inviteRequired: false });
     expect(t.solana.genesisHash).toBe("EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG");
@@ -53,5 +54,17 @@ describe("cluster settings", () => {
     expect(m.teeRpc).toBe("https://mainnet-tee.magicblock.app");
     expect(m.teeValidator).toBe(CLUSTERS.mainnet.magicblock.teeValidator);
     expect(() => magicblockSettings(CLUSTERS.test, { MAGICBLOCK_TEE_RPC: "wss://x" })).toThrow(/TEE_RPC must be a http/);
+  });
+});
+
+describe("entry sizes match the program", () => {
+  // tesoro_core uses ledger::LADDER while Config.entry_sizes is unset, as on devnet. If the app
+  // offers other sizes, entry fails on chain: change both together.
+  const src = readFileSync(new URL("../../../programs/tesoro_core/src/ledger/mod.rs", import.meta.url), "utf8");
+  const ladder = /pub const LADDER: \[u64; \d+\] = \[([^\]]+)\];/.exec(src)?.[1];
+
+  it("test mode offers exactly the program's default LADDER", () => {
+    expect(ladder, "LADDER not found in programs/tesoro_core/src/ledger/mod.rs").toBeDefined();
+    expect(CLUSTERS.test.entrySizes).toEqual(ladder!.split(",").map((n) => Number(n.trim().replaceAll("_", ""))));
   });
 });

@@ -1,21 +1,28 @@
-import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import type { Decorator, Meta, StoryObj } from "@storybook/nextjs-vite";
 import { userEvent, waitFor, within } from "storybook/test";
 import { PublicKey } from "@solana/web3.js";
-import { demoSnapshot } from "@/lib/chain/fixture";
+import { demoSnapshot, fixtureHolding } from "@/lib/chain/fixture";
 import { ETH_VAULTS } from "@/lib/chain/eth";
 import type { AccountSnapshot, ChainPosition } from "@/lib/chain/read";
-import Wallet from "@/app/(app)/wallet/page";
+import Vault from "@/app/(app)/vault/page";
 import Opening from "@/app/(app)/wallet/opening/page";
+import { writeViewMode } from "@/lib/deposit/view-mode";
 import { demoKey, withScreen, type ScreenData } from "./support/screen";
 import { withSigner } from "./support/signer";
 import { nativeSnapshot } from "../components/wallet/support";
 
+/** The Vault in its Advanced view (the old Wallet): the demo Account has chosen it. */
+const withAdvancedView: Decorator = (Story) => {
+  writeViewMode(PublicKey.default.toBase58(), "advanced");
+  return <Story />;
+};
+
 const meta = {
   title: "Screens/Wallet",
-  component: Wallet,
-  decorators: [withSigner, withScreen],
-  parameters: { layout: "fullscreen", shell: "app", nextjs: { navigation: { pathname: "/wallet" } } },
-} satisfies Meta<typeof Wallet>;
+  component: Vault,
+  decorators: [withAdvancedView, withSigner, withScreen],
+  parameters: { layout: "fullscreen", shell: "app", nextjs: { navigation: { pathname: "/vault" } } },
+} satisfies Meta<typeof Vault>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 
@@ -28,6 +35,21 @@ export const NoPositions: Story = {
 
 export const NoAccountYet: Story = {
   parameters: { data: { snapshot: (a: string) => ({ ...demoSnapshot(a), exists: false, positions: [], holdings: [], matches: [], funded: [], ownTotal: 0n, wonTotal: 0n }) } },
+};
+
+/** Gemas that did not fit in the Account when a win landed wait for room; Claim moves them in. */
+export const GemasWaitingForRoom: Story = {
+  parameters: {
+    data: {
+      snapshot: (a: string): AccountSnapshot => ({
+        ...demoSnapshot(a),
+        waiting: [
+          { address: new PublicKey(demoKey(990)), owner: new PublicKey(demoKey(991)), payer: new PublicKey(demoKey(992)), kind: 0, match: null, gemas: 270n, lines: 1, sources: [new PublicKey(demoKey(993))] },
+          { address: new PublicKey(demoKey(994)), owner: new PublicKey(demoKey(991)), payer: new PublicKey(demoKey(992)), kind: 1, match: null, gemas: 50n, lines: 1, sources: [new PublicKey(demoKey(995))] },
+        ],
+      }),
+    },
+  },
 };
 
 export const Loading: Story = { parameters: { data: { snapshot: null } } };
@@ -48,13 +70,13 @@ export const GemasReservedForOffers: Story = {
   },
 };
 
-/** Sent here by a game that needs 2,500 Gemas (`?open=1&game=holdem&need=2500`): the Get Gemas sheet opens with that context. */
-export const FromNotEnoughGemas: Story = { parameters: { screen: { search: "open=1&game=holdem&need=2500" } } };
+/** Sent here by a game that needs 1,000 Gemas (`?open=1&game=holdem&need=1000`): the Get Gemas sheet opens with that context. */
+export const FromNotEnoughGemas: Story = { parameters: { screen: { search: "open=1&game=holdem&need=1000" } } };
 
 /** The Get Gemas sheet on its first tab, SOL. */
 export const OpenSolPosition: Story = {
   play: async ({ canvasElement }) => {
-    const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Get Gemas/ })[0], { timeout: 10_000 });
+    const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Buy Gemas/ })[0], { timeout: 10_000 });
     await userEvent.click(open);
   },
 };
@@ -116,30 +138,57 @@ export const WithEthAndHypePositions: Story = { parameters: { data: { snapshot: 
 /** The same Positions with the Advance repaid: Debt is zero and Unlock is ready. */
 export const EthAndHypePositionsPaidOff: Story = { parameters: { data: { snapshot: ethSnapshot(true) }, screen: { eth: { advance: "paid" } } } };
 
+const DAY = 86_400;
+const later = (days: number) => Math.floor(Date.now() / 1000) + days * DAY;
+
+/**
+ * Speed in the Wallet: Redeem now per chain, "ready by" dates for the rest (planned repayment of each line), the fee of a
+ * small ETH Redeem against what it pays, and Redeem small leftovers.
+ */
+const speedSnapshot = (a: string): AccountSnapshot => {
+  const s = demoSnapshot(a);
+  const sol = (n: number, amount: bigint, redeemable: bigint, days: number, isOwn = false) =>
+    fixtureHolding(n, { amount, redeemable, isOwn, dueAt: later(days), native: true, sourceOwner: isOwn ? a : demoKey(7000 + n) });
+  const eth = (n: number, amount: bigint, redeemable: bigint, days: number) =>
+    fixtureHolding(n, { amount, redeemable, isOwn: false, dueAt: later(days), asset: "ETH", unitNum: 10n ** 22n, unitDen: 2_600_000_000n, eth: { vault: ETH_VAULTS[0].address, id: BigInt(n) }, sourceOwner: demoKey(7000 + n) });
+  const holdings = [
+    sol(1, 3500n, 1240n, 20, true),
+    sol(2, 800n, 0n, 12),
+    sol(3, 600n, 0n, 45),
+    sol(4, 400n, 0n, 120),
+    sol(5, 6n, 6n, 3),
+    sol(6, 18n, 18n, 3),
+    sol(7, 11n, 0n, 9),
+    eth(8, 60n, 60n, 2),
+    eth(9, 340n, 0n, 30),
+  ];
+  const total = (own: boolean) => holdings.filter((h) => h.isOwn === own).reduce((t, h) => t + h.amount, 0n);
+  return { ...s, holdings, ownTotal: total(true), wonTotal: total(false) };
+};
+
+export const SpeedAndLeftovers: Story = { parameters: { data: { snapshot: speedSnapshot } } };
+
 /** A long-time Player: a few own Positions per chain (one ETH unlocked), Gemas won from about 200 Players across SOL, ETH and HYPE. */
 const heavySnapshot = (a: string): AccountSnapshot => {
   const s = demoSnapshot(a);
   const PRICE = { SOL: 150, ETH: 2600, HYPE: 40 } as const;
   const DECIMALS = { SOL: 9n, ETH: 18n, HYPE: 18n } as const;
-  const held = (n: number, asset: "SOL" | "ETH" | "HYPE", isOwn: boolean, owner: string, amount: bigint, redeemable: bigint) => ({
-    holding: new PublicKey(demoKey(3000 + n)),
-    source: new PublicKey(demoKey(4000 + n)),
-    position: new PublicKey(demoKey(5000 + n)),
-    isOwn,
-    amount,
-    reserved: 0n,
-    free: amount,
-    redeemable,
-    pending: isOwn ? 0n : amount - redeemable,
-    sourceDebt: 0n,
-    unitNum: 10n ** (DECIMALS[asset] + 4n),
-    unitDen: BigInt(PRICE[asset] * 1_000_000),
-    sourceOwner: owner,
-    asset,
-    native: asset === "SOL",
-    eth: asset === "SOL" ? null : { vault: ETH_VAULTS[asset === "ETH" ? 0 : 1].address, id: BigInt(n) },
-    stakeMint: null,
-  });
+  const held = (n: number, asset: "SOL" | "ETH" | "HYPE", isOwn: boolean, owner: string, amount: bigint, redeemable: bigint) =>
+    fixtureHolding(n, {
+      source: new PublicKey(demoKey(4000 + n)),
+      position: new PublicKey(demoKey(5000 + n)),
+      isOwn,
+      amount,
+      redeemable,
+      // fast Gemas first: lines further out repay later
+      dueAt: Math.floor(Date.now() / 1000) + (1 + (n % 40)) * 86_400,
+      unitNum: 10n ** (DECIMALS[asset] + 4n),
+      unitDen: BigInt(PRICE[asset] * 1_000_000),
+      sourceOwner: owner,
+      asset,
+      native: asset === "SOL",
+      eth: asset === "SOL" ? null : { vault: ETH_VAULTS[asset === "ETH" ? 0 : 1].address, id: BigInt(n) },
+    });
   const won = Array.from({ length: 230 }, (_, i) => {
     const asset = i % 9 < 5 ? "SOL" : i % 9 < 7 ? "ETH" : "HYPE";
     const amount = BigInt(90 + ((i * 7919) % 2400));
@@ -184,13 +233,13 @@ const heavySnapshot = (a: string): AccountSnapshot => {
 export const LongTimePlayer: Story = { parameters: { data: { snapshot: heavySnapshot }, screen: { eth: { advance: "open" } } } };
 
 const openTab = (name: string): Story["play"] => async ({ canvasElement }) => {
-  const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Get Gemas/ })[0], { timeout: 10_000 });
+  const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Buy Gemas/ })[0], { timeout: 10_000 });
   await userEvent.click(open);
   const tab = await waitFor(() => within(document.body).getAllByRole("tab", { name: new RegExp(`^${name}`) })[0], { timeout: 10_000 });
   await userEvent.click(tab);
 };
 
-/** The Get Gemas sheet on the ETH tab. */
+/** The Buy Gemas sheet on the ETH tab. */
 export const OpenEthPosition: Story = { parameters: { data: { snapshot: withEth }, screen: { eth: { advance: "open" } } }, play: openTab("ETH") };
 export const OpenHypePosition: Story = { parameters: { data: { snapshot: withEth }, screen: { eth: { advance: "open" } } }, play: openTab("HYPE") };
 

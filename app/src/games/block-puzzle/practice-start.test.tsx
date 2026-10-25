@@ -10,20 +10,18 @@ describe("Block Burst practice", () => {
     expect(html).not.toContain("bp-rules");
   });
 
-  it("retains the main Match caller contract and footer without an Account provider", () => {
+  it("renders the table-clock Match contract and status footer", () => {
     const reported: string[] = [];
     const run: MatchRun = {
       seed: 22n,
-      startedAt: 1000,
+      remainingMs: () => 90_000,
       entry: 25,
       onMove: () => { reported.push("move"); },
       onEnd: () => { reported.push("end"); },
     };
     const html = renderToStaticMarkup(<BlockPuzzleGame run={run} matchPanel={<span>Waiting for opponent</span>} />);
     expect(html).toContain("Waiting for opponent");
-    expect(html).toContain('Entry <b class="tnum">25</b>');
-    expect(html).toContain('Pot <b class="tnum">50</b>');
-    expect(html).toContain('class="mono bpx-seed"');
+    expect(html).toContain('aria-label="Pot 50 Gemas, entry 25"');
     expect(html).toContain('class="bp-ready-grid"');
     expect(html).toContain('class="bp-clear-grid"');
     expect(html).not.toContain("Test vibration");

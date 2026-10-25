@@ -7,9 +7,8 @@ mod common;
 
 use anchor_lang::prelude::Pubkey as APk;
 use anchor_lang::solana_program::program_pack::Pack;
-use anchor_lang::{
-    AccountDeserialize, AccountSerialize, Discriminator, InstructionData, ToAccountMetas,
-};
+use anchor_lang::AccountDeserialize;
+use anchor_lang::{AccountSerialize, Discriminator, InstructionData, ToAccountMetas};
 use anchor_spl::associated_token::get_associated_token_address;
 use anchor_spl::token::{spl_token, ID as TOKEN_PROGRAM_ID};
 use litesvm::LiteSVM;
@@ -20,9 +19,7 @@ use solana_sdk::pubkey::Pubkey as Pk;
 use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
-use tesoro_core::ledger::{
-    self, Holding, Offer, OfferKind, OfferStatus, Request, RequestStatus, ReservedLine, Source,
-};
+use tesoro_core::ledger::{self, Offer, OfferStatus, Request, RequestStatus, Source};
 use tesoro_core::state::*;
 use tesoro_core::{accounts, instruction};
 
@@ -120,7 +117,7 @@ impl Env {
         let mut env = Self { svm, admin };
         let key = a(env.admin.pubkey());
         let platform = pda(&[ACCOUNT_SEED, key.as_ref()]);
-        env.put_account(key, [0; 4]);
+        env.put_account(key);
         let admin = env.admin.insecure_clone();
         env.send(
             &[ix(
@@ -159,19 +156,13 @@ impl Env {
             .unwrap_or(true)
     }
 
-    fn put_account(&mut self, authority: APk, totals: [u64; 4]) -> APk {
+    fn put_account(&mut self, authority: APk) -> APk {
         let key = pda(&[ACCOUNT_SEED, authority.as_ref()]);
         let acct = TesoroAccount {
             bump: APk::find_program_address(&[ACCOUNT_SEED, authority.as_ref()], &tesoro_core::ID)
                 .1,
             authority,
             evm_address: [0; 20],
-            inner: ledger::Account {
-                own_total: totals[0],
-                won_total: totals[1],
-                own_reserved: totals[2],
-                won_reserved: totals[3],
-            },
         };
         put(
             &mut self.svm,
@@ -180,13 +171,6 @@ impl Env {
             serialized(&acct, TesoroAccount::SPACE),
         );
         key
-    }
-
-    fn account_totals(&self, key: APk) -> ledger::Account {
-        let data = self.svm.get_account(&s(key)).expect("account").data;
-        TesoroAccount::try_deserialize(&mut &data[..])
-            .expect("decode")
-            .inner
     }
 
     fn put_token(&mut self, key: APk, owner: APk, amount: u64) {
@@ -298,7 +282,7 @@ impl Env {
         )
     }
 
-    fn retire_holding(&mut self, holding: APk, source: APk, account: APk) -> Result<(), Failed> {
+    fn retire_holding(&mut self, holding: APk, source: APk) -> Result<(), Failed> {
         let admin = self.admin.insecure_clone();
         self.send(
             &[ix(
@@ -307,7 +291,6 @@ impl Env {
                     config: pda(&[CONFIG_SEED]),
                     holding,
                     source,
-                    account,
                 },
                 instruction::RetireHolding {},
             )],
@@ -315,9 +298,9 @@ impl Env {
         )
     }
 
-    fn retire_offer(&mut self, offer: APk, sources: &[APk]) -> Result<(), Failed> {
+    fn retire_offer(&mut self, offer: APk) -> Result<(), Failed> {
         let admin = self.admin.insecure_clone();
-        let mut i = ix(
+        let i = ix(
             accounts::RetireOffer {
                 admin: a(admin.pubkey()),
                 config: pda(&[CONFIG_SEED]),
@@ -325,9 +308,6 @@ impl Env {
             },
             instruction::RetireOffer {},
         );
-        for k in sources {
-            i.accounts.push(AccountMeta::new_readonly(s(*k), false));
-        }
         self.send(&[i], &[&admin])
     }
 
@@ -377,27 +357,25 @@ fn source_for(position: APk, owner: APk) -> SourceState {
             redeemed: 0,
             yield_units: 0,
             redeemed_units: 0,
+            due_at: 0,
+            yield_fee_bps: 0,
+            pool_bps: 0,
+            fee_units: 0,
+            pool_units: 0,
         },
     }
 }
 
-fn holding_for(
-    account: APk,
-    source: APk,
-    is_own: bool,
-    amount: u64,
-    reserved: u64,
-) -> HoldingState {
-    HoldingState {
-        bump: 255,
-        account,
-        inner: Holding {
-            source: source.to_bytes(),
-            is_own,
-            amount,
-            reserved,
-        },
-    }
+/// The bytes of a Holding of the retired world: `disc(8) bump(1) account(32) source(32)` and its
+/// amounts. The program no longer has the type; the wipe reads these raw bytes.
+fn holding_for(account: APk, source: APk) -> Vec<u8> {
+    let mut data =
+        anchor_lang::solana_program::hash::hash(b"account:HoldingState").to_bytes()[..8].to_vec();
+    data.push(255);
+    data.extend_from_slice(account.as_ref());
+    data.extend_from_slice(source.as_ref());
+    data.resize(90, 0);
+    data
 }
 
 #[test]
@@ -464,7 +442,7 @@ fn a_current_custody_is_refused() {
     let (position, owner) = (APk::new_unique(), APk::new_unique());
     let (custody, vault) = env.old_custody(position, owner, 1, true);
     let mut acct = env.svm.get_account(&s(custody)).expect("custody");
-    acct.data.truncate(NativeCustody::SPACE);
+    acct.data.resize(NativeCustody::SPACE, 0);
     env.svm.set_account(s(custody), acct).expect("set");
     let err = env
         .retire_custody(&admin, custody, vault, owner)
@@ -518,13 +496,13 @@ fn positions_retire_only_when_stale_and_only_once() {
 }
 
 #[test]
-fn sources_and_holdings_follow_their_position_and_take_gemas_out_of_the_account() {
+fn sources_and_holdings_follow_their_position() {
     let mut env = Env::new();
     let owner = APk::new_unique();
     let position = APk::new_unique();
     let source = APk::new_unique();
     let holding = APk::new_unique();
-    let acct = env.put_account(owner, [100, 30, 10, 0]);
+    let acct = env.put_account(owner);
     put(
         &mut env.svm,
         position,
@@ -541,35 +519,27 @@ fn sources_and_holdings_follow_their_position_and_take_gemas_out_of_the_account(
         &mut env.svm,
         holding,
         tesoro_core::ID,
-        serialized(
-            &holding_for(acct, source, true, 60, 10),
-            HoldingState::SPACE,
-        ),
+        holding_for(acct, source),
     );
     let own2 = APk::new_unique();
     put(
         &mut env.svm,
         own2,
         tesoro_core::ID,
-        serialized(
-            &holding_for(acct, source, false, 30, 0),
-            HoldingState::SPACE,
-        ),
+        holding_for(acct, source),
     );
 
     let err = env
-        .retire_holding(holding, source, acct)
+        .retire_holding(holding, source)
         .expect_err("source still there");
     assert_eq!(custom_code(&err), NOT_OLD_WORLD);
     env.retire_source(source, position)
         .expect("source of a stale position");
     assert!(env.gone(source));
-    env.retire_holding(holding, source, acct).expect("holding");
-    env.retire_holding(own2, source, acct).expect("won holding");
-    let t = env.account_totals(acct);
-    assert_eq!((t.own_total, t.won_total, t.own_reserved), (40, 0, 0));
+    env.retire_holding(holding, source).expect("holding");
+    env.retire_holding(own2, source).expect("won holding");
     assert!(env.gone(holding) && env.gone(own2));
-    assert!(env.retire_holding(holding, source, acct).is_err(), "twice");
+    assert!(env.retire_holding(holding, source).is_err(), "twice");
 }
 
 #[test]
@@ -579,7 +549,7 @@ fn a_source_of_a_current_position_is_refused_and_so_are_its_holdings() {
     let position = APk::new_unique();
     let source = APk::new_unique();
     let holding = APk::new_unique();
-    let acct = env.put_account(owner, [100, 0, 0, 0]);
+    let acct = env.put_account(owner);
     put(
         &mut env.svm,
         position,
@@ -596,17 +566,14 @@ fn a_source_of_a_current_position_is_refused_and_so_are_its_holdings() {
         &mut env.svm,
         holding,
         tesoro_core::ID,
-        serialized(
-            &holding_for(acct, source, true, 100, 0),
-            HoldingState::SPACE,
-        ),
+        holding_for(acct, source),
     );
     let err = env
         .retire_source(source, position)
         .expect_err("current position");
     assert_eq!(custom_code(&err), NOT_OLD_WORLD);
     let err = env
-        .retire_holding(holding, source, acct)
+        .retire_holding(holding, source)
         .expect_err("live source");
     assert_eq!(custom_code(&err), NOT_OLD_WORLD);
     let other = APk::new_unique();
@@ -614,39 +581,11 @@ fn a_source_of_a_current_position_is_refused_and_so_are_its_holdings() {
         env.retire_source(source, other).is_err(),
         "wrong position address"
     );
-    assert_eq!(env.account_totals(acct).own_total, 100);
-}
-
-fn offer_with_lines(sources: &[APk]) -> OfferState {
-    OfferState {
-        bump: 255,
-        nonce: 1,
-        inner: Offer {
-            backer: [1; 32],
-            game: [2; 32],
-            entry: 500,
-            player_share_bps: 0,
-            kind: OfferKind::Public,
-            status: OfferStatus::Open,
-            expires_at: 0,
-            use_by: 0,
-            player: None,
-            request: None,
-            applicants: vec![],
-            lines: sources
-                .iter()
-                .map(|k| ReservedLine {
-                    source: k.to_bytes(),
-                    is_own: true,
-                    amount: 10,
-                })
-                .collect(),
-        },
-    }
+    assert!(!env.gone(holding));
 }
 
 #[test]
-fn offers_retire_when_old_sized_or_when_every_reserved_source_is_gone() {
+fn offers_retire_when_old_sized_and_only_then() {
     let mut env = Env::new();
     let stale = APk::new_unique();
     put(
@@ -655,41 +594,46 @@ fn offers_retire_when_old_sized_or_when_every_reserved_source_is_gone() {
         tesoro_core::ID,
         with_disc(OfferState::DISCRIMINATOR, OLD_OFFER_LEN),
     );
-    env.retire_offer(stale, &[]).expect("old-sized offer");
+    env.retire_offer(stale).expect("old-sized offer");
     assert!(env.gone(stale));
 
-    let (s1, s2, offer) = (APk::new_unique(), APk::new_unique(), APk::new_unique());
-    put(&mut env.svm, s1, tesoro_core::ID, vec![0u8; 142]);
+    // the layout that carried reserved lines
+    let long = APk::new_unique();
     put(
         &mut env.svm,
-        offer,
+        long,
         tesoro_core::ID,
-        serialized(&offer_with_lines(&[s1, s2]), OfferState::SPACE),
+        with_disc(OfferState::DISCRIMINATOR, 799),
     );
-    let err = env
-        .retire_offer(offer, &[s1, s2])
-        .expect_err("s1 still there");
-    assert_eq!(custom_code(&err), NOT_OLD_WORLD);
-    env.svm
-        .set_account(s(s1), Account::default())
-        .expect("close s1");
-    assert!(
-        env.retire_offer(offer, &[s1]).is_err(),
-        "one account per line"
-    );
-    env.retire_offer(offer, &[s1, s2])
-        .expect("all sources gone");
-    assert!(env.gone(offer));
+    env.retire_offer(long).expect("offer with reserved lines");
+    assert!(env.gone(long));
 
-    let empty = APk::new_unique();
+    // a live Offer of the current layout is not the old world
+    let live = APk::new_unique();
+    let state = OfferState {
+        bump: 255,
+        nonce: 1,
+        inner: Offer {
+            backer: [1; 32],
+            game: [2; 32],
+            entry: 500,
+            player_share_bps: 0,
+            request: [3; 32],
+            status: OfferStatus::Open,
+            expires_at: 0,
+            use_by: 0,
+            player: None,
+            ticket_open: false,
+        },
+    };
     put(
         &mut env.svm,
-        empty,
+        live,
         tesoro_core::ID,
-        serialized(&offer_with_lines(&[]), OfferState::SPACE),
+        serialized(&state, OfferState::SPACE),
     );
     let err = env
-        .retire_offer(empty, &[])
+        .retire_offer(live)
         .expect_err("nothing proves it is old");
     assert_eq!(custom_code(&err), NOT_OLD_WORLD);
 }
@@ -781,4 +725,64 @@ fn only_an_old_treasury_closes_and_init_treasury_recreates_it() {
     let err = env.retire_treasury().expect_err("current treasury");
     assert_eq!(custom_code(&err), NOT_OLD_WORLD);
     assert!(!env.gone(common::treasury()));
+}
+
+const PRE_ROUTE_CUSTODY_LEN: usize = 178;
+
+fn migrate_ix(admin: APk) -> Instruction {
+    ix(
+        accounts::MigrateNativeCustody {
+            admin,
+            config: pda(&[CONFIG_SEED]),
+            custody: pda(&[NATIVE_SEED]),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::MigrateNativeCustody {},
+    )
+}
+
+#[test]
+fn a_custody_from_before_the_route_grows_to_the_current_layout() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    let custody = pda(&[NATIVE_SEED]);
+    let mut old = with_disc(NativeCustody::DISCRIMINATOR, PRE_ROUTE_CUSTODY_LEN);
+    old[8] = 254;
+    old[170..178].copy_from_slice(&7u64.to_le_bytes());
+    put(&mut env.svm, custody, tesoro_core::ID, old);
+
+    env.send(&[migrate_ix(a(admin.pubkey()))], &[&admin])
+        .expect("migrate");
+
+    let got = env.svm.get_account(&s(custody)).expect("custody");
+    assert_eq!(got.data.len(), NativeCustody::SPACE);
+    assert!(got.lamports >= 1_000_000, "rent paid");
+    let decoded = NativeCustody::try_deserialize(&mut &got.data[..]).expect("decodes now");
+    assert_eq!(decoded.bump, 254);
+    assert_eq!(decoded.open_positions, 7);
+    assert_eq!(decoded.route, ledger::RouteLedger::default());
+
+    // Done once: a custody of the current layout is refused.
+    let err = env
+        .send(&[migrate_ix(a(admin.pubkey()))], &[&admin])
+        .expect_err("second run");
+    assert_eq!(custom_code(&err), NOT_OLD_WORLD);
+}
+
+#[test]
+fn only_the_admin_migrates_the_custody() {
+    let mut env = Env::new();
+    let custody = pda(&[NATIVE_SEED]);
+    put(
+        &mut env.svm,
+        custody,
+        tesoro_core::ID,
+        with_disc(NativeCustody::DISCRIMINATOR, PRE_ROUTE_CUSTODY_LEN),
+    );
+    let stranger = Keypair::new();
+    env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    let err = env
+        .send(&[migrate_ix(a(stranger.pubkey()))], &[&stranger])
+        .expect_err("stranger");
+    assert_eq!(custom_code(&err), UNAUTHORIZED);
 }

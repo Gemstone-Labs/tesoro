@@ -4,10 +4,12 @@ import { DocPage, H2 } from "@/components/docs/prose";
 import { Eye, EyeOff, Gamepad2, Calculator, Scale } from "lucide-react";
 import { Pipeline } from "@/components/docs/visual";
 import { BRAND } from "@/lib/brand";
+import { isHiddenGame } from "@/lib/games";
 
 export const metadata: Metadata = { title: "Fairness and privacy", alternates: { canonical: "/docs/fairness" } };
 
 export default function Page() {
+  const vg = !isHiddenGame("vanguard");
   return (
     <DocPage href="/docs/fairness" hero={<Pipeline label="From a hidden start to a settled result" items={[
   { icon: EyeOff, tone: "violet", title: "Sealed", body: "Pieces, deck and positions are made inside a private environment." },
@@ -32,6 +34,7 @@ export default function Page() {
         <li><b>Hold&apos;em.</b> The deck and each Player&apos;s hole cards are private. Your cards are readable only by you; cards become public only at a showdown.</li>
         <li><b>Block Burst.</b> The pieces for a Match are generated at random and are not visible to anyone, including you, until your own run begins. Your moves stay hidden until both runs are closed.</li>
         <li><b>Trading Duel.</b> Each Player&apos;s picks stay hidden until their column locks, ten seconds before the line reaches it, and both full sets of picks are published afterwards.</li>
+        {vg && <li><b>Vanguard.</b> The rank of each of your pieces is readable only by you. An enemy piece shows its rank only once it has fought, and a piece that loses an attack stays hidden. A Major that digs in and a General of the Army that becomes a Spy are sealed: your opponent sees a turn pass, never which piece changed. A Blast or a Rescue is public. When the Match ends everything is shown.</li>}
       </ul>
       <p>
         This is done with MagicBlock&apos;s private environment, which runs on secure hardware. Randomness comes from a verifiable random-number service

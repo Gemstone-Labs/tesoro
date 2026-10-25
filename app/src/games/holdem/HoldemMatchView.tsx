@@ -1,5 +1,6 @@
 "use client";
 
+import { parseMatchKey } from "@/lib/chain/match-id";
 import { Busy, Button, Card, Chip, GemaAmount, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { commitCopy } from "@/lib/chain/commit-pending";
@@ -30,13 +31,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
   const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
   const nowSecs = useNowSecs();
-  const id = (() => {
-    try {
-      return BigInt(matchId);
-    } catch {
-      return null;
-    }
-  })();
+  const id = parseMatchKey(matchId) ? matchId : null;
   const { view, act, claimTimeout, run } = useHoldemMatch(id, signer, refresh);
   const { stage, match: m, table: t, seat } = view;
 
@@ -124,7 +119,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
       )}
 
       {showTable && t && seat !== null && (
-        <HoldemTable table={t} seat={seat} hole={view.hole} busy={view.busy} ended={tableOver || stage === "settled"} entry={m?.entry} error={view.error} onAct={(a, label) => void act(a, label)} onClaim={() => void claimTimeout()} />
+        <HoldemTable table={t} seat={seat} hole={view.hole} busy={view.busy} ended={tableOver || stage === "settled"} error={view.error} onAct={(a, label) => void act(a, label)} onClaim={() => void claimTimeout()} />
       )}
 
       {stage === "closing" && (

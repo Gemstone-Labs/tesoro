@@ -3,17 +3,17 @@
 //! `Config.oracle_authority`. The cross-chain bridge program signs as a PDA. The existing
 //! oracle-signed instructions are unchanged; these are their source-authority twins.
 
+use crate::books::OnchainBooks;
 use crate::error::{core_err, TesoroError};
+use crate::instructions::economy::*;
+use crate::instructions::position::apply_reported_yield;
 use crate::ledger::{self, SourceChain};
 use crate::state::*;
+use crate::storage::*;
 use anchor_lang::prelude::*;
 
 fn chain_byte(chain: SourceChain) -> u8 {
-    match chain {
-        SourceChain::Solana => 0,
-        SourceChain::Ethereum => 1,
-        SourceChain::HyperEvm => 2,
-    }
+    crate::instructions::position::chain_byte(chain)
 }
 
 #[derive(Accounts)]
@@ -162,34 +162,28 @@ pub struct ApplyYieldFromSource<'info> {
     pub source: Option<Account<'info, SourceState>>,
 }
 
-pub(crate) fn apply_yield_from_source(
-    ctx: Context<ApplyYieldFromSource>,
+pub(crate) fn apply_yield_from_source<'info>(
+    mut ctx: Context<'_, '_, 'info, 'info, ApplyYieldFromSource<'info>>,
     seq: u64,
     cumulative: u64,
 ) -> Result<()> {
-    let position_key = ctx.accounts.position.key();
-    let source = ctx.accounts.source.as_mut().map(|s| &mut s.inner);
-    let applied = ctx
-        .accounts
-        .position
-        .inner
-        .apply_yield(source, seq, cumulative)
-        .map_err(core_err)?;
-    if applied {
-        let debt_gemas = ctx.accounts.source.as_ref().map_or(0, |s| s.inner.debt());
-        emit!(YieldApplied {
-            position: position_key,
-            seq,
-            cumulative,
-            debt_gemas,
-        });
-    }
-    Ok(())
+    let remaining = ctx.remaining_accounts;
+    let a = &mut ctx.accounts;
+    apply_reported_yield(
+        &mut a.position,
+        a.source.as_mut(),
+        remaining,
+        seq,
+        cumulative,
+    )
 }
 
 /// `redeem` for Gemas of an EVM-sourced Advance, signed by the holder and by the registered source
 /// authority of the Position's chain (the bridge), which records the payout owed on that chain in
-/// the same transaction. Plain `redeem` refuses these Sources.
+/// the same transaction (it reads the deltas of `Source::redeemed_units`, the units the shares
+/// paid are worth: for these Sources a share is one unit, and of `fee_units`/`pool_units`, the
+/// Yield Fee the vault keeps and the Pool's part of it). Plain `redeem` refuses these Sources. Remaining
+/// accounts: the Source's book and checkpoint pages.
 #[derive(Accounts)]
 pub struct RedeemFromSource<'info> {
     pub holder_authority: Signer<'info>,
@@ -202,12 +196,18 @@ pub struct RedeemFromSource<'info> {
     )]
     pub source_authority: Account<'info, SourceAuthority>,
     #[account(
-        mut,
         seeds = [ACCOUNT_SEED, holder_authority.key().as_ref()],
         bump = holder_account.bump
     )]
     pub holder_account: Account<'info, TesoroAccount>,
+    /// CHECK: the holder's basket, checked by its seeds.
+    #[account(mut, seeds = [BASKET_SEED, holder_account.key().as_ref()], bump)]
+    pub basket: UncheckedAccount<'info>,
+    /// CHECK: the holder's spill, checked by its seeds.
+    #[account(mut, seeds = [SPILL_SEED, holder_account.key().as_ref()], bump)]
+    pub spill: UncheckedAccount<'info>,
     #[account(
+        mut,
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
         bump = position.bump
     )]
@@ -219,29 +219,44 @@ pub struct RedeemFromSource<'info> {
         constraint = source.inner.position == position.key().to_bytes() @ TesoroError::InvalidAccount
     )]
     pub source: Account<'info, SourceState>,
-    #[account(
-        mut,
-        seeds = [HOLDING_SEED, holder_account.key().as_ref(), source.key().as_ref()],
-        bump = holding.bump
-    )]
-    pub holding: Account<'info, HoldingState>,
 }
 
-pub(crate) fn redeem_from_source(ctx: Context<RedeemFromSource>, amount: u64) -> Result<()> {
+pub(crate) fn redeem_from_source<'info>(
+    ctx: Context<'_, '_, 'info, 'info, RedeemFromSource<'info>>,
+    line: LineRef,
+    amount: u64,
+) -> Result<()> {
+    let remaining = ctx.remaining_accounts;
     let a = ctx.accounts;
-    let units = ledger::redeem(
-        &mut a.source.inner,
-        &mut a.holder_account.inner,
-        &mut a.holding.inner,
-        amount,
-    )
-    .map_err(core_err)?;
+    let mut kind = KindCtx::Reported;
+    let mut books = OnchainBooks::load(remaining)?;
+    let source_key = a.source.key();
+    let key = line.key(&source_key);
+    let out = with_pool(
+        &a.basket.to_account_info(),
+        &a.spill.to_account_info(),
+        |pool| {
+            redeem_line(
+                pool,
+                &mut books,
+                &mut kind,
+                &mut a.position,
+                &mut a.source,
+                &source_key,
+                &key,
+                amount,
+                Cashing::Holder,
+            )
+        },
+    )?;
+    require!(out.shares > 0, TesoroError::InvalidAccount);
+    books.flush()?;
     emit!(Redeemed {
         position: a.position.key(),
-        source: a.source.key(),
+        source: source_key,
         account: a.holder_account.key(),
-        gemas: amount,
-        source_units: units,
+        gemas: out.gemas,
+        source_units: out.units,
     });
     Ok(())
 }

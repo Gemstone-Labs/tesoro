@@ -6,14 +6,17 @@ import { AccountProvider } from "@/lib/auth/AccountProvider";
 import { ChainDataProvider } from "@/lib/chain/ChainDataProvider";
 import { InviteGate } from "@/components/account/InviteEntry";
 import { AppShell } from "@/components/shell/AppShell";
+import { FriendsProvider } from "@/lib/friends/FriendsProvider";
 
 export default function AppLayout({ children }: LayoutProps<"/">) {
   return (
     <AccountProvider>
       <ChainDataProvider>
-        <AppShell>
-          <InviteGate>{children}</InviteGate>
-        </AppShell>
+        <FriendsProvider>
+          <AppShell>
+            <InviteGate>{children}</InviteGate>
+          </AppShell>
+        </FriendsProvider>
       </ChainDataProvider>
     </AccountProvider>
   );

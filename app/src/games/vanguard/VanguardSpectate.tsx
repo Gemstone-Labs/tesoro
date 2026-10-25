@@ -1,0 +1,88 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { getVanguard } from "@/lib/chain/client";
+import type { ChainMatch } from "@/lib/chain/read";
+import { useEndState } from "@/lib/end-state";
+import { STATUS, battleFromEndState, type Battle } from "./decode";
+import { VanguardBoard } from "./VanguardBoard";
+import { readPublicBattle, publicConnection, spectatorPieces } from "./spectate";
+import { depotsFor, piecesLeft } from "./view";
+import "./vanguard.css";
+
+const POLL_MS = 2500;
+
+/**
+ * Anyone's view of a Vanguard Match: the public Battle, read with no wallet and no token, so every piece is face
+ * down unless the Battle published its rank. It never asks for an Army. A finished Match reads the committed
+ * Battle from the base layer, where the end reveal has turned every remaining piece face up.
+ */
+export function VanguardSpectate({ m }: { m: ChainMatch }) {
+  const [battle, setBattle] = useState<Battle | null>(null);
+  const [hidden, setHidden] = useState(false);
+  /** A finished Match's table read is over (found the board or not): the screen never waits on it forever. */
+  const [chainDone, setChainDone] = useState(false);
+  const finished = m.status === "settled" || m.status === "refunded";
+  // The table's committed Battle holds the board only until the next Match on that table commits; then the history has it.
+  const end = useEndState(m.address.toBase58(), finished && chainDone && !battle, "vanguard");
+
+  useEffect(() => {
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const conn = publicConnection();
+    const read = async () => {
+      try {
+        const vg = getVanguard();
+        const a = await vg.readAssignment(m.address);
+        let b: Battle | null = null;
+        if (a) {
+          b = finished ? await vg.readBattleOnBase(a) : await readPublicBattle(conn, a, m.address);
+          // A finished Match whose table ran another Match since has no board on base any more.
+          if (b && !b.tesoroMatch.equals(m.address)) b = null;
+        }
+        if (!live) return;
+        setBattle(b);
+        setHidden(!b);
+        setChainDone(true);
+      } catch {
+        if (live) {
+          setHidden(true);
+          setChainDone(true);
+        }
+      }
+      if (live && !finished) timer = setTimeout(read, POLL_MS);
+    };
+    if (m.status === "active" || finished) void read();
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [m.id, m.address, m.status, finished]);
+
+  if (m.status === "open") return null;
+  // A finished Match whose table moved on: the board kept in the history, or a line saying it is gone. Never an endless loader.
+  if (finished && !battle && chainDone) {
+    if (end.status === "found" && end.state.game === "vanguard") return <VanguardSpectateView battle={battleFromEndState(end.state, m.address)} />;
+    if (end.status === "none") return <p className="mr-copy">The board of this Match is no longer available. The result above is final.</p>;
+    return <p className="mr-copy">Loading the board…</p>;
+  }
+  return <VanguardSpectateView battle={battle} hidden={hidden && !finished} />;
+}
+
+/** The read-only board for a public Battle (or the reason there is none). */
+export function VanguardSpectateView({ battle, hidden = false }: { battle: Battle | null; hidden?: boolean }) {
+  const pieces = useMemo(() => (battle ? spectatorPieces(battle) : []), [battle]);
+  const depots = useMemo(() => (battle ? depotsFor(battle, "us") : []), [battle]);
+  if (!battle || hidden) return <p className="mr-copy">{hidden ? "In progress. The board is not readable right now." : "Loading the board…"}</p>;
+
+  const turn = battle.turn === 0 ? "US Army" : "Royal Italian Army";
+  const line = battle.status === STATUS.live ? `${turn} to move · move ${battle.moves}` : battle.status === STATUS.setup ? "Drawing the armies in secret" : "Finished";
+  return (
+    <section className="vg-spectate" aria-label="Vanguard board">
+      <p className="mr-copy" role="status">
+        {line} · US Army {piecesLeft(battle, "us")} of 20 · Royal Italian Army {piecesLeft(battle, "it")} of 20.{battle.status === STATUS.live || battle.status === STATUS.setup ? " Ranks stay hidden until a piece leaves the board." : ""}
+      </p>
+      <VanguardBoard pieces={pieces} depots={depots} selected={null} marks={[]} fx={[]} storm={null} locked viewer="us" onPiece={() => undefined} onMark={() => undefined} />
+    </section>
+  );
+}

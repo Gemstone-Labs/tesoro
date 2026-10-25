@@ -2,6 +2,7 @@ import { fmtGemas } from "../format";
 import type { GameId } from "../mock/types";
 import type { ChainRequest, PlayerRecord } from "./backing";
 import { historyRow, shortKey, type HistoryRow } from "./history";
+import { GAME_LIST } from "../games";
 import { backerDelta } from "./ledger";
 import type { ChainMatch } from "./read";
 
@@ -9,8 +10,10 @@ import type { ChainMatch } from "./read";
 export interface PlayerAccount {
   /** A TesoroAccount exists at the address. */
   exists: boolean;
-  /** Every Match the Account played, as that Account sees it (seat, Backing), newest first. */
+  /** The Matches the Account has live on chain (open, active, settling), as that Account sees them, newest first. */
   played: ChainMatch[];
+  /** Every finished Match the Account played, newest first: from the Match history, or from `played` where no history exists (a dev machine). */
+  rows: PlayedRow[];
   /** Its live Requests (open, not expired). */
   requests: ChainRequest[];
 }
@@ -33,6 +36,14 @@ export function playedRows(played: ChainMatch[]): PlayedRow[] {
     rows.push({ ...row, backerDelta: backer });
   }
   return rows.sort((a, b) => b.at - a.at);
+}
+
+/** The rows of a Player's finished Matches from the Match history: the Matches it played, with the Backer's result on a backed one. */
+export function playedRowsFromHistory(history: HistoryRow[]): PlayedRow[] {
+  return history
+    .filter((r) => r.role === "player")
+    .map((r) => ({ ...r, backerDelta: r.backing ? (r.backerDelta ?? 0) : null }))
+    .sort((a, b) => b.at - a.at);
 }
 
 export interface PlayerSummary {
@@ -66,10 +77,14 @@ export interface PlayerSummary {
   };
 }
 
-const GAMES: GameId[] = ["block-puzzle", "holdem", "trading-duel"];
-
 export function playerSummary(played: ChainMatch[]): PlayerSummary {
   const rows = playedRows(played);
+  const finished = played.filter((m) => m.seat !== null && (m.status === "settled" || m.status === "refunded")).length;
+  return summaryOfRows(rows, finished - rows.length);
+}
+
+/** The summary of finished-Match rows; `notRead` counts Matches whose result could not be read (none, from the history). */
+export function summaryOfRows(rows: PlayedRow[], notRead = 0): PlayerSummary {
   const decided = rows.filter((r) => r.result === "won" || r.result === "lost");
   const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
   const gains = (xs: number[]) => sum(xs.filter((x) => x > 0));
@@ -83,15 +98,14 @@ export function playerSummary(played: ChainMatch[]): PlayerSummary {
 
   const scores = rows.filter((r) => r.game === "block-puzzle" && r.scores).map((r) => r.scores![0]);
   const times = rows.map((r) => r.at);
-  const finished = played.filter((m) => m.seat !== null && (m.status === "settled" || m.status === "refunded")).length;
   return {
     record: { matches: decided.length, wins: decided.filter((r) => r.result === "won").length },
     undecided: rows.length - decided.length,
-    notRead: finished - rows.length,
+    notRead,
     won: gains(deltas),
     lost: losses(deltas),
     net: sum(deltas),
-    byGame: GAMES.map((game) => {
+    byGame: GAME_LIST.map((game) => {
       const of = decided.filter((r) => r.game === game);
       return { game, matches: of.length, wins: of.filter((r) => r.result === "won").length };
     }).filter((g) => g.matches > 0),
@@ -147,7 +161,7 @@ export function gemasRecord(rows: PlayedRow[], game: GameId | null): GemasRecord
     net: series.length ? series[series.length - 1].total : 0,
     wins,
     losses: series.length - wins,
-    games: GAMES.filter((g) => all.some((p) => p.row.game === g)),
+    games: GAME_LIST.filter((g) => all.some((p) => p.row.game === g)),
   };
 }
 

@@ -24,7 +24,7 @@ export const Tabs: Story = {
 };
 export const TabsAll: Story = { args: { game: null }, render: (args) => <GameTabs base={args.base} game={args.game} /> };
 
-const COUNTS = { won: 12, lost: 7, draw: 1, refunded: 9 };
+const COUNTS = { won: 12, lost: 7, draw: 1, "no-show": 3, refunded: 9 };
 /** Which results show: played Matches by default, Refunded off until picked. */
 export const Results: Story = { render: (args) => <ResultFilter base={args.base} game={args.game} results={PLAYED} counts={COUNTS} /> };
 export const ResultsAllOn: Story = { render: (args) => <ResultFilter base={args.base} game={args.game} results={RESULTS} counts={COUNTS} /> };

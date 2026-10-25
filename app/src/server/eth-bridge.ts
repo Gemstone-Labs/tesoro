@@ -12,6 +12,8 @@
  * Server only: keys are read from disk here and never leave this module.
  */
 import "server-only";
+import { advanceSetup } from "./eth-advance";
+import { applyYieldInstructions } from "./eth-yield";
 import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { createPublicClient, createWalletClient, http, parseEther, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -21,7 +23,10 @@ import { createSignerFromKeypair, publicKey as umiKey, signerIdentity } from "@m
 import { fromWeb3JsKeypair, toWeb3JsPublicKey } from "@metaplex-foundation/umi-web3js-adapters";
 import { EndpointProgram, UlnProgram } from "@layerzerolabs/lz-solana-sdk-v2/umi";
 import { CLUSTER } from "@/lib/cluster-settings";
-import { MAX_PRICE_AGE_SECS, PRICE_QUOTE_MARGIN_SECS, TESORO_CORE_ID, onchainPricePda, parsePythPrice, protectionsPda, pythFeedAddress, sourcePda, treasuryPda } from "@/lib/chain/native";
+import { basketPda, bookPda, spillPda } from "@/lib/chain/basket";
+import { coreIx } from "@/lib/chain/core-ix";
+import { parseTreasury } from "@/lib/chain/fees";
+import { MAX_PRICE_AGE_SECS, PRICE_QUOTE_MARGIN_SECS, TESORO_CORE_ID, economyPda, onchainPricePda, parsePythPrice, protectionsPda, pythFeedAddress, sourcePda, treasuryPda } from "@/lib/chain/native";
 import {
   BRIDGE_AUTHORITY,
   BRIDGE_ID,
@@ -38,7 +43,6 @@ import {
   disc,
   ethPositionId,
   evmLinkPda,
-  holdingPda,
   initPositionIdAllowed,
   instantClaimPda,
   evmClient,
@@ -46,10 +50,12 @@ import {
   lstAbi,
   netOfVault,
   vaultByAddress,
+  vaultsOn,
   parseBridgePosition,
+  parseCorePosition,
+  quoteEthAdvance,
   sourceAuthPda,
   vaultAbi,
-  vaultTreasuryPda,
   withHeadroom,
   fetchVaultPosition,
   type EvmNet,
@@ -286,30 +292,15 @@ async function applyLocked(vault: string, pid: Buffer) {
 
 async function applyYield(vault: string, pid: Buffer) {
   const conn = relayConn();
-  const net = netOfVault(vault);
   const cp = corePositionPda(pid);
   const [bp, core] = await conn.getMultipleAccountsInfo([bridgePositionPda(pid), cp]);
   if (!bp || !core) throw new DemoHttpError(409, "not-opened", "The Lock is not open on Solana yet.");
   const view = parseBridgePosition(bp.data);
   if (!view) throw new DemoHttpError(409, "abandoned", "This Lock is on a retired contract and can no longer be updated.");
   if (view.lastYieldSeq === 0n || view.lastYieldSeq <= view.appliedYieldSeq) return { skipped: true };
-  const openAdvance = core.data[8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4] === 1 ? core.data.readUInt32LE(8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 1) : null;
-  const ix = new TransactionInstruction({
-    programId: BRIDGE_ID,
-    keys: [
-      key(bridgeStore()),
-      key(bridgePositionPda(pid), false, true),
-      key(vaultTreasuryPda(net.eid, vault), false, true),
-      key(BRIDGE_AUTHORITY),
-      key(sourceAuthPda(net)),
-      key(cp, false, true),
-      // Optional account: the program id stands for `None`.
-      openAdvance === null ? key(BRIDGE_ID) : key(sourcePda(cp, openAdvance), false, true),
-      key(TESORO_CORE_ID),
-    ],
-    data: Buffer.concat([disc("apply_yield"), u32le(net.eid), pid]),
-  });
-  return { skipped: false, signature: await relaySend([ix]) };
+  const openAdvance = parseCorePosition(cp, core.data).openAdvance;
+  const ixs = await applyYieldInstructions(conn, relayerKey().publicKey, vault, pid, openAdvance);
+  return { skipped: false, signature: await relaySend(ixs) };
 }
 
 // ---- Yield Report request (test mode: the relayer's EVM key) -------------------------------------
@@ -546,45 +537,38 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
   const oracle = oracleKey();
   const source = sourcePda(cp, advances);
   // Mainnet: the program reads the Pyth feed itself (`take_advance_onchain`); the oracle names no price.
-  const ix = CLUSTER.priceSource === "onchain" ? new TransactionInstruction({
-    programId: TESORO_CORE_ID,
-    keys: [
-      key(oracle.publicKey, true, true),
-      key(address, true),
-      key(configPda()),
-      key(treasuryPda()),
-      key(ownerAccount, false, true),
-      key(protectionsPda(ownerAccount)),
-      key(cp, false, true),
-      key(onchainPricePda(new PublicKey(info.data.subarray(74, 106)))),
-      key(pythFeedAddress(asset)),
-      key(source, false, true),
-      key(holdingPda(ownerAccount, source), false, true),
-      key(SystemProgram.programId),
-    ],
-    data: Buffer.concat([disc("take_advance_onchain"), Buffer.from([months])]),
-  }) : new TransactionInstruction({
-    programId: TESORO_CORE_ID,
-    keys: [
-      key(oracle.publicKey, true, true),
-      key(address, true),
-      key(configPda()),
-      key(treasuryPda()),
-      key(ownerAccount, false, true),
-      key(protectionsPda(ownerAccount)),
-      key(cp, false, true),
-      key(source, false, true),
-      key(holdingPda(ownerAccount, source), false, true),
-      key(SystemProgram.programId),
-      key(onchainPricePda(new PublicKey(info.data.subarray(74, 106)))),
-    ],
-    data: Buffer.concat([disc("take_advance"), Buffer.from([months]), u64le(price.microUsd)]),
-  });
-  const tx = new Transaction().add(ix);
+  const common = {
+    oracle: oracle.publicKey,
+    owner_authority: address,
+    config: configPda(),
+    treasury: treasuryPda(),
+    owner_account: ownerAccount,
+    protections: protectionsPda(ownerAccount),
+    position: cp,
+    source,
+    book: bookPda(source),
+    basket: basketPda(ownerAccount),
+    spill: spillPda(ownerAccount),
+    economy: economyPda(),
+  };
+  const priceKey = onchainPricePda(new PublicKey(info.data.subarray(74, 106)));
+  // The floor is the Gemas this quote shows: the program refuses the Advance rather than issue fewer. The Account re-quotes before it signs.
+  const treasury = await conn.getAccountInfo(treasuryPda());
+  const rates = treasury && treasury.owner.equals(TESORO_CORE_ID) ? parseTreasury(treasury.data) : null;
+  if (!rates) throw new DemoHttpError(503, "no-fees", "The fees could not be read right now. Try again in a minute.");
+  const position = parseCorePosition(cp, info.data);
+  const minGemas = quoteEthAdvance(position.principalWei, position.rateBps, months, price.microUsd).gemas;
+  if (minGemas <= 0n) throw new DemoHttpError(409, "too-small", "This Lock is too small for an Advance.");
+  const ix = CLUSTER.priceSource === "onchain"
+    ? coreIx("take_advance_onchain", { ...common, onchain_price: priceKey, price_feed: pythFeedAddress(asset) }, { horizon_months: months, min_gemas: minGemas })
+    // The oracle names the price; the asset's OnchainPrice address follows as the first remaining account (it must not exist to be used).
+    : coreIx("take_advance", common, { horizon_months: months, price_micro_usd: price.microUsd, min_gemas: minGemas }, [key(priceKey)]);
+  const setup = await advanceSetup(conn, oracle.publicKey, ownerAccount);
+  const tx = new Transaction().add(...setup, ix);
   tx.feePayer = oracle.publicKey;
   tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
   tx.partialSign(oracle);
-  return { source: source.toBase58(), priceMicroUsd: price.microUsd.toString(), transaction: tx.serialize({ requireAllSignatures: false }).toString("base64") };
+  return { source: source.toBase58(), priceMicroUsd: price.microUsd.toString(), minGemas: minGemas.toString(), transaction: tx.serialize({ requireAllSignatures: false }).toString("base64") };
 }
 
 // ---- entry points ----------------------------------------------------------------------------------
@@ -593,6 +577,18 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
 export async function handleEthPrice(asset: string | null = null) {
   const p = await assetPrice(asset === "HYPE" ? "HYPE" : "ETH");
   return { priceMicroUsd: p.microUsd.toString(), live: p.live };
+}
+
+/**
+ * Public: what paying a Redeem out on ETH or HYPE costs in cross-chain fees, quoted for the vault of `asset`
+ * (the `PayYield` message). The fee is in lamports; the Wallet turns it into dollars and compares it with the payout.
+ */
+export async function handleRedeemCost(asset: string | null = null) {
+  const vault = vaultsOn(asset === "HYPE" ? "hyperevm" : "hoodi")[0];
+  if (!vault) throw new DemoHttpError(503, "not-configured", "Cross-chain transfers are not available right now.");
+  const acc = await sendAccounts(vault.address);
+  const fee = await quoteFee(vault.address, 4, acc.quote);
+  return { feeLamports: fee.toString() };
 }
 
 /** The chain a Position lives on, as the Player knows it: Ethereum for Hoodi, HyperEVM otherwise. */

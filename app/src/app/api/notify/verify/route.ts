@@ -12,5 +12,5 @@ export async function GET(request: Request) {
   } catch (e) {
     console.error("notify-verify", e);
   }
-  return Response.redirect(`${siteUrl()}/lobby?email=${ok ? "verified" : "invalid"}`, 303);
+  return Response.redirect(`${siteUrl()}/play?email=${ok ? "verified" : "invalid"}`, 303);
 }

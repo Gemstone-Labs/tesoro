@@ -1,10 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { demoSnapshot as demo } from "@/lib/chain/fixture";
 import { EnterMatch } from "@/components/match/EnterMatch";
 import { GamePage } from "@/app/(app)/play/[game]/GamePage";
-import { PlayNowRail } from "@/components/lobby/PlayNowRail";
 import { BlockPuzzleGame } from "@/games/block-puzzle/BlockPuzzleGame";
 import { HoldemPractice } from "@/games/holdem/practice/HoldemPractice";
 import { TradingDuelPractice } from "@/games/trading-duel/practice/TradingDuelPractice";
@@ -20,11 +18,6 @@ const meta = {
 } satisfies Meta;
 export default meta;
 type Story = StoryObj<typeof meta>;
-
-const Lobby = ({ children }: { children: ReactNode }) => <div className="lobby">{children}</div>;
-
-/** `/play`: every Game as a tile. */
-export const Picker: Story = { render: () => <Lobby><PlayNowRail /></Lobby>, parameters: route("/play") };
 
 /** `/play/<game>`: entry picker, your recent Matches, top scores and how to play. */
 export const BlockPuzzle: Story = { render: () => <GamePage game="block-puzzle" />, parameters: route("/play/block-puzzle") };
@@ -51,9 +44,9 @@ export const Queue: Story = { render: () => <EnterMatch kind="queue" entry={1000
 export const QueueFailed: Story = { ...Queue, decorators: [withSigner] };
 export const QueueSignedOut: Story = { ...Queue, parameters: { ...route("/play/queue", { entry: "1000" }), auth: "signed-out" } };
 export const QueueNotEnoughGemas: Story = {
-  render: () => <EnterMatch kind="queue" entry={2500} game="holdem" />,
+  render: () => <EnterMatch kind="queue" entry={1000} game="holdem" />,
   parameters: {
-    ...route("/play/queue", { entry: "2500", game: "holdem" }),
+    ...route("/play/queue", { entry: "1000", game: "holdem" }),
     data: { snapshot: (a: string) => ({ ...demo(a), holdings: [], ownTotal: 0n, wonTotal: 0n }) },
   },
 };

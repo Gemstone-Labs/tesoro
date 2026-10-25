@@ -4,6 +4,27 @@ Program `holdem` `CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE` (Solana devnet, 
 
 Design basis: `docs/spikes/S1.md` (hidden Deck, private hole cards, settle round-trip) and ADR 0003. Code: `programs/holdem/src/{lib,state,engine,eval}.rs`. Client: `app/src/games/holdem/chain.ts`. Devnet driver: `programs/holdem/scripts/play.ts`.
 
+## Persistent tables (economy upgrade, ticket 12)
+
+The per-Match accounts, `create_match`, `delegate_match` and `close_match` below describe the program that ran until the upgrade; the devnet evidence further down was recorded on it. The program now plays Matches on **tables** that stay delegated to the TEE across Matches (`crates/table_kit`, protocol note `table-protocol.md`):
+
+| Step | Layer | Instruction | Who |
+|---|---|---|---|
+| bind a Match to a table and epoch (write-once) | base | `assign_match(generation, index, epoch)` | the operator |
+| start, hand the seats over, check in | TEE | `begin_match`, `seat_players`, `check_in` x2 | anyone, anyone, each Player |
+| each hand: secret, request, answer, deal | TEE | `contribute_entropy(secret)` x2, `request_vrf`, oracle callback, `deal` | each Player, anyone, the oracle, anyone |
+| betting and clock | TEE | `act`, `claim_timeout` | Player to act, anyone |
+| result | TEE then base | `commit_table` (once per result), `finalize` reads the committed ring | anyone |
+| between Matches | TEE | `wipe_seats`, `reset_table`, `release_slot`, `void_table`, `refill_sponsor`; `init_seats` once per table, `retire_seats` at retirement | the table scheduler (ticket 19t) |
+
+**No Deck.** Each Player's secret is written only to their own `Hole` seat (an ephemeral account behind a private permission) and frozen before the one VRF request of the hand. The program chooses the request input: table, Match, epoch, hand, request number and the hashes of both secrets. The oracle's callback must name the address `["vrfreq", table, request number]`, so an answer to any other request (a late one after a reset, a replay) is refused. The answer is split into a half per seat. `deal` derives the seed from both secrets, both halves, the table epoch, the Match, the hand, the request number and a 32-byte `ext_entropy` slot per seat (zero today; no instruction writes it), draws the nine cards of the hand with a partial Fisher-Yates shuffle, writes each Player's hole cards, stores the board as two XOR shares (one per seat) and zeroes every secret and half. Nothing holds the deck or the seed afterwards. One request is made per hand and never repeated: if the answer does not come within three extensions of the shuffle clock the hand is cancelled and both entries are refunded.
+
+**Seats never lapse.** Both seats are made once per table with no member, handed to the Match's Players by `seat_players` (before play) and zeroed and swapped back to no member by `wipe_seats` (after the Match). Only those instructions and `init_seats` / `retire_seats` reach the permission program; no Player move does, and a test reads the IDL to keep it so. No error code, log line or account size depends on a hidden card.
+
+**What is public afterwards.** The public table holds the board street by street, and the hole cards of a showdown. After a table leaves MagicBlock its transaction history can become readable, which would show every folded hand: the founder accepts that for now; the promise is "private while Players are playing".
+
+**Tested without the rollup** (`cargo test -p holdem`): byte scan of every account after `deal` for the seed, both secrets, both halves, the oracle output and the cards; stale or replayed callbacks refused; Match N+1 gets a different seed from identical inputs; shuffle chi-square over 100,000 seeds; share bytes uniform; table reuse with the ring kept until core's receipt; settle from the wrong table or epoch refused. **Devnet only** (ticket 24): the seat creation and swap CPIs, the VRF round trip with the marker account, the real commit and the delegated-table read in `finalize`, and the opponent / outsider read checks during a live Match.
+
 ## Flow and layers
 
 | Step | Layer | Instruction | Who |
@@ -39,7 +60,7 @@ Devnet check (all PASS, `programs/holdem/scripts/evidence.json`): each Player re
 ## Clock and forfeits
 
 - `claim_timeout` (permissionless, TEE): an idle Player to act is checked, or folded when facing a bet. A missed-turn counter resets on any voluntary action; **three in a row forfeit the Match**.
-- No-show: if the table was never started before `start_deadline` (5 min from creation), `finalize` refunds via tesoro_core. If a Player never contributes entropy to hand 1, `claim_timeout` cancels the Match and `finalize` refunds both entries. In a later hand the absent Player forfeits; both absent cancels.
+- No-show: if the table was never started before `start_deadline` (5 min from creation), `finalize` refunds via tesoro_core. If only one Player checked in before `start_deadline`, `expire_start` gives that Player a normal win; if neither did it is a no-show (Platform Fee each). If a Player never contributes entropy to hand 1 and the other did, `claim_timeout` gives the Player who showed up a normal win (the founder's rule, 2026-10-23, `table_kit::absence_outcome`); neither contributing is a no-show. In a later hand the absent Player forfeits; both absent cancels (refund).
 - If both Players contributed but the VRF output is late, `claim_timeout` only extends the deadline (nobody forfeits) and `request_vrf` can be re-sent.
 
 ## Evaluator tests (`eval.rs`)
@@ -73,7 +94,7 @@ Match id `1790715657340`, table `5UdtBvaARNc5Vo7du2XUTzrxcThPbmzeUPgMks8UNtT7`. 
 
 Full signatures for every row are in `programs/holdem/scripts/evidence.json`.
 
-### 2. No-show refund
+### 2. Absent Player (recorded before the 2026-10-23 rule: the Match then refunded; it is now won by the Player who showed up)
 
 Match `1790715851010`: seat 1 never contributed entropy; after 60 s a third party called `claim_timeout` (cancelled), then `close_match` and `finalize` refunded both entries through tesoro_core (`refunded`, both Players +500).
 `claim_timeout` (tee) `2jJb1hh4BBwUnoFanGW8z9nfwKXLCWnxVykvQeSPZHjFSxvyvgaGECa7yrwfKV72mzRj72WFdq1y7QcBRvUtAz2Q`; `finalize` (base) [`4vZiuDrw...E7LTq`](https://explorer.solana.com/tx/4vZiuDrwKu3hzyjHqm966yrC5ssptfzYmCBNeJarSi24w3bvxscXpRqWeDbM4Nz1BBBJoDnNU4dyJyRzDFyE7LTq?cluster=devnet).
@@ -84,7 +105,7 @@ Match `1790716013129`: seat 0 idle for three turns; three permissionless `claim_
 
 ## Browser evidence (web app, two dev-wallet Accounts, devnet + TEE, 2026-09-30)
 
-The table is in the web app: Lobby Hold'em card (entry 500 / 1,000 / 2,500) → Queue (`/play/queue?game=holdem&entry=500`) or Challenge link (`/play/challenge?game=holdem`) → Match page (`/play/match/<id>`, which picks the Hold'em view from the tesoro_core Match's game). Code: `app/src/games/holdem/` (`useHoldemMatch.ts` drives the non-betting steps in call order `create_match`, `delegate_match`, `init_permissions`, then per hand `contribute_entropy` (each Player) + `request_vrf` + `deal`, and at the end `close_match` + `finalize`; both clients run it, one first and the other after a grace period, and a lost race is harmless). Demo Matches use `SPEED_TURBO`. Two headless Chromium sessions (agent-browser, 390 x 844) signed in as `dev-alice` (`HMohE...rLR8`) and `dev-bob` (`7gEK...vof3`), each funded with the demo Advance (7,500 simulated Gemas), entry 500. TEE transactions are private (no public explorer page); base-layer signatures link to Solana Explorer.
+The table is in the web app: Lobby Hold'em card (entry 100 / 500 / 1,000) → Queue (`/play/queue?game=holdem&entry=500`) or Challenge link (`/play/challenge?game=holdem`) → Match page (`/play/match/<id>`, which picks the Hold'em view from the tesoro_core Match's game). Code: `app/src/games/holdem/` (`useHoldemMatch.ts` drives the non-betting steps in call order `create_match`, `delegate_match`, `init_permissions`, then per hand `contribute_entropy` (each Player) + `request_vrf` + `deal`, and at the end `close_match` + `finalize`; both clients run it, one first and the other after a grace period, and a lost race is harmless). Demo Matches use `SPEED_TURBO`. Two headless Chromium sessions (agent-browser, 390 x 844) signed in as `dev-alice` (`HMohE...rLR8`) and `dev-bob` (`7gEK...vof3`), each funded with the demo Advance (7,500 simulated Gemas), entry 500. TEE transactions are private (no public explorer page); base-layer signatures link to Solana Explorer.
 
 ### A. Queue Match `3581438379834` (alice opened, bob joined from the Queue): 4 hands, alice wins all 3,000 Chips
 

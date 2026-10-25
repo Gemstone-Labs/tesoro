@@ -10,7 +10,7 @@
 //! * Position, custody, Treasury, old Offer: shorter than the current layout (a current one is
 //!   never closable). The checks read raw bytes; old layouts are never deserialized as new types.
 //! * Source: its Position account is gone or is itself old-sized.
-//! * Holding: its Source account is gone. The Holding's Gemas leave the owner's Account totals.
+//! * Holding: its Source account is gone (read from raw bytes: Holdings no longer exist in the program).
 //! * Offer of the current layout: every Source it reserves from is gone.
 //! * Request: from before the reset (expiring before `RETIRE_REQUESTS_BEFORE`), past its lifetime
 //!   and the window to use an accepted Backing. Requests of the new world are never closable.
@@ -289,8 +289,13 @@ pub(crate) fn retire_source(ctx: Context<RetireSource>) -> Result<()> {
     Ok(())
 }
 
-/// Closes a Holding whose Source is gone and takes its Gemas out of the Account's totals (the
-/// Account keeps mirroring the sum of its Holdings).
+/// Discriminator of the retired `HoldingState` account (`sha256("account:HoldingState")[..8]`).
+const HOLDING_DISCRIMINATOR: [u8; 8] = [0x59, 0x32, 0x53, 0x10, 0x9b, 0x4c, 0x98, 0xfe];
+/// `disc(8) bump(1) account(32) source(32)`: where the Source address sits in a Holding.
+const HOLDING_SOURCE: usize = 41;
+
+/// Closes a Holding of the retired world whose Source is gone. Holdings no longer exist in the
+/// program: the account is read from its raw bytes, only to wipe devnet.
 #[derive(Accounts)]
 pub struct RetireHolding<'info> {
     #[account(mut)]
@@ -301,48 +306,37 @@ pub struct RetireHolding<'info> {
         has_one = admin @ TesoroError::Unauthorized
     )]
     pub config: Box<Account<'info, Config>>,
-    #[account(mut, close = admin)]
-    pub holding: Account<'info, HoldingState>,
+    /// CHECK: validated as a Holding from its raw bytes.
+    #[account(mut)]
+    pub holding: UncheckedAccount<'info>,
     /// CHECK: must be the Holding's Source address; gone.
     pub source: UncheckedAccount<'info>,
-    #[account(mut)]
-    pub account: Account<'info, TesoroAccount>,
 }
 
-pub(crate) fn retire_holding(mut ctx: Context<RetireHolding>) -> Result<()> {
-    let a = &mut ctx.accounts;
-    require_keys_eq!(
-        a.source.key(),
-        Pubkey::new_from_array(a.holding.inner.source),
-        TesoroError::InvalidAccount
-    );
+pub(crate) fn retire_holding(ctx: Context<RetireHolding>) -> Result<()> {
+    let a = &ctx.accounts;
+    let holding = a.holding.to_account_info();
+    let source = {
+        let data = holding.try_borrow_data()?;
+        require!(
+            holding.owner == &crate::ID
+                && data.len() >= HOLDING_SOURCE + 32
+                && data[..8] == HOLDING_DISCRIMINATOR,
+            TesoroError::NotOldWorld
+        );
+        Pubkey::try_from(&data[HOLDING_SOURCE..HOLDING_SOURCE + 32])
+            .map_err(|_| error!(TesoroError::InvalidAccount))?
+    };
+    require_keys_eq!(a.source.key(), source, TesoroError::InvalidAccount);
     require!(
         is_gone(&a.source.to_account_info()),
         TesoroError::NotOldWorld
     );
-    require_keys_eq!(
-        a.account.key(),
-        a.holding.account,
-        TesoroError::InvalidAccount
-    );
-    let amount = a.holding.inner.amount;
-    let reserved = a.holding.inner.reserved;
-    let totals = &mut a.account.inner;
-    let (total, held_reserved) = if a.holding.inner.is_own {
-        (&mut totals.own_total, &mut totals.own_reserved)
-    } else {
-        (&mut totals.won_total, &mut totals.won_reserved)
-    };
-    *total = total
-        .checked_sub(amount)
-        .ok_or_else(|| core_err(CoreError::Math))?;
-    *held_reserved = held_reserved
-        .checked_sub(reserved)
-        .ok_or_else(|| core_err(CoreError::Math))?;
+    close_to(&holding, &a.admin.to_account_info())?;
     emit!(OldAccountRetired {
         kind: RETIRED_HOLDING,
-        account: a.holding.key(),
-        amount,
+        account: holding.key(),
+        amount: 0,
     });
     Ok(())
 }
@@ -383,9 +377,9 @@ pub(crate) fn retire_request(ctx: Context<RetireRequest>) -> Result<()> {
     Ok(())
 }
 
-/// Closes an Offer shorter than the current layout, or an Offer of the current layout that
-/// reserves from at least one Source and whose every Source is gone (the Source of line `i` is
-/// remaining account `i`). It holds no money of its own: the reservation lived in the Holdings.
+/// Closes an Offer of the retired world: every earlier layout is longer than the current one (it
+/// carried an applicants list, and on devnet reserved lines). It holds no money of its own: the
+/// reservation lived in the Holdings.
 #[derive(Accounts)]
 pub struct RetireOffer<'info> {
     #[account(mut)]
@@ -405,26 +399,12 @@ pub(crate) fn retire_offer<'info>(
     ctx: Context<'_, '_, 'info, 'info, RetireOffer<'info>>,
 ) -> Result<()> {
     let offer = ctx.accounts.offer.to_account_info();
-    if !is_stale(&offer, OfferState::DISCRIMINATOR, OfferState::SPACE) {
-        require!(offer.owner == &crate::ID, TesoroError::NotOldWorld);
-        let state = {
-            let data = offer.try_borrow_data()?;
-            OfferState::try_deserialize(&mut &data[..])?
-        };
-        let lines = &state.inner.lines;
-        require!(!lines.is_empty(), TesoroError::NotOldWorld);
-        require!(
-            ctx.remaining_accounts.len() == lines.len(),
-            TesoroError::BadRemainingAccounts
-        );
-        for (line, source) in lines.iter().zip(ctx.remaining_accounts) {
-            require!(
-                source.key.to_bytes() == line.source,
-                TesoroError::InvalidAccount
-            );
-            require!(is_gone(source), TesoroError::NotOldWorld);
-        }
-    }
+    // Every earlier Offer layout had another length (longer: applicants, then reserved lines).
+    let other_layout = offer.owner == &crate::ID
+        && offer.try_borrow_data().is_ok_and(|d| {
+            d.len() >= 8 && d.len() != OfferState::SPACE && d[..8] == *OfferState::DISCRIMINATOR
+        });
+    require!(other_layout, TesoroError::NotOldWorld);
     close_to(&offer, &ctx.accounts.admin.to_account_info())?;
     emit!(OldAccountRetired {
         kind: RETIRED_OFFER,

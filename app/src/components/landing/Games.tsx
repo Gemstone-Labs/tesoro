@@ -1,8 +1,9 @@
 import { art } from "@/lib/art";
+import { isHiddenGame } from "@/lib/games";
 import { appHref } from "@/lib/landing/config";
 import { GameSelect, type LandingGame } from "./GameSelect";
 
-const GAMES: LandingGame[] = [
+const GAMES: LandingGame[] = ([
   {
     id: "block-puzzle",
     name: "Block Burst",
@@ -47,7 +48,22 @@ const GAMES: LandingGame[] = [
     loop: [1000, 576],
     href: appHref("/play/trading-duel"),
   },
-];
+  {
+    id: "vanguard",
+    name: "Vanguard",
+    note: "Real-time, 10 s a move",
+    body: "Blitz Stratego on a desert board. Your army's ranks are hidden, you get ten seconds a move, and the first Player to capture the enemy Supply Truck wins.",
+    facts: [
+      ["Pace", "Real-time"],
+      ["Moves", "10 s each"],
+      ["Ranks", "Hidden until they fight"],
+      ["Goal", "Capture the Supply Truck"],
+    ],
+    art: art.vanguardHero,
+    loop: [560, 560],
+    href: appHref("/play/vanguard"),
+  },
+] as LandingGame[]).filter((g) => g.id !== "vanguard" || !isHiddenGame("vanguard"));
 
 export function Games() {
   return (

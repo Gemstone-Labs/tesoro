@@ -3,18 +3,27 @@
 import { useSyncExternalStore } from "react";
 import type { AccountInfo } from "@solana/web3.js";
 import { getChain } from "./client";
+import { basketPda, decodeStore, spillPda } from "./basket";
 import { POOL_ACCOUNT } from "./leaderboard";
 
 const POLL_MS = 60_000;
 
-// TesoroAccount: disc 8, bump 1, authority 32, evm 20, then own_total and won_total (see leaderboard.ts).
-const TOTALS_AT = 8 + 1 + 32 + 20;
-const totalOf = (info: AccountInfo<Buffer> | null): number | null => {
-  if (!info || info.data.length < TOTALS_AT + 16) return null;
-  // DataView, not Buffer: the browser's Buffer polyfill has no readBigUInt64LE.
-  const d = new DataView(info.data.buffer, info.data.byteOffset, info.data.byteLength);
-  return Number(d.getBigUint64(TOTALS_AT, true) + d.getBigUint64(TOTALS_AT + 8, true));
+const BASKET = basketPda(POOL_ACCOUNT);
+const SPILL = spillPda(POOL_ACCOUNT);
+
+/** Playable Gemas of one store account (basket or spill header totals); 0 for a store that is not there, null for bytes that are not a store. */
+const storeTotal = (info: AccountInfo<Buffer> | null): number | null => {
+  if (!info) return 0;
+  try {
+    const { header } = decodeStore(info.data);
+    return Number(header.ownTotal + header.wonTotal);
+  } catch {
+    return null;
+  }
 };
+
+const parts: Record<"basket" | "spill", number | null> = { basket: null, spill: null };
+const sum = (): number | null => (parts.basket === null || parts.spill === null ? null : parts.basket + parts.spill);
 
 let total: number | null | undefined;
 const listeners = new Set<() => void>();
@@ -26,16 +35,27 @@ const set = (next: number | null | undefined) => {
   for (const l of listeners) l();
 };
 
-/** One subscription per tab: the pool Account over the RPC websocket, plus a slow re-read in case the socket drops. */
+/** One subscription per tab: the Pool's basket and spill over the RPC websocket, plus a slow re-read in case the socket drops. */
 function start() {
   const base = getChain().base;
-  const read = () => base.getAccountInfo(POOL_ACCOUNT, "confirmed").then(totalOf, () => total ?? null).then(set);
+  const read = () =>
+    base.getMultipleAccountsInfo([BASKET, SPILL], "confirmed").then(
+      ([b, s]) => {
+        parts.basket = storeTotal(b);
+        parts.spill = storeTotal(s);
+        set(sum());
+      },
+      () => set(total ?? null),
+    );
   void read();
-  const sub = base.onAccountChange(POOL_ACCOUNT, (info) => set(totalOf(info)), { commitment: "confirmed" });
+  const subs = [
+    base.onAccountChange(BASKET, (info) => { parts.basket = storeTotal(info); set(sum()); }, { commitment: "confirmed" }),
+    base.onAccountChange(SPILL, (info) => { parts.spill = storeTotal(info); set(sum()); }, { commitment: "confirmed" }),
+  ];
   const poll = setInterval(read, POLL_MS);
   return () => {
     clearInterval(poll);
-    void base.removeAccountChangeListener(sub).catch(() => {});
+    for (const sub of subs) void base.removeAccountChangeListener(sub).catch(() => {});
   };
 }
 

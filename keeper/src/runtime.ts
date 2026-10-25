@@ -3,8 +3,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Connection, Keypair, PublicKey, TransactionExpiredBlockheightExceededError } from "@solana/web3.js";
 import { BlockPuzzleChain, keypairSigner } from "../../app/src/games/block-puzzle/chain.ts";
+import { BlockBurstChain } from "../../app/src/games/block-puzzle/live-chain.ts";
 import { HoldemChain, keypairSigner as holdemSigner } from "../../app/src/games/holdem/chain.ts";
 import { TradingDuelChain } from "../../app/src/games/trading-duel/chain.ts";
+import { VanguardChain } from "../../app/src/games/vanguard/chain.ts";
 import { SplitConnection, type GpaFn } from "../../app/src/lib/chain/split-connection.ts";
 import type { Settings } from "./env.ts";
 
@@ -51,7 +53,9 @@ export interface Runtime {
   payer: Keypair;
   bp: BlockPuzzleChain;
   holdem: HoldemChain;
+  burst: BlockBurstChain;
   duel: TradingDuelChain;
+  vanguard: VanguardChain;
   signer: ReturnType<typeof keypairSigner>;
   hsigner: ReturnType<typeof holdemSigner>;
   core: BlockPuzzleChain["core"];
@@ -104,10 +108,12 @@ export function newConnection(rpc: string, gpaRpc: string = rpc): Connection {
 
 export function buildRuntime(settings: Settings, conn: Connection, payer: Keypair): Runtime {
   const coreIdl = loadIdl("tesoro_core");
-  const bp = new BlockPuzzleChain({ base: conn, blockPuzzleIdl: loadIdl("block_puzzle"), coreIdl });
+  const bp = new BlockPuzzleChain({ base: conn, coreIdl });
   const holdem = new HoldemChain(loadIdl("holdem"), coreIdl, { base: conn });
+  const burst = new BlockBurstChain(loadIdl("block_puzzle"), coreIdl, { base: conn });
   const duel = new TradingDuelChain(loadIdl("trading_duel"), coreIdl, { base: conn });
-  return { settings, conn, payer, bp, holdem, duel, signer: keypairSigner(payer), hsigner: holdemSigner(payer), core: bp.core, coreIdl, now: 0 };
+  const vanguard = new VanguardChain(loadIdl("vanguard"), coreIdl, { base: conn });
+  return { settings, conn, payer, bp, holdem, burst, duel, vanguard, signer: keypairSigner(payer), hsigner: holdemSigner(payer), core: bp.core, coreIdl, now: 0 };
 }
 
 /** Cluster time, so deadline checks agree with the on-chain Clock. */

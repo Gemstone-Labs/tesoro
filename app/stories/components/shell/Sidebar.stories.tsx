@@ -37,7 +37,7 @@ type Story = StoryObj<typeof meta>;
 
 /** The current page is lit. Change the story's path in the toolbar's URL to see another one lit. */
 export const OnLobby: Story = {};
-export const OnWallet: Story = { parameters: { nextjs: { navigation: { pathname: "/wallet" } } } };
+export const OnWallet: Story = { parameters: { nextjs: { navigation: { pathname: "/vault" } } } };
 export const OnHelp: Story = { parameters: { nextjs: { navigation: { pathname: "/help" } } } };
 
 /** Two open Matches, one with an opponent found (Hold'em, your move). */

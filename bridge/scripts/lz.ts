@@ -2,6 +2,7 @@
 //   ts-node-transpile-only scripts/lz.ts <cmd> [args]
 //   init                                   register the Store PDA as an OApp (delegate = payer)
 //   wire <eid> <vault0x> <decimals> <rateBps>   PeerConfig for one EVM vault + endpoint nonce/send/receive lib init (+ ULN config init)
+//   check-wire <eid> <vault0x> <decimals> <rateBps>   simulate PeerConfig registration; sends nothing
 //   defaults <eid>                         default send/receive ULN + executor config for the pathway
 //   config <eid>                           the OApp's effective (resolved) config
 //   set-uln <eid> <dvnBase58> <sendConf> <recvConf>
@@ -59,7 +60,8 @@ const initConfig = (_p: unknown, a: { admin: any; payer: any }, eid: number) =>
     )
 
 // Enforced options applied when Solana sends to an EVM peer (lzReceive gas on the EVM side).
-const EVM_RECEIVE_GAS = Number(process.env.EVM_RECEIVE_GAS ?? 250_000)
+// The largest receive is an eight-entry CashInBatch (about 1.1M gas); single payouts use less.
+const EVM_RECEIVE_GAS = Number(process.env.EVM_RECEIVE_GAS ?? 1_500_000)
 
 const disc = (name: string) => createHash('sha256').update(`global:${name}`).digest().subarray(0, 8)
 const u32be = (n: number) => Buffer.from([(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255])
@@ -79,6 +81,8 @@ const peerPda = (eid: number, peer: Buffer) =>
     PublicKey.findProgramAddressSync([Buffer.from('Peer'), store.toBuffer(), u32be(eid), peer], PROGRAM_ID)[0]
 const vaultTreasuryPda = (eid: number, peer: Buffer) =>
     PublicKey.findProgramAddressSync([Buffer.from('treasury'), u32be(eid), peer], PROGRAM_ID)[0]
+const vaultRoutePda = (eid: number, peer: Buffer) =>
+    PublicKey.findProgramAddressSync([Buffer.from('route'), u32be(eid), peer], PROGRAM_ID)[0]
 const um2web = (w: any) => toWeb3JsInstruction(w.instruction ?? w)
 
 async function run(name: string, ixs: TransactionInstruction[], cu = 400_000) {
@@ -124,6 +128,7 @@ function setPeerIx(eid: number, peer: Buffer, decimals: number, rateBps: number)
             { pubkey: payer.publicKey, isSigner: true, isWritable: true },
             { pubkey: peerPda(eid, peer), isSigner: false, isWritable: true },
             { pubkey: vaultTreasuryPda(eid, peer), isSigner: false, isWritable: true },
+            { pubkey: vaultRoutePda(eid, peer), isSigner: false, isWritable: true },
             { pubkey: store, isSigner: false, isWritable: false },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
@@ -154,6 +159,20 @@ async function wire(eid: number, vaultHex: string, decimals: number, rateBps: nu
     if (ixs.length) await run('endpoint_init_oapp_pathway', ixs)
     const cfg = await connection.getAccountInfo(toWeb3JsPublicKey(uln.pda.sendConfig(eid, oapp)[0]))
     if (!cfg) await run('uln_init_config', [um2web(initConfig(umiProgramId, { admin: signer, payer: signer }, eid))])
+}
+
+async function checkWire(eid: number, vaultHex: string, decimals: number, rateBps: number) {
+    const tx = new Transaction().add(
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+        setPeerIx(eid, hex32(vaultHex), decimals, rateBps)
+    )
+    tx.feePayer = payer.publicKey
+    tx.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
+    tx.sign(payer)
+    const { value } = await connection.simulateTransaction(tx)
+    for (const line of value.logs ?? []) console.log(line)
+    if (value.err) throw new Error(`Peer registration simulation failed: ${JSON.stringify(value.err)}`)
+    console.log(`Peer registration simulation passed (${value.unitsConsumed} CU); no transaction sent`)
 }
 
 function fmtUln(c: any) {
@@ -241,6 +260,7 @@ async function main() {
     switch (cmd) {
         case 'init': return init()
         case 'wire': return wire(Number(a[0]), a[1], Number(a[2]), Number(a[3]))
+        case 'check-wire': return checkWire(Number(a[0]), a[1], Number(a[2]), Number(a[3]))
         case 'defaults': return defaults(Number(a[0]))
         case 'config': return config(Number(a[0]))
         case 'set-uln': return setUln(Number(a[0]), a[1], Number(a[2]), Number(a[3]))

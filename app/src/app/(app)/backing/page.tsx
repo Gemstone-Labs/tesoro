@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { X as XMark } from "lucide-react";
@@ -24,7 +25,7 @@ import { PlayerName } from "@/components/account/Player";
 import { useGuideTip } from "@/components/guide/Guide";
 import { useAccount } from "@/lib/account";
 import {
-  acceptDirected,
+  acceptOffer,
   cancelOffer,
   cancelRequest,
   expireOffer,
@@ -36,14 +37,15 @@ import {
   type PlayerRecord,
 } from "@/lib/chain/backing";
 import { liveRequestFor, onePerPlayer } from "@/lib/chain/requests";
-import { backedSplit, EntryError, MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
+import { backedSplit, EntryError } from "@/lib/chain/ledger";
 import { recordFromMatches, recordText, timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { backingQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
+import { GAME_LIST } from "@/lib/games";
 import type { EntrySize, GameId } from "@/lib/mock";
 
-const GAME_OPTIONS = (["block-puzzle", "holdem", "trading-duel"] as const).map((g) => ({ value: g as GameId, label: GAME_NAMES[g] }));
+const GAME_OPTIONS = GAME_LIST.map((g) => ({ value: g, label: GAME_NAMES[g] }));
 const SORT_OPTIONS: { value: Sort; label: string }[] = [
   { value: "recent", label: "Newest" },
   { value: "entry", label: "Biggest entry" },
@@ -53,9 +55,10 @@ import { GemasLabel } from "../wallet/AdvanceQuote";
 import { RequestCard } from "@/components/backing/RequestCard";
 import { BackingExample, FEES } from "./BackingExample";
 import "./backing.css";
-import { plainError } from "@/lib/errors";
+import { entryError } from "@/lib/chain/entry-errors";
 import { awayNotice } from "@/lib/chain/protections";
 import { useAway } from "@/lib/chain/useAway";
+import { wantsPostRequest } from "@/lib/backing/post-link";
 
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
@@ -65,12 +68,8 @@ type Sort = "recent" | "entry" | "record";
 const winRate = (r: PlayerRecord) => (r.matches === 0 ? 0 : r.wins / r.matches);
 
 function explain(e: unknown): string {
-  if (e instanceof EntryError) {
-    return e.code === "insufficient"
-      ? "Not enough available Gemas. Gemas reserved for your other Offers cannot be reserved again."
-      : `This entry would draw on Gemas from more than ${MAX_ENTRY_SOURCES} Advances. Redeem a few small balances in your Wallet first.`;
-  }
-  return plainError(e);
+  if (e instanceof EntryError) return "Not enough free Gemas. Gemas reserved for your other Offers cannot be reserved again.";
+  return entryError(e);
 }
 
 function onHashChange(notify: () => void) {
@@ -97,6 +96,7 @@ export default function Backing() {
     title: "What Backing means",
     text: "A Backer funds a Player's whole entry. On a win the entry returns first and the surplus is split by the Offer. Only the Backer bears a loss.",
   });
+  const router = useRouter();
   const away = useAway();
   const awayText = away ? awayNotice(away) : null;
   const nowMs = useNow();
@@ -118,7 +118,7 @@ export default function Backing() {
   const myRequests = requests.filter((r) => r.player === me && (r.live || (r.status === "accepted" && pending(r))));
   const backings = offers.filter((o) => o.status === "accepted" && o.player === me && nowSecs < o.useBy);
   const offersForMe = offers.filter(
-    (o) => o.status === "open" && nowSecs < o.expiresAt && o.directedTo && myRequests.some((r) => r.live && r.address.toBase58() === o.directedTo),
+    (o) => o.status === "open" && nowSecs < o.expiresAt && myRequests.some((r) => r.live && r.address.toBase58() === o.request),
   );
   const sorted = <T extends { entry: number; expiresAt: number }>(xs: T[], rec: (x: T) => PlayerRecord | null) =>
     [...xs].sort((a, b) =>
@@ -129,7 +129,7 @@ export default function Backing() {
     (r) => r.record,
   );
   const mine = offers.filter((o) => o.backer === me && ["open", "accepted", "consumed"].includes(o.status));
-  const offeredTo = new Set(mine.filter((o) => o.status === "open" && nowSecs < o.expiresAt && o.directedTo).map((o) => o.directedTo));
+  const offeredTo = new Set(mine.filter((o) => o.status === "open" && nowSecs < o.expiresAt).map((o) => o.request));
 
   const run = (key: string, label: string | (() => string), fn: () => Promise<string | undefined>) => {
     setBusy(key);
@@ -177,6 +177,16 @@ export default function Backing() {
     hashRead.current = true;
     if (linked.live && !linkedOffered) auth.gate("make an Offer", () => setOfferFor(linked));
   }, [linked, linkedOffered, auth]);
+
+  // `/backing?post=1` (the Vault's Borrow Gemas) opens Post a Request once sign-in is known, then drops the query.
+  const postRead = useRef(false);
+  const canPost = auth.status === "signed-in" || auth.status === "signed-out";
+  useEffect(() => {
+    if (postRead.current || !canPost || !wantsPostRequest(window.location.search)) return;
+    postRead.current = true;
+    router.replace("/backing", { scroll: false });
+    if (!awayText) auth.gate("post a Request", () => setPostOpen(true));
+  }, [canPost, awayText, auth, router]);
 
   const selected = offerFor ? offerFor.address.toBase58() : null;
   const tabs: [Tab, string][] = [
@@ -266,7 +276,7 @@ export default function Backing() {
                   disabled={busy !== null}
                   onClick={() =>
                     act("accept an Offer", `acc-${o.address.toBase58()}`, "Offer accepted. You can enter the Match now.", (s) =>
-                      acceptDirected(s, new PublicKey(o.directedTo as string), o.address),
+                      acceptOffer(s, new PublicKey(o.request), o.address),
                     )
                   }
                 >
@@ -514,8 +524,7 @@ function MyOffer({
   const nowSecs = nowMs / 1000;
   const reserved = offer.lines.reduce((s, l) => s + Number(l.amount), 0);
   const lapsed = (offer.status === "open" && nowSecs >= offer.expiresAt) || (offer.status === "accepted" && nowSecs >= offer.useBy);
-  const target = offer.directedTo ? requests.get(offer.directedTo) : null;
-  const playerKey = offer.player ?? target?.player ?? null;
+  const playerKey = offer.player ?? requests.get(offer.request)?.player ?? null;
   const key = offer.address.toBase58();
   const status =
     offer.status === "consumed"
@@ -524,9 +533,7 @@ function MyOffer({
         ? "Expired: release your reserved Gemas"
         : offer.status === "accepted"
           ? <>Accepted by <PlayerName account={offer.player ?? ""} /> · they have {timeLeft(offer.useBy, nowMs).replace(" left", "")} to start</>
-          : offer.directedTo
-            ? <>Waiting for {playerKey ? <PlayerName account={playerKey} /> : "the Player"} · {timeLeft(offer.expiresAt, nowMs)}</>
-            : "Offers now go to a Player's Request. Cancel this one to release your Gemas.";
+          : <>Waiting for {playerKey ? <PlayerName account={playerKey} /> : "the Player"} · {timeLeft(offer.expiresAt, nowMs)}</>;
   return (
     <Card as="article" aria-label="Your Offer">
       <div className="stack">
@@ -648,7 +655,7 @@ function OfferDrawer({
 
           {short && (
             <p className="status err" role="alert">
-              You have {fmtGemas(available)} Gemas available. <Link href="/wallet">Get Gemas in your Wallet</Link>
+              You have {fmtGemas(available)} Gemas available. <Link href="/vault">Get Gemas in your Vault</Link>
             </p>
           )}
           <footer className="bk-drawer-foot">

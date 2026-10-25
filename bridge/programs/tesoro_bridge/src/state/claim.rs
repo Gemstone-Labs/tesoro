@@ -15,6 +15,12 @@ pub struct Claim {
     /// Source-asset units already sent in PayYield messages.
     pub units_sent: u64,
     pub bump: u8,
+    /// Of `units_total`, the Yield Fee the vault keeps for the Treasury, and the part of what the
+    /// Treasury keeps that is owed to the Pool (ticket 31). Sent with the units they belong to.
+    pub fee_total: u64,
+    pub fee_sent: u64,
+    pub pool_total: u64,
+    pub pool_sent: u64,
 }
 
 /// A holder's Instant Redeems of Gemas of one bridged Source, recorded by `instant_redeem_to_evm`.

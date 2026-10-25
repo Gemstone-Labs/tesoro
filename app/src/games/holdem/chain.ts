@@ -1,10 +1,16 @@
 /**
  * On-chain client for the Hold'em Game (programs/holdem).
  *
- * Layers: the tesoro_core Match is opened and joined on the base layer (Solana devnet). The table
- * (`GameMatch`), the hidden Deck and the two Hole accounts are delegated to the MagicBlock
- * private rollup (TEE); every gameplay call goes there, authenticated with a token the Player
- * signs for. `finalize` runs on the base layer once the rollup has committed the result.
+ * Matches run on persistent tables that stay delegated to the MagicBlock private rollup (TEE). On
+ * the base layer an operator binds a tesoro_core Match to one table and epoch with a write-once
+ * Assignment. Everything else happens on the table in the rollup: `begin_match`, `seat_players`
+ * (each Player's Hole seat becomes readable by that Player only), `check_in` (the second one
+ * starts the Match), then per hand `contribute_entropy`, `request_vrf`, the oracle's callback,
+ * `deal`, `act`; `commit_table` publishes the result and `finalize` settles on the base layer from
+ * the committed table's result ring. Wiping the seats, resetting the table, freeing ring slots and
+ * choosing tables belong to the keeper's table scheduler (ticket 19t); this client has the
+ * instructions (`wipeSeats`, `resetTable`, `releaseSlot`, `voidTable`, `closeAssignment`,
+ * `assignMatch`, `initSeats`, `refillSponsor`).
  *
  * The client is IDL-based and takes the two IDLs (`target/idl/holdem.json`,
  * `target/idl/tesoro_core.json`) as arguments so it does not depend on how the app bundles JSON.
@@ -14,6 +20,8 @@
  * Privacy: `readOwnHole` works only for the Player's own Hole account; every other read of a
  * hidden account returns `null` (indistinguishable from "does not exist"), never an RPC error.
  */
+import type { Holdem } from "../../lib/chain/idl/holdem.types";
+import { settledPda } from "../../lib/chain/basket";
 import * as anchor from "@coral-xyz/anchor";
 import {
   ComputeBudgetProgram,
@@ -25,16 +33,15 @@ import {
 } from "@solana/web3.js";
 import {
   DELEGATION_PROGRAM_ID,
-  GetCommitmentSignature,
   MAGIC_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
   getAuthToken,
   permissionPdaFromAccount,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import nacl from "tweetnacl";
+import { gameAccounts } from "../../lib/chain/game-record";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { baseRpc } from "../../lib/chain/rpc-config";
-import { NO_LEADERBOARD, fetchLeaderboardTerms, type LeaderboardTerms } from "../../lib/chain/leaderboard";
 
 export const HOLDEM_PROGRAM_ID = new PublicKey("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE");
 export const TESORO_CORE_PROGRAM_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
@@ -89,35 +96,11 @@ export function keypairSigner(kp: Keypair): PlayerSigner {
   };
 }
 
-export interface Addresses {
-  gameMatch: PublicKey;
-  deck: PublicKey;
-  hole0: PublicKey;
-  hole1: PublicKey;
-  authority: PublicKey;
-}
-
-const le64 = (n: bigint | number | anchor.BN) => new anchor.BN(n.toString()).toArrayLike(Buffer, "le", 8);
-
-/** PDAs of one table. `matchId` is the tesoro_core Match id. */
-export function addresses(matchId: bigint | number | anchor.BN): Addresses {
-  const pda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, HOLDEM_PROGRAM_ID)[0];
-  const gameMatch = pda([Buffer.from("match"), le64(matchId)]);
-  return {
-    gameMatch,
-    deck: pda([Buffer.from("deck"), gameMatch.toBuffer()]),
-    hole0: pda([Buffer.from("hole"), gameMatch.toBuffer(), Buffer.from([0])]),
-    hole1: pda([Buffer.from("hole"), gameMatch.toBuffer(), Buffer.from([1])]),
-    authority: PublicKey.findProgramAddressSync([Buffer.from("authority")], HOLDEM_PROGRAM_ID)[0],
-  };
-}
-
 const tesoroPda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, TESORO_CORE_PROGRAM_ID)[0];
 export const tesoroAccountPda = (authority: PublicKey) => tesoroPda([Buffer.from("account"), authority.toBuffer()]);
-export const tesoroMatchPda = (matchId: bigint | number | anchor.BN) => tesoroPda([Buffer.from("match"), le64(matchId)]);
 export const tesoroConfigPda = () => tesoroPda([Buffer.from("config")]);
-export const tesoroHoldingPda = (account: PublicKey, source: PublicKey) =>
-  tesoroPda([Buffer.from("holding"), account.toBuffer(), source.toBuffer()]);
+export { settledPda };
+export const eventAuthorityPda = () => tesoroPda([Buffer.from("__event_authority")]);
 
 // ---------------------------------------------------------------------------------------------
 // Cards
@@ -130,20 +113,51 @@ export function cardName(card: number): string {
   return RANKS[card % 13] + SUITS[Math.floor(card / 13)];
 }
 
+
+const pda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, HOLDEM_PROGRAM_ID)[0];
+const u16le = (n: number) => {
+  const b = Buffer.alloc(2);
+  b.writeUInt16LE(n);
+  return b;
+};
+const u64le = (n: number | bigint) => {
+  const b = Buffer.alloc(8);
+  b.writeBigUInt64LE(BigInt(n));
+  return b;
+};
+
+export const configPda = () => pda([Buffer.from("config")]);
+export const sponsorPda = () => pda([Buffer.from("sponsor")]);
+export const fuelPda = (n: number) => pda([Buffer.from("fuel"), Buffer.from([n])]);
+export const authorityPda = () => pda([Buffer.from("authority")]);
+export const tablePda = (generation: number, index: number) => pda([Buffer.from("table"), u16le(generation), u16le(index)]);
+/** The write-once binding of a tesoro_core Match (`["match", opener, n]`) to a table and epoch. */
+export const assignmentPda = (match: PublicKey) => pda([Buffer.from("assign"), match.toBuffer()]);
+/** A Player's hidden seat on the table (an ephemeral account only that Player can read). */
+export const holePda = (table: PublicKey, seat: 0 | 1) => pda([Buffer.from("hole"), table.toBuffer(), Buffer.from([seat])]);
+/** The address the VRF callback of request number `nonce` must name. */
+export const requestMarkerPda = (table: PublicKey, nonce: number | bigint) => pda([Buffer.from("vrfreq"), table.toBuffer(), u64le(nonce)]);
+/** The magic fee vault of the TEE validator: the commit fee goes there. */
+export const magicFeeVaultPda = () => PublicKey.findProgramAddressSync([Buffer.from("magic-fee-vault"), TEE_VALIDATOR.toBuffer()], DELEGATION_PROGRAM_ID)[0];
+
+/** `Table.phase` on chain: the table between and during Matches. */
+export const TABLE_PHASE = { idle: 0, waiting: 1, live: 2, over: 3 } as const;
+/** Ring slot states and outcomes (crates/table_kit/src/ring.rs). */
+export const SLOT = { free: 0, reserved: 1, done: 2 } as const;
+export const OUTCOME = { none: 0, win0: 1, win1: 2, draw: 3, noShow: 4 } as const;
+
 // ---------------------------------------------------------------------------------------------
 // Decoded state
 
+/** What the screens read of a Match: the public hand state, as `GameMatch` on the table holds it. */
 export interface Table {
   address: PublicKey;
-  matchId: bigint;
   tesoroMatch: PublicKey;
   /** seat 0 opened the tesoro_core Match, seat 1 joined */
   players: [PublicKey, PublicKey];
   speed: number;
   status: number;
-  finalized: boolean;
   winner: number;
-  startDeadline: number;
   handNo: number;
   dealer: number;
   phase: number;
@@ -169,23 +183,69 @@ export interface Table {
     shown: [[number, number], [number, number]];
     board: number[];
   };
+  // -- the table around the Match
+  generation: number;
+  index: number;
+  /** Rises at every reset; a Match is bound to one epoch. */
+  epoch: number;
+  /** `TABLE_PHASE`. */
+  tablePhase: number;
+  seatsCreated: boolean;
+  seatsOpen: boolean;
+  /** The result is in and has not been committed to Solana yet. */
+  dirty: boolean;
+  checkedIn: [boolean, boolean];
+  startDeadline: number;
+  overAt: number;
+  slot: number;
+  /** Number of the latest VRF request, whether one is outstanding, and whether its answer waits for `deal`. */
+  reqNonce: number;
+  reqPending: boolean;
+  vrfReady: boolean;
+  ring: Slot[];
+}
+
+/** The table-protocol fields of a Table that is not on chain (Practice, the design page): a live table with its seats open. */
+export const OFF_CHAIN_TABLE = {
+  generation: 0,
+  index: 0,
+  epoch: 0,
+  tablePhase: 2,
+  seatsCreated: true,
+  seatsOpen: true,
+  dirty: false,
+  checkedIn: [true, true] as [boolean, boolean],
+  startDeadline: 0,
+  overAt: 0,
+  slot: 0,
+  reqNonce: 0,
+  reqPending: false,
+  vrfReady: false,
+  ring: [] as Slot[],
+};
+
+/** A ring slot: the result of a finished Match, kept until tesoro_core has frozen the Match. */
+export interface Slot {
+  state: number;
+  tesoroMatch: PublicKey;
+  epoch: number;
+  outcome: number;
+  at: number;
 }
 
 const big = (n: anchor.BN) => BigInt(n.toString());
 const pair = (a: anchor.BN[]): [bigint, bigint] => [big(a[0]), big(a[1])];
 
-export function decodeTable(address: PublicKey, m: any): Table {
+export function decodeTable(address: PublicKey, t: any): Table {
+  const m = t.game;
   const committed = pair(m.committed);
   return {
     address,
-    matchId: big(m.matchId),
-    tesoroMatch: m.tesoroMatch,
+    tesoroMatch: t.tesoroMatch,
     players: m.players,
     speed: m.speed,
     status: m.status,
-    finalized: m.finalized,
     winner: m.winner,
-    startDeadline: m.startDeadline.toNumber(),
     handNo: m.handNo,
     dealer: m.dealer,
     phase: m.phase,
@@ -208,99 +268,70 @@ export function decodeTable(address: PublicKey, m: any): Table {
       shown: m.lastShown,
       board: Array.from(m.lastBoard),
     },
+    generation: t.generation,
+    index: t.index,
+    epoch: t.epoch.toNumber(),
+    tablePhase: t.phase,
+    seatsCreated: t.seatsCreated,
+    seatsOpen: t.seatsOpen,
+    dirty: t.dirty,
+    checkedIn: [t.checkedIn[0], t.checkedIn[1]],
+    startDeadline: t.startDeadline.toNumber(),
+    overAt: t.overAt.toNumber(),
+    slot: t.slot,
+    reqNonce: t.reqNonce.toNumber(),
+    reqPending: t.reqPending,
+    vrfReady: t.vrfReady,
+    ring: (t.ring.slots as any[]).map((x) => ({ state: x.state, tesoroMatch: x.matchKey, epoch: x.epoch.toNumber(), outcome: x.outcome, at: x.at.toNumber() })),
   };
 }
 
-// ---------------------------------------------------------------------------------------------
-// tesoro_core payouts (port of programs/tesoro_core/src/ledger/matches.rs)
-
-interface Line {
-  source: number[];
-  amount: bigint;
-}
-export interface Payout {
-  recipient: PublicKey;
-  source: PublicKey;
-  amount: bigint;
-}
-
-const BPS = 10_000n;
-const cmp = (a: ArrayLike<number>, b: ArrayLike<number>) => Buffer.compare(Buffer.from(a as any), Buffer.from(b as any));
-
-function normalize(lines: Line[]): Line[] {
-  const sorted = lines.filter((l) => l.amount > 0n).sort((x, y) => cmp(x.source, y.source));
-  const out: Line[] = [];
-  for (const l of sorted) {
-    const last = out[out.length - 1];
-    if (last && cmp(last.source, l.source) === 0) last.amount += l.amount;
-    else out.push({ source: l.source, amount: l.amount });
-  }
-  return out;
+export interface Assignment {
+  address: PublicKey;
+  tesoroMatch: PublicKey;
+  generation: number;
+  index: number;
+  epoch: number;
+  players: [PublicKey, PublicKey];
+  speed: number;
+  startDeadline: number;
+  payer: PublicKey;
 }
 
-function take(lines: Line[], amount: bigint): Line[] {
-  const taken: Line[] = [];
-  for (const l of lines) {
-    if (amount === 0n) break;
-    const t = l.amount < amount ? l.amount : amount;
-    if (t > 0n) {
-      l.amount -= t;
-      amount -= t;
-      taken.push({ source: l.source, amount: t });
-    }
-  }
-  return taken;
+/** What most table instructions need of an Assignment: which table. */
+export type TableRef = Pick<Assignment, "generation" | "index">;
+
+export function decodeAssignment(address: PublicKey, a: any): Assignment {
+  return {
+    address,
+    tesoroMatch: a.tesoroMatch,
+    generation: a.generation,
+    index: a.index,
+    epoch: a.epoch.toNumber(),
+    players: a.players,
+    speed: a.speed,
+    startDeadline: a.startDeadline.toNumber(),
+    payer: a.payer,
+  };
 }
 
-const sum = (lines: Line[]) => lines.reduce((a, l) => a + l.amount, 0n);
-const toLines = (side: any): Line[] => side.lines.map((l: any) => ({ source: Array.from(l.source), amount: big(l.amount) }));
+/** The ring slot of a Match, if the table still holds one. */
+export const slotOf = (t: Table, match: PublicKey, epoch: number): Slot | null =>
+  t.ring.find((s) => s.state !== SLOT.free && s.epoch === epoch && s.tesoroMatch.equals(match)) ?? null;
 
 /**
- * The payouts tesoro_core will compute for an Active Match, in the order it wants their accounts
- * (recipient TesoroAccount then Holding of that Source, sorted by recipient then Source).
- * `winner` is the seat (0 = opener, 1 = joiner) or `null` for a refund.
+ * Whether base's copy of the table can settle the Match: its ring holds the Match's result, or the table has moved past the
+ * Match's epoch without ever running it (a refund, once the start deadline has passed). Mirrors `finalize` on chain.
  */
-export function computePayouts(matchInner: any, winner: 0 | 1 | null, lb: LeaderboardTerms = NO_LEADERBOARD): Payout[] {
-  const raw: { recipient: number[]; source: number[]; amount: bigint }[] = [];
-  const push = (recipient: number[], lines: Line[]) => {
-    for (const l of lines) if (l.amount > 0n) raw.push({ recipient, source: l.source, amount: l.amount });
-  };
-  const a = matchInner.a;
-  const b = matchInner.b;
-  if (winner === null) {
-    push(Array.from(a.funder), normalize(toLines(a)));
-    push(Array.from(b.funder), normalize(toLines(b)));
-  } else {
-    const [w, l] = winner === 0 ? [a, b] : [b, a];
-    const pot = big(matchInner.entry) * 2n;
-    const platform = (pot * BigInt(matchInner.fees.platformBps)) / BPS;
-    const studio = (pot * BigInt(matchInner.fees.studioBps)) / BPS;
-    const rest = normalize(toLines(l));
-    push(Array.from(matchInner.fees.platformRecipient), take(rest, platform));
-    push(Array.from(matchInner.fees.studioRecipient), take(rest, studio));
-    if (lb.recipient) push(Array.from(lb.recipient.toBytes()), take(rest, (pot * BigInt(lb.bps)) / BPS));
-    const backed = Buffer.compare(Buffer.from(w.funder), Buffer.from(w.player)) !== 0;
-    if (backed) {
-      push(Array.from(w.funder), normalize(toLines(w)));
-      const share = (sum(rest) * BigInt(w.shareBps)) / BPS;
-      push(Array.from(w.player), take(rest, share));
-      push(Array.from(w.funder), rest);
-    } else {
-      push(Array.from(w.player), normalize(toLines(w)));
-      push(Array.from(w.player), rest);
-    }
-  }
-  raw.sort((x, y) => cmp(x.recipient, y.recipient) || cmp(x.source, y.source));
-  const out: Payout[] = [];
-  for (const p of raw) {
-    const last = out[out.length - 1];
-    if (last && last.recipient.equals(new PublicKey(p.recipient)) && last.source.equals(new PublicKey(p.source))) {
-      last.amount += p.amount;
-    } else {
-      out.push({ recipient: new PublicKey(p.recipient), source: new PublicKey(p.source), amount: p.amount });
-    }
-  }
-  return out;
+export function canFinalizeTable(base: Table, a: Assignment, nowS: number): boolean {
+  const slot = slotOf(base, a.tesoroMatch, a.epoch);
+  if (slot) return slot.state === SLOT.done;
+  return base.epoch > a.epoch && nowS > a.startDeadline;
+}
+
+/** The table's turn that belongs to the Assignment: the table itself when it runs the Match, `null` once it moved on (it has been wiped). */
+export function tableOf(a: Assignment, t: Table): Table | null {
+  return t.epoch === a.epoch && t.tesoroMatch.equals(a.tesoroMatch) ? t : null;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -330,7 +361,7 @@ async function withRetry<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
 
 export class HoldemChain {
   readonly base: Connection;
-  readonly program: anchor.Program<any>;
+  readonly program: anchor.Program<Holdem>;
   readonly tesoro: anchor.Program<any>;
   private readonly teeRpc: string;
   private readonly teeWs: string;
@@ -338,7 +369,7 @@ export class HoldemChain {
   /** Step logger; a UI may replace it while it is mounted. */
   onTx?: HoldemChainOptions["onTx"];
 
-  constructor(holdemIdl: any, tesoroIdl: any, opts: HoldemChainOptions = {}) {
+  constructor(holdemIdl: Holdem, tesoroIdl: any, opts: HoldemChainOptions = {}) {
     this.base = opts.base ?? defaultBaseConnection();
     this.teeRpc = opts.teeRpc ?? TEE_RPC;
     this.teeWs = opts.teeWs ?? TEE_WS;
@@ -423,326 +454,338 @@ export class HoldemChain {
     throw new Error(`${step} not confirmed ${sig}`);
   }
 
-  private async waitOwner(address: PublicKey, owner: PublicKey, tries = 60): Promise<boolean> {
-    for (let i = 0; i < tries; i++) {
-      const info = await this.base.getAccountInfo(address).catch(() => null);
-      if (info?.owner.equals(owner)) return true;
-      await sleep(1000);
-    }
-    return false;
+  // -- reads: the Assignment (base) and the table (rollup, or base once committed) ----------------
+
+  private readonly assignments = new Map<string, Assignment>();
+
+  /** The Match's Assignment on the base layer (it never changes once written), or `null` while the operator has not made it. */
+  async readAssignment(match: PublicKey): Promise<Assignment | null> {
+    const key = match.toBase58();
+    const known = this.assignments.get(key);
+    if (known) return known;
+    const address = assignmentPda(match);
+    const info = await this.base.getAccountInfo(address);
+    if (!info || !info.owner.equals(HOLDEM_PROGRAM_ID)) return null;
+    const a = decodeAssignment(address, this.program.coder.accounts.decode("assignment", info.data));
+    this.assignments.set(key, a);
+    return a;
   }
 
-  // -- base layer ----------------------------------------------------------------------------
-
-  /**
-   * Base layer. Binds a holdem table to an Active tesoro_core Match (opened and joined already)
-   * and delegates it to the TEE. Either Player may call it.
-   * `seatA` / `seatB` are the wallets of the opener and the joiner.
-   */
-  async createAndDelegate(
-    creator: PlayerSigner,
-    matchId: bigint | number,
-    seatA: PublicKey,
-    seatB: PublicKey,
-    speed: number = SPEED_STANDARD,
-  ): Promise<Addresses> {
-    await this.createTable(creator, matchId, seatA, seatB, speed);
-    return this.delegateTable(creator, matchId);
-  }
-
-  /** Base layer. Binds the table to the Active tesoro_core Match (step one of `createAndDelegate`). */
-  async createTable(
-    creator: PlayerSigner,
-    matchId: bigint | number,
-    seatA: PublicKey,
-    seatB: PublicKey,
-    speed: number = SPEED_STANDARD,
-  ): Promise<string> {
-    const ad = addresses(matchId);
-    const id = new anchor.BN(matchId.toString());
-    const create = await this.program.methods
-      .createMatch(id, speed)
-      .accountsPartial({
-        creator: creator.publicKey,
-        tesoroMatch: tesoroMatchPda(matchId),
-        accountA: tesoroAccountPda(seatA),
-        accountB: tesoroAccountPda(seatB),
-        authority: ad.authority,
-        gameMatch: ad.gameMatch,
-        deck: ad.deck,
-        hole0: ad.hole0,
-        hole1: ad.hole1,
-      } as any)
-      .instruction();
-    return this.sendBase("create_match", [create], [creator]);
-  }
-
-  /** Base layer. Delegates a created table (and its hidden accounts) to the TEE (step two). */
-  async delegateTable(creator: PlayerSigner, matchId: bigint | number): Promise<Addresses> {
-    const ad = addresses(matchId);
-    const id = new anchor.BN(matchId.toString());
-    const delegate = await this.program.methods
-      .delegateMatch(id)
-      .accountsPartial({
-        payer: creator.publicKey,
-        gameMatch: ad.gameMatch,
-        deck: ad.deck,
-        hole0: ad.hole0,
-        hole1: ad.hole1,
-        validator: TEE_VALIDATOR,
-      } as any)
-      .instruction();
-    await this.sendBase(
-      "delegate_match",
-      [ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), delegate],
-      [creator],
-    );
-    await this.waitOwner(ad.gameMatch, DELEGATION_PROGRAM_ID);
-    await this.waitOwner(ad.deck, DELEGATION_PROGRAM_ID);
-    await sleep(4000);
-    return ad;
-  }
-
-  /** The tesoro_core Match state (base layer), decoded. */
-  /** A tesoro_core Match that can still be settled (Active); false once settled, refunded or gone. */
-  private isLive(tesoroMatch: any | null): boolean {
-    return !!tesoroMatch && "active" in tesoroMatch.inner.status;
-  }
-
-  async readTesoroMatch(matchId: bigint | number): Promise<any | null> {
-    const info = await this.base.getAccountInfo(tesoroMatchPda(matchId));
+  async readTesoroMatch(match: PublicKey): Promise<any | null> {
+    const info = await this.base.getAccountInfo(match);
     return info ? this.tesoro.coder.accounts.decode("matchState", info.data) : null;
   }
 
-  /**
-   * Base layer, permissionless. After the rollup committed the result (`closeMatch`, then wait
-   * for the table to be owned by holdem again), settles or refunds the tesoro_core Match by CPI as
-   * the Game authority PDA. Creates missing Holdings for the recipients first. Returns "" without
-   * sending when the Match is already settled or refunded (the other Player, or the keeper, got
-   * there first), so a lost race costs no fee.
-   */
-  async finalize(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
-    if (!(await this.waitOwner(ad.gameMatch, HOLDEM_PROGRAM_ID, 90))) {
-      throw new Error("the table has not been committed back to the base layer yet");
-    }
-    const info = await this.base.getAccountInfo(ad.gameMatch);
-    const table = decodeTable(ad.gameMatch, this.program.coder.accounts.decode("gameMatch", info!.data));
-    const tesoroMatch = await this.readTesoroMatch(matchId);
-    if (!this.isLive(tesoroMatch)) return "";
-    const winner = table.status === STATUS.over ? (table.winner as 0 | 1) : null;
-    const payouts = computePayouts(tesoroMatch.inner, winner, await fetchLeaderboardTerms(this.base));
-    const holdings = payouts.map((p) => tesoroHoldingPda(p.recipient, p.source));
-    const existing = await this.base.getMultipleAccountsInfo(holdings);
-    const missing: TransactionInstruction[] = [];
-    for (let i = 0; i < payouts.length; i++) {
-      if (existing[i]) continue;
-      missing.push(
-        await this.tesoro.methods
-          .openHolding()
-          .accountsPartial({ payer: payer.publicKey, account: payouts[i].recipient, source: payouts[i].source, holding: holdings[i] } as any)
-          .instruction(),
-      );
-    }
-    // Up to 18 Holdings can be paid: open the missing ones a few per transaction.
-    for (let i = 0; i < missing.length; i += 5) await this.sendBase("open_holding", missing.slice(i, i + 5), [payer]);
-    const remaining: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
-    payouts.forEach((p, i) => remaining.push({ pubkey: p.recipient, isSigner: false, isWritable: true }, { pubkey: holdings[i], isSigner: false, isWritable: true }));
-    // Opening Holdings takes a few seconds: look again before paying for a transaction that would fail.
-    if (!this.isLive(await this.readTesoroMatch(matchId))) return "";
-    const ix = await this.program.methods
-      .finalize()
-      .accountsPartial({
-        caller: payer.publicKey,
-        gameMatch: ad.gameMatch,
-        tesoroMatch: tesoroMatchPda(matchId),
-        config: tesoroConfigPda(),
-        authority: ad.authority,
-        tesoroProgram: TESORO_CORE_PROGRAM_ID,
-      } as any)
-      .remainingAccounts(remaining)
-      .instruction();
-    return this.sendBase("finalize", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], [payer]);
+  /** A tesoro_core Match that can still be settled (Active); false once settled, refunded or gone. */
+  private isLive(tesoroMatch: any | null): boolean {
+    return !!tesoroMatch && "active" in tesoroMatch.inner.stage;
   }
 
-  // -- rollup --------------------------------------------------------------------------------
-
-  /** Rollup. Creates the permissions and starts the Match (equal Chips, blinds posted). Anyone. */
-  async start(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .initPermissions()
-      .accountsPartial({
-        payer: payer.publicKey,
-        gameMatch: ad.gameMatch,
-        deck: ad.deck,
-        hole0: ad.hole0,
-        hole1: ad.hole1,
-        matchPermission: permissionPdaFromAccount(ad.gameMatch),
-        deckPermission: permissionPdaFromAccount(ad.deck),
-        hole0Permission: permissionPdaFromAccount(ad.hole0),
-        hole1Permission: permissionPdaFromAccount(ad.hole1),
-        permissionProgram: PERMISSION_PROGRAM_ID,
-        ephemeralVault: EPHEMERAL_VAULT,
-        magicProgram: MAGIC_PROGRAM_ID,
-      } as any)
-      .instruction();
-    return this.sendTee("init_permissions", [ix], payer);
-  }
-
-  /**
-   * Rollup. A Player's fresh secret for this hand, generated here and sent only inside the TEE.
-   * Call once per hand. `withVrf` also requests the VRF output in the same transaction: pass it
-   * from the Player who contributes second (the program refuses the request until both are in).
-   */
-  async contributeEntropy(player: PlayerSigner, matchId: bigint | number, withVrf = false): Promise<string> {
-    const ad = addresses(matchId);
-    const secret = Array.from(nacl.randomBytes(32));
-    const ixs: TransactionInstruction[] = [
-      await this.program.methods
-        .contributeEntropy(secret)
-        .accountsPartial({ player: player.publicKey, gameMatch: ad.gameMatch, deck: ad.deck } as any)
-        .instruction(),
-    ];
-    if (withVrf) ixs.push(await this.requestVrfIx(player.publicKey, ad));
-    return this.sendTee(withVrf ? "contribute_entropy+request_vrf" : "contribute_entropy", ixs, player);
-  }
-
-  private requestVrfIx(payer: PublicKey, ad: Addresses) {
-    return this.program.methods
-      .requestVrf(7)
-      .accountsPartial({ payer, gameMatch: ad.gameMatch, deck: ad.deck, oracleQueue: ORACLE_QUEUE } as any)
-      .instruction();
-  }
-
-  /** Rollup. Re-requests the VRF output if it has not arrived (idempotent until it does). */
-  async requestVrf(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    return this.sendTee("request_vrf", [await this.requestVrfIx(payer.publicKey, addresses(matchId))], payer);
-  }
-
-  /** Rollup. Shuffles and deals once both secrets and the VRF output are in. Anyone may call it. */
-  async deal(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .deal()
-      .accountsPartial({
-        payer: payer.publicKey,
-        gameMatch: ad.gameMatch,
-        deck: ad.deck,
-        hole0: ad.hole0,
-        hole1: ad.hole1,
-      } as any)
-      .instruction();
-    return this.sendTee("deal", [ix], payer);
-  }
-
-  /** Rollup. A betting action on your turn. */
-  async act(player: PlayerSigner, matchId: bigint | number, action: Action): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .act(action as any)
-      .accountsPartial({
-        player: player.publicKey,
-        gameMatch: ad.gameMatch,
-        deck: ad.deck,
-        hole0: ad.hole0,
-        hole1: ad.hole1,
-      } as any)
-      .instruction();
-    return this.sendTee(`act ${Object.keys(action)[0]}`, [ix], player);
-  }
-
-  /**
-   * Rollup, permissionless. Once `table.deadline` has passed: checks or folds the idle Player,
-   * cancels a no-show, forfeits after three missed turns.
-   */
-  async claimTimeout(caller: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .claimTimeout()
-      .accountsPartial({
-        caller: caller.publicKey,
-        gameMatch: ad.gameMatch,
-        deck: ad.deck,
-        hole0: ad.hole0,
-        hole1: ad.hole1,
-      } as any)
-      .instruction();
-    return this.sendTee("claim_timeout", [ix], caller);
-  }
-
-  /**
-   * Rollup. When the table is over (or cancelled): wipes the hidden accounts, closes their
-   * permissions and commits everything back. Returns the rollup signature and the base-layer
-   * commitment signature.
-   */
-  async closeMatch(payer: PlayerSigner, matchId: bigint | number): Promise<{ tee: string; commit: string }> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .closeMatch()
-      .accountsPartial({
-        payer: payer.publicKey,
-        gameMatch: ad.gameMatch,
-        deck: ad.deck,
-        hole0: ad.hole0,
-        hole1: ad.hole1,
-        deckPermission: permissionPdaFromAccount(ad.deck),
-        hole0Permission: permissionPdaFromAccount(ad.hole0),
-        hole1Permission: permissionPdaFromAccount(ad.hole1),
-        permissionProgram: PERMISSION_PROGRAM_ID,
-        ephemeralVault: EPHEMERAL_VAULT,
-        magicProgram: MAGIC_PROGRAM_ID,
-        magicContext: MAGIC_CONTEXT,
-      } as any)
-      .instruction();
-    const tee = await this.sendTee("close_match", [ix], payer);
-    const conn = await this.teeConnection(payer);
-    const commit = await GetCommitmentSignature(tee, conn);
-    this.onTx?.("close_match commit", "base", commit);
-    return { tee, commit };
-  }
-
-  // -- reads ---------------------------------------------------------------------------------
-
-  /**
-   * Public table state, as the Player sees it: stacks, bets, pot, revealed board, whose turn and
-   * until when, the last hand's result. Readable by both Players only (the table's permission
-   * lists exactly them). Returns `null` if this connection may not read it or it does not exist.
-   */
-  async readTable(viewer: PlayerSigner, matchId: bigint | number): Promise<Table | null> {
-    const ad = addresses(matchId);
+  /** The table in the rollup, through a Player's (or the keeper's) token; the table itself is public. */
+  async readTable(viewer: PlayerSigner, a: TableRef): Promise<Table | null> {
+    const address = tablePda(a.generation, a.index);
     const conn = await this.teeConnection(viewer);
-    const info = await conn.getAccountInfo(ad.gameMatch).catch(() => null);
-    if (!info || !info.owner.equals(DELEGATION_PROGRAM_ID) && !info.owner.equals(HOLDEM_PROGRAM_ID)) {
-      return null;
-    }
-    return decodeTable(ad.gameMatch, this.program.coder.accounts.decode("gameMatch", info.data));
+    const info = await conn.getAccountInfo(address).catch(() => null);
+    if (!info || (!info.owner.equals(DELEGATION_PROGRAM_ID) && !info.owner.equals(HOLDEM_PROGRAM_ID))) return null;
+    return decodeTable(address, this.program.coder.accounts.decode("table", info.data));
   }
 
-  /** The table on the base layer (final result once committed back). */
-  async readTableOnBase(matchId: bigint | number): Promise<Table | null> {
-    const ad = addresses(matchId);
-    const info = await this.base.getAccountInfo(ad.gameMatch);
-    if (!info || !info.owner.equals(HOLDEM_PROGRAM_ID)) return null;
-    return decodeTable(ad.gameMatch, this.program.coder.accounts.decode("gameMatch", info.data));
+  /** The table as the base layer last saw it (what the last commit left): the result ring `finalize` reads, and the last hand shown. */
+  async readTableOnBase(a: TableRef): Promise<Table | null> {
+    const address = tablePda(a.generation, a.index);
+    const info = await this.base.getAccountInfo(address);
+    if (!info || (!info.owner.equals(DELEGATION_PROGRAM_ID) && !info.owner.equals(HOLDEM_PROGRAM_ID))) return null;
+    return decodeTable(address, this.program.coder.accounts.decode("table", info.data));
   }
 
-  /**
-   * Your own hole cards for the current hand, read through your TEE auth token. Returns `null`
-   * before the deal (or if the account is unreadable): a Player can never read the opponent's.
-   */
-  async readOwnHole(player: PlayerSigner, matchId: bigint | number, seat: 0 | 1): Promise<{ handNo: number; cards: [number, number] } | null> {
-    const ad = addresses(matchId);
+  /** Your own seat through your TEE token: the hole cards of the current hand, or `null` before the deal and for anything you may not read. */
+  async readOwnHole(player: PlayerSigner, a: TableRef, seat: 0 | 1): Promise<{ handNo: number; cards: [number, number] } | null> {
+    const address = holePda(tablePda(a.generation, a.index), seat);
     const conn = await this.teeConnection(player);
-    const info = await conn.getAccountInfo(seat === 0 ? ad.hole0 : ad.hole1).catch(() => null);
-    if (!info) return null;
+    const info = await conn.getAccountInfo(address).catch(() => null);
+    if (!info || !info.owner.equals(HOLDEM_PROGRAM_ID)) return null;
     const hole: any = this.program.coder.accounts.decode("hole", info.data);
     if (!hole.dealt) return null;
     return { handNo: hole.handNo, cards: [hole.cards[0], hole.cards[1]] };
   }
 
+  /** Whether your own seat has your secret for the hand in it (a refused retry must never send a second secret). */
+  async hasContributed(player: PlayerSigner, a: TableRef, seat: 0 | 1): Promise<boolean> {
+    const address = holePda(tablePda(a.generation, a.index), seat);
+    const conn = await this.teeConnection(player);
+    const info = await conn.getAccountInfo(address).catch(() => null);
+    if (!info || !info.owner.equals(HOLDEM_PROGRAM_ID)) return false;
+    const hole: any = this.program.coder.accounts.decode("hole", info.data);
+    return !!hole.contributed;
+  }
+
   /** Seat of `wallet` at this table, or -1. */
   static seatOf(table: Table, wallet: PublicKey): number {
     return table.players.findIndex((p) => p.equals(wallet));
+  }
+
+  // -- base layer ----------------------------------------------------------------------------
+
+  /**
+   * Base layer, operator only (the table scheduler, ticket 19t). Binds an Active tesoro_core Match to
+   * `generation`/`index` at the table's current `epoch`, once. The Players and the speed are copied from the Match.
+   */
+  async assignMatch(operator: PlayerSigner, match: PublicKey, seatA: PublicKey, seatB: PublicKey, generation: number, index: number, epoch: number): Promise<string> {
+    const ix = await this.program.methods
+      .assignMatch(generation, index, new anchor.BN(epoch))
+      .accountsPartial({
+        operator: operator.publicKey,
+        config: configPda(),
+        tesoroMatch: match,
+        accountA: tesoroAccountPda(seatA),
+        accountB: tesoroAccountPda(seatB),
+        authority: authorityPda(),
+        assignment: assignmentPda(match),
+        tesoroProgram: TESORO_CORE_PROGRAM_ID,
+      } as any)
+      .instruction();
+    return this.sendBase("assign_match", [ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ix], [operator]);
+  }
+
+  /**
+   * Base layer, permissionless. Settles (or, for a draw, a no-start or a table that moved past the Match, refunds) the
+   * tesoro_core Match from the result in the committed table's ring, by CPI as the Game authority PDA. Returns "" when it is
+   * already settled. Fails with `NoResult` / `MatchNotOver` until the commit has landed.
+   */
+  async finalize(payer: PlayerSigner, a: Assignment): Promise<string> {
+    if (!this.isLive(await this.readTesoroMatch(a.tesoroMatch))) return "";
+    const ix = await this.program.methods
+      .finalize()
+      .accountsPartial({
+        caller: payer.publicKey,
+        assignment: a.address,
+        table: tablePda(a.generation, a.index),
+        tesoroMatch: a.tesoroMatch,
+        config: tesoroConfigPda(),
+        ...gameAccounts(HOLDEM_PROGRAM_ID),
+        authority: authorityPda(),
+        receipt: settledPda(a.tesoroMatch),
+        eventAuthority: eventAuthorityPda(),
+        tesoroProgram: TESORO_CORE_PROGRAM_ID,
+      } as any)
+      .instruction();
+    return this.sendBase("finalize", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], [payer]);
+  }
+
+  /**
+   * Base layer, permissionless. Refunds a joined Match that no table was ever assigned to, once it has waited
+   * `TABLE_WAIT_SECS` (5 minutes) for one. Refused while an Assignment exists for the Match.
+   */
+  async refundUntabled(payer: PlayerSigner, tesoroMatch: PublicKey): Promise<string> {
+    const ix = await this.program.methods
+      .refundUntabled()
+      .accountsPartial({
+        caller: payer.publicKey,
+        assignment: assignmentPda(tesoroMatch),
+        tesoroMatch,
+        ...gameAccounts(HOLDEM_PROGRAM_ID),
+        authority: authorityPda(),
+        receipt: settledPda(tesoroMatch),
+        eventAuthority: eventAuthorityPda(),
+        tesoroProgram: TESORO_CORE_PROGRAM_ID,
+      } as any)
+      .instruction();
+    return this.sendBase("refund_untabled", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], [payer]);
+  }
+
+  /**
+   * Rollup, permissionless. Gives up an Assignment whose Match never began (its table is Idle at the Assignment's epoch and the
+   * start window passed): writes a Draw into the ring so `finalize` refunds the Match once the table is committed.
+   */
+  async skipEpoch(caller: PlayerSigner, a: Assignment): Promise<string> {
+    const ix = await this.program.methods
+      .skipEpoch()
+      .accountsPartial({ caller: caller.publicKey, assignment: a.address, table: tablePda(a.generation, a.index) } as any)
+      .instruction();
+    return this.sendTee("skip_epoch", [ix], caller);
+  }
+
+  /** Base layer, permissionless. Closes the Assignment once tesoro_core has frozen the Match (needs its settlement receipt); the rent goes back to the operator. */
+  async closeAssignment(payer: PlayerSigner, a: Assignment): Promise<string> {
+    const ix = await this.program.methods
+      .closeAssignment()
+      .accountsPartial({ caller: payer.publicKey, assignment: a.address, payer: a.payer, receipt: settledPda(a.tesoroMatch), matchState: a.tesoroMatch } as any)
+      .instruction();
+    return this.sendBase("close_assignment", [ix], [payer]);
+  }
+
+  // -- rollup: seats and starting -------------------------------------------------------------
+
+  private seatAccounts(caller: PublicKey, a: TableRef) {
+    const table = tablePda(a.generation, a.index);
+    const h0 = holePda(table, 0);
+    const h1 = holePda(table, 1);
+    return {
+      caller,
+      table,
+      hole0: h0,
+      hole1: h1,
+      hole0Permission: permissionPdaFromAccount(h0),
+      hole1Permission: permissionPdaFromAccount(h1),
+      permissionProgram: PERMISSION_PROGRAM_ID,
+      ephemeralVault: EPHEMERAL_VAULT,
+      magicProgram: MAGIC_PROGRAM_ID,
+    } as any;
+  }
+
+  /** Rollup, permissionless, once per table (the operator's setup). Creates the two Hole seats, private to nobody until a Match is begun. */
+  async initSeats(payer: PlayerSigner, a: TableRef): Promise<string> {
+    const ix = await this.program.methods.initSeats().accountsPartial(this.seatAccounts(payer.publicKey, a)).instruction();
+    return this.sendTee("init_seats", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], payer);
+  }
+
+  /** Rollup, permissionless. Starts the Assignment's Match on its table (reserves a ring slot); the seats are then handed over and the Players check in. */
+  async beginMatch(payer: PlayerSigner, a: Assignment): Promise<string> {
+    const ix = await this.program.methods
+      .beginMatch()
+      .accountsPartial({ caller: payer.publicKey, assignment: a.address, table: tablePda(a.generation, a.index), tesoroMatch: a.tesoroMatch } as any)
+      .instruction();
+    return this.sendTee("begin_match", [ix], payer);
+  }
+
+  /** Rollup, permissionless. Hands each seat to its Player (the seat becomes readable by that Player only). */
+  async seatPlayers(payer: PlayerSigner, a: TableRef): Promise<string> {
+    const ix = await this.program.methods.seatPlayers().accountsPartial(this.seatAccounts(payer.publicKey, a)).instruction();
+    return this.sendTee("seat_players", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], payer);
+  }
+
+  /** Rollup. You are here. When both Players have, the Match starts (equal Chips, blinds posted). */
+  async checkIn(player: PlayerSigner, a: TableRef): Promise<string> {
+    const ix = await this.program.methods.checkIn().accountsPartial({ player: player.publicKey, table: tablePda(a.generation, a.index) } as any).instruction();
+    return this.sendTee("check_in", [ix], player);
+  }
+
+  /** Rollup, permissionless. Past the start deadline with a Player missing: ends the Match in the ring: the Player who checked in wins, nobody checking in is a no-show. */
+  async expireStart(caller: PlayerSigner, a: TableRef): Promise<string> {
+    const ix = await this.program.methods.expireStart().accountsPartial({ caller: caller.publicKey, table: tablePda(a.generation, a.index) } as any).instruction();
+    return this.sendTee("expire_start", [ix], caller);
+  }
+
+  // -- rollup: playing -----------------------------------------------------------------------
+
+  /**
+   * Rollup. A Player's fresh secret for this hand, generated here and sent once, only inside the TEE, into your own seat.
+   * Never call it again for the same hand after it was sent (a retry would send a second secret): `hasContributed` says.
+   * `withVrf` also requests the oracle's randomness in the same transaction: pass it from the Player who contributes second.
+   */
+  async contributeEntropy(player: PlayerSigner, a: TableRef, seat: 0 | 1, withVrf = false): Promise<string> {
+    const table = tablePda(a.generation, a.index);
+    const secret = Array.from(nacl.randomBytes(32));
+    const ixs: TransactionInstruction[] = [
+      await this.program.methods
+        .contributeEntropy(secret)
+        .accountsPartial({ player: player.publicKey, table, hole: holePda(table, seat) } as any)
+        .instruction(),
+    ];
+    if (withVrf) ixs.push(await this.requestVrfIx(player.publicKey, a));
+    return this.sendTee(withVrf ? "contribute_entropy+request_vrf" : "contribute_entropy", ixs, player);
+  }
+
+  private requestVrfIx(payer: PublicKey, a: TableRef) {
+    const table = tablePda(a.generation, a.index);
+    return this.program.methods
+      .requestVrf()
+      .accountsPartial({ payer, table, hole0: holePda(table, 0), hole1: holePda(table, 1), oracleQueue: ORACLE_QUEUE } as any)
+      .instruction();
+  }
+
+  /** Rollup, permissionless. Asks the oracle for this hand's randomness. The program accepts one request per hand; a second is refused. */
+  async requestVrf(payer: PlayerSigner, a: TableRef): Promise<string> {
+    return this.sendTee("request_vrf", [await this.requestVrfIx(payer.publicKey, a)], payer);
+  }
+
+  /** Rollup, permissionless. Deals the hand once both secrets and the oracle's answer are in. */
+  async deal(payer: PlayerSigner, a: TableRef): Promise<string> {
+    const table = tablePda(a.generation, a.index);
+    const ix = await this.program.methods
+      .deal()
+      .accountsPartial({ payer: payer.publicKey, table, hole0: holePda(table, 0), hole1: holePda(table, 1) } as any)
+      .instruction();
+    return this.sendTee("deal", [ix], payer);
+  }
+
+  /** Rollup. A betting action on your turn. */
+  async act(player: PlayerSigner, a: TableRef, action: Action): Promise<string> {
+    const table = tablePda(a.generation, a.index);
+    const ix = await this.program.methods
+      .act(action as any)
+      .accountsPartial({ player: player.publicKey, table, hole0: holePda(table, 0), hole1: holePda(table, 1) } as any)
+      .instruction();
+    return this.sendTee(`act ${Object.keys(action)[0]}`, [ix], player);
+  }
+
+  /**
+   * Rollup, permissionless. Once `table.deadline` has passed: checks or folds the idle Player, cancels a no-show,
+   * forfeits after three missed turns, refunds a hand whose randomness never came.
+   */
+  async claimTimeout(caller: PlayerSigner, a: TableRef): Promise<string> {
+    const table = tablePda(a.generation, a.index);
+    const ix = await this.program.methods
+      .claimTimeout()
+      .accountsPartial({ caller: caller.publicKey, table, hole0: holePda(table, 0), hole1: holePda(table, 1) } as any)
+      .instruction();
+    return this.sendTee("claim_timeout", [ix], caller);
+  }
+
+  // -- rollup: after the Match ---------------------------------------------------------------
+
+  /** Rollup, permissionless, once per result (the table is `dirty` until then). Commits the public table to Solana, paid by the Sponsor. */
+  async commitTable(payer: PlayerSigner, a: TableRef): Promise<string> {
+    const ix = await this.program.methods
+      .commitTable()
+      .accountsPartial({
+        caller: payer.publicKey,
+        table: tablePda(a.generation, a.index),
+        sponsor: sponsorPda(),
+        magicFeeVault: magicFeeVaultPda(),
+        magicContext: MAGIC_CONTEXT,
+        magicProgram: MAGIC_PROGRAM_ID,
+      } as any)
+      .instruction();
+    return this.sendTee("commit_table", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], payer);
+  }
+
+  /** Rollup, permissionless, table scheduler (19t). Once the Match is over: zeroes both seats and swaps their permission members to nobody. */
+  async wipeSeats(payer: PlayerSigner, a: TableRef): Promise<string> {
+    const ix = await this.program.methods.wipeSeats().accountsPartial(this.seatAccounts(payer.publicKey, a)).instruction();
+    return this.sendTee("wipe_seats", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], payer);
+  }
+
+  /** Rollup, permissionless, table scheduler (19t). Wipes a finished, committed table with wiped seats and moves it to the next epoch. */
+  async resetTable(payer: PlayerSigner, table: PublicKey): Promise<string> {
+    const ix = await this.program.methods.resetTable().accountsPartial({ caller: payer.publicKey, table } as any).instruction();
+    return this.sendTee("reset_table", [ix], payer);
+  }
+
+  /** Rollup, permissionless, table scheduler (19t). Frees a Done ring slot once tesoro_core's settlement receipt for its Match is 60 s old. */
+  async releaseSlot(payer: PlayerSigner, table: PublicKey, index: number, match: PublicKey): Promise<string> {
+    const ix = await this.program.methods
+      .releaseSlot(index)
+      .accountsPartial({ caller: payer.publicKey, table, receipt: settledPda(match), matchState: match } as any)
+      .instruction();
+    return this.sendTee("release_slot", [ix], payer);
+  }
+
+  /** Rollup, permissionless, table scheduler (19t). Gives up the table's unfinished Match once tesoro_core has refunded it. */
+  async voidTable(payer: PlayerSigner, table: PublicKey, match: PublicKey): Promise<string> {
+    const ix = await this.program.methods
+      .voidTable()
+      .accountsPartial({ caller: payer.publicKey, table, receipt: settledPda(match), matchState: match } as any)
+      .instruction();
+    return this.sendTee("void_table", [ix], payer);
+  }
+
+  /** Rollup, operator (19t). Moves lamports from a Fuel reserve into the Sponsor. */
+  async refillSponsor(operator: PlayerSigner, fuel: number, amount: bigint): Promise<string> {
+    const ix = await this.program.methods
+      .refillSponsor(new anchor.BN(amount.toString()))
+      .accountsPartial({ operator: operator.publicKey, config: configPda(), fuel: fuelPda(fuel), sponsor: sponsorPda() } as any)
+      .instruction();
+    return this.sendTee("refill_sponsor", [ix], operator);
   }
 }

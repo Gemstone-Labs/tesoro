@@ -35,13 +35,17 @@ export const clampCols = (cols: number, viewW: number): number => Math.min(maxCo
 const baseRh = (w: number): number => (w < 520 ? 56 : w < 900 ? 62 : 70);
 const minRh = (w: number): number => (w < 520 ? 44 : w < 900 ? 38 : 30);
 
-/** Column and band size for a view `viewW` px wide showing `cols` columns (default: `defaultCols`). Zooming out shrinks bands too, but never below what a finger can tap on a phone. */
-export function layoutFor(viewW: number, cols?: number): Layout {
+/**
+ * Column and band size for a view `viewW` px wide showing `cols` columns (default: `defaultCols`). Zooming out shrinks
+ * bands too, but never below what a finger can tap on a phone. `fillH` is the height left on screen: the band area fits within it, up to twice the default.
+ */
+export function layoutFor(viewW: number, cols?: number, fillH?: number): Layout {
   const w = Math.max(240, viewW);
   const n = clampCols(cols ?? defaultCols(w), w);
   const base = baseRh(w);
   const rh = Math.round(Math.min(base * 1.6, Math.max(minRh(w), (base * defaultCols(w)) / n)));
-  return { cw: w / n, rh, bodyH: VIEW_BANDS * base, viewW: w, nowFrac: w < 520 ? 0.2 : w < 900 ? 0.22 : 0.24 };
+  const bodyH = fillH === undefined ? VIEW_BANDS * base : Math.max(1, Math.floor(Math.min(fillH, VIEW_BANDS * base * 2)));
+  return { cw: w / n, rh, bodyH, viewW: w, nowFrac: w < 520 ? 0.2 : w < 900 ? 0.22 : 0.24 };
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));

@@ -8,7 +8,17 @@ import { sfx } from "./sfx";
  * (start the clock then); the overlay clears itself shortly after and calls `onEnd`. Keep it mounted until `onEnd`. Ticks and a go cue play unless muted.
  * `<Countdown from={3} onDone={start} />`. Under reduced motion the numbers still change, just without scaling.
  */
-export function Countdown({ from = 3, goText = "Go!", onDone, onEnd, className = "" }: { from?: number; goText?: string; onDone?: () => void; onEnd?: () => void; className?: string }) {
+export function Countdown({ from = 3, stepMs = 800, tickAt = from, goText = "Go!", onDone, onEnd, className = "" }: {
+  from?: number;
+  /** Time per number, in ms. */
+  stepMs?: number;
+  /** Tick only from this number down (a long countdown stays quiet at first). */
+  tickAt?: number;
+  goText?: string;
+  onDone?: () => void;
+  onEnd?: () => void;
+  className?: string;
+}) {
   const [n, setN] = useState(from);
   const cbs = useRef({ onDone, onEnd });
   useEffect(() => {
@@ -17,15 +27,15 @@ export function Countdown({ from = 3, goText = "Go!", onDone, onEnd, className =
 
   useEffect(() => {
     if (n > 0) {
-      sfx("tick");
-      const t = setTimeout(() => setN(n - 1), 800);
+      if (n <= tickAt) sfx("tick");
+      const t = setTimeout(() => setN(n - 1), stepMs);
       return () => clearTimeout(t);
     }
     sfx("go");
     cbs.current.onDone?.();
     const t = setTimeout(() => setN(-1), 700);
     return () => clearTimeout(t);
-  }, [n]);
+  }, [n, stepMs, tickAt]);
 
   useEffect(() => {
     if (n < 0) cbs.current.onEnd?.();

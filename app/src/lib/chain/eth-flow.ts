@@ -3,10 +3,20 @@ import { PublicKey, Transaction } from "@solana/web3.js";
 import { maxUint256, parseEventLogs, type Address, type Hex } from "viem";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import type { EvmSigner } from "@/lib/auth/types";
+import { parseTreasury } from "./fees";
+import { treasuryPda } from "./native";
+import { prevAdvanceOf, sourceAccounts } from "./redeem";
+import type { ChainHolding } from "./read";
 import { getChain } from "./client";
+import { sendSponsoredOrOwn } from "./sponsored-or-own";
 import { DemoError, type GetToken } from "./demo-client";
 import {
   ETH_VAULTS,
+  advanceFloorIn,
+  corePositionPda,
+  ethPositionId,
+  parseCorePosition,
+  quoteEthAdvance,
   coreAccountPda,
   fetchEthState,
   fetchVaultPosition,
@@ -15,7 +25,6 @@ import {
   NETS,
   coreUnlockIx,
   evmClient,
-  instantRedeemToEvmIx,
   fetchEthMarket,
   fetchLinkState,
   linkEvmIx,
@@ -83,7 +92,6 @@ export function ethError(e: unknown): string {
   const err = e as { shortMessage?: string; code?: number; name?: string };
   if (err?.name === "UserRejectedRequestError" || err?.code === 4001) return "Wallet request was rejected.";
   if (/exceeds defined limit|rate limited|took too long to respond|unknown RPC error/i.test(`${err?.shortMessage ?? ""} ${text}`)) return "The network is busy right now. Wait a few seconds and try again.";
-  if (/YieldBelowReported/.test(`${err?.shortMessage ?? ""} ${text}`)) return "The staking rate dipped below the last report. Try again once it recovers.";
   if (err?.shortMessage) return err.shortMessage.split("\n")[0].slice(0, 200);
   return plainError(e);
 }
@@ -111,10 +119,10 @@ export async function ensureEvmLinked(ctx: EthCtx): Promise<string | null> {
     account: ctx.evm.account,
     message: linkMessage(coreAccountPda(ctx.signer.publicKey)),
   });
-  const ixs = [];
-  if (!state.addressSet) ixs.push(setEvmAddressIx(ctx.signer.publicKey, ctx.evm.address));
-  ixs.push(linkEvmIx(ctx.signer.publicKey, ctx.evm.address, signature));
-  return getChain().sendBase(ctx.signer, ixs);
+  // Each step alone, so the relayer can pay: a Player with only ETH or HYPE needs no SOL to link.
+  const me = ctx.signer.publicKey;
+  if (!state.addressSet) await sendSponsoredOrOwn(ctx.signer, ctx.getToken, async () => [setEvmAddressIx(me, ctx.evm.address)]);
+  return sendSponsoredOrOwn(ctx.signer, ctx.getToken, async (payer) => [linkEvmIx(me, ctx.evm.address, signature, payer)]);
 }
 
 // ---- Gas ------------------------------------------------------------------------------------------
@@ -276,7 +284,7 @@ export async function openEthPosition(
 /**
  * Anyone may call it; the caller pays the LayerZero fee. Resolves once confirmed on the vault's chain.
  * Mainnet path of `freshenYield` (the Player's own EVM wallet pays; test mode has the relayer send it instead). Reverts
- * `YieldBelowReported` while a slashing keeps the rate under the last report.
+ * After a slashing it repeats the highest yield already reported; the Treasury figures still go out.
  */
 export async function reportEthYield(ctx: EthCtx, vault: EthVault, id: bigint): Promise<Hex> {
   const net = NETS[vault.net];
@@ -374,20 +382,32 @@ export async function freshenYield(
 
 // ---- Solana side ------------------------------------------------------------------------------------
 
-/** The Advance for an ETH or HYPE Position: the server signs `take_advance` at the oracle price, the Account co-signs. */
+/**
+ * The Advance for an ETH or HYPE Position: the server signs `take_advance` at the oracle price with `min_gemas` set to its own quote, and the
+ * Account co-signs only after it quotes the same Gemas from the Position, the Treasury's Yield Fee and the price the server used.
+ */
 export async function takeEthAdvance(ctx: Pick<EthCtx, "signer" | "getToken">, vault: string, id: bigint, months: number): Promise<string> {
-  const r = await ethCall<{ transaction: string }>("advance", ctx, { vault, id: id.toString(), months });
+  const r = await ethCall<{ transaction: string; priceMicroUsd: string }>("advance", ctx, { vault, id: id.toString(), months });
   const tx = Transaction.from(Uint8Array.from(atob(r.transaction), (c) => c.charCodeAt(0)));
+  const base = getChain().base;
+  const position = corePositionPda(ethPositionId(vault, id));
+  const [pos, treasury] = await Promise.all([base.getAccountInfo(position), base.getAccountInfo(treasuryPda())]);
+  const rates = treasury ? parseTreasury(treasury.data) : null;
+  if (!pos || !rates) throw new Error("Your Lock or the fees could not be read. Try again in a moment.");
+  const core = parseCorePosition(position, pos.data);
+  const mine = quoteEthAdvance(core.principalWei, core.rateBps, months, BigInt(r.priceMicroUsd)).gemas;
+  if (advanceFloorIn(tx.instructions) !== mine || mine <= 0n) throw new Error("The Advance did not match your quote, so it was not signed. Try again.");
   return getChain().sendSigned(await ctx.signer.signTransaction(tx));
 }
 
-/** `redeem_to_evm`: redeems Gemas of an ETH or HYPE Source and records the payout owed on its EVM chain. Then `send_pay_yield` delivers it. */
-export const redeemToEvm = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint, vault: string) =>
-  getChain().sendBase(signer, [redeemToEvmIx(signer.publicKey, position, source, gemas, netOfVault(vault))]);
+/** `redeem_to_evm`: redeems Gemas of one line of an ETH or HYPE Source and records the payout owed on its EVM chain. Then `send_pay_yield` delivers it. */
+export async function redeemToEvm(signer: ChainSigner, h: Pick<ChainHolding, "line" | "accounts" | "source" | "position">, gemas: bigint, vault: string) {
+  const { accounts, create } = await sourceAccounts(getChain().base, h.source, h.accounts, signer.publicKey);
+  return getChain().sendBase(signer, [...create, redeemToEvmIx(signer.publicKey, h.position, h.source, gemas, netOfVault(vault), { line: h.line, accounts })]);
+}
 
-/** `instant_redeem_to_evm`: sells won ETH or HYPE Gemas to Tesoro's Treasury now and records the payout owed on the vault's chain. Then `send_pay_instant` delivers it. */
-export const instantRedeemToEvm = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint, vault: string) =>
-  getChain().sendBase(signer, [instantRedeemToEvmIx(signer.publicKey, position, source, gemas, netOfVault(vault), vault)]);
-
-/** Debt must be zero on chain. Then `send_unlock` releases the Principal on the vault's chain. */
-export const unlockEth = (signer: ChainSigner, position: PublicKey) => getChain().sendBase(signer, [coreUnlockIx(signer.publicKey, position)]);
+/** Debt must be zero on chain. Then `send_unlock` releases the Principal on the vault's chain. The Position's open Advance is closed here. */
+export async function unlockEth(signer: ChainSigner, position: PublicKey, openAdvance: number | null = null) {
+  const { prev, create } = await prevAdvanceOf(getChain().base, position, openAdvance, signer.publicKey);
+  return getChain().sendBase(signer, [...create, coreUnlockIx(signer.publicKey, position, prev)]);
+}

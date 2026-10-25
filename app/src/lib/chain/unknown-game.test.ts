@@ -34,6 +34,7 @@ vi.mock("./client", () => {
     getChain: () => chain,
     getHoldem: () => ({ program: { coder: { accounts: { decode: () => null } } } }),
     getTradingDuel: () => ({ program: { coder: { accounts: { decode: () => null } } } }),
+    getVanguard: () => ({}),
   };
 });
 vi.mock("./leaderboard", () => ({ fetchLeaderboardTerms: async () => undefined }));

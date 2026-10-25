@@ -2,8 +2,9 @@
 
 import Image from "next/image";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { Button, CheckIcon, GemaMark, LockIcon, XIcon } from "@/components/ui";
-import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, burst, burstAt, sfx, useReducedMotion, type CalloutTone } from "../fx";
+import { Button, CheckIcon, GemaMark, LockIcon, Sheet, XIcon } from "@/components/ui";
+import { Info, Play } from "lucide-react";
+import { Arena, Callout, Countdown, GameMenu, burst, burstAt, sfx, useReducedMotion, type CalloutTone } from "../fx";
 import {
   COLUMNS,
   COLUMN_SECS,
@@ -59,6 +60,8 @@ import {
   type Mark,
 } from "./gridView";
 import { LiveButton, type LiveDir, type LiveState } from "./LiveButton";
+import { PracticePauseButton, PracticePauseOverlay } from "../fx/PracticePause";
+import { isFullScreen, subscribeFullScreen } from "../fx/full-screen";
 import "./grid.css";
 
 export interface GridSide {
@@ -96,6 +99,10 @@ export interface GridScreenProps {
   /** Points when the game is settled (this decides the end screen). Without it the scores follow the line. */
   final?: { you: number; them: number } | null;
   practice?: boolean;
+  paused?: boolean;
+  onTogglePause?: () => void;
+  /** Logical practice time, excluding pauses. Matches use the wall clock. */
+  practiceNow?: () => number;
   /** Gema entry and Pot of a real Match. */
   entry?: number;
   pot?: number;
@@ -199,19 +206,19 @@ const BURST_FOE = ["#b99bff", "#e1d4ff", "#8d6bf0"];
 const ordinalRun = (n: number) => (n >= 4 ? `On fire · ${n} in a row` : n === 3 ? "3 in a row!" : "2 in a row");
 
 /** The browser time, refreshed just after each whole second of the game (`startsAt` is a browser time), which is when the screen's text and column states change. */
-function useClock(frozen: number | undefined, startsAt: number): number {
-  const [now, setNow] = useState(() => frozen ?? Date.now());
+function useClock(frozen: number | undefined, startsAt: number, readNow: () => number): number {
+  const [now, setNow] = useState(() => frozen ?? readNow());
   useEffect(() => {
     if (frozen !== undefined) return;
     let timer: ReturnType<typeof setTimeout>;
     const next = () => {
-      setNow(Date.now());
-      const into = (((Date.now() - startsAt) % 1000) + 1000) % 1000;
+      setNow(readNow());
+      const into = (((readNow() - startsAt) % 1000) + 1000) % 1000;
       timer = setTimeout(next, 1000 - into + 20);
     };
     next();
     return () => clearTimeout(timer);
-  }, [frozen, startsAt]);
+  }, [frozen, startsAt, readNow]);
   return frozen ?? now;
 }
 
@@ -226,7 +233,8 @@ export function GridScreen(p: GridScreenProps) {
   // Everything below runs on this browser's clock: the game's start, seen from here.
   const startsAt = p.startsAt - offsetMs;
   const reduced = useReducedMotion();
-  const now = useClock(p.nowMs, startsAt);
+  const readNow = p.practiceNow ?? wallNow;
+  const now = useClock(p.paused ? readNow() : p.nowMs, startsAt, readNow);
   const t = (now - startsAt) / 1000;
   const anchorUsd = usdOf(anchor);
   const stepUsd = usdOf(step);
@@ -238,18 +246,41 @@ export function GridScreen(p: GridScreenProps) {
 
   const viewRef = useRef<HTMLDivElement>(null);
   const [viewW, setViewW] = useState(960);
+  // Fit the grid beneath its chrome in viewport coordinates, including after the window cover toggles.
+  const [fillH, setFillH] = useState<number | undefined>(undefined);
   useLayoutEffect(() => {
     const el = viewRef.current;
     if (!el) return;
-    const read = () => setViewW(Math.round(el.getBoundingClientRect().width));
+    const read = () => {
+      const r = el.getBoundingClientRect();
+      setViewW(Math.round(r.width));
+      const arena = el.closest(".fx-arena") as HTMLElement;
+      const viewport = window.visualViewport;
+      const bottom = isFullScreen()
+        ? arena.getBoundingClientRect().bottom - parseFloat(getComputedStyle(arena).paddingBottom)
+        : (viewport?.height ?? window.innerHeight) + (viewport?.offsetTop ?? 0) - 96;
+      setFillH(Math.max(1, Math.floor(bottom - r.top - HEADER_PX - 1)));
+    };
     read();
     const ro = new ResizeObserver(read);
     ro.observe(el);
-    return () => ro.disconnect();
+    const game = el.closest(".tg");
+    if (game) ro.observe(game);
+    const summary = game?.querySelector(".tg-summary");
+    if (summary) ro.observe(summary);
+    const off = subscribeFullScreen(read);
+    window.visualViewport?.addEventListener("resize", read);
+    window.addEventListener("resize", read);
+    return () => {
+      ro.disconnect();
+      off();
+      window.visualViewport?.removeEventListener("resize", read);
+      window.removeEventListener("resize", read);
+    };
   }, []);
   // Columns on screen: null is the default for this width; the zoom buttons, pinch and ctrl+wheel set it.
   const [cols, setCols] = useState<number | null>(null);
-  const layout = useMemo(() => layoutFor(viewW, cols ?? undefined), [viewW, cols]);
+  const layout = useMemo(() => layoutFor(viewW, cols ?? undefined, fillH), [viewW, cols, fillH]);
   const { cw, rh } = layout;
   useLayoutEffect(() => {
     const c = canvasRef.current;
@@ -332,6 +363,8 @@ export function GridScreen(p: GridScreenProps) {
   // Where the player has scrolled to: `free` is a camera while panned away from the line, null while it follows.
   const view = useRef({ free: null as Free | null, returning: false, touched: 0, down: 0 });
   const [panned, setPanned] = useState(false);
+  const [keyOpen, setKeyOpen] = useState(false);
+  const menuItems = [{ label: "Key", icon: <Info aria-hidden="true" />, onSelect: () => setKeyOpen(true) }];
   // The bands in the DOM: what shows plus a margin, moved as the camera moves. Picks out of view are edge markers.
   const [win, setWin] = useState(() => bandWindow(0, layout));
   const [edges, setEdges] = useState<EdgePick[]>([]);
@@ -482,19 +515,19 @@ export function GridScreen(p: GridScreenProps) {
       return;
     }
     if (reduced) {
-      apply(Date.now(), true);
-      live.current.redraw = () => apply(Date.now(), true);
-      const i = setInterval(() => apply(Date.now(), true), 1000);
+      apply(readNow(), true);
+      live.current.redraw = () => apply(readNow(), true);
+      const i = setInterval(() => apply(readNow(), true), 1000);
       return () => clearInterval(i);
     }
     let raf = 0;
     const loop = () => {
-      apply(Date.now(), false);
+      apply(readNow(), false);
       raf = requestAnimationFrame(loop);
     };
     loop();
     return () => cancelAnimationFrame(raf);
-  }, [frozen, p.nowMs, reduced, layout, source]);
+  }, [frozen, p.nowMs, reduced, layout, source, readNow]);
 
   // ---- zoom and pan ----
   const zoomTo = (next: number, frac = 0.5) => {
@@ -504,7 +537,7 @@ export function GridScreen(p: GridScreenProps) {
     const cur = L.layout.viewW / L.layout.cw;
     const to = clampCols(next, L.layout.viewW);
     if (Math.abs(to - cur) < 0.005) return;
-    const nl = layoutFor(L.layout.viewW, to);
+    const nl = layoutFor(L.layout.viewW, to, L.layout.bodyH);
     if (V.free) V.free = { x: cameraAfterZoom(V.free.x, L.layout, nl, frac), u: V.free.u };
     L.layout = nl;
     L.built = "";
@@ -643,7 +676,7 @@ export function GridScreen(p: GridScreenProps) {
   const headBand = Math.floor(bandUnits(lastPrice, anchorUsd, stepUsd));
   const tab = fc ?? { c: firstOpen, k: mine[firstOpen] !== NO_PICK ? mine[firstOpen] : headBand };
   const pick = (c: number, k: number) => {
-    if (!canPick(c, (wallNow() - startsAt) / 1000) || settled) return;
+    if (p.paused || !canPick(c, (readNow() - startsAt) / 1000) || settled) return;
     sfx("chip");
     onPick(c, mine[c] === k ? NO_PICK : k);
   };
@@ -655,7 +688,7 @@ export function GridScreen(p: GridScreenProps) {
     let nc = c;
     if (m[0]) {
       const camX = view.current.free?.x ?? live.current.cam;
-      const reachable = (n: number) => canPick(n, (wallNow() - startsAt) / 1000) && visibleCol(n, camX);
+      const reachable = (n: number) => canPick(n, (readNow() - startsAt) / 1000) && visibleCol(n, camX);
       nc = c + m[0];
       while (nc >= 0 && nc < COLUMNS && !reachable(nc)) nc += m[0];
       if (nc < 0 || nc >= COLUMNS) return;
@@ -796,14 +829,19 @@ export function GridScreen(p: GridScreenProps) {
   const header = (
     <header className="cut cut-card tg-bar">
       <div className="tg-bar-l">
-        <h1 className="tg-title">{p.title ?? "Trading Duel"}</h1>
+        <h1 className="sr-only">{p.title ?? "Trading Duel"}</h1>
         <span className="cut cut-chip tg-asset">{asset} / USD</span>
-        <span className={`tg-feed${p.stale ? " stale" : ""}`}>{p.stale ? "Price delayed" : "Live price"}</span>
+        <span className={`tg-feed${p.stale ? " stale" : ""}`} aria-label={p.stale ? "Price delayed" : "Live price"} title={p.stale ? "Price delayed" : "Live price"} />
+        {p.practice && <span className="cut cut-chip game-tag">Practice</span>}
       </div>
       <div className="tg-bar-r">
-        {p.practice ? <span className="meta">Practice · nothing staked</span> : p.entry !== undefined && <span className="meta">Entry <b className="tnum">{p.entry}</b>{p.pot !== undefined && <> · Pot <b className="tnum">{p.pot}</b></>}</span>}
-        <MuteToggle />
-        <FullScreenToggle />
+        {!p.practice && p.pot !== undefined && (
+          <span className="tg-pot-chip" aria-label={`Pot ${p.pot} Gemas`}>
+            <GemaMark size={14} /> <b className="tnum">{p.pot}</b>
+          </span>
+        )}
+        {p.practice && p.onTogglePause && <PracticePauseButton paused={!!p.paused} onToggle={p.onTogglePause} disabled={phase === "over"} />}
+        <GameMenu items={menuItems} leaveHref={p.practice ? p.exitHref : undefined} />
       </div>
     </header>
   );
@@ -833,6 +871,7 @@ export function GridScreen(p: GridScreenProps) {
 
   const scoreboard = (
     <section className="cut cut-card tg-scoreboard" aria-label="Score">
+      <div className="tg-scoreboard-in">
       {side("me", me, score.you, myMarks)}
       <div className="tg-vs">
         <span className={`cut cut-chip tg-lead${lead === 0 ? "" : lead > 0 ? " you" : " foe"}`}>{lead === 0 ? "Level" : lead > 0 ? `You lead by ${lead}` : `${p.opponent.name} leads by ${-lead}`}</span>
@@ -843,6 +882,7 @@ export function GridScreen(p: GridScreenProps) {
         </div>
       </div>
       {side("foe", p.opponent, score.them, foeMarks)}
+      </div>
     </section>
   );
 
@@ -851,24 +891,22 @@ export function GridScreen(p: GridScreenProps) {
     const nag = nagCol >= 0;
     let text: ReactNode;
     let tone = "";
-    if (phase === "over") text = settled ? "Final column done" : "Final column done · counting up";
-    else if (phase === "head") text = <>Head start · the line enters column 1 in <b className="tnum">{Math.ceil(headStartLeft(t))}s</b></>;
-    else if (phase === "last") text = <>Last column · <b className="tnum">{Math.max(0, Math.ceil(timeLeft))}s</b> to go</>;
-    else text = <>Column {liveCol + 1} is live</>;
+    if (phase === "over") text = settled ? <CheckIcon width={16} height={16} aria-label="Final column done" /> : <span className="tg-dots" aria-label="Counting up">…</span>;
+    else if (phase === "head") text = <span aria-label={`The line enters column 1 in ${Math.ceil(headStartLeft(t))} seconds`}><Play size={14} aria-hidden="true" /> <b className="tnum">{Math.ceil(headStartLeft(t))}s</b></span>;
+    else text = <span aria-label={`Column ${liveCol + 1} is live`}><i className="tg-live-dot" aria-hidden="true" /> <b className="tnum">{liveCol + 1}</b></span>;
     if (nag && phase !== "over") tone = " nag";
     else if (phase === "last") tone = " last";
     return (
       <div className={`cut cut-card tg-strip${tone}`} role="status">
         <span className="tg-strip-main">{text}</span>
         {nl && phase !== "over" && (
-          <span className="tg-strip-lock">
+          <span className="tg-strip-lock" aria-label={`Column ${nl.column + 1} locks in ${secsNext} seconds${nag ? ", no pick yet" : ""}`}>
             {nag && <span className="tg-nag-ic" aria-hidden="true">!</span>}
-            Column {nl.column + 1} locks in <b className="tnum">{secsNext}s</b>
-            {nag ? " · no pick yet" : ""}
+            <LockIcon width={13} height={13} aria-hidden="true" /> <b className="tnum">{nl.column + 1}</b> · <b className="tnum">{secsNext}s</b>
             <i className="tg-lockbar" aria-hidden="true"><s style={{ width: `${Math.min(100, (nl.inSecs / (COLUMN_SECS * 2)) * 100)}%` }} /></i>
           </span>
         )}
-        {phase !== "over" && <span className="tg-strip-clock tnum">{fmtClock(Math.max(0, timeLeft))} left</span>}
+        {phase !== "over" && <span className="tg-strip-clock tnum" aria-label="Time left">{fmtClock(Math.max(0, timeLeft))}</span>}
       </div>
     );
   })();
@@ -881,11 +919,14 @@ export function GridScreen(p: GridScreenProps) {
       <section className="tg" aria-label={p.title ?? "Trading Duel"} data-phase={phase}>
         {header}
         {p.banner}
-        {scoreboard}
-        {strip}
+        <div className="cut cut-card tg-summary">
+          {scoreboard}
+          {strip}
+        </div>
         {p.error && <p className="tg-error" role="alert">{p.error}</p>}
 
         <div ref={stageRef} className="cut cut-frame tg-stage" role="group" onKeyDown={onStageKey} aria-label={`Price grid, ${asset}. Pick a box in a column that is still open. Arrow keys move between boxes, Enter or Space picks.`}>
+          {p.practice && p.paused && p.onTogglePause && <PracticePauseOverlay onResume={p.onTogglePause} items={menuItems} leaveHref={p.exitHref} />}
           <div className="tg-gutter" style={{ height: viewH }} aria-hidden="true">
             <div className="tg-gbody" style={{ top: HEADER_PX, height: layout.bodyH }}>
               <div className="tg-gvl" ref={gvlRef}>
@@ -922,8 +963,6 @@ export function GridScreen(p: GridScreenProps) {
                 <div className="tg-pad" style={{ width: PAD_COLS * cw }}>
                   <div className="tg-pad-head">Head start</div>
                   <div className="tg-pad-body" ref={padRef}>
-                    <p className="tg-pad-title">Pick where the price will be.</p>
-                    <p className="tg-pad-sub">Hit the box when the line passes.</p>
                     <p className="tg-pad-n tnum" aria-hidden="true">{Math.ceil(headStartLeft(t)) || ""}</p>
                   </div>
                 </div>
@@ -1064,13 +1103,11 @@ export function GridScreen(p: GridScreenProps) {
                   <span aria-hidden="true">–</span>
                   <b className="foe">{p.final.them}</b>
                 </p>
-                <p className="meta">
-                  You hit {hitCount(myMarks)} of {COLUMNS} columns · {p.opponent.name} hit {hitCount(foeMarks)}
+                <p className="meta tnum" aria-label={`You hit ${hitCount(myMarks)} of ${COLUMNS} columns, ${p.opponent.name} hit ${hitCount(foeMarks)}`}>
+                  <CheckIcon width={13} height={13} aria-hidden="true" /> {hitCount(myMarks)}/{COLUMNS} · {hitCount(foeMarks)}/{COLUMNS}
                 </p>
                 {p.payingOut && <p className="meta" role="status">Paying out…</p>}
-                {p.practice ? (
-                  <p className="meta">Practice: nothing was staked and no Gemas moved.</p>
-                ) : (
+                {!p.practice && (
                   p.pot !== undefined && (
                     <p className={`tg-pot${outcome === "won" ? " won" : ""}`}>
                       {outcome === "won" ? "You take the Pot" : outcome === "draw" ? "Entries returned" : "Pot goes to your opponent"}
@@ -1082,7 +1119,7 @@ export function GridScreen(p: GridScreenProps) {
                 )}
                 <div className="tg-end-actions">
                   {p.onPlayAgain && <Button onClick={p.onPlayAgain}>Play again</Button>}
-                  {p.exitHref && <Button href={p.exitHref}>{p.exitLabel ?? "Lobby"}</Button>}
+                  {p.exitHref && <Button href={p.exitHref}>{p.exitLabel ?? "Back to games"}</Button>}
                   <button type="button" className="cut cut-btn tg-review" onClick={() => setReview(true)}>Review the grid</button>
                 </div>
               </div>
@@ -1090,14 +1127,16 @@ export function GridScreen(p: GridScreenProps) {
           )}
         </div>
 
-        <ul className="tg-legend" aria-label="Key">
-          <li><i className="tg-key me" aria-hidden="true" /> Your pick</li>
-          <li><i className="tg-key foe" aria-hidden="true" /> Opponent&apos;s pick (shown when a column locks)</li>
-          <li><CheckIcon width={13} height={13} /> Hit · {HIT_POINTS} points</li>
-          <li><XIcon width={13} height={13} /> Miss</li>
-          <li><LockIcon width={13} height={13} /> Locked {LOCK_AHEAD_SECS}s before the line arrives</li>
-          <li>Drag or scroll to look at other prices · Live to come back</li>
-        </ul>
+        <Sheet open={keyOpen} onClose={() => setKeyOpen(false)} title="Key">
+          <ul className="tg-legend" aria-label="Key">
+            <li><i className="tg-key me" aria-hidden="true" /> Your pick</li>
+            <li><i className="tg-key foe" aria-hidden="true" /> Opponent&apos;s pick (shown when a column locks)</li>
+            <li><CheckIcon width={13} height={13} /> Hit · {HIT_POINTS} points</li>
+            <li><XIcon width={13} height={13} /> Miss</li>
+            <li><LockIcon width={13} height={13} /> Locked {LOCK_AHEAD_SECS}s before the line arrives</li>
+            <li>Drag or scroll to look at other prices · Live to come back</li>
+          </ul>
+        </Sheet>
         <p className="sr-only" role="status" aria-live="polite">{announce}</p>
       </section>
     </Arena>

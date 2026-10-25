@@ -68,11 +68,3 @@
   .pchest.skel .pc-skel-label { display: none; }
   .pchest.skel .pc-pool .skel-line.lg { width: 28px !important; }
 }
-
-/* First-visit caption under the plate on touch screens (PrizeNote), centred under it so it stays on screen. Steel, not gold: gold belongs to the Pool. */
-.pc-wrap { position: relative; display: inline-flex; }
-.pc-note {
-  position: absolute; top: calc(100% + 8px); left: 50%; translate: -50% 0; z-index: 30; width: max-content; max-width: min(240px, 70vw); padding: 10px 12px;
-  background: var(--raised-2); --edge: var(--edge-2); --c: 10px; color: var(--fg); font-size: var(--fs-13); font-weight: 600; line-height: 1.35; text-align: left;
-  animation: menu-in 0.18s ease-out;
-}

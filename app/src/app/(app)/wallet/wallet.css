@@ -1,38 +1,37 @@
 /* ——— Wallet (take-1: wallet-desktop) ——— */
 .wl { display: grid; gap: var(--section-gap); grid-template-columns: minmax(0, 1fr); align-content: start; }
 .wl h2 { margin: 0; }
-.wl-head { align-items: center; }
 
-/* balance hero: one Total, two secondary figures */
-.wl-hero { padding: 32px 28px 24px; display: grid; gap: 28px 48px; grid-template-columns: minmax(0, 1fr); }
+/* Both views use the same balance card and money rows. Padding clears the crown's 13px / 30px inset. */
+.wl-hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 28px 26px; }
 .wl-hero h2 { font-size: var(--fs-15); font-weight: 600; color: var(--fg-2); }
-.wl-total-fig { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
-.wl-total-fig .gema-mark { width: clamp(48px, 5vw, 72px); height: clamp(48px, 5vw, 72px); }
-.wl-total-fig b { font-size: clamp(48px, 5.4vw, 92px); font-weight: 900; letter-spacing: -0.03em; line-height: 1; word-spacing: 0; }
-.wl-total-fig span { font-size: clamp(18px, 1.6vw, 26px); color: var(--fg-2); align-self: flex-end; padding-bottom: 0.4em; }
-.wl-second { display: grid; grid-template-columns: 1fr 1fr; gap: 24px 36px; align-content: center; }
-.wl-redeemable, .wl-pending { display: grid; gap: 6px; justify-items: start; align-content: start; }
-.wl-redeemable b, .wl-pending b { font-size: clamp(30px, 2.6vw, 44px); font-weight: 900; letter-spacing: -0.02em; line-height: 1.1; word-spacing: 0; }
-.wl-redeemable b { color: var(--em-hi); }
-.wl-redeemable .btn { margin-top: 8px; }
-.wl-pending .meta, .wl-redeemable .meta { color: var(--fg-2); font-size: var(--fs-13); }
-.wl-total-fig .wl-usd, .wl-usd { align-self: flex-end; padding-bottom: 0.4em; font-size: clamp(16px, 1.4vw, 22px); color: var(--fg-2); }
-.wl-redeemable .wl-usd, .wl-pending .wl-usd { display: block; font-size: var(--fs-15); padding: 0; }
-.wl-hero-sim { grid-column: 1 / -1; margin-top: -16px; }
-.wl-hero-err { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-@media (min-width: 960px) { .wl-hero { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); padding: 40px 44px 28px; } }
-@media (max-width: 479px) { .wl-hero { padding: 24px 18px 30px; } .wl-second { grid-template-columns: 1fr; } }
-.wl-total-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-/* phones: folded to the Total until opened */
-@media (min-width: 768px) { .wl-total-head .wl-fold, .wl-sum { display: none; } }
-.wl-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; width: 100%; min-height: 44px; margin-top: 4px; padding: 0; border: 0; background: transparent; font: inherit; font-size: var(--fs-15); color: var(--fg-2); text-align: left; cursor: pointer; }
-.wl-sum b { font-weight: 700; }
-.wl-sum span:first-child b { color: var(--em-hi); }
-.wl-sum:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
-@media (max-width: 767px) {
-  .wl-total { cursor: pointer; }
-  .wl-hero:not(.open) > .wl-second { display: none; }
-}
+.wl-col-head { display: inline-flex; align-items: center; gap: 6px; }
+.wl-total-fig { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.wl-total-fig .gema-mark { width: 44px; height: 44px; }
+.wl-total-fig b { font-size: clamp(44px, 12vw, 72px); font-weight: 900; letter-spacing: -0.03em; line-height: 1; word-spacing: 0; }
+.wl-total-note { margin: 8px 0 0; color: var(--fg-2); font-size: var(--fs-14); }
+.wl-usd { font-size: clamp(16px, 1.4vw, 22px); color: var(--fg-2); }
+.wl-total-usd { display: inline; margin: 0; padding: 0; }
+.wl-figure-skel { width: 3ch; max-width: 100%; height: 1lh; }
+.wl-total-fig .wl-figure-skel { width: 4ch; }
+.wl-usd-skel { width: 4ch; height: 1lh; font-size: var(--fs-15); }
+.wl-total > .wl-usd-skel { font-size: clamp(16px, 1.4vw, 22px); }
+.wl-hero[aria-busy="true"] .wl-total-fig b, .wl-hero[aria-busy="true"] .wl-win-fig b { min-width: 0; }
+.wl-hero[aria-busy="true"] .skel-line { position: relative; overflow: hidden; }
+.wl-hero[aria-busy="true"] .skel-line::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.07), transparent); animation: skel 1.5s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .wl-hero[aria-busy="true"] .skel-line::before { animation: none; } }
+.wl-hero-err { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.wl-win { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head act" "fig act" "note note"; align-items: center; gap: 2px 12px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+.wl-win .wl-col-head { grid-area: head; font-size: var(--fs-14); font-weight: 600; color: var(--fg-2); }
+.wl-win-fig { grid-area: fig; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.wl-win-fig b { font-size: 28px; font-weight: 900; letter-spacing: -0.02em; }
+.wl-win.emerald .wl-win-fig b { color: var(--em-hi); }
+.wl-win-fig .wl-usd { padding: 0; font-size: var(--fs-15); }
+.wl-win-action { grid-area: act; }
+.wl-win-action .btn { white-space: nowrap; }
+.wl-win-note { grid-area: note; justify-self: end; color: var(--fg-2); font-size: var(--fs-13); }
+@media (min-width: 600px) { .wl-hero { padding: 48px 50px 46px; } }
+@media (max-width: 479px) { .wl-win-action .btn { padding-inline: 12px; font-size: var(--fs-14); } }
 
 .wl-foot { display: grid; gap: 10px; }
 .wl-foot:empty { display: none; }
@@ -47,11 +46,11 @@
 .wl-tile-top { cursor: pointer; }
 .wl-tile-body[hidden] { display: none; }
 .wl-tile-head { display: flex; align-items: center; gap: 8px; font-size: var(--fs-15); }
-/* fold toggle: Position cards and the phone balance */
+/* fold toggle: Position cards */
 .wl-fold { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin: -12px -12px -12px 0; padding: 0; border: 0; background: transparent; color: var(--fg-2); cursor: pointer; }
 .wl-fold svg { transition: transform 160ms ease; }
 .wl-fold[aria-expanded="true"] svg { transform: rotate(180deg); }
-.wl-fold:hover, .wl-tile-top:hover .wl-fold, .wl-total:hover .wl-fold { color: var(--fg); }
+.wl-fold:hover, .wl-tile-top:hover .wl-fold { color: var(--fg); }
 .wl-fold:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .wl-fold svg { transition: none; } }
 .wl-tile-lock { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); font-weight: 700; }
@@ -84,8 +83,9 @@
 
 .wl-actions { display: grid; gap: 8px; }
 .wl-actions:empty { display: none; }
-.wl-actions-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.wl-actions-row:has(> :only-child) { grid-template-columns: 1fr; }
+.wl-actions-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.wl-actions-row > * { flex: 1 1 140px; }
+.wl-actions-row:empty { display: none; }
 .wl-more summary { cursor: pointer; font-size: var(--fs-14); font-weight: 600; color: var(--fg-2); }
 .wl-more[open] summary { color: var(--fg); margin-bottom: 8px; }
 .wl-more[open] > * + * { margin-top: 8px; }
@@ -140,35 +140,6 @@
 .wl-faucet b { color: var(--fg); }
 
 
-/* no Positions yet: one card carries the invitation, how Gemas work and the action */
-.wl-empty {
-  --edge: var(--edge-1); background: var(--surface); padding: 0 20px;
-  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 18px;
-  grid-template-areas: "lead lead" "steps steps" "bust cta";
-}
-.wl-empty-bust { grid-area: bust; align-self: end; width: 104px; margin-bottom: -1px; }
-.wl-empty-lead { grid-area: lead; padding: 22px 0 18px; }
-.wl-empty-lead b { display: block; font-size: var(--fs-20); font-weight: 800; }
-.wl-empty-lead p { color: var(--fg-2); font-size: var(--fs-15); margin-top: 4px; }
-.wl-empty > .btn { grid-area: cta; margin: 18px 0; }
-.wl-steps { grid-area: steps; list-style: none; margin: 0; padding: 18px 0; border-block: 1px solid var(--line); display: grid; gap: 14px 24px; }
-.wl-steps li { display: flex; align-items: flex-start; gap: 12px; }
-.wl-steps li > span { flex: none; min-width: 16px; font-family: var(--f-display); font-weight: 800; font-size: 34px; line-height: 0.92; color: var(--fg-2); }
-.wl-steps b { display: block; font-size: var(--fs-15); }
-.wl-steps p { color: var(--fg-2); font-size: var(--fs-14); margin-top: 2px; }
-@media (min-width: 640px) {
-  .wl-empty { padding: 0 28px; }
-  .wl-empty > .btn { justify-self: start; }
-  .wl-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .wl-steps li + li { border-left: 1px solid var(--line); padding-left: 24px; }
-}
-@media (min-width: 1180px) {
-  .wl-empty { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 28px; padding: 0 32px 0 20px; grid-template-areas: "bust lead cta" "bust steps steps"; }
-  .wl-empty-bust { width: 200px; }
-  .wl-empty-lead { padding: 26px 0 20px; }
-  .wl-empty > .btn { margin: 0; }
-  .wl-steps { padding: 18px 0 24px; border-bottom: 0; }
-}
 .wl-actions .btn { min-height: 44px; }
 .wl-tile.skel { min-height: 236px; align-content: start; }
 
@@ -244,3 +215,13 @@
   .wl-src li.wide > .meter { grid-column: 2 / -1; }
   .wl-src li.wide > .meta { grid-column: 2 / -1; text-align: left; }
 }
+
+/* Ready by, Redeem cost, small leftovers (economy upgrade, ticket 21) */
+.wl-readyby { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font-size: var(--fs-13); color: var(--fg-2); }
+.wl-readyby b { color: var(--fg-1); font-weight: 700; }
+.wl-redeem-cost { display: block; }
+.wl-redeem-cost.small { color: var(--warn, var(--fg-1)); }
+.wl-leftovers { display: grid; justify-items: start; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.wl-requested { margin: 0; }
+.wl-waiting { display: grid; justify-items: start; gap: 8px; }
+.wl-waiting .note { margin: 0; }

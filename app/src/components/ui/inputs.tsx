@@ -2,7 +2,8 @@
 
 import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
-import type { EntrySize } from "@/lib/mock/types";
+import type { EntrySize, GameId } from "@/lib/mock/types";
+import { GAME_NAMES } from "@/lib/mock";
 import { fmtGemas } from "@/lib/format";
 import { GemaMark, GemaUsd } from "./gema";
 import { XIcon } from "./icons";
@@ -70,6 +71,24 @@ export function AssetPicker({ value, onChange, name, compact }: { value: 0 | 1 |
             <b>{a.symbol}</b>
             <small className={compact ? "sr-only" : undefined}>{a.name}</small>
           </span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+/** Radio group over Games, as a rail with a steel piece (choosing a Game moves no Gemas). */
+export function GamePicker({ games, value, onChange, name }: { games: GameId[]; value: GameId; onChange: (g: GameId) => void; name?: string }) {
+  const auto = useId();
+  const group = name ?? auto;
+  return (
+    <fieldset className="cut pick-rail games" style={{ ["--i" as string]: Math.max(0, games.indexOf(value)), ["--n" as string]: games.length }}>
+      <legend className="sr-only">Game</legend>
+      <span className="pick-thumb" aria-hidden="true" />
+      {games.map((g) => (
+        <label key={g} className="game">
+          <input type="radio" name={group} value={g} checked={value === g} onChange={() => onChange(g)} />
+          <span className="cut">{GAME_NAMES[g]}</span>
         </label>
       ))}
     </fieldset>
@@ -199,6 +218,7 @@ export function Sheet({
   onClose,
   title,
   lead,
+  actions,
   className,
   children,
 }: {
@@ -207,6 +227,8 @@ export function Sheet({
   title: string;
   /** Shown above the title inside the header (e.g. the Tesoro mark on the Sign in sheet). */
   lead?: ReactNode;
+  /** Shown beside the close button (e.g. the Pro view switch on the Buy Gemas sheets). */
+  actions?: ReactNode;
   className?: string;
   children: ReactNode;
 }) {
@@ -235,9 +257,11 @@ export function Sheet({
           <div className="sheet-head">
             {lead}
             <h2 id={titleId}>{title}</h2>
+            {/* Close comes first in the DOM so opening the sheet focuses it, not one of the actions */}
             <button type="button" className="cut cut-chip icon-btn" onClick={onClose} aria-label="Close">
               <XIcon />
             </button>
+            {actions && <div className="sheet-actions">{actions}</div>}
           </div>
           {children}
         </div>

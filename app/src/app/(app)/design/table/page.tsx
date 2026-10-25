@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { notFound } from "next/navigation";
 import { PublicKey } from "@solana/web3.js";
-import { PHASE, SPEED_TURBO, STATUS, type Table } from "@/games/holdem/chain";
+import { OFF_CHAIN_TABLE, PHASE, SPEED_TURBO, STATUS, type Table } from "@/games/holdem/chain";
 import { HoldemTable } from "@/games/holdem/HoldemTable";
 import { DEV_WALLET } from "@/lib/chain/config";
 
@@ -21,14 +21,12 @@ export default function TablePreview() {
   }, []);
   const table: Table = {
     address: pk("11111111111111111111111111111111"),
-    matchId: 784592n,
     tesoroMatch: pk("11111111111111111111111111111111"),
     players: [pk("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"), pk("4rG3LUgjMq1a7vJq2sTqkQmZ8m4wq2pVbR8vN3Ykq7Xd")],
     speed: SPEED_TURBO,
     status: STATUS.live,
-    finalized: false,
+    ...OFF_CHAIN_TABLE,
     winner: NO,
-    startDeadline: 0,
     handNo: 784592,
     dealer: 1,
     phase: PHASE.river,
@@ -46,6 +44,6 @@ export default function TablePreview() {
     lastHand: { handNo: 0, result: NO, pot: 0n, showdown: false, shown: [[NO, NO], [NO, NO]], board: [] },
   };
   return (
-    <HoldemTable table={table} seat={0} hole={{ handNo: 784592, cards: [51, 49] }} busy={null} ended={false} entry={1000} onAct={() => undefined} onClaim={() => undefined} />
+    <HoldemTable table={table} seat={0} hole={{ handNo: 784592, cards: [51, 49] }} busy={null} ended={false} onAct={() => undefined} onClaim={() => undefined} />
   );
 }

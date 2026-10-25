@@ -1,43 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { pickSettled, topScores, type SettledCandidate, type SettledMatch } from "./settled";
+import { fetchSettled } from "./recent";
+import { topScores, type SettledMatch } from "./settled";
 
-const NOW = 1_790_000_000_000;
-const HOUR = 60 * 60 * 1000;
-const row = (hoursAgo: number, game: SettledCandidate["game"], over: Partial<SettledCandidate> = {}): SettledCandidate => ({
-  id: BigInt(NOW - hoursAgo * HOUR) << 1n,
-  game,
-  settled: true,
-  joined: true,
-  ...over,
-});
-
-describe("pickSettled", () => {
-  it("filters by game and time before cutting to the limit", () => {
-    // 60 Hold'em Matches settled in the last hour, then three Block Burst Matches earlier today.
-    const holdem = Array.from({ length: 60 }, (_, i) => row(i / 60, "holdem"));
-    const bp = [row(3, "block-puzzle"), row(10, "block-puzzle"), row(23, "block-puzzle")];
-    const picked = pickSettled([...holdem, ...bp, row(25, "block-puzzle")], { game: "block-puzzle", since: NOW - 24 * HOUR, limit: 40 });
-    expect(picked).toEqual(bp);
-  });
-
-  it("skips unsettled, unjoined and unknown-game Matches", () => {
-    const rows = [row(1, "block-puzzle", { settled: false }), row(1, "block-puzzle", { joined: false }), row(1, null), row(2, "block-puzzle")];
-    expect(pickSettled(rows, { limit: 10 })).toEqual([rows[3]]);
-  });
-
-  it("keeps the newest first", () => {
-    const rows = [row(5, "holdem"), row(1, "block-puzzle"), row(3, "holdem")];
-    expect(pickSettled(rows, { limit: 2 })).toEqual([rows[1], rows[2]]);
-  });
-});
+const m = (winner: string, score: number): SettledMatch => ({ id: "opener-0", game: "block-puzzle", entry: 500, winner, payout: 950, scores: [score, 1], at: 0 });
 
 describe("topScores", () => {
-  const m = (winner: string, score: number): SettledMatch => ({ id: 0n, game: "block-puzzle", entry: 500, winner, payout: 950, scores: [score, 1], at: 0 });
   it("keeps each Player's best winning score, highest first, top 3", () => {
     expect(topScores([m("a", 90), m("b", 120), m("a", 150), m("c", 30), m("d", 60)])).toEqual([
       ["a", 150],
       ["b", 120],
       ["d", 60],
     ]);
+  });
+});
+
+describe("fetchSettled (recent wins from the Match history)", () => {
+  const answer = (body: unknown, ok = true) => (async () => ({ ok, json: async () => body })) as unknown as typeof fetch;
+
+  it("asks the route for one Game, since a time, with a limit", async () => {
+    const urls: string[] = [];
+    const rows = [m("a", 100)];
+    const fetcher = (async (url: string) => {
+      urls.push(url);
+      return { ok: true, json: async () => rows };
+    }) as unknown as typeof fetch;
+    await expect(fetchSettled({ game: "block-puzzle", since: 1_790_000_000_000, limit: 40 }, fetcher)).resolves.toEqual(rows);
+    expect(urls).toEqual(["/api/recent-wins?limit=40&game=block-puzzle&since=1790000000000"]);
+  });
+
+  it("is an empty ticker when the history is unavailable", async () => {
+    await expect(fetchSettled({ limit: 8 }, answer({ error: "x" }, false))).resolves.toEqual([]);
+    await expect(fetchSettled({ limit: 8 }, (async () => { throw new Error("offline"); }) as unknown as typeof fetch)).resolves.toEqual([]);
   });
 });

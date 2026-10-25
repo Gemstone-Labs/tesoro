@@ -22,6 +22,7 @@ describe("rematchHref", () => {
   });
   it("carries the Game and the Trading Duel asset", () => {
     expect(rematchHref({ game: "holdem", entry: 500, opponent: OPP })).toBe(`/play/challenge?game=holdem&entry=500&opponent=${OPP}`);
+    expect(rematchHref({ game: "vanguard", entry: 500, opponent: OPP })).toBe(`/play/challenge?game=vanguard&entry=500&opponent=${OPP}`);
     expect(rematchHref({ game: "trading-duel", asset: 1, entry: 2500, opponent: OPP })).toBe(`/play/challenge?game=trading-duel&asset=eth&entry=2500&opponent=${OPP}`);
   });
 });

@@ -2,9 +2,8 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
-import { Button, CountUp, GemaMark, Sheet } from "@/components/ui";
+import { Button, CountUp, Sheet } from "@/components/ui";
 import { useGuideHidden } from "@/components/guide/Guide";
-import { fmtGemas } from "@/lib/format";
 import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, tesoroAccountPda, type Action, type Table } from "./chain";
 import { EMPTY_LOG, stepHandLog, type HandLog, type LogStreet } from "./handlog";
 import { FlipCard, type FlipState } from "./cards";
@@ -17,7 +16,7 @@ import { bestHand, resultSummary } from "./reading";
 import { FOLD_CHIPS_AT, SHOWDOWN_CHIPS_AT, STREET_LEAD, STREET_MS, runoutOffset, useTableFeed } from "./useTableFeed";
 import { PACE, paced } from "./pace";
 import { Handshake, Trophy, Flag, ScrollText } from "lucide-react";
-import { Arena, Callout, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx } from "../fx";
+import { Arena, Callout, GameMenu, prefersReducedMotion, sfx } from "../fx";
 import { art } from "@/lib/art";
 import "./holdem.css";
 
@@ -37,8 +36,6 @@ function useNow(ms = 250) {
   return now;
 }
 
-const clock = (secs: number) => `${Math.floor(Math.max(0, secs) / 60)}:${String(Math.max(0, secs) % 60).padStart(2, "0")}`;
-
 /** The hand log, inferred by this client from table reads (handlog.ts). */
 function useHandLog(t: Table, seat: 0 | 1): LogStreet[] {
   const [log, setLog] = useState<HandLog>(EMPTY_LOG);
@@ -56,8 +53,6 @@ interface Props {
   busy: string | null;
   /** The Match is over: no clock, no actions. */
   ended: boolean;
-  /** The Gema entry of this Match, for the info panel. */
-  entry?: number;
   onAct: (a: Action, label: string) => void;
   onClaim: () => void;
   /** Local practice against the bot: no turn clock, no addresses. */
@@ -68,31 +63,17 @@ interface Props {
   error?: string | null;
 }
 
-/** Your Chips against theirs across the Match, as a bar that leans to whoever has more. */
-function ShareBar({ mine, theirs }: { mine: bigint; theirs: bigint }) {
-  const total = Number(mine + theirs) || 1;
-  const pct = Math.round((Number(mine) / total) * 100);
-  return (
-    <div className="hdx-share" role="img" aria-label={`Chips: you ${chips(mine)}, opponent ${chips(theirs)}`}>
-      <span className="mono hdx-share-n">
-        You <b>{chips(mine)}</b>
-      </span>
-      <span className="hdx-share-bar" aria-hidden="true">
-        <i style={{ width: `${pct}%` }} />
-      </span>
-      <span className="mono hdx-share-n">
-        <b>{chips(theirs)}</b> Opponent
-      </span>
-    </div>
-  );
+/**
+ * The Hold'em table for one Player: the octagonal table with both seats, the pot and the board, the action bar below, and
+ * above it only the blinds and the ⋯ menu (sound, full screen, Hand log, Leave). No sentences during play: whose turn it
+ * is shows as the ring on that seat. Chips are neutral steel discs and mono numbers: they are scorekeeping, not Gemas.
+ */
+/** The ⋯ menu with the Hand log in it. Leave only in Practice: a live Match is left from the browser or the nav after it. */
+function TableMenu({ onLog, leaveHref }: { onLog: () => void; leaveHref?: string }) {
+  return <GameMenu className="hdx-menu" items={[{ label: "Hand log", icon: <ScrollText aria-hidden="true" />, onSelect: onLog }]} leaveHref={leaveHref} />;
 }
 
-/**
- * The Hold'em table for one Player: the octagonal table in the centre with both seats, the pot and
- * the board, a share bar and turn timer in the header, the action bar below. Chips are neutral steel
- * discs and mono numbers: they are scorekeeping, not Gemas. No character anywhere.
- */
-export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, onClaim, practice, endPanel, error }: Props) {
+export function HoldemTable({ table: t, seat, hole, busy, ended, onAct, onClaim, practice, endPanel, error }: Props) {
   const opp = 1 - seat;
   const now = useNow();
   const [walletA, walletB] = t.players.map((p) => p.toBase58());
@@ -270,50 +251,28 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   const oppHand = hands ? hands[opp].name : null;
 
   return (
-    <Arena game="holdem" fullScreenKey={false} autoFull={!ended}>
+    <Arena game="holdem" autoFull={!ended}>
     <section className="hdx" aria-label="Hold'em table" style={{ ["--pace" as string]: PACE }}>
-      <header className="hdx-head" aria-label="Table">
-        <div className="hdx-head-l">
-          <h1 className="hdx-title">Buckshot Hold&apos;em</h1>
-          <p className="mono hdx-level" aria-label={`Blinds ${level}`}>
-            Blinds {level.replace(" / ", "/")} · Hand #{t.handNo}
-          </p>
-          {entry !== undefined && (
-            <span className="cut cut-btn hdx-entry">
-              <GemaMark size={18} /> {fmtGemas(entry)} entry
-            </span>
-          )}
-          <MuteToggle />
-          <FullScreenToggle shortcut={false} />
-        </div>
-        <ShareBar mine={t.stacks[seat] + t.committed[seat]} theirs={t.stacks[opp] + t.committed[opp]} />
-        <div className="hdx-head-r">
-          {!ended && t.status === STATUS.live && (
-            <div className="hdx-clock" role="timer" aria-live="off">
-              <div className="hdx-clock-top">
-                <span className="hdx-who">
-                  {t.phase === PHASE.shuffle ? `Dealing hand ${t.handNo}` : myTurn ? "Your turn" : "Opponent's turn"}
-                  {playing ? ` · ${STREET[t.phase]}` : ""}
-                </span>
-                {!practice && (
-                  <span className={`mono hdx-secs${remaining <= 10 ? " low" : ""}`}>{remaining >= 60 ? clock(remaining) : `${Math.max(0, remaining)} s`}</span>
-                )}
-              </div>
-              {expired && !myTurn && (
-                <div className="hd-claim">
-                  <span className="meta">{t.phase === PHASE.shuffle ? "Someone has not dealt in time." : "Your opponent's clock ran out."}</span>
-                  <Button size="sm" onClick={onClaim} disabled={busy !== null}>
-                    {busy === "claim_timeout" ? "Claiming…" : "Claim timeout"}
-                  </Button>
-                </div>
-              )}
-              {expired && myTurn && <span className="meta">Your clock ran out: act now, or your opponent can claim a timeout.</span>}
-            </div>
-          )}
-          <button type="button" className="cut cut-chip hdx-logbtn" onClick={() => setLogOpen(true)} aria-haspopup="dialog">
-            <ScrollText size={15} aria-hidden="true" /> Hand log
-          </button>
-        </div>
+      <header className="cut cut-card hdx-head" aria-label="Table">
+        <h1 className="sr-only">Buckshot Hold&apos;em, hand {t.handNo}</h1>
+        <span className="hdx-level" aria-label={`Blinds ${level}`}>
+          <small>Blinds</small> <span className="mono">{level.replace(" / ", "/")}</span>
+        </span>
+        {practice && <span className="cut cut-chip game-tag">Practice</span>}
+        {!ended && t.status === STATUS.live && (
+          <span className="sr-only" role="status">
+            {t.phase === PHASE.shuffle ? `Dealing hand ${t.handNo}` : myTurn ? "Your turn" : "Opponent's turn"}
+            {playing ? `, ${STREET[t.phase]}` : ""}
+          </span>
+        )}
+        {expired && !myTurn && (
+          <span className="hdx-claim">
+            <Button size="sm" onClick={onClaim} disabled={busy !== null}>
+              {busy === "claim_timeout" ? "Claiming…" : "Claim timeout"}
+            </Button>
+          </span>
+        )}
+        <TableMenu onLog={() => setLogOpen(true)} leaveHref={practice ? "/play" : undefined} />
       </header>
       {error && <p className="status err hdx-error" role="alert">{error}</p>}
 

@@ -7,13 +7,17 @@ import { feeGemas } from "@/lib/chain/ledger";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
+import type { GameId } from "@/lib/mock";
 import { gameQuery } from "@/lib/game-params";
-import { assetIndexOf } from "@/lib/chain/match-id";
 import { DuelSpectate } from "./DuelSpectate";
+import { EndStateNote } from "./EndStateNote";
+import { VanguardSpectate } from "@/games/vanguard/VanguardSpectate";
 import { RULES } from "./MatchResult";
 import "./match.css";
 import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/Player";
 
+/** What a spectator cannot see while a Match is live, by Game. */
+const SPECTATE_HIDDEN: Record<GameId, string> = { "block-puzzle": "Runs", holdem: "Cards", "trading-duel": "Positions", vanguard: "Ranks" };
 
 /**
  * Someone else's Match, read-only: both Players (each leading to their Account), the result and the Pot. Open and live Matches are
@@ -26,7 +30,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const read = async () => {
-      const next = await fetchMatch(BigInt(matchId), null).catch(() => undefined);
+      const next = await fetchMatch(matchId, null).catch(() => undefined);
       if (!live) return;
       if (next !== undefined) setM(next);
       if (next === undefined || (next && (next.status === "open" || next.status === "active"))) timer = setTimeout(read, 5000);
@@ -129,10 +133,12 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
           </div>
 
           {m.game === "trading-duel" && <DuelSpectate m={m} />}
+          {m.game === "vanguard" && <VanguardSpectate m={m} />}
+          <EndStateNote m={m} />
 
           <p className="mr-copy">
             {m.status === "open" || m.status === "active"
-              ? `You are watching a Match you are not part of. ${m.game === "trading-duel" ? "Positions" : "Runs and cards"} stay hidden until it settles.`
+              ? `You are watching a Match you are not part of. ${SPECTATE_HIDDEN[m.game]} stay hidden until it settles.`
               : "You are viewing a Match you were not part of. The result is final."}
           </p>
         </div>
@@ -142,11 +148,11 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
         {onSignIn ? (
           <Button variant="money" size="lg" onClick={onSignIn}>Sign in to play</Button>
         ) : (
-          <Button variant="money" size="lg" href={`/play/queue?${gameQuery(m.game, m.game === "trading-duel" ? assetIndexOf(m.id) : null)}entry=${m.entry}`}>
+          <Button variant="money" size="lg" href={`/play/queue?${gameQuery(m.game, m.game === "trading-duel" ? m.asset : null)}entry=${m.entry}`}>
             Play {GAME_NAMES[m.game]}
           </Button>
         )}
-        <Button size="lg" href="/lobby">Lobby</Button>
+        <Button size="lg" href="/play">Back to games</Button>
         <Button size="lg" href="/matches">All Matches</Button>
       </div>
     </div>

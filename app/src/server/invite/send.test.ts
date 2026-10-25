@@ -39,7 +39,7 @@ describe("runInvites", () => {
     expect(sender.sent.map((e) => e.to)).toEqual(["a@x.com", "b@x.com", "c@x.com"]);
     for (const e of sender.sent) {
       const code = codeIn(e);
-      expect(e.text).toContain(`https://www.playtesoro.com/lobby?invite=${code}`);
+      expect(e.text).toContain(`https://www.playtesoro.com/play?invite=${code}`);
       const row = invites.rows.get(hashCode(code))!;
       expect(row.email).toBe(e.to);
       expect(row.sentAt).toBe(base.now());
@@ -107,6 +107,6 @@ describe("inviteEmail", () => {
   it("normalizes to the stored hash", () => {
     const e = inviteEmail("https://s", "ABCD-EFGH-JKMN-PQRS");
     expect(normalizeCode("ABCD-EFGH-JKMN-PQRS")).toBe("ABCDEFGHJKMNPQRS");
-    expect(e.text).toContain("https://s/lobby?invite=ABCD-EFGH-JKMN-PQRS");
+    expect(e.text).toContain("https://s/play?invite=ABCD-EFGH-JKMN-PQRS");
   });
 });

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { CalendarDays, Check, Copy, Link2, Pencil, Swords } from "lucide-react";
 import { PlayerAvatar, PlayerName, VerifiedMark } from "@/components/account/Player";
 import { Button } from "@/components/ui";
+import { AddFriendButton } from "@/components/friends/AddFriendButton";
 import { art } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
 import type { PlayerSummary } from "@/lib/chain/player-account";
@@ -86,6 +87,7 @@ export function AccountHero({ address, own, visitor, s, now, otherNames, asking,
               Challenge
             </Button>
           )}
+          {visitor && <AddFriendButton account={address} />}
           {own && (
             <Button onClick={() => setEditProfileOpen(true)} icon={<Pencil aria-hidden="true" />}>
               Edit profile

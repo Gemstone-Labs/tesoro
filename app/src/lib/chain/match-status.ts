@@ -6,6 +6,18 @@
 const CORE_WINDOW_SECS = 60 * 60;
 /** trading_duel START_WINDOW_SECS + MATCH_SECS (30 s head start + 12 columns of 10 s): the longest a Duel runs after the join. */
 const DUEL_PLAY_SECS = 300 + 150;
+/**
+ * vanguard START_WINDOW_SECS + SETUP_GRACE_SECS + CAP_SECS: the longest a Battle runs after `assign_match`. The
+ * program pushes the Match's refund deadline to a full day after that call (TABLE_WINDOW_SECS), so this is
+ * counted back from the deadline, not from the join.
+ */
+const VANGUARD_PLAY_SECS = 300 + 180 + 900;
+const VANGUARD_WINDOW_SECS = 24 * 60 * 60;
+/**
+ * Before `assign_match` the deadline is still the hour after the join. A deadline less than this far ahead has
+ * not been pushed, so a Vanguard Match counts only its refund deadline until it is.
+ */
+const VANGUARD_PUSHED_MIN_SECS = 2 * 60 * 60;
 /** Time the rollup is given to commit a finished Match back to the chain before it counts as late. */
 export const SETTLE_GRACE_SECS = 120;
 
@@ -27,24 +39,25 @@ export type MatchStanding =
  */
 type Input = {
   status: "open" | "active" | "settled" | "refunded";
-  game: "block-puzzle" | "holdem" | "trading-duel";
+  game: "block-puzzle" | "holdem" | "trading-duel" | "vanguard";
   deadline: number;
-  session?: { deadline: number; openerDeadline: number } | null;
 };
 
 /**
  * Unix seconds after which an Active Match should have settled, never later than its refund deadline.
- * - Block Burst: both submission deadlines have passed, so `seal` and settle are open to anyone.
+ * - Block Burst and Hold'em: no fixed end exists in the Match state (the table is assigned at an unknown time), so only the
+ *   refund deadline counts.
  * - Trading Duel: the join, plus the start window, plus the Duel itself.
- * - Hold'em: no fixed end exists in the Match state, so only the refund deadline counts.
+ * - Vanguard: the day the Match was assigned a table on, plus the start window, the setup window and the 15-minute cap. Until
+ *   it is assigned the deadline is the hour after the join and only that counts, which needs `nowSecs`.
  */
-export function settleBy(m: Pick<Input, "game" | "deadline" | "session">): number {
+export function settleBy(m: Pick<Input, "game" | "deadline">, nowSecs = Number.NEGATIVE_INFINITY): number {
   const core = m.deadline;
   let end: number;
-  if (m.game === "block-puzzle" && m.session && m.session.deadline > 0) {
-    end = Math.max(m.session.deadline, m.session.openerDeadline) + SETTLE_GRACE_SECS;
-  } else if (m.game === "trading-duel") {
+  if (m.game === "trading-duel") {
     end = core - CORE_WINDOW_SECS + DUEL_PLAY_SECS + SETTLE_GRACE_SECS;
+  } else if (m.game === "vanguard" && core - nowSecs > VANGUARD_PUSHED_MIN_SECS) {
+    end = core - VANGUARD_WINDOW_SECS + VANGUARD_PLAY_SECS + SETTLE_GRACE_SECS;
   } else {
     end = core;
   }
@@ -54,7 +67,7 @@ export function settleBy(m: Pick<Input, "game" | "deadline" | "session">): numbe
 export function matchStanding(m: Input, nowSecs: number): MatchStanding {
   if (m.status === "open") return { kind: "open" };
   if (m.status === "settled" || m.status === "refunded") return { kind: m.status };
-  if (nowSecs < settleBy(m)) return { kind: "live" };
+  if (nowSecs < settleBy(m, nowSecs)) return { kind: "live" };
   return { kind: "delayed", refundBy: m.deadline, refundOpen: nowSecs >= m.deadline };
 }
 
@@ -81,4 +94,29 @@ export function refundByText(refundBy: number, nowMs: number): string {
 /** One line for cards and lists. */
 export function delayedLine(s: Extract<MatchStanding, { kind: "delayed" }>, nowMs: number): string {
   return s.refundOpen ? "Delayed, refund is open" : `Delayed, refunds by ${refundByText(s.refundBy, nowMs)}`;
+}
+
+/**
+ * `table_kit::TABLE_WAIT_SECS`: a joined Match no table was assigned to is refunded by its Game after this long (ticket 35).
+ */
+export const TABLE_WAIT_SECS = 5 * 60;
+/** The setup note a Match shows while it has no table (no Assignment yet). */
+export const NO_TABLE_NOTE = "Finding a table";
+
+/**
+ * Unix seconds after which a joined Match that still has no table is refunded, or null once the Match has a table: an
+ * Assignment pushes the refund deadline a full day out, so a deadline more than `VANGUARD_PUSHED_MIN_SECS` ahead is not the
+ * hour after the join. Counted back from that deadline (it is the join plus `CORE_WINDOW_SECS`).
+ */
+export function tableRefundBy(deadline: number, nowSecs: number): number | null {
+  if (!deadline || deadline - nowSecs > VANGUARD_PUSHED_MIN_SECS) return null;
+  return deadline - CORE_WINDOW_SECS + TABLE_WAIT_SECS;
+}
+
+/** The line under "Waiting for a table": where the entry is safe, and when it comes back if no table opens. */
+export function tableWaitLine(deadline: number | undefined, nowMs: number): string {
+  const at = deadline ? tableRefundBy(deadline, nowMs / 1000) : null;
+  if (at === null) return deadline ? `We’re finding you a table. If none starts, your entry comes back by ${refundByText(deadline, nowMs)}.` : "We’re finding you a table. If none starts, your entry comes back.";
+  if (at * 1000 > nowMs) return `We’re finding you a table. If none opens by ${refundByText(at, nowMs)}, your entry comes back.`;
+  return "No table opened in time. Your entry is on its way back.";
 }

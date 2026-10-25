@@ -102,5 +102,6 @@ export const GAME_NAMES: Record<GameId, string> = {
   "block-puzzle": "Block Burst",
   holdem: "Buckshot Hold'em",
   "trading-duel": "Trading Duel",
+  vanguard: "Vanguard",
 };
 

@@ -560,3 +560,6 @@ pub enum SimLstError {
     #[msg("Faucet cooldown has not elapsed")]
     FaucetCooldown,
 }
+
+#[cfg(test)]
+mod predeploy_layouts;

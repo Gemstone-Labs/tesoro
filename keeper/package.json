@@ -19,6 +19,7 @@
     "@metaplex-foundation/umi-web3js-adapters": "^0.9.2",
     "@solana/web3.js": "^1.99.0",
     "tweetnacl": "^1.0.3",
+    "utf-8-validate": "6.0.6",
     "viem": "^2.57.1"
   },
   "devDependencies": {

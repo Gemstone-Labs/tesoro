@@ -6,10 +6,14 @@ export function fmtGemas(n: number): string {
   return Math.round(n).toLocaleString("en-US");
 }
 
-/** "500, 1,000 or 2,500": entry sizes as prose. */
+/** "100, 500 or 1,000": entry sizes as prose. */
 export function fmtEntryList(sizes: readonly number[]): string {
-  const f = sizes.map((n) => fmtGemas(n));
-  return f.length < 2 ? f.join("") : `${f.slice(0, -1).join(", ")} or ${f[f.length - 1]}`;
+  return orList(sizes.map((n) => fmtGemas(n)));
+}
+
+/** "a, b or c". */
+export function orList(items: readonly string[]): string {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
 }
 
 export function fmtUsd(n: number): string {

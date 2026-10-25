@@ -26,6 +26,7 @@ import {
   type Move,
 } from "../../../app/src/games/block-puzzle/chain";
 import { planEntry } from "../../../app/src/lib/chain/ledger";
+import { gameAccounts, gameRecordPda } from "../../../app/src/lib/chain/game-record";
 import { apply, dims, fitsAt, handBase, newState, pieceAt, replay, SIZE, HAND } from "../../../app/src/games/block-puzzle/engine";
 
 const HERE = __dirname;
@@ -89,7 +90,7 @@ async function ensureAccount(signer: ReturnType<typeof keypairSigner>, label: st
   if (await exists(account)) return account;
   const ix = await core.methods
     .createAccount(Array(20).fill(0))
-    .accountsPartial({ authority: signer.publicKey, account, systemProgram: SystemProgram.programId })
+    .accountsPartial({ authority: signer.publicKey, payer: signer.publicKey, account, systemProgram: SystemProgram.programId })
     .instruction();
   rec(`create_account ${label}`, await chain.sendBase(signer, [ix]), "base");
   return account;
@@ -105,12 +106,13 @@ async function setupCore() {
       .instruction();
     rec("initialize_config (admin = deployer, oracle = ~/.config/tesoro/oracle.json)", await chain.sendBase(S.d, [ix]), "base");
   }
-  const cfg: any = await core.account.config.fetch(config);
-  const registered = cfg.games.some((g: any) => g.game.equals(BLOCK_PUZZLE_PROGRAM_ID) && g.authority.equals(authority));
+  const registered = await exists(gameRecordPda(BLOCK_PUZZLE_PROGRAM_ID));
   if (!registered) {
+    // The deployer is the program's upgrade authority, which is what tesoro_core checks.
+    const g = gameAccounts(BLOCK_PUZZLE_PROGRAM_ID);
     const ix = await core.methods
-      .registerGame(BLOCK_PUZZLE_PROGRAM_ID, authority, 300)
-      .accountsPartial({ admin: deployer.publicKey, config, studioRecipient: deployerAccount })
+      .registerGame(authority, 300)
+      .accountsPartial({ payer: deployer.publicKey, control: deployer.publicKey, config, gameProgram: g.gameProgram, programData: g.programData, studioRecipient: deployerAccount, gameRecord: g.gameRecord })
       .instruction();
     rec("register_game (block_puzzle, authority = [authority] PDA)", await chain.sendBase(S.d, [ix]), "base");
   }
@@ -154,7 +156,7 @@ async function stakeFragmented(signer: ReturnType<typeof keypairSigner>, label: 
       .accountsPartial({ oracle: oracle.publicKey, config, ownerAccount: account, position, systemProgram: SystemProgram.programId })
       .instruction();
     const advance = await core.methods
-      .takeAdvance(6, new BN(150_000_000))
+      .takeAdvance(6, new BN(150_000_000), new BN(1))
       .accountsPartial({ oracle: oracle.publicKey, ownerAuthority: signer.publicKey, config, ownerAccount: account, position, source, holding, systemProgram: SystemProgram.programId })
       .instruction();
     const tx = new Transaction().add(open, advance);
@@ -195,7 +197,7 @@ async function stakeOne(signer: ReturnType<typeof keypairSigner>, label: string,
   }
   if (!(await exists(holding))) {
     const ix = await core.methods
-      .takeAdvance(6, new BN(150_000_000))
+      .takeAdvance(6, new BN(150_000_000), new BN(1))
       .accountsPartial({ oracle: oracle.publicKey, ownerAuthority: signer.publicKey, config, ownerAccount: account, position, source, holding, systemProgram: SystemProgram.programId })
       .instruction();
     const tx = new Transaction().add(ix);

@@ -1,3 +1,5 @@
+@import "./motion.css";
+
 /* ——— The cut: octagonal clip-path + a 1px edge that follows the chamfer ———
    One corner size per component class. `--edge` colours the outline (default --line). */
 .cut {
@@ -171,21 +173,26 @@ a.row:hover, button.row:hover { --edge: var(--edge-2); }
 .btn.block { display: flex; width: 100%; }
 .btn.sm { padding: 7px 12px; min-height: 34px; font-size: var(--fs-13); }
 .btn.lg { min-height: 60px; font-size: var(--fs-20); padding: 0 24px; }
-.btn { transition: filter 0.15s ease, background-color 0.15s ease, transform 0.16s cubic-bezier(0.23, 1, 0.32, 1); }
 .btn.lg { --c: 9px; }
 .btn.money {
   color: var(--em-ink); --edge: var(--money-rim);
   background: linear-gradient(0deg, var(--money-base) 0 3px, transparent 3px), var(--money-fill);
 }
 .btn.money.lg { padding-bottom: 3px; }
-.btn.money:hover:not(:disabled) { filter: brightness(1.07) saturate(1.05); }
-.btn.money:active:not(:disabled) { filter: brightness(0.95); }
-.btn:active:not(:disabled, [aria-disabled="true"]) { transform: scale(0.97); }
+.btn.money:hover:not(:disabled, [aria-disabled="true"]) { filter: brightness(1.07) saturate(1.05); }
+.btn.money:active:not(:disabled, [aria-disabled="true"]) { filter: brightness(0.95); }
 .btn.neutral { background: var(--surface); color: var(--fg); --edge: var(--edge-2); }
 .btn.neutral:hover { background: var(--surface-2); }
 .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; }
 .btn.money:disabled { background: var(--money-off); color: rgba(234, 239, 236, 0.5); --edge: var(--edge-1); }
 .btn.neutral:disabled { color: var(--fg-2); }
+.btn.silver {
+  color: #0b1012; --edge: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.35));
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 3px, transparent 3px), linear-gradient(180deg, #f4f7f6 0%, #d9dfdc 55%, #bcc4c0 100%);
+}
+.btn.silver.lg { padding-bottom: 3px; }
+.btn.silver:hover:not(:disabled, [aria-disabled="true"]) { filter: brightness(1.05); }
+.btn.silver:disabled { background: var(--surface); color: var(--fg-2); --edge: var(--edge-1); }
 .btn svg { width: 16px; height: 16px; flex: none; }
 
 /* square icon / arrow button (rail arrows, drawer toggles, copy) */
@@ -317,6 +324,10 @@ a.row:hover, button.row:hover { --edge: var(--edge-2); }
 .asset input:checked + span small { color: var(--fg-2); }
 .asset input:not(:checked) + span .chain-glyph { filter: grayscale(1); opacity: 0.6; }
 .assets.compact .asset span { min-height: 44px; }
+/* game: neutral like assets */
+.games .pick-thumb { background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 1px), linear-gradient(180deg, #34404a, #222b32); }
+.game span { display: flex; justify-content: center; align-items: center; text-align: center; min-height: 48px; padding: 4px 6px; font-weight: 800; font-size: var(--fs-15); line-height: 1.15; }
+.game input:checked + span { color: var(--fg); }
 
 /* ——— Slider: a ruler with its values written under it and a pin on the current one ———
    The native range sits invisibly on top (28px thumb), so every position below is 14px + (100% - 28px) * fraction.
@@ -416,21 +427,24 @@ dialog.cut[open] > * { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscro
 dialog.sheet::backdrop { background: rgba(4, 7, 9, 0.62); backdrop-filter: blur(6px); }
 /* sheets rise in when opened and drop away, faster, when closed (browsers without @starting-style just snap) */
 dialog.sheet, dialog.bk-drawer {
-  opacity: 0; transform: translateY(16px);
-  transition: opacity 0.18s ease-out, transform 0.18s ease-out, overlay 0.18s allow-discrete, display 0.18s allow-discrete;
+  opacity: 0; transform: translateY(8px) scale(0.98);
+  transition: opacity 0.12s ease-out, transform 0.12s ease-out, overlay 0.12s allow-discrete, display 0.12s allow-discrete;
 }
-dialog.sheet[open], dialog.bk-drawer[open] { opacity: 1; transform: none; transition-duration: 0.26s; transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1); }
-dialog.sheet::backdrop, dialog.bk-drawer::backdrop { opacity: 0; transition: opacity 0.18s ease-out, overlay 0.18s allow-discrete, display 0.18s allow-discrete; }
-dialog.sheet[open]::backdrop, dialog.bk-drawer[open]::backdrop { opacity: 1; }
+dialog.sheet[open], dialog.bk-drawer[open] { opacity: 1; transform: none; transition-duration: 0.18s; transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1); }
+dialog.sheet::backdrop, dialog.bk-drawer::backdrop { opacity: 0; transition: opacity 0.12s ease-out, overlay 0.12s allow-discrete, display 0.12s allow-discrete; }
+dialog.sheet[open]::backdrop, dialog.bk-drawer[open]::backdrop { opacity: 1; transition-duration: 0.18s; }
 @starting-style {
-  dialog.sheet[open], dialog.bk-drawer[open] { opacity: 0; transform: translateY(24px); }
+  dialog.sheet[open], dialog.bk-drawer[open] { opacity: 0; transform: translateY(8px) scale(0.98); }
   dialog.sheet[open]::backdrop, dialog.bk-drawer[open]::backdrop { opacity: 0; }
 }
-@keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } }
+@keyframes sheet-in { from { transform: translateY(8px) scale(0.98); opacity: 0; } }
 @keyframes fade-in { from { opacity: 0; } }
 .sheet-in { padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 14px; }
 .sheet-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
 .sheet-head h2 { font-size: var(--fs-20); font-weight: 900; letter-spacing: -0.01em; }
+/* drawn before the close button, which comes first in the DOM */
+.sheet-head > .icon-btn { order: 2; }
+.sheet-actions { order: 1; margin-left: auto; align-self: center; }
 @media (min-width: 640px) { dialog.sheet { margin: auto; } .sheet-in { padding: 24px 24px 26px; gap: 16px; } }
 
 /* ——— Form controls ——— */
@@ -563,3 +577,7 @@ button.select { font: inherit; text-align: start; white-space: nowrap; overflow:
 /* ——— Leaderboard Pool: gold is its colour and nothing else's ——— */
 /* the chest art sits on its own dark ground: lighten drops that ground onto the card, the mask feathers the square */
 .pool-fig { background: var(--gold-facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* A page title shown on desktop only: phones keep it for screen readers and save the space (founder 2026-10-23). */
+@media (max-width: 1023px) {
+  .title-desk { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}

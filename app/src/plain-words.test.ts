@@ -89,3 +89,44 @@ describe("plain money words", () => {
     ).toEqual([]);
   }, 60_000);
 });
+
+/**
+ * The Simple view (Vault and deposit modal) speaks to people who have never used crypto (founders, 2026-10-21): money you
+ * deposit and get back, never staking. The acknowledgment wording in lib/deposit/acknowledgment.ts must name staking, so it
+ * sits outside these folders.
+ */
+// The balance card is shared by both views, so its words live in components/money and follow the Simple rules too.
+const SIMPLE_DIRS = ["app/(app)/vault", "components/deposit", "components/money"];
+const SIMPLE_WORDS: [RegExp, string][] = [
+  [/\bstak(e|es|ed|ing)\b/i, "deposit"],
+  [/\bAPY\b/i, "(nothing: the Simple view shows no rates)"],
+  [/\byield\b/i, "(nothing) or \"earn\""],
+  [/\block(s)?\b/i, "deposit"],
+  [/\badvances?\b/i, "(nothing) or \"Gemas\""],
+  [/\bdebt\b/i, "(nothing)"],
+  [/\blength\b/i, "\"about 12 months\""],
+  [/\bunlock estimate\b/i, "\"back around <month>\""],
+  [/\bsources?\b/i, "(nothing)"],
+  // "Buy Gemas" is the Vault's button and modal name (founder, 2026-10-22); every other buy/spend word stays out.
+  [/\b(buy(?!\s+gemas\b)|buying|bought|spend|spending|purchase|purchases|purchased)\b/i, "deposit"],
+];
+
+describe("simple view words", () => {
+  it("the Vault and the deposit modal never say staking, Lock, Advance and friends", () => {
+    const hits: string[] = [];
+    for (const dir of SIMPLE_DIRS) {
+      for (const path of files(join(ROOT, dir))) {
+        for (const { text, line } of playerText(path)) {
+          for (const [re, use] of SIMPLE_WORDS) {
+            if (re.test(text)) hits.push(`${relative(ROOT, path)}:${line}  "${text.trim().slice(0, 90)}"  → use ${use}`);
+          }
+        }
+      }
+    }
+    expect(
+      hits,
+      "The Simple view (Vault, deposit modal) must not use crypto words: say deposit, Gemas, \"back after about 12 months\". " +
+        "If the string is code a Player never sees, move it out of these folders.",
+    ).toEqual([]);
+  }, 60_000);
+});

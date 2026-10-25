@@ -12,7 +12,10 @@ mkdir -p target/deploy target/idl target/types
 for key in ~/.config/tesoro/deploy-keys/*-keypair.json; do
   [ -f "target/deploy/$(basename "$key")" ] || cp "$key" target/deploy/
 done
-anchor build --no-idl -- --tools-version v1.54
+build_log=$(mktemp "$TMPDIR/tesoro-sbf-build.XXXXXX.log")
+anchor build --no-idl -- --tools-version v1.54 2>&1 | tee "$build_log"
+# LLVM can report an unsafe frame while Cargo still exits zero.
+python3 scripts/check-sbf-build-log.py "$build_log"
 for dir in programs/*/; do
   so="target/deploy/$(basename "$dir").so"
   if [ ! "$so" -nt "$stamp" ]; then echo "error: $so was not rebuilt" >&2; exit 1; fi
@@ -21,3 +24,7 @@ for dir in programs/*/; do
   p=$(basename "$dir")
   anchor idl build -p "$p" -o "target/idl/$p.json" -t "target/types/$p.ts"
 done
+# The app reads tesoro_core's instructions and types from its own copy of the IDL: keep it in step (keeps the app's `errors`).
+node scripts/sync-idl.mjs
+# Compile the actual Rust SPACE/INIT_SPACE constants and bind them to these freshly built ELFs.
+python3 scripts/predeploy-size-check.py collect --program tesoro_core --program sim_lst --program block_puzzle --program holdem --program trading_duel --program vanguard

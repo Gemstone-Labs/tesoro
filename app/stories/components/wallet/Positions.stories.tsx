@@ -20,7 +20,7 @@ type Story = StoryObj<typeof meta>;
 /** A SOL Position with half its Debt repaid by yield. */
 export const SolWithDebt: Story = {
   parameters: { data: { snapshot: nativeSnapshot("debt") } },
-  render: () => <NativePositionCard position={nativePosition("debt")} market={NATIVE_MARKET} onRedeem={() => {}} />,
+  render: () => <NativePositionCard position={nativePosition("debt")} market={NATIVE_MARKET} />,
 };
 /** The card's small print says Tesoro keeps 20% of the yield (the Yield Fee). */
 export const SolYieldFeeNote: Story = {
@@ -36,18 +36,18 @@ export const SolOpenFormNoTreasury: Story = {
 };
 export const SolRepaid: Story = {
   parameters: { data: { snapshot: nativeSnapshot("repaid") } },
-  render: () => <NativePositionCard position={nativePosition("repaid")} market={NATIVE_MARKET} onRedeem={() => {}} />,
+  render: () => <NativePositionCard position={nativePosition("repaid")} market={NATIVE_MARKET} />,
 };
 /** A 3-month Advance as the program sized it (the shared fixture's issued count is arbitrary), so Extend quotes the real difference. */
 const extendable = () => {
   const info = nativePosition("debt").native!;
-  const issued = quoteNativeAdvance(info.principalLamports, info.rateBps, 3, info.source!.math.unitDen, 2000).gemas;
+  const issued = quoteNativeAdvance(info.principalLamports, info.rateBps, 3, info.source!.math.unitDen).gemas;
   return { ...info, source: { ...info.source!, math: { ...info.source!.math, issued, returned: issued / 2n } } };
 };
 /** Debt is open and the Horizon is under 12 months: Extend sits beside Refresh yield (NEXT_PUBLIC_EXTEND_ADVANCE=1). */
 export const SolWithExtend: Story = {
   parameters: { data: { snapshot: nativeSnapshot("debt") } },
-  render: () => <NativePositionCard position={nativePosition("debt")} market={NATIVE_MARKET} onRedeem={() => {}} extend />,
+  render: () => <NativePositionCard position={nativePosition("debt")} market={NATIVE_MARKET} extend />,
 };
 /** Extend sheet at its default: the slider runs 1 to 12 minus the 3 months already advanced. */
 export const SolExtendSheet: Story = {
@@ -99,7 +99,7 @@ export const SolTakeAnotherAdvance: Story = {
 };
 export const SolUnlocked: Story = {
   parameters: { data: { snapshot: nativeSnapshot("unlocked") } },
-  render: () => <NativePositionCard position={nativePosition("unlocked")} market={NATIVE_MARKET} onRedeem={() => {}} />,
+  render: () => <NativePositionCard position={nativePosition("unlocked")} market={NATIVE_MARKET} />,
 };
 export const SolOpenForm: Story = {
   parameters: { data: { snapshot: nativeSnapshot() } },

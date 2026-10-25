@@ -1,14 +1,13 @@
 "use client";
 
 import { createContext, useContext, useId, type ReactNode } from "react";
-import { Bust, Button, ChainGlyph, Slider } from "@/components/ui";
+import { Button, ChainGlyph, Slider } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import type { Chain, GameId } from "@/lib/mock/types";
 import { UnlockTrack, YieldFeeNote, YieldToGemas, monthsLabel } from "./AdvanceQuote";
 import "./wallet.css";
-import { BRAND } from "@/lib/brand";
 
 export const CHAINS: Chain[] = ["SOL", "ETH", "HYPE"];
 
@@ -28,37 +27,6 @@ function IntentNote({ intent }: { intent: OpenIntent }) {
       You need <b>{fmtGemas(intent.need)} Gemas</b> for {name}.
       {gemas.available > 0 && short > 0 && <span className="meta"> You have {fmtGemas(gemas.available)}, {fmtGemas(short)} to go.</span>}
     </p>
-  );
-}
-
-const HOW_STEPS: [string, string][] = [
-  ["Lock your coins", "What you lock is never played."],
-  ["Take an Advance", `Its projected yield for 1 to 12 months, less ${BRAND.name}'s Yield Fee, upfront as Gemas.`],
-  ["Yield repays it", "The Lock opens when it is paid back."],
-];
-
-/** No Positions yet: the invitation, the explainer and the action in one card. */
-export function NoPositions({ onOpen }: { onOpen: () => void }) {
-  return (
-    <div className="cut cut-card wl-empty">
-      <Bust name="himExplain" width={200} className="wl-empty-bust" />
-      <div className="wl-empty-lead">
-        <b>Nothing locked yet</b>
-        <p>Lock SOL, ETH or HYPE to get Gemas to play with. What you lock is never played.</p>
-      </div>
-      <Button variant="money" onClick={onOpen}>Get Gemas</Button>
-      <ol className="wl-steps" aria-label="How Gemas work">
-        {HOW_STEPS.map(([title, text], i) => (
-          <li key={title}>
-            <span aria-hidden="true">{i + 1}</span>
-            <div>
-              <b>{title}</b>
-              <p>{text}</p>
-            </div>
-          </li>
-        ))}
-      </ol>
-    </div>
   );
 }
 
@@ -112,7 +80,7 @@ export function OpenFormView({
   estimate: string;
   /** What happens now, on the left of the Unlock line. */
   arrival?: string;
-  /** The Yield Fee the quote is net of (the launch rate while the Treasury is unread). */
+  /** The Yield Fee a later cash-out of these Gemas pays (the launch rate while the Treasury is unread). */
   yieldFeeBps?: number;
   details?: [string, ReactNode][];
   alerts?: ReactNode;

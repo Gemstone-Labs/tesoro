@@ -1,87 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { art } from "@/lib/art";
 import { GemaMark } from "@/components/ui";
-import { Lab, stagger, type Spec } from "./lab";
+import { Lab, type Spec } from "./lab";
 
 const F = "src/components/lobby/lobby.css";
 
-const frame = { position: "relative", width: 260, height: 130, overflow: "hidden" } as const;
-
 const specs: Spec[] = [
-  {
-    name: "hero-fill",
-    file: F,
-    line: 41,
-    note: "The slide marker filling while the hero auto-advances (7 s per slide).",
-    dur: 7000,
-    ease: "linear",
-    iter: 1,
-    fill: "both",
-    target: ".dots button i",
-    stage: () => (
-      <div className="dots">
-        <button type="button" className="on" aria-label="Current slide">
-          <i />
-        </button>
-        <button type="button" aria-label="Next slide" />
-        <button type="button" aria-label="Last slide" />
-      </div>
-    ),
-  },
-  {
-    name: "hero-settle",
-    file: F,
-    line: 149,
-    note: "The hero art easing in from slightly zoomed, over 9 s.",
-    dur: 9000,
-    ease: "cubic-bezier(0.2, 0.7, 0.2, 1)",
-    iter: 1,
-    fill: "both",
-    stage: (s) => (
-      <div style={frame}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={art.blockPuzzleHero} alt="" style={{ ...s, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-      </div>
-    ),
-  },
-  {
-    name: "hero-rise",
-    file: F,
-    line: 155,
-    note: "The hero copy rising in order: title, line, entry, button (70 ms apart).",
-    dur: 700,
-    ease: "cubic-bezier(0.2, 0.8, 0.2, 1)",
-    iter: 1,
-    fill: "both",
-    stage: (s) => (
-      <div style={{ display: "grid", gap: 8, justifyItems: "start" }}>
-        <b style={{ ...s, fontSize: 26 }}>Block Burst</b>
-        <span style={{ ...stagger(s, 70), fontSize: 13, color: "var(--fg-2)" }}>Same pieces · 90 seconds</span>
-        <span style={{ ...stagger(s, 140), fontSize: 13 }}>Entry 1,000</span>
-        <span className="cut cut-btn btn money" style={stagger(s, 210)}>Play now</span>
-      </div>
-    ),
-  },
-  {
-    name: "twinkle",
-    file: F,
-    line: 174,
-    note: "The sparkles over the hero art. Each one has its own start, so the delay is left as built.",
-    dur: 3800,
-    ease: "ease-in-out",
-    iter: "infinite",
-    keepDelay: true,
-    target: ".sparkles i",
-    stage: () => (
-      <div style={{ ...frame, background: `center / cover url(${art.blockPuzzleHero})` }}>
-        <span className="sparkles">
-          {Array.from({ length: 10 }, (_, i) => (
-            <i key={i} />
-          ))}
-        </span>
-      </div>
-    ),
-  },
   {
     name: "live-pulse",
     file: F,
@@ -125,11 +48,11 @@ const specs: Spec[] = [
 ];
 
 const meta = {
-  title: "Motion/Lobby keyframes",
+  title: "Motion/Play keyframes",
   parameters: { layout: "padded" },
 } satisfies Meta;
 export default meta;
 
 export const Keyframes: StoryObj = {
-  render: () => <Lab specs={specs} intro="The Lobby hero, the Live strip and the play tiles. The hero as a whole is in Motion / Hero carousel." />,
+  render: () => <Lab specs={specs} intro="The Live wins strip on Play." />,
 };

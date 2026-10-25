@@ -1,6 +1,6 @@
 //! Heads-up No-Limit Hold'em rules on the public `GameMatch`. Pure state transitions: no
 //! accounts, no syscalls, so the whole rule set is unit-testable on the host. The program glue
-//! feeds it the dealt deck and hole cards; the engine only reads them when it must reveal a board
+//! feeds it the hole cards and the board; the engine only reads them when it must reveal a board
 //! card or run a showdown.
 
 use crate::eval::eval7;
@@ -9,6 +9,14 @@ use crate::HoldemError;
 use anchor_lang::prelude::*;
 
 pub const TURN_SECS: i64 = 30;
+
+/// Where the current hand's shuffle stands, as the program glue reads it from the two seats and
+/// the table: who has contributed, and whether the VRF answer is in.
+#[derive(Clone, Copy, Debug)]
+pub struct Shuffle {
+    pub contributed: [bool; 2],
+    pub vrf_ready: bool,
+}
 
 const STANDARD_LEVELS: [(u64, u64); 10] = [
     (25, 50),
@@ -93,6 +101,7 @@ impl GameMatch {
         self.last_raise = big;
         self.to_act = self.dealer;
         self.deadline = add_time(now, ENTROPY_SECS)?;
+        self.extensions = 0;
         Ok(())
     }
 
@@ -104,20 +113,15 @@ impl GameMatch {
         Ok(())
     }
 
-    /// The deck is dealt and hole cards are in place: preflop betting begins.
-    pub fn on_dealt(
-        &mut self,
-        deck: &[u8; DECK_SIZE],
-        holes: &[[u8; 2]; 2],
-        now: i64,
-    ) -> Result<()> {
+    /// The hand is dealt and hole cards are in place: preflop betting begins.
+    pub fn on_dealt(&mut self, board: &[u8; 5], holes: &[[u8; 2]; 2], now: i64) -> Result<()> {
         require!(self.status == STATUS_LIVE, HoldemError::NotLive);
         require!(self.phase == PHASE_SHUFFLE, HoldemError::WrongPhase);
         self.phase = PHASE_PREFLOP;
         self.to_act = self.dealer;
         self.deadline = add_time(now, TURN_SECS)?;
         if self.round_complete() {
-            self.finish_street(deck, holes, now)?;
+            self.finish_street(board, holes, now)?;
         }
         Ok(())
     }
@@ -143,11 +147,11 @@ impl GameMatch {
         &mut self,
         seat: usize,
         action: Action,
-        deck: &[u8; DECK_SIZE],
+        board: &[u8; 5],
         holes: &[[u8; 2]; 2],
         now: i64,
     ) -> Result<()> {
-        self.apply(seat, action, deck, holes, now)?;
+        self.apply(seat, action, board, holes, now)?;
         // A voluntary action clears the missed-turn streak, unless the hand just ended.
         self.missed[seat] = 0;
         Ok(())
@@ -157,7 +161,7 @@ impl GameMatch {
         &mut self,
         seat: usize,
         action: Action,
-        deck: &[u8; DECK_SIZE],
+        board: &[u8; 5],
         holes: &[[u8; 2]; 2],
         now: i64,
     ) -> Result<()> {
@@ -203,7 +207,7 @@ impl GameMatch {
         }
 
         if self.round_complete() {
-            self.finish_street(deck, holes, now)
+            self.finish_street(board, holes, now)
         } else {
             self.to_act = u8::try_from(opp).map_err(|_| error!(HoldemError::Overflow))?;
             self.deadline = add_time(now, TURN_SECS)?;
@@ -212,12 +216,7 @@ impl GameMatch {
     }
 
     /// Betting on this street is done: return uncalled chips, then deal on or show down.
-    fn finish_street(
-        &mut self,
-        deck: &[u8; DECK_SIZE],
-        holes: &[[u8; 2]; 2],
-        now: i64,
-    ) -> Result<()> {
+    fn finish_street(&mut self, board: &[u8; 5], holes: &[[u8; 2]; 2], now: i64) -> Result<()> {
         if self.bets[0] != self.bets[1] {
             let (high, low) = if self.bets[0] > self.bets[1] {
                 (0, 1)
@@ -234,7 +233,7 @@ impl GameMatch {
         self.last_raise = self.big_blind;
 
         if self.all_in(0) || self.all_in(1) || self.phase == PHASE_RIVER {
-            self.reveal_board(deck, 5);
+            self.reveal_board(board, 5);
             return self.showdown(holes, now);
         }
         self.phase = self.phase.saturating_add(1);
@@ -243,17 +242,18 @@ impl GameMatch {
         } else {
             usize::from(self.phase) + 1
         };
-        self.reveal_board(deck, visible);
+        self.reveal_board(board, visible);
         // Heads-up: the Player out of position (the big blind) acts first after the flop.
         self.to_act = 1 - self.dealer;
         self.deadline = add_time(now, TURN_SECS)?;
         Ok(())
     }
 
-    /// Makes the first `count` board cards public, copying them from the hidden deck.
-    fn reveal_board(&mut self, deck: &[u8; DECK_SIZE], count: usize) {
-        for (i, slot) in self.board.iter_mut().enumerate().take(count) {
-            *slot = deck[4 + i];
+    /// Makes the first `count` board cards public. `board` is the full board, combined from the
+    /// two seats' shares by the caller for the duration of the call.
+    fn reveal_board(&mut self, board: &[u8; 5], count: usize) {
+        for (slot, card) in self.board.iter_mut().zip(board).take(count) {
+            *slot = *card;
         }
     }
 
@@ -334,57 +334,49 @@ impl GameMatch {
         self.phase = PHASE_NONE;
     }
 
-    /// Permissionless clock. `contributed` is which Players have given entropy this hand.
+    /// Permissionless clock. `shuffle` is where the current hand's shuffle stands.
     pub fn timeout(
         &mut self,
-        contributed: [bool; 2],
-        deck: &[u8; DECK_SIZE],
+        shuffle: Shuffle,
+        board: &[u8; 5],
         holes: &[[u8; 2]; 2],
         now: i64,
     ) -> Result<()> {
-        match self.status {
-            STATUS_CREATED => {
-                require!(now > self.start_deadline, HoldemError::NotTimedOut);
-                self.cancel();
-                Ok(())
-            }
-            STATUS_LIVE => {
-                require!(now > self.deadline, HoldemError::NotTimedOut);
-                if self.phase == PHASE_SHUFFLE {
-                    self.shuffle_timeout(contributed, now)
-                } else {
-                    self.turn_timeout(deck, holes, now)
-                }
-            }
-            _ => err!(HoldemError::NotLive),
+        require!(self.status == STATUS_LIVE, HoldemError::NotLive);
+        require!(now > self.deadline, HoldemError::NotTimedOut);
+        if self.phase == PHASE_SHUFFLE {
+            self.shuffle_timeout(shuffle, now)
+        } else {
+            self.turn_timeout(board, holes, now)
         }
     }
 
-    fn shuffle_timeout(&mut self, contributed: [bool; 2], now: i64) -> Result<()> {
-        match contributed {
+    fn shuffle_timeout(&mut self, shuffle: Shuffle, now: i64) -> Result<()> {
+        match shuffle.contributed {
             [true, true] => {
-                // Both Players are ready: the delay is the oracle's, nobody forfeits.
-                self.deadline = add_time(now, ENTROPY_SECS)?;
-            }
-            [false, false] => self.cancel(),
-            [seat0, _] => {
-                let present = if seat0 { 0 } else { 1 };
-                if self.hand_no == 1 {
-                    self.cancel();
+                // Both Players are ready: the delay is the oracle's, nobody forfeits. The request
+                // is made once per hand and never repeated, so a hand whose answer does not come
+                // is refunded rather than re-rolled.
+                if shuffle.vrf_ready || self.extensions < VRF_MAX_EXTENSIONS {
+                    self.extensions = self.extensions.saturating_add(1);
+                    self.deadline = add_time(now, ENTROPY_SECS)?;
                 } else {
-                    self.forfeit(present)?;
+                    self.cancel();
                 }
             }
+            [false, false] => {
+                if self.hand_no == 1 {
+                    self.no_show = true;
+                }
+                self.cancel();
+            }
+            // One Player took part and the other never did: the one who showed up wins a normal Match.
+            [seat0, _] => self.forfeit(if seat0 { 0 } else { 1 })?,
         }
         Ok(())
     }
 
-    fn turn_timeout(
-        &mut self,
-        deck: &[u8; DECK_SIZE],
-        holes: &[[u8; 2]; 2],
-        now: i64,
-    ) -> Result<()> {
+    fn turn_timeout(&mut self, board: &[u8; 5], holes: &[[u8; 2]; 2], now: i64) -> Result<()> {
         let seat = usize::from(self.to_act);
         self.missed[seat] = self.missed[seat].saturating_add(1);
         if self.missed[seat] >= MAX_MISSED {
@@ -395,7 +387,7 @@ impl GameMatch {
         } else {
             Action::Fold
         };
-        self.apply(seat, action, deck, holes, now)
+        self.apply(seat, action, board, holes, now)
     }
 }
 
@@ -410,20 +402,9 @@ mod tests {
 
     const NOW: i64 = 1_000;
 
-    /// A deck where seat cards and board are chosen by the test: seat 0 gets cards 0 and 2,
-    /// seat 1 gets 1 and 3, the board is 4..9.
-    fn deck_of(seat0: [u8; 2], seat1: [u8; 2], board: [u8; 5]) -> ([u8; DECK_SIZE], [[u8; 2]; 2]) {
-        let mut deck = [0u8; DECK_SIZE];
-        let mut used = vec![seat0[0], seat1[0], seat0[1], seat1[1]];
-        used.extend_from_slice(&board);
-        for (i, c) in used.iter().enumerate() {
-            deck[i] = *c;
-        }
-        let mut filler = (0..52u8).filter(|c| !used.contains(c));
-        for slot in deck.iter_mut().skip(used.len()) {
-            *slot = filler.next().expect("filler");
-        }
-        (deck, [seat0, seat1])
+    /// The hand the test chooses: the board and each seat's two cards.
+    fn deck_of(seat0: [u8; 2], seat1: [u8; 2], board: [u8; 5]) -> ([u8; 5], [[u8; 2]; 2]) {
+        (board, [seat0, seat1])
     }
 
     fn card(s: &str) -> u8 {
@@ -451,7 +432,7 @@ mod tests {
         seat0: [&str; 2],
         seat1: [&str; 2],
         board: [&str; 5],
-    ) -> ([u8; DECK_SIZE], [[u8; 2]; 2]) {
+    ) -> ([u8; 5], [[u8; 2]; 2]) {
         let (deck, holes) = deck_of(cards(seat0), cards(seat1), cards(board));
         m.on_dealt(&deck, &holes, NOW).expect("deal");
         (deck, holes)
@@ -466,7 +447,7 @@ mod tests {
         m.stacks[seat] + m.committed[seat]
     }
 
-    type Ctx = ([u8; DECK_SIZE], [[u8; 2]; 2]);
+    type Ctx = ([u8; 5], [[u8; 2]; 2]);
 
     fn act(m: &mut GameMatch, c: &Ctx, seat: usize, a: Action) -> Result<()> {
         m.act(seat, a, &c.0, &c.1, NOW)
@@ -516,7 +497,7 @@ mod tests {
         assert_eq!(m.to_act, 1);
         act(&mut m, &c, 1, Action::Check).unwrap();
         assert_eq!(m.phase, PHASE_FLOP);
-        assert_eq!(m.board[..3], c.0[4..7]);
+        assert_eq!(m.board[..3], c.0[..3]);
         assert_eq!(m.board[3], NO_CARD);
         assert_eq!(m.to_act, 1);
         assert_eq!(m.bets, [0, 0]);
@@ -557,6 +538,25 @@ mod tests {
         assert_eq!(m.phase, PHASE_FLOP);
         assert_eq!(m.committed, [300, 300]);
         assert_eq!(chips(&m), 3_000);
+    }
+
+    #[test]
+    fn a_stack_that_cannot_cover_the_bet_may_only_call_never_raise() {
+        // Regression: a randomised integration test "shoved" with `to = bets + stack` even when
+        // that total was at or below the standing bet (a short stack facing the big blind), which
+        // is a call, not a raise; the engine rightly refused it with RaiseTooSmall.
+        let mut m = table(SPEED_STANDARD);
+        let c = dealt(
+            &mut m,
+            ["As", "Ad"],
+            ["Kc", "Kd"],
+            ["2h", "7s", "9c", "Jd", "3h"],
+        );
+        m.stacks[0] = 20; // the small blind has 45 in all against a bet of 50
+        let all_in_to = m.bets[0] + m.stacks[0];
+        assert!(all_in_to <= m.current_bet());
+        assert!(act(&mut m, &c, 0, Action::Raise { to: all_in_to }).is_err());
+        act(&mut m, &c, 0, Action::Call).unwrap();
     }
 
     #[test]
@@ -781,11 +781,12 @@ mod tests {
         );
         let late = m.deadline + 1;
         assert!(
-            m.timeout([true, true], &c.0, &c.1, m.deadline).is_err(),
+            m.timeout(waiting([true, true]), &c.0, &c.1, m.deadline)
+                .is_err(),
             "not late yet"
         );
         // Seat 0 (small blind) faces 25: the timeout folds.
-        m.timeout([true, true], &c.0, &c.1, late).unwrap();
+        m.timeout(waiting([true, true]), &c.0, &c.1, late).unwrap();
         assert_eq!(m.last_result, 1);
         assert_eq!(m.hand_no, 2);
         assert_eq!(m.missed, [1, 0]);
@@ -800,7 +801,8 @@ mod tests {
         act(&mut m, &c2, 1, Action::Call).unwrap();
         // Seat 0 (BB) is late with a free check.
         let late = m.deadline + 1;
-        m.timeout([true, true], &c2.0, &c2.1, late).unwrap();
+        m.timeout(waiting([true, true]), &c2.0, &c2.1, late)
+            .unwrap();
         assert_eq!(m.phase, PHASE_FLOP);
         assert_eq!(m.missed, [2, 0]);
     }
@@ -816,7 +818,7 @@ mod tests {
         );
         m.missed = [2, 0];
         let late = m.deadline + 1;
-        m.timeout([true, true], &c.0, &c.1, late).unwrap();
+        m.timeout(waiting([true, true]), &c.0, &c.1, late).unwrap();
         assert_eq!(m.status, STATUS_OVER);
         assert_eq!(m.winner, 1);
     }
@@ -835,36 +837,73 @@ mod tests {
         assert_eq!(m.missed, [0, 0]);
     }
 
+    fn waiting(contributed: [bool; 2]) -> Shuffle {
+        Shuffle {
+            contributed,
+            vrf_ready: false,
+        }
+    }
+
     #[test]
-    fn no_show_at_the_start_cancels_the_match() {
-        // Never started in the rollup.
-        let mut m = GameMatch {
-            start_deadline: 500,
-            ..GameMatch::default()
-        };
-        let deck = [0u8; DECK_SIZE];
+    fn the_player_who_showed_up_at_the_start_wins_and_nobody_showing_is_a_no_show() {
+        let board = [0u8; 5];
         let holes = [[0u8; 2]; 2];
-        assert!(m.timeout([false; 2], &deck, &holes, 500).is_err());
-        m.timeout([false; 2], &deck, &holes, 501).unwrap();
-        assert_eq!(m.status, STATUS_CANCELLED);
-
-        // Started, but a Player never contributes entropy to hand one.
+        // A Player never contributes entropy to hand one.
         let mut m = table(SPEED_STANDARD);
-        assert!(m.timeout([true, false], &deck, &holes, m.deadline).is_err());
-        m.timeout([true, false], &deck, &holes, m.deadline + 1)
+        assert!(m
+            .timeout(waiting([true, false]), &board, &holes, m.deadline)
+            .is_err());
+        m.timeout(waiting([true, false]), &board, &holes, m.deadline + 1)
+            .unwrap();
+        assert_eq!(m.status, STATUS_OVER);
+        assert_eq!(m.winner, 0, "the Player who contributed wins");
+        assert!(!m.no_show);
+        let mut m = table(SPEED_STANDARD);
+        m.timeout(waiting([false, true]), &board, &holes, m.deadline + 1)
+            .unwrap();
+        assert_eq!((m.status, m.winner), (STATUS_OVER, 1));
+
+        // Neither does: both checked in and nobody took part, a no-show.
+        let mut m = table(SPEED_STANDARD);
+        m.timeout(waiting([false, false]), &board, &holes, m.deadline + 1)
             .unwrap();
         assert_eq!(m.status, STATUS_CANCELLED);
-        assert_eq!(m.winner, NO_WINNER);
+        assert!(m.no_show);
+    }
 
+    #[test]
+    fn a_lost_vrf_answer_ends_the_hand_in_a_refund_after_a_bounded_wait() {
+        let board = [0u8; 5];
+        let holes = [[0u8; 2]; 2];
         let mut m = table(SPEED_STANDARD);
-        m.timeout([false, false], &deck, &holes, m.deadline + 1)
+        for n in 0..VRF_MAX_EXTENSIONS {
+            let d = m.deadline;
+            m.timeout(waiting([true, true]), &board, &holes, d + 1)
+                .unwrap();
+            assert_eq!(m.status, STATUS_LIVE, "extension {n}");
+        }
+        let d = m.deadline;
+        m.timeout(waiting([true, true]), &board, &holes, d + 1)
             .unwrap();
         assert_eq!(m.status, STATUS_CANCELLED);
+        assert!(!m.no_show);
+
+        // An answer that has arrived is only waiting for `deal`: never cancelled.
+        let mut m = table(SPEED_STANDARD);
+        let ready = Shuffle {
+            contributed: [true, true],
+            vrf_ready: true,
+        };
+        for _ in 0..(VRF_MAX_EXTENSIONS + 3) {
+            let d = m.deadline;
+            m.timeout(ready, &board, &holes, d + 1).unwrap();
+        }
+        assert_eq!(m.status, STATUS_LIVE);
     }
 
     #[test]
     fn absent_player_in_a_later_hand_forfeits_and_both_ready_only_extends() {
-        let deck = [0u8; DECK_SIZE];
+        let deck = [0u8; 5];
         let holes = [[0u8; 2]; 2];
         let mut m = table(SPEED_STANDARD);
         let c = dealt(
@@ -876,11 +915,13 @@ mod tests {
         act(&mut m, &c, 0, Action::Fold).unwrap();
         assert_eq!(m.hand_no, 2);
         let d = m.deadline;
-        m.timeout([true, true], &deck, &holes, d + 1).unwrap();
+        m.timeout(waiting([true, true]), &deck, &holes, d + 1)
+            .unwrap();
         assert_eq!(m.status, STATUS_LIVE);
         assert!(m.deadline > d);
         let d = m.deadline;
-        m.timeout([false, true], &deck, &holes, d + 1).unwrap();
+        m.timeout(waiting([false, true]), &deck, &holes, d + 1)
+            .unwrap();
         assert_eq!(m.status, STATUS_OVER);
         assert_eq!(m.winner, 1);
     }
@@ -912,8 +953,8 @@ mod tests {
                     let j = (next() % (i as u64 + 1)) as usize;
                     deck.swap(i, j);
                 }
-                let deck: [u8; DECK_SIZE] = deck.try_into().expect("52");
                 let holes = [[deck[0], deck[2]], [deck[1], deck[3]]];
+                let deck: [u8; 5] = deck[4..9].try_into().expect("5");
                 let hand = m.hand_no;
                 m.on_dealt(&deck, &holes, NOW).unwrap();
                 while m.status == STATUS_LIVE && m.hand_no == hand {

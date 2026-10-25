@@ -15,7 +15,7 @@ type Story = StoryObj<typeof meta>;
 /** One card per open Match. A Match with an opponent found comes first, with a lit edge and Resume. */
 export const Default: Story = {
   args: {
-    matches: [chainMatch("block-puzzle", "open"), chainMatch("holdem", "active", { entry: 2500 }), chainMatch("trading-duel", "open", { challenge: true, entry: 500 })],
+    matches: [chainMatch("block-puzzle", "open"), chainMatch("holdem", "active", { entry: 1000 }), chainMatch("trading-duel", "open", { challenge: true, entry: 500 })],
   },
 };
 
@@ -38,6 +38,6 @@ export const Delayed390: Story = { ...Delayed, globals: { viewport: { value: "ph
 
 /** The Player's own Block Burst run is not played yet (the Board is probed): the card says Play your run and when the window closes. */
 export const PlayYourRun: Story = {
-  args: { matches: [chainMatch("block-puzzle", "active"), chainMatch("holdem", "active", { entry: 2500 })] },
+  args: { matches: [chainMatch("block-puzzle", "active"), chainMatch("holdem", "active", { entry: 1000 })] },
 };
 export const PlayYourRun390: Story = { ...PlayYourRun, globals: { viewport: { value: "phone390", isRotated: false } } };

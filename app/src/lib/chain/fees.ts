@@ -1,4 +1,4 @@
-import { DEFAULT_INSTANT_FEE_BPS, DEFAULT_YIELD_FEE_BPS, earnedFee, instantPayout, type PoolTotals } from "./yield";
+import { BPS, DEFAULT_INSTANT_FEE_BPS, DEFAULT_YIELD_FEE_BPS, instantPayout } from "./yield";
 import type { SourceMath } from "./ledger";
 import { BRAND } from "../brand";
 
@@ -24,32 +24,40 @@ export const DEFAULT_RATES: TreasuryRates = { yieldFeeBps: DEFAULT_YIELD_FEE_BPS
 /** The rates in force: the Treasury's, or the launch rates while it cannot be read. */
 export const ratesOf = (t: TreasuryRates | null | undefined): TreasuryRates => t ?? DEFAULT_RATES;
 
-/** `Treasury`: disc 8, bump, vault_bump, account_bump, yield_fee_bps u16, instant_fee_bps u16, account, vault, fee_minted, instant_units, funded_shares, withdrawn_units, company. */
+/** `Treasury`: disc 8, bump, vault_bump, account_bump, yield_fee_bps u16, instant_fee_bps u16, account, vault, retired_fee_minted (unused since ticket 31), instant_units, funded_shares, withdrawn_units, company. */
 export const TREASURY_LEN = 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8 + 8 + 32;
-const FEE_MINTED_AT = 8 + 3 + 2 + 2 + 32 + 32;
 
-/** SOL units of earned Yield Fee already minted out as simSOL; null on a wrong size. */
-export const parseFeeMinted = (d: Uint8Array): bigint | null => (d.length === TREASURY_LEN ? rdU64(d, FEE_MINTED_AT) : null);
+/** The Treasury's shares on one route (`RouteLedger`, Borsh, 149 bytes at the end of a custody account). */
+export const ROUTE_LEN = 4 * 16 + 1 + 3 * 16 + 4 + 2 * 16;
 
-/** `NativeCustody`: disc 8, bump, vault_bump, pool, mint, vault, then principal, fee_weight, fee_weight_time, realised_fee (u128) and open_positions (u64). */
-export const NATIVE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 4 * 16 + 8;
-
-export function parsePoolTotals(d: Uint8Array): PoolTotals | null {
-  if (d.length !== NATIVE_CUSTODY_LEN) return null;
-  const o = 8 + 2 + 3 * 32 + 16;
-  return { feeWeight: rdU128(d, o), feeWeightTime: rdU128(d, o + 16), realisedFee: rdU128(d, o + 32), openPositions: rdU64(d, o + 48) };
+export interface RouteView {
+  treasuryShares: bigint;
+  owedShares: bigint;
+  poolOwed: bigint;
+  reserved: bigint;
+  /** Shares a fill or a withdrawal may pay out: `treasury_shares` less everything owed or reserved (`RouteLedger::spendable`). */
+  spendable: bigint;
 }
 
-/** What the Treasury has to pay SOL Instant Redeems with, in SOL units (exactly the program's balance): the unminted Yield Fee earned plus the vault's simSOL at the rate. */
-export function treasuryBalanceUnits(a: { totals: PoolTotals; feeMinted: bigint; vaultShares: bigint; rate: bigint; speedup: number; nowSec: number }): bigint {
-  const earned = earnedFee(a.totals, a.nowSec, a.speedup);
-  const unminted = earned > a.feeMinted ? earned - a.feeMinted : 0n;
-  return unminted + (a.vaultShares * a.rate) / RATE_SCALE;
+export function parseRoute(d: Uint8Array, at: number): RouteView {
+  const treasuryShares = rdU128(d, at);
+  const owedShares = rdU128(d, at + 16);
+  const poolOwed = rdU128(d, at + 32);
+  const reserved = rdU128(d, at + 48);
+  const claims = owedShares + poolOwed + reserved;
+  return { treasuryShares, owedShares, poolOwed, reserved, spendable: treasuryShares > claims ? treasuryShares - claims : 0n };
 }
+
+/** `NativeCustody`: disc 8, bump, vault_bump, pool, mint, vault, then principal and three retired fee totals (u128, unused since ticket 31), open_positions (u64) and the route. */
+export const NATIVE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 4 * 16 + 8 + ROUTE_LEN;
+export const NATIVE_ROUTE_AT = 8 + 2 + 3 * 32 + 4 * 16 + 8;
+
+export const parseNativeRoute = (d: Uint8Array): RouteView | null => (d.length === NATIVE_CUSTODY_LEN ? parseRoute(d, NATIVE_ROUTE_AT) : null);
 
 export function parseTreasury(d: Uint8Array): TreasuryRates | null {
   if (d.length !== TREASURY_LEN) return null;
-  return { yieldFeeBps: view(d).getUint16(11, true), instantFeeBps: view(d).getUint16(13, true) };
+  // The program charges one flat Instant Redeem Fee and never reads the account's instant_fee_bps (reserved bytes).
+  return { yieldFeeBps: view(d).getUint16(11, true), instantFeeBps: DEFAULT_INSTANT_FEE_BPS };
 }
 
 /** The Treasury's original vault (the token it was created with), as recorded in `Treasury.vault`. Null on a wrong size. */
@@ -101,20 +109,21 @@ export function parseVaultTreasury(d: Uint8Array): VaultTreasuryView | null {
   return { balance, paidAtReport, instantRecorded, reportTime: rdU64(d, 92), available: vaultTreasuryAvailable(balance, paidAtReport, instantRecorded) };
 }
 
-// ---- Instant Redeem math (exactly tesoro_core `instant_redeem`) -------------------------------------
+// ---- Instant Redeem math (exactly tesoro_core `instant_payout`) -------------------------------------
 
-/** What `gemas` of a Source pay now, in Source-asset units: the full value less the Instant Redeem Fee, floored twice as on chain. */
-export function instantPayoutFor(source: Pick<SourceMath, "unitNum" | "unitDen">, gemas: bigint, instantFeeBps: number): bigint {
+/** What `gemas` of a Source pay now, in Source-asset units: the value after the Yield Fee and the Instant Redeem Fee (one floor), after the unit conversion's floor. */
+export function instantPayoutFor(source: Pick<SourceMath, "unitNum" | "unitDen">, gemas: bigint, instantFeeBps: number, yieldFeeBps: number): bigint {
   if (source.unitDen === 0n) return 0n;
-  return instantPayout((gemas * source.unitNum) / source.unitDen, instantFeeBps);
+  return instantPayout((gemas * source.unitNum) / source.unitDen, instantFeeBps, yieldFeeBps);
 }
 
 /** The most Gemas of a Source whose Instant Redeem pays at most `maxPayout` units: exact inverse of `instantPayoutFor`. */
-export function maxInstantGemas(source: Pick<SourceMath, "unitNum" | "unitDen">, maxPayout: bigint, instantFeeBps: number): bigint {
+export function maxInstantGemas(source: Pick<SourceMath, "unitNum" | "unitDen">, maxPayout: bigint, instantFeeBps: number, yieldFeeBps: number): bigint {
   if (source.unitNum === 0n || maxPayout <= 0n) return 0n;
-  const keep = BigInt(10_000 - instantFeeBps);
-  // payout(g) <= M  <=>  floor(g * num / den) <= ceil((M + 1) * 10000 / keep) - 1  <=>  g <= ceil((U + 1) * den / num) - 1
-  const units = ((maxPayout + 1n) * 10_000n + keep - 1n) / keep - 1n;
+  const keep = (BPS - BigInt(yieldFeeBps)) * (BPS - BigInt(instantFeeBps));
+  const whole = BPS * BPS;
+  // payout(g) <= M  <=>  floor(g * num / den) <= ceil((M + 1) * BPS^2 / keep) - 1  <=>  g <= ceil((U + 1) * den / num) - 1
+  const units = ((maxPayout + 1n) * whole + keep - 1n) / keep - 1n;
   return ((units + 1n) * source.unitDen + source.unitNum - 1n) / source.unitNum - 1n;
 }
 
@@ -145,14 +154,14 @@ export interface InstantLine {
  * What to sell for a "Redeem now": every holding's pending Gemas, in order, until the treasury it is paid from can pay no more.
  * `caps` is the payout (Source-asset units) each treasury can still make; a treasury missing from it pays nothing.
  */
-export function planInstant(rows: InstantCandidate[], caps: Map<string, bigint>, instantFeeBps: number): InstantLine[] {
+export function planInstant(rows: InstantCandidate[], caps: Map<string, bigint>, instantFeeBps: number, yieldFeeBps: number): InstantLine[] {
   const left = new Map(caps);
   const out: InstantLine[] = [];
   for (const r of rows) {
     const cap = left.get(r.capKey) ?? 0n;
-    const fits = maxInstantGemas(r, cap, instantFeeBps);
+    const fits = maxInstantGemas(r, cap, instantFeeBps, yieldFeeBps);
     const gemas = r.free < fits ? r.free : fits;
-    const payout = instantPayoutFor(r, gemas, instantFeeBps);
+    const payout = instantPayoutFor(r, gemas, instantFeeBps, yieldFeeBps);
     if (gemas <= 0n || payout <= 0n) continue;
     left.set(r.capKey, cap - payout);
     out.push({ key: r.key, gemas, payout });

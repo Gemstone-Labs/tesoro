@@ -1,30 +1,41 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { GameTabs, HistoryPages, ResultFilter, gameFilter, historyHref, resultCounts } from "@/components/match/MatchHistory";
 import { DelayedMatches } from "@/components/match/DelayedMatches";
+import { ContinueRail } from "@/components/lobby/ContinueRail";
 import { MatchBanner, MatchBannerSkeleton } from "@/components/match/MatchBanner";
 import { Button, Card } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { useChainData } from "@/lib/chain/ChainDataProvider";
-import { RESULTS, accountHistory, historyPage, resultFilter } from "@/lib/chain/history";
+import { fetchAllHistory } from "@/lib/chain/history-client";
+import { RESULTS, historyPage, resultFilter, type HistoryRow } from "@/lib/chain/history";
 import { GAME_NAMES } from "@/lib/mock";
 
 /** Every finished Match of the signed-in Account (played or backed), newest first, 10 banners per page. */
 export function AllMatches() {
-  const { auth, onChain, snapshot } = useAccount();
+  const { auth, onChain, snapshot, openMatches } = useAccount();
   const { error, refresh } = useChainData();
   const params = useSearchParams();
   const game = gameFilter(params.get("game"));
   const results = resultFilter(params.get("result"));
   const [now] = useState(() => Date.now());
 
-  const rows = useMemo(
-    () => (onChain && snapshot ? accountHistory(snapshot.matches, snapshot.funded).filter((r) => !game || r.game === game) : []),
-    [onChain, snapshot, game],
-  );
+  const accountKey = onChain && snapshot ? snapshot.accountKey.toBase58() : null;
+  // Finished Matches come from the Match history; null: the history is not available.
+  const [history, setHistory] = useState<HistoryRow[] | null | undefined>(undefined);
+  useEffect(() => {
+    if (!accountKey) return;
+    let live = true;
+    void fetchAllHistory(accountKey).then((h) => live && setHistory(h));
+    return () => {
+      live = false;
+    };
+  }, [accountKey]);
+  const rows = useMemo(() => (history ?? []).filter((r) => !game || r.game === game), [history, game]);
   const shown = rows.filter((r) => results.includes(r.result));
+  const open = openMatches.filter((m) => !game || m.game === game);
   const view = historyPage(shown, Number(params.get("page") ?? 1));
 
   if (auth.status === "signed-out") {
@@ -42,7 +53,7 @@ export function AllMatches() {
   return (
     <div className="mh-page">
       <header className="mh-head">
-        <h1 className="page-title">Matches</h1>
+        <h1 className="page-title title-desk">Matches</h1>
         <GameTabs base="/matches" game={game} results={results} />
         {snapshot?.matchesLoaded && <ResultFilter base="/matches" game={game} results={results} counts={resultCounts(rows)} />}
       </header>
@@ -57,8 +68,12 @@ export function AllMatches() {
           <MatchBannerSkeleton count={4} label="Loading your Matches…" />
         )
       ) : null}
+      {open.length > 0 && <ContinueRail matches={open} title="Open" rows />}
+      {snapshot?.matchesLoaded && rows.length > 0 && <h2 className="h-section mh-finished-h">Finished</h2>}
       {snapshot?.matchesLoaded && <DelayedMatches matches={[...snapshot.matches, ...snapshot.funded].filter((m) => !game || m.game === game)} now={now} />}
-      {!snapshot?.matchesLoaded ? null : rows.length === 0 ? (
+      {snapshot?.matchesLoaded && history === undefined && <MatchBannerSkeleton count={4} label="Loading your Matches…" />}
+      {snapshot?.matchesLoaded && history === null && <p className="note">Your finished Matches aren’t available right now. Matches in progress are shown above.</p>}
+      {snapshot?.matchesLoaded && history && (rows.length === 0 ? (
         <div className="mh-state">
           <p>{game ? `No finished ${GAME_NAMES[game]} Matches yet.` : "No finished Matches yet."} They appear here when they finish.</p>
           <Button size="sm" href={game ? `/play/${game}` : "/play"}>Play a Match</Button>
@@ -79,7 +94,7 @@ export function AllMatches() {
           </div>
           <HistoryPages base="/matches" game={game} results={results} page={view.page} pages={view.pages} total={shown.length} />
         </>
-      )}
+      ))}
       {error && snapshot && <p className="note">Couldn’t refresh; showing what was last loaded.</p>}
     </div>
   );

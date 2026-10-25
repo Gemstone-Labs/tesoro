@@ -34,7 +34,7 @@ export default function Page() {
       <DataTable
         head={["Piece", "Role"]}
         rows={[
-          [<code key="1">PositionVaultOApp</code>, "A PositionVault that is a LayerZero OApp. openPosition sends PositionLocked, reportYield sends YieldAccrued (cumulative yield and the vault Treasury's cumulative credits, 77 bytes), and _lzReceive feeds Unlock, PayYield and PayInstant to the vault. The vault takes the 20% Yield Fee itself as yield accrues."],
+          [<code key="1">PositionVaultOApp</code>, "A PositionVault that is a LayerZero OApp. openPosition sends PositionLocked, reportYield sends YieldAccrued (cumulative yield and the vault Treasury's cumulative credits, 77 bytes), and _lzReceive feeds Unlock, PayYield and PayInstant to the vault. The vault reports and pays the whole yield; Solana works out the Yield Fee for each cash-out and names the split in the PayYield message."],
           [<code key="2">tesoro_bridge</code>, "Solana OApp: an inbox for inbound facts, permissionless CPIs into tesoro_core, permissionless outbound sends."],
           [<code key="3">SourceAuthority</code>, "A tesoro_core PDA per source chain naming the signer allowed to report PositionLocked and YieldAccrued. The bridge authority PDA is registered for Ethereum and HyperEVM, so an Ethereum authority cannot touch a HyperEVM Lock."],
         ]}
@@ -70,7 +70,7 @@ export default function Page() {
         </li>
         <li>
           <b>Redeem now.</b> The holder calls <code>tesoro_bridge::instant_redeem_to_evm</code>, which moves their won Gemas to {BRAND.name}&apos;s Treasury Account and
-          pays {INSTANT_PAYOUT_PCT}% of their value. The bridge keeps a mirror of each vault&apos;s Treasury (<code>VaultTreasury</code>) and refuses a payout the vault has not reported
+          pays {INSTANT_PAYOUT_PCT}% of their value (after the Yield Fee and the Instant Redeem Fee). The bridge keeps a mirror of each vault&apos;s Treasury (<code>VaultTreasury</code>) and refuses a payout the vault has not reported
           funds for (the vault&apos;s balance at its latest report, less payouts recorded since). Anyone then calls <code>send_pay_instant</code> (message type 5), and the vault pays from its Treasury. To refill, the Treasury Account redeems the
           Gemas it bought as the yield lands (<code>redeem_treasury_to_evm</code>) and a <code>PayYield</code> to the vault&apos;s own address books the proceeds into its Treasury.
         </li>

@@ -2,14 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useGuideHidden } from "@/components/guide/Guide";
-import { Button, CountUp, Label } from "@/components/ui";
-import { Vibrate, VibrateOff } from "lucide-react";
+import { Button, CountUp, GemaMark, Label } from "@/components/ui";
+import { PlayerAvatar } from "@/components/account/Player";
+import { useAccount } from "@/lib/account";
+import { Rows3, Vibrate, VibrateOff, Zap } from "lucide-react";
 import { apply, EngineFailure, MAX_MOVES, SIZE, dims, fitsAnywhere, handBase, newState, pieceAt, pieceCells } from "./engine";
 import type { Piece, State } from "./engine";
-import { Arena, Countdown, FullScreenToggle, MuteToggle, burst, prefersReducedMotion, sfx } from "../fx";
+import { Arena, Countdown, GameMenu, burst, prefersReducedMotion, sfx } from "../fx";
 import type { CalloutTone } from "../fx";
 import { clearCallout, comboHeat } from "./feel";
 import { readBest, writeBest } from "./best";
+import { PracticePauseButton, PracticePauseOverlay, usePracticePause } from "../fx/PracticePause";
 import { blockHaptics } from "./haptics";
 import { usePieceDrag } from "./use-piece-drag";
 import { measureGrid } from "./drag-geometry";
@@ -83,7 +86,7 @@ function PieceArt({ piece, cell, gap = 2 }: { piece: Piece; cell: number; gap?: 
   return (
     <span
       className="bp-mini"
-      style={{ gridTemplateColumns: `repeat(${w}, ${cell}px)`, gridTemplateRows: `repeat(${h}, ${cell}px)`, gap }}
+      style={{ gap, gridTemplateColumns: `repeat(${w}, ${cell}px)`, gridTemplateRows: `repeat(${h}, ${cell}px)` }}
       aria-hidden="true"
     >
       {pieceCells(piece).map((c) => (
@@ -97,11 +100,16 @@ function PieceArt({ piece, cell, gap = 2 }: { piece: Piece; cell: number; gap?: 
   );
 }
 
-/** Wires a game to an on-chain Match: the Seed comes from the chain and every placement is reported. */
+/**
+ * Wires a game to an on-chain Match: the Seed comes from the chain and every placement is reported. The 90 s clock is the
+ * table's, not the page's: `remainingMs` is read from the rollup's slot clock.
+ */
 export interface MatchRun {
   seed: bigint;
-  /** `performance.now()` taken just before `begin_run` was sent: the 90 s clock counts from here. */
-  startedAt: number;
+  /** A run resumed after a reload: the engine state the chain holds (the Seed and the move log, replayed). */
+  resume?: State;
+  /** Milliseconds left of the run on the table's clock. */
+  remainingMs: () => number;
   entry: number;
   onMove: (move: { piece: number; x: number; y: number }) => void;
   onEnd: (final: { score: number; moves: number; reason: Reason }) => void;
@@ -114,11 +122,14 @@ const RING_R = 54;
 const RING_C = 2 * Math.PI * RING_R;
 
 /**
- * The Block Burst play screen: a slim bar (score, 90 s ring, combo and lines, entry and pot) over the
- * centred board and tray; recent clears show on the game-over card. No character anywhere on it. `matchPanel` is the Match status the
+ * The Block Burst play screen: a versus bar (you and your score, the 90 s ring, the Pot or PRACTICE), the board, the tray,
+ * then combo and lines as icons with numbers. No sentences during play; sound and full screen sit in the ⋯ menu. Recent
+ * clears show on the game-over card. No character anywhere on it. `matchPanel` is the Match status the
  * caller owns (who we wait for); without a `run` this is practice.
  */
 export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPanel?: ReactNode }) {
+  const { paused, toggle: togglePause, now: practiceNow } = usePracticePause(() => performance.now());
+  const me = useAccount().snapshot?.accountKey.toBase58();
   const [phase, setPhase] = useState<Phase>("idle");
   const [combo, setCombo] = useState(0);
   useGuideHidden(phase === "play");
@@ -144,16 +155,24 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   const visualRef = useRef<HTMLDivElement>(null);
   const readyRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef(game);
+  const dragState = useCallback(() => gameRef.current.st, []);
   const comboRef = useRef(0);
   const accepting = useRef(false);
   const { later, animate, reset: resetEffects } = useTransientEffects();
   const vibration = useSyncExternalStore(blockHaptics.subscribe, blockHaptics.enabled, () => true);
   const supportsVibration = useSyncExternalStore(blockHaptics.subscribe, blockHaptics.supported, () => false);
+  const gameItems = [...(supportsVibration ? [{
+    label: vibration ? "Vibration on" : "Vibration off",
+    icon: vibration ? <Vibrate aria-hidden="true" /> : <VibrateOff aria-hidden="true" />,
+    checked: vibration,
+    keepOpen: true,
+    onSelect: () => { blockHaptics.setEnabled(!vibration); if (!vibration) blockHaptics.play(0, 0); },
+  }] : [])];
   const popupId = useRef(0);
   const scoreEl = useRef<HTMLSpanElement>(null);
   const scoreAura = useRef<HTMLSpanElement>(null);
-  const [scoreReceipt, setScoreReceipt] = useState({ total: 0, impact: 0 });
-  const [scorePresentation] = useState(() => createScorePresentation((total, impact) => setScoreReceipt({ total, impact })));
+  const [scoreReceipt, setScoreReceipt] = useState({total: 0, impact: 0});
+  const [scorePresentation] = useState(() => createScorePresentation((total, impact) => setScoreReceipt({total, impact})));
   useEffect(() => {
     const { impact } = scoreReceipt;
     if (!impact || prefersReducedMotion()) return;
@@ -162,17 +181,19 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       { transform: "scale(1)" },
     ], { duration: impact > 1 ? 280 : 170, easing: "cubic-bezier(.16,1,.3,1)" });
     if (scoreAura.current) animate(scoreAura.current, [
-      { opacity: impact > 1 ? .85 : .35, transform: "rotate(45deg) scale(.65)" },
+      { opacity: impact > 1 ? 0.85 : 0.35, transform: "rotate(45deg) scale(.65)" },
       { opacity: 0, transform: "rotate(45deg) scale(1.2)" },
     ], { duration: impact > 1 ? 420 : 240, easing: "ease-out" });
   }, [scoreReceipt, animate]);
   useEffect(() => () => scorePresentation.dispose(), [scorePresentation]);
+
 
   const { st } = game;
   const base = handBase(st);
   const hand = useMemo(() => [0, 1, 2].map((n) => pieceAt(st.seed, base + n)), [st.seed, base]);
   const available = useMemo(() => hand.map((piece) => fitsAnywhere(st, piece)), [hand, st]);
   const selPiece = phase === "play" && (st.used >> (sel - base)) & 1 ? null : hand[sel - base] ?? null;
+
   const setPreview = useBoardPreview(boardRef, st, selPiece, readyRef);
 
   const runRef = useRef(run);
@@ -210,7 +231,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
     const seed = run ? run.seed : randomSeed();
     resetEffects();
     scorePresentation.reset();
-    const initial = { st: newState(seed), colors: Array<number>(64).fill(NO_COLOR), lines: 0, gemsCleared: 0 };
+    const initial = { st: run?.resume ?? newState(seed), colors: Array<number>(64).fill(NO_COLOR), lines: 0, gemsCleared: 0 };
     gameRef.current = initial;
     scoreRef.current = { score: 0, moves: 0 };
     comboRef.current = 0;
@@ -229,9 +250,8 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
     setFocusCell(0);
     setAnnounce("");
     setCombo(0);
-    setRemaining(DURATION_MS);
+    setRemaining(run ? run.remainingMs() : DURATION_MS);
     if (run) {
-      endsAt.current = run.startedAt + DURATION_MS;
       setPhase("play");
       sfx("go");
       setMoment({ id: -1, text: "Go!", tone: "up", y: 45 });
@@ -244,9 +264,9 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   /** Practice: the clock starts the moment "Go!" shows. */
   const beginPractice = useCallback(() => {
     accepting.current = true;
-    endsAt.current = performance.now() + DURATION_MS;
+    endsAt.current = practiceNow() + DURATION_MS;
     setPhase("play");
-  }, []);
+  }, [practiceNow]);
 
   // A Match run starts as soon as the chain says `begin_run` landed; Practice counts 3-2-1 as soon as the screen opens.
   const started = useRef(false);
@@ -258,18 +278,19 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   }, [run]);
 
   useEffect(() => {
-    if (phase !== "play") return;
+    if (phase !== "play" || paused) return;
     const t = setInterval(() => {
-      const left = endsAt.current - performance.now();
+      const left = runRef.current ? runRef.current.remainingMs() : endsAt.current - practiceNow();
       if (left <= 0) {
         setRemaining(0);
         finish("time");
       } else {
-        setRemaining((prev) => Math.ceil(prev / 1000) === Math.ceil(left / 1000) ? prev : left);
+        // Keep expiry on the real clock; only redraw the displayed whole second.
+        setRemaining(Math.ceil(left / 1000) * 1000);
       }
     }, 100);
     return () => clearInterval(t);
-  }, [phase, finish]);
+  }, [phase, finish, paused, run, practiceNow]);
 
   /** Everything a clear does besides the rules: sweep, shards, shake, callout, points to the score, sound. */
   const celebrate = useCallback((lines: number, gems: number, comboNow: number, gained: number, gone: Ghost[], cleared: bigint, id: number) => {
@@ -298,7 +319,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       burst({ x: grid.left + (g.i % SIZE) * grid.pitch + grid.cell / 2,
         y: grid.top + Math.floor(g.i / SIZE) * grid.pitch + grid.cell / 2,
         colors: g.gem ? GEM_HEX : [BLOCK_HEX[g.color] ?? "#eaefec", "#ffffff"],
-        kind: "shards", count: g.gem ? per + 2 : per, power: 0.45 });
+        kind: "shards", count: g.gem ? per + 2 : per, power: 0.45, lifetime: 0.48, size: 3 });
     }
     const kick = Math.min(7, 2.5 + lines + (gems ? 1 : 0));
     animate(visualRef.current ?? board, [
@@ -331,8 +352,9 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
 
   const place = useCallback(
     (idx: number, x: number, y: number) => {
-      if (phase !== "play" || !accepting.current) return false;
-      if (performance.now() >= endsAt.current) { finish("time"); return false; }
+      if (phase !== "play" || paused || !accepting.current) return false;
+      const left = runRef.current ? runRef.current.remainingMs() : endsAt.current - practiceNow();
+      if (left <= 0) { finish("time"); return false; }
       const current = gameRef.current;
       let next;
       try {
@@ -386,7 +408,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           for (const c of pieceCells(piece)) burst({
             x: grid.left + (x + c.dx + .5) * grid.pitch,
             y: grid.top + (y + c.dy + .5) * grid.pitch,
-            colors: [BLOCK_HEX[colorOf(piece)], "#fff"], kind: "shards", count: 2, power: .15,
+            colors: [BLOCK_HEX[colorOf(piece)], "#fff"], kind: "shards", count: 2, power: .15, lifetime: .25, size: 2,
           });
         }
         if (comboRef.current > 0) {
@@ -414,24 +436,22 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       }
       return true;
     },
-    [phase, finish, celebrate, later, scorePresentation, setPreview],
+    [phase, paused, finish, celebrate, later, scorePresentation, setPreview, practiceNow],
   );
 
   const reject = useCallback(() => {
     setAnnounce("That piece does not fit there");
-    const slot = boardRef.current?.closest(".bpx")?.querySelector<HTMLElement>(".bp-slot.sel");
+    const slot = document.querySelector<HTMLElement>(".bp-slot.sel");
     if (slot && !prefersReducedMotion()) animate(slot, [
-      { outline: "2px solid var(--danger)", outlineOffset: "-2px" },
-      { outline: "2px solid transparent", outlineOffset: "-2px" },
+      { outline: "2px solid var(--danger)", outlineOffset: "-2px" }, { outline: "2px solid transparent", outlineOffset: "-2px" },
     ], { duration: 180 });
   }, [animate]);
-  const getDragState = useCallback(() => gameRef.current.st, []);
-  const { held, gesture: dragMeta, ghost: ghostRef, down: beginDrag, move: moveDrag, up: endDrag, cancel: onTrayCancel } = usePieceDrag({ space: spaceRef, board: boardRef, getState: getDragState, preview: setPreview, place, reject });
+  const { held, gesture: dragMeta, ghost: ghostRef, down: beginDrag, move: moveDrag, up: endDrag, cancel: onTrayCancel } = usePieceDrag({ space: spaceRef, board: boardRef, getState: dragState, preview: setPreview, place, reject });
+  useEffect(() => { if (phase !== "play" || paused) onTrayCancel(); }, [phase, paused, onTrayCancel]);
   const onTrayDown = (e: React.PointerEvent<HTMLButtonElement>, idx: number) => {
-    if (phase !== "play" || !accepting.current || (st.used >> (idx - base)) & 1) return;
+    if (paused || phase !== "play" || (st.used >> (idx - base)) & 1) return;
     if (beginDrag(e, idx, pieceAt(st.seed, idx))) setSel(idx);
   };
-  useEffect(() => { if (phase !== "play") onTrayCancel(); }, [phase, onTrayCancel]);
 
   const hover = (cx: number, cy: number) => {
     if (!selPiece || dragMeta.current) return;
@@ -452,7 +472,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
 
   const timeLow = remaining <= 10_000;
   const secondsLeft = Math.ceil(remaining / 1000);
-  const urgency = urgencyFor(secondsLeft, phase === "play", phase === "over");
+  const boardUrgency = urgencyFor(secondsLeft, phase === "play" && !paused, false);
   useEffect(() => {
     if (phase === "play" && timeLow && secondsLeft > 0) sfx("tick");
   }, [phase, timeLow, secondsLeft]);
@@ -461,7 +481,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
 
   const board = (
     <div
-      className={`bp-board${phase === "play" ? " live" : ""}`}
+      className={`bp-board${phase === "play" ? " live" : ""}${timeLow && phase === "play" ? " low" : ""}`}
       ref={boardRef}
       role="grid"
       aria-label="Block Burst board, 8 by 8"
@@ -485,14 +505,14 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
             className={cls.join(" ")}
             tabIndex={i === focusCell ? 0 : -1}
             aria-label={`Row ${cy + 1}, column ${cx + 1}${filled ? (isGem ? ", gem block" : ", filled") : ""}`}
-            disabled={phase !== "play"}
+            disabled={phase !== "play" || paused}
             onPointerEnter={(e) => e.pointerType === "mouse" && hover(cx, cy)}
             onFocus={() => setFocusCell(i)}
             onKeyDown={(e) => onCellKey(e, cx, cy)}
             onClick={() => {
               if (!selPiece) return;
               const a = anchorFor(selPiece, cx, cy);
-              if (!place(sel, a.x, a.y)) setAnnounce("That piece does not fit there");
+              if (!place(sel, a.x, a.y)) reject();
             }}
           />
         );
@@ -503,11 +523,14 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   return (
     <Arena game="block-puzzle" autoFull={phase !== "over"}>
     <div className="bpx">
-      <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
+      <div className="bpx-hud">
         <div className="bpx-score">
-          <Label>Score</Label>
+          <span className="cut bpx-face" aria-hidden="true">
+            {me ? <PlayerAvatar account={me} size={44} /> : null}
+          </span>
           <span ref={scoreEl} className="bp-score-n tnum" hidden={phase === "over"} aria-label="Score" aria-live="off"><span ref={scoreAura} className="bp-score-aura" aria-hidden="true" /><CountUp key={runId} value={scoreReceipt.total} from={0} format={String} duration={180} /></span>
         </div>
+      <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
         <div className={`bpx-ring${timeLow && phase === "play" ? " low" : ""}`} role="timer" aria-label="Time left">
           <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
             <circle cx="60" cy="60" r={RING_R} className="bpx-ring-bg" />
@@ -523,53 +546,41 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           </svg>
           <span className="mono">{fmtClock(phase === "idle" || phase === "count" ? DURATION_MS : remaining)}</span>
         </div>
-        <div className="bpx-run" aria-label="Run">
-          <span className={`bpx-combo${fizzle ? " fizzle" : ""}`} data-heat={comboHeat(combo)} aria-label={`Combo ${combo}`}>
-            <span className="bpx-combo-l">Combo</span>
-            <i className="bpx-combo-m" aria-hidden="true"><s /><s /><s /><s /></i>
-            <b className="tnum">×{combo}</b>
-          </span>
-          <span>Lines <b className="tnum">{game.lines}</b></span>
-        </div>
         <div className="bpx-stake">
           {run ? (
-            <span>Entry <b className="tnum">{fmtN(run.entry)}</b> · Pot <b className="tnum">{fmtN(run.entry * 2)}</b></span>
+            <span className="bpx-pot" aria-label={`Pot ${fmtN(run.entry * 2)} Gemas, entry ${fmtN(run.entry)}`}>
+              <small>Pot</small>
+              <b className="tnum">
+                <GemaMark size={16} /> {fmtN(run.entry * 2)}
+              </b>
+            </span>
           ) : (
-            <span>Practice · nothing staked</span>
+            <span className="cut cut-chip game-tag">Practice</span>
           )}
-          <MuteToggle />
-          {supportsVibration && (
-            <button
-              type="button"
-              className="cut cut-chip fx-mute"
-              aria-pressed={vibration}
-              aria-label={vibration ? "Vibration on. Turn vibration off" : "Vibration off. Turn vibration on"}
-              title={vibration ? "Vibration on" : "Vibration off"}
-              onClick={() => { blockHaptics.setEnabled(!vibration); if (!vibration) blockHaptics.play(0, 0); }}
-            >
-              {vibration ? <Vibrate size={16} aria-hidden="true" /> : <VibrateOff size={16} aria-hidden="true" />}
-            </button>
-          )}
-          <FullScreenToggle />
+          {!run && <PracticePauseButton paused={paused} onToggle={() => { onTrayCancel(); togglePause(); }} disabled={phase !== "play"} />}
+          <GameMenu items={gameItems} leaveHref={run ? undefined : "/play"} />
         </div>
       </header>
+      </div>
 
       <section className="bpx-mid" aria-label="Board">
         <h1 className="sr-only">Block Burst</h1>
       <div className="bp-stage">
-        <div className="bp-board-space" ref={spaceRef} data-urgency={urgency === "none" ? undefined : urgency}>
-        <div className="bp-board-visual" ref={visualRef}>
+        <div className="bp-board-space" data-urgency={boardUrgency === "none" ? undefined : boardUrgency} ref={spaceRef}>
+          <div className="bp-board-visual" ref={visualRef}>
           {board}
           <div ref={readyRef} className="bp-ready-grid" aria-hidden="true" />
           <div className="bp-clear-grid" aria-hidden="true">
             {ghosts.filter((g) => !((st.occ >> BigInt(g.i)) & 1n)).map((g) => (
-              <span key={`${g.id}-${g.i}`} className={`bp-cell pop k${g.color}${g.gem ? " gem" : ""}`} style={{ gridColumn: g.i % SIZE + 1, gridRow: Math.floor(g.i / SIZE) + 1, animationDelay: `${g.delay}ms` }} />
+              <i key={`${g.id}:${g.i}`} className={`bp-cell pop k${g.color}${g.gem ? " gem" : ""}`} style={{ gridColumn: g.i % SIZE + 1, gridRow: Math.floor(g.i / SIZE) + 1, animationDelay: `${g.delay}ms` }} />
             ))}
           </div>
           {sweeps.map((w) => (
             <span key={w.id} className="bp-sweep" data-axis={w.axis} style={{ "--at": w.at } as React.CSSProperties} aria-hidden="true" />
           ))}
+          </div>
         </div>
+        {paused && <PracticePauseOverlay onResume={togglePause} items={gameItems} leaveHref="/play" />}
         {(phase === "count" || goOn) && (
           <Countdown
             from={3}
@@ -602,26 +613,23 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
                 ))}
               </ul>
               {run ? (
-                <p className="note">Run over. Sending it to the chain…</p>
+                <p className="note">Waiting for the clock…</p>
               ) : (
                 <>
-                  <p className="note">Practice: nothing was staked and no Gemas moved.</p>
                   <div className="bp-actions">
                     <Button onClick={start}>Play again</Button>
-                    <Button href="/lobby">Lobby</Button>
+                    <Button href="/play">Back to games</Button>
                   </div>
                 </>
               )}
             </div>
           </div>
         )}
-        {moment && (
-          <div key={moment.id} className={`bp-moment ${moment.tone}`} data-placement={moment.y > 55 ? "above" : undefined} style={{ top: `${moment.y}%` }} aria-hidden="true">
-            <strong>{moment.text}</strong>
-            {(moment.combo ?? 0) >= 2 && !moment.text.startsWith("Combo") && <small>Combo ×{moment.combo}</small>}
-          </div>
-        )}
-        </div>
+
+        {moment && <div key={moment.id} className={`bp-moment ${moment.tone}`} data-placement={moment.y >= 50 ? "above" : "below"} style={{ top: `${moment.y}%` }} aria-hidden="true">
+          <strong>{moment.text}</strong>
+          {(moment.combo ?? 0) >= 2 && !moment.text.startsWith("Combo") && <small>Combo ×{moment.combo}</small>}
+        </div>}
       </div>
 
       <div className="bp-tray" aria-label="Pieces">
@@ -635,8 +643,8 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
             <button
               key={n}
               type="button"
-              className={`cut cut-btn bp-slot${isSel ? " sel" : ""}${held?.idx === idx ? " held" : ""}${used ? " used" : ""}${stuck ? " stuck" : ""}`}
-              disabled={phase !== "play" || used}
+              className={`cut cut-btn bp-slot${isSel ? " sel" : ""}${used ? " used" : ""}${stuck ? " stuck" : ""}${held?.idx === idx ? " held" : ""}`}
+              disabled={phase !== "play" || paused || used}
               aria-pressed={isSel}
               aria-label={`Piece ${n + 1}${piece.gem !== null ? ", has a gem" : ""}${stuck ? ", does not fit" : ""}`}
               onPointerDown={(e) => onTrayDown(e, idx)}
@@ -663,19 +671,21 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           );
         })}
       </div>
-      <p className="note bp-help">Drag a piece onto the board, or tap a piece then a cell.</p>
+      <div className="bpx-run" aria-label="Run">
+        <span className={`cut cut-chip bpx-combo${fizzle ? " fizzle" : ""}`} data-heat={comboHeat(combo)} aria-label={`Combo ${combo}`}>
+          <Zap aria-hidden="true" />
+          <b className="tnum">×{combo}</b>
+        </span>
+        <span className="cut cut-chip bpx-lines" aria-label={`Lines ${game.lines}`}>
+          <Rows3 aria-hidden="true" />
+          <b className="tnum">{game.lines}</b>
+        </span>
+      </div>
       </section>
 
-      {(matchPanel || run) && (
-        <div className="bpx-foot">
-          {matchPanel}
-          <span className="mono bpx-seed" title="Your opponent gets this exact set of pieces">
-            {phase === "idle" ? "Pieces —" : `Pieces #${st.seed.toString(16).padStart(16, "0").slice(0, 6)}`}
-          </span>
-        </div>
-      )}
+      {matchPanel && <div className="bpx-foot">{matchPanel}</div>}
 
-      {held && phase === "play" && (
+      {held && (
         <div ref={ghostRef} className="bp-ghost" style={{ transform: `translate3d(${held.px}px, ${held.py}px, 0)` }} aria-hidden="true">
           <div className="bp-pickup" data-touch={held.touch || undefined} style={{ "--pickup-x": `${held.pickupX}px`, "--pickup-y": `${held.pickupY}px`, "--pickup-scale": held.scale } as React.CSSProperties}>
             <PieceArt piece={held.piece} cell={held.grid.cell} gap={held.grid.gap} />

@@ -41,10 +41,8 @@ describe("position id", () => {
 });
 
 describe("advance quote", () => {
-  it("is the yield net of the 20% Yield Fee: 1 month of 1.0749 ETH at 5% and $3,000 is 1,074 Gemas (1,343 before the fee)", () => {
-    const q = quoteEthAdvance(1_074_900_000_000_000_000n, 500, 1, 3_000_000_000n);
-    expect(q.gemas).toBe(1074n);
-    expect(quoteEthAdvance(1_074_900_000_000_000_000n, 500, 1, 3_000_000_000n, 0).gemas).toBe(1343n);
+  it("is the whole yield (ticket 31): 1 month of 1.0749 ETH at 5% and $3,000 is 1,343 Gemas", () => {
+    expect(quoteEthAdvance(1_074_900_000_000_000_000n, 500, 1, 3_000_000_000n).gemas).toBe(1343n);
   });
 });
 
@@ -56,8 +54,8 @@ describe("SimLST clock", () => {
 
   it("estimates a fresh 1-month Advance at 10 minutes, whatever the Principal", () => {
     for (const principal of [10n ** 18n, 4n * 10n ** 18n]) {
-      // Advance = principal * 5% / 12, net of the 20% Yield Fee; one Gema = a fixed share of it
-      const units = (principal * 500n * 8_000n) / (10_000n * 12n * 10_000n);
+      // Advance = principal * 5% / 12 (the whole yield); one Gema = a fixed share of it
+      const units = (principal * 500n) / (10_000n * 12n);
       const source = { issued: 1000n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: units, unitDen: 1000n };
       const position = { heldShares: principal, principalUnderlying: principal, paidUnderlying: 0n, accrued: 0n };
       const at = ethUnlockEstimateMs({ source, position, rate, nowMs: 0 })!;

@@ -3,8 +3,11 @@ import { PublicKey } from "@solana/web3.js";
 import type { LeaderboardView } from "@/lib/chain/leaderboard-view";
 import type { DuelView } from "@/games/trading-duel/useDuelMatch";
 import type { HoldemView } from "@/games/holdem/useHoldemMatch";
-import type { RunStage } from "@/lib/chain/match-flow";
+import type { ArmyAccount, Battle } from "@/games/vanguard/decode";
+import type { VanguardView } from "@/games/vanguard/useVanguardMatch";
+import type { BurstView } from "@/games/block-puzzle/useBurstMatch";
 import { DEMO_ME } from "../../support/data";
+import type { GameId } from "@/lib/mock";
 
 /** What the screen-level mocks (leaderboard, queue depth, Backing board, EVM market) return for the current story. */
 export interface ScreenData {
@@ -15,7 +18,7 @@ export interface ScreenData {
   /** Leaderboard Pool in the top bar: its Gemas (null hides it), and a Match fee landing every `growMs`. */
   pool?: { gemas: number | null; growMs?: number };
   /** Open Queue Matches per Game. */
-  queueDepth?: { "block-puzzle": number; holdem: number; "trading-duel": number };
+  queueDepth?: Record<GameId, number>;
   /** The signed-in Player is on a Break or Self-Excluded (pages that offer entries show the notice instead). */
   away?: "break" | "self-exclusion";
   /** Entering through the Queue finds a Match the Player still has to play (nothing new is entered). */
@@ -24,16 +27,18 @@ export interface ScreenData {
   age?: "ask";
   /** The Backing Request to open in the Offer drawer (the URL hash). */
   hash?: string;
-  /** The URL query (without "?") the page reads from `window.location.search`, e.g. "open=1&game=holdem&need=2500". */
+  /** The URL query (without "?") the page reads from `window.location.search`, e.g. "open=1&game=holdem&need=1000". */
   search?: string;
-  /** Block Burst Match: where the signed-in Player's run is, whether the joiner timed out, and the setup step shown while preparing. */
-  run?: { stage: RunStage; timeout?: boolean; step?: string; settleError?: string };
+  /** Block Burst Match: what the driver reports (merged over a "waiting" view). */
+  burst?: Partial<BurstView>;
   /** Ethereum / HyperEVM Positions: the Advance on every Position card, and how far an opening Position has got. */
   eth?: { advance?: "open" | "paid"; opening?: "sent" | "delivered" | "recorded" | "arrived" | "failed" };
   /** The bridge's mirror of the EVM vaults' treasuries (Redeem now on ETH and HYPE): enough to pay, nearly empty, or no mirror (old vault). Default: ready. */
   vaultTreasury?: "ready" | "short" | "none";
   /** Hold'em Match: what the driver reports (merged over a "waiting" view). */
   holdem?: Partial<HoldemView>;
+  /** Vanguard Match: what the driver reports (merged over a "waiting" view); `later` swaps in a newer Battle after a delay, as the rollup would. */
+  vanguard?: Partial<VanguardView> & { later?: { afterMs: number; battle: Battle; army?: ArmyAccount }; refuse?: string };
   /** Trading Duel Match: what the driver reports (merged over a "waiting" view). */
   duel?: Partial<DuelView>;
 }

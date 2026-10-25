@@ -82,7 +82,7 @@ const preview: Preview = {
   decorators: [withTesoro],
   parameters: {
     layout: "padded",
-    nextjs: { appDirectory: true, navigation: { pathname: "/lobby" } },
+    nextjs: { appDirectory: true, navigation: { pathname: "/play" } },
     backgrounds: { disable: true },
     controls: { expanded: true, matchers: { color: /(background|color)$/i } },
     viewport: {

@@ -1,53 +1,36 @@
 import "server-only";
-import * as anchor from "@coral-xyz/anchor";
-import { Connection, PublicKey } from "@solana/web3.js";
-import blockPuzzleIdl from "@/lib/chain/idl/block_puzzle.json";
-import coreIdl from "@/lib/chain/idl/tesoro_core.json";
-import { fetchSeasonWins } from "@/lib/chain/leaderboard";
+import { Connection } from "@solana/web3.js";
+import { matchAddressOf, parseMatchKey } from "@/lib/chain/match-id";
+import { supabaseRpc } from "@/server/history/db";
+import { endStateOf } from "@/server/history/end-state";
+import { matchPage } from "@/server/history/reads";
+import { configuredRpc, seasonWinsOf } from "@/server/history/season-wins";
 import { baseRpc } from "@/lib/chain/rpc-config";
-import { batchOffsets, boardTiming } from "@/games/block-puzzle/move-timing";
+import { runsFromEndState } from "@/server/admin/runs";
 import type { RunBatches, SeasonInput } from "@/lib/review/flags";
 
-const CORE = new PublicKey(coreIdl.address);
-const BLOCK_PUZZLE = new PublicKey(blockPuzzleIdl.address);
-/** Matches per Season whose Boards are read: the most recent. Keeps one review to a few RPC calls. */
+/** Matches per Season whose run logs are read: the most recent. Keeps one review to a few database calls. */
 const MAX_MATCHES_PER_SEASON = 400;
 
-const le8 = (id: string) => {
-  const b = Buffer.alloc(8);
-  b.writeBigUInt64LE(BigInt(id));
-  return b;
-};
-const pda = (program: PublicKey, seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, program)[0];
-const coreAccountOf = (authority: PublicKey) => pda(CORE, [Buffer.from("account"), authority.toBuffer()]).toBase58();
-
-/** The two Board addresses of a Match. Boards of other games' Matches simply do not exist. */
-export function boardAddresses(matchId: string): PublicKey[] {
-  const session = pda(BLOCK_PUZZLE, [Buffer.from("session"), pda(CORE, [Buffer.from("match"), le8(matchId)]).toBuffer()]);
-  return [0, 1].map((seat) => pda(BLOCK_PUZZLE, [Buffer.from("board"), session.toBuffer(), Buffer.from([seat])]));
-}
-
 /**
- * The batch cadence of each Block Burst run, from the Boards the programs keep on the base layer.
- * Boards from before the move-timing upgrade carry no slots and are skipped.
+ * The batch cadence of each Block Burst run, from the end states the keeper stores in the Match history (ticket 33): the
+ * table is reused, so the Board accounts the old Matches kept are gone. Matches of other Games, and ones with no kept log,
+ * give nothing.
  */
-async function loadRuns(conn: Connection, matchIds: string[]): Promise<RunBatches[]> {
-  const coder = new anchor.BorshAccountsCoder(blockPuzzleIdl as anchor.Idl);
+async function loadRuns(matchIds: string[]): Promise<RunBatches[]> {
   const runs: RunBatches[] = [];
-  for (let i = 0; i < matchIds.length; i += 50) {
-    const ids = matchIds.slice(i, i + 50);
-    const infos = await conn.getMultipleAccountsInfo(ids.flatMap(boardAddresses), "confirmed");
-    infos.forEach((info, k) => {
-      if (!info) return;
-      try {
-        const board: any = coder.decode("Board", Buffer.from(info.data));
-        if (!board.moveSlots) return;
-        const batches = batchOffsets(boardTiming(board));
-        runs.push({ matchId: ids[k >> 1], account: coreAccountOf(new PublicKey(board.player)), batches });
-      } catch {
-        // an account that is not a Board (or an older layout): nothing to judge
-      }
-    });
+  for (let i = 0; i < matchIds.length; i += 25) {
+    const batch = await Promise.all(
+      matchIds.slice(i, i + 25).map(async (id) => {
+        const key = parseMatchKey(id);
+        const address = matchAddressOf(id);
+        if (!key || !address) return [];
+        const [stored, page] = await Promise.all([endStateOf(supabaseRpc, address.toBase58()), matchPage(supabaseRpc, key)]);
+        if (!stored || stored.state.game !== "block-puzzle" || !page?.sides[1]) return [];
+        return runsFromEndState(id, [page.sides[0].player, page.sides[1].player], stored.state);
+      }),
+    );
+    runs.push(...batch.flat());
   }
   return runs;
 }
@@ -60,9 +43,9 @@ export async function loadSeasons(seasons: number[]): Promise<SeasonInput[]> {
   const c = connection();
   return Promise.all(
     seasons.map(async (season) => {
-      const wins = await fetchSeasonWins(c, season);
+      const wins = await seasonWinsOf(c, season, await configuredRpc());
       const recent = [...wins].sort((a, b) => b.ts - a.ts).slice(0, MAX_MATCHES_PER_SEASON).map((w) => w.matchId);
-      return { season, wins, runs: await loadRuns(c, recent) };
+      return { season, wins, runs: await loadRuns(recent) };
     }),
   );
 }

@@ -6,7 +6,7 @@
 export type Chain = "SOL" | "ETH" | "HYPE";
 /** Each Position's asset is the native asset of its chain. */
 export type Asset = Chain;
-export type GameId = "block-puzzle" | "holdem" | "trading-duel";
+export type GameId = "block-puzzle" | "holdem" | "trading-duel" | "vanguard";
 /** One of the active cluster's entry sizes (src/lib/cluster-settings.ts). */
 export type EntrySize = number;
 
@@ -61,7 +61,7 @@ export interface GemaHolding {
   own: boolean;
 }
 
-export type MatchResult = "won" | "lost" | "draw" | "refunded";
+export type MatchResult = "won" | "lost" | "draw" | "no-show" | "refunded";
 
 export interface Match {
   id: string;

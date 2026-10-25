@@ -7,28 +7,47 @@
 //! untouched.
 
 pub mod backing;
+pub mod book;
+pub mod draw;
+pub mod economy;
 pub mod extend_limit;
+pub mod instant;
+pub mod lifecycle;
+pub mod line_store;
 pub mod matches;
 pub mod money;
 pub mod native;
+pub mod prize;
 pub mod protections;
 pub mod season;
 pub mod stake;
 pub mod stake_pool;
+pub mod yield_fee;
 pub mod yield_math;
 
 #[cfg(test)]
 mod tests;
 
 pub use backing::*;
+pub use economy::{CustodyKind, ShareRate, UnlockPayout};
 pub use extend_limit::*;
+pub use instant::{FillAuthority, FillTerms, InstantOrder, PayMode, Rate, INSTANT_REDEEM_FEE_BPS};
+pub use line_store::{LineKey, LINE_LEN};
 pub use matches::*;
 pub use money::*;
 pub use native::*;
+pub use prize::{
+    BudgetLine, PayStep, PoolLine, PoolReservations, PoolShare, PrizePayout, PrizeSeason,
+    PrizeSource, RouteLedger, SourceKind, BUDGET_LINE_LEN, MAX_BUDGET_LINES,
+    MAX_RESERVATION_ENTRIES,
+};
 pub use protections::*;
 pub use season::*;
 pub use stake::*;
 pub use stake_pool::*;
+pub use yield_fee::{
+    cash_out, exit_terms, instant_payout, instant_pool_bps, treasury_cash_out, CashOut,
+};
 pub use yield_math::*;
 
 /// Identity of an Account, Position, Source, Game, ... (a Solana public key in the program).
@@ -39,14 +58,12 @@ pub const BPS: u128 = 10_000;
 pub const MIN_HORIZON_MONTHS: u8 = 1;
 pub const MAX_HORIZON_MONTHS: u8 = 12;
 /// The entry sizes in force until the admin sets others, in Gemas.
-pub const LADDER: [u64; 3] = [500, 1_000, 2_500];
+pub const LADDER: [u64; 3] = [100, 500, 1_000];
 /// Most entry sizes the admin can set.
 pub const MAX_ENTRY_SIZES: usize = 4;
-/// Maximum Holdings (distinct Sources) one entry may be drawn from. Bounds accounts per
+/// Maximum lines (distinct Sources) one entry may be drawn from. Bounds accounts per
 /// instruction, and with it the payout lines at settlement (see docs/tesoro-core.md).
 pub const MAX_ENTRY_SOURCES: usize = 8;
-/// Maximum applicants on a public Offer.
-pub const MAX_APPLICANTS: usize = 8;
 /// Request and Offer lifetime, and the window an accepted Backing has to be used.
 pub const BACKING_TTL_SECS: i64 = 24 * 60 * 60;
 /// Time a Match has before anybody may refund it as abandoned / no-show.
@@ -91,9 +108,9 @@ core_errors! {
     ExceedsDebt => "amount exceeds the debt of the source",
     ExceedsRedeemable => "amount exceeds what the source has accrued for this holder",
     InsufficientGemas => "not enough free gemas",
-    HoldingMismatch => "holding does not match the expected source or account",
+    LineMismatch => "line does not match the expected source or account",
     TooManySources => "entry draws on too many sources",
-    NonCanonicalDraw => "holdings must be own-sourced first, ascending by source, each drawn from",
+    NonCanonicalDraw => "lines must be own-sourced first, ascending by source, each drawn from",
     InvalidEntry => "entry is not one of the allowed sizes, or the sizes are invalid",
     InvalidBps => "basis points out of range",
     InvalidStatus => "operation not allowed in the current status",
@@ -103,10 +120,12 @@ core_errors! {
     GameMismatch => "game does not match",
     EntryMismatch => "entry does not match",
     SelfMatch => "both sides of a match must be distinct",
+    // TooManyApplicants and AlreadyApplied are no longer returned (no public Offers since
+    // 2026-10-22); kept so the codes after them do not move.
     TooManyApplicants => "too many applicants",
     AlreadyApplied => "already applied",
-    NotApplicant => "request has not applied to this offer",
-    ReservationMismatch => "holdings do not match the offer reservation",
+    WrongRequest => "the offer was made on another request",
+    ReservationMismatch => "lines do not match the offer reservation",
     FeeTooHigh => "fees exceed the cap",
     InvalidDeadline => "deadline may only move later, within the extension cap",
     VaultShortfall => "vault would not cover principal and the yield owed to holders",
@@ -114,8 +133,8 @@ core_errors! {
     SeasonNotEnded => "the season has not ended",
     SeasonInvalid => "season or ranking is invalid",
     AlreadyPaid => "this rank was already paid",
-    PrizeShortfall => "the supplied pool holdings do not cover the prize",
-    NonCanonicalPrize => "pool holdings must be non-empty, ascending by source, each drained but the last",
+    PrizeShortfall => "the supplied pool lines do not cover the prize",
+    NonCanonicalPrize => "pool lines must be non-empty, ascending by source, each drained but the last",
     LeaderboardOff => "the leaderboard is not set up",
     NotWonGemas => "only won Gemas can be redeemed instantly",
     ExceedsPending => "only Gemas whose yield has not landed can be redeemed instantly; redeem the rest in full",
@@ -135,6 +154,30 @@ core_errors! {
     ProtectionCannotShorten => "a Break or Self-Exclusion cannot end earlier than it already does",
     StaleStakePool => "the staking pool has not been updated this epoch or the one before",
     NoStakingGrowth => "the staking token shows no growth to size an Advance on",
+    BookInconsistent => "a Source's bookkeeping contradicts itself",
+    NoSuchClass => "the Source has no such class or Extension tranche",
+    TooManyExtensions => "a Source has at most 11 Extension tranches",
+    NotAFeeCut => "a fee cut moves Gemas of a playable class into a fee class of the same Source",
+    MissingCheckpoint => "a line needs a closed-segment record that was not supplied",
+    BadCheckpoint => "a checkpoint record or page is malformed",
+    CounterExhausted => "a class counter (epoch, scale or segment number) is exhausted",
+    NotPooled => "only the pooled fee classes answer this",
+    SharesOutOfRange => "more staking-token shares than 2^40 per unit of coverage landed",
+    PrizeSourceRefused => "prize Gemas can only be redeemed through the prize escrow",
+    PrizeEscrowOff => "the prize escrow is switched off",
+    PrizeFundingWaits => "the Treasury holds less than holders, reservations and the Pool are owed; prize funding waits",
+    AlreadyFunded => "this Season's prize was already funded on this route",
+    OverSpendable => "amount exceeds what the Treasury may spend after holders, the Pool and reservations",
+    PrizeBackingShort => "the prize escrow does not hold enough shares for this",
+    BudgetStep => "prize payout step is out of order or already done",
+    PoolShareTooSoon => "a new prize share applies from a Season at least one full Season ahead",
+    SeasonNotFunded => "this Season's prize was not funded on every route",
+    SeasonUnfinished => "some ranks of this Season are still unpaid",
+    OwedExceedsTreasury => "holders would be owed more shares than the Treasury holds beyond the Pool and reservations",
+    NotFillAuthority => "only the admin, or the keeper while its fill rule is on, may fill Instant Redeem orders",
+    ReservedGemas => "these Gemas back an Offer reservation",
+    InvalidOrderTtl => "an Instant Redeem order lasts 1 hour to 30 days",
+    SpillFull => "the account has no room for another line: grow its spill and retry",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
@@ -162,16 +205,6 @@ pub(crate) fn to_u64(v: u128) -> CoreResult<u64> {
     u64::try_from(v).map_err(|_| CoreError::Math)
 }
 
-/// Splits a yield increment into what the Position keeps and the Yield Fee (floored, so rounding
-/// favours the Position). `fee_bps` above `MAX_YIELD_FEE_BPS` is refused.
-pub fn split_yield_fee(units: u64, fee_bps: u16) -> CoreResult<(u64, u64)> {
-    if fee_bps > MAX_YIELD_FEE_BPS {
-        return Err(CoreError::InvalidBps);
-    }
-    let fee = to_u64(mul_div_floor(units as u128, fee_bps as u128, BPS)?)?;
-    Ok((units.checked_sub(fee).ok_or(CoreError::Math)?, fee))
-}
-
 /// `entry` must be one of `sizes` (the Config's entry sizes).
 pub fn is_ladder_entry(entry: u64, sizes: &[u64]) -> bool {
     entry != 0 && sizes.contains(&entry)
@@ -189,4 +222,26 @@ pub fn validate_entry_sizes(sizes: &[u64]) -> CoreResult<()> {
         }
     }
     Ok(())
+}
+
+impl From<book::BookError> for CoreError {
+    fn from(e: book::BookError) -> CoreError {
+        use book::BookError as B;
+        match e {
+            B::Math => CoreError::Math,
+            B::BadSnapshot | B::Corrupt(_) => CoreError::BookInconsistent,
+            B::NoSuchClass => CoreError::NoSuchClass,
+            B::TooManyExtensions => CoreError::TooManyExtensions,
+            B::ClassMismatch => CoreError::SourceMismatch,
+            B::ZeroAmount => CoreError::ZeroAmount,
+            B::NotEnoughAmount => CoreError::InsufficientGemas,
+            B::NotEnoughReady => CoreError::ExceedsRedeemable,
+            B::NotAFeeCut => CoreError::NotAFeeCut,
+            B::MissingCheckpoint => CoreError::MissingCheckpoint,
+            B::BadCheckpoint => CoreError::BadCheckpoint,
+            B::CounterExhausted => CoreError::CounterExhausted,
+            B::NotPooled => CoreError::NotPooled,
+            B::SharesOutOfRange => CoreError::SharesOutOfRange,
+        }
+    }
 }

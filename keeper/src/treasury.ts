@@ -1,141 +1,145 @@
-import { ComputeBudgetProgram, type PublicKey } from "@solana/web3.js";
+import { PublicKey, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 import { act, log, type Ctx } from "./act.ts";
+import { RETRY_MS, due, nextTry } from "./counters.ts";
+import { redeemTreasuryIx, type LineRefArg } from "./core-ix.ts";
+import { redeemTreasuryToEvmIx } from "./bridge-ix.ts";
 import { shortKey } from "./env.ts";
-import { eidOf, redeemTreasuryToEvmIx } from "./lz.ts";
-import { pk } from "./runtime.ts";
+import { basketOf, decodeStore, keyOf, pda, spillOf, type StoreLine } from "./kit.ts";
+import { custodyOf, payingAccounts, ratingAccounts, type Custody } from "./kind-pay.ts";
+import { sendIxs, type SendOpts } from "./send.ts";
+import { SIM_SOL_MINT, connReader, dedupe, supplySources, type Reader } from "./supply.ts";
 import { simulate } from "./tee.ts";
-import { redeemableFor, type SourceMath } from "../../app/src/lib/chain/ledger.ts";
-import { POOL, poolSpeedup, redeemTreasuryIx, sourceAtClock, treasuryAccountPda } from "../../app/src/lib/chain/native.ts";
-import { JITOSOL, redeemTreasuryStakeIx, stakeTokenOf } from "../../app/src/lib/chain/stake.ts";
-import { parseStakePool, stakePoolRate } from "../../app/src/lib/chain/stake-pool.ts";
-import type { StakeGrowth } from "../../app/src/lib/chain/yield.ts";
-
-const status = (o: object) => Object.keys(o)[0];
 
 /** A Redeem smaller than this many Gemas is left for a later pass, when more yield has landed. */
 const MIN_GEMAS = BigInt(process.env.KEEPER_TREASURY_MIN_GEMAS ?? 100);
 /** Redeems sent per pass, so the job stays short and the others get their turn. */
 const MAX_PER_PASS = Number(process.env.KEEPER_TREASURY_MAX_PER_PASS ?? 4);
+/** Dry runs spent finding how much of a line is repaid. */
+const MAX_SEARCH = 14;
 
-/** One Holding of the Treasury Account: Gemas it bought by Instant Redeem. */
-export interface TreasuryHolding {
-  holding: PublicKey;
-  source: PublicKey;
-  position: PublicKey;
-  /** Gemas of the Holding not reserved (all of them: nobody can enter the Treasury Account in a Match). */
-  free: bigint;
-  math: SourceMath;
-  chain: "solana" | "ethereum" | "hyperEvm";
-  positionId: Uint8Array;
-  /** The staking token's mint when the Source's Position holds one (mainnet); null for simSOL custody and EVM Positions. */
-  stakeMint?: PublicKey | null;
-}
+/** Lines of the Treasury Account's basket the job may redeem: playable (General or Extension class), not empty. */
+export const redeemableLines = (lines: StoreLine[], minGemas = MIN_GEMAS) => lines.filter((l) => l.cls >= 3 && l.amount >= minGemas);
 
-export interface TreasuryRedeem {
-  holding: TreasuryHolding;
-  gemas: bigint;
-}
-
-/**
- * Which Holdings the Treasury Account redeems this pass: those whose pro rata share of the Source's repaid Gemas
- * (`redeemableFor`, the normal Redeem rule) is at least `minGemas`, the largest first, at most `max`.
- */
-export function planTreasuryRedeems(rows: TreasuryHolding[], max = MAX_PER_PASS, minGemas = MIN_GEMAS): TreasuryRedeem[] {
-  return rows
-    .map((holding) => ({ holding, gemas: redeemableFor(holding.math, holding.free) }))
-    .filter((r) => r.gemas > 0n && r.gemas >= minGemas)
-    .sort((a, b) => (a.gemas === b.gemas ? 0 : a.gemas > b.gemas ? -1 : 1))
+/** The Treasury's lines to try this pass: the largest first, at most `max`. */
+export function planTreasuryRedeems(lines: StoreLine[], max = MAX_PER_PASS, minGemas = MIN_GEMAS): StoreLine[] {
+  return redeemableLines(lines, minGemas)
+    .sort((a, b) => (a.amount === b.amount ? 0 : a.amount > b.amount ? -1 : 1))
     .slice(0, max);
 }
 
-const big = (x: any) => BigInt(x.toString());
-const mathOf = (inner: any): SourceMath => ({
-  issued: big(inner.issued),
-  returned: big(inner.returned),
-  redeemed: big(inner.redeemed),
-  yieldUnits: big(inner.yieldUnits),
-  unitNum: big(inner.unitNum),
-  unitDen: big(inner.unitDen),
-});
+/**
+ * The most Gemas of a line (at most `max`, at least `min`) that `works` accepts, assuming that what works for `k` works for
+ * any smaller amount (a Redeem pays at most what has been repaid). Null when even `min` does not work. Each call of `works`
+ * is a free dry run, so the number of calls is bounded.
+ */
+export async function largestRedeemable(min: bigint, max: bigint, works: (k: bigint) => Promise<boolean>, tries = MAX_SEARCH): Promise<bigint | null> {
+  let calls = 0;
+  const test = async (k: bigint) => (calls++ < tries ? works(k) : false);
+  if (min > max || !(await test(min))) return null;
+  if (await test(max)) return max;
+  let lo = min;
+  let hi = max;
+  while (hi - lo > 1n && calls < tries) {
+    const mid = lo + (hi - lo) / 2n;
+    if (await test(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
 
-const nativeMathNow = (pos: any, inner: any, speedup: number, nowSec: number, stake?: StakeGrowth): SourceMath => {
-  const math = mathOf(inner);
-  if (status(pos.inner.sourceChain) !== "solana") return math;
-  const p = pos.inner;
-  const facts = { principal: big(p.principal), rateBps: p.rateBps, yieldFeeBps: p.yieldFeeBps, openedAt: Number(big(p.openedAt)), openAdvance: p.openAdvance ?? null, appliedNet: big(p.appliedNet), stakeRateOpen: big(p.stakeRateOpen ?? 0) };
-  return sourceAtClock(facts, inner.index, math, speedup, nowSec, stake);
-};
+export const lineRefOf = (l: StoreLine): LineRefArg => ({ side: l.side, dueAt: l.dueAt, cls: l.cls, tranche: l.tranche });
+
+export interface TreasuryDeps {
+  read: Reader;
+  send(ixs: Parameters<typeof sendIxs>[2], opts: SendOpts): Promise<string>;
+  simulate(ixs: TransactionInstruction[]): Promise<string | null>;
+  now(): number;
+}
+
+export const realTreasuryDeps = (ctx: Ctx): TreasuryDeps => ({
+  read: connReader(ctx.conn),
+  send: (ixs, opts) => sendIxs(ctx.conn, ctx.payer, ixs, opts),
+  simulate: (ixs) => simulate(ctx.conn, ctx.payer, ixs),
+  now: () => Date.now(),
+});
 
 /**
  * Job 8: Treasury. The Treasury Account holds the Gemas Tesoro bought by Instant Redeem; once their Source's yield has
- * repaid them it redeems them at full value, which refills the treasury (SOL: `redeem_treasury` pays simSOL into the
- * treasury vault; ETH and HYPE: bridge `redeem_treasury_to_evm` records a Claim that the bridge job pays into the
- * vault's own treasury with `send_pay_yield`). Permissionless and bounded: at most KEEPER_TREASURY_MAX_PER_PASS redeems
- * of at least KEEPER_TREASURY_MIN_GEMAS Gemas each per pass.
+ * repaid them it redeems them, which refills the Treasury and is where the Yield Fee on bought Gemas is realised: the
+ * Pool is owed its half of the fee and a fifth of the Instant fee (ticket 31). (SOL: `redeem_treasury` pays simSOL into the
+ * Treasury vault; staking tokens stay in the custody vault as the Treasury's own shares; ETH and HYPE: bridge
+ * `redeem_treasury_to_evm` records a Claim that the bridge job pays into the vault's own treasury with `send_pay_yield`).
+ * A Redeem pays only the repaid part of a line, so a free dry run finds how much that is. Permissionless and bounded: at
+ * most KEEPER_TREASURY_MAX_PER_PASS lines of at least KEEPER_TREASURY_MIN_GEMAS Gemas each per pass.
  */
-export async function treasuryJob(ctx: Ctx): Promise<number> {
-  const account = treasuryAccountPda();
-  const rows: any[] = await ctx.core.account.holdingState.all([{ memcmp: { offset: 9, bytes: account.toBase58() } }]);
-  if (!rows.length) {
-    log("treasury", "-", "the Treasury Account holds no Gemas");
+export async function treasuryJob(ctx: Ctx, d: TreasuryDeps = realTreasuryDeps(ctx)): Promise<number> {
+  const treasuryKey = pda("treasury");
+  const [treasuryInfo] = await d.read.many([treasuryKey]);
+  if (!treasuryInfo) {
+    log("treasury", "-", "no Treasury yet");
     return 0;
   }
-  const sources: any[] = await ctx.core.account.sourceState.fetchMultiple(rows.map((r) => pk(r.account.inner.source)));
-  const positionKeys = sources.map((s) => (s ? pk(s.inner.position) : null));
-  const unique = [...new Map(positionKeys.filter(Boolean).map((k) => [k!.toBase58(), k!])).values()];
-  const fetched: any[] = unique.length ? await ctx.core.account.positionState.fetchMultiple(unique) : [];
-  const positions = new Map(unique.map((k, i) => [k.toBase58(), fetched[i]]));
-
-  // A Solana-native Source's Debt is derived from the clock (ADR 0010): its stored yield is only a floor.
-  // A staking-token Source (mainnet) grows with the stake pool's rate instead: read once, only when one is held.
-  const hasStake = [...positions.values()].some((p) => p && big(p.inner.stakeRateOpen ?? 0) !== 0n);
-  const poolInfo = hasStake ? null : await ctx.conn.getAccountInfo(POOL, "confirmed");
-  const speedup = poolInfo ? poolSpeedup(poolInfo.data) : 4380;
-  const nowSec = Math.floor(Date.now() / 1000);
-  let stake: StakeGrowth | undefined;
-  if (hasStake) {
-    const info = await ctx.conn.getAccountInfo(JITOSOL.pool, "confirmed");
-    const view = info && info.owner.equals(JITOSOL.poolProgram) ? parseStakePool(info.data) : null;
-    const rate = view && stakePoolRate(view.totalLamports, view.poolTokenSupply);
-    if (rate) stake = { rateNow: rate, atSec: nowSec, apyBps: 0 };
+  const treasury: any = ctx.core.coder.accounts.decode("treasury", treasuryInfo.data);
+  const account = keyOf(treasury.account);
+  const vault = keyOf(treasury.vault);
+  const [basket] = await d.read.many([basketOf(account)]);
+  if (!basket) {
+    log("treasury", "-", "the Treasury Account has no basket");
+    return 0;
   }
-  const holdings: TreasuryHolding[] = [];
-  rows.forEach((row, i) => {
-    const src = sources[i];
-    const position = positionKeys[i];
-    const pos = position ? positions.get(position.toBase58()) : null;
-    if (!src || !position || !pos) return;
-    const inner = row.account.inner;
-    holdings.push({
-      holding: row.publicKey,
-      source: pk(inner.source),
-      position,
-      free: big(inner.amount) - big(inner.reserved),
-      math: nativeMathNow(pos, src.inner, speedup, nowSec, stake),
-      chain: status(pos.inner.sourceChain) as TreasuryHolding["chain"],
-      positionId: Uint8Array.from(pos.positionId),
-      stakeMint: big(pos.inner.stakeRateOpen ?? 0) !== 0n ? pk(pos.inner.sourceAsset) : null,
-    });
-  });
-
-  const plan = planTreasuryRedeems(holdings);
+  const lines = decodeStore(basket.data).lines();
+  const plan = planTreasuryRedeems(lines.filter((l) => due(`treasury:${keyOfLine(l)}`, d.now())));
   let actions = 0;
-  for (const { holding: h, gemas } of plan) {
-    const subject = `source=${shortKey(h.source)} ${h.chain}`;
-    const eid = eidOf(h.chain);
-    const token = h.stakeMint ? stakeTokenOf(h.stakeMint) : null;
-    if (h.stakeMint && !token) continue;
-    const ix = h.chain === "solana" ? (token ? redeemTreasuryStakeIx(h.position, h.source, gemas, token) : redeemTreasuryIx(h.position, h.source, gemas)) : eid === null ? null : redeemTreasuryToEvmIx(ctx.payer.publicKey, eid, h.positionId, h.source, gemas);
-    if (!ix) continue;
-    const ixs = [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix];
-    const err = await simulate(ctx.conn, ctx.payer, ixs);
-    if (err) {
-      log("treasury", subject, `wait: redeem of ${gemas} Gemas would fail (${err.slice(0, 160)})`);
-      continue;
+  for (const line of plan) {
+    const subject = `source=${shortKey(line.source)}`;
+    try {
+      const build = await redeemBuilder(ctx, d, line, vault, treasuryKey, account);
+      if (!build) {
+        log("treasury", subject, "SKIP the Source is not one the keeper can redeem");
+        continue;
+      }
+      const best = await largestRedeemable(MIN_GEMAS < line.amount ? MIN_GEMAS : line.amount, line.amount, async (k) => (await d.simulate(await build.ixs(k))) === null);
+      if (best === null) {
+        nextTry.set(`treasury:${keyOfLine(line)}`, d.now() + RETRY_MS);
+        log("treasury", subject, `wait: ${line.amount} Gemas, fewer than ${MIN_GEMAS} are repaid yet`);
+        continue;
+      }
+      actions += +(await act(ctx, "treasury", subject, `${build.what} ${best} of ${line.amount} Gemas`, async () => d.send(await build.ixs(best), { units: 600_000 }))).ok;
+    } catch (e) {
+      log("treasury", subject, `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
     }
-    const what = h.chain === "solana" ? `redeem_treasury ${gemas} Gemas` : `redeem_treasury_to_evm ${gemas} Gemas (the bridge job pays the Claim)`;
-    actions += +(await act(ctx, "treasury", subject, what, () => ctx.bp.sendBase(ctx.signer, ixs))).ok;
   }
-  log("treasury", "-", `${holdings.length} Holding(s) of the Treasury Account, ${plan.length} due, ${actions} redeemed`);
+  log("treasury", "-", `${lines.length} line(s) in the Treasury Account, ${plan.length} tried, ${actions} redeemed`);
   return actions;
+}
+
+const keyOfLine = (l: StoreLine) => `${l.source.toBase58()}:${l.side}:${l.dueAt}:${l.cls}:${l.tranche}`;
+
+async function redeemBuilder(
+  ctx: Ctx,
+  d: TreasuryDeps,
+  line: StoreLine,
+  vault: PublicKey,
+  treasuryKey: PublicKey,
+  account: PublicKey,
+): Promise<{ what: string; ixs: (gemas: bigint) => Promise<TransactionInstruction[]> } | null> {
+  const [src] = await d.read.many([line.source]);
+  if (!src) return null;
+  const position = keyOf((ctx.core.coder.accounts.decode("sourceState", src.data) as any).inner.position);
+  const [pos] = await d.read.many([position]);
+  if (!pos) return null;
+  const decoded: any = ctx.core.coder.accounts.decode("positionState", pos.data);
+  const books = (await supplySources(ctx.core, d.read, [{ source: line.source, cut: false }])).metas;
+  const chain = Object.keys(decoded.inner.sourceChain)[0] as "solana" | "ethereum" | "hyperEvm";
+  const ref = lineRefOf(line);
+  if (chain !== "solana") {
+    return {
+      what: "redeem_treasury_to_evm (the bridge job pays the Claim)",
+      ixs: async (gemas) => [redeemTreasuryToEvmIx({ payer: ctx.payer.publicKey, chain, treasury: treasuryKey, treasuryAccount: account, treasuryBasket: basketOf(account), treasurySpill: spillOf(account), position, source: line.source, line: ref, gemas, remaining: books })],
+    };
+  }
+  const custody: Custody | null = await custodyOf(ctx.core, d.read, decoded, SIM_SOL_MINT);
+  if (!custody) return null;
+  const kind: AccountMeta[] = custody.kind === "native" ? payingAccounts(custody, vault) : ratingAccounts(custody);
+  return { what: "redeem_treasury", ixs: async (gemas) => [await redeemTreasuryIx(ctx.core, { line: ref, amount: gemas, position, source: line.source, remaining: dedupe([...kind, ...books]) })] };
 }

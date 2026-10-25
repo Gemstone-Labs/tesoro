@@ -5,7 +5,7 @@
  * like a real Match. No turn clock: practice never times a Player out.
  */
 import { PublicKey } from "@solana/web3.js";
-import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, type Action, type Table } from "../chain";
+import { NO_CARD, NO_WINNER, OFF_CHAIN_TABLE, PHASE, SPLIT, STATUS, type Action, type Table } from "../chain";
 import { eval7 } from "./eval";
 
 export const STARTING_CHIPS = 1_500n;
@@ -53,14 +53,12 @@ export function shuffled(random: () => number = Math.random): number[] {
 export function newPractice(now: number, random?: () => number): Practice {
   const table: Table = {
     address: key(3),
-    matchId: 0n,
     tesoroMatch: key(4),
     players: PLAYERS,
     speed: 1,
     status: STATUS.live,
-    finalized: false,
+    ...OFF_CHAIN_TABLE,
     winner: NO_WINNER,
-    startDeadline: 0,
     handNo: 0,
     dealer: 0,
     phase: PHASE.none,

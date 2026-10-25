@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useId, useRef, useState } from "react";
 import { CountUp } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import { nextStep, ordinal, pts, seasonStanding } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
@@ -13,7 +15,6 @@ import "./season-plate.css";
 
 const POP_MS = 1600;
 const PRIZE = "Season prize: the top 10 Players share it every Monday";
-const NOTE_KEY = "tesoro:pool-note";
 const compact = (n: number) => (n < 10_000 ? fmtGemas(n) : SHORT.format(n));
 const SHORT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const SHARD = "-2.5,-4 2.5,-4 4,-2.5 4,2.5 2.5,4 -2.5,4 -4,2.5 -4,-2.5";
@@ -102,7 +103,7 @@ export function Chest({ size = 34, pop = 0 }: { size?: number; pop?: number }) {
 }
 
 /**
- * Top bar: the Season plate. The Leaderboard Pool (gold, live, opens with a burst whenever it grows) and, signed in,
+ * Top bar: the Season plate. The Leaderboard Pool (gold, live, bounces whenever it grows) and, signed in,
  * the Player's own rank and Season points beside it in steel. One link to the Leaderboard.
  */
 export function PoolChest() {
@@ -136,16 +137,14 @@ export function PoolChest() {
       ? " You have no Season points yet."
       : ` You're ${ordinal(standing.rank)} with ${pts(standing.points)}.`
     : "";
-  const hint = (!standing || standing.points === 0) && !youPending;
   return (
-    <span className="pc-wrap">
     <Link
       href="/leaderboard"
       className={`cut cut-card pchest${pop ? " pop" : ""}`}
       aria-label={`Leaderboard Pool: ${fmtGemas(pool)} Gemas. ${PRIZE}.${you} Open Leaderboard`}
       title={PRIZE}
     >
-      <Chest pop={pop} />
+      <Image key={`pool-${pop}`} className={`pc-chest-image${pop ? " pop" : ""}`} src={art.poolChestCut} alt="" width={40} height={40} sizes="(max-width: 639px) 28px, (min-width: 1024px) 40px, 34px" />
       <div className="pc-pool">
         <b className="pc-full">
           <CountUp value={pool} duration={1200} />
@@ -168,47 +167,6 @@ export function PoolChest() {
         </div>
       )}
     </Link>
-    {hint && <PrizeNote />}
-    </span>
-  );
-}
-
-/**
- * Touch has no hover title, so a newcomer sees the Pool's meaning once, as a small caption under the plate.
- * It shows on touch screens only, to viewers with no Season points, fades after a few seconds or on a tap, and is remembered.
- */
-function PrizeNote() {
-  const [show, setShow] = useState(false);
-  useEffect(() => {
-    let seen = false;
-    try {
-      seen = localStorage.getItem(NOTE_KEY) === "1";
-    } catch {}
-    if (seen || !window.matchMedia("(hover: none)").matches) return;
-    const on = setTimeout(() => setShow(true), 600);
-    const off = setTimeout(() => dismiss(), 8000);
-    function dismiss() {
-      setShow(false);
-      try {
-        localStorage.setItem(NOTE_KEY, "1");
-      } catch {}
-    }
-    return () => {
-      clearTimeout(on);
-      clearTimeout(off);
-    };
-  }, []);
-  if (!show) return null;
-  const close = () => {
-    setShow(false);
-    try {
-      localStorage.setItem(NOTE_KEY, "1");
-    } catch {}
-  };
-  return (
-    <button type="button" className="cut cut-card pc-note" onClick={close}>
-      {PRIZE}
-    </button>
   );
 }
 

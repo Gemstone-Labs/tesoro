@@ -1,4 +1,3 @@
-import { DEFAULT_YIELD_FEE_BPS } from "./chain/yield";
 import { GEMA_USD_AT_ISSUANCE } from "./format";
 import type { Asset, Position } from "./mock/types";
 
@@ -18,9 +17,9 @@ export interface AdvanceQuote {
   unlockEstimate: string;
 }
 
-/** An Advance is the Position's projected yield over the Horizon, net of the Yield Fee. */
+/** An Advance is the Position's whole projected yield over the Horizon (the Yield Fee is taken at cash-out). */
 export function quoteAdvance(position: Position, horizonMonths: number, now: string): AdvanceQuote {
-  const projectedYield = (position.principal * position.apy * horizonMonths * (10_000 - DEFAULT_YIELD_FEE_BPS)) / (12 * 10_000);
+  const projectedYield = (position.principal * position.apy * horizonMonths) / 12;
   const gemasIssued = Math.floor(
     (projectedYield * ASSET_USD[position.asset]) / GEMA_USD_AT_ISSUANCE,
   );

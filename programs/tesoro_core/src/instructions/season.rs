@@ -1,17 +1,27 @@
-use crate::error::{core_err, TesoroError};
-use crate::ledger::{self, Ranked};
-use crate::state::*;
-use crate::util::*;
-use anchor_lang::prelude::*;
+//! Seasons with a frozen prize budget (spec "Season order": the Season ends, `fund_season_prize`,
+//! `record_season`, the 48-hour void window, `pay_season_rank`).
+//!
+//! * `record_season` stores the ranking and a **frozen budget** from the Pool's basket (its
+//!   biggest free lines), reserved so a later Season cannot promise the same Gemas, and waits for
+//!   every registered route with its prize escrow on to have funded this Season.
+//! * `pay_season_rank` pays one (rank, budget line) step: each rank takes the same fraction of
+//!   every budget line, so every rank gets the same mix of coins whatever the Pool holds or
+//!   receives later. It rounds down; the leftovers roll into the next Season.
+//! * `void_season_rank` (admin, inside the window) and `close_season` (anyone, once every rank is
+//!   paid or voided) release what was not paid.
+//!
+//! The ranking is recomputable from `MatchWon` events; the keeper (or the admin) records it.
 
-/// The admin or the keeper (the Config's oracle authority) runs the season: they rank, Tesoro pays.
-fn require_season_authority(config: &Config, signer: &Pubkey) -> Result<()> {
-    require!(
-        *signer == config.admin || *signer == config.oracle_authority,
-        TesoroError::Unauthorized
-    );
-    Ok(())
-}
+use crate::error::{core_err, TesoroError};
+use crate::instructions::economy::*;
+use crate::instructions::overflow::{credit_prize, require_routes_claimed, season_overflow_id};
+use crate::instructions::prize::{check_prize_source, route_of, season_authority, take_exact};
+use crate::ledger::line_store::{LineKey, LineStore, CLASS_GENERAL};
+use crate::ledger::{self, PoolLine, PoolReservations, Ranked};
+use crate::state::*;
+use crate::storage::*;
+use crate::util::now;
+use anchor_lang::prelude::*;
 
 fn require_pool(config: &Config, pool: &Pubkey) -> Result<()> {
     require!(
@@ -22,12 +32,14 @@ fn require_pool(config: &Config, pool: &Pubkey) -> Result<()> {
     Ok(())
 }
 
-/// Records the ranking of a season that has ended and fixes what each rank is paid: a share of
-/// the pool as it stands now (`ledger::PRIZE_BPS`, floored). `points` are in rank order, one per
-/// ranked Player; `remaining_accounts` are the Players' `TesoroAccount`s in the same order.
-/// Accounts are checked to exist and be genuine; the ranking itself comes from the keeper (the
-/// standings are recomputable from `MatchWon` events, see ADR 0006). Once per season: the
-/// `Season` account is created here.
+/// Most Pool lines a Season looks at when it freezes its budget.
+const MAX_POOL_LINES: usize = 256;
+
+/// Records the ranking of a season that has ended and freezes what it pays. `points` are in rank
+/// order, one per ranked Player; the first `points.len()` remaining accounts are the Players'
+/// `TesoroAccount`s in the same order, followed by the custody of every route the economy settings
+/// name (each exactly once), then the Pool's overflow record of each route for this Season in the
+/// same order (an address with no account is fine; one that still holds Gemas refuses the recording). Once per season: the `Season` account is created here.
 #[derive(Accounts)]
 #[instruction(number: u32)]
 pub struct RecordSeason<'info> {
@@ -35,11 +47,28 @@ pub struct RecordSeason<'info> {
     pub authority: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,
+    #[account(seeds = [ECONOMY_SEED], bump = economy.bump)]
+    pub economy: Box<Account<'info, EconomyConfig>>,
     #[account(
         seeds = [ACCOUNT_SEED, pool_account.authority.as_ref()],
         bump = pool_account.bump
     )]
     pub pool_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Pool's basket, checked by its seeds.
+    #[account(seeds = [BASKET_SEED, pool_account.key().as_ref()], bump)]
+    pub pool_basket: UncheckedAccount<'info>,
+    /// CHECK: the Pool's spill, checked by its seeds. Prize Gemas that did not fit the basket wait
+    /// here and are part of the budget.
+    #[account(seeds = [SPILL_SEED, pool_account.key().as_ref()], bump)]
+    pub pool_spill: UncheckedAccount<'info>,
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = PoolReservationsState::SPACE,
+        seeds = [POOL_RESERVATIONS_SEED],
+        bump
+    )]
+    pub reservations: Account<'info, PoolReservationsState>,
     #[account(
         init,
         payer = authority,
@@ -48,14 +77,6 @@ pub struct RecordSeason<'info> {
         bump
     )]
     pub season: Account<'info, SeasonState>,
-    #[account(
-        init,
-        payer = authority,
-        space = SeasonWindowState::SPACE,
-        seeds = [SEASON_WINDOW_SEED, &number.to_le_bytes()],
-        bump
-    )]
-    pub season_window: Account<'info, SeasonWindowState>,
     pub system_program: Program<'info, System>,
 }
 
@@ -64,14 +85,20 @@ pub(crate) fn record_season<'info>(
     number: u32,
     points: Vec<u64>,
 ) -> Result<()> {
-    require_season_authority(&ctx.accounts.config, &ctx.accounts.authority.key())?;
+    season_authority(
+        &ctx.accounts.config,
+        &ctx.accounts.economy,
+        &ctx.accounts.authority.key(),
+    )?;
     require_pool(&ctx.accounts.config, &ctx.accounts.pool_account.key())?;
+    let n = points.len();
     require!(
-        points.len() == ctx.remaining_accounts.len(),
+        ctx.remaining_accounts.len() >= n,
         TesoroError::BadRemainingAccounts
     );
-    let mut ranking = Vec::with_capacity(points.len());
-    for (info, p) in ctx.remaining_accounts.iter().zip(points) {
+    let (ranked_infos, rest) = ctx.remaining_accounts.split_at(n);
+    let mut ranking = Vec::with_capacity(n);
+    for (info, p) in ranked_infos.iter().zip(points) {
         let account = Account::<TesoroAccount>::try_from(info)?;
         let expected = Pubkey::create_program_address(
             &[ACCOUNT_SEED, account.authority.as_ref(), &[account.bump]],
@@ -84,162 +111,241 @@ pub(crate) fn record_season<'info>(
             points: p,
         });
     }
-    let pool = &ctx.accounts.pool_account.inner;
-    let pool_total = pool
-        .own_total
-        .checked_add(pool.won_total)
-        .ok_or_else(|| error!(TesoroError::InvalidAccount))?;
+    // Every registered route, each once.
+    let economy = &ctx.accounts.economy;
+    let registered: Vec<Pubkey> = economy
+        .routes
+        .iter()
+        .copied()
+        .filter(|r| *r != Pubkey::default())
+        .collect();
+    // The routes' custodies, then the Pool's overflow record of each route for this Season.
+    require!(
+        rest.len() == 2 * registered.len(),
+        TesoroError::BadRemainingAccounts
+    );
+    let (route_infos, record_infos) = rest.split_at(registered.len());
+    require_routes_claimed(
+        record_infos,
+        &ctx.accounts.pool_account.key(),
+        number,
+        &registered,
+    )?;
+    require!(
+        route_infos.len() == registered.len()
+            && registered
+                .iter()
+                .all(|r| route_infos.iter().filter(|i| i.key == r).count() == 1),
+        TesoroError::BadRemainingAccounts
+    );
+    let routes: Vec<ledger::RouteLedger> = route_infos
+        .iter()
+        .map(route_of)
+        .collect::<Result<Vec<_>>>()?;
+    let route_refs: Vec<&ledger::RouteLedger> = routes.iter().collect();
+
+    let mut pool_lines: Vec<PoolLine> = Vec::new();
+    for info in [
+        ctx.accounts.pool_basket.to_account_info(),
+        ctx.accounts.pool_spill.to_account_info(),
+    ] {
+        let data = info.try_borrow_data()?;
+        let store = LineStore::new(&data[DISC..]).map_err(store_err)?;
+        for l in store.lines() {
+            if l.class >= CLASS_GENERAL && l.amount > 0 {
+                require!(
+                    pool_lines.len() < MAX_POOL_LINES,
+                    TesoroError::InvalidAccount
+                );
+                pool_lines.push(PoolLine {
+                    key: l.key(),
+                    amount: l.amount,
+                });
+            }
+        }
+    }
+    let mut reservations: PoolReservations = ctx.accounts.reservations.reservations();
     let recorded_at = now()?;
-    let inner =
-        ledger::Season::record(number, recorded_at, pool_total, &ranking).map_err(core_err)?;
+    let inner = ledger::PrizeSeason::record(
+        number,
+        recorded_at,
+        &route_refs,
+        &pool_lines,
+        &mut reservations,
+        &ranking,
+    )
+    .map_err(core_err)?;
+    require!(
+        reservations.entries().len() <= ledger::MAX_RESERVATION_ENTRIES,
+        TesoroError::InvalidAccount
+    );
+    let budget: u64 = inner.lines.iter().map(|l| l.amount).sum();
     emit!(SeasonRecorded {
         season: number,
-        pool_total,
+        pool_total: budget,
         winners: inner.count,
     });
+    if ctx.accounts.reservations.bump == 0 {
+        ctx.accounts.reservations.bump = ctx.bumps.reservations;
+    }
+    ctx.accounts.reservations.set_reservations(&reservations);
     let season = &mut ctx.accounts.season;
     season.bump = ctx.bumps.season;
     season.inner = inner;
-    let window = &mut ctx.accounts.season_window;
-    window.bump = ctx.bumps.season_window;
-    window.inner = ledger::SeasonWindow::new(number, recorded_at);
     Ok(())
 }
 
-/// Pays one rank of a recorded season out of the pool, once, from 48 hours after it was recorded
-/// (`ledger::PAYOUT_WINDOW_SECS`) and never for a voided rank. Gemas keep their Source: the pool's
-/// Holdings are drained in ascending Source order (`ledger::plan_prize`) into the winner's
-/// Holdings of the same Sources. `remaining_accounts`: n pool Holdings, then n winner Holdings,
-/// the same Sources in the same order.
+/// Pays one (rank, budget line) step of a recorded season out of the Pool's basket, once, from 48
+/// hours after it was recorded and never for a voided rank. `line` must be the rank's next unpaid
+/// budget line; the prize Source of that line is the last account.
 #[derive(Accounts)]
 pub struct PaySeasonRank<'info> {
+    #[account(mut)]
     pub authority: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,
+    #[account(seeds = [ECONOMY_SEED], bump = economy.bump)]
+    pub economy: Box<Account<'info, EconomyConfig>>,
     #[account(
         mut,
         seeds = [SEASON_SEED, &season.inner.number.to_le_bytes()],
         bump = season.bump
     )]
     pub season: Account<'info, SeasonState>,
+    #[account(mut, seeds = [POOL_RESERVATIONS_SEED], bump = reservations.bump)]
+    pub reservations: Account<'info, PoolReservationsState>,
     #[account(
-        seeds = [SEASON_WINDOW_SEED, &season.inner.number.to_le_bytes()],
-        bump = season_window.bump
-    )]
-    pub season_window: Account<'info, SeasonWindowState>,
-    #[account(
-        mut,
         seeds = [ACCOUNT_SEED, pool_account.authority.as_ref()],
         bump = pool_account.bump
     )]
     pub pool_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Pool's basket, checked by its seeds.
+    #[account(mut, seeds = [BASKET_SEED, pool_account.key().as_ref()], bump)]
+    pub pool_basket: UncheckedAccount<'info>,
+    /// CHECK: the Pool's spill, checked by its seeds.
+    #[account(mut, seeds = [SPILL_SEED, pool_account.key().as_ref()], bump)]
+    pub pool_spill: UncheckedAccount<'info>,
     #[account(
-        mut,
         seeds = [ACCOUNT_SEED, winner_account.authority.as_ref()],
         bump = winner_account.bump
     )]
     pub winner_account: Account<'info, TesoroAccount>,
+    /// CHECK: the winner's basket, checked by its seeds.
+    #[account(mut, seeds = [BASKET_SEED, winner_account.key().as_ref()], bump)]
+    pub winner_basket: UncheckedAccount<'info>,
+    /// CHECK: the winner's spill, checked by its seeds.
+    #[account(mut, seeds = [SPILL_SEED, winner_account.key().as_ref()], bump)]
+    pub winner_spill: UncheckedAccount<'info>,
+    pub prize_source: Account<'info, PrizeSourceState>,
 }
 
 pub(crate) fn pay_season_rank<'info>(
     ctx: Context<'_, '_, 'info, 'info, PaySeasonRank<'info>>,
     rank: u8,
+    line: u8,
 ) -> Result<()> {
-    require_season_authority(&ctx.accounts.config, &ctx.accounts.authority.key())?;
-    require_pool(&ctx.accounts.config, &ctx.accounts.pool_account.key())?;
-    let winner = ctx.accounts.winner_account.key();
-    ctx.accounts
-        .season_window
-        .inner
-        .check_pay(rank, now()?)
-        .map_err(core_err)?;
-    let amount = ctx
-        .accounts
+    let a = ctx.accounts;
+    season_authority(&a.config, &a.economy, &a.authority.key())?;
+    require_pool(&a.config, &a.pool_account.key())?;
+    let winner = a.winner_account.key();
+    require!(
+        (rank as usize) < ledger::PRIZE_PLACES
+            && a.season.inner.winners[rank as usize] == winner.to_bytes(),
+        TesoroError::InvalidAccount
+    );
+    let ts = now()?;
+    let mut reservations = a.reservations.reservations();
+    let step = a
         .season
         .inner
-        .pay(rank)
-        .map_err(core_err)
-        .and_then(|a| {
-            // `pay` checked the rank is below `count`.
-            if ctx.accounts.season.inner.winners[rank as usize] == winner.to_bytes() {
-                Ok(a)
-            } else {
-                Err(error!(TesoroError::InvalidAccount))
-            }
-        })?;
-    let n = ctx.remaining_accounts.len();
-    if amount == 0 {
-        require!(n == 0, TesoroError::BadRemainingAccounts);
-    } else {
-        require!(n > 0 && n & 1 == 0, TesoroError::BadRemainingAccounts);
-        let (pool_infos, winner_infos) = ctx.remaining_accounts.split_at(n / 2);
-        let pool_key = ctx.accounts.pool_account.key();
-        let mut pool_holdings = load_holdings(&pool_key, pool_infos)?;
-        let mut winner_holdings = load_holdings(&winner, winner_infos)?;
-        let held: Vec<ledger::Holding> = pool_holdings.iter().map(|h| h.inner.clone()).collect();
-        let plan = ledger::plan_prize(&held, amount).map_err(core_err)?;
-        for (p, w) in pool_holdings.iter().zip(&winner_holdings) {
-            require!(
-                p.inner.source == w.inner.source,
-                TesoroError::InvalidAccount
-            );
-        }
-        let pool_acct = &mut ctx.accounts.pool_account.inner;
-        with_holdings(&mut pool_holdings, |hs| {
-            for (h, take) in hs.iter_mut().zip(&plan) {
-                h.debit(pool_acct, *take)?;
-            }
-            Ok(())
-        })?;
-        let winner_acct = &mut ctx.accounts.winner_account.inner;
-        with_holdings(&mut winner_holdings, |hs| {
-            for (h, take) in hs.iter_mut().zip(&plan) {
-                h.credit(winner_acct, *take)?;
-            }
-            Ok(())
-        })?;
+        .pay_step(&mut reservations, rank, line as usize, ts)
+        .map_err(core_err)?;
+    a.reservations.set_reservations(&reservations);
+    if step.amount > 0 {
+        let source = Pubkey::new_from_array(step.key.source);
+        require_keys_eq!(a.prize_source.key(), source, TesoroError::InvalidAccount);
+        // Only a prize Source may be paid out of the Pool this way: it has no book to bring up
+        // to date, and the PDA proves what it is.
+        check_prize_source(&a.prize_source, &a.prize_source.key())?;
+        let key: LineKey = step.key;
+        let taken = with_pool(
+            &a.pool_basket.to_account_info(),
+            &a.pool_spill.to_account_info(),
+            |pool| take_exact(pool, &key, step.amount),
+        )?;
+        // A winner whose stores are full still gets the prize: the line goes to an overflow
+        // record the keeper's transaction creates (remaining accounts: the record, the system
+        // program), and anyone claims it into the stores once there is room.
+        let season = a.season.inner.number;
+        credit_prize(
+            &a.winner_basket.to_account_info(),
+            &a.winner_spill.to_account_info(),
+            &winner,
+            &taken,
+            ctx.remaining_accounts,
+            &a.authority.to_account_info(),
+            OVERFLOW_SEASON,
+            &season_overflow_id(season, rank, line),
+        )?;
     }
     emit!(SeasonPrizePaid {
-        season: ctx.accounts.season.inner.number,
+        season: a.season.inner.number,
         rank,
         account: winner,
-        amount,
+        amount: step.amount,
     });
     Ok(())
 }
 
 /// Voids one rank of a recorded season (admin only, inside the payout window, before it is paid).
 /// The slot pays nothing and the other ranks keep their places and amounts; the voided share
-/// stays in the pool and rolls into the next season like an unfilled rank.
+/// stays in the Pool and rolls into the next season once the season is closed.
 #[derive(Accounts)]
 pub struct VoidSeasonRank<'info> {
     pub admin: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = admin @ TesoroError::Unauthorized)]
     pub config: Box<Account<'info, Config>>,
     #[account(
+        mut,
         seeds = [SEASON_SEED, &season.inner.number.to_le_bytes()],
         bump = season.bump
     )]
     pub season: Account<'info, SeasonState>,
-    #[account(
-        mut,
-        seeds = [SEASON_WINDOW_SEED, &season.inner.number.to_le_bytes()],
-        bump = season_window.bump
-    )]
-    pub season_window: Account<'info, SeasonWindowState>,
 }
 
 pub(crate) fn void_season_rank(ctx: Context<VoidSeasonRank>, rank: u8) -> Result<()> {
-    let season = &ctx.accounts.season.inner;
-    ctx.accounts
-        .season_window
-        .inner
-        .void(season, rank, now()?)
-        .map_err(core_err)?;
+    let ts = now()?;
+    let number = ctx.accounts.season.inner.number;
+    ctx.accounts.season.inner.void(rank, ts).map_err(core_err)?;
     emit!(SeasonRankVoided {
-        season: season.number,
+        season: number,
         rank,
-        account: Pubkey::new_from_array(season.winners[rank as usize]),
+        account: Pubkey::new_from_array(ctx.accounts.season.inner.winners[rank as usize]),
     });
+    Ok(())
+}
+
+/// Releases what no rank took (rounding dust and voided ranks' shares) so it rolls into the next
+/// Season's budget. Anyone, once every rank is paid or voided and the window has passed.
+#[derive(Accounts)]
+pub struct CloseSeason<'info> {
+    #[account(
+        mut,
+        seeds = [SEASON_SEED, &season.inner.number.to_le_bytes()],
+        bump = season.bump
+    )]
+    pub season: Account<'info, SeasonState>,
+    #[account(mut, seeds = [POOL_RESERVATIONS_SEED], bump = reservations.bump)]
+    pub reservations: Account<'info, PoolReservationsState>,
+}
+
+pub(crate) fn close_season(ctx: Context<CloseSeason>) -> Result<()> {
+    let mut reservations = ctx.accounts.reservations.reservations();
+    ctx.accounts
+        .season
+        .inner
+        .close(&mut reservations, now()?)
+        .map_err(core_err)?;
+    ctx.accounts.reservations.set_reservations(&reservations);
     Ok(())
 }

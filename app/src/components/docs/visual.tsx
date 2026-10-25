@@ -4,6 +4,7 @@ import { ArrowRight, ChevronRight } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { art } from "@/lib/art";
+import { isHiddenGame } from "@/lib/games";
 
 /* Visual building blocks for the Docs: icon tiles, framed screenshots, art, step grids and the diagrams. All server components,
    all themed through the docs tokens, motion only under (prefers-reduced-motion: no-preference) in docs-visual.css. */
@@ -184,7 +185,7 @@ export function Compare({ left, right }: { left: { title: string; icon: LucideIc
 
 const FLOW = [
   { n: 1, title: "Lock", body: "Lock a staking token. What you lock is never played.", img: "step1", ratio: "320 / 437" },
-  { n: 2, title: "Advance", body: "Receive 80% of the projected yield, upfront.", img: "step2", ratio: "320 / 260" },
+  { n: 2, title: "Advance", body: "Receive the projected yield, upfront.", img: "step2", ratio: "320 / 260" },
   { n: 3, title: "Gemas", body: "Worth $0.01 each when issued.", img: "step3", ratio: "320 / 260" },
   { n: 4, title: "Match", body: "Enter a head-to-head game. Winner takes the Pot.", img: "step4", ratio: "320 / 260" },
   { n: 5, title: "Redeem", body: "Won Gemas turn into the coin they came from as yield lands.", img: "step5", ratio: "320 / 260" },
@@ -491,13 +492,15 @@ export function SourceDiagram() {
   );
 }
 
-/** The three launch Games as art cards with their facts. */
+/** The Games as art cards with their facts. */
 export function GameCards() {
-  const games: { slug: keyof typeof art.thumb; name: string; facts: string[] }[] = [
+  const all: { slug: keyof typeof art.thumb; name: string; facts: string[] }[] = [
     { slug: "block-puzzle", name: "Block Burst", facts: ["Same pieces for both", "90 second run", "Play when you like"] },
     { slug: "holdem", name: "Buckshot Hold'em", facts: ["Heads-up, real time", "1,500 Chips each", "30 s per action"] },
     { slug: "trading-duel", name: "Trading Duel", facts: ["2.5 minutes, live price", "12 columns, 100 points a hit", "SOL, ETH or HYPE"] },
+    { slug: "vanguard", name: "Vanguard", facts: ["Blitz Stratego, hidden ranks", "10 seconds a move", "Capture the Supply Truck"] },
   ];
+  const games = all.filter((g) => g.slug !== "vanguard" || !isHiddenGame("vanguard"));
   return (
     <ul className="dx-games">
       {games.map((g) => (

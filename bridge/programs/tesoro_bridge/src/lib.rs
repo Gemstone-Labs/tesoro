@@ -6,6 +6,8 @@ mod state;
 
 #[cfg(test)]
 mod flow_tests;
+#[cfg(test)]
+mod keeper_fixtures;
 
 use anchor_lang::prelude::*;
 use errors::BridgeError;
@@ -29,6 +31,9 @@ const EVM_LINK_SEED: &[u8] = b"evm";
 const CLAIM_SEED: &[u8] = b"claim";
 const INSTANT_SEED: &[u8] = b"instant";
 const TREASURY_SEED: &[u8] = b"treasury";
+const ROUTE_SEED: &[u8] = b"route";
+const BATCH_SEED: &[u8] = b"batch";
+const PAYOUT_SEED: &[u8] = b"payout";
 
 /// LayerZero V2 endpoint ids of the source chains. The testnet ids serve test mode (Hoodi,
 /// HyperEVM testnet), the mainnet ids the mainnet vaults; one bridge deployment only ever has the
@@ -99,6 +104,10 @@ pub mod tesoro_bridge {
         SetPeerConfig::apply(&mut ctx, &params)
     }
 
+    pub fn set_route(mut ctx: Context<SetRoute>, params: SetRouteParams) -> Result<()> {
+        SetRoute::apply(&mut ctx, &params)
+    }
+
     // --- Identity ---------------------------------------------------------------------------
 
     pub fn link_evm(mut ctx: Context<LinkEvm>, params: LinkEvmParams) -> Result<()> {
@@ -111,7 +120,10 @@ pub mod tesoro_bridge {
         InitPosition::apply(&mut ctx, &params)
     }
 
-    pub fn lz_receive(mut ctx: Context<LzReceive>, params: LzReceiveParams) -> Result<()> {
+    pub fn lz_receive<'info>(
+        mut ctx: Context<'_, '_, '_, 'info, LzReceive<'info>>,
+        params: LzReceiveParams,
+    ) -> Result<()> {
         LzReceive::apply(&mut ctx, &params)
     }
 
@@ -119,7 +131,10 @@ pub mod tesoro_bridge {
         ApplyLocked::apply(&mut ctx, &params)
     }
 
-    pub fn apply_yield(mut ctx: Context<ApplyYield>, params: PositionRef) -> Result<()> {
+    pub fn apply_yield<'info>(
+        mut ctx: Context<'_, '_, '_, 'info, ApplyYield<'info>>,
+        params: PositionRef,
+    ) -> Result<()> {
         ApplyYield::apply(&mut ctx, &params)
     }
 
@@ -137,15 +152,22 @@ pub mod tesoro_bridge {
         SendUnlock::apply(&mut ctx, &params)
     }
 
-    pub fn redeem_to_evm(mut ctx: Context<RedeemToEvm>, gemas: u64) -> Result<()> {
-        RedeemToEvm::apply(&mut ctx, gemas)
+    pub fn redeem_to_evm<'info>(
+        mut ctx: Context<'_, '_, '_, 'info, RedeemToEvm<'info>>,
+        line: tesoro_core::LineRef,
+        gemas: u64,
+    ) -> Result<()> {
+        RedeemToEvm::apply(&mut ctx, line, gemas)
     }
 
     pub fn send_pay_yield(mut ctx: Context<SendPayYield>, params: SendParams) -> Result<()> {
         SendPayYield::apply(&mut ctx, &params)
     }
 
-    pub fn instant_redeem_to_evm(mut ctx: Context<InstantRedeemToEvm>, gemas: u64) -> Result<()> {
+    pub fn instant_redeem_to_evm<'info>(
+        mut ctx: Context<'_, '_, '_, 'info, InstantRedeemToEvm<'info>>,
+        gemas: u64,
+    ) -> Result<()> {
         InstantRedeemToEvm::apply(&mut ctx, gemas)
     }
 
@@ -153,8 +175,64 @@ pub mod tesoro_bridge {
         SendPayInstant::apply(&mut ctx, &params)
     }
 
-    pub fn redeem_treasury_to_evm(mut ctx: Context<RedeemTreasuryToEvm>, gemas: u64) -> Result<()> {
-        RedeemTreasuryToEvm::apply(&mut ctx, gemas)
+    pub fn redeem_treasury_to_evm<'info>(
+        mut ctx: Context<'_, '_, '_, 'info, RedeemTreasuryToEvm<'info>>,
+        line: tesoro_core::LineRef,
+        gemas: u64,
+    ) -> Result<()> {
+        RedeemTreasuryToEvm::apply(&mut ctx, line, gemas)
+    }
+
+    // --- Cash-in batches (Platform, Studio and Leaderboard fees of ETH/HYPE Sources) ---------
+
+    pub fn open_batch(mut ctx: Context<OpenBatch>, params: OpenBatchParams) -> Result<()> {
+        OpenBatch::apply(&mut ctx, &params)
+    }
+
+    pub fn add_to_batch<'info>(
+        mut ctx: Context<'_, '_, '_, 'info, AddToBatch<'info>>,
+    ) -> Result<()> {
+        AddToBatch::apply(&mut ctx)
+    }
+
+    pub fn seal_batch(mut ctx: Context<SealBatch>) -> Result<()> {
+        SealBatch::apply(&mut ctx)
+    }
+
+    pub fn send_batch(mut ctx: Context<SendBatch>, params: SendBatchParams) -> Result<()> {
+        SendBatch::apply(&mut ctx, &params)
+    }
+
+    pub fn close_batch(mut ctx: Context<CloseBatch>) -> Result<()> {
+        CloseBatch::apply(&mut ctx)
+    }
+
+    // --- Prize escrow (Leaderboard prize on ETH/HYPE routes) -----------------------------------
+
+    pub fn fund_season_prize_evm<'info>(
+        mut ctx: Context<'_, '_, '_, 'info, FundSeasonPrizeEvm<'info>>,
+        params: FundSeasonPrizeEvmParams,
+    ) -> Result<()> {
+        FundSeasonPrizeEvm::apply(&mut ctx, &params)
+    }
+
+    pub fn redeem_prize_to_evm(mut ctx: Context<RedeemPrizeToEvm>, gemas: u64) -> Result<()> {
+        RedeemPrizeToEvm::apply(&mut ctx, gemas)
+    }
+
+    pub fn send_pay_prize(
+        mut ctx: Context<SendPayPrize>,
+        params: SendPayPrizeParams,
+    ) -> Result<()> {
+        SendPayPrize::apply(&mut ctx, &params)
+    }
+
+    pub fn refund_prize_payout(mut ctx: Context<RefundPrizePayout>) -> Result<()> {
+        RefundPrizePayout::apply(&mut ctx)
+    }
+
+    pub fn close_payout(mut ctx: Context<ClosePayout>) -> Result<()> {
+        ClosePayout::apply(&mut ctx)
     }
 
     // --- Executor discovery ------------------------------------------------------------------
@@ -173,3 +251,6 @@ pub mod tesoro_bridge {
         LzReceiveTypesInfo::apply(&ctx, &params)
     }
 }
+
+#[cfg(test)]
+mod predeploy_layouts;

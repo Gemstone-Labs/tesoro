@@ -1,60 +1,38 @@
-import { BN } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
-import { describe, expect, it } from "vitest";
-import { BLOCK_PUZZLE_PROGRAM_ID } from "@/games/block-puzzle/chain";
-import { HOLDEM_PROGRAM_ID } from "@/games/holdem/chain";
+import { describe, expect, it, vi } from "vitest";
 import { loadWin, type WinDeps } from "./win-card";
 
-const key = (n: number) => new PublicKey(Uint8Array.from({ length: 32 }, (_, i) => (i === 0 ? n : 9)));
-const bytes = (k: PublicKey) => Array.from(k.toBytes());
-const side = (p: PublicKey) => ({ player: bytes(p), funder: bytes(p), shareBps: 0 });
-const A = key(1);
-const B = key(2);
+vi.mock("@/server/history/db", () => ({ supabaseRpc: async () => null }));
 
-const state = (status: string, game = BLOCK_PUZZLE_PROGRAM_ID) => ({
-  id: new BN(7),
-  inner: { game: bytes(game), entry: new BN(1000), fees: { platformBps: 500, studioBps: 500 }, status: { [status]: {} }, a: side(A), b: side(B), deadline: new BN(0) },
-});
-const session = (result: number, settled = true) => ({ settled, joined: true, result, scores: [3, 1], seed: new BN(0), openerDeadline: new BN(0), deadline: new BN(0) });
+const A = new PublicKey(Uint8Array.from({ length: 32 }, (_, i) => (i === 0 ? 1 : 9)));
+const ID = { opener: A.toBase58(), n: 7n };
 const profile = { nameLen: 3, name: [...Buffer.from("Ana")], avatar: { animal: [4] } };
+const card = { id: `${A.toBase58()}-7`, game: "holdem", entry: 1000, winner: A.toBase58(), gemas: 900 };
 
-const deps = (over: Partial<WinDeps> = {}): WinDeps => ({
-  matchState: async () => state("settled"),
-  gameAccount: async () => session(0),
-  profile: async () => profile,
-  ...over,
-});
+const deps = (over: Partial<WinDeps> = {}): WinDeps => ({ card: async () => card, profile: async () => profile, ...over });
 
-describe("loadWin", () => {
-  it("loads a won, settled Block Burst Match with the winner's Profile", async () => {
-    expect(await loadWin(7n, deps())).toMatchObject({ id: "7", game: "block-puzzle", entry: 1000, name: "Ana", avatar: 5 });
+describe("loadWin (the Match history's card)", () => {
+  it("loads a won, settled Match with the winner's Profile", async () => {
+    expect(await loadWin(ID, deps())).toMatchObject({ id: card.id, game: "holdem", entry: 1000, gemas: 900, name: "Ana", avatar: 5 });
   });
-  it("takes the winner of the second seat", async () => {
+  it("asks the history for the Match and the chain for the winner's Profile", async () => {
     const asked: string[] = [];
-    const w = await loadWin(7n, deps({ gameAccount: async () => session(1), profile: async (k) => (asked.push(k.toBase58()), null) }));
-    expect(asked).toEqual([B.toBase58()]);
-    expect(w?.name).toContain("…");
+    const seen: string[] = [];
+    await loadWin(ID, deps({ card: async (id) => (seen.push(`${id.opener}-${id.n}`), card), profile: async (k) => (asked.push(k.toBase58()), null) }));
+    expect(seen).toEqual([card.id]);
+    expect(asked).toEqual([A.toBase58()]);
   });
-  it("loads a settled Hold'em table by its winner seat", async () => {
-    const w = await loadWin(7n, deps({ matchState: async () => state("settled", HOLDEM_PROGRAM_ID), gameAccount: async () => ({ winner: 0 }) }));
-    expect(w?.game).toBe("holdem");
+  it("is null for a Match the history does not know or that has no winner", async () => {
+    expect(await loadWin(ID, deps({ card: async () => null }))).toBeNull();
   });
-  it("is null for a Match that does not exist", async () => {
-    expect(await loadWin(7n, deps({ matchState: async () => null }))).toBeNull();
-  });
-  it.each(["open", "active", "refunded"])("is null for a %s Match", async (status) => {
-    expect(await loadWin(7n, deps({ matchState: async () => state(status) }))).toBeNull();
-  });
-  it("is null for a draw and for a Session that has not settled", async () => {
-    expect(await loadWin(7n, deps({ gameAccount: async () => session(2) }))).toBeNull();
-    expect(await loadWin(7n, deps({ gameAccount: async () => session(0, false) }))).toBeNull();
-    expect(await loadWin(7n, deps({ gameAccount: async () => null }))).toBeNull();
+  it("is null when the history is not available", async () => {
+    expect(await loadWin(ID, deps({ card: async () => Promise.reject(new Error("db")) }))).toBeNull();
   });
   it("is null for a Game this app does not play", async () => {
-    expect(await loadWin(7n, deps({ matchState: async () => state("settled", key(77)) }))).toBeNull();
+    expect(await loadWin(ID, deps({ card: async () => ({ ...card, game: "chess" }) }))).toBeNull();
   });
   it("still shows the card when the Profile cannot be read", async () => {
-    const w = await loadWin(7n, deps({ profile: async () => Promise.reject(new Error("rpc")) }));
+    const w = await loadWin(ID, deps({ profile: async () => Promise.reject(new Error("rpc")) }));
     expect(w?.name).toContain("…");
   });
 });
