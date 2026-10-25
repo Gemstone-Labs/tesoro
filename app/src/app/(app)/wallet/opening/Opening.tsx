@@ -52,7 +52,7 @@ function Empty({ signedIn }: { signedIn: boolean }) {
         <h1 className="op-empty-title">Locking your coins</h1>
         <p className="op-sub">{signedIn ? "No ETH or HYPE Lock is starting in this browser." : "Sign in to see a Lock that is starting."}</p>
         <div className="op-actions">
-          <Button href="/wallet">Back to Wallet</Button>
+          <Button href="/vault">Back to Vault</Button>
         </div>
       </div>
     </div>
@@ -154,7 +154,7 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
               Play now <ArrowRight aria-hidden="true" />
             </Button>
           )}
-          <Button href="/wallet">Back to Wallet</Button>
+          <Button href="/vault">Back to Vault</Button>
           {!finished && op.hash && (
             <a className="btn cut cut-btn neutral" href={lzScanUrl(op.hash)} target="_blank" rel="noreferrer">
               Track the crossing <ExternalLink aria-hidden="true" />

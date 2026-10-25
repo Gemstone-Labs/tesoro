@@ -27,7 +27,7 @@ Tesoro earns a Platform Fee on Matches, a 20% Yield Fee and the Instant Redeem F
 
 <table>
   <tr>
-    <td colspan="2"><img src="docs/images/lobby.webp" alt="Lobby"></td>
+    <td colspan="2"><img src="docs/images/lobby.webp" alt="Play"></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/images/holdem.webp" alt="Buckshot Hold'em"></td>
@@ -57,7 +57,7 @@ pnpm install
 NEXT_PUBLIC_DEV_WALLET=1 pnpm dev   # http://localhost:3000, with a dev-only local wallet
 ```
 
-It talks to the live devnet deployment, so no configuration is needed. Open `/lobby?dev=alice` and `/lobby?dev=bob` in two windows to play yourself. Optional settings are listed in [`app/.env.example`](app/.env.example).
+It talks to the live devnet deployment, so no configuration is needed. Open `/play?dev=alice` and `/play?dev=bob` in two windows to play yourself. Optional settings are listed in [`app/.env.example`](app/.env.example).
 
 <details>
 <summary><b>Programs, contracts, keeper and checks</b></summary>

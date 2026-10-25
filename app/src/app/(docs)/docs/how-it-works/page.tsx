@@ -4,7 +4,7 @@ import { fmtEntryList } from "@/lib/format";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { Coins, Gem, Lock, RefreshCcw, Swords } from "lucide-react";
-import { FlowDiagram, Shot, StepGrid } from "@/components/docs/visual";
+import { FlowDiagram, StepGrid } from "@/components/docs/visual";
 import { INSTANT_PAYOUT_PCT, REDEEM_PAYOUT_PCT, YIELD_FEE_PCT } from "@/lib/chain/yield";
 import { BRAND } from "@/lib/brand";
 
@@ -16,7 +16,7 @@ export default function Page() {
       <H2 id="five-steps">Five steps</H2>
       <StepGrid
         items={[
-          { icon: Lock, tone: "emerald", title: "Get Gemas", body: <>Lock a staking token in your Wallet. What you lock is never played.</> },
+          { icon: Lock, tone: "emerald", title: "Get Gemas", body: <>Lock a staking token in your Vault. What you lock is never played.</> },
           { icon: Coins, tone: "emerald", title: "Take an Advance", body: <>Pick a Length of 1 to 12 months. You receive the Lock&apos;s projected yield over it, upfront, as Gemas.</> },
           { icon: Gem, tone: "emerald", title: "Hold Gemas", body: <>The Advance arrives as Gemas, worth $0.01 each at the moment they are issued.</> },
           { icon: Swords, tone: "sapphire", title: "Play Matches", body: <>Enter {fmtEntryList(ENTRY_SIZES)} Gemas in a head-to-head game. The winner takes the Pot minus Fees.</> },
@@ -24,8 +24,6 @@ export default function Page() {
         ]}
         result={{ title: "What you have at the end", body: <>Your coins back after Unlock, plus whatever you won and redeemed. Matches only ever risk the Gemas you enter.</> }}
       />
-
-      <Shot name="lobby" url={`${BRAND.domain}/lobby`} alt={`The ${BRAND.name} Lobby with the Games, entry sizes and a Play now button`} caption="The Lobby: pick a Game and an entry, then Play now." />
 
       <H2 id="worked-example">A worked example</H2>
       <p>

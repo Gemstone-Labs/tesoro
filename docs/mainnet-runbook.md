@@ -229,7 +229,7 @@ Deploy a Vercel **preview** (not production) of the launch commit with the full 
 
 Smoke with small real funds (a Player wallet funded in T-14; amounts of the order of 0.01 SOL-worth). Each line is pass or stop.
 
-1. Preview boots: server log says `[cluster] ... is Solana mainnet-beta`; `/lobby` shows no test-mode footer or simulated labels; ETH and HYPE tabs list the vaults (not "not available yet").
+1. Preview boots: server log says `[cluster] ... is Solana mainnet-beta`; `/play` shows no test-mode footer or simulated labels; ETH and HYPE tabs list the vaults (not "not available yet").
 2. Invite: with the gate on (T-7), a wallet without an Invite cannot create an Account; create one test Invite (`send-invites.ts` dry run, then a single `--limit 1 --send` to a founder email, see `docs/invites.md`); redeem it from that wallet; the Account is created and the Invite's email is the notification email.
 3. Open a Position with **jitoSOL** and with **plain SOL** (`DepositSol` in the same transaction): Principal recorded, Position visible.
 4. Take an **Advance**: priced from Pyth (the stake pool is not stale; the pool's `last_update_epoch` within one epoch), Gemas minted, Unlock Estimate shown.
@@ -242,7 +242,7 @@ Smoke with small real funds (a Player wallet funded in T-14; amounts of the orde
 11. **Alerts**: stop the mainnet keeper's `season` job or set `ALERT_JOB_FAILS=1` on a staging copy; the founders get one alert mail and one "recovered" mail.
 12. `/admin/review` opens for a wallet in `ADMIN_WALLETS` and refuses another.
 13. Season window: the keeper records a Season at its end (`season_window` created); `pay_season_rank` before 48 h fails with `PayoutWindowOpen`; `void_season_rank` works from the vault (Squads proposal).
-14. Wallet and Lobby at 1440 and 390 px, signed out and signed in, no console errors.
+14. Vault and Play at 1440 and 390 px, signed out and signed in, no console errors.
 
 Sign off: write the result of each line (with transaction signatures) into `docs/deployments.md` under a new "Mainnet" section, as was done for every earlier network. If any line fails, do not launch; fix, redeploy the preview, and repeat only the affected lines plus 1 and 2.
 
@@ -251,7 +251,7 @@ Sign off: write the result of each line (with transaction signatures) into `docs
 ## Launch day
 
 1. **Switch www to the mainnet env** (F). In the project that serves `www` (decision made at T-14: edit the existing project, or move the domain to the prepared one): set `TESORO_CLUSTER=mainnet`, `NEXT_PUBLIC_TESORO_CLUSTER=mainnet`, the RPC groups, vault and zap addresses, the mainnet Privy, Supabase, Resend and Turnstile values, `NEXT_PUBLIC_SITE_URL=https://www.playtesoro.com`, `INVITE_SECRET_KEY`. Delete `TESORO_RELAYER_SECRET_KEY`, `TESORO_ORACLE_SECRET_KEY`, `TESORO_RELAYER_EVM_PRIVATE_KEY`, `NEXT_PUBLIC_DEV_WALLET`, and anything test-only. A push to `main` deploys production by itself (`CLAUDE.md`), so redeploy the **launch commit** explicitly (`vercel redeploy` / deploy from a clean worktree), because the public vars are inlined at build time.
-   Check: `/robots.txt` allows crawling; `/lobby` shows no test-mode footer; the server log says `is Solana mainnet-beta`; `/api/` routes that need relayer or oracle answer "not configured" (they must).
+   Check: `/robots.txt` allows crawling; `/play` shows no test-mode footer; the server log says `is Solana mainnet-beta`; `/api/` routes that need relayer or oracle answer "not configured" (they must).
 2. **Test host in place** (F, Partner): the old devnet app is served on `test.playtesoro.com` with its own keeper (unchanged). Post a note: devnet Gemas stay on the test host (`docs/environments.md` launch step 5).
 3. **Run the smoke list** against production (T-1 lines 1, 2, 3, 4 at minimum, with a fresh Invite).
 4. **Confirm the gate is on**: read `InviteGate` (`required = true`), and try `create_account` from a wallet with no Invite on the site: it must fail.

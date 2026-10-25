@@ -73,7 +73,7 @@ Setup (`keeper/scripts/economy-setup.ts`, `register-game.ts`, all by the deploye
 - The Treasury (143 B) was current. The native custody (178 B) was incorrectly reported as current; it needed the 327-byte migration described above. `init_stores` ran for the platform recipient, the Pool Account and the Treasury Account (they predate baskets).
 - Four Games `register_game` (Studio Fee 300 bps, Studio recipient = the company Account = `tesoro_studio`, so their Studio Fee goes to Tesoro's counter) and `list_game` for a year (needs a 1.4M compute limit, now set in `register-game.ts`).
 - Per Game `TableConfig`: operator = the keeper key, generation 1, 64 tables (`set_config`; Vanguard `set_table_config`, its `VanguardConfig` stayed).
-- No `set_entry_sizes` (the program default is 100 / 500 / 1,000; the Lobby shows them).
+- No `set_entry_sizes` (the program default is 100 / 500 / 1,000; the Game pages show them).
 
 Wipe: `retire-old-accounts.ts` retired the 23 old Positions (3 tx); `retire_offer` closed the 2 old Offers (the script's Offer phase is stale against ticket 32: it waits for Sources to be gone, so `economy-setup.ts retire-offers` does it). **Not retired:** 23 old `SourceState` (142 B, the new one is 170 B so `retire_source` cannot read them) and the 42 old Holdings that need those Sources gone: they are inert, cost rent only, and the app and keeper lists now skip every account that is not of the current layout (`app/src/lib/chain/account-sizes.ts`: MatchState 776 B, SourceState 170 B, OfferState 174 B). The 167 old Matches stay as unreadable history, one Open old Match and the old Season 2 record are skipped too.
 
@@ -102,7 +102,7 @@ Played only on the staging app (branch `staging`) until launch; the app on `main
 - **TEE whitelist:** `whitelist-tee.ts` (sig `m4HE1feP…`).
 - **Registered in tesoro_core:** `register-game.ts <id> 300`, authority `ApLcUhNF…`, Studio recipient = Platform recipient (sig `3Z91BCcK…`).
 - **Keeper:** the VPS keeper runs the `staging` branch until launch (its Vanguard job settles, claims, deals and refunds Battles). It drops email events the live app refuses as malformed (Vanguard ones), so the other Games' emails still go out.
-- **Launch:** merge `staging` into `main` (Vanguard joins the Lobby first), then put the VPS keeper back on `main`.
+- **Launch:** merge `staging` into `main` (Vanguard joins Play first), then put the VPS keeper back on `main`.
 
 ## ETH/HYPE on the computed model: new vaults + bridge (2026-10-19)
 
@@ -183,7 +183,7 @@ The rebuilt `tesoro_bridge.so` differs byte for byte from the deployed one (the 
 ### Upgrade order, and why
 
 0. **Before anything.** Merge main and re-verify (risk 1). `export TMPDIR=$HOME/.cache/tesoro-tmp`; build from the merged commit with `pnpm build:programs`; refresh `app/src/lib/chain/idl/*.json` from `target/idl` (they equal the build today: `cmp` clean for `tesoro_core`, `block_puzzle`, `holdem`, `trading_duel`). Check `solana balance`. Check no Season is recorded and unpaid (risk 4). Prepare the keeper commit and the app deploy so steps 3 to 5 follow within minutes.
-1. **Drain Block Puzzle.** Stop new entries (tell testers; the Lobby cannot be paused), then wait until no `block_puzzle` Match is Open or Active: an Open Block Puzzle Match waits in the Queue until it is joined or refunded, and Active Matches settle through the keeper. Confirm in the keeper log that the `blockpuzzle` job has nothing pending and `curl -s 127.0.0.1:8787/healthz` on the VPS shows `commitsPending` 0. (`getProgramAccounts` hangs on this RPC; use the keeper log or the Matches list in the app.) Also settle or refund any in-flight Hold'em and Trading Duel Match so nothing is mid-flight through the core change.
+1. **Drain Block Puzzle.** Stop new entries (tell testers; Play cannot be paused), then wait until no `block_puzzle` Match is Open or Active: an Open Block Puzzle Match waits in the Queue until it is joined or refunded, and Active Matches settle through the keeper. Confirm in the keeper log that the `blockpuzzle` job has nothing pending and `curl -s 127.0.0.1:8787/healthz` on the VPS shows `commitsPending` 0. (`getProgramAccounts` hangs on this RPC; use the keeper log or the Matches list in the app.) Also settle or refund any in-flight Hold'em and Trading Duel Match so nothing is mid-flight through the core change.
 2. **Stop the keeper** (`ssh vps`, `systemctl --user stop tesoro-keeper`). It must not crank while the account lists change underneath it.
 3. **`tesoro_core` first.** `solana program extend` (+256,000), then `solana program write-buffer` + `solana program deploy --program-id <deploy-keys>/tesoro_core-keypair.json` (or `upgrade`) as in earlier upgrades. Why first: `block_puzzle`'s `open_session` now CPIs `extend_match_deadline` (24 h Queue window) and the games' settle / refund CPIs build the new `refund_match` list (`opener_protections`); the new games against the old core would fail, whereas the old games against the new core keep working for a moment (optional trailing accounts), so this order never leaves a gap in the other direction.
 4. **`block_puzzle`** (only after the drain in step 1; its Board layout is incompatible with live Boards), then **`holdem`**, then **`trading_duel`**, each its own write-buffer + upgrade. No extends.
@@ -270,7 +270,7 @@ After the program and admin steps: `ssh vps`; in `~/tesoro/repo`: `git fetch && 
 
 ### Smoke checks after (devnet, a fresh and an existing QA wallet)
 
-1. Existing Account: Lobby loads, Wallet shows Positions and Gemas (existing simSOL Positions keep working).
+1. Existing Account: Play loads, the Vault shows Positions and Gemas (existing simSOL Positions keep working).
 2. Open a Match (Block Puzzle, then Hold'em, then Trading Duel): the entry offers 500 / 1,000 / 2,500; open, a second wallet joins, play, settle. A first Match entry asks the 18+ question once (needs migration 0005). The Pool gains the Leaderboard Fee; `MatchWon` decodes (keeper log, no decode error). Block Puzzle: an unjoined Match stays in the Queue for 24 h (Open Matches show the longer wait); a move log records slot offsets.
 3. Delayed status: a Match whose Game result has not landed shows the Delayed status instead of a spinner.
 4. Limits sheet: set an Entry Limit; a Match above it is refused; start a Break (1 day) and check entries, Requests, Offers are blocked, Redeem and Unlock still work, and the keeper `away` job withdraws the Player's open items.
