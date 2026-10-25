@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PublicKey } from "@solana/web3.js";
-import { CHECKIN_SLOTS, END_OFFSET_SLOTS, SEED_RETRY_SECS, SEED_SLOTS, SLOTS_PER_SEC, TABLE_PHASE } from "../../app/src/games/block-puzzle/live-chain.ts";
+import { CHECKIN_SLOTS, END_OFFSET_SLOTS, FREEZE_OFFSET_SLOTS, SEED_RETRY_SECS, SEED_SLOTS, SLOTS_PER_SEC, TABLE_PHASE } from "../../app/src/games/block-puzzle/live-chain.ts";
 import { burstStep, burstTableStep, RESET_DELAY_SECS, type BurstFacts, type BurstTableFacts } from "./burst.ts";
 
 const NOW = 10_000;
@@ -77,6 +77,9 @@ describe("Block Burst Match step", () => {
     assert.equal(step({ ...r, slot: 8_000 }), "wait");
     assert.equal(step({ ...r, slot: 9_000 + END_OFFSET_SLOTS }), "wait");
     assert.equal(step({ ...r, slot: 9_000 + END_OFFSET_SLOTS + 1 }), "close");
+    // The hidden window (ticket 43): the keeper never closes, commits or otherwise touches the table between the freeze
+    // and the end of the grace, whatever the boards look like, so its transactions add no timing of their own.
+    for (let slot = 9_000 + FREEZE_OFFSET_SLOTS; slot <= 9_000 + END_OFFSET_SLOTS; slot += 25) assert.equal(step({ ...r, slot }), "wait", `slot ${slot}`);
   });
 
   it("commits a closed table once, then waits for base", () => {
