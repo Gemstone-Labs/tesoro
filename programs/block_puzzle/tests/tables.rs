@@ -1088,11 +1088,7 @@ impl Env {
                     table: self.table,
                     board: board_addr(self.table, seat as u8),
                 },
-                block_puzzle::instruction::PlayHidden {
-                    binding,
-                    expected_count: expected,
-                    moves,
-                },
+                hidden_args(binding, expected, 0, &moves),
                 vec![],
             )
         } else {
@@ -2227,6 +2223,29 @@ fn the_hidden_play_has_no_public_account_and_no_other_instruction_writes_one_aft
     assert!(!hidden[0].1 || hidden[0].0 == "player");
 }
 
+/// The fixed-shape hidden beat: `moves` padded to 8 entries, `count` real.
+fn hidden_args(
+    binding: Binding,
+    expected: u16,
+    beat: u8,
+    moves: &[MoveArg],
+) -> block_puzzle::instruction::PlayHidden {
+    let pad = MoveArg {
+        piece: 0,
+        x: 0,
+        y: 0,
+    };
+    let mut padded = [pad; 8];
+    padded[..moves.len()].copy_from_slice(moves);
+    block_puzzle::instruction::PlayHidden {
+        binding,
+        expected_count: expected,
+        beat,
+        count: moves.len() as u8,
+        moves: padded,
+    }
+}
+
 fn idl() -> serde_json::Value {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -2369,11 +2388,7 @@ fn a_player_cannot_play_another_players_board_or_before_beginning() {
             table: env.table,
             board: board_addr(env.table, 1),
         },
-        block_puzzle::instruction::PlayHidden {
-            binding,
-            expected_count: 0,
-            moves,
-        },
+        hidden_args(binding, 0, 0, &moves),
         vec![],
     );
     assert_eq!(
@@ -4136,4 +4151,171 @@ fn a_skipped_epoch_can_still_start_another_match_assigned_to_it() {
     env.begin()
         .expect("a later Assignment still begins on the skipped epoch");
     assert_ne!(env.table().phase, block_puzzle::TABLE_IDLE);
+}
+
+// ---- ticket 43: the hidden beat ----------------------------------------------------------------
+
+/// Both Players play their runs to the end before the freeze (public plays, inside the pace).
+fn both_runs_over_before_the_freeze(env: &mut Env) {
+    let mut at = env.table().start_slot;
+    for seat in 0..2 {
+        let mut guard = 0;
+        while !env.board(seat).over {
+            guard += 1;
+            assert!(guard < 100, "the game does not end");
+            at += SPS;
+            env.set_slot(at);
+            env.play(seat, 4).unwrap();
+        }
+    }
+}
+
+fn beat(env: &mut Env, seat: usize, expected: u16, n: u8, moves: &[MoveArg]) -> Result<(), Failed> {
+    let (kp, key) = env.person_of(seat);
+    let binding = env.binding();
+    let ixn = ix(
+        block_puzzle::ID,
+        block_puzzle::accounts::PlayHidden {
+            player: key,
+            table: env.table,
+            board: board_addr(env.table, seat as u8),
+        },
+        hidden_args(binding, expected, n, moves),
+        vec![],
+    );
+    env.send(&[ixn], &kp, &[])
+}
+
+#[test]
+fn an_empty_hidden_beat_changes_nothing_public_and_only_the_freeze_opens_it() {
+    let mut env = begun();
+    let start = env.table().start_slot;
+    env.set_slot(start + 79 * SPS);
+    assert_eq!(
+        custom_code(&beat(&mut env, 0, 0, 0, &[]).unwrap_err()),
+        dcode(E::NotFrozen),
+        "an empty beat is no way around the freeze rule"
+    );
+    let freeze = env.table().freeze_slot().unwrap();
+    env.set_slot(freeze + 30);
+    let table_before = env.svm.get_account(&s(env.table)).unwrap();
+    let board_before = env.board(0);
+    beat(&mut env, 0, 0, 0, &[]).expect("empty beat");
+    beat(&mut env, 1, 0, 1, &[]).expect("empty beat, other Player");
+    let table_after = env.svm.get_account(&s(env.table)).unwrap();
+    assert_eq!(table_before.data, table_after.data);
+    assert_eq!(table_before.lamports, table_after.lamports);
+    let board_after = env.board(0);
+    assert_eq!(board_after.moves, board_before.moves);
+    assert_eq!(board_after.score, board_before.score);
+    assert_eq!(
+        board_after.last_slot,
+        freeze + 30,
+        "the beat is liveness evidence"
+    );
+}
+
+#[test]
+fn every_hidden_beat_has_the_same_size_and_the_same_accounts() {
+    let mut env = begun();
+    let freeze = env.table().freeze_slot().unwrap();
+    env.set_slot(freeze + 30);
+    let binding = env.binding();
+    let moves = env.moves(0, 5);
+    let (_, key) = env.person_of(0);
+    let mk = |m: &[MoveArg], n: u8| {
+        ix(
+            block_puzzle::ID,
+            block_puzzle::accounts::PlayHidden {
+                player: key,
+                table: env.table,
+                board: board_addr(env.table, 0),
+            },
+            hidden_args(binding, 0, n, m),
+            vec![],
+        )
+    };
+    let (empty, full) = (mk(&[], 0), mk(&moves, 1));
+    assert_eq!(empty.data.len(), full.data.len(), "args are padded");
+    assert_eq!(empty.accounts, full.accounts);
+    assert_ne!(
+        empty.data,
+        mk(&[], 1).data,
+        "the beat number makes bytes unique"
+    );
+}
+
+#[test]
+fn a_resent_beat_is_skipped_not_refused_and_gaps_or_overruns_are() {
+    let mut env = begun();
+    let freeze = env.table().freeze_slot().unwrap();
+    env.set_slot(freeze + 30);
+    let m = env.moves(0, 4);
+    beat(&mut env, 0, 0, 0, &m[..3]).expect("three moves");
+    assert_eq!(env.board(0).moves, 3);
+    // The same beat again (the first outcome was unknown): nothing is applied twice.
+    beat(&mut env, 0, 0, 1, &m[..3]).expect("resend");
+    assert_eq!(env.board(0).moves, 3);
+    // A resend that also carries a new move applies only the new one.
+    beat(&mut env, 0, 0, 2, &m[..4]).expect("resend plus one");
+    assert_eq!(env.board(0).moves, 4);
+    // A count ahead of the Board, or a batch shorter than the overlap, is refused.
+    assert_eq!(
+        custom_code(&beat(&mut env, 0, 5, 3, &[]).unwrap_err()),
+        dcode(E::WrongCount)
+    );
+    assert_eq!(
+        custom_code(&beat(&mut env, 0, 1, 4, &m[..2]).unwrap_err()),
+        dcode(E::WrongCount)
+    );
+    assert_eq!(env.board(0).moves, 4);
+}
+
+#[test]
+fn the_public_play_still_refuses_an_empty_batch_and_hidden_beats_keep_the_pace() {
+    let mut env = begun();
+    let start = env.table().start_slot;
+    env.set_slot(start + 10 * SPS);
+    let (binding, expected) = (env.binding(), 0);
+    assert_eq!(
+        custom_code(
+            &env.play_with(0, binding, expected, vec![], false)
+                .unwrap_err()
+        ),
+        dcode(E::BadBatch)
+    );
+    // Stockpiled moves are refused in a hidden beat just as in the public play.
+    let freeze = env.table().freeze_slot().unwrap();
+    env.set_slot(freeze);
+    let m = env.moves(0, 8);
+    assert!(u64::from(8u8) * SPS <= 4 * (freeze - start) + 6 * SPS);
+    beat(&mut env, 0, 0, 0, &m).expect("eight moves are well inside the pace at 80 s");
+}
+
+#[test]
+fn a_finished_run_keeps_answering_the_beat_and_the_match_waits_for_the_clock_after_the_freeze() {
+    let mut env = begun();
+    both_runs_over_before_the_freeze(&mut env);
+    let freeze = env.table().freeze_slot().unwrap();
+    env.set_slot(freeze + 30);
+    let (c0, c1) = (env.board(0).moves, env.board(1).moves);
+    beat(&mut env, 0, c0, 0, &[]).expect("empty beat on a finished run");
+    let extra = vec![MoveArg {
+        piece: 0,
+        x: 0,
+        y: 0,
+    }];
+    assert_eq!(
+        custom_code(&beat(&mut env, 1, c1, 1, &extra).unwrap_err()),
+        dcode(E::RunOver),
+        "a finished run takes no moves"
+    );
+    // Both runs are over, yet from the freeze the close does not come early: when it happens
+    // would tell the opponent when the last run ended.
+    assert_eq!(
+        custom_code(&env.close().unwrap_err()),
+        dcode(E::NotClosable)
+    );
+    env.set_slot(env.table().play_end().unwrap() + 1);
+    env.close().expect("close at the end of the window");
 }
