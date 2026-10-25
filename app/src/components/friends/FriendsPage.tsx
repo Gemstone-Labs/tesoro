@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Ellipsis, Swords } from "lucide-react";
+import { Ellipsis, Swords } from "lucide-react";
 import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/Player";
 import { ChallengeSheet } from "@/components/match/ChallengeSheet";
 import { Bust, Button, Card, Sheet } from "@/components/ui";
@@ -18,6 +18,7 @@ import { useFriends } from "@/lib/friends/FriendsProvider";
 import { recordAgainst, recordText, sortFriends, type FriendRecord } from "@/lib/friends/record";
 import { friendStatusText } from "@/lib/friends/words";
 import { GAME_NAMES } from "@/lib/mock";
+import { FriendLinkShare } from "./FriendLinkShare";
 import "./friends.css";
 
 const PAGE = 20;
@@ -339,11 +340,10 @@ function FriendMenu({ account, name }: { account: string; name: string }) {
   );
 }
 
-/** Your add-me link with Copy, and Reset link as a setting. */
+/** Your add-me link with adjacent Copy and Share actions, and Reset link as a setting. */
 function FriendLink() {
   const friends = useFriends();
   const [code, setCode] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
@@ -358,12 +358,6 @@ function FriendLink() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const url = code ? `${typeof window === "undefined" ? "" : window.location.host}/friend/${code}` : "";
-  const copy = () =>
-    void navigator.clipboard?.writeText(`${window.location.origin}/friend/${code}`).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
   const closeReset = () => {
     setResetOpen(false);
     setResetError(null);
@@ -384,21 +378,13 @@ function FriendLink() {
   return (
     <div className="cut cut-card fr-link">
       <span className="fr-link-label">Your add-me link</span>
-      <div className="fr-link-row">
-        {url ? <span className="cut cut-chip fr-link-url mono">{url}</span> : <span className="cut cut-chip fr-link-url skel-url" aria-label="Loading your link" />}
-        <Button size="sm" disabled={!code} onClick={copy} icon={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
-          {copied ? "Copied" : "Copy"}
-        </Button>
-      </div>
+      <FriendLinkShare key={code ?? "loading"} code={code} disabled={resetting} />
       <div className="fr-link-foot">
         <small className="fr-link-help">Anyone with this link can add you as a friend.</small>
         <button type="button" className="fr-link-reset" disabled={!code} onClick={() => setResetOpen(true)}>
           Reset link
         </button>
       </div>
-      <span className="sr-only" role="status">
-        {copied ? "Add-me link copied" : ""}
-      </span>
       <Sheet open={resetOpen} onClose={closeReset} title="Reset your add-me link?">
         <div className="stack">
           <p className="meta fr-reset-text">

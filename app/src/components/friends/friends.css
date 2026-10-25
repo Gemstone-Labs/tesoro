@@ -64,6 +64,10 @@
 .fr-link-label { font-size: var(--fs-13); color: var(--fg-2); }
 .fr-link-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .fr-link-row > .btn { flex: none; }
+.fr-link-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.fr-link-actions .btn svg { width: 16px; height: 16px; }
+.fr-link-manual { min-width: 0; display: grid; gap: 6px; }
+.fr-link-manual .input { width: 100%; min-width: 0; }
 .fr-link-url { --c: 6px; flex: 1 1 0; min-width: 0; padding: 8px 10px; background: var(--shell); font-size: var(--fs-14); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fr-link-help { color: var(--fg-2); font-size: var(--fs-13); }
 .fr-link-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 16px; flex-wrap: wrap; }
@@ -88,6 +92,8 @@
 @media (max-width: 639px) {
   .fr-head { align-items: stretch; }
   .fr-link { min-width: 0; width: 100%; }
+  .fr-link-row { flex-wrap: wrap; }
+  .fr-link-url { flex-basis: 100%; }
   .fr-row, .fr-challenge { grid-template-columns: minmax(0, 1fr); padding: 12px 14px; }
   .fr-actions { justify-self: stretch; }
   .fr-actions > .btn:first-child { flex: 1; }
