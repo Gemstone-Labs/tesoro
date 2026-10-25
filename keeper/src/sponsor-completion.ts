@@ -11,7 +11,8 @@ export function keeperCompletionStore(env: NodeJS.ProcessEnv = process.env): (Co
       method: "POST", headers: { "content-type": "application/json", apikey: key, authorization: `Bearer ${key}` }, body: JSON.stringify(args),
     });
     if (!response.ok) throw new Error(`Sponsor ${name} failed: HTTP ${response.status}`);
-    return response.json();
+    const body = await response.text();
+    return body ? JSON.parse(body) : null;
   });
 }
 

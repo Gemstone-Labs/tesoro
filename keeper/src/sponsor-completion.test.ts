@@ -7,6 +7,7 @@ import { completionEffects, recoverCompletions, type CompletionStore } from "../
 import { closeMatchIx, closeTicketIx } from "./core-ix.ts";
 import { loadIdl } from "./runtime.ts";
 import { sendIxs } from "./send.ts";
+import { keeperCompletionStore } from "./sponsor-completion.ts";
 
 const payer = Keypair.generate();
 const k = () => Keypair.generate().publicKey;
@@ -36,6 +37,14 @@ function chain(store: CompletionStore, timeout = false) {
 }
 
 describe("keeper physical close accounting", () => {
+  it("accepts an empty successful REST response after recording a completion", async () => {
+    const original = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => new Response(null, { status: 204 });
+      const store = keeperCompletionStore({ SUPABASE_URL: "https://test.invalid", SUPABASE_SERVICE_ROLE_KEY: "fixture" })!;
+      await assert.doesNotReject(store.finishCompletion("known-close", true));
+    } finally { globalThis.fetch = original; }
+  });
   it("journals close_match and releases its Match and both consumed Entry Tickets", async () => {
     const store = new MemoryUsageStore();
     const matchState = k(), potA = k(), potB = k();
