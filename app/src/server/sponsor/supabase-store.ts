@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { UsageStore } from "./store";
+import { completionStore } from "./completion";
 
 let client: SupabaseClient | undefined;
 
@@ -25,6 +26,11 @@ async function take(key: string, cost: number, max: number | null, windowMs: num
 
 /** Postgres through the service role (migration 0011_sponsor.sql). */
 export const supabaseUsageStore: UsageStore = {
+  ...completionStore(async (name, args) => {
+    const { data, error } = await db().rpc(name, args);
+    fail("completion", error);
+    return data;
+  }),
   async take(key, cost, max, windowMs) {
     return (await take(key, cost, max, windowMs)) >= 0;
   },
@@ -37,15 +43,11 @@ export const supabaseUsageStore: UsageStore = {
   async used(key, windowMs) {
     return take(key, 0, null, windowMs);
   },
-  async hold(key, lamports) {
-    const { data, error } = await db().from("sponsor_hold").upsert({ key, lamports: lamports.toString() }, { onConflict: "key", ignoreDuplicates: true }).select("key");
-    fail("hold", error);
-    return (data?.length ?? 0) > 0;
+  async hold() {
+    throw new Error("Persistent reserves require prepareCompletion before broadcast");
   },
-  async release(key) {
-    const { data, error } = await db().from("sponsor_hold").delete().eq("key", key).select("lamports");
-    fail("release", error);
-    return data?.length ? BigInt(data[0].lamports) : 0n;
+  async release() {
+    throw new Error("Persistent reserves require generation-bound completion evidence");
   },
   async held() {
     const { data, error } = await db().from("sponsor_hold").select("lamports");

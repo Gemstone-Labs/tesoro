@@ -28,13 +28,14 @@ import { CORE_ID, PRIORITY_MICROLAMPORTS, RuleError, SIGNATURE_LAMPORTS, planTra
 import { EXIT_ATA_WINDOW_MS, verifyExitSetup } from "./exit-setup";
 import type { UsageStore } from "./store";
 import { ChainTransactionFailed } from "./chain-send";
+import { completionEffects, completionInput, recoverCompletions, type CompletionChain } from "./completion";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 /** A built message is good for this long (the blockhash lives about 90 s). */
 export const BUILD_TTL_MS = 75_000;
 
-export interface ChainReads {
+export interface ChainReads extends CompletionChain {
   balance(key: PublicKey): Promise<bigint>;
   account(key: PublicKey): Promise<{ owner: PublicKey; data: Uint8Array } | null>;
   rent?(bytes: number): Promise<bigint>;
@@ -113,11 +114,9 @@ export interface Built {
 }
 
 interface Meta {
+  completion: ReturnType<typeof completionEffects>;
   player: string;
   exp: number;
-  release: string[];
-  /** Obligations whose completion reserve is held once the transaction is submitted (not when it is built). */
-  hold: string[];
   reserve: string;
   fronted: string;
   cycle: boolean;
@@ -242,8 +241,6 @@ export class Sponsor {
     const fee = SIGNATURE_LAMPORTS * BigInt(1 + plan.signers.length) + (BigInt(plan.cu) * BigInt(PRIORITY_MICROLAMPORTS)) / 1_000_000n;
     const balance = await this.balance();
     await this.checkLow(balance.lamports);
-    const release: string[] = [];
-    const hold: string[] = [];
     let reserve = 0n;
     let fronted = 0n;
     let onboard: string | null = null;
@@ -282,14 +279,12 @@ export class Sponsor {
         throw e;
       }
       fronted = plan.spend.refundable + plan.spend.sunk + fee;
-      if (reserve > 0n) hold.push(...plan.obligations.map((o) => o.toBase58()));
     } else {
       if (await exitsBlocked(this.d.store, this.d.limits, who, now)) throw new DemoHttpError(429, "too-many-failures", "Too many failed transactions today. Pay the network fee from your own SOL to finish this.");
       await this.requireAccount(player);
       await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
       if (!exitFits(balance, fee + plan.spend.sunk + plan.spend.refundable)) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
-      if (plan.names.some((n) => n === "close_match" || n === "close_ticket")) release.push(...plan.obligations.map((o) => o.toBase58()));
     }
 
     const instructions = [
@@ -309,7 +304,7 @@ export class Sponsor {
       if (!(e instanceof RangeError)) throw e;
       throw new DemoHttpError(400, "too-large", "This transaction is too large. Prepare fewer items at a time.");
     }
-    const meta: Meta = { player: who, exp: now + BUILD_TTL_MS, release, hold, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite, cost: (fee + plan.spend.sunk + plan.spend.refundable).toString(), admission: plan.class === "admission", ataGrant: setup.ataGrant };
+    const meta: Meta = { completion: completionEffects(ixs), player: who, exp: now + BUILD_TTL_MS, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite, cost: (fee + plan.spend.sunk + plan.spend.refundable).toString(), admission: plan.class === "admission", ataGrant: setup.ataGrant };
     const metaText = JSON.stringify(meta);
     return { message: Buffer.from(bytes).toString("base64"), meta: metaText, mac: mac(this.d.macKey, bytes, metaText), expiresAt: meta.exp, class: plan.class };
   }
@@ -326,6 +321,7 @@ export class Sponsor {
     const bytes = tx.message.serialize();
     if (!macOk(this.d.macKey, bytes, metaText, given)) throw new DemoHttpError(400, "not-ours", "That is not a transaction we built.");
     const meta = JSON.parse(metaText) as Meta;
+    if (!meta.completion) throw new DemoHttpError(409, "rebuild", "Build this transaction again.");
     if (now > meta.exp) throw new DemoHttpError(400, "expired", "That transaction expired. Try again.");
 
     const keys = tx.message.staticAccountKeys;
@@ -340,12 +336,10 @@ export class Sponsor {
     }
     if (!exitFits(await this.balance(), BigInt(meta.cost ?? meta.fee))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL.");
     // The completion reserve is held only for transactions that are really sent, so an unsent build holds nothing.
-    const held: string[] = [];
-    if (meta.admission || meta.hold.length) {
+    if (meta.admission) {
       if (!admissionFits(this.d.limits, await this.balance(), BigInt(meta.fronted), BigInt(meta.reserve))) {
         throw new DemoHttpError(503, "sponsor-paused", "Free transactions are used up for now. You can still play: pay the network fee from your own SOL.");
       }
-      for (const o of meta.hold) if (await this.d.store.hold(o, BigInt(meta.reserve))) held.push(o);
     }
     // One sponsored Account per user: the slot is taken when the transaction is really sent and given back if it fails.
     let giveBack: (() => Promise<void>) | null = null;
@@ -353,31 +347,46 @@ export class Sponsor {
       try {
         giveBack = await takeOnboarding(this.d.store, this.d.limits, meta.onboard, now);
       } catch (e) {
-        for (const o of held) await this.d.store.release(o);
         if (e instanceof RuleError) throw refuse(e);
         throw e;
       }
     }
     if (meta.ataGrant && !(await this.d.store.take(meta.ataGrant, 1, 1, EXIT_ATA_WINDOW_MS, now))) {
       await giveBack?.();
-      for (const o of held) await this.d.store.release(o);
       throw new DemoHttpError(409, "setup-already-funded", "This payout token account was already funded.");
     }
     tx.sign(inviteKey ? [this.d.relayer, inviteKey] : [this.d.relayer]);
 
+    const hasCompletion = Object.values(meta.completion).some((keys) => keys.length > 0);
+    const input = hasCompletion ? completionInput(tx, meta.completion, BigInt(meta.reserve)) : null;
+    let fresh: boolean;
+    try {
+      fresh = input ? await this.d.store.prepareCompletion(input) : true;
+    } catch (e) {
+      await giveBack?.();
+      if (meta.ataGrant) await this.d.store.refund(meta.ataGrant, 1, now);
+      throw e;
+    }
     let signature: string;
     try {
       signature = await this.d.chain.send(tx.serialize());
     } catch (e) {
       await recordFailure(this.d.store, meta.player, now);
-      await giveBack?.();
+      if (e instanceof ChainTransactionFailed && e.beforeBroadcast && fresh) {
+        if (input) await this.d.store.finishCompletion(input.signature, false, true);
+        await giveBack?.();
+      }
+      if (e instanceof ChainTransactionFailed && !e.beforeBroadcast) {
+        if (input) await recoverCompletions(this.d.store, this.d.chain);
+        await giveBack?.();
+      }
       // An unknown broadcast outcome retains the grant: it may still land. Definite atomic failures spent no rent.
-      if (meta.ataGrant && e instanceof ChainTransactionFailed) await this.d.store.refund(meta.ataGrant, 1, now);
-      for (const o of held) await this.d.store.release(o);
+      if (meta.ataGrant && e instanceof ChainTransactionFailed && (e.beforeBroadcast ? fresh : true)) await this.d.store.refund(meta.ataGrant, 1, now);
       throw new DemoHttpError(502, "chain", `Transaction failed: ${(e as Error).message}`.slice(0, 300));
     }
-    for (const k of meta.release) await this.d.store.release(k);
-    if (meta.cycle) await recordCycle(this.d.store, meta.player, now);
+    // Accounting failures after a successful send leave durable work for the keeper, without refunding admission holds.
+    if (input) await recoverCompletions(this.d.store, this.d.chain, 1).catch((e) => console.error("[sponsor] completion recovery pending", e));
+    if (meta.cycle && fresh) await recordCycle(this.d.store, meta.player, now);
     if (meta.onboard && this.d.alertOnboarding) {
       const used = await onboardingAlertDue(this.d.store, this.d.limits, now);
       if (used !== null) await this.d.alertOnboarding(used, this.d.limits.onboardPerDay).catch((e) => console.error("[sponsor] onboarding alert failed", e));

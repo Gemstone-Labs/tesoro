@@ -1,5 +1,7 @@
 import { AddressLookupTableAccount, ComputeBudgetProgram, PublicKey, TransactionMessage, VersionedTransaction, type Connection, type Keypair, type TransactionInstruction } from "@solana/web3.js";
 import { pollConfirm } from "./runtime.ts";
+import { completionEffects, completionInput, recoverCompletions, type CompletionStore } from "../../app/src/server/sponsor/completion.ts";
+import { keeperCompletionStore } from "./sponsor-completion.ts";
 
 /** A transaction is at most this many bytes on the wire. */
 export const MAX_TX_BYTES = 1232;
@@ -7,6 +9,8 @@ export const MAX_TX_BYTES = 1232;
 type Signer = Pick<Keypair, "publicKey" | "secretKey">;
 
 export interface SendOpts {
+  /** Override the durable journal in tests. Production resolves the shared persistent store from its environment. */
+  completion?: CompletionStore | null;
   /** Compute unit limit (a ComputeBudget instruction is added when set). */
   units?: number;
   /** Address lookup tables to compile with. */
@@ -64,8 +68,12 @@ export async function sendIxs(conn: Connection, payer: Signer, ixs: TransactionI
   const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
   const tx = compile(payer.publicKey, blockhash, ixs, opts);
   tx.sign([payer, ...(opts.signers ?? [])] as Keypair[]);
+  const effects = completionEffects(ixs);
+  const store = effects.closes.length ? (opts.completion === undefined ? keeperCompletionStore() : opts.completion) : null;
+  if (store) await store.prepareCompletion(completionInput(tx, effects, 0n));
   const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" });
   const res = await pollConfirm(conn, { signature: sig, lastValidBlockHeight });
   if (res.value.err) throw new Error(`transaction ${sig} failed: ${JSON.stringify(res.value.err)}`);
+  if (store) await recoverCompletions(store, conn, 1).catch((e) => console.error("[sponsor] completion recovery pending", e));
   return sig;
 }

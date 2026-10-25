@@ -24,6 +24,9 @@ const sponsorPda = PublicKey.findProgramAddressSync([Buffer.from("sponsor")], CO
 
 function chainReads(conn: Connection): ChainReads {
   return {
+    getTransaction: (signature, opts) => conn.getTransaction(signature, opts),
+    isBlockhashValid: (blockhash, opts) => conn.isBlockhashValid(blockhash, opts),
+    sendRawTransaction: (raw, opts) => conn.sendRawTransaction(raw, opts),
     balance: async (k) => BigInt(await conn.getBalance(k, "confirmed")),
     rent: async (bytes) => BigInt(await conn.getMinimumBalanceForRentExemption(bytes, "confirmed")),
     account: async (k) => {
@@ -128,5 +131,5 @@ function failClosed(): UsageStore {
   const refuse = async () => {
     throw new DemoHttpError(503, "not-configured", "Free transactions are not configured on this server.");
   };
-  return { take: refuse, refund: refuse, add: refuse, used: refuse, hold: refuse, release: refuse, held: refuse } as UsageStore;
+  return { take: refuse, refund: refuse, add: refuse, used: refuse, hold: refuse, release: refuse, held: refuse, prepareCompletion: refuse, finishCompletion: refuse, pendingCompletions: refuse } as UsageStore;
 }

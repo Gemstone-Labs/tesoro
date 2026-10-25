@@ -1,6 +1,7 @@
 import { Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import nacl from "tweetnacl";
+import bs58 from "bs58";
 import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, key, linkEvmBridgeIx, signUpIx, openMatchIx, playerIx } from "./fixtures";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
@@ -15,6 +16,7 @@ import { JITOSOL } from "@/lib/chain/stake";
 import { createAtaIdempotentIx, tokenAta } from "@/lib/chain/stake-pool";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { ChainTransactionFailed } from "./chain-send";
+import { recoverCompletions } from "./completion";
 
 const SOL = 1_000_000_000n;
 const wire = (ixs: Ix[]): { ixs: WireIx[] } => ({
@@ -40,6 +42,14 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
   if (!over.noAccount) accounts.set(accountPda(player.publicKey).toBase58(), { owner: CORE_ID, data: new Uint8Array(10) });
   for (const k of over.existing ?? []) accounts.set(k.toBase58(), { owner: CORE_ID, data: new Uint8Array(10) });
   const chain: ChainReads = {
+    getTransaction: async (signature) => {
+      const tx = sent.find((t) => bs58.encode(t.signatures[0]) === signature);
+      if (!tx) return null;
+      return { transaction: { message: tx.message, signatures: [signature] }, meta: {
+        err: null, fee: 5000, preBalances: tx.message.staticAccountKeys.map(() => 1),
+        postBalances: tx.message.staticAccountKeys.map(() => 0),
+      }, slot: 1, blockTime: 1, version: 0 };
+    },
     balance: async () => balance,
     rent: async (bytes) => BigInt(bytes + 128) * 6960n,
     account: async (k) => accounts.get(k.toBase58()) ?? null,
@@ -306,6 +316,28 @@ describe("the low-balance email", () => {
 });
 
 describe("reserve timing and exits for throwaway keys", () => {
+  it("retains app-close accounting through confirmation uncertainty and recovers after restart", async () => {
+    const matchState = key();
+    const s = setup({ existing: [matchState] });
+    await s.deps.store.hold(matchState.toBase58(), 300_000n);
+    await s.deps.store.hold("unrelated", 900n);
+    const close = await coreIx("close_match", [], { caller: s.relayer.publicKey, matchState, matchPayer: s.relayer.publicKey, potA: key(), potAPayer: s.relayer.publicKey, potB: null, potBPayer: null, sponsor: null });
+    const finalized = s.deps.chain.getTransaction;
+    s.deps.chain.getTransaction = async () => null;
+    const b = await s.sponsor.build(s.player.publicKey, wire([close]));
+    await s.sponsor.submit(playerSigns(b, s.player), b.meta, b.mac);
+    expect(await s.deps.store.held()).toBe(300_900n);
+    // The original Sponsor instance is no longer needed: the durable journal names the signature and generations.
+    s.deps.chain.getTransaction = finalized;
+    expect(await recoverCompletions(s.deps.store, s.deps.chain)).toBe(1);
+    expect(await s.deps.store.held()).toBe(900n);
+  });
+  it("retains a completion reserve when a broadcast times out and may still land", async () => {
+    const s = setup({ sendError: new Error("broadcast timeout") });
+    const built = await s.sponsor.build(s.player.publicKey, wire([await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game)]));
+    await expect(s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac)).rejects.toMatchObject({ code: "chain" });
+    expect(await s.deps.store.held()).toBe(300_000n);
+  });
   it("an admission that is built but never submitted holds nothing", async () => {
     const s = setup();
     const open = await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
