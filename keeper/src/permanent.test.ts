@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { PermanentRefusals, isLegacyUnits } from "./permanent.ts";
+import { PermanentRefusals, isLegacyUnits, logsNameLegacyUnits } from "./permanent.ts";
 
 describe("permanent refusals", () => {
   it("recognises the bridge's LegacyUnits error (6044) in a simulation message", () => {
@@ -8,6 +8,12 @@ describe("permanent refusals", () => {
     assert.equal(isLegacyUnits('{"InstructionError":[1,{"Custom":6044}]}'), true);
     assert.equal(isLegacyUnits('{"InstructionError":[1,{"Custom":6043}]}'), false);
     assert.equal(isLegacyUnits("blockhash not found"), false);
+  });
+
+  it("confirms LegacyUnits only from the Anchor error log", () => {
+    assert.equal(logsNameLegacyUnits(["Program log: AnchorError thrown in x.rs:76. Error Code: LegacyUnits. Error Number: 6044."]), true);
+    assert.equal(logsNameLegacyUnits(["Program log: AnchorError thrown in y.rs:1. Error Code: SomethingElse. Error Number: 6044."]), false);
+    assert.equal(logsNameLegacyUnits(null), false);
   });
 
   it("tells a subject it is skipped, and logs only the first time", () => {

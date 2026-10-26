@@ -1,4 +1,4 @@
-import { PermanentRefusals, isLegacyUnits } from "./permanent.ts";
+import { PermanentRefusals, isLegacyUnits, logsNameLegacyUnits } from "./permanent.ts";
 import { ComputeBudgetProgram, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { act, log, type Ctx } from "./act.ts";
 import { shortKey } from "./env.ts";
@@ -19,7 +19,7 @@ import {
   sendAccounts,
   sendParams,
 } from "./lz.ts";
-import { simulate } from "./tee.ts";
+import { simulate, simulateIxs } from "./tee.ts";
 import { treasuryAccountPda } from "../../app/src/lib/chain/native.ts";
 import anchor from "@coral-xyz/anchor";
 import { bridgeDisc, decodeClaim, type ClaimRow } from "./bridge-ix.ts";
@@ -288,7 +288,7 @@ async function lzSend(
   const ixs = withCu(600_000, build(fee, acc.send));
   const err = await simulate(ctx.conn, ctx.payer, ixs);
   if (err) {
-    if (isLegacyUnits(err)) {
+    if (isLegacyUnits(err) && logsNameLegacyUnits((await simulateIxs(ctx.conn, ctx.payer, ixs).catch(() => null))?.logs)) {
       refused.note(subject, `${what} is refused with LegacyUnits (the Position holds wei, it is retired)`, (m) => log("bridge", subject, m));
       return 0;
     }
