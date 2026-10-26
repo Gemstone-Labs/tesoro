@@ -5,8 +5,11 @@
  *
  * Phases (each is sent and confirmed before the next is planned, because a later gate looks at what is gone):
  *   1. custodies (simSOL back to the owner), Positions, the Treasury, old-sized Offers, dead Requests
- *   2. Sources whose Position is gone or old-sized
- *   3. Holdings whose Source is gone (read from raw bytes: the program no longer has the type)
+ *      and legacy Matches (435/915 B) and Seasons (504 B), which carry no links
+ *   2. Sources of the historical 142 B layout whose Position is gone
+ *   3. Holdings of the historical 90 B layout whose Source is gone (read from raw bytes: the program no longer has the type)
+ *
+ * Devnet state is disposable (founder, 2026-10-25): what a legacy account counted is retired with it, never migrated.
  *   4. Offers of the current layout whose reserved Sources are all gone
  */
 import anchor, { type Idl, type Program } from "@coral-xyz/anchor";
@@ -23,10 +26,12 @@ const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 export const SPACE = { position: POSITION_SPACE, custody: 178, treasury: 143, offer: 799 } as const;
 const BACKING_TTL_SECS = 24 * 60 * 60;
 
-export type Kind = "custody" | "position" | "source" | "holding" | "offer" | "request" | "treasury";
+export type Kind = "custody" | "position" | "source" | "holding" | "offer" | "request" | "treasury" | "match" | "season";
 /** Matches `RETIRE_REQUESTS_BEFORE` in tesoro_core (2026-10-20 00:00 UTC). */
 export const RETIRE_REQUESTS_BEFORE = 1_792_454_400;
-export const KINDS: Kind[] = ["custody", "position", "source", "holding", "offer", "request", "treasury"];
+export const KINDS: Kind[] = ["custody", "position", "source", "holding", "offer", "request", "treasury", "match", "season"];
+/** Historical lengths `retire_legacy_account` and the Source/Holding retirements accept (programs/tesoro_core/src/instructions/retire.rs). */
+export const LEGACY_LEN = { source: 142, holding: 90, match: [435, 915], season: 504 } as const;
 
 export interface Row {
   pubkey: PublicKey;
@@ -104,10 +109,6 @@ export function planPhase(s: Snapshot, phase: 1 | 2 | 3 | 4): { items: Item[]; s
   const skipped: Skipped[] = [];
   const skip = (kind: Kind, key: PublicKey, reason: string) => skipped.push({ kind, key: key.toBase58(), reason });
   const gone = (k: PublicKey) => !s.rows.has(k.toBase58());
-  const stalePosition = (k: PublicKey) => {
-    const r = s.rows.get(k.toBase58());
-    return !!r && typeOf(r.data) === "PositionState" && r.data.length < SPACE.position;
-  };
   for (const r of s.rows.values()) {
     const t = typeOf(r.data);
     const len = r.data.length;
@@ -133,6 +134,10 @@ export function planPhase(s: Snapshot, phase: 1 | 2 | 3 | 4): { items: Item[]; s
         items.push({ kind: "treasury", key: r.pubkey, refs: { treasury: r.pubkey } });
       } else if (t === "OfferState" && len < SPACE.offer) {
         items.push({ kind: "offer", key: r.pubkey, refs: { offer: r.pubkey }, remaining: [] });
+      } else if (t === "MatchState" && (LEGACY_LEN.match as readonly number[]).includes(len)) {
+        items.push({ kind: "match", key: r.pubkey, refs: { account: r.pubkey } });
+      } else if (t === "SeasonState" && len === LEGACY_LEN.season) {
+        items.push({ kind: "season", key: r.pubkey, refs: { account: r.pubkey } });
       } else if (t === "RequestState") {
         const expires = Number(r.data.readBigInt64LE(8 + 1 + 8 + 32 + 32 + 8));
         if (expires >= RETIRE_REQUESTS_BEFORE) skip("request", r.pubkey, "opened after the reset: never retired");
@@ -141,11 +146,13 @@ export function planPhase(s: Snapshot, phase: 1 | 2 | 3 | 4): { items: Item[]; s
       }
     } else if (phase === 2 && t === "SourceState") {
       const position = pk(r.data, 9);
-      if (gone(position) || stalePosition(position)) items.push({ kind: "source", key: r.pubkey, refs: { source: r.pubkey, position } });
-      else skip("source", r.pubkey, "its Position is current");
+      if (len !== LEGACY_LEN.source) skip("source", r.pubkey, "current layout: never retired");
+      else if (gone(position)) items.push({ kind: "source", key: r.pubkey, refs: { source: r.pubkey, position } });
+      else skip("source", r.pubkey, "its Position still exists");
     } else if (phase === 3 && t === "HoldingState") {
       const source = pk(r.data, 41);
-      if (gone(source)) items.push({ kind: "holding", key: r.pubkey, refs: { holding: r.pubkey, source }, amount: r.data.readBigUInt64LE(74) });
+      if (len !== LEGACY_LEN.holding) skip("holding", r.pubkey, "not the historical layout");
+      else if (gone(source)) items.push({ kind: "holding", key: r.pubkey, refs: { holding: r.pubkey, source }, amount: r.data.readBigUInt64LE(74) });
       else skip("holding", r.pubkey, "its Source is current");
     } else if (phase === 4 && t === "OfferState" && len >= SPACE.offer) {
       const sources = offerSources(r.data);
@@ -174,7 +181,7 @@ export function planAll(s: Snapshot): Plan {
 }
 
 /** Instructions per transaction (account-count and compute limits; see the script). */
-export const BATCH: Record<Kind, number> = { custody: 3, position: 10, source: 6, holding: 5, offer: 2, request: 10, treasury: 1 };
+export const BATCH: Record<Kind, number> = { custody: 3, position: 10, source: 6, holding: 5, offer: 2, request: 10, treasury: 1, match: 10, season: 10 };
 
 export function batches<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -182,7 +189,7 @@ export function batches<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-const METHOD: Record<Kind, string> = { custody: "retireNativeCustody", position: "retirePosition", source: "retireSource", holding: "retireHolding", offer: "retireOffer", request: "retireRequest", treasury: "retireTreasury" };
+const METHOD: Record<Kind, string> = { custody: "retireNativeCustody", position: "retirePosition", source: "retireSource", holding: "retireHolding", offer: "retireOffer", request: "retireRequest", treasury: "retireTreasury", match: "retireLegacyAccount", season: "retireLegacyAccount" };
 
 export function coreProgram(): Program {
   return new anchor.Program(coreIdl as unknown as Idl, {} as never);
@@ -197,7 +204,8 @@ export async function buildIx(program: Program, admin: PublicKey, item: Item): P
   } else {
     Object.assign(accounts, item.refs);
   }
-  const builder = (program.methods as Record<string, () => { accountsStrict(a: unknown): { remainingAccounts(a: unknown): { instruction(): Promise<TransactionInstruction> } } }>)[METHOD[item.kind]]();
+  const args = item.kind === "match" ? [{ match: {} }] : item.kind === "season" ? [{ season: {} }] : [];
+  const builder = (program.methods as Record<string, (...a: unknown[]) => { accountsStrict(a: unknown): { remainingAccounts(a: unknown): { instruction(): Promise<TransactionInstruction> } } }>)[METHOD[item.kind]](...args);
   const remaining = item.kind === "offer" ? (item.remaining ?? []).map((pubkey) => ({ pubkey, isSigner: false, isWritable: false })) : [];
   return builder.accountsStrict(accounts).remainingAccounts(remaining).instruction();
 }
