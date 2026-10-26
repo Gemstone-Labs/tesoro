@@ -28,4 +28,5 @@ fn emit_layouts() {
         "VaultTreasury",
         8 + crate::state::VaultTreasury::INIT_SPACE,
     );
+    probe::decode_report();
 }

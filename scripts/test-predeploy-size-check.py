@@ -107,6 +107,11 @@ class Dispositions(unittest.TestCase):
             for typ in re.findall(r'#\[account(?:\([^\]]*\))?\]\s*(?:#\[[^\]]+\]\s*)*pub struct (\w+)', src):
                 self.assertIn(f'"{typ}"', probe, f'{name}.{typ} missing from predeploy_layouts.rs')
 
+    def test_every_program_probe_can_decode_records(self):
+        for name in preflight.PROGRAMS:
+            probe = (preflight.program_dir(name) / 'src/predeploy_layouts.rs').read_text()
+            self.assertIn('probe::decode_report();', probe, f'{name} probe has no decode step')
+
 
 if __name__ == '__main__':
     unittest.main()
