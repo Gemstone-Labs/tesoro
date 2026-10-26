@@ -60,3 +60,15 @@
 .continue.rows .continue-status { grid-area: status; }
 .continue.rows .continue-figures { grid-area: fig; }
 .continue.rows .continue-cta { grid-area: cta; align-self: center; margin: 0; }
+
+/* Continue appears (or folds away) with a short height + fade, never a pop (reduced motion: it just appears) */
+.continue-slot { display: grid; grid-template-rows: 1fr; }
+.continue-slot > .continue { min-height: 0; overflow: hidden; }
+.continue-slot.reveal { animation: continue-in 0.2s ease-out both; }
+.continue-slot.collapse { animation: continue-out 0.2s ease-in both; pointer-events: none; }
+@keyframes continue-in { from { grid-template-rows: 0fr; opacity: 0; } to { grid-template-rows: 1fr; opacity: 1; } }
+@keyframes continue-out { from { grid-template-rows: 1fr; opacity: 1; } to { grid-template-rows: 0fr; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .continue-slot.reveal { animation: none; }
+  .continue-slot.collapse { display: none; }
+}
