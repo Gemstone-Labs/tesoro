@@ -22,6 +22,21 @@ The metadata-only inventory (`collect --metadata-only`, followed by `check --inv
 
 Regression commands: `cargo test -p tesoro_core --lib predeploy_layouts -- --nocapture` writes/reads both the historical 178-byte and current 327-byte custody fixtures in LiteSVM; `python3 scripts/test-predeploy-size-check.py` exercises mismatch, unknown discriminator, dynamic capacity and version refusals. Preserve the LiteSVM fixture rows and use them in the Python test as described by its skip message.
 
+## Bundled devnet upgrade (2026-10-26)
+
+Source: `feat/economy-finish-25-10-2026` at `37e0bb57` (programs, crates and bridge identical to the build that produced these hashes). Built on the VPS with `anchor build --no-idl -- --tools-version v1.54` and `cargo build-sbf --tools-version v1.54` for the bridge; every dump of the live program equals its ELF. The deployer wrote and upgraded one program at a time. Rollback dumps: `~/.cache/tesoro-tmp/rollback-2026-10-26/` (`SHA256SUMS`).
+
+| Program | Upgrade slot | Signature | Size (B) | sha256 |
+|---|---|---|---|---|
+| `tesoro_bridge` (extend +22,000) | 515249536 | `2D7eqcpo…xGiAv` | 1,127,208 | `b0ccd969…4787` |
+| `tesoro_core` (extend +35,000) | 515249711 | `RTycGPVu…3DWD` | 3,134,192 | `6a78a65d…0955` |
+| `block_puzzle` (extend +10,240) | 515249807 | `51fXiaJr…XLAU` | 987,392 | `2611d96e…17c0` |
+| `holdem` (extend +10,240) | 515249892 | `XD128XCr…egrnw` | 968,600 | `383ae12e…17ae` |
+| `vanguard` (extend +10,240) | 515249967 | `4URMh45L…9p3uY` | 1,098,592 | `3b511d12…9e19` |
+| `trading_duel` | 515250027 | `5Yd87W3b…DBNG` | 744,264 | `d5ce2107…85ae` |
+
+`sim_lst` is byte-identical and was not touched. Production Supabase migration `0016_match_source_lines.sql` was applied in one transaction. The keeper was stopped for the window. The old Block Burst Boards (128), Hold'em Holes (52) and Vanguard Armies (22) were closed with the operator key. Full evidence: ticket 24, Comments "2026-10-26 bundled upgrade".
+
 ## Source-line event candidate: rollout prerequisites
 
 This section describes a local candidate, not a deployed program upgrade. Account layouts and instruction arguments are unchanged. The candidate emits a versioned `MatchLinesStarted` manifest at settlement/refund start and appends fields to the existing `MatchChunkDone` event. Its old prefix and discriminator remain intact. Each successful credit adds the incoming and outgoing raw 144-byte Lines, original Pot side/index, purpose, recipient and placement. No record is added for a rolled-back credit. Closed retries emit a zero-work chunk without another `MatchSettled`.
