@@ -96,6 +96,87 @@ contract PrizeModule is PositionVaultBase {
         return _onPayPrize(id, asset, prizeSource, to, shares);
     }
 
+    /// @dev `amount` leaves the Position's yield; `fee` of it (at most the Yield Fee cap) stays with the Treasury and
+    ///      the holder gets the rest.
+    ///      `pool` is the part of the Treasury's share owed to the Leaderboard Pool, never above what the Treasury
+    ///      gains here, so the Treasury always holds what the Pool is owed. A refill (`to == vault`) keeps all of it.
+    function payYield(uint64 id, uint64 seq, address to, uint256 amount, uint256 fee, uint256 pool)
+        external
+        returns (bytes memory ack)
+    {
+        if (address(this) == self) revert DirectCall();
+        Position storage p = _positions[id];
+        if (fee * BPS > amount * MAX_YIELD_FEE_BPS || pool > amount) revert BadFeeSplit(amount, fee, pool);
+        Cashout memory c = _takeYield(id, p, amount, fee, pool);
+        if (to == address(this)) {
+            // Tesoro redeemed the Gemas it bought with Instant Redeems: the yield goes back to the Treasury. No
+            // tokens move; the yield was never minted (SimLST) or is already among the held shares (real). With the
+            // holders' claim gone, shares of an unlocked Position become spendable.
+            if (!c.settled) {
+                if (_real()) treasuryShares += c.shares;
+                else treasuryCredited += c.paid;
+            }
+            _owePool(c.pool, c.paid, c.shares, c.rate);
+            emit TreasuryRefilled(id, c.paid, seq);
+            return "";
+        }
+        // Shares rounded down (less than one share-wei of value): paying never lowers the reported cumulative,
+        // which tesoro_core refuses (CumulativeDecreased). The fee shares are what is left of the debit.
+        uint256 holderShares = ((c.paid - c.fee) * RATE_SCALE) / c.rate;
+        uint256 feeShares = c.shares - holderShares;
+        if (_real()) {
+            if (c.settled) treasuryShares -= holderShares;
+            else treasuryShares += feeShares;
+        } else {
+            realisedFees += c.fee;
+        }
+        _owePool(c.pool, c.fee, feeShares, c.rate);
+        _payShares(to, holderShares);
+        emit YieldPaid(id, to, c.paid - c.fee, holderShares, seq);
+        return "";
+    }
+
+    /// @dev What one cash-out takes from a Position: `paid` of the face `amount` (all of it unless a slash left the
+    ///      Position short, then the same fraction for everyone, `_settle`), the shares that move and the fee and
+    ///      Pool's part scaled by the same fraction, so the Treasury keeps its share of what was really paid, once.
+    struct Cashout {
+        uint256 paid;
+        uint256 shares;
+        uint256 fee;
+        uint256 pool;
+        uint256 rate;
+        bool settled;
+    }
+
+    function _takeYield(uint64 id, Position storage p, uint256 amount, uint256 fee, uint256 pool)
+        internal
+        returns (Cashout memory c)
+    {
+        uint256 available = _unreservedClaims(id, p);
+        if (amount > available) revert ExceedsAccruedYield(amount, available);
+        (c.paid, c.shares) = _settle(id, p, amount);
+        // An open Position that pays nothing waits (the rate may recover); an unlocked one's shares are fixed, so
+        // a claim its remaining shares cannot value is extinguished.
+        if (c.paid == 0 && amount != 0 && !(_real() && p.unlocked)) revert ExceedsAccruedYield(amount, 0);
+        c.settled = _debitYield(id, p, amount, c.paid, c.shares);
+        if (amount != 0) {
+            c.fee = (fee * c.paid) / amount;
+            c.pool = (pool * c.paid) / amount;
+        }
+        c.rate = c.settled ? unlockRate[id] : rateSource.underlyingPerShare();
+    }
+
+    /// @dev Records `poolUnits` as owed to the Leaderboard Pool, capped at `capUnits` / `capShares`, the part the
+    ///      Treasury gained in this cash-out. Shares are floored.
+    function _owePool(uint256 poolUnits, uint256 capUnits, uint256 capShares, uint256 rate) internal {
+        if (_real()) {
+            uint256 poolShares = (poolUnits * RATE_SCALE) / rate;
+            poolOwedShares += poolShares < capShares ? poolShares : capShares;
+        } else {
+            poolAccruedUnits += poolUnits < capUnits ? poolUnits : capUnits;
+        }
+    }
+
     /// @dev Executes a batch from Solana: pays each named Position's yield (the same rules as PayYield, capped at
     ///      what that Position can pay now), to `recipient` (kinds 0 and 1) or into the prize escrow (kind 2), then
     ///      acknowledges with the CUMULATIVE paid amounts. It never reverts for a shortfall: what could not be paid stays
@@ -138,53 +219,43 @@ contract PrizeModule is PositionVaultBase {
         return _batchResult(batchId);
     }
 
-    /// @dev Pays one batch entry. Returns the underlying paid now.
+    /// @dev Pays one batch entry. Returns the face value settled now. A slash is shared pro rata with every other
+    ///      claim on the Position (`_settle`); an entry with nothing drawable waits, reserved.
     function _payEntry(BatchEntry storage e, address to, bool wallet) internal returns (uint256 paid) {
         Position storage p = _positions[e.positionId];
         if (p.owner == address(0)) return 0;
         uint64 pid = e.positionId;
         uint256 others = reservedUnits[pid] - e.reserved;
-        uint256 accrued = _accrued(p);
-        uint256 payable_ = accrued > p.paidUnderlying ? accrued - p.paidUnderlying : 0;
-        paid = _entryPayable(pid, e.requested - e.paid, payable_, others);
-        if (paid > 0) {
-            e.paid += uint128(paid);
-            _payOut(pid, p, paid, to, wallet);
+        uint256 x = _entryFace(e, pid, p, others);
+        if (x > 0 && _payOut(pid, p, x, to, wallet)) {
+            paid = x;
+            e.paid += uint128(x);
         }
         _holdBack(e, pid, others);
     }
 
-    /// @dev What an entry may pay now: its unpaid part, within the Position's yield not held for other batches and,
-    ///      for an unlocked real-LST Position, within the shares still owed to its holders.
-    function _entryPayable(uint64 pid, uint256 unpaid, uint256 payable_, uint256 others)
+    /// @dev Face an entry may take now: its unpaid part, within the claims not held for other batches.
+    function _entryFace(BatchEntry storage e, uint64 pid, Position storage p, uint256 others)
         internal
         view
-        returns (uint256 paid)
+        returns (uint256)
     {
-        uint256 avail = payable_ > others ? payable_ - others : 0;
-        paid = unpaid < avail ? unpaid : avail;
-        uint256 cap = _owedCap(pid);
-        if (paid > cap) paid = cap;
+        uint256 claims = _claims(pid, p);
+        uint256 avail = claims > others ? claims - others : 0;
+        uint256 left = e.requested - e.paid;
+        return left < avail ? left : avail;
     }
 
-    /// @dev Underlying an unlocked real-LST Position's holders can still draw (their claim, in shares, at the Unlock
-    ///      rate); unbounded otherwise. A payment of `a` debits `floor(a * RATE_SCALE / rate)` shares, so the most
-    ///      the owed shares cover is the largest `a` that still debits no more than them, not `owed * rate`
-    ///      rounded down (that left the last wei of every claim unpayable and a batch for the whole claim short).
-    function _owedCap(uint64 pid) internal view returns (uint256) {
-        if (!_real() || !_positions[pid].unlocked) return type(uint256).max;
-        uint256 owed = owedSharesOf[pid];
-        if (owed == 0) return 0;
-        return ((owed + 1) * unlockRate[pid] - 1) / RATE_SCALE;
-    }
-
-    function _payOut(uint64 pid, Position storage p, uint256 paid, address to, bool wallet) internal {
-        (uint256 shares, bool settled) = _debitYield(pid, p, paid);
+    /// @dev Pays `x` face of the Position's yield; false when it can pay nothing now (the entry waits).
+    function _payOut(uint64 pid, Position storage p, uint256 x, address to, bool wallet) internal returns (bool) {
+        (uint256 y, uint256 shares) = _settle(pid, p, x);
+        if (y == 0 && !(_real() && p.unlocked)) return false;
+        bool settled = _debitYield(pid, p, x, y, shares);
         if (wallet) {
             if (settled) treasuryShares -= shares;
             _payShares(to, shares);
-            emit YieldPaid(pid, to, paid, shares, 0);
-            return;
+            emit YieldPaid(pid, to, y, shares, 0);
+            return true;
         }
         // Prize escrow: the shares stay in the vault. A real vault counts them inside T as a claim only PayPrize
         // spends (shares of an unlocked Position already are in T); a SimLST vault mints them now.
@@ -193,7 +264,8 @@ contract PrizeModule is PositionVaultBase {
         } else {
             _mintToEscrow(shares);
         }
-        _addEscrow(shares, paid, true);
+        _addEscrow(shares, y, true);
+        return true;
     }
 
     /// @dev Holds back the unpaid rest of an entry, so yield that lands later goes to the pending batch before any
@@ -209,8 +281,7 @@ contract PrizeModule is PositionVaultBase {
     function _reserveCap(uint64 pid) internal view returns (uint256) {
         Position storage p = _positions[pid];
         if (!p.unlocked) return type(uint256).max;
-        if (_real()) return _owedCap(pid);
-        return p.frozenAccrued > p.paidUnderlying ? p.frozenAccrued - p.paidUnderlying : 0;
+        return _claims(pid, p);
     }
 
     /// @dev Pays a prize from the escrow, once per payout id, to `to`. It debits only the escrow, so it works with an

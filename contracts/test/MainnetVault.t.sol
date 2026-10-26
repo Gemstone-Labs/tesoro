@@ -442,19 +442,19 @@ abstract contract MainnetVaultBase is Test {
         assertApproxEqAbs(tok.balanceOf(redeemer), reported * 1e18 / 1.32e18, 1);
     }
 
-    /// Same for an open Position: after the slash the report is no longer payable in full (the formula follows
-    /// the rate) and nothing is taken from anyone else; it pays what is accrued.
+    /// Same for an open Position: after the slash the report cannot be paid in full. The Position pays that claim the
+    /// fraction its backing covers (founder rule D2, `SlashProRata.t.sol`), and nothing is taken from anyone else.
     function test_slashBetweenReportAndPayYieldOfAnOpenPosition() public {
         uint64 a = _open(10 ether);
         uint64 b = _open(10 ether);
         tok.setRate(1.32e18);
         (uint256 reported,,) = _report(a);
         tok.setRate(1.26e18);
-        bytes memory full = _pay(4, a, 2, redeemer, uint128(reported));
-        vm.expectPartialRevert(PositionVaultBase.ExceedsAccruedYield.selector);
-        _recv(full);
-        _recv(_pay(4, a, 2, redeemer, uint128(vault.payableYield(a))));
+        uint256 backing = vault.payableYield(a);
+        _recv(_pay(4, a, 2, redeemer, uint128(reported)));
+        assertApproxEqAbs(tok.balanceOf(redeemer) * 1.26e18 / 1e18, backing, 4, "paid what the Position holds");
         assertEq(vault.getPosition(b).heldShares, 10 ether);
+        assertEq(vault.payableYield(a), 0);
     }
 
     /// The owner withdraws the whole spendable Treasury right after a slash, with an unlocked holder and an open
