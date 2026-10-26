@@ -12,7 +12,7 @@ export interface FriendsView {
   badge: number;
 }
 
-/** What a Friends action answers: a plain status, an add-me link code, or a link's owner. */
+/** What a Friends action answers: a plain status, a Friend link code, or a link's owner. */
 export interface FriendsResult {
   status?: string;
   code?: string;

@@ -8,7 +8,7 @@ export interface FriendShareBrowser {
 
 export type FriendShareResult = "shared" | "copied" | "cancelled" | "manual";
 
-/** Share the existing resettable add-me link, without page filters or dev-wallet parameters. */
+/** Share the existing resettable Friend link, without page filters or dev-wallet parameters. */
 export function friendShareData(code: string, origin: string) {
   return {
     title: `Add me on ${BRAND.name}`,

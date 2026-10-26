@@ -45,7 +45,7 @@ export default function Privacy() {
             ["Sponsored-cost records", "Our server, when we pay a network cost for you.", "To enforce limits per Account and in total, and to keep the sponsoring budget safe from abuse."],
             ["Game listing applications", "A Studio that applies to list a Game.", "To review the application and run the listing."],
             ["Profile name and picture", "You choose them. Public, kept on chain.", "To show you to other Players."],
-            ["Friends", "You add them: Friend requests, your Friend list, your add-me link and Challenges you send Friends.", "To show you your Friends and let you challenge them. Private: only you see your list, and each Friend sees only that you are Friends. We may look at it when we check a cheating report."],
+            ["Friends", "You add them: Friend requests, your Friend list, your Friend link and Challenges you send Friends.", "To show you your Friends and let you challenge them. Private: only you see your list, and each Friend sees only that you are Friends. We may look at it when we check a cheating report."],
             ["18+ confirmation", "You tell us once, before your first Match.", "To record that you said you are at least 18. Self-declared; we do not check your age."],
             ["Protections and fair-play records", "Your Entry Limit, Break, Self-Exclusion, and signals used to find bots and multiple Accounts.", "To enforce your limits and our fair-play rules."],
             ["Server logs and device data", "Your browser when you use our site: IP address, browser type, pages and times, errors.", `To keep ${BRAND.name} secure and working, stop abuse, and fix bugs.`],

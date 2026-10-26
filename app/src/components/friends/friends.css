@@ -1,4 +1,4 @@
-/* ——— Friends page (founder pick F1: stacked list, add-me link at the top right) ——— */
+/* ——— Friends page (founder pick F1: stacked list, Friend link at the top right) ——— */
 .fr-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
 .fr-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px 24px; flex-wrap: wrap; }
 .fr-count { color: var(--fg); font-size: var(--fs-18); font-weight: 600; margin-top: 4px; }
@@ -109,7 +109,7 @@
   .fr-empty { gap: 12px; }
 }
 
-/* ——— Add-me link page (founder pick L1: one centred calling card) ——— */
+/* ——— Friend link page (founder pick L1: one centred calling card) ——— */
 .fl-card { --edge: var(--edge-2); background: var(--surface); width: min(100%, 520px); margin: clamp(8px, 4vh, 48px) auto; padding: 32px 28px 26px; display: grid; justify-items: center; gap: 14px; text-align: center; }
 .fl-av { --c: 22px; width: 168px; height: 168px; display: grid; place-items: center; overflow: hidden; background: var(--raised-2); }
 .fl-name { font-size: clamp(36px, 4vw, 56px); line-height: 1; text-transform: none; }

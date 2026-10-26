@@ -4,8 +4,8 @@ import { copyFriendLink, friendShareData, shareFriendLink } from "./friend-share
 const code = "add-me-code";
 const data = friendShareData(code, "https://test.playtesoro.com/friends?dev=alice#history");
 
-describe("add-me link sharing", () => {
-  it("shares the existing add-me link on the current deployment without page filters or dev parameters", () => {
+describe("Friend link sharing", () => {
+  it("shares the existing Friend link on the current deployment without page filters or dev parameters", () => {
     expect(data).toEqual({
       title: "Add me on Tesoro",
       text: "Add me as a friend on Tesoro.",

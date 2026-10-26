@@ -50,7 +50,7 @@ export function FriendPicker({
         ) : (
           <fieldset className="fp-list">
             <legend className="sr-only">Who the Challenge is for</legend>
-            {list.length === 0 && <p className="meta">No Friends yet. Add Players from their Account page or share your add-me link.</p>}
+            {list.length === 0 && <p className="meta">No Friends yet. Add Players from their Account page or share your Friend link.</p>}
             {list.map((f) => (
               <label key={f.account} className={`cut cut-card fp-row${picked === f.account ? " on" : ""}`}>
                 <input type="radio" name="fp-friend" checked={picked === f.account} onChange={() => onPick(f.account)} />

@@ -147,7 +147,7 @@ export async function handleFriends(deps: FriendsDeps, body: unknown, ctx: Frien
       const day = Math.floor(now / DAY_MS);
       const used = redeems.get(me);
       const n = used?.day === day ? used.n : 0;
-      if (n >= LINK_REDEEMS_PER_DAY) throw new DemoHttpError(429, "too-many", "Too many add-me links today. Try again tomorrow.");
+      if (n >= LINK_REDEEMS_PER_DAY) throw new DemoHttpError(429, "too-many", "Too many Friend links today. Try again tomorrow.");
       redeems.set(me, { day, n: n + 1 });
       const r = await deps.store.redeem(me, b.code, now);
       return { result: r };

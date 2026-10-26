@@ -26,7 +26,7 @@ const PAGE = 20;
 const RESULT_WORD = { won: "Won", lost: "Lost", draw: "Draw" } as const;
 const RESULT_ICON = { won: Check, lost: X, draw: Minus } as const;
 
-/** The signed-in Player's private Friends page: requests, Challenges for them, their Friends and their add-me link. */
+/** The signed-in Player's private Friends page: requests, Challenges for them, their Friends and their Friend link. */
 export function FriendsPage() {
   const { auth, snapshot } = useAccount();
   const friends = useFriends();
@@ -352,7 +352,7 @@ function FriendMenu({ account, name }: { account: string; name: string }) {
   );
 }
 
-/** Your add-me link with adjacent Copy and Share actions, and Reset link as a setting. */
+/** Your Friend link with adjacent Copy and Share actions, and Reset link as a setting. */
 function FriendLink() {
   const friends = useFriends();
   const [code, setCode] = useState<string | null>(null);

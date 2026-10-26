@@ -207,7 +207,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <p>
             Yes. Press Challenge a friend on a game&apos;s page and share the link. The Match skips the Queue: whoever opens the link joins it. Add them as a
-            Friend (on their Account page, after a Match, or with your add-me link from the Friends page) and you can pick them for a Challenge: it shows on
+            Friend (on their Account page, after a Match, or with your Friend link from the Friends page) and you can pick them for a Challenge: it shows on
             their Friends page too.
           </p>
         ),
