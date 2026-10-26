@@ -335,3 +335,35 @@ describe("BurstSubmitter, hidden beats", () => {
     expect(sent[0].expected + sent[0].moves.length).toBeLessThanOrEqual(3 + 22);
   });
 });
+
+describe("BurstSubmitter, review fixes", () => {
+  it("a public play refused for pace does not go again once the guard before the freeze has passed", async () => {
+    let slotNow = HIDDEN_FROM - 60;
+    const send = vi.fn(async (_m: MoveArg[], _e: number, hiddenBeat: boolean) => {
+      if (!hiddenBeat) {
+        slotNow = HIDDEN_FROM - 10; // the retry would reach the program after the guard
+        throw new Error('{"InstructionError":[0,{"Custom":6020}]}');
+      }
+    });
+    const s = new BurstSubmitter({ send, movesOnChain: async () => 0, slot: () => slotNow }, { freezeSlot: HIDDEN_FROM, backoffMs: 5 });
+    s.push(mv(0));
+    await vi.advanceTimersByTimeAsync(600);
+    expect(send.mock.calls.filter((c) => c[2] === false)).toHaveLength(1);
+  });
+
+  it("waits for the slot clock instead of firing every beat at once", async () => {
+    let ready = false;
+    const sent: number[] = [];
+    const clockSlot = () => (ready ? HIDDEN_FROM - 200 + Math.floor((Date.now() - t0) / 10) : 0);
+    const t0 = Date.now();
+    const s = new BurstSubmitter({ send: async (_m, _e, _h, beat) => void sent.push(beat), movesOnChain: async () => 0, slot: clockSlot }, { freezeSlot: HIDDEN_FROM });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(sent).toHaveLength(0);
+    ready = true;
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.length).toBeLessThan(21);
+    s.stop();
+  });
+});
+

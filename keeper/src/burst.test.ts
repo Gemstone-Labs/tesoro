@@ -96,11 +96,17 @@ const tbl = (over: Partial<BurstTableFacts> = {}): BurstTableFacts => ({
   doneSlots: [],
   matchFrozen: false,
   recommit: false,
+  hiddenWindow: false,
   ...over,
 });
 const m1 = new PublicKey(Buffer.alloc(32, 1)).toBase58();
 
 describe("Block Burst table upkeep", () => {
+  it("does nothing on a table in its hidden window, whatever else is due", () => {
+    const busy = { tablePhase: TABLE_PHASE.getReady, hiddenWindow: true, matchFrozen: true, recommit: true, dirty: true, doneSlots: [{ index: 2, match: m1, receiptOld: true }] };
+    assert.equal(burstTableStep(tbl(busy)).do, "wait");
+  });
+
   it("frees a ring slot first, then voids, repeats a lost commit, commits, wipes, resets", () => {
     assert.equal(burstTableStep(tbl({ tablePhase: TABLE_PHASE.closed, dirty: true, doneSlots: [{ index: 2, match: m1, receiptOld: true }] })).do, "release_slot");
     assert.equal(burstTableStep(tbl({ tablePhase: TABLE_PHASE.getReady, matchFrozen: true })).do, "void_table");

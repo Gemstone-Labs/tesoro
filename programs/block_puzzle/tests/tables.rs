@@ -4259,15 +4259,16 @@ fn a_resent_beat_is_skipped_not_refused_and_gaps_or_overruns_are() {
     // A resend that also carries a new move applies only the new one.
     beat(&mut env, 0, 0, 2, &m[..4]).expect("resend plus one");
     assert_eq!(env.board(0).moves, 4);
-    // A count ahead of the Board, or a batch shorter than the overlap, is refused.
+    // A count ahead of the Board is refused.
     assert_eq!(
         custom_code(&beat(&mut env, 0, 5, 3, &[]).unwrap_err()),
         dcode(E::WrongCount)
     );
-    assert_eq!(
-        custom_code(&beat(&mut env, 0, 1, 4, &m[..2]).unwrap_err()),
-        dcode(E::WrongCount)
-    );
+    // A beat that lands late, shorter than what the Board already holds past its count, is wholly
+    // held already: it succeeds and changes nothing, so a reordered beat never leaves a failed
+    // transaction that only Players with moves could cause.
+    beat(&mut env, 0, 1, 4, &m[..2]).expect("late beat, all held");
+    beat(&mut env, 0, 0, 5, &[]).expect("late empty beat");
     assert_eq!(env.board(0).moves, 4);
 }
 

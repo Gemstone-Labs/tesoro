@@ -289,15 +289,16 @@ fn run_moves(
         moves.len() <= MAX_PLAY_BATCH && (beat || !moves.is_empty()),
         BlockPuzzleError::BadBatch
     );
-    // A hidden beat may repeat moves the Board already holds (a resend after an unknown outcome):
-    // those are skipped. Anything else must start exactly at the Board's count.
+    // A hidden beat may repeat moves the Board already holds (a resend after an unknown outcome,
+    // or a beat that lands after a later one): those are skipped, up to the whole batch.
+    // Anything else must start exactly at the Board's count.
     let skip = if beat && expected_count < board.moves {
-        usize::from(board.moves - expected_count)
+        usize::from(board.moves - expected_count).min(moves.len())
     } else {
         0
     };
     require!(
-        board.moves == expected_count || (skip > 0 && skip <= moves.len()),
+        board.moves == expected_count || (beat && expected_count < board.moves),
         BlockPuzzleError::WrongCount
     );
     let moves = &moves[skip..];

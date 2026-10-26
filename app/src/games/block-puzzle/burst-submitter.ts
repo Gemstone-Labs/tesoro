@@ -17,6 +17,8 @@ export interface BurstIo {
 /** The program refused the run itself: resending cannot help. */
 const FINAL = new Set(["IllegalMove", "PlayWindowClosed", "RunOver", "NotBegan", "NotAPlayer", "StaleBinding", "WrongPhase", "BadBatch"]);
 
+const CLOCK_POLL_MS = 250;
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface SubmitterOptions {
@@ -124,6 +126,8 @@ export class BurstSubmitter {
 
   private async sendPublic(win: MoveArg[]) {
     for (let attempt = 0; ; attempt++) {
+      // A retry after a pace refusal or an unknown outcome may not cross the guard before the freeze: the moves wait for a beat.
+      if (attempt > 0 && !this.isPublic()) return;
       const expected = this.landed;
       try {
         await this.io.send(win, expected, false, 0);
@@ -162,6 +166,11 @@ export class BurstSubmitter {
 
   private startBeats(freeze: number) {
     const first = freeze + HIDDEN_FIRST_BEAT_SLOTS;
+    // The page's slot clock may not be ready yet (it reads 0): wait for it, or every beat would be scheduled for the far future.
+    if (this.io.slot() <= 0) {
+      this.beatTimer = setTimeout(() => this.startBeats(freeze), CLOCK_POLL_MS);
+      return;
+    }
     // A reload or a late start joins the grid where it is.
     this.nextBeat = Math.max(0, Math.ceil((this.io.slot() - first) / HIDDEN_BEAT_SLOTS));
     this.scheduleBeat(first);
