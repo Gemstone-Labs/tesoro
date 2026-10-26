@@ -483,11 +483,6 @@ pub trait Settlement {
     /// key fields) to the recipient: a Source counter when `owner` is `None`, else a fee line in
     /// the owner's basket. Changes nothing on error.
     fn credit_fee(&mut self, class: u8, owner: Option<&Key>, line: &Line) -> LcResult<()>;
-    /// True once the transaction has spent as much compute as one chunk may: `chunk` then stops
-    /// before the next step (never before the first), and the next chunk resumes from the record.
-    fn over_budget(&self) -> bool {
-        false
-    }
 }
 
 fn fee_of(entry_pot: u128, bps: u16) -> LcResult<u64> {
@@ -906,12 +901,7 @@ impl MatchRecord {
         let mut lines = Vec::with_capacity(max_steps.min(12) as usize);
         let mut blocked = None;
         let mut done = false;
-        let mut cut_short = false;
         while steps < max_steps {
-            if steps > 0 && w.over_budget() {
-                cut_short = true;
-                break;
-            }
             match self.step(pots, w, &mut lines) {
                 Ok(true) => {
                     steps += 1;
@@ -929,7 +919,7 @@ impl MatchRecord {
                 }
             }
         }
-        if !done && blocked.is_none() && (steps == max_steps || cut_short) {
+        if !done && blocked.is_none() && steps == max_steps {
             // a chunk that used its whole budget may have landed exactly on the end
             done = self.is_finished(pots);
         }

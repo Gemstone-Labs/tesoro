@@ -6,7 +6,7 @@ import { Budget, type Ctx } from "./act.ts";
 import { accountBytes, bookBytes, ixNameOf, potBytes, storeBytes, ticketBytes, zeroOf } from "./fixtures.ts";
 import { OVERFLOW_MATCH, POT_AT, basketOf, bookOf, ckptOf, countersOf, decodeStore, matchOverflowId, overflowAddress, spillOf } from "./kit.ts";
 import { loadIdl } from "./runtime.ts";
-import { closeRemaining, driveMatch, fullAccounts, planChunk, viewOf, type Deps, type MatchView } from "./settle.ts";
+import { CHUNK_CU_TARGET, closeRemaining, driveMatch, fullAccounts, planChunk, planSizedChunk, viewOf, type Deps, type MatchView } from "./settle.ts";
 import type { Info, Reader } from "./supply.ts";
 
 const core = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {}));
@@ -92,6 +92,36 @@ describe("planning a chunk", () => {
     const l = { view, pots: [] as any, stores: [decodeStore(accounts.get(potA.toBase58())!, POT_AT), decodeStore(accounts.get(potB.toBase58())!, POT_AT)] };
     const plan = await planChunk(core, reader(accounts), payer, l, 12);
     assert.ok(plan!.steps < 12 && plan!.steps >= 1, `steps ${plan!.steps}`);
+  });
+
+  it("takes fewer steps until the simulated chunk fits the compute target", async () => {
+    const sources = Array.from({ length: 8 }, k);
+    const view = await matchView();
+    const accounts = world(sources);
+    const l = { view, pots: [] as any, stores: [decodeStore(accounts.get(potA.toBase58())!, POT_AT), decodeStore(accounts.get(potB.toBase58())!, POT_AT)] };
+    const tried: number[] = [];
+    // 50,000 CU of loading plus 20,000 per step: the target allows (125,000 - 50,000) / 20,000 = 3 steps
+    const simulate = async (ixs: any[]) => {
+      const steps = ixs[0].data[8];
+      tried.push(steps);
+      return 50_000 + 20_000 * steps;
+    };
+    const d = { read: reader(accounts), simulate } as unknown as Deps;
+    const plan = await planSizedChunk({ core, payer: Keypair.generate() }, d, l, {}, "match=test");
+    assert.ok(plan!.steps >= 1 && 50_000 + 20_000 * plan!.steps <= CHUNK_CU_TARGET, `steps ${plan!.steps} after ${tried}`);
+    assert.equal(plan!.steps, 3);
+    assert.ok(tried[0] > plan!.steps, `started above the final size: ${tried}`);
+  });
+
+  it("sends the chunk as planned when its compute cannot be measured, and keeps one step when even that is over", async () => {
+    const sources = Array.from({ length: 8 }, k);
+    const view = await matchView();
+    const accounts = world(sources);
+    const l = { view, pots: [] as any, stores: [decodeStore(accounts.get(potA.toBase58())!, POT_AT), decodeStore(accounts.get(potB.toBase58())!, POT_AT)] };
+    const blind = await planSizedChunk({ core, payer: Keypair.generate() }, { read: reader(accounts), simulate: async () => null } as unknown as Deps, l, {}, "match=test");
+    assert.equal(blind!.steps, 6);
+    const heavy = await planSizedChunk({ core, payer: Keypair.generate() }, { read: reader(accounts), simulate: async () => 900_000 } as unknown as Deps, l, {}, "match=test");
+    assert.equal(heavy!.steps, 1);
   });
 
   it("reports a Source whose book is missing", async () => {

@@ -5,7 +5,7 @@ import { creditedAccounts, runOf, sourcesAhead } from "./chunks.ts";
 import { closeMatchIx, growStoreIx, initCkptPageIx, matchChunkIx, meta, type Core } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
 import { OVERFLOW_MATCH, POT_AT, basketOf, bookOf, countersOf, decodeStore, decodeTicketHead, keyOf, matchAddress, matchLabel, matchOverflowId, matchRefOf, overflowAddress, slack, sponsorAddress, spillOf, type MatchRef, type Store } from "./kit.ts";
-import { fits, lookupTables, sendIxs, type SendOpts } from "./send.ts";
+import { compile, fits, lookupTables, sendIxs, type SendOpts } from "./send.ts";
 import { connReader, dedupe, missingCutPages, supplySources, type Reader } from "./supply.ts";
 
 export type Stage = "open" | "active" | "settling" | "refunding" | "closed";
@@ -39,10 +39,16 @@ export function viewOf(address: PublicKey, account: any): MatchView {
 const CHUNK_STEPS = Number(process.env.KEEPER_CHUNK_STEPS ?? 6);
 /** Chunks one Match gets in one pass, so a long Pot cannot hold up the others. */
 const CHUNKS_PER_PASS = Number(process.env.KEEPER_CHUNKS_PER_PASS ?? 12);
-/** Compute units asked for a chunk. The program stops a chunk at about 80k of its own work (CHUNK_CU_BUDGET), so a chunk lands near 130k at most. */
+/** Compute units asked for a chunk (the limit of its transaction; what it uses is held under CHUNK_CU_TARGET). */
 const CHUNK_UNITS = 400_000;
+/**
+ * A chunk's simulated compute must stay under this: the 140,000 target of ticket 42 less a margin for the state moving
+ * between simulation and landing. Loading a chunk's accounts costs 40-70k and a step 6-33k, so no fixed step count holds
+ * it: the keeper simulates the chunk and takes fewer steps until it fits.
+ */
+export const CHUNK_CU_TARGET = Number(process.env.KEEPER_CHUNK_CU_TARGET ?? 125_000);
 
-interface Loaded {
+export interface Loaded {
   view: MatchView;
   pots: (Buffer | null)[];
   stores: (Store | null)[];
@@ -142,6 +148,8 @@ export interface Deps {
   /** The chunk record a sent chunk emitted. */
   report(signature: string, ref: MatchRef): Promise<MatchChunkRecord | null>;
   tables(): Promise<SendOpts["tables"]>;
+  /** Compute units a dry run of `ixs` uses; null when it cannot be measured (the chunk is then sent as planned). */
+  simulate?(ixs: Parameters<typeof sendIxs>[2], opts: SendOpts): Promise<number | null>;
 }
 
 export const realDeps = (ctx: Ctx): Deps => ({
@@ -153,7 +161,39 @@ export const realDeps = (ctx: Ctx): Deps => ({
   },
   report: (signature, ref) => chunkReport(ctx, signature, ref),
   tables: () => lookupTables(ctx.conn),
+  simulate: async (ixs, opts) => {
+    try {
+      const { blockhash } = await ctx.conn.getLatestBlockhash();
+      const tx = compile(ctx.payer.publicKey, blockhash, ixs, opts);
+      tx.sign([ctx.payer]);
+      const res = (await ctx.conn.simulateTransaction(tx, { sigVerify: false })).value;
+      return res.unitsConsumed ?? null;
+    } catch {
+      return null;
+    }
+  },
 });
+
+/**
+ * Plans the next chunk with as many steps as fit the transaction AND the compute target: simulates it and, while it
+ * uses more than CHUNK_CU_TARGET, plans again with the steps the measured cost allows (at least one fewer). A chunk
+ * whose steps are cut short is harmless: the Match record keeps the progress and the next chunk resumes.
+ */
+export async function planSizedChunk(ctx: Pick<Ctx, "core" | "payer">, deps: Deps, l: Loaded, opts: SendOpts, subject: string): Promise<ChunkPlan | null> {
+  let steps = CHUNK_STEPS;
+  for (;;) {
+    const plan = await planChunk(ctx.core, deps.read, ctx.payer.publicKey, l, steps, opts);
+    if (!plan || !deps.simulate) return plan;
+    const used = await deps.simulate([plan.ix], opts);
+    if (used === null || used <= CHUNK_CU_TARGET) return plan;
+    if (plan.steps <= 1) {
+      log("settle", subject, `WARN a one-step chunk simulates at ${used} CU, over the ${CHUNK_CU_TARGET} target`);
+      return plan;
+    }
+    steps = Math.max(1, Math.min(plan.steps - 1, Math.floor((plan.steps * CHUNK_CU_TARGET) / used)));
+    log("settle", subject, `chunk of ${plan.steps} steps simulates at ${used} CU: trying ${steps}`);
+  }
+}
 
 /**
  * Drives one Settling or Refunding Match as far as it goes this pass: chunk after chunk until the run is done (then
@@ -192,7 +232,7 @@ export async function driveMatch(ctx: Ctx, view: MatchView, deps: Deps = realDep
       if (r.detail !== "dry-run") actions++;
     }
     if (pages.length && ctx.settings.dryRun) return actions;
-    const plan = await planChunk(ctx.core, read, ctx.payer.publicKey, l, CHUNK_STEPS, opts);
+    const plan = await planSizedChunk(ctx, deps, l, opts, subject);
     if (!plan) return actions;
     if (plan.missing.length) log("settle", subject, `WARN no book for ${plan.missing.map(shortKey).join(", ")}: the chunk cannot run those steps`);
     if (!fits(ctx.payer.publicKey, [plan.ix], opts)) {

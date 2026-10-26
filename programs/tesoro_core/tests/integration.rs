@@ -4599,6 +4599,9 @@ fn a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table() {
     );
 }
 
+/// The compute the keeper holds a chunk under (keeper/src/settle.ts CHUNK_CU_TARGET).
+const KEEPER_CHUNK_CU_TARGET: u64 = 125_000;
+
 /// Settles a Match between two Players whose Sources are all open Advances (every fee cut syncs
 /// a Position, as on devnet) with chunks of `steps`; returns the CU of each chunk. The opener
 /// draws 1,000 Gemas from `k` Sources through an Entry Ticket (`k` must divide 1,000), the joiner
@@ -4641,7 +4644,17 @@ fn open_source_chunks(k: usize, steps: u8, native: bool) -> Vec<u64> {
         .expect("start");
     let mut budgets = Vec::new();
     while env.stage_of(m) != Stage::Closed {
-        env.chunk(m, steps).expect("chunk");
+        // as the keeper does: dry-run the chunk and take fewer steps until it fits the target
+        let mut n = steps;
+        loop {
+            let saved = env.svm.clone();
+            env.chunk(m, n).expect("chunk");
+            if env.last_cu <= KEEPER_CHUNK_CU_TARGET || n == 1 {
+                break;
+            }
+            env.svm = saved;
+            n = n.min(((n as u64 * KEEPER_CHUNK_CU_TARGET) / env.last_cu).max(1) as u8).min(n - 1);
+        }
         budgets.push(env.last_cu);
         let done: Vec<MatchChunkDone> = env
             .last_events
@@ -4666,12 +4679,12 @@ fn a_chunk_of_open_advance_sources_stays_under_140k_at_every_source_count() {
             let budgets = open_source_chunks(k, steps, native);
             let worst = budgets.iter().copied().max().unwrap_or(0);
             println!("ROW {k} open Sources, {steps} steps, native {native}: worst {worst} of {budgets:?}");
-            if worst >= 140_000 {
+            if worst >= KEEPER_CHUNK_CU_TARGET {
                 over.push((k, steps, native, worst));
             }
         }
     }
-    assert!(over.is_empty(), "chunks over 140,000 CU: {over:?}");
+    assert!(over.is_empty(), "chunks over the keeper target: {over:?}");
 }
 
 #[test]

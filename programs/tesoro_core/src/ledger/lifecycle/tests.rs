@@ -71,8 +71,6 @@ struct World {
     reserved: BTreeMap<(MatchId, Key), usize>,
     /// Spill slots granted for organic credits, to check the room contract.
     organic_grown: usize,
-    /// When set, `over_budget` turns true once a chunk has recorded this many events after `mark`.
-    event_budget: Option<(usize, usize)>,
 }
 
 impl World {
@@ -108,7 +106,6 @@ impl World {
             cur: None,
             reserved: BTreeMap::new(),
             organic_grown: 0,
-            event_budget: None,
         }
     }
 
@@ -179,11 +176,6 @@ impl World {
 }
 
 impl Settlement for World {
-    fn over_budget(&self) -> bool {
-        self.event_budget
-            .is_some_and(|(mark, limit)| self.ev.len() - mark >= limit)
-    }
-
     fn books(&mut self) -> &mut dyn SourceBooks {
         &mut self.books
     }
@@ -1062,61 +1054,6 @@ fn a_finished_match_ignores_further_chunks_and_closes_empty() {
     assert_eq!(w.ev.len(), n);
     let closure = rec.close().unwrap();
     assert_eq!(closure.id, id(1, 0));
-}
-
-#[test]
-fn a_chunk_that_runs_over_its_compute_budget_stops_between_steps_and_resumes_to_the_same_result() {
-    let setup = || {
-        let mut rng = Rng(21);
-        let mut w = World::new(&mut rng);
-        let mut rec = open_with(
-            &mut w,
-            id(1, 0),
-            terms(false, 500, 0),
-            100,
-            party(1, 1, 0),
-            &[(100, 0, 40), (101, 0, 30), (102, 0, 30)],
-            0,
-        );
-        join_with(
-            &mut w,
-            &mut rec,
-            party(2, 2, 0),
-            &[(103, 0, 50), (100, 1, 50)],
-            5,
-        );
-        rec.start_settle(6, &key(AUTH), SLOT, Outcome::Winner(0), 0)
-            .unwrap();
-        (w, rec)
-    };
-    let (mut whole, mut rec_whole) = setup();
-    run_all(&mut whole, &mut rec_whole, 100);
-
-    let (mut cut, mut rec_cut) = setup();
-    cut.cur = Some(rec_cut.id);
-    let mut chunks = vec![];
-    for _ in 0..1000 {
-        cut.event_budget = Some((cut.ev.len(), 2));
-        let r = rec_cut.chunk(&mut cut, 100).unwrap();
-        assert!(r.steps >= 1 || r.done, "a chunk always takes a step");
-        let done = r.done;
-        chunks.push(r);
-        if done {
-            break;
-        }
-    }
-    assert!(
-        chunks.len() > 1 && chunks[0].steps >= 1 && !chunks[0].done,
-        "the budget cut the first chunk short: {:?}",
-        chunks.iter().map(|c| c.steps).collect::<Vec<_>>()
-    );
-    assert!(chunks.iter().all(|c| c.blocked.is_none()));
-    assert_eq!(rec_cut.stage(), Stage::Closed);
-    assert_eq!(credits(&cut, rec_cut.id), credits(&whole, rec_whole.id));
-    assert_eq!(
-        chunks.iter().map(|c| c.steps).sum::<u32>(),
-        rec_whole.run().unwrap().steps
-    );
 }
 
 // ---------------------------------------------------------------------------------------------
