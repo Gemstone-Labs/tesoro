@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button, Select } from "@/components/ui";
-import { isFeaturedNow, listingStage, STAGE_LABEL } from "@/lib/listing/state";
+import { listingStage, STAGE_LABEL } from "@/lib/listing/state";
 import type { GameStanding } from "@/lib/chain/admin-listing";
 import type { AdminReply, StudioApplication } from "@/server/listing/service";
 import "./review.css";
@@ -14,7 +14,6 @@ export type ListingAction =
   | { kind: "accept"; note?: string }
   | { kind: "reject"; note?: string }
   | { kind: "pay"; payment: "chain" | "invoice"; reference: string; amountUsd: number; years: number }
-  | { kind: "feature"; on: boolean }
   | { kind: "list" };
 
 export interface ListingViewProps {
@@ -116,10 +115,6 @@ function Card({ app, now, yearUsd, standing, busy, result, onAction }: { app: St
                 {stage === "needs-reapproval" ? "Approve the new version" : "List on chain"}
               </Button>
             )}
-            <Button disabled={busy} onClick={() => onAction?.(app, { kind: "feature", on: !app.featured })}>
-              {app.featured ? "Stop featuring" : "Feature in the Lobby"}
-            </Button>
-            {isFeaturedNow(app.featured, stage) && <span className="meta">Showing in the Lobby now.</span>}
           </div>
           {standing && !standing.registered && <p className="meta">The Studio has not registered this program with Tesoro yet (register_game, signed by its upgrade authority).</p>}
         </>

@@ -18,16 +18,16 @@ import "./friends.css";
 const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 /**
- * What someone sees after opening an add-me link (founder pick L1, calling card): the owner's face,
+ * What someone sees after opening a Friend link (founder pick L1, calling card): the owner's face,
  * name and record, and Add friend. Signed out, Add friend signs in first and then finishes.
  */
 export function FriendLinkCard({ code, owner }: { code: string; owner: string | null }) {
   if (!owner) {
     return (
-      <Card large as="section" aria-label="Add-me link">
+      <Card large as="section" aria-label="Friend link">
         <div className="stack">
-          <h1 className="page-title">Add-me link</h1>
-          <p className="meta">This link no longer works. Ask your friend for their new add-me link.</p>
+          <h1 className="page-title">Friend link</h1>
+          <p className="meta">This link no longer works. Ask your friend for their new Friend link.</p>
           <Button href="/play">Play</Button>
         </div>
       </Card>
@@ -83,7 +83,7 @@ function Calling({ code, owner }: { code: string; owner: string }) {
         <PlayerName account={owner} wait />
       </h1>
       <p className="fl-line">
-        {relation === "self" ? "This is your add-me link." : relation === "friend" ? `You and ${name} are Friends.` : `${name} wants to be Friends on ${BRAND.name}.`}
+        {relation === "self" ? "This is your Friend link." : relation === "friend" ? `You and ${name} are Friends.` : `${name} wants to be Friends on ${BRAND.name}.`}
       </p>
       {!data && (
         <span className="fl-facts-skel skel-lines" aria-hidden="true">
@@ -124,7 +124,7 @@ function Calling({ code, owner }: { code: string; owner: string }) {
           <span className="cut cut-btn fl-btn-skel skel" aria-label="Loading" />
         ) : relation === "self" ? (
           <Button block onClick={copy} icon={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
-            {copied ? "Copied" : "Copy your add-me link"}
+            {copied ? "Copied" : "Copy your Friend link"}
           </Button>
         ) : relation === "friend" ? (
           <Button block href="/friends">

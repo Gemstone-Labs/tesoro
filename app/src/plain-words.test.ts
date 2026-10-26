@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
  * This test reads every source file and fails when text a Player can see uses an old word.
  */
 const OLD_WORDS: [RegExp, string][] = [
+  [/\badd-me links?\b/i, "Friend link / Friend links"],
   [/\bOpen (a|an|your) Position\b/, "Get Gemas"],
   [/\bPositions?\b/, "Lock / Locks"],
   [/\bPrincipal\b/, "Locked amount, or \"your SOL\" / \"what you lock\""],
