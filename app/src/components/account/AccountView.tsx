@@ -1,27 +1,25 @@
 "use client";
 
-import Image from "next/image";
 import { GetGemasButton } from "@/components/deposit/GetGemasButton";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { GameTabs, HistoryPages, ResultFilter, gameFilter, historyHref, resultCounts } from "@/components/match/MatchHistory";
 import { MatchBanner } from "@/components/match/MatchBanner";
 import { ChallengeSheet } from "@/components/match/ChallengeSheet";
-import { Bust, Button, Label, Notice } from "@/components/ui";
+import { Bust, Button, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { art } from "@/lib/art";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
 import { RESULTS, historyPage, resultFilter } from "@/lib/chain/history";
-import { backingLine, signed, summaryOfRows, type PlayedRow, type PlayerAccount, type PlayerSummary } from "@/lib/chain/player-account";
-import { timeLeft } from "@/lib/chain/useBackingBoard";
+import { backingLine, summaryOfRows, type PlayerAccount } from "@/lib/chain/player-account";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
-import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import { AccountHero } from "./AccountHero";
 import { AccountSkeleton } from "./AccountSkeleton";
 import { shownIdentity } from "@/lib/identity/display";
 import { useIdentity } from "@/lib/identity/store";
 import { GemasPanel } from "./GemasPanel";
+import { Protections } from "./Protections";
+import { RecentMatches } from "./RecentMatches";
 import "./account.css";
 import { BRAND } from "@/lib/brand";
 
@@ -72,6 +70,9 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
   const shown = ofGame.filter((r) => results.includes(r.result));
   const view = historyPage(shown, Number(params.get("page") ?? 1));
   const base = `/account/${address}`;
+  // The full history (filters, pages) opens from "See all" and whenever a filter or page is in the address.
+  const [expanded, setExpanded] = useState(false);
+  const showAll = expanded || params.has("game") || params.has("result") || params.has("page");
 
   const me = snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null);
   const own = me === address;
@@ -97,41 +98,17 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
         s={summary}
         now={now}
         otherNames={otherNames}
-        asking={data.requests.length}
+        requests={data.requests}
         onChallenge={() => setChallenge(true)}
       />
 
-      {visitor && data.requests.length > 0 && (
-        <section className="cut cut-card pa-asks" aria-labelledby="pa-asks">
-          <div className="pa-asks-lead">
-            <h2 id="pa-asks" className="pa-h">Asking to be backed</h2>
-            <p>You fund the whole entry and choose the share of the surplus you offer.</p>
-          </div>
-          <ul>
-            {data.requests.map((r) => (
-              <li key={r.address.toBase58()}>
-                <span>
-                  <b>{GAME_NAMES[r.game]}</b>
-                  <small>
-                    Entry {fmtGemas(r.entry)} Gemas · {timeLeft(r.expiresAt, now)}
-                  </small>
-                </span>
-                <Button variant="money" href={`/backing#${r.address.toBase58()}`}>
-                  Make an Offer
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      {played ? <GemasPanel rows={rows} /> : <NoMatches own={own} name={who.label} hasGemas={snapshot ? gemas.total > 0 : null} />}
 
-      {played ? (
-        <Scoreboard s={summary} rows={rows} />
-      ) : (
-        <NoMatches own={own} name={who.label} hasGemas={snapshot ? gemas.total > 0 : null} />
-      )}
+      {own && <Protections />}
 
-      {played && (
+      {played && !showAll && <RecentMatches rows={rows} now={now} allHref={own ? "/matches" : undefined} onAll={() => setExpanded(true)} />}
+
+      {played && showAll && (
         <section className="pa-history" aria-labelledby="pa-matches">
           <header className="mh-head">
             <h2 id="pa-matches" className="h-section">Match history</h2>
@@ -173,160 +150,10 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
   );
 }
 
-const pct = (wins: number, of: number) => Math.round((wins / of) * 100);
-
-/**
- * The figures. Gemas won and lost lead, with the running total inside the same panel; Matches and
- * Backings sit beside it. Every rate carries its sample size, and the Player's Gemas are never
- * shown without their Backers'.
- */
-function Scoreboard({ s, rows }: { s: PlayerSummary; rows: PlayedRow[] }) {
-  const { record, backings } = s;
-  return (
-    <div className="pa-board">
-      <GemasPanel rows={rows} />
-
-      <section className="cut cut-card pa-panel pa-matches" aria-label="Matches">
-        <Label>Matches</Label>
-        {record.matches === 0 ? (
-          <b className="pa-fig">None with a winner</b>
-        ) : (
-          <div className="pa-record">
-            <WinRing value={record.wins / record.matches} />
-            <dl className="pa-wl">
-              <div>
-                <dt>Won</dt>
-                <dd>{record.wins}</dd>
-              </div>
-              <div>
-                <dt>Lost</dt>
-                <dd>{record.matches - record.wins}</dd>
-              </div>
-              <p>of {record.matches} with a winner</p>
-            </dl>
-          </div>
-        )}
-        {s.byGame.length > 0 && (
-          <ul className="pa-bygame">
-            {s.byGame.map((g) => (
-              <li key={g.game}>
-                <Image className="cut cut-btn" src={art.thumb[g.game]} alt="" width={40} height={40} />
-                <span>
-                  <b>{GAME_NAMES[g.game]}</b>
-                  <i className="pa-meter" aria-hidden="true">
-                    <i style={{ width: `${pct(g.wins, g.matches)}%` }} />
-                  </i>
-                </span>
-                <span className="pa-gfig">
-                  {g.wins}
-                  <small>
-                    <span className="sr-only"> won of </span>
-                    <span aria-hidden="true">/</span>
-                    {g.matches}
-                  </small>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {(s.bestScore !== null || s.undecided > 0) && (
-          <div className="pa-chips">
-            {s.bestScore !== null && (
-              <span className="cut cut-chip pa-chip">
-                Best {GAME_NAMES["block-puzzle"]} score <b>{fmtGemas(s.bestScore)}</b>
-              </span>
-            )}
-            {s.undecided > 0 && <span className="cut cut-chip pa-chip quiet">{s.undecided} draws and refunds, not counted</span>}
-          </div>
-        )}
-      </section>
-
-      <section className="cut cut-card pa-panel pa-backings" aria-label="Backings">
-        <Label>Backings</Label>
-        {backings.matches === 0 ? (
-          <>
-            <b className="pa-fig">None yet</b>
-            <p className="pa-p">No Match with a winner was played under a Backing.</p>
-          </>
-        ) : (
-          <>
-            <div className="pa-bhead">
-              <b className="pa-fig">
-                {backings.wins} of {backings.matches} won
-              </b>
-              <span className="pa-ahead">
-                <span aria-hidden="true">
-                  {Array.from({ length: backings.backers }, (_, i) => (
-                    <i key={i} className={i < backings.ahead ? "on" : undefined} />
-                  ))}
-                </span>
-                {backings.ahead} of {backings.backers} {backings.backers === 1 ? "Backer" : "Backers"} ahead
-              </span>
-            </div>
-            <BackersBalance won={backings.won} lost={backings.lost} />
-            <dl className="pa-balance-figs">
-              <div>
-                <dt>Backers lost</dt>
-                <dd className={backings.lost > 0 ? "lost" : undefined}>{signed(-backings.lost)}</dd>
-              </div>
-              <div className="net">
-                <dt>Backers&apos; net</dt>
-                <dd className={backings.net > 0 ? "won" : backings.net < 0 ? "lost" : undefined}>{signed(backings.net)}</dd>
-              </div>
-              <div>
-                <dt>Backers won</dt>
-                <dd className={backings.won > 0 ? "won" : undefined}>{signed(backings.won)}</dd>
-              </div>
-            </dl>
-            <p className="note">A loss under a Backing costs the Player nothing, so read their Gemas beside their Backers&apos;.</p>
-          </>
-        )}
-      </section>
-    </div>
-  );
-}
-
-/** The win rate as an octagon ring filled clockwise from the top, with the share inside. Neutral: a win rate is not Gemas. */
-function WinRing({ value }: { value: number }) {
-  const share = Math.min(1, Math.max(0, value));
-  return (
-    <div className="pa-ring">
-      <svg viewBox="0 0 100 100" aria-hidden="true">
-        <path d={RING} className="track" pathLength={100} />
-        <path d={RING} className="fill" pathLength={100} strokeDasharray={`${share * 100} 100`} />
-      </svg>
-      <span>
-        <b>{Math.round(share * 100)}%</b>
-        <small>won</small>
-      </span>
-    </div>
-  );
-}
-
-// An octagon in a 100-unit box, 6 in from its edges, starting and ending at the top centre.
-const RING = [[50, 6], [69, 6], [94, 31], [94, 69], [69, 94], [31, 94], [6, 69], [6, 31], [31, 6], [50, 6]]
-  .map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`)
-  .join(" ");
-
-/** What the Backers lost (left, red) against what they won (right, emerald), both on one scale. */
-function BackersBalance({ won, lost }: { won: number; lost: number }) {
-  const max = Math.max(won, lost, 1);
-  return (
-    <div className="pa-balance" aria-hidden="true">
-      <span className="lost">
-        <i style={{ width: `${(lost / max) * 100}%` }} />
-      </span>
-      <span className="won">
-        <i style={{ width: `${(won / max) * 100}%` }} />
-      </span>
-    </div>
-  );
-}
-
 const SHOWN: [string, string][] = [
-  ["Matches", "How many were won, of those with a winner."],
+  ["Record", "How many Matches were won, of those with a winner."],
   ["Gemas won and lost", "After Fees, with a running total Match by Match."],
-  ["Backings", "What the Backers made, beside the Player."],
+  ["Recent Matches", "The latest Matches, with the full history behind them."],
 ];
 
 /**
