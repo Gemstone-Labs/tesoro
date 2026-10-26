@@ -46,6 +46,7 @@ async function retry<T>(label: string, f: () => Promise<T>): Promise<T> {
     } catch (e) {
       if (i >= 6) throw e;
       const wait = 3000 * 2 ** Math.min(i, 4);
+      if ((e as { logs?: string[] }).logs) throw e;
       console.log(`  ${label}: ${String(e).slice(0, 90)}; retry in ${wait / 1000}s`);
       await new Promise((r) => setTimeout(r, wait));
     }
@@ -211,6 +212,8 @@ for (const phase of [1, 2, 3, 4] as const) {
       } catch (e) {
         failed++;
         console.log(`  ${k} x${group.length} FAILED: ${String(e).slice(0, 300)}`);
+        const logs = (e as { logs?: string[] }).logs;
+        if (logs) console.log(logs.map((l) => `      ${l}`).join("\n"));
       }
     }
   }

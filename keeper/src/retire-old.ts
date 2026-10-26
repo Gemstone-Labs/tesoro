@@ -23,7 +23,7 @@ const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
 const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
 /** `State::SPACE` of the current layouts (programs/tesoro_core/src/state.rs). */
-export const SPACE = { position: POSITION_SPACE, custody: 178, treasury: 143, offer: 799 } as const;
+export const SPACE = { position: POSITION_SPACE, custody: 178, treasury: 143, offer: 174 } as const;
 const BACKING_TTL_SECS = 24 * 60 * 60;
 
 export type Kind = "custody" | "position" | "source" | "holding" | "offer" | "request" | "treasury" | "match" | "season";
