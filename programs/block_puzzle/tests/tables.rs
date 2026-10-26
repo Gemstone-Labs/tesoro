@@ -1250,6 +1250,9 @@ impl Env {
 
 /// `n` legal moves for the engine state, found greedily (the first anchor that fits, trying the
 /// unused pieces of the hand in order). Stops early when the game is over.
+/// First-fit play on this Seed fills the board after 23 moves.
+const SHORT_RUN_SEED: u64 = 48;
+
 fn legal_moves(state: &engine::State, n: usize) -> Vec<MoveArg> {
     let mut st = *state;
     let mut out = vec![];
@@ -2103,6 +2106,21 @@ fn play_replays_the_moves_with_the_engine_logs_them_and_shows_the_score() {
     assert!(env.last_cu < 200_000);
 }
 
+/// A client that only has the Seed and the packed log rebuilds the same board.
+fn rebuilt_from_log(b: &Board) -> engine::State {
+    let mut st = engine::State::new(b.seed);
+    for i in 0..usize::from(b.moves) {
+        let byte = b.log[i];
+        let m = engine::Move {
+            piece: (st.hand_base() + u32::from(byte >> 6)) as u16,
+            x: (byte >> 3) & 7,
+            y: byte & 7,
+        };
+        st.apply(m).expect("replays");
+    }
+    st
+}
+
 #[test]
 fn the_reconnect_vector_seed_and_move_log_rebuild_the_live_state() {
     let mut env = begun();
@@ -2114,22 +2132,59 @@ fn the_reconnect_vector_seed_and_move_log_rebuild_the_live_state() {
         env.play(0, 4).unwrap();
     }
     let b = env.board(0);
-    // A client that only has the Seed and the packed log gets the same board.
-    let mut st = engine::State::new(b.seed);
-    for i in 0..usize::from(b.moves) {
-        let byte = b.log[i];
-        let m = engine::Move {
-            piece: (st.hand_base() + u32::from(byte >> 6)) as u16,
-            x: (byte >> 3) & 7,
-            y: byte & 7,
-        };
-        st.apply(m).expect("replays");
-    }
+    let st = rebuilt_from_log(&b);
     assert_eq!(
         (st.occ, st.gems, st.score, st.moves, st.used, st.over),
         (b.occ, b.gems, b.score, b.moves, b.used, b.over)
     );
-    assert_eq!(st.moves, 24);
+    // The Match key, and so the Seed, is new every run: the first-fit run is 24 moves unless
+    // this Seed fills the board first, and then it stops there with `over` set.
+    assert!(
+        b.moves == 24 || b.over,
+        "{} moves, over {}",
+        b.moves,
+        b.over
+    );
+}
+
+#[test]
+fn the_reconnect_vector_rebuilds_a_run_that_fills_the_board_before_24_moves() {
+    let seed = SHORT_RUN_SEED;
+    let mut st = engine::State::new(seed);
+    let moves = legal_moves(&st, 24);
+    assert_eq!(moves.len(), 23);
+    let mut log = vec![];
+    for m in &moves {
+        let slot = m.piece as u32 - st.hand_base();
+        log.push(((slot as u8) << 6) | (m.x << 3) | m.y);
+        st.apply(engine::Move {
+            piece: m.piece,
+            x: m.x,
+            y: m.y,
+        })
+        .unwrap();
+    }
+    assert!(st.over);
+    let mut rebuilt = engine::State::new(seed);
+    for byte in &log {
+        rebuilt
+            .apply(engine::Move {
+                piece: (rebuilt.hand_base() + u32::from(byte >> 6)) as u16,
+                x: (byte >> 3) & 7,
+                y: byte & 7,
+            })
+            .unwrap();
+    }
+    assert_eq!(
+        (
+            rebuilt.occ,
+            rebuilt.score,
+            rebuilt.moves,
+            rebuilt.used,
+            rebuilt.over
+        ),
+        (st.occ, st.score, st.moves, st.used, st.over)
+    );
 }
 
 #[test]
