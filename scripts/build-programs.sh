@@ -20,6 +20,8 @@ for dir in programs/*/; do
   so="target/deploy/$(basename "$dir").so"
   if [ ! "$so" -nt "$stamp" ]; then echo "error: $so was not rebuilt" >&2; exit 1; fi
 done
+# LiteSVM enables every feature; the clusters do not. Refuse a syscall no deployed program imports.
+python3 scripts/check-sbf-syscalls.py
 for dir in programs/*/; do
   p=$(basename "$dir")
   anchor idl build -p "$p" -o "target/idl/$p.json" -t "target/types/$p.ts"

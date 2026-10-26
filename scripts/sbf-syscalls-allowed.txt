@@ -1,0 +1,19 @@
+# Syscalls imported by the programs deployed on devnet (rollback dumps of 2026-10-23 and 2026-10-26). See check-sbf-syscalls.py.
+abort
+sol_create_program_address
+sol_get_clock_sysvar
+sol_get_rent_sysvar
+sol_get_return_data
+sol_invoke_signed_rust
+sol_keccak256
+sol_log_
+sol_log_data
+sol_log_pubkey
+sol_memcmp_
+sol_memcpy_
+sol_memmove_
+sol_memset_
+sol_secp256k1_recover
+sol_set_return_data
+sol_sha256
+sol_try_find_program_address
