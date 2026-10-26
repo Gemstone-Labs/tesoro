@@ -5,7 +5,7 @@ import { Check, Copy, Share2 } from "lucide-react";
 import { Button } from "@/components/ui";
 import { copyFriendLink, friendShareData, shareFriendLink, type FriendShareBrowser, type FriendShareResult } from "@/lib/friend-share";
 
-/** Share and Copy always use the same add-me link displayed on Friends. */
+/** Share and Copy always use the same Friend link displayed on Friends. */
 export function FriendLinkShare({ code, disabled = false }: { code: string | null; disabled?: boolean }) {
   const [feedback, setFeedback] = useState<FriendShareResult | "idle">("idle");
   const [manualUrl, setManualUrl] = useState("");
@@ -45,21 +45,21 @@ export function FriendLinkShare({ code, disabled = false }: { code: string | nul
     <>
       <div className="fr-link-row">
         {url ? <span className="cut cut-chip fr-link-url mono" title={url}>{url}</span> : <span className="cut cut-chip fr-link-url skel-url" aria-label="Loading your link" />}
-        <div className="fr-link-actions" role="group" aria-label="Add-me link actions">
+        <div className="fr-link-actions" role="group" aria-label="Friend link actions">
           <Button size="sm" disabled={!code || disabled || busy} onClick={() => void act("copy")} icon={feedback === "copied" ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
-            {feedback === "copied" ? "Copied" : "Copy"}
+            <span className="fr-btn-label">{feedback === "copied" ? "Copied" : "Copy"}</span>
           </Button>
-          <Button size="sm" disabled={!code || disabled || busy} onClick={() => void act("share")} icon={<Share2 aria-hidden="true" />}>
-            Share
+          <Button size="sm" aria-label="Share" disabled={!code || disabled || busy} onClick={() => void act("share")} icon={<Share2 aria-hidden="true" />}>
+            <span className="fr-btn-label">Share</span>
           </Button>
         </div>
       </div>
       <span className="sr-only" role="status">
-        {feedback === "copied" ? "Add-me link copied" : feedback === "shared" ? "Share menu opened" : ""}
+        {feedback === "copied" ? "Friend link copied" : feedback === "shared" ? "Share menu opened" : ""}
       </span>
       {feedback === "manual" && (
         <div className="fr-link-manual">
-          <label className="label" htmlFor={id}>Add-me link</label>
+          <label className="label" htmlFor={id}>Friend link</label>
           <input id={id} className="input" type="url" readOnly value={manualUrl} onFocus={(event) => event.currentTarget.select()} />
           <p className="meta" role="status">Copy this link to share it.</p>
         </div>

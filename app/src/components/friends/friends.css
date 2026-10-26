@@ -12,6 +12,7 @@
 .fr-empty-body { flex: 1; min-width: 0; align-self: center; padding-bottom: 14px; display: grid; gap: 4px; max-width: 560px; }
 .fr-empty-body b { font-size: var(--fs-18); }
 .fr-empty-body p { color: var(--fg-2); font-size: var(--fs-15); line-height: 1.5; }
+
 .fr-count-skel { width: 90px; margin-top: 10px; }
 .skel-url { min-height: 36px; background: rgba(234, 239, 236, 0.07); }
 .fr-btn-skel { display: block; width: 130px; height: 44px; }
@@ -142,3 +143,72 @@
 .fp-text small { color: var(--fg-2); font-size: var(--fs-13); }
 .fp-check svg { width: 20px; height: 20px; }
 .enter-seat > .btn { margin-top: 6px; }
+
+/* ——— Friends tab (FR1): one scroll of slim sections; each Friend a card with their last 3 Matches as chips ——— */
+.fr-link-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fr-link-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.fr-link-top .fr-link-reset { white-space: nowrap; }
+.fr-h { font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); padding: 14px 16px 10px; border-bottom: 0; }
+.fr-h-out { font-size: var(--fs-20); font-weight: 800; padding: 4px 2px 10px; }
+.fr-yours { display: grid; gap: 0; }
+.fr-name-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fr-section .fr-row { padding: 6px 16px 16px; }
+.fr-section .fr-row + .fr-row { border-top: 1px solid var(--line); padding-top: 14px; }
+
+.fr-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@media (min-width: 900px) { .fr-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.fr-card { --edge: var(--edge-1); background: var(--surface); display: grid; gap: 12px; padding: 14px 14px 12px; }
+.fr-card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.fr-card-top .fr-who { min-width: 0; flex: 1 1 auto; }
+.fr-card-top .fr-av { width: 64px; height: 64px; }
+.fr-card-act { flex: none; display: grid; justify-items: end; gap: 6px; }
+.fr-card-act > .btn { min-height: 44px; padding-inline: 16px; background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
+.fr-card-act > .btn:hover { filter: brightness(0.92); }
+.fr-played { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; }
+.fr-played small { color: var(--fg-2); font-size: var(--fs-13); white-space: nowrap; }
+.fr-played .fr-more { width: 32px; min-height: 28px; height: 28px; background: transparent; --edge: transparent; }
+.fr-played .fr-more svg { width: 18px; height: 18px; color: var(--fg-2); }
+.fr-chips { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fr-chip { --c: 8px; --edge: var(--edge-1); background: var(--shell); display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; }
+.fr-chip img { flex: none; width: 36px; height: 36px; object-fit: cover; clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px); }
+.fr-chip > span { display: grid; gap: 1px; min-width: 0; }
+.fr-chip b { overflow: hidden; font-size: var(--fs-13); font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
+.fr-chip small { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-13); color: var(--fg-2); }
+.fr-chip small svg { width: 14px; height: 14px; stroke-width: 3; }
+.fr-chip .fr-res { font-weight: 500; }
+.fr-chip .fr-res.won svg { color: var(--fg); }
+.fr-chip .fr-res.lost svg { color: var(--danger); }
+.fr-chip-skel { height: 48px; background: var(--raised); opacity: 0.6; }
+.fr-rec { color: var(--fg-2); font-size: var(--fs-15); }
+.fr-who .fr-tag { flex: none; }
+
+@media (max-width: 639px) {
+  .fr-page { gap: 12px; }
+  /* the tab bar names the page: no title or count on phones */
+  .fr-head .page-title, .fr-head .fr-count { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .fr-head { display: block; }
+  .fr-count-skel { display: none; }
+  .fr-link { padding: 12px 14px 14px; }
+  .fr-link-row { flex-wrap: nowrap; }
+  .fr-link-url { flex: 1 1 0; }
+  .fr-link-actions .fr-btn-label { display: none; }
+  .fr-link-actions > .btn:first-child .fr-btn-label { display: inline; }
+  .fr-link-actions > .btn:last-child { padding-inline: 12px; }
+  .fr-section .fr-row, .fr-section .fr-challenge { grid-template-columns: minmax(0, 1fr) auto; padding: 6px 16px 16px; }
+  .fr-section .fr-challenge { grid-template-areas: "who act" "game act"; align-items: center; }
+  .fr-challenge > .fr-who { grid-area: who; }
+  .fr-challenge > .fr-game { grid-area: game; }
+  .fr-challenge > .fr-actions { grid-area: act; }
+  .fr-challenge .fr-actions .btn { min-width: 96px; }
+  .fr-actions { justify-self: end; }
+  .fr-actions > .btn:first-child { flex: none; }
+  .fr-card-top .fr-av { width: 56px; height: 56px; }
+  .fr-card-act > .btn { padding-inline: 14px; }
+  .fr-card { padding: 12px; }
+  .fr-chips { gap: 6px; }
+  .fr-chip { padding: 5px 4px; gap: 5px; }
+  .fr-chip img { width: 24px; height: 24px; }
+  .fr-chip b, .fr-chip small { font-size: var(--fs-12); }
+  .fr-chip b { letter-spacing: -0.01em; }
+  .fr-actions .btn.sm { min-height: 40px; }
+}
