@@ -49,7 +49,7 @@ try {
         await page.getByRole("button", { name: "Reset link", exact: true }).click();
         await page.getByRole("dialog").waitFor();
         await page.getByRole("button", { name: "Cancel", exact: true }).click();
-        for (const control of [page.locator(".fr-link-row .btn"), page.locator(".fr-link-reset")]) {
+        for (const control of [page.locator(".fr-link-actions .btn").last(), page.locator(".fr-link-reset")]) {
           const box = await control.boundingBox();
           assert.ok(box.x >= 0 && box.x + box.width <= width, "Friends controls fit and remain tappable");
         }
