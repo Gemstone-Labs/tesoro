@@ -55,8 +55,6 @@ export function ListingPage() {
         await apply("studio-decide", { id: app.id, intent: action.kind === "accept" ? "accepted" : "rejected", code: action.note ?? "" });
       } else if (action.kind === "pay") {
         await apply("studio-pay", { id: app.id, version: action.payment, code: action.reference, months: action.years, position: String(action.amountUsd) });
-      } else if (action.kind === "feature") {
-        await apply("studio-feature", { id: app.id, enabled: action.on ? 1 : 0 });
       } else if (action.kind === "list") {
         if (!app.paidUntil) throw new Error("Record the yearly payment first.");
         const sig = await listGame(signer, new PublicKey(app.programId), app.paidUntil);
