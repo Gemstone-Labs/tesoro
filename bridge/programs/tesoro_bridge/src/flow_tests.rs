@@ -1354,6 +1354,199 @@ fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
 }
 
 #[test]
+fn a_legacy_wei_line_is_refused_before_redeem_or_treasury_redeem_burns_anything() {
+    let mut env = Env::new();
+    let id = 1;
+    env.opened_with_advance(id);
+    let (bob, bob_account, source) = env.winner_with(id, 1_000);
+    env.receive_yield(id, 2, 12_500_000_000_000_000, ETH, 0);
+    env.sync_treasury(id).expect("sync");
+    env.request_instant(id, &bob, bob_account, source, 400, 1).expect("order");
+    env.fill_instant(id, &bob, bob_account, source, 1, 400).expect("fill 400");
+    env.apply_yield(id, true).expect("apply yield");
+
+    // The Position was opened before units were normalised: it holds wei (18 decimals).
+    let position_key = env.core_position(id);
+    let mut position: PositionState = env.load(position_key);
+    position.inner.decimals = 18;
+    env.put(position_key, tesoro_core::ID, &position);
+
+    let bob_claim = bridge_pda(&[CLAIM_SEED, bob_account.as_ref(), source.as_ref()]);
+    let mut redeem = ix(
+        crate::ID,
+        crate::accounts::RedeemToEvm {
+            holder_authority: a(bob.pubkey()),
+            store: env.store,
+            authority: env.authority,
+            core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+            holder_account: bob_account,
+            core_position: position_key,
+            core_source: source,
+            core_basket: basket_address(&bob_account).0,
+            core_spill: spill_address(&bob_account).0,
+            claim: bob_claim,
+            core_program: tesoro_core::ID,
+            system_program: anchor_lang::system_program::ID,
+        },
+        crate::instruction::RedeemToEvm {
+            line: env.line_ref(bob_account, source, SIDE_WON),
+            gemas: 600,
+        },
+    );
+    redeem.accounts.extend(econ::book_metas(&env.svm, source));
+    let before = econ::gemas_in(&env.svm, bob_account, source);
+    let err = env.send(&[redeem], &bob, &[]).expect_err("legacy line refused");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::LegacyUnits)));
+    assert_eq!(econ::gemas_in(&env.svm, bob_account, source), before, "nothing burned");
+    assert!(!env.exists(bob_claim), "no Claim booked");
+
+    let payer = env.admin.insecure_clone();
+    let treasury_account = core_treasury_account();
+    let treasury_claim = bridge_pda(&[CLAIM_SEED, treasury_account.as_ref(), source.as_ref()]);
+    let mut treasury = ix(
+        crate::ID,
+        crate::accounts::RedeemTreasuryToEvm {
+            payer: a(payer.pubkey()),
+            store: env.store,
+            authority: env.authority,
+            core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+            core_treasury: core_pda(&[TREASURY_SEED]),
+            core_treasury_account: treasury_account,
+            core_treasury_basket: basket_address(&treasury_account).0,
+            core_treasury_spill: spill_address(&treasury_account).0,
+            core_position: position_key,
+            core_source: source,
+            claim: treasury_claim,
+            core_program: tesoro_core::ID,
+            system_program: anchor_lang::system_program::ID,
+        },
+        crate::instruction::RedeemTreasuryToEvm {
+            line: env.line_ref(treasury_account, source, SIDE_WON),
+            gemas: 400,
+        },
+    );
+    treasury.accounts.extend(econ::book_metas(&env.svm, source));
+    let before = econ::gemas_in(&env.svm, treasury_account, source);
+    let err = env.send(&[treasury], &payer, &[]).expect_err("legacy line refused");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::LegacyUnits)));
+    assert_eq!(econ::gemas_in(&env.svm, treasury_account, source), before, "nothing burned");
+    assert!(!env.exists(treasury_claim), "no Claim booked");
+}
+
+// --- Retiring records of layouts the current code cannot read ---------------------------------
+
+fn plant(env: &mut Env, owner: Pubkey, discriminator: &[u8], len: usize) -> Pubkey {
+    let key = Pubkey::new_unique();
+    let mut data = vec![0u8; len];
+    data[..8].copy_from_slice(discriminator);
+    let lamports = env.svm.minimum_balance_for_rent_exemption(len);
+    env.svm
+        .set_account(
+            s(key),
+            solana_sdk::account::Account {
+                lamports,
+                data,
+                owner: s(owner),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("plant");
+    key
+}
+
+fn retire_ix(env: &Env, signer: &Keypair, account: Pubkey, kind: LegacyKind) -> Instruction {
+    ix(
+        crate::ID,
+        crate::accounts::RetireLegacyAccount {
+            admin: a(signer.pubkey()),
+            store: env.store,
+            account,
+        },
+        crate::instruction::RetireLegacyAccount { kind },
+    )
+}
+
+fn legacy_discriminator(kind: LegacyKind) -> &'static [u8] {
+    use anchor_lang::Discriminator;
+    match kind {
+        LegacyKind::BridgePosition => BridgePosition::DISCRIMINATOR,
+        LegacyKind::Claim => Claim::DISCRIMINATOR,
+        LegacyKind::VaultTreasury => VaultTreasury::DISCRIMINATOR,
+    }
+}
+
+#[test]
+fn every_old_size_retires_to_the_admin() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    let cases = [
+        (LegacyKind::BridgePosition, 172),
+        (LegacyKind::BridgePosition, 188),
+        (LegacyKind::Claim, 129),
+        (LegacyKind::VaultTreasury, 77),
+    ];
+    for (kind, len) in cases {
+        let key = plant(&mut env, crate::ID, legacy_discriminator(kind), len);
+        let rent = env.lamports(key);
+        let before = env.lamports(a(admin.pubkey()));
+        let ix = retire_ix(&env, &admin, key, kind);
+        env.send(&[ix], &admin, &[]).unwrap_or_else(|e| panic!("{kind:?} {len}: {e:?}"));
+        assert!(!env.exists(key), "{kind:?} {len} closed");
+        assert!(
+            env.lamports(a(admin.pubkey())) + 10_000 >= before + rent,
+            "{kind:?} {len} rent to admin"
+        );
+    }
+}
+
+#[test]
+fn a_current_size_record_is_refused() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    let cases = [
+        (LegacyKind::BridgePosition, 8 + BridgePosition::INIT_SPACE),
+        (LegacyKind::Claim, 8 + Claim::INIT_SPACE),
+        (LegacyKind::VaultTreasury, 8 + VaultTreasury::INIT_SPACE),
+    ];
+    for (kind, len) in cases {
+        let key = plant(&mut env, crate::ID, legacy_discriminator(kind), len);
+        let ix = retire_ix(&env, &admin, key, kind);
+        let err = env.send(&[ix], &admin, &[]).expect_err("current layout refused");
+        assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::InvalidAccount)), "{kind:?}");
+        assert!(env.exists(key));
+    }
+    // An old size under another type's discriminator is refused too.
+    let key = plant(&mut env, crate::ID, legacy_discriminator(LegacyKind::Claim), 172);
+    let ix = retire_ix(&env, &admin, key, LegacyKind::BridgePosition);
+    env.send(&[ix], &admin, &[]).expect_err("wrong discriminator refused");
+    assert!(env.exists(key));
+}
+
+#[test]
+fn a_record_of_another_owner_is_refused() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    let key = plant(&mut env, Pubkey::new_unique(), legacy_discriminator(LegacyKind::Claim), 129);
+    let ix = retire_ix(&env, &admin, key, LegacyKind::Claim);
+    let err = env.send(&[ix], &admin, &[]).expect_err("foreign owner refused");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::InvalidAccount)));
+    assert!(env.exists(key));
+}
+
+#[test]
+fn only_the_stored_admin_retires_records() {
+    let mut env = Env::new();
+    let stranger = Keypair::new();
+    env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    let key = plant(&mut env, crate::ID, legacy_discriminator(LegacyKind::VaultTreasury), 77);
+    let ix = retire_ix(&env, &stranger, key, LegacyKind::VaultTreasury);
+    let err = env.send(&[ix], &stranger, &[]).expect_err("non-admin refused");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::Unauthorized)));
+    assert!(env.exists(key));
+}
+
+#[test]
 fn an_order_with_repaid_gemas_is_not_filled_through_the_bridge() {
     let mut env = Env::new();
     let id = 1;

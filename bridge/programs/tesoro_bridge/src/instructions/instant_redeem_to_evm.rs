@@ -136,9 +136,12 @@ impl InstantRedeemToEvm<'_> {
         // rounded down so the payout never exceeds what the Treasury holds.
         let peer = &ctx.accounts.peer;
         // A Position opened before units were normalised holds wei: it is retired, never paid.
-        require!(ctx.accounts.core_position.inner.decimals == peer.core_decimals(), BridgeError::LegacyUnits);
-        let available =
-            u64::try_from(peer.to_units(ctx.accounts.vault_treasury.available())?).unwrap_or(u64::MAX);
+        require!(
+            ctx.accounts.core_position.inner.decimals == peer.core_decimals(),
+            BridgeError::LegacyUnits
+        );
+        let available = u64::try_from(peer.to_units(ctx.accounts.vault_treasury.available())?)
+            .unwrap_or(u64::MAX);
         let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &[ctx.accounts.store.authority_bump]]];
         let payout = tesoro_core::cpi::fill_instant_redeem_from_source(
             CpiContext::new_with_signer(

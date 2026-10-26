@@ -1,3 +1,4 @@
+import { PermanentRefusals, isLegacyUnits } from "./permanent.ts";
 import { ComputeBudgetProgram, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { act, log, type Ctx } from "./act.ts";
 import { shortKey } from "./env.ts";
@@ -66,6 +67,8 @@ const label = (eid: number, id: Uint8Array) => {
   const vault = Buffer.from(id.subarray(0, 20)).toString("hex");
   return `eid=${eid} vault=0x${vault.slice(0, 6)}..${vault.slice(-4)}#${Buffer.from(id).readBigUInt64BE(20)}`;
 };
+
+const refused = new PermanentRefusals();
 
 const withCu = (units: number, ...ixs: TransactionInstruction[]) => [ComputeBudgetProgram.setComputeUnitLimit({ units }), ...ixs];
 
@@ -270,6 +273,7 @@ async function lzSend(
   build: (fee: bigint, send: ReturnType<typeof meta>[]) => TransactionInstruction,
 ): Promise<number> {
   if (chainByte(eid) === null) return 0;
+  if (refused.has(subject)) return 0;
   const acc = await sendAccounts(ctx, eid, positionId);
   const fee = await quoteFee(ctx, eid, positionId, msgType, acc.quote);
   const feeSol = Number(fee) / 1e9;
@@ -284,6 +288,10 @@ async function lzSend(
   const ixs = withCu(600_000, build(fee, acc.send));
   const err = await simulate(ctx.conn, ctx.payer, ixs);
   if (err) {
+    if (isLegacyUnits(err)) {
+      refused.note(subject, `${what} is refused with LegacyUnits (the Position holds wei, it is retired)`, (m) => log("bridge", subject, m));
+      return 0;
+    }
     log("bridge", subject, `wait: ${what} would fail (${err.slice(0, 160)})`);
     return 0;
   }

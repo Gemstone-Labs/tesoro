@@ -183,6 +183,14 @@ pub mod tesoro_bridge {
         RedeemTreasuryToEvm::apply(&mut ctx, line, gemas)
     }
 
+    /// Admin: closes a record of a layout the current code cannot read (exact old lengths only).
+    pub fn retire_legacy_account(
+        mut ctx: Context<RetireLegacyAccount>,
+        kind: LegacyKind,
+    ) -> Result<()> {
+        RetireLegacyAccount::apply(&mut ctx, kind)
+    }
+
     // --- Cash-in batches (Platform, Studio and Leaderboard fees of ETH/HYPE Sources) ---------
 
     pub fn open_batch(mut ctx: Context<OpenBatch>, params: OpenBatchParams) -> Result<()> {
