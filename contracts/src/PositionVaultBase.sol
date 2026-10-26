@@ -28,7 +28,9 @@ import {IRateSource, IERC20Minimal, IYieldMinter} from "./IRateSource.sol";
 /// A rate fall (kHYPE can be slashed) never makes Accrued Yield negative: growth below the open rate counts as zero.
 /// A Yield Report never carries less than an earlier one: after a rate fall it repeats the highest figure sent
 /// (`reportedAccrued`), because Solana rejects a lower cumulative, and the Treasury balance and Instant payouts it also
-/// carries keep flowing. The Gema holders carry the shortfall (D2).
+/// carries keep flowing. The Gema holders carry the shortfall (D2): a Position that holds less than the face claims
+/// Solana credited pays every claim the same fraction of face when it pays (`_settle`), never first come first served;
+/// `haircutUnits` keeps the face given up. See docs/cross-chain.md "Slash pro rata".
 ///
 /// Treasury, real-LST vaults (`yieldMinter == 0`): held in LST SHARES (`treasuryShares`, T), valued at the live rate.
 ///   spendableShares = max(0, T - owedShares - poolOwedShares - reservedShares)
@@ -181,6 +183,9 @@ abstract contract PositionVaultBase {
     mapping(uint64 => mapping(uint64 => bool)) internal _handled;
     /// @notice Highest Accrued Yield a Yield Report has carried for a Position.
     mapping(uint64 => uint256) public reportedAccrued;
+    /// @notice Face value of yield claims a Position settled for less than face (a slash): cumulative `face - paid`.
+    ///         With `paidUnderlying` it is the face already extinguished; see `_claims`.
+    mapping(uint64 => uint256) public haircutUnits;
 
     event PositionLocked(
         uint64 indexed positionId, address indexed owner, uint256 shares, uint8 horizonMonths, uint64 seq
@@ -238,25 +243,88 @@ abstract contract PositionVaultBase {
         yieldMinter = yieldMinter_;
     }
 
-    /// @dev Takes `amount` of a Position's yield: records it as paid, converts it to shares and removes the Position's
-    ///      claim on them (held shares of an open Position, `owedSharesOf` of an unlocked one). The caller decides
-    ///      where the shares go.
-    function _debitYield(uint64 id, Position storage p, uint256 amount)
+    /// @dev Face claims still drawable on a Position: the highest figure a Report carried (or the accrued yield, if
+    ///      higher) minus the face already extinguished (`paidUnderlying` plus `haircutUnits`).
+    function _claims(uint64 id, Position storage p) internal view returns (uint256) {
+        uint256 a = _accrued(p);
+        uint256 r = reportedAccrued[id];
+        uint256 top = a > r ? a : r;
+        uint256 q = p.paidUnderlying + haircutUnits[id];
+        return top > q ? top - q : 0;
+    }
+
+    /// @dev What the Position really holds for those claims, in underlying: its unpaid accrued yield, or for an
+    ///      unlocked real-LST Position what its `owedSharesOf` cover.
+    function _backing(uint64 id, Position storage p) internal view returns (uint256) {
+        if (_real() && p.unlocked) return _owedCap(id);
+        uint256 a = _accrued(p);
+        return a > p.paidUnderlying ? a - p.paidUnderlying : 0;
+    }
+
+    /// @dev Underlying an unlocked real-LST Position's holders can still draw (their claim, in shares, at the Unlock
+    ///      rate); unbounded otherwise. A payment of `a` debits `floor(a * RATE_SCALE / rate)` shares, so the most
+    ///      the owed shares cover is the largest `a` that still debits no more than them.
+    function _owedCap(uint64 pid) internal view returns (uint256) {
+        if (!_real() || !_positions[pid].unlocked) return type(uint256).max;
+        uint256 owed = owedSharesOf[pid];
+        if (owed == 0) return 0;
+        return ((owed + 1) * unlockRate[pid] - 1) / RATE_SCALE;
+    }
+
+    /// @dev Face claims a PayYield or batch entry may take now: claims minus what pending batches hold.
+    function _unreservedClaims(uint64 id, Position storage p) internal view returns (uint256) {
+        uint256 n = _claims(id, p);
+        uint256 held = reservedUnits[id];
+        return n > held ? n - held : 0;
+    }
+
+    /// @dev Slash rule (founder D2): holders of one Position share a shortfall pro rata. A face claim `x` (the caller
+    ///      has checked `x <= _claims`) pays `x` while the Position's backing covers every claim, else the same
+    ///      fraction `backing / claims` for everyone, fixed when the vault pays. Returns what leaves the Position
+    ///      (`y`, underlying) and the shares that move (an unlocked Position pays the same share of `owedSharesOf`).
+    function _settle(uint64 id, Position storage p, uint256 x) internal view returns (uint256 y, uint256 shares) {
+        if (x == 0) return (0, 0);
+        uint256 n = _claims(id, p);
+        uint256 backing = _backing(id, p);
+        bool settled = _real() && p.unlocked;
+        uint256 rate = settled ? unlockRate[id] : rateSource.underlyingPerShare();
+        if (backing >= n) return (x, (x * RATE_SCALE) / rate);
+        if (settled) {
+            shares = (x * RATE_SCALE) / rate;
+            uint256 pro = (owedSharesOf[id] * x) / n;
+            if (pro < shares) shares = pro;
+            return ((shares * rate) / RATE_SCALE, shares);
+        }
+        y = (x * backing) / n;
+        return (y, (y * RATE_SCALE) / rate);
+    }
+
+    /// @dev Records a settled claim: `x` face extinguished, `y` paid, and the Position's claim on the `shares` removed
+    ///      (held shares of an open Position, `owedSharesOf` of an unlocked one). The caller decides where the shares
+    ///      go. Returns whether the Position was unlocked (shares at the Unlock rate, owed to its holders).
+    function _debitYield(uint64 id, Position storage p, uint256 x, uint256 y, uint256 shares)
         internal
-        returns (uint256 shares, bool settled)
+        returns (bool settled)
     {
-        p.paidUnderlying += amount;
+        p.paidUnderlying += y;
+        if (x > y) haircutUnits[id] += x - y;
         settled = _real() && p.unlocked;
-        // An unlocked Position's holders are owed shares fixed at the Unlock rate; otherwise the live rate.
-        shares = (amount * RATE_SCALE) / (settled ? unlockRate[id] : rateSource.underlyingPerShare());
         if (settled) {
             uint256 owed = owedSharesOf[id];
             if (shares > owed) revert InsufficientShares(shares, owed);
             owedSharesOf[id] = owed - shares;
             owedShares -= shares;
         } else {
-            _recordPayout(p, shares, amount);
+            _recordPayout(p, shares, y);
         }
+    }
+
+    /// @notice Fraction of face a claim on the Position is paid at now (1e18 = in full).
+    function payoutRatio(uint64 id) external view returns (uint256) {
+        Position storage p = _positions[id];
+        uint256 n = _claims(id, p);
+        uint256 backing = _backing(id, p);
+        return backing >= n ? RATE_SCALE : (backing * RATE_SCALE) / n;
     }
 
     /// @dev Shares reach the escrow: counters rise (cumulative), `escrowShares` is the live balance.

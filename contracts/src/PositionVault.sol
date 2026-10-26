@@ -126,15 +126,18 @@ contract PositionVault is PositionVaultBase {
         return _accrued(_positions[id]);
     }
 
+    /// @notice Underlying the Position can pay out now: its unpaid accrued yield, within the face claims left.
     function payableYield(uint64 id) public view returns (uint256) {
         Position storage p = _positions[id];
         uint256 accrued = _accrued(p);
-        return accrued > p.paidUnderlying ? accrued - p.paidUnderlying : 0;
+        uint256 unpaid = accrued > p.paidUnderlying ? accrued - p.paidUnderlying : 0;
+        uint256 claims = _claims(id, p);
+        return unpaid < claims ? unpaid : claims;
     }
 
     /// @notice What a PayYield may take now: payable yield minus what pending cash-in batches hold back.
     function unreservedYield(uint64 id) external view returns (uint256) {
-        return _unreservedYield(id, _positions[id]);
+        return _unreservedClaims(id, _positions[id]);
     }
 
     // ---------------------------------------------------------------- outbound
@@ -256,7 +259,9 @@ contract PositionVault is PositionVaultBase {
             if (msgType == MSG_PAY_YIELD) {
                 (,,,, bytes32 to, uint256 amount, uint256 fee, uint256 pool) =
                     abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, uint256, uint256, uint256));
-                _onPayYield(id, p, seq, address(uint160(uint256(to))), amount, fee, pool);
+                _delegate(
+                    abi.encodeCall(PrizeModule.payYield, (id, seq, address(uint160(uint256(to))), amount, fee, pool))
+                );
             } else {
                 (,,,, bytes32 to, uint256 amount) =
                     abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, uint256));
@@ -307,76 +312,13 @@ contract PositionVault is PositionVaultBase {
         p.heldShares = 0;
         treasuryShares += rest;
         uint256 unpaid = p.frozenAccrued > p.paidUnderlying ? p.frozenAccrued - p.paidUnderlying : 0;
+        uint256 claims = _claims(id, p);
+        if (claims < unpaid) unpaid = claims; // backing no face claim can draw is the Treasury's, not locked
         uint256 owed = (unpaid * RATE_SCALE) / rate;
         if (owed > rest) owed = rest;
         unlockRate[id] = rate;
         owedSharesOf[id] = owed;
         owedShares += owed;
-    }
-
-    /// @dev `amount` leaves the Position's yield; `fee` of it (at most the Yield Fee cap) stays with the Treasury and
-    ///      the holder gets the rest.
-    ///      `pool` is the part of the Treasury's share owed to the Leaderboard Pool, never above what the Treasury
-    ///      gains here, so the Treasury always holds what the Pool is owed. A refill (`to == vault`) keeps all of it.
-    function _onPayYield(
-        uint64 id,
-        Position storage p,
-        uint64 seq,
-        address to,
-        uint256 amount,
-        uint256 fee,
-        uint256 pool
-    ) internal {
-        if (fee * BPS > amount * MAX_YIELD_FEE_BPS || pool > amount) revert BadFeeSplit(amount, fee, pool);
-        uint256 available = _unreservedYield(id, p);
-        if (amount > available) revert ExceedsAccruedYield(amount, available);
-
-        (uint256 shares, bool settled) = _debitYield(id, p, amount);
-        uint256 rate = settled ? unlockRate[id] : rateSource.underlyingPerShare();
-        if (to == address(this)) {
-            // Tesoro redeemed the Gemas it bought with Instant Redeems: the yield goes back to the Treasury. No
-            // tokens move; the yield was never minted (SimLST) or is already among the held shares (real). With the
-            // holders' claim gone, shares of an unlocked Position become spendable.
-            if (!settled) {
-                if (_real()) treasuryShares += shares;
-                else treasuryCredited += amount;
-            }
-            _owePool(pool, amount, shares, rate);
-            emit TreasuryRefilled(id, amount, seq);
-            return;
-        }
-        // Shares rounded down (less than one share-wei of value): paying never lowers the reported cumulative,
-        // which tesoro_core refuses (CumulativeDecreased). The fee shares are what is left of the debit.
-        uint256 holderShares = ((amount - fee) * RATE_SCALE) / rate;
-        uint256 feeShares = shares - holderShares;
-        if (_real()) {
-            if (settled) treasuryShares -= holderShares;
-            else treasuryShares += feeShares;
-        } else {
-            realisedFees += fee;
-        }
-        _owePool(pool, fee, feeShares, rate);
-        _payShares(to, holderShares);
-        emit YieldPaid(id, to, amount - fee, holderShares, seq);
-    }
-
-    /// @dev Records `poolUnits` as owed to the Leaderboard Pool, capped at `capUnits` / `capShares`, the part the
-    ///      Treasury gained in this cash-out. Shares are floored.
-    function _owePool(uint256 poolUnits, uint256 capUnits, uint256 capShares, uint256 rate) internal {
-        if (_real()) {
-            uint256 poolShares = (poolUnits * RATE_SCALE) / rate;
-            poolOwedShares += poolShares < capShares ? poolShares : capShares;
-        } else {
-            poolAccruedUnits += poolUnits < capUnits ? poolUnits : capUnits;
-        }
-    }
-
-    /// @dev Yield a PayYield may take now: what the Position can still pay minus what pending batches reserved.
-    function _unreservedYield(uint64 id, Position storage p) internal view returns (uint256) {
-        uint256 accrued = _accrued(p);
-        uint256 available = accrued > p.paidUnderlying ? accrued - p.paidUnderlying : 0;
-        uint256 held = reservedUnits[id];
-        return available > held ? available - held : 0;
     }
 
     /// @dev Pays `amount` underlying out of the Treasury, independent of the Position's own shares and lock state.
