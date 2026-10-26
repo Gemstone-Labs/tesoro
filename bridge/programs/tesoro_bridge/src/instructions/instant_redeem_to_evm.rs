@@ -104,6 +104,12 @@ pub struct InstantRedeemToEvm<'info> {
             @ BridgeError::UnsupportedChain
     )]
     pub vault_treasury: Box<Account<'info, VaultTreasury>>,
+    /// The vault's terms: its decimals give the wei <-> core unit scale of the Treasury mirror.
+    #[account(
+        seeds = [PEER_SEED, &store.key().to_bytes(), &vault_treasury.eid.to_be_bytes(), &vault_treasury.peer_address],
+        bump = peer.bump
+    )]
+    pub peer: Box<Account<'info, PeerConfig>>,
     #[account(
         init_if_needed,
         payer = filler,
@@ -126,7 +132,13 @@ impl InstantRedeemToEvm<'_> {
             ctx.accounts.core_position.inner.source_chain != SourceChain::Solana,
             BridgeError::NotBridgedPosition
         );
-        let available = u64::try_from(ctx.accounts.vault_treasury.available()).unwrap_or(u64::MAX);
+        // The mirror is in the vault's units (wei); core budgets the fill in 9-decimal units,
+        // rounded down so the payout never exceeds what the Treasury holds.
+        let peer = &ctx.accounts.peer;
+        // A Position opened before units were normalised holds wei: it is retired, never paid.
+        require!(ctx.accounts.core_position.inner.decimals == peer.core_decimals(), BridgeError::LegacyUnits);
+        let available =
+            u64::try_from(peer.to_units(ctx.accounts.vault_treasury.available())?).unwrap_or(u64::MAX);
         let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &[ctx.accounts.store.authority_bump]]];
         let payout = tesoro_core::cpi::fill_instant_redeem_from_source(
             CpiContext::new_with_signer(
@@ -153,10 +165,11 @@ impl InstantRedeemToEvm<'_> {
         .get();
 
         let treasury = &mut ctx.accounts.vault_treasury;
-        require!(u128::from(payout) <= treasury.available(), BridgeError::TreasuryShort);
+        let payout_wei = peer.to_vault(payout)?;
+        require!(payout_wei <= treasury.available(), BridgeError::TreasuryShort);
         let recorded = treasury
             .instant_recorded
-            .checked_add(u128::from(payout))
+            .checked_add(payout_wei)
             .ok_or(BridgeError::AmountOverflow)?;
         treasury.instant_recorded = recorded;
 

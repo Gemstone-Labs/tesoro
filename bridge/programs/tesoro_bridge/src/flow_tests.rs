@@ -666,6 +666,7 @@ impl Env {
             crate::ID,
             crate::accounts::ApplyYield {
                 store: self.store,
+                peer: self.peer(),
                 bridge_position: self.bridge_position(id),
                 vault_treasury: self.vault_treasury(),
                 authority: self.authority,
@@ -731,8 +732,9 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
     let position: PositionState = env.load(env.core_position(id));
     assert_eq!(position.inner.owner, env.owner_account.to_bytes());
     assert_eq!(position.inner.source_chain, SourceChain::Ethereum);
-    assert_eq!(position.inner.principal, 1_000_000_000_000_000_000);
-    assert_eq!(position.inner.decimals, 18);
+    // 1 ETH reaches core as 1e9 units of 1e-9 ETH.
+    assert_eq!(position.inner.principal, 1_000_000_000);
+    assert_eq!(position.inner.decimals, 9);
     assert_eq!(position.inner.rate_bps, 500);
     assert!(env.load::<BridgePosition>(env.bridge_position(id)).opened);
     let err = env.apply_locked(id).expect_err("a Position opens once");
@@ -823,8 +825,8 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
     let source: SourceState = env.load(source_key);
     assert_eq!(claim.gemas_total, 1_000);
     assert_eq!(claim.units_total, source.inner.redeemed_units);
-    // 1,000 Gemas at $3,000 per ETH = $10 = 0.003333... ETH, floored to whole wei.
-    assert_eq!(claim.units_total, 3_333_333_333_333_333);
+    // 1,000 Gemas at $3,000 per ETH = $10 = 0.003333... ETH, floored to whole units (1e-9 ETH).
+    assert_eq!(claim.units_total, 3_333_333);
     assert_eq!(claim.units_sent, 0);
     // The Yield Fee rides with the claim (ticket 31): the vault pays 80% (one floor) and keeps the
     // rest for the Treasury, half of it owed to the Pool.
@@ -849,7 +851,7 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
 #[test]
 fn a_position_too_large_for_tesoro_core_is_refused_not_truncated() {
     let mut env = Env::new();
-    env.receive_locked(2, u128::from(u64::MAX) + 1);
+    env.receive_locked(2, (u128::from(u64::MAX) + 1) * 1_000_000_000);
     env.link(EVM_ADDRESS, &hex(LINK_SIGNATURE)).expect("link");
     let err = env.apply_locked(2).expect_err("principal exceeds u64");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::AmountOverflow)));
@@ -1128,6 +1130,7 @@ impl Env {
                 core_treasury_basket: basket_address(&core_treasury_account()).0,
                 core_treasury_spill: spill_address(&core_treasury_account()).0,
                 vault_treasury: self.vault_treasury(),
+                peer: self.peer(),
                 instant_claim: bridge_pda(&[INSTANT_SEED, account.as_ref(), source.as_ref()]),
                 core_program: tesoro_core::ID,
                 system_program: anchor_lang::system_program::ID,
@@ -1180,7 +1183,7 @@ fn instant_redeem_is_capped_by_the_mirror_of_the_vault_treasury() {
     env.opened_with_advance(id);
     let (bob, bob_account, source) = env.winner_with(id, 1_000);
     // 1,000 Gemas at $3,000/ETH are worth 0.003333... ETH; the Instant Redeem Fee comes off it.
-    let units: u64 = 3_333_333_333_333_333;
+    let units: u64 = 3_333_333;
     let payout = instant_payout(units);
     env.request_instant(id, &bob, bob_account, source, 1_000, 1).expect("order");
     assert_eq!(econ::gemas_in(&env.svm, bob_account, source), 0, "the order holds the Gemas");
@@ -1190,18 +1193,20 @@ fn instant_redeem_is_capped_by_the_mirror_of_the_vault_treasury() {
     assert_eq!(econ::gemas_in(&env.svm, core_treasury_account(), source), 0);
 
     // A yield report carries a treasury just short of the payout: still refused.
-    env.receive_yield(id, 2, 1_000_000_000_000_000, u128::from(payout) - 1, 0);
+    // The mirror is in wei; the payout is whole units of 1e-9 ETH.
+    let payout_wei = u128::from(payout) * 1_000_000_000;
+    env.receive_yield(id, 2, 1_000_000_000_000_000, payout_wei - 1, 0);
     env.sync_treasury(id).expect("sync");
-    assert_eq!(env.load::<VaultTreasury>(env.vault_treasury()).balance, u128::from(payout) - 1);
+    assert_eq!(env.load::<VaultTreasury>(env.vault_treasury()).balance, payout_wei - 1);
     env.fill_instant(id, &bob, bob_account, source, 1, 1_000).expect_err("short");
     assert_eq!(econ::gemas_in(&env.svm, core_treasury_account(), source), 0);
 
     // A later report (synced without applying) covers it: accepted and recorded.
-    env.receive_yield(id, 3, 1_000_000_000_000_000, u128::from(payout) + 100, 0);
+    env.receive_yield(id, 3, 1_000_000_000_000_000, payout_wei + 100, 0);
     env.sync_treasury(id).expect("sync");
     env.fill_instant(id, &bob, bob_account, source, 1, 1_000).expect("fill");
     let treasury: VaultTreasury = env.load(env.vault_treasury());
-    assert_eq!(treasury.instant_recorded, u128::from(payout));
+    assert_eq!(treasury.instant_recorded, payout_wei);
     assert_eq!(treasury.available(), 100);
     let claim: InstantClaim =
         env.load(bridge_pda(&[INSTANT_SEED, bob_account.as_ref(), source.as_ref()]));
@@ -1223,7 +1228,7 @@ fn instant_redeem_is_capped_by_the_mirror_of_the_vault_treasury() {
         .expect_err("spent");
 
     // Once the vault has paid and reports its new balance (100 left, payout paid), nothing is outstanding.
-    env.receive_yield(id, 4, 1_000_000_000_000_000, 100, u128::from(payout));
+    env.receive_yield(id, 4, 1_000_000_000_000_000, 100, payout_wei);
     env.sync_treasury(id).expect("sync");
     assert_eq!(env.load::<VaultTreasury>(env.vault_treasury()).available(), 100);
 
@@ -1289,7 +1294,7 @@ fn the_treasury_redeems_what_it_bought_into_a_claim_paid_to_the_vault() {
     redeem(&mut env, 1_000).expect("treasury redeems");
     let claim: Claim = env.load(claim_key);
     assert_eq!(claim.holder_account, treasury_account);
-    assert_eq!(claim.units_total, 3_333_333_333_333_333, "every unit is the Treasury's");
+    assert_eq!(claim.units_total, 3_333_333, "every unit is the Treasury's");
     // Not exempt (red-team #4): the vault keeps it all, and the Pool is owed its half of the
     // Yield Fee plus a fifth of the 25% Instant fee on the value after the Yield Fee.
     let total = u128::from(claim.units_total);
@@ -1346,7 +1351,7 @@ fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
     // 600 Gemas at $3,000/ETH = $6 = 0.002 ETH; the book pays whole shares, so a unit may fall
     // short of the exact figure by one but never exceed it.
     assert!(
-        (1_999_999_999_999_999..=2_000_000_000_000_000).contains(&claim.units_total),
+        (1_999_999..=2_000_000).contains(&claim.units_total),
         "paid {}",
         claim.units_total
     );
@@ -1457,7 +1462,16 @@ fn route_header(msg_type: u8, id: u64) -> Vec<u8> {
     buf
 }
 
+/// Wei per core unit: the vault pays in wei, entries are in 1e-9 units.
+const WEI: u128 = 1_000_000_000;
+
+/// An acknowledgement whose `paid` figures are in core units (the vault reports them as exact wei).
 fn batch_result(batch_id: u64, paid: &[u128], shares: u128, units: u128) -> Vec<u8> {
+    let wei: Vec<u128> = paid.iter().map(|p| p * WEI).collect();
+    batch_result_wei(batch_id, &wei, shares, units)
+}
+
+fn batch_result_wei(batch_id: u64, paid: &[u128], shares: u128, units: u128) -> Vec<u8> {
     let mut buf = route_header(msg_codec::MSG_BATCH_RESULT, batch_id);
     buf.push(paid.len() as u8);
     for p in paid {
@@ -1905,7 +1919,8 @@ fn a_platform_fee_batch_is_paid_once_across_retries_duplicates_and_partial_resul
     assert_eq!(&first[37..45], &batch_id.to_be_bytes());
     assert_eq!(first[45], msg_codec::KIND_PLATFORM);
     assert_eq!(&first[46..78], &msg_codec::pad_address(&PLATFORM_EVM));
-    assert_eq!(wire_entries(&first), vec![(id, u128::from(units))]);
+    // The vault is asked in wei, exactly the core units times 1e9.
+    assert_eq!(wire_entries(&first), vec![(id, u128::from(units) * WEI)]);
 
     // Retry by batch id: the same bytes again.
     assert_eq!(env.send_batch(batch_id).expect("retry"), first);
@@ -2743,4 +2758,69 @@ fn tesoro_cores_evm_prize_hooks_only_answer_to_the_bridge() {
     );
     env.send(&[issue], &admin, &[&oracle])
         .expect_err("only the bridge may issue EVM prize Sources");
+}
+
+// Wide amounts: the vault speaks wei, core holds 1e-9 token units in u64.
+
+#[test]
+fn a_thousand_eth_position_opens_and_its_wide_yield_applies() {
+    let mut env = Env::new();
+    let id = 1;
+    let thousand_eth = 1_000 * 10u128.pow(18);
+    env.receive_locked(id, thousand_eth);
+    env.link(EVM_ADDRESS, &hex(LINK_SIGNATURE)).expect("link");
+    env.apply_locked(id).expect("1,000 ETH is 1e12 units, far under u64");
+    let position: PositionState = env.load(env.core_position(id));
+    assert_eq!((position.inner.principal, position.inner.decimals), (1_000_000_000_000, 9));
+}
+
+#[test]
+fn every_wei_figure_around_the_old_u64_edge_opens_at_its_floored_units() {
+    for (n, wei) in [u128::from(u64::MAX) - 1, u128::from(u64::MAX), u128::from(u64::MAX) + 1, 24_330_777_777_777_777_778]
+        .into_iter()
+        .enumerate()
+    {
+        let mut env = Env::new();
+        let id = 10 + n as u64;
+        env.receive_locked(id, wei);
+        env.link(EVM_ADDRESS, &hex(LINK_SIGNATURE)).expect("link");
+        env.apply_locked(id).expect("fits core as units");
+        let position: PositionState = env.load(env.core_position(id));
+        assert_eq!(u128::from(position.inner.principal), wei / WEI, "{wei}");
+    }
+}
+
+#[test]
+fn a_principal_under_one_unit_is_refused_instead_of_opening_as_zero() {
+    let mut env = Env::new();
+    env.receive_locked(3, WEI - 1);
+    env.link(EVM_ADDRESS, &hex(LINK_SIGNATURE)).expect("link");
+    let err = env.apply_locked(3).expect_err("rounds to zero");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::PrincipalBelowUnit)));
+}
+
+#[test]
+fn a_cumulative_yield_past_the_old_u64_edge_applies_in_units() {
+    let mut env = Env::new();
+    let id = 1;
+    env.opened_with_advance(id);
+    env.receive_yield(id, 2, 24_330_777_777_777_777_778, 0, 0);
+    env.apply_yield(id, true).expect("the P2 figure that overflowed in wei applies");
+    let position: PositionState = env.load(env.core_position(id));
+    assert_eq!(position.inner.cumulative_yield, 24_330_777_777);
+}
+
+#[test]
+fn a_batch_acknowledged_in_wei_with_dust_credits_only_whole_units() {
+    let mut env = Env::new();
+    let source = env.position_with_fee_counter(1, 0, 300);
+    let _ = source;
+    let batch_id = env.open_batch(0).expect("open");
+    env.add_to_batch(batch_id, 1).expect("add");
+    let units = u128::from(env.batch(batch_id).entries()[0].units);
+    env.seal_batch(batch_id).expect("seal");
+    // The vault paid all but 1,500 wei: one whole unit is still owed (the paid figure floors), never a fractional one.
+    env.lz_receive(batch_result_wei(batch_id, &[units * WEI - 1_500], 0, 0), 1).expect("ack");
+    let b = env.batch(batch_id);
+    assert_eq!(b.paid_units, units - 1);
 }

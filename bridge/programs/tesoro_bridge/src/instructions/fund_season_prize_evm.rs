@@ -89,11 +89,16 @@ impl FundSeasonPrizeEvm<'_> {
         ctx: &mut Context<'_, '_, '_, 'info, FundSeasonPrizeEvm<'info>>,
         params: &FundSeasonPrizeEvmParams,
     ) -> Result<()> {
+        let peer = &ctx.accounts.peer;
         let route = &mut ctx.accounts.route;
         require!(route.escrow_enabled, BridgeError::EscrowOff);
-        let (shares, units) = route.unissued();
-        route.issue(params.season, shares, units)?;
-        let units = u64::try_from(units).map_err(|_| error!(BridgeError::AmountOverflow))?;
+        // The escrow's units are the vault's (wei). All open shares are issued, so all open units
+        // leave the escrow with them; core values the prize in whole core units, rounded down
+        // (less than one unit of dust stays in the vault and is never owed).
+        let (shares, open_units) = route.unissued();
+        let units = peer.to_core_u64(open_units)?;
+        route.issue(params.season, shares, open_units)?;
+        require!(units > 0, BridgeError::NothingToIssue);
         let route_key = ctx.accounts.route.key();
         let asset = Pubkey::new_from_array(ctx.accounts.route.asset);
         let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &[ctx.accounts.store.authority_bump]]];
@@ -121,7 +126,7 @@ impl FundSeasonPrizeEvm<'_> {
             params.season,
             route_key,
             asset,
-            ctx.accounts.peer.decimals,
+            ctx.accounts.peer.core_decimals(),
             shares,
             units,
             params.price_micro_usd,
