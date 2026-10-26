@@ -19,4 +19,5 @@ fn emit_layouts() {
     fixed::<crate::state::Fuel>("Fuel", 8 + crate::state::Fuel::INIT_SPACE);
     fixed::<crate::state::Assignment>("Assignment", 8 + crate::state::Assignment::INIT_SPACE);
     fixed::<crate::state::Table>("Table", 8 + crate::state::Table::INIT_SPACE);
+    probe::decode_report();
 }

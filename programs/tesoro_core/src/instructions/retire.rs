@@ -269,7 +269,7 @@ struct LegacySource {
     _redeemed_units: u64,
 }
 
-const LEGACY_SOURCE_SPACE: usize = 142;
+pub(crate) const LEGACY_SOURCE_SPACE: usize = 142;
 
 /// Closes a historical (142 byte) Source after its linked Position is gone. Counters are not
 /// consulted: legacy test state is retired, never migrated. A current Source (170 bytes) is refused.
@@ -515,9 +515,9 @@ pub enum LegacyKind {
 }
 
 /// Historical `MatchState` lengths seen on devnet (before the Ticket pots and receipts).
-const LEGACY_MATCH_LENGTHS: [usize; 2] = [435, 915];
+pub(crate) const LEGACY_MATCH_LENGTHS: [usize; 2] = [435, 915];
 /// Historical `SeasonState` length (before the prize fields).
-const LEGACY_SEASON_LENGTHS: [usize; 1] = [504];
+pub(crate) const LEGACY_SEASON_LENGTHS: [usize; 1] = [504];
 
 /// Closes a historical Match or Season record by owner, discriminator and exact length only.
 /// No field is read: a record of the current length, or of another type, is never closable, and a
