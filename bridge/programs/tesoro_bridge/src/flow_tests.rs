@@ -1433,6 +1433,119 @@ fn a_legacy_wei_line_is_refused_before_redeem_or_treasury_redeem_burns_anything(
     assert!(!env.exists(treasury_claim), "no Claim booked");
 }
 
+// --- Retiring records of layouts the current code cannot read ---------------------------------
+
+fn plant(env: &mut Env, owner: Pubkey, discriminator: &[u8], len: usize) -> Pubkey {
+    let key = Pubkey::new_unique();
+    let mut data = vec![0u8; len];
+    data[..8].copy_from_slice(discriminator);
+    let lamports = env.svm.minimum_balance_for_rent_exemption(len);
+    env.svm
+        .set_account(
+            s(key),
+            solana_sdk::account::Account {
+                lamports,
+                data,
+                owner: s(owner),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("plant");
+    key
+}
+
+fn retire_ix(env: &Env, signer: &Keypair, account: Pubkey, kind: LegacyKind) -> Instruction {
+    ix(
+        crate::ID,
+        crate::accounts::RetireLegacyAccount {
+            admin: a(signer.pubkey()),
+            store: env.store,
+            account,
+        },
+        crate::instruction::RetireLegacyAccount { kind },
+    )
+}
+
+fn legacy_discriminator(kind: LegacyKind) -> &'static [u8] {
+    use anchor_lang::Discriminator;
+    match kind {
+        LegacyKind::BridgePosition => BridgePosition::DISCRIMINATOR,
+        LegacyKind::Claim => Claim::DISCRIMINATOR,
+        LegacyKind::VaultTreasury => VaultTreasury::DISCRIMINATOR,
+    }
+}
+
+#[test]
+fn every_old_size_retires_to_the_admin() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    let cases = [
+        (LegacyKind::BridgePosition, 172),
+        (LegacyKind::BridgePosition, 188),
+        (LegacyKind::Claim, 129),
+        (LegacyKind::VaultTreasury, 77),
+    ];
+    for (kind, len) in cases {
+        let key = plant(&mut env, crate::ID, legacy_discriminator(kind), len);
+        let rent = env.lamports(key);
+        let before = env.lamports(a(admin.pubkey()));
+        let ix = retire_ix(&env, &admin, key, kind);
+        env.send(&[ix], &admin, &[]).unwrap_or_else(|e| panic!("{kind:?} {len}: {e:?}"));
+        assert!(!env.exists(key), "{kind:?} {len} closed");
+        assert!(
+            env.lamports(a(admin.pubkey())) + 10_000 >= before + rent,
+            "{kind:?} {len} rent to admin"
+        );
+    }
+}
+
+#[test]
+fn a_current_size_record_is_refused() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    let cases = [
+        (LegacyKind::BridgePosition, 8 + BridgePosition::INIT_SPACE),
+        (LegacyKind::Claim, 8 + Claim::INIT_SPACE),
+        (LegacyKind::VaultTreasury, 8 + VaultTreasury::INIT_SPACE),
+    ];
+    for (kind, len) in cases {
+        let key = plant(&mut env, crate::ID, legacy_discriminator(kind), len);
+        let ix = retire_ix(&env, &admin, key, kind);
+        let err = env.send(&[ix], &admin, &[]).expect_err("current layout refused");
+        assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::InvalidAccount)), "{kind:?}");
+        assert!(env.exists(key));
+    }
+    // An old size under another type's discriminator is refused too.
+    let key = plant(&mut env, crate::ID, legacy_discriminator(LegacyKind::Claim), 172);
+    let ix = retire_ix(&env, &admin, key, LegacyKind::BridgePosition);
+    env.send(&[ix], &admin, &[]).expect_err("wrong discriminator refused");
+    assert!(env.exists(key));
+}
+
+#[test]
+fn a_record_of_another_owner_is_refused() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    let key = plant(&mut env, Pubkey::new_unique(), legacy_discriminator(LegacyKind::Claim), 129);
+    let ix = retire_ix(&env, &admin, key, LegacyKind::Claim);
+    let err = env.send(&[ix], &admin, &[]).expect_err("foreign owner refused");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::InvalidAccount)));
+    assert!(env.exists(key));
+}
+
+#[test]
+fn only_the_stored_admin_retires_records() {
+    let mut env = Env::new();
+    let stranger = Keypair::new();
+    env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    let key = plant(&mut env, crate::ID, legacy_discriminator(LegacyKind::VaultTreasury), 77);
+    let ix = retire_ix(&env, &stranger, key, LegacyKind::VaultTreasury);
+    let err = env.send(&[ix], &stranger, &[]).expect_err("non-admin refused");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::Unauthorized)));
+    assert!(env.exists(key));
+}
+
 #[test]
 fn an_order_with_repaid_gemas_is_not_filled_through_the_bridge() {
     let mut env = Env::new();

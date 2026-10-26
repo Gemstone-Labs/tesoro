@@ -28,5 +28,8 @@ fn emit_layouts() {
         "VaultTreasury",
         8 + crate::state::VaultTreasury::INIT_SPACE,
     );
+    probe::retired("BridgePosition", &crate::LEGACY_BRIDGE_POSITION_LENGTHS);
+    probe::retired("Claim", &crate::LEGACY_CLAIM_LENGTHS);
+    probe::retired("VaultTreasury", &crate::LEGACY_VAULT_TREASURY_LENGTHS);
     probe::decode_report();
 }
