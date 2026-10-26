@@ -371,7 +371,13 @@ fn source_for(position: APk, owner: APk) -> SourceState {
 fn holding_for(account: APk, source: APk) -> Vec<u8> {
     let mut data =
         anchor_lang::solana_program::hash::hash(b"account:HoldingState").to_bytes()[..8].to_vec();
-    data.push(255);
+    data.push(
+        APk::find_program_address(
+            &[b"holding", account.as_ref(), source.as_ref()],
+            &tesoro_core::ID,
+        )
+        .1,
+    );
     data.extend_from_slice(account.as_ref());
     data.extend_from_slice(source.as_ref());
     data.resize(90, 0);
@@ -496,13 +502,13 @@ fn positions_retire_only_when_stale_and_only_once() {
 }
 
 #[test]
-fn sources_and_holdings_follow_their_position() {
+fn current_sources_and_their_holdings_are_preserved_even_for_stale_positions() {
     let mut env = Env::new();
     let owner = APk::new_unique();
     let position = APk::new_unique();
     let source = APk::new_unique();
-    let holding = APk::new_unique();
     let acct = env.put_account(owner);
+    let holding = pda(&[b"holding", acct.as_ref(), source.as_ref()]);
     put(
         &mut env.svm,
         position,
@@ -521,25 +527,30 @@ fn sources_and_holdings_follow_their_position() {
         tesoro_core::ID,
         holding_for(acct, source),
     );
-    let own2 = APk::new_unique();
+    let other_acct = env.put_account(APk::new_unique());
+    let own2 = pda(&[b"holding", other_acct.as_ref(), source.as_ref()]);
     put(
         &mut env.svm,
         own2,
         tesoro_core::ID,
-        holding_for(acct, source),
+        holding_for(other_acct, source),
     );
 
     let err = env
         .retire_holding(holding, source)
         .expect_err("source still there");
     assert_eq!(custom_code(&err), NOT_OLD_WORLD);
-    env.retire_source(source, position)
-        .expect("source of a stale position");
-    assert!(env.gone(source));
-    env.retire_holding(holding, source).expect("holding");
-    env.retire_holding(own2, source).expect("won holding");
-    assert!(env.gone(holding) && env.gone(own2));
-    assert!(env.retire_holding(holding, source).is_err(), "twice");
+    let source_before = env.svm.get_account(&s(source));
+    let err = env
+        .retire_source(source, position)
+        .expect_err("current Source with claims");
+    assert_eq!(custom_code(&err), NOT_OLD_WORLD);
+    assert_eq!(source_before, env.svm.get_account(&s(source)));
+    let err = env
+        .retire_holding(own2, source)
+        .expect_err("Source retained");
+    assert_eq!(custom_code(&err), NOT_OLD_WORLD);
+    assert!(!env.gone(holding) && !env.gone(own2));
 }
 
 #[test]
@@ -548,8 +559,8 @@ fn a_source_of_a_current_position_is_refused_and_so_are_its_holdings() {
     let owner = APk::new_unique();
     let position = APk::new_unique();
     let source = APk::new_unique();
-    let holding = APk::new_unique();
     let acct = env.put_account(owner);
+    let holding = pda(&[b"holding", acct.as_ref(), source.as_ref()]);
     put(
         &mut env.svm,
         position,

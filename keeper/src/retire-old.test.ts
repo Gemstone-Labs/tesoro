@@ -128,6 +128,30 @@ describe("retire plan", () => {
     assert.ok(plan.skipped.some((s) => s.key === c.custody.pubkey.toBase58()));
   });
 
+  it("plans legacy Matches and Seasons by exact length only, and Sources and Holdings by exact historical layout", () => {
+    const w = new World();
+    const m435 = w.add(row("MatchState", 435));
+    const m915 = w.add(row("MatchState", 915));
+    w.add(row("MatchState", 776));
+    const season = w.add(row("SeasonState", 504));
+    w.add(row("SeasonState", 1387));
+    const currentSource = w.add(row("SourceState", 170, (d) => put(d, 9, key())));
+    const odd = w.add(row("HoldingState", 91, (d) => put(d, 41, key())));
+    const plan = planAll(w.snapshot());
+    const planned = plan.phases.flat().map((i) => `${i.kind}:${i.key.toBase58()}`).sort();
+    assert.deepEqual(planned, [m435, m915].map((r) => `match:${r.pubkey.toBase58()}`).concat(`season:${season.pubkey.toBase58()}`).sort());
+    const skipped = plan.skipped.map((x) => x.key);
+    assert.ok(skipped.includes(currentSource.pubkey.toBase58()) && skipped.includes(odd.pubkey.toBase58()));
+  });
+
+  it("retires what a legacy Source counted, whatever the amount", () => {
+    const w = new World();
+    const s = w.source(key());
+    w.holding(s.pubkey, 2n ** 60n);
+    const plan = planAll(w.snapshot());
+    assert.deepEqual(plan.phases.map((p) => p.length), [0, 1, 1, 0]);
+  });
+
   it("is idempotent: once the accounts are gone nothing is planned", () => {
     const w = new World();
     const p = w.position(159);
@@ -151,6 +175,8 @@ describe("retire transactions", () => {
       offer: Array.from({ length: BATCH.offer }, () => ({ kind: "offer" as const, key: key(), refs: { offer: key() }, remaining: Array.from({ length: 8 }, key) })),
       request: Array.from({ length: BATCH.request }, () => ({ kind: "request" as const, key: key(), refs: { request: key() } })),
       treasury: [{ kind: "treasury" as const, key: key(), refs: { treasury: key() } }],
+      match: Array.from({ length: BATCH.match }, () => ({ kind: "match" as const, key: key(), refs: { account: key() } })),
+      season: Array.from({ length: BATCH.season }, () => ({ kind: "season" as const, key: key(), refs: { account: key() } })),
     };
     void w;
     for (const k of KINDS) {

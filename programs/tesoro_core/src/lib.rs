@@ -923,6 +923,13 @@ pub mod tesoro_core {
         instructions::retire::retire_offer(ctx)
     }
 
+    pub fn retire_legacy_account(
+        ctx: Context<RetireLegacyAccount>,
+        kind: instructions::LegacyKind,
+    ) -> Result<()> {
+        instructions::retire::retire_legacy_account(ctx, kind)
+    }
+
     pub fn retire_treasury(ctx: Context<RetireTreasury>) -> Result<()> {
         instructions::retire::retire_treasury(ctx)
     }

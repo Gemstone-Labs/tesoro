@@ -102,6 +102,19 @@ fn emit_layouts() {
     );
     fixed::<crate::storage::CkptHead>("CkptHead", crate::storage::CKPT_ACCOUNT_LEN);
     fixed::<crate::storage::SponsorState>("SponsorState", crate::storage::SponsorState::SPACE);
+    probe::retired(
+        "SourceState",
+        &[crate::instructions::retire::LEGACY_SOURCE_SPACE],
+    );
+    probe::retired(
+        "MatchState",
+        &crate::instructions::retire::LEGACY_MATCH_LENGTHS,
+    );
+    probe::retired(
+        "SeasonState",
+        &crate::instructions::retire::LEGACY_SEASON_LENGTHS,
+    );
+    probe::decode_report();
 }
 
 /// Regression fixture for the real 178 -> 327 custody mismatch; written and read through LiteSVM.
