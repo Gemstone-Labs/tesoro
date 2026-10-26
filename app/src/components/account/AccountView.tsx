@@ -10,7 +10,7 @@ import { Bust, Button, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
 import { RESULTS, historyPage, resultFilter } from "@/lib/chain/history";
-import { backingLine, summaryOfRows, type PlayerAccount } from "@/lib/chain/player-account";
+import { backingLine, summaryOfRows, topGames, type PlayerAccount } from "@/lib/chain/player-account";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
 import { GAME_NAMES } from "@/lib/mock";
 import { AccountHero } from "./AccountHero";
@@ -96,6 +96,7 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
         own={own}
         visitor={visitor}
         s={summary}
+        games={topGames(rows)}
         now={now}
         otherNames={otherNames}
         requests={data.requests}

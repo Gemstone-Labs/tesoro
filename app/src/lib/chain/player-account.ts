@@ -83,6 +83,29 @@ export function playerSummary(played: ChainMatch[]): PlayerSummary {
   return summaryOfRows(rows, finished - rows.length);
 }
 
+/** The most games the Account page lists. */
+export const TOP_GAMES = 3;
+
+/**
+ * The games a Player has a decided Match in, most Matches first (ties: the one played most recently first), at most `max`.
+ * `wins` and `matches` are the Player's record in that game.
+ */
+export function topGames(rows: PlayedRow[], max = TOP_GAMES): { game: GameId; matches: number; wins: number }[] {
+  const by = new Map<GameId, { game: GameId; matches: number; wins: number; latest: number }>();
+  for (const r of rows) {
+    if (r.result !== "won" && r.result !== "lost") continue;
+    const g = by.get(r.game) ?? { game: r.game, matches: 0, wins: 0, latest: 0 };
+    g.matches += 1;
+    if (r.result === "won") g.wins += 1;
+    g.latest = Math.max(g.latest, r.at);
+    by.set(r.game, g);
+  }
+  return [...by.values()]
+    .sort((a, b) => b.matches - a.matches || b.latest - a.latest)
+    .slice(0, max)
+    .map(({ game, matches, wins }) => ({ game, matches, wins }));
+}
+
 /** The summary of finished-Match rows; `notRead` counts Matches whose result could not be read (none, from the history). */
 export function summaryOfRows(rows: PlayedRow[], notRead = 0): PlayerSummary {
   const decided = rows.filter((r) => r.result === "won" || r.result === "lost");

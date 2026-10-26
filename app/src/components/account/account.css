@@ -7,7 +7,7 @@
 .pa-p, .pa-none { color: var(--fg-2); font-size: var(--fs-15); line-height: 1.5; }
 .pa-h { font-size: var(--fs-20); font-weight: 800; }
 
-/* hero: one tall card. The cave banner sits behind the avatar and name; then the facts, the Games and the buttons */
+/* hero: one tall card. The cave banner sits behind the avatar and name; then the facts and the buttons */
 .pa-hero { --edge: var(--edge-1); background: var(--surface); display: grid; gap: 14px; overflow: hidden; padding-bottom: 16px; }
 .pa-top { position: relative; display: grid; align-items: end; min-height: 170px; padding: 20px 16px 16px; overflow: hidden; background: var(--shell); }
 .pa-banner-img { object-fit: cover; object-position: 50% 50%; }
@@ -28,25 +28,6 @@
 .pa-key { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border: 0; background: rgba(9, 13, 15, 0.7); --edge: var(--edge-2); color: var(--fg-2); font-size: var(--fs-13); cursor: pointer; }
 .pa-key:hover { color: var(--fg); background: var(--raised-2); }
 .pa-key svg { width: 14px; height: 14px; }
-
-/* three facts, each in its own cut tile */
-.pa-tiles { margin: 0; padding: 0 16px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.pa-tile { --edge: var(--edge-1); --c: 10px; background: var(--shell); display: grid; align-content: start; gap: 6px; padding: 10px 10px 12px; min-width: 0; }
-.pa-tile dt { display: flex; align-items: center; gap: 5px; font-size: var(--fs-11); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
-.pa-tile dt svg { flex: none; width: 14px; height: 14px; }
-.pa-tile dd { margin: 0; font-size: var(--fs-17); font-weight: 800; line-height: 1.2; }
-.pa-tile dd.pa-quiet { font-size: var(--fs-14); font-weight: 400; display: grid; gap: 2px; }
-.pa-tile dd a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
-.pa-ask { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; color: var(--fg); font-size: var(--fs-14); }
-.pa-tile small { color: var(--fg-2); font-size: var(--fs-13); }
-.pa-quiet { color: var(--fg-2); }
-
-/* the Games */
-.pa-games { list-style: none; margin: 0; padding: 0 16px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.pa-game-tile { --edge: var(--edge-1); --c: 10px; position: relative; display: block; aspect-ratio: 1 / 1.05; overflow: hidden; background: var(--shell); }
-.pa-game-tile img { object-fit: cover; }
-.pa-game-tile::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(6, 9, 12, 0.92) 0%, transparent 55%); }
-.pa-game-tile span { position: absolute; z-index: 1; left: 11px; right: 8px; bottom: 9px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.02em; text-transform: uppercase; line-height: 1.15; }
 
 .pa-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0 16px; }
 .pa-actions > .btn, .pa-actions .af > .btn { min-height: 48px; width: 100%; justify-content: center; }
@@ -203,12 +184,7 @@
   .pa-id { gap: 24px; }
   .pa-avatar { width: 140px; height: 140px; --c: 24px; }
   .pa-who .page-title { font-size: clamp(38px, 4vw, 56px); }
-  .pa-tiles, .pa-games, .pa-actions { padding-inline: 32px; gap: 12px; }
-  .pa-tile { padding: 14px 16px 16px; }
-  .pa-tile dd { font-size: var(--fs-20); }
-  .pa-tile dd.pa-quiet { font-size: var(--fs-15); }
-  .pa-game-tile span { left: 16px; bottom: 12px; font-size: var(--fs-14); }
-  .pa-game-tile { aspect-ratio: 1.45 / 1; }
+  .pa-actions { padding-inline: 32px; gap: 12px; }
   .pa-prot > .pa-lab, .pa-recent > header { padding: 16px 24px 10px; }
   .pa-prot-row, .pa-recent-row { padding-inline: 24px; }
 }
@@ -226,11 +202,7 @@
   .pa-recent-game { width: 36px; height: 36px; }
   .pa-recent-opp { width: 32px; height: 32px; }
 }
-@media (max-width: 400px) {
-  .pa-game-tile span { font-size: 9.5px; letter-spacing: 0; }
-}
 @media (max-width: 380px) {
-  .pa-tile dt { font-size: 10px; letter-spacing: 0.04em; }
   .pa-recent-opp { display: none; }
   .pa-recent-row { grid-template-columns: 56px 36px minmax(0, 1fr) auto 24px; }
 }
@@ -262,18 +234,13 @@
 .ep-wallet small { overflow-wrap: anywhere; }
 .ep-wallet input { width: 18px; height: 18px; accent-color: var(--fg); flex: none; }
 .ns { padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--line); }
-/* "Not asking now" and its link stack as two lines in the tile, so no dot sits between them */
 
-/* ——— Facts between the name and the buttons (temporary takes a-d) ——— */
+/* ——— Facts between the name and the buttons: Record and Win rate, the games played most, Backing only while asking ——— */
 .pa-facts { display: grid; gap: 12px; padding: 4px 16px 0; }
-.pa-line { font-size: var(--fs-16); font-weight: 600; }
-.pa-line i { font-style: normal; color: var(--fg-2); margin-inline: 4px; }
-.pa-line-new { color: var(--fg-2); font-weight: 500; }
 .pa-ask-row { --edge: var(--edge-2); --c: 10px; background: var(--shell); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; margin: 0; }
 .pa-ask-row b { display: block; font-size: var(--fs-15); }
 .pa-ask-meta { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-2); font-size: var(--fs-13); }
 .pa-ask-row a { flex: none; color: var(--fg); font-weight: 700; font-size: var(--fs-14); text-decoration: underline; text-underline-offset: 3px; }
-/* b */
 .pa-big2 { margin: 0; display: grid; grid-template-columns: 1fr 1fr; border-block: 1px solid var(--line-2); }
 .pa-big2 > div { padding: 12px 0; display: grid; gap: 2px; }
 .pa-big2 > div + div { border-left: 1px solid var(--line-2); padding-left: 16px; }
@@ -283,23 +250,6 @@
 .pa-gl { list-style: none; margin: 0; padding: 0; display: grid; }
 .pa-gl li { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 44px; font-size: var(--fs-16); }
 .pa-gl li + li { border-top: 1px solid var(--line); }
-.pa-gl img, .pa-icons img { object-fit: cover; clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px); }
+.pa-gl img { object-fit: cover; clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px); }
 .pa-gl b { font-size: var(--fs-16); font-variant-numeric: tabular-nums; }
-/* c */
-.pa-rule { margin: 0; display: grid; grid-template-columns: 1fr 1.4fr; border-block: 1px solid var(--line-2); }
-.pa-rule > div { padding: 10px 0; display: grid; gap: 2px; }
-.pa-rule > div + div { border-left: 1px solid var(--line-2); padding-left: 16px; }
-.pa-rule dt { font-size: var(--fs-12); color: var(--fg-2); }
-.pa-rule dd { margin: 0; font-size: var(--fs-17); font-weight: 700; }
-.pa-icons { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 14px 18px; }
-.pa-icons li { display: grid; justify-items: center; gap: 6px; width: 76px; font-size: var(--fs-13); text-align: center; line-height: 1.2; }
-/* d */
-.pa-bar { display: grid; gap: 10px; }
-.pa-bar-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-.pa-bar-top b { font-size: var(--fs-20); }
-.pa-bar-top span { color: var(--fg-2); font-size: var(--fs-14); }
-.pa-bar-track { display: block; height: 8px; background: rgba(255, 255, 255, 0.09); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
-.pa-bar-track i { display: block; height: 100%; background: var(--fg); }
-.pa-bar-games { color: var(--fg); font-size: var(--fs-15); }
-.pa-bar-games span { color: var(--fg-2); }
 @media (min-width: 640px) { .pa-facts { padding-inline: 32px; } }

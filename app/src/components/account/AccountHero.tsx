@@ -12,6 +12,7 @@ import { art } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
 import type { ChainRequest } from "@/lib/chain/backing";
 import type { PlayerSummary } from "@/lib/chain/player-account";
+import type { GameId } from "@/lib/mock";
 import type { NameSuffix } from "@/lib/identity/display";
 import { setEditProfileOpen } from "@/lib/identity/edit-profile";
 
@@ -20,6 +21,8 @@ interface Props {
   own: boolean;
   visitor: boolean;
   s: PlayerSummary;
+  /** The games listed under the facts (`topGames`). */
+  games: { game: GameId; matches: number; wins: number }[];
   now: number;
   /** Registry names the title does not already show. */
   otherNames: { suffix: NameSuffix; name: string }[];
@@ -33,7 +36,7 @@ interface Props {
  * facts (Playing since, Record, Backing), the Games, then the buttons: Edit profile and Friend link
  * on your own Account, Challenge and Add friend on anyone else's.
  */
-export function AccountHero({ address, own, visitor, s, now, otherNames, requests, onChallenge }: Props) {
+export function AccountHero({ address, own, visitor, s, games, now, otherNames, requests, onChallenge }: Props) {
   const [copied, setCopied] = useState(false);
   const copyKey = () => {
     void navigator.clipboard?.writeText(address).then(() => {
@@ -82,7 +85,7 @@ export function AccountHero({ address, own, visitor, s, now, otherNames, request
         </div>
       </div>
 
-      <AccountFacts s={s} now={now} visitor={visitor} requests={requests} />
+      <AccountFacts s={s} games={games} now={now} visitor={visitor} requests={requests} />
 
       <div className="pa-actions">
         {own ? (
