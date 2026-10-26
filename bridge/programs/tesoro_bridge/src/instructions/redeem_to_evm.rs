@@ -91,6 +91,7 @@ impl RedeemToEvm<'_> {
             ctx.accounts.core_position.inner.source_chain != SourceChain::Solana,
             BridgeError::NotBridgedPosition
         );
+        require_normalised_units(ctx.accounts.core_position.inner.decimals)?;
         let before = &ctx.accounts.core_source.inner;
         let (units_before, fee_before, pool_before) =
             (before.redeemed_units, before.fee_units, before.pool_units);
@@ -148,4 +149,12 @@ pub fn chain_byte(chain: SourceChain) -> u8 {
         SourceChain::Ethereum => 1,
         SourceChain::HyperEvm => 2,
     }
+}
+
+/// A Position opened before units were normalised holds wei (18 decimals), which `send_pay_yield`
+/// refuses to pay. Redeeming it would burn the Gemas and book a Claim that can never be paid, so
+/// the redeem paths refuse it first. Current bridged Positions never exceed `CORE_DECIMALS`.
+pub fn require_normalised_units(position_decimals: u8) -> Result<()> {
+    require!(position_decimals <= CORE_DECIMALS, BridgeError::LegacyUnits);
+    Ok(())
 }

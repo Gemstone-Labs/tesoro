@@ -95,6 +95,7 @@ impl RedeemTreasuryToEvm<'_> {
             ctx.accounts.core_position.inner.source_chain != SourceChain::Solana,
             BridgeError::NotBridgedPosition
         );
+        require_normalised_units(ctx.accounts.core_position.inner.decimals)?;
         let before = &ctx.accounts.core_source.inner;
         let (units_before, fee_before, pool_before) =
             (before.redeemed_units, before.fee_units, before.pool_units);

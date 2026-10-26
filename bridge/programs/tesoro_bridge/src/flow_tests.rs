@@ -1354,6 +1354,86 @@ fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
 }
 
 #[test]
+fn a_legacy_wei_line_is_refused_before_redeem_or_treasury_redeem_burns_anything() {
+    let mut env = Env::new();
+    let id = 1;
+    env.opened_with_advance(id);
+    let (bob, bob_account, source) = env.winner_with(id, 1_000);
+    env.receive_yield(id, 2, 12_500_000_000_000_000, ETH, 0);
+    env.sync_treasury(id).expect("sync");
+    env.request_instant(id, &bob, bob_account, source, 400, 1).expect("order");
+    env.fill_instant(id, &bob, bob_account, source, 1, 400).expect("fill 400");
+    env.apply_yield(id, true).expect("apply yield");
+
+    // The Position was opened before units were normalised: it holds wei (18 decimals).
+    let position_key = env.core_position(id);
+    let mut position: PositionState = env.load(position_key);
+    position.inner.decimals = 18;
+    env.put(position_key, tesoro_core::ID, &position);
+
+    let bob_claim = bridge_pda(&[CLAIM_SEED, bob_account.as_ref(), source.as_ref()]);
+    let mut redeem = ix(
+        crate::ID,
+        crate::accounts::RedeemToEvm {
+            holder_authority: a(bob.pubkey()),
+            store: env.store,
+            authority: env.authority,
+            core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+            holder_account: bob_account,
+            core_position: position_key,
+            core_source: source,
+            core_basket: basket_address(&bob_account).0,
+            core_spill: spill_address(&bob_account).0,
+            claim: bob_claim,
+            core_program: tesoro_core::ID,
+            system_program: anchor_lang::system_program::ID,
+        },
+        crate::instruction::RedeemToEvm {
+            line: env.line_ref(bob_account, source, SIDE_WON),
+            gemas: 600,
+        },
+    );
+    redeem.accounts.extend(econ::book_metas(&env.svm, source));
+    let before = econ::gemas_in(&env.svm, bob_account, source);
+    let err = env.send(&[redeem], &bob, &[]).expect_err("legacy line refused");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::LegacyUnits)));
+    assert_eq!(econ::gemas_in(&env.svm, bob_account, source), before, "nothing burned");
+    assert!(!env.exists(bob_claim), "no Claim booked");
+
+    let payer = env.admin.insecure_clone();
+    let treasury_account = core_treasury_account();
+    let treasury_claim = bridge_pda(&[CLAIM_SEED, treasury_account.as_ref(), source.as_ref()]);
+    let mut treasury = ix(
+        crate::ID,
+        crate::accounts::RedeemTreasuryToEvm {
+            payer: a(payer.pubkey()),
+            store: env.store,
+            authority: env.authority,
+            core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+            core_treasury: core_pda(&[TREASURY_SEED]),
+            core_treasury_account: treasury_account,
+            core_treasury_basket: basket_address(&treasury_account).0,
+            core_treasury_spill: spill_address(&treasury_account).0,
+            core_position: position_key,
+            core_source: source,
+            claim: treasury_claim,
+            core_program: tesoro_core::ID,
+            system_program: anchor_lang::system_program::ID,
+        },
+        crate::instruction::RedeemTreasuryToEvm {
+            line: env.line_ref(treasury_account, source, SIDE_WON),
+            gemas: 400,
+        },
+    );
+    treasury.accounts.extend(econ::book_metas(&env.svm, source));
+    let before = econ::gemas_in(&env.svm, treasury_account, source);
+    let err = env.send(&[treasury], &payer, &[]).expect_err("legacy line refused");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::LegacyUnits)));
+    assert_eq!(econ::gemas_in(&env.svm, treasury_account, source), before, "nothing burned");
+    assert!(!env.exists(treasury_claim), "no Claim booked");
+}
+
+#[test]
 fn an_order_with_repaid_gemas_is_not_filled_through_the_bridge() {
     let mut env = Env::new();
     let id = 1;
