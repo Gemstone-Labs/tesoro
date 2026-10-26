@@ -95,6 +95,40 @@ export function GamePicker({ games, value, onChange, name }: { games: GameId[]; 
   );
 }
 
+/**
+ * A two-way (or n-way) view switch as one cut rail: the chosen option is a lit steel piece. For views of the same page, such as
+ * Requests / My Backings; it moves no Gemas, so it is never emerald. A radio group, so arrow keys move the choice; each option is 44px tall.
+ */
+export function Segmented<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+  name,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: ReactNode }[];
+  /** What the switch chooses, for screen readers. */
+  label: string;
+  name?: string;
+}) {
+  const auto = useId();
+  const group = name ?? auto;
+  return (
+    <fieldset className="cut pick-rail segmented" style={{ ["--i" as string]: Math.max(0, options.findIndex((o) => o.value === value)), ["--n" as string]: options.length }}>
+      <legend className="sr-only">{label}</legend>
+      <span className="pick-thumb" aria-hidden="true" />
+      {options.map((o) => (
+        <label key={o.value} className="seg">
+          <input type="radio" name={group} value={o.value} checked={value === o.value} onChange={() => onChange(o.value)} />
+          <span className="cut">{o.label}</span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
 /** Radio group over the entry ladder, as a rail: an emerald piece slides to the chosen entry. */
 export function EntryPicker({
   value,

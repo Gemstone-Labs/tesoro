@@ -20,6 +20,7 @@ import {
   Slider,
   XIcon,
   Select,
+  Segmented,
 } from "@/components/ui";
 import { PlayerName } from "@/components/account/Player";
 import { useGuideTip } from "@/components/guide/Guide";
@@ -297,12 +298,8 @@ export default function Backing() {
       <div className={`bk-body${offerFor ? " with-drawer" : ""}`}>
         <div className="bk-main">
           <div className="bk-bar">
-            <div className="bk-tabs" role="tablist" aria-label="Backing">
-              {tabs.map(([id, label]) => (
-                <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>
-                  {label}
-                </button>
-              ))}
+            <div className="bk-tabs">
+              <Segmented label="Backing view" value={tab} onChange={setTab} options={tabs.map(([value, label]) => ({ value, label }))} />
             </div>
             <div className="bk-tools">
               <div className="cut cut-card bk-sort sel-host">

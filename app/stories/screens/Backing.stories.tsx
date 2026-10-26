@@ -70,7 +70,7 @@ const board =
 const MY_REQUEST = request(931, "holdem", 1000);
 
 const tab = (name: string): Story["play"] => async ({ canvasElement }) => {
-  await userEvent.click(await within(canvasElement).findByRole("tab", { name }));
+  await userEvent.click(await within(canvasElement).findByRole("radio", { name: new RegExp(`^${name}`) }));
 };
 const press = (name: string): Story["play"] => async ({ canvasElement }) => {
   await userEvent.click(await within(canvasElement).findByRole("button", { name }));
