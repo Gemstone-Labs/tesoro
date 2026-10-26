@@ -342,6 +342,20 @@ impl<T: AsRef<[u8]>> LineStore<T> {
         (idx < self.len()).then(|| Line::decode(self.line_raw(idx)))
     }
 
+    /// Read the cursor's quantity without decoding the Line's accounting snapshots.
+    pub fn amount_at(&self, idx: usize) -> Option<u64> {
+        (idx < self.len()).then(|| u64::from_le_bytes(arr(&self.line_raw(idx)[43..51])))
+    }
+
+    /// Exact existing bytes of a used slot, before a settlement operation mutates it.
+    pub fn snapshot(&self, idx: usize) -> Option<[u8; LINE_LEN]> {
+        (idx < self.len()).then(|| {
+            let mut bytes = [0; LINE_LEN];
+            bytes.copy_from_slice(self.line_raw(idx));
+            bytes
+        })
+    }
+
     pub fn key_at(&self, idx: usize) -> Option<LineKey> {
         (idx < self.len()).then(|| Line::decode_key(self.line_raw(idx)))
     }

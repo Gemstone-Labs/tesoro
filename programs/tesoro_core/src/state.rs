@@ -1184,6 +1184,74 @@ pub struct MatchChunkDone {
     pub blocked: bool,
     /// Credits this chunk wrote into overflow records instead of the Accounts' stores.
     pub overflowed: u32,
+    /// Appended versioned Source-line stream; the preceding legacy prefix is unchanged.
+    pub record_version: u8,
+    /// Zero only for a closed, zero-work retry. Otherwise the first durable step in `lines`.
+    pub first_step: u32,
+    /// Bounded by MAX_CHUNK_STEPS; never the whole unbounded Pot.
+    pub lines: Vec<ledger::lifecycle::SettlementLine>,
+}
+
+/// Versioned manifest for the full Source-line stream. Older in-flight Matches without it remain incomplete.
+#[event]
+pub struct MatchLinesStarted {
+    pub opener: Pubkey,
+    pub n: u64,
+    pub version: u8,
+    pub pot_lines: [u32; 2],
+    pub studio_owner: Pubkey,
+    pub studio_priority: bool,
+}
+
+#[cfg(test)]
+mod settlement_line_event_tests {
+    use super::*;
+    use anchor_lang::Event;
+
+    #[test]
+    fn each_line_record_fits_a_small_cpi_and_roundtrips_losslessly() {
+        let line = ledger::lifecycle::SettlementLine {
+            pot_side: 1,
+            pot_index_le: 4095u32.to_le_bytes(),
+            purpose: 1,
+            incoming: [0xfe; ledger::line_store::LINE_LEN],
+            outgoing: [0xfd; ledger::line_store::LINE_LEN],
+            recipient_kind: 0,
+            recipient: [9; 32],
+            placement: 2,
+        };
+        let event = MatchChunkDone {
+            opener: Pubkey::new_from_array([7; 32]),
+            n: u64::MAX,
+            record_version: 1,
+            chunk_no: 12,
+            first_step: u32::MAX - 1,
+            steps: 2,
+            done: true,
+            blocked: false,
+            overflowed: 1,
+            lines: vec![line, line],
+        };
+        let data = event.data();
+        assert_eq!(
+            std::mem::size_of::<ledger::lifecycle::SettlementLine>(),
+            328
+        );
+        assert_eq!(
+            event.lines[0].try_to_vec().expect("Borsh line"),
+            bytemuck::bytes_of(&event.lines[0])
+        );
+        assert_eq!(&data[67..71], &2u32.to_le_bytes());
+        assert_eq!(&data[71..], bytemuck::cast_slice::<_, u8>(&event.lines));
+        assert!(
+            8 + data.len() < 10240,
+            "bounded event-CPI payload stays far below Solana's 10 KiB CPI limit"
+        );
+        let decoded = MatchChunkDone::deserialize(&mut &data[8..]).expect("event bytes");
+        assert_eq!(decoded.n, u64::MAX);
+        assert_eq!(decoded.first_step, u32::MAX - 1);
+        assert_eq!(decoded.lines, event.lines);
+    }
 }
 
 /// A join found the Game's outside studio with full stores and a Pot too big for a capped overflow

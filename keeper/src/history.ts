@@ -67,7 +67,7 @@ export function historyRpc(env: NodeJS.ProcessEnv = process.env, fetchFn: typeof
 /** Writes the Match records to the history tables. `detail` supplies what core's records do not carry (Block Burst scores). */
 export const databaseSink = (rpc: Rpc, detail?: (matchKey: string) => MatchDetail | undefined): Sink => async (tx) => {
   if (!tx.records.length) return;
-  await ingestMatchRecords(rpc, tx.records, { signature: tx.signature, slot: tx.slot, blockTime: tx.blockTime ?? undefined, gameOf: (p) => gameOfProgram(new PublicKey(p)), detail });
+  await ingestMatchRecords(rpc, tx.records, { signature: tx.signature, slot: tx.slot, blockTime: tx.blockTime ?? undefined, finalized: tx.finalized, gameOf: (p) => gameOfProgram(new PublicKey(p)), detail });
 };
 
 /** Run starts the notify job has yet to announce, newest last. Capped: a long outage must not hold memory. */

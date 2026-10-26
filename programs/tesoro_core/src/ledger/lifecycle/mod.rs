@@ -364,6 +364,78 @@ pub struct ChunkReport {
     /// A step could not proceed (room or a missing book). Nothing was skipped; retry after
     /// fixing it.
     pub blocked: Option<LifecycleError>,
+    /// Successful steps before this chunk; records are numbered from this value plus one.
+    pub prior_steps: u32,
+    /// One raw incoming Pot snapshot and outgoing credit per successful step. Never persisted in MatchState.
+    pub lines: Vec<SettlementLine>,
+}
+
+/// A bounded settlement event record. Raw Line bytes preserve every integer and snapshot without materializing yield.
+#[repr(C)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    AnchorSerialize,
+    AnchorDeserialize,
+    bytemuck::Pod,
+    bytemuck::Zeroable,
+)]
+pub struct SettlementLine {
+    pub pot_side: u8,
+    pub pot_index_le: [u8; 4],
+    /// 0/1/2 = Platform/Studio/Leaderboard fee; 3 = entry return; 4 = winning surplus.
+    pub purpose: u8,
+    pub incoming: [u8; super::line_store::LINE_LEN],
+    pub outgoing: [u8; super::line_store::LINE_LEN],
+    /// 0 = Account; 1 = the outgoing Source's counter for its class.
+    pub recipient_kind: u8,
+    pub recipient: Key,
+    /// 0 = basket, 1 = spill, 2 = overflow, 3 = Source counter, 255 = fee placement not reported.
+    pub placement: u8,
+}
+
+struct Credit {
+    line: Line,
+    owner: Option<Key>,
+    placement: u8,
+}
+
+fn placement(p: Placed) -> u8 {
+    match p {
+        Placed::Basket => 0,
+        Placed::Spill => 1,
+        Placed::Overflow => 2,
+    }
+}
+
+impl SettlementLine {
+    pub fn pot_index(&self) -> u32 {
+        u32::from_le_bytes(self.pot_index_le)
+    }
+    #[inline(always)]
+    fn new(
+        side: u8,
+        index: u32,
+        purpose: u8,
+        before: [u8; super::line_store::LINE_LEN],
+        credit: Credit,
+    ) -> Self {
+        let mut after = [0u8; super::line_store::LINE_LEN];
+        credit.line.encode(&mut after);
+        Self {
+            pot_side: side,
+            pot_index_le: index.to_le_bytes(),
+            purpose,
+            incoming: before,
+            outgoing: after,
+            recipient_kind: u8::from(credit.owner.is_none()),
+            recipient: credit.owner.unwrap_or(credit.line.source),
+            placement: credit.placement,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -818,17 +890,23 @@ impl MatchRecord {
                     steps: 0,
                     done: true,
                     blocked: None,
+                    prior_steps: self.run.as_ref().map_or(0, |r| r.steps),
+                    lines: Vec::new(),
                 })
             }
             Stage::Settling | Stage::Refunding => {}
         }
         let mut steps = 0u32;
+        let prior_steps = self.run.as_ref().map_or(0, |r| r.steps);
+        let mut lines = Vec::with_capacity(max_steps.min(12) as usize);
         let mut blocked = None;
         let mut done = false;
         while steps < max_steps {
-            match self.step(pots, w) {
-                Ok(Stepped::Did) => steps += 1,
-                Ok(Stepped::Finished) => {
+            match self.step(pots, w, &mut lines) {
+                Ok(true) => {
+                    steps += 1;
+                }
+                Ok(false) => {
                     done = true;
                     break;
                 }
@@ -862,6 +940,8 @@ impl MatchRecord {
             steps,
             done,
             blocked,
+            prior_steps,
+            lines,
         })
     }
 
@@ -882,18 +962,20 @@ impl MatchRecord {
         })
     }
 
+    #[inline(always)]
     fn step<B: PotBacking>(
         &mut self,
         pots: &mut Pots<B>,
         w: &mut dyn Settlement,
-    ) -> LcResult<Stepped> {
+        lines: &mut Vec<SettlementLine>,
+    ) -> LcResult<bool> {
         let Self {
             run, a, b, terms, ..
         } = self;
         let run = run.as_mut().ok_or(LifecycleError::Inconsistent("no run"))?;
         loop {
             let Some(phase) = run.phase() else {
-                return Ok(Stepped::Finished);
+                return Ok(false);
             };
             match phase {
                 Phase::Cuts(side) => {
@@ -905,26 +987,37 @@ impl MatchRecord {
                     let p = pot_of(pots, side)?;
                     let n = p.len();
                     let mut at = run.line_i as usize;
-                    while at < n && p.get(at).is_none_or(|l| l.amount == 0) {
+                    while at < n && p.store().amount_at(at).is_none_or(|amount| amount == 0) {
                         at += 1;
                     }
-                    run.line_i = at as u32;
-                    let Some(orig) = p.get(at) else {
+                    run.line_i = u32::try_from(at).map_err(|_| LifecycleError::Math)?;
+                    let Some(amount) = p.store().amount_at(at) else {
                         return Err(LifecycleError::Inconsistent("fees exceed the Pot's lines"));
                     };
-                    let k = orig.amount.min(run.cut_left[side as usize][class]);
-                    cut_step(p, at, terms, w, class as u8, k)?;
+                    let k = amount.min(run.cut_left[side as usize][class]);
+                    let before = p
+                        .store()
+                        .snapshot(at)
+                        .ok_or(LifecycleError::Inconsistent("line snapshot vanished"))?;
+                    let credit = cut_step(p, at, terms, w, class as u8, k)?;
                     run.cut_left[side as usize][class] -= k;
-                    return Ok(Stepped::Did);
+                    lines.push(SettlementLine::new(
+                        side,
+                        run.line_i,
+                        class as u8,
+                        before,
+                        credit,
+                    ));
+                    return Ok(true);
                 }
                 Phase::Back(side) | Phase::Surplus { from: side, .. } => {
                     let p = pot_of(pots, side)?;
                     let n = p.len();
                     let mut at = run.line_i as usize;
-                    while at < n && p.get(at).is_none_or(|l| l.amount == 0) {
+                    while at < n && p.store().amount_at(at).is_none_or(|amount| amount == 0) {
                         at += 1;
                     }
-                    run.line_i = at as u32;
+                    run.line_i = u32::try_from(at).map_err(|_| LifecycleError::Math)?;
                     if at >= n {
                         run.enter_next_phase();
                         continue;
@@ -932,23 +1025,41 @@ impl MatchRecord {
                     let orig = p
                         .get(at)
                         .ok_or(LifecycleError::Inconsistent("line vanished"))?;
-                    match phase {
+                    let before = p
+                        .store()
+                        .snapshot(at)
+                        .ok_or(LifecycleError::Inconsistent("line snapshot vanished"))?;
+                    let (purpose, credit) = match phase {
                         Phase::Back(_) => {
                             let party = if side == 0 { Some(*a) } else { *b };
                             let owner = party
                                 .ok_or(LifecycleError::Inconsistent("no party"))?
                                 .funder;
-                            w.credit(&owner, &orig)?;
+                            let placed = w.credit(&owner, &orig)?;
                             p.set(at, &emptied(&orig))?;
+                            (
+                                3,
+                                Credit {
+                                    line: orig,
+                                    owner: Some(owner),
+                                    placement: placement(placed),
+                                },
+                            )
                         }
                         Phase::Surplus { to, .. } => {
                             let winner = if to == 0 { Some(*a) } else { *b }
                                 .ok_or(LifecycleError::Inconsistent("no winner"))?;
-                            surplus_step(p, at, &mut run.player_left, w, &winner, &orig)?;
+                            (
+                                4,
+                                surplus_step(p, at, &mut run.player_left, w, &winner, &orig)?,
+                            )
                         }
                         Phase::Cuts(_) => unreachable!(),
-                    }
-                    return Ok(Stepped::Did);
+                    };
+                    lines.push(SettlementLine::new(
+                        side, run.line_i, purpose, before, credit,
+                    ));
+                    return Ok(true);
                 }
             }
         }
@@ -973,11 +1084,6 @@ impl MatchRecord {
     }
 }
 
-enum Stepped {
-    Did,
-    Finished,
-}
-
 fn pot_of<B: PotBacking>(pots: &mut Pots<B>, side: u8) -> LcResult<&mut PotPages<B>> {
     pots[(side & 1) as usize]
         .as_mut()
@@ -999,7 +1105,7 @@ fn cut_step<B: PotBacking>(
     w: &mut dyn Settlement,
     class: u8,
     k: u64,
-) -> LcResult<()> {
+) -> LcResult<Credit> {
     let orig = p
         .get(at)
         .ok_or(LifecycleError::Inconsistent("cut line vanished"))?;
@@ -1034,7 +1140,11 @@ fn cut_step<B: PotBacking>(
         src.uncovered = 0;
     }
     p.set(at, &src)?;
-    Ok(())
+    Ok(Credit {
+        line: dst,
+        owner,
+        placement: if owner.is_none() { 3 } else { 255 },
+    })
 }
 
 /// Moves `k` Gemas of the Pot line at `at` to `to` as ordinary won Gemas (the whole line, or a part).
@@ -1045,13 +1155,17 @@ fn pay_plain<B: PotBacking>(
     to: &Key,
     orig: &Line,
     k: u64,
-) -> LcResult<()> {
+) -> LcResult<Credit> {
     if k == orig.amount {
         let mut won = *orig;
         won.side = SIDE_WON;
-        w.credit(to, &won)?;
+        let placed = w.credit(to, &won)?;
         p.set(at, &emptied(orig))?;
-        return Ok(());
+        return Ok(Credit {
+            line: won,
+            owner: Some(*to),
+            placement: placement(placed),
+        });
     }
     w.books().snapshot(&orig.source)?;
     let mut rest = *orig;
@@ -1061,12 +1175,19 @@ fn pay_plain<B: PotBacking>(
         let (book, history) = w.books().book_with_history(&orig.source)?;
         book.transfer(&mut rest, &mut part, k, &*history)?;
     }
-    if let Err(e) = w.credit(to, &part) {
-        w.books().rollback(&orig.source)?;
-        return Err(e);
-    }
+    let placed = match w.credit(to, &part) {
+        Ok(p) => p,
+        Err(e) => {
+            w.books().rollback(&orig.source)?;
+            return Err(e);
+        }
+    };
     p.set(at, &rest)?;
-    Ok(())
+    Ok(Credit {
+        line: part,
+        owner: Some(*to),
+        placement: placement(placed),
+    })
 }
 
 fn surplus_step<B: PotBacking>(
@@ -1076,23 +1197,32 @@ fn surplus_step<B: PotBacking>(
     w: &mut dyn Settlement,
     winner: &Party,
     orig: &Line,
-) -> LcResult<()> {
+) -> LcResult<Credit> {
     let mut won = *orig;
     won.side = SIDE_WON;
     if !winner.is_backed() {
-        w.credit(&winner.player, &won)?;
+        let placed = w.credit(&winner.player, &won)?;
         p.set(at, &emptied(orig))?;
-        return Ok(());
+        return Ok(Credit {
+            line: won,
+            owner: Some(winner.player),
+            placement: placement(placed),
+        });
     }
     if *player_left == 0 {
-        w.credit(&winner.funder, &won)?;
+        let placed = w.credit(&winner.funder, &won)?;
         p.set(at, &emptied(orig))?;
-        return Ok(());
+        return Ok(Credit {
+            line: won,
+            owner: Some(winner.funder),
+            placement: placement(placed),
+        });
     }
     let take = (*player_left).min(orig.amount);
-    if take == orig.amount {
-        w.credit(&winner.player, &won)?;
+    let (line, placed) = if take == orig.amount {
+        let placed = w.credit(&winner.player, &won)?;
         p.set(at, &emptied(orig))?;
+        (won, placed)
     } else {
         w.books().snapshot(&orig.source)?;
         let mut rest = *orig;
@@ -1102,14 +1232,22 @@ fn surplus_step<B: PotBacking>(
             let (book, history) = w.books().book_with_history(&orig.source)?;
             book.transfer(&mut rest, &mut part, take, &*history)?;
         }
-        if let Err(e) = w.credit(&winner.player, &part) {
-            w.books().rollback(&orig.source)?;
-            return Err(e);
-        }
+        let placed = match w.credit(&winner.player, &part) {
+            Ok(p) => p,
+            Err(e) => {
+                w.books().rollback(&orig.source)?;
+                return Err(e);
+            }
+        };
         p.set(at, &rest)?;
-    }
+        (part, placed)
+    };
     *player_left -= take;
-    Ok(())
+    Ok(Credit {
+        line,
+        owner: Some(winner.player),
+        placement: placement(placed),
+    })
 }
 
 #[cfg(test)]

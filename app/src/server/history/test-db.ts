@@ -2,12 +2,13 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import type { Rpc } from "./rpc";
 
-const MIGRATIONS = ["0010_match_history.sql", "0013_match_end_states.sql", "0015_match_history_chunks.sql"].map((f) => new URL(`../../../supabase/migrations/${f}`, import.meta.url));
+const MIGRATIONS = ["0010_match_history.sql", "0013_match_end_states.sql", "0015_match_history_chunks.sql", "0016_match_source_lines.sql"].map((f) => new URL(`../../../supabase/migrations/${f}`, import.meta.url));
 
-/** A throwaway in-process Postgres (pglite) with migrations 0010 and 0013 applied, called the way the app calls Supabase. */
+/** A throwaway in-process Postgres with the current history migrations, called the way the app calls Supabase. */
 export async function testDb(): Promise<{ rpc: Rpc; sql: PGlite }> {
   const sql = new PGlite();
-  await sql.exec("create role anon; create role authenticated;");
+  // Supabase's trusted server role bypasses RLS; anon/authenticated do not.
+  await sql.exec("create role anon; create role authenticated; create role service_role bypassrls;");
   for (const m of MIGRATIONS) await sql.exec("begin;\n" + readFileSync(m, "utf8") + "\ncommit;");
   const rpc: Rpc = async (fn, args) => {
     const names = Object.keys(args);
