@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 """Read-only, fail-closed layout preflight. Rust probes supply SPACE; no hand-copied account lengths.
 
+Devnet state is disposable (founder, 2026-10-25). The run FAILS only for accounts the current
+programs read at an address they derive themselves (CURRENT_STATE: Config, custody, Treasury, tables...)
+whose size or version is wrong, and for account types nobody classified. A mismatched per-user or
+per-match record (LEGACY_OK) and an unknown discriminator are "legacy, skipped": counted by type,
+never migrated, retired by the admin-only retire instructions instead. The 178 B native custody
+against 327 B stays a failure because custody is CURRENT_STATE.
+
 collect must follow the SBF build (build-programs.sh invokes it). A manifest binds Rust inputs,
 IDL and built ELF. check scans every owned account, including unknown/old discriminators.
-No migration is performed or silently exempted. Delegated accounts need a separate rollup snapshot.
+No migration is performed. Delegated rollup accounts are not scanned.
 """
 import argparse
 import base64
@@ -18,6 +25,36 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 PROGRAMS = ('tesoro_core', 'sim_lst', 'block_puzzle', 'holdem', 'trading_duel', 'vanguard', 'tesoro_bridge')
+
+
+# Accounts the programs find by deriving their address (no caller-supplied record): a wrong size
+# here is misread by live code, so it fails the run. Every probe type must appear in exactly one set.
+CURRENT_STATE = {
+    'tesoro_core': {'Config', 'EconomyConfig', 'NativeCustody', 'StakeConfig', 'StakeCustody', 'Treasury', 'InviteGate',
+                    'PriceFeed', 'OnchainPrice', 'PoolReservationsState', 'SponsorState', 'PrizeSourceState'},
+    'sim_lst': {'Pool', 'YieldConfig'},
+    'block_puzzle': {'TableConfig', 'Sponsor', 'Fuel', 'Assignment', 'Table', 'Vault'},
+    'holdem': {'TableConfig', 'Sponsor', 'Fuel', 'Assignment', 'Table'},
+    'trading_duel': {'TableConfig', 'Sponsor', 'Fuel', 'Assignment', 'Table'},
+    'vanguard': {'VanguardConfig', 'TableConfig', 'Sponsor', 'Fuel', 'Assignment', 'Table'},
+    'tesoro_bridge': {'PeerConfig', 'VaultRoute', 'Store', 'LzReceiveTypesAccounts'},
+}
+# Per-user, per-match, per-game-round records reached through an address the caller supplies. An old
+# one fails to decode or is skipped; it is retired, never migrated.
+LEGACY_OK = {
+    'tesoro_core': {'TicketHead', 'GameRecord', 'PairState', 'SeasonState', 'SourceAuthority', 'TesoroAccount', 'PositionState',
+                    'SourceState', 'AccountCounters', 'MatchState', 'SettlementReceipt', 'RequestState', 'OfferState',
+                    'InstantOrderState', 'ExtendLimitState', 'ProtectionsState', 'Profile', 'BasketHead', 'SpillHead',
+                    'OverflowHead', 'SourceBookHead', 'CkptHead'},
+    'sim_lst': {'FaucetClaim'},
+    'block_puzzle': {'Board'},
+    'holdem': {'Hole'},
+    'trading_duel': {'Book'},
+    'vanguard': {'Battle', 'Army'},
+    'tesoro_bridge': {'Batch', 'BridgePosition', 'Claim', 'InstantClaim', 'EvmLink', 'PayoutRecord', 'VaultTreasury'},
+}
+# Config grows in place: its admin instructions `realloc` it to SPACE, so a shorter one still decodes.
+GROWS_IN_PLACE = {('tesoro_core', 'Config')}
 
 
 def sha(path):
@@ -75,6 +112,10 @@ def collect(name, metadata_only=False):
     # Conversely unchecked zero-copy accounts need not appear in its IDL. Own Rust declarations are authoritative.
     if not rows or not program_id or set(actual) != declared or (expected is not None and any(actual[n] != expected[n] for n in actual.keys() & expected.keys())):
         raise ValueError(f'{name}: probe/source/IDL account coverage differs; add every new account type to its Rust probe')
+    unclassified = set(actual) - CURRENT_STATE[name] - LEGACY_OK[name]
+    overlap = CURRENT_STATE[name] & LEGACY_OK[name]
+    if unclassified or overlap:
+        raise ValueError(f'{name}: classify account types in CURRENT_STATE or LEGACY_OK (exactly one): {sorted(unclassified | overlap)}')
     if before != fingerprint():
         raise ValueError('Sources changed during probe; restart collection')
     if doc and doc['address'] != program_id:
@@ -99,19 +140,47 @@ def classify(data, layouts):
     return row['type'], expected, 'ok'
 
 
-def summarize(accounts, layouts):
+def disposition(program, typ, verdict, size, row_base=None):
+    """current | legacy | fail for one account."""
+    if verdict == 'ok':
+        return 'current'
+    if typ.startswith('unknown:'):
+        return 'legacy'
+    if typ in CURRENT_STATE.get(program, ()):
+        grows = (program, typ) in GROWS_IN_PLACE and verdict == 'needs migration' and row_base is not None and size < row_base
+        return 'current' if grows else 'fail'
+    if typ in LEGACY_OK.get(program, ()):
+        return 'legacy'
+    return 'fail'
+
+
+def summarize(accounts, layouts, program=None):
+    """Returns (rows, failures, legacy). Without `program` every type is CURRENT_STATE-like (strict)."""
     groups = {}
     failures = []
+    legacy = {}
     for a in accounts:
         data = bytes(a['data']) if isinstance(a['data'], list) else base64.b64decode(a['data'], validate=True)
         typ, expected, verdict = classify(data, layouts)
+        row = next((r for r in layouts if r['type'] == typ), None)
+        kind = 'fail' if program is None and verdict != 'ok' else disposition(program, typ, verdict, len(data), row and row['base'])
+        if kind == 'current':
+            verdict = 'ok'
+        elif kind == 'legacy':
+            verdict = 'legacy, skipped'
         key = (typ, expected, verdict)
         group = groups.setdefault(key, {'type': typ, 'count': 0, 'sizes': set(), 'expected': expected, 'verdict': verdict})
         group['count'] += 1
         group['sizes'].add(len(data))
-        if verdict != 'ok':
+        if kind == 'fail':
             failures.append({'address': a['address'], 'type': typ, 'size': len(data), 'verdict': verdict})
-    return [{**v, 'sizes': sorted(v['sizes'])} for v in groups.values()], failures
+        elif kind == 'legacy':
+            entry = legacy.setdefault(typ, {'type': typ, 'count': 0, 'sizes': set()})
+            entry['count'] += 1
+            entry['sizes'].add(len(data))
+    rows = [{**v, 'sizes': sorted(v['sizes'])} for v in groups.values()]
+    skipped = [{**v, 'sizes': sorted(v['sizes'])} for v in sorted(legacy.values(), key=lambda v: v['type'])]
+    return rows, failures, skipped
 
 
 def rpc(url, method, params):
@@ -137,22 +206,35 @@ def check(names, url, out, inventory=False):
         manifests.append(manifest)
     report = {'at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'rpc': url,
               'genesisHash': rpc(url, 'getGenesisHash', []), 'inventoryOnly': inventory,
-              'delegatedAccounts': 'NOT VERIFIED: scan separately on the rollup before any upgrade', 'programs': []}
+              'delegatedAccounts': 'not scanned: rollup state is disposable on devnet', 'programs': []}
     failed = inventory
     for m in manifests:
         result = rpc(url, 'getProgramAccounts', [m['programId'], {'encoding': 'base64', 'commitment': 'finalized', 'withContext': True}])
         accounts = [{'address': a['pubkey'], 'data': a['account']['data'][0]} for a in result['value']]
-        rows, failures = summarize(accounts, m['layouts'])
+        rows, failures, skipped = summarize(accounts, m['layouts'], m['program'])
+        current = sum(r['count'] for r in rows if r['verdict'] == 'ok')
         report['programs'].append({'program': m['program'], 'programId': m['programId'], 'slot': result['context']['slot'],
-                                   'elfHash': m['elfHash'], 'rows': rows, 'failures': failures})
-        print(f'\n{m["program"]}: {len(accounts)} accounts at finalized slot {result["context"]["slot"]}')
+                                   'elfHash': m['elfHash'], 'current': current, 'rows': rows, 'failures': failures,
+                                   'legacySkipped': skipped})
+        print(f'\n{m["program"]}: {len(accounts)} accounts at finalized slot {result["context"]["slot"]}; current: {current} ok; legacy skipped: {sum(v["count"] for v in skipped)}; failures: {len(failures)}')
         print('type | count | sizes seen | expected | verdict')
         for row in rows:
             print(' | '.join(str(row[k]) for k in ('type', 'count', 'sizes', 'expected', 'verdict')))
+        if skipped:
+            print('legacy, skipped (retire with the admin retire instructions; never migrated):')
+            for v in skipped:
+                print(f'  {v["type"]}: {v["count"]} (sizes {v["sizes"]})')
+        for f in failures:
+            print(f'  FAIL {f["type"]} {f["address"]} size {f["size"]}: {f["verdict"]}')
         failed |= bool(failures)
     report['sizeVerdict'] = 'FAIL' if failed else 'PASS'
     Path(out).write_text(json.dumps(report, indent=2) + '\n')
-    print(f'\n{report["sizeVerdict"]}: size guard only; delegated state and semantic upgrade prerequisites remain separate.')
+    totals = {}
+    for pr in report['programs']:
+        for v in pr['legacySkipped']:
+            totals[f'{pr["program"]}.{v["type"]}'] = v['count']
+    print(f'\n{report["sizeVerdict"]}: current: {sum(p["current"] for p in report["programs"])} ok; legacy skipped: {totals}')
+    print('Size guard only: delegated rollup accounts are not scanned (devnet state is disposable).')
     return 1 if failed else 0
 
 

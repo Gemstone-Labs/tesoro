@@ -205,7 +205,15 @@ Errors appended: `TreasuryShort` (6017); ledger `NotWonGemas`, `ExceedsPending` 
 
 ## Retiring the old world (ticket 11, admin only)
 
-`retire_native_custody`, `retire_position`, `retire_source`, `retire_holding`, `retire_offer`, `retire_request`, `retire_treasury` close the pre-reset money accounts once, after the in-place upgrade (rent to the admin). Each checks raw bytes and refuses anything of the current layout: a Position, custody, Treasury or Offer shorter than its `SPACE`; a Source whose Position is gone or old-sized; a Holding whose Source is gone (its Gemas leave the Account totals); a current-size Offer whose reserved Sources are all gone; a Request opened before the reset (`expires_at` before `RETIRE_REQUESTS_BEFORE`, 2026-10-20 00:00 UTC) and past `expires_at` plus the 24 h use window; a Request of the new world is never closable. An old custody's vault simSOL goes to the owner's associated token account (created, admin pays, if missing). Event `OldAccountRetired { kind, account, amount }`, error `NotOldWorld`. Run book: `docs/deployments.md` ("Retire the old accounts"); script `keeper/scripts/retire-old-accounts.ts`.
+All retirement instructions are admin-only (`Config.admin`); closing an account returns its rent to the admin. Devnet state is disposable (founder, 2026-10-25), so nothing a legacy account counted is preserved or migrated.
+
+`retire_source` reads only the exact historical 142-byte Source layout and checks program ownership, discriminator, canonical `["source", position, index_le]` address and bump, the supplied Position link and a system-owned, data-empty Position. Counters are not consulted. Current (170-byte) Sources, unknown layouts and malformed owner/horizon/price fields are refused.
+
+`retire_holding` accepts only the exact historical 90-byte layout with a valid Boolean, program owner, discriminator, canonical `["holding", account, source]` address and bump, and a gone Source. Account totals are not rewritten.
+
+`retire_legacy_account { kind }` closes a Match of 435 or 915 bytes or a Season of 504 bytes by owner, discriminator and exact length only. The raw parsers do not pad or migrate accounts.
+
+The other handlers keep their reset semantics (custody, Position, Offer, Request, Treasury). Event `OldAccountRetired { kind, account, amount }` (kinds 7 Match and 8 Season added) and error `NotOldWorld`. Script: `keeper/scripts/retire-old-accounts.ts` (dry run by default). Regressions: `cargo test -p tesoro_core --test legacy_retirement --test retire` after rebuilding the SBF.
 
 ## Invite gate (ADR 0012)
 

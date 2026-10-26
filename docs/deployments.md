@@ -11,9 +11,14 @@ python3 scripts/predeploy-size-check.py check \
   --rpc https://rpc.magicblock.app/devnet --out account-size-preflight.json
 ```
 
-Every program-owned account is classified, including unknown discriminators and old layouts. A length/version mismatch, stale or absent build seal, missing program, failed RPC or incomplete schema coverage refuses the check. Do not exempt old Sources, Matches or Seasons because the app skips them: diagnose the required migration/retirement and repeat the preflight after it is authorized and performed. This command sends no transactions.
+Devnet state is disposable (founder, 2026-10-25): legacy or broken test accounts are skipped or retired, never migrated or proven compatible. Every program-owned account is classified, and the report has two parts:
 
-The metadata-only inventory (`collect --metadata-only`, followed by `check --inventory-only`) is useful before a rebuild and **always exits nonzero**. It cannot approve an upgrade. Size compatibility also does not establish semantic compatibility: delegated/private rollup accounts and current Matches require their own inventory and upgrade prerequisites, and a same-size field reinterpretation still needs migration/reuse review.
+* **current: N ok.** `CURRENT_STATE` types in `scripts/predeploy-size-check.py` are the accounts a program finds by deriving the address itself (Config, EconomyConfig, native custody, Treasury, StakeConfig, PriceFeed, Pool, TableConfig, the per-table accounts, bridge PeerConfig/VaultRoute/Store...). A wrong size or version on one of these is misread by live code, so it **fails the run** (this is what the 178 B custody against 327 B would be). Config may be shorter: its admin instructions `realloc` it.
+* **legacy, skipped.** Per-user, per-match and per-round records (`LEGACY_OK`: Source, Holding, Position, Match, Season, Account, Board, Hole, Army...) with an old size or version, and unknown discriminators, are counted by type and do not fail the run. They are retired with the admin-only retire instructions (below), never migrated.
+
+A type that is in neither set, a missing or stale build seal, a failed RPC or incomplete schema coverage refuses the check: classify every new account type in the script. This command sends no transactions.
+
+The metadata-only inventory (`collect --metadata-only`, followed by `check --inventory-only`) is useful before a rebuild and **always exits nonzero**. It cannot approve an upgrade. Delegated rollup accounts are not scanned (disposable on devnet); a same-size field reinterpretation still needs review.
 
 Regression commands: `cargo test -p tesoro_core --lib predeploy_layouts -- --nocapture` writes/reads both the historical 178-byte and current 327-byte custody fixtures in LiteSVM; `python3 scripts/test-predeploy-size-check.py` exercises mismatch, unknown discriminator, dynamic capacity and version refusals. Preserve the LiteSVM fixture rows and use them in the Python test as described by its skip message.
 
@@ -207,7 +212,33 @@ The rebuilt `tesoro_bridge.so` differs byte for byte from the deployed one (the 
 
 Idls: `idl/` copies in `app/src/lib/chain/idl/` (`tesoro_core`, `block_puzzle`, `holdem`, `trading_duel`) were refreshed from the build and equal `target/idl`. `sim_lst` has no app copy.
 
-### Retire the old accounts (ticket 11; after the `tesoro_core` upgrade, before `init_native_custody` and the app deploy)
+### Legacy account retirement (devnet is disposable)
+
+Admin-only raw-byte retirement closes legacy test accounts and returns their rent to the admin (`Config.admin`). Each instruction checks program ownership, discriminator and the exact historical length; nothing it reads is migrated, and a current-length account is never closable:
+
+* `retire_source`: 142 B Source (canonical address and bump, Position gone). Counters are ignored.
+* `retire_holding`: 90 B Holding (canonical address and bump, its Source gone). Its Gemas are not preserved.
+* `retire_legacy_account { kind: Match | Season }`: Match of 435 or 915 B, Season of 504 B. Delegated Matches are owned by the delegation program and refused.
+* Older instructions unchanged: custody, Position (shorter than current), Offer, Request, Treasury.
+
+Game-program records (Board, Hole, Book, Army, Battle...) have no retire instruction: they are skipped by the guard and their rent stays (a few SOL in total on devnet).
+
+Script, dry run by default: `pnpm --filter @tesoro/keeper exec tsx scripts/retire-old-accounts.ts` prints the inventory and the plan (a read, no key); `--send --keypair <admin>` sends it in phases (Positions, Matches, Seasons first, then Sources, then Holdings). Run `cargo test -p tesoro_core --test legacy_retirement --test retire` after rebuilding the SBF. Any live retirement, extension or upgrade needs separate authority.
+
+### Core program capacity for the bundled upgrade
+
+`solana program extend <tesoro_core id> <bytes>` must be sent before the upgrade when the new ELF is longer than the live ProgramData. Live capacity (ticket 39 report) is 3,099,352 B of ELF; extend by the new ELF length minus that. Measure with `stat -c %s target/deploy/tesoro_core.so` of the exact bundled build. Figures (2026-10-26):
+
+| Build | ELF bytes | `solana program extend` bytes (over 3,099,352) |
+|---|---|---|
+| This branch (eco/39r on 4374903a, legacy retire instructions only) | 3,110,248 | 10,896 |
+| Earlier candidate 397c24a9 (ticket 39 report) | 3,119,320 | 19,968 |
+
+The bundled upgrade also carries other tickets (units fix, 42), so rebuild the bundle and recompute: extend = ELF length - 3,099,352, plus a margin (extend 25,000 B and the cost is ~0.18 SOL of rent). Extend first, then write the buffer and upgrade; the deployer needs the rent for both.
+
+### Historical reset procedure (ticket 11, 2026-10-18; not a current cleanup plan)
+
+The following inventory and procedure are retained as historical evidence of the 2026-10-18 reset.
 
 Why: the new `PositionState` (193 B, was 159) and `Treasury` (143 B, was 103) cannot read the accounts already on chain, and the old per-Position `NativeCustody` (210 B, `["native", position]`) is not the new singleton (178 B, `["native"]`). Only `tesoro_core` can close its accounts, so the upgrade adds seven admin-only instructions (`programs/tesoro_core/src/instructions/retire.rs`): `retire_native_custody`, `retire_position`, `retire_source`, `retire_holding`, `retire_offer`, `retire_request`, `retire_treasury`. Signer = `Config.admin` (the deployer key); rent goes to the admin. Each refuses anything not provably of the old world, by raw bytes (old layouts are never deserialized as new types):
 
