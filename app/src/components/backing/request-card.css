@@ -44,3 +44,37 @@
   .rq-foot .btn { min-width: 0; padding: 0 14px; font-size: var(--fs-15); }
 }
 @media (prefers-reduced-motion: reduce) { .rq, .rq:hover { transition: none; transform: none; } }
+
+/* ——— Compact Request card on the Backing board (phones and narrow windows): avatar left; name, game and record
+   beside it; the time chip and P&L sparkline right; Asks for and Make an Offer in a footer row ——— */
+@media (max-width: 719px) {
+  .bk-cards .rq { grid-template-columns: 84px minmax(0, 1fr) minmax(0, 88px); grid-template-rows: auto auto minmax(36px, auto) auto; grid-template-areas: "av who time" "av game game" "av stat spark" "foot foot foot"; gap: 2px 12px; padding: 14px; align-items: center; }
+  .bk-cards .rq-face, .bk-cards .rq-body { display: contents; }
+  .bk-cards .rq-art, .bk-cards .rq-face::after { display: none; }
+  .bk-cards .rq-avatar { grid-area: av; width: 84px; height: 84px; --c: 16px; align-self: start; box-shadow: none; }
+  .bk-cards .rq-body > strong { grid-area: who / who / who / time; min-width: 0; padding-right: 92px; text-align: left; font-size: var(--fs-20); align-self: center; }
+  .bk-cards .rq-game { position: static; grid-area: game; max-width: none; font-family: var(--f-body); font-weight: 500; font-size: var(--fs-15); text-transform: none; color: var(--fg-2); align-self: start; }
+  .bk-cards .rq-time { position: static; z-index: 1; grid-area: time; justify-self: end; align-self: start; padding: 5px 9px; }
+  .bk-cards .rq-stats { grid-area: stat; grid-template-columns: repeat(3, auto); justify-content: start; gap: 0 10px; text-align: left; align-self: start; }
+  .bk-cards .rq-stats div { display: flex; align-items: baseline; gap: 4px; }
+  .bk-cards .rq-stats div + div { border: 0; }
+  .bk-cards .rq-stats dt { order: 0; font-size: var(--fs-12); letter-spacing: 0.04em; text-transform: none; font-weight: 500; }
+  .bk-cards .rq-stats dd, .bk-cards .rq-stats div:first-child dd { order: 1; font-family: var(--f-body); font-size: var(--fs-15); font-weight: 700; }
+  .bk-cards .rq-stats div:not(:first-child) dd { font-weight: 500; color: var(--fg-2); }
+  .bk-cards .rq-stats div:not(:first-child) dt { color: var(--fg-2); }
+  .bk-cards .rq-stats div:not(:first-child) { gap: 2px; }
+  .bk-cards .rq-stats div:first-child dt { order: 0; }
+  .bk-cards .pnl { grid-area: spark; padding: 0; border: 0; align-self: center; }
+  .bk-cards .pnl-head { display: none; }
+  .bk-cards .pnl-spark { height: 40px; }
+  .bk-cards .rq-new { grid-column: 2 / 4; grid-row: 3; min-height: 0; place-items: center start; text-align: left; font-size: var(--fs-14); }
+  .bk-cards .rq-foot { grid-area: foot; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 16px; margin-top: 12px; padding-top: 12px; }
+  .bk-cards .rq-foot > div { display: flex; align-items: center; gap: 8px; padding-right: 16px; border-right: 1px solid var(--line); }
+  .bk-cards .rq-foot span { font-size: var(--fs-14); font-weight: 500; letter-spacing: 0; text-transform: none; }
+  .bk-cards .rq-foot b { font-size: var(--fs-20); }
+  .bk-cards .rq-foot .btn { min-width: 0; min-height: 44px; width: 100%; padding: 0 10px; font-size: var(--fs-16); }
+  .bk-cards .rq-foot .meta { grid-column: 1 / -1; }
+  .skel.rq { min-height: 0; padding: 16px; flex-direction: row; align-items: flex-start; gap: 14px; background: var(--surface); }
+  .skel.rq .skel-av { width: 84px; height: 84px; flex: none; }
+  .skel.rq .skel-lines { justify-items: start; }
+}

@@ -153,3 +153,21 @@ dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: b
   .bk-ex-legend li { flex: 1 1 40% !important; }
 }
 .bk-hl { outline: 2px solid var(--fg); outline-offset: 3px; }
+
+/* ——— Phone (K1): title with its ⓘ, a full-width Post a Request, two cut tabs, Sort, compact Request cards ——— */
+.bk-head .page-title { display: inline-flex; align-items: center; gap: 10px; }
+.bk-head .tip-btn { width: 28px; height: 28px; margin: 6px 0 0; }
+@media (max-width: 639px) {
+  .bk { gap: 14px; }
+  .bk .bk-head { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: stretch; }
+  .bk-head .page-sub { display: none; }
+  .bk-head .btn { min-height: 56px; font-size: var(--fs-18); }
+  .bk-main { gap: 14px; }
+  .bk .bk-bar { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; gap: 12px; border-bottom: 0; }
+  .bk-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; overflow: visible; margin: 0; }
+  .bk-tabs button { --c: 12px; --edge: var(--edge-1); position: relative; padding: 0 8px; min-height: 52px; border: 0; border-radius: 0; font-size: var(--fs-16); text-align: center;
+    background: var(--surface); clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px); box-shadow: inset 0 0 0 1px var(--line-2); }
+  .bk-tabs button.on { background: var(--surface-2, var(--surface)); color: var(--fg); box-shadow: inset 0 0 0 2px var(--fg); }
+  .bk-tools { padding-bottom: 0; }
+  .bk-cards { gap: 12px; }
+}
