@@ -3195,6 +3195,54 @@ export type Holdem = {
       "args": []
     },
     {
+      "name": "retireLegacyAccount",
+      "docs": [
+        "Base, operator. Closes an old per-Match `Hole` (from before persistent tables) by owner,",
+        "discriminator and exact length, and sends its rent to the operator. Reads no field; a",
+        "current-layout `Hole` or any other account is refused."
+      ],
+      "discriminator": [
+        240,
+        77,
+        189,
+        155,
+        17,
+        51,
+        21,
+        144
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "account",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "retireSeats",
       "docs": [
         "Rollup, operator only. Retires a table's seats: closes both Holes and their permissions",
@@ -4469,6 +4517,11 @@ export type Holdem = {
       "code": 6044,
       "name": "cannotSkip",
       "msg": "This Assignment cannot be given up yet, or any more"
+    },
+    {
+      "code": 6045,
+      "name": "notLegacy",
+      "msg": "Not an old per-Match record of an exact length this instruction retires"
     }
   ],
   "types": [

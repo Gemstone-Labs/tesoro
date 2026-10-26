@@ -6,6 +6,12 @@
  *
  *   pnpm --filter @tesoro/keeper exec tsx scripts/retire-old-accounts.ts [--read-rpc <url>] [--dry-run]
  *   pnpm --filter @tesoro/keeper exec tsx scripts/retire-old-accounts.ts --send --keypair ~/.config/solana/dev-2026-10.json [--rpc <url>] [--allow-live-matches] [--kinds custody,position,...]
+ *   pnpm --filter @tesoro/keeper exec tsx scripts/retire-old-accounts.ts --games [--only block_puzzle,holdem,vanguard] [--send --keypair <operator file>]
+ *
+ * `--games` is its own mode: it retires the per-Match game records from before persistent tables (Block Burst Board, Hold'em
+ * Hole, Vanguard Army) instead of the tesoro_core ones. Dry run lists them per game; `--send` needs the key that is each game's
+ * `TableConfig.operator` (a game whose operator is another key is reported and skipped). Delegated records are owned by the
+ * delegation program, so the program listing never returns them.
  *
  * Dry run (default) reads the chain (default https://api.devnet.solana.com, which serves getProgramAccounts) and prints the
  * inventory, the phases, the first transaction of each kind and the simSOL that returns to its owners; it sends nothing and
@@ -17,9 +23,10 @@ import { BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Connection, PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import coreIdl from "../../app/src/lib/chain/idl/tesoro_core.json" with { type: "json" };
 import { loadKeypair, parseArgs } from "../src/cli-args.ts";
+import { GAMES, GAME_BATCH, buildGameIx, configOf, gameProgram, planGame, programOf, type Game } from "../src/retire-games.ts";
 import { BATCH, CORE, KINDS, ataOf, batches, buildIx, coreProgram, planAll, planPhase, typeOf, type Item, type Kind, type Row, type Snapshot } from "../src/retire-old.ts";
 
-const args = parseArgs(process.argv.slice(2), ["send", "dry-run", "allow-live-matches"]);
+const args = parseArgs(process.argv.slice(2), ["send", "dry-run", "allow-live-matches", "games"]);
 const send = args.flag("send");
 if (send && args.flag("dry-run")) throw new Error("--send and --dry-run exclude each other");
 const readRpc = args.value("read-rpc") ?? "https://api.devnet.solana.com";
@@ -106,6 +113,50 @@ const sendBatch = async (conn: Connection, admin: ReturnType<typeof loadKeypair>
   const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), ...ixs);
   return sendAndConfirmTransaction(conn, tx, [admin], { commitment: "confirmed" });
 };
+
+if (args.flag("games")) {
+  const picked = (args.value("only")?.split(",") ?? GAMES).map((g) => {
+    if (!(GAMES as string[]).includes(g)) throw new Error(`--only: unknown ${g}; expected ${GAMES.join(", ")}`);
+    return g as Game;
+  });
+  const operator = send ? loadKeypair(args.need("keypair")) : null;
+  const conn = new Connection(sendRpc, "confirmed");
+  let sent = 0;
+  let failed = 0;
+  for (const g of picked) {
+    const accounts = await retry(`getProgramAccounts ${g}`, () => reader.getProgramAccounts(programOf(g)));
+    const { items, left } = planGame(g, accounts.map((a) => ({ pubkey: a.pubkey, data: a.account.data })));
+    const rent = items.reduce((sum, i) => sum + (accounts.find((a) => a.pubkey.equals(i.key))?.account.lamports ?? 0), 0);
+    const sizes = [...new Set(items.map((i) => i.size))].sort((a, b) => a - b).join("/");
+    console.log(`${g}: ${accounts.length} program-owned accounts; ${items.length} old records to close (${sizes || "none"} B, ${rent / 1e9} SOL rent to the operator); ${left} left alone`);
+    if (!send || !operator || !items.length) continue;
+    const config = await retry(`config ${g}`, () => reader.getAccountInfo(configOf(g)));
+    if (!config) {
+      console.log(`  ${g}: TableConfig not found; skipped`);
+      continue;
+    }
+    const configOperator = new PublicKey(config.data.subarray(9, 41)); // discriminator 8, bump 1, then operator
+    if (!configOperator.equals(operator.publicKey)) {
+      console.log(`  ${g}: operator is ${configOperator.toBase58()}, not this key; skipped`);
+      continue;
+    }
+    const program = gameProgram(g);
+    for (const group of batches(items, GAME_BATCH)) {
+      try {
+        const ixs = await Promise.all(group.map((i) => buildGameIx(program, g, operator.publicKey, i)));
+        const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ...ixs);
+        const sig = await retry(`send ${g}`, () => sendAndConfirmTransaction(conn, tx, [operator], { commitment: "confirmed" }));
+        sent++;
+        console.log(`  ${g} x${group.length}: ${sig}`);
+      } catch (e) {
+        failed++;
+        console.log(`  ${g} x${group.length} FAILED: ${String(e).slice(0, 300)}`);
+      }
+    }
+  }
+  console.log(send ? `\nsummary: ${sent} transactions sent, ${failed} failed.` : "\ndry run: nothing was sent. Add --send --keypair <operator file> to close them.");
+  process.exit(failed ? 1 : 0);
+}
 
 const snap = await readSnapshot();
 const matches = inventory(snap);

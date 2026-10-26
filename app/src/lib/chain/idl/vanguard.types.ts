@@ -3965,6 +3965,54 @@ export type Vanguard = {
       "args": []
     },
     {
+      "name": "retireLegacyAccount",
+      "docs": [
+        "Base, operator. Closes an old per-Match `Army` (from before persistent tables) by owner,",
+        "discriminator and exact length, and sends its rent to the operator. Reads no field; a",
+        "current-layout `Army` or any other account is refused."
+      ],
+      "discriminator": [
+        240,
+        77,
+        189,
+        155,
+        17,
+        51,
+        21,
+        144
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tableConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "account",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "retireSeats",
       "docs": [
         "Rollup, operator only. Retires a table's seats: closes both Armies and their permissions and returns the rent",
@@ -5489,6 +5537,11 @@ export type Vanguard = {
       "code": 6048,
       "name": "cannotSkip",
       "msg": "This Assignment cannot be given up yet, or any more"
+    },
+    {
+      "code": 6049,
+      "name": "notLegacy",
+      "msg": "Not an old per-Match record of an exact length this instruction retires"
     }
   ],
   "types": [

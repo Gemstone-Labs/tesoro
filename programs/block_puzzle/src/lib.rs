@@ -45,9 +45,9 @@ use ephemeral_rollups_sdk::{
 };
 use table_kit::{
     assignment_absent, close_private_seat, create_hidden_seat, match_state_gone, may_skip,
-    move_lamports, read_table, receipt_at, sponsor_commit, swap_seat_members, table_wait_over,
-    KitError, SeatAccounts, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE,
-    SLOT_RESERVED,
+    move_lamports, read_table, receipt_at, retire_legacy_record, sponsor_commit, swap_seat_members,
+    table_wait_over, KitError, LegacyError, SeatAccounts, OUTCOME_DRAW, OUTCOME_NO_SHOW,
+    OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -170,6 +170,8 @@ pub enum BlockPuzzleError {
     TableWaitNotOver,
     #[msg("This Assignment cannot be given up yet, or any more")]
     CannotSkip,
+    #[msg("Not an old per-Match record of an exact length this instruction retires")]
+    NotLegacy,
 }
 
 impl From<KitError> for BlockPuzzleError {
@@ -1459,6 +1461,24 @@ pub mod block_puzzle {
         Ok(())
     }
 
+    /// Base, operator. Closes an old per-Match `Board` (from before persistent tables) by owner,
+    /// discriminator and exact length, and sends its rent to the operator. Reads no field; a
+    /// current-layout `Board` or any other account is refused.
+    pub fn retire_legacy_account(ctx: Context<RetireLegacyAccount>) -> Result<()> {
+        retire_legacy_record(
+            &ctx.accounts.account.to_account_info(),
+            &ctx.accounts.operator.to_account_info(),
+            &ID,
+            Board::DISCRIMINATOR,
+            &LEGACY_BOARD_LENGTHS,
+        )
+        .map(|_| ())
+        .map_err(|e| match e {
+            LegacyError::NotLegacy => error!(BlockPuzzleError::NotLegacy),
+            LegacyError::Overflow => error!(BlockPuzzleError::Overflow),
+        })
+    }
+
     /// Rollup, operator. Moves lamports from a fuel reserve into the Sponsor.
     pub fn refill_sponsor(ctx: Context<RefillSponsor>, amount: u64) -> Result<()> {
         let keep = Rent::get()?.minimum_balance(8 + Fuel::INIT_SPACE);
@@ -1542,6 +1562,17 @@ pub struct CreateTable<'info> {
     )]
     pub table: Box<Account<'info, Table>>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct RetireLegacyAccount<'info> {
+    #[account(mut, address = config.operator @ BlockPuzzleError::NotOperator)]
+    pub operator: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Account<'info, TableConfig>,
+    /// CHECK: owner, discriminator and exact historical length are checked in the handler.
+    #[account(mut)]
+    pub account: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
