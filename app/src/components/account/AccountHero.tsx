@@ -118,7 +118,8 @@ export function AccountHero({ address, own, visitor, s, now, otherNames, request
               </>
             ) : (
               <>
-                Not asking now · <Link href="/backing">See open Requests</Link>
+                <span className="pa-nowrap">Not asking now</span>
+                <Link href="/backing">See open Requests</Link>
               </>
             )}
           </dd>

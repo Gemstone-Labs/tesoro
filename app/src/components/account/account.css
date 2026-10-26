@@ -46,7 +46,7 @@
 .pa-game-tile { --edge: var(--edge-1); --c: 10px; position: relative; display: block; aspect-ratio: 1 / 1.05; overflow: hidden; background: var(--shell); }
 .pa-game-tile img { object-fit: cover; }
 .pa-game-tile::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(6, 9, 12, 0.92) 0%, transparent 55%); }
-.pa-game-tile span { position: absolute; z-index: 1; left: 6px; right: 6px; bottom: 6px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.02em; text-transform: uppercase; line-height: 1.15; }
+.pa-game-tile span { position: absolute; z-index: 1; left: 11px; right: 8px; bottom: 9px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.02em; text-transform: uppercase; line-height: 1.15; }
 
 .pa-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0 16px; }
 .pa-actions > .btn, .pa-actions .af > .btn { min-height: 48px; width: 100%; justify-content: center; }
@@ -207,7 +207,7 @@
   .pa-tile { padding: 14px 16px 16px; }
   .pa-tile dd { font-size: var(--fs-20); }
   .pa-tile dd.pa-quiet { font-size: var(--fs-15); }
-  .pa-game-tile span { left: 12px; bottom: 10px; font-size: var(--fs-14); }
+  .pa-game-tile span { left: 16px; bottom: 12px; font-size: var(--fs-14); }
   .pa-game-tile { aspect-ratio: 1.45 / 1; }
   .pa-prot > .pa-lab, .pa-recent > header { padding: 16px 24px 10px; }
   .pa-prot-row, .pa-recent-row { padding-inline: 24px; }
@@ -225,6 +225,9 @@
   .pa-recent-row { grid-template-columns: 56px 36px minmax(0, 1fr) 32px auto 24px; gap: 8px; padding-inline: 12px; }
   .pa-recent-game { width: 36px; height: 36px; }
   .pa-recent-opp { width: 32px; height: 32px; }
+}
+@media (max-width: 400px) {
+  .pa-game-tile span { font-size: 9.5px; letter-spacing: 0; }
 }
 @media (max-width: 380px) {
   .pa-tile dt { font-size: 10px; letter-spacing: 0.04em; }
@@ -259,3 +262,4 @@
 .ep-wallet small { overflow-wrap: anywhere; }
 .ep-wallet input { width: 18px; height: 18px; accent-color: var(--fg); flex: none; }
 .ns { padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--line); }
+/* "Not asking now" and its link stack as two lines in the tile, so no dot sits between them */
