@@ -9,8 +9,10 @@
 //!
 //! * Position, custody, Treasury, old Offer: shorter than the current layout (a current one is
 //!   never closable). The checks read raw bytes; old layouts are never deserialized as new types.
-//! * Source: its Position account is gone or is itself old-sized.
-//! * Holding: its Source account is gone (read from raw bytes: Holdings no longer exist in the program).
+//! * Source: exact historical layout (142 bytes) and its Position is gone. Devnet state is
+//!   disposable (founder, 2026-10-25): what the Source counted is not preserved or migrated.
+//! * Holding: exact historical layout (90 bytes) and its Source is gone.
+//! * Match, Season: exact historical lengths (`retire_legacy_account`); a current one never closes.
 //! * Offer of the current layout: every Source it reserves from is gone.
 //! * Request: from before the reset (expiring before `RETIRE_REQUESTS_BEFORE`), past its lifetime
 //!   and the window to use an accepted Backing. Requests of the new world are never closable.
@@ -47,6 +49,8 @@ pub const RETIRED_HOLDING: u8 = 3;
 pub const RETIRED_REQUEST: u8 = 4;
 pub const RETIRED_OFFER: u8 = 5;
 pub const RETIRED_TREASURY: u8 = 6;
+pub const RETIRED_MATCH: u8 = 7;
+pub const RETIRED_SEASON: u8 = 8;
 
 /// True when the address holds nothing a program owns: closed, or never created.
 fn is_gone(info: &AccountInfo) -> bool {
@@ -247,7 +251,28 @@ pub(crate) fn retire_position(ctx: Context<RetirePosition>) -> Result<()> {
 
 // --- Source and Holding ---------------------------------------------------------------------
 
-/// Closes a Source whose Position is gone or old-sized.
+/// Historical layout before Source gained `due_at` and cash-out fee fields (142 bytes).
+/// Keep this separate from the current Source: no absent fields are synthesized or zero-padded.
+#[derive(AnchorDeserialize)]
+struct LegacySource {
+    bump: u8,
+    position: Pubkey,
+    owner: Pubkey,
+    index: u32,
+    horizon_months: u8,
+    unit_num: u128,
+    unit_den: u64,
+    _issued: u64,
+    _returned: u64,
+    _redeemed: u64,
+    _yield_units: u64,
+    _redeemed_units: u64,
+}
+
+const LEGACY_SOURCE_SPACE: usize = 142;
+
+/// Closes a historical (142 byte) Source after its linked Position is gone. Counters are not
+/// consulted: legacy test state is retired, never migrated. A current Source (170 bytes) is refused.
 #[derive(Accounts)]
 pub struct RetireSource<'info> {
     #[account(mut)]
@@ -258,29 +283,47 @@ pub struct RetireSource<'info> {
         has_one = admin @ TesoroError::Unauthorized
     )]
     pub config: Box<Account<'info, Config>>,
-    #[account(mut, close = admin)]
-    pub source: Account<'info, SourceState>,
-    /// CHECK: must be the Source's Position address; gone or old-sized.
+    /// CHECK: exact legacy layout, owner, discriminator, canonical PDA/bump and parent link
+    /// are validated in the handler before closing. Current Sources are always refused.
+    #[account(mut)]
+    pub source: UncheckedAccount<'info>,
+    /// CHECK: must be the historical Source's Position address and system-owned/data-empty.
     pub position: UncheckedAccount<'info>,
 }
 
 pub(crate) fn retire_source(ctx: Context<RetireSource>) -> Result<()> {
     let a = &ctx.accounts;
-    let position = a.position.to_account_info();
-    require_keys_eq!(
-        position.key(),
-        Pubkey::new_from_array(a.source.inner.position),
-        TesoroError::InvalidAccount
+    let source = a.source.to_account_info();
+    require_keys_eq!(*source.owner, crate::ID, TesoroError::NotOldWorld);
+    let legacy = {
+        let data = source.try_borrow_data()?;
+        require!(
+            data.len() == LEGACY_SOURCE_SPACE && data[..8] == *SourceState::DISCRIMINATOR,
+            TesoroError::NotOldWorld
+        );
+        LegacySource::try_from_slice(&data[8..]).map_err(|_| error!(TesoroError::NotOldWorld))?
+    };
+    let (expected, bump) = Pubkey::find_program_address(
+        &[
+            SOURCE_SEED,
+            legacy.position.as_ref(),
+            &legacy.index.to_le_bytes(),
+        ],
+        &crate::ID,
     );
+    require_keys_eq!(source.key(), expected, TesoroError::InvalidAccount);
+    require!(legacy.bump == bump, TesoroError::InvalidAccount);
+    let position = a.position.to_account_info();
+    require_keys_eq!(position.key(), legacy.position, TesoroError::InvalidAccount);
     require!(
         is_gone(&position)
-            || is_stale(
-                &position,
-                PositionState::DISCRIMINATOR,
-                PositionState::SPACE
-            ),
+            && legacy.owner != Pubkey::default()
+            && (1..=12).contains(&legacy.horizon_months)
+            && legacy.unit_num != 0
+            && legacy.unit_den != 0,
         TesoroError::NotOldWorld
     );
+    close_to(&source, &a.admin.to_account_info())?;
     emit!(OldAccountRetired {
         kind: RETIRED_SOURCE,
         account: a.source.key(),
@@ -291,11 +334,19 @@ pub(crate) fn retire_source(ctx: Context<RetireSource>) -> Result<()> {
 
 /// Discriminator of the retired `HoldingState` account (`sha256("account:HoldingState")[..8]`).
 const HOLDING_DISCRIMINATOR: [u8; 8] = [0x59, 0x32, 0x53, 0x10, 0x9b, 0x4c, 0x98, 0xfe];
-/// `disc(8) bump(1) account(32) source(32)`: where the Source address sits in a Holding.
-const HOLDING_SOURCE: usize = 41;
+const LEGACY_HOLDING_SPACE: usize = 90;
 
-/// Closes a Holding of the retired world whose Source is gone. Holdings no longer exist in the
-/// program: the account is read from its raw bytes, only to wipe devnet.
+#[derive(AnchorDeserialize)]
+struct LegacyHolding {
+    bump: u8,
+    account: Pubkey,
+    source: Pubkey,
+    _is_own: bool,
+    _amount: u64,
+    _reserved: u64,
+}
+
+/// Closes a historical (90 byte) Holding whose Source is gone. Its Gemas are not preserved.
 #[derive(Accounts)]
 pub struct RetireHolding<'info> {
     #[account(mut)]
@@ -306,7 +357,8 @@ pub struct RetireHolding<'info> {
         has_one = admin @ TesoroError::Unauthorized
     )]
     pub config: Box<Account<'info, Config>>,
-    /// CHECK: validated as a Holding from its raw bytes.
+    /// CHECK: exact historical layout, owner, discriminator, canonical PDA/bump, Source link
+    /// are checked before closing.
     #[account(mut)]
     pub holding: UncheckedAccount<'info>,
     /// CHECK: must be the Holding's Source address; gone.
@@ -316,18 +368,23 @@ pub struct RetireHolding<'info> {
 pub(crate) fn retire_holding(ctx: Context<RetireHolding>) -> Result<()> {
     let a = &ctx.accounts;
     let holding = a.holding.to_account_info();
-    let source = {
+    let legacy = {
         let data = holding.try_borrow_data()?;
         require!(
             holding.owner == &crate::ID
-                && data.len() >= HOLDING_SOURCE + 32
+                && data.len() == LEGACY_HOLDING_SPACE
                 && data[..8] == HOLDING_DISCRIMINATOR,
             TesoroError::NotOldWorld
         );
-        Pubkey::try_from(&data[HOLDING_SOURCE..HOLDING_SOURCE + 32])
-            .map_err(|_| error!(TesoroError::InvalidAccount))?
+        LegacyHolding::try_from_slice(&data[8..]).map_err(|_| error!(TesoroError::NotOldWorld))?
     };
-    require_keys_eq!(a.source.key(), source, TesoroError::InvalidAccount);
+    let (expected, bump) = Pubkey::find_program_address(
+        &[b"holding", legacy.account.as_ref(), legacy.source.as_ref()],
+        &crate::ID,
+    );
+    require_keys_eq!(holding.key(), expected, TesoroError::InvalidAccount);
+    require!(legacy.bump == bump, TesoroError::InvalidAccount);
+    require_keys_eq!(a.source.key(), legacy.source, TesoroError::InvalidAccount);
     require!(
         is_gone(&a.source.to_account_info()),
         TesoroError::NotOldWorld
@@ -444,6 +501,74 @@ pub(crate) fn retire_treasury(ctx: Context<RetireTreasury>) -> Result<()> {
         kind: RETIRED_TREASURY,
         account: treasury.key(),
         amount: 0,
+    });
+    Ok(())
+}
+
+// --- Legacy Matches and Seasons -------------------------------------------------------------
+
+/// Which historical record `retire_legacy_account` may close.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LegacyKind {
+    Match,
+    Season,
+}
+
+/// Historical `MatchState` lengths seen on devnet (before the Ticket pots and receipts).
+const LEGACY_MATCH_LENGTHS: [usize; 2] = [435, 915];
+/// Historical `SeasonState` length (before the prize fields).
+const LEGACY_SEASON_LENGTHS: [usize; 1] = [504];
+
+/// Closes a historical Match or Season record by owner, discriminator and exact length only.
+/// No field is read: a record of the current length, or of another type, is never closable, and a
+/// Match delegated to a rollup is owned by the delegation program, so it is refused by owner.
+#[derive(Accounts)]
+pub struct RetireLegacyAccount<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        has_one = admin @ TesoroError::Unauthorized
+    )]
+    pub config: Box<Account<'info, Config>>,
+    /// CHECK: owner, discriminator and exact historical length are checked in the handler.
+    #[account(mut)]
+    pub account: UncheckedAccount<'info>,
+}
+
+pub(crate) fn retire_legacy_account(
+    ctx: Context<RetireLegacyAccount>,
+    kind: LegacyKind,
+) -> Result<()> {
+    let a = &ctx.accounts;
+    let info = a.account.to_account_info();
+    let (discriminator, lengths, code): (&[u8], &[usize], u8) = match kind {
+        LegacyKind::Match => (
+            MatchState::DISCRIMINATOR,
+            &LEGACY_MATCH_LENGTHS,
+            RETIRED_MATCH,
+        ),
+        LegacyKind::Season => (
+            SeasonState::DISCRIMINATOR,
+            &LEGACY_SEASON_LENGTHS,
+            RETIRED_SEASON,
+        ),
+    };
+    require_keys_eq!(*info.owner, crate::ID, TesoroError::NotOldWorld);
+    {
+        let data = info.try_borrow_data()?;
+        require!(
+            lengths.contains(&data.len()) && data[..8] == *discriminator,
+            TesoroError::NotOldWorld
+        );
+    }
+    let amount = info.lamports();
+    close_to(&info, &a.admin.to_account_info())?;
+    emit!(OldAccountRetired {
+        kind: code,
+        account: a.account.key(),
+        amount,
     });
     Ok(())
 }

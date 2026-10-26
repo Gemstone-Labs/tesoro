@@ -9872,6 +9872,9 @@
         },
         {
           "name": "holding",
+          "docs": [
+            "are checked before closing."
+          ],
           "writable": true
         },
         {
@@ -9879,6 +9882,61 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "retire_legacy_account",
+      "discriminator": [
+        240,
+        77,
+        189,
+        155,
+        17,
+        51,
+        21,
+        144
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "account",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "kind",
+          "type": {
+            "defined": {
+              "name": "LegacyKind"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "retire_native_custody",
@@ -10135,6 +10193,9 @@
         },
         {
           "name": "source",
+          "docs": [
+            "are validated in the handler before closing. Current Sources are always refused."
+          ],
           "writable": true
         },
         {
@@ -17078,6 +17139,23 @@
           {
             "name": "studio_recipient",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LegacyKind",
+      "docs": [
+        "Which historical record `retire_legacy_account` may close."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Match"
+          },
+          {
+            "name": "Season"
           }
         ]
       }
