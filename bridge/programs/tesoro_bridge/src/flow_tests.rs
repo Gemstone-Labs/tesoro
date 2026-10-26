@@ -1350,11 +1350,7 @@ fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
     let claim: Claim = env.load(claim);
     // 600 Gemas at $3,000/ETH = $6 = 0.002 ETH; the book pays whole shares, so a unit may fall
     // short of the exact figure by one but never exceed it.
-    assert!(
-        (1_999_999..=2_000_000).contains(&claim.units_total),
-        "paid {}",
-        claim.units_total
-    );
+    assert!((1_999_999..=2_000_000).contains(&claim.units_total), "paid {}", claim.units_total);
 }
 
 #[test]
@@ -2776,9 +2772,14 @@ fn a_thousand_eth_position_opens_and_its_wide_yield_applies() {
 
 #[test]
 fn every_wei_figure_around_the_old_u64_edge_opens_at_its_floored_units() {
-    for (n, wei) in [u128::from(u64::MAX) - 1, u128::from(u64::MAX), u128::from(u64::MAX) + 1, 24_330_777_777_777_777_778]
-        .into_iter()
-        .enumerate()
+    for (n, wei) in [
+        u128::from(u64::MAX) - 1,
+        u128::from(u64::MAX),
+        u128::from(u64::MAX) + 1,
+        24_330_777_777_777_777_778,
+    ]
+    .into_iter()
+    .enumerate()
     {
         let mut env = Env::new();
         let id = 10 + n as u64;
@@ -2820,7 +2821,8 @@ fn a_batch_acknowledged_in_wei_with_dust_credits_only_whole_units() {
     let units = u128::from(env.batch(batch_id).entries()[0].units);
     env.seal_batch(batch_id).expect("seal");
     // The vault paid all but 1,500 wei: one whole unit is still owed (the paid figure floors), never a fractional one.
-    env.lz_receive(batch_result_wei(batch_id, &[units * WEI - 1_500], 0, 0), 1).expect("ack");
+    env.lz_receive(batch_result_wei(batch_id, &[units * WEI - 1_500], 0, 0), 1)
+        .expect("ack");
     let b = env.batch(batch_id);
     assert_eq!(b.paid_units, units - 1);
 }

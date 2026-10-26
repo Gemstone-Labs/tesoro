@@ -43,6 +43,10 @@ impl SendBatch<'_> {
                 })
             })
             .collect::<Result<Vec<BatchEntryWire>>>()?;
+        let total = entries
+            .iter()
+            .try_fold(0u128, |sum, e| sum.checked_add(e.units))
+            .ok_or(BridgeError::AmountOverflow)?;
         let message = encode_cash_in_batch(
             batch.eid,
             &batch.peer_address,
@@ -65,7 +69,7 @@ impl SendBatch<'_> {
             position_id: route_word(&params.peer_address),
             msg_type: MSG_CASH_IN_BATCH,
             seq: params.batch_id,
-            amount: ctx.accounts.batch.total_units,
+            amount: total,
         });
         Ok(())
     }

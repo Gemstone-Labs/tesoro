@@ -168,10 +168,14 @@ contract PrizeModule is PositionVaultBase {
     }
 
     /// @dev Underlying an unlocked real-LST Position's holders can still draw (their claim, in shares, at the Unlock
-    ///      rate); unbounded otherwise.
+    ///      rate); unbounded otherwise. A payment of `a` debits `floor(a * RATE_SCALE / rate)` shares, so the most
+    ///      the owed shares cover is the largest `a` that still debits no more than them, not `owed * rate`
+    ///      rounded down (that left the last wei of every claim unpayable and a batch for the whole claim short).
     function _owedCap(uint64 pid) internal view returns (uint256) {
         if (!_real() || !_positions[pid].unlocked) return type(uint256).max;
-        return (owedSharesOf[pid] * unlockRate[pid]) / RATE_SCALE;
+        uint256 owed = owedSharesOf[pid];
+        if (owed == 0) return 0;
+        return ((owed + 1) * unlockRate[pid] - 1) / RATE_SCALE;
     }
 
     function _payOut(uint64 pid, Position storage p, uint256 paid, address to, bool wallet) internal {
