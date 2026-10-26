@@ -34,7 +34,16 @@ struct OwnerStores<'info> {
     spill: &'info AccountInfo<'info>,
 }
 
+/// Compute units one chunk may spend, counted from the instruction's entry, before it takes no
+/// further step (the next chunk resumes from the Match record). Loading the accounts costs
+/// 40,000-70,000 and a step 6,000-33,000, depending on the Sources it reaches, so no fixed step
+/// count keeps a chunk under 140,000. After the last step the chunk still pays the line records
+/// (about 7,000) and the transaction its own overhead (about 15,000).
+pub const CHUNK_CU_BUDGET: u64 = 80_000;
+
 pub struct ChainSettlement<'info> {
+    /// Compute units left when the chunk's instruction started.
+    cu_origin: u64,
     infos: &'info [AccountInfo<'info>],
     books: OnchainBooks<'info, 'info>,
     stores: Vec<OwnerStores<'info>>,
@@ -131,6 +140,7 @@ impl<'info> ChainSettlement<'info> {
             }
         }
         Ok(ChainSettlement {
+            cu_origin: remaining_cu(),
             infos,
             books,
             stores,
@@ -140,6 +150,11 @@ impl<'info> ChainSettlement<'info> {
             match_seed: None,
             overflowed: 0,
         })
+    }
+
+    /// Counts the chunk's compute from `remaining`, the units left when its instruction began.
+    pub fn set_cu_origin(&mut self, remaining: u64) {
+        self.cu_origin = remaining;
     }
 
     /// Names the Match being settled: a credit that finds no slot falls back to the Account's
@@ -239,7 +254,16 @@ impl<'info> ChainSettlement<'info> {
     }
 }
 
+/// Compute units left to the running instruction.
+pub fn remaining_cu() -> u64 {
+    anchor_lang::solana_program::compute_units::sol_remaining_compute_units()
+}
+
 impl<'info> Settlement for ChainSettlement<'info> {
+    fn over_budget(&self) -> bool {
+        self.cu_origin.saturating_sub(remaining_cu()) >= CHUNK_CU_BUDGET
+    }
+
     fn books(&mut self) -> &mut dyn SourceBooks {
         &mut self.books
     }

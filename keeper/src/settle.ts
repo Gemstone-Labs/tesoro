@@ -39,7 +39,7 @@ export function viewOf(address: PublicKey, account: any): MatchView {
 const CHUNK_STEPS = Number(process.env.KEEPER_CHUNK_STEPS ?? 6);
 /** Chunks one Match gets in one pass, so a long Pot cannot hold up the others. */
 const CHUNKS_PER_PASS = Number(process.env.KEEPER_CHUNKS_PER_PASS ?? 12);
-/** Compute units asked for a chunk (a 12-step worst case measured 100-133k). */
+/** Compute units asked for a chunk. The program stops a chunk at about 80k of its own work (CHUNK_CU_BUDGET), so a chunk lands near 130k at most. */
 const CHUNK_UNITS = 400_000;
 
 interface Loaded {

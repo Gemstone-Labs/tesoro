@@ -26,7 +26,7 @@ use crate::books::OnchainBooks;
 use crate::error::{core_err, MatchError, TesoroError};
 use crate::instructions::economy::{draw_err, with_pool, with_pool_hold};
 use crate::instructions::overflow::cover_room;
-use crate::instructions::settlement::ChainSettlement;
+use crate::instructions::settlement::{remaining_cu, ChainSettlement};
 use crate::instructions::ticket::{close_pot_account, release_room, ticket_err};
 use crate::ledger;
 use crate::ledger::draw::TicketKind;
@@ -1261,6 +1261,7 @@ pub(crate) fn match_chunk<'info>(
     ctx: Context<'_, '_, 'info, 'info, MatchChunk<'info>>,
     max_steps: u8,
 ) -> Result<()> {
+    let cu_entry = remaining_cu();
     let steps = max_steps.clamp(1, MAX_CHUNK_STEPS) as u32;
     let a_info = ctx.accounts.pot_a.to_account_info();
     let b_info = ctx.accounts.pot_b.as_ref().map(|p| p.to_account_info());
@@ -1276,6 +1277,7 @@ pub(crate) fn match_chunk<'info>(
     };
     let mut pots: lifecycle::Pots<AccountWindow> = [Some(pot_a), pot_b];
     let mut settlement = ChainSettlement::load(ctx.remaining_accounts)?;
+    settlement.set_cu_origin(cu_entry);
     settlement.set_holds(&state.room);
     settlement.set_match(&state.inner.id);
     let report = state
