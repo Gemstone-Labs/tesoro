@@ -90,7 +90,10 @@ impl SendPayYield<'_> {
         let seq = next_out_seq(position)?;
         let peer = &ctx.accounts.peer;
         // A Position opened before units were normalised holds wei: it is retired, never paid.
-        require!(ctx.accounts.core_position.inner.decimals == peer.core_decimals(), BridgeError::LegacyUnits);
+        require!(
+            ctx.accounts.core_position.inner.decimals == peer.core_decimals(),
+            BridgeError::LegacyUnits
+        );
         // Core's units are 9 decimals; the vault is paid in its own base unit, exactly.
         let pay = YieldPayment {
             amount: peer.to_vault(pending)?,

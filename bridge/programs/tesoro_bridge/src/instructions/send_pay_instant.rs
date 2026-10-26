@@ -71,7 +71,10 @@ impl SendPayInstant<'_> {
         claim.units_sent = claim.units_total;
         let seq = next_out_seq(position)?;
         // A Position opened before units were normalised holds wei: it is retired, never paid.
-        require!(ctx.accounts.core_position.inner.decimals == ctx.accounts.peer.core_decimals(), BridgeError::LegacyUnits);
+        require!(
+            ctx.accounts.core_position.inner.decimals == ctx.accounts.peer.core_decimals(),
+            BridgeError::LegacyUnits
+        );
         // Core's units are 9 decimals; the vault pays in its own base unit, exactly.
         let amount = ctx.accounts.peer.to_vault(pending)?;
 

@@ -50,7 +50,9 @@ impl PeerConfig {
 
     /// Core units as vault base units, exact: what the vault is told to pay.
     pub fn to_vault(&self, units: u64) -> Result<u128> {
-        u128::from(units).checked_mul(self.scale()?).ok_or_else(|| error!(BridgeError::AmountOverflow))
+        u128::from(units)
+            .checked_mul(self.scale()?)
+            .ok_or_else(|| error!(BridgeError::AmountOverflow))
     }
 
     pub fn combine_options(&self, extra_options: &[u8]) -> Result<Vec<u8>> {

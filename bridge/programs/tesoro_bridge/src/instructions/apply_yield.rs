@@ -71,7 +71,10 @@ impl ApplyYield<'_> {
         require!(position.opened, BridgeError::NotOpened);
         require!(position.last_yield_seq > position.applied_yield_seq, BridgeError::NothingToApply);
         // A Position opened before units were normalised holds wei: it is retired, never paid.
-        require!(ctx.accounts.core_position.inner.decimals == ctx.accounts.peer.core_decimals(), BridgeError::LegacyUnits);
+        require!(
+            ctx.accounts.core_position.inner.decimals == ctx.accounts.peer.core_decimals(),
+            BridgeError::LegacyUnits
+        );
         // The vault reports wei; core holds 9-decimal units, rounded down (never above what accrued).
         let cumulative = ctx.accounts.peer.to_core_u64(position.yield_cumulative)?;
 
