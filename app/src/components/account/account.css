@@ -263,3 +263,43 @@
 .ep-wallet input { width: 18px; height: 18px; accent-color: var(--fg); flex: none; }
 .ns { padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--line); }
 /* "Not asking now" and its link stack as two lines in the tile, so no dot sits between them */
+
+/* ——— Facts between the name and the buttons (temporary takes a-d) ——— */
+.pa-facts { display: grid; gap: 12px; padding: 4px 16px 0; }
+.pa-line { font-size: var(--fs-16); font-weight: 600; }
+.pa-line i { font-style: normal; color: var(--fg-2); margin-inline: 4px; }
+.pa-line-new { color: var(--fg-2); font-weight: 500; }
+.pa-ask-row { --edge: var(--edge-2); --c: 10px; background: var(--shell); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; margin: 0; }
+.pa-ask-row b { display: block; font-size: var(--fs-15); }
+.pa-ask-meta { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-2); font-size: var(--fs-13); }
+.pa-ask-row a { flex: none; color: var(--fg); font-weight: 700; font-size: var(--fs-14); text-decoration: underline; text-underline-offset: 3px; }
+/* b */
+.pa-big2 { margin: 0; display: grid; grid-template-columns: 1fr 1fr; border-block: 1px solid var(--line-2); }
+.pa-big2 > div { padding: 12px 0; display: grid; gap: 2px; }
+.pa-big2 > div + div { border-left: 1px solid var(--line-2); padding-left: 16px; }
+.pa-big2 dt { font-size: var(--fs-13); color: var(--fg-2); }
+.pa-big2 dd { margin: 0; font-family: var(--f-display); font-size: 34px; font-weight: 800; line-height: 1.05; }
+.pa-since { color: var(--fg-2); font-size: var(--fs-14); margin-top: -4px; }
+.pa-gl { list-style: none; margin: 0; padding: 0; display: grid; }
+.pa-gl li { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 44px; font-size: var(--fs-16); }
+.pa-gl li + li { border-top: 1px solid var(--line); }
+.pa-gl img, .pa-icons img { object-fit: cover; clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px); }
+.pa-gl b { font-size: var(--fs-16); font-variant-numeric: tabular-nums; }
+/* c */
+.pa-rule { margin: 0; display: grid; grid-template-columns: 1fr 1.4fr; border-block: 1px solid var(--line-2); }
+.pa-rule > div { padding: 10px 0; display: grid; gap: 2px; }
+.pa-rule > div + div { border-left: 1px solid var(--line-2); padding-left: 16px; }
+.pa-rule dt { font-size: var(--fs-12); color: var(--fg-2); }
+.pa-rule dd { margin: 0; font-size: var(--fs-17); font-weight: 700; }
+.pa-icons { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 14px 18px; }
+.pa-icons li { display: grid; justify-items: center; gap: 6px; width: 76px; font-size: var(--fs-13); text-align: center; line-height: 1.2; }
+/* d */
+.pa-bar { display: grid; gap: 10px; }
+.pa-bar-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.pa-bar-top b { font-size: var(--fs-20); }
+.pa-bar-top span { color: var(--fg-2); font-size: var(--fs-14); }
+.pa-bar-track { display: block; height: 8px; background: rgba(255, 255, 255, 0.09); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.pa-bar-track i { display: block; height: 100%; background: var(--fg); }
+.pa-bar-games { color: var(--fg); font-size: var(--fs-15); }
+.pa-bar-games span { color: var(--fg-2); }
+@media (min-width: 640px) { .pa-facts { padding-inline: 32px; } }

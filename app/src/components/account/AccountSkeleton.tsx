@@ -14,15 +14,8 @@ export function AccountSkeleton() {
             </div>
           </div>
         </div>
-        <div className="pa-tiles">
-          {[0, 1, 2].map((i) => (
-            <span key={i} className="cut cut-card pa-tile skel" style={{ minHeight: 64 }} />
-          ))}
-        </div>
-        <div className="pa-games">
-          {[0, 1, 2, 3].map((i) => (
-            <span key={i} className="cut cut-card pa-game-tile skel" />
-          ))}
+        <div className="pa-facts">
+          <span className="skel-line" style={{ width: "62%" }} />
         </div>
       </header>
       <div className="cut cut-card pa-panel skel" aria-hidden="true">

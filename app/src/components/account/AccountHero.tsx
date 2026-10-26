@@ -1,25 +1,19 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useState } from "react";
-import { CalendarDays, Check, Copy, Pencil, Swords, UserPlus } from "lucide-react";
+import { Check, Copy, Pencil, Swords } from "lucide-react";
 import { PlayerAvatar, PlayerName, VerifiedMark } from "@/components/account/Player";
-import { Button, GemaMark } from "@/components/ui";
+import { Button } from "@/components/ui";
 import { AddFriendButton } from "@/components/friends/AddFriendButton";
 import { FriendLinkButton } from "@/components/friends/FriendLinkButton";
+import { AccountFacts } from "./AccountFacts";
 import { art } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
 import type { ChainRequest } from "@/lib/chain/backing";
 import type { PlayerSummary } from "@/lib/chain/player-account";
-import { timeLeft } from "@/lib/chain/useBackingBoard";
-import { fmtGemas } from "@/lib/format";
-import { GAME_LIST } from "@/lib/games";
 import type { NameSuffix } from "@/lib/identity/display";
 import { setEditProfileOpen } from "@/lib/identity/edit-profile";
-import { GAME_NAMES } from "@/lib/mock";
-
-const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 interface Props {
   address: string;
@@ -47,7 +41,6 @@ export function AccountHero({ address, own, visitor, s, now, otherNames, request
       setTimeout(() => setCopied(false), 2000);
     });
   };
-  const ask = requests[0];
 
   return (
     <header className="cut cut-frame pa-hero">
@@ -89,53 +82,7 @@ export function AccountHero({ address, own, visitor, s, now, otherNames, request
         </div>
       </div>
 
-      <dl className="pa-tiles">
-        <div className="cut cut-card pa-tile">
-          <dt>
-            <CalendarDays aria-hidden="true" /> Playing since
-          </dt>
-          <dd>{s.first !== null ? day(s.first) : "No Matches yet"}</dd>
-        </div>
-        <div className="cut cut-card pa-tile">
-          <dt>
-            <Swords aria-hidden="true" /> Record
-          </dt>
-          <dd>{s.record.matches ? `${s.record.wins} of ${s.record.matches} won` : "No winner yet"}</dd>
-        </div>
-        <div className="cut cut-card pa-tile">
-          <dt>
-            <UserPlus aria-hidden="true" /> Backing
-          </dt>
-          <dd className="pa-quiet">
-            {ask ? (
-              <>
-                <b className="pa-ask">
-                  <GemaMark size={14} />
-                  {fmtGemas(ask.entry)}
-                </b>
-                <small>Asking · {timeLeft(ask.expiresAt, now)}</small>
-                <Link href={`/backing#${ask.address.toBase58()}`}>{visitor ? "Make an Offer" : "See Request"}</Link>
-              </>
-            ) : (
-              <>
-                <span className="pa-nowrap">Not asking now</span>
-                <Link href="/backing">See open Requests</Link>
-              </>
-            )}
-          </dd>
-        </div>
-      </dl>
-
-      <ul className="pa-games" aria-label="Games">
-        {GAME_LIST.map((g) => (
-          <li key={g}>
-            <Link href={`/play/${g}`} className="cut cut-card pa-game-tile">
-              <Image src={art.thumb[g]} alt="" fill sizes="(max-width: 639px) 25vw, 200px" />
-              <span>{GAME_NAMES[g]}</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <AccountFacts s={s} now={now} visitor={visitor} requests={requests} />
 
       <div className="pa-actions">
         {own ? (
