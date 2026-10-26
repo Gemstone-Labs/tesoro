@@ -150,6 +150,9 @@ struct Env {
     /// Do not grow the Game's outside studio's spill when joining (to test a full studio).
     skip_studio_room: bool,
     last_cu: u64,
+    /// The native custody and its rate Pool, when `install_native_rates` set them up: a chunk then
+    /// passes them and open-Advance Sources are native Positions.
+    native_rates: Option<(APk, APk)>,
     /// Serialized size in bytes of the last transaction as a legacy transaction.
     last_size: usize,
     last_logs: Vec<String>,
@@ -213,6 +216,7 @@ impl Env {
             pre_ixs: Vec::new(),
             last_cu: 0,
             last_size: 0,
+            native_rates: None,
             last_logs: Vec::new(),
             last_events: Vec::new(),
             start_events: Vec::new(),
@@ -643,18 +647,27 @@ impl Env {
     /// A Source with its Position and book, none of them reachable by an Advance: the lines issued
     /// from it behave like any other (the book is real), and a fee cut on them can sync.
     fn forge_source(&mut self, tag: u8, index: u32) -> APk {
+        self.forge_source_as(tag, index, false)
+    }
+
+    /// `open`: the Source is the Position's open Advance with Debt, as every live Source is, so a
+    /// fee cut on it syncs the Position's yield into the book (the costly step of a real Match).
+    fn forge_source_as(&mut self, tag: u8, index: u32, open: bool) -> APk {
         let position = pda(&[POSITION_SEED, &[7], &[tag; 32]]);
         let owner = [tag; 32];
-        let mut pos = tesoro_core::ledger::Position::new(
-            owner,
-            SourceChain::Solana,
-            [tag; 32],
-            9,
-            SOL,
-            1_000,
-        )
-        .expect("position");
+        let asset = if open && self.native_rates.is_some() {
+            SIM_SOL_MINT.to_bytes()
+        } else {
+            [tag; 32]
+        };
+        let mut pos =
+            tesoro_core::ledger::Position::new(owner, SourceChain::Solana, asset, 9, SOL, 1_000)
+                .expect("position");
         pos.advances = index + 1;
+        if open {
+            pos.open_advance = Some(index);
+            pos.cumulative_yield = 40;
+        }
         let state = PositionState {
             bump: 255,
             position_id: [tag; 32],
@@ -675,7 +688,7 @@ impl Env {
                 horizon_months: 1,
                 unit_num: 1,
                 unit_den: 1,
-                issued: 0,
+                issued: if open { 1_000 } else { 0 },
                 returned: 0,
                 redeemed: 0,
                 yield_units: 0,
@@ -704,6 +717,54 @@ impl Env {
         // a fully cut line closes a segment, which writes a record: the first page must exist
         self.ensure_pages(source);
         source
+    }
+
+    /// The native custody and the `sim_lst` Pool a native Position's rate is read from.
+    fn install_native_rates(&mut self) {
+        let pool_key = APk::new_unique();
+        let pool = sim_lst::Pool {
+            admin: APk::default(),
+            mint: SIM_SOL_MINT,
+            base_rate: 1_000_000_000,
+            base_ts: 0,
+            apy_bps: 500,
+            speedup: 4_380,
+            faucet_amount: 0,
+            faucet_cooldown: 0,
+            paused: false,
+            bump: 255,
+            mint_bump: 255,
+            vault_bump: 255,
+        };
+        let mut buf = Vec::new();
+        anchor_lang::AccountSerialize::try_serialize(&pool, &mut buf).expect("pool");
+        buf.resize(8 + <sim_lst::Pool as anchor_lang::Space>::INIT_SPACE, 0);
+        self.svm
+            .set_account(
+                s(pool_key),
+                solana_sdk::account::Account {
+                    lamports: 1_000_000_000,
+                    data: buf,
+                    owner: s(sim_lst::ID),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("pool account");
+        let (custody_key, bump) = APk::find_program_address(&[NATIVE_SEED], &tesoro_core::ID);
+        let custody = NativeCustody {
+            bump,
+            vault_bump: 255,
+            pool: pool_key,
+            mint: SIM_SOL_MINT,
+            vault: APk::default(),
+            principal: 0,
+            retired_fee_totals: [0; 3],
+            open_positions: 0,
+            route: Default::default(),
+        };
+        self.put_account(custody_key, &custody, NativeCustody::SPACE);
+        self.native_rates = Some((custody_key, pool_key));
     }
 
     fn put_account<T: anchor_lang::AccountSerialize>(&mut self, k: APk, v: &T, len: usize) {
@@ -1592,6 +1653,10 @@ impl Env {
             out.push(AccountMeta::new_readonly(s(src), false));
             let position = APk::new_from_array(self.load::<SourceState>(src).inner.position);
             out.push(rem(position));
+        }
+        if let Some((custody, pool)) = self.native_rates {
+            out.push(AccountMeta::new_readonly(s(custody), false));
+            out.push(AccountMeta::new_readonly(s(pool), false));
         }
         out
     }
@@ -4532,6 +4597,81 @@ fn a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table() {
         chunk_budgets.iter().all(|cu| *cu < 140_000),
         "every 12-step Source case stays under 140,000 CU: {chunk_budgets:?}"
     );
+}
+
+/// Settles a Match between two Players whose Sources are all open Advances (every fee cut syncs
+/// a Position, as on devnet) with chunks of `steps`; returns the CU of each chunk. The opener
+/// draws 1,000 Gemas from `k` Sources through an Entry Ticket (`k` must divide 1,000), the joiner
+/// from ten of them directly: 25 Sources and 25 + 10 Pot lines is the shape of the devnet Match
+/// whose worst chunk used 144,489 CU.
+fn open_source_chunks(k: usize, steps: u8, native: bool) -> Vec<u64> {
+    let mut env = Env::new();
+    if native {
+        env.install_native_rates();
+    }
+    let alice = env.person();
+    let bob = env.person();
+    env.grow_basket_to(&alice, k + 8);
+    env.grow_basket_to(&bob, 20);
+    let sources: Vec<APk> = (0..k)
+        .map(|i| env.forge_source_as(100 + i as u8, 0, true))
+        .collect();
+    env.give_lines(&alice, &sources, 1_000 / k as u64, |i| i as i64);
+    let bn = k.min(10);
+    env.give_lines(&bob, &sources[..bn], 1_000 / bn as u64, |i| i as i64);
+    env.open_ticket(&alice, 5, 1_000, k as u32 + 1)
+        .expect("ticket");
+    let kp = alice.kp.insecure_clone();
+    while env.load_ticket_staged(&alice, 5) < 1_000 {
+        env.stage_with(&kp, &alice, 5, 255, vec![]).expect("stage");
+    }
+    let m = env.open_match_ticket(&alice, 1_000, 5).expect("open");
+    env.join_match_ix(
+        &bob,
+        m,
+        9_002,
+        bn as u32 + 1,
+        ticket_pda(bob.account, 9_002),
+        env.books_of(bob.account),
+        None,
+    )
+    .expect("join");
+    let game = env.game_auth.insecure_clone();
+    env.settle_start(&game, m, MatchResult::Opener)
+        .expect("start");
+    let mut budgets = Vec::new();
+    while env.stage_of(m) != Stage::Closed {
+        env.chunk(m, steps).expect("chunk");
+        budgets.push(env.last_cu);
+        let done: Vec<MatchChunkDone> = env
+            .last_events
+            .iter()
+            .filter_map(|e| decode_event(e))
+            .collect();
+        println!(
+            "  chunk {}: {} steps, {} CU",
+            budgets.len(),
+            done[0].steps,
+            env.last_cu
+        );
+    }
+    budgets
+}
+
+#[test]
+fn a_chunk_of_open_advance_sources_stays_under_140k_at_every_source_count() {
+    let mut over = Vec::new();
+    for k in [4usize, 10, 25] {
+        for (steps, native) in [(6u8, false), (12, false), (6, true), (12, true)] {
+            let budgets = open_source_chunks(k, steps, native);
+            let worst = budgets.iter().copied().max().unwrap_or(0);
+            println!("ROW {k} open Sources, {steps} steps, native {native}: worst {worst} of {budgets:?}");
+            if worst >= 140_000 {
+                over.push((k, steps, native, worst));
+            }
+        }
+    }
+    assert!(over.is_empty(), "chunks over 140,000 CU: {over:?}");
 }
 
 #[test]
