@@ -165,8 +165,10 @@ contract PositionVault is PositionVaultBase {
         p.owner = owner;
         p.principalShares = lstAmount;
         p.principalUnderlying = (lstAmount * rate) / RATE_SCALE;
-        // tesoro_core keeps Principal as u64; a larger Position could never open on Solana and never unlock.
-        if (p.principalUnderlying > type(uint64).max) revert PrincipalTooLarge();
+        // The bridge hands tesoro_core amounts in 1e-9 units (CORE_UNIT wei, rounded down) held as u64. A Position
+        // below one unit would open as zero and never unlock; one above 2^64 units could never open on Solana.
+        if (p.principalUnderlying < CORE_UNIT) revert PrincipalBelowUnit();
+        if (p.principalUnderlying / CORE_UNIT > type(uint64).max) revert PrincipalTooLarge();
         p.openRate = rate;
         p.openTime = uint64(block.timestamp);
         p.horizonMonths = horizonMonths;

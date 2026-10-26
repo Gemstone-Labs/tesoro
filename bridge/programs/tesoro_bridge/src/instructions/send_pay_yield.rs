@@ -88,7 +88,15 @@ impl SendPayYield<'_> {
         claim.fee_sent = claim.fee_total;
         claim.pool_sent = claim.pool_total;
         let seq = next_out_seq(position)?;
-        let pay = YieldPayment { amount: pending as u128, fee: fee as u128, pool: pool as u128 };
+        let peer = &ctx.accounts.peer;
+        // A Position opened before units were normalised holds wei: it is retired, never paid.
+        require!(ctx.accounts.core_position.inner.decimals == peer.core_decimals(), BridgeError::LegacyUnits);
+        // Core's units are 9 decimals; the vault is paid in its own base unit, exactly.
+        let pay = YieldPayment {
+            amount: peer.to_vault(pending)?,
+            fee: peer.to_vault(fee)?,
+            pool: peer.to_vault(pool)?,
+        };
 
         lz_send(
             &ctx.accounts.store,
@@ -102,7 +110,7 @@ impl SendPayYield<'_> {
             position_id: params.position_id,
             msg_type: MSG_PAY_YIELD,
             seq,
-            amount: pending as u128,
+            amount: pay.amount,
         });
         Ok(())
     }

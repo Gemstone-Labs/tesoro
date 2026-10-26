@@ -278,7 +278,7 @@ async function main() {
             const ix = new TransactionInstruction({
                 programId: BRIDGE,
                 keys: [
-                    meta(store), meta(bridgePositionPda(eid, pid), false, true), meta(vaultTreasuryPda(eid, vault), false, true), meta(authority), meta(sourceAuthPda(eid)), meta(cp, false, true),
+                    meta(store), meta(peerPda(eid, vault)), meta(bridgePositionPda(eid, pid), false, true), meta(vaultTreasuryPda(eid, vault), false, true), meta(authority), meta(sourceAuthPda(eid)), meta(cp, false, true),
                     src ? meta(src, false, true) : meta(BRIDGE), meta(CORE),
                 ],
                 data: Buffer.concat([disc('apply_yield'), u32le(eid), pid]),
@@ -357,7 +357,7 @@ async function main() {
                     meta(owner.publicKey, true, true), meta(store), meta(authority), meta(sourceAuthPda(eid)),
                     meta(ownerAccount, false, true), meta(cp), meta(source), meta(holdingPda(ownerAccount, source), false, true),
                     meta(coreTreasury), meta(coreTreasuryAccount, false, true), meta(holdingPda(coreTreasuryAccount, source), false, true),
-                    meta(vaultTreasuryPda(eid, vault), false, true), meta(instantClaimPda(ownerAccount, source), false, true),
+                    meta(vaultTreasuryPda(eid, vault), false, true), meta(peerPda(eid, vault)), meta(instantClaimPda(ownerAccount, source), false, true),
                     meta(CORE), meta(SystemProgram.programId),
                 ],
                 data: Buffer.concat([disc('instant_redeem_to_evm'), u64le(BigInt(a[3]))]),
