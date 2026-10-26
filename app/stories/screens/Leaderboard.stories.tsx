@@ -38,7 +38,7 @@ export const Loading: Story = { parameters: { screen: { leaderboard: "loading" }
 
 export const LoadFailed: Story = { parameters: { screen: { leaderboard: "error" } } };
 
-/** Last season's winners are still waiting to be paid: "paying out <date>" beside prizes, and one rank "not paid". */
+/** Last season's winners are still waiting to be paid: "Pays <date>" beside prizes, and one rank "not paid". */
 export const LastSeasonPaying: Story = { parameters: { screen: { leaderboard: "paying" } } };
 
 /** Nobody won a Match last season: "the pool carried over" instead of a winners table. */

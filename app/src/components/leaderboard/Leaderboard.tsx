@@ -401,6 +401,8 @@ function Payout({ pool }: { pool: number }) {
 
 const fmtPayoutDate = (secs: number) =>
   new Date(secs * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC", timeZoneName: "short" });
+/** The short form for a table cell: "Oct 28". The full time is in the cell's title. */
+export const fmtPayoutDay = (secs: number) => new Date(secs * 1000).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
 function Last({ last, me, now }: { last: LastSeason; me: string | null; now: number }) {
   return (
@@ -448,7 +450,7 @@ function Last({ last, me, now }: { last: LastSeason; me: string | null; now: num
                       <b>{fmtGemas(w.gemas)}</b>
                       <GemaUsd value={w.gemas} />
                       {note.kind === "voided" && <small>not paid</small>}
-                      {note.kind === "paying" && <small>{note.payoutAt ? `paying out ${fmtPayoutDate(note.payoutAt)}` : "paying"}</small>}
+                      {note.kind === "paying" && <small title={note.payoutAt ? `Paying out ${fmtPayoutDate(note.payoutAt)}` : undefined}>{note.payoutAt ? `Pays ${fmtPayoutDay(note.payoutAt)}` : "Paying"}</small>}
                     </span>
                   </td>
                 </tr>

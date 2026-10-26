@@ -175,7 +175,9 @@ dialog.sheet.lb-info-sheet { width: min(840px, calc(100vw - 32px)); max-width: 8
   .lb-table td, .lb-table th { padding: 8px 6px; }
   .lb-table .lb-c-rank { width: 30px; }
   .lb-table .lb-avatar { width: 26px; height: 26px; --c: 6px; }
-  .lb-table .lb-name { max-width: 140px; }
+  .lb-table .lb-name { max-width: 96px; }
+  .lb-last .lb-table td { padding-inline: 4px; }
+  .lb-last .lb-c-pts { font-size: var(--fs-15); }
   .lb-last .lb-prize { display: inline-grid; grid-template-columns: auto auto; align-items: center; justify-items: end; column-gap: 5px; }
   .lb-last .lb-prize .gema-usd, .lb-last .lb-prize small { grid-column: 1 / -1; margin-left: 0; }
 }
