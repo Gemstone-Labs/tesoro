@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ComputeBudgetProgram, Keypair, PublicKey, Transaction } from "@solana/web3.js";
@@ -66,7 +67,10 @@ class World {
 
 describe("retire plan", () => {
   it("keeps SPACE.offer equal to the program's OfferState::SPACE (174 B)", () => {
-    assert.equal(SPACE.offer, 174);
+    const rust = readFileSync(new URL("../../programs/tesoro_core/src/state.rs", import.meta.url), "utf8");
+    const expr = /impl OfferState \{[^}]*?pub const SPACE: usize = ([0-9+ ]+);/s.exec(rust)?.[1];
+    assert.ok(expr, "OfferState::SPACE not found in state.rs");
+    assert.equal(SPACE.offer, expr.split("+").reduce((a, n) => a + Number(n), 0));
   });
 
   it("never plans a current-size Position, custody, Treasury or Offer", () => {
