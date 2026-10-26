@@ -15,5 +15,6 @@ fn emit_layouts() {
     fixed::<crate::state::Table>("Table", 8 + crate::state::Table::INIT_SPACE);
     fixed::<crate::state::Vault>("Vault", 8 + crate::state::Vault::INIT_SPACE);
     fixed::<crate::state::Board>("Board", 8 + crate::state::Board::INIT_SPACE);
+    probe::retired("Board", &crate::state::LEGACY_BOARD_LENGTHS);
     probe::decode_report();
 }

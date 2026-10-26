@@ -12,6 +12,7 @@
 //! The protocol is described in `.scratch/economy-upgrade` notes `table-protocol.md`.
 
 pub mod commit;
+pub mod legacy;
 pub mod ring;
 pub mod seat;
 pub mod sponsor;
@@ -20,6 +21,7 @@ pub mod untabled;
 use anchor_lang::prelude::*;
 pub use commit::*;
 use ephemeral_rollups_sdk::consts::MAGIC_PROGRAM_ID;
+pub use legacy::*;
 pub use ring::*;
 pub use seat::*;
 pub use sponsor::*;
