@@ -10,6 +10,7 @@ import { unitsToRepay, type SourceMath } from "./ledger";
 import { basketPda, spillPda, type LineRef } from "./basket";
 import { coreIx } from "./core-ix";
 import { DEFAULT_YIELD_FEE_BPS, accruedYield, advanceUnits, cashOut } from "./yield";
+import { ETH_CORE_DECIMALS, coreUnitsToWei, weiToCoreUnits } from "./eth-units";
 
 /**
  * EVM Positions (Ethereum Hoodi and HyperEVM testnet) on the Solana ledger, over LayerZero V2. Accounts and wire
@@ -138,8 +139,7 @@ export const WEI = 10n ** 18n;
 export const ETH_DECIMALS = 18;
 /** Wall-clock minutes of one simulated month (SimLST speedup 4,380). */
 export const ETH_SIM_MONTH_MIN = 10;
-/** The vault's own `principalUnderlying` must fit u64 on Solana. */
-export const MAX_PRINCIPAL_WEI = (1n << 64n) - 1n;
+export { MAX_PRINCIPAL_WEI, MIN_PRINCIPAL_WEI } from "./eth-units";
 export const LZ_FEE_HEADROOM_PCT = 20n;
 
 // ---- ABIs -------------------------------------------------------------------------------------
@@ -397,7 +397,8 @@ export function parseBridgePosition(d: Uint8Array): BridgePositionView | null {
 
 export interface EthCoreView {
   position: PublicKey;
-  principalWei: bigint;
+  /** Core units (9 decimals), not wei: see eth-units.ts. */
+  principalUnits: bigint;
   rateBps: number;
   status: "locked" | "unlocked";
   advances: number;
@@ -407,7 +408,7 @@ export interface EthCoreView {
 
 export function parseCorePosition(position: PublicKey, d: Uint8Array): EthCoreView {
   let o = 8 + 1 + 32 + 32 + 1 + 32 + 1; // disc, bump, id, owner, chain, asset, decimals
-  const principalWei = rdU64(d, o);
+  const principalUnits = rdU64(d, o);
   const rateBps = new DataView(d.buffer, d.byteOffset, d.byteLength).getUint16(o + 8, true);
   o += 10;
   const status = d[o] === 0 ? "locked" : "unlocked";
@@ -416,7 +417,7 @@ export function parseCorePosition(position: PublicKey, d: Uint8Array): EthCoreVi
   o += 4;
   const openAdvance = d[o] === 1 ? rdU32(d, o + 1) : null;
   o += (d[o] === 1 ? 5 : 1) + 8; // open_advance, last_seq
-  return { position, principalWei, rateBps, status, advances, openAdvance, cumulativeYield: rdU64(d, o) };
+  return { position, principalUnits, rateBps, status, advances, openAdvance, cumulativeYield: rdU64(d, o) };
 }
 
 /** `Claim` and `InstantClaim` share a layout: disc 8, three keys, gemas_total, units_total, units_sent. */
@@ -648,12 +649,16 @@ export const withHeadroom = (fee: bigint) => (fee * (100n + LZ_FEE_HEADROOM_PCT)
 
 // ---- Math ---------------------------------------------------------------------------------------
 
-/** Advance sizing as `Position::open_advance`: the whole projected yield (ticket 31), floored to whole Gemas ($0.01 each). */
-export function quoteEthAdvance(principalWei: bigint, rateBps: number, months: number, priceMicroUsd: bigint) {
-  const projectedUnits = advanceUnits(principalWei, rateBps, months);
-  const gemas = (projectedUnits * priceMicroUsd) / 10n ** BigInt(ETH_DECIMALS + 4);
+/** Advance sizing as `Position::open_advance` for a Position holding `principalUnits` core units: the whole projected yield (ticket 31), floored to whole Gemas ($0.01 each). */
+export function quoteEthAdvanceUnits(principalUnits: bigint, rateBps: number, months: number, priceMicroUsd: bigint) {
+  const projectedUnits = advanceUnits(principalUnits, rateBps, months);
+  const gemas = (projectedUnits * priceMicroUsd) / 10n ** BigInt(ETH_CORE_DECIMALS + 4);
   return { projectedUnits, gemas };
 }
+
+/** The same from the vault's wei principal: the bridge rounds it down to core units first, so this matches what core issues (and `min_gemas`). */
+export const quoteEthAdvance = (principalWei: bigint, rateBps: number, months: number, priceMicroUsd: bigint) =>
+  quoteEthAdvanceUnits(weiToCoreUnits(principalWei), rateBps, months, priceMicroUsd);
 
 /** The `min_gemas` argument of a `take_advance` or `take_advance_onchain` instruction: its last eight bytes, little-endian. */
 export function advanceFloorOf(data: Uint8Array): bigint {
@@ -674,8 +679,9 @@ export const underlyingOf = (shares: bigint, rate: bigint) => (shares * rate) / 
  * Debt in Gemas if the yield accrued on Hoodi were reported and applied now. Debt only falls on
  * Solana when a `YieldAccrued` message is applied, so this is what the next Yield Report would leave.
  */
-export function projectedEthDebt(source: SourceMath | null, accruedUnits: bigint): bigint {
+export function projectedEthDebt(source: SourceMath | null, accruedWei: bigint): bigint {
   if (!source) return 0n;
+  const accruedUnits = weiToCoreUnits(accruedWei); // the bridge reports core units rounded down
   const y = accruedUnits > source.yieldUnits ? accruedUnits : source.yieldUnits;
   const live = source.issued > source.returned ? source.issued - source.returned : 0n;
   const cov = source.unitNum === 0n ? 0n : (y * source.unitDen) / source.unitNum;
@@ -695,7 +701,8 @@ export function ethUnlockEstimateMs(args: {
   const { source, position, rate, nowMs } = args;
   if (!source || position.heldShares === 0n) return null;
   const needed = unitsToRepay(source) + source.yieldUnits;
-  const have = position.accrued > source.yieldUnits ? position.accrued : source.yieldUnits;
+  const accruedUnits = weiToCoreUnits(position.accrued);
+  const have = accruedUnits > source.yieldUnits ? accruedUnits : source.yieldUnits;
   if (have >= needed) return nowMs;
   // Yield is linear on the Position's own Principal (docs/yield-model.md): accrued(t) = accrued_now + per_second * t.
   const window = 1_000_000n;
@@ -706,13 +713,16 @@ export function ethUnlockEstimateMs(args: {
     speedup: rate.speedup,
   });
   if (perWindow === 0n) return null;
-  const seconds = ((needed - have) * window + perWindow - 1n) / perWindow;
+  const seconds = ((coreUnitsToWei(needed - have)) * window + perWindow - 1n) / perWindow;
   return nowMs + Number(seconds) * 1000;
 }
 
-/** ETH base units a redeem of `gemas` pays: their value (floor, as the program computes it) less the Yield Fee (one floor). */
-export const redeemPayoutWei = (source: SourceMath, gemas: bigint, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) =>
+/** Core units (9 decimals) a redeem of `gemas` pays: their value (floor, as the program computes it) less the Yield Fee (one floor). The vault is paid `coreUnitsToWei` of it. */
+export const redeemPayoutUnits = (source: SourceMath, gemas: bigint, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) =>
   cashOut((gemas * source.unitNum) / source.unitDen, yieldFeeBps, 0).payout;
+/** The same in the vault's wei: what the holder receives on the EVM chain. */
+export const redeemPayoutWei = (source: SourceMath, gemas: bigint, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) =>
+  coreUnitsToWei(redeemPayoutUnits(source, gemas, yieldFeeBps));
 
 export const fmtEth = (wei: bigint | number, digits = 4) =>
   (Number(wei) / 1e18).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });

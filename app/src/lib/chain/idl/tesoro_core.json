@@ -9872,6 +9872,9 @@
         },
         {
           "name": "holding",
+          "docs": [
+            "are checked before closing."
+          ],
           "writable": true
         },
         {
@@ -9879,6 +9882,61 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "retire_legacy_account",
+      "discriminator": [
+        240,
+        77,
+        189,
+        155,
+        17,
+        51,
+        21,
+        144
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "account",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "kind",
+          "type": {
+            "defined": {
+              "name": "LegacyKind"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "retire_native_custody",
@@ -10135,6 +10193,9 @@
         },
         {
           "name": "source",
+          "docs": [
+            "are validated in the handler before closing. Current Sources are always refused."
+          ],
           "writable": true
         },
         {
@@ -15460,6 +15521,19 @@
       ]
     },
     {
+      "name": "MatchLinesStarted",
+      "discriminator": [
+        44,
+        104,
+        23,
+        148,
+        155,
+        43,
+        106,
+        85
+      ]
+    },
+    {
       "name": "MatchRunStarted",
       "discriminator": [
         148,
@@ -17083,6 +17157,23 @@
       }
     },
     {
+      "name": "LegacyKind",
+      "docs": [
+        "Which historical record `retire_legacy_account` may close."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Match"
+          },
+          {
+            "name": "Season"
+          }
+        ]
+      }
+    },
+    {
       "name": "LineRef",
       "docs": [
         "Names one line of a Source in an Account's basket or spill: the rest of its key is the Source."
@@ -17153,6 +17244,33 @@
               "Credits this chunk wrote into overflow records instead of the Accounts' stores."
             ],
             "type": "u32"
+          },
+          {
+            "name": "record_version",
+            "docs": [
+              "Appended versioned Source-line stream; the preceding legacy prefix is unchanged."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "first_step",
+            "docs": [
+              "Zero only for a closed, zero-work retry. Otherwise the first durable step in `lines`."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "lines",
+            "docs": [
+              "Bounded by MAX_CHUNK_STEPS; never the whole unbounded Pot."
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "SettlementLine"
+                }
+              }
+            }
           }
         ]
       }
@@ -17178,6 +17296,46 @@
           {
             "name": "n",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchLinesStarted",
+      "docs": [
+        "Versioned manifest for the full Source-line stream. Older in-flight Matches without it remain incomplete."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "opener",
+            "type": "pubkey"
+          },
+          {
+            "name": "n",
+            "type": "u64"
+          },
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "pot_lines",
+            "type": {
+              "array": [
+                "u32",
+                2
+              ]
+            }
+          },
+          {
+            "name": "studio_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "studio_priority",
+            "type": "bool"
           }
         ]
       }
@@ -19441,6 +19599,81 @@
               "When the Self-Exclusion ends (unix seconds)."
             ],
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SettlementLine",
+      "docs": [
+        "A bounded settlement event record. Raw Line bytes preserve every integer and snapshot without materializing yield."
+      ],
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pot_side",
+            "type": "u8"
+          },
+          {
+            "name": "pot_index_le",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "purpose",
+            "docs": [
+              "0/1/2 = Platform/Studio/Leaderboard fee; 3 = entry return; 4 = winning surplus."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "incoming",
+            "type": {
+              "array": [
+                "u8",
+                144
+              ]
+            }
+          },
+          {
+            "name": "outgoing",
+            "type": {
+              "array": [
+                "u8",
+                144
+              ]
+            }
+          },
+          {
+            "name": "recipient_kind",
+            "docs": [
+              "0 = Account; 1 = the outgoing Source's counter for its class."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "recipient",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "placement",
+            "docs": [
+              "0 = basket, 1 = spill, 2 = overflow, 3 = Source counter, 255 = fee placement not reported."
+            ],
+            "type": "u8"
           }
         ]
       }

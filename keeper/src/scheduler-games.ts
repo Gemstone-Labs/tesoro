@@ -223,7 +223,8 @@ export const burstAdapter: GameAdapter = {
     const t = v.raw as burstChain.Table;
     const ages = await receiptAges(ctx, [t.tesoroMatch, ...t.ring.filter((s) => s.state === burstChain.SLOT.done).map((s) => s.tesoroMatch)], settledPda);
     const base = await ctx.burst.readTableOnBase(ref).catch(() => null);
-    return burstTableStep(burstTableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit));
+    const slot = t.phase === burstChain.TABLE_PHASE.getReady ? await ctx.burst.currentSlot(ctx.hsigner).catch(() => 0) : 0;
+    return burstTableStep(burstTableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit, slot));
   },
   commit: (ctx, ref) => ctx.burst.commitTable(ctx.hsigner, ref),
   seats: (ctx, ref) => ctx.burst.wipeSeats(ctx.hsigner, ref),

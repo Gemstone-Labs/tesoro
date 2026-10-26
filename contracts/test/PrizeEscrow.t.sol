@@ -582,6 +582,32 @@ contract PrizeEscrowRealTest is EscrowBase {
         vault.fundTreasury(shares);
     }
 
+    /// The bridge asks for whole 1e-9 units. What holders are owed after an Unlock is fixed in shares, and a share
+    /// count rounded DOWN leaves their last wei of yield unpayable, so a batch for the whole claim stayed 1 wei short
+    /// for ever and the bridge saw a whole unit still owed.
+    function test_anUnlockedBatchForTheWholeClaimIsPaidInFull() public {
+        uint256[3] memory sizes = [uint256(10 ether), 7 ether + 12_345, 3 ether + 999_999_999];
+        uint64[] memory ids = new uint64[](3);
+        for (uint256 i; i < 3; i++) {
+            ids[i] = _open(sizes[i]);
+        }
+        _earn();
+        for (uint256 i; i < 3; i++) {
+            _recv(_unlock(ids[i], 1));
+        }
+        uint128[] memory us = new uint128[](3);
+        for (uint256 i; i < 3; i++) {
+            uint256 claim = vault.payableYield(ids[i]);
+            us[i] = uint128(claim - (claim % 1e9));
+            assertGt(us[i], 0);
+        }
+        _recv(_batch(1, 2, address(0), ids, us));
+        (uint128[] memory paid,,) = _batchResult(1, 3);
+        for (uint256 i; i < 3; i++) {
+            assertEq(paid[i], us[i], "the whole requested claim is paid, not a wei short");
+        }
+    }
+
     // ---- real-LST only: the Pool's half, funded into the escrow
 
     function test_cashOutSplitsTheFeeToTheTreasuryAndThePoolAndUnlockTakesNone() public {

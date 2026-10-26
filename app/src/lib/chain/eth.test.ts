@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
+import { weiToCoreUnits } from "./eth-units";
 import { sourcePda } from "./native";
 import {
   NETS,
@@ -55,11 +56,11 @@ describe("SimLST clock", () => {
   it("estimates a fresh 1-month Advance at 10 minutes, whatever the Principal", () => {
     for (const principal of [10n ** 18n, 4n * 10n ** 18n]) {
       // Advance = principal * 5% / 12 (the whole yield); one Gema = a fixed share of it
-      const units = (principal * 500n) / (10_000n * 12n);
+      const units = weiToCoreUnits((principal * 500n) / (10_000n * 12n)); // core holds 9-decimal units
       const source = { issued: 1000n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: units, unitDen: 1000n };
       const position = { heldShares: principal, principalUnderlying: principal, paidUnderlying: 0n, accrued: 0n };
       const at = ethUnlockEstimateMs({ source, position, rate, nowMs: 0 })!;
-      expect(at / 60_000).toBeGreaterThanOrEqual(10);
+      expect(at / 60_000).toBeGreaterThanOrEqual(9.999); // the unit floor loses under a gwei
       expect(at / 60_000).toBeLessThan(10.01);
     }
   });
@@ -72,11 +73,12 @@ describe("SimLST clock", () => {
 
   it("projects the Debt a report would leave", () => {
     const source = { issued: 1000n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 100n, unitDen: 1n };
-    expect(projectedEthDebt(source, 25_000n)).toBe(750n);
-    expect(projectedEthDebt(source, 10n ** 12n)).toBe(0n);
+    expect(projectedEthDebt(source, 25_000n * 10n ** 9n)).toBe(750n);
+    expect(projectedEthDebt(source, 10n ** 21n)).toBe(0n);
   });
 });
 
+const G = 10n ** 9n; // wei per core unit: the vault pays wei, Claims count core units
 const pos = new PublicKey("11111111111111111111111111111111");
 const bridge = (over: Partial<NonNullable<EthState["bridge"]>> = {}): NonNullable<EthState["bridge"]> => ({
   lastInSeq: 0n,
@@ -95,7 +97,7 @@ const bridge = (over: Partial<NonNullable<EthState["bridge"]>> = {}): NonNullabl
   reportTime: 0n,
   ...over,
 });
-const core = (advances = 0): NonNullable<EthState["core"]> => ({ position: pos, principalWei: 1n, rateBps: 500, status: "locked", advances, openAdvance: null, cumulativeYield: 0n });
+const core = (advances = 0): NonNullable<EthState["core"]> => ({ position: pos, principalUnits: 1n, rateBps: 500, status: "locked", advances, openAdvance: null, cumulativeYield: 0n });
 const st = (over: Partial<EthState>): EthState => ({ bridge: null, core: null, source: null, claim: null, instantClaim: null, holderEvm: null, fetchedAt: 0, ...over });
 const op = (kind: EthOp["kind"], extra: Partial<EthOp> = {}): EthOp => ({ key: "k", kind, vault: VAULT, id: "1", createdAt: 0, ...extra });
 
@@ -123,7 +125,7 @@ describe("opProgress: pending never shows success early", () => {
       expect(opProgress(o, st({ claim: claim(0n) }), null, 0n)).toEqual({ stage: 1, next: "send-pay-yield" });
       expect(opProgress(o, st({ claim: claim(500n) }), null, 0n)).toEqual({ stage: 2, next: null });
       expect(opProgress(o, st({ claim: claim(500n) }), null, null)).toEqual({ stage: 2, next: null });
-      expect(opProgress(o, st({ claim: claim(500n) }), null, 500n)).toEqual({ stage: 3, next: null });
+      expect(opProgress(o, st({ claim: claim(500n) }), null, 500n * G)).toEqual({ stage: 3, next: null });
     });
 
     it("another holder's payout (Position-wide paidUnderlying) does not mark this holder paid (SP-03)", () => {
@@ -137,9 +139,9 @@ describe("opProgress: pending never shows success early", () => {
     });
 
     it("a partial payout is not paid; the Claim for an op's own units decides sent", () => {
-      expect(opProgress(o, st({ claim: claim(500n) }), null, 499n).stage).toBe(2);
+      expect(opProgress(o, st({ claim: claim(500n) }), null, 499n * G).stage).toBe(2);
       const second = op("redeem", { sourceIndex: 0, baseline: "800", units: "300", fromBlock: "10" });
-      expect(opProgress(second, st({ claim: { gemasTotal: 1n, unitsTotal: 800n, unitsSent: 500n } }), null, 300n)).toEqual({ stage: 1, next: "send-pay-yield" });
+      expect(opProgress(second, st({ claim: { gemasTotal: 1n, unitsTotal: 800n, unitsSent: 500n } }), null, 300n * G)).toEqual({ stage: 1, next: "send-pay-yield" });
     });
   });
 
@@ -149,7 +151,7 @@ describe("opProgress: pending never shows success early", () => {
     expect(opProgress(o, st({ claim: instantClaim(650n) }), null, 650n)).toEqual({ stage: 1, next: "send-pay-instant" });
     expect(opProgress(o, st({ instantClaim: instantClaim(0n) }), null, 0n)).toEqual({ stage: 1, next: "send-pay-instant" });
     expect(opProgress(o, st({ instantClaim: instantClaim(650n) }), null, 0n)).toEqual({ stage: 2, next: null });
-    expect(opProgress(o, st({ instantClaim: instantClaim(650n) }), null, 650n)).toEqual({ stage: 3, next: null });
+    expect(opProgress(o, st({ instantClaim: instantClaim(650n) }), null, 650n * G)).toEqual({ stage: 3, next: null });
   });
 
   it("unlock: send, then Principal on Hoodi", () => {

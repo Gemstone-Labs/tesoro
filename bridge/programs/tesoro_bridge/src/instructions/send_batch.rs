@@ -31,14 +31,22 @@ impl SendBatch<'_> {
     pub fn apply(ctx: &mut Context<SendBatch>, params: &SendBatchParams) -> Result<()> {
         let batch = &mut ctx.accounts.batch;
         require!(batch.state == BATCH_SEALED, BridgeError::BatchNotSealed);
-        let entries: Vec<BatchEntryWire> = batch
+        // Entries are core units (9 decimals); the vault is asked in its own base unit, exactly.
+        let peer = &ctx.accounts.peer;
+        let entries = batch
             .entries()
             .iter()
-            .map(|e| BatchEntryWire {
-                vault_position_id: e.vault_position_id,
-                units: u128::from(e.units),
+            .map(|e| {
+                Ok(BatchEntryWire {
+                    vault_position_id: e.vault_position_id,
+                    units: peer.to_vault(e.units)?,
+                })
             })
-            .collect();
+            .collect::<Result<Vec<BatchEntryWire>>>()?;
+        let total = entries
+            .iter()
+            .try_fold(0u128, |sum, e| sum.checked_add(e.units))
+            .ok_or(BridgeError::AmountOverflow)?;
         let message = encode_cash_in_batch(
             batch.eid,
             &batch.peer_address,
@@ -61,7 +69,7 @@ impl SendBatch<'_> {
             position_id: route_word(&params.peer_address),
             msg_type: MSG_CASH_IN_BATCH,
             seq: params.batch_id,
-            amount: ctx.accounts.batch.total_units,
+            amount: total,
         });
         Ok(())
     }

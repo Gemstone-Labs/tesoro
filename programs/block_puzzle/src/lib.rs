@@ -45,9 +45,9 @@ use ephemeral_rollups_sdk::{
 };
 use table_kit::{
     assignment_absent, close_private_seat, create_hidden_seat, match_state_gone, may_skip,
-    move_lamports, read_table, receipt_at, sponsor_commit, swap_seat_members, table_wait_over,
-    KitError, SeatAccounts, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE,
-    SLOT_RESERVED,
+    move_lamports, read_table, receipt_at, retire_legacy_record, sponsor_commit, swap_seat_members,
+    table_wait_over, KitError, LegacyError, SeatAccounts, OUTCOME_DRAW, OUTCOME_NO_SHOW,
+    OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -170,6 +170,8 @@ pub enum BlockPuzzleError {
     TableWaitNotOver,
     #[msg("This Assignment cannot be given up yet, or any more")]
     CannotSkip,
+    #[msg("Not an old per-Match record of an exact length this instruction retires")]
+    NotLegacy,
 }
 
 impl From<KitError> for BlockPuzzleError {
@@ -250,6 +252,14 @@ fn require_board(table: &Table, board: &Board, player: &Pubkey) -> Result<usize>
     Ok(seat)
 }
 
+/// What a Player sent: the move count they expect the Board to hold, the real moves, and whether it is
+/// the hidden beat (which may be empty and may repeat moves already applied).
+struct Batch<'a> {
+    expected_count: u16,
+    moves: &'a [MoveArg],
+    beat: bool,
+}
+
 /// The run's moves, applied to the Player's own Board. Never touches the public table: both
 /// `play` and `play_hidden` use it, and `play` copies the result to the table afterwards.
 fn run_moves(
@@ -257,26 +267,45 @@ fn run_moves(
     board: &mut Board,
     player: &Pubkey,
     binding: &Binding,
-    expected_count: u16,
-    moves: Vec<MoveArg>,
+    batch: Batch,
     clock: &Clock,
 ) -> Result<usize> {
+    let Batch {
+        expected_count,
+        moves,
+        beat,
+    } = batch;
     require_binding(table, binding)?;
     require!(table.phase == TABLE_GET_READY, BlockPuzzleError::WrongPhase);
     let seat = require_board(table, board, player)?;
     require!(board.began, BlockPuzzleError::NotBegan);
-    require!(!board.over, BlockPuzzleError::RunOver);
+    // Only the hidden beat is answered by a finished run, and only with nothing to apply.
+    require!(!board.over || beat, BlockPuzzleError::RunOver);
     let slot = clock.slot;
     require!(slot >= table.start_slot, BlockPuzzleError::NotStarted);
     require!(
         slot <= ov(table.play_end())?,
         BlockPuzzleError::PlayWindowClosed
     );
-    require!(board.moves == expected_count, BlockPuzzleError::WrongCount);
     require!(
-        !moves.is_empty() && moves.len() <= MAX_PLAY_BATCH,
+        moves.len() <= MAX_PLAY_BATCH && (beat || !moves.is_empty()),
         BlockPuzzleError::BadBatch
     );
+    // A hidden beat may repeat moves the Board already holds (a resend after an unknown outcome,
+    // or a beat that lands after a later one): those are skipped, up to the whole batch.
+    // Anything else must start exactly at the Board's count.
+    let skip = if beat && expected_count < board.moves {
+        usize::from(board.moves - expected_count).min(moves.len())
+    } else {
+        0
+    };
+    require!(
+        board.moves == expected_count || (beat && expected_count < board.moves),
+        BlockPuzzleError::WrongCount
+    );
+    let moves = &moves[skip..];
+    // A finished run still answers the hidden beat with an empty batch: the rhythm never stops.
+    require!(!board.over || moves.is_empty(), BlockPuzzleError::RunOver);
     // Pace: moves landed so far, over the elapsed slots, plus the burst.
     let total = u64::from(board.moves)
         .checked_add(moves.len() as u64)
@@ -299,7 +328,7 @@ fn run_moves(
     let offset = u16::try_from(elapsed).unwrap_or(u16::MAX);
     let mut state = board.engine_state();
     let mut index = usize::from(state.moves);
-    for m in moves {
+    for m in moves.iter() {
         let hand_base = state.hand_base();
         state
             .apply(engine::Move {
@@ -311,7 +340,7 @@ fn run_moves(
         *board
             .log
             .get_mut(index)
-            .ok_or(BlockPuzzleError::IllegalMove)? = pack_move(hand_base, &m);
+            .ok_or(BlockPuzzleError::IllegalMove)? = pack_move(hand_base, m);
         ov(board.set_offset(index, offset))?;
         index = ov(index.checked_add(1))?;
     }
@@ -1183,8 +1212,11 @@ pub mod block_puzzle {
             board,
             &player,
             &binding,
-            expected_count,
-            moves,
+            Batch {
+                expected_count,
+                moves: &moves,
+                beat: false,
+            },
             &clock,
         )?;
         table.shown_score[seat] = board.score;
@@ -1192,28 +1224,42 @@ pub mod block_puzzle {
         Ok(())
     }
 
-    /// Rollup, the Player. The same moves, touching only the Player's own Board: the public table
-    /// is not an account of this instruction, so nothing public changes. Only from the freeze: a
-    /// Player may not hide their score from the opponent while watching the opponent's.
+    /// Rollup, the Player. The hidden beat. From the freeze every Player sends exactly one of
+    /// these on a fixed rhythm whether or not they moved, so the notifications a watcher gets on
+    /// the table, the Player's wallet and this program carry no move timing. The shape never
+    /// varies: `count` (0 to 8) of the `MAX_PLAY_BATCH` fixed `moves` entries are real, the
+    /// rest are padding; `beat` only makes each transaction's bytes unique. The table is
+    /// read-only, so nothing public changes. An empty beat is valid, also after the run is over.
+    /// A beat may repeat moves the Board already holds (they are skipped), so resending after an
+    /// unknown outcome never fails. Only from the freeze: a Player may not hide their score
+    /// from the opponent while watching the opponent's.
     pub fn play_hidden(
         ctx: Context<PlayHidden>,
         binding: Binding,
         expected_count: u16,
-        moves: Vec<MoveArg>,
+        beat: u8,
+        count: u8,
+        moves: [MoveArg; 8],
     ) -> Result<()> {
+        let _ = beat;
         let clock = Clock::get()?;
         require!(
             clock.slot >= ov(ctx.accounts.table.freeze_slot())?,
             BlockPuzzleError::NotFrozen
         );
+        let count = usize::from(count);
+        require!(count <= MAX_PLAY_BATCH, BlockPuzzleError::BadBatch);
         let player = ctx.accounts.player.key();
         run_moves(
             &ctx.accounts.table,
             &mut ctx.accounts.board,
             &player,
             &binding,
-            expected_count,
-            moves,
+            Batch {
+                expected_count,
+                moves: &moves[..count],
+                beat: true,
+            },
             &clock,
         )?;
         Ok(())
@@ -1260,7 +1306,8 @@ pub mod block_puzzle {
                 let (b0, b1) = (&ctx.accounts.board_0, &ctx.accounts.board_1);
                 require!(table.seats_open, BlockPuzzleError::SeatsNotOpen);
                 require!(
-                    slot > ov(table.play_end())? || (b0.over && b1.over),
+                    slot > ov(table.play_end())?
+                        || (b0.over && b1.over && slot < ov(table.freeze_slot())?),
                     BlockPuzzleError::NotClosable
                 );
                 // Seats marked during play always count; the aggregate rate only for a prompt close.
@@ -1414,6 +1461,24 @@ pub mod block_puzzle {
         Ok(())
     }
 
+    /// Base, operator. Closes an old per-Match `Board` (from before persistent tables) by owner,
+    /// discriminator and exact length, and sends its rent to the operator. Reads no field; a
+    /// current-layout `Board` or any other account is refused.
+    pub fn retire_legacy_account(ctx: Context<RetireLegacyAccount>) -> Result<()> {
+        retire_legacy_record(
+            &ctx.accounts.account.to_account_info(),
+            &ctx.accounts.operator.to_account_info(),
+            &ID,
+            Board::DISCRIMINATOR,
+            &LEGACY_BOARD_LENGTHS,
+        )
+        .map(|_| ())
+        .map_err(|e| match e {
+            LegacyError::NotLegacy => error!(BlockPuzzleError::NotLegacy),
+            LegacyError::Overflow => error!(BlockPuzzleError::Overflow),
+        })
+    }
+
     /// Rollup, operator. Moves lamports from a fuel reserve into the Sponsor.
     pub fn refill_sponsor(ctx: Context<RefillSponsor>, amount: u64) -> Result<()> {
         let keep = Rent::get()?.minimum_balance(8 + Fuel::INIT_SPACE);
@@ -1497,6 +1562,17 @@ pub struct CreateTable<'info> {
     )]
     pub table: Box<Account<'info, Table>>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct RetireLegacyAccount<'info> {
+    #[account(mut, address = config.operator @ BlockPuzzleError::NotOperator)]
+    pub operator: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Account<'info, TableConfig>,
+    /// CHECK: owner, discriminator and exact historical length are checked in the handler.
+    #[account(mut)]
+    pub account: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]

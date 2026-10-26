@@ -16,6 +16,12 @@ use tesoro_core::{
 pub struct ApplyYield<'info> {
     #[account(seeds = [STORE_SEED], bump = store.bump)]
     pub store: Account<'info, Store>,
+    /// The vault's terms: its decimals give the wei -> core unit scale.
+    #[account(
+        seeds = [PEER_SEED, &store.key().to_bytes(), &params.eid.to_be_bytes(), &vault_of(&params.position_id)],
+        bump = peer.bump
+    )]
+    pub peer: Account<'info, PeerConfig>,
     #[account(
         mut,
         seeds = [POSITION_SEED, &params.eid.to_be_bytes(), &params.position_id],
@@ -64,8 +70,10 @@ impl ApplyYield<'_> {
         let position = &mut ctx.accounts.bridge_position;
         require!(position.opened, BridgeError::NotOpened);
         require!(position.last_yield_seq > position.applied_yield_seq, BridgeError::NothingToApply);
-        let cumulative = u64::try_from(position.yield_cumulative)
-            .map_err(|_| error!(BridgeError::AmountOverflow))?;
+        // A Position opened before units were normalised holds wei: it is retired, never paid.
+        require!(ctx.accounts.core_position.inner.decimals == ctx.accounts.peer.core_decimals(), BridgeError::LegacyUnits);
+        // The vault reports wei; core holds 9-decimal units, rounded down (never above what accrued).
+        let cumulative = ctx.accounts.peer.to_core_u64(position.yield_cumulative)?;
 
         let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &[ctx.accounts.store.authority_bump]]];
         // The Source's book and checkpoint pages are the remaining accounts: core lands the yield.

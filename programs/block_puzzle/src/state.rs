@@ -583,3 +583,14 @@ impl Board {
         Some(())
     }
 }
+
+/// Lengths of the pre-table per-Match `Board` records still on devnet. `retire_legacy_account`
+/// closes exactly these; the guard treats them as retire-only. A current `Board` is never one of them.
+pub const LEGACY_BOARD_LENGTHS: [usize; 2] = [605, 853];
+const _: () = {
+    let mut i = 0;
+    while i < LEGACY_BOARD_LENGTHS.len() {
+        assert!(LEGACY_BOARD_LENGTHS[i] != 8 + Board::INIT_SPACE);
+        i += 1;
+    }
+};

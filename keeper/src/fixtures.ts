@@ -125,7 +125,10 @@ export const CORE_PROGRAM = new PublicKey(coreRaw.address);
 /** The data of one event-CPI exactly as core emits it: tag, event discriminator, Borsh body (snake_case fields). */
 export function eventData(name: string, body: Record<string, unknown>): Buffer {
   const wire = (v: unknown): unknown => (typeof v === "bigint" ? new anchor.BN(v.toString()) : Array.isArray(v) ? v.map(wire) : v);
-  const bytes = rawCoder.types.encode(name, Object.fromEntries(Object.entries(body).map(([k, v]) => [k, wire(v)])));
+  const legacy = name === "MatchChunkDone" && !Object.hasOwn(body, "lines");
+  const input = legacy ? { ...body, record_version: 1, first_step: 0, lines: [] } : body;
+  const encoded = rawCoder.types.encode(name, Object.fromEntries(Object.entries(input).map(([k, v]) => [k, wire(v)])));
+  const bytes = legacy ? encoded.subarray(0, 54) : encoded;
   const disc = Buffer.from(coreRaw.events.find((e: any) => e.name === name).discriminator);
   return Buffer.concat([EVENT_TAG, disc, bytes]);
 }

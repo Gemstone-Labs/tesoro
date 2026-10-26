@@ -42,7 +42,13 @@ impl SetPeerConfig<'_> {
     pub fn apply(ctx: &mut Context<SetPeerConfig>, params: &SetPeerConfigParams) -> Result<()> {
         core_chain(params.remote_eid)?;
         oapp::options::assert_type_3(&params.enforced_send_options)?;
+        require!(params.decimals <= 18, BridgeError::InvalidDecimals);
         let peer = &mut ctx.accounts.peer;
+        // Every unit conversion derives from the decimals: once a vault is registered they stay.
+        require!(
+            peer.peer_address == [0u8; 32] || peer.decimals == params.decimals,
+            BridgeError::DecimalsFixed
+        );
         peer.peer_address = params.peer_address;
         peer.decimals = params.decimals;
         peer.rate_bps = params.rate_bps;

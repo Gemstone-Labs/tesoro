@@ -8,6 +8,7 @@ import { Button, SimulatedYieldLabel } from "@/components/ui";
 import { GemaMark } from "@/components/ui/gema";
 import { ChainGlyph } from "@/components/ui/inputs";
 import { useAccount } from "@/lib/account";
+import { coreUnitsToWei } from "@/lib/chain/eth-units";
 import { fmtEth, lzScanUrl, netOfVault, shortHex } from "@/lib/chain/eth";
 import { OPS_EVENT, loadOps, type EthOp } from "@/lib/chain/eth-track";
 import { fmtGemas, fmtWhen } from "@/lib/format";
@@ -84,7 +85,7 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
 
   const done = STEPS.map((_, i) => finished || stage >= NEEDS[i]);
   const active = done.findIndex((d) => !d);
-  const principal = state?.core?.principalWei ?? state?.bridge?.principal ?? null;
+  const principal = state?.core ? coreUnitsToWei(state.core.principalUnits) : (state?.bridge?.principal ?? null);
   const issued = state?.source?.math.issued ?? null;
   const months = op.months ?? state?.bridge?.horizonMonths ?? null;
   const live = (i: number) => (i === 1 && scan ? scan.name.charAt(0) + scan.name.slice(1).toLowerCase() + "…" : ACTIVE[i]);

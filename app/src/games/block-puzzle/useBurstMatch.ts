@@ -10,7 +10,8 @@ import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/com
 import { plainError } from "@/lib/errors";
 import {
   TABLE_PHASE,
-  canPlayPublic,
+  FREEZE_OFFSET_SLOTS,
+  paceLimit,
   phaseAt,
   runLogOf,
   tableOf,
@@ -223,11 +224,12 @@ export function useBurstMatch(id: string | null, signer: ChainSigner | null, acc
         const resume = resumeState(board);
         const sub = new BurstSubmitter(
           {
-            send: (moves, expected, hidden) => chain.play(p, tableRef.current ?? t, seat, expected, moves, hidden),
+            send: (moves, expected, hidden, beat) => chain.play(p, tableRef.current ?? t, seat, expected, moves, hidden, beat),
             movesOnChain: async () => (await chain.readOwnBoard(p, a, seat).catch(() => null))?.moves ?? null,
-            frozen: () => !(tableRef.current && clockRef.current && canPlayPublic(tableRef.current, slotNow(clockRef.current, performance.now()))),
+            slot: () => (clockRef.current ? slotNow(clockRef.current, performance.now()) : 0),
+            paceLimit: (slot) => paceLimit(tableRef.current ?? t, slot),
           },
-          { startCount },
+          { startCount, freezeSlot: t.startSlot + FREEZE_OFFSET_SLOTS },
         );
         submitter.current = sub;
         const run: MatchRun = {
@@ -255,6 +257,7 @@ export function useBurstMatch(id: string | null, signer: ChainSigner | null, acc
     async (m: ChainMatch) => {
       if (!settledSeen.current) {
         settledSeen.current = true;
+        submitter.current?.stop();
         submitter.current = null;
         lock.current?.release();
         setCommitPending(m.id, false);
@@ -439,6 +442,7 @@ export function useBurstMatch(id: string | null, signer: ChainSigner | null, acc
 
   useEffect(
     () => () => {
+      submitter.current?.stop();
       lock.current?.release();
     },
     [],

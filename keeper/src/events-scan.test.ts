@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { GAME_IDS } from "../../app/src/lib/chain/games.ts";
-import { collectSignatures, pooled, seasonWinsFromChain, winOf } from "./events-scan.ts";
+import { collectSignatures, pooled, seasonWinsFromChain, transactionRecords, winOf } from "./events-scan.ts";
 import { eventTx, scriptedConn } from "./fixtures.ts";
 
 const k = () => Keypair.generate().publicKey;
@@ -16,6 +16,14 @@ const won = (n: number, winner: PublicKey, loser: PublicKey, season: number, ts:
 });
 
 describe("a Season's wins from core's events", () => {
+  it("only scans and reads finalized transactions for immutable history", async () => {
+    const conn = {
+      async getSignaturesForAddress(_address: unknown, _opts: unknown, commitment: unknown) { assert.equal(commitment, "finalized"); return []; },
+      async getTransaction(_sig: unknown, opts: { commitment: string }) { assert.equal(opts.commitment, "finalized"); return eventTx({ blockTime: T0, events: [] }); },
+    };
+    await collectSignatures(conn as any);
+    assert.equal((await transactionRecords(conn as any, { signature: "final", blockTime: T0 } as any))?.finalized, true);
+  });
   it("refuses a truncated full-history scan even without a Season start bound", async () => {
     const conn = scriptedConn(Array.from({ length: 3 }, (_, i) => ({ signature: `truncated${i}`, tx: eventTx({ blockTime: T0, events: [] }) })));
     await assert.rejects(collectSignatures(conn as any, { pageSize: 1, maxPages: 2 }), /event scan stopped after 2 page/);

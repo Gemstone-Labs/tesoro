@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, ChainChip, Chip, ClockIcon, CrossChainProgress } from "@/components/ui";
 import { ReturnOwnSheet, useReturnable } from "./MoneySheets";
+import { coreUnitsToWei } from "@/lib/chain/eth-units";
 import { GemasLabel } from "./AdvanceQuote";
 import { OpenFormView } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
@@ -16,6 +17,7 @@ import { debtGemas, debtUnits } from "@/lib/chain/ledger";
 import {
   ETH_SIM_MONTH_MIN,
   MAX_PRINCIPAL_WEI,
+  MIN_PRINCIPAL_WEI,
   NETS,
   WEI,
   ethUnlockEstimateMs,
@@ -267,7 +269,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   const estimate =
     quote && market && gemas > 0 && apyBps !== null
       ? ethUnlockEstimateMs({
-          source: { issued: quote.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 22n, unitDen: price!.microUsd },
+          source: { issued: quote.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: price!.microUsd },
           position: { heldShares: shares, principalUnderlying: principal, paidUnderlying: 0n, accrued: 0n },
           rate: { ...market.rate, apyBps },
           nowMs: now,
@@ -278,8 +280,9 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   const balance = market ? (native ? market.ethBalance : market.simEth) : 0n;
   const tooMuch = !!market && (native ? shares + fee > balance : shares > balance);
   const tooBig = principal > MAX_PRINCIPAL_WEI;
+  const tooSmall = principal > 0n && principal < MIN_PRINCIPAL_WEI;
   const stakeProblem = stake ? nativeStakeProblem(stake, terms?.minStakeWei, net.native) : null;
-  const valid = !!ctx && !!market && shares > 0n && !tooMuch && !tooBig && (gemas > 0 || apyBps === null) && !stakeProblem && (!native || !!terms);
+  const valid = !!ctx && !!market && shares > 0n && !tooMuch && !tooBig && !tooSmall && (gemas > 0 || apyBps === null) && !stakeProblem && (!native || !!terms);
   // Mainnet: gas and the LayerZero fee are the Player's, shown here before anything is signed.
   const payOwn = playerPaysGas();
   const [cost, setCost] = useState<OpenCostQuote | null>(null);
@@ -313,12 +316,12 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       }
       amountText={text}
       onAmount={setText}
-      amountInvalid={tooMuch || tooBig}
+      amountInvalid={tooMuch || tooBig || tooSmall}
       max={market ? Number(native ? (balance > fee ? balance - fee : 0n) : balance) / 1e18 : undefined}
       months={months}
       onMonths={setMonths}
       gemas={gemas}
-      yieldText={`${quote ? fmtEth(quote.projectedUnits, 5) : "0"} ${unit}`}
+      yieldText={`${quote ? fmtEth(coreUnitsToWei(quote.projectedUnits), 5) : "0"} ${unit}`}
       yieldFeeBps={yieldFeeBps}
       arrival="Lock starts, Gemas in 2 to 5 min"
       estimate={(() => {
@@ -329,7 +332,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
         ...(stake && stake.lstOut > 0n ? ([["You receive (staked)", `${fmtEth(stake.lstOut, 5)} ${vault.symbol}`]] as [string, string][]) : []),
         ["Locked amount", `${fmtEth(principal)} ${unit}`],
-        ["Projected yield (after the Yield Fee)", `${quote ? fmtEth(quote.projectedUnits, 5) : "—"} ${unit}`],
+        ["Projected yield (after the Yield Fee)", `${quote ? fmtEth(coreUnitsToWei(quote.projectedUnits), 5) : "—"} ${unit}`],
         ...(payOwn
           ? ([
               ["Network fee (gas, estimate)", cost ? `≈ ${fmtEth(cost.gasWei, 5)} ${unit}` : "—"],
@@ -343,7 +346,8 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
         <>
           {tooMuch && <p className="status err" role="alert">That is more {native ? `${unit} than you have after fees` : `${vault.symbol} than you have`}.</p>}
           {stakeProblem && <p className="status err" role="alert">{stakeProblem}</p>}
-          {tooBig && <p className="status err" role="alert">The Solana ledger holds up to about 18 {unit}. Lock less.</p>}
+          {tooBig && <p className="status err" role="alert">That is more than a Lock can hold. Lock less.</p>}
+          {tooSmall && <p className="status err" role="alert">The smallest Lock is 0.000000001 {unit}. Lock more.</p>}
           {step && a.busy && <p className="status" role="status"><ClockIcon width={14} height={14} /> {openStepText(vault)[step]}</p>}
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
@@ -626,7 +630,7 @@ export function EthPositionCard({ position, market, label, compact }: { position
   const rate = marketRate && vault && !vault.simulated && state?.core ? { ...marketRate, apyBps: BigInt(state.core.rateBps) } : marketRate;
   const src = state?.source?.math ?? null;
   const onChainDebt = src ? debtGemas(src) : 0n;
-  const debtWei = src ? debtUnits(src) : 0n;
+  const debtWei = src ? coreUnitsToWei(debtUnits(src)) : 0n;
   const accrued = vp?.accrued ?? 0n;
   const projected = projectedEthDebt(src, accrued);
   const unreported = onChainDebt - projected;

@@ -2484,9 +2484,15 @@ export type BlockPuzzle = {
     {
       "name": "playHidden",
       "docs": [
-        "Rollup, the Player. The same moves, touching only the Player's own Board: the public table",
-        "is not an account of this instruction, so nothing public changes. Only from the freeze: a",
-        "Player may not hide their score from the opponent while watching the opponent's."
+        "Rollup, the Player. The hidden beat. From the freeze every Player sends exactly one of",
+        "these on a fixed rhythm whether or not they moved, so the notifications a watcher gets on",
+        "the table, the Player's wallet and this program carry no move timing. The shape never",
+        "varies: `count` (0 to 8) of the `MAX_PLAY_BATCH` fixed `moves` entries are real, the",
+        "rest are padding; `beat` only makes each transaction's bytes unique. The table is",
+        "read-only, so nothing public changes. An empty beat is valid, also after the run is over.",
+        "A beat may repeat moves the Board already holds (they are skipped), so resending after an",
+        "unknown outcome never fails. Only from the freeze: a Player may not hide their score",
+        "from the opponent while watching the opponent's."
       ],
       "discriminator": [
         173,
@@ -2549,13 +2555,24 @@ export type BlockPuzzle = {
           "type": "u16"
         },
         {
+          "name": "beat",
+          "type": "u8"
+        },
+        {
+          "name": "count",
+          "type": "u8"
+        },
+        {
           "name": "moves",
           "type": {
-            "vec": {
-              "defined": {
-                "name": "moveArg"
-              }
-            }
+            "array": [
+              {
+                "defined": {
+                  "name": "moveArg"
+                }
+              },
+              8
+            ]
           }
         }
       ]
@@ -3362,6 +3379,54 @@ export type BlockPuzzle = {
               }
             ]
           }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "retireLegacyAccount",
+      "docs": [
+        "Base, operator. Closes an old per-Match `Board` (from before persistent tables) by owner,",
+        "discriminator and exact length, and sends its rent to the operator. Reads no field; a",
+        "current-layout `Board` or any other account is refused."
+      ],
+      "discriminator": [
+        240,
+        77,
+        189,
+        155,
+        17,
+        51,
+        21,
+        144
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "account",
+          "writable": true
         }
       ],
       "args": []
@@ -4892,6 +4957,11 @@ export type BlockPuzzle = {
       "code": 6049,
       "name": "cannotSkip",
       "msg": "This Assignment cannot be given up yet, or any more"
+    },
+    {
+      "code": 6050,
+      "name": "notLegacy",
+      "msg": "Not an old per-Match record of an exact length this instruction retires"
     }
   ],
   "types": [

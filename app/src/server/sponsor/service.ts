@@ -22,6 +22,7 @@ import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { gameRecordPda } from "@/lib/chain/game-record";
 import { GAME_IDS } from "@/lib/chain/games";
 import { HIDDEN_GAMES } from "@/lib/games";
+import type { GameId } from "@/lib/mock/types";
 import { DemoHttpError } from "../request-auth";
 import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
 import { CORE_ID, PRIORITY_MICROLAMPORTS, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
@@ -156,10 +157,10 @@ const namesKey = (v: unknown, ids: Set<string>): boolean => {
  * A hand-built request must not play a Game this environment hides: no instruction may call or name its program,
  * name its Game record account, or carry its program id as an argument (open_match, create_request, open_ticket).
  */
-export function refuseHiddenGames(ixs: Ix[]) {
-  if (HIDDEN_GAMES.size === 0) return;
+export function refuseHiddenGames(ixs: Ix[], hidden: ReadonlySet<GameId> = HIDDEN_GAMES) {
+  if (hidden.size === 0) return;
   const ids = new Set<string>();
-  for (const g of HIDDEN_GAMES) {
+  for (const g of hidden) {
     ids.add(GAME_IDS[g].toBase58());
     ids.add(gameRecordPda(GAME_IDS[g]).toBase58());
   }

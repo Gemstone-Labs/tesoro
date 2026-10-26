@@ -1,5 +1,5 @@
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
-import { BRIDGE_AUTHORITY, BRIDGE_ID, bridgePositionPda, bridgeStore, corePositionPda, disc, netOfVault, sourceAuthPda, vaultTreasuryPda } from "@/lib/chain/eth";
+import { BRIDGE_AUTHORITY, BRIDGE_ID, bridgePeerPda, bridgePositionPda, bridgeStore, corePositionPda, disc, netOfVault, sourceAuthPda, vaultTreasuryPda } from "@/lib/chain/eth";
 import { sourcePda, TESORO_CORE_ID } from "@/lib/chain/native";
 import { sourceAccounts } from "@/lib/chain/redeem";
 
@@ -14,7 +14,7 @@ export async function applyYieldInstructions(conn: Parameters<typeof sourceAccou
   const plan = source ? await sourceAccounts(conn, source, [], payer) : { accounts: [], create: [] };
   return [...plan.create, new TransactionInstruction({
     programId: BRIDGE_ID,
-    keys: [key(bridgeStore()), key(bridgePositionPda(pid), true), key(vaultTreasuryPda(net.eid, vault), true), key(BRIDGE_AUTHORITY), key(sourceAuthPda(net)), key(cp, true), key(source ?? BRIDGE_ID, source !== null), key(TESORO_CORE_ID), ...plan.accounts.map((k) => key(k, true))],
+    keys: [key(bridgeStore()), key(bridgePeerPda(vault)), key(bridgePositionPda(pid), true), key(vaultTreasuryPda(net.eid, vault), true), key(BRIDGE_AUTHORITY), key(sourceAuthPda(net)), key(cp, true), key(source ?? BRIDGE_ID, source !== null), key(TESORO_CORE_ID), ...plan.accounts.map((k) => key(k, true))],
     data: Buffer.concat([disc("apply_yield"), eid, pid]),
   })];
 }
