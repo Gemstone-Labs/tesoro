@@ -15,3 +15,11 @@ export function friendStatusText(status: string): string | null {
       return null;
   }
 }
+
+/** Game names short enough for a chip. */
+export const GAME_SHORT: Record<string, string> = {
+  holdem: "Hold'em",
+  "block-puzzle": "Block Burst",
+  "trading-duel": "Trading Duel",
+  vanguard: "Vanguard",
+};

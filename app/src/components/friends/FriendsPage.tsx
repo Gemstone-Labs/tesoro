@@ -3,8 +3,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Ellipsis, Swords } from "lucide-react";
+import { Check, Ellipsis, Minus, Swords, X } from "lucide-react";
 import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/Player";
+import { InfoTip } from "@/components/money/Tip";
 import { ChallengeSheet } from "@/components/match/ChallengeSheet";
 import { Bust, Button, Card, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
@@ -16,13 +17,14 @@ import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
 import { fmtGemas } from "@/lib/format";
 import { useFriends } from "@/lib/friends/FriendsProvider";
 import { recordAgainst, recordText, sortFriends, type FriendRecord } from "@/lib/friends/record";
-import { friendStatusText } from "@/lib/friends/words";
+import { GAME_SHORT, friendStatusText } from "@/lib/friends/words";
 import { GAME_NAMES } from "@/lib/mock";
 import { FriendLinkShare } from "./FriendLinkShare";
 import "./friends.css";
 
 const PAGE = 20;
 const RESULT_WORD = { won: "Won", lost: "Lost", draw: "Draw" } as const;
+const RESULT_ICON = { won: Check, lost: X, draw: Minus } as const;
 
 /** The signed-in Player's private Friends page: requests, Challenges for them, their Friends and their add-me link. */
 export function FriendsPage() {
@@ -127,19 +129,19 @@ export function FriendsPage() {
         </section>
       )}
 
-      <section className="cut cut-card fr-section" aria-labelledby="fr-yours">
-        <h2 id="fr-yours" className="fr-h">Your friends</h2>
+      <section className="fr-yours" aria-labelledby="fr-yours">
+        <h2 id="fr-yours" className="fr-h-out">Your Friends ({sorted.length})</h2>
         {sorted.length === 0 ? (
-          <div className="fr-empty">
+          <div className="cut cut-card fr-section fr-empty">
             <Bust name="himWelcome" width={150} className="fr-empty-bust" />
             <div className="fr-empty-body">
               <b>No Friends yet</b>
-              <p>Share your add-me link, or add Players from their Account page or after a Match. Friends can challenge each other in one tap and see each other’s latest Matches.</p>
+              <p>Share your Friend link, or add Players from their Account page or after a Match. Friends can challenge each other in one tap and see each other’s latest Matches.</p>
             </div>
           </div>
         ) : (
           <>
-            <ul className="fr-list">
+            <ul className="fr-cards">
               {sorted.slice(0, shown).map((f) => (
                 <FriendRow key={f.account} account={f.account} record={records.get(f.account)!} isNew={view.friends.find((x) => x.account === f.account)?.isNew ?? false} now={now} />
               ))}
@@ -169,31 +171,32 @@ function FriendsSkeleton() {
           <span className="skel-line lg fr-count-skel" aria-hidden="true" />
         </div>
         <div className="cut cut-card fr-link" aria-hidden="true">
-          <span className="fr-link-label">Your add-me link</span>
+          <span className="fr-link-label">Your Friend link</span>
           <span className="cut cut-chip fr-link-url skel-url" />
-          <span className="skel-line" style={{ width: "60%" }} />
         </div>
       </header>
-      <section className="cut cut-card fr-section" aria-hidden="true">
-        <h2 className="fr-h">Your friends</h2>
-        <ul className="fr-list">
+      <section className="fr-yours" aria-hidden="true">
+        <h2 className="fr-h-out">Your Friends</h2>
+        <ul className="fr-cards">
           {[0, 1, 2].map((i) => (
-            <li key={i} className="fr-row fr-friend">
-              <span className="fr-who">
-                <span className="cut fr-av skel" />
-                <span className="fr-who-text skel-lines">
-                  <span className="skel-line lg" style={{ width: 120 }} />
-                  <span className="skel-line" style={{ width: 80 }} />
+            <li key={i} className="cut cut-card fr-card">
+              <div className="fr-card-top">
+                <span className="fr-who">
+                  <span className="cut fr-av skel" />
+                  <span className="fr-who-text skel-lines">
+                    <span className="skel-line lg" style={{ width: 120 }} />
+                    <span className="skel-line" style={{ width: 80 }} />
+                  </span>
                 </span>
-              </span>
-              <ul className="fr-recent">
+                <span className="fr-card-act">
+                  <span className="cut cut-btn fr-btn-skel skel" />
+                </span>
+              </div>
+              <ul className="fr-chips">
                 {[0, 1, 2].map((j) => (
-                  <li key={j} className="fr-recent-skel" />
+                  <li key={j} className="fr-chip-skel" />
                 ))}
               </ul>
-              <span className="fr-actions">
-                <span className="cut cut-btn fr-btn-skel skel" />
-              </span>
             </li>
           ))}
         </ul>
@@ -203,16 +206,19 @@ function FriendsSkeleton() {
 }
 
 /** Avatar and name, linking to the Account page. */
-function Who({ account, sub, children }: { account: string; sub?: string; children?: React.ReactNode }) {
+function Who({ account, sub, after, children }: { account: string; sub?: string; after?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <span className="fr-who">
       <Link href={`/account/${account}`} className="cut fr-av" aria-hidden="true" tabIndex={-1}>
         <PlayerAvatar account={account} size={56} wait />
       </Link>
       <span className="fr-who-text">
-        <Link href={`/account/${account}`} className="fr-name">
-          <PlayerName account={account} wait />
-        </Link>
+        <span className="fr-name-row">
+          <Link href={`/account/${account}`} className="fr-name">
+            <PlayerName account={account} wait />
+          </Link>
+          {after}
+        </span>
         {sub && <small>{sub}</small>}
         {children}
       </span>
@@ -245,8 +251,8 @@ function RequestRow({ account }: { account: string }) {
         )}
       </Who>
       <span className="fr-actions">
-        <Button disabled={busy} onClick={() => void run("accept")}>Accept</Button>
-        <Button disabled={busy} onClick={() => void run("decline")}>Decline</Button>
+        <Button size="sm" disabled={busy} onClick={() => void run("accept")}>Accept</Button>
+        <Button size="sm" disabled={busy} onClick={() => void run("decline")}>Decline</Button>
       </span>
     </li>
   );
@@ -258,35 +264,41 @@ function FriendRow({ account, record, isNew, now }: { account: string; record: F
   const [challenge, setChallenge] = useState(false);
   const name = usePlayerLabel(account);
   return (
-    <li className="fr-row fr-friend">
-      <Who account={account}>
-        <span className="fr-rec">
-          {recordText(record)}
-          {isNew && <span className="cut cut-chip fr-tag">New</span>}
-          {record.last !== null && <span className="cut cut-chip fr-tag">Played {ago(record.last, now)}</span>}
+    <li className="cut cut-card fr-card">
+      <div className="fr-card-top">
+        <Who account={account} after={isNew ? <span className="cut cut-chip fr-tag">New</span> : null}>
+          <span className="fr-rec">{recordText(record)}</span>
+        </Who>
+        <span className="fr-card-act">
+          <span className="fr-played">
+            {record.last !== null && <small>Played {ago(record.last, now)}</small>}
+            <FriendMenu account={account} name={name} />
+          </span>
+          <Button icon={<Swords aria-hidden="true" />} onClick={() => setChallenge(true)}>
+            Challenge
+          </Button>
         </span>
-      </Who>
-      <ul className="fr-recent" aria-label={`${name}'s latest Matches`}>
+      </div>
+      <ul className="fr-chips" aria-label={`${name}'s latest Matches`}>
         {last === null
-          ? [0, 1, 2].map((i) => <li key={i} className="fr-recent-skel" aria-hidden="true" />)
-          : last.map((r) => (
-              <li key={r.id}>
-                <span className="cut cut-chip fr-thumb">
-                  <Image src={art.thumb[r.game]} alt="" width={32} height={32} />
-                </span>
-                <span>
-                  <b className={`fr-res ${r.result}`}>{RESULT_WORD[r.result as keyof typeof RESULT_WORD]}</b> {GAME_NAMES[r.game]}
-                  <small>{ago(r.at, now)}</small>
-                </span>
-              </li>
-            ))}
+          ? [0, 1, 2].map((i) => <li key={i} className="fr-chip-skel" aria-hidden="true" />)
+          : last.map((r) => {
+              const Icon = RESULT_ICON[r.result as keyof typeof RESULT_ICON] ?? Minus;
+              return (
+                <li key={r.id} className="cut cut-chip fr-chip">
+                  <Image src={art.thumb[r.game]} alt="" width={40} height={40} />
+                  <span>
+                    <b>{GAME_SHORT[r.game] ?? GAME_NAMES[r.game]}</b>
+                    <small className={`fr-res ${r.result}`}>
+                      <Icon aria-hidden="true" />
+                      <span className="sr-only">{RESULT_WORD[r.result as keyof typeof RESULT_WORD]}, </span>
+                      {ago(r.at, now).replace(" ago", "")}
+                    </small>
+                  </span>
+                </li>
+              );
+            })}
       </ul>
-      <span className="fr-actions">
-        <Button icon={<Swords aria-hidden="true" />} onClick={() => setChallenge(true)}>
-          Challenge
-        </Button>
-        <FriendMenu account={account} name={name} />
-      </span>
       <ChallengeSheet open={challenge} onClose={() => setChallenge(false)} player={account} name={name} />
     </li>
   );
@@ -377,15 +389,19 @@ function FriendLink() {
   };
   return (
     <div className="cut cut-card fr-link">
-      <span className="fr-link-label">Your add-me link</span>
-      <FriendLinkShare key={code ?? "loading"} code={code} disabled={resetting} />
-      <div className="fr-link-foot">
-        <small className="fr-link-help">Anyone with this link can add you as a friend.</small>
+      <div className="fr-link-top">
+        <span className="fr-link-label">
+          Your Friend link
+          <InfoTip label="About your Friend link" align="start">
+            Anyone with this link can add you as a Friend.
+          </InfoTip>
+        </span>
         <button type="button" className="fr-link-reset" disabled={!code} onClick={() => setResetOpen(true)}>
           Reset link
         </button>
       </div>
-      <Sheet open={resetOpen} onClose={closeReset} title="Reset your add-me link?">
+      <FriendLinkShare key={code ?? "loading"} code={code} disabled={resetting} />
+      <Sheet open={resetOpen} onClose={closeReset} title="Reset your Friend link?">
         <div className="stack">
           <p className="meta fr-reset-text">
             You get a new link and the current one stops working: anyone who opens it sees that it no longer works. Your Friends stay your Friends. Do this if your link
