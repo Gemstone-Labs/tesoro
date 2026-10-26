@@ -23,6 +23,7 @@ import {
 } from "@/components/ui";
 import { PlayerName } from "@/components/account/Player";
 import { useGuideTip } from "@/components/guide/Guide";
+import { InfoTip } from "@/components/money/Tip";
 import { useAccount } from "@/lib/account";
 import {
   acceptOffer,
@@ -191,21 +192,26 @@ export default function Backing() {
   const selected = offerFor ? offerFor.address.toBase58() : null;
   const tabs: [Tab, string][] = [
     ["requests", "Requests"],
-    ["mine", "My Backings"],
+    ["mine", mine.length > 0 ? `My Backings (${mine.length})` : "My Backings"],
   ];
 
   return (
     <div className="bk">
-      <header className="page-head">
+      <header className="page-head bk-head">
         <div>
-          <h1 className="page-title">Back a player</h1>
+          <h1 className="page-title">
+            Backing
+            <InfoTip label="What Backing means" align="start">
+              A Backer funds a Player&apos;s whole entry. On a win the entry returns first and the surplus is split by the Offer. Only the Backer bears a loss.
+            </InfoTip>
+          </h1>
           <p className="page-sub">Support skilled players and share their success.</p>
         </div>
         {awayText ? (
           <p className="status" role="status">{awayText}</p>
         ) : (
           <div className="bk-head-actions">
-            <Button variant="money" onClick={() => auth.gate("post a Request", () => setPostOpen(true))}>Post a Request</Button>
+            <Button variant="money" block onClick={() => auth.gate("post a Request", () => setPostOpen(true))}>Post a Request</Button>
           </div>
         )}
       </header>
@@ -328,7 +334,7 @@ export default function Backing() {
                       ) : awayText ? (
                         <span className="meta">{awayText}</span>
                       ) : (
-                        <Button variant="money" onClick={() => auth.gate("make an Offer", () => setOfferFor(r))}>
+                        <Button variant="silver" onClick={() => auth.gate("make an Offer", () => setOfferFor(r))}>
                           Make an Offer
                         </Button>
                       )

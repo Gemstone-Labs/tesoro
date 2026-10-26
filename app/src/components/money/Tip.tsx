@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Info } from "lucide-react";
 import "./tip.css";
+
+const subscribeNever = () => () => {};
 
 type Align = "start" | "center" | "end";
 
@@ -18,6 +20,7 @@ export function InfoTip({ label, children, align = "center" }: { label: string; 
   const [at, setAt] = useState<{ top: number; x: number } | null>(null);
   const [host, setHost] = useState<Element | null>(null);
   const [pinned, setPinned] = useState(false);
+  const mounted = useSyncExternalStore(subscribeNever, () => true, () => false);
   const show = () => {
     const btn = ref.current;
     if (!btn) return;
@@ -63,7 +66,7 @@ export function InfoTip({ label, children, align = "center" }: { label: string; 
       >
         <Info size={15} aria-hidden="true" />
       </button>
-      {typeof document !== "undefined" &&
+      {mounted &&
         createPortal(
           <span role="tooltip" id={id} className={`tip-bubble fixed${at ? " open" : ""}`} style={at ? { top: at.top, left: at.x, transform: `translate(${shift}, -100%)` } : undefined}>
             {children}
