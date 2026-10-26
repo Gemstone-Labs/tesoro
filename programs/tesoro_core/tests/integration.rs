@@ -4653,7 +4653,9 @@ fn open_source_chunks(k: usize, steps: u8, native: bool) -> Vec<u64> {
                 break;
             }
             env.svm = saved;
-            n = n.min(((n as u64 * KEEPER_CHUNK_CU_TARGET) / env.last_cu).max(1) as u8).min(n - 1);
+            n = n
+                .min(((n as u64 * KEEPER_CHUNK_CU_TARGET) / env.last_cu).max(1) as u8)
+                .min(n - 1);
         }
         budgets.push(env.last_cu);
         let done: Vec<MatchChunkDone> = env
