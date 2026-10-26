@@ -16,7 +16,7 @@ import {
   corePositionPda,
   ethPositionId,
   parseCorePosition,
-  quoteEthAdvance,
+  quoteEthAdvanceUnits,
   coreAccountPda,
   fetchEthState,
   fetchVaultPosition,
@@ -395,7 +395,7 @@ export async function takeEthAdvance(ctx: Pick<EthCtx, "signer" | "getToken">, v
   const rates = treasury ? parseTreasury(treasury.data) : null;
   if (!pos || !rates) throw new Error("Your Lock or the fees could not be read. Try again in a moment.");
   const core = parseCorePosition(position, pos.data);
-  const mine = quoteEthAdvance(core.principalWei, core.rateBps, months, BigInt(r.priceMicroUsd)).gemas;
+  const mine = quoteEthAdvanceUnits(core.principalUnits, core.rateBps, months, BigInt(r.priceMicroUsd)).gemas;
   if (advanceFloorIn(tx.instructions) !== mine || mine <= 0n) throw new Error("The Advance did not match your quote, so it was not signed. Try again.");
   return getChain().sendSigned(await ctx.signer.signTransaction(tx));
 }

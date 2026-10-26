@@ -126,8 +126,8 @@ export function demoSnapshot(address: string): AccountSnapshot {
       redeemable,
       asset,
       sourceOwner: isOwn ? address : key(500 + n).toBase58(),
-      // SOL at $110 (9 decimals), HYPE at $40 (18 decimals)
-      unitNum: asset === "SOL" ? 10n ** 13n : 10n ** 22n,
+      // SOL at $110, HYPE at $40; both held by core in 9-decimal units
+      unitNum: 10n ** 13n,
       unitDen: asset === "SOL" ? 110_000_000n : 40_000_000n,
     });
   const position: ChainPosition = {

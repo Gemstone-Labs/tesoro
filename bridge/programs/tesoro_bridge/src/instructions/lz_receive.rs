@@ -134,6 +134,12 @@ impl LzReceive<'_> {
                         && batch.id == header.seq,
                     BridgeError::BatchMismatch
                 );
+                // The vault reports wei paid; entries are core units, so round each down first:
+                // an entry is only marked paid for whole units the vault actually sent.
+                let paid = paid
+                    .iter()
+                    .map(|p| ctx.accounts.peer.to_units(*p))
+                    .collect::<Result<Vec<u128>>>()?;
                 let changed = batch.apply_result(&paid)?;
                 // The vault's escrow snapshot is valid whatever the batch paid.
                 ctx.accounts.route.note_escrow(escrowed_shares, escrowed_units);

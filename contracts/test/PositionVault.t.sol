@@ -863,14 +863,17 @@ contract PositionVaultWstETHTest is VaultBase {
         assertGe(vault.accruedYield(id), before);
     }
 
-    /// PR-01. tesoro_core stores Principal as u64; a larger Position could never open on Solana and its
-    /// Principal could never unlock, so the vault refuses it.
-    function test_pr01_principalAboveU64IsRefused() public {
+    /// PR-01. The bridge gives tesoro_core 1e-9 units as u64: a Position below one unit would open as zero and never
+    /// unlock, and one above 2^64 units could never open on Solana, so the vault refuses both. Past the old 18.4-token
+    /// wei limit is fine.
+    function test_pr01_principalOutsideTheCoreUnitRangeIsRefused() public {
         vm.prank(alice);
-        vm.expectRevert(PositionVaultBase.PrincipalTooLarge.selector);
-        vault.openPosition(20 ether, 6); // 20.6e18 underlying at 1.03 > u64 max (~18.45e18)
+        vm.expectRevert(PositionVaultBase.PrincipalBelowUnit.selector);
+        vault.openPosition(100, 6); // 100 wei is below one core unit
+        wst.mint(alice, 1_000 ether);
         vm.prank(alice);
-        uint64 id = vault.openPosition(17 ether, 6);
-        assertLe(vault.getPosition(id).principalUnderlying, type(uint64).max);
+        uint64 big = vault.openPosition(1_000 ether, 6); // 1,000 ETH, far past 2^64 wei
+        assertGt(vault.getPosition(big).principalUnderlying, type(uint64).max);
+        assertLe(vault.getPosition(big).principalUnderlying / 1e9, type(uint64).max);
     }
 }

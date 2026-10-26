@@ -7,6 +7,7 @@ import {
   SEED_SLOTS,
   SLOTS_PER_SEC,
   END_OFFSET_SLOTS,
+  FREEZE_OFFSET_SLOTS,
   SLOT,
   TABLE_PHASE,
   canFinalizeTable,
@@ -143,6 +144,8 @@ export interface BurstTableFacts {
   matchFrozen: boolean;
   /** A Done result in the table's ring that base's copy does not show, old enough that its commit is probably lost. */
   recommit: boolean;
+  /** The table is between its freeze and the end of the grace: no transaction of ours may touch it (ticket 43). */
+  hiddenWindow: boolean;
 }
 
 export type BurstTableStep = { do: "commit_table" | "wipe_seats" | "reset_table" | "release_slot" | "void_table" | "wait"; why: string; slot?: { index: number; match: string } };
@@ -152,6 +155,7 @@ export const RESET_DELAY_SECS = 30;
 
 /** One step for one table; frees ring slots first (it never blocks a Match), then moves the table along. */
 export function burstTableStep(f: BurstTableFacts): BurstTableStep {
+  if (f.hiddenWindow) return { do: "wait", why: "hidden window: the table stays untouched" };
   const free = f.doneSlots.find((s) => s.receiptOld);
   if (free) return { do: "release_slot", why: `tesoro_core froze ${shortKey(new PublicKey(free.match))}`, slot: { index: free.index, match: free.match } };
   const onMatch = f.tablePhase >= TABLE_PHASE.assigned && f.tablePhase <= TABLE_PHASE.getReady;
@@ -166,7 +170,7 @@ export function burstTableStep(f: BurstTableFacts): BurstTableStep {
 }
 
 /** Rollup facts for one table; `receiptAge(match)` is the age in seconds of tesoro_core's settlement receipt, or `null` if there is none. */
-export function burstTableFacts(t: Table, nowS: number, receiptAge: (match: PublicKey) => number | null, base: Table | null = null, lastRecommit = 0): BurstTableFacts {
+export function burstTableFacts(t: Table, nowS: number, receiptAge: (match: PublicKey) => number | null, base: Table | null = null, lastRecommit = 0, slot = 0): BurstTableFacts {
   const doneSlots = t.ring
     .map((s, index) => ({ s, index }))
     .filter(({ s }) => s.state === SLOT.done)
@@ -180,6 +184,7 @@ export function burstTableFacts(t: Table, nowS: number, receiptAge: (match: Publ
     doneSlots,
     matchFrozen: onMatch && (receiptAge(t.tesoroMatch) ?? -1) >= 60,
     recommit: needsRecommit(t, base, nowS, lastRecommit),
+    hiddenWindow: t.phase === TABLE_PHASE.getReady && slot >= t.startSlot + FREEZE_OFFSET_SLOTS && slot <= t.startSlot + END_OFFSET_SLOTS,
   };
 }
 

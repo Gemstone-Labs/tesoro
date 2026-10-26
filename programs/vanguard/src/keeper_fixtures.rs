@@ -12,6 +12,14 @@ fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
+/// The retire-only record lengths as little-endian u16 pairs, so the keeper plans the retire from the program's constant.
+fn legacy_lengths(lengths: &[usize]) -> String {
+    hex(&lengths
+        .iter()
+        .flat_map(|l| (*l as u16).to_le_bytes())
+        .collect::<Vec<u8>>())
+}
+
 fn key(n: u8) -> Pubkey {
     let mut k = [n; 32];
     k[0] = n.wrapping_mul(3).wrapping_add(1);
@@ -102,6 +110,7 @@ fn vanguard_fixtures_match_the_program() {
         ("army_waiting", bytes(&waiting)),
         ("army_dealt", bytes(&dealt)),
         ("table_config", bytes(&config)),
+        ("legacy_lengths_u16le", legacy_lengths(&LEGACY_ARMY_LENGTHS)),
     ];
     let json = format!(
         "{{\n{}\n}}\n",

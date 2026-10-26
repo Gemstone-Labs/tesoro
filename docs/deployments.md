@@ -11,11 +11,46 @@ python3 scripts/predeploy-size-check.py check \
   --rpc https://rpc.magicblock.app/devnet --out account-size-preflight.json
 ```
 
-Every program-owned account is classified, including unknown discriminators and old layouts. A length/version mismatch, stale or absent build seal, missing program, failed RPC or incomplete schema coverage refuses the check. Do not exempt old Sources, Matches or Seasons because the app skips them: diagnose the required migration/retirement and repeat the preflight after it is authorized and performed. This command sends no transactions.
+Devnet state is disposable (founder, 2026-10-25): legacy or broken test accounts are skipped or retired, never migrated or proven compatible. Every program-owned account is classified, and the report has two parts:
 
-The metadata-only inventory (`collect --metadata-only`, followed by `check --inventory-only`) is useful before a rebuild and **always exits nonzero**. It cannot approve an upgrade. Size compatibility also does not establish semantic compatibility: delegated/private rollup accounts and current Matches require their own inventory and upgrade prerequisites, and a same-size field reinterpretation still needs migration/reuse review.
+* **current: N ok.** `CURRENT_STATE` types in `scripts/predeploy-size-check.py` are the accounts a program finds by deriving the address itself (Config, EconomyConfig, native custody, Treasury, StakeConfig, PriceFeed, Pool, TableConfig, the per-table accounts, bridge PeerConfig/VaultRoute/Store...). A wrong size or version on one of these is misread by live code, so it **fails the run** (this is what the 178 B custody against 327 B would be). Config may be shorter: its admin instructions `realloc` it.
+* **legacy, skipped.** Per-user, per-match and per-round records (`LEGACY_OK`: Source, Holding, Position, Match, Season, Account, Board, Hole, Army...) with an old size or version, and unknown discriminators, are counted by type and do not fail the run. They are retired with the admin-only retire instructions (below), never migrated.
+
+A type that is in neither set, a missing or stale build seal, a failed RPC or incomplete schema coverage refuses the check: classify every new account type in the script. This command sends no transactions.
+
+The metadata-only inventory (`collect --metadata-only`, followed by `check --inventory-only`) is useful before a rebuild and **always exits nonzero**. It cannot approve an upgrade. Delegated rollup accounts are not scanned (disposable on devnet); a same-size field reinterpretation still needs review.
 
 Regression commands: `cargo test -p tesoro_core --lib predeploy_layouts -- --nocapture` writes/reads both the historical 178-byte and current 327-byte custody fixtures in LiteSVM; `python3 scripts/test-predeploy-size-check.py` exercises mismatch, unknown discriminator, dynamic capacity and version refusals. Preserve the LiteSVM fixture rows and use them in the Python test as described by its skip message.
+
+## Bundled devnet upgrade (2026-10-26)
+
+Source: `feat/economy-finish-25-10-2026` at `37e0bb57` (programs, crates and bridge identical to the build that produced these hashes). Built on the VPS with `anchor build --no-idl -- --tools-version v1.54` and `cargo build-sbf --tools-version v1.54` for the bridge; every dump of the live program equals its ELF. The deployer wrote and upgraded one program at a time. Rollback dumps: `~/.cache/tesoro-tmp/rollback-2026-10-26/` (`SHA256SUMS`).
+
+| Program | Upgrade slot | Signature | Size (B) | sha256 |
+|---|---|---|---|---|
+| `tesoro_bridge` (extend +22,000) | 515249536 | `2D7eqcpo…GxNGAiv` | 1,127,208 | `b0ccd969…4787` |
+| `tesoro_core` (extend +35,000) | 515249711 | `RTycGPVu…oGz3DWD` | 3,134,192 | `6a78a65d…0955` |
+| `block_puzzle` (extend +10,240) | 515249807 | `51fXiaJr…UQSLXAU` | 987,392 | `2611d96e…17c0` |
+| `holdem` (extend +10,240) | 515249892 | `XD128XCr…dhegnrw` | 968,600 | `383ae12e…17ae` |
+| `vanguard` (extend +10,240) | 515249967 | `4URMh45L…zf9p3uY` | 1,098,592 | `3b511d12…9e19` |
+| `trading_duel` | 515250027 | `5Yd87W3b…izHDNBG` | 744,264 | `d5ce2107…85ae` |
+
+`sim_lst` is byte-identical and was not touched. Production Supabase migration `0016_match_source_lines.sql` was applied in one transaction. The keeper was stopped for the window. The old Block Burst Boards (128), Hold'em Holes (52) and Vanguard Armies (22) were closed with the operator key. Full evidence: ticket 24, Comments "2026-10-26 bundled upgrade".
+
+## Source-line event candidate: rollout prerequisites
+
+This section describes a local candidate, not a deployed program upgrade. Account layouts and instruction arguments are unchanged. The candidate emits a versioned `MatchLinesStarted` manifest at settlement/refund start and appends fields to the existing `MatchChunkDone` event. Its old prefix and discriminator remain intact. Each successful credit adds the incoming and outgoing raw 144-byte Lines, original Pot side/index, purpose, recipient and placement. No record is added for a rolled-back credit. Closed retries emit a zero-work chunk without another `MatchSettled`.
+
+The reader accepts the exact historical 66/70-byte event-CPI formats and version 1's `79 + 328 * steps` bytes, with at most 12 steps. It refuses unknown versions, malformed lengths and missing recognized events, keeping the history cursor behind that transaction. The largest event-CPI is 4,015 bytes. A four-world LiteSVM fixture covers 4/5/8/10 Sources, reversed ingestion and Closed retries arriving first. It is not deployed-chain evidence. The unchanged 140,000-CU regression cap passes at 139,500 CU in the largest case; preserve that cap and retest after compiler or settlement changes.
+
+Before any separately authorized activation:
+
+1. Identify every history writer, including keeper and manual backfill jobs. Stop them and drain in-flight database calls; snapshot history, parties, events and ACLs before changing SQL. Migration `0015_match_history_chunks.sql` repairs the one-based chunk counter without changing financial fields. Apply it in one transaction with bounded lock/statement timeouts and verify preservation against the snapshot.
+2. Apply additive migration `0016_match_source_lines.sql` and deploy the new finalized-transaction reader to **all** writers before upgrading core. An old writer can store an incomplete first-wins header which later replay cannot enrich. Confirm no old writer/backfill process remains, then resume ingestion. Anonymous/authenticated roles receive no new access; only the existing service role may write raw records.
+3. Complete the account-size/delegated-state preflight and review current in-flight Matches. Only a separately authorized core upgrade may activate the new event producer. Matches already settling before that upgrade have no manifest and must remain labelled incomplete.
+4. Run a real many-Source Match after activation. Retain transaction signatures, raw events and recipient balances; rebuild an isolated history database from finalized transactions and compare exact fee/party/Source totals. `settlementSourceLines` refuses a complete label until manifest, contiguous steps/chunks, original Pot slots, completion signatures and conservation agree. Its raw stream preserves `u64` values; this does not extend the legacy history tables' signed-bigint range.
+
+Do not backfill invented Source lines from merged Holdings or present-day Redeem Now state. The checked-in raw fixture can be regenerated by setting `TESORO_SOURCE_RECORD_FIXTURE` when running `a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table`; retain the candidate ELF hash beside the fixture.
 
 
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
@@ -207,7 +242,33 @@ The rebuilt `tesoro_bridge.so` differs byte for byte from the deployed one (the 
 
 Idls: `idl/` copies in `app/src/lib/chain/idl/` (`tesoro_core`, `block_puzzle`, `holdem`, `trading_duel`) were refreshed from the build and equal `target/idl`. `sim_lst` has no app copy.
 
-### Retire the old accounts (ticket 11; after the `tesoro_core` upgrade, before `init_native_custody` and the app deploy)
+### Legacy account retirement (devnet is disposable)
+
+Admin-only raw-byte retirement closes legacy test accounts and returns their rent to the admin (`Config.admin`). Each instruction checks program ownership, discriminator and the exact historical length; nothing it reads is migrated, and a current-length account is never closable:
+
+* `retire_source`: 142 B Source (canonical address and bump, Position gone). Counters are ignored.
+* `retire_holding`: 90 B Holding (canonical address and bump, its Source gone). Its Gemas are not preserved.
+* `retire_legacy_account { kind: Match | Season }`: Match of 435 or 915 B, Season of 504 B. Delegated Matches are owned by the delegation program and refused.
+* Older instructions unchanged: custody, Position (shorter than current), Offer, Request, Treasury.
+
+The three table Games close their pre-table per-Match records with `retire_legacy_account` (operator = `TableConfig.operator`, rent to the operator; owner, discriminator and exact length only, no field read): Block Burst `Board` (605 and 853 B), Hold'em `Hole` (76 and 80 B), Vanguard `Army` (144 B). The lengths are `LEGACY_*_LENGTHS` in each program's `state.rs`; the guard reads them through the Rust probe as retire-only, and a compile-time assert keeps them different from the current layout. A record delegated to a rollup is owned by the delegation program and is refused. Other leftovers of the Games (unknown discriminators, Books, Battles that decode) are skipped by the guard and stay. Dry run: `scripts/retire-old-accounts.ts --games`; send: `--games --send --keypair <operator file>` (a Game whose operator is another key is skipped). Tests: `cargo test -p block_puzzle -p holdem -p vanguard --test legacy_retirement` (copied devnet bytes).
+
+Script, dry run by default: `pnpm --filter @tesoro/keeper exec tsx scripts/retire-old-accounts.ts` prints the inventory and the plan (a read, no key); `--send --keypair <admin>` sends it in phases (Positions, Matches, Seasons first, then Sources, then Holdings). Run `cargo test -p tesoro_core --test legacy_retirement --test retire` after rebuilding the SBF. Any live retirement, extension or upgrade needs separate authority.
+
+### Core program capacity for the bundled upgrade
+
+`solana program extend <tesoro_core id> <bytes>` must be sent before the upgrade when the new ELF is longer than the live ProgramData. Live capacity (ticket 39 report) is 3,099,352 B of ELF; extend by the new ELF length minus that. Measure with `stat -c %s target/deploy/tesoro_core.so` of the exact bundled build. Figures (2026-10-26):
+
+| Build | ELF bytes | `solana program extend` bytes (over 3,099,352) |
+|---|---|---|
+| This branch (eco/39r on 4374903a, legacy retire instructions only) | 3,110,248 | 10,896 |
+| Earlier candidate 397c24a9 (ticket 39 report) | 3,119,320 | 19,968 |
+
+The bundled upgrade also carries other tickets (units fix, 42), so rebuild the bundle and recompute: extend = ELF length - 3,099,352, plus a margin (extend 25,000 B and the cost is ~0.18 SOL of rent). Extend first, then write the buffer and upgrade; the deployer needs the rent for both.
+
+### Historical reset procedure (ticket 11, 2026-10-18; not a current cleanup plan)
+
+The following inventory and procedure are retained as historical evidence of the 2026-10-18 reset.
 
 Why: the new `PositionState` (193 B, was 159) and `Treasury` (143 B, was 103) cannot read the accounts already on chain, and the old per-Position `NativeCustody` (210 B, `["native", position]`) is not the new singleton (178 B, `["native"]`). Only `tesoro_core` can close its accounts, so the upgrade adds seven admin-only instructions (`programs/tesoro_core/src/instructions/retire.rs`): `retire_native_custody`, `retire_position`, `retire_source`, `retire_holding`, `retire_offer`, `retire_request`, `retire_treasury`. Signer = `Config.admin` (the deployer key); rent goes to the admin. Each refuses anything not provably of the old world, by raw bytes (old layouts are never deserialized as new types):
 

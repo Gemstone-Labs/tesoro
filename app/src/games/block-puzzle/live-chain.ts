@@ -76,6 +76,20 @@ export const GET_READY_SLOTS = GET_READY_SECS * SLOTS_PER_SEC;
 export const FREEZE_OFFSET_SLOTS = (PLAY_SECS - HIDE_LAST_SECS) * SLOTS_PER_SEC;
 export const END_OFFSET_SLOTS = (PLAY_SECS + GRACE_SECS) * SLOTS_PER_SEC;
 
+/**
+ * The hidden beat (ticket 43). From the freeze every Player sends exactly one `play_hidden` per beat, moved or not, so what a
+ * watcher of the public table, the Player's wallet and the program sees is the same rhythm for everyone. Beat `k` is due at
+ * `start + FREEZE_OFFSET_SLOTS + HIDDEN_FIRST_BEAT_SLOTS + k * HIDDEN_BEAT_SLOTS`; the last one lands 0.7 s before the window
+ * closes (the run itself ends 3 s before that, so no move is left behind). The public `play` stops `PUBLIC_GUARD_SLOTS` before
+ * the freeze, so a `play` never reaches the program after it.
+ */
+export const HIDDEN_BEAT_SLOTS = 60;
+export const HIDDEN_FIRST_BEAT_SLOTS = 30;
+export const HIDDEN_BEATS = 21;
+export const PUBLIC_GUARD_SLOTS = 30;
+/** The slot beat `k` of this table is due at. */
+export const hiddenBeatSlot = (t: Pick<Table, "startSlot">, k: number) => t.startSlot + FREEZE_OFFSET_SLOTS + HIDDEN_FIRST_BEAT_SLOTS + k * HIDDEN_BEAT_SLOTS;
+
 /** `Table.phase` on chain. `getReady` covers the countdown and the run; `phaseAt` tells them apart from the slot. */
 export const TABLE_PHASE = { idle: 0, assigned: 1, seeding: 2, getReady: 3, closed: 4 } as const;
 /** Ring slot states and outcomes (crates/table_kit/src/ring.rs). */
@@ -459,6 +473,12 @@ export interface BlockBurstChainOptions {
   onTx?: (step: string, layer: "base" | "tee", signature: string) => void;
 }
 
+/** The fixed-size move list of a hidden beat: the real moves, then padding the program ignores. */
+export const hiddenMoves = (moves: MoveArg[]): MoveArg[] => {
+  if (moves.length > MAX_PLAY_BATCH) throw new Error(`A batch holds at most ${MAX_PLAY_BATCH} moves`);
+  return Array.from({ length: MAX_PLAY_BATCH }, (_, i) => moves[i] ?? { piece: 0, x: 0, y: 0 });
+};
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Transient RPC failures (rate limits, dropped sockets) are common on public devnet. */
@@ -823,16 +843,19 @@ export class BlockBurstChain {
   }
 
   /**
-   * Rollup. 1 to 8 moves. `expectedCount` is your move count on chain before this batch (a resent batch is then refused as
+   * Rollup. 1 to 8 moves (0 to 8 in a hidden beat, which pads to a fixed size and carries `beat`, the beat's number, only so
+   * its bytes differ from the last beat's). `expectedCount` is your move count on chain before this batch (a resent batch is then refused as
    * `WrongCount` and changes nothing). `hidden` sends `play_hidden`, which touches nothing public: required from the freeze
    * (`canPlayPublic(table, slot)` is false), allowed before it. A `play` that lands after the freeze fails with `Frozen`:
    * resend it hidden.
    */
-  async play(player: PlayerSigner, table: Pick<Table, "tesoroMatch" | "generation" | "epoch" | "index">, seat: 0 | 1, expectedCount: number, moves: MoveArg[], hidden: boolean): Promise<string> {
+  async play(player: PlayerSigner, table: Pick<Table, "tesoroMatch" | "generation" | "epoch" | "index">, seat: 0 | 1, expectedCount: number, moves: MoveArg[], hidden: boolean, beat = 0): Promise<string> {
     const t = tablePda(table.generation, table.index);
-    const args = [bindingArg(bindingOf(table)), expectedCount, moves] as const;
     const accounts = { player: player.publicKey, table: t, board: boardPda(t, seat) } as any;
-    const ix = hidden ? await this.program.methods.playHidden(...args).accountsPartial(accounts).instruction() : await this.program.methods.play(...args).accountsPartial(accounts).instruction();
+    const binding = bindingArg(bindingOf(table));
+    const ix = hidden
+      ? await this.program.methods.playHidden(binding, expectedCount, beat & 0xff, moves.length, hiddenMoves(moves)).accountsPartial(accounts).instruction()
+      : await this.program.methods.play(binding, expectedCount, moves).accountsPartial(accounts).instruction();
     return this.sendTee(hidden ? "play_hidden" : "play", [ix], player);
   }
 

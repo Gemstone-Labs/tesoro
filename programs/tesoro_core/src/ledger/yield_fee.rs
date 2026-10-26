@@ -24,6 +24,9 @@ fn floor_bps(v: u128, bps: u128) -> CoreResult<u128> {
 
 /// Splits `paid` redeemed shares (or units) with one floor (red-team #9): the payout is
 /// `floor(paid * (1 - yield_fee))`, the fee takes the remainder, the Pool `floor(fee * pool_bps)`.
+/// The remainder is capped at `floor(paid * MAX_YIELD_FEE_BPS / BPS)`: a vault refuses a PayYield
+/// whose fee is above that share of its amount (`BadFeeSplit`), so a dust cash-out (1 unit, or an odd
+/// amount at the 50% cap) keeps the unit with the holder rather than leaving the cash-out unpayable.
 pub fn cash_out(paid: u128, yield_fee_bps: u16, pool_bps: u16) -> CoreResult<CashOut> {
     if yield_fee_bps > MAX_YIELD_FEE_BPS || u128::from(pool_bps) > BPS {
         return Err(CoreError::InvalidBps);
@@ -32,7 +35,11 @@ pub fn cash_out(paid: u128, yield_fee_bps: u16, pool_bps: u16) -> CoreResult<Cas
         .checked_sub(u128::from(yield_fee_bps))
         .ok_or(CoreError::Math)?;
     let payout = floor_bps(paid, keep)?;
-    let fee = paid.checked_sub(payout).ok_or(CoreError::Math)?;
+    let fee = paid
+        .checked_sub(payout)
+        .ok_or(CoreError::Math)?
+        .min(floor_bps(paid, u128::from(MAX_YIELD_FEE_BPS))?);
+    let payout = paid.checked_sub(fee).ok_or(CoreError::Math)?;
     let pool = floor_bps(fee, u128::from(pool_bps))?;
     Ok(CashOut { payout, fee, pool })
 }
@@ -124,8 +131,31 @@ mod tests {
         // 7 * 0.8 = 5.6: the holder gets 5, the fee is the other 2, the Pool floor(1.0) = 1.
         let c = cash_out(7, YF, POOL).unwrap();
         assert_eq!((c.payout, c.fee, c.pool), (5, 2, 1));
+        // A single unit would all be fee, which a vault refuses (BadFeeSplit): the holder keeps it.
         let one = cash_out(1, YF, POOL).unwrap();
-        assert_eq!((one.payout, one.fee, one.pool), (0, 1, 0));
+        assert_eq!((one.payout, one.fee, one.pool), (1, 0, 0));
+    }
+
+    #[test]
+    fn the_fee_never_exceeds_the_share_a_vault_accepts() {
+        // The vault refuses `fee * BPS > amount * MAX_YIELD_FEE_BPS`; a cash-out's fee, and any sum
+        // of them, must stay inside it for every amount and every Yield Fee up to the cap.
+        for yf in [1u16, 1_000, 2_000, 3_333, 4_999, MAX_YIELD_FEE_BPS] {
+            let (mut paid_sum, mut fee_sum) = (0u128, 0u128);
+            for paid in 1..=2_000u128 {
+                let c = cash_out(paid, yf, POOL).unwrap();
+                assert_eq!(c.payout + c.fee, paid);
+                assert!(
+                    c.fee * BPS <= paid * u128::from(MAX_YIELD_FEE_BPS),
+                    "{paid} at {yf}: fee {}",
+                    c.fee
+                );
+                assert!(c.pool <= c.fee);
+                paid_sum += paid;
+                fee_sum += c.fee;
+                assert!(fee_sum * BPS <= paid_sum * u128::from(MAX_YIELD_FEE_BPS));
+            }
+        }
     }
 
     #[test]

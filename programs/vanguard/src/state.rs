@@ -1273,3 +1273,14 @@ mod layout {
         }
     }
 }
+
+/// Lengths of the pre-table per-Match `Army` records still on devnet. `retire_legacy_account`
+/// closes exactly these; the guard treats them as retire-only. A current `Army` is never one of them.
+pub const LEGACY_ARMY_LENGTHS: [usize; 1] = [144];
+const _: () = {
+    let mut i = 0;
+    while i < LEGACY_ARMY_LENGTHS.len() {
+        assert!(LEGACY_ARMY_LENGTHS[i] != 8 + Army::INIT_SPACE);
+        i += 1;
+    }
+};

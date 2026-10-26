@@ -64,8 +64,10 @@ impl ApplyLocked<'_> {
         let position = &mut ctx.accounts.bridge_position;
         require!(position.locked_seq > 0, BridgeError::NotLocked);
         require!(!position.opened, BridgeError::AlreadyOpened);
-        let principal =
-            u64::try_from(position.principal).map_err(|_| error!(BridgeError::AmountOverflow))?;
+        // The vault speaks wei; core holds 9-decimal units, rounded down.
+        let peer = &ctx.accounts.peer;
+        let principal = peer.to_core_u64(position.principal)?;
+        require!(principal > 0, BridgeError::PrincipalBelowUnit);
 
         let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &[ctx.accounts.store.authority_bump]]];
         let cpi = CpiContext::new_with_signer(
@@ -85,9 +87,9 @@ impl ApplyLocked<'_> {
             chain,
             params.position_id,
             Pubkey::new_from_array(position.asset),
-            ctx.accounts.peer.decimals,
+            peer.core_decimals(),
             principal,
-            ctx.accounts.peer.rate_bps,
+            peer.rate_bps,
         )?;
         position.opened = true;
         Ok(())

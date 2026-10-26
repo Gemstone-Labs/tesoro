@@ -43,4 +43,8 @@ pub enum BridgeError {
     BatchNotDone,
     PayoutNotFinal,
     WrongRentReceiver,
+    PrincipalBelowUnit,
+    DecimalsFixed,
+    InvalidDecimals,
+    LegacyUnits,
 }

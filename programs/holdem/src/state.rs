@@ -403,3 +403,14 @@ impl PartialEq for Hole {
             && self.shares == o.shares
     }
 }
+
+/// Lengths of the pre-table per-Match `Hole` records still on devnet. `retire_legacy_account`
+/// closes exactly these; the guard treats them as retire-only. A current `Hole` is never one of them.
+pub const LEGACY_HOLE_LENGTHS: [usize; 2] = [76, 80];
+const _: () = {
+    let mut i = 0;
+    while i < LEGACY_HOLE_LENGTHS.len() {
+        assert!(LEGACY_HOLE_LENGTHS[i] != 8 + Hole::INIT_SPACE);
+        i += 1;
+    }
+};

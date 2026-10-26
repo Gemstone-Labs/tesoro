@@ -35,3 +35,4 @@ deploy-keys/
 !**/*secret*.md
 .env*
 programs/trading_duel/scripts/evidence-*.json
+__pycache__/

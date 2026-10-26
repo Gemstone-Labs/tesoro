@@ -11,4 +11,5 @@ fn emit_layouts() {
     fixed::<crate::Pool>("Pool", 8 + crate::Pool::INIT_SPACE);
     fixed::<crate::YieldConfig>("YieldConfig", 8 + crate::YieldConfig::INIT_SPACE);
     fixed::<crate::FaucetClaim>("FaucetClaim", 8 + crate::FaucetClaim::INIT_SPACE);
+    probe::decode_report();
 }

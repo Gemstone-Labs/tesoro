@@ -120,6 +120,9 @@ abstract contract PositionVaultBase {
     /// @notice SimLST that mints simulated yield into this vault; address(0) for rate-based LSTs.
     address public immutable yieldMinter;
     uint256 internal constant BPS = 10_000;
+    /// @dev Wei per unit of the 9-decimal amounts tesoro_bridge gives tesoro_core (it rounds every report down to a
+    ///      whole unit and asks for whole units back). Vaults hold 18-decimal assets.
+    uint256 internal constant CORE_UNIT = 1e9;
     /// @dev tesoro_core's cap on the Yield Fee (ledger::MAX_YIELD_FEE_BPS): a PayYield fee above it is refused.
     uint256 internal constant MAX_YIELD_FEE_BPS = 5_000;
     uint256 internal constant YEAR = 365 days;
@@ -218,6 +221,7 @@ abstract contract PositionVaultBase {
     error ExceedsAccruedYield(uint256 requested, uint256 available);
     error InsufficientShares(uint256 needed, uint256 spendable);
     error PrincipalTooLarge();
+    error PrincipalBelowUnit();
     error NotAdmin();
     error NotAdminOrKeeper();
     error EscrowTooSmall(uint256 requested, uint256 available);

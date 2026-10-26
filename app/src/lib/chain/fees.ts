@@ -1,3 +1,4 @@
+import { weiToCoreUnits } from "./eth-units";
 import { BPS, DEFAULT_INSTANT_FEE_BPS, DEFAULT_YIELD_FEE_BPS, instantPayout } from "./yield";
 import type { SourceMath } from "./ledger";
 import { BRAND } from "../brand";
@@ -80,7 +81,7 @@ export interface VaultTreasuryView {
   instantRecorded: bigint;
   /** Vault block time (unix seconds) of the latest report. */
   reportTime: bigint;
-  /** Source-asset units an Instant Redeem on this vault may still be paid: balance less what is recorded but not yet paid. */
+  /** Vault base units (wei) an Instant Redeem on this vault may still be paid: balance less what is recorded but not yet paid. All the figures here are the vault's own wei, as the bridge keeps them. */
   available: bigint;
 }
 
@@ -96,9 +97,10 @@ export function vaultTreasuryAvailable(balance: bigint, paidAtReport: bigint, in
  * the mirror, and re-checks against it.
  */
 export function instantTryCap(view: Pick<VaultTreasuryView, "available" | "paidAtReport" | "instantRecorded">, live: bigint | null): bigint {
-  if (live === null) return view.available;
+  // The cap is in core units (what `instantPayoutFor` returns), rounded down like the bridge does.
+  if (live === null) return weiToCoreUnits(view.available);
   const liveAvail = vaultTreasuryAvailable(live, view.paidAtReport, view.instantRecorded);
-  return liveAvail > view.available ? liveAvail : view.available;
+  return weiToCoreUnits(liveAvail > view.available ? liveAvail : view.available);
 }
 
 export function parseVaultTreasury(d: Uint8Array): VaultTreasuryView | null {
