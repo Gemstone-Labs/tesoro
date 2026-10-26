@@ -27,7 +27,7 @@ export default function Page() {
       </p>
       <p>
         When you win a Match you receive the loser&apos;s actual Gemas, each keeping the Lock it came from. A winner can end up holding a basket of claims on
-        several Locks and several chains. Your Wallet shows these by coin, split into <b>redeemable now</b> and <b>pending</b>.
+        several Locks and several chains. Your Vault shows these by coin, split into <b>redeemable now</b> and <b>pending</b>.
       </p>
 
       <H2 id="redeem">Redeem</H2>
@@ -38,7 +38,7 @@ export default function Page() {
       </p>
       <p>
         <b>Redeem now</b> is the amount your Gemas on one chain can be Redeemed for at this moment, after the {YIELD_FEE_PCT}% Yield Fee. It never goes down unless you Redeem or
-        spend those Gemas: another holder&apos;s Redeem, the Lock owner&apos;s Extend, a new fee or an Instant Redeem cannot lower it. For the rest the Wallet
+        spend those Gemas: another holder&apos;s Redeem, the Lock owner&apos;s Extend, a new fee or an Instant Redeem cannot lower it. For the rest the Vault
         shows an estimated date it will be ready by. Which Gemas are repaid first is set by the{" "}
         <Link href="/docs/fees#payout-order">payout order</Link>.
       </p>
@@ -59,7 +59,7 @@ export default function Page() {
         Ethereum or HyperEVM Gema, now or later, sends a message to that chain, which takes a few minutes (see <Link href="/docs/chains">Chains</Link>).
       </p>
 
-      <Shot name="wallet" url={`${BRAND.domain}/wallet`} alt="The Wallet listing Gemas by coin, redeemable now and pending" caption="Gemas by coin in the Wallet, split into redeemable now and pending. Sample data." />
+      <Shot name="wallet" url={`${BRAND.domain}/vault`} alt="The Vault listing Gemas by coin, redeemable now and pending" caption="Gemas by coin in the Vault, split into redeemable now and pending. Sample data." />
 
       <H2 id="instant-redeem">Instant Redeem</H2>
       <p>
@@ -85,7 +85,7 @@ export default function Page() {
       <p>
         You can hold Gemas from any number of Advances. If an entry needs more pieces than one transaction can carry, the app puts it together in
         steps (an Entry Ticket) and then enters. While a Ticket is open your other entries wait; you can cancel it, and if you walk away it expires and gives
-        everything back untouched. If your free Gemas cover the entry, you can always enter. The Wallet has a &ldquo;Redeem small leftovers&rdquo; action to tidy tiny
+        everything back untouched. If your free Gemas cover the entry, you can always enter. The Vault has a &ldquo;Redeem small leftovers&rdquo; action to tidy tiny
         amounts. When you win from a new Advance your storage grows by itself at no cost to you.
       </p>
 

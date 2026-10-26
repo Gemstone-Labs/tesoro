@@ -30,7 +30,7 @@ export default function Page() {
       </p>
 
       <H2 id="profile">Your profile</H2>
-      <p>Other Players see your profile on Match pages, the Lobby, Backing Requests and the Leaderboard. You can:</p>
+      <p>Other Players see your profile on Match pages, Backing Requests, Friends and the Leaderboard. You can:</p>
       <ul>
         <li>set a <b>display name</b> and pick a <b>gemstone animal picture</b>, or</li>
         <li>show the <b>.sol, .eth or .hl name</b> of a wallet you attach, with a check mark, and use the name&apos;s avatar as your picture.</li>

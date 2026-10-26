@@ -9,7 +9,7 @@ export default function Page() {
     <DocPage href="/docs/developers/list">
       <p>
         Any Game can register with Tesoro. A <b>listed</b> Game also earns Points, takes part in Backed Matches, gets its Studio Fee paid first and has its
-        Players’ transaction costs covered, and it can be featured in the Lobby.
+        Players’ transaction costs covered.
       </p>
 
       <H2 id="how">How listing works</H2>

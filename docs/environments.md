@@ -149,6 +149,6 @@ Agents never touch Vercel, DNS or provider dashboards. The order below keeps `ww
 9. **Launch day, www to mainnet.**
    1. Programs and mainnet accounts are deployed and initialised (runbook, ticket 37).
    2. In the project that serves `www` set `TESORO_CLUSTER=mainnet`, `NEXT_PUBLIC_TESORO_CLUSTER=mainnet`, the three RPC groups above, mainnet-only keys, `NEXT_PUBLIC_SITE_URL=https://www.playtesoro.com`, and remove `NEXT_PUBLIC_DEV_WALLET`.
-   3. Redeploy (the public vars are inlined at build time), then smoke: `/robots.txt` allows crawling, `/lobby` shows no test-mode footer, server log says `is Solana mainnet-beta`.
+   3. Redeploy (the public vars are inlined at build time), then smoke: `/robots.txt` allows crawling, `/play` shows no test-mode footer, server log says `is Solana mainnet-beta`.
    4. Start the mainnet keeper, stop nothing on the test keeper.
    5. Send test-host users a note: their devnet Gemas stay on `test.playtesoro.com`.

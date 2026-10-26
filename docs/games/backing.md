@@ -10,16 +10,15 @@ Backing on Solana devnet, in the browser: a Player posts a **Request**, a Backer
 | Polling hook, record and expiry text | `app/src/lib/chain/useBackingBoard.ts` |
 | Backing screen (`/backing#<request>` opens the Offer drawer on that Request) | `app/src/app/backing/page.tsx` |
 | A Player's Account: record, Gemas won and lost, Backings and what they did for the Backers | `app/src/app/account/[key]/page.tsx`, `app/src/components/account/`, `app/src/lib/chain/player-account.ts` (vitest) |
-| Lobby "Back a Player" rail | `app/src/app/page.tsx` |
 | Split display on the Match result | `app/src/components/match/BackingSplit.tsx`, `MatchView.tsx` |
 | Settlement maths (`backedSplit`, `backerDelta`, backed `matchDelta`) | `app/src/lib/chain/ledger.ts` (vitest) |
-| Reserved vs available Gemas | `useAccount().gemas.{reserved,available}`; Backing and Wallet screens |
+| Reserved vs available Gemas | `useAccount().gemas.{reserved,available}`; Backing and Vault screens |
 
 ## Flow
 
 1. **Request.** A Player posts (Game, entry). The card Backers see carries the Player's real record: settled Matches with a winner, wins, win rate, always with the sample size ("1 of 1 won (100%) · 1 settled Match"). Computed from every settled tesoro_core Match of that Player (Block Burst from the Session result, Hold'em from the table).
 2. **Offer.** A Backer picks a Request, sets the Player's share of the surplus (10 to 90%, 5% steps) and reserves the entry from their own Gemas. The Player accepts or declines. There are no public Offers (removed 2026-10-22): every Offer answers a Request.
-3. **Reservation.** The Backer's entry is `reserved` on their Holdings: still in their balance, not spendable. The Backing screen shows Gemas in the Wallet, reserved and available; the Wallet shows a reserved line; the Lobby's Enter buttons use available Gemas. Cancel releases it; an unused or unaccepted Offer past 24h shows "Release Gemas" (`expire_offer`, anyone may call it).
+3. **Reservation.** The Backer's entry is `reserved` on their Holdings: still in their balance, not spendable. The Backing screen shows Gemas in the Vault, reserved and available; the Vault shows a reserved line; the Game page's Play now uses available Gemas. Cancel releases it; an unused or unaccepted Offer past 24h shows "Release Gemas" (`expire_offer`, anyone may call it).
 4. **Expiries.** Requests and Offers show time left (24h TTL); an accepted Backing shows the 24h to start a Match.
 5. **Enter.** An accepted Backing appears under "Your Backings: ready to play" with Enter the Queue and Challenge a friend, which open the normal `/play/queue` and `/play/challenge` pages with `&backing=<offer>`. The Player opens (`open_match_backed`) or joins (`join_match_backed`) with the Backer's reserved Gemas; their own Gemas are never touched and they need none.
 6. **Result.** Both parties see the split. Win: Backer's entry back first, fees from the loser, then the surplus split by the Offer. Loss: the Backer bears the entry, the Player owes 0 and gains no Debt. Draw: the entry goes back to the Backer. The Backer has a "Match you funded" view (waiting, then result) and their Match history shows the split or the loss. A backed Player's history shows their share (never a negative).

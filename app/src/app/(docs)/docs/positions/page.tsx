@@ -24,10 +24,10 @@ export default function Page() {
         caption="Locks you can open"
       />
       <p>
-        You can get each token from your Wallet. Yield runs on a fast clock: a month of yield arrives in about 10 minutes.
+        You can get each token from your Vault. Yield runs on a fast clock: a month of yield arrives in about 10 minutes.
       </p>
 
-      <Shot name="wallet" url={`${BRAND.domain}/wallet`} alt="The Wallet showing a Lock with what is left to pay back, its Length and Unlock Estimate" caption="The Wallet shows each Lock, what is left to pay back and its Unlock Estimate. Figures here are sample data." />
+      <Shot name="wallet" url={`${BRAND.domain}/vault`} alt="The Vault showing a Lock with what is left to pay back, its Length and Unlock Estimate" caption="The Vault shows each Lock, what is left to pay back and its Unlock Estimate. Figures here are sample data." />
 
       <H2 id="advance">An Advance</H2>
       <p>
@@ -53,7 +53,7 @@ export default function Page() {
           <b>The Lock&apos;s own yield.</b> All the yield it earns goes to paying it back first, automatically. There is no repay button and no way to skip it.
         </li>
         <li>
-          <b>Returning your own unspent Gemas</b> from your Wallet, up to what is left to pay back.
+          <b>Returning your own unspent Gemas</b> from your Vault, up to what is left to pay back.
         </li>
       </ul>
       <p>
