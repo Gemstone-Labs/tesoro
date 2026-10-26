@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ComputeBudgetProgram, Keypair, PublicKey, Transaction } from "@solana/web3.js";
@@ -45,7 +46,7 @@ class World {
   }
   offer(sources: PublicKey[]) {
     return this.add(
-      row("OfferState", SPACE.offer, (d) => {
+      row("OfferState", SPACE.offer + 4 + 41 * sources.length, (d) => {
         // kind Public (1 byte), status, expires, use_by, player None, request None, applicants 0, then lines
         let off = 8 + 1 + 8 + 32 + 32 + 8 + 2;
         d[off++] = 1;
@@ -65,12 +66,19 @@ class World {
 }
 
 describe("retire plan", () => {
+  it("keeps SPACE.offer equal to the program's OfferState::SPACE (174 B)", () => {
+    const rust = readFileSync(new URL("../../programs/tesoro_core/src/state.rs", import.meta.url), "utf8");
+    const expr = /impl OfferState \{[^}]*?pub const SPACE: usize = ([0-9+ ]+);/s.exec(rust)?.[1];
+    assert.ok(expr, "OfferState::SPACE not found in state.rs");
+    assert.equal(SPACE.offer, expr.split("+").reduce((a, n) => a + Number(n), 0));
+  });
+
   it("never plans a current-size Position, custody, Treasury or Offer", () => {
     const w = new World();
     w.position(SPACE.position);
     w.add(row("NativeCustody", SPACE.custody));
     w.add(row("Treasury", SPACE.treasury));
-    w.offer([]);
+    w.add(row("OfferState", SPACE.offer));
     const plan = planAll(w.snapshot());
     assert.equal(plan.phases.flat().length, 0);
   });
