@@ -136,14 +136,20 @@ describe("Treasury decoders: a wrong size is absent", () => {
 });
 
 describe("instantTryCap", () => {
-  const view = { available: 0n, paidAtReport: 0n, instantRecorded: 30n };
+  // The mirror and the live balance are wei; the cap is core units (1e-9 token), rounded down.
+  const G = 1_000_000_000n;
+  const view = { available: 0n, paidAtReport: 0n, instantRecorded: 30n * G };
   it("lets a press through when the vault's own balance would cover it", () => {
-    expect(instantTryCap(view, 100n)).toBe(70n);
+    expect(instantTryCap(view, 100n * G)).toBe(70n);
   });
   it("keeps the mirror when the vault holds no more, or was not read", () => {
-    expect(instantTryCap({ ...view, available: 50n }, 60n)).toBe(50n);
+    expect(instantTryCap({ ...view, available: 50n * G }, 60n * G)).toBe(50n);
     expect(instantTryCap(view, null)).toBe(0n);
-    expect(instantTryCap(view, 10n)).toBe(0n);
+    expect(instantTryCap(view, 10n * G)).toBe(0n);
+  });
+  it("rounds down to whole core units and handles Treasuries past 2^64 wei", () => {
+    expect(instantTryCap({ ...view, instantRecorded: 0n }, 3n * G + G - 1n)).toBe(3n);
+    expect(instantTryCap({ ...view, instantRecorded: 0n }, 1_000n * 10n ** 18n)).toBe(1_000n * G);
   });
 });
 

@@ -53,7 +53,7 @@ import {
   vaultsOn,
   parseBridgePosition,
   parseCorePosition,
-  quoteEthAdvance,
+  quoteEthAdvanceUnits,
   sourceAuthPda,
   vaultAbi,
   withHeadroom,
@@ -557,7 +557,7 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
   const rates = treasury && treasury.owner.equals(TESORO_CORE_ID) ? parseTreasury(treasury.data) : null;
   if (!rates) throw new DemoHttpError(503, "no-fees", "The fees could not be read right now. Try again in a minute.");
   const position = parseCorePosition(cp, info.data);
-  const minGemas = quoteEthAdvance(position.principalWei, position.rateBps, months, price.microUsd).gemas;
+  const minGemas = quoteEthAdvanceUnits(position.principalUnits, position.rateBps, months, price.microUsd).gemas;
   if (minGemas <= 0n) throw new DemoHttpError(409, "too-small", "This Lock is too small for an Advance.");
   const ix = CLUSTER.priceSource === "onchain"
     ? coreIx("take_advance_onchain", { ...common, onchain_price: priceKey, price_feed: pythFeedAddress(asset) }, { horizon_months: months, min_gemas: minGemas })

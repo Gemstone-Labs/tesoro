@@ -1,5 +1,6 @@
 import type { CrossChainStep } from "@/components/ui/money";
 import { LZ_SCAN_API, netOfVault, vaultByAddress, type EthState, type VaultPosition } from "./eth";
+import { coreUnitsToWei } from "./eth-units";
 import { BRAND } from "../brand";
 
 /**
@@ -27,7 +28,7 @@ export interface EthOp {
   baseline?: string;
   /** `redeem`, `instant`: the Advance index of the redeemed Source; the Claim read, relayed and tracked is the one for it. */
   sourceIndex?: number;
-  /** `redeem`, `instant`: Source units this redemption added to the Claim, decimal. */
+  /** `redeem`, `instant`: core units (9 decimals) this redemption added to the Claim, decimal. The vault pays them in wei: compare with `coreUnitsToWei`. */
   units?: string;
   /** `redeem`, `instant`: EVM block before the redemption; the payout is searched from here. Decimal. */
   fromBlock?: string;
@@ -152,7 +153,7 @@ export function opProgress(op: EthOp, s: EthState | null, vp: VaultPosition | nu
       const c = (op.kind === "instant" ? s?.instantClaim : s?.claim) ?? null;
       const target = op.sourceIndex !== undefined && op.baseline !== undefined ? BigInt(op.baseline) : (c?.unitsTotal ?? 0n);
       if (!c || target === 0n || c.unitsSent < target) return { stage: 1, next: op.kind === "instant" ? "send-pay-instant" : "send-pay-yield" };
-      if (paidToHolder !== null && op.units !== undefined && paidToHolder >= BigInt(op.units)) return { stage: 3, next: null };
+      if (paidToHolder !== null && op.units !== undefined && paidToHolder >= coreUnitsToWei(BigInt(op.units))) return { stage: 3, next: null };
       return { stage: 2, next: null };
     }
     case "unlock": {

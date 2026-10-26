@@ -15,7 +15,7 @@ import type { PublicKey } from "@solana/web3.js";
 import type { Chain } from "@/lib/mock";
 import type { InstantOffer, InstantRow, OpenOrderRow } from "./MoneySheets";
 
-const UNITS: Record<Chain, number> = { SOL: LAMPORTS, ETH: 1e18, HYPE: 1e18 };
+const UNITS: Record<Chain, number> = { SOL: LAMPORTS, ETH: 1e9, HYPE: 1e9 }; // core units: 9 decimals for every chain
 const TOKEN: Record<Chain, string> = { SOL: "test SOL", ETH: "ETH", HYPE: "HYPE" };
 
 /**

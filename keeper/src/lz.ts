@@ -79,6 +79,7 @@ export const applyYieldIx = (eid: number, positionId: Uint8Array, openSource: Pu
     programId: BRIDGE,
     keys: [
       meta(STORE),
+      meta(peerPda(eid, positionId)),
       meta(bridgePositionPda(eid, positionId), false, true),
       meta(vaultTreasuryPda(eid, positionId), false, true),
       meta(AUTHORITY),

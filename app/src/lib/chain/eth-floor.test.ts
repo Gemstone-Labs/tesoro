@@ -25,7 +25,7 @@ describe("the Gemas floor of an ETH or HYPE Advance", () => {
 
   it("quotes whole Gemas, floored, so the floor never exceeds what the program issues", () => {
     const q = quoteEthAdvance(10n ** 18n, 500, 6, 3_000_000_000n);
-    expect(q.gemas).toBe((q.projectedUnits * 3_000_000_000n) / 10n ** 22n);
+    expect(q.gemas).toBe((q.projectedUnits * 3_000_000_000n) / 10n ** 13n);
   });
 });
 
