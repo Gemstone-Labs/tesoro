@@ -3,6 +3,9 @@ const LEGACY_UNITS = 6044;
 
 export const isLegacyUnits = (why: string | null): boolean => why !== null && (new RegExp(`"Custom":${LEGACY_UNITS}\\b`).test(why) || /LegacyUnits/.test(why));
 
+/** The error code alone is ambiguous (another program's 6044 reaches the outer instruction unchanged): only the bridge's own Anchor log line names it. */
+export const logsNameLegacyUnits = (logs: readonly string[] | null | undefined): boolean => (logs ?? []).some((l) => /Error Code: LegacyUnits\b/.test(l));
+
 /** Subjects the keeper has found impossible to ever send: skipped on every later pass, logged once. */
 export class PermanentRefusals {
   private readonly subjects = new Set<string>();
