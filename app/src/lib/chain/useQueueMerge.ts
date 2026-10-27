@@ -40,7 +40,7 @@ export function useQueueMerge(matchId: string): QueueMerge {
         const run = () =>
           checkForOlder({
             fetchMine: () => fetchMatch(matchId, meKey!),
-            merge: (mine) => mergeIntoOlderMatch(signer, getToken, mine),
+            merge: (mine, on) => mergeIntoOlderMatch(signer, getToken, mine, on),
             set: (s) => setStored({ matchId, ...s }),
             navigate: (id) => router.replace(`/play/match/${id}`),
             // An effect re-run must not cancel a move that has happened; only a Player who left stays where they went.

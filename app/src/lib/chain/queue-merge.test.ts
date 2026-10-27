@@ -241,6 +241,23 @@ describe("the entry is still on its way back", () => {
     expect(matches.get(YOUNG)!.status).toBe("refunded");
   });
 
+  it("a just-opened Match the server will not sponsor a join into yet: the same join is retried until it works", async () => {
+    const matches = new Map([
+      [OLD, match(OLD, { openedAt: NOW })],
+      [YOUNG, match(YOUNG, { openedAt: NOW + 11_000 })],
+    ]);
+    const ben = world("ben", matches);
+    const join = ben.deps.join;
+    let tries = 0;
+    ben.deps.join = vi.fn(async (id: string) => {
+      if (++tries < 3) throw new Error("Free transactions are unavailable.");
+      return join(id);
+    });
+    const r = await mergeQueue(ben.deps, ben.view(YOUNG)!);
+    expect(r).toMatchObject({ moved: true, entered: { id: OLD, via: "joined" } });
+    expect(tries).toBe(3);
+  });
+
   it("the refund never finishes: throws so the screen can say so, and nothing else is entered", async () => {
     const matches = new Map([
       [OLD, match(OLD, { openedAt: NOW })],

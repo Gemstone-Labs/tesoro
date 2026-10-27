@@ -156,6 +156,8 @@ export async function queueEntry(d: QueueDeps): Promise<Entered> {
 export interface MergeDeps extends QueueDeps {
   /** Cancels the Player's own unjoined Match (opener refund). The Match then refunds in steps: it stays unfinished until they are done. */
   refund(id: string): Promise<unknown>;
+  /** Called once a move is certain, just before the refund (the page then shows that it is moving). */
+  onMove?(): void;
   /** Waits `ms` (tests make it instant). */
   pause?(ms: number): Promise<void>;
 }
@@ -182,20 +184,9 @@ async function olderCandidate(d: QueueDeps, mine: ChainMatch): Promise<string | 
   return null;
 }
 
-/** How long a refund may take to hand the entry back before the move gives up waiting (the keeper returns it in steps). */
+/** How long a refunded Player keeps trying to join: the entry comes back in keeper steps and a just-opened Match may not be joinable for a few seconds. */
 const REFUND_WAIT_MS = 90_000;
 const REFUND_POLL_MS = 2_000;
-
-/** Waits until the Match is closed (the entry is back). False when it is not within `REFUND_WAIT_MS`. */
-async function refundDone(d: MergeDeps, id: string): Promise<boolean> {
-  const pause = d.pause ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  for (let waited = 0; waited <= REFUND_WAIT_MS; waited += REFUND_POLL_MS) {
-    const m = await d.readMatch(id).catch(() => null);
-    if (m && m.status !== "open" && m.status !== "active") return true;
-    await pause(REFUND_POLL_MS);
-  }
-  return false;
-}
 
 /**
  * Two Players who enter the Queue within a moment of each other can each open a Match, because neither list shows the
@@ -205,13 +196,14 @@ async function refundDone(d: MergeDeps, id: string): Promise<boolean> {
  * Order: refund first, then join (through `queueEntry`), never join then refund. `refund_match` closes the Match to joiners
  * at once (it is Refunding, the entry comes back in keeper steps), so from that instant the Player cannot be seated in
  * two Matches, whereas joining first would leave a window in which a third Player can take the abandoned seat. The join
- * does not wait for the entry to come back: it draws on the Player's other Gemas, and when those are too few it waits
- * for the refund to finish and tries again. A refund that fails because someone just joined leaves the Player where they are.
+ * does not wait for the entry to come back: it draws on the Player's other Gemas, and when that fails it retries for up to
+ * 90 s (the entry returns, a just-opened Match becomes joinable). A refund that fails because someone just joined leaves the Player where they are.
  */
 export async function mergeQueue(d: MergeDeps, mine: ChainMatch): Promise<Merged> {
   if (!canMove(mine) || mine.game !== d.game || mine.entry !== d.entry) return { moved: false };
   if ((await olderCandidate(d, mine)) === null) return { moved: false };
 
+  d.onMove?.();
   d.onStep?.("Found an older Match…");
   try {
     await d.refund(mine.id);
@@ -224,12 +216,15 @@ export async function mergeQueue(d: MergeDeps, mine: ChainMatch): Promise<Merged
   }
   // The Match being refunded still counts as unfinished until it closes: it is not the Match this Player is in.
   const next: QueueDeps = { ...d, unfinished: async () => (await d.unfinished()).filter((m) => m.id !== mine.id) };
-  try {
-    return { moved: true, entered: await queueEntry(next) };
-  } catch (e) {
-    if (e instanceof QueueUnconfirmedError) throw e;
-    // Most likely too few free Gemas while the old entry is still on its way back.
-    if (!(await refundDone(d, mine.id))) throw e;
-    return { moved: true, entered: await queueEntry(next) };
+  const pause = d.pause ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let waited = 0; ; waited += REFUND_POLL_MS) {
+    try {
+      return { moved: true, entered: await queueEntry(next) };
+    } catch (e) {
+      // An unsettled send must not be repeated; anything else (too few free Gemas while the entry is on its way back, a Match
+      // not joinable yet) is tried again for a while. The entry is already refunded, so there is nothing else to undo.
+      if (e instanceof QueueUnconfirmedError || waited >= REFUND_WAIT_MS) throw e;
+      await pause(REFUND_POLL_MS);
+    }
   }
 }

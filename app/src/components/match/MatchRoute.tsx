@@ -44,7 +44,7 @@ export function MatchRoute({ matchId }: { matchId: string }) {
   }, [matchId]);
 
   // Moving into an older Match: the refund of this one must not flash up as its own result.
-  if (merge.phase === "moving") return <MatchStageLoading game={game && game !== "unknown" ? game : undefined} me={snapshot?.accountKey.toBase58() ?? null} step="Found an opponent in an older Match, moving you there" />;
+  if (merge.phase === "moving") return <MatchStageLoading game={game && game !== "unknown" ? game : undefined} me={snapshot?.accountKey.toBase58() ?? null} step={merge.step ?? "Found an opponent in an older Match, moving you there"} />;
   if (merge.phase === "failed")
     return (
       <p className="status err" role="alert">

@@ -180,9 +180,9 @@ export async function enterQueue(
  * The Player's own waiting Queue Match, if an older open Match at the same entry has appeared: refunds this one and joins the
  * older (see `mergeQueue`). `{ moved: false }` leaves everything as it was. Throws only when a send's fate is unknown.
  */
-export async function mergeIntoOlderMatch(signer: ChainSigner, getToken: GetToken, mine: ChainMatch, onStep?: (s: string) => void): Promise<Merged> {
+export async function mergeIntoOlderMatch(signer: ChainSigner, getToken: GetToken, mine: ChainMatch, on: { onMove?(): void; onStep?(s: string): void } = {}): Promise<Merged> {
   const snap = await fetchAccountState(signer.publicKey, { fresh: true });
-  return mergeQueue(plainQueueDeps(signer, snap.accountKey, getToken, mine.game, mine.entry, mine.asset as 0 | 1 | 2, onStep), mine);
+  return mergeQueue({ ...plainQueueDeps(signer, snap.accountKey, getToken, mine.game, mine.entry, mine.asset as 0 | 1 | 2, on.onStep), onMove: on.onMove }, mine);
 }
 
 /** Challenge: open a Match only reachable through its link. Resolves with the Match key. */

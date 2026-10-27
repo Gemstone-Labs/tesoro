@@ -11,7 +11,10 @@ function io(over: Partial<MergeIo> = {}) {
   const navigated: string[] = [];
   const base: MergeIo = {
     fetchMine: async () => mine(),
-    merge: vi.fn(async () => ({ moved: true as const, entered: { id: "alice-0", via: "joined" as const } })),
+    merge: vi.fn(async (_m: ChainMatch, on: { onMove(): void }) => {
+      on.onMove();
+      return { moved: true as const, entered: { id: "alice-0", via: "joined" as const } };
+    }),
     set: (s) => phases.push(s),
     navigate: (id) => navigated.push(id),
     stillHere: () => true,
@@ -40,7 +43,8 @@ describe("checkForOlder", () => {
   it("returns to idle when no older Match was taken", async () => {
     const t = io({ merge: vi.fn(async () => ({ moved: false as const })) });
     await checkForOlder(t.base);
-    expect(t.phases.map((p) => p.phase)).toEqual(["moving", "idle"]);
+    // Never showed "moving": the older Player checks every few seconds and must not flicker.
+    expect(t.phases.map((p) => p.phase)).toEqual(["idle"]);
     expect(t.navigated).toEqual([]);
   });
 
