@@ -1,5 +1,5 @@
 import type { SettledMatch, SettledQuery } from "./settled";
-import { topScores } from "./settled";
+import { readScores, topScores } from "./settled";
 
 export type { SettledMatch } from "./settled";
 
@@ -15,7 +15,7 @@ export async function fetchSettled(q: SettledQuery, fetcher: typeof fetch = (...
   try {
     const res = await fetcher(`/api/recent-wins?${params}`);
     if (!res.ok) return [];
-    return (await res.json()) as SettledMatch[];
+    return ((await res.json()) as SettledMatch[]).map((m) => ({ ...m, scores: readScores(m.scores) }));
   } catch {
     return [];
   }

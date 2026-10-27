@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fetchSettled } from "./recent";
-import { topScores, type SettledMatch } from "./settled";
+import { scoreLine, topScores, type SettledMatch } from "./settled";
 
 const m = (winner: string, score: number): SettledMatch => ({ id: "opener-0", game: "block-puzzle", entry: 500, winner, payout: 950, scores: [score, 1], at: 0 });
 
@@ -31,5 +31,20 @@ describe("fetchSettled (recent wins from the Match history)", () => {
   it("is an empty ticker when the history is unavailable", async () => {
     await expect(fetchSettled({ limit: 8 }, answer({ error: "x" }, false))).resolves.toEqual([]);
     await expect(fetchSettled({ limit: 8 }, (async () => { throw new Error("offline"); }) as unknown as typeof fetch)).resolves.toEqual([]);
+  });
+});
+
+describe("a win whose scores came back as nulls (JSON null inside the pair)", () => {
+  it("fetchSettled turns [null, null] into no scores, so nothing prints null", async () => {
+    const row = { id: "opener-1", game: "block-puzzle", entry: 500, winner: "a", payout: 950, scores: [null, null], at: 0 };
+    const fetcher = (async () => ({ ok: true, json: async () => [row, { ...row, id: "opener-2", scores: [7, 3] }] })) as unknown as typeof fetch;
+    const rows = await fetchSettled({ limit: 2 }, fetcher);
+    expect(rows[0].scores).toBeNull();
+    expect(rows[1].scores).toEqual([7, 3]);
+  });
+
+  it("scoreLine is empty without a full pair of numbers", () => {
+    expect(scoreLine(null)).toBe("");
+    expect(scoreLine([171, 55])).toBe("171–55");
   });
 });

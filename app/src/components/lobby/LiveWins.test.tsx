@@ -36,4 +36,10 @@ describe("LiveWins", () => {
       expect(html).not.toContain('aria-busy="true"');
     }
   });
+
+  it("never prints null for a win without scores", () => {
+    Object.assign(query, { loading: false });
+    query.matches = [{ id: "13", winner: "player", game: "block-puzzle", payout: 20, entry: 10, at: Date.now(), scores: [null, null] as unknown as [number, number] }];
+    expect(renderToStaticMarkup(<LiveWins />)).not.toContain("null");
+  });
 });

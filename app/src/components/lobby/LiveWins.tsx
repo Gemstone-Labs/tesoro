@@ -5,7 +5,7 @@ import { GemaMark, GemaUsd } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { ago } from "@/lib/catalogue";
 import { useRecentSettled } from "@/lib/chain/useRecentSettled";
-import type { SettledMatch } from "@/lib/chain/settled";
+import { scoreLine, type SettledMatch } from "@/lib/chain/settled";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
@@ -31,7 +31,7 @@ export function LiveWins() {
         </strong>
         <span>
           {GAME_NAMES[m.game]}
-          {m.scores && ` ${m.scores[0]}–${m.scores[1]}`} · {ago(m.at)}
+          {scoreLine(m.scores) && ` ${scoreLine(m.scores)}`} · {ago(m.at)}
         </span>
       </Link>
     </li>

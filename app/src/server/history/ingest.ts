@@ -91,7 +91,7 @@ export function payloadOf(r: MatchRecord, ctx: IngestContext): Record<string, un
         asset: r.asset,
         opened_at: r.openedAt,
         ts: r.ts,
-        scores: d?.scores ?? null,
+        ...(d?.scores ? { scores: d.scores } : {}),
         parties: partiesOf(r),
       };
     }

@@ -23,6 +23,20 @@ export interface SettledQuery {
   limit: number;
 }
 
+/**
+ * A score pair from the wire. The history stores a Match without scores as JSON null, and the SQL that flips the pair for the
+ * winner turns that into [null, null]; anything that is not two numbers is "no scores".
+ */
+export function readScores(raw: unknown): [number, number] | null {
+  return Array.isArray(raw) && raw.length === 2 && raw.every((n) => typeof n === "number" && Number.isFinite(n)) ? [raw[0], raw[1]] : null;
+}
+
+/** "171–55", or "" when there are no scores: the one place a score pair becomes text. */
+export function scoreLine(scores: unknown): string {
+  const pair = readScores(scores);
+  return pair ? `${pair[0]}–${pair[1]}` : "";
+}
+
 /** Best winning score per Player, highest first. */
 export function topScores(settled: SettledMatch[], n = 3): [string, number][] {
   const best = new Map<string, number>();
