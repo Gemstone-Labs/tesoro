@@ -104,3 +104,43 @@ describe("BurstDriver", () => {
     d.stop();
   });
 });
+
+describe("BurstDriver, reads", () => {
+  it("a push that changes nothing the driver decides on (a score during the run) does not run it again", async () => {
+    const running = blankTable({ phase: TABLE_PHASE.getReady, seatsOpen: true, checkedIn: [true, true], seedReady: true, startSlot: ASSIGNED + 1 * SECS });
+    let reads = 0;
+    const fake = fakeChain(running);
+    const fetchMatch = async () => (reads++, activeMatch(1));
+    const signer = { publicKey: joiner, signTransaction: async (t: never) => t, signMessage: async () => new Uint8Array(64) };
+    const d = new BurstDriver({ id: matchKey, signer: signer as never, accountKey: null, chain: fake.chain, fetchMatch });
+    d.start();
+    await vi.advanceTimersByTimeAsync(1_500);
+    const before = reads;
+    for (let i = 0; i < 20; i++) fake.move({ ...running, shownScore: [i, 0], shownMoves: [i, 0] });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(reads).toBe(before);
+    d.stop();
+  });
+
+  it("the second page to see the committed table waits for the first to finalize", async () => {
+    const closed = blankTable({ phase: TABLE_PHASE.closed, seatsOpen: true, dirty: false, checkedIn: [true, true], startSlot: ASSIGNED });
+    const committed = { ...closed, ring: [{ state: 2, tesoroMatch: closed.tesoroMatch, epoch: 4, outcome: 1, at: 1 }] };
+    const sentBy = async (seat: 0 | 1) => {
+      const fake = fakeChain(closed);
+      let base: Table | null = null;
+      (fake.chain as unknown as { readTableOnBase: () => Promise<Table | null> }).readTableOnBase = async () => base;
+      const d = driverFor(seat, fake);
+      d.start();
+      await vi.advanceTimersByTimeAsync(2_000);
+      base = committed as Table; // the commit lands on base while the rollup's table stays as it was
+      const landedAt = Date.now();
+      await vi.advanceTimersByTimeAsync(3_000);
+      d.stop();
+      return fake.sent.filter((s) => s.step === "finalize").map((s) => s.at - landedAt);
+    };
+    const [joinerAt] = await sentBy(1);
+    const [openerAt] = await sentBy(0);
+    expect(joinerAt).toBeLessThan(1_200);
+    expect(openerAt).toBeGreaterThanOrEqual(1_200);
+  });
+});

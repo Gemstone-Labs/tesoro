@@ -266,8 +266,9 @@ export class BurstDriver {
           this.tableRef = t;
           this.tableAt = now();
           this.set((v) => ({ ...v, table: t, reconnecting: false }));
-          // The rollup just wrote the table: act on it now rather than at the next tick.
-          void this.tick();
+          // The rollup just changed what the driver decides on: act on it now rather than at the next tick. (Scores change
+          // the table all through the run; they decide nothing.)
+          if (stateKey(t, a) !== this.keyRef.key.replace("|b", "")) void this.tick();
         },
         () => this.set((v) => (v.reconnecting ? v : { ...v, reconnecting: true })),
       )
@@ -400,15 +401,6 @@ export class BurstDriver {
     }
     const slotNowV = this.clockRef ? slotNow(this.clockRef, performance.now()) : 0;
 
-    // How long the table has been in this state, as this page sees it.
-    const key = stateKey(t, a);
-    if (this.keyRef.key !== key) {
-      this.keyRef = { key, since: now() };
-      // The opener's turn for a step anyone may do comes this long after the table settles; no tick is due then.
-      this.wakeIn(STEP_IN_MS + OPENER_EXTRA_MS + 50);
-    }
-    const stalledMs = now() - this.keyRef.since;
-
     // Own Board: needed to begin, and to resume after a reload.
     if (t && tableOf(a, t) && t.seatsOpen && !this.boardRef?.began && ["getReady", "running", "frozen", "grace"].includes(phaseAt(t, slotNowV))) {
       this.boardRef = await chain.readOwnBoard(p, a, seat).catch(() => null);
@@ -423,6 +415,17 @@ export class BurstDriver {
       baseTable = await chain.readTableOnBase(a).catch(() => null);
       this.baseRef = baseTable;
     }
+
+    // How long the table has been in this state, as this page sees it. Base showing the committed result is part of it: the
+    // opener's turn for `finalize` counts from the moment the commit lands, not from when the rollup's table last moved.
+    const committedOnBase = !!baseTable && !!tableOf(a, baseTable) && baseTable.phase === TABLE_PHASE.closed && !baseTable.dirty;
+    const key = stateKey(t, a) + (committedOnBase ? "|b" : "");
+    if (this.keyRef.key !== key) {
+      this.keyRef = { key, since: now() };
+      // The opener's turn for a step anyone may do comes this long after the table settles; no tick is due then.
+      this.wakeIn(STEP_IN_MS + OPENER_EXTRA_MS + 50);
+    }
+    const stalledMs = now() - this.keyRef.since;
 
     const s = nextStep({ seat, status: m.status, assignment: a, table: t, baseTable: baseTable ?? null, slot: slotNowV, nowS: now() / 1000, board: this.boardRef, stalledMs });
 
@@ -484,7 +487,7 @@ export class BurstDriver {
       this.failures = 0;
     } catch (e) {
       // Another page (or the keeper) did this step first: the table has moved on. Anything else counts.
-      if (/WrongPhase|AlreadyCheckedIn|AlreadyBegan|SeatsOpen|SeedRequestNotDue|NotDirty|AlreadyFinalized|insufficient|Attempt to debit/i.test(String(e))) return;
+      if (/WrongPhase|AlreadyCheckedIn|AlreadyBegan|SeatsOpen|SeedRequestNotDue|NotDirty|AlreadyFinalized|already in use|insufficient|Attempt to debit/i.test(String(e))) return;
       if (++this.failures >= 3) throw e;
     }
   }
