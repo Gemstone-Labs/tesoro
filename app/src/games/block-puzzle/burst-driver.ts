@@ -1,9 +1,11 @@
+import type { PublicKey } from "@solana/web3.js";
 import { BlockPuzzleChain, type ChainSigner } from "./chain";
 import { sessionFromTable, type BurstSession } from "@/lib/chain/burst-read";
 import { matchAddressOf } from "@/lib/chain/match-id";
 import { matchProgress } from "@/lib/chain/match-progress";
 import { isCancelling } from "@/lib/chain/match-status";
 import type { ChainMatch } from "@/lib/chain/read";
+import { settledPda } from "@/lib/chain/basket";
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import type { GetToken } from "@/lib/chain/demo-client";
 import { finalizeFree } from "@/lib/chain/game-finalize";
@@ -165,6 +167,9 @@ export class BurstDriver {
   private lock: SubmitterLock | null = null;
   private beginning = false;
   private settledSeen = false;
+  /** The Match account is closed (its last read said the chunks were still paying). */
+  private gone = false;
+  private paidOut = false;
   private closingSince = 0;
   private commitSince = 0;
   private failures = 0;
@@ -335,14 +340,32 @@ export class BurstDriver {
     }
   }
 
+  /** The Match as it ended, from tesoro_core's settlement receipt; Fees and Gemas are worked out from its terms, as before the history has the row. */
+  private async closedFromReceipt(last: ChainMatch): Promise<ChainMatch | null> {
+    try {
+      const r = await (this.d.chain.tesoro.account as Record<string, { fetchNullable(a: PublicKey): Promise<{ receipt?: { kind?: Record<string, { winner?: number }> } } | null> }>).settlementReceipt.fetchNullable(settledPda(matchAddressOf(last.id)!));
+      const kind = r?.receipt?.kind ? Object.keys(r.receipt.kind)[0] : null;
+      if (!kind) return null;
+      const won = kind === "win" ? (r?.receipt?.kind?.win?.winner ?? null) : null;
+      return { ...last, status: kind === "win" || kind === "draw" ? "settled" : "refunded", running: null, winner: won === 0 ? "opener" : won === 1 ? "joiner" : null };
+    } catch {
+      return null;
+    }
+  }
+
+  /** The result is fixed: the run is over. `onSettled` (the page refreshes the Player's Gemas) waits for the last chunk. */
   private async settle(m: ChainMatch) {
-    if (this.settledSeen) return;
-    this.settledSeen = true;
-    this.submitter?.stop();
-    this.submitter = null;
-    this.lock?.release();
-    setCommitPending(m.id, false);
-    this.d.onSettled?.();
+    if (!this.settledSeen) {
+      this.settledSeen = true;
+      this.submitter?.stop();
+      this.submitter = null;
+      this.lock?.release();
+      setCommitPending(m.id, false);
+    }
+    if ((m.running === null || this.gone) && !this.paidOut) {
+      this.paidOut = true;
+      this.d.onSettled?.();
+    }
   }
 
   private async step() {
@@ -351,8 +374,20 @@ export class BurstDriver {
     const mk = this.mk;
     if (mk === null) return;
     const me = BlockPuzzleChain.coreAccount(signer.publicKey);
-    if (!this.matchRef || now() - this.matchAt > 2_500 || this.settledSeen === false) {
-      this.matchRef = this.progress.match(await this.d.fetchMatch(id, me));
+    // Read the Match every tick until it is fully done: the result is shown as soon as the chain has fixed it, and the Match
+    // is read again until the last chunk has paid it out and its account is closed (then the history has the final numbers).
+    const paying = !!this.matchRef && this.matchRef.running !== null && !this.gone;
+    if (!this.matchRef || now() - this.matchAt > 2_500 || this.settledSeen === false || paying) {
+      let fresh = await this.d.fetchMatch(id, me);
+      // Nothing to read once the account is closed and the history has no row yet: the last read stands, and the Match is done.
+      if (fresh === null && this.matchRef?.running) this.gone = true;
+      // This page never saw the settle run (a tab in the background, a slow device) and the account is gone: the settlement
+      // receipt, which outlives the account, still names how the Match ended.
+      if (fresh === null && this.matchRef && this.matchRef.status === "active" && this.matchRef.sides[1]) {
+        fresh = await this.closedFromReceipt(this.matchRef);
+        if (fresh) this.gone = true;
+      }
+      this.matchRef = this.progress.match(fresh);
       this.matchAt = now();
     }
     const m = this.matchRef;
