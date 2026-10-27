@@ -39,6 +39,8 @@ const ENTRY = Number(entryArg ?? 100);
 const OUT = outArg ?? "timings.json";
 /** win: the opener's bot plays on, the joiner makes two moves; draw: both make eight (equal scores); short: both make three (too few moves, the Match is unplayed and pays a Fee); none: nobody plays (the Match refunds). */
 const PLAY = process.env.PLAY ?? "win";
+/** The joiner joins and is never seen again (no driver, no check-in): the opener wins by the check-in rule. */
+const ABSENT = process.env.ABSENT === "1";
 /** Where the settle run's state and the history page of each Match are saved (to compare the result shown at finalize with what was paid). */
 const FIXTURES = process.env.FIXTURES;
 const testers = (JSON.parse(readFileSync(join(homedir(), ".config/tesoro", testersArg ?? "block-puzzle-testers.json"), "utf8")) as number[][]).map((k) => Keypair.fromSecretKey(Uint8Array.from(k)));
@@ -126,7 +128,7 @@ async function oneMatch(i: number): Promise<Row> {
   row.joinTx = Date.now() - joinStart;
   mark("join");
   console.log(`[${i}] joined in ${row.joinTx} ms`);
-  drivers[1].start();
+  if (!ABSENT) drivers[1].start();
 
   // The observer: raw chain facts at ~400 ms.
   const obs = newChain();
@@ -182,8 +184,8 @@ async function oneMatch(i: number): Promise<Row> {
       const bt = await obs.readTableOnBase(a).catch(() => null);
       if (bt && tableOf(a, bt) && bt.phase === 4 && !bt.dirty) mark("t_committed_base");
     }
-    if (row["A_stage_settled"] != null && row["B_stage_settled"] != null && row["core_closed"] != null) break;
-    if (row["core_refunded"] != null || row["core_settled"] != null) if (row["A_stage_settled"] != null && row["B_stage_settled"] != null) break;
+    const pagesDone = row["A_stage_settled"] != null && (ABSENT || row["B_stage_settled"] != null);
+    if (pagesDone && row["core_closed"] != null) break;
     if (Date.now() - T0 > 12 * 60_000) {
       row.timedOut = 1;
       break;
