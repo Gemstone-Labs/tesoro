@@ -34,11 +34,11 @@
 
 .mr-actions { display: grid; grid-template-columns: 1fr; gap: 12px; width: 100%; max-width: 760px; margin: 0 auto; }
 .mr-actions .btn { min-height: 56px; }
-.mr-second { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 12px; }
-.mr-second:empty { display: none; }
-.mr-links { display: flex; justify-content: center; gap: 28px; }
-.mr-links a { color: var(--fg-2); font-weight: 600; font-size: var(--fs-15); padding: 8px 4px; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 4px; }
-.mr-links a:hover { color: var(--fg); text-decoration-color: var(--fg); }
+/* Play again and Add a friend: one row, half each (Play again alone takes the whole row) */
+.mr-pair { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 12px; }
+.mr-pair > .af { display: grid; justify-items: stretch; }
+.mr-pair > .af .btn, .mr-pair > .btn { width: 100%; }
+.mr-pair .btn { white-space: nowrap; }
 
 @media (min-width: 1024px) {
   .mr-frame { padding: 56px 48px 48px; }
@@ -73,10 +73,6 @@
 .mr-scores, .mr-fees { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .mr-fees b { flex-wrap: wrap; row-gap: 0; }
 @media (max-width: 639px) {
-  /* Rematch, Add friend and Practice free / Share: two columns, an odd last button across both, never squeezed into thirds. */
-  .mr-second { grid-template-columns: 1fr 1fr; }
-  .mr-second > :last-child:nth-child(odd) { grid-column: 1 / -1; }
-  .mr-second .btn { white-space: nowrap; }
   .mr-frame { padding: 32px 14px 28px; }
   .mr-fees > div { padding: 10px 12px 12px; }
   .mr-fees b { font-size: var(--fs-20); gap: 6px; }

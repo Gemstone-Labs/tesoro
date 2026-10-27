@@ -57,6 +57,7 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
         matchId={m.id.toString()}
         playAgainHref={`/play/queue?game=vanguard&entry=${m.entry}`}
         opponent={m.opponent}
+        points={m.settled?.points}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
         {battle && seat !== null && <EndWhy battle={battle} seat={seat} />}

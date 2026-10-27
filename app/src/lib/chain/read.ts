@@ -57,6 +57,11 @@ export interface ChainMatch {
   /** The Backing this Account is part of in this Match (as the backed Player or as the Backer), else null. */
   backing: { seat: 0 | 1; player: string; funder: string; shareBps: number } | null;
   fees: { platformBps: number; studioBps: number; leaderboardBps: number };
+  /**
+   * What the chain settled for whoever is looking, from the Match history once the account is closed: the Fee taken
+   * from the Pot, this Account's Gema change and the Season points this Match gave it. Null while the Match is open.
+   */
+  settled?: { fee: number; delta: number; points: number } | null;
   /** The winning seat of a finished Match (null for a draw, a refund or while unsettled). */
   winner: "opener" | "joiner" | null;
   /** Block Burst: the result and Seed of a finished Match, read from the table's result ring while it still holds them (null otherwise, and for refunds). */
@@ -297,6 +302,17 @@ async function fetchClosedMatch(id: string, me: PublicKey | null): Promise<Chain
 const GAME_IDS_ALL: readonly string[] = ["block-puzzle", "holdem", "trading-duel", "vanguard"];
 const gameFromHistory = (id: string): GameId | null => (GAME_IDS_ALL.includes(id) ? (id as GameId) : null);
 
+/** The settled amounts of a finished Match for `mine`: the Player's party when they played it, else the Backer's. */
+function settledOf(p: MatchPage, mine: string | undefined, seat: 0 | 1 | null): ChainMatch["settled"] {
+  if (p.status !== "settled" && p.status !== "refunded") return null;
+  const party = p.parties.find((x) => x.account === mine && x.role === (seat === null ? "backer" : "player"));
+  return {
+    fee: p.fees.platform + p.fees.studio + p.fees.leaderboard,
+    delta: party?.delta ?? 0,
+    points: mine && p.winner === mine ? (p.points ?? 0) : 0,
+  };
+}
+
 /** The ChainMatch of a history MatchPage (a Match whose account is closed). */
 export function chainMatchFromPage(p: MatchPage, me: PublicKey | null): ChainMatch | null {
   const key = parseMatchKey(p.id);
@@ -333,6 +349,7 @@ export function chainMatchFromPage(p: MatchPage, me: PublicKey | null): ChainMat
     backerSeat,
     backing: backedSeat !== null && backedSide ? { seat: backedSeat, player: backedSide.player, funder: backedSide.funder, shareBps: backedSide.shareBps } : null,
     fees: { platformBps: 0, studioBps: 0, leaderboardBps: 0 },
+    settled: settledOf(p, mine, seat),
     winner: p.winnerSide === 0 ? "opener" : p.winnerSide === 1 ? "joiner" : null,
     session: scores
       ? { settled: settled || draw, result: p.winnerSide === 0 ? "opener" : p.winnerSide === 1 ? "joiner" : "draw", scores, seed: 0n }

@@ -1,0 +1,154 @@
+{
+ "won-lost": {
+  "id": "3CypGMXD3iWa4DX9RTnuGH967GBSeL46NaM3CFU9NhJU-0",
+  "fees": {
+   "studio": 30,
+   "platform": 20,
+   "leaderboard": 10
+  },
+  "game": "block-puzzle",
+  "kind": 0,
+  "asset": 0,
+  "entry": 500,
+  "loser": "3CypGMXD3iWa4DX9RTnuGH967GBSeL46NaM3CFU9NhJU",
+  "sides": [
+   {
+    "funder": "3CypGMXD3iWa4DX9RTnuGH967GBSeL46NaM3CFU9NhJU",
+    "player": "3CypGMXD3iWa4DX9RTnuGH967GBSeL46NaM3CFU9NhJU"
+   },
+   {
+    "funder": "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ",
+    "player": "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ"
+   }
+  ],
+  "chunks": 1,
+  "points": 5,
+  "scores": null,
+  "season": 4,
+  "status": "settled",
+  "winner": "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ",
+  "parties": [
+   {
+    "role": "player",
+    "side": 0,
+    "delta": -500,
+    "result": "lost",
+    "account": "3CypGMXD3iWa4DX9RTnuGH967GBSeL46NaM3CFU9NhJU",
+    "shareBps": null,
+    "backingOther": null
+   },
+   {
+    "role": "player",
+    "side": 1,
+    "delta": 440,
+    "result": "won",
+    "account": "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ",
+    "shareBps": null,
+    "backingOther": null
+   }
+  ],
+  "openedAt": 1793092845000,
+  "challenge": false,
+  "settledAt": 1793094433000,
+  "winnerSide": 1
+ },
+ "won-lost-2": {
+  "id": "3CypGMXD3iWa4DX9RTnuGH967GBSeL46NaM3CFU9NhJU-2",
+  "fees": {
+   "studio": 30,
+   "platform": 20,
+   "leaderboard": 10
+  },
+  "game": "block-puzzle",
+  "kind": 0,
+  "asset": 0,
+  "entry": 500,
+  "loser": "3CypGMXD3iWa4DX9RTnuGH967GBSeL46NaM3CFU9NhJU",
+  "sides": [
+   {
+    "funder": "3CypGMXD3iWa4DX9RTnuGH967GBSeL46NaM3CFU9NhJU",
+    "player": "3CypGMXD3iWa4DX9RTnuGH967GBSeL46NaM3CFU9NhJU"
+   },
+   {
+    "funder": "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ",
+    "player": "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ"
+   }
+  ],
+  "chunks": 1,
+  "points": 5,
+  "scores": null,
+  "season": 4,
+  "status": "settled",
+  "winner": "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ",
+  "parties": [
+   {
+    "role": "player",
+    "side": 0,
+    "delta": -500,
+    "result": "lost",
+    "account": "3CypGMXD3iWa4DX9RTnuGH967GBSeL46NaM3CFU9NhJU",
+    "shareBps": null,
+    "backingOther": null
+   },
+   {
+    "role": "player",
+    "side": 1,
+    "delta": 440,
+    "result": "won",
+    "account": "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ",
+    "shareBps": null,
+    "backingOther": null
+   }
+  ],
+  "openedAt": 1793094625000,
+  "challenge": false,
+  "settledAt": 1793094910000,
+  "winnerSide": 1
+ },
+ "refunded": {
+  "id": "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ-0",
+  "fees": {
+   "studio": 0,
+   "platform": 0,
+   "leaderboard": 0
+  },
+  "game": "block-puzzle",
+  "kind": 3,
+  "asset": 0,
+  "entry": 500,
+  "loser": null,
+  "sides": [
+   {
+    "funder": "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ",
+    "player": "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ"
+   },
+   null
+  ],
+  "chunks": 1,
+  "points": null,
+  "scores": null,
+  "season": null,
+  "status": "refunded",
+  "winner": null,
+  "parties": [
+   {
+    "role": "player",
+    "side": 0,
+    "delta": 0,
+    "result": "refunded",
+    "account": "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ",
+    "shareBps": null,
+    "backingOther": null
+   }
+  ],
+  "openedAt": 1793092856000,
+  "challenge": false,
+  "settledAt": 1793094138000,
+  "winnerSide": null
+ },
+ "signatures": {
+  "3CypGMXD3iWa4DX9RTnuGH967GBSeL46NaM3CFU9NhJU-0": {},
+  "3CypGMXD3iWa4DX9RTnuGH967GBSeL46NaM3CFU9NhJU-2": {},
+  "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ-0": {}
+ }
+}

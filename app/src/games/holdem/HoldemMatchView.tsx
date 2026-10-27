@@ -64,6 +64,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         matchId={m.id.toString()}
         playAgainHref={`/play/queue?game=holdem&entry=${m.entry}`}
         opponent={m.opponent}
+        points={m.settled?.points}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
         {view.error && <p className="status err" role="alert">{view.error}</p>}
