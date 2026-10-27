@@ -62,7 +62,11 @@ function world(me: string, matches: Map<string, ChainMatch>, list?: string[]) {
     }),
     refund: vi.fn(async (id: string) => {
       calls.push(`refund ${id}`);
-      matches.set(id, { ...matches.get(id)!, status: "refunded" });
+      // The refund is two-phase: the Match is Refunding (not joinable, still unfinished) until the keeper's steps close it.
+      matches.set(id, { ...matches.get(id)!, status: "active", running: "refunding" });
+    }),
+    pause: vi.fn(async () => {
+      for (const [id, m] of matches) if (m.running === "refunding") matches.set(id, { ...m, status: "refunded", running: null });
     }),
     settle: vi.fn(async () => "unknown" as const),
     unfinished: vi.fn(async () => [...matches.keys()].map((id) => view(id)!).filter((m) => m.seat !== null && (m.status === "open" || m.status === "active"))),
@@ -84,7 +88,7 @@ describe("two Players opened a Match within a moment of each other", () => {
     const r = await mergeQueue(ben.deps, ben.view(YOUNG)!);
     expect(r).toEqual({ moved: true, entered: { id: OLD, via: "joined" } });
     expect(ben.calls).toEqual([`refund ${YOUNG}`, `join ${OLD}`]);
-    expect(matches.get(YOUNG)!.status).toBe("refunded");
+    expect(matches.get(YOUNG)!.running).toBe("refunding");
     expect(matches.get(OLD)!.opponent).toBe("ben");
   });
 
@@ -102,7 +106,7 @@ describe("two Players opened a Match within a moment of each other", () => {
     const [a, b] = await Promise.all([mergeQueue(alice.deps, alice.view(OLD)!), mergeQueue(ben.deps, ben.view(YOUNG)!)]);
     expect(a.moved).toBe(false);
     expect(b.moved).toBe(true);
-    const live = [...matches.values()].filter((m) => m.status === "open" || m.status === "active");
+    const live = [...matches.values()].filter((m) => (m.status === "open" || m.status === "active") && m.running !== "refunding");
     expect(live.map((m) => m.id)).toEqual([OLD]);
     expect([live[0].sides[0].player, live[0].sides[1]?.player]).toEqual(["alice", "ben"]);
   });
@@ -188,7 +192,7 @@ describe("a move that goes wrong", () => {
     const ben = world("ben", matches);
     ben.deps.settle = vi.fn(async () => "landed" as const);
     ben.deps.refund = vi.fn(async (id: string) => {
-      matches.set(id, { ...matches.get(id)!, status: "refunded" });
+      matches.set(id, { ...matches.get(id)!, status: "active", running: "refunding" });
       throw new TxUnconfirmedError("sig", 1000);
     });
     expect(await mergeQueue(ben.deps, ben.view(YOUNG)!)).toMatchObject({ moved: true, entered: { id: OLD, via: "joined" } });
@@ -201,8 +205,56 @@ describe("a move that goes wrong", () => {
       throw new TxUnconfirmedError("sig", 1000);
     });
     await expect(mergeQueue(ben.deps, ben.view(YOUNG)!)).rejects.toBeInstanceOf(QueueUnconfirmedError);
-    expect(matches.get(YOUNG)!.status).toBe("refunded");
+    expect(matches.get(YOUNG)!.running).toBe("refunding");
     expect(ben.deps.open).not.toHaveBeenCalled();
+  });
+});
+
+describe("the entry is still on its way back", () => {
+  it("the join does not wait for the refund and the refunding Match is not taken for the Player's seat", async () => {
+    const matches = new Map([
+      [OLD, match(OLD, { openedAt: NOW })],
+      [YOUNG, match(YOUNG, { openedAt: NOW + 11_000 })],
+    ]);
+    const ben = world("ben", matches);
+    const r = await mergeQueue(ben.deps, ben.view(YOUNG)!);
+    expect(r).toMatchObject({ moved: true, entered: { id: OLD, via: "joined" } });
+    expect(ben.deps.pause).not.toHaveBeenCalled();
+  });
+
+  it("too few free Gemas to join before the entry is back: waits for the refund to close, then joins", async () => {
+    const matches = new Map([
+      [OLD, match(OLD, { openedAt: NOW })],
+      [YOUNG, match(YOUNG, { openedAt: NOW + 11_000 })],
+    ]);
+    const ben = world("ben", matches);
+    const join = ben.deps.join;
+    ben.deps.join = vi.fn(async (id: string) => {
+      if (matches.get(YOUNG)!.running === "refunding") throw failed();
+      return join(id);
+    });
+    ben.deps.open = vi.fn(async () => {
+      throw failed();
+    });
+    const r = await mergeQueue(ben.deps, ben.view(YOUNG)!);
+    expect(r).toMatchObject({ moved: true, entered: { id: OLD, via: "joined" } });
+    expect(matches.get(YOUNG)!.status).toBe("refunded");
+  });
+
+  it("the refund never finishes: throws so the screen can say so, and nothing else is entered", async () => {
+    const matches = new Map([
+      [OLD, match(OLD, { openedAt: NOW })],
+      [YOUNG, match(YOUNG, { openedAt: NOW + 11_000 })],
+    ]);
+    const ben = world("ben", matches);
+    ben.deps.pause = vi.fn(async () => undefined);
+    ben.deps.join = vi.fn(async () => {
+      throw failed();
+    });
+    ben.deps.open = vi.fn(async () => {
+      throw failed();
+    });
+    await expect(mergeQueue(ben.deps, ben.view(YOUNG)!)).rejects.toBeInstanceOf(TxFailedError);
   });
 });
 

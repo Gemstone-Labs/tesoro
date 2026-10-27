@@ -5,17 +5,13 @@ import { useEffect, useRef, useState } from "react";
 import { useAccount } from "@/lib/account";
 import { parseMatchKey } from "./match-id";
 import { mergeIntoOlderMatch } from "./match-flow";
-import { canMove } from "./queue";
+import { checkForOlder, type QueueMerge } from "./merge-check";
 import { fetchMatch } from "./read";
+
+export type { QueueMerge };
 
 /** How often a waiting Player looks for an older Match. */
 export const MERGE_EVERY_MS = 6_000;
-
-export interface QueueMerge {
-  /** "moving": the refund and join are under way; "failed": the Player was refunded or the fate is unknown (see `error`). */
-  phase: "idle" | "moving" | "failed";
-  error: string | null;
-}
 
 /**
  * While the Player sits alone in a Queue Match, looks for an older open Match at the same entry and moves into it (see
@@ -35,27 +31,24 @@ export function useQueueMerge(matchId: string): QueueMerge {
 
   useEffect(() => {
     if (!signer || !me || !parseMatchKey(matchId)) return;
-    let live = true;
 
     const check = async () => {
       if (busy.current || document.visibilityState === "hidden") return;
       busy.current = true;
       try {
-        const mine = await fetchMatch(matchId, meKey!);
-        if (!live || !mine || !canMove(mine)) return;
         // One tab moves a Match: another tab of the same Player waits for the first to finish.
-        const run = async () => {
-          setStored({ matchId, phase: "moving", error: null });
-          const merged = await mergeIntoOlderMatch(signer, getToken, mine);
-          if (!merged.moved) setStored({ matchId, phase: "idle", error: null });
-          // Only while the Player is still on this Match page: an effect re-run must not cancel a move that has happened.
-          else if (window.location.pathname.endsWith(matchId)) router.replace(`/play/match/${merged.entered.id}`);
-        };
+        const run = () =>
+          checkForOlder({
+            fetchMine: () => fetchMatch(matchId, meKey!),
+            merge: (mine) => mergeIntoOlderMatch(signer, getToken, mine),
+            set: (s) => setStored({ matchId, ...s }),
+            navigate: (id) => router.replace(`/play/match/${id}`),
+            // An effect re-run must not cancel a move that has happened; only a Player who left stays where they went.
+            stillHere: () => window.location.pathname.endsWith(matchId),
+          });
         const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
         if (locks) await locks.request(`tesoro-queue-merge-${matchId}`, { ifAvailable: true }, async (lock) => (lock ? run() : undefined));
         else await run();
-      } catch (e) {
-        setStored({ matchId, phase: "failed", error: e instanceof Error ? e.message : "Something went wrong while moving you to an older Match." });
       } finally {
         busy.current = false;
       }
@@ -64,7 +57,6 @@ export function useQueueMerge(matchId: string): QueueMerge {
     const timer = setInterval(() => void check(), MERGE_EVERY_MS);
     const first = setTimeout(() => void check(), 2_000);
     return () => {
-      live = false;
       clearInterval(timer);
       clearTimeout(first);
     };

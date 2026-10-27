@@ -154,8 +154,10 @@ export async function queueEntry(d: QueueDeps): Promise<Entered> {
 
 /** What `mergeQueue` needs beyond a Queue entry: the way out of the Player's own waiting Match. */
 export interface MergeDeps extends QueueDeps {
-  /** Cancels the Player's own unjoined Match and returns the entry (opener refund). */
+  /** Cancels the Player's own unjoined Match (opener refund). The Match then refunds in steps: it stays unfinished until they are done. */
   refund(id: string): Promise<unknown>;
+  /** Waits `ms` (tests make it instant). */
+  pause?(ms: number): Promise<void>;
 }
 
 export type Merged = { moved: false } | { moved: true; entered: Entered };
@@ -180,14 +182,31 @@ async function olderCandidate(d: QueueDeps, mine: ChainMatch): Promise<string | 
   return null;
 }
 
+/** How long a refund may take to hand the entry back before the move gives up waiting (the keeper returns it in steps). */
+const REFUND_WAIT_MS = 90_000;
+const REFUND_POLL_MS = 2_000;
+
+/** Waits until the Match is closed (the entry is back). False when it is not within `REFUND_WAIT_MS`. */
+async function refundDone(d: MergeDeps, id: string): Promise<boolean> {
+  const pause = d.pause ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let waited = 0; waited <= REFUND_WAIT_MS; waited += REFUND_POLL_MS) {
+    const m = await d.readMatch(id).catch(() => null);
+    if (m && m.status !== "open" && m.status !== "active") return true;
+    await pause(REFUND_POLL_MS);
+  }
+  return false;
+}
+
 /**
  * Two Players who enter the Queue within a moment of each other can each open a Match, because neither list shows the
  * other's yet. While a Player waits alone, this looks for an OLDER open Match to take instead. Only the younger of two
  * waiting Matches ever moves, so the two can never move at once and the older one stays put.
  *
- * The order is refund, then join (through `queueEntry`), never join then refund: the Player is never seated twice and
- * never needs two entries of Gemas, and if the join fails after the refund the entry is already back and `queueEntry`
- * joins another Match or opens a new one. A refund that fails because someone just joined leaves the Player where they are.
+ * Order: refund first, then join (through `queueEntry`), never join then refund. `refund_match` closes the Match to joiners
+ * at once (it is Refunding, the entry comes back in keeper steps), so from that instant the Player cannot be seated in
+ * two Matches, whereas joining first would leave a window in which a third Player can take the abandoned seat. The join
+ * does not wait for the entry to come back: it draws on the Player's other Gemas, and when those are too few it waits
+ * for the refund to finish and tries again. A refund that fails because someone just joined leaves the Player where they are.
  */
 export async function mergeQueue(d: MergeDeps, mine: ChainMatch): Promise<Merged> {
   if (!canMove(mine) || mine.game !== d.game || mine.entry !== d.entry) return { moved: false };
@@ -201,7 +220,16 @@ export async function mergeQueue(d: MergeDeps, mine: ChainMatch): Promise<Merged
     if (r === "unknown") throw e instanceof TxUnconfirmedError ? new QueueUnconfirmedError(mine.id, e) : e;
     const now = await d.readMatch(mine.id).catch(() => null);
     // Failed and still waiting (or paired meanwhile): stay. Only a refund that took effect moves on.
-    if (r === "failed" && now?.status !== "refunded") return { moved: false };
+    if (r === "failed" && (now === null || now.status === "open" || now.opponent !== null)) return { moved: false };
   }
-  return { moved: true, entered: await queueEntry(d) };
+  // The Match being refunded still counts as unfinished until it closes: it is not the Match this Player is in.
+  const next: QueueDeps = { ...d, unfinished: async () => (await d.unfinished()).filter((m) => m.id !== mine.id) };
+  try {
+    return { moved: true, entered: await queueEntry(next) };
+  } catch (e) {
+    if (e instanceof QueueUnconfirmedError) throw e;
+    // Most likely too few free Gemas while the old entry is still on its way back.
+    if (!(await refundDone(d, mine.id))) throw e;
+    return { moved: true, entered: await queueEntry(next) };
+  }
 }
