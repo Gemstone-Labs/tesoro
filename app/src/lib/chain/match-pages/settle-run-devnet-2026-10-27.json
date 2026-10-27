@@ -1,0 +1,2132 @@
+[
+ {
+  "scenario": "win and loss",
+  "key": "7k1sd7QvxX1FmqnJteDnDohd7BCWkvPRL9D6GxYXBmN3-10",
+  "settling": {
+   "inner": {
+    "id": {
+     "opener": [
+      100,
+      43,
+      21,
+      78,
+      148,
+      39,
+      83,
+      95,
+      212,
+      143,
+      86,
+      6,
+      225,
+      50,
+      150,
+      239,
+      155,
+      24,
+      56,
+      5,
+      50,
+      238,
+      204,
+      65,
+      122,
+      251,
+      17,
+      149,
+      109,
+      230,
+      253,
+      4
+     ],
+     "n": "10"
+    },
+    "meta": {
+     "challenge": false,
+     "asset": 0,
+     "listed": true
+    },
+    "game": [
+     66,
+     252,
+     204,
+     94,
+     191,
+     185,
+     144,
+     147,
+     75,
+     164,
+     208,
+     73,
+     223,
+     102,
+     247,
+     74,
+     128,
+     91,
+     97,
+     170,
+     137,
+     116,
+     64,
+     193,
+     131,
+     225,
+     30,
+     149,
+     223,
+     224,
+     219,
+     26
+    ],
+    "settleAuthority": [
+     93,
+     93,
+     179,
+     180,
+     0,
+     71,
+     112,
+     72,
+     115,
+     40,
+     81,
+     140,
+     199,
+     217,
+     248,
+     102,
+     209,
+     38,
+     4,
+     202,
+     222,
+     54,
+     96,
+     20,
+     105,
+     174,
+     24,
+     45,
+     122,
+     209,
+     140,
+     93
+    ],
+    "deploySlot": "515249807",
+    "terms": {
+     "platformBps": 200,
+     "studioBps": 300,
+     "studioOwner": null,
+     "studioPriority": true
+    },
+    "entry": "100",
+    "openedAt": "1793107641",
+    "deadline": "1793194053",
+    "deadlineAbs": "1793712441",
+    "a": {
+     "player": [
+      100,
+      43,
+      21,
+      78,
+      148,
+      39,
+      83,
+      95,
+      212,
+      143,
+      86,
+      6,
+      225,
+      50,
+      150,
+      239,
+      155,
+      24,
+      56,
+      5,
+      50,
+      238,
+      204,
+      65,
+      122,
+      251,
+      17,
+      149,
+      109,
+      230,
+      253,
+      4
+     ],
+     "funder": [
+      100,
+      43,
+      21,
+      78,
+      148,
+      39,
+      83,
+      95,
+      212,
+      143,
+      86,
+      6,
+      225,
+      50,
+      150,
+      239,
+      155,
+      24,
+      56,
+      5,
+      50,
+      238,
+      204,
+      65,
+      122,
+      251,
+      17,
+      149,
+      109,
+      230,
+      253,
+      4
+     ],
+     "shareBps": 0
+    },
+    "b": {
+     "player": [
+      167,
+      240,
+      18,
+      3,
+      154,
+      32,
+      154,
+      78,
+      216,
+      232,
+      90,
+      78,
+      54,
+      4,
+      225,
+      150,
+      55,
+      219,
+      63,
+      178,
+      111,
+      240,
+      195,
+      191,
+      161,
+      181,
+      142,
+      59,
+      168,
+      211,
+      243,
+      153
+     ],
+     "funder": [
+      167,
+      240,
+      18,
+      3,
+      154,
+      32,
+      154,
+      78,
+      216,
+      232,
+      90,
+      78,
+      54,
+      4,
+      225,
+      150,
+      55,
+      219,
+      63,
+      178,
+      111,
+      240,
+      195,
+      191,
+      161,
+      181,
+      142,
+      59,
+      168,
+      211,
+      243,
+      153
+     ],
+     "shareBps": 0
+    },
+    "potLines": [
+     1,
+     1
+    ],
+    "stage": {
+     "settling": {}
+    },
+    "run": {
+     "kind": {
+      "win": {
+       "winner": 0
+      }
+     },
+     "receipt": {
+      "id": {
+       "opener": [
+        100,
+        43,
+        21,
+        78,
+        148,
+        39,
+        83,
+        95,
+        212,
+        143,
+        86,
+        6,
+        225,
+        50,
+        150,
+        239,
+        155,
+        24,
+        56,
+        5,
+        50,
+        238,
+        204,
+        65,
+        122,
+        251,
+        17,
+        149,
+        109,
+        230,
+        253,
+        4
+       ],
+       "n": "10"
+      },
+      "kind": {
+       "win": {
+        "winner": 0
+       }
+      },
+      "at": "1793107765"
+     },
+     "fees": [
+      "4",
+      "6",
+      "2"
+     ],
+     "phases": [
+      {
+       "cuts": {
+        "0": 1
+       }
+      },
+      {
+       "back": {
+        "0": 0
+       }
+      },
+      {
+       "surplus": {
+        "from": 1,
+        "to": 0
+       }
+      },
+      {
+       "back": {
+        "0": 0
+       }
+      }
+     ],
+     "nPhases": 3,
+     "phaseI": 0,
+     "lineI": 0,
+     "cutLeft": [
+      [
+       "0",
+       "0",
+       "0"
+      ],
+      [
+       "4",
+       "6",
+       "2"
+      ]
+     ],
+     "playerLeft": "0",
+     "chunks": 0,
+     "steps": 0
+    }
+   }
+  },
+  "history": {
+   "id": "7k1sd7QvxX1FmqnJteDnDohd7BCWkvPRL9D6GxYXBmN3-10",
+   "fees": {
+    "studio": 6,
+    "platform": 4,
+    "leaderboard": 2
+   },
+   "game": "block-puzzle",
+   "kind": 0,
+   "asset": 0,
+   "entry": 100,
+   "loser": "CJZQVLheh5yAToKAjp9DXMchSomFEuS6mTmBEwPiMP1J",
+   "sides": [
+    {
+     "funder": "7k1sd7QvxX1FmqnJteDnDohd7BCWkvPRL9D6GxYXBmN3",
+     "player": "7k1sd7QvxX1FmqnJteDnDohd7BCWkvPRL9D6GxYXBmN3"
+    },
+    {
+     "funder": "CJZQVLheh5yAToKAjp9DXMchSomFEuS6mTmBEwPiMP1J",
+     "player": "CJZQVLheh5yAToKAjp9DXMchSomFEuS6mTmBEwPiMP1J"
+    }
+   ],
+   "chunks": 1,
+   "points": 1,
+   "scores": null,
+   "season": 4,
+   "status": "settled",
+   "winner": "7k1sd7QvxX1FmqnJteDnDohd7BCWkvPRL9D6GxYXBmN3",
+   "parties": [
+    {
+     "role": "player",
+     "side": 0,
+     "delta": 88,
+     "result": "won",
+     "account": "7k1sd7QvxX1FmqnJteDnDohd7BCWkvPRL9D6GxYXBmN3",
+     "shareBps": null,
+     "backingOther": null
+    },
+    {
+     "role": "player",
+     "side": 1,
+     "delta": -100,
+     "result": "lost",
+     "account": "CJZQVLheh5yAToKAjp9DXMchSomFEuS6mTmBEwPiMP1J",
+     "shareBps": null,
+     "backingOther": null
+    }
+   ],
+   "openedAt": 1793107641000,
+   "challenge": false,
+   "settledAt": 1793107787000,
+   "winnerSide": 0
+  }
+ },
+ {
+  "scenario": "win and loss",
+  "key": "7k1sd7QvxX1FmqnJteDnDohd7BCWkvPRL9D6GxYXBmN3-11",
+  "settling": {
+   "inner": {
+    "id": {
+     "opener": [
+      100,
+      43,
+      21,
+      78,
+      148,
+      39,
+      83,
+      95,
+      212,
+      143,
+      86,
+      6,
+      225,
+      50,
+      150,
+      239,
+      155,
+      24,
+      56,
+      5,
+      50,
+      238,
+      204,
+      65,
+      122,
+      251,
+      17,
+      149,
+      109,
+      230,
+      253,
+      4
+     ],
+     "n": "11"
+    },
+    "meta": {
+     "challenge": false,
+     "asset": 0,
+     "listed": true
+    },
+    "game": [
+     66,
+     252,
+     204,
+     94,
+     191,
+     185,
+     144,
+     147,
+     75,
+     164,
+     208,
+     73,
+     223,
+     102,
+     247,
+     74,
+     128,
+     91,
+     97,
+     170,
+     137,
+     116,
+     64,
+     193,
+     131,
+     225,
+     30,
+     149,
+     223,
+     224,
+     219,
+     26
+    ],
+    "settleAuthority": [
+     93,
+     93,
+     179,
+     180,
+     0,
+     71,
+     112,
+     72,
+     115,
+     40,
+     81,
+     140,
+     199,
+     217,
+     248,
+     102,
+     209,
+     38,
+     4,
+     202,
+     222,
+     54,
+     96,
+     20,
+     105,
+     174,
+     24,
+     45,
+     122,
+     209,
+     140,
+     93
+    ],
+    "deploySlot": "515249807",
+    "terms": {
+     "platformBps": 200,
+     "studioBps": 300,
+     "studioOwner": null,
+     "studioPriority": true
+    },
+    "entry": "100",
+    "openedAt": "1793107961",
+    "deadline": "1793194387",
+    "deadlineAbs": "1793712761",
+    "a": {
+     "player": [
+      100,
+      43,
+      21,
+      78,
+      148,
+      39,
+      83,
+      95,
+      212,
+      143,
+      86,
+      6,
+      225,
+      50,
+      150,
+      239,
+      155,
+      24,
+      56,
+      5,
+      50,
+      238,
+      204,
+      65,
+      122,
+      251,
+      17,
+      149,
+      109,
+      230,
+      253,
+      4
+     ],
+     "funder": [
+      100,
+      43,
+      21,
+      78,
+      148,
+      39,
+      83,
+      95,
+      212,
+      143,
+      86,
+      6,
+      225,
+      50,
+      150,
+      239,
+      155,
+      24,
+      56,
+      5,
+      50,
+      238,
+      204,
+      65,
+      122,
+      251,
+      17,
+      149,
+      109,
+      230,
+      253,
+      4
+     ],
+     "shareBps": 0
+    },
+    "b": {
+     "player": [
+      167,
+      240,
+      18,
+      3,
+      154,
+      32,
+      154,
+      78,
+      216,
+      232,
+      90,
+      78,
+      54,
+      4,
+      225,
+      150,
+      55,
+      219,
+      63,
+      178,
+      111,
+      240,
+      195,
+      191,
+      161,
+      181,
+      142,
+      59,
+      168,
+      211,
+      243,
+      153
+     ],
+     "funder": [
+      167,
+      240,
+      18,
+      3,
+      154,
+      32,
+      154,
+      78,
+      216,
+      232,
+      90,
+      78,
+      54,
+      4,
+      225,
+      150,
+      55,
+      219,
+      63,
+      178,
+      111,
+      240,
+      195,
+      191,
+      161,
+      181,
+      142,
+      59,
+      168,
+      211,
+      243,
+      153
+     ],
+     "shareBps": 0
+    },
+    "potLines": [
+     1,
+     1
+    ],
+    "stage": {
+     "settling": {}
+    },
+    "run": {
+     "kind": {
+      "win": {
+       "winner": 0
+      }
+     },
+     "receipt": {
+      "id": {
+       "opener": [
+        100,
+        43,
+        21,
+        78,
+        148,
+        39,
+        83,
+        95,
+        212,
+        143,
+        86,
+        6,
+        225,
+        50,
+        150,
+        239,
+        155,
+        24,
+        56,
+        5,
+        50,
+        238,
+        204,
+        65,
+        122,
+        251,
+        17,
+        149,
+        109,
+        230,
+        253,
+        4
+       ],
+       "n": "11"
+      },
+      "kind": {
+       "win": {
+        "winner": 0
+       }
+      },
+      "at": "1793108104"
+     },
+     "fees": [
+      "4",
+      "6",
+      "2"
+     ],
+     "phases": [
+      {
+       "cuts": {
+        "0": 1
+       }
+      },
+      {
+       "back": {
+        "0": 0
+       }
+      },
+      {
+       "surplus": {
+        "from": 1,
+        "to": 0
+       }
+      },
+      {
+       "back": {
+        "0": 0
+       }
+      }
+     ],
+     "nPhases": 3,
+     "phaseI": 0,
+     "lineI": 0,
+     "cutLeft": [
+      [
+       "0",
+       "0",
+       "0"
+      ],
+      [
+       "4",
+       "6",
+       "2"
+      ]
+     ],
+     "playerLeft": "0",
+     "chunks": 0,
+     "steps": 0
+    }
+   }
+  },
+  "history": {
+   "id": "7k1sd7QvxX1FmqnJteDnDohd7BCWkvPRL9D6GxYXBmN3-11",
+   "fees": {
+    "studio": 6,
+    "platform": 4,
+    "leaderboard": 2
+   },
+   "game": "block-puzzle",
+   "kind": 0,
+   "asset": 0,
+   "entry": 100,
+   "loser": "CJZQVLheh5yAToKAjp9DXMchSomFEuS6mTmBEwPiMP1J",
+   "sides": [
+    {
+     "funder": "7k1sd7QvxX1FmqnJteDnDohd7BCWkvPRL9D6GxYXBmN3",
+     "player": "7k1sd7QvxX1FmqnJteDnDohd7BCWkvPRL9D6GxYXBmN3"
+    },
+    {
+     "funder": "CJZQVLheh5yAToKAjp9DXMchSomFEuS6mTmBEwPiMP1J",
+     "player": "CJZQVLheh5yAToKAjp9DXMchSomFEuS6mTmBEwPiMP1J"
+    }
+   ],
+   "chunks": 1,
+   "points": 1,
+   "scores": null,
+   "season": 4,
+   "status": "settled",
+   "winner": "7k1sd7QvxX1FmqnJteDnDohd7BCWkvPRL9D6GxYXBmN3",
+   "parties": [
+    {
+     "role": "player",
+     "side": 0,
+     "delta": 88,
+     "result": "won",
+     "account": "7k1sd7QvxX1FmqnJteDnDohd7BCWkvPRL9D6GxYXBmN3",
+     "shareBps": null,
+     "backingOther": null
+    },
+    {
+     "role": "player",
+     "side": 1,
+     "delta": -100,
+     "result": "lost",
+     "account": "CJZQVLheh5yAToKAjp9DXMchSomFEuS6mTmBEwPiMP1J",
+     "shareBps": null,
+     "backingOther": null
+    }
+   ],
+   "openedAt": 1793107961000,
+   "challenge": false,
+   "settledAt": 1793108127000,
+   "winnerSide": 0
+  }
+ },
+ {
+  "scenario": "refund, no Fee",
+  "key": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP-12",
+  "settling": {
+   "inner": {
+    "id": {
+     "opener": [
+      203,
+      27,
+      71,
+      92,
+      114,
+      254,
+      158,
+      112,
+      174,
+      102,
+      26,
+      217,
+      63,
+      54,
+      251,
+      241,
+      64,
+      184,
+      163,
+      215,
+      234,
+      121,
+      201,
+      222,
+      70,
+      196,
+      115,
+      111,
+      212,
+      117,
+      19,
+      158
+     ],
+     "n": "12"
+    },
+    "meta": {
+     "challenge": false,
+     "asset": 0,
+     "listed": true
+    },
+    "game": [
+     66,
+     252,
+     204,
+     94,
+     191,
+     185,
+     144,
+     147,
+     75,
+     164,
+     208,
+     73,
+     223,
+     102,
+     247,
+     74,
+     128,
+     91,
+     97,
+     170,
+     137,
+     116,
+     64,
+     193,
+     131,
+     225,
+     30,
+     149,
+     223,
+     224,
+     219,
+     26
+    ],
+    "settleAuthority": [
+     93,
+     93,
+     179,
+     180,
+     0,
+     71,
+     112,
+     72,
+     115,
+     40,
+     81,
+     140,
+     199,
+     217,
+     248,
+     102,
+     209,
+     38,
+     4,
+     202,
+     222,
+     54,
+     96,
+     20,
+     105,
+     174,
+     24,
+     45,
+     122,
+     209,
+     140,
+     93
+    ],
+    "deploySlot": "515249807",
+    "terms": {
+     "platformBps": 200,
+     "studioBps": 300,
+     "studioOwner": null,
+     "studioPriority": true
+    },
+    "entry": "100",
+    "openedAt": "1793107711",
+    "deadline": "1793194123",
+    "deadlineAbs": "1793712511",
+    "a": {
+     "player": [
+      203,
+      27,
+      71,
+      92,
+      114,
+      254,
+      158,
+      112,
+      174,
+      102,
+      26,
+      217,
+      63,
+      54,
+      251,
+      241,
+      64,
+      184,
+      163,
+      215,
+      234,
+      121,
+      201,
+      222,
+      70,
+      196,
+      115,
+      111,
+      212,
+      117,
+      19,
+      158
+     ],
+     "funder": [
+      203,
+      27,
+      71,
+      92,
+      114,
+      254,
+      158,
+      112,
+      174,
+      102,
+      26,
+      217,
+      63,
+      54,
+      251,
+      241,
+      64,
+      184,
+      163,
+      215,
+      234,
+      121,
+      201,
+      222,
+      70,
+      196,
+      115,
+      111,
+      212,
+      117,
+      19,
+      158
+     ],
+     "shareBps": 0
+    },
+    "b": {
+     "player": [
+      101,
+      24,
+      182,
+      13,
+      1,
+      189,
+      119,
+      205,
+      29,
+      138,
+      138,
+      161,
+      109,
+      70,
+      201,
+      136,
+      124,
+      209,
+      112,
+      2,
+      60,
+      55,
+      214,
+      38,
+      132,
+      168,
+      157,
+      14,
+      39,
+      35,
+      158,
+      76
+     ],
+     "funder": [
+      101,
+      24,
+      182,
+      13,
+      1,
+      189,
+      119,
+      205,
+      29,
+      138,
+      138,
+      161,
+      109,
+      70,
+      201,
+      136,
+      124,
+      209,
+      112,
+      2,
+      60,
+      55,
+      214,
+      38,
+      132,
+      168,
+      157,
+      14,
+      39,
+      35,
+      158,
+      76
+     ],
+     "shareBps": 0
+    },
+    "potLines": [
+     1,
+     1
+    ],
+    "stage": {
+     "refunding": {}
+    },
+    "run": {
+     "kind": {
+      "byGame": {}
+     },
+     "receipt": {
+      "id": {
+       "opener": [
+        203,
+        27,
+        71,
+        92,
+        114,
+        254,
+        158,
+        112,
+        174,
+        102,
+        26,
+        217,
+        63,
+        54,
+        251,
+        241,
+        64,
+        184,
+        163,
+        215,
+        234,
+        121,
+        201,
+        222,
+        70,
+        196,
+        115,
+        111,
+        212,
+        117,
+        19,
+        158
+       ],
+       "n": "12"
+      },
+      "kind": {
+       "byGame": {}
+      },
+      "at": "1793107833"
+     },
+     "fees": [
+      "0",
+      "0",
+      "0"
+     ],
+     "phases": [
+      {
+       "back": {
+        "0": 0
+       }
+      },
+      {
+       "back": {
+        "0": 1
+       }
+      },
+      {
+       "back": {
+        "0": 0
+       }
+      },
+      {
+       "back": {
+        "0": 0
+       }
+      }
+     ],
+     "nPhases": 2,
+     "phaseI": 0,
+     "lineI": 0,
+     "cutLeft": [
+      [
+       "0",
+       "0",
+       "0"
+      ],
+      [
+       "0",
+       "0",
+       "0"
+      ]
+     ],
+     "playerLeft": "0",
+     "chunks": 0,
+     "steps": 0
+    }
+   }
+  },
+  "history": {
+   "id": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP-12",
+   "fees": {
+    "studio": 0,
+    "platform": 0,
+    "leaderboard": 0
+   },
+   "game": "block-puzzle",
+   "kind": 6,
+   "asset": 0,
+   "entry": 100,
+   "loser": null,
+   "sides": [
+    {
+     "funder": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP",
+     "player": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP"
+    },
+    {
+     "funder": "7oe2s5XC6b9gy1ku4n1w4hsPcohwdduUXfNmjLcv3bw9",
+     "player": "7oe2s5XC6b9gy1ku4n1w4hsPcohwdduUXfNmjLcv3bw9"
+    }
+   ],
+   "chunks": 1,
+   "points": null,
+   "scores": null,
+   "season": null,
+   "status": "refunded",
+   "winner": null,
+   "parties": [
+    {
+     "role": "player",
+     "side": 0,
+     "delta": 0,
+     "result": "refunded",
+     "account": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP",
+     "shareBps": null,
+     "backingOther": null
+    },
+    {
+     "role": "player",
+     "side": 1,
+     "delta": 0,
+     "result": "refunded",
+     "account": "7oe2s5XC6b9gy1ku4n1w4hsPcohwdduUXfNmjLcv3bw9",
+     "shareBps": null,
+     "backingOther": null
+    }
+   ],
+   "openedAt": 1793107711000,
+   "challenge": false,
+   "settledAt": 1793107854000,
+   "winnerSide": null
+  }
+ },
+ {
+  "scenario": "refund with a Platform Fee (too few moves)",
+  "key": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP-13",
+  "settling": {
+   "inner": {
+    "id": {
+     "opener": [
+      203,
+      27,
+      71,
+      92,
+      114,
+      254,
+      158,
+      112,
+      174,
+      102,
+      26,
+      217,
+      63,
+      54,
+      251,
+      241,
+      64,
+      184,
+      163,
+      215,
+      234,
+      121,
+      201,
+      222,
+      70,
+      196,
+      115,
+      111,
+      212,
+      117,
+      19,
+      158
+     ],
+     "n": "13"
+    },
+    "meta": {
+     "challenge": false,
+     "asset": 0,
+     "listed": true
+    },
+    "game": [
+     66,
+     252,
+     204,
+     94,
+     191,
+     185,
+     144,
+     147,
+     75,
+     164,
+     208,
+     73,
+     223,
+     102,
+     247,
+     74,
+     128,
+     91,
+     97,
+     170,
+     137,
+     116,
+     64,
+     193,
+     131,
+     225,
+     30,
+     149,
+     223,
+     224,
+     219,
+     26
+    ],
+    "settleAuthority": [
+     93,
+     93,
+     179,
+     180,
+     0,
+     71,
+     112,
+     72,
+     115,
+     40,
+     81,
+     140,
+     199,
+     217,
+     248,
+     102,
+     209,
+     38,
+     4,
+     202,
+     222,
+     54,
+     96,
+     20,
+     105,
+     174,
+     24,
+     45,
+     122,
+     209,
+     140,
+     93
+    ],
+    "deploySlot": "515249807",
+    "terms": {
+     "platformBps": 200,
+     "studioBps": 300,
+     "studioOwner": null,
+     "studioPriority": true
+    },
+    "entry": "100",
+    "openedAt": "1793107866",
+    "deadline": "1793194289",
+    "deadlineAbs": "1793712666",
+    "a": {
+     "player": [
+      203,
+      27,
+      71,
+      92,
+      114,
+      254,
+      158,
+      112,
+      174,
+      102,
+      26,
+      217,
+      63,
+      54,
+      251,
+      241,
+      64,
+      184,
+      163,
+      215,
+      234,
+      121,
+      201,
+      222,
+      70,
+      196,
+      115,
+      111,
+      212,
+      117,
+      19,
+      158
+     ],
+     "funder": [
+      203,
+      27,
+      71,
+      92,
+      114,
+      254,
+      158,
+      112,
+      174,
+      102,
+      26,
+      217,
+      63,
+      54,
+      251,
+      241,
+      64,
+      184,
+      163,
+      215,
+      234,
+      121,
+      201,
+      222,
+      70,
+      196,
+      115,
+      111,
+      212,
+      117,
+      19,
+      158
+     ],
+     "shareBps": 0
+    },
+    "b": {
+     "player": [
+      101,
+      24,
+      182,
+      13,
+      1,
+      189,
+      119,
+      205,
+      29,
+      138,
+      138,
+      161,
+      109,
+      70,
+      201,
+      136,
+      124,
+      209,
+      112,
+      2,
+      60,
+      55,
+      214,
+      38,
+      132,
+      168,
+      157,
+      14,
+      39,
+      35,
+      158,
+      76
+     ],
+     "funder": [
+      101,
+      24,
+      182,
+      13,
+      1,
+      189,
+      119,
+      205,
+      29,
+      138,
+      138,
+      161,
+      109,
+      70,
+      201,
+      136,
+      124,
+      209,
+      112,
+      2,
+      60,
+      55,
+      214,
+      38,
+      132,
+      168,
+      157,
+      14,
+      39,
+      35,
+      158,
+      76
+     ],
+     "shareBps": 0
+    },
+    "potLines": [
+     1,
+     1
+    ],
+    "stage": {
+     "settling": {}
+    },
+    "run": {
+     "kind": {
+      "noShow": {}
+     },
+     "receipt": {
+      "id": {
+       "opener": [
+        203,
+        27,
+        71,
+        92,
+        114,
+        254,
+        158,
+        112,
+        174,
+        102,
+        26,
+        217,
+        63,
+        54,
+        251,
+        241,
+        64,
+        184,
+        163,
+        215,
+        234,
+        121,
+        201,
+        222,
+        70,
+        196,
+        115,
+        111,
+        212,
+        117,
+        19,
+        158
+       ],
+       "n": "13"
+      },
+      "kind": {
+       "noShow": {}
+      },
+      "at": "1793107997"
+     },
+     "fees": [
+      "4",
+      "0",
+      "0"
+     ],
+     "phases": [
+      {
+       "cuts": {
+        "0": 0
+       }
+      },
+      {
+       "cuts": {
+        "0": 1
+       }
+      },
+      {
+       "back": {
+        "0": 0
+       }
+      },
+      {
+       "back": {
+        "0": 1
+       }
+      }
+     ],
+     "nPhases": 4,
+     "phaseI": 0,
+     "lineI": 0,
+     "cutLeft": [
+      [
+       "2",
+       "0",
+       "0"
+      ],
+      [
+       "2",
+       "0",
+       "0"
+      ]
+     ],
+     "playerLeft": "0",
+     "chunks": 0,
+     "steps": 0
+    }
+   }
+  },
+  "history": {
+   "id": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP-13",
+   "fees": {
+    "studio": 0,
+    "platform": 4,
+    "leaderboard": 0
+   },
+   "game": "block-puzzle",
+   "kind": 1,
+   "asset": 0,
+   "entry": 100,
+   "loser": null,
+   "sides": [
+    {
+     "funder": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP",
+     "player": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP"
+    },
+    {
+     "funder": "7oe2s5XC6b9gy1ku4n1w4hsPcohwdduUXfNmjLcv3bw9",
+     "player": "7oe2s5XC6b9gy1ku4n1w4hsPcohwdduUXfNmjLcv3bw9"
+    }
+   ],
+   "chunks": 1,
+   "points": null,
+   "scores": null,
+   "season": null,
+   "status": "refunded",
+   "winner": null,
+   "parties": [
+    {
+     "role": "player",
+     "side": 0,
+     "delta": -2,
+     "result": "no-show",
+     "account": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP",
+     "shareBps": null,
+     "backingOther": null
+    },
+    {
+     "role": "player",
+     "side": 1,
+     "delta": -2,
+     "result": "no-show",
+     "account": "7oe2s5XC6b9gy1ku4n1w4hsPcohwdduUXfNmjLcv3bw9",
+     "shareBps": null,
+     "backingOther": null
+    }
+   ],
+   "openedAt": 1793107866000,
+   "challenge": false,
+   "settledAt": 1793108030000,
+   "winnerSide": null
+  }
+ },
+ {
+  "scenario": "refund with a Platform Fee (too few moves)",
+  "key": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP-14",
+  "settling": {
+   "inner": {
+    "id": {
+     "opener": [
+      203,
+      27,
+      71,
+      92,
+      114,
+      254,
+      158,
+      112,
+      174,
+      102,
+      26,
+      217,
+      63,
+      54,
+      251,
+      241,
+      64,
+      184,
+      163,
+      215,
+      234,
+      121,
+      201,
+      222,
+      70,
+      196,
+      115,
+      111,
+      212,
+      117,
+      19,
+      158
+     ],
+     "n": "14"
+    },
+    "meta": {
+     "challenge": false,
+     "asset": 0,
+     "listed": true
+    },
+    "game": [
+     66,
+     252,
+     204,
+     94,
+     191,
+     185,
+     144,
+     147,
+     75,
+     164,
+     208,
+     73,
+     223,
+     102,
+     247,
+     74,
+     128,
+     91,
+     97,
+     170,
+     137,
+     116,
+     64,
+     193,
+     131,
+     225,
+     30,
+     149,
+     223,
+     224,
+     219,
+     26
+    ],
+    "settleAuthority": [
+     93,
+     93,
+     179,
+     180,
+     0,
+     71,
+     112,
+     72,
+     115,
+     40,
+     81,
+     140,
+     199,
+     217,
+     248,
+     102,
+     209,
+     38,
+     4,
+     202,
+     222,
+     54,
+     96,
+     20,
+     105,
+     174,
+     24,
+     45,
+     122,
+     209,
+     140,
+     93
+    ],
+    "deploySlot": "515249807",
+    "terms": {
+     "platformBps": 200,
+     "studioBps": 300,
+     "studioOwner": null,
+     "studioPriority": true
+    },
+    "entry": "100",
+    "openedAt": "1793108040",
+    "deadline": "1793194463",
+    "deadlineAbs": "1793712840",
+    "a": {
+     "player": [
+      203,
+      27,
+      71,
+      92,
+      114,
+      254,
+      158,
+      112,
+      174,
+      102,
+      26,
+      217,
+      63,
+      54,
+      251,
+      241,
+      64,
+      184,
+      163,
+      215,
+      234,
+      121,
+      201,
+      222,
+      70,
+      196,
+      115,
+      111,
+      212,
+      117,
+      19,
+      158
+     ],
+     "funder": [
+      203,
+      27,
+      71,
+      92,
+      114,
+      254,
+      158,
+      112,
+      174,
+      102,
+      26,
+      217,
+      63,
+      54,
+      251,
+      241,
+      64,
+      184,
+      163,
+      215,
+      234,
+      121,
+      201,
+      222,
+      70,
+      196,
+      115,
+      111,
+      212,
+      117,
+      19,
+      158
+     ],
+     "shareBps": 0
+    },
+    "b": {
+     "player": [
+      101,
+      24,
+      182,
+      13,
+      1,
+      189,
+      119,
+      205,
+      29,
+      138,
+      138,
+      161,
+      109,
+      70,
+      201,
+      136,
+      124,
+      209,
+      112,
+      2,
+      60,
+      55,
+      214,
+      38,
+      132,
+      168,
+      157,
+      14,
+      39,
+      35,
+      158,
+      76
+     ],
+     "funder": [
+      101,
+      24,
+      182,
+      13,
+      1,
+      189,
+      119,
+      205,
+      29,
+      138,
+      138,
+      161,
+      109,
+      70,
+      201,
+      136,
+      124,
+      209,
+      112,
+      2,
+      60,
+      55,
+      214,
+      38,
+      132,
+      168,
+      157,
+      14,
+      39,
+      35,
+      158,
+      76
+     ],
+     "shareBps": 0
+    },
+    "potLines": [
+     1,
+     1
+    ],
+    "stage": {
+     "settling": {}
+    },
+    "run": {
+     "kind": {
+      "noShow": {}
+     },
+     "receipt": {
+      "id": {
+       "opener": [
+        203,
+        27,
+        71,
+        92,
+        114,
+        254,
+        158,
+        112,
+        174,
+        102,
+        26,
+        217,
+        63,
+        54,
+        251,
+        241,
+        64,
+        184,
+        163,
+        215,
+        234,
+        121,
+        201,
+        222,
+        70,
+        196,
+        115,
+        111,
+        212,
+        117,
+        19,
+        158
+       ],
+       "n": "14"
+      },
+      "kind": {
+       "noShow": {}
+      },
+      "at": "1793108174"
+     },
+     "fees": [
+      "4",
+      "0",
+      "0"
+     ],
+     "phases": [
+      {
+       "cuts": {
+        "0": 0
+       }
+      },
+      {
+       "cuts": {
+        "0": 1
+       }
+      },
+      {
+       "back": {
+        "0": 0
+       }
+      },
+      {
+       "back": {
+        "0": 1
+       }
+      }
+     ],
+     "nPhases": 4,
+     "phaseI": 0,
+     "lineI": 0,
+     "cutLeft": [
+      [
+       "2",
+       "0",
+       "0"
+      ],
+      [
+       "2",
+       "0",
+       "0"
+      ]
+     ],
+     "playerLeft": "0",
+     "chunks": 0,
+     "steps": 0
+    }
+   }
+  },
+  "history": {
+   "id": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP-14",
+   "fees": {
+    "studio": 0,
+    "platform": 4,
+    "leaderboard": 0
+   },
+   "game": "block-puzzle",
+   "kind": 1,
+   "asset": 0,
+   "entry": 100,
+   "loser": null,
+   "sides": [
+    {
+     "funder": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP",
+     "player": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP"
+    },
+    {
+     "funder": "7oe2s5XC6b9gy1ku4n1w4hsPcohwdduUXfNmjLcv3bw9",
+     "player": "7oe2s5XC6b9gy1ku4n1w4hsPcohwdduUXfNmjLcv3bw9"
+    }
+   ],
+   "chunks": 1,
+   "points": null,
+   "scores": null,
+   "season": null,
+   "status": "refunded",
+   "winner": null,
+   "parties": [
+    {
+     "role": "player",
+     "side": 0,
+     "delta": -2,
+     "result": "no-show",
+     "account": "EfqtWck3fFXhjuUNkMF8YVfQcVw6y8Tpre6dGyLh49hP",
+     "shareBps": null,
+     "backingOther": null
+    },
+    {
+     "role": "player",
+     "side": 1,
+     "delta": -2,
+     "result": "no-show",
+     "account": "7oe2s5XC6b9gy1ku4n1w4hsPcohwdduUXfNmjLcv3bw9",
+     "shareBps": null,
+     "backingOther": null
+    }
+   ],
+   "openedAt": 1793108040000,
+   "challenge": false,
+   "settledAt": 1793108196000,
+   "winnerSide": null
+  }
+ }
+]

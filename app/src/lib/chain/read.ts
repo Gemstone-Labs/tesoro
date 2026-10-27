@@ -241,7 +241,7 @@ export function settledFromRun(m: any, seat: 0 | 1 | null, backing: { seat: 0 | 
     else if (split) delta = split.playerNet;
     else delta = won ? entry - fee : -entry;
   }
-  else if (result !== "win" && mineSeat !== null && !(seat === null || backing)) delta = -Math.floor(fee / 2);
+  else if (result !== "win" && mineSeat !== null && !(seat === null || backing)) delta = Math.floor(fee / 2) === 0 ? 0 : -Math.floor(fee / 2);
   return { status, winner: result === "win" ? winner : null, settled: { fee, delta, points: null } };
 }
 
