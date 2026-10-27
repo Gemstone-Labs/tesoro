@@ -79,9 +79,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
     id: "wallet-first",
     pose: "himExplain",
     title: "Pending is not lost",
-    text: REAL
-      ? "Gemas you win stay Pending until the yield of their Lock lands, then they become redeemable."
-      : "Gemas you win stay Pending until the yield of their Lock lands, then they become redeemable. Yield here is simulated: 1 month = 10 min.",
+    text: "Gemas you win stay Pending until the yield of their Lock lands, then they become redeemable.",
   });
 
   const market = snapshot?.market ?? null;
@@ -189,7 +187,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
     <div className={part === "all" ? "wl" : "wl-part"}>
       {card && <BalanceHero
         label="Gemas"
-        labelInfo={REAL ? undefined : <>Test mode · simulated yield, 1 month = 10 min. 1 Gema = $0.01.</>}
+        labelInfo={REAL ? undefined : <>1 Gema = $0.01.</>}
         figure={ready ? <CountUp value={gemas.total} /> : "—"}
         usdOf={ready ? gemas.total : undefined}
         busy={!ready && !error}

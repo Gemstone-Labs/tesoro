@@ -1,0 +1,55 @@
+{
+ "source": "recorded",
+ "note": "Screens of a real devnet cancel-and-refund, Block Burst Match, 2026-10-27 18:04Z (fix-refund-screen run). The Match account closed and the history had no row yet.",
+ "game": "block-puzzle",
+ "steps": [
+  {
+   "stage": "waiting"
+  },
+  {
+   "stage": "cancelling"
+  },
+  {
+   "stage": "cancelling"
+  },
+  {
+   "stage": "cancelling"
+  },
+  {
+   "stage": "cancelling"
+  },
+  {
+   "stage": "cancelling"
+  },
+  {
+   "stage": "cancelling"
+  },
+  {
+   "stage": "cancelling"
+  },
+  {
+   "stage": "cancelling"
+  },
+  {
+   "stage": "cancelling"
+  },
+  {
+   "stage": "cancelling"
+  },
+  {
+   "stage": "settled"
+  },
+  {
+   "stage": "settled"
+  },
+  {
+   "stage": "settled"
+  },
+  {
+   "stage": "settled"
+  },
+  {
+   "stage": "notfound"
+  }
+ ]
+}

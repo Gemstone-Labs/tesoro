@@ -1,0 +1,64 @@
+{
+ "source": "synthetic",
+ "note": "Built from trading-duel's step(): every read that can fail for a tick proposes an earlier stage.",
+ "game": "trading-duel",
+ "steps": [
+  {
+   "stage": "waiting"
+  },
+  {
+   "stage": "setup",
+   "note": "Finding a table"
+  },
+  {
+   "stage": "setup",
+   "note": "Starting the Match"
+  },
+  {
+   "stage": "setup",
+   "note": "Joining the Match"
+  },
+  {
+   "stage": "setup",
+   "note": "Waiting for your opponent"
+  },
+  {
+   "stage": "live"
+  },
+  {
+   "stage": "live"
+  },
+  {
+   "stage": "setup",
+   "note": "Setting up the Match"
+  },
+  {
+   "stage": "closing",
+   "note": "Saving the result"
+  },
+  {
+   "stage": "setup",
+   "note": "Finding a table"
+  },
+  {
+   "stage": "closing",
+   "note": "Paying out the Pot"
+  },
+  {
+   "stage": "notfound"
+  },
+  {
+   "stage": "setup",
+   "note": "Setting up the Match"
+  },
+  {
+   "stage": "settled"
+  },
+  {
+   "stage": "notfound"
+  },
+  {
+   "stage": "settled"
+  }
+ ]
+}

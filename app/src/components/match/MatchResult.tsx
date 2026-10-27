@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { Button, CheckIcon, CountUp, GemaMark, GemaUsd, MinusIcon, SimulatedYieldLabel, XIcon, type BustName } from "@/components/ui";
+import { Button, CheckIcon, CountUp, GemaMark, GemaUsd, MinusIcon, XIcon, type BustName } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
@@ -192,14 +192,6 @@ export function MatchResult(p: MatchResultProps) {
               <GemaUsd className="mr-usd" value={neutral ? p.entry : Math.abs(delta)} />
             </div>
             <div className="mr-in mr-notes" style={{ "--d": "1400ms" } as Css}>
-              {won && (
-                <>
-                  <Link className="mr-pending" href="/vault">
-                    Pending · redeemable as their yield lands <span aria-hidden="true">→</span>
-                  </Link>
-                  <SimulatedYieldLabel />
-                </>
-              )}
               {backed && role === "player" ? (
                 <p className="mr-copy strong">You never owe anything, win or lose: your Backer&apos;s Gemas funded this entry.</p>
               ) : lost && role === "player" ? (

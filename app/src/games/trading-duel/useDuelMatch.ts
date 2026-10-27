@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getTradingDuel } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
+import { matchProgress } from "@/lib/chain/match-progress";
 import { setupNote } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { ASSETS, DRAW, PHASE, STATUS, assetOfIndex, decodeDuel, type Assignment, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
@@ -124,10 +125,16 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
   const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
   const p = useMemo(() => (signer ? (signer as unknown as PlayerSigner) : null), [signer]);
 
-  const setStage = useCallback((s: Stage, note = "") => {
-    stage.current = s;
-    setView((v) => (v.stage === s && v.note === note ? v : { ...v, stage: s, note }));
-  }, []);
+  // Every stage goes through the tracker: a late or missing read never moves the screen back.
+  const progress = useMemo(() => matchProgress<ChainMatch, Stage>(id), [id]);
+  const setStage = useCallback(
+    (s: Stage, note = "") => {
+      if (progress.stage(s, note).held) return;
+      stage.current = s;
+      setView((v) => (v.stage === s && v.note === note ? v : { ...v, stage: s, note }));
+    },
+    [progress],
+  );
 
   const addSig = useCallback((label: string, sig: string | undefined, layer: "base" | "tee") => {
     if (sig) setView((v) => (v.sigs.some((x) => x.sig === sig) ? v : { ...v, sigs: [...v.sigs, { label, sig, layer }] }));
@@ -195,7 +202,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
     if (!p || !signer || id === null || mk === null) return;
     const td = getTradingDuel();
       const me = BlockPuzzleChain.coreAccount(signer.publicKey);
-    const m = await fetchMatch(id, me);
+    const m = progress.match(await fetchMatch(id, me));
     setView((v) => ({ ...v, match: m, asset: (m && assetOfIndex(m.asset)) || v.asset, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
     if (!m) return setStage("notfound");
     if (m.seat === null) return setStage("spectator");
@@ -300,7 +307,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
       setView((v) => (v.commit?.phase === phase && v.commit.won === mine ? v : { ...v, commit: { phase, won: mine }, error: null }));
     }
     await settle(a, seat, d);
-  }, [p, signer, id, mk, setStage, applyDuel, onSettled, settle]);
+  }, [p, signer, id, mk, progress, setStage, applyDuel, onSettled, settle]);
 
   const tick = useCallback(async () => {
     if (working.current) return;

@@ -7,6 +7,7 @@ import { BlockPuzzleChain, type ChainSigner } from "./chain";
 import { getBurst } from "@/lib/chain/client";
 import { sessionFromTable, type BurstSession } from "@/lib/chain/burst-read";
 import { matchAddressOf } from "@/lib/chain/match-id";
+import { matchProgress } from "@/lib/chain/match-progress";
 import { isCancelling } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
@@ -80,6 +81,15 @@ export interface BurstView {
   reconnecting: boolean;
 }
 
+/** The stage a Player sees for an assigned Match, from the table the rollup holds. */
+export function tableStage(i: { hasTable: boolean; running: boolean; phase: string | null; closed: boolean; began: boolean }): Stage {
+  if (!i.hasTable) return "table";
+  const live = i.phase === "running" || i.phase === "frozen" || i.phase === "grace";
+  if (i.running || (live && i.began)) return "playing";
+  if (i.phase === "getReady" || live) return "getReady";
+  return i.phase === "ended" || i.closed ? "closing" : "setup";
+}
+
 const errText = plainError;
 const now = () => Date.now();
 
@@ -123,6 +133,9 @@ export function useBurstMatch(id: string | null, signer: ChainSigner | null, acc
     reconnecting: false,
   });
   const patch = useCallback((p: Partial<BurstView>) => setView((v) => ({ ...v, ...p })), []);
+  // Every stage goes through the tracker: a late or missing read never moves the screen back.
+  const progress = useMemo(() => matchProgress<ChainMatch, Stage>(id), [id]);
+  const patchStage = useCallback((stage: Stage, p: Partial<BurstView> = {}) => patch({ ...p, stage: progress.stage(stage).stage }), [patch, progress]);
 
   const working = useRef(false);
   const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
@@ -282,20 +295,20 @@ export function useBurstMatch(id: string | null, signer: ChainSigner | null, acc
     const chain = getBurst();
     const me = BlockPuzzleChain.coreAccount(signer.publicKey);
     if (!matchRef.current || now() - matchAt.current > 2_500 || settledSeen.current === false) {
-      matchRef.current = await fetchMatch(id, me);
+      matchRef.current = progress.match(await fetchMatch(id, me));
       matchAt.current = now();
     }
     const m = matchRef.current;
     patch({ match: m, refundable: !!m && m.status === "active" && now() / 1000 > m.deadline });
-    if (!m) return patch({ stage: "notfound" });
-    if (m.seat === null && m.backerSeat === null) return patch({ stage: "spectator" });
+    if (!m) return patchStage("notfound");
+    if (m.seat === null && m.backerSeat === null) return patchStage("spectator");
     if (m.seat === null) {
       // A Backer watches: the result comes from the chain.
       if (m.status === "settled" || m.status === "refunded") return void (await settle(m));
-      return patch({ stage: "backer" });
+      return patchStage("backer");
     }
     const seat = m.seat;
-    if (m.status === "open") return patch({ stage: "waiting", seat });
+    if (m.status === "open") return patchStage("waiting", { seat });
 
     // Active or finished: the table the operator bound this Match to.
     if (!assignRef.current) {
@@ -315,11 +328,11 @@ export function useBurstMatch(id: string | null, signer: ChainSigner | null, acc
         const tb = baseRef.current && tableOf(a, baseRef.current) ? baseRef.current : null;
         patch({ table: tb ?? tableRef.current, reason: log?.reason ?? tb?.reason ?? null, result: sessionFromTable(baseRef.current, m.address, a.epoch) });
       }
-      patch({ stage: "settled", seat, commit: null });
+      patchStage("settled", { seat, commit: null });
       return void (await settle(m));
     }
 
-    if (!a) return patch({ stage: isCancelling(m) ? "cancelling" : "table", seat });
+    if (!a) return patchStage(isCancelling(m) ? "cancelling" : "table", { seat });
 
     // The table: the websocket's copy when it is fresh, else a read.
     let t = tableRef.current && now() - tableAt.current < 1_500 ? tableRef.current : null;
@@ -367,8 +380,8 @@ export function useBurstMatch(id: string | null, signer: ChainSigner | null, acc
     // The stage the Player sees.
     const phase = t ? phaseAt(t, slotNowV) : null;
     const reason = t && t.phase === TABLE_PHASE.closed ? t.reason : null;
-    const stage: Stage = !t ? "table" : s.kind === "run" || (phase && ["running", "frozen", "grace"].includes(phase) && boardRef.current?.began) ? "playing" : phase === "getReady" || phase === "running" || phase === "frozen" || phase === "grace" ? "getReady" : phase === "ended" || t.phase === TABLE_PHASE.closed ? "closing" : "setup";
-    patch(reason === null ? { stage, seat } : { stage, seat, reason });
+    const stage = tableStage({ hasTable: !!t, running: s.kind === "run", phase, closed: !!t && t.phase === TABLE_PHASE.closed, began: !!boardRef.current?.began });
+    patchStage(stage, reason === null ? { seat } : { seat, reason });
     if (stage === "closing" && !closingSince.current) closingSince.current = now();
     if (t && t.phase === TABLE_PHASE.closed && t.dirty && !commitSince.current) commitSince.current = now();
     if (commitSince.current) {
@@ -425,7 +438,7 @@ export function useBurstMatch(id: string | null, signer: ChainSigner | null, acc
       if (/WrongPhase|AlreadyCheckedIn|AlreadyBegan|SeatsOpen|SeedRequestNotDue|NotDirty|AlreadyFinalized|insufficient|Attempt to debit/i.test(String(e))) return;
       if (++failures.current >= 3) throw e;
     }
-  }, [p, signer, id, mk, patch, settle, startRun, addSig]);
+  }, [p, signer, id, mk, patch, patchStage, progress, settle, startRun, addSig]);
 
   const tick = useCallback(async () => {
     if (working.current) return;

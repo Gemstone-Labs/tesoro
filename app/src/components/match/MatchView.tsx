@@ -21,7 +21,6 @@ import { BurstOpponentStrip } from "./BurstOpponentStrip";
 import { MatchResult } from "./MatchResult";
 import { MatchSpectate } from "./MatchSpectate";
 import { MatchStage, MatchStageLoading, StageAction, type StageKind } from "./MatchStage";
-import { Receipts } from "./Receipts";
 
 /** Re-renders every `ms`, so the get-ready count and the check-in clock follow the rollup's slot clock. */
 function useTicker(ms: number, on: boolean): number {
@@ -64,7 +63,6 @@ export function MatchView({ matchId }: { matchId: string }) {
 
   const slot = clock ? slotNow(clock, perf) : 0;
   const strip = stripOf({ table, assigned: !!assignment, slot, seat: seat ?? 0, ownOver: view.ownOver });
-  const sigs = [...view.sigs, ...refundSig];
 
   if (view.run && (stage === "playing" || stage === "closing") && m) {
     return (
@@ -114,7 +112,6 @@ export function MatchView({ matchId }: { matchId: string }) {
       >
         {why && <p className="note">{why}</p>}
         {view.error && <p className="status err" role="alert">{view.error}</p>}
-        <Receipts items={sigs} />
       </MatchResult>
     );
   }
@@ -174,6 +171,7 @@ export function MatchView({ matchId }: { matchId: string }) {
   return (
     <MatchStage
       game="block-puzzle"
+      matchId={matchId}
       kind={kind}
       entry={m.entry}
       pot={m.entry * 2 - matchFee(m)}
@@ -202,8 +200,6 @@ export function MatchView({ matchId }: { matchId: string }) {
           )}
         </>
       }
-    >
-      <Receipts items={sigs} />
-    </MatchStage>
+    />
   );
 }

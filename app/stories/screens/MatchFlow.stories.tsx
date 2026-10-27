@@ -201,7 +201,7 @@ function blockBurstLive(m: ChainMatch, end: ChainMatch): (Step & { match?: Chain
       screen: { burst: { stage: "settled", match: end, seat: end.seat, reason: 1 } },
       remount: true,
       layers: ["solana"],
-      what: "The Match is settled. The result screen shows both scores, the payout and the receipts.",
+      what: "The Match is settled. The result screen shows both scores, the payout.",
       ms: 6000,
     },
   ];
@@ -420,7 +420,7 @@ function holdemJoins(o: { lost?: boolean; backing?: boolean } = {}): Frame[] {
     {
       steps: [
         ...holdemTable(active, "joiner"),
-        { label: o.lost ? "Lost" : o.backing ? "Won (Backed)" : "Won", match: won, screen: hv(won, { stage: "settled" }), layers: ["solana"], what: "Settled. The result screen shows the payout and the receipts from both layers.", ms: 6000 },
+        { label: o.lost ? "Lost" : o.backing ? "Won (Backed)" : "Won", match: won, screen: hv(won, { stage: "settled" }), layers: ["solana"], what: "Settled. The result screen shows the payout.", ms: 6000 },
       ],
     },
   );

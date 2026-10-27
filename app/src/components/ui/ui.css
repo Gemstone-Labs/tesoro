@@ -222,7 +222,6 @@ a.row:hover, button.row:hover { --edge: var(--edge-2); }
 
 .gchip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 5px 7px; background: var(--surface); }
 
-.sim { font-family: var(--f-mono); font-size: var(--fs-11); color: var(--fg-2); letter-spacing: 0.02em; }
 
 /* ——— Balance: a banknote, the card is the money fill (crown rim, facet light bands, pavilion base) ——— */
 .balance {
@@ -250,7 +249,6 @@ a.row:hover, button.row:hover { --edge: var(--edge-2); }
   padding-top: 10px; border-top: 1px solid rgba(3, 32, 26, 0.22);
   font-size: var(--fs-12); font-weight: 700; color: rgba(3, 32, 26, 0.72);
 }
-.balance-foot .sim { color: inherit; font-weight: 500; }
 /* BalanceSplit: one bar to scale (emerald redeemable, hatched pending), each figure under its own end */
 .bsplit { background: var(--surface); padding: 14px 16px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px 12px; }
 .bsplit-bar {

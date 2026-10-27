@@ -1,7 +1,7 @@
 import { fmtGemas, fmtUsd, gemasToUsd } from "@/lib/format";
 import type { Chain } from "@/lib/mock/types";
 import { CountUp } from "./CountUp";
-import { GemaMark, SimulatedYieldLabel } from "./gema";
+import { GemaMark } from "./gema";
 import { ChainGlyph } from "./inputs";
 import { ChainChip, Label, Meter } from "./primitives";
 
@@ -22,7 +22,6 @@ export function BalanceCard({ total, title = "Your Gemas" }: { total: number; ti
       </div>
       <div className="balance-foot">
         <span>Value at issuance</span>
-        <SimulatedYieldLabel />
       </div>
     </section>
   );

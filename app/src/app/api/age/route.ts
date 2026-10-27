@@ -1,6 +1,6 @@
 import { DemoHttpError } from "@/server/request-auth";
 import { handleAge } from "@/server/age/routes";
-import { supabaseAgeStore } from "@/server/age/supabase-store";
+import { ageStore } from "@/server/age/env";
 
 export const runtime = "nodejs";
 
@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
-    return Response.json(await handleAge({ store: supabaseAgeStore }, body, request.headers.get("authorization")));
+    return Response.json(await handleAge({ store: ageStore() }, body, request.headers.get("authorization")));
   } catch (e) {
     if (e instanceof DemoHttpError) return Response.json({ error: e.message, code: e.code }, { status: e.status });
     console.error("age", e);
