@@ -204,3 +204,24 @@ describe("BurstDriver, the result", () => {
     d.stop();
   });
 });
+
+describe("BurstDriver, a page that missed the whole settle run", () => {
+  it("ends on the result from the settlement receipt when the account closed unseen and the history cannot be read", async () => {
+    let state: ChainMatch | null = { ...activeMatch(1), sides: [{}, {}] } as unknown as ChainMatch;
+    let refreshed = 0;
+    const fake = fakeChain(seatedTable());
+    (fake.chain as unknown as { tesoro: unknown }).tesoro = { account: { settlementReceipt: { fetchNullable: async () => ({ receipt: { kind: { win: { winner: 0 } } } }) } } };
+    const signer = { publicKey: joiner, signTransaction: async (t: never) => t, signMessage: async () => new Uint8Array(64) };
+    const d = new BurstDriver({ id: matchKey, signer: signer as never, accountKey: null, getToken: async () => null, chain: fake.chain, fetchMatch: async () => state, onSettled: () => void refreshed++ });
+    d.start();
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(d.view.stage).not.toBe("settled");
+    state = null; // closed while this page was not looking; /api/match has no row (no database)
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(d.view.stage).toBe("settled");
+    expect(d.view.match?.status).toBe("settled");
+    expect(d.view.match?.winner).toBe("opener");
+    expect(refreshed).toBe(1);
+    d.stop();
+  });
+});
