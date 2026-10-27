@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getVanguard } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
-import { NO_TABLE_NOTE } from "@/lib/chain/match-status";
+import { setupNote } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { commitPhase, isCommitPending, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
@@ -236,7 +236,7 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
     // The joiner does the steps either Player may do; the opener steps in if that stalls.
     const late = now() - activeSince.current >= (seat === 1 ? 0 : OPENER_LATE_MS);
     const a = await vg.readAssignment(mk!);
-    if (!a) return setStage("setup", NO_TABLE_NOTE);
+    if (!a) return setStage("setup", setupNote(m));
     if (assignRef.current?.address.toBase58() !== a.address.toBase58()) {
       assignRef.current = a;
       setAssignment(a);

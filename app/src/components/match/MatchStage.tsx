@@ -5,7 +5,7 @@ import { ChartCandlestick, Check, ChevronDown, Clock, Copy, EyeOff, Hourglass, L
 import { Busy, CountUp, GemaMark } from "@/components/ui";
 import { PlayerAvatar } from "@/components/account/Player";
 import { commitCopy, type CommitState } from "@/lib/chain/commit-pending";
-import { NO_TABLE_NOTE, refundByText, tableWaitLine } from "@/lib/chain/match-status";
+import { CANCELLING_NOTE, NO_TABLE_NOTE, refundByText, tableWaitLine } from "@/lib/chain/match-status";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES, type GameId } from "@/lib/mock";
 import "./match-stage.css";
@@ -82,6 +82,7 @@ function stock(m: StageInfo): { kicker: string; title: string; line: string } {
         line: "",
       };
     case "setup":
+      if (m.step === CANCELLING_NOTE) return { kicker: g, title: "Cancelling", line: `Your ${fmtGemas(m.entry)} Gemas are on their way back.` };
       if (m.step === NO_TABLE_NOTE) return { kicker: `${g} · opponent found`, title: "Waiting for a table", line: tableWaitLine(m.deadline, Date.now()) };
       return {
         kicker: `${g} · opponent found`,

@@ -18,6 +18,7 @@ import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
 import { practiceHref } from "@/lib/game-params";
 import { postUrl, winPath, winShareText } from "@/lib/win-card";
+import { refundCopy } from "@/lib/chain/match-status";
 import { MomentOverlay } from "./MomentOverlay";
 import { Odometer, Shards } from "./ResultMotion";
 import "./match.css";
@@ -41,6 +42,8 @@ export interface MatchResultProps {
   /** The opponent of this Match and the Trading Duel asset, when known: enables Rematch (a pre-filled Challenge). */
   opponent?: string | null;
   asset?: number | null;
+  /** This page sent the cancel that ended the Match. */
+  cancelled?: boolean;
   /** Show the win overlay once per key (the Match id); without one it shows on every mount. */
   momentKey?: string;
   /** The Match id: a Player's win can be shared as a card at /win/<id>. */
@@ -204,7 +207,7 @@ export function MatchResult(p: MatchResultProps) {
               ) : outcome === "draw" ? (
                 <p className="mr-copy">Equal scores: both entries were returned.</p>
               ) : outcome === "refunded" ? (
-                <p className="mr-copy">The Match ended without a result and your entry was returned.</p>
+                <p className="mr-copy">{refundCopy({ unjoined: !p.opponent, cancelled: !!p.cancelled })}</p>
               ) : null}
             </div>
           </div>

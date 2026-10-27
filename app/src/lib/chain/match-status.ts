@@ -120,3 +120,25 @@ export function tableWaitLine(deadline: number | undefined, nowMs: number): stri
   if (at * 1000 > nowMs) return `We’re finding you a table. If none opens by ${refundByText(at, nowMs)}, your entry comes back.`;
   return "No table opened in time. Your entry is on its way back.";
 }
+
+/** The setup note of a Match whose refund is under way before anyone joined. */
+export const CANCELLING_NOTE = "Cancelling";
+
+/**
+ * A Match nobody joined that is no longer open: its opener cancelled (or its deadline passed) and the refund is
+ * landing. It has no second Player, so no table is ever coming.
+ */
+export function isCancelling(m: { status: "open" | "active" | "settled" | "refunded"; sides: readonly unknown[] }): boolean {
+  return m.status === "active" && !m.sides[1];
+}
+
+/** The setup note of an Active Match with no table yet: cancelling when nobody joined, else finding a table. */
+export function setupNote(m: { status: "open" | "active" | "settled" | "refunded"; sides: readonly unknown[] }): string {
+  return isCancelling(m) ? CANCELLING_NOTE : NO_TABLE_NOTE;
+}
+
+/** The line on a refunded result when the Game gave no reason of its own. */
+export function refundCopy(o: { unjoined: boolean; cancelled: boolean }): string {
+  if (o.unjoined) return o.cancelled ? "You cancelled before anyone joined. Your entry is back." : "Nobody joined, so your entry is back.";
+  return "The Match ended without a result and your entry was returned.";
+}
