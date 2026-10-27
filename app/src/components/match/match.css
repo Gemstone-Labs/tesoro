@@ -36,9 +36,9 @@
 .mr-actions .btn { min-height: 56px; }
 /* Play again and Add a friend: one row, half each (Play again alone takes the whole row) */
 .mr-pair { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 12px; }
-.mr-pair > .af { display: grid; justify-items: stretch; }
+.mr-pair > .af { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: stretch; min-width: 0; }
 .mr-pair > .af .btn, .mr-pair > .btn { width: 100%; }
-.mr-pair .btn { white-space: nowrap; }
+.mr-pair .btn { white-space: nowrap; padding-inline: 12px; min-width: 0; }
 
 @media (min-width: 1024px) {
   .mr-frame { padding: 56px 48px 48px; }
