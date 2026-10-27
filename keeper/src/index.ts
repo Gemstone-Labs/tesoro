@@ -18,6 +18,7 @@ import { notifyJob } from "./notify.ts";
 import { notifyEventsJob } from "./notify-events.ts";
 import { priceJob, priceJobEnabled } from "./price.ts";
 import { Connection } from "@solana/web3.js";
+import { BLOCK_PUZZLE_PROGRAM_ID } from "../../app/src/games/block-puzzle/chain.ts";
 import { buildRuntime, clusterNow, fetchWithBackoff, newConnection, rateLimit } from "./runtime.ts";
 import { seasonJob } from "./season.ts";
 import { FastLane, nextTurn } from "./lanes.ts";
@@ -91,7 +92,9 @@ async function main() {
     scan: scanMatches,
     clock: (c) => clusterNow(c.conn),
     hotMs: 20_000,
-    jobs: [["tables", (c) => tablesJob(c, [burstAdapter])], ["match", matchHygiene], ["history", historyJob]],
+    quietMs: 5 * 60_000,
+    observe: async (c) => void c.budget.observe(await c.conn.getBalance(c.payer.publicKey)),
+    jobs: [["tables", (c) => tablesJob(c, [burstAdapter])], ["match", (c) => matchHygiene(c, BLOCK_PUZZLE_PROGRAM_ID)], ["history", historyJob]],
   });
   let delay = s.intervalMs;
   let fullAt = Date.now();

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PublicKey } from "@solana/web3.js";
 import { CHECKIN_SLOTS, END_OFFSET_SLOTS, FREEZE_OFFSET_SLOTS, SEED_RETRY_SECS, SEED_SLOTS, SLOTS_PER_SEC, TABLE_PHASE } from "../../app/src/games/block-puzzle/live-chain.ts";
-import { burstStep, burstTableStep, RESET_DELAY_SECS, type BurstFacts, type BurstTableFacts } from "./burst.ts";
+import { blankTable } from "../../app/src/games/block-puzzle/live-fixtures.ts";
+import { burstStep, burstTableFacts, burstTableStep, RESET_DELAY_SECS, type BurstFacts, type BurstTableFacts } from "./burst.ts";
 
 const NOW = 10_000;
 const DEADLINE = NOW + 86_400;
@@ -105,6 +106,13 @@ describe("Block Burst table upkeep", () => {
   it("does nothing on a table in its hidden window, whatever else is due", () => {
     const busy = { tablePhase: TABLE_PHASE.getReady, hiddenWindow: true, matchFrozen: true, recommit: true, dirty: true, doneSlots: [{ index: 2, match: m1, receiptOld: true }] };
     assert.equal(burstTableStep(tbl(busy)).do, "wait");
+  });
+
+  it("treats a slot it could not read as inside the hidden window: a failed read must not open the table to a commit or a void", () => {
+    const t = blankTable({ phase: TABLE_PHASE.getReady, startSlot: 1_000, seatsOpen: true });
+    assert.equal(burstTableFacts(t, 0, () => null, null, 0, null).hiddenWindow, true);
+    assert.equal(burstTableFacts(t, 0, () => null, null, 0, 1_000).hiddenWindow, false);
+    assert.equal(burstTableFacts({ ...t, phase: TABLE_PHASE.idle }, 0, () => null, null, 0, null).hiddenWindow, false);
   });
 
   it("frees a ring slot first, then voids, repeats a lost commit, commits, wipes, resets", () => {

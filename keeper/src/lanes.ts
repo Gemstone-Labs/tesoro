@@ -18,18 +18,29 @@ export function nextTurn(i: { fullAt: number; fastAt: number | null }): Lane {
   return i.fastAt !== null && i.fastAt < i.fullAt ? "fast" : "full";
 }
 
-/** A Block Burst Match that still needs an operator step: joined and not yet closed on tesoro_core (its account is still there). */
-export function burstWork(matches: Pick<SchedMatch, "inner" | "stage">[], burst: PublicKey = BLOCK_PUZZLE_PROGRAM_ID): boolean {
-  return matches.some((m) => m.stage !== "open" && pk(m.inner.game).equals(burst));
+/**
+ * The Block Burst Matches that still need an operator step: joined and not yet closed on tesoro_core (the account is still
+ * there), as `address:stage` lines. A Match changing stage changes the list; the same list for a long time is a stuck Match.
+ */
+export function burstWork(matches: Pick<SchedMatch, "address" | "inner" | "stage">[], burst: PublicKey = BLOCK_PUZZLE_PROGRAM_ID): string[] {
+  return matches
+    .filter((m) => m.stage !== "open" && pk(m.inner.game).equals(burst))
+    .map((m) => `${m.address.toBase58()}:${m.stage}`)
+    .sort();
 }
 
+/** The jobs of a fast turn, and what decides when it is worth running them. */
 export interface FastJobs {
   /** The Matches on tesoro_core: one list read. */
-  scan(ctx: Ctx): Promise<Pick<SchedMatch, "inner" | "stage">[]>;
+  scan(ctx: Ctx): Promise<Pick<SchedMatch, "address" | "inner" | "stage">[]>;
   /** What runs when there is Block Burst work, in order. */
   jobs: [string, (c: Ctx) => Promise<number>][];
   /** After the last Block Burst work, the lane keeps running the jobs this long (the Match history is written after the close). */
   hotMs: number;
+  /** Work that has not changed for this long is stuck, not moving: the full pass handles it, the lane stops running for it. */
+  quietMs: number;
+  /** Called on each turn that runs the jobs (the keeper's spend is observed from the balance). */
+  observe?(ctx: Ctx): Promise<void>;
   /** Cluster time, seconds. */
   clock(ctx: Ctx): Promise<number>;
 }
@@ -37,13 +48,22 @@ export interface FastJobs {
 /** One fast turn. With no Block Burst work (and not just after some) it only reads the Match list. Returns the number of jobs run. */
 export class FastLane {
   private hotUntil = 0;
+  private work = "";
+  private changedAt = 0;
   constructor(private readonly d: FastJobs) {}
 
   async turn(ctx: Ctx, nowMs = Date.now()): Promise<number> {
     ctx.now = await this.d.clock(ctx);
-    if (burstWork(await this.d.scan(ctx))) this.hotUntil = nowMs + this.d.hotMs;
+    const work = burstWork(await this.d.scan(ctx)).join(",");
+    if (work !== this.work) {
+      this.work = work;
+      this.changedAt = nowMs;
+    }
+    if (work && nowMs - this.changedAt < this.d.quietMs) this.hotUntil = nowMs + this.d.hotMs;
     if (nowMs >= this.hotUntil) return 0;
-    for (const [name, job] of this.d.jobs) await runJob(name, job, ctx);
+    await this.d.observe?.(ctx);
+    // Untracked: the alerts count failures per full pass (five in a row), and a lane turn comes every few seconds.
+    for (const [name, job] of this.d.jobs) await runJob(name, job, ctx, undefined, false);
     return this.d.jobs.length;
   }
 }
