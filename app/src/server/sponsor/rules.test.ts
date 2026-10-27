@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BN } from "@coral-xyz/anchor";
-import { SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
+import { SystemProgram, ComputeBudgetProgram, PublicKey } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, growIx, linkEvmBridgeIx, signUpIx, joinMatchIx, key, openMatchIx, playerIx } from "./fixtures";
 import { CORE_ID, ORDER_RENT, RECEIPT_RENT, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
@@ -371,9 +371,10 @@ describe("Block Burst Live (ticket 28)", () => {
   describe("a listed Game's finalize with the relayer as caller (ticket 04: the winner pays no SOL)", () => {
     const FINALIZE = new Uint8Array([171, 61, 218, 56, 127, 115, 12, 217]);
     const k = (pubkey = key(), isSigner = false, isWritable = false) => ({ pubkey, isSigner, isWritable });
-    const fin = (over: Partial<Ix> = {}): Ix => ({
+    const assignmentOf = (match: PublicKey) => PublicKey.findProgramAddressSync([Buffer.from("assign"), match.toBuffer()], game)[0];
+    const fin = (over: Partial<Ix> = {}, match = key()): Ix => ({
       programId: game,
-      keys: [k(relayer, true, true), k(), k(), k(key(), false, true), k()],
+      keys: [k(relayer, true, true), k(assignmentOf(match)), k(), k(match, false, true), k()],
       data: FINALIZE,
       ...over,
     });
@@ -385,11 +386,17 @@ describe("Block Burst Live (ticket 28)", () => {
       expect(plan([f]).obligations).toEqual([f.keys[3].pubkey]);
     });
     it("is refused when the caller is not first, the relayer appears twice, or anyone else signs", () => {
-      refused([fin({ keys: [k(key(), true, true), k(relayer, false, false), k(), k()] })], "bad-signer");
-      refused([fin({ keys: [k(key(), false, true), k(relayer, false, false), k(), k()] })], "relayer-in-accounts");
-      refused([fin({ keys: [k(relayer, true, true), k(relayer), k(), k()] })], "relayer-in-accounts");
-      refused([fin({ keys: [k(relayer, true, true), k(key(), true), k(), k()] })], "bad-signer");
-      refused([fin({ keys: [k(relayer, false, true), k(), k(), k()] })], "bad-flags");
+      const m = key();
+      const withKeys = (...ks: ReturnType<typeof k>[]) => fin({ keys: [...ks.slice(0, 1), k(assignmentOf(m)), k(), k(m), ...ks.slice(1)] }, m);
+      refused([withKeys(k(key(), true, true))], "bad-signer");
+      refused([withKeys(k(relayer, true, true), k(relayer))], "relayer-in-accounts");
+      refused([withKeys(k(relayer, true, true), k(key(), true))], "bad-signer");
+      refused([withKeys(k(relayer, false, true))], "bad-flags");
+    });
+    it("is refused when the Assignment is not the Match's own", () => {
+      const f = fin();
+      refused([{ ...f, keys: [f.keys[0], k(), ...f.keys.slice(2)] }], "bad-accounts");
+      refused([fin({ programId: key() })], "unknown-program");
     });
     it("is refused for other instructions, other Games, extra instructions and pile-ups of accounts", () => {
       refused([fin({ data: new Uint8Array([171, 61, 218, 56, 127, 115, 12, 218]) })], "relayer-in-accounts");

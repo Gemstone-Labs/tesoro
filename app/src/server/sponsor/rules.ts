@@ -432,33 +432,51 @@ function planBridge(ixs: Ix[], relayer: PublicKey): Plan {
   return { kind: "core", names: ["link_evm"], class: "admission", spend: { refundable: 0n, sunk: EVM_LINK_RENT }, cu: 200_000, obligations: [], pair: null, signers: [authority.pubkey], playerSigns: true, funders: [], onboarding: false, invite: false, noGemas: true };
 }
 
-/** Anchor discriminator of a Game's `finalize` (the same in every Game): permissionless, its caller pays the settlement receipt's rent. */
-export const GAME_FINALIZE_DISC = Buffer.from([171, 61, 218, 56, 127, 115, 12, 217]);
-/** Accounts of the largest Game finalize (Block Burst: 15), with room for none beyond. */
-const MAX_FINALIZE_KEYS = 16;
-/** Index of `tesoro_match` in a Game's finalize accounts (caller, assignment, table, tesoro_match). */
-const FINALIZE_MATCH_AT = 3;
+/**
+ * The base-layer Game instructions a Player's page may have the relayer send as `caller` (ticket 04). Every one is
+ * permissionless (anyone may call it), so nobody signs but the relayer; every other Game step runs on the rollup, which
+ * charges no fee. A page sends only `finalize` itself: `refund_untabled` and `close_assignment` are the keeper's (the
+ * latter returns its rent to the operator) and `assign_match` is the operator's, so they are not here; a new row is
+ * `name: { disc, matchAt, maxKeys }` plus its abuse tests. `matchAt` is the index of the tesoro_core Match in the instruction's accounts, `maxKeys` the
+ * largest account list (Block Burst's, with no room for extras). Discriminators are the same in every Game.
+ */
+export const GAME_STEPS = {
+  finalize: { disc: Buffer.from([171, 61, 218, 56, 127, 115, 12, 217]), matchAt: 3, maxKeys: 15 },
+} as const;
+export type GameStep = keyof typeof GAME_STEPS;
+/** Finalize creates the Match's settlement receipt: its rent is the relayer's to get back when the receipt closes. */
+export const GAME_STEP_NAMES = Object.keys(GAME_STEPS) as GameStep[];
+const ASSIGNMENT_AT = 1;
+const assignmentOf = (program: PublicKey, match: PublicKey) => PublicKey.findProgramAddressSync([Buffer.from("assign"), match.toBuffer()], program)[0];
+
+function gameStepOf(ix: Ix): GameStep | null {
+  const data = Buffer.from(ix.data);
+  return GAME_STEP_NAMES.find((n) => data.equals(GAME_STEPS[n].disc)) ?? null;
+}
 
 /**
- * A Game's `finalize` with the relayer as `caller` (ticket 04): a Player with no SOL still settles. Anyone may call finalize,
- * so nobody signs but the relayer; it is the only Game instruction where the relayer is an account. The receipt's rent is
- * the relayer's to get back when the receipt closes, like a sponsored `refund_match`.
+ * A listed Game's permissionless step with the relayer as `caller` (ticket 04): a Player with no SOL still settles or is
+ * refunded. It is the only Game instruction where the relayer is an account, and only as the first one. The Assignment
+ * must be the Match's own (derived under the Game), so the transaction cannot name stray accounts.
  */
-function planGameFinalize(ix: Ix, relayer: PublicKey): Plan {
-  if (ix.keys.length > MAX_FINALIZE_KEYS || ix.keys.length <= FINALIZE_MATCH_AT) throw new RuleError("bad-shape", "That is not a Game finalize.");
+function planGameStep(ix: Ix, name: GameStep, relayer: PublicKey): Plan {
+  const { matchAt, maxKeys } = GAME_STEPS[name];
+  if (ix.keys.length > maxKeys || ix.keys.length <= matchAt) throw new RuleError("bad-shape", `That is not a Game ${name}.`);
   ix.keys.forEach((k, i) => {
     if (i === 0) {
-      if (!k.isSigner || !k.isWritable) throw new RuleError("bad-flags", "finalize: the caller signs and pays.");
-    } else if (k.pubkey.equals(relayer)) throw new RuleError("relayer-in-accounts", "finalize: the relayer may only be the caller.");
-    else if (k.isSigner) throw new RuleError("bad-signer", "finalize: nobody else signs.");
+      if (!k.isSigner || !k.isWritable) throw new RuleError("bad-flags", `${name}: the caller signs and pays.`);
+    } else if (k.pubkey.equals(relayer)) throw new RuleError("relayer-in-accounts", `${name}: the relayer may only be the caller.`);
+    else if (k.isSigner) throw new RuleError("bad-signer", `${name}: nobody else signs.`);
   });
-  return { kind: "game", names: ["finalize"], class: "exit", spend: { refundable: RECEIPT_RENT, sunk: 0n }, cu: 400_000, obligations: [ix.keys[FINALIZE_MATCH_AT].pubkey], pair: null, signers: [], playerSigns: false, funders: [], onboarding: false, invite: false, noGemas: false };
+  if (!ix.keys[ASSIGNMENT_AT].pubkey.equals(assignmentOf(ix.programId, ix.keys[matchAt].pubkey))) throw new RuleError("bad-accounts", `${name}: that Assignment is not this Match's.`);
+  return { kind: "game", names: [name], class: "exit", spend: { refundable: RECEIPT_RENT, sunk: 0n }, cu: 400_000, obligations: [ix.keys[matchAt].pubkey], pair: null, signers: [], playerSigns: false, funders: [], onboarding: false, invite: false, noGemas: false };
 }
 
 function planGame(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
   const program = ixs[0].programId;
   const first = ixs[0];
-  if (ixs.length === 1 && first.keys[0]?.pubkey.equals(relayer) && Buffer.from(first.data).equals(GAME_FINALIZE_DISC)) return planGameFinalize(first, relayer);
+  const step = ixs.length === 1 && first.keys[0]?.pubkey.equals(relayer) ? gameStepOf(first) : null;
+  if (step) return planGameStep(first, step, relayer);
   if (ixs.length > MAX_GAME_IXS) throw new RuleError("bad-shape", "Too many instructions.");
   const signers = new Map<string, PublicKey>();
   for (const ix of ixs) {

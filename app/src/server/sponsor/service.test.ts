@@ -1,4 +1,5 @@
-import { Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
+import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
+import { Connection, Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
@@ -250,19 +251,38 @@ describe("pause and the exit reserve", () => {
 });
 
 describe("a Game's finalize with the relayer as caller (ticket 04)", () => {
+  const matchCoder = new Program(coreIdl as unknown as Idl, new AnchorProvider(new Connection("http://localhost:8899"), {} as never, {})).coder.accounts;
+  const arr = (k: PublicKey) => Array.from(k.toBytes());
+  /** A MatchState (snake_case, through the real coder) with the given Players. */
+  const matchData = async (a: PublicKey, b: PublicKey | null) => {
+    const party = (p: PublicKey) => ({ player: arr(p), funder: arr(p), shareBps: 0 });
+    const inner = {
+      id: { opener: arr(a), n: new BN(5) }, meta: { challenge: false, asset: 0, listed: true }, game: arr(key()), settleAuthority: arr(key()), deploySlot: new BN(1),
+      terms: { platformBps: 200, studioBps: 300, studioOwner: null, studioPriority: true }, entry: new BN(500), openedAt: new BN(1), deadline: new BN(2), deadlineAbs: new BN(3),
+      a: party(a), b: b ? party(b) : null, potLines: [1, 1], stage: { open: {} }, run: null,
+    };
+    return Buffer.from(await matchCoder.encode("matchState", { bump: 255, inner, listed: true, listingEpoch: 0, payer: key(), pots: [key(), key()], room: Array.from({ length: 5 }, () => ({ account: arr(PublicKey.default), left: 0 })) }));
+  };
   const finalizeIx = (s: ReturnType<typeof setup>, matchState: PublicKey) => ({
     programId: s.game,
     keys: [
       { pubkey: s.relayer.publicKey, isSigner: true, isWritable: true },
-      { pubkey: key(), isSigner: false, isWritable: false },
+      { pubkey: PublicKey.findProgramAddressSync([Buffer.from("assign"), matchState.toBuffer()], s.game)[0], isSigner: false, isWritable: false },
       { pubkey: key(), isSigner: false, isWritable: false },
       { pubkey: matchState, isSigner: false, isWritable: true },
     ],
     data: new Uint8Array([171, 61, 218, 56, 127, 115, 12, 217]),
   });
-  it("is built and sent with the relayer as the only signer and the fee payer: the Player's wallet pays nothing", async () => {
+  /** A Match the Player opened, held by the fake chain. */
+  const withMatch = async (over: Parameters<typeof setup>[0] = {}, parties: (p: PublicKey) => [PublicKey, PublicKey | null] = (p) => [p, key()]) => {
     const matchState = key();
-    const s = setup({ existing: [matchState] });
+    const s = setup(over);
+    const [a, b] = parties(s.player.publicKey);
+    s.accounts.set(matchState.toBase58(), { owner: CORE_ID, data: await matchData(a, b) });
+    return { s, matchState };
+  };
+  it("is built and sent with the relayer as the only signer and the fee payer: the Player's wallet pays nothing", async () => {
+    const { s, matchState } = await withMatch();
     const built = await s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]));
     expect(built.class).toBe("exit");
     await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
@@ -272,12 +292,39 @@ describe("a Game's finalize with the relayer as caller (ticket 04)", () => {
     expect(keys[0].equals(s.relayer.publicKey)).toBe(true);
     expect(keys.some((k) => k.equals(s.player.publicKey))).toBe(false);
   });
+  it("is also sent for the Player who joined, not only the opener", async () => {
+    const { s, matchState } = await withMatch({}, (p) => [key(), p]);
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).resolves.toMatchObject({ class: "exit" });
+  });
   it("is refused for a Match that is not there, and for a wallet with no Account", async () => {
     const s = setup();
     await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, key())]))).rejects.toMatchObject({ code: "no-obligation" });
-    const matchState = key();
-    const n = setup({ noAccount: true, existing: [matchState] });
+    const { s: n, matchState } = await withMatch({ noAccount: true });
     await expect(n.sponsor.build(n.player.publicKey, wire([finalizeIx(n, matchState)]))).rejects.toMatchObject({ code: "no-account" });
+  });
+  it("is refused for a Player who is not in the Match, and for a core account that is not a Match", async () => {
+    const { s, matchState } = await withMatch({}, () => [key(), key()]);
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).rejects.toMatchObject({ code: "not-your-match", status: 403 });
+    const own = accountPda(s.player.publicKey);
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, own)]))).rejects.toMatchObject({ code: "not-your-match" });
+  });
+  it("is sent at most a few times per Match, so a page cannot repeat it", async () => {
+    const { s, matchState } = await withMatch();
+    for (let i = 0; i < DEFAULT_LIMITS.gameStepsPerMatch; i++) await s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]));
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).rejects.toMatchObject({ code: "match-limit", status: 429 });
+  });
+  it("is capped across all Players per day", async () => {
+    const { s, matchState } = await withMatch({ limits: { rentExitsPerDay: 1 } });
+    await s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]));
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).rejects.toMatchObject({ code: "sponsor-empty" });
+  });
+  it("never spends what the exit holds promise: it needs the receipt's rent free of holds", async () => {
+    const { s, matchState } = await withMatch({ balance: 1_000_000n });
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).rejects.toMatchObject({ code: "sponsor-empty" });
+  });
+  it("is refused when the Player's own failures have used up their exits", async () => {
+    const { s, matchState } = await withMatch({ limits: { exitFailuresPerDay: 0 } });
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).rejects.toMatchObject({ code: "too-many-failures" });
   });
 });
 

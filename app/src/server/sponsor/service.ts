@@ -17,14 +17,14 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import nacl from "tweetnacl";
-import { BN, BorshInstructionCoder, type Idl } from "@coral-xyz/anchor";
+import { BN, BorshAccountsCoder, BorshInstructionCoder, type Idl } from "@coral-xyz/anchor";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { gameRecordPda } from "@/lib/chain/game-record";
 import { GAME_IDS } from "@/lib/chain/games";
 import { HIDDEN_GAMES } from "@/lib/games";
 import type { GameId } from "@/lib/mock/types";
 import { DemoHttpError } from "../request-auth";
-import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
+import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, rentExitFits, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
 import { CORE_ID, PRIORITY_MICROLAMPORTS, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
 import { EXIT_ATA_WINDOW_MS, verifyExitSetup } from "./exit-setup";
 import type { UsageStore } from "./store";
@@ -73,6 +73,17 @@ export interface SponsorDeps {
 
 /** The Player's basket PDA, whose totals say whether the Account holds Gemas. */
 const pda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, CORE_ID)[0];
+const matchCoder = new BorshAccountsCoder(coreIdl as unknown as Idl);
+/** The Player and funder keys of a Match's two parties (empty when the data is not a MatchState). */
+function partiesOf(data: Uint8Array): PublicKey[] {
+  try {
+    const m = matchCoder.decode("MatchState", Buffer.from(data)) as { inner: { a: { player: number[]; funder: number[] }; b: { player: number[]; funder: number[] } | null } };
+    return [m.inner.a, m.inner.b].flatMap((p) => (p ? [new PublicKey(p.player), new PublicKey(p.funder)] : []));
+  } catch {
+    return [];
+  }
+}
+const isPlayerKey = (k: PublicKey, player: PublicKey) => k.equals(player) || k.equals(accountPda(player));
 export const accountPda = (authority: PublicKey) => pda([Buffer.from("account"), authority.toBuffer()]);
 export const basketPda = (account: PublicKey) => pda([Buffer.from("basket"), account.toBuffer()]);
 const BASKET_OWN_AT = 8 + 40;
@@ -213,6 +224,18 @@ export class Sponsor {
     }
   }
 
+  /**
+   * A Game step the relayer sends for a Player (ticket 04): the Player must be one of the Match's two Players (or their
+   * funder), the Match may be sent each step a few times only, and the day's rent-fronting steps are capped overall.
+   */
+  private async admitGameStep(plan: Plan, player: PublicKey, now: number) {
+    const match = plan.obligations[0];
+    const a = await this.d.chain.account(match);
+    if (!a || !partiesOf(a.data).some((k) => isPlayerKey(k, player))) throw new DemoHttpError(403, "not-your-match", "Free transactions are for the Players of a Match.");
+    if (!(await this.d.store.take(`gstep:${match.toBase58()}:${plan.names[0]}`, 1, this.d.limits.gameStepsPerMatch, 10 * 60_000, now))) throw new DemoHttpError(429, "match-limit", "That step was already sent for this Match.");
+    if (!(await this.d.store.take("gstep:day", 1, this.d.limits.rentExitsPerDay, DAY, now))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are used up for today. Pay the network fee from your own SOL to finish this.");
+  }
+
   /** Exits and continues are for Accounts: a throwaway key cannot make the relayer pay fees. */
   private async requireAccount(authority: PublicKey) {
     const a = await this.d.chain.account(accountPda(authority));
@@ -285,7 +308,10 @@ export class Sponsor {
       await this.requireAccount(player);
       await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
-      if (!exitFits(balance, fee + plan.spend.sunk + plan.spend.refundable)) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
+      const gameStep = plan.kind === "game" && plan.obligations.length > 0;
+      if (gameStep) await this.admitGameStep(plan, player, now);
+      const cost = fee + plan.spend.sunk + plan.spend.refundable;
+      if (!(gameStep ? rentExitFits(balance, cost) : exitFits(balance, cost))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
     }
 
     const instructions = [
