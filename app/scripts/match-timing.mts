@@ -86,9 +86,13 @@ async function oneMatch(i: number): Promise<Row> {
   console.log(`[${i}] opened ${key}`);
 
   // Both drivers run from now, as the two Match pages do.
+  const finalizeSigs: string[] = [];
   const steps: { stage: string; at: number; read?: string }[][] = [[], []];
   const drivers = [opener, joiner].map((signer, n) => {
     const d = new BurstDriver({
+      onTx: (label, layer, sig) => {
+        if (layer === "base" && label === "finalize") finalizeSigs.push(sig);
+      },
       onProposed: (stage) => {
         const mine = steps[n];
         if (mine.at(-1)?.stage !== stage) mine.push({ stage, at: Math.round((Date.now() - T0) / 100) / 10 });
@@ -172,6 +176,14 @@ async function oneMatch(i: number): Promise<Row> {
     }
   }
   for (const d of drivers) d.stop();
+  // Who paid each finalize the pages sent (the relayer when sponsored, else the Player's wallet; a lost race still lands once).
+  const payers: string[] = [];
+  for (const sig of finalizeSigs) {
+    const tx = await base.getTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: "confirmed" }).catch(() => null);
+    const keys = tx?.transaction.message.getAccountKeys();
+    payers.push(keys ? `${keys.get(0)!.toBase58().slice(0, 4)} fee ${tx?.meta?.fee ?? "?"} lamports` : "unreadable");
+  }
+  row.finalizePayers = payers.join("; ") || "none sent by a page (keeper did it)";
   row.t0 = T0;
   if (process.env.TIMELINES) {
     // The stages each page's reads proposed, one per change: the shape of src/lib/chain/match-sequences/*.json (ticket 01's replay test).
