@@ -14,7 +14,6 @@
 .page-sub { color: var(--fg); font-size: clamp(14px, 1.2vw, 18px); margin-top: 6px; }
 .page-head-side { text-align: right; color: var(--fg-2); font-size: var(--fs-15); display: grid; gap: 2px; }
 .page-head-side b { color: var(--fg); font-size: var(--fs-20); font-weight: 700; }
-.page-head-side .sim { font-size: var(--fs-12); }
 @media (max-width: 639px) { .page-head-side { text-align: left; } }
 
 /* ——— Facet panel: dark emerald ground cut as a step cut by <FacetCrown> (money surfaces only) ——— */

@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Busy, ChainGlyph, CheckIcon, ClockIcon, GemaAmount, GemaMark, Sheet, SimulatedYieldLabel } from "@/components/ui";
-import { Receipts, type Receipt } from "@/components/match/Receipts";
+import { Button, Busy, ChainGlyph, CheckIcon, ClockIcon, GemaAmount, GemaMark, Sheet } from "@/components/ui";
 import { gemasToAsset } from "@/lib/advance";
 import { redeemableOf, useAccount } from "@/lib/account";
 import { INSTANT_UNAVAILABLE_TITLE } from "@/lib/chain/fees";
@@ -44,7 +43,7 @@ export type RedeemPayout = {
 /** What a line's Gemas are worth in dollars after its Yield Fee. */
 const afterYieldFee = (r: RedeemPayout, gemas = r.gemas) => (gemasToUsd(gemas) * (10_000 - (r.yieldFeeBps ?? DEFAULT_YIELD_FEE_BPS))) / 10_000;
 
-export type RedeemDone = { gemas: number; later: boolean; receipts: Receipt[]; instant?: boolean; cancelled?: boolean };
+export type RedeemDone = { gemas: number; later: boolean; instant?: boolean; cancelled?: boolean };
 
 /** One holding "Redeem now" would sell, after the treasury's limit: `amount` of `token` is paid now. */
 export type InstantRow = RedeemPayout;
@@ -109,7 +108,6 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
         {done.instant && <p className="meta">{BRAND.name} buys these when it can, all or part. Gemas it has not bought by the deadline come back to you, and you can take them back any time before.</p>}
         {done.later && <p className="meta">Your ETH and HYPE payouts arrive on their own chain in a few minutes. The Vault shows their progress.</p>}
         <Button block onClick={onClose}>Done</Button>
-        <Receipts items={done.receipts} />
       </div>
     );
   }
@@ -265,7 +263,6 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
           ))}
         </div>
       )}
-      <SimulatedYieldLabel />
       {error && <p className="status err" role="alert">{error}</p>}
       {busy ? (
         <Busy>{busyNote ?? "Paying out your Gemas…"}</Busy>
@@ -299,7 +296,7 @@ export function ReturnExchange({
   fmtDebt?: (n: number) => string;
   busy: boolean;
   error: string | null;
-  done: { gemas: number; cleared: boolean; receipts: Receipt[] } | null;
+  done: { gemas: number; cleared: boolean } | null;
   canSign: boolean;
   onReturn: () => void;
   onClose: () => void;
@@ -311,7 +308,6 @@ export function ReturnExchange({
           <CheckIcon /> Returned {fmtGemas(done.gemas)} Gemas · {done.cleared ? "Paid back, your Lock unlocks" : "Left to pay back is lower"}
         </div>
         <Button block onClick={onClose}>Done</Button>
-        <Receipts items={done.receipts} />
       </div>
     );
   }
@@ -370,7 +366,6 @@ export function ReturnExchange({
           <span className="mx-when">{after === 0 ? <><CheckIcon /> Paid back: your Lock unlocks</> : "Your Lock stays locked until it is paid back"}</span>
         </div>
       </div>
-      <SimulatedYieldLabel />
       {error && <p className="status err" role="alert">{error}</p>}
       {busy ? (
         <Busy>Returning your Gemas…</Busy>
@@ -408,7 +403,7 @@ export function RedeemSheet({ open, onClose }: { open: boolean; onClose: () => v
         error={null}
         done={done}
         canSign
-        onRedeem={(gemas) => setDone({ gemas: Math.min(gemas, total), later: payouts.some((p) => p.later), receipts: [] })}
+        onRedeem={(gemas) => setDone({ gemas: Math.min(gemas, total), later: payouts.some((p) => p.later) })}
         onClose={() => { setDone(null); onClose(); }}
       />
     </Sheet>
@@ -427,7 +422,7 @@ function ReturnForm({ position, onClose }: { position: Position; onClose: () => 
   const { holdings } = useAccount();
   const held = holdings.find((h) => h.own && h.source.positionId === position.id)?.gemas ?? 0;
   const [amount, setAmount] = useState(Math.min(held, 1000));
-  const [done, setDone] = useState<{ gemas: number; cleared: boolean; receipts: Receipt[] } | null>(null);
+  const [done, setDone] = useState<{ gemas: number; cleared: boolean } | null>(null);
   const toDebt = (g: number) => gemasToAsset(g, position.asset);
   return (
     <ReturnExchange
@@ -442,7 +437,7 @@ function ReturnForm({ position, onClose }: { position: Position; onClose: () => 
       error={null}
       done={done}
       canSign
-      onReturn={() => setDone({ gemas: amount, cleared: toDebt(amount) >= position.debt, receipts: [] })}
+      onReturn={() => setDone({ gemas: amount, cleared: toDebt(amount) >= position.debt })}
       onClose={onClose}
     />
   );
@@ -475,7 +470,7 @@ function ReturnOwnForm({ position, onClose, onReturned }: { position: ChainPosit
   const [amount, setAmount] = useState(() => Number(row?.max ?? 0n));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ gemas: number; cleared: boolean; receipts: Receipt[] } | null>(null);
+  const [done, setDone] = useState<{ gemas: number; cleared: boolean } | null>(null);
   const value = Math.min(amount, Number(row?.max ?? 0n));
 
   const submit = async () => {
@@ -483,8 +478,8 @@ function ReturnOwnForm({ position, onClose, onReturned }: { position: ChainPosit
     setBusy(true);
     setError(null);
     try {
-      const sig = await returnOwn(auth.signer, auth.getAccessToken, row.holding, BigInt(value));
-      setDone({ gemas: value, cleared: value >= Number(row.holding.sourceDebt), receipts: [{ label: "Gemas returned", sig }] });
+      await returnOwn(auth.signer, auth.getAccessToken, row.holding, BigInt(value));
+      setDone({ gemas: value, cleared: value >= Number(row.holding.sourceDebt) });
       await Promise.all([refresh(), onReturned?.()]);
     } catch (e) {
       setError(friendlyError(e));

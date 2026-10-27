@@ -144,7 +144,6 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
       )}
 
       {stale && <p className="note">Couldn’t refresh; showing what was last loaded.</p>}
-      <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
 
       <ChallengeSheet open={challenge} onClose={() => setChallenge(false)} player={address} name={who.label} />
     </div>
