@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SETTLE_GRACE_SECS, TABLE_WAIT_SECS, delayedMatches, matchStanding, settleBy, tableRefundBy, tableWaitLine } from "./match-status";
+import { CANCELLING_NOTE, NO_TABLE_NOTE, SETTLE_GRACE_SECS, TABLE_WAIT_SECS, delayedMatches, isCancelling, matchStanding, refundCopy, settleBy, setupNote, tableRefundBy, tableWaitLine } from "./match-status";
 
 const T = 1_000_000;
 const DAY = 24 * 3600;
@@ -115,5 +115,30 @@ describe("the wait for a table (ticket 35)", () => {
 
   it("falls back to the refund deadline when the Match already has a table", () => {
     expect(tableWaitLine(T + DAY, T * 1000)).toMatch(/your entry comes back by /);
+  });
+});
+
+describe("Matches nobody joined", () => {
+  const alone = { status: "active" as const, sides: [{}, null] as const };
+  const paired = { status: "active" as const, sides: [{}, {}] as const };
+
+  it("a cancelled Queue Match (past open, no second Player) is cancelling, never waiting for a table", () => {
+    expect(isCancelling(alone)).toBe(true);
+    expect(setupNote(alone)).toBe(CANCELLING_NOTE);
+  });
+
+  it("only a Match with two Players can wait for a table", () => {
+    expect(isCancelling(paired)).toBe(false);
+    expect(setupNote(paired)).toBe(NO_TABLE_NOTE);
+  });
+
+  it("an open Match is not cancelling", () => {
+    expect(isCancelling({ status: "open", sides: [{}, null] })).toBe(false);
+  });
+
+  it("names the real reason a nobody-joined Match was refunded", () => {
+    expect(refundCopy({ unjoined: true, cancelled: true })).toBe("You cancelled before anyone joined. Your entry is back.");
+    expect(refundCopy({ unjoined: true, cancelled: false })).toBe("Nobody joined, so your entry is back.");
+    expect(refundCopy({ unjoined: false, cancelled: false })).toBe("The Match ended without a result and your entry was returned.");
   });
 });

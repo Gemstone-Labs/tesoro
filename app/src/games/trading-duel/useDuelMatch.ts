@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getTradingDuel } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
-import { NO_TABLE_NOTE } from "@/lib/chain/match-status";
+import { setupNote } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { ASSETS, DRAW, PHASE, STATUS, assetOfIndex, decodeDuel, type Assignment, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
 import { addSighting, canFinalize, clockOffsetMs, dropPending, settlePending, type ClockSighting, type PendingPicks } from "./matchView";
@@ -217,7 +217,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
     const late = now() - activeSince.current >= (seat === 1 ? 0 : 12_000);
     const a = await td.readAssignment(mk!);
     if (!a) {
-      setStage("setup", NO_TABLE_NOTE);
+      setStage("setup", setupNote(m));
       return;
     }
     assignRef.current = a;

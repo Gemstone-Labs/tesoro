@@ -5,6 +5,7 @@ import { BlockPuzzleChain, type ChainSigner } from "./chain";
 import { getBurst } from "@/lib/chain/client";
 import { sessionFromTable, type BurstSession } from "@/lib/chain/burst-read";
 import { matchAddressOf } from "@/lib/chain/match-id";
+import { isCancelling } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
@@ -38,6 +39,7 @@ export type Stage =
   | "waiting"
   /** Joined: no table has been chosen yet. */
   | "table"
+  | "cancelling"
   /** At the table: seating, check-in, the Seed. */
   | "setup"
   /** The Seed is in; the run starts on the clock. */
@@ -309,7 +311,7 @@ export function useBurstMatch(id: string | null, signer: ChainSigner | null, acc
       return void (await settle(m));
     }
 
-    if (!a) return patch({ stage: "table", seat });
+    if (!a) return patch({ stage: isCancelling(m) ? "cancelling" : "table", seat });
 
     // The table: the websocket's copy when it is fresh, else a read.
     let t = tableRef.current && now() - tableAt.current < 1_500 ? tableRef.current : null;

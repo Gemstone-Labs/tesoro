@@ -12,7 +12,7 @@ import { useAccount } from "@/lib/account";
 import { backerDelta, matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { parseMatchKey } from "@/lib/chain/match-id";
 import { refundMatch } from "@/lib/chain/match-flow";
-import { delayedOf } from "@/lib/chain/match-status";
+import { CANCELLING_NOTE, delayedOf } from "@/lib/chain/match-status";
 import { useQueuePresence } from "@/lib/chain/usePresence";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { plainError } from "@/lib/errors";
@@ -105,6 +105,7 @@ export function MatchView({ matchId }: { matchId: string }) {
         role={asBacker ? "backer" : "player"}
         backed={!!m.backing}
         scores={scores}
+        cancelled={refundSig.length > 0}
         momentKey={m.id.toString()}
         matchId={m.id.toString()}
         playAgainHref={`/play/queue?entry=${m.entry}`}
@@ -141,7 +142,11 @@ export function MatchView({ matchId }: { matchId: string }) {
   let words: { kicker?: string; title?: string; line?: string } | undefined;
   let step: string | undefined;
   if (stage === "backer") kind = "backer-watch";
-  else if (stage === "waiting") {
+  else if (stage === "cancelling" || (stage === "waiting" && busy === "refund")) {
+    // Nobody joined and the refund is on its way (or being sent): never the table or opponent screens.
+    kind = "setup";
+    step = CANCELLING_NOTE;
+  } else if (stage === "waiting") {
     kind = "waiting";
     words = m.challenge ? undefined : { line: `${QUEUE_SIT_LINE} ${QUEUE_STAY_LINE}` };
   } else if (stage === "table") {
