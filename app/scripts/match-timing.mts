@@ -8,7 +8,7 @@
  * Key files are read from ~/.config/tesoro/ and never printed. Reads of closed Matches go to the live app's history route.
  * Does not start a keeper: the one keeper on the VPS does the Games' operator steps. Writes one JSON row per Match.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Keypair } from "@solana/web3.js";
@@ -37,7 +37,7 @@ const [countArg, entryArg, outArg, testersArg] = process.argv.slice(2);
 const COUNT = Number(countArg ?? 1);
 const ENTRY = Number(entryArg ?? 100);
 const OUT = outArg ?? "timings.json";
-/** win: the opener's bot plays on, the joiner makes two moves; draw: both make three; none: nobody plays (the Match refunds). */
+/** win: the opener's bot plays on, the joiner makes two moves; draw: both make eight (equal scores); short: both make three (too few moves, the Match is unplayed and pays a Fee); none: nobody plays (the Match refunds). */
 const PLAY = process.env.PLAY ?? "win";
 /** Where the settle run's state and the history page of each Match are saved (to compare the result shown at finalize with what was paid). */
 const FIXTURES = process.env.FIXTURES;
@@ -112,7 +112,7 @@ async function oneMatch(i: number): Promise<Row> {
       if (v.run && !botStarted) {
         botStarted = true;
         mark(`${tag}_run`);
-        const limit = PLAY === "none" ? 0 : PLAY === "draw" ? 3 : n === 0 ? 120 : 2;
+        const limit = PLAY === "none" ? 0 : PLAY === "draw" ? 8 : PLAY === "short" ? 3 : n === 0 ? 120 : 2;
         if (limit > 0) playBot(v.run, limit);
       }
     });
@@ -144,7 +144,11 @@ async function oneMatch(i: number): Promise<Row> {
       if (stage === "active") sawActive = true;
       if (FIXTURES && (stage === "settling" || stage === "refunding") && !captured) {
         captured = true;
-        writeFileSync(join(FIXTURES, `settling-${key}.json`), JSON.stringify(tm, (_k, v) => (v && typeof v === "object" && typeof v.toString === "function" && v.constructor?.name === "BN" ? v.toString() : v), 1));
+        writeFileSync(join(FIXTURES, `settling-${key}.json`), JSON.stringify(tm, function (this: Record<string, { words?: unknown; toString(): string }>, k: string, v: unknown) {
+          // BN has a toJSON (hex); the decimal string is what a reader of this file needs.
+          const own = this[k];
+          return own && Array.isArray(own.words) ? own.toString() : v;
+        }, 1));
       }
       if (sawActive && stage !== "active") mark("core_" + stage);
     } else if (sawActive) {
@@ -194,10 +198,15 @@ async function oneMatch(i: number): Promise<Row> {
     payers.push(keys ? `${keys.get(0)!.toBase58().slice(0, 4)} fee ${tx?.meta?.fee ?? "?"} lamports` : "unreadable");
   }
   if (FIXTURES) {
-    for (let k = 0; k < 40 && !existsSync(join(FIXTURES, `history-${key}.json`)); k++) {
+    // The history page once the Match is closed and the history job has written its final row (not the settling view).
+    for (let k = 0; k < 60; k++) {
       const res = await fetch(`/api/match/${encodeURIComponent(key)}`).catch(() => null);
-      if (res?.ok) writeFileSync(join(FIXTURES, `history-${key}.json`), JSON.stringify(await res.json(), null, 1));
-      else await sleep(5_000);
+      const page = res?.ok ? ((await res.json()) as { status?: string }) : null;
+      if (page && page.status !== "settling" && page.status !== "refunding" && page.status !== "seen") {
+        writeFileSync(join(FIXTURES, `history-${key}.json`), JSON.stringify(page, null, 1));
+        break;
+      }
+      await sleep(5_000);
     }
   }
   row.finalizePayers = payers.join("; ") || "none sent by a page (keeper did it)";

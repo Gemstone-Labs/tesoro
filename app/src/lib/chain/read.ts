@@ -231,6 +231,7 @@ export function settledFromRun(m: any, seat: 0 | 1 | null, backing: { seat: 0 | 
   const winner = winnerOfRun(run);
   const result = kind === "win" ? "win" : kind === "draw" ? "draw" : "refund";
   const status = result === "refund" ? "refunded" : "settled";
+  // A Match too short to count is refunded less a Platform Fee, split between the two sides; a draw is the same rule.
   const mineSeat = seat ?? backerSeat;
   let delta = 0;
   if (result === "win" && mineSeat !== null) {
@@ -240,7 +241,8 @@ export function settledFromRun(m: any, seat: 0 | 1 | null, backing: { seat: 0 | 
     else if (split) delta = split.playerNet;
     else delta = won ? entry - fee : -entry;
   }
-  return { status, winner: result === "win" ? winner : null, settled: { fee: result === "refund" ? 0 : fee, delta, points: null } };
+  else if (result !== "win" && mineSeat !== null && !(seat === null || backing)) delta = -Math.floor(fee / 2);
+  return { status, winner: result === "win" ? winner : null, settled: { fee, delta, points: null } };
 }
 
 /** Anchor's decoded `MatchState` (camelCase) plus the finished game account that names the winner, as a ChainMatch. */
