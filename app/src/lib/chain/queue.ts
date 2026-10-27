@@ -151,3 +151,80 @@ export async function queueEntry(d: QueueDeps): Promise<Entered> {
   }
   return { id, via: "opened" };
 }
+
+/** What `mergeQueue` needs beyond a Queue entry: the way out of the Player's own waiting Match. */
+export interface MergeDeps extends QueueDeps {
+  /** Cancels the Player's own unjoined Match (opener refund). The Match then refunds in steps: it stays unfinished until they are done. */
+  refund(id: string): Promise<unknown>;
+  /** Called once a move is certain, just before the refund (the page then shows that it is moving). */
+  onMove?(): void;
+  /** Waits `ms` (tests make it instant). */
+  pause?(ms: number): Promise<void>;
+}
+
+export type Merged = { moved: false } | { moved: true; entered: Entered };
+
+/**
+ * Queue order, oldest first: when the Match opened, then the Match key. Every page sorts the same way, so for any two
+ * waiting openers exactly one is younger.
+ */
+export const isOlder = (a: Pick<ChainMatch, "openedAt" | "id">, b: Pick<ChainMatch, "openedAt" | "id">): boolean => a.openedAt < b.openedAt || (a.openedAt === b.openedAt && a.id < b.id);
+
+/** A Match that is the Player's own, unjoined, unbacked Queue Match: the only kind that may move. */
+export const canMove = (m: ChainMatch): boolean => m.status === "open" && m.seat === 0 && !m.challenge && m.opponent === null && m.backing === null && m.backerSeat === null;
+
+/** The oldest open Match older than `mine` that this Player may take a seat in, else null. */
+async function olderCandidate(d: QueueDeps, mine: ChainMatch): Promise<string | null> {
+  const now = Math.floor((d.now?.() ?? Date.now()) / 1000);
+  const ids = (await d.listCandidates()).filter((id) => id !== mine.id).slice(0, READS_PER_ROUND);
+  for (const id of ids) {
+    const m = await d.readMatch(id);
+    if (m && isOlder(m, mine) && joinable(d, m, now)) return id;
+  }
+  return null;
+}
+
+/** How long a refunded Player keeps trying to join: the entry comes back in keeper steps and a just-opened Match may not be joinable for a few seconds. */
+const REFUND_WAIT_MS = 90_000;
+const REFUND_POLL_MS = 2_000;
+
+/**
+ * Two Players who enter the Queue within a moment of each other can each open a Match, because neither list shows the
+ * other's yet. While a Player waits alone, this looks for an OLDER open Match to take instead. Only the younger of two
+ * waiting Matches ever moves, so the two can never move at once and the older one stays put.
+ *
+ * Order: refund first, then join (through `queueEntry`), never join then refund. `refund_match` closes the Match to joiners
+ * at once (it is Refunding, the entry comes back in keeper steps), so from that instant the Player cannot be seated in
+ * two Matches, whereas joining first would leave a window in which a third Player can take the abandoned seat. The join
+ * does not wait for the entry to come back: it draws on the Player's other Gemas, and when that fails it retries for up to
+ * 90 s (the entry returns, a just-opened Match becomes joinable). A refund that fails because someone just joined leaves the Player where they are.
+ */
+export async function mergeQueue(d: MergeDeps, mine: ChainMatch): Promise<Merged> {
+  if (!canMove(mine) || mine.game !== d.game || mine.entry !== d.entry) return { moved: false };
+  if ((await olderCandidate(d, mine)) === null) return { moved: false };
+
+  d.onMove?.();
+  d.onStep?.("Found an older Match…");
+  try {
+    await d.refund(mine.id);
+  } catch (e) {
+    const r = await classifySend(d, e, mine.id, (m) => m.status !== "open");
+    if (r === "unknown") throw e instanceof TxUnconfirmedError ? new QueueUnconfirmedError(mine.id, e) : e;
+    const now = await d.readMatch(mine.id).catch(() => null);
+    // Failed and still waiting (or paired meanwhile): stay. Only a refund that took effect moves on.
+    if (r === "failed" && (now === null || now.status === "open" || now.opponent !== null)) return { moved: false };
+  }
+  // The Match being refunded still counts as unfinished until it closes: it is not the Match this Player is in.
+  const next: QueueDeps = { ...d, unfinished: async () => (await d.unfinished()).filter((m) => m.id !== mine.id) };
+  const pause = d.pause ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let waited = 0; ; waited += REFUND_POLL_MS) {
+    try {
+      return { moved: true, entered: await queueEntry(next) };
+    } catch (e) {
+      // An unsettled send must not be repeated; anything else (too few free Gemas while the entry is on its way back, a Match
+      // not joinable yet) is tried again for a while. The entry is already refunded, so there is nothing else to undo.
+      if (e instanceof QueueUnconfirmedError || waited >= REFUND_WAIT_MS) throw e;
+      await pause(REFUND_POLL_MS);
+    }
+  }
+}
