@@ -108,6 +108,7 @@ export function MatchView({ matchId }: { matchId: string }) {
         matchId={m.id.toString()}
         playAgainHref={`/play/queue?entry=${m.entry}`}
         opponent={m.opponent}
+        points={m.settled?.points}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
         {why && <p className="note">{why}</p>}
