@@ -139,11 +139,11 @@ export interface BackedSplit {
 }
 
 /** The Backing settlement rule (tesoro_core `win_payouts`): Backer's entry back first, then the Offer's split of the surplus. */
-export function backedSplit(a: { entry: number; platformBps: number; studioBps: number; leaderboardBps?: number; shareBps: number; won: boolean }): BackedSplit {
+export function backedSplit(a: { entry: number; platformBps: number; studioBps: number; leaderboardBps?: number; shareBps: number; won: boolean; /** The Fees the chain took (its settle run), in Gemas: used instead of working them out from the bps. */ feesTaken?: number }): BackedSplit {
   if (!a.won) {
     return { fees: 0, surplus: 0, playerShare: 0, backerEntryBack: 0, backerSurplus: 0, backerNet: -a.entry, playerNet: 0 };
   }
-  const fees = Number(feeGemas(BigInt(a.entry), a.platformBps, a.studioBps, a.leaderboardBps));
+  const fees = a.feesTaken ?? Number(feeGemas(BigInt(a.entry), a.platformBps, a.studioBps, a.leaderboardBps));
   const surplus = a.entry - fees;
   const playerShare = Number((BigInt(surplus) * BigInt(a.shareBps)) / 10_000n);
   const backerSurplus = surplus - playerShare;

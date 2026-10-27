@@ -165,6 +165,9 @@ export class BurstDriver {
   private lock: SubmitterLock | null = null;
   private beginning = false;
   private settledSeen = false;
+  /** The Match account is closed (its last read said the chunks were still paying). */
+  private gone = false;
+  private paidOut = false;
   private closingSince = 0;
   private commitSince = 0;
   private failures = 0;
@@ -335,14 +338,19 @@ export class BurstDriver {
     }
   }
 
+  /** The result is fixed: the run is over. `onSettled` (the page refreshes the Player's Gemas) waits for the last chunk. */
   private async settle(m: ChainMatch) {
-    if (this.settledSeen) return;
-    this.settledSeen = true;
-    this.submitter?.stop();
-    this.submitter = null;
-    this.lock?.release();
-    setCommitPending(m.id, false);
-    this.d.onSettled?.();
+    if (!this.settledSeen) {
+      this.settledSeen = true;
+      this.submitter?.stop();
+      this.submitter = null;
+      this.lock?.release();
+      setCommitPending(m.id, false);
+    }
+    if ((m.running === null || this.gone) && !this.paidOut) {
+      this.paidOut = true;
+      this.d.onSettled?.();
+    }
   }
 
   private async step() {
@@ -351,8 +359,14 @@ export class BurstDriver {
     const mk = this.mk;
     if (mk === null) return;
     const me = BlockPuzzleChain.coreAccount(signer.publicKey);
-    if (!this.matchRef || now() - this.matchAt > 2_500 || this.settledSeen === false) {
-      this.matchRef = this.progress.match(await this.d.fetchMatch(id, me));
+    // Read the Match every tick until it is fully done: the result is shown as soon as the chain has fixed it, and the Match
+    // is read again until the last chunk has paid it out and its account is closed (then the history has the final numbers).
+    const paying = !!this.matchRef && this.matchRef.running !== null && !this.gone;
+    if (!this.matchRef || now() - this.matchAt > 2_500 || this.settledSeen === false || paying) {
+      const fresh = await this.d.fetchMatch(id, me);
+      // Nothing to read once the account is closed and the history has no row yet: the last read stands, and the Match is done.
+      if (fresh === null && this.matchRef?.running) this.gone = true;
+      this.matchRef = this.progress.match(fresh);
       this.matchAt = now();
     }
     const m = this.matchRef;

@@ -8,7 +8,7 @@
  * Key files are read from ~/.config/tesoro/ and never printed. Reads of closed Matches go to the live app's history route.
  * Does not start a keeper: the one keeper on the VPS does the Games' operator steps. Writes one JSON row per Match.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Keypair } from "@solana/web3.js";
@@ -37,6 +37,10 @@ const [countArg, entryArg, outArg, testersArg] = process.argv.slice(2);
 const COUNT = Number(countArg ?? 1);
 const ENTRY = Number(entryArg ?? 100);
 const OUT = outArg ?? "timings.json";
+/** win: the opener's bot plays on, the joiner makes two moves; draw: both make three; none: nobody plays (the Match refunds). */
+const PLAY = process.env.PLAY ?? "win";
+/** Where the settle run's state and the history page of each Match are saved (to compare the result shown at finalize with what was paid). */
+const FIXTURES = process.env.FIXTURES;
 const testers = (JSON.parse(readFileSync(join(homedir(), ".config/tesoro", testersArg ?? "block-puzzle-testers.json"), "utf8")) as number[][]).map((k) => Keypair.fromSecretKey(Uint8Array.from(k)));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const noToken = async () => null;
@@ -108,7 +112,8 @@ async function oneMatch(i: number): Promise<Row> {
       if (v.run && !botStarted) {
         botStarted = true;
         mark(`${tag}_run`);
-        playBot(v.run, n === 0 ? 120 : 2);
+        const limit = PLAY === "none" ? 0 : PLAY === "draw" ? 3 : n === 0 ? 120 : 2;
+        if (limit > 0) playBot(v.run, limit);
       }
     });
     return d;
@@ -129,6 +134,7 @@ async function oneMatch(i: number): Promise<Row> {
   let a: Awaited<ReturnType<typeof obs.readAssignment>> = null;
   let startSlot = 0;
   let sawActive = false;
+  let captured = false;
   for (let guard = 0; guard < 2_000; guard++) {
     await sleep(400);
     const tm = await obs.readTesoroMatch(mk).catch(() => undefined);
@@ -136,6 +142,10 @@ async function oneMatch(i: number): Promise<Row> {
     if (tm) {
       const stage = Object.keys(tm.inner.stage)[0];
       if (stage === "active") sawActive = true;
+      if (FIXTURES && (stage === "settling" || stage === "refunding") && !captured) {
+        captured = true;
+        writeFileSync(join(FIXTURES, `settling-${key}.json`), JSON.stringify(tm, (_k, v) => (v && typeof v === "object" && typeof v.toString === "function" && v.constructor?.name === "BN" ? v.toString() : v), 1));
+      }
       if (sawActive && stage !== "active") mark("core_" + stage);
     } else if (sawActive) {
       mark("core_closed");
@@ -182,6 +192,13 @@ async function oneMatch(i: number): Promise<Row> {
     const tx = await base.getTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: "confirmed" }).catch(() => null);
     const keys = tx?.transaction.message.getAccountKeys();
     payers.push(keys ? `${keys.get(0)!.toBase58().slice(0, 4)} fee ${tx?.meta?.fee ?? "?"} lamports` : "unreadable");
+  }
+  if (FIXTURES) {
+    for (let k = 0; k < 40 && !existsSync(join(FIXTURES, `history-${key}.json`)); k++) {
+      const res = await fetch(`/api/match/${encodeURIComponent(key)}`).catch(() => null);
+      if (res?.ok) writeFileSync(join(FIXTURES, `history-${key}.json`), JSON.stringify(await res.json(), null, 1));
+      else await sleep(5_000);
+    }
   }
   row.finalizePayers = payers.join("; ") || "none sent by a page (keeper did it)";
   row.t0 = T0;
