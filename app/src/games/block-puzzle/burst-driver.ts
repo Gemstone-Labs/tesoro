@@ -20,7 +20,7 @@ import {
   type Table,
 } from "./live-chain";
 import { mergeClock, runRemainingMs, sampleClock, slotNow, type SlotClock } from "./live-clock";
-import { MIN_GAP_MS, nextStep, type Step } from "./live-driver";
+import { MIN_GAP_MS, OPENER_EXTRA_MS, STEP_IN_MS, nextStep, type Step } from "./live-driver";
 import { resumeState } from "./resume";
 import { BurstSubmitter } from "./burst-submitter";
 import { acquireSubmitterLock, type SubmitterLock } from "./submitter-lock";
@@ -140,6 +140,9 @@ export class BurstDriver {
   private readonly progress;
 
   private working = false;
+  /** A push or a deadline arrived while a tick was running: run one more as soon as it ends. */
+  private again = false;
+  private wakes = new Set<ReturnType<typeof setTimeout>>();
   private assign: Assignment | null = null;
   private tableRef: Table | null = null;
   private tableAt = 0;
@@ -224,6 +227,8 @@ export class BurstDriver {
     this.stopped = true;
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
+    for (const w of this.wakes) clearTimeout(w);
+    this.wakes.clear();
     this.stopFeed?.();
     this.stopFeed = null;
     this.d.chain.onTx = undefined;
@@ -261,6 +266,8 @@ export class BurstDriver {
           this.tableRef = t;
           this.tableAt = now();
           this.set((v) => ({ ...v, table: t, reconnecting: false }));
+          // The rollup just wrote the table: act on it now rather than at the next tick.
+          void this.tick();
         },
         () => this.set((v) => (v.reconnecting ? v : { ...v, reconnecting: true })),
       )
@@ -395,7 +402,11 @@ export class BurstDriver {
 
     // How long the table has been in this state, as this page sees it.
     const key = stateKey(t, a);
-    if (this.keyRef.key !== key) this.keyRef = { key, since: now() };
+    if (this.keyRef.key !== key) {
+      this.keyRef = { key, since: now() };
+      // The opener's turn for a step anyone may do comes this long after the table settles; no tick is due then.
+      this.wakeIn(STEP_IN_MS + OPENER_EXTRA_MS + 50);
+    }
     const stalledMs = now() - this.keyRef.since;
 
     // Own Board: needed to begin, and to resume after a reload.
@@ -478,9 +489,21 @@ export class BurstDriver {
     }
   }
 
-  /** One pass of the driver; the screen and the script call it every second. */
+  private wakeIn(ms: number) {
+    const w = setTimeout(() => {
+      this.wakes.delete(w);
+      void this.tick();
+    }, ms);
+    this.wakes.add(w);
+  }
+
+  /** One pass of the driver; the screen and the script call it every second, and the rollup's pushes call it too. */
   async tick() {
-    if (this.working || this.stopped) return;
+    if (this.stopped) return;
+    if (this.working) {
+      this.again = true;
+      return;
+    }
     this.working = true;
     try {
       await this.step();
@@ -489,6 +512,10 @@ export class BurstDriver {
       this.patch({ error: errText(e) });
     } finally {
       this.working = false;
+      if (this.again && !this.stopped) {
+        this.again = false;
+        void this.tick();
+      }
     }
   }
 }
