@@ -14,7 +14,7 @@ import { readEntryStores, type BackingRef } from "./entry";
 import { entryError } from "./entry-errors";
 import type { StagedEntry } from "./ticket";
 import { matchKeyOf } from "./match-id";
-import { queueEntry, type Entered, type QueueDeps } from "./queue";
+import { mergeQueue, queueEntry, type Entered, type Merged, type QueueDeps } from "./queue";
 import { fetchAccountState, fetchMatch, listLiveMatchIds, listQueueMatchIds, type AccountSnapshot, type ChainMatch } from "./read";
 import { filterByLease, freshLeases } from "./presence";
 import { BRAND } from "../brand";
@@ -139,6 +139,18 @@ export function queueDeps(signer: ChainSigner, me: PublicKey, game: GameId, entr
   };
 }
 
+/** The Queue entry for one Account: how it joins, opens and (for the merge) refunds. Never backed. */
+function plainQueueDeps(signer: ChainSigner, me: PublicKey, getToken: GetToken, game: GameId, entry: number, asset: 0 | 1 | 2, onStep?: (s: string) => void): QueueDeps & { refund(id: string): Promise<unknown> } {
+  const common = { signer, getToken, game, entry, onStep };
+  return {
+    ...queueDeps(signer, me, game, entry, asset, me),
+    join: (key) => joinEntry({ ...common, key }),
+    open: () => openEntry({ ...common, challenge: false, asset: matchAsset(game, asset) }),
+    refund: (id) => refundMatch(signer, id, getToken),
+    onStep,
+  };
+}
+
 /** Queue: join the oldest open Match at this entry from another Account, else open one. */
 export async function enterQueue(
   signer: ChainSigner,
@@ -162,6 +174,15 @@ export async function enterQueue(
     canRetry,
     onStep,
   });
+}
+
+/**
+ * The Player's own waiting Queue Match, if an older open Match at the same entry has appeared: refunds this one and joins the
+ * older (see `mergeQueue`). `{ moved: false }` leaves everything as it was. Throws only when a send's fate is unknown.
+ */
+export async function mergeIntoOlderMatch(signer: ChainSigner, getToken: GetToken, mine: ChainMatch, onStep?: (s: string) => void): Promise<Merged> {
+  const snap = await fetchAccountState(signer.publicKey, { fresh: true });
+  return mergeQueue(plainQueueDeps(signer, snap.accountKey, getToken, mine.game, mine.entry, mine.asset as 0 | 1 | 2, onStep), mine);
 }
 
 /** Challenge: open a Match only reachable through its link. Resolves with the Match key. */

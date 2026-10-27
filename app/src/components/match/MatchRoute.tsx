@@ -14,6 +14,8 @@ import { BRAND } from "@/lib/brand";
 import { MatchStageLoading } from "./MatchStage";
 import { Arena } from "@/games/fx";
 import { MatchView } from "./MatchView";
+import { useQueueMerge } from "@/lib/chain/useQueueMerge";
+import Link from "next/link";
 
 type RouteGame = GameId | "unknown";
 
@@ -21,6 +23,7 @@ type RouteGame = GameId | "unknown";
 export function MatchRoute({ matchId }: { matchId: string }) {
   const [game, setGame] = useState<RouteGame | null>(null);
   const { snapshot } = useAccount();
+  const merge = useQueueMerge(matchId);
 
   useEffect(() => {
     let live = true;
@@ -39,6 +42,15 @@ export function MatchRoute({ matchId }: { matchId: string }) {
       live = false;
     };
   }, [matchId]);
+
+  // Moving into an older Match: the refund of this one must not flash up as its own result.
+  if (merge.phase === "moving") return <MatchStageLoading game={game && game !== "unknown" ? game : undefined} me={snapshot?.accountKey.toBase58() ?? null} step="Found an opponent in an older Match, moving you there" />;
+  if (merge.phase === "failed")
+    return (
+      <p className="status err" role="alert">
+        {merge.error} Check Continue in the Lobby, or <Link href="/play">enter the Queue again</Link>.
+      </p>
+    );
 
   switch (game) {
     case "holdem":

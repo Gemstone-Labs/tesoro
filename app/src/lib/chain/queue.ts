@@ -151,3 +151,57 @@ export async function queueEntry(d: QueueDeps): Promise<Entered> {
   }
   return { id, via: "opened" };
 }
+
+/** What `mergeQueue` needs beyond a Queue entry: the way out of the Player's own waiting Match. */
+export interface MergeDeps extends QueueDeps {
+  /** Cancels the Player's own unjoined Match and returns the entry (opener refund). */
+  refund(id: string): Promise<unknown>;
+}
+
+export type Merged = { moved: false } | { moved: true; entered: Entered };
+
+/**
+ * Queue order, oldest first: when the Match opened, then the Match key. Every page sorts the same way, so for any two
+ * waiting openers exactly one is younger.
+ */
+export const isOlder = (a: Pick<ChainMatch, "openedAt" | "id">, b: Pick<ChainMatch, "openedAt" | "id">): boolean => a.openedAt < b.openedAt || (a.openedAt === b.openedAt && a.id < b.id);
+
+/** A Match that is the Player's own, unjoined, unbacked Queue Match: the only kind that may move. */
+export const canMove = (m: ChainMatch): boolean => m.status === "open" && m.seat === 0 && !m.challenge && m.opponent === null && m.backing === null && m.backerSeat === null;
+
+/** The oldest open Match older than `mine` that this Player may take a seat in, else null. */
+async function olderCandidate(d: QueueDeps, mine: ChainMatch): Promise<string | null> {
+  const now = Math.floor((d.now?.() ?? Date.now()) / 1000);
+  const ids = (await d.listCandidates()).filter((id) => id !== mine.id).slice(0, READS_PER_ROUND);
+  for (const id of ids) {
+    const m = await d.readMatch(id);
+    if (m && isOlder(m, mine) && joinable(d, m, now)) return id;
+  }
+  return null;
+}
+
+/**
+ * Two Players who enter the Queue within a moment of each other can each open a Match, because neither list shows the
+ * other's yet. While a Player waits alone, this looks for an OLDER open Match to take instead. Only the younger of two
+ * waiting Matches ever moves, so the two can never move at once and the older one stays put.
+ *
+ * The order is refund, then join (through `queueEntry`), never join then refund: the Player is never seated twice and
+ * never needs two entries of Gemas, and if the join fails after the refund the entry is already back and `queueEntry`
+ * joins another Match or opens a new one. A refund that fails because someone just joined leaves the Player where they are.
+ */
+export async function mergeQueue(d: MergeDeps, mine: ChainMatch): Promise<Merged> {
+  if (!canMove(mine) || mine.game !== d.game || mine.entry !== d.entry) return { moved: false };
+  if ((await olderCandidate(d, mine)) === null) return { moved: false };
+
+  d.onStep?.("Found an older Match…");
+  try {
+    await d.refund(mine.id);
+  } catch (e) {
+    const r = await classifySend(d, e, mine.id, (m) => m.status !== "open");
+    if (r === "unknown") throw e instanceof TxUnconfirmedError ? new QueueUnconfirmedError(mine.id, e) : e;
+    const now = await d.readMatch(mine.id).catch(() => null);
+    // Failed and still waiting (or paired meanwhile): stay. Only a refund that took effect moves on.
+    if (r === "failed" && now?.status !== "refunded") return { moved: false };
+  }
+  return { moved: true, entered: await queueEntry(d) };
+}
