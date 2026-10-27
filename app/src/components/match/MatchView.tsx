@@ -171,6 +171,7 @@ export function MatchView({ matchId }: { matchId: string }) {
   return (
     <MatchStage
       game="block-puzzle"
+      matchId={matchId}
       kind={kind}
       entry={m.entry}
       pot={m.entry * 2 - matchFee(m)}

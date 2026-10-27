@@ -77,6 +77,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
     return (
       <MatchStage
         game="holdem"
+        matchId={matchId}
         kind={cancelSent ? "setup" : kind}
         entry={m.entry}
         pot={m.entry * 2 - matchFee(m)}

@@ -1,0 +1,44 @@
+{
+ "source": "recorded",
+ "note": "Real devnet Block Burst Match, two dev wallets through this app, 2026-10-27 (ticket 01 run). Proposed stages as useBurstMatch derived them from its reads, one per change, with seconds since the page opened. Nobody played, so the Match refunded: closing 44 s, a failed table read proposed 'table' (Waiting for a table) at +203 s, the Match settled as refunded at +214 s, and the closed Match read null (not found) at +223 s. The local server has no match-history store, so the closed Match stayed unreadable from +223 s on (13 more null reads, folded into one step); on production the history row appears some seconds later.",
+ "game": "block-puzzle",
+ "steps": [
+  {
+   "stage": "waiting",
+   "at": 0.0
+  },
+  {
+   "stage": "table",
+   "at": 18.3
+  },
+  {
+   "stage": "setup",
+   "at": 31.9
+  },
+  {
+   "stage": "getReady",
+   "at": 55.2
+  },
+  {
+   "stage": "playing",
+   "at": 67.0
+  },
+  {
+   "stage": "closing",
+   "at": 158.0
+  },
+  {
+   "stage": "table",
+   "at": 203.3
+  },
+  {
+   "stage": "settled",
+   "at": 214.1
+  },
+  {
+   "stage": "notfound",
+   "at": 223.4,
+   "read": "Match account closed, history has no row yet (Match read returns null)"
+  }
+ ]
+}
