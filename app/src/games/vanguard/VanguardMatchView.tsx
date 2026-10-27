@@ -9,7 +9,6 @@ import { refundMatch } from "@/lib/chain/match-flow";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
-import { Receipts } from "@/components/match/Receipts";
 import { CANCELLING_NOTE, delayedOf } from "@/lib/chain/match-status";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { MatchStage, MatchStageLoading, StageAction, delayedCopy } from "@/components/match/MatchStage";
@@ -62,8 +61,6 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
       >
         {battle && seat !== null && <EndWhy battle={battle} seat={seat} />}
         {view.error && <p className="status err" role="alert">{view.error}</p>}
-        <Receipts items={view.sigs} className="vg-sigs" />
-        <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
       </MatchResult>
     );
   }
@@ -97,8 +94,6 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
         }
       >
         {late && <Notice title={delayedCopy(late).title} body={delayedCopy(late).line} />}
-        <Receipts items={view.sigs} className="vg-sigs" />
-        <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
       </MatchStage>
     );
   }
@@ -125,8 +120,6 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
             </Button>
           )}
           {view.error && <p className="status err" role="alert">{view.error}</p>}
-          <Receipts items={view.sigs} className="vg-sigs" />
-          <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
         </VanguardTable>
       )}
     </div>

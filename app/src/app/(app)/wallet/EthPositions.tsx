@@ -355,8 +355,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       note={
         <>
           You sign once to link your wallet, then {native ? `stake your ${unit} with ${vault.symbol === "kHYPE" ? "Kinetiq" : "Lido"} and open in one step` : "approve and open"} on {net.label}. Once your Lock reaches {BRAND.name}, in about 2 to 5
-          minutes, your Advance is taken while this page or your Vault is open. The Unlock Estimate is an estimate, not a promise.{" "}
-          <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span>
+          minutes, your Advance is taken while this page or your Vault is open. The Unlock Estimate is an estimate, not a promise.
         </>
       }
       buttonLabel={a.busy ? "Working…" : <GemasLabel action="Get Gemas" gemas={gemas} />}
@@ -550,7 +549,6 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
           scan={op.kind === "open" || op.kind === "yield" ? op.hash : op.sendSig}
           solana={op.kind === "redeem" || op.kind === "instant" || op.kind === "unlock" ? op.hash : undefined}
         />
-        <span className="sim">Simulated · {opWords(op.vault).symbol} yield runs 1 month = {ETH_SIM_MONTH_MIN} min. Test mode.</span>
       </div>
     </Card>
   );

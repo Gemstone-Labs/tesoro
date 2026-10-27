@@ -183,7 +183,6 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
       {data.last && <Last last={data.last} me={me} now={now ?? data.now} />}
 
       {stale && <p className="note">Couldn’t refresh; showing what was last loaded.</p>}
-      <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
     </>
   );
 }

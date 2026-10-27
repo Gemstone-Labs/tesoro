@@ -207,9 +207,7 @@
 /* the picked size (Chips are not Gemas: neutral, not emerald) */
 .hd-preset[aria-pressed=true], .hd-preset[aria-pressed=true]:hover { background: #eef0e9; color: #0a0d0f; }
 
-.hd-sigs summary { cursor: pointer; }
-.hd-sigs { gap: 6px; }
-.hd-sigs, .hd-note { width: 100%; max-width: 1100px; margin-inline: auto; }
+.hd-note { width: 100%; max-width: 1100px; margin-inline: auto; }
 
 /* Below 1024px the action bar stays pinned at the bottom, the raise presets always on show in one row above the three
    buttons (no label: the + says it). Full screen covers the nav, so the bar sits on the window edge there. */

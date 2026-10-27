@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, CheckIcon, GemaAmount, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS, EXTEND_ADVANCE_ENABLED } from "@/lib/advance";
@@ -365,7 +365,6 @@ function SimOpenForm({ market, loading, onDone }: { market: NativeMarket | null;
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
       }
-      note={<span className="sim">Simulated yield · 1 month = {SIM_MONTH_MIN} min</span>}
       buttonLabel={
         a.busy ? `${step}…` : tooMuch ? "Not enough test SOL" : shares === 0n ? "Enter an amount" : market && !priceOk ? "Waiting for the SOL price" : <GemasLabel action="Get Gemas" gemas={gemas} />
       }
@@ -662,7 +661,6 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<RedeemDone | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const sigs = useRef<string[]>([]);
   const rows = nativeRedeemables(snapshot?.holdings ?? []);
   const ethRows = ethRedeemables(snapshot?.holdings ?? []);
   const ethWaiting = ethYieldWaiting(snapshot?.holdings ?? []);
@@ -715,8 +713,8 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
       const parts = allocate(fresh.map((p) => ({ gemas: Number(p.gemas) })), pick).map(BigInt);
       const chosen = fresh.map((p, i) => ({ ...p, gemas: parts[i] })).filter((p) => p.gemas > 0n);
       if (chosen.length === 0) throw new Error("Pick how many Gemas to offer.");
-      for (const p of chosen) sigs.current.push(await requestInstantRedeem(signer, auth.getAccessToken, p.holding, p.gemas));
-      setDone({ gemas: chosen.reduce((sum, p) => sum + Number(p.gemas), 0), later: chosen.some((p) => !p.holding.native), instant: true, receipts: sigs.current.map((sig) => ({ label: "Offered for sale", sig })) });
+      for (const p of chosen) await requestInstantRedeem(signer, auth.getAccessToken, p.holding, p.gemas);
+      setDone({ gemas: chosen.reduce((sum, p) => sum + Number(p.gemas), 0), later: chosen.some((p) => !p.holding.native), instant: true });
       await Promise.all([refresh(), reloadOrders()]);
     } catch (e) {
       setError(friendlyError(e));
@@ -733,8 +731,8 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     setBusy(true);
     setError(null);
     try {
-      const sig = await cancelInstantRedeem(auth.signer, auth.getAccessToken, order);
-      setDone({ gemas: Number(order.line.amount), later: false, cancelled: true, receipts: [{ label: "Taken back", sig }] });
+      await cancelInstantRedeem(auth.signer, auth.getAccessToken, order);
+      setDone({ gemas: Number(order.line.amount), later: false, cancelled: true });
       await Promise.all([refresh(), reloadOrders()]);
     } catch (e) {
       setError(friendlyError(e));
@@ -755,7 +753,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     try {
       for (const h of rows) {
         const part = parts.get(h.key) ?? 0;
-        if (part > 0) sigs.current.push(await redeemNative(auth.signer, auth.getAccessToken, h, BigInt(part)));
+        if (part > 0) await redeemNative(auth.signer, auth.getAccessToken, h, BigInt(part));
       }
       let ethGemas = 0;
       let ethCount = 0;
@@ -771,7 +769,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
         await refresh();
         throw new Error(NOTHING_REDEEMABLE_YET);
       }
-      setDone({ gemas: rows.reduce((s, h) => s + (parts.get(h.key) ?? 0), 0) + ethGemas || gemas, later: ethCount > 0, receipts: sigs.current.map((sig) => ({ label: "Redeemed", sig })) });
+      setDone({ gemas: rows.reduce((s, h) => s + (parts.get(h.key) ?? 0), 0) + ethGemas || gemas, later: ethCount > 0 });
       await refresh();
     } catch (e) {
       setError(friendlyError(e));
