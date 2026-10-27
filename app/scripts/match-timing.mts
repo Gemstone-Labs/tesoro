@@ -86,8 +86,13 @@ async function oneMatch(i: number): Promise<Row> {
   console.log(`[${i}] opened ${key}`);
 
   // Both drivers run from now, as the two Match pages do.
+  const steps: { stage: string; at: number; read?: string }[][] = [[], []];
   const drivers = [opener, joiner].map((signer, n) => {
-    const d = new BurstDriver({ id: key, signer: signer as never, accountKey: BlockPuzzleChain.coreAccount(signer.publicKey).toBase58(), getToken: noToken, chain: newChain(), fetchMatch });
+    const d = new BurstDriver({
+      onProposed: (stage) => {
+        const mine = steps[n];
+        if (mine.at(-1)?.stage !== stage) mine.push({ stage, at: Math.round((Date.now() - T0) / 100) / 10 });
+      }, id: key, signer: signer as never, accountKey: BlockPuzzleChain.coreAccount(signer.publicKey).toBase58(), getToken: noToken, chain: newChain(), fetchMatch });
     let last = "";
     let botStarted = false;
     d.subscribe((v) => {
@@ -168,6 +173,16 @@ async function oneMatch(i: number): Promise<Row> {
   }
   for (const d of drivers) d.stop();
   row.t0 = T0;
+  if (process.env.TIMELINES) {
+    // The stages each page's reads proposed, one per change: the shape of src/lib/chain/match-sequences/*.json (ticket 01's replay test).
+    const winner = drivers[0].view.result?.result ?? "unknown";
+    steps.forEach((s, n) =>
+      writeFileSync(
+        join(process.env.TIMELINES!, `won-${key.slice(0, 4)}-${key.split("-").pop()}-${n === 0 ? "A" : "B"}.json`),
+        JSON.stringify({ source: "recorded", note: `Real devnet Block Burst Match ${key}, played by a bot (A plays, B makes two moves), page ${n === 0 ? "A (the opener)" : "B (the joiner)"}, result ${winner}. Proposed stages as BurstDriver derived them from its reads, one per change, seconds since the opener's page opened.`, game: "block-puzzle", steps: s }, null, 1),
+      ),
+    );
+  }
   return row;
 }
 

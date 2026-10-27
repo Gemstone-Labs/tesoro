@@ -131,6 +131,8 @@ export interface BurstDriverDeps {
   onSettled?(): void;
   /** Every send, for the page's receipts and the timing script. */
   onTx?(label: string, layer: "base" | "tee", sig: string): void;
+  /** Every stage the reads proposed, before the tracker holds back one that would go backwards (the timing script records these). */
+  onProposed?(stage: Stage, note: string | undefined): void;
 }
 
 /**
@@ -206,6 +208,7 @@ export class BurstDriver {
   }
 
   private patchStage(stage: Stage, p: Partial<BurstView> = {}) {
+    this.d.onProposed?.(stage, p.note);
     this.patch({ ...p, stage: this.progress.stage(stage).stage });
   }
 
