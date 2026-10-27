@@ -3,7 +3,8 @@ import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { linkEvmIx } from "@/lib/chain/eth";
-import { CORE_ID, type Ix } from "./rules";
+import { CORE_ID, GAME_STEPS, type Ix } from "./rules";
+import { matchIndexOf, stepKeyCount, stepSlots, type StepName } from "./game-steps";
 
 const provider = new AnchorProvider(
   new Connection("http://127.0.0.1:9", "confirmed"),
@@ -161,3 +162,15 @@ export function linkEvmBridgeIx(authority: PublicKey, payer: PublicKey, evm = "0
   const ix = linkEvmIx(authority, evm, ("0x" + "11".repeat(65)) as `0x${string}`, payer);
   return { programId: ix.programId, keys: ix.keys, data: ix.data };
 }
+
+/** A valid Game step (finalize, refund_untabled, close_assignment) with `relayer` as caller, built from the Game's IDL layout. */
+export function gameStepIx(program: PublicKey, step: StepName, match: PublicKey, relayer: PublicKey): Ix {
+  const slots = stepSlots(program, step, matchIndexOf(program, step), keysFor(program, step, match), relayer)!;
+  return {
+    programId: program,
+    keys: slots.map(({ slot, expect }) => ({ pubkey: expect ?? key(), isSigner: slot.signer, isWritable: slot.writable })),
+    data: GAME_STEPS[step].disc,
+  };
+}
+const keysFor = (program: PublicKey, step: StepName, match: PublicKey) =>
+  Array.from({ length: stepKeyCount(program, step) }, (_, i) => (i === matchIndexOf(program, step) ? match : key()));

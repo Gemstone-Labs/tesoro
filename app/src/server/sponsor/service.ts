@@ -25,7 +25,7 @@ import { HIDDEN_GAMES } from "@/lib/games";
 import type { GameId } from "@/lib/mock/types";
 import { DemoHttpError } from "../request-auth";
 import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, rentExitFits, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
-import { CORE_ID, PRIORITY_MICROLAMPORTS, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
+import { CORE_ID, PRIORITY_MICROLAMPORTS, RECEIPT_RENT, SETTLEMENT_RECEIPT_BYTES, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
 import { EXIT_ATA_WINDOW_MS, verifyExitSetup } from "./exit-setup";
 import type { UsageStore } from "./store";
 import { ChainTransactionFailed } from "./chain-send";
@@ -41,6 +41,11 @@ export interface ChainReads extends CompletionChain {
   account(key: PublicKey): Promise<{ owner: PublicKey; data: Uint8Array } | null>;
   rent?(bytes: number): Promise<bigint>;
   latestBlockhash(): Promise<string>;
+  /**
+   * Runs `tx` unsigned against the chain as it is now and reports whether it would fail and what `watch` would hold after it.
+   * A Game step is built only when this says it would succeed and cost the relayer no more than the fee and the receipt rent.
+   */
+  simulate?(tx: VersionedTransaction, watch: PublicKey): Promise<{ err: unknown; lamports: bigint | null }>;
   /** Sends and waits for confirmation; throws when the transaction fails. Returns the signature. */
   send(raw: Uint8Array): Promise<string>;
 }
@@ -228,12 +233,40 @@ export class Sponsor {
    * A Game step the relayer sends for a Player (ticket 04): the Player must be one of the Match's two Players (or their
    * funder), the Match may be sent each step a few times only, and the day's rent-fronting steps are capped overall.
    */
-  private async admitGameStep(plan: Plan, player: PublicKey, now: number) {
+  private receiptRentCache: bigint | null = null;
+  /** What the relayer fronts for a settlement receipt: the chain's own rent for the receipt's size, read once. */
+  private async receiptRent(): Promise<bigint> {
+    if (this.receiptRentCache === null) this.receiptRentCache = this.d.chain.rent ? await this.d.chain.rent(SETTLEMENT_RECEIPT_BYTES) : RECEIPT_RENT;
+    return this.receiptRentCache;
+  }
+
+  private async admitGameStep(plan: Plan, player: PublicKey, now: number): Promise<() => Promise<void>> {
     const match = plan.obligations[0];
     const a = await this.d.chain.account(match);
     if (!a || !partiesOf(a.data).some((k) => isPlayerKey(k, player))) throw new DemoHttpError(403, "not-your-match", "Free transactions are for the Players of a Match.");
-    if (!(await this.d.store.take(`gstep:${match.toBase58()}:${plan.names[0]}`, 1, this.d.limits.gameStepsPerMatch, 10 * 60_000, now))) throw new DemoHttpError(429, "match-limit", "That step was already sent for this Match.");
-    if (!(await this.d.store.take("gstep:day", 1, this.d.limits.rentExitsPerDay, DAY, now))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are used up for today. Pay the network fee from your own SOL to finish this.");
+    const perMatch = `gstep:${match.toBase58()}:${plan.names[0]}`;
+    if (!(await this.d.store.take(perMatch, 1, this.d.limits.gameStepsPerMatch, 10 * 60_000, now))) throw new DemoHttpError(429, "match-limit", "That step was already sent for this Match.");
+    const rent = plan.spend.refundable > 0n;
+    if (rent && !(await this.d.store.take("gstep:day", 1, this.d.limits.rentExitsPerDay, DAY, now))) {
+      await this.d.store.refund(perMatch, 1, now);
+      throw new DemoHttpError(503, "sponsor-empty", "Free transactions are used up for today. Pay the network fee from your own SOL to finish this.");
+    }
+    return async () => {
+      await this.d.store.refund(perMatch, 1, now);
+      if (rent) await this.d.store.refund("gstep:day", 1, now);
+    };
+  }
+
+  /**
+   * Runs the finished Game step against the chain before anything is signed: it must succeed, and the relayer must end up
+   * poorer by no more than the fee and the receipt's rent (what the step is meant to cost).
+   */
+  private async checkGameStepSimulation(message: ReturnType<TransactionMessage["compileToV0Message"]>, allowed: bigint) {
+    if (!this.d.chain.simulate) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
+    const before = await this.d.chain.balance(this.relayer);
+    const sim = await this.d.chain.simulate(new VersionedTransaction(message), this.relayer);
+    if (sim.err) throw new DemoHttpError(409, "would-fail", "That step cannot go through yet.");
+    if (sim.lamports === null || before - sim.lamports > allowed + BigInt(SIGNATURE_LAMPORTS)) throw new DemoHttpError(409, "costs-too-much", "That step would cost more than the fee and the receipt.");
   }
 
   /** Exits and continues are for Accounts: a throwaway key cannot make the relayer pay fees. */
@@ -253,6 +286,7 @@ export class Sponsor {
     const who = player.toBase58();
     const ixs = parseIntent(raw);
     const plan = await this.plan(ixs, player);
+    if (plan.kind === "game" && plan.spend.refundable > 0n) plan.spend.refundable = await this.receiptRent();
     const setup = await verifyExitSetup(plan, player, this.d.chain);
     plan.spend.sunk += setup.rent;
     if (setup.ataGrant && await this.d.store.used(setup.ataGrant, EXIT_ATA_WINDOW_MS, now) >= 1) throw new DemoHttpError(409, "setup-already-funded", "This payout token account was already funded. Restore it using the SOL returned when it was closed.");
@@ -268,6 +302,7 @@ export class Sponsor {
     let reserve = 0n;
     let fronted = 0n;
     let onboard: string | null = null;
+    let undoStep: (() => Promise<void>) | null = null;
 
     if (plan.onboarding) {
       // A new Player has no Account and no Gemas: the gate is one Account per user, a daily cap, and the Invite when it is on.
@@ -309,9 +344,9 @@ export class Sponsor {
       await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
       const gameStep = plan.kind === "game" && plan.obligations.length > 0;
-      if (gameStep) await this.admitGameStep(plan, player, now);
+      if (gameStep) undoStep = await this.admitGameStep(plan, player, now);
       const cost = fee + plan.spend.sunk + plan.spend.refundable;
-      if (!(gameStep ? rentExitFits(balance, cost) : exitFits(balance, cost))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
+      if (!(gameStep && plan.spend.refundable > 0n ? rentExitFits(balance, cost) : exitFits(balance, cost))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
     }
 
     const instructions = [
@@ -330,6 +365,15 @@ export class Sponsor {
     } catch (e) {
       if (!(e instanceof RangeError)) throw e;
       throw new DemoHttpError(400, "too-large", "This transaction is too large. Prepare fewer items at a time.");
+    }
+    if (undoStep) {
+      try {
+        await this.checkGameStepSimulation(message, fee + plan.spend.refundable);
+      } catch (e) {
+        // A step that would fail now (the result is not committed yet) is not one the Player has used up.
+        await undoStep();
+        throw e;
+      }
     }
     const meta: Meta = { completion: completionEffects(ixs), player: who, exp: now + BUILD_TTL_MS, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite, cost: (fee + plan.spend.sunk + plan.spend.refundable).toString(), admission: plan.class === "admission", ataGrant: setup.ataGrant };
     const metaText = JSON.stringify(meta);
