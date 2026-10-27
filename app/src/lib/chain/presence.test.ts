@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { filterByLease, freshLeases, startPresenceLoop } from "./presence";
+import { filterByLease, freshLeases, keepScreenAwake, startPresenceLoop } from "./presence";
 
 const reply = (body: unknown, ok = true) => vi.fn(async (...args: unknown[]) => (void args, ({ ok, json: async () => body }) as Response));
 
@@ -37,5 +37,61 @@ describe("startPresenceLoop", () => {
     stop();
     vi.advanceTimersByTime(60_000);
     expect(touch).toHaveBeenCalledTimes(3);
+  });
+});
+
+function fakePage(state: "visible" | "hidden" = "visible") {
+  const handlers = new Set<() => void>();
+  return {
+    visibilityState: state as DocumentVisibilityState,
+    addEventListener: (_: string, h: () => void) => handlers.add(h),
+    removeEventListener: (_: string, h: () => void) => handlers.delete(h),
+    show() {
+      this.visibilityState = "visible";
+      handlers.forEach((h) => h());
+    },
+    hide() {
+      this.visibilityState = "hidden";
+      handlers.forEach((h) => h());
+    },
+    handlers,
+  };
+}
+
+describe("a Player who comes back to the page", () => {
+  afterEach(() => vi.useRealTimers());
+  it("touches the lease on return instead of waiting for the next tick, and stops listening when stopped", () => {
+    vi.useFakeTimers();
+    const page = fakePage();
+    const touch = vi.fn(async () => undefined);
+    const stop = startPresenceLoop(touch, 15_000, page as never);
+    page.hide();
+    expect(touch).toHaveBeenCalledTimes(1);
+    page.show();
+    expect(touch).toHaveBeenCalledTimes(2);
+    stop();
+    expect(page.handlers.size).toBe(0);
+  });
+
+  it("holds the screen awake while waiting, takes the lock again after the page was hidden, and lets go", async () => {
+    const released = vi.fn(async () => undefined);
+    const request = vi.fn(async () => ({ release: released }));
+    const page = fakePage();
+    const stop = keepScreenAwake({ wakeLock: { request } }, page as never);
+    await Promise.resolve();
+    expect(request).toHaveBeenCalledTimes(1);
+    page.hide();
+    expect(request).toHaveBeenCalledTimes(1);
+    page.show();
+    await Promise.resolve();
+    expect(request).toHaveBeenCalledTimes(2);
+    stop();
+    await Promise.resolve();
+    expect(released).toHaveBeenCalled();
+    expect(page.handlers.size).toBe(0);
+  });
+
+  it("does nothing where the browser has no Wake Lock", () => {
+    expect(() => keepScreenAwake({}, fakePage() as never)()).not.toThrow();
   });
 });

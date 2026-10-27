@@ -275,6 +275,23 @@ describe("the entry is still on its way back", () => {
   });
 });
 
+describe("a waiter that went quiet (phone screen off, tab in the background)", () => {
+  it("is not taken while its lease is stale, and the younger Player moves into it as soon as it comes back", async () => {
+    const matches = new Map([
+      [OLD, match(OLD, { openedAt: NOW })],
+      [YOUNG, match(YOUNG, { openedAt: NOW + 90_000 })],
+    ]);
+    const ben = world("ben", matches);
+    let lease = false;
+    // The Queue list drops a Match whose opener has no fresh lease (see queueDeps.listCandidates).
+    ben.deps.listCandidates = vi.fn(async () => (lease ? [OLD] : []));
+    expect(await mergeQueue(ben.deps, ben.view(YOUNG)!)).toEqual({ moved: false });
+    expect(ben.calls).toEqual([]);
+    lease = true;
+    expect(await mergeQueue(ben.deps, ben.view(YOUNG)!)).toMatchObject({ moved: true, entered: { id: OLD, via: "joined" } });
+  });
+});
+
 describe("what never moves", () => {
   const older = new Map([[OLD, match(OLD, { openedAt: NOW - 5000 })]]);
   const run = async (mine: ChainMatch, extra = older) => {
