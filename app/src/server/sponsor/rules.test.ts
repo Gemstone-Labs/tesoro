@@ -398,6 +398,18 @@ describe("Block Burst Live (ticket 28)", () => {
       refused([{ ...f, keys: [f.keys[0], k(), ...f.keys.slice(2)] }], "bad-accounts");
       refused([fin({ programId: key() })], "unknown-program");
     });
+    it("allows refund_untabled (receipt rent, caller pays) and close_assignment (no rent, read-only caller) with the same checks", () => {
+      const m = key();
+      const refund: Ix = { programId: game, keys: [k(relayer, true, true), k(assignmentOf(m)), k(m, false, true), k()], data: new Uint8Array([86, 179, 79, 68, 70, 100, 97, 237]) };
+      expect(plan([refund])).toMatchObject({ class: "exit", names: ["refund_untabled"], spend: { refundable: RECEIPT_RENT }, obligations: [m] });
+      const close: Ix = { programId: game, keys: [k(relayer, true, false), k(assignmentOf(m), false, true), k(key(), false, true), k(), k(m)], data: new Uint8Array([180, 122, 187, 197, 166, 152, 1, 222]) };
+      expect(plan([close])).toMatchObject({ class: "exit", names: ["close_assignment"], spend: { refundable: 0n }, obligations: [m] });
+      refused([{ ...close, keys: [k(relayer, true, true), ...close.keys.slice(1)] }], "bad-flags");
+      refused([{ ...close, keys: [close.keys[0], k(), ...close.keys.slice(2)] }], "bad-accounts");
+      refused([{ ...close, keys: [...close.keys, k()] }], "bad-shape");
+      refused([{ ...close, keys: [close.keys[0], close.keys[1], k(relayer), ...close.keys.slice(3)] }], "relayer-in-accounts");
+      refused([{ ...refund, keys: [k(relayer, true, false), ...refund.keys.slice(1)] }], "bad-flags");
+    });
     it("is refused for other instructions, other Games, extra instructions and pile-ups of accounts", () => {
       refused([fin({ data: new Uint8Array([171, 61, 218, 56, 127, 115, 12, 218]) })], "relayer-in-accounts");
       refused([fin({ programId: key() })], "unknown-program");

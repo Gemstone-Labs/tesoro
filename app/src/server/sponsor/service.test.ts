@@ -296,6 +296,18 @@ describe("a Game's finalize with the relayer as caller (ticket 04)", () => {
     const { s, matchState } = await withMatch({}, (p) => [key(), p]);
     await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).resolves.toMatchObject({ class: "exit" });
   });
+  it("close_assignment and refund_untabled go the same way; close_assignment needs no rent hold and no daily-cap slot", async () => {
+    const { s, matchState } = await withMatch({ limits: { rentExitsPerDay: 1 } });
+    const asg = PublicKey.findProgramAddressSync([Buffer.from("assign"), matchState.toBuffer()], s.game)[0];
+    const meta = (pubkey: PublicKey, isWritable = false, isSigner = false) => ({ pubkey, isSigner, isWritable });
+    const close = { programId: s.game, keys: [meta(s.relayer.publicKey, false, true), meta(asg, true), meta(key(), true), meta(key()), meta(matchState)], data: new Uint8Array([180, 122, 187, 197, 166, 152, 1, 222]) };
+    const refund = { programId: s.game, keys: [meta(s.relayer.publicKey, true, true), meta(asg), meta(matchState, true)], data: new Uint8Array([86, 179, 79, 68, 70, 100, 97, 237]) };
+    await s.sponsor.build(s.player.publicKey, wire([refund]));
+    await expect(s.sponsor.build(s.player.publicKey, wire([refund]))).rejects.toMatchObject({ code: "sponsor-empty" });
+    await expect(s.sponsor.build(s.player.publicKey, wire([close]))).resolves.toMatchObject({ class: "exit" });
+    s.setBalance(10_000n);
+    await expect(s.sponsor.build(s.player.publicKey, wire([close]))).resolves.toMatchObject({ class: "exit" });
+  });
   it("is refused for a Match that is not there, and for a wallet with no Account", async () => {
     const s = setup();
     await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, key())]))).rejects.toMatchObject({ code: "no-obligation" });

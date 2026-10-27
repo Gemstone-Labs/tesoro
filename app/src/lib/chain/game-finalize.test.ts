@@ -6,7 +6,7 @@ const status = vi.fn();
 const send = vi.fn();
 vi.mock("./sponsor-client", async (orig) => ({ ...(await orig<typeof import("./sponsor-client")>()), sponsorStatus: () => status(), sponsoredSend: (...a: unknown[]) => send(...a) }));
 
-import { finalizeFree } from "./game-finalize";
+import { closeAssignmentFree, finalizeFree, refundUntabledFree } from "./game-finalize";
 
 const relayer = Keypair.generate().publicKey;
 const signer = { publicKey: Keypair.generate().publicKey, signSerialized: async (b: Uint8Array) => b } as never;
@@ -44,5 +44,18 @@ describe("finalizeFree", () => {
     const g = game();
     await expect(finalizeFree(g, signer, getToken, {} as never)).rejects.toThrow("Transaction failed");
     expect(g.finalize).not.toHaveBeenCalled();
+  });
+});
+
+describe("refundUntabledFree and closeAssignmentFree", () => {
+  it("send the Game's own instruction with the relayer as caller, and pay from the wallet when paused", async () => {
+    const g = { refundUntabledIx: vi.fn(async (c: PublicKey) => ixFor(c)), refundUntabled: vi.fn(async () => "own"), closeAssignmentIx: vi.fn(async (c: PublicKey) => ixFor(c)), closeAssignment: vi.fn(async () => "own") };
+    const match = Keypair.generate().publicKey;
+    expect(await refundUntabledFree(g, signer, getToken, match)).toBe("free-sig");
+    expect(g.refundUntabledIx).toHaveBeenCalledWith(relayer, match);
+    expect(await closeAssignmentFree(g, signer, getToken, {} as never)).toBe("free-sig");
+    expect(g.closeAssignmentIx).toHaveBeenCalledWith(relayer, {});
+    status.mockResolvedValue({ relayer: relayer.toBase58(), paused: true, low: false });
+    expect(await closeAssignmentFree(g, signer, getToken, {} as never)).toBe("own");
   });
 });

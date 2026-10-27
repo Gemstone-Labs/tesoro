@@ -233,7 +233,7 @@ export class Sponsor {
     const a = await this.d.chain.account(match);
     if (!a || !partiesOf(a.data).some((k) => isPlayerKey(k, player))) throw new DemoHttpError(403, "not-your-match", "Free transactions are for the Players of a Match.");
     if (!(await this.d.store.take(`gstep:${match.toBase58()}:${plan.names[0]}`, 1, this.d.limits.gameStepsPerMatch, 10 * 60_000, now))) throw new DemoHttpError(429, "match-limit", "That step was already sent for this Match.");
-    if (!(await this.d.store.take("gstep:day", 1, this.d.limits.rentExitsPerDay, DAY, now))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are used up for today. Pay the network fee from your own SOL to finish this.");
+    if (plan.spend.refundable > 0n && !(await this.d.store.take("gstep:day", 1, this.d.limits.rentExitsPerDay, DAY, now))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are used up for today. Pay the network fee from your own SOL to finish this.");
   }
 
   /** Exits and continues are for Accounts: a throwaway key cannot make the relayer pay fees. */
@@ -311,7 +311,7 @@ export class Sponsor {
       const gameStep = plan.kind === "game" && plan.obligations.length > 0;
       if (gameStep) await this.admitGameStep(plan, player, now);
       const cost = fee + plan.spend.sunk + plan.spend.refundable;
-      if (!(gameStep ? rentExitFits(balance, cost) : exitFits(balance, cost))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
+      if (!(gameStep && plan.spend.refundable > 0n ? rentExitFits(balance, cost) : exitFits(balance, cost))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
     }
 
     const instructions = [
