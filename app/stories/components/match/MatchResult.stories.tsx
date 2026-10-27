@@ -2,8 +2,11 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult, type MatchResultProps } from "@/components/match/MatchResult";
 import { backed, match } from "@/lib/chain/fixture";
-import { backerDelta, matchDelta } from "@/lib/chain/ledger";
-import type { ChainMatch } from "@/lib/chain/read";
+import { backerDelta, matchDelta, matchFee } from "@/lib/chain/ledger";
+import { chainMatchFromPage, type ChainMatch } from "@/lib/chain/read";
+import real from "@/lib/chain/match-pages/block-burst-devnet-2026-10-27.json";
+import type { MatchPage } from "@/server/history/reads";
+import { PublicKey } from "@solana/web3.js";
 import type { GameId } from "@/lib/mock";
 
 const BACKER = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
@@ -63,7 +66,19 @@ export const HoldemWon: Story = { args: props("holdem", true) };
 export const HoldemLost: Story = { args: props("holdem", false) };
 export const TradingDuelWon: Story = { args: { ...props("trading-duel", true), scores: ["800 points", "500 points"] } };
 
-/** Rematch opens a Challenge pre-filled with the same opponent, Game and entry: after a settled Match only. */
-export const WithRematch: Story = { args: props("holdem", true) };
-export const RematchTradingDuel: Story = { args: { ...props("trading-duel", false), asset: 1 } };
-export const NoRematchUnknownOpponent: Story = { args: { ...props("block-puzzle", true), opponent: null } };
+export const NoOpponentKnown: Story = { args: { ...props("block-puzzle", true), opponent: null } };
+
+/** Settled amounts of real devnet Block Burst Matches (entry 500), read through the history page the app reads: the winner gained 440 and the Fee was 60. */
+const fromPage = (page: MatchPage, who: string, over: Partial<MatchResultProps> = {}): MatchResultProps => {
+  const m = chainMatchFromPage(page, new PublicKey(who))!;
+  const outcome = m.status === "refunded" ? "refunded" : page.winner === null ? "draw" : page.winner === who ? "won" : "lost";
+  return { game: "block-puzzle", outcome, delta: matchDelta(m), entry: m.entry, fee: matchFee(m), role: "player", backed: false, scores: null, playAgainHref: "/play/queue", opponent: m.opponent, points: m.settled?.points, momentKey: `story-real-${outcome}`, matchId: m.id, ...over };
+};
+const REAL_WIN = real["won-lost"] as unknown as MatchPage;
+const WINNER = "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ";
+const LOSER = "3CypGMXD3iWa4DX9RTnuGH967GBSeL46NaM3CFU9NhJU";
+export const RealWon: Story = { args: fromPage(REAL_WIN, WINNER) };
+export const RealLost: Story = { args: fromPage(REAL_WIN, LOSER) };
+export const RealRefunded: Story = { args: fromPage(real.refunded as unknown as MatchPage, WINNER) };
+/** No real draw exists on devnet yet: this one is the won page with the draw's settled amounts (nothing moves). */
+export const RealDraw: Story = { args: fromPage({ ...REAL_WIN, winner: null, loser: null, winnerSide: null, kind: 2, points: null, fees: { studio: 0, platform: 0, leaderboard: 0 }, parties: REAL_WIN.parties.map((p) => ({ ...p, delta: 0, result: "draw" })) } as MatchPage, WINNER) };

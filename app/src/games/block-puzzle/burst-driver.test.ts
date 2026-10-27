@@ -56,7 +56,7 @@ function fakeChain(initial: Table) {
 function driverFor(seat: 0 | 1, fake: ReturnType<typeof fakeChain>) {
   const who = seat === 0 ? opener : joiner;
   const signer = { publicKey: who, signTransaction: async (t: never) => t, signMessage: async () => new Uint8Array(64) };
-  return new BurstDriver({ id: matchKey, signer: signer as never, accountKey: null, chain: fake.chain, fetchMatch: async () => activeMatch(seat) });
+  return new BurstDriver({ id: matchKey, signer: signer as never, accountKey: null, getToken: async () => null, chain: fake.chain, fetchMatch: async () => activeMatch(seat) });
 }
 
 beforeEach(() => {
@@ -112,7 +112,7 @@ describe("BurstDriver, reads", () => {
     const fake = fakeChain(running);
     const fetchMatch = async () => (reads++, activeMatch(1));
     const signer = { publicKey: joiner, signTransaction: async (t: never) => t, signMessage: async () => new Uint8Array(64) };
-    const d = new BurstDriver({ id: matchKey, signer: signer as never, accountKey: null, chain: fake.chain, fetchMatch });
+    const d = new BurstDriver({ id: matchKey, signer: signer as never, accountKey: null, getToken: async () => null, chain: fake.chain, fetchMatch });
     d.start();
     await vi.advanceTimersByTimeAsync(1_500);
     const before = reads;

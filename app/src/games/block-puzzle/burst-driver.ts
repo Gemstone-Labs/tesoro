@@ -5,6 +5,8 @@ import { matchProgress } from "@/lib/chain/match-progress";
 import { isCancelling } from "@/lib/chain/match-status";
 import type { ChainMatch } from "@/lib/chain/read";
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
+import type { GetToken } from "@/lib/chain/demo-client";
+import { finalizeFree } from "@/lib/chain/game-finalize";
 import { plainError } from "@/lib/errors";
 import {
   TABLE_PHASE,
@@ -121,6 +123,8 @@ export interface BurstDriverDeps {
   signer: ChainSigner;
   /** The Player's Account key (the submitter lock is per Account). */
   accountKey: string | null;
+  /** The auth token for the sponsor (the relayer pays the Match's end-of-Match send, so a Player with no SOL still sees the result). */
+  getToken: GetToken;
   chain: BlockBurstChain;
   fetchMatch(id: string, me: ReturnType<typeof BlockPuzzleChain.coreAccount>): Promise<ChainMatch | null>;
   /** Called once when the Match is seen settled or refunded. */
@@ -177,7 +181,7 @@ export class BurstDriver {
   }
 
   /** The page re-renders with a new signer object or callback for the same Match and wallet: later sends use them. */
-  update(next: Partial<Pick<BurstDriverDeps, "signer" | "accountKey" | "onSettled">>) {
+  update(next: Partial<Pick<BurstDriverDeps, "signer" | "accountKey" | "getToken" | "onSettled">>) {
     this.d = { ...this.d, ...next };
   }
 
@@ -490,7 +494,7 @@ export class BurstDriver {
           await chain.commitTable(p, a);
           break;
         case "finalize": {
-          const sig = await chain.finalize(p, a);
+          const sig = await finalizeFree(chain, this.d.signer, () => this.d.getToken(), a);
           this.addSig("finalize", sig, "base");
           break;
         }

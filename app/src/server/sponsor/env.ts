@@ -10,6 +10,7 @@ import { alertRecipients } from "../notify/routes";
 import { senderFromEnv } from "../notify/sender";
 import { DemoHttpError } from "../request-auth";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
+import { gameIsListed } from "./listed";
 import { CORE_ID } from "./rules";
 import { Sponsor, type ChainReads } from "./service";
 import { inviteKeypair } from "../invite/key";
@@ -93,10 +94,8 @@ export function sponsor(): Sponsor {
     chain,
     isListed: async (program) => {
       const [record, data] = await Promise.all([chain.account(gameRecordPda(program)), chain.account(programDataPda(program))]);
-      if (!record || !data || !record.owner.equals(CORE_ID) || data.data.length < 12) return false;
-      const g = coder.decode("GameRecord", Buffer.from(record.data)) as { listedUntil: { toString(): string }; approvedSlot: { toString(): string } };
-      const slot = Buffer.from(data.data).readBigUInt64LE(4);
-      return BigInt(g.listedUntil.toString()) > BigInt(Math.floor(Date.now() / 1000)) && BigInt(g.approvedSlot.toString()) === slot;
+      if (!record || !data || !record.owner.equals(CORE_ID)) return false;
+      return gameIsListed(record.data, data.data, Math.floor(Date.now() / 1000));
     },
     lookupTables,
     paused: async () => process.env.TESORO_SPONSOR_PAUSED === "1" || (await onChainPaused()),

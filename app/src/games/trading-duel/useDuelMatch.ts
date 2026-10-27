@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "@/lib/auth/context";
+import { finalizeFree } from "@/lib/chain/game-finalize";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getTradingDuel } from "@/lib/chain/client";
@@ -76,6 +78,12 @@ const END_BACKOFF_MAX_MS = 1_000;
  * Hold'em, and show at once; a refused pick is rolled back with a plain error.
  */
 export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSettled?: () => void) {
+  const { getAccessToken } = useAuth();
+  // A ref keeps the token getter out of the effect dependencies: the Match loop must not restart when auth re-renders.
+  const tokenRef = useRef(getAccessToken);
+  useEffect(() => {
+    tokenRef.current = getAccessToken;
+  }, [getAccessToken]);
   const [view, setView] = useState<DuelView>({
     stage: "loading",
     match: null,
@@ -180,7 +188,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
       if (!base || !canFinalize(base, a, Date.now() / 1000)) return;
       setView((v) => (v.commit ? { ...v, commit: null } : v));
       try {
-        await td.finalize(p, a);
+        await finalizeFree(td, signer, () => tokenRef.current(), a);
       } catch (e) {
         const again = await fetchMatch(id, BlockPuzzleChain.coreAccount(signer.publicKey));
         if (again && (again.status === "settled" || again.status === "refunded")) return;

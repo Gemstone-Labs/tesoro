@@ -87,7 +87,7 @@ async function oneMatch(i: number): Promise<Row> {
 
   // Both drivers run from now, as the two Match pages do.
   const drivers = [opener, joiner].map((signer, n) => {
-    const d = new BurstDriver({ id: key, signer: signer as never, accountKey: BlockPuzzleChain.coreAccount(signer.publicKey).toBase58(), chain: newChain(), fetchMatch });
+    const d = new BurstDriver({ id: key, signer: signer as never, accountKey: BlockPuzzleChain.coreAccount(signer.publicKey).toBase58(), getToken: noToken, chain: newChain(), fetchMatch });
     let last = "";
     let botStarted = false;
     d.subscribe((v) => {

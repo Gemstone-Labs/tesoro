@@ -2,6 +2,8 @@
 
 import { atAssignedEpoch } from "@/lib/chain/table-epoch";
 
+import { useAuth } from "@/lib/auth/context";
+import { finalizeFree } from "@/lib/chain/game-finalize";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getVanguard } from "@/lib/chain/client";
@@ -92,6 +94,12 @@ const must = (a: Assignment | null): Assignment => {
  * other after a grace period, and a lost race is harmless because each step re-reads chain state.
  */
 export function useVanguardMatch(id: string | null, signer: ChainSigner | null, onSettled?: () => void) {
+  const { getAccessToken } = useAuth();
+  // A ref keeps the token getter out of the effect dependencies: the Match loop must not restart when auth re-renders.
+  const tokenRef = useRef(getAccessToken);
+  useEffect(() => {
+    tokenRef.current = getAccessToken;
+  }, [getAccessToken]);
   const [view, setView] = useState<VanguardView>({
     stage: "loading",
     match: null,
@@ -198,7 +206,7 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
       if (!base || !canFinalizeTable(base, a, Date.now() / 1000)) return;
       setView((v) => (v.commit ? { ...v, commit: null } : v));
       try {
-        await vg.finalize(p, a);
+        await finalizeFree(vg, signer, () => tokenRef.current(), a);
       } catch (e) {
         // The other Player may have settled it in the same moment.
         const again = await fetchMatch(id, BlockPuzzleChain.coreAccount(signer.publicKey));
