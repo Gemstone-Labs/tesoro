@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { BN } from "@coral-xyz/anchor";
 import { SystemProgram, ComputeBudgetProgram, PublicKey } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
-import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, growIx, linkEvmBridgeIx, signUpIx, joinMatchIx, key, openMatchIx, playerIx } from "./fixtures";
-import { CORE_ID, ORDER_RENT, RECEIPT_RENT, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
+import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, gameStepIx, growIx, linkEvmBridgeIx, signUpIx, joinMatchIx, key, openMatchIx, playerIx } from "./fixtures";
+import { matchIndexOf, stepSlots } from "./game-steps";
+import { CORE_ID, GAME_STEPS, ORDER_RENT, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
 import { GAME_IDS } from "@/lib/chain/games";
 
 const relayer = key();
@@ -368,54 +369,60 @@ describe("Block Burst Live (ticket 28)", () => {
     expect(plan([finalize([])])).toMatchObject({ kind: "game", class: "continue" });
     refused([finalize([{ pubkey: relayer, isSigner: false, isWritable: true }])], "relayer-in-accounts");
   });
-  describe("a listed Game's finalize with the relayer as caller (ticket 04: the winner pays no SOL)", () => {
-    const FINALIZE = new Uint8Array([171, 61, 218, 56, 127, 115, 12, 217]);
+  describe("a listed Game's permissionless steps with the relayer as caller (ticket 04: the winner pays no SOL)", () => {
+    const BURST = new PublicKey("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
+    const GAMES = [BURST, new PublicKey("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"), new PublicKey("CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj"), new PublicKey("TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH")];
+    const STEPS = ["finalize", "refund_untabled", "close_assignment"] as const;
+    const planFor = (ixs: Ix[]) => planTransaction(ixs, { relayer, player, isGame: () => true });
+    const refusedFor = (ixs: Ix[], code: string) => expect(() => planFor(ixs)).toThrowError(expect.objectContaining({ code }));
+    const m = () => key();
     const k = (pubkey = key(), isSigner = false, isWritable = false) => ({ pubkey, isSigner, isWritable });
-    const assignmentOf = (match: PublicKey) => PublicKey.findProgramAddressSync([Buffer.from("assign"), match.toBuffer()], game)[0];
-    const fin = (over: Partial<Ix> = {}, match = key()): Ix => ({
-      programId: game,
-      keys: [k(relayer, true, true), k(assignmentOf(match)), k(), k(match, false, true), k()],
-      data: FINALIZE,
-      ...over,
+    /** Replaces the key at `name`'s position (found by building the instruction once). */
+    const swap = (ix: Ix, i: number, over: Partial<Ix["keys"][number]>): Ix => ({ ...ix, keys: ix.keys.map((x, j) => (j === i ? { ...x, ...over } : x)) });
+
+    for (const program of GAMES) {
+      for (const step of STEPS) {
+        it(`${step} in ${program.toBase58().slice(0, 4)}: a game exit naming its Match, no Player signature`, () => {
+          const match = m();
+          const ix = gameStepIx(program, step, match, relayer);
+          expect(planFor([ix])).toMatchObject({ kind: "game", class: "exit", names: [step], signers: [], playerSigns: false, obligations: [match], spend: { refundable: GAME_STEPS[step].rent } });
+        });
+      }
+    }
+    it("refuses every account that is not the one derived from the Game and the Match, in every position", () => {
+      for (const step of STEPS) {
+        const ix = gameStepIx(BURST, step, m(), relayer);
+        const slots = stepSlots(BURST, step, matchIndexOf(BURST, step), ix.keys.map((x) => x.pubkey), relayer)!;
+        slots.forEach(({ expect: want }, i) => {
+          if (i === 0) return;
+          if (want) refusedFor([swap(ix, i, { pubkey: key() })], "bad-accounts");
+        });
+      }
     });
-    it("is a game exit that costs the relayer the receipt's rent and needs no Player signature", () => {
-      expect(plan([fin()])).toMatchObject({ kind: "game", class: "exit", signers: [], playerSigns: false, spend: { refundable: RECEIPT_RENT, sunk: 0n } });
+    it("pins the signer and writable flag of every account", () => {
+      for (const step of STEPS) {
+        const ix = gameStepIx(BURST, step, m(), relayer);
+        ix.keys.forEach((x, i) => {
+          refusedFor([swap(ix, i, { isWritable: !x.isWritable })], i === 0 || x.pubkey ? "bad-flags" : "bad-flags");
+          refusedFor([swap(ix, i, { isSigner: !x.isSigner })], i > 0 ? "bad-flags" : "bad-flags");
+        });
+      }
     });
-    it("names the Match so the service can require it to exist", () => {
-      const f = fin();
-      expect(plan([f]).obligations).toEqual([f.keys[3].pubkey]);
+    it("refuses the relayer anywhere but the caller, other signers, extra or missing accounts, and a payer or table that is the relayer", () => {
+      const close = gameStepIx(BURST, "close_assignment", m(), relayer);
+      refusedFor([swap(close, 2, { pubkey: relayer })], "relayer-in-accounts");
+      const fin = gameStepIx(BURST, "finalize", m(), relayer);
+      refusedFor([swap(fin, 2, { pubkey: relayer })], "relayer-in-accounts");
+      refusedFor([{ ...fin, keys: [...fin.keys, k()] }], "bad-shape");
+      refusedFor([{ ...fin, keys: fin.keys.slice(0, -1) }], "bad-shape");
+      refusedFor([{ ...fin, keys: [k(key(), true, true), ...fin.keys.slice(1)] }], "bad-signer");
     });
-    it("is refused when the caller is not first, the relayer appears twice, or anyone else signs", () => {
-      const m = key();
-      const withKeys = (...ks: ReturnType<typeof k>[]) => fin({ keys: [...ks.slice(0, 1), k(assignmentOf(m)), k(), k(m), ...ks.slice(1)] }, m);
-      refused([withKeys(k(key(), true, true))], "bad-signer");
-      refused([withKeys(k(relayer, true, true), k(relayer))], "relayer-in-accounts");
-      refused([withKeys(k(relayer, true, true), k(key(), true))], "bad-signer");
-      refused([withKeys(k(relayer, false, true))], "bad-flags");
-    });
-    it("is refused when the Assignment is not the Match's own", () => {
-      const f = fin();
-      refused([{ ...f, keys: [f.keys[0], k(), ...f.keys.slice(2)] }], "bad-accounts");
-      refused([fin({ programId: key() })], "unknown-program");
-    });
-    it("allows refund_untabled (receipt rent, caller pays) and close_assignment (no rent, read-only caller) with the same checks", () => {
-      const m = key();
-      const refund: Ix = { programId: game, keys: [k(relayer, true, true), k(assignmentOf(m)), k(m, false, true), k()], data: new Uint8Array([86, 179, 79, 68, 70, 100, 97, 237]) };
-      expect(plan([refund])).toMatchObject({ class: "exit", names: ["refund_untabled"], spend: { refundable: RECEIPT_RENT }, obligations: [m] });
-      const close: Ix = { programId: game, keys: [k(relayer, true, false), k(assignmentOf(m), false, true), k(key(), false, true), k(), k(m)], data: new Uint8Array([180, 122, 187, 197, 166, 152, 1, 222]) };
-      expect(plan([close])).toMatchObject({ class: "exit", names: ["close_assignment"], spend: { refundable: 0n }, obligations: [m] });
-      refused([{ ...close, keys: [k(relayer, true, true), ...close.keys.slice(1)] }], "bad-flags");
-      refused([{ ...close, keys: [close.keys[0], k(), ...close.keys.slice(2)] }], "bad-accounts");
-      refused([{ ...close, keys: [...close.keys, k()] }], "bad-shape");
-      refused([{ ...close, keys: [close.keys[0], close.keys[1], k(relayer), ...close.keys.slice(3)] }], "relayer-in-accounts");
-      refused([{ ...refund, keys: [k(relayer, true, false), ...refund.keys.slice(1)] }], "bad-flags");
-    });
-    it("is refused for other instructions, other Games, extra instructions and pile-ups of accounts", () => {
-      refused([fin({ data: new Uint8Array([171, 61, 218, 56, 127, 115, 12, 218]) })], "relayer-in-accounts");
-      refused([fin({ programId: key() })], "unknown-program");
-      refused([fin(), fin()], "relayer-in-accounts");
-      refused([fin({ keys: [k(relayer, true, true), ...Array.from({ length: 30 }, () => k())] })], "bad-shape");
-      refused([fin({ data: new Uint8Array([...FINALIZE, 1]) })], "relayer-in-accounts");
+    it("refuses a Game it has no layout for, other data, trailing data, and more than one instruction", () => {
+      const fin = gameStepIx(BURST, "finalize", m(), relayer);
+      refusedFor([{ ...fin, programId: key() }], "bad-shape");
+      refusedFor([{ ...fin, data: new Uint8Array([...GAME_STEPS.finalize.disc.subarray(0, 7), 0]) }], "relayer-in-accounts");
+      refusedFor([{ ...fin, data: new Uint8Array([...GAME_STEPS.finalize.disc, 1]) }], "relayer-in-accounts");
+      refusedFor([fin, fin], "relayer-in-accounts");
     });
   });
 });

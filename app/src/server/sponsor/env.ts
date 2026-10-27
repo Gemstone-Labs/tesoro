@@ -35,6 +35,11 @@ function chainReads(conn: Connection): ChainReads {
       return a ? { owner: a.owner, data: a.data } : null;
     },
     latestBlockhash: async () => (await conn.getLatestBlockhash("confirmed")).blockhash,
+    simulate: async (tx, watch) => {
+      const r = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed", accounts: { encoding: "base64", addresses: [watch.toBase58()] } });
+      const lamports = r.value.accounts?.[0]?.lamports;
+      return { err: r.value.err, lamports: lamports === undefined ? null : BigInt(lamports) };
+    },
     send: (raw) => sendConfirmed(conn, raw),
   };
 }

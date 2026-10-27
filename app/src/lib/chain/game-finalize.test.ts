@@ -59,3 +59,19 @@ describe("refundUntabledFree and closeAssignmentFree", () => {
     expect(await closeAssignmentFree(g, signer, getToken, {} as never)).toBe("own");
   });
 });
+
+describe("when the sponsor refuses", () => {
+  it("a delisted Game or a Player it will not pay for falls back to the wallet; a step that would fail does not", async () => {
+    for (const code of ["unknown-program", "not-your-match", "match-limit"]) {
+      send.mockRejectedValue(new SponsorError("no", code, 400));
+      const g = game();
+      expect(await finalizeFree(g, signer, getToken, {} as never)).toBe("own-sig");
+    }
+    for (const code of ["would-fail", "costs-too-much", "chain"]) {
+      send.mockRejectedValue(new SponsorError("no", code, 409));
+      const g = game();
+      await expect(finalizeFree(g, signer, getToken, {} as never)).rejects.toThrow();
+      expect(g.finalize).not.toHaveBeenCalled();
+    }
+  });
+});

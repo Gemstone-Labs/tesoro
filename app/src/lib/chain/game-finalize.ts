@@ -4,6 +4,14 @@ import type { GetToken } from "./demo-client";
 import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
 
 /**
+ * Refusals after which the Player's wallet takes over: the sponsor will not pay for this Player or Game right now, but the
+ * step is permissionless and valid, so whoever has SOL can still send it. A delisted or upgraded Game ("unknown-program")
+ * must not strand a Match whose Players hold SOL. Not here: "would-fail" and "costs-too-much" (the wallet would pay for a
+ * step that fails or is not the one we expect) and "chain" (the Match moved on).
+ */
+const WALLET_TAKES_OVER = new Set(["unknown-program", "not-your-match", "match-limit", "no-account", "too-many-failures", "account-limit"]);
+
+/**
  * Sends one of a Game's permissionless base-layer steps (`finalize`, `refund_untabled`, `close_assignment`) with the relayer
  * as caller, so the Player's wallet pays nothing. `ixFor(caller)` builds the instruction (null when there is nothing to do:
  * resolves ""); `pay()` is the old path, used only when free transactions are paused or empty or the wallet cannot sign a
@@ -23,7 +31,7 @@ export async function stepFree(
         return ix ? await sponsoredSend(signer, getToken, [ix]) : "";
       }
     } catch (e) {
-      if (!(e instanceof SponsorError && e.selfPay)) throw e;
+      if (!(e instanceof SponsorError && (e.selfPay || WALLET_TAKES_OVER.has(e.code)))) throw e;
     }
   }
   return pay();
