@@ -95,6 +95,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
     return (
       <MatchStage
         game="trading-duel"
+        matchId={matchId}
         kind={cancelSent ? "setup" : kind}
         entry={m.entry}
         pot={m.entry * 2 - matchFee(m)}

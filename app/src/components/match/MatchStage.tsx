@@ -8,6 +8,7 @@ import { commitCopy, type CommitState } from "@/lib/chain/commit-pending";
 import { CANCELLING_NOTE, NO_TABLE_NOTE, refundByText, tableWaitLine } from "@/lib/chain/match-status";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES, type GameId } from "@/lib/mock";
+import { markPotCounted, potCountFrom } from "./pot-count";
 import "./match-stage.css";
 
 /** Where a Match is before or after play: what the arena shows, not the chain phase behind it. */
@@ -15,6 +16,8 @@ export type StageKind = "waiting" | "waiting-run" | "setup" | "ready" | "saving-
 
 export interface StageInfo {
   game: GameId;
+  /** The Match id: the Pot counts up once per Match, not at every stage. */
+  matchId?: string;
   kind: StageKind;
   entry: number;
   /** What the winner takes: both entries minus Fees. */
@@ -122,6 +125,12 @@ function details(m: StageInfo): { icon: LucideIcon; title: string; text: string 
   if (m.deadline && (m.kind === "waiting" || m.kind === "waiting-run"))
     out.push({ icon: RotateCcw, title: "If nobody joins", text: `By ${new Date(m.deadline * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} your entry is refunded. You can leave this page and come back from the Lobby.` });
   return out;
+}
+
+function PotCount({ value, matchId }: { value: number; matchId?: string }) {
+  const [from] = useState(() => potCountFrom(matchId, value));
+  useEffect(() => markPotCounted(matchId), [matchId]);
+  return <CountUp value={value} from={from} duration={1400} />;
 }
 
 function useNow(on: boolean) {
@@ -354,7 +363,7 @@ export function MatchStage({
             <span className="gema-amount lg">
               <GemaMark size={20} glint />
               <span>
-                <CountUp value={m.pot} from={0} duration={1400} />
+                <PotCount value={m.pot} matchId={m.matchId} />
                 <span className="sr-only"> Gemas</span>
               </span>
             </span>

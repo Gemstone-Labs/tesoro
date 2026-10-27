@@ -1,0 +1,49 @@
+{
+ "source": "synthetic",
+ "note": "Built from useBurstMatch step(): no table read proposes 'table' (!t) and a missing Match proposes notfound.",
+ "game": "block-puzzle",
+ "steps": [
+  {
+   "stage": "waiting"
+  },
+  {
+   "stage": "table"
+  },
+  {
+   "stage": "setup"
+  },
+  {
+   "stage": "getReady"
+  },
+  {
+   "stage": "playing"
+  },
+  {
+   "stage": "playing"
+  },
+  {
+   "stage": "table"
+  },
+  {
+   "stage": "closing"
+  },
+  {
+   "stage": "table"
+  },
+  {
+   "stage": "table"
+  },
+  {
+   "stage": "closing"
+  },
+  {
+   "stage": "settled"
+  },
+  {
+   "stage": "notfound"
+  },
+  {
+   "stage": "settled"
+  }
+ ]
+}
