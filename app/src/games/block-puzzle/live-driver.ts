@@ -44,6 +44,9 @@ export interface DriveInput {
   stalledMs: number;
 }
 
+/** Steps nobody should repeat faster than this, ms. */
+export const MIN_GAP_MS: Partial<Record<Step["kind"], number>> = { beginMatch: 2_500, seatPlayers: 2_500, requestSeed: 5_000, start: 2_500, close: 2_500, commitTable: 5_000, finalize: 8_000, checkIn: 1_500, begin: 600 };
+
 /** True once this page should do a step anyone may do. */
 export const steppedIn = (i: Pick<DriveInput, "seat" | "stalledMs">): boolean => i.stalledMs >= STEP_IN_MS + (i.seat === 0 ? OPENER_EXTRA_MS : 0);
 
