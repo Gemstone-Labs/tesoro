@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Notice } from "@/components/ui";
 import { BlockPuzzleGame } from "@/games/block-puzzle/BlockPuzzleGame";
-import { ELSEWHERE_LINE, QUEUE_SIT_LINE, QUEUE_STAY_LINE, needTableLine, resultLine } from "@/games/block-puzzle/burst-copy";
+import { ELSEWHERE_LINE, needTableLine, resultLine } from "@/games/block-puzzle/burst-copy";
 import { CHECKIN_SECS, REASON } from "@/games/block-puzzle/live-chain";
 import { getReadySecs, slotNow } from "@/games/block-puzzle/live-clock";
 import { stripOf } from "@/games/block-puzzle/opponent";
@@ -114,7 +114,6 @@ export function MatchView({ matchId }: { matchId: string }) {
         {why && <p className="note">{why}</p>}
         {view.error && <p className="status err" role="alert">{view.error}</p>}
         <Receipts items={sigs} />
-        <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
       </MatchResult>
     );
   }
@@ -143,7 +142,6 @@ export function MatchView({ matchId }: { matchId: string }) {
   if (stage === "backer") kind = "backer-watch";
   else if (stage === "waiting") {
     kind = "waiting";
-    words = m.challenge ? undefined : { line: `${QUEUE_SIT_LINE} ${QUEUE_STAY_LINE}` };
   } else if (stage === "table") {
     kind = "setup";
     words = { kicker: "Block Burst · opponent found", title: "Waiting for a table", line: needTableLine(m.deadline, nowSecs * 1000) };
@@ -201,7 +199,6 @@ export function MatchView({ matchId }: { matchId: string }) {
       }
     >
       <Receipts items={sigs} />
-      <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
     </MatchStage>
   );
 }

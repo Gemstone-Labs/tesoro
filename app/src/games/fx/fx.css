@@ -40,6 +40,16 @@
     linear-gradient(180deg, rgba(9, 13, 15, 0.5), rgba(9, 13, 15, 0) 22%, rgba(9, 13, 15, 0) 78%, rgba(9, 13, 15, 0.5));
 }
 
+/* The wide artwork carries its colour at the sides. Turn those edges into a phone's top/bottom. */
+@media (max-width: 1023px) {
+  .fx-arena:has(.stage) .fx-arena-bg { container-type: size; background: var(--fx-grad, #070a0c); }
+  .fx-arena:has(.stage) .fx-arena-bg::before {
+    content: ""; position: absolute; left: 50%; top: 50%; width: 100cqh; height: 100cqw;
+    transform: translate(-50%, -50%) rotate(90deg);
+    background: var(--fx-arena-art) center / cover no-repeat;
+  }
+}
+
 .fx-mute { display: inline-grid; place-items: center; width: 34px; height: 30px; padding: 0; background: var(--raised-2); color: var(--fg-2); border: 0; cursor: pointer; flex: none; }
 .fx-mute:hover { color: var(--fg); }
 .fx-mute:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }

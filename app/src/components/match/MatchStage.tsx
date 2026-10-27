@@ -43,13 +43,6 @@ export interface StageInfo {
   words?: { kicker?: string; title?: string; line?: string };
 }
 
-/** The line under "Waiting for an opponent", by Game. */
-const WAITING_LINE: Record<GameId, (asset?: string | null) => string> = {
-  "block-puzzle": () => "The Match starts when someone joins. You both play the same pieces at the same time.",
-  holdem: () => "The cards are dealt the moment they sit down.",
-  "trading-duel": (asset) => `A 30 second head start on ${asset ?? "SOL"}/USD starts the moment they join.`,
-  vanguard: () => "Both armies are drawn in secret the moment they join.",
-};
 /** The line under "Get ready", by Game. */
 const SETUP_LINE: Record<GameId, string> = {
   "block-puzzle": "Your pieces are drawn in secret.",
@@ -86,7 +79,7 @@ function stock(m: StageInfo): { kicker: string; title: string; line: string } {
       return {
         kicker: m.asset ? `${g} · ${m.asset}/USD` : g,
         title: "Waiting for an opponent",
-        line: WAITING_LINE[m.game](m.asset),
+        line: "",
       };
     case "setup":
       if (m.step === NO_TABLE_NOTE) return { kicker: `${g} · opponent found`, title: "Waiting for a table", line: tableWaitLine(m.deadline, Date.now()) };
@@ -322,7 +315,7 @@ export function MatchStage({
   /** Quiet text actions: cancel, check, refunds. */
   actions?: ReactNode;
   error?: string | null;
-  /** Under everything: receipts, the test-mode note. */
+  /** Under everything: receipts and supporting content. */
   children?: ReactNode;
 }) {
   const now = useNow(!!m.deadline);
@@ -348,7 +341,7 @@ export function MatchStage({
       <header className="stage-head">
         <span className="stage-kicker">{c.kicker}</span>
         <h1 className="stage-title">{c.title}</h1>
-        <p className="stage-line">{c.line}</p>
+        {c.line && <p className="stage-line">{c.line}</p>}
       </header>
       <div className="stage-arena">
         <ArenaSeat account={m.me} label={m.kind === "backer-watch" ? "Your Player" : "You"} state={mo.me} side="l" score={you} />
