@@ -696,12 +696,13 @@ export class BlockBurstChain {
    * tesoro_core Match from the result in the committed table's ring, by CPI as the Game authority PDA. Returns "" when it is
    * already settled. Fails with `NoResult` / `MatchNotOver` until the commit has landed.
    */
-  async finalize(payer: PlayerSigner, a: Assignment): Promise<string> {
-    if (!this.isLive(await this.readTesoroMatch(a.tesoroMatch))) return "";
-    const ix = await this.program.methods
+  /** The finalize instruction with `caller` paying the receipt's rent (the relayer, or the Player's wallet); null when the Match is already settled. */
+  async finalizeIx(caller: PublicKey, a: Assignment): Promise<TransactionInstruction | null> {
+    if (!this.isLive(await this.readTesoroMatch(a.tesoroMatch))) return null;
+    return this.program.methods
       .finalize()
       .accountsPartial({
-        caller: payer.publicKey,
+        caller,
         assignment: a.address,
         table: tablePda(a.generation, a.index),
         tesoroMatch: a.tesoroMatch,
@@ -715,6 +716,11 @@ export class BlockBurstChain {
         program: BLOCK_BURST_PROGRAM_ID,
       } as any)
       .instruction();
+  }
+
+  async finalize(payer: PlayerSigner, a: Assignment): Promise<string> {
+    const ix = await this.finalizeIx(payer.publicKey, a);
+    if (!ix) return "";
     return this.sendBase("finalize", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], [payer]);
   }
 
