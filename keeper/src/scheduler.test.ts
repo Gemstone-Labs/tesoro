@@ -117,6 +117,12 @@ describe("growing the tables", () => {
     assert.equal(g.settingUp, 2);
   });
 
+  it("counts a delegated table that could not be read as on its way: a failed read must not make another table", () => {
+    const g = planGrowth({ ...base, spare: 0, min: 0, rows: [row(0, "delegated", null), ...missing(3, 1)], waiting: 1 });
+    assert.deepEqual(g.steps, []);
+    assert.equal(g.settingUp, 1);
+  });
+
   it("does not seat a Game without private seats", () => {
     const g = planGrowth({ ...base, preSeated: false, spare: 0, min: 0, rows: [row(0, "delegated", { seatsCreated: false })] });
     assert.deepEqual(g.steps, []);

@@ -18,9 +18,12 @@ import { notifyJob } from "./notify.ts";
 import { notifyEventsJob } from "./notify-events.ts";
 import { priceJob, priceJobEnabled } from "./price.ts";
 import { Connection } from "@solana/web3.js";
+import { BLOCK_PUZZLE_PROGRAM_ID } from "../../app/src/games/block-puzzle/chain.ts";
 import { buildRuntime, clusterNow, fetchWithBackoff, newConnection, rateLimit } from "./runtime.ts";
 import { seasonJob } from "./season.ts";
-import { tablesJob } from "./scheduler-games.ts";
+import { FastLane, nextTurn } from "./lanes.ts";
+import { burstAdapter, tablesJob } from "./scheduler-games.ts";
+import { scanMatches } from "./matches.ts";
 import { treasuryJob } from "./treasury.ts";
 import { sponsorCompletionJob } from "./sponsor-completion.ts";
 
@@ -85,8 +88,30 @@ async function main() {
   }
 
   const alerts = alertsJob(health);
+  const fastLane = new FastLane({
+    scan: scanMatches,
+    clock: (c) => clusterNow(c.conn),
+    hotMs: 20_000,
+    quietMs: 5 * 60_000,
+    observe: async (c) => void c.budget.observe(await c.conn.getBalance(c.payer.publicKey)),
+    jobs: [["tables", (c) => tablesJob(c, [burstAdapter])], ["match", (c) => matchHygiene(c, BLOCK_PUZZLE_PROGRAM_ID)], ["history", historyJob]],
+  });
   let delay = s.intervalMs;
+  let fullAt = Date.now();
+  let fastAt: number | null = null;
   do {
+    // Between full passes the fast lane keeps Block Burst Matches moving; a rate-limited pass pauses it until the next full one.
+    while (!s.once && nextTurn({ fullAt, fastAt }) === "fast") {
+      await sleep(Math.max(0, fastAt! - Date.now()));
+      rateLimit.hits = 0;
+      try {
+        await fastLane.turn(ctx);
+      } catch (e) {
+        log("keeper", "-", `ERROR fast lane: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+      }
+      fastAt = rateLimit.hits > 0 ? null : Date.now() + s.fastMs;
+    }
+    await sleep(Math.max(0, fullAt - Date.now()));
     rateLimit.hits = 0;
     const started = Date.now();
     let ok = true;
@@ -104,7 +129,8 @@ async function main() {
     // Back off on 429s (doubling, capped); recover to the base interval on a clean pass.
     delay = rateLimit.hits > 0 ? Math.min(delay * 2, MAX_BACKOFF_MS) : s.intervalMs;
     if (rateLimit.hits > 0) log("keeper", "-", `rate limited ${rateLimit.hits}x, next pass in ${delay / 1000}s`);
-    await sleep(delay);
+    fullAt = Date.now() + delay;
+    fastAt = s.fastMs > 0 && rateLimit.hits === 0 ? Date.now() + s.fastMs : null;
   } while (true);
   log("keeper", "-", `pass done, spent ${(ctx.budget.spentLastHour() / 1e9).toFixed(5)} SOL this hour`);
 }

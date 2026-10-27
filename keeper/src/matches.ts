@@ -30,9 +30,12 @@ export async function scanMatches(ctx: Ctx): Promise<SchedMatch[]> {
   return (await allMatches(ctx)).map(({ publicKey, account }) => ({ address: publicKey, inner: account.inner, stage: viewOf(publicKey, account).stage }));
 }
 
-/** Job 1: Match hygiene for every open or active Match in tesoro_core. Returns the number of actions taken. */
-export async function matchHygiene(ctx: Ctx): Promise<number> {
-  const all = await allMatches(ctx);
+/**
+ * Job 1: Match hygiene for every open or active Match in tesoro_core. Returns the number of actions taken. `only` limits it to
+ * one Game's Matches (the fast lane runs it for Block Burst alone; the other Games' timings were set for the full pass).
+ */
+export async function matchHygiene(ctx: Ctx, only?: PublicKey): Promise<number> {
+  const all = (await allMatches(ctx)).filter(({ account }) => !only || pk(account.inner.game).equals(only));
   let actions = 0;
   let live = 0;
   const running: MatchView[] = [];

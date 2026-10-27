@@ -325,7 +325,10 @@ export function planGrowth(g: GrowthInput): Growth {
     if (r.base === "program") {
       steps.push({ do: "delegate_table", index: r.index });
       settingUp++;
-    } else if (r.base === "delegated" && r.view && g.preSeated && !r.view.seatsCreated) {
+    } else if (r.base === "delegated" && !r.view) {
+      // Delegated a moment ago, or the rollup read failed: either way it is not ready, and it must not make the Game build another.
+      settingUp++;
+    } else if (r.base === "delegated" && g.preSeated && !r.view!.seatsCreated) {
       steps.push({ do: "init_seats", index: r.index });
       settingUp++;
     } else if (isAvailable(r, g.promised, g.now)) ready++;
