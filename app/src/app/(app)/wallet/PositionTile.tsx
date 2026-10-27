@@ -2,7 +2,7 @@
 
 import { type ReactNode, useId, useState } from "react";
 import { ChevronDown, Lock, LockOpen } from "lucide-react";
-import { ChainGlyph, SimulatedYieldLabel } from "@/components/ui";
+import { ChainGlyph } from "@/components/ui";
 import { fmtInMinutes } from "@/lib/format";
 import type { Chain } from "@/lib/mock/types";
 import "./wallet.css";
@@ -200,7 +200,6 @@ export function PositionTile({
             </dd>
           </div>
         </dl>
-        <SimulatedYieldLabel />
         <div className="wl-actions">{children}</div>
         {notes && (
           <details className="wl-more">

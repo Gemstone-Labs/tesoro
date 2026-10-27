@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { Lock } from "lucide-react";
-import { Button, ChainGlyph, CountUp, CrossChainProgress, GemaMark, Sheet, Slider, SimulatedYieldLabel } from "@/components/ui";
+import { Button, ChainGlyph, CountUp, CrossChainProgress, GemaMark, Sheet, Slider } from "@/components/ui";
 import { DEFAULT_HORIZON_MONTHS, quoteAdvance } from "@/lib/advance";
 import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
 import { MOCK_NOW } from "@/lib/mock";
@@ -80,7 +80,6 @@ export function AdvanceFormView({
       </div>
 
       {alerts}
-      <SimulatedYieldLabel />
       <Button variant="money" size="lg" block disabled={disabled} onClick={onSubmit}>
         {buttonLabel}
       </Button>

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { TesoroLogo, XFollow } from "@/components/brand";
 import { ChainGlyph } from "@/components/ui";
-import { LAUNCH_STAGE } from "@/lib/landing/config";
 import { BRAND } from "@/lib/brand";
 
 const CHAINS = [
@@ -59,7 +58,6 @@ export function SiteFooter() {
       </div>
       <div className="site-foot-strip">
         <span className="site-foot-fair">Fair play · every result on record</span>
-        {LAUNCH_STAGE === "testnet" && <span className="site-foot-test">Test mode · simulated yield · 1 month = 10 min</span>}
         <span>© 2026 {BRAND.companyName}</span>
       </div>
     </footer>

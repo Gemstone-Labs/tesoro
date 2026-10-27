@@ -191,8 +191,6 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
   content: ""; width: 8px; height: 8px; background: var(--em);
   clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
 }
-.site-foot-test { padding: 4px 10px; border: 1px dashed rgba(242, 185, 75, 0.45); color: var(--warn); }
-.site-foot-test::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
 @media (min-width: 900px) {
   .site-foot-in { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr); }
   .site-foot-in, .site-foot-strip { padding-inline: 32px; }

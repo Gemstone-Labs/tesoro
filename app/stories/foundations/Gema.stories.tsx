@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Kit, Quote, Section } from "../kit/Kit";
-import { GemaAmount, GemaMark, SimulatedYieldLabel } from "@/components/ui/gema";
+import { GemaAmount, GemaMark } from "@/components/ui/gema";
 import { FacetCrown as FacetCrownLayer } from "@/components/ui/FacetCrown";
 
 const meta = { title: "Foundations/Gema mark and money art", parameters: { layout: "padded" } } satisfies Meta;
@@ -41,9 +41,6 @@ export const Amounts: Story = {
           <GemaAmount value={1250} mark={false} />
           <GemaAmount value={2500} glint size="lg" />
         </div>
-      </Section>
-      <Section title="Simulated yield label">
-        <SimulatedYieldLabel />
       </Section>
     </Kit>
   ),

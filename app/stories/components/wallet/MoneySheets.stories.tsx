@@ -187,7 +187,7 @@ export const InstantRedeemPartlyBought: Story = {
 };
 /** Right after the request was sent. */
 export const InstantRedeemSent: Story = {
-  render: () => exchange(offer([]), { gemas: 1500, later: false, instant: true, receipts: [{ label: "Offered for sale", sig: "5Kd3aXpQ9TqLm2VnYbT6uJc8HsRfE3aZoNqXd5iWcTYPLm2VnYbT6uJc8HsRfE3aZoNqXd5i" }] }),
+  render: () => exchange(offer([]), { gemas: 1500, later: false, instant: true }),
 };
 
 const redeemRows = [
