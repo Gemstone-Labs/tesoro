@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { matchProgress, stageRank } from "./match-progress";
 
 type Step = { stage: string; note?: string };
-type Sequence = { source: "recorded" | "synthetic"; note: string; game: string; steps: Step[] };
+type Sequence = { source: "recorded" | "synthetic"; note: string; game: string; steps: Step[]; /** false: the recording never proposed a step back (the default is true: the sequence is a test of the hold). */ stepsBack?: boolean };
 
 const DIR = join(__dirname, "match-sequences");
 const sequences = readdirSync(DIR)
@@ -23,9 +23,9 @@ describe("a Match page replaying the stages its reads proposed", () => {
       const p = matchProgress<object, string>("m");
       const shown = seq.steps.map((s) => p.stage(s.stage, s.note));
 
-      it("proposed a step back at least once, so the sequence is a real test", () => {
+      it("says truly whether it proposed a step back (most do, so the hold is exercised)", () => {
         const ranks = seq.steps.map(rankOf);
-        expect(ranks.some((r, i) => i > 0 && r < Math.max(...ranks.slice(0, i)))).toBe(true);
+        expect(ranks.some((r, i) => i > 0 && r < Math.max(...ranks.slice(0, i)))).toBe(seq.stepsBack ?? true);
       });
 
       it("never shows an earlier stage than one already shown", () => {
