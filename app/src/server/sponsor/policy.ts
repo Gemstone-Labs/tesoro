@@ -33,6 +33,10 @@ export interface Limits {
   cyclesPerDay: number;
   /** Calls to build a sponsored transaction per Account per day, whatever they are (stops build spam on exits). */
   buildsPerDay: number;
+  /** Game steps (finalize, refund_untabled) the relayer may send per Match: it fronts a receipt's rent for each, so a page cannot repeat them. */
+  gameStepsPerMatch: number;
+  /** Game steps that front a receipt's rent, across all Players per day (the keeper's sweep returns the rent within 14 days). */
+  rentExitsPerDay: number;
   /** Lamports held per obligation to pay for its exits. */
   completionReserve: bigint;
   /** The balance admissions must leave alone, on top of the exit holds. */
@@ -56,6 +60,8 @@ export const DEFAULT_LIMITS: Limits = {
   exitFailuresPerDay: 50,
   cyclesPerDay: 20,
   buildsPerDay: 2_000,
+  gameStepsPerMatch: 3,
+  rentExitsPerDay: 2_000,
   completionReserve: 300_000n,
   floor: 500_000_000n,
   onboardPerUser: 1,
@@ -160,6 +166,11 @@ export interface Balance {
 /** Whether an admission that can cost `plan.spend` plus `reserve` more may go ahead, keeping the floor and every exit hold. */
 export function admissionFits(limits: Limits, b: Balance, fronted: bigint, reserve: bigint): boolean {
   return b.lamports - b.held - limits.floor >= fronted + reserve;
+}
+
+/** A Game step fronts a receipt's rent as well as the fee: it may spend only what the exit holds do not already promise. */
+export function rentExitFits(b: Balance, cost: bigint): boolean {
+  return b.lamports - b.held >= cost;
 }
 
 /** Exits need only the fee: the floor and the holds exist so that this is always true. */
