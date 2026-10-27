@@ -162,3 +162,45 @@ describe("BurstDriver, waiting for a table", () => {
     d.stop();
   });
 });
+
+describe("BurstDriver, the result", () => {
+  const fixed = (running: "settling" | null): ChainMatch => ({ ...activeMatch(1), status: "settled", running, settled: { fee: 6, delta: 94, points: null } }) as unknown as ChainMatch;
+
+  it("shows the result as soon as it is fixed, keeps reading while the chunks pay, and refreshes the Player's Gemas once, at the end", async () => {
+    let state: ChainMatch | null = fixed("settling");
+    let reads = 0;
+    let refreshed = 0;
+    const fake = fakeChain(seatedTable());
+    const signer = { publicKey: joiner, signTransaction: async (t: never) => t, signMessage: async () => new Uint8Array(64) };
+    const d = new BurstDriver({ id: matchKey, signer: signer as never, accountKey: null, getToken: async () => null, chain: fake.chain, fetchMatch: async () => (reads++, state), onSettled: () => void refreshed++ });
+    d.start();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(d.view.stage).toBe("settled");
+    expect(refreshed).toBe(0);
+    const before = reads;
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(reads).toBeGreaterThan(before + 1);
+    expect(d.view.stage).toBe("settled");
+    state = fixed(null);
+    await vi.advanceTimersByTimeAsync(1_100);
+    expect(refreshed).toBe(1);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(refreshed).toBe(1);
+    d.stop();
+  });
+
+  it("an account that closed before the history has its row still ends the Match", async () => {
+    let state: ChainMatch | null = fixed("settling");
+    let refreshed = 0;
+    const fake = fakeChain(seatedTable());
+    const signer = { publicKey: joiner, signTransaction: async (t: never) => t, signMessage: async () => new Uint8Array(64) };
+    const d = new BurstDriver({ id: matchKey, signer: signer as never, accountKey: null, getToken: async () => null, chain: fake.chain, fetchMatch: async () => state, onSettled: () => void refreshed++ });
+    d.start();
+    await vi.advanceTimersByTimeAsync(300);
+    state = null;
+    await vi.advanceTimersByTimeAsync(1_100);
+    expect(d.view.stage).toBe("settled");
+    expect(refreshed).toBe(1);
+    d.stop();
+  });
+});
