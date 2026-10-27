@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "@/lib/auth/context";
+import { finalizeFree } from "@/lib/chain/game-finalize";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getHoldem } from "@/lib/chain/client";
@@ -75,6 +77,12 @@ const GRACE_MS = 15_000;
  * a lost race is harmless because each step re-reads chain state.
  */
 export function useHoldemMatch(id: string | null, signer: ChainSigner | null, onSettled?: () => void) {
+  const { getAccessToken } = useAuth();
+  // A ref keeps the token getter out of the effect dependencies: the Match loop must not restart when auth re-renders.
+  const tokenRef = useRef(getAccessToken);
+  useEffect(() => {
+    tokenRef.current = getAccessToken;
+  }, [getAccessToken]);
   const [view, setView] = useState<HoldemView>({
     stage: "loading",
     match: null,
@@ -154,7 +162,7 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
       if (!base || !canFinalizeTable(base, a, Date.now() / 1000)) return;
       setView((v) => (v.commit ? { ...v, commit: null } : v));
       try {
-        await hd.finalize(p, a);
+        await finalizeFree(hd, signer, () => tokenRef.current(), a);
       } catch (e) {
         // The other Player may have settled it in the same moment.
         const again = await fetchMatch(id, BlockPuzzleChain.coreAccount(signer.publicKey));

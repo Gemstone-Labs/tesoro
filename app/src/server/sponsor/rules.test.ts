@@ -3,7 +3,7 @@ import { BN } from "@coral-xyz/anchor";
 import { SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, growIx, linkEvmBridgeIx, signUpIx, joinMatchIx, key, openMatchIx, playerIx } from "./fixtures";
-import { CORE_ID, ORDER_RENT, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
+import { CORE_ID, ORDER_RENT, RECEIPT_RENT, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
 import { GAME_IDS } from "@/lib/chain/games";
 
 const relayer = key();
@@ -367,5 +367,36 @@ describe("Block Burst Live (ticket 28)", () => {
     });
     expect(plan([finalize([])])).toMatchObject({ kind: "game", class: "continue" });
     refused([finalize([{ pubkey: relayer, isSigner: false, isWritable: true }])], "relayer-in-accounts");
+  });
+  describe("a listed Game's finalize with the relayer as caller (ticket 04: the winner pays no SOL)", () => {
+    const FINALIZE = new Uint8Array([171, 61, 218, 56, 127, 115, 12, 217]);
+    const k = (pubkey = key(), isSigner = false, isWritable = false) => ({ pubkey, isSigner, isWritable });
+    const fin = (over: Partial<Ix> = {}): Ix => ({
+      programId: game,
+      keys: [k(relayer, true, true), k(), k(), k(key(), false, true), k()],
+      data: FINALIZE,
+      ...over,
+    });
+    it("is a game exit that costs the relayer the receipt's rent and needs no Player signature", () => {
+      expect(plan([fin()])).toMatchObject({ kind: "game", class: "exit", signers: [], playerSigns: false, spend: { refundable: RECEIPT_RENT, sunk: 0n } });
+    });
+    it("names the Match so the service can require it to exist", () => {
+      const f = fin();
+      expect(plan([f]).obligations).toEqual([f.keys[3].pubkey]);
+    });
+    it("is refused when the caller is not first, the relayer appears twice, or anyone else signs", () => {
+      refused([fin({ keys: [k(key(), true, true), k(relayer, false, false), k(), k()] })], "bad-signer");
+      refused([fin({ keys: [k(key(), false, true), k(relayer, false, false), k(), k()] })], "relayer-in-accounts");
+      refused([fin({ keys: [k(relayer, true, true), k(relayer), k(), k()] })], "relayer-in-accounts");
+      refused([fin({ keys: [k(relayer, true, true), k(key(), true), k(), k()] })], "bad-signer");
+      refused([fin({ keys: [k(relayer, false, true), k(), k(), k()] })], "bad-flags");
+    });
+    it("is refused for other instructions, other Games, extra instructions and pile-ups of accounts", () => {
+      refused([fin({ data: new Uint8Array([171, 61, 218, 56, 127, 115, 12, 218]) })], "relayer-in-accounts");
+      refused([fin({ programId: key() })], "unknown-program");
+      refused([fin(), fin()], "relayer-in-accounts");
+      refused([fin({ keys: [k(relayer, true, true), ...Array.from({ length: 30 }, () => k())] })], "bad-shape");
+      refused([fin({ data: new Uint8Array([...FINALIZE, 1]) })], "relayer-in-accounts");
+    });
   });
 });

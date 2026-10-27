@@ -15,6 +15,7 @@ vi.mock("react", () => ({
   useState: (value: unknown) => [value, vi.fn()],
   useEffect: (effect: () => void | (() => void)) => mocks.effects.push(effect),
 }));
+vi.mock("@/lib/auth/context", () => ({ useAuth: () => ({ getAccessToken: async () => null }) }));
 vi.mock("@/lib/chain/client", () => ({ getHoldem: mocks.getHoldem }));
 vi.mock("@/lib/chain/read", () => ({ fetchMatch: mocks.fetchMatch }));
 

@@ -432,8 +432,33 @@ function planBridge(ixs: Ix[], relayer: PublicKey): Plan {
   return { kind: "core", names: ["link_evm"], class: "admission", spend: { refundable: 0n, sunk: EVM_LINK_RENT }, cu: 200_000, obligations: [], pair: null, signers: [authority.pubkey], playerSigns: true, funders: [], onboarding: false, invite: false, noGemas: true };
 }
 
+/** Anchor discriminator of a Game's `finalize` (the same in every Game): permissionless, its caller pays the settlement receipt's rent. */
+export const GAME_FINALIZE_DISC = Buffer.from([171, 61, 218, 56, 127, 115, 12, 217]);
+/** Accounts of the largest Game finalize (Block Burst: 15), with room for none beyond. */
+const MAX_FINALIZE_KEYS = 16;
+/** Index of `tesoro_match` in a Game's finalize accounts (caller, assignment, table, tesoro_match). */
+const FINALIZE_MATCH_AT = 3;
+
+/**
+ * A Game's `finalize` with the relayer as `caller` (ticket 04): a Player with no SOL still settles. Anyone may call finalize,
+ * so nobody signs but the relayer; it is the only Game instruction where the relayer is an account. The receipt's rent is
+ * the relayer's to get back when the receipt closes, like a sponsored `refund_match`.
+ */
+function planGameFinalize(ix: Ix, relayer: PublicKey): Plan {
+  if (ix.keys.length > MAX_FINALIZE_KEYS || ix.keys.length <= FINALIZE_MATCH_AT) throw new RuleError("bad-shape", "That is not a Game finalize.");
+  ix.keys.forEach((k, i) => {
+    if (i === 0) {
+      if (!k.isSigner || !k.isWritable) throw new RuleError("bad-flags", "finalize: the caller signs and pays.");
+    } else if (k.pubkey.equals(relayer)) throw new RuleError("relayer-in-accounts", "finalize: the relayer may only be the caller.");
+    else if (k.isSigner) throw new RuleError("bad-signer", "finalize: nobody else signs.");
+  });
+  return { kind: "game", names: ["finalize"], class: "exit", spend: { refundable: RECEIPT_RENT, sunk: 0n }, cu: 400_000, obligations: [ix.keys[FINALIZE_MATCH_AT].pubkey], pair: null, signers: [], playerSigns: false, funders: [], onboarding: false, invite: false, noGemas: false };
+}
+
 function planGame(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
   const program = ixs[0].programId;
+  const first = ixs[0];
+  if (ixs.length === 1 && first.keys[0]?.pubkey.equals(relayer) && Buffer.from(first.data).equals(GAME_FINALIZE_DISC)) return planGameFinalize(first, relayer);
   if (ixs.length > MAX_GAME_IXS) throw new RuleError("bad-shape", "Too many instructions.");
   const signers = new Map<string, PublicKey>();
   for (const ix of ixs) {

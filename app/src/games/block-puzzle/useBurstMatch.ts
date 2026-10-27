@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "@/lib/auth/context";
+import { finalizeFree } from "@/lib/chain/game-finalize";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "./chain";
 import { getBurst } from "@/lib/chain/client";
@@ -95,6 +97,12 @@ const SLOT_EVERY_MS = 2_000;
  * harmless.
  */
 export function useBurstMatch(id: string | null, signer: ChainSigner | null, accountKey: string | null, onSettled?: () => void) {
+  const { getAccessToken } = useAuth();
+  // A ref keeps the token getter out of the effect dependencies: the Match loop must not restart when auth re-renders.
+  const tokenRef = useRef(getAccessToken);
+  useEffect(() => {
+    tokenRef.current = getAccessToken;
+  }, [getAccessToken]);
   const [view, setView] = useState<BurstView>({
     stage: "loading",
     match: null,
@@ -406,7 +414,7 @@ export function useBurstMatch(id: string | null, signer: ChainSigner | null, acc
           await chain.commitTable(p, a);
           break;
         case "finalize": {
-          const sig = await chain.finalize(p, a);
+          const sig = await finalizeFree(chain, signer, () => tokenRef.current(), a);
           addSig("finalize", sig, "base");
           break;
         }

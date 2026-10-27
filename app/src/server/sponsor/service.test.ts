@@ -249,6 +249,38 @@ describe("pause and the exit reserve", () => {
   });
 });
 
+describe("a Game's finalize with the relayer as caller (ticket 04)", () => {
+  const finalizeIx = (s: ReturnType<typeof setup>, matchState: PublicKey) => ({
+    programId: s.game,
+    keys: [
+      { pubkey: s.relayer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: key(), isSigner: false, isWritable: false },
+      { pubkey: key(), isSigner: false, isWritable: false },
+      { pubkey: matchState, isSigner: false, isWritable: true },
+    ],
+    data: new Uint8Array([171, 61, 218, 56, 127, 115, 12, 217]),
+  });
+  it("is built and sent with the relayer as the only signer and the fee payer: the Player's wallet pays nothing", async () => {
+    const matchState = key();
+    const s = setup({ existing: [matchState] });
+    const built = await s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]));
+    expect(built.class).toBe("exit");
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    expect(s.sent).toHaveLength(1);
+    const keys = s.sent[0].message.staticAccountKeys;
+    expect(s.sent[0].message.header.numRequiredSignatures).toBe(1);
+    expect(keys[0].equals(s.relayer.publicKey)).toBe(true);
+    expect(keys.some((k) => k.equals(s.player.publicKey))).toBe(false);
+  });
+  it("is refused for a Match that is not there, and for a wallet with no Account", async () => {
+    const s = setup();
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, key())]))).rejects.toMatchObject({ code: "no-obligation" });
+    const matchState = key();
+    const n = setup({ noAccount: true, existing: [matchState] });
+    await expect(n.sponsor.build(n.player.publicKey, wire([finalizeIx(n, matchState)]))).rejects.toMatchObject({ code: "no-account" });
+  });
+});
+
 describe("limits through the service", () => {
   it("failures are counted and then stop admissions", async () => {
     const s = setup({ sendFails: true, limits: { failuresPerDay: 1 } });
