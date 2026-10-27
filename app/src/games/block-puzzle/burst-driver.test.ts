@@ -144,3 +144,21 @@ describe("BurstDriver, reads", () => {
     expect(openerAt).toBeGreaterThanOrEqual(1_200);
   });
 });
+
+describe("BurstDriver, waiting for a table", () => {
+  it("looks for the Assignment twice a second, not once", async () => {
+    const fake = fakeChain(seatedTable());
+    let asks = 0;
+    let assigned = false;
+    (fake.chain as unknown as { readAssignment: () => Promise<unknown> }).readAssignment = async () => (asks++, assigned ? fixtureAssignment({ startDeadline: 4_000_000_000 }) : null);
+    const d = driverFor(1, fake);
+    d.start();
+    await vi.advanceTimersByTimeAsync(2_000);
+    assigned = true;
+    asks = 0;
+    await vi.advanceTimersByTimeAsync(700);
+    expect(asks).toBeGreaterThanOrEqual(1);
+    expect(fake.sent.map((s) => s.step)).toEqual(["seatPlayers"]);
+    d.stop();
+  });
+});

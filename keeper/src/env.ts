@@ -57,7 +57,7 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
     gpaRpc: rpcOr(value("gpa-rpc") || env.KEEPER_GPA_RPC, "KEEPER_GPA_RPC", cluster.solana.defaultGpaRpc),
     keypairPath: env.KEEPER_KEYPAIR ?? join(homedir(), ".config/tesoro/keeper.json"),
     intervalMs: num(value("interval") ?? env.KEEPER_INTERVAL_SECS, 20) * 1000,
-    fastMs: num(value("fast") ?? env.KEEPER_FAST_SECS, 4) * 1000,
+    fastMs: num(value("fast") ?? env.KEEPER_FAST_SECS, 2) * 1000,
     once: flag("once"),
     hourlyCapLamports: Math.round(num(value("max-sol-per-hour") ?? env.KEEPER_MAX_SOL_PER_HOUR, 0.5) * LAMPORTS_PER_SOL),
     maxLzFeeLamports: Math.round(num(value("max-lz-fee-sol") ?? env.KEEPER_MAX_LZ_FEE_SOL, 0.005) * LAMPORTS_PER_SOL),

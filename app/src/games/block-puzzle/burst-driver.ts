@@ -114,6 +114,7 @@ const stateKey = (t: Table | null, a: Assignment | null) =>
 
 const SLOT_EVERY_MS = 2_000;
 const TICK_MS = 1_000;
+const ASSIGNMENT_POLL_MS = 500;
 
 export interface BurstDriverDeps {
   id: string;
@@ -143,6 +144,7 @@ export class BurstDriver {
   /** A push or a deadline arrived while a tick was running: run one more as soon as it ends. */
   private again = false;
   private wakes = new Set<ReturnType<typeof setTimeout>>();
+  private assignWake: ReturnType<typeof setTimeout> | null = null;
   private assign: Assignment | null = null;
   private tableRef: Table | null = null;
   private tableAt = 0;
@@ -229,6 +231,8 @@ export class BurstDriver {
     this.timers = [];
     for (const w of this.wakes) clearTimeout(w);
     this.wakes.clear();
+    if (this.assignWake) clearTimeout(this.assignWake);
+    this.assignWake = null;
     this.stopFeed?.();
     this.stopFeed = null;
     this.d.chain.onTx = undefined;
@@ -366,6 +370,13 @@ export class BurstDriver {
       }
     }
     const a = this.assign;
+    // Joined, and the operator has not bound a table yet: look twice a second, not once (the table is the next thing to happen).
+    if (!a && m.status === "active" && !this.assignWake) {
+      this.assignWake = setTimeout(() => {
+        this.assignWake = null;
+        void this.tick();
+      }, ASSIGNMENT_POLL_MS);
+    }
 
     if (m.status === "settled" || m.status === "refunded") {
       if (a && !this.baseRef) {
