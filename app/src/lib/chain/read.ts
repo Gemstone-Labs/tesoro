@@ -7,6 +7,7 @@ import { getChain } from "./client";
 import { gameOfProgram } from "./games";
 import { isHiddenGame } from "../games";
 import { matchAddressOf, matchKeyOf, parseMatchKey } from "./match-id";
+import { readScores } from "./settled";
 import { burstSession, type BurstSession } from "./burst-read";
 import { canJoinSeat as seatsCanPair } from "./queue";
 import { fetchLeaderboardTerms } from "./leaderboard";
@@ -311,6 +312,7 @@ export function chainMatchFromPage(p: MatchPage, me: PublicKey | null): ChainMat
   const backedSeat = seat !== null && sides[seat]?.funder !== sides[seat]?.player ? seat : backerSeat;
   const backedSide = backedSeat === null ? null : sides[backedSeat];
   const draw = p.winnerSide === null && p.kind === 2;
+  const scores = readScores(p.scores);
   const settled = p.status === "settled";
   return {
     id: p.id,
@@ -332,8 +334,8 @@ export function chainMatchFromPage(p: MatchPage, me: PublicKey | null): ChainMat
     backing: backedSeat !== null && backedSide ? { seat: backedSeat, player: backedSide.player, funder: backedSide.funder, shareBps: backedSide.shareBps } : null,
     fees: { platformBps: 0, studioBps: 0, leaderboardBps: 0 },
     winner: p.winnerSide === 0 ? "opener" : p.winnerSide === 1 ? "joiner" : null,
-    session: p.scores
-      ? { settled: settled || draw, result: p.winnerSide === 0 ? "opener" : p.winnerSide === 1 ? "joiner" : "draw", scores: p.scores, seed: 0n }
+    session: scores
+      ? { settled: settled || draw, result: p.winnerSide === 0 ? "opener" : p.winnerSide === 1 ? "joiner" : "draw", scores, seed: 0n }
       : null,
   };
 }

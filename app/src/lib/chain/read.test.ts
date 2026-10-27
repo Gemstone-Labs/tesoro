@@ -120,6 +120,10 @@ describe("a closed Match from the history", () => {
     expect(m.session).toMatchObject({ settled: true, result: "joiner", scores: [200, 410] });
     expect(m.address.equals(matchPda(a, 9n))).toBe(true);
   });
+  it("has no session scores when the history sent a pair of nulls", () => {
+    const m = chainMatchFromPage({ ...page, scores: [null, null] as unknown as [number, number] }, b)!;
+    expect(m.session).toBeNull();
+  });
   it("is null for a Game this app does not play", () => {
     expect(chainMatchFromPage({ ...page, game: "chess" }, null)).toBeNull();
   });

@@ -1,4 +1,5 @@
 import type { HistoryRow } from "./history";
+import { readScores } from "./settled";
 
 export interface HistoryPageData {
   rows: HistoryRow[];
@@ -6,6 +7,9 @@ export interface HistoryPageData {
   pages: number;
   total: number;
 }
+
+/** The wire can carry a pair of nulls for a Match without scores; a row has a real pair or none. */
+const cleanRow = (r: HistoryRow): HistoryRow => ({ ...r, scores: readScores(r.scores) });
 
 /**
  * One page of an Account's finished Matches from the history route. Null when the history is not available
@@ -18,7 +22,8 @@ export async function fetchHistoryPage(account: string, page = 1, game: string |
     if (game) q.set("game", game);
     const res = await fetcher(`/api/history/${account}?${q}`);
     if (!res.ok) return null;
-    return (await res.json()) as HistoryPageData;
+    const data = (await res.json()) as HistoryPageData;
+    return { ...data, rows: data.rows.map(cleanRow) };
   } catch {
     return null;
   }
@@ -29,7 +34,7 @@ export async function fetchAllHistory(account: string, fetcher: typeof fetch = (
   try {
     const res = await fetcher(`/api/history/${account}?all=1`);
     if (!res.ok) return null;
-    return ((await res.json()) as HistoryPageData).rows;
+    return ((await res.json()) as HistoryPageData).rows.map(cleanRow);
   } catch {
     return null;
   }
