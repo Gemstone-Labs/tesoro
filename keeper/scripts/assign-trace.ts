@@ -37,7 +37,9 @@ const conn = newConnection(s.rpc, s.gpaRpc);
 const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m), new Connection(s.gpaRpc, { fetch: fetchWithBackoff as typeof fetch }));
 const ctx: Ctx = { ...buildRuntime(s, conn, payer), budget: new Budget(s.hourlyCapLamports), lz: new Budget(s.lzHourlyCapLamports) };
 const lane = new FastLane({
-  scan: scanMatches,
+  scan: (c) => scanMatches(c, { fresh: true }),
+  idleEveryMs: 1000,
+  busyEveryMs: 2000,
   probe: async (c) => (await c.conn.getSignaturesForAddress(c.core.programId, { limit: 1 }, "confirmed"))[0]?.signature ?? null,
   idleScanMs: 60_000,
   clock: (c) => clusterNow(c.conn),
@@ -52,6 +54,6 @@ while (Date.now() < end) {
   let ran = -1;
   try { ran = await lane.turn(ctx, t); } catch (e) { emit({ type: "error", turn, e: String(e) }); }
   emit({ type: "turn", turn, t, ms: Date.now() - t, ran });
-  await new Promise((r) => setTimeout(r, Math.max(0, 2000 - (Date.now() - t))));
+  await new Promise((r) => setTimeout(r, lane.delayMs(t, Date.now())));
 }
 process.exit(0);
