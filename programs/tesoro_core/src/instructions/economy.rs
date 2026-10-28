@@ -145,8 +145,10 @@ pub(crate) fn native_rates(position: &Position, pool: &SimPool) -> Result<Rates>
     })
 }
 
+/// Stake Positions count yield at the higher of the rate now and the highest rate their yield was
+/// priced at (ticket 55); payouts still convert at the rate now.
 pub(crate) fn stake_rates(position: &Position, rate: u64) -> Result<Rates> {
-    let accrued = ledger::stake_position_accrued(position, rate).map_err(core_err)?;
+    let accrued = ledger::stake_position_counted(position, rate).map_err(core_err)?;
     Ok(Rates {
         accrued,
         rate: ShareRate::stake(rate).map_err(core_err)?,

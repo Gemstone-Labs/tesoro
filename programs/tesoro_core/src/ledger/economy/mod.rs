@@ -231,7 +231,17 @@ pub fn sync_source<S: ClassSlots, C: CheckpointStore + ?Sized>(
         .ok_or(CoreError::Math)?;
     let landing = book.land(target, shares, ck)?;
     position.held_shares = held;
+    note_priced_rate(position, rate)?;
     Ok(Synced { landing, shares })
+}
+
+/// A stake Position's yield was just priced at `rate`: its highest priced rate follows (ticket 55).
+fn note_priced_rate(position: &mut Position, rate: &ShareRate) -> CoreResult<()> {
+    if position.stake_rate_open != 0 {
+        let r = u64::try_from(rate.per_share()).map_err(|_| CoreError::Math)?;
+        position.stake_rate_high = position.stake_rate_high.max(r);
+    }
+    Ok(())
 }
 
 /// The owner takes the book's pocket: coverage no holder is owed (excess yield, `return_own`'s
@@ -285,6 +295,9 @@ pub fn bank_free_yield(position: &mut Position, net: u64, rate: &ShareRate) -> C
         .checked_add(shares)
         .ok_or(CoreError::Math)?;
     position.applied_net = position.applied_net.max(net);
+    if delta > 0 {
+        note_priced_rate(position, rate)?;
+    }
     Ok(())
 }
 

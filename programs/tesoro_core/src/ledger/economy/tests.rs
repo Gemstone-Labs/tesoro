@@ -6,7 +6,7 @@ use crate::ledger::line_store::{
 };
 use crate::ledger::yield_fee::{cash_out, exit_terms};
 use crate::ledger::{
-    principal_for_shares, stake_position_accrued, tokens_for_units, SourceChain, STAKE_RATE_SCALE,
+    principal_for_shares, stake_position_counted, tokens_for_units, SourceChain, STAKE_RATE_SCALE,
 };
 use proptest::prelude::*;
 
@@ -59,6 +59,7 @@ impl World {
         let mut pos =
             Position::new(OWNER, SourceChain::Solana, [7; 32], 9, principal, 500).unwrap();
         pos.stake_rate_open = R0;
+        pos.stake_rate_high = R0;
         pos.yield_fee_bps = FEE;
         pos.custody_shares = shares;
         let route = RouteLedger {
@@ -89,8 +90,9 @@ impl World {
         ShareRate::stake(self.rate).unwrap()
     }
 
+    /// Counted yield, as the instructions read it (`stake_rates`).
     fn net(&self) -> u64 {
-        stake_position_accrued(&self.pos, self.rate).unwrap()
+        stake_position_counted(&self.pos, self.rate).unwrap()
     }
 
     /// Takes an Advance of `months`, closing the previous one if it is repaid.
@@ -585,6 +587,46 @@ fn a_prize_source_is_sized_in_gemas_by_the_value_of_its_shares() {
     let r = ShareRate::stake(R0).unwrap();
     let g = gemas_for_shares(u128::from(SOL), &r, 9, PRICE).unwrap();
     assert_eq!(g, 19_500);
+}
+
+#[test]
+fn the_highest_priced_rate_moves_only_when_yield_lands_and_counted_yield_never_drops() {
+    let mut w = World::new(10 * SOL);
+    w.pos.stake_rate_high = R0;
+    w.advance(12).unwrap();
+    // A rise nobody syncs is not priced.
+    w.rate = R0 + R0 / 10;
+    assert_eq!(w.pos.stake_rate_high, R0);
+    w.rate = R0 + R0 / 20;
+    w.sync(0).unwrap();
+    assert_eq!(w.pos.stake_rate_high, R0 + R0 / 20, "a landing prices at the rate of the moment");
+    let counted = w.net();
+    // A fall prices nothing and counts what was priced.
+    w.rate = R0 + R0 / 40;
+    let held = w.pos.held_shares;
+    w.sync(0).unwrap();
+    assert_eq!((w.pos.stake_rate_high, w.pos.held_shares), (R0 + R0 / 20, held));
+    assert_eq!(w.net(), counted, "counted yield stays at the highest priced rate");
+    assert_eq!(
+        stake_position_counted(&w.pos, R0 - R0 / 10).unwrap(),
+        counted,
+        "even below the opening rate"
+    );
+    // Idle yield banked with no Advance open moves it too; nothing banked, nothing moves.
+    let mut idle = World::new(10 * SOL);
+    idle.pos.stake_rate_high = R0;
+    idle.rate = R0 - R0 / 10;
+    let (net, rate) = (idle.net(), idle.share_rate());
+    bank_free_yield(&mut idle.pos, net, &rate).unwrap();
+    assert_eq!(idle.pos.stake_rate_high, R0);
+    idle.rate = R0 + R0 / 8;
+    let (net, rate) = (idle.net(), idle.share_rate());
+    bank_free_yield(&mut idle.pos, net, &rate).unwrap();
+    assert_eq!(idle.pos.stake_rate_high, R0 + R0 / 8);
+    // A Position that is not a stake Position never gets one.
+    let mut native = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, SOL, 500).unwrap();
+    bank_free_yield(&mut native, SOL, &ShareRate::native(1_100_000_000).unwrap()).unwrap();
+    assert_eq!(native.stake_rate_high, 0);
 }
 
 // --- Property: random lives of a Position, with slashes ----------------------------------------
