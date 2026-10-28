@@ -119,7 +119,8 @@ export const ROWS: Readonly<Record<string, Row>> = {
   // relayer slot. `extra` is the books (and pages) of the Sources a Redeem or an order touches.
   redeem: { class: "exit", relayer: [], cu: 600_000, extra: 60, playerSigns: true },
   redeem_prize: { class: "exit", relayer: [], cu: 400_000, extra: 12, playerSigns: true },
-  unlock: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
+  // Unlock passes the payout token account, the custody and vault, and the closing Advance's Source with its book and pages as remaining accounts.
+  unlock: { class: "exit", relayer: [], cu: 600_000, extra: 60, playerSigns: true },
   claim_free_yield: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
   cancel_offer: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
   cancel_request: { class: "exit", relayer: [], cu: 100_000, playerSigns: true },
@@ -214,7 +215,8 @@ export interface Plan {
   /** Only atomic first-payout preparation; live Position and Book semantics are verified by the service. */
   setup?: {
     position: PublicKey;
-    source: PublicKey;
+    /** Null for an Unlock without checkpoint pages: it needs no Source check. */
+    source: PublicKey | null;
     pages: { book: PublicKey; page: PublicKey; classId: number; pageNo: number }[];
     ata?: { address: PublicKey; mint: PublicKey };
   };
@@ -224,12 +226,16 @@ export interface Plan {
 function planPreparedExit(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
   const terminal = ixs.at(-1)!;
   const decoded = terminal.programId.equals(CORE_ID) ? coder.decode(Buffer.from(terminal.data)) : null;
-  if (!decoded || !["redeem", "request_instant_redeem"].includes(decoded.name) || ixs.length > 32) throw new RuleError("bad-shape", "Payout setup must finish with one Redeem or Instant Redeem request.");
+  if (!decoded || !["redeem", "request_instant_redeem", "unlock"].includes(decoded.name) || ixs.length > 32) throw new RuleError("bad-shape", "Payout setup must finish with one Redeem, Instant Redeem request or Unlock.");
   const plan = planCore([terminal], relayer);
   const def = idlIx(decoded.name)!;
   const named = new Map(def.accounts.map((a, i) => [a.name, terminal.keys[i].pubkey]));
-  if (!named.get("holder_authority")?.equals(player)) throw new RuleError("bad-signer", "The Player must own the payout being prepared.");
-  const source = named.get("source")!, position = named.get("position")!;
+  if (!(named.get("holder_authority") ?? named.get("owner_authority"))?.equals(player)) throw new RuleError("bad-signer", "The Player must own the payout being prepared.");
+  const position = named.get("position")!;
+  // An Unlock names no Source: the one it closes travels in its remaining accounts, found by the book its pages point at.
+  // The service checks it is the Position's open Advance.
+  const unlockSource = (book: PublicKey) => terminal.keys.slice(def.accounts.length).find((k) => k.isWritable && bookPda(k.pubkey).equals(book))?.pubkey;
+  let source: PublicKey | null = named.get("source") ?? null;
   const setup: NonNullable<Plan["setup"]> = { source, position, pages: [] };
   const used = new Set<string>();
   const inPayout = (key: PublicKey) => terminal.keys.some((k) => k.pubkey.equals(key) && k.isWritable);
@@ -246,6 +252,8 @@ function planPreparedExit(ixs: Ix[], relayer: PublicKey, player: PublicKey): Pla
       const page = ix.programId.equals(CORE_ID) ? coder.decode(Buffer.from(ix.data)) : null;
       if (page?.name !== "init_ckpt_page" || ix.data.length !== 13 || ix.keys.length !== 4) throw new RuleError("bad-shape", "Only payout token and checkpoint accounts may precede a Redeem.");
       const [payer, book, address, system] = ix.keys;
+      if (!source) setup.source = source = unlockSource(book.pubkey) ?? null;
+      if (!source) throw new RuleError("bad-account", "The checkpoint must belong to the Source this payout closes.");
       const flags = [[true, true], [false, false], [false, true], [false, false]];
       if (ix.keys.some((k, i) => k.isSigner !== flags[i][0] || k.isWritable !== flags[i][1])) throw new RuleError("bad-flags", "Payout checkpoint flags are invalid.");
       const args = page.data as { class: number; pageNo?: number; page_no?: number };

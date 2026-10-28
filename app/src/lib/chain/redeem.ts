@@ -3,12 +3,13 @@ import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import { bookPda, ckptPda, CLASS_PLATFORM, CLASS_LEADERBOARD } from "./basket";
 import { decodeBook, type SourceBookView } from "./book";
-import { coreIx, coreIxName } from "./core-ix";
+import { coreIx } from "./core-ix";
+import { planExit } from "./exit-route";
 import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
 import type { ChainHolding } from "./read";
 import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
-import { ASSOCIATED_TOKEN_PROGRAM_ID, SIM_SOL_MINT, TESORO_CORE_ID, accountPda, redeemIx, simSolAta, sourcePda, unlockIx, type LineTarget, type PrevAdvance } from "./native";
+import { SIM_SOL_MINT, accountPda, redeemIx, simSolAta, sourcePda, unlockIx, type LineTarget, type PrevAdvance } from "./native";
 import { createAtaIdempotentIx, tokenAta } from "./stake-pool";
 import { redeemStakeIx, stakeTokenOf, unlockStakeIx, type StakeToken } from "./stake";
 
@@ -72,20 +73,12 @@ export async function sourceAccounts(conn: Reader, source: PublicKey, known: Pub
   return { accounts: unique([bookPda(source), ...known, ...plan.accounts]), create: plan.create };
 }
 
-/** The first payout's canonical token account and checkpoint pages may be funded with its Redeem. */
+/** Sends one of the Player's exits as `planExit` says: free or with setup paid by the relayer when the sponsor accepts it, else self-pay. */
 export async function exitSend(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[], opts: { sponsor?: boolean; selfPayIxs?: TransactionInstruction[] } = {}): Promise<string> {
-  const setup = (ix: TransactionInstruction) => coreIxName(ix) === "init_ckpt_page" || ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID);
-  const prefix = ixs.slice(0, -1);
-  const prepared = prefix.length > 0 && ["redeem", "request_instant_redeem"].includes(coreIxName(ixs.at(-1)!) ?? "") && prefix.every(setup);
-  const free = prepared || ixs.every((ix) => ix.programId.equals(TESORO_CORE_ID) && coreIxName(ix) !== "init_ckpt_page");
-  if (free && opts.sponsor !== false) {
+  if (opts.sponsor !== false) {
     try {
-      const relayer = prepared ? new PublicKey((await sponsorStatus()).relayer) : null;
-      const sponsored = relayer ? ixs.map((ix, i) => i === ixs.length - 1 ? ix : new TransactionInstruction({
-        programId: ix.programId, data: ix.data,
-        keys: ix.keys.map((k, j) => j === 0 ? { ...k, pubkey: relayer } : k),
-      })) : ixs;
-      return await sponsoredSend(signer, getToken, sponsored);
+      const route = planExit(ixs, signer.publicKey, new PublicKey((await sponsorStatus()).relayer));
+      if (route.kind !== "self-pay") return await sponsoredSend(signer, getToken, route.ixs);
     } catch (e) {
       if (!(e instanceof SponsorError) || !(e.selfPay || e.code === "unsupported-wallet")) throw e;
     }

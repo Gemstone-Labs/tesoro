@@ -1,6 +1,4 @@
 import { PublicKey, TransactionMessage, VersionedTransaction, type Connection, type TransactionInstruction } from "@solana/web3.js";
-import { coreIxName } from "./core-ix";
-import { TESORO_CORE_ID } from "./native";
 import { tokensToLamports } from "./stake-pool";
 
 /**
@@ -55,16 +53,6 @@ export function shortfallCopy({ gapLamports, principalLamports, symbol, after = 
       ? `You got back what was left of your ${symbol}, about ${sol(gapLamports)} SOL less than the ${locked} SOL you locked: the staking token's rate fell after your yield was paid.`
       : `Unlock gives back what is left of your ${symbol}, about ${sol(gapLamports)} SOL less than the ${locked} SOL you locked: the staking token's rate fell after your yield was paid.`,
   };
-}
-
-/**
- * Who pays the fee when this exit is really sent: the relayer when every instruction is a core one (`exitSend`'s free path),
- * the Player when it also creates an account. A Player with no SOL cannot be the payer of a sponsored send, so neither can
- * the dry run.
- */
-export function unlockFeePayer(ixs: readonly TransactionInstruction[], player: PublicKey, relayer: PublicKey): PublicKey {
-  const sponsored = ixs.every((ix) => ix.programId.equals(TESORO_CORE_ID) && coreIxName(ix) !== "init_ckpt_page");
-  return sponsored ? relayer : player;
 }
 
 export type UnlockPreview =

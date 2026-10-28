@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getChain } from "@/lib/chain/client";
 import { unlockIxs } from "@/lib/chain/redeem";
-import { previewUnlockShortfall, shortfallCopy, shortfallLamports, unlockFeePayer } from "@/lib/chain/unlock-shortfall";
+import { planExit } from "@/lib/chain/exit-route";
+import { previewUnlockShortfall, shortfallCopy, shortfallLamports } from "@/lib/chain/unlock-shortfall";
 import { sponsorStatus } from "@/lib/chain/sponsor-client";
 import type { NativeInfo } from "@/lib/chain/native";
 import { PublicKey } from "@solana/web3.js";
@@ -38,7 +39,8 @@ export function useUnlockShortfall(info: NativeInfo, payer: PublicKey | undefine
       try {
         const ixs = await unlockIxs(payer, latest.current);
         const relayer = new PublicKey((await sponsorStatus()).relayer);
-        const found = await previewUnlockShortfall(getChain().base, unlockFeePayer(ixs, payer, relayer), ixs);
+        const route = planExit(ixs, payer, relayer);
+        const found = await previewUnlockShortfall(getChain().base, route.feePayer, route.ixs);
         if (live) setGap(found.state === "short" ? shortfallLamports(found.shortfall.gapShares, rate) : null);
       } catch (e) {
         console.warn("Unlock dry run could not run", e);
