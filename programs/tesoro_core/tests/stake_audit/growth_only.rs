@@ -130,7 +130,10 @@ fn growth_only_counted_yield_never_drops_so_a_close_after_a_fall_banks_no_phanto
     let (release, treasury) = unlock_at(&mut env, &ana, pos, 1_300_000_000_000);
     assert_eq!(treasury, 0);
     assert_eq!(release, rest);
-    assert!(free_before > 0, "the returned ready Gemas are the owner's pocket");
+    assert!(
+        free_before > 0,
+        "the returned ready Gemas are the owner's pocket"
+    );
 }
 
 #[test]

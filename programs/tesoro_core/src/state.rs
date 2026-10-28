@@ -1659,8 +1659,15 @@ mod position_layout {
     const HIGH: u64 = 1_320_000_000_000;
 
     fn sample(open: Option<u32>) -> PositionState {
-        let mut p = Position::new([1; 32], SourceChain::Solana, [7; 32], 9, 12_000_000_000, 1_000)
-            .unwrap();
+        let mut p = Position::new(
+            [1; 32],
+            SourceChain::Solana,
+            [7; 32],
+            9,
+            12_000_000_000,
+            1_000,
+        )
+        .unwrap();
         p.open_advance = open;
         p.advances = 5;
         p.stake_rate_open = 1_200_000_000_000;
@@ -1729,7 +1736,10 @@ mod position_layout {
             sample(open).try_serialize(&mut buf).unwrap();
             assert_eq!(buf.len(), end);
             assert_eq!(buf[122], u8::from(open.is_some()));
-            assert_eq!(u64::from_le_bytes(buf[end - 8..end].try_into().unwrap()), HIGH);
+            assert_eq!(
+                u64::from_le_bytes(buf[end - 8..end].try_into().unwrap()),
+                HIGH
+            );
             let old_end = end - 8;
             assert_eq!(v1_bytes(&sample(open), 0)[..old_end], buf[..old_end]);
         }

@@ -207,7 +207,11 @@ fn a_legacy_lock_owing_holders_more_than_its_custody_unlocks_only_when_the_treas
     env.fund_treasury(1);
     let start = env.token_balance(ana.token);
     env.unlock(&ana, pos).unwrap();
-    assert_eq!(env.token_balance(ana.token), start, "the owner gets nothing back");
+    assert_eq!(
+        env.token_balance(ana.token),
+        start,
+        "the owner gets nothing back"
+    );
     let r = env.route();
     assert_eq!(r.owed_shares, 10_348_956_599);
     assert_eq!(r.treasury_shares, 10_348_956_599);

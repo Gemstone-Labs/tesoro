@@ -349,7 +349,10 @@ pub fn check_stake_issuance(position: &Position, rate: &ShareRate, src: &Source)
     if rate.per_share() < u128::from(super::stake_rate_peak(position)) {
         return Err(CoreError::RateBelowPeak);
     }
-    let live = src.issued.checked_sub(src.returned).ok_or(CoreError::Math)?;
+    let live = src
+        .issued
+        .checked_sub(src.returned)
+        .ok_or(CoreError::Math)?;
     let commit = mul_div_u128(
         u128::from(live),
         src.unit_num,
@@ -700,11 +703,12 @@ pub fn route_after_unlock(
         .checked_sub(payout.claims_funded_shares)
         .ok_or(CoreError::Math)?;
     next.receive(u128::from(received))?;
-    next.add_owed(u128::from(payout.owed_shares))
-        .map_err(|e| match (e, payout.claims_funded_shares) {
+    next.add_owed(u128::from(payout.owed_shares)).map_err(|e| {
+        match (e, payout.claims_funded_shares) {
             (CoreError::OwedExceedsTreasury, 1..) => CoreError::GrowthClaimsUnfunded,
             (e, _) => e,
-        })?;
+        }
+    })?;
     let shortfall = u128::from(payout.shortfall_shares);
     let top = shortfall.min(next.spendable());
     next.spend(top)?;

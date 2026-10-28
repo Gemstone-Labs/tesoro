@@ -1326,7 +1326,10 @@ fn open_with_the_token_records_the_staking_rate_and_moves_the_shares_to_the_vaul
     assert_eq!(rate, 1_300_000_000_000);
     assert_eq!(p.source_asset, env.mint.to_bytes());
     assert_eq!(p.stake_rate_open, rate);
-    assert_eq!(p.stake_rate_high, rate, "nothing priced yet: the highest rate is the open one");
+    assert_eq!(
+        p.stake_rate_high, rate,
+        "nothing priced yet: the highest rate is the open one"
+    );
     assert_eq!(p.custody_shares, 10 * SOL);
     assert_eq!(p.principal, 13 * SOL, "10 tokens at 1.30 are 13 SOL");
     assert_eq!(p.yield_fee_bps, YIELD_FEE_BPS);

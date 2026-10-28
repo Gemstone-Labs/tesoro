@@ -505,7 +505,9 @@ fn positions_retire_only_when_stale_and_only_once() {
         tesoro_core::ID,
         with_disc(PositionState::DISCRIMINATOR, PositionStateV1::SPACE),
     );
-    let err = env.retire_position(&admin, unmigrated).expect_err("235 bytes");
+    let err = env
+        .retire_position(&admin, unmigrated)
+        .expect_err("235 bytes");
     assert_eq!(custom_code(&err), NOT_OLD_WORLD);
     assert!(!env.gone(unmigrated));
     let err = env.retire_position(&admin, old).expect_err("twice");

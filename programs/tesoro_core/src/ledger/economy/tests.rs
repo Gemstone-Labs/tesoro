@@ -322,8 +322,8 @@ impl World {
             // Ticket 55 cap: every Source's commitment fit under Principal when it was issued.
             if let Some(i) = self.pos.open_advance {
                 let src = &self.srcs[i as usize];
-                let commit = (src.issued - src.returned) as u128 * src.unit_num
-                    / u128::from(src.unit_den);
+                let commit =
+                    (src.issued - src.returned) as u128 * src.unit_num / u128::from(src.unit_den);
                 assert!(
                     u128::from(self.issued_at_net[i as usize]) + commit
                         <= u128::from(self.pos.principal) + 1,
@@ -621,14 +621,25 @@ fn the_highest_priced_rate_moves_only_when_yield_lands_and_counted_yield_never_d
     assert_eq!(w.pos.stake_rate_high, R0);
     w.rate = R0 + R0 / 20;
     w.sync(0).unwrap();
-    assert_eq!(w.pos.stake_rate_high, R0 + R0 / 20, "a landing prices at the rate of the moment");
+    assert_eq!(
+        w.pos.stake_rate_high,
+        R0 + R0 / 20,
+        "a landing prices at the rate of the moment"
+    );
     let counted = w.net();
     // A fall prices nothing and counts what was priced.
     w.rate = R0 + R0 / 40;
     let held = w.pos.held_shares;
     w.sync(0).unwrap();
-    assert_eq!((w.pos.stake_rate_high, w.pos.held_shares), (R0 + R0 / 20, held));
-    assert_eq!(w.net(), counted, "counted yield stays at the highest priced rate");
+    assert_eq!(
+        (w.pos.stake_rate_high, w.pos.held_shares),
+        (R0 + R0 / 20, held)
+    );
+    assert_eq!(
+        w.net(),
+        counted,
+        "counted yield stays at the highest priced rate"
+    );
     assert_eq!(
         stake_position_counted(&w.pos, R0 - R0 / 10).unwrap(),
         counted,
@@ -705,7 +716,10 @@ fn yearly_advances_at_twenty_percent_stop_after_four_years() {
         }
         w.rate = w.rate + w.rate / 5;
     }
-    assert_eq!(ok, vec![(1, true), (2, true), (3, true), (4, true), (5, false)]);
+    assert_eq!(
+        ok,
+        vec![(1, true), (2, true), (3, true), (4, true), (5, false)]
+    );
 }
 
 // --- Property: random lives of a Position, with slashes ----------------------------------------
@@ -743,8 +757,7 @@ fn apply(w: &mut World, o: &Op, winner_acts: &mut bool) -> CoreResult<()> {
     let res = (|| {
         match o {
             Op::Rate(bps) => {
-                w.rate =
-                    (w.rate as i128 + w.rate as i128 * *bps as i128 / 10_000).max(1) as u64;
+                w.rate = (w.rate as i128 + w.rate as i128 * *bps as i128 / 10_000).max(1) as u64;
                 w.now += 3_600;
             }
             Op::Advance(m) => w.advance(*m)?,
@@ -864,10 +877,16 @@ fn run_growth_only(ops: &[Op]) {
         w.landings
     );
     if r <= R0 {
-        assert_eq!(p.shortfall_shares, 0, "no top-up at or below the opening rate");
+        assert_eq!(
+            p.shortfall_shares, 0,
+            "no top-up at or below the opening rate"
+        );
     }
     if w.landings.iter().all(|(_, lr)| r < *lr) {
-        assert_eq!(p.shortfall_shares, 0, "no top-up below every landing's rate");
+        assert_eq!(
+            p.shortfall_shares, 0,
+            "no top-up below every landing's rate"
+        );
     }
 }
 
@@ -937,8 +956,7 @@ fn holder_claims_above_the_custody_are_funded_by_the_treasury_or_unlock_waits() 
     // Codex's figures (design-v4 5): Treasury 4 jitoSOL, custody 10, holders owed 10.348956599.
     let rate = ShareRate::stake(R0).unwrap();
     let claims = |treasury: u128| {
-        let mut pos =
-            Position::new(OWNER, SourceChain::Solana, [7; 32], 9, 12 * SOL, 500).unwrap();
+        let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, 12 * SOL, 500).unwrap();
         pos.stake_rate_open = R0 - R0 / 10;
         pos.stake_rate_high = R0;
         pos.custody_shares = 10 * SOL;
@@ -959,7 +977,11 @@ fn holder_claims_above_the_custody_are_funded_by_the_treasury_or_unlock_waits() 
     assert_eq!(route.treasury_shares, 14 * u128::from(SOL) + 18);
     assert_eq!(route.owed_shares, 10_348_956_599);
     assert_eq!(route.spendable(), 3_651_043_401);
-    assert_eq!((route.reserved, route.pool_owed), (7, 11), "other claims untouched");
+    assert_eq!(
+        (route.reserved, route.pool_owed),
+        (7, 11),
+        "other claims untouched"
+    );
     assert_eq!(
         (p.owner_shares, p.topped_up_shares, p.shortfall_shares),
         (0, 0, 0)
@@ -1005,7 +1027,6 @@ fn a_migrated_lock_with_ten_uncapped_advances_unlocks_through_the_treasury() {
     assert_eq!(p.owner_shares, 0);
     w.check();
 }
-
 
 #[test]
 fn a_short_custody_is_absorbed_by_the_free_yield_fee_then_topped_up_by_the_treasury() {
