@@ -1,6 +1,6 @@
 //! Ticket 55: Positions gained `stake_rate_high` (235 -> 243 bytes). The admin rewrites every
 //! 235-byte Position in place right after the upgrade, in one paused-keeper sweep (operator script
-//! `scripts/migrate-positions-55.ts`). The new field starts at the opening rate, so a migrated Lock
+//! `keeper/scripts/migrate-positions-55.ts`). The new field starts at the opening rate, so a migrated Lock
 //! is priced exactly as it was: nothing counts as priced that was not.
 
 use crate::error::TesoroError;

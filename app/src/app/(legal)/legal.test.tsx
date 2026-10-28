@@ -21,6 +21,12 @@ describe("legal pages", () => {
     expect(html).toContain("If the staking token's rate falls after your yield was paid out, you get back what is left of your tokens, which can be worth less than the SOL you locked.");
   });
 
+  it("limits the Treasury's Unlock top-up to growth and caps a Lock's Advances (ticket 55)", () => {
+    const html = renderToStaticMarkup(<Terms />).replace(/&#x27;|&apos;/g, "'");
+    expect(html).toContain("covers only the growth of tokens already paid out since their yield was priced, net of any fall since. It never covers a fall.");
+    expect(html).toContain("A Lock's Advances can add up to at most its Principal over its life.");
+  });
+
   it("renders the Privacy Policy with its providers", () => {
     const html = renderToStaticMarkup(<Privacy />);
     for (const name of ["Privy", "Supabase", "Resend", "Vercel", "MagicBlock", "LayerZero"]) expect(html).toContain(name);

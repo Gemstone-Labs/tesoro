@@ -97,3 +97,12 @@ Details: `docs/tesoro-core.md`, `docs/cross-chain.md`, `CONTEXT.md`. The spec (`
 - Each Source snapshots the Yield Fee and the Pool's share when its Advance opens. EVM vaults report gross yield; PayYield carries the fee and the Pool's part.
 - A staking-token Unlock whose custody falls short of the owner's Principal and free yield (holders' landed shares grew with the pool) is covered by the fee on the free yield first, then topped up by the Treasury from spendable shares; Unlock never fails.
 - This replaces "10% owed to the Pool once realised" (realised at Unlock) and "the Player gets 75% of the value at fill time" above.
+
+## Amendment: the Treasury tops up growth only (ticket 55, SOL-02 A, founder 2026-10-28)
+
+- The Unlock top-up covers only the growth of the shares a stake Lock's yield landed in since that yield was priced, net of any fall since: `min(short, max(0, landed shares - fee on free yield - ceil(priced yield / rate now)))`, and nothing at or below the opening rate. A rate fall above or below the opening rate is the Player's (SOL-01 A). This replaces "then topped up by the Treasury from spendable shares; Unlock never fails" above.
+- A Lock remembers the highest rate its yield was priced at (`stake_rate_high`, Position 235 -> 243 bytes). Counted yield never drops below the yield at that rate, so a close after a fall cannot count the recovery again.
+- A new Advance or Extend on a stake Lock is refused below that rate (`RateBelowPeak`) and when the yield already settled plus everything the Source can still cover would exceed the Principal (`YieldCapReached`). With the cap, holders' shares never exceed the custody. Redeem, Return and Unlock are never refused by either.
+- Growth a later fall hides between landings is the Player's (about 0.5% of Principal at +20% of rate range, 1.5% in Codex's 1.20 -> 1.44 -> 1.68 -> 1.55 history).
+- Devnet Locks from before the change are migrated in place (`migrate_position`, `stake_rate_high = stake_rate_open`) and keep today's Unlock; one whose holders are owed more than its custody unlocks only when the Treasury funds the excess (`GrowthClaimsUnfunded`, `HolderClaimsFunded`). Mainnet must have no stake Lock at the upgrade.
+- Design and reviews: `.scratch/stake-custody-audit/decisions.md` and the ticket 55 design (local build record).

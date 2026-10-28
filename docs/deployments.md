@@ -22,6 +22,28 @@ The metadata-only inventory (`collect --metadata-only`, followed by `check --inv
 
 Regression commands: `cargo test -p tesoro_core --lib predeploy_layouts -- --nocapture` writes/reads both the historical 178-byte and current 327-byte custody fixtures in LiteSVM; `python3 scripts/test-predeploy-size-check.py` exercises mismatch, unknown discriminator, dynamic capacity and version refusals. Preserve the LiteSVM fixture rows and use them in the Python test as described by its skip message.
 
+## Ticket 55: Positions gain `stake_rate_high` (launch-rules upgrade, not deployed)
+
+The tesoro_core change grows `PositionState` from 235 to 243 bytes. The new program cannot read a 235-byte Position until
+`migrate_position` rewrites it, and settlement and a holder's Redeem read the Source's Position, so the upgrade and the sweep run
+in one paused-keeper run. Founder's word required.
+
+1. **Step-1 release first (its own deploy, before any program change):** app and keeper read both layouts
+   (`app/src/lib/chain/position-size.ts`), the new IDL, and the "updating" copy for `AccountDidNotDeserialize`. Keeper on the VPS
+   redeployed on it (it pauses nothing in the app).
+2. **Dry run:** `pnpm --filter @tesoro/keeper exec tsx scripts/migrate-positions-55.ts --so target/deploy/tesoro_core.so`. It reads
+   only: other `solana program` runs (the Dungeons & Moles session shares the deployer key), the admin's balance against the buffer
+   rent plus 40,640 lamports a Position, the mainnet stake-Position count (must be 0), devnet Positions by layout, legacy stake Locks
+   whose holders are owed more than their custody, and the extend the new .so needs. 2026-10-28 on devnet: 83 Positions of 235 bytes
+   (0 stake), 0 of 243, deployer 42.47 SOL against 16.01 SOL needed, extend by 15,768 bytes, 9 migration transactions.
+3. **Run:** the same with `--send --keypair ~/.config/solana/dev-2026-10.json`: stop the keeper, extend, write the buffer and
+   upgrade, `migrate_position` every 235-byte Position, refuse to go on while a 235-byte stake Position is left, start the keeper
+   and read `/healthz`. A re-run skips what is done.
+4. **Post-checks:** stake Positions listed and decoded in `/wallet`; an Unlock of a migrated devnet Position pays as before; a fresh
+   stake Lock runs Advance, landing and Unlock; no 235-byte Position left (dry run again).
+
+`retire_position` and the keeper's retire plan close only Positions shorter than 235 bytes.
+
 ## Bundled devnet upgrade (2026-10-26)
 
 Source: `feat/economy-finish-25-10-2026` at `37e0bb57` (programs, crates and bridge identical to the build that produced these hashes). Built on the VPS with `anchor build --no-idl -- --tools-version v1.54` and `cargo build-sbf --tools-version v1.54` for the bridge; every dump of the live program equals its ELF. The deployer wrote and upgraded one program at a time. Rollback dumps: `~/.cache/tesoro-tmp/rollback-2026-10-26/` (`SHA256SUMS`).
