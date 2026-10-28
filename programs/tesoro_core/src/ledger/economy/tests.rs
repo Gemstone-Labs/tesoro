@@ -367,8 +367,9 @@ fn coverage_lands_in_class_order_and_the_open_advance_closes_when_repaid() {
     assert!(w.pos.held_shares > 0);
     // It cannot close yet.
     assert_eq!(w.advance(1), Err(CoreError::AdvanceAlreadyOpen));
-    // A large growth repays it, the excess is the owner's pocket, and a new Advance closes it.
-    w.rate = R0 * 2;
+    // A large growth repays it, the excess is the owner's pocket, and a new Advance closes it
+    // (half of Principal accrued: under the lifetime cap).
+    w.rate = R0 + R0 / 2;
     w.sync(0).unwrap();
     assert_eq!(w.books[0].uncovered_total(), 0);
     assert!(w.books[0].owner_shares > 0);
