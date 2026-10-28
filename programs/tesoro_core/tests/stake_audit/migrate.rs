@@ -90,11 +90,12 @@ fn migrate_rewrites_a_235_byte_position_with_its_high_at_the_opening_rate() {
             assert_eq!(env.position(pos).stake_rate_high, LOW_RATE);
         }
         let before = env.position(pos);
+        let unlock = env.unlock_ix(&ana, pos);
         to_legacy(&mut env, pos, fill);
         assert_eq!(data_len(&env, pos), 235);
         // The current program cannot read it until it is migrated.
         assert_eq!(
-            code(&env.unlock(&ana, pos).unwrap_err()),
+            code(&env.send(&[unlock], &ana.kp, &[]).unwrap_err()),
             ANCHOR_DID_NOT_DESERIALIZE
         );
         // Only the admin migrates.
@@ -139,33 +140,21 @@ fn migrate_keeps_a_position_that_is_not_a_stake_lock_at_zero() {
     assert_eq!((p.stake_rate_open, p.stake_rate_high), (0, 0));
 }
 
-/// Ana's legacy Lock with a 12-month Advance: the first landing (at `first`, by a 1-Gema Redeem)
-/// happens before ticket 55, then the Position is migrated at `migrate_at`.
-fn legacy_with_landing(first: u64, migrate_at: u64) -> (Env, Person, Pos) {
-    let mut env = at_open_rate();
-    let ana = env.holder(10 * SOL);
-    let pos = env.open(&ana, 10 * SOL).unwrap();
-    let source = env.advance_stake(&ana, pos, 12).unwrap();
-    set_rate(&mut env, first);
-    env.redeem(&ana, pos, source, 1).unwrap();
-    set_rate(&mut env, migrate_at);
-    to_legacy(&mut env, pos, 0);
-    migrate(&mut env, pos).unwrap();
-    env.fund_treasury(SOL);
-    (env, ana, pos)
-}
-
 #[test]
 fn a_migrated_lock_unlocks_as_it_did_before_the_upgrade() {
-    // Claude's history (design-v4 6.1): landed at 1.25, migrated at 1.32, Unlock at 1.28. Before
-    // and after the upgrade the Treasury pays 9,375,000 units (growth_sim.py).
-    let (mut env, ana, pos) = legacy_with_landing(LOW_RATE, HIGH_RATE);
-    set_rate(&mut env, 1_280_000_000_000);
+    // Everything landed before ticket 55 (0.6 SOL at 1.26, 0.6 SOL at 1.32), then the Lock is
+    // migrated (its high is the opening rate: nothing counts as priced) and unlocks after a fall
+    // to 1.30. It is paid today's top-up, 161,505,161 units (growth_sim.py), fall included: the
+    // founder accepted legacy devnet Locks keeping today's behaviour.
+    let (mut env, ana, pos) = super::growth_only::two_landings();
+    to_legacy(&mut env, pos, 0);
+    migrate(&mut env, pos).unwrap();
+    set_rate(&mut env, 1_300_000_000_000);
     let before = env.spendable();
     env.unlock(&ana, pos).unwrap();
     env.check_vault();
     let paid = before - env.spendable();
-    assert!(paid.abs_diff(9_375_000) <= 1, "Treasury paid {paid}");
+    assert!(paid.abs_diff(161_505_161) <= 1, "Treasury paid {paid}");
 }
 
 #[test]

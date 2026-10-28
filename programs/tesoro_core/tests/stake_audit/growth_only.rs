@@ -64,7 +64,7 @@ fn growth_only_a_fall_after_part_of_the_yield_is_borne_by_the_player() {
 
 /// Ana's 12-month Advance lands in two halves held by holders: 0.6 SOL at 1.26, 0.6 SOL at
 /// 1.32. A 1-Gema Redeem lands each half.
-fn two_landings() -> (Env, Person, Pos) {
+pub(super) fn two_landings() -> (Env, Person, Pos) {
     let mut env = at_open_rate();
     let ana = env.holder(10 * SOL);
     let pos = env.open(&ana, 10 * SOL).unwrap();
