@@ -46,6 +46,11 @@ struct World {
     fees: u128,
     unlocked: Option<UnlockPayout>,
     now: i64,
+    /// Every increase of the shares the Position's yield landed in (held, free and paid), with the
+    /// rate it landed at: the independent record of what each landing was priced at (ticket 55).
+    landings: Vec<(u128, u64)>,
+    /// The rate the Position unlocked at.
+    unlock_rate: u64,
 }
 
 impl World {
@@ -75,6 +80,8 @@ impl World {
             fees: 0,
             unlocked: None,
             now: T0,
+            landings: vec![],
+            unlock_rate: 0,
         }
     }
 
@@ -260,7 +267,25 @@ impl World {
         self.fees += u128::from(payout.fee_shares);
         self.out += payout.owner_shares;
         self.unlocked = Some(payout);
+        self.unlock_rate = self.rate;
         Ok(())
+    }
+
+    /// Shares (32 fractional bits) the Position's yield has landed in so far.
+    fn landed_total(&self) -> u128 {
+        self.pos.held_shares + self.pos.free_shares + (u128::from(self.paid_pre) << SHARE_BITS)
+    }
+
+    /// What the landed shares grew since each was priced, at `rate`, whole shares: the sum of
+    /// every landing's positive growth, with nothing netted against a loss.
+    fn model_growth(&self, rate: u64) -> u128 {
+        let fp: u128 = self
+            .landings
+            .iter()
+            .filter(|(_, r)| *r < rate)
+            .map(|(s, r)| s - s * u128::from(*r) / u128::from(rate))
+            .sum();
+        fp >> SHARE_BITS
     }
 
     /// Everything that must hold after every operation.
@@ -591,6 +616,66 @@ fn op() -> impl Strategy<Value = Op> {
     ]
 }
 
+/// One operation of a random life; an Err leaves `w` half-changed (the caller restores it).
+fn apply(w: &mut World, o: &Op, winner_acts: &mut bool) -> CoreResult<()> {
+    let before = w.landed_total();
+    let res = (|| {
+        match o {
+            Op::Rate(bps) => {
+                w.rate =
+                    (w.rate as i128 + w.rate as i128 * *bps as i128 / 10_000).max(1) as u64;
+                w.now += 3_600;
+            }
+            Op::Advance(m) => w.advance(*m)?,
+            Op::Extend(m) => w.extend(*m)?,
+            Op::Sync => {
+                for s in 0..w.srcs.len() {
+                    w.sync(s)?;
+                }
+            }
+            Op::Redeem(s, i, pct) => {
+                let s = *s as usize % w.srcs.len();
+                let n = w.lines[s].len();
+                let i = *i as usize % n;
+                w.sync(s)?;
+                let can = w.redeemable(s, i);
+                let k = can * u64::from(*pct) / 100;
+                if k > 0 {
+                    *winner_acts = w.lines[s][i].0 == 1;
+                    w.redeem(s, i, k)?;
+                }
+            }
+            Op::ReturnOwn(s, pct) => {
+                let s = *s as usize % w.srcs.len();
+                if let Some(i) = w.find(s, 0, CLASS_GENERAL) {
+                    let k = (w.lines[s][i].1.amount * u64::from(*pct) / 100).max(1);
+                    w.return_own(s, i, k)?;
+                }
+            }
+            Op::Win(s, pct) => {
+                let s = *s as usize % w.srcs.len();
+                if let Some(i) = w.find(s, 0, CLASS_GENERAL) {
+                    let k = (w.lines[s][i].1.amount * u64::from(*pct) / 100).max(1);
+                    *winner_acts = true;
+                    w.win(s, i, k)?;
+                }
+            }
+            Op::Unlock => {
+                if w.unlocked.is_none() {
+                    w.unlock()?;
+                }
+            }
+        }
+        Ok(())
+    })();
+    let after = w.landed_total();
+    if res.is_ok() && after > before {
+        let rate = w.rate;
+        w.landings.push((after - before, rate));
+    }
+    res
+}
+
 fn run(ops: &[Op]) {
     let mut w = World::new(10 * SOL);
     w.advance(6).unwrap();
@@ -610,55 +695,7 @@ fn run(ops: &[Op]) {
             .collect();
         let mut winner_acts = false;
         let snap = w.clone();
-        let res: CoreResult<()> = (|| {
-            match o {
-                Op::Rate(bps) => {
-                    w.rate =
-                        (w.rate as i128 + w.rate as i128 * *bps as i128 / 10_000).max(1) as u64;
-                    w.now += 3_600;
-                }
-                Op::Advance(m) => w.advance(*m)?,
-                Op::Extend(m) => w.extend(*m)?,
-                Op::Sync => {
-                    for s in 0..w.srcs.len() {
-                        w.sync(s)?;
-                    }
-                }
-                Op::Redeem(s, i, pct) => {
-                    let s = *s as usize % w.srcs.len();
-                    let n = w.lines[s].len();
-                    let i = *i as usize % n;
-                    w.sync(s)?;
-                    let can = w.redeemable(s, i);
-                    let k = can * u64::from(*pct) / 100;
-                    if k > 0 {
-                        winner_acts = w.lines[s][i].0 == 1;
-                        w.redeem(s, i, k)?;
-                    }
-                }
-                Op::ReturnOwn(s, pct) => {
-                    let s = *s as usize % w.srcs.len();
-                    if let Some(i) = w.find(s, 0, CLASS_GENERAL) {
-                        let k = (w.lines[s][i].1.amount * u64::from(*pct) / 100).max(1);
-                        w.return_own(s, i, k)?;
-                    }
-                }
-                Op::Win(s, pct) => {
-                    let s = *s as usize % w.srcs.len();
-                    if let Some(i) = w.find(s, 0, CLASS_GENERAL) {
-                        let k = (w.lines[s][i].1.amount * u64::from(*pct) / 100).max(1);
-                        winner_acts = true;
-                        w.win(s, i, k)?;
-                    }
-                }
-                Op::Unlock => {
-                    if w.unlocked.is_none() {
-                        w.unlock()?;
-                    }
-                }
-            }
-            Ok(())
-        })();
+        let res = apply(&mut w, o, &mut winner_acts);
         if res.is_err() {
             // An Err aborts the transaction: nothing it did is kept.
             w = snap;
@@ -678,8 +715,50 @@ fn run(ops: &[Op]) {
     }
 }
 
+/// Ticket 55 (SOL-02 A): a random life ends in an Unlock with the Treasury funded. Whatever
+/// the history, the top-up is at most the growth the landed shares really had since their yield
+/// was priced (each landing on its own, `World::landings`), nothing below the opening rate, and
+/// nothing when the rate is below every landing's.
+fn run_growth_only(ops: &[Op]) {
+    let mut w = World::new(10 * SOL);
+    w.route.receive(u128::from(SOL)).unwrap();
+    w.custody0 += SOL;
+    w.advance(6).unwrap();
+    for o in ops.iter().chain([Op::Unlock].iter()) {
+        let snap = w.clone();
+        if apply(&mut w, o, &mut false).is_err() {
+            w = snap;
+        }
+        w.check();
+    }
+    let Some(p) = w.unlocked else {
+        return;
+    };
+    let r = w.unlock_rate;
+    let growth = w.model_growth(r);
+    assert!(
+        u128::from(p.shortfall_shares) <= growth + 1,
+        "top-up {} beyond the landed shares' growth {growth} at {r} ({:?})",
+        p.shortfall_shares,
+        w.landings
+    );
+    if r <= R0 {
+        assert_eq!(p.shortfall_shares, 0, "no top-up at or below the opening rate");
+    }
+    if w.landings.iter().all(|(_, lr)| r < *lr) {
+        assert_eq!(p.shortfall_shares, 0, "no top-up below every landing's rate");
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig { cases: 400, ..ProptestConfig::default() })]
+
+    #[test]
+    fn the_unlock_top_up_never_exceeds_the_landed_shares_growth(
+        ops in proptest::collection::vec(op(), 1..60)
+    ) {
+        run_growth_only(&ops);
+    }
 
     #[test]
     fn a_positions_whole_life_conserves_shares_and_never_lowers_redeem_now(
