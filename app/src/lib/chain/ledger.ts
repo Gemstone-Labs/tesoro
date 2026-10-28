@@ -120,6 +120,16 @@ export function matchFee(m: { entry: number; fees: { platformBps: number; studio
   return Number(feeGemas(BigInt(m.entry), m.fees.platformBps, m.fees.studioBps, m.fees.leaderboardBps));
 }
 
+/**
+ * The Fee a finished Match actually charged, for the result screen: the settled amount when the chain or history gave it; on a
+ * win or a loss the Fee from the terms (a decided Match always charges it); otherwise null. A draw or a refund can charge a
+ * Platform Fee or nothing, so without the settled amount the screen shows no Fee rather than a guess.
+ */
+export function resultFee(m: Parameters<typeof matchFee>[0], outcome: "won" | "lost" | "draw" | "refunded"): number | null {
+  if (m.settled) return m.settled.fee;
+  return outcome === "won" || outcome === "lost" ? matchFee(m) : null;
+}
+
 /** What a win pays at the display Fees (2% Platform, 3% Studio, 1% Leaderboard): both entries minus Fees. */
 export function estimatedWin(entry: number): number {
   return entry * 2 - Number(feeGemas(BigInt(entry), 200, 300, LEADERBOARD_BPS));
