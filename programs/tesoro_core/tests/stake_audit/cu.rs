@@ -1,6 +1,7 @@
 //! Compute units of the stake paths ticket 55 touches, printed for a before/after comparison:
 //! `cargo test -p tesoro_core --test stake cu_report -- --nocapture`.
 
+use super::growth_only::set_rate;
 use super::*;
 
 fn cu(env: &mut Env, ix: Instruction, payer: &Keypair) -> u64 {
@@ -26,7 +27,7 @@ fn cu_report() {
     let (ix, source) = env.advance_ix(&ana, pos, 6);
     let first_advance = cu(&mut env, ix, &ana.kp);
     env.ensure_pages(source);
-    env.set_total(1_300_000_000_000);
+    set_rate(&mut env, 1_220_000_000_000);
     let ix = env.redeem_ix(&ana, pos, source, 1);
     let redeem_landing = cu(&mut env, ix, &ana.kp);
     let ix = env.redeem_ix(&ana, pos, source, 1);
@@ -54,7 +55,7 @@ fn cu_report() {
     );
     let extend = cu(&mut env, ext, &ana.kp);
     env.ensure_pages(source);
-    env.set_total(1_500_000_000_000);
+    set_rate(&mut env, 1_500_000_000_000);
     env.refresh_feed();
     let (ix, second) = env.advance_ix(&ana, pos, 6);
     let closing_advance = cu(&mut env, ix, &ana.kp);
