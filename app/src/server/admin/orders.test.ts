@@ -24,7 +24,7 @@ const srcState = { bump: 1, inner: { position: bytes(position), owner: bytes(key
 const posState = (over: object = {}) => ({
   bump: 1,
   positionId: Array(32).fill(2),
-  inner: { owner: bytes(key()), sourceChain: { solana: {} }, sourceAsset: bytes(SIM_SOL_MINT), decimals: 9, principal: new BN(2_000_000_000), rateBps: 500, status: { locked: {} }, advances: 1, openAdvance: null, lastSeq: new BN(0), cumulativeYield: new BN(0), freeYield: new BN(0), freeYieldClaimed: new BN(0), openedAt: new BN(NOW), appliedNet: new BN(0), custodyShares: new BN(0), yieldFeeBps: 2000, stakeRateOpen: new BN(0), ...over },
+  inner: { owner: bytes(key()), sourceChain: { solana: {} }, sourceAsset: bytes(SIM_SOL_MINT), decimals: 9, principal: new BN(2_000_000_000), rateBps: 500, status: { locked: {} }, advances: 1, openAdvance: null, lastSeq: new BN(0), cumulativeYield: new BN(0), freeYield: new BN(0), freeYieldClaimed: new BN(0), openedAt: new BN(NOW), appliedNet: new BN(0), custodyShares: new BN(0), yieldFeeBps: 2000, stakeRateOpen: new BN(0), heldShares: new BN(0), freeShares: new BN(0), paidShares: new BN(0), poolBps: 0, stakeRateHigh: new BN(0), ...over },
 });
 
 async function order(amount: bigint, over: Record<string, unknown> = {}) {

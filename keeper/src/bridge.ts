@@ -24,6 +24,7 @@ import { treasuryAccountPda } from "../../app/src/lib/chain/native.ts";
 import anchor from "@coral-xyz/anchor";
 import { bridgeDisc, decodeClaim, type ClaimRow } from "./bridge-ix.ts";
 import { connReader, supplySources } from "./supply.ts";
+import { fetchCorePosition } from "./position.ts";
 
 const status = (o: object) => Object.keys(o)[0];
 
@@ -103,7 +104,7 @@ export async function bridgeJob(ctx: Ctx): Promise<number> {
   const corePosition = async (key: PublicKey) => {
     const hit = corePositions.get(key.toBase58());
     if (hit !== undefined) return hit;
-    const p = await ctx.core.account.positionState.fetchNullable(key);
+    const p = await fetchCorePosition(ctx.core, key);
     corePositions.set(key.toBase58(), p);
     return p;
   };

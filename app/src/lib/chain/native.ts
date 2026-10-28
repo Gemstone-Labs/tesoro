@@ -14,6 +14,7 @@ import { SPEEDUP, advanceUnits, positionAccrued, secondsUntilNet, type PositionC
 import type { StakeMarket } from "./stake";
 import { coreIx } from "./core-ix";
 import { basketPda, bookPda, spillPda, type LineRef } from "./basket";
+import { stakeRateHighOf } from "./position-size";
 
 /**
  * Solana-native Positions (one shared simSOL custody, tesoro_core) and the SIMULATED sim_lst pool. Instructions
@@ -502,12 +503,76 @@ export function quoteExtendAdvance(principalLamports: bigint, rateBps: number, s
 export const speedupOf = (pool: Pick<PoolParams, "speedup"> | null | undefined): number => pool?.speedup ?? Number(SPEEDUP);
 
 /** A native Position's yield clock: what it fixed at open. */
-export const clockOf = (info: Pick<NativeInfo, "principalLamports" | "rateBps" | "openedAt"> & { stakeRateOpen?: bigint }): PositionClock => ({
+export const clockOf = (info: Pick<NativeInfo, "principalLamports" | "rateBps" | "openedAt"> & { stakeRateOpen?: bigint; stakeRateHigh?: bigint }): PositionClock => ({
   principal: info.principalLamports,
   rateBps: info.rateBps,
   openedAt: info.openedAt,
   stakeRateOpen: info.stakeRateOpen,
+  stakeRateHigh: info.stakeRateHigh,
 });
+
+/**
+ * The rate a stake Lock's new Advance or Extend waits for (tesoro_core RateBelowPeak): the highest Staking Rate its yield was priced
+ * at, when the rate now is below it. Null when nothing waits (a simulated Position, no rate read yet, or the rate is back).
+ */
+export function advanceWaitsForRate(info: Pick<NativeInfo, "stakeRateOpen" | "stakeRateHigh">, rateNow: bigint | undefined): bigint | null {
+  if (info.stakeRateOpen === 0n || rateNow === undefined) return null;
+  const peak = info.stakeRateHigh > info.stakeRateOpen ? info.stakeRateHigh : info.stakeRateOpen;
+  return rateNow < peak ? peak : null;
+}
+
+/**
+ * Whether issuing `source` (a new Advance, or an Extend's whole new issuance) would take a stake Lock's Advances over its Principal
+ * (tesoro_core YieldCapReached): yield settled so far, at least `countedNow` for a new Advance (it settles first), plus everything
+ * `source` can still cover, rounded up.
+ */
+export function overYieldCap(
+  info: Pick<NativeInfo, "stakeRateOpen" | "principalLamports" | "appliedNet">,
+  countedNow: bigint,
+  source: { issued: bigint; returned: bigint; unitNum: bigint; unitDen: bigint },
+): boolean {
+  if (info.stakeRateOpen === 0n) return false;
+  const settled = countedNow > info.appliedNet ? countedNow : info.appliedNet;
+  const commit = ((source.issued - source.returned) * source.unitNum + source.unitDen - 1n) / source.unitDen;
+  return settled + commit > info.principalLamports;
+}
+
+/** A rate (1e12 = 1 SOL per token) as SOL with 4 decimals, rounded up, so "at least X" never shows while the rate is still below it. */
+export function fmtRateUp(rate: bigint): string {
+  const tenThousandths = (rate + 99_999_999n) / 100_000_000n;
+  return `${tenThousandths / 10_000n}.${(tenThousandths % 10_000n).toString().padStart(4, "0")}`;
+}
+
+/** The line an Advance or Extend sheet shows while a stake Lock waits for the rate (tesoro_core RateBelowPeak, ticket 55), else null. */
+export function rateWaitNote(info: Pick<NativeInfo, "stakeRateOpen" | "stakeRateHigh">, rateNow: bigint | undefined, symbol: string): string | null {
+  const waits = advanceWaitsForRate(info, rateNow);
+  return waits === null ? null : `A new Advance or Extend is available once 1 ${symbol} is worth at least ${fmtRateUp(waits)} SOL again. Redeem and Unlock still work.`;
+}
+
+type Issuance = { issued: bigint; returned: bigint; unitNum: bigint; unitDen: bigint };
+
+/**
+ * The longest Length, 1 to `max` months, whose issuance keeps a stake Lock's Advances within its Locked amount (tesoro_core
+ * YieldCapReached): `max` on a simulated Lock, 0 when not even one month fits. `issuance(m)` is the Source once m months are issued;
+ * a longer Length never issues less, so the first Length that fits counting down is the longest.
+ */
+export function longestLengthWithinCap(
+  info: Pick<NativeInfo, "stakeRateOpen" | "principalLamports" | "appliedNet">,
+  countedNow: bigint,
+  max: number,
+  issuance: (months: number) => Issuance,
+): number {
+  if (info.stakeRateOpen === 0n) return max;
+  for (let m = max; m >= 1; m--) if (!overYieldCap(info, countedNow, issuance(m))) return m;
+  return 0;
+}
+
+/** Shown instead of a Length when not even one month fits under the lifetime cap. */
+export const YIELD_CAP_FULL = "This Lock has advanced as much yield as its Locked amount allows over its life. Redeem and Unlock still work.";
+
+/** The line under a Length slider the lifetime cap shortens: why it stops at `fit` months. */
+export const lengthCapNote = (fit: number) =>
+  `Up to ${fit} ${fit === 1 ? "month" : "months"}: a longer Length would advance more yield than your Locked amount over this Lock's life.`;
 
 /** Where a market's staking-token Positions grow from (the pool's rate as read, projected at the sizing APY); undefined on a simulated market. */
 export const stakeGrowthOf = (market: Pick<NativeMarket, "stake"> | null | undefined, readAtSec: number = Math.floor(Date.now() / 1000)): StakeGrowth | undefined =>
@@ -605,6 +670,8 @@ export interface NativeInfo {
   mint: PublicKey;
   /** The pool's Staking Rate at open (1e12) for a staking-token Position, 0 for a simulated one. */
   stakeRateOpen: bigint;
+  /** The highest Staking Rate its yield was priced at (1e12, ticket 55); 0 for a simulated or not yet migrated Position. */
+  stakeRateHigh: bigint;
   /** Shares of the shared custody vault this Position holds, token base units. */
   custodyShares: bigint;
   status: "locked" | "unlocked";
@@ -714,6 +781,7 @@ export function nativeInfoFrom(position: PublicKey, pos: AccountInfo<Buffer>, sr
   const custodyShares = rdU64(d, o + 32);
   const yieldFeeBps = rdU16(d, o + 40);
   const stakeRateOpen = d.length >= o + 50 ? rdU64(d, o + 42) : 0n;
+  const stakeRateHigh = stakeRateHighOf(d);
   const source: NativeInfo["source"] = advances > 0 && src ? parseSource(sourcePda(position, advances - 1), Buffer.from(src.data)) : null;
-  return { position, mint, stakeRateOpen, custodyShares, status, principalLamports, rateBps, yieldFeeBps, openedAt, appliedNet, freeYield, freeYieldClaimed, advances, openAdvance, source };
+  return { position, mint, stakeRateOpen, stakeRateHigh, custodyShares, status, principalLamports, rateBps, yieldFeeBps, openedAt, appliedNet, freeYield, freeYieldClaimed, advances, openAdvance, source };
 }

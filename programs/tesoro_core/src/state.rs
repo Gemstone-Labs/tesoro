@@ -334,7 +334,94 @@ impl PositionState {
         + 16
         + 16
         + 8
-        + 2;
+        + 2
+        + 8;
+}
+
+/// The Position fields before ticket 55 appended `stake_rate_high`: only `migrate_position`
+/// reads it, to rewrite a 235-byte Position in the current layout.
+#[derive(Clone, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
+pub struct PositionV1 {
+    pub owner: Key,
+    pub source_chain: ledger::SourceChain,
+    pub source_asset: Key,
+    pub decimals: u8,
+    pub principal: u64,
+    pub rate_bps: u16,
+    pub status: ledger::PositionStatus,
+    pub advances: u32,
+    pub open_advance: Option<u32>,
+    pub last_seq: u64,
+    pub cumulative_yield: u64,
+    pub free_yield: u64,
+    pub free_yield_claimed: u64,
+    pub opened_at: i64,
+    pub applied_net: u64,
+    pub custody_shares: u64,
+    pub yield_fee_bps: u16,
+    pub stake_rate_open: u64,
+    pub held_shares: u128,
+    pub free_shares: u128,
+    pub paid_shares: u64,
+    pub pool_bps: u16,
+}
+
+/// A Position account in the layout before ticket 55 (235 bytes, same discriminator).
+#[derive(Clone, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
+pub struct PositionStateV1 {
+    pub bump: u8,
+    pub position_id: [u8; 32],
+    pub inner: PositionV1,
+}
+
+impl PositionStateV1 {
+    pub const SPACE: usize = PositionState::SPACE - 8;
+
+    /// Reads the serialised prefix of a 235-byte Position: Borsh stops where the fields end, so
+    /// bytes after them (left by a shorter `None` rewrite) are never read.
+    pub fn decode(data: &[u8]) -> Result<Self> {
+        use anchor_lang::Discriminator;
+        require!(
+            data.len() >= 8 && data[..8] == *PositionState::DISCRIMINATOR,
+            ErrorCode::AccountDiscriminatorMismatch
+        );
+        Self::deserialize(&mut &data[8..]).map_err(|_| error!(ErrorCode::AccountDidNotDeserialize))
+    }
+
+    /// The same Position in the current layout. Its highest priced rate starts at the opening
+    /// rate (zero for native and reported Positions), so it keeps today's Unlock behaviour.
+    pub fn upgrade(self) -> PositionState {
+        let o = self.inner;
+        PositionState {
+            bump: self.bump,
+            position_id: self.position_id,
+            inner: Position {
+                owner: o.owner,
+                source_chain: o.source_chain,
+                source_asset: o.source_asset,
+                decimals: o.decimals,
+                principal: o.principal,
+                rate_bps: o.rate_bps,
+                status: o.status,
+                advances: o.advances,
+                open_advance: o.open_advance,
+                last_seq: o.last_seq,
+                cumulative_yield: o.cumulative_yield,
+                free_yield: o.free_yield,
+                free_yield_claimed: o.free_yield_claimed,
+                opened_at: o.opened_at,
+                applied_net: o.applied_net,
+                custody_shares: o.custody_shares,
+                yield_fee_bps: o.yield_fee_bps,
+                stake_rate_open: o.stake_rate_open,
+                held_shares: o.held_shares,
+                free_shares: o.free_shares,
+                paid_shares: o.paid_shares,
+                pool_bps: o.pool_bps,
+                stake_rate_high: o.stake_rate_open,
+            },
+        }
+    }
 }
 
 #[account]
@@ -1014,10 +1101,18 @@ pub struct PositionUnlocked {
     pub position: Pubkey,
 }
 
-/// A stake Unlock found the custody short of the owner's Principal and free yield. A shortfall from
-/// holders' landed shares growing with the pool is topped up by the Treasury from what it can spend
-/// (founder, 2026-10-22: Tesoro covers it); a slash is the owner's (D2). `gap_shares` is what the
-/// owner did not get. Unlock never fails.
+/// A Lock from before ticket 55 unlocked with its holders owed `excess` shares more than its
+/// custody held: the Treasury funded them from its spendable shares.
+#[event]
+pub struct HolderClaimsFunded {
+    pub position: Pubkey,
+    pub excess: u64,
+}
+
+/// A stake Unlock found the custody short of the owner's Principal and free yield. The part that
+/// is growth of holders' landed shares since their yield was priced, net of any fall, is topped up
+/// by the Treasury from what it can spend (ticket 55, SOL-02 A); a rate fall is the owner's (D2,
+/// SOL-01 A). `gap_shares` is what the owner did not get.
 #[event]
 pub struct UnlockShortfall {
     pub position: Pubkey,
@@ -1552,5 +1647,118 @@ mod layout_tests {
             StakeCustody::SPACE,
             8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8 + ledger::RouteLedger::SPACE
         );
+    }
+}
+
+#[cfg(test)]
+mod position_layout {
+    use super::*;
+    use crate::ledger::SourceChain;
+    use anchor_lang::{AccountSerialize, AnchorSerialize, Discriminator};
+
+    const HIGH: u64 = 1_320_000_000_000;
+
+    fn sample(open: Option<u32>) -> PositionState {
+        let mut p = Position::new(
+            [1; 32],
+            SourceChain::Solana,
+            [7; 32],
+            9,
+            12_000_000_000,
+            1_000,
+        )
+        .unwrap();
+        p.open_advance = open;
+        p.advances = 5;
+        p.stake_rate_open = 1_200_000_000_000;
+        p.stake_rate_high = HIGH;
+        p.custody_shares = 10_000_000_000;
+        p.held_shares = 3 << 40;
+        p.free_shares = 5 << 33;
+        p.paid_shares = 77;
+        p.pool_bps = 5_000;
+        PositionState {
+            bump: 254,
+            position_id: [3; 32],
+            inner: p,
+        }
+    }
+
+    /// The bytes a 235-byte Position has on chain today: discriminator and the old fields, then
+    /// whatever was there before (`fill`), as a Some -> None rewrite leaves it.
+    fn v1_bytes(s: &PositionState, fill: u8) -> Vec<u8> {
+        let p = &s.inner;
+        let old = PositionStateV1 {
+            bump: s.bump,
+            position_id: s.position_id,
+            inner: PositionV1 {
+                owner: p.owner,
+                source_chain: p.source_chain,
+                source_asset: p.source_asset,
+                decimals: p.decimals,
+                principal: p.principal,
+                rate_bps: p.rate_bps,
+                status: p.status,
+                advances: p.advances,
+                open_advance: p.open_advance,
+                last_seq: p.last_seq,
+                cumulative_yield: p.cumulative_yield,
+                free_yield: p.free_yield,
+                free_yield_claimed: p.free_yield_claimed,
+                opened_at: p.opened_at,
+                applied_net: p.applied_net,
+                custody_shares: p.custody_shares,
+                yield_fee_bps: p.yield_fee_bps,
+                stake_rate_open: p.stake_rate_open,
+                held_shares: p.held_shares,
+                free_shares: p.free_shares,
+                paid_shares: p.paid_shares,
+                pool_bps: p.pool_bps,
+            },
+        };
+        let mut buf = vec![fill; PositionStateV1::SPACE];
+        buf[..8].copy_from_slice(PositionState::DISCRIMINATOR);
+        let body = old.try_to_vec().unwrap();
+        buf[8..8 + body.len()].copy_from_slice(&body);
+        buf
+    }
+
+    #[test]
+    fn a_position_grows_by_one_u64_from_235_to_243_bytes() {
+        assert_eq!(PositionStateV1::SPACE, 235);
+        assert_eq!(PositionState::SPACE, 243);
+    }
+
+    #[test]
+    fn the_open_advance_tag_is_byte_122_and_the_high_rate_ends_the_serialised_bytes() {
+        for (open, end) in [(Some(4), 243), (None, 239)] {
+            let mut buf = vec![];
+            sample(open).try_serialize(&mut buf).unwrap();
+            assert_eq!(buf.len(), end);
+            assert_eq!(buf[122], u8::from(open.is_some()));
+            assert_eq!(
+                u64::from_le_bytes(buf[end - 8..end].try_into().unwrap()),
+                HIGH
+            );
+            let old_end = end - 8;
+            assert_eq!(v1_bytes(&sample(open), 0)[..old_end], buf[..old_end]);
+        }
+    }
+
+    #[test]
+    fn a_235_byte_position_decodes_from_its_serialised_prefix_whatever_follows() {
+        for (open, fill) in [(Some(4), 0u8), (None, 0), (None, 0xab)] {
+            let want = sample(open);
+            let bytes = v1_bytes(&want, fill);
+            let got = PositionStateV1::decode(&bytes).unwrap().upgrade();
+            assert_eq!(got.bump, want.bump);
+            assert_eq!(got.position_id, want.position_id);
+            let mut inner = want.inner.clone();
+            inner.stake_rate_high = inner.stake_rate_open;
+            assert_eq!(got.inner, inner, "open {open:?} fill {fill:#x}");
+        }
+        let mut wrong = v1_bytes(&sample(None), 0);
+        wrong[0] ^= 1;
+        assert!(PositionStateV1::decode(&wrong).is_err());
     }
 }

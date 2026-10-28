@@ -3,6 +3,7 @@ import type { Ahead } from "./chunks.ts";
 import type { Core } from "./core-ix.ts";
 import { meta } from "./core-ix.ts";
 import { bookOf, ckptOf, keyOf, pda } from "./kit.ts";
+import { decodeCorePosition } from "./position.ts";
 
 export type Info = AccountInfo<Buffer> | null;
 
@@ -157,7 +158,7 @@ export async function supplySources(core: Core, read: Reader, ahead: Ahead[]): P
     positions.forEach((p, i) => {
       if (!posInfos[i]) return;
       metas.push(meta(p));
-      decoded.push(core.coder.accounts.decode("positionState", posInfos[i]!.data));
+      decoded.push(decodeCorePosition(core, posInfos[i]!.data));
     });
     // The custody (and then its rate account) of every kind that appears, read once each.
     const custodyKeys = new Set<string>();

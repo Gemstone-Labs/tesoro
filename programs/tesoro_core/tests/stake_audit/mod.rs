@@ -145,19 +145,21 @@ fn audit_a_rate_fall_after_paid_yield_returns_what_is_left_and_is_disclosed() {
         "the Player bears the fall: {value} should be below {}",
         12 * SOL
     );
-    // Decision page walk-through: 9,090,909,092 base units, worth 11.363636365 SOL at the low rate.
-    assert_eq!(release, 9_090_909_092);
-    assert_eq!(12 * SOL - value, 636_363_635);
+    // Decision page walk-through: Ana keeps `rest` = 9,090,909,091 base units, worth 11.363636363
+    // SOL at the low rate; nothing comes from the Treasury (SOL-02 A, ticket 55).
+    assert_eq!(release, 9_090_909_091);
+    assert_eq!(12 * SOL - value, 636_363_637);
 }
 
 #[test]
-#[ignore = "SOL-02, ticket 55: the Treasury still covers a fall above the opening rate until tesoro_core is upgraded; un-ignore with that change"]
 fn audit_a_rate_fall_above_open_does_not_charge_the_treasury_for_the_slash() {
     let (mut env, ana, pos) = paid_yield_scenario();
     env.fund_treasury(SOL);
     let before = env.spendable();
     env.set_total(LOW_RATE);
+    let start = env.token_balance(ana.token);
     env.unlock(&ana, pos).unwrap();
+    assert_eq!(env.token_balance(ana.token) - start, 9_090_909_091);
     env.check_vault();
     let after = env.spendable();
     eprintln!(
@@ -379,3 +381,8 @@ fn audit_retaining_all_realised_fees_keeps_principal_whole_after_a_rate_fall() {
         "Principal must remain whole even without Treasury spending"
     );
 }
+
+mod cu;
+mod fixtures;
+mod growth_only;
+mod migrate;

@@ -4,6 +4,7 @@ import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { decodeBook } from "@/lib/chain/book";
 import { CKPT_PAGE_AT, CKPT_PAGE_HEADER, CKPT_PER_PAGE, CKPT_RECORD_LEN } from "@/lib/chain/basket";
 import { sourcePda } from "@/lib/chain/native";
+import { positionBytes } from "@/lib/chain/position-size";
 import { landingPageNumbers } from "@/lib/chain/redeem";
 import { DemoHttpError } from "../request-auth";
 import { CORE_ID, type Plan } from "./rules";
@@ -23,7 +24,7 @@ export async function verifyExitSetup(plan: Plan, player: PublicKey, chain: Chai
   const position = await chain.account(s.position), source = s.source ? await chain.account(s.source) : null;
   if (!position?.owner.equals(CORE_ID) || (s.source && !source?.owner.equals(CORE_ID))) bad("The payout's Lock and Source must exist.");
   let p: any, sourceState: any;
-  try { p = coder.decode("PositionState", Buffer.from(position!.data)); sourceState = source ? coder.decode("SourceState", Buffer.from(source.data)) : null; }
+  try { p = coder.decode("PositionState", positionBytes(position!.data)); sourceState = source ? coder.decode("SourceState", Buffer.from(source.data)) : null; }
   catch { bad("The payout's Lock or Source could not be read."); }
   if (s.source && (!sourcePda(s.position, sourceState.inner.index).equals(s.source) || !new PublicKey(sourceState.inner.position).equals(s.position))) bad("The Source does not belong to the payout's Lock.");
   // An Unlock closes the open Advance: its checkpoint pages are only ever for that Source.

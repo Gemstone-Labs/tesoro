@@ -1,4 +1,3 @@
-import { POSITION_SPACE } from "../../app/src/lib/chain/position-size.ts";
 import { delayedOf } from "../../app/src/lib/chain/match-status.ts";
 import { rankTotal, readSeason, seasonsToCheck, type SeasonRecord } from "./season.ts";
 import { matchKeyOf } from "../../app/src/server/history/match-key.ts";
@@ -7,6 +6,7 @@ import { PublicKey } from "@solana/web3.js";
 import { log, type Ctx } from "./act.ts";
 import { gameOfKey, postToApp, type GameId, type PushResult } from "./notify.ts";
 import { pk } from "./runtime.ts";
+import { allCorePositions } from "./position.ts";
 
 /** One fact for a Player's Account (`account` is a TesoroAccount key); the job turns it into the app's wire event with the wallet authority. */
 export type Fact = { account: string } & (
@@ -204,7 +204,7 @@ async function backingFacts(ctx: Ctx): Promise<Fact[]> {
 }
 
 async function positionFacts(ctx: Ctx): Promise<Fact[]> {
-  const positions: any[] = await ctx.core.account.positionState.all([{ dataSize: POSITION_SPACE }]);
+  const positions: any[] = await allCorePositions(ctx.core);
   const rows: PositionFacts[] = positions.map(({ publicKey, account }) => {
     const i = account.inner;
     const open = i.openAdvance;

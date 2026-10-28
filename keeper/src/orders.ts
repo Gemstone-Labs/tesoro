@@ -8,6 +8,7 @@ import { connLister, type Lister } from "./lists.ts";
 import { sendIxs, type SendOpts } from "./send.ts";
 import { SIM_SOL_MINT, connReader, dedupe, supplySources, type Reader } from "./supply.ts";
 import { simulate } from "./tee.ts";
+import { decodeCorePosition } from "./position.ts";
 
 // ---- Orders ----------------------------------------------------------------------------------------------------------
 
@@ -169,7 +170,7 @@ async function fillBuilder(ctx: Ctx, d: OrderDeps, row: OrderRow, filler: Keypai
   const position = keyOf(source.inner.position);
   const [pos] = await d.read.many([position]);
   if (!pos) return null;
-  const custody = await custodyOf(ctx.core, d.read, ctx.core.coder.accounts.decode("positionState", pos.data), SIM_SOL_MINT);
+  const custody = await custodyOf(ctx.core, d.read, decodeCorePosition(ctx.core, pos.data), SIM_SOL_MINT);
   if (!custody) return null;
   const [treasury] = await d.read.many([pda("treasury")]);
   if (!treasury) return null;

@@ -98,6 +98,8 @@ export interface PositionClock {
   openedAt: number;
   /** Staking-token Positions (mainnet): the pool's Staking Rate at open, 1e12. Zero or absent for a simulated Position. */
   stakeRateOpen?: bigint;
+  /** Staking-token Positions: the highest Staking Rate its yield was priced at (ticket 55); 0 or absent counts from `stakeRateOpen`. */
+  stakeRateHigh?: bigint;
 }
 
 /**
@@ -124,8 +126,15 @@ export function stakeGrowthAt(rateOpen: bigint, stake: StakeGrowth | undefined, 
  */
 export const positionAccrued = (p: PositionClock, speedup: number | bigint, nowSec: number, stake?: StakeGrowth): bigint =>
   p.stakeRateOpen
-    ? accruedYieldAt(p.principal, stakeGrowthAt(p.stakeRateOpen, stake, nowSec))
+    ? accruedYieldAt(p.principal, countedStakeGrowth(p.stakeRateOpen, p.stakeRateHigh ?? 0n, stake, nowSec))
     : accruedYieldAt(p.principal, growthSinceOpen(p.rateBps, p.openedAt, nowSec, speedup));
+
+/** Growth a staking-token Position counts (Rust `stake_position_counted`): never below the highest rate its yield was priced at. */
+function countedStakeGrowth(rateOpen: bigint, rateHigh: bigint, stake: StakeGrowth | undefined, nowSec: number): Growth {
+  const g = stakeGrowthAt(rateOpen, stake, nowSec);
+  const peak = rateHigh > rateOpen ? rateHigh : rateOpen;
+  return g.num < peak ? { num: peak, den: g.den } : g;
+}
 
 /**
  * Smallest `nowSec` at which a Position's Accrued Yield reaches `target` (null when it never will).

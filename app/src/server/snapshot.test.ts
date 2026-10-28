@@ -11,6 +11,7 @@ import { fp } from "@/lib/chain/book";
 import { decodeState } from "@/lib/chain/snapshot-wire";
 import { OVERFLOW_DISC, OVERFLOW_STORE_AT } from "@/lib/chain/overflow";
 import bs58 from "bs58";
+import stakeFixtures from "@/lib/chain/position-stake.fixtures.json";
 import { getAccountState, serverStateSource, type SnapshotDeps } from "./snapshot";
 
 const coder = new Program(coreIdl as Idl, {} as Provider).coder.accounts;
@@ -240,5 +241,48 @@ describe("Account snapshot on the server", () => {
     const snap = decodeState<Awaited<ReturnType<typeof browserRead>>>(await getAccountState(authority, { fresh: true }, deps));
     expect(snap.positions).toHaveLength(1);
     expect(snap.holdings).toHaveLength(2);
+  });
+});
+
+describe("Account snapshot with Positions of both layouts (ticket 55)", () => {
+  // Stake Locks written by tesoro_core (235 bytes before migrate_position, 243 after), made the Account's own.
+  const images = Object.entries(stakeFixtures)
+    .filter(([k]) => k !== "_note")
+    .map(([name, f]: [string, any], i) => {
+      const data = Buffer.from(f.data, "hex");
+      accountKey.toBuffer().copy(data, 41); // owner: after the discriminator, bump and position id
+      return { name, key: key(40 + i), data, expect: f.expect };
+    });
+  const accounts = new Map<string, AccountInfo<Buffer>>([
+    [accountKey.toBase58(), chain.get(accountKey.toBase58())!],
+    [basketPda(accountKey).toBase58(), info(encodeStore([], { account: accountKey, capacity: 4 }))],
+    [spillPda(accountKey).toBase58(), info(encodeStore([], { account: accountKey, capacity: 1 }))],
+    ...images.map((im) => [im.key.toBase58(), info(im.data)] as [string, AccountInfo<Buffer>]),
+  ]);
+  const rows = images.map((im) => ({ pubkey: im.key.toBase58(), account: { data: [im.data.toString("base64"), "base64"] as [string, string] } }));
+  const deps: SnapshotDeps = {
+    lists: async () => rows,
+    owned: async () => rows,
+    connection: {
+      getMultipleAccountsInfo: (async (keys: PublicKey[]) => keys.map((k) => accounts.get(k.toBase58()) ?? null)) as never,
+      getBalance: (async () => 0) as never,
+    },
+  };
+
+  it("lists and decodes every Position, 235 and 243 bytes alike, with the fields the program wrote", async () => {
+    const snap = decodeState<Awaited<ReturnType<typeof browserRead>>>(await getAccountState(authority, { fresh: true }, deps));
+    expect(snap.positions.map((p) => p.address.toBase58())).toEqual(images.map((im) => im.key.toBase58()));
+    for (const [i, p] of snap.positions.entries()) {
+      const want = images[i].expect;
+      expect([p.principal, p.advances, p.status, p.native?.openAdvance, p.native?.appliedNet, p.native?.stakeRateOpen, p.native?.stakeRateHigh], images[i].name).toEqual([
+        Number(want.principal) / 1e9,
+        want.advances,
+        "locked",
+        want.openAdvance,
+        BigInt(want.appliedNet),
+        BigInt(want.stakeRateOpen),
+        BigInt(want.stakeRateHigh ?? 0),
+      ]);
+    }
   });
 });

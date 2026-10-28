@@ -86,3 +86,26 @@ describe("Accrued Yield on the spot (ADR 0010)", () => {
     expect(secondsUntilNet(p, 4380, 0n)).toBe(T0);
   });
 });
+
+describe("a staking-token Position's counted yield (ticket 55)", () => {
+  // Ana: 12 SOL opened at 1.20; yield priced at 1.32 (stake_rate_high), the rate now 1.25.
+  const ana = { principal: 12_000_000_000n, rateBps: 0, openedAt: 0, stakeRateOpen: 1_200_000_000_000n, stakeRateHigh: 1_320_000_000_000n };
+  const at = (rateNow: bigint) => ({ rateNow, atSec: 100, apyBps: 0 });
+
+  it("never drops below the yield priced at the highest rate, as stake_position_counted", () => {
+    expect(positionAccrued(ana, 0, 100, at(1_250_000_000_000n))).toBe(1_200_000_000n);
+    expect(positionAccrued(ana, 0, 100, at(1_100_000_000_000n))).toBe(1_200_000_000n);
+    expect(positionAccrued(ana, 0, 100, at(1_400_000_000_000n))).toBe(2_000_000_000n);
+  });
+
+  it("counts from the opening rate before migration (stake_rate_high 0) and for a Position read without a rate", () => {
+    const legacy = { ...ana, stakeRateHigh: 0n };
+    expect(positionAccrued(legacy, 0, 100, at(1_250_000_000_000n))).toBe(500_000_000n);
+    expect(positionAccrued(legacy, 0, 100, at(1_100_000_000_000n))).toBe(0n);
+    expect(positionAccrued(ana, 0, 100)).toBe(1_200_000_000n);
+  });
+
+  it("an Unlock Estimate target already priced is reached now", () => {
+    expect(secondsUntilNet(ana, 0, 1_000_000_000n, at(1_250_000_000_000n))).toBe(100);
+  });
+});

@@ -497,6 +497,19 @@ fn positions_retire_only_when_stale_and_only_once() {
     let err = env.retire_position(&admin, current).expect_err("current");
     assert_eq!(custom_code(&err), NOT_OLD_WORLD);
     assert!(!env.gone(current));
+    // A 235-byte Position (before ticket 55) is migrated, never retired.
+    let unmigrated = APk::new_unique();
+    put(
+        &mut env.svm,
+        unmigrated,
+        tesoro_core::ID,
+        with_disc(PositionState::DISCRIMINATOR, PositionStateV1::SPACE),
+    );
+    let err = env
+        .retire_position(&admin, unmigrated)
+        .expect_err("235 bytes");
+    assert_eq!(custom_code(&err), NOT_OLD_WORLD);
+    assert!(!env.gone(unmigrated));
     let err = env.retire_position(&admin, old).expect_err("twice");
     assert_eq!(custom_code(&err), NOT_OLD_WORLD);
 }

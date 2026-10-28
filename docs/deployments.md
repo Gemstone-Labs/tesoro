@@ -22,6 +22,35 @@ The metadata-only inventory (`collect --metadata-only`, followed by `check --inv
 
 Regression commands: `cargo test -p tesoro_core --lib predeploy_layouts -- --nocapture` writes/reads both the historical 178-byte and current 327-byte custody fixtures in LiteSVM; `python3 scripts/test-predeploy-size-check.py` exercises mismatch, unknown discriminator, dynamic capacity and version refusals. Preserve the LiteSVM fixture rows and use them in the Python test as described by its skip message.
 
+## Ticket 55: Positions gain `stake_rate_high` (launch-rules upgrade, not deployed)
+
+The tesoro_core change grows `PositionState` from 235 to 243 bytes. The new program cannot read a 235-byte Position until
+`migrate_position` rewrites it, and settlement and a holder's Redeem read the Source's Position, so the upgrade and the sweep run
+in one paused-keeper run. Founder's word required.
+
+1. **Step-1 release first (its own deploy, before any program change):** app and keeper read both layouts
+   (`app/src/lib/chain/position-size.ts`), the new IDL, and the "updating" copy for `AccountDidNotDeserialize`. Keeper on the VPS
+   redeployed on it (it pauses nothing in the app).
+2. **Dry run:** `pnpm --filter @tesoro/keeper exec tsx scripts/migrate-positions-55.ts --so target/deploy/tesoro_core.so`. It reads
+   only and needs no key. Checks: every RPC's genesis hash (read and send RPCs devnet, `--mainnet-rpc` mainnet); no other program
+   upgrade (`solana program deploy|write-buffer|extend|upgrade`, `anchor deploy|upgrade`) on this machine or on the keeper host,
+   where a failed check counts as a refusal; tesoro_core's upgrade authority and the Config admin are the deployer; the deployer
+   holds the buffer rent, the extend rent, write-buffer's fees and 40,640 lamports a Position; mainnet has 0 stake Positions. It
+   also lists devnet Positions by layout and legacy stake Locks whose holders are owed more than their custody. 2026-10-28 on
+   devnet: 83 Positions of 235 bytes (0 stake), 0 of 243, deployer 42.46 SOL against 16.10 SOL needed, extend by 15,768 bytes,
+   5 migration transactions of up to 20 Positions.
+3. **Run:** the same with `--send --keypair ~/.config/solana/dev-2026-10.json`. It stops the keeper and requires systemd to say
+   `inactive`. Unless ProgramData already holds this .so, it extends, checks again for other upgrades, writes the buffer and
+   upgrades. It then migrates every 235-byte Position and scans again until a scan finds none of any kind. Last, it starts the
+   keeper and requires `active` and a `/healthz` with a finished pass. Only a re-run whose ProgramData already holds the .so skips the upgrade
+   (it compares the bytes); the sweep and the keeper steps always run. A failure after the keeper stops prints the keeper's state,
+   whether the program was upgraded and the deployer's buffers. Before the upgrade it starts the keeper again; after it the keeper
+   stays stopped until a re-run finishes the sweep.
+4. **Post-checks:** stake Positions listed and decoded in `/wallet`; an Unlock of a migrated devnet Position pays as before; a fresh
+   stake Lock runs Advance, landing and Unlock; no 235-byte Position left (dry run again).
+
+`retire_position` and the keeper's retire plan close only Positions shorter than 235 bytes.
+
 ## Bundled devnet upgrade (2026-10-26)
 
 Source: `feat/economy-finish-25-10-2026` at `37e0bb57` (programs, crates and bridge identical to the build that produced these hashes). Built on the VPS with `anchor build --no-idl -- --tools-version v1.54` and `cargo build-sbf --tools-version v1.54` for the bridge; every dump of the live program equals its ELF. The deployer wrote and upgraded one program at a time. Rollback dumps: `~/.cache/tesoro-tmp/rollback-2026-10-26/` (`SHA256SUMS`).

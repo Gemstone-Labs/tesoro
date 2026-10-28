@@ -3,7 +3,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { OVERFLOW_DISC, OVERFLOW_OWNER_AT, decodeOverflowRecord } from "@/lib/chain/overflow";
-import { isCurrentPosition } from "@/lib/chain/position-size";
+import { isCurrentPosition, positionBytes } from "@/lib/chain/position-size";
 import { readAccountState, type StateSource } from "@/lib/chain/account-state";
 import { baseRpc } from "@/lib/chain/rpc-config";
 import { encodeState } from "@/lib/chain/snapshot-wire";
@@ -50,7 +50,7 @@ export function serverStateSource(deps: SnapshotDeps, opts: { fresh?: boolean } 
     rows
       .map((r) => ({ key: r.pubkey, data: Buffer.from(r.account.data[0], "base64") }))
       .filter((r) => isCurrentPosition(r.data))
-      .map((r) => ({ publicKey: new PublicKey(r.key), account: coder.decode("positionState", r.data) }));
+      .map((r) => ({ publicKey: new PublicKey(r.key), account: coder.decode("positionState", positionBytes(r.data)) }));
   return {
     lists: async (key) => {
       const q = query("PositionState", 41, key);

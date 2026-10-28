@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
+import { BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
 import idl from "./idl/tesoro_core.json";
+import sizeFixtures from "./position-size.fixtures.json";
+import stakeFixtures from "./position-stake.fixtures.json";
+import { decodePosition } from "./position-size";
 import { basketPda, bookPda } from "./basket";
 import {
   initNativeCustodyIx,
@@ -206,6 +210,7 @@ describe("native math", () => {
     position: owner,
     mint: SIM_SOL_MINT,
     stakeRateOpen: 0n,
+    stakeRateHigh: 0n,
     custodyShares: principal,
     status: "locked",
     principalLamports: principal,
@@ -284,6 +289,56 @@ describe("native math", () => {
     const got = nativeInfoFrom(owner, { data: d, executable: false, lamports: 0, owner } as never, null);
     expect(got).toMatchObject({ status: "locked", rateBps: 700, advances: 2, openAdvance: 1, freeYield: 7n, freeYieldClaimed: 3n, openedAt: T0, appliedNet: 9n, yieldFeeBps: 1500, principalLamports: principal });
     expect(poolSpeedup(Buffer.concat([Buffer.alloc(92), Buffer.from([0x0c, 0x11, 0, 0])]))).toBe(4364);
+  });
+
+  it("reads the Positions the program writes, of both layouts, as the IDL coder does (ticket 55)", () => {
+    const coder = new BorshAccountsCoder(idl as Idl);
+    const images: [string, Buffer, bigint | null][] = [
+      ["devnet 235 Some", Buffer.from(sizeFixtures.some.data, "base64"), null],
+      ["devnet 235 None + stale", Buffer.from(sizeFixtures.noneStale.data, "base64"), null],
+      ...Object.entries(stakeFixtures)
+        .filter(([k]) => k !== "_note")
+        .map(([k, f]: [string, any]) => [k, Buffer.from(f.data, "hex"), BigInt(f.expect.stakeRateHigh ?? 0)] as [string, Buffer, bigint]),
+    ];
+    for (const [name, data, high] of images) {
+      const got = nativeInfoFrom(owner, { data, executable: false, lamports: 0, owner } as never, null);
+      const p = decodePosition((d) => coder.decode("PositionState", d), data).inner;
+      expect(
+        {
+          mint: got.mint.toBase58(),
+          principal: got.principalLamports,
+          rateBps: got.rateBps,
+          status: got.status,
+          advances: got.advances,
+          openAdvance: got.openAdvance,
+          freeYield: got.freeYield,
+          freeYieldClaimed: got.freeYieldClaimed,
+          openedAt: got.openedAt,
+          appliedNet: got.appliedNet,
+          custodyShares: got.custodyShares,
+          yieldFeeBps: got.yieldFeeBps,
+          stakeRateOpen: got.stakeRateOpen,
+          stakeRateHigh: got.stakeRateHigh,
+        },
+        name,
+      ).toEqual({
+        mint: new PublicKey(p.source_asset).toBase58(),
+        principal: BigInt(p.principal.toString()),
+        rateBps: p.rate_bps,
+        status: Object.keys(p.status)[0].toLowerCase(),
+        advances: p.advances,
+        openAdvance: p.open_advance,
+        freeYield: BigInt(p.free_yield.toString()),
+        freeYieldClaimed: BigInt(p.free_yield_claimed.toString()),
+        openedAt: Number(p.opened_at.toString()),
+        appliedNet: BigInt(p.applied_net.toString()),
+        custodyShares: BigInt(p.custody_shares.toString()),
+        yieldFeeBps: p.yield_fee_bps,
+        stakeRateOpen: BigInt(p.stake_rate_open.toString()),
+        stakeRateHigh: BigInt(p.stake_rate_high.toString()),
+      });
+      if (high !== null) expect(got.stakeRateHigh, name).toBe(high);
+    }
   });
 
   it("pays simSOL worth the redeemed units", () => {

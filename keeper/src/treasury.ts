@@ -9,6 +9,7 @@ import { custodyOf, payingAccounts, ratingAccounts, type Custody } from "./kind-
 import { sendIxs, type SendOpts } from "./send.ts";
 import { SIM_SOL_MINT, connReader, dedupe, supplySources, type Reader } from "./supply.ts";
 import { simulate } from "./tee.ts";
+import { decodeCorePosition } from "./position.ts";
 
 /** A Redeem smaller than this many Gemas is left for a later pass, when more yield has landed. */
 const MIN_GEMAS = BigInt(process.env.KEEPER_TREASURY_MIN_GEMAS ?? 100);
@@ -128,7 +129,7 @@ async function redeemBuilder(
   const position = keyOf((ctx.core.coder.accounts.decode("sourceState", src.data) as any).inner.position);
   const [pos] = await d.read.many([position]);
   if (!pos) return null;
-  const decoded: any = ctx.core.coder.accounts.decode("positionState", pos.data);
+  const decoded: any = decodeCorePosition(ctx.core, pos.data);
   const books = (await supplySources(ctx.core, d.read, [{ source: line.source, cut: false }])).metas;
   const chain = Object.keys(decoded.inner.sourceChain)[0] as "solana" | "ethereum" | "hyperEvm";
   const ref = lineRefOf(line);

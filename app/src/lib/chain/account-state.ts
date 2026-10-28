@@ -8,6 +8,7 @@ import { SIM_SOL_MINT, TESORO_CORE_ID, marketFrom, marketKeys, nativeInfoFrom, n
 import { stakeMarketFrom, stakeMarketKeys } from "./stake";
 import { positionAccrued } from "./yield";
 import { clockOf } from "./native";
+import { positionBytes } from "./position-size";
 import { parseEthPositionId } from "./eth";
 import type { WaitingRecord } from "./overflow";
 import type { AccountSnapshot, ChainAdvance, ChainHolding, ChainPosition, StoreSummary } from "./read";
@@ -37,7 +38,7 @@ export interface StateSource {
 const decodeOr = (src: StateSource, name: Parameters<StateSource["decode"]>[0], info: Info) => {
   if (!info) return null;
   try {
-    return src.decode(name, info.data);
+    return src.decode(name, name === "positionState" ? positionBytes(info.data) : info.data);
   } catch {
     return null;
   }
@@ -71,7 +72,7 @@ const readStore = (info: Info): Store | null => {
 function syncedBook(book: SourceBookView, pos: any, srcState: any, speedup: number, nowSec: number, stake: ReturnType<typeof stakeGrowthOf>): SourceBookView {
   if (!isNativePosition(pos) || pos.inner.openAdvance !== srcState.inner.index || enumKey(pos.inner.status) !== "locked") return book;
   const p = pos.inner;
-  const clock = clockOf({ principalLamports: big(p.principal), rateBps: p.rateBps, openedAt: Number(big(p.openedAt)), stakeRateOpen: big(p.stakeRateOpen ?? 0) });
+  const clock = clockOf({ principalLamports: big(p.principal), rateBps: p.rateBps, openedAt: Number(big(p.openedAt)), stakeRateOpen: big(p.stakeRateOpen ?? 0), stakeRateHigh: big(p.stakeRateHigh ?? 0) });
   const net = positionAccrued(clock, speedup, nowSec, stake);
   const applied = big(p.appliedNet);
   const counted = net > applied ? net - applied : 0n;

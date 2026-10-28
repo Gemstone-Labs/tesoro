@@ -231,7 +231,17 @@ pub fn sync_source<S: ClassSlots, C: CheckpointStore + ?Sized>(
         .ok_or(CoreError::Math)?;
     let landing = book.land(target, shares, ck)?;
     position.held_shares = held;
+    note_priced_rate(position, rate)?;
     Ok(Synced { landing, shares })
+}
+
+/// A stake Position's yield was just priced at `rate`: its highest priced rate follows (ticket 55).
+fn note_priced_rate(position: &mut Position, rate: &ShareRate) -> CoreResult<()> {
+    if position.stake_rate_open != 0 {
+        let r = u64::try_from(rate.per_share()).map_err(|_| CoreError::Math)?;
+        position.stake_rate_high = position.stake_rate_high.max(r);
+    }
+    Ok(())
 }
 
 /// The owner takes the book's pocket: coverage no holder is owed (excess yield, `return_own`'s
@@ -285,6 +295,9 @@ pub fn bank_free_yield(position: &mut Position, net: u64, rate: &ShareRate) -> C
         .checked_add(shares)
         .ok_or(CoreError::Math)?;
     position.applied_net = position.applied_net.max(net);
+    if delta > 0 {
+        note_priced_rate(position, rate)?;
+    }
     Ok(())
 }
 
@@ -321,6 +334,39 @@ pub fn advance_line<S: ClassSlots, C: CheckpointStore + ?Sized>(
     let mut line = Book::<S>::blank_line(SIDE_OWN, src.due_at, source_key, CLASS_GENERAL, 0);
     book.issue(&mut line, src.issued, ck)?;
     Ok(line)
+}
+
+/// Ticket 55, stake Positions only (others pass): new Gemas of `src` may be issued only at or
+/// above the highest rate the Position's yield was priced at (`RateBelowPeak`), and only while the
+/// Position's settled yield plus everything `src` can still cover stays within its Principal
+/// (`YieldCapReached`). `src` is the Source as it will be stored (an Extend's full new issuance).
+/// With the cap, holders' shares never exceed the custody: each landing is priced above the
+/// opening rate, so the shares of at most Principal of yield are fewer than `custody_shares`.
+pub fn check_stake_issuance(position: &Position, rate: &ShareRate, src: &Source) -> CoreResult<()> {
+    if position.stake_rate_open == 0 {
+        return Ok(());
+    }
+    if rate.per_share() < u128::from(super::stake_rate_peak(position)) {
+        return Err(CoreError::RateBelowPeak);
+    }
+    let live = src
+        .issued
+        .checked_sub(src.returned)
+        .ok_or(CoreError::Math)?;
+    let commit = mul_div_u128(
+        u128::from(live),
+        src.unit_num,
+        u128::from(src.unit_den),
+        Round::Up,
+    )
+    .ok_or(CoreError::Math)?;
+    let total = u128::from(position.applied_net)
+        .checked_add(commit)
+        .ok_or(CoreError::Math)?;
+    if total > u128::from(position.principal) {
+        return Err(CoreError::YieldCapReached);
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -384,6 +430,7 @@ pub fn extend_source<S: ClassSlots, C: CheckpointStore + ?Sized>(
     }
     let mut next = src.clone();
     let minted = extend_gemas(position, &mut next, extra_months, speedup)?;
+    check_stake_issuance(position, rate, &next)?;
     let class = book.start_extension()?;
     let mut line = Book::<S>::blank_line(
         SIDE_OWN,
@@ -504,15 +551,35 @@ pub struct UnlockPayout {
     pub fee_shares: u64,
     /// Shares the holders of the Position's Gemas are owed, fixed now (D2).
     pub owed_shares: u64,
-    /// Staking token: what the custody lacks to return the owner's Principal and free yield after
-    /// the fee because holders' landed shares grew with the pool. The Treasury tops it up from
-    /// spendable shares ([`route_after_unlock`]). Never set after a fall below the opening rate.
+    /// Staking token: the part of what the custody lacks that is growth since the yield was
+    /// priced, net of any fall (ticket 55): holders' landed shares grew with the pool and the same
+    /// growth also counted as the Position's yield. The Treasury tops it up from spendable shares
+    /// ([`route_after_unlock`]). Never set at or below the opening rate, never for a fall.
     pub shortfall_shares: u64,
     /// What the owner got less than the Principal and free yield: a slash, or the part of the
     /// shortfall the Treasury could not cover.
     pub gap_shares: u64,
     /// What the Treasury topped up out of `shortfall_shares`.
     pub topped_up_shares: u64,
+    /// Staking token, a Lock from before ticket 55 only: what holders are owed beyond the shares
+    /// its custody still holds. The whole custody goes to the route and the Treasury funds this
+    /// from spendable shares, or the Unlock waits (`GrowthClaimsUnfunded`).
+    pub claims_funded_shares: u64,
+}
+
+/// What the shares a stake Position's yield landed in grew since that yield was priced, net of
+/// any fall since, at `rate`: every share its yield ever landed in (held, free, paid out) less the
+/// Yield Fee on the free part, less what all of the yield priced so far (counted at the highest
+/// priced rate) is worth now. Zero when that is negative. Landings priced above `rate` net
+/// against those below it, so growth a later fall hides is the owner's (design-v4 3.3).
+fn landed_growth_shares(position: &Position, rate: &ShareRate, free_fee: u64) -> CoreResult<u64> {
+    let priced = super::stake_position_accrued(position, super::stake_rate_peak(position))?;
+    let landed = (position.held_shares.saturating_add(position.free_shares) >> SHARE_BITS)
+        .saturating_add(u128::from(position.paid_shares));
+    let worth = u128::from(rate.whole_shares_for_units_ceil(priced)?);
+    let growth = landed.saturating_sub(u128::from(free_fee).saturating_add(worth));
+    // Only ever compared with the custody's shortfall (a u64): saturating loses nothing.
+    Ok(u64::try_from(growth).unwrap_or(u64::MAX))
 }
 
 /// Unlock a Position whose Advance is already closed (or banked). The Yield Fee is charged on the
@@ -554,20 +621,30 @@ pub fn settle_unlock(
         CustodyKind::Stake => {
             let custody =
                 position.custody_shares - position.paid_shares.min(position.custody_shares);
-            let rest = custody.checked_sub(owed).ok_or(CoreError::VaultShortfall)?;
-            // Holders' shares keep growing with the pool after they land, and the same growth also
-            // counted as the Position's yield, so the custody can fall short of the owner's
-            // Principal plus free yield. The fee on the free yield absorbs it first; the Treasury
-            // tops up the rest (founder, 2026-10-22: Tesoro covers that gap). A slash is never
-            // insured (D2, no cushion; red-team 31 #1): the Principal is counted at the higher of
-            // the rate now and at open, and below the opening rate nothing is topped up.
+            // The Principal is counted at the higher of the rate now and at open: below the
+            // opening rate the owner carries the fall (D2, no cushion; red-team 31 #1).
             let open = ShareRate::stake(position.stake_rate_open)?;
-            let grew = rate.per_share() > open.per_share();
-            let principal_rate = if grew { rate } else { &open };
+            let above_open = rate.per_share() > open.per_share();
+            let principal_rate = if above_open { rate } else { &open };
             let due = principal_rate
                 .whole_shares_for_units_ceil(position.principal)?
                 .checked_add(free_after)
                 .ok_or(CoreError::Math)?;
+            if owed > custody {
+                // Only a Lock issued before the lifetime cap gets here (design-v4 5): its holders
+                // are owed more than its custody. The custody goes to them; the Treasury funds
+                // the rest ([`route_after_unlock`]); the owner gets nothing back.
+                return finish_unlock(
+                    position,
+                    UnlockPayout {
+                        owed_shares: owed,
+                        gap_shares: due,
+                        claims_funded_shares: owed - custody,
+                        ..UnlockPayout::default()
+                    },
+                );
+            }
+            let rest = custody - owed;
             if rest >= due {
                 let fee = free_fee.min(rest - due);
                 UnlockPayout {
@@ -576,28 +653,35 @@ pub fn settle_unlock(
                     owed_shares: owed,
                     ..UnlockPayout::default()
                 }
-            } else if grew {
-                UnlockPayout {
-                    owner_shares: rest,
-                    owed_shares: owed,
-                    shortfall_shares: due - rest,
-                    ..UnlockPayout::default()
-                }
             } else {
+                // Short. The Treasury covers only the growth of the landed shares since their
+                // yield was priced (SOL-02 A, ticket 55); a rate fall is the owner's gap.
+                let short = due - rest;
+                let growth = if above_open {
+                    landed_growth_shares(position, rate, free_fee)?
+                } else {
+                    0
+                };
+                let shortfall = short.min(growth);
                 UnlockPayout {
                     owner_shares: rest,
                     owed_shares: owed,
-                    gap_shares: due - rest,
+                    shortfall_shares: shortfall,
+                    gap_shares: short - shortfall,
                     ..UnlockPayout::default()
                 }
             }
         }
     };
+    finish_unlock(position, payout)
+}
+
+fn finish_unlock(position: &mut Position, payout: UnlockPayout) -> CoreResult<UnlockPayout> {
     position.status = PositionStatus::Unlocked;
     position.custody_shares = 0;
     position.paid_shares = 0;
     position.held_shares = 0;
-    position.free_shares &= one - 1;
+    position.free_shares &= (1u128 << SHARE_BITS) - 1;
     Ok(payout)
 }
 
@@ -612,8 +696,19 @@ pub fn route_after_unlock(
 ) -> CoreResult<()> {
     let mut next = route.clone();
     next.realise_yield_fee(u128::from(payout.fee_shares), pool_bps)?;
-    next.receive(u128::from(payout.owed_shares))?;
-    next.add_owed(u128::from(payout.owed_shares))?;
+    // The custody's shares the holders are owed join the route; claims beyond the custody
+    // (`claims_funded_shares`, legacy Locks only) must fit what the Treasury may spend.
+    let received = payout
+        .owed_shares
+        .checked_sub(payout.claims_funded_shares)
+        .ok_or(CoreError::Math)?;
+    next.receive(u128::from(received))?;
+    next.add_owed(u128::from(payout.owed_shares)).map_err(|e| {
+        match (e, payout.claims_funded_shares) {
+            (CoreError::OwedExceedsTreasury, 1..) => CoreError::GrowthClaimsUnfunded,
+            (e, _) => e,
+        }
+    })?;
     let shortfall = u128::from(payout.shortfall_shares);
     let top = shortfall.min(next.spendable());
     next.spend(top)?;

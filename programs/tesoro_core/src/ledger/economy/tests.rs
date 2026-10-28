@@ -6,7 +6,7 @@ use crate::ledger::line_store::{
 };
 use crate::ledger::yield_fee::{cash_out, exit_terms};
 use crate::ledger::{
-    principal_for_shares, stake_position_accrued, tokens_for_units, SourceChain, STAKE_RATE_SCALE,
+    principal_for_shares, stake_position_counted, tokens_for_units, SourceChain, STAKE_RATE_SCALE,
 };
 use proptest::prelude::*;
 
@@ -46,6 +46,15 @@ struct World {
     fees: u128,
     unlocked: Option<UnlockPayout>,
     now: i64,
+    /// Every increase of the shares the Position's yield landed in (held, free and paid), with the
+    /// rate it landed at: the independent record of what each landing was priced at (ticket 55).
+    landings: Vec<(u128, u64)>,
+    /// The rate the Position unlocked at.
+    unlock_rate: u64,
+    /// `applied_net` when each Source was issued (it only moves once the Source closes).
+    issued_at_net: Vec<u64>,
+    /// A Lock from before ticket 55: its Sources were issued without the issuance checks.
+    legacy: bool,
 }
 
 impl World {
@@ -54,6 +63,7 @@ impl World {
         let mut pos =
             Position::new(OWNER, SourceChain::Solana, [7; 32], 9, principal, 500).unwrap();
         pos.stake_rate_open = R0;
+        pos.stake_rate_high = R0;
         pos.yield_fee_bps = FEE;
         pos.custody_shares = shares;
         let route = RouteLedger {
@@ -75,6 +85,10 @@ impl World {
             fees: 0,
             unlocked: None,
             now: T0,
+            landings: vec![],
+            unlock_rate: 0,
+            issued_at_net: vec![],
+            legacy: false,
         }
     }
 
@@ -82,8 +96,9 @@ impl World {
         ShareRate::stake(self.rate).unwrap()
     }
 
+    /// Counted yield, as the instructions read it (`stake_rates`).
     fn net(&self) -> u64 {
-        stake_position_accrued(&self.pos, self.rate).unwrap()
+        stake_position_counted(&self.pos, self.rate).unwrap()
     }
 
     /// Takes an Advance of `months`, closing the previous one if it is repaid.
@@ -106,6 +121,9 @@ impl World {
             )?,
         }
         let mut src = pos.open_advance(POSITION, months, PRICE)?;
+        if !self.legacy {
+            check_stake_issuance(&pos, &rate, &src)?;
+        }
         src.due_at = planned_due_at(self.now, months, 1)?;
         src.yield_fee_bps = FEE;
         src.pool_bps = POOL;
@@ -113,6 +131,7 @@ impl World {
         let mut book = SourceBook::new();
         let ck = MemCheckpoints::new(source_key(s));
         let line = advance_line(&mut book, source_key(s), &src, &ck)?;
+        self.issued_at_net.push(pos.applied_net);
         self.pos = pos;
         self.srcs.push(src);
         self.books.push(book);
@@ -260,7 +279,25 @@ impl World {
         self.fees += u128::from(payout.fee_shares);
         self.out += payout.owner_shares;
         self.unlocked = Some(payout);
+        self.unlock_rate = self.rate;
         Ok(())
+    }
+
+    /// Shares (32 fractional bits) the Position's yield has landed in so far.
+    fn landed_total(&self) -> u128 {
+        self.pos.held_shares + self.pos.free_shares + (u128::from(self.paid_pre) << SHARE_BITS)
+    }
+
+    /// What the landed shares grew since each was priced, at `rate`, whole shares: the sum of
+    /// every landing's positive growth, with nothing netted against a loss.
+    fn model_growth(&self, rate: u64) -> u128 {
+        let fp: u128 = self
+            .landings
+            .iter()
+            .filter(|(_, r)| *r < rate)
+            .map(|(s, r)| s - s * u128::from(*r) / u128::from(rate))
+            .sum();
+        fp >> SHARE_BITS
     }
 
     /// Everything that must hold after every operation.
@@ -272,7 +309,7 @@ impl World {
                 .unwrap_or_else(|e| panic!("source {s}: {e}"));
             held_in_books += book_shares(book);
         }
-        if self.pos.status == PositionStatus::Locked {
+        if self.pos.status == PositionStatus::Locked && !self.legacy {
             assert_eq!(
                 self.pos.held_shares, held_in_books,
                 "the Position's held shares are exactly the shares its books hold"
@@ -282,6 +319,17 @@ impl World {
                     >= self.pos.held_shares,
                 "the custody still covers what holders are owed"
             );
+            // Ticket 55 cap: every Source's commitment fit under Principal when it was issued.
+            if let Some(i) = self.pos.open_advance {
+                let src = &self.srcs[i as usize];
+                let commit =
+                    (src.issued - src.returned) as u128 * src.unit_num / u128::from(src.unit_den);
+                assert!(
+                    u128::from(self.issued_at_net[i as usize]) + commit
+                        <= u128::from(self.pos.principal) + 1,
+                    "Source {i} was issued over the lifetime cap"
+                );
+            }
         }
         self.route.check(&[]).expect("route");
         let custody_left = if self.pos.status == PositionStatus::Locked {
@@ -324,8 +372,9 @@ fn coverage_lands_in_class_order_and_the_open_advance_closes_when_repaid() {
     assert!(w.pos.held_shares > 0);
     // It cannot close yet.
     assert_eq!(w.advance(1), Err(CoreError::AdvanceAlreadyOpen));
-    // A large growth repays it, the excess is the owner's pocket, and a new Advance closes it.
-    w.rate = R0 * 2;
+    // A large growth repays it, the excess is the owner's pocket, and a new Advance closes it
+    // (half of Principal accrued: under the lifetime cap).
+    w.rate = R0 + R0 / 2;
     w.sync(0).unwrap();
     assert_eq!(w.books[0].uncovered_total(), 0);
     assert!(w.books[0].owner_shares > 0);
@@ -562,6 +611,117 @@ fn a_prize_source_is_sized_in_gemas_by_the_value_of_its_shares() {
     assert_eq!(g, 19_500);
 }
 
+#[test]
+fn the_highest_priced_rate_moves_only_when_yield_lands_and_counted_yield_never_drops() {
+    let mut w = World::new(10 * SOL);
+    w.pos.stake_rate_high = R0;
+    w.advance(12).unwrap();
+    // A rise nobody syncs is not priced.
+    w.rate = R0 + R0 / 10;
+    assert_eq!(w.pos.stake_rate_high, R0);
+    w.rate = R0 + R0 / 20;
+    w.sync(0).unwrap();
+    assert_eq!(
+        w.pos.stake_rate_high,
+        R0 + R0 / 20,
+        "a landing prices at the rate of the moment"
+    );
+    let counted = w.net();
+    // A fall prices nothing and counts what was priced.
+    w.rate = R0 + R0 / 40;
+    let held = w.pos.held_shares;
+    w.sync(0).unwrap();
+    assert_eq!(
+        (w.pos.stake_rate_high, w.pos.held_shares),
+        (R0 + R0 / 20, held)
+    );
+    assert_eq!(
+        w.net(),
+        counted,
+        "counted yield stays at the highest priced rate"
+    );
+    assert_eq!(
+        stake_position_counted(&w.pos, R0 - R0 / 10).unwrap(),
+        counted,
+        "even below the opening rate"
+    );
+    // Idle yield banked with no Advance open moves it too; nothing banked, nothing moves.
+    let mut idle = World::new(10 * SOL);
+    idle.pos.stake_rate_high = R0;
+    idle.rate = R0 - R0 / 10;
+    let (net, rate) = (idle.net(), idle.share_rate());
+    bank_free_yield(&mut idle.pos, net, &rate).unwrap();
+    assert_eq!(idle.pos.stake_rate_high, R0);
+    idle.rate = R0 + R0 / 8;
+    let (net, rate) = (idle.net(), idle.share_rate());
+    bank_free_yield(&mut idle.pos, net, &rate).unwrap();
+    assert_eq!(idle.pos.stake_rate_high, R0 + R0 / 8);
+    // A Position that is not a stake Position never gets one.
+    let mut native = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, SOL, 500).unwrap();
+    bank_free_yield(&mut native, SOL, &ShareRate::native(1_100_000_000).unwrap()).unwrap();
+    assert_eq!(native.stake_rate_high, 0);
+}
+
+#[test]
+fn issuance_is_capped_at_principal_and_refused_below_the_highest_priced_rate() {
+    let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, 12 * SOL, 2_000).unwrap();
+    pos.stake_rate_open = R0;
+    pos.stake_rate_high = R0 + R0 / 10;
+    let mut src = pos.clone().open_advance(POSITION, 12, PRICE).unwrap();
+    // 2.4 SOL: 36,000 Gemas at $150.
+    assert_eq!(src.issued, 36_000);
+    let peak = ShareRate::stake(R0 + R0 / 10).unwrap();
+    let below = ShareRate::stake(R0 + R0 / 10 - 1).unwrap();
+    assert_eq!(check_stake_issuance(&pos, &peak, &src), Ok(()));
+    assert_eq!(
+        check_stake_issuance(&pos, &below, &src),
+        Err(CoreError::RateBelowPeak)
+    );
+    // Exactly at Principal passes, one lamport over is refused.
+    pos.applied_net = 12 * SOL - 2_400_000_000;
+    assert_eq!(check_stake_issuance(&pos, &peak, &src), Ok(()));
+    pos.applied_net += 1;
+    assert_eq!(
+        check_stake_issuance(&pos, &peak, &src),
+        Err(CoreError::YieldCapReached)
+    );
+    // Returned Gemas free their commitment; redeemed ones do not.
+    src.returned = 1;
+    src.redeemed = 5_000;
+    assert_eq!(check_stake_issuance(&pos, &peak, &src), Ok(()));
+    // Counted yield above Principal (rate more than doubled) refuses without underflowing.
+    pos.applied_net = 13 * SOL;
+    assert_eq!(
+        check_stake_issuance(&pos, &peak, &src),
+        Err(CoreError::YieldCapReached)
+    );
+    // Native and reported Positions are never checked here.
+    let other = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, SOL, 500).unwrap();
+    assert_eq!(check_stake_issuance(&other, &below, &src), Ok(()));
+}
+
+#[test]
+fn yearly_advances_at_twenty_percent_stop_after_four_years() {
+    // design-v4 4.1: compounding 20% a year, a 12-month Advance each year. After 3 years
+    // 0.728P + 0.2P fits; after 4 years 1.074P does not.
+    let mut w = World::new(10 * SOL);
+    let mut ok = vec![];
+    for year in 1..=5 {
+        w.pos.rate_bps = 2_000;
+        let r = w.advance(12);
+        ok.push((year, r.is_ok()));
+        if r.is_err() {
+            assert_eq!(r, Err(CoreError::YieldCapReached), "year {year}");
+            break;
+        }
+        w.rate = w.rate + w.rate / 5;
+    }
+    assert_eq!(
+        ok,
+        vec![(1, true), (2, true), (3, true), (4, true), (5, false)]
+    );
+}
+
 // --- Property: random lives of a Position, with slashes ----------------------------------------
 
 #[derive(Clone, Debug)]
@@ -591,6 +751,65 @@ fn op() -> impl Strategy<Value = Op> {
     ]
 }
 
+/// One operation of a random life; an Err leaves `w` half-changed (the caller restores it).
+fn apply(w: &mut World, o: &Op, winner_acts: &mut bool) -> CoreResult<()> {
+    let before = w.landed_total();
+    let res = (|| {
+        match o {
+            Op::Rate(bps) => {
+                w.rate = (w.rate as i128 + w.rate as i128 * *bps as i128 / 10_000).max(1) as u64;
+                w.now += 3_600;
+            }
+            Op::Advance(m) => w.advance(*m)?,
+            Op::Extend(m) => w.extend(*m)?,
+            Op::Sync => {
+                for s in 0..w.srcs.len() {
+                    w.sync(s)?;
+                }
+            }
+            Op::Redeem(s, i, pct) => {
+                let s = *s as usize % w.srcs.len();
+                let n = w.lines[s].len();
+                let i = *i as usize % n;
+                w.sync(s)?;
+                let can = w.redeemable(s, i);
+                let k = can * u64::from(*pct) / 100;
+                if k > 0 {
+                    *winner_acts = w.lines[s][i].0 == 1;
+                    w.redeem(s, i, k)?;
+                }
+            }
+            Op::ReturnOwn(s, pct) => {
+                let s = *s as usize % w.srcs.len();
+                if let Some(i) = w.find(s, 0, CLASS_GENERAL) {
+                    let k = (w.lines[s][i].1.amount * u64::from(*pct) / 100).max(1);
+                    w.return_own(s, i, k)?;
+                }
+            }
+            Op::Win(s, pct) => {
+                let s = *s as usize % w.srcs.len();
+                if let Some(i) = w.find(s, 0, CLASS_GENERAL) {
+                    let k = (w.lines[s][i].1.amount * u64::from(*pct) / 100).max(1);
+                    *winner_acts = true;
+                    w.win(s, i, k)?;
+                }
+            }
+            Op::Unlock => {
+                if w.unlocked.is_none() {
+                    w.unlock()?;
+                }
+            }
+        }
+        Ok(())
+    })();
+    let after = w.landed_total();
+    if res.is_ok() && after > before {
+        let rate = w.rate;
+        w.landings.push((after - before, rate));
+    }
+    res
+}
+
 fn run(ops: &[Op]) {
     let mut w = World::new(10 * SOL);
     w.advance(6).unwrap();
@@ -610,55 +829,7 @@ fn run(ops: &[Op]) {
             .collect();
         let mut winner_acts = false;
         let snap = w.clone();
-        let res: CoreResult<()> = (|| {
-            match o {
-                Op::Rate(bps) => {
-                    w.rate =
-                        (w.rate as i128 + w.rate as i128 * *bps as i128 / 10_000).max(1) as u64;
-                    w.now += 3_600;
-                }
-                Op::Advance(m) => w.advance(*m)?,
-                Op::Extend(m) => w.extend(*m)?,
-                Op::Sync => {
-                    for s in 0..w.srcs.len() {
-                        w.sync(s)?;
-                    }
-                }
-                Op::Redeem(s, i, pct) => {
-                    let s = *s as usize % w.srcs.len();
-                    let n = w.lines[s].len();
-                    let i = *i as usize % n;
-                    w.sync(s)?;
-                    let can = w.redeemable(s, i);
-                    let k = can * u64::from(*pct) / 100;
-                    if k > 0 {
-                        winner_acts = w.lines[s][i].0 == 1;
-                        w.redeem(s, i, k)?;
-                    }
-                }
-                Op::ReturnOwn(s, pct) => {
-                    let s = *s as usize % w.srcs.len();
-                    if let Some(i) = w.find(s, 0, CLASS_GENERAL) {
-                        let k = (w.lines[s][i].1.amount * u64::from(*pct) / 100).max(1);
-                        w.return_own(s, i, k)?;
-                    }
-                }
-                Op::Win(s, pct) => {
-                    let s = *s as usize % w.srcs.len();
-                    if let Some(i) = w.find(s, 0, CLASS_GENERAL) {
-                        let k = (w.lines[s][i].1.amount * u64::from(*pct) / 100).max(1);
-                        winner_acts = true;
-                        w.win(s, i, k)?;
-                    }
-                }
-                Op::Unlock => {
-                    if w.unlocked.is_none() {
-                        w.unlock()?;
-                    }
-                }
-            }
-            Ok(())
-        })();
+        let res = apply(&mut w, o, &mut winner_acts);
         if res.is_err() {
             // An Err aborts the transaction: nothing it did is kept.
             w = snap;
@@ -678,8 +849,56 @@ fn run(ops: &[Op]) {
     }
 }
 
+/// Ticket 55 (SOL-02 A): a random life ends in an Unlock with the Treasury funded. Whatever
+/// the history, the top-up is at most the growth the landed shares really had since their yield
+/// was priced (each landing on its own, `World::landings`), nothing below the opening rate, and
+/// nothing when the rate is below every landing's.
+fn run_growth_only(ops: &[Op]) {
+    let mut w = World::new(10 * SOL);
+    w.route.receive(u128::from(SOL)).unwrap();
+    w.custody0 += SOL;
+    w.advance(6).unwrap();
+    for o in ops.iter().chain([Op::Unlock].iter()) {
+        let snap = w.clone();
+        if apply(&mut w, o, &mut false).is_err() {
+            w = snap;
+        }
+        w.check();
+    }
+    let Some(p) = w.unlocked else {
+        return;
+    };
+    let r = w.unlock_rate;
+    let growth = w.model_growth(r);
+    assert!(
+        u128::from(p.shortfall_shares) <= growth + 1,
+        "top-up {} beyond the landed shares' growth {growth} at {r} ({:?})",
+        p.shortfall_shares,
+        w.landings
+    );
+    if r <= R0 {
+        assert_eq!(
+            p.shortfall_shares, 0,
+            "no top-up at or below the opening rate"
+        );
+    }
+    if w.landings.iter().all(|(_, lr)| r < *lr) {
+        assert_eq!(
+            p.shortfall_shares, 0,
+            "no top-up below every landing's rate"
+        );
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig { cases: 400, ..ProptestConfig::default() })]
+
+    #[test]
+    fn the_unlock_top_up_never_exceeds_the_landed_shares_growth(
+        ops in proptest::collection::vec(op(), 1..60)
+    ) {
+        run_growth_only(&ops);
+    }
 
     #[test]
     fn a_positions_whole_life_conserves_shares_and_never_lowers_redeem_now(
@@ -710,15 +929,103 @@ fn unlock_charges_the_fee_on_free_yield_only_and_never_invents_custody() {
         ),
         (400, 20, 580, 0)
     );
-    // Holders owed more than the custody holds is an inconsistency, not a payout.
+    // Holders owed more than the custody holds (a migrated legacy Lock, ticket 55): the whole
+    // custody goes to the route, the Treasury must fund the rest of the claims, the owner gets
+    // nothing back.
     let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, SOL, 500).unwrap();
+    pos.stake_rate_open = R0;
     pos.custody_shares = 100;
     pos.held_shares = 400u128 << SHARE_BITS;
+    let p = settle_unlock(&mut pos, CustodyKind::Stake, &rate).unwrap();
     assert_eq!(
-        settle_unlock(&mut pos, CustodyKind::Stake, &rate),
-        Err(CoreError::VaultShortfall)
+        (p.owner_shares, p.owed_shares, p.claims_funded_shares),
+        (0, 400, 300)
     );
-    assert_eq!(pos.status, PositionStatus::Locked);
+    assert_eq!(p.gap_shares, rate.whole_shares_for_units_ceil(SOL).unwrap());
+    let mut empty = RouteLedger::default();
+    let mut paid = p;
+    assert_eq!(
+        route_after_unlock(&mut empty, &mut paid, POOL),
+        Err(CoreError::GrowthClaimsUnfunded)
+    );
+    assert_eq!(empty, RouteLedger::default());
+}
+
+#[test]
+fn holder_claims_above_the_custody_are_funded_by_the_treasury_or_unlock_waits() {
+    // Codex's figures (design-v4 5): Treasury 4 jitoSOL, custody 10, holders owed 10.348956599.
+    let rate = ShareRate::stake(R0).unwrap();
+    let claims = |treasury: u128| {
+        let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, 12 * SOL, 500).unwrap();
+        pos.stake_rate_open = R0 - R0 / 10;
+        pos.stake_rate_high = R0;
+        pos.custody_shares = 10 * SOL;
+        pos.held_shares = 10_348_956_599u128 << SHARE_BITS;
+        let p = settle_unlock(&mut pos, CustodyKind::Stake, &rate).unwrap();
+        let mut route = RouteLedger {
+            reserved: 7,
+            pool_owed: 11,
+            pool_realised_total: 11,
+            ..RouteLedger::default()
+        };
+        route.receive(treasury + 18).unwrap();
+        (p, route)
+    };
+    let (mut p, mut route) = claims(4 * u128::from(SOL));
+    assert_eq!(p.claims_funded_shares, 348_956_599);
+    route_after_unlock(&mut route, &mut p, POOL).unwrap();
+    assert_eq!(route.treasury_shares, 14 * u128::from(SOL) + 18);
+    assert_eq!(route.owed_shares, 10_348_956_599);
+    assert_eq!(route.spendable(), 3_651_043_401);
+    assert_eq!(
+        (route.reserved, route.pool_owed),
+        (7, 11),
+        "other claims untouched"
+    );
+    assert_eq!(
+        (p.owner_shares, p.topped_up_shares, p.shortfall_shares),
+        (0, 0, 0)
+    );
+    route.check(&[]).unwrap();
+    // One share short of the excess: refused, nothing changes.
+    let (mut p, mut route) = claims(348_956_598);
+    let before = route.clone();
+    assert_eq!(
+        route_after_unlock(&mut route, &mut p, POOL),
+        Err(CoreError::GrowthClaimsUnfunded)
+    );
+    assert_eq!(route, before);
+    // Exactly the excess: funded, nothing spendable left.
+    let (mut p, mut route) = claims(348_956_599);
+    route_after_unlock(&mut route, &mut p, POOL).unwrap();
+    assert_eq!(route.spendable(), 0);
+}
+
+#[test]
+fn a_migrated_lock_with_ten_uncapped_advances_unlocks_through_the_treasury() {
+    // A legacy Lock (high = open, no cap on its old Sources): ten 12-month Advances at 20% while
+    // the rate goes from 1.3 to 3.9 land more shares than its custody (Codex: 10.35 per 10).
+    // Unlock funds the excess from the Treasury and every share stays accounted for.
+    let mut w = World::new(10 * SOL);
+    w.legacy = true;
+    w.route.receive(5 * u128::from(SOL)).unwrap();
+    w.custody0 += 5 * SOL;
+    for _ in 0..10 {
+        w.pos.rate_bps = 2_000;
+        w.advance(12).unwrap();
+        w.rate += R0 / 5;
+        w.sync(w.srcs.len() - 1).unwrap();
+        assert_eq!(w.books[w.srcs.len() - 1].uncovered_total(), 0);
+    }
+    assert!(
+        w.pos.held_shares >> SHARE_BITS > u128::from(w.pos.custody_shares),
+        "holders' claims exceed the custody"
+    );
+    w.unlock().unwrap();
+    let p = w.unlocked.unwrap();
+    assert!(p.claims_funded_shares > 0);
+    assert_eq!(p.owner_shares, 0);
+    w.check();
 }
 
 #[test]
@@ -831,10 +1138,12 @@ fn growth_of_landed_shares_is_covered_by_the_treasury_not_the_owners_principal()
         p.shortfall_shares > 0,
         "the landed shares' growth leaves the custody short"
     );
-    assert_eq!(p.gap_shares, 0);
+    // The priced yield is worth `ceil(priced / rate)` shares: the owner can be one share short
+    // of the growth (ticket 55 rounds the Treasury's way).
+    assert!(p.gap_shares <= 1, "gap {}", p.gap_shares);
     assert!(
-        value(p.owner_shares) >= u128::from(w.pos.principal),
-        "the owner's shares are worth at least the Principal"
+        value(p.owner_shares + p.gap_shares) >= u128::from(w.pos.principal),
+        "the owner's shares are worth the Principal, but for that share"
     );
     w.check();
 }

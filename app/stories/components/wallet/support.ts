@@ -26,6 +26,7 @@ export function nativePosition(state: "debt" | "repaid" | "unlocked" = "debt"): 
     position: key(401),
     mint: PublicKey.default,
     stakeRateOpen: 0n,
+    stakeRateHigh: 0n,
     custodyShares: 40_000_000_000n,
     status: state === "unlocked" ? "unlocked" : "locked",
     principalLamports: 40_000_000_000n,

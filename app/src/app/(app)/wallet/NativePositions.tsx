@@ -25,6 +25,10 @@ import {
   sharesValue,
   speedupOf,
   stakeGrowthOf,
+  YIELD_CAP_FULL,
+  lengthCapNote,
+  longestLengthWithinCap,
+  rateWaitNote,
   unlockEstimateMs,
   type NativeInfo,
   type NativeMarket,
@@ -502,7 +506,7 @@ export function NativeAdvanceSheet({ info, market, open, onClose }: { info: Nati
 function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market: NativeMarket | null; onClose: () => void }) {
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
-  const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
+  const [picked, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [step, setStep] = useState("Preparing");
   const now = useNow(5000);
   const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;
@@ -511,10 +515,15 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
   const real = info.stakeRateOpen > 0n;
   // On mainnet the Advance is sized on the pool's recent growth under the admin's ceiling, not on the rate the Position opened with.
   const rateBps = real ? (market?.stake?.sizingBps ?? 0) : info.rateBps;
-  const quote = priceOk && rateBps > 0 ? quoteNativeAdvance(info.principalLamports, rateBps, months, market!.price!.microUsd) : null;
-  const gemas = quote ? Number(quote.gemas) : 0;
   // Simulated: the Advance is the Horizon's whole projected yield, so yield repays it in exactly the Horizon. Real: an estimate from the pool's recent growth.
   const growth = stakeGrowthOf(market);
+  const priced = priceOk && rateBps > 0;
+  // A stake Lock's Advances stop at its Locked amount over its life: the slider ends at the longest Length that fits (the yield counted now settles first).
+  const issuance = (m: number) => ({ issued: quoteNativeAdvance(info.principalLamports, rateBps, m, market!.price!.microUsd).gemas, returned: 0n, unitNum: 10n ** 13n, unitDen: market!.price!.microUsd });
+  const fit = real && priced ? longestLengthWithinCap(info, nativeNow(info, 1, Math.floor(now / 1000), growth).accrued, MAX_ADVANCE_MONTHS, issuance) : MAX_ADVANCE_MONTHS;
+  const months = Math.max(1, Math.min(picked, fit));
+  const quote = priced ? quoteNativeAdvance(info.principalLamports, rateBps, months, market!.price!.microUsd) : null;
+  const gemas = quote ? Number(quote.gemas) : 0;
   const unlock =
     gemas <= 0
       ? null
@@ -529,6 +538,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
           })
         : now + months * SIM_MONTH_MIN * 60_000;
   const title = `${fmtSol(info.principalLamports, 3)} SOL Lock`;
+  const blocked = real && quote ? (rateWaitNote(info, market?.stake?.rate, market?.stake?.token.symbol ?? tokenSymbol(info.mint)) ?? (fit === 0 ? YIELD_CAP_FULL : null)) : null;
 
   if (a.done) {
     return (
@@ -547,6 +557,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
       apy={`${(rateBps / 100).toFixed(1)}% APY`}
       months={months}
       onMonths={setMonths}
+      maxMonths={Math.max(1, fit)}
       yieldText={`${quote ? fmtSol(quote.projectedUnits) : "0"} SOL`}
       yieldFeeBps={yieldFeeBps}
       gemas={gemas}
@@ -555,11 +566,13 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
         <>
           {market && !priceOk && <p className="status err" role="alert">The SOL price is updating. Try again in a few minutes.</p>}
           {real && priceOk && rateBps === 0 && <p className="status err" role="alert">The staking pool shows no recent growth to size an Advance on. Try again later.</p>}
+          {blocked && <p className="status err" role="alert">{blocked}</p>}
+          {!blocked && fit > 0 && fit < MAX_ADVANCE_MONTHS && <p className="note">{lengthCapNote(fit)}</p>}
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
       }
       buttonLabel={a.busy ? `${step}…` : <GemasLabel action="Take Advance" gemas={gemas} />}
-      disabled={gemas <= 0 || a.busy !== null || !auth.signer}
+      disabled={gemas <= 0 || a.busy !== null || !auth.signer || blocked !== null}
       onSubmit={() => auth.signer && a.run("advance", () => takeNextAdvance(auth.signer!, auth.getAccessToken, info, months, BigInt(gemas), setStep))}
     />
   );
@@ -610,15 +623,18 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
   const setLimit = useAction(refresh);
   const view = extendLimitView(lim.limit ?? null, Math.floor(now / 1000), source.horizonMonths);
   const [picked, setMonths] = useState(Math.min(DEFAULT_HORIZON_MONTHS, MAX_ADVANCE_MONTHS - source.horizonMonths));
-  const months = Math.max(1, Math.min(picked, view.maxMonths));
   const pool = market?.pool ?? null;
   const yieldFeeBps = info.yieldFeeBps;
   const rateBps = info.stakeRateOpen > 0n ? (market?.stake?.sizingBps ?? 0) : info.rateBps;
+  // An Extend settles nothing first: the lifetime cap counts the yield already settled (`appliedNet`), and the slider ends at the longest Length that fits.
+  const fit = longestLengthWithinCap(info, 0n, view.maxMonths, (m) => quoteExtendAdvance(info.principalLamports, rateBps, source.math, source.horizonMonths, m).extended);
+  const months = Math.max(1, Math.min(picked, view.maxMonths, fit));
   const quote = quoteExtendAdvance(info.principalLamports, rateBps, source.math, source.horizonMonths, months);
   const gemas = Number(quote.gemas);
   const addedYield = advanceUnits(info.principalLamports, rateBps, source.horizonMonths + months) - advanceUnits(info.principalLamports, rateBps, source.horizonMonths);
   const unlock = gemas > 0 ? unlockEstimateMs({ clock: clockOf(info), speedup: speedupOf(pool), appliedNet: info.appliedNet, source: quote.extended, nowMs: now, stake: stakeGrowthOf(market) }) : null;
   const title = `${fmtSol(info.principalLamports, 3)} SOL Lock`;
+  const blocked = info.stakeRateOpen > 0n && gemas > 0 ? (rateWaitNote(info, market?.stake?.rate, market?.stake?.token.symbol ?? tokenSymbol(info.mint)) ?? (fit === 0 && view.maxMonths > 0 ? YIELD_CAP_FULL : null)) : null;
 
   if (a.done) {
     return (
@@ -637,7 +653,7 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
       apy={`${(rateBps / 100).toFixed(1)}% APY`}
       months={months}
       onMonths={setMonths}
-      maxMonths={Math.max(1, view.maxMonths)}
+      maxMonths={Math.max(1, Math.min(view.maxMonths, fit))}
       sliderLabel="Extend by"
       yieldText={`${fmtSol(addedYield)} SOL`}
       yieldFeeBps={yieldFeeBps}
@@ -653,12 +669,14 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
             onRetry={lim.reload}
             onSet={(m) => auth.signer && setLimit.run("limit", () => setExtendLimit(auth.signer!, auth.getAccessToken, m)).then(lim.reload)}
           />
+          {blocked && <p className="status err" role="alert">{blocked}</p>}
+          {!blocked && fit > 0 && fit < view.maxMonths && <p className="note">{lengthCapNote(fit)}</p>}
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
       }
       buttonLabel={a.busy ? `${step}…` : view.blocked ? blockedLabel(view.blocked) : <GemasLabel action="Extend" gemas={gemas} />}
-      dimmed={view.blocked !== null}
-      disabled={gemas <= 0 || a.busy !== null || !auth.signer || view.blocked !== null || lim.loading}
+      dimmed={view.blocked !== null || blocked !== null}
+      disabled={gemas <= 0 || a.busy !== null || !auth.signer || view.blocked !== null || lim.loading || blocked !== null}
       onSubmit={() => auth.signer && a.run("extend", () => extendAdvance(auth.signer!, auth.getAccessToken, info, months, BigInt(gemas), setStep))}
     />
   );

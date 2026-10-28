@@ -266,6 +266,7 @@ pub(crate) fn open_stake_position(
     a.position.inner.custody_shares = shares;
     a.position.inner.yield_fee_bps = a.treasury.yield_fee_bps;
     a.position.inner.stake_rate_open = rate;
+    a.position.inner.stake_rate_high = rate;
 
     a.custody.add_position(principal)?;
 

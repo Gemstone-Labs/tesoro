@@ -103,6 +103,19 @@ pub fn stake_position_accrued(position: &Position, rate_now: u64) -> CoreResult<
     accrued_yield_at(position.principal, growth)
 }
 
+/// The highest Staking Rate a stake Position's yield was priced at: `stake_rate_high`, never
+/// below the opening rate (a migrated Position starts at it).
+pub fn stake_rate_peak(position: &Position) -> u64 {
+    position.stake_rate_high.max(position.stake_rate_open)
+}
+
+/// Counted Yield of a stake Position (ticket 55): the Accrued Yield at the higher of the rate now
+/// and the highest rate its yield was priced at. A fall never un-counts yield that landed, so a
+/// checkpoint moved after a fall cannot count the recovery again as new yield.
+pub fn stake_position_counted(position: &Position, rate_now: u64) -> CoreResult<u64> {
+    stake_position_accrued(position, rate_now.max(stake_rate_peak(position)))
+}
+
 /// Pool tokens worth `units` lamports at `rate`, rounded down (what a payout sends).
 pub fn tokens_for_units(units: u64, rate: u64) -> CoreResult<u64> {
     if rate == 0 {

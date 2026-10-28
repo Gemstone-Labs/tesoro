@@ -14,7 +14,7 @@ import { canJoinSeat as seatsCanPair } from "./queue";
 import { fetchLeaderboardTerms } from "./leaderboard";
 import { leaderboardBpsFor } from "./season";
 import { readAccountState } from "./account-state";
-import { isCurrentPosition } from "./position-size";
+import { isCurrentPosition, positionBytes } from "./position-size";
 import { fetchRoutedState } from "./snapshot-wire";
 import type { NativeInfo, NativeMarket } from "./native";
 import { OVERFLOW_DISC, OVERFLOW_OWNER_AT, decodeOverflowRecord, type WaitingRecord } from "./overflow";
@@ -553,14 +553,14 @@ export async function fetchSnapshot(authority: PublicKey, onAccount?: (s: Accoun
   return { ...snap, matches: played, funded, matchesLoaded: true };
 }
 
-/** The Positions of one owner, current layout only: an old, shorter account is skipped instead of failing the read. */
+/** The Positions of one owner, in either current layout (235 bytes until migrated, 243): an older, shorter account is skipped instead of failing the read. */
 async function ownedPositions(chain: ReturnType<typeof getChain>, owner: PublicKey) {
   const rows = await chain.base.getProgramAccounts(chain.core.programId, {
     filters: [{ memcmp: chain.core.coder.accounts.memcmp("positionState") }, { memcmp: { offset: 41, bytes: owner.toBase58() } }],
   });
   return rows
     .filter((r) => isCurrentPosition(r.account.data))
-    .map((r) => ({ publicKey: r.pubkey, account: chain.core.coder.accounts.decode("positionState", r.account.data) }));
+    .map((r) => ({ publicKey: r.pubkey, account: chain.core.coder.accounts.decode("positionState", positionBytes(r.account.data)) }));
 }
 
 /** The overflow records of one Account: Gemas that found no room in its stores. A failed read answers none (the Wallet just shows nothing waiting). */
