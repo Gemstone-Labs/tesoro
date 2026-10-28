@@ -1554,3 +1554,106 @@ mod layout_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod position_layout {
+    use super::*;
+    use crate::ledger::SourceChain;
+    use anchor_lang::{AccountSerialize, AnchorSerialize, Discriminator};
+
+    const HIGH: u64 = 1_320_000_000_000;
+
+    fn sample(open: Option<u32>) -> PositionState {
+        let mut p = Position::new([1; 32], SourceChain::Solana, [7; 32], 9, 12_000_000_000, 1_000)
+            .unwrap();
+        p.open_advance = open;
+        p.advances = 5;
+        p.stake_rate_open = 1_200_000_000_000;
+        p.stake_rate_high = HIGH;
+        p.custody_shares = 10_000_000_000;
+        p.held_shares = 3 << 40;
+        p.free_shares = 5 << 33;
+        p.paid_shares = 77;
+        p.pool_bps = 5_000;
+        PositionState {
+            bump: 254,
+            position_id: [3; 32],
+            inner: p,
+        }
+    }
+
+    /// The bytes a 235-byte Position has on chain today: discriminator and the old fields, then
+    /// whatever was there before (`fill`), as a Some -> None rewrite leaves it.
+    fn v1_bytes(s: &PositionState, fill: u8) -> Vec<u8> {
+        let p = &s.inner;
+        let old = PositionStateV1 {
+            bump: s.bump,
+            position_id: s.position_id,
+            inner: PositionV1 {
+                owner: p.owner,
+                source_chain: p.source_chain,
+                source_asset: p.source_asset,
+                decimals: p.decimals,
+                principal: p.principal,
+                rate_bps: p.rate_bps,
+                status: p.status,
+                advances: p.advances,
+                open_advance: p.open_advance,
+                last_seq: p.last_seq,
+                cumulative_yield: p.cumulative_yield,
+                free_yield: p.free_yield,
+                free_yield_claimed: p.free_yield_claimed,
+                opened_at: p.opened_at,
+                applied_net: p.applied_net,
+                custody_shares: p.custody_shares,
+                yield_fee_bps: p.yield_fee_bps,
+                stake_rate_open: p.stake_rate_open,
+                held_shares: p.held_shares,
+                free_shares: p.free_shares,
+                paid_shares: p.paid_shares,
+                pool_bps: p.pool_bps,
+            },
+        };
+        let mut buf = vec![fill; PositionStateV1::SPACE];
+        buf[..8].copy_from_slice(PositionState::DISCRIMINATOR);
+        let body = old.try_to_vec().unwrap();
+        buf[8..8 + body.len()].copy_from_slice(&body);
+        buf
+    }
+
+    #[test]
+    fn a_position_grows_by_one_u64_from_235_to_243_bytes() {
+        assert_eq!(PositionStateV1::SPACE, 235);
+        assert_eq!(PositionState::SPACE, 243);
+    }
+
+    #[test]
+    fn the_open_advance_tag_is_byte_122_and_the_high_rate_ends_the_serialised_bytes() {
+        for (open, end) in [(Some(4), 243), (None, 239)] {
+            let mut buf = vec![];
+            sample(open).try_serialize(&mut buf).unwrap();
+            assert_eq!(buf.len(), end);
+            assert_eq!(buf[122], u8::from(open.is_some()));
+            assert_eq!(u64::from_le_bytes(buf[end - 8..end].try_into().unwrap()), HIGH);
+            let old_end = end - 8;
+            assert_eq!(v1_bytes(&sample(open), 0)[..old_end], buf[..old_end]);
+        }
+    }
+
+    #[test]
+    fn a_235_byte_position_decodes_from_its_serialised_prefix_whatever_follows() {
+        for (open, fill) in [(Some(4), 0u8), (None, 0), (None, 0xab)] {
+            let want = sample(open);
+            let bytes = v1_bytes(&want, fill);
+            let got = PositionStateV1::decode(&bytes).unwrap().upgrade();
+            assert_eq!(got.bump, want.bump);
+            assert_eq!(got.position_id, want.position_id);
+            let mut inner = want.inner.clone();
+            inner.stake_rate_high = inner.stake_rate_open;
+            assert_eq!(got.inner, inner, "open {open:?} fill {fill:#x}");
+        }
+        let mut wrong = v1_bytes(&sample(None), 0);
+        wrong[0] ^= 1;
+        assert!(PositionStateV1::decode(&wrong).is_err());
+    }
+}
