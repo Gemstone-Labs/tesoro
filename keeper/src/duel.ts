@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { atAssignedEpoch } from "../../app/src/lib/chain/table-epoch.ts";
 import { PHASE, bookPda, canFinalizeTable, decodeDuel, type Assignment, type Table } from "../../app/src/games/trading-duel/chain.ts";
-import { act, log, type Ctx } from "./act.ts";
+import { act, finalizeOrRaced, log, type Ctx } from "./act.ts";
 import { refund } from "./blockpuzzle.ts";
 import { simulate, when } from "./tee.ts";
 
@@ -110,7 +110,7 @@ export async function tradingDuel(ctx: Ctx, match: PublicKey, m: any, st: string
   }
   if (step.do === "refund") return actions + +(await refund(ctx, m, subject, step.why)).ok;
   if (!a) return actions;
-  if (step.do === "finalize") return actions + +(await act(ctx, "match", subject, `finalize (${step.why})`, () => ctx.duel.finalize(ctx.hsigner, a))).ok;
+  if (step.do === "finalize") return actions + +(await act(ctx, "match", subject, `finalize (${step.why})`, () => finalizeOrRaced(ctx.duel, ctx.hsigner, a))).ok;
   if (step.do === "begin_match") return actions + +(await act(ctx, "match", subject, `begin_match (${step.why})`, () => ctx.duel.beginMatch(ctx.hsigner, a))).ok;
   if (step.do === "open_seats") return actions + +(await act(ctx, "match", subject, `open_seats (${step.why})`, () => ctx.duel.openSeats(ctx.hsigner, a))).ok;
   if (step.do === "expire_start") return actions + +(await act(ctx, "match", subject, `expire_start (${step.why})`, () => ctx.duel.expireStart(ctx.hsigner, a))).ok;

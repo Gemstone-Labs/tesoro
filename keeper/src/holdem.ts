@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { atAssignedEpoch } from "../../app/src/lib/chain/table-epoch.ts";
 import { PHASE, SLOT, TABLE_PHASE, canFinalizeTable, tableOf, type Assignment, type Table } from "../../app/src/games/holdem/chain.ts";
-import { act, log, type Ctx } from "./act.ts";
+import { act, finalizeOrRaced, log, type Ctx } from "./act.ts";
 import { refund } from "./blockpuzzle.ts";
 import { shortKey } from "./env.ts";
 import { needsRecommit } from "./recommit.ts";
@@ -176,7 +176,7 @@ export async function holdem(ctx: Ctx, match: PublicKey, m: any, st: string, sub
   if (step.do === "refund") return actions + +(await refund(ctx, m, subject, step.why)).ok;
   if (!a) return actions;
   const send = (what: string, fn: () => Promise<string>) => act(ctx, "match", subject, `${what} (${step.why})`, fn);
-  if (step.do === "finalize") return actions + +(await send("finalize", () => ctx.holdem.finalize(ctx.hsigner, a))).ok;
+  if (step.do === "finalize") return actions + +(await send("finalize", () => finalizeOrRaced(ctx.holdem, ctx.hsigner, a))).ok;
   if (step.do === "begin_match") return actions + +(await send("begin_match", () => ctx.holdem.beginMatch(ctx.hsigner, a))).ok;
   if (step.do === "seat_players") return actions + +(await send("seat_players", () => ctx.holdem.seatPlayers(ctx.hsigner, a))).ok;
   if (step.do === "expire_start") return actions + +(await send("expire_start", () => ctx.holdem.expireStart(ctx.hsigner, a))).ok;
