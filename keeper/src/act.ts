@@ -1,3 +1,4 @@
+import type { PublicKey } from "@solana/web3.js";
 import { jobs } from "./job-stats.ts";
 import type { Runtime } from "./runtime.ts";
 
@@ -116,3 +117,20 @@ export async function act(rt: ActCtx, job: string, subject: string, what: string
 export type Ctx = Runtime & { budget: Budget; lz: Budget };
 /** What `act` needs: lets tests drive it without a full runtime. */
 export type ActCtx = Pick<Ctx, "settings" | "budget" | "conn" | "payer">;
+
+/**
+ * Finalizes a Match on its game chain. The Player's page finalizes too (permissionless), and the Match reads as unsettled
+ * until it lands, so a lost race fails on chain; when the Match reads as settled after a failure, that is a wait, not a failure.
+ */
+export async function finalizeOrRaced<S extends { publicKey: PublicKey }, A>(
+  chain: { finalize(payer: S, a: A): Promise<string>; finalizeIx(caller: PublicKey, a: A): Promise<unknown | null> },
+  signer: S,
+  a: A,
+): Promise<string> {
+  try {
+    return await chain.finalize(signer, a);
+  } catch (e) {
+    if ((await chain.finalizeIx(signer.publicKey, a).catch(() => ({}))) === null) throw new Raced("the Match was already settled by another caller");
+    throw e;
+  }
+}

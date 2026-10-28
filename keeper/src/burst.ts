@@ -15,7 +15,7 @@ import {
   type Assignment,
   type Table,
 } from "../../app/src/games/block-puzzle/live-chain.ts";
-import { Raced, act, log, type Ctx } from "./act.ts";
+import { Raced, act, finalizeOrRaced, log, type Ctx } from "./act.ts";
 import { refund } from "./blockpuzzle.ts";
 import { shortKey } from "./env.ts";
 import { needsRecommit } from "./recommit.ts";
@@ -222,7 +222,7 @@ export async function blockBurst(ctx: Ctx, match: PublicKey, m: any, st: string,
   if (step.do === "refund") return actions + +(await refund(ctx, m, subject, step.why)).ok;
   if (!a) return actions;
   const send = (what: string, fn: () => Promise<string>) => act(ctx, "match", subject, `${what} (${step.why})`, fn);
-  if (step.do === "finalize") return actions + +(await send("finalize", () => ctx.burst.finalize(ctx.hsigner, a))).ok;
+  if (step.do === "finalize") return actions + +(await send("finalize", () => finalizeOrRaced(ctx.burst, ctx.hsigner, a))).ok;
   if (step.do === "begin_match") return actions + +(await send("begin_match", () => ctx.burst.beginMatch(ctx.hsigner, a))).ok;
   if (step.do === "seat_players") return actions + +(await send("seat_players", () => ctx.burst.seatPlayers(ctx.hsigner, a))).ok;
   if (step.do === "request_seed") return actions + +(await send("request_seed", () => ctx.burst.requestSeed(ctx.hsigner, a))).ok;

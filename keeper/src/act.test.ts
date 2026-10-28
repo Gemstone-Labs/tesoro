@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, test } from "node:test";
-import { Raced, act, runJob, runJobs, stillRunning } from "./act.ts";
+import { Raced, act, finalizeOrRaced, runJob, runJobs, stillRunning } from "./act.ts";
 import { jobs } from "./job-stats.ts";
 
 describe("runJob (OC-05)", () => {
@@ -65,4 +65,38 @@ test("an action that finds its step already done by someone else is a wait, not 
   } finally {
     console.log = orig;
   }
+});
+
+const RACE_ERR = `finalize failed 5GJV4wFF: {"InstructionError":[1,{"Custom":0}]}\nProgram log: Instruction: Finalize\nProgram log: Instruction: SettleMatch\nAllocate: account Address { address: Cg2cERyekdTHT9X2hYVbZEa1jVgGzdvEeLkCsVpSgQXm, base: None } already in use\nProgram 1111 failed: custom program error: 0x0`;
+
+async function runFinalize(chain: { finalize: () => Promise<string>; finalizeIx: () => Promise<unknown> }) {
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (m: string) => void lines.push(m);
+  try {
+    const rt = { settings: { dryRun: false }, budget: { exhausted: () => false }, conn: {}, payer: {} } as never;
+    const r = await act(rt, "match", "match=CJZQ-18", "finalize (the committed table holds the result)", () => finalizeOrRaced(chain as never, { publicKey: {} } as never, {} as never));
+    return { r, lines };
+  } finally {
+    console.log = orig;
+  }
+}
+
+test("a finalize that lost the race to the page's is a wait, not a failure", async () => {
+  const { r, lines } = await runFinalize({
+    finalize: async () => { throw new Error(RACE_ERR); },
+    finalizeIx: async () => null, // the Match reads as settled now
+  });
+  assert.equal(r.detail, "raced");
+  assert.ok(lines.some((l) => l.includes("wait: finalize") && l.includes("not needed")));
+  assert.ok(!lines.some((l) => l.includes("FAIL")));
+});
+
+test("a finalize that fails while the Match is still unsettled stays a FAIL", async () => {
+  const { r, lines } = await runFinalize({
+    finalize: async () => { throw new Error("finalize failed x: NoResult"); },
+    finalizeIx: async () => ({}),
+  });
+  assert.equal(r.ok, false);
+  assert.ok(lines.some((l) => l.includes("FAIL finalize")));
 });
