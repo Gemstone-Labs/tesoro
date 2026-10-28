@@ -947,6 +947,7 @@ fn holder_claims_above_the_custody_are_funded_by_the_treasury_or_unlock_waits() 
         let mut route = RouteLedger {
             reserved: 7,
             pool_owed: 11,
+            pool_realised_total: 11,
             ..RouteLedger::default()
         };
         route.receive(treasury + 18).unwrap();
