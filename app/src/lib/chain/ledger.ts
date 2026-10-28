@@ -115,8 +115,19 @@ export function feeGemas(entry: bigint, platformBps: number, studioBps: number, 
 }
 
 /** Total Fee of a Match, in Gemas: all three Fees from its terms. */
-export function matchFee(m: { entry: number; fees: { platformBps: number; studioBps: number; leaderboardBps?: number } }): number {
+export function matchFee(m: { entry: number; fees: { platformBps: number; studioBps: number; leaderboardBps?: number }; settled?: { fee: number } | null }): number {
+  if (m.settled) return m.settled.fee;
   return Number(feeGemas(BigInt(m.entry), m.fees.platformBps, m.fees.studioBps, m.fees.leaderboardBps));
+}
+
+/**
+ * The Fee a finished Match actually charged, for the result screen: the settled amount when the chain or history gave it; on a
+ * win or a loss the Fee from the terms (a decided Match always charges it); otherwise null. A draw or a refund can charge a
+ * Platform Fee or nothing, so without the settled amount the screen shows no Fee rather than a guess.
+ */
+export function resultFee(m: Parameters<typeof matchFee>[0], outcome: "won" | "lost" | "draw" | "refunded"): number | null {
+  if (m.settled) return m.settled.fee;
+  return outcome === "won" || outcome === "lost" ? matchFee(m) : null;
 }
 
 /** What a win pays at the display Fees (2% Platform, 3% Studio, 1% Leaderboard): both entries minus Fees. */
@@ -138,11 +149,11 @@ export interface BackedSplit {
 }
 
 /** The Backing settlement rule (tesoro_core `win_payouts`): Backer's entry back first, then the Offer's split of the surplus. */
-export function backedSplit(a: { entry: number; platformBps: number; studioBps: number; leaderboardBps?: number; shareBps: number; won: boolean }): BackedSplit {
+export function backedSplit(a: { entry: number; platformBps: number; studioBps: number; leaderboardBps?: number; shareBps: number; won: boolean; /** The Fees the chain took (its settle run), in Gemas: used instead of working them out from the bps. */ feesTaken?: number }): BackedSplit {
   if (!a.won) {
     return { fees: 0, surplus: 0, playerShare: 0, backerEntryBack: 0, backerSurplus: 0, backerNet: -a.entry, playerNet: 0 };
   }
-  const fees = Number(feeGemas(BigInt(a.entry), a.platformBps, a.studioBps, a.leaderboardBps));
+  const fees = a.feesTaken ?? Number(feeGemas(BigInt(a.entry), a.platformBps, a.studioBps, a.leaderboardBps));
   const surplus = a.entry - fees;
   const playerShare = Number((BigInt(surplus) * BigInt(a.shareBps)) / 10_000n);
   const backerSurplus = surplus - playerShare;
@@ -174,8 +185,10 @@ export function matchDelta(
     entry: number;
     fees: { platformBps: number; studioBps: number; leaderboardBps?: number };
     backing?: { shareBps: number } | null;
+    settled?: { delta: number } | null;
   },
 ): number {
+  if (m.settled && m.seat !== null) return m.settled.delta;
   const result = m.seat === null ? null : seatResult(m, m.seat);
   if (result === null || result === "draw") return 0;
   const won = result === "won";
@@ -186,8 +199,9 @@ export function matchDelta(
 
 /** The Backer's result of a Match they funded: the split on a win, the entry on a loss, 0 on a draw or refund. */
 export function backerDelta(
-  m: Outcome & { backerSeat: 0 | 1; entry: number; fees: { platformBps: number; studioBps: number }; shareBps: number },
+  m: Outcome & { backerSeat: 0 | 1; entry: number; fees: { platformBps: number; studioBps: number }; shareBps: number; settled?: { delta: number } | null },
 ): number {
+  if (m.settled) return m.settled.delta;
   const result = seatResult(m, m.backerSeat);
   if (result === null || result === "draw") return 0;
   return backedSplit({ entry: m.entry, ...m.fees, shareBps: m.shareBps, won: result === "won" }).backerNet;

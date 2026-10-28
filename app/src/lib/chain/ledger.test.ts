@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fixtures from "./yield-math.fixtures.json";
-import { backedSplit, gemasInAsset, backerDelta, covered, debtGemas, feeGemas, instantSplit, matchDelta, redeemable, redeemableFor, returnableGemas, seatResult, sourceNow, sourceView, unitsToRepay, unitsToRepayTotal, type SourceMath } from "./ledger";
+import { backedSplit, gemasInAsset, backerDelta, covered, debtGemas, feeGemas, instantSplit, resultFee, matchDelta, redeemable, redeemableFor, returnableGemas, seatResult, sourceNow, sourceView, unitsToRepay, unitsToRepayTotal, type SourceMath } from "./ledger";
 
 // The demo Advance: 7,500 Gemas at $150 (unit = 1e13 / 150e6 lamports per Gema).
 const src = (over: Partial<SourceMath> = {}): SourceMath => ({
@@ -160,5 +160,21 @@ describe("Source at the clock (ADR 0010)", () => {
     expect(sourceView(open, 2, { ...source, yieldUnits: 25_000_000n }, 50_000_000n).yieldUnits).toBe(25_000_000n);
     expect(sourceView(open, 1, { ...source, yieldUnits: 9n }, 999_000_000n).yieldUnits).toBe(9n);
     expect(sourceView({ openAdvance: null, appliedNet: 0n }, 2, source, 999_000_000n).yieldUnits).toBe(0n);
+  });
+});
+
+describe("resultFee", () => {
+  const terms = { entry: 500, fees: { platformBps: 200, studioBps: 300, leaderboardBps: 100 } };
+  it("is the settled amount when known", () => {
+    expect(resultFee({ ...terms, settled: { fee: 7 } }, "refunded")).toBe(7);
+    expect(resultFee({ ...terms, settled: { fee: 0 } }, "draw")).toBe(0);
+  });
+  it("is the terms' Fee on a decided Match", () => {
+    expect(resultFee(terms, "won")).toBe(60);
+    expect(resultFee(terms, "lost")).toBe(60);
+  });
+  it("is unknown, not a guess, on a draw or refund without the settled amount", () => {
+    expect(resultFee(terms, "draw")).toBeNull();
+    expect(resultFee(terms, "refunded")).toBeNull();
   });
 });

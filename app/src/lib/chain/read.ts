@@ -8,6 +8,7 @@ import { gameOfProgram } from "./games";
 import { isHiddenGame } from "../games";
 import { matchAddressOf, matchKeyOf, parseMatchKey } from "./match-id";
 import { readScores } from "./settled";
+import { backedSplit } from "./ledger";
 import { burstSession, type BurstSession } from "./burst-read";
 import { canJoinSeat as seatsCanPair } from "./queue";
 import { fetchLeaderboardTerms } from "./leaderboard";
@@ -37,6 +38,8 @@ export interface ChainMatch {
   status: MatchStatus;
   /** A settled or refunding run is under way (chunks still moving Gemas): the result is fixed, the Match is not closed. */
   running: "settling" | "refunding" | null;
+  /** Block Burst: how `finalize` fixed the result while its chunks are still paying (`status` stays "active" until the last one has). Read it through `resultOf`. */
+  fixed?: "settled" | "refunded";
   entry: number;
   /** Which side of the Match this Account is on, null when not a participant. */
   seat: 0 | 1 | null;
@@ -57,10 +60,20 @@ export interface ChainMatch {
   /** The Backing this Account is part of in this Match (as the backed Player or as the Backer), else null. */
   backing: { seat: 0 | 1; player: string; funder: string; shareBps: number } | null;
   fees: { platformBps: number; studioBps: number; leaderboardBps: number };
+  /**
+   * What the chain settled for whoever is looking, from the Match history once the account is closed: the Fee taken
+   * from the Pot, this Account's Gema change and the Season points this Match gave it. Null while the Match is open.
+   */
+  settled?: { fee: number; delta: number; points: number | null } | null;
   /** The winning seat of a finished Match (null for a draw, a refund or while unsettled). */
   winner: "opener" | "joiner" | null;
   /** Block Burst: the result and Seed of a finished Match, read from the table's result ring while it still holds them (null otherwise, and for refunds). */
   session: BurstSession | null;
+}
+
+/** How the Match ended, once its result is fixed: "settled" or "refunded" (a Block Burst run still paying counts; `status` alone says only when it is closed). Null before. */
+export function resultOf(m: Pick<ChainMatch, "status" | "fixed">): "settled" | "refunded" | null {
+  return m.status === "settled" || m.status === "refunded" ? m.status : (m.fixed ?? null);
 }
 
 export interface MatchSide {
@@ -211,6 +224,34 @@ export function requireGame(game: PublicKey): GameId {
 /** The key (`<opener>-<n>`) of a decoded MatchState. */
 export const matchKeyOfState = (state: any): string => matchKeyOf({ opener: pk(state.inner.id.opener).toBase58(), n: big(state.inner.id.n) });
 
+/**
+ * What a joined Match's settle run has fixed, read from the Match account itself once `finalize` has started the run: the
+ * result, the Fees the chain took (the run's own amounts, not worked out from basis points) and what each seat gets. The run
+ * then pays it out in chunks; nothing here changes after that. Null before the run, and for a Match that is not joined.
+ */
+export function settledFromRun(m: any, seat: 0 | 1 | null, backing: { seat: 0 | 1; shareBps: number } | null, backerSeat: 0 | 1 | null): { status: "settled" | "refunded"; winner: "opener" | "joiner" | null; settled: { fee: number; delta: number; points: null } } | null {
+  const run = m.run;
+  if (!run || !m.b) return null;
+  const kind = run.kind && typeof run.kind === "object" ? Object.keys(run.kind)[0] : "";
+  const fee = (run.fees as { toString(): string }[]).reduce<number>((n, f) => n + Number(f.toString()), 0);
+  const entry = Number(m.entry.toString());
+  const winner = winnerOfRun(run);
+  const result = kind === "win" ? "win" : kind === "draw" ? "draw" : "refund";
+  const status = result === "refund" ? "refunded" : "settled";
+  // A Match too short to count is refunded less a Platform Fee, split between the two sides; a draw is the same rule.
+  const mineSeat = seat ?? backerSeat;
+  let delta = 0;
+  if (result === "win" && mineSeat !== null) {
+    const won = (winner === "opener") === (mineSeat === 0);
+    const split = backing ? backedSplit({ entry, platformBps: 0, studioBps: 0, shareBps: backing.shareBps, won, feesTaken: fee }) : null;
+    if (seat === null && split) delta = split.backerNet;
+    else if (split) delta = split.playerNet;
+    else delta = won ? entry - fee : -entry;
+  }
+  else if (result !== "win" && mineSeat !== null && !(seat === null || backing)) delta = Math.floor(fee / 2) === 0 ? 0 : -Math.floor(fee / 2);
+  return { status, winner: result === "win" ? winner : null, settled: { fee, delta, points: null } };
+}
+
 /** Anchor's decoded `MatchState` (camelCase) plus the finished game account that names the winner, as a ChainMatch. */
 /** The winning side of a Match that ended in a win, from tesoro_core's own record of how it ended (a Game's table is reused and cannot be asked). */
 function winnerOfRun(run: any): "opener" | "joiner" | null {
@@ -237,11 +278,16 @@ export function toChainMatch(state: any, me: PublicKey | null, session: BurstSes
   const openedAt = Number(big(m.openedAt)) * 1000;
   const opener = pk(m.id.opener).toBase58();
   const n = big(m.id.n);
+  const game = requireGame(pk(m.game));
+  const backingOf = backedSeat !== null && backedSide ? { seat: backedSeat, shareBps: backedSide.shareBps } : null;
+  // Block Burst: the result is final once `finalize` has started the settle run (the chunks only move the Gemas), and the run
+  // holds the Fees the chain took. So the result screen has those amounts from then on (`fixed`); `status` waits for the last chunk.
+  const fixed = game === "block-puzzle" && (stage === "settling" || stage === "refunding" || stage === "closed") ? settledFromRun(m, seat, backingOf, backerSeat) : null;
   return {
     id: matchKeyOf({ opener, n }),
     opener,
     n,
-    game: requireGame(pk(m.game)),
+    game,
     address: matchPda(pk(m.id.opener), n),
     status,
     running,
@@ -259,7 +305,8 @@ export function toChainMatch(state: any, me: PublicKey | null, session: BurstSes
         ? { seat: backedSeat, player: backedSide.player, funder: backedSide.funder, shareBps: backedSide.shareBps }
         : null,
     fees: { platformBps: m.terms.platformBps, studioBps: m.terms.studioBps, leaderboardBps: leaderboardBpsFor(openedAt) },
-    winner: status === "settled" ? winnerOfRun(m.run) : null,
+    winner: status === "settled" ? winnerOfRun(m.run) : (fixed?.winner ?? null),
+    ...(fixed ? { settled: fixed.settled, fixed: fixed.status } : {}),
     session,
   };
 }
@@ -297,6 +344,17 @@ async function fetchClosedMatch(id: string, me: PublicKey | null): Promise<Chain
 const GAME_IDS_ALL: readonly string[] = ["block-puzzle", "holdem", "trading-duel", "vanguard"];
 const gameFromHistory = (id: string): GameId | null => (GAME_IDS_ALL.includes(id) ? (id as GameId) : null);
 
+/** The settled amounts of a finished Match for `mine`: the Player's party when they played it, else the Backer's. */
+function settledOf(p: MatchPage, mine: string | undefined, seat: 0 | 1 | null): ChainMatch["settled"] {
+  if (p.status !== "settled" && p.status !== "refunded") return null;
+  const party = p.parties.find((x) => x.account === mine && x.role === (seat === null ? "backer" : "player"));
+  return {
+    fee: p.fees.platform + p.fees.studio + p.fees.leaderboard,
+    delta: party?.delta ?? 0,
+    points: mine && p.winner === mine ? (p.points ?? 0) : 0,
+  };
+}
+
 /** The ChainMatch of a history MatchPage (a Match whose account is closed). */
 export function chainMatchFromPage(p: MatchPage, me: PublicKey | null): ChainMatch | null {
   const key = parseMatchKey(p.id);
@@ -333,6 +391,7 @@ export function chainMatchFromPage(p: MatchPage, me: PublicKey | null): ChainMat
     backerSeat,
     backing: backedSeat !== null && backedSide ? { seat: backedSeat, player: backedSide.player, funder: backedSide.funder, shareBps: backedSide.shareBps } : null,
     fees: { platformBps: 0, studioBps: 0, leaderboardBps: 0 },
+    settled: settledOf(p, mine, seat),
     winner: p.winnerSide === 0 ? "opener" : p.winnerSide === 1 ? "joiner" : null,
     session: scores
       ? { settled: settled || draw, result: p.winnerSide === 0 ? "opener" : p.winnerSide === 1 ? "joiner" : "draw", scores, seed: 0n }

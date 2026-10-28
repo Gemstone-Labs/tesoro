@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, test } from "node:test";
 import { runJob } from "./act.ts";
+import { jobs } from "./job-stats.ts";
 
 describe("runJob (OC-05)", () => {
   it("moves on from a hung job and skips it until it finishes", async () => {
@@ -21,4 +22,11 @@ describe("runJob (OC-05)", () => {
   it("contains a job's error", async () => {
     await runJob("boom", async () => Promise.reject(new Error("rpc down")), {}, 50);
   });
+});
+
+test("an untracked run leaves the alerts' job record alone", async () => {
+  await runJob("quiet-job", async () => 0, {}, 50, false);
+  await runJob("quiet-job-failing", async () => Promise.reject(new Error("x")), {}, 50, false);
+  const names = jobs.entries().map(([n]) => n);
+  assert.ok(!names.includes("quiet-job") && !names.includes("quiet-job-failing"));
 });

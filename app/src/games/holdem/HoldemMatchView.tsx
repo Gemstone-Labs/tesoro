@@ -4,24 +4,18 @@ import { parseMatchKey } from "@/lib/chain/match-id";
 import { Busy, Button, Card, Chip, GemaAmount, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { commitCopy } from "@/lib/chain/commit-pending";
-import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
+import { matchDelta, matchFee, resultFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
-import type { ChainMatch } from "@/lib/chain/read";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
-import { Receipts } from "@/components/match/Receipts";
-import { delayedOf } from "@/lib/chain/match-status";
+import { CANCELLING_NOTE, delayedOf } from "@/lib/chain/match-status";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { MatchStage, MatchStageLoading, StageAction } from "@/components/match/MatchStage";
 import { STATUS } from "./chain";
 import { HoldemTable } from "./HoldemTable";
 import { useHoldemMatch } from "./useHoldemMatch";
 
-
-function fmtFee(m: ChainMatch): string {
-  return String(matchFee(m));
-}
 
 /**
  * One Hold'em Match. Waiting for an opponent, the table set-up, the table itself, then the
@@ -57,7 +51,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         outcome={outcome}
         delta={delta}
         entry={m.entry}
-        fee={Number(fmtFee(m))}
+        fee={resultFee(m, outcome)}
         role="player"
         backed={!!m.backing}
         scores={outcome === "refunded" ? null : [outcome === "won" ? "Won" : "Lost", outcome === "won" ? "Lost" : "Won"]}
@@ -65,26 +59,27 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         matchId={m.id.toString()}
         playAgainHref={`/play/queue?game=holdem&entry=${m.entry}`}
         opponent={m.opponent}
+        points={m.settled?.points}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
         {view.error && <p className="status err" role="alert">{view.error}</p>}
-        <Receipts items={view.sigs} className="hd-sigs" />
-        <p className="note hd-note">Test mode · Gemas come from simulated yield and have no real value.</p>
       </MatchResult>
     );
   }
 
   const kind = !showTable && (stage === "waiting" || stage === "setup" || stage === "closing") ? stage : null;
+  const cancelSent = view.busy === "refund" && stage === "waiting";
   if (kind && m) {
     return (
       <MatchStage
         game="holdem"
-        kind={kind}
+        matchId={matchId}
+        kind={cancelSent ? "setup" : kind}
         entry={m.entry}
         pot={m.entry * 2 - matchFee(m)}
         me={snapshot?.accountKey.toBase58() ?? null}
         opponent={m.opponent}
-        step={kind === "setup" ? view.note || "Creating your session" : kind === "closing" && !view.commit ? view.note || "Saving the result" : undefined}
+        step={cancelSent ? CANCELLING_NOTE : kind === "setup" ? view.note || "Creating your session" : kind === "closing" && !view.commit ? view.note || "Saving the result" : undefined}
         commit={kind === "closing" ? view.commit : null}
         delayed={kind === "closing" ? delayedOf(m, nowSecs) : null}
         deadline={m.deadline || undefined}
@@ -98,10 +93,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
             </StageAction>
           )
         }
-      >
-        <Receipts items={view.sigs} className="hd-sigs" />
-        <p className="note hd-note">Test mode · Gemas come from simulated yield and have no real value.</p>
-      </MatchStage>
+      />
     );
   }
 
@@ -141,8 +133,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
 
       {view.error && !showTable && <p className="status err" role="alert">{view.error}</p>}
 
-      <Receipts items={view.sigs} className="hd-sigs" />
-      <p className="note hd-note">Chips only keep score inside the Match. Test mode · Gemas come from simulated yield and have no real value.</p>
+      <p className="note hd-note">Chips only keep score inside the Match.</p>
     </div>
   );
 }

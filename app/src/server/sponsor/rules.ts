@@ -14,6 +14,7 @@ import { bookPda, ckptPda } from "@/lib/chain/basket";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, SIM_SOL_MINT, TOKEN_PROGRAM_ID } from "@/lib/chain/native";
 import { STAKE_TOKENS } from "@/lib/chain/stake";
 import { tokenAta } from "@/lib/chain/stake-pool";
+import { matchIndexOf, stepSlots } from "./game-steps";
 import { assetOfIndex, TRADING_DUEL_PROGRAM_ID } from "@/games/trading-duel/chain";
 
 export const CORE_ID = new PublicKey((coreIdl as { address: string }).address);
@@ -77,6 +78,8 @@ export const MATCH_RECORD_RENT = 6_000_000n;
 export const MATCH_SUNK = 3_000_000n;
 export const TICKET_HEAD_RENT = 2_000_000n;
 export const RECEIPT_RENT = 2_000_000n;
+/** Size of a tesoro_core settlement receipt account (1,275,080 lamports of rent on devnet). */
+export const SETTLEMENT_RECEIPT_BYTES = 123;
 /** Rent of an Instant Redeem order (`InstantOrderState::SPACE` = 8+1+8+32+32+144+40+16+32+8 = 321 bytes). */
 export const ORDER_RENT = (128n + 321n) * 6_960n;
 /**
@@ -432,8 +435,52 @@ function planBridge(ixs: Ix[], relayer: PublicKey): Plan {
   return { kind: "core", names: ["link_evm"], class: "admission", spend: { refundable: 0n, sunk: EVM_LINK_RENT }, cu: 200_000, obligations: [], pair: null, signers: [authority.pubkey], playerSigns: true, funders: [], onboarding: false, invite: false, noGemas: true };
 }
 
+/**
+ * The base-layer Game instructions a Player's page may have the relayer send as `caller` (ticket 04). Every one is
+ * permissionless (anyone may call it), so nobody signs but the relayer; every other Game step runs on the rollup, which
+ * charges no fee. `assign_match` is the operator's, so it is not here. A new row is `name: { disc, rent }` plus its layout in
+ * ./game-steps.ts (the IDL gives every account's flags; the sponsor derives every key) and its abuse tests. `rent` is what the
+ * relayer fronts for good only until the keeper closes the receipt; the service replaces it with the live receipt rent.
+ * Discriminators are the same in every Game.
+ */
+export const GAME_STEPS = {
+  finalize: { disc: Buffer.from([171, 61, 218, 56, 127, 115, 12, 217]), rent: RECEIPT_RENT },
+  refund_untabled: { disc: Buffer.from([86, 179, 79, 68, 70, 100, 97, 237]), rent: RECEIPT_RENT },
+  /** The caller is read-only and pays nothing but the fee: the Assignment's rent goes back to its `payer` (the operator), never to the caller. */
+  close_assignment: { disc: Buffer.from([180, 122, 187, 197, 166, 152, 1, 222]), rent: 0n },
+} as const;
+export type GameStep = keyof typeof GAME_STEPS;
+export const GAME_STEP_NAMES = Object.keys(GAME_STEPS) as GameStep[];
+
+function gameStepOf(ix: Ix): GameStep | null {
+  const data = Buffer.from(ix.data);
+  return GAME_STEP_NAMES.find((n) => data.equals(GAME_STEPS[n].disc)) ?? null;
+}
+
+/**
+ * A listed Game's permissionless step with the relayer as `caller` (ticket 04): a Player with no SOL still settles or is
+ * refunded. Every account must be the one the Game's IDL names there, derived from the Game and the Match, with exactly the
+ * IDL's signer and writable flags; only the table and the operator's `payer` are left to the program. The relayer is the
+ * caller and appears nowhere else.
+ */
+function planGameStep(ix: Ix, name: GameStep, relayer: PublicKey): Plan {
+  const matchAt = matchIndexOf(ix.programId, name);
+  const slots = matchAt < 0 ? null : stepSlots(ix.programId, name, matchAt, ix.keys.map((k) => k.pubkey), relayer);
+  if (!slots) throw new RuleError("bad-shape", `That is not a Game ${name}.`);
+  slots.forEach(({ slot, expect }, i) => {
+    const k = ix.keys[i];
+    if (i > 0 && k.pubkey.equals(relayer)) throw new RuleError("relayer-in-accounts", `${name}: the relayer may only be the caller.`);
+    if (expect && !k.pubkey.equals(expect)) throw new RuleError("bad-accounts", `${name}: ${slot.name} is not the one for this Match.`);
+    if (k.isSigner !== slot.signer || k.isWritable !== slot.writable) throw new RuleError("bad-flags", `${name}: ${slot.name} has the wrong signer or writable flag.`);
+  });
+  return { kind: "game", names: [name], class: "exit", spend: { refundable: GAME_STEPS[name].rent, sunk: 0n }, cu: 400_000, obligations: [ix.keys[matchAt].pubkey], pair: null, signers: [], playerSigns: false, funders: [], onboarding: false, invite: false, noGemas: false };
+}
+
 function planGame(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
   const program = ixs[0].programId;
+  const first = ixs[0];
+  const step = ixs.length === 1 && first.keys[0]?.pubkey.equals(relayer) ? gameStepOf(first) : null;
+  if (step) return planGameStep(first, step, relayer);
   if (ixs.length > MAX_GAME_IXS) throw new RuleError("bad-shape", "Too many instructions.");
   const signers = new Map<string, PublicKey>();
   for (const ix of ixs) {

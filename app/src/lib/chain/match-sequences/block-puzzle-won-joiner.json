@@ -1,0 +1,32 @@
+{
+ "source": "recorded",
+ "note": "Real devnet Block Burst Match 7k1sd7QvxX1FmqnJteDnDohd7BCWkvPRL9D6GxYXBmN3-7, played by a bot (A plays, B makes two moves), page B (the joiner), result unknown. Proposed stages as BurstDriver derived them from its reads, one per change, seconds since the opener's page opened.",
+ "game": "block-puzzle",
+ "steps": [
+  {
+   "stage": "table",
+   "at": 5.2
+  },
+  {
+   "stage": "setup",
+   "at": 20.6
+  },
+  {
+   "stage": "getReady",
+   "at": 22
+  },
+  {
+   "stage": "playing",
+   "at": 33.2
+  },
+  {
+   "stage": "closing",
+   "at": 125.3
+  },
+  {
+   "stage": "settled",
+   "at": 143.3
+  }
+ ],
+ "stepsBack": false
+}

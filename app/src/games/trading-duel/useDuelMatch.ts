@@ -1,10 +1,13 @@
 "use client";
 
+import { useAuth } from "@/lib/auth/context";
+import { finalizeFree } from "@/lib/chain/game-finalize";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getTradingDuel } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
-import { NO_TABLE_NOTE } from "@/lib/chain/match-status";
+import { matchProgress } from "@/lib/chain/match-progress";
+import { setupNote } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { ASSETS, DRAW, PHASE, STATUS, assetOfIndex, decodeDuel, type Assignment, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
 import { addSighting, canFinalize, clockOffsetMs, dropPending, settlePending, type ClockSighting, type PendingPicks } from "./matchView";
@@ -75,6 +78,12 @@ const END_BACKOFF_MAX_MS = 1_000;
  * Hold'em, and show at once; a refused pick is rolled back with a plain error.
  */
 export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSettled?: () => void) {
+  const { getAccessToken } = useAuth();
+  // A ref keeps the token getter out of the effect dependencies: the Match loop must not restart when auth re-renders.
+  const tokenRef = useRef(getAccessToken);
+  useEffect(() => {
+    tokenRef.current = getAccessToken;
+  }, [getAccessToken]);
   const [view, setView] = useState<DuelView>({
     stage: "loading",
     match: null,
@@ -116,10 +125,16 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
   const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
   const p = useMemo(() => (signer ? (signer as unknown as PlayerSigner) : null), [signer]);
 
-  const setStage = useCallback((s: Stage, note = "") => {
-    stage.current = s;
-    setView((v) => (v.stage === s && v.note === note ? v : { ...v, stage: s, note }));
-  }, []);
+  // Every stage goes through the tracker: a late or missing read never moves the screen back.
+  const progress = useMemo(() => matchProgress<ChainMatch, Stage>(id), [id]);
+  const setStage = useCallback(
+    (s: Stage, note = "") => {
+      if (progress.stage(s, note).held) return;
+      stage.current = s;
+      setView((v) => (v.stage === s && v.note === note ? v : { ...v, stage: s, note }));
+    },
+    [progress],
+  );
 
   const addSig = useCallback((label: string, sig: string | undefined, layer: "base" | "tee") => {
     if (sig) setView((v) => (v.sigs.some((x) => x.sig === sig) ? v : { ...v, sigs: [...v.sigs, { label, sig, layer }] }));
@@ -173,7 +188,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
       if (!base || !canFinalize(base, a, Date.now() / 1000)) return;
       setView((v) => (v.commit ? { ...v, commit: null } : v));
       try {
-        await td.finalize(p, a);
+        await finalizeFree(td, signer, () => tokenRef.current(), a);
       } catch (e) {
         const again = await fetchMatch(id, BlockPuzzleChain.coreAccount(signer.publicKey));
         if (again && (again.status === "settled" || again.status === "refunded")) return;
@@ -187,7 +202,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
     if (!p || !signer || id === null || mk === null) return;
     const td = getTradingDuel();
       const me = BlockPuzzleChain.coreAccount(signer.publicKey);
-    const m = await fetchMatch(id, me);
+    const m = progress.match(await fetchMatch(id, me));
     setView((v) => ({ ...v, match: m, asset: (m && assetOfIndex(m.asset)) || v.asset, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
     if (!m) return setStage("notfound");
     if (m.seat === null) return setStage("spectator");
@@ -217,7 +232,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
     const late = now() - activeSince.current >= (seat === 1 ? 0 : 12_000);
     const a = await td.readAssignment(mk!);
     if (!a) {
-      setStage("setup", NO_TABLE_NOTE);
+      setStage("setup", setupNote(m));
       return;
     }
     assignRef.current = a;
@@ -292,7 +307,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
       setView((v) => (v.commit?.phase === phase && v.commit.won === mine ? v : { ...v, commit: { phase, won: mine }, error: null }));
     }
     await settle(a, seat, d);
-  }, [p, signer, id, mk, setStage, applyDuel, onSettled, settle]);
+  }, [p, signer, id, mk, progress, setStage, applyDuel, onSettled, settle]);
 
   const tick = useCallback(async () => {
     if (working.current) return;

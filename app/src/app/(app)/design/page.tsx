@@ -18,7 +18,6 @@ import {
   PendingBySource,
   Row,
   Sheet,
-  SimulatedYieldLabel,
   Slider,
   Thumb,
   XIcon,
@@ -142,7 +141,6 @@ export default function Design() {
         <div className="hstack" style={{ gap: 20, flexWrap: "wrap" }}>
           <GemaAmount value={1900} size="md" sign />
           <GemaAmount value={-1000} size="md" sign />
-          <SimulatedYieldLabel />
         </div>
       </Section>
 

@@ -1,10 +1,13 @@
 "use client";
 
+import { useAuth } from "@/lib/auth/context";
+import { finalizeFree } from "@/lib/chain/game-finalize";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getHoldem } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
-import { NO_TABLE_NOTE } from "@/lib/chain/match-status";
+import { matchProgress } from "@/lib/chain/match-progress";
+import { setupNote } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import {
   NO_WINNER,
@@ -75,6 +78,12 @@ const GRACE_MS = 15_000;
  * a lost race is harmless because each step re-reads chain state.
  */
 export function useHoldemMatch(id: string | null, signer: ChainSigner | null, onSettled?: () => void) {
+  const { getAccessToken } = useAuth();
+  // A ref keeps the token getter out of the effect dependencies: the Match loop must not restart when auth re-renders.
+  const tokenRef = useRef(getAccessToken);
+  useEffect(() => {
+    tokenRef.current = getAccessToken;
+  }, [getAccessToken]);
   const [view, setView] = useState<HoldemView>({
     stage: "loading",
     match: null,
@@ -111,10 +120,16 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
   const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
   const p = useMemo(() => (signer ? (signer as unknown as PlayerSigner) : null), [signer]);
 
-  const setStage = useCallback((s: Stage, note = "") => {
-    stage.current = s;
-    setView((v) => (v.stage === s && v.note === note ? v : { ...v, stage: s, note }));
-  }, []);
+  // Every stage goes through the tracker: a late or missing read never moves the screen back.
+  const progress = useMemo(() => matchProgress<ChainMatch, Stage>(id), [id]);
+  const setStage = useCallback(
+    (s: Stage, note = "") => {
+      if (progress.stage(s, note).held) return;
+      stage.current = s;
+      setView((v) => (v.stage === s && v.note === note ? v : { ...v, stage: s, note }));
+    },
+    [progress],
+  );
 
   const addSig = useCallback((label: string, sig: string | undefined, layer: "base" | "tee") => {
     if (sig) setView((v) => (v.sigs.some((x) => x.sig === sig) ? v : { ...v, sigs: [...v.sigs, { label, sig, layer }] }));
@@ -154,7 +169,7 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
       if (!base || !canFinalizeTable(base, a, Date.now() / 1000)) return;
       setView((v) => (v.commit ? { ...v, commit: null } : v));
       try {
-        await hd.finalize(p, a);
+        await finalizeFree(hd, signer, () => tokenRef.current(), a);
       } catch (e) {
         // The other Player may have settled it in the same moment.
         const again = await fetchMatch(id, BlockPuzzleChain.coreAccount(signer.publicKey));
@@ -169,7 +184,7 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
     if (!p || !signer || id === null || mk === null) return;
     const hd = getHoldem();
     const me = BlockPuzzleChain.coreAccount(signer.publicKey);
-    const m = await fetchMatch(id, me);
+    const m = progress.match(await fetchMatch(id, me));
     setView((v) => ({ ...v, match: m, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
     if (!m) return setStage("notfound");
     if (m.seat === null) return setStage("spectator");
@@ -198,7 +213,7 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
     // The joiner does the steps either Player may do; the opener steps in if that stalls.
     const late = now() - activeSince.current >= (seat === 1 ? 0 : 12_000);
     const a = await hd.readAssignment(mk!);
-    if (!a) return setStage("setup", NO_TABLE_NOTE);
+    if (!a) return setStage("setup", setupNote(m));
     assignRef.current = a;
     const t = await hd.readTable(p, a);
     if (!t) return setStage("setup", "Setting up the Match");
@@ -295,7 +310,7 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
         }
       }
     }
-  }, [p, signer, id, mk, setStage, applyTable, onSettled, settle]);
+  }, [p, signer, id, mk, progress, setStage, applyTable, onSettled, settle]);
 
   const tick = useCallback(async () => {
     if (working.current) return;

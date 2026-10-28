@@ -9,14 +9,16 @@ const JOB_LIMIT_MS = Number(process.env.KEEPER_JOB_LIMIT_SECS ?? 120) * 1000;
 const running = new Map<string, Promise<void>>();
 
 /** Runs a job unless its previous run is still going; waits at most `limitMs` for it. */
-export async function runJob<C>(name: string, job: (c: C) => Promise<number>, ctx: C, limitMs = JOB_LIMIT_MS) {
+export async function runJob<C>(name: string, job: (c: C) => Promise<number>, ctx: C, limitMs = JOB_LIMIT_MS, track = true) {
   if (running.has(name)) return log(name, "-", "SKIP: previous run still going");
-  jobs.started(name);
+  if (track) jobs.started(name);
   const run = job(ctx)
-    .then(() => jobs.ok(name))
+    .then(() => {
+      if (track) jobs.ok(name);
+    })
     .catch((e) => {
       const msg = String((e as Error).message ?? e).split("\n")[0].slice(0, 300);
-      jobs.fail(name, msg);
+      if (track) jobs.fail(name, msg);
       log(name, "-", `ERROR ${msg}`);
     })
     .finally(() => running.delete(name));

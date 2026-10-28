@@ -169,8 +169,8 @@ export function burstTableStep(f: BurstTableFacts): BurstTableStep {
   return { do: "reset_table", why: "committed, seats wiped" };
 }
 
-/** Rollup facts for one table; `receiptAge(match)` is the age in seconds of tesoro_core's settlement receipt, or `null` if there is none. */
-export function burstTableFacts(t: Table, nowS: number, receiptAge: (match: PublicKey) => number | null, base: Table | null = null, lastRecommit = 0, slot = 0): BurstTableFacts {
+/** Rollup facts for one table; `receiptAge(match)` is the age in seconds of tesoro_core's settlement receipt, or `null` if there is none. `slot` is the rollup's slot, `null` when it could not be read. */
+export function burstTableFacts(t: Table, nowS: number, receiptAge: (match: PublicKey) => number | null, base: Table | null = null, lastRecommit = 0, slot: number | null = 0): BurstTableFacts {
   const doneSlots = t.ring
     .map((s, index) => ({ s, index }))
     .filter(({ s }) => s.state === SLOT.done)
@@ -184,7 +184,8 @@ export function burstTableFacts(t: Table, nowS: number, receiptAge: (match: Publ
     doneSlots,
     matchFrozen: onMatch && (receiptAge(t.tesoroMatch) ?? -1) >= 60,
     recommit: needsRecommit(t, base, nowS, lastRecommit),
-    hiddenWindow: t.phase === TABLE_PHASE.getReady && slot >= t.startSlot + FREEZE_OFFSET_SLOTS && slot <= t.startSlot + END_OFFSET_SLOTS,
+    // A slot that could not be read counts as inside the window: nothing may touch the table on a guess.
+    hiddenWindow: t.phase === TABLE_PHASE.getReady && (slot === null || (slot >= t.startSlot + FREEZE_OFFSET_SLOTS && slot <= t.startSlot + END_OFFSET_SLOTS)),
   };
 }
 

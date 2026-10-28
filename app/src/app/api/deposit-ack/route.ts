@@ -1,6 +1,6 @@
 import { DemoHttpError } from "@/server/request-auth";
 import { handleDepositAck } from "@/server/deposit-ack/routes";
-import { supabaseDepositAckStore } from "@/server/deposit-ack/supabase-store";
+import { depositAckStore } from "@/server/deposit-ack/env";
 
 export const runtime = "nodejs";
 
@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
-    return Response.json(await handleDepositAck({ store: supabaseDepositAckStore }, body, request.headers.get("authorization")));
+    return Response.json(await handleDepositAck({ store: depositAckStore() }, body, request.headers.get("authorization")));
   } catch (e) {
     if (e instanceof DemoHttpError) return Response.json({ error: e.message, code: e.code }, { status: e.status });
     console.error("deposit-ack", e);

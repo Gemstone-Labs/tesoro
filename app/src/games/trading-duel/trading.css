@@ -6,9 +6,7 @@
 .td-card { --edge: var(--edge-1); background: var(--surface); padding: 14px 16px; display: grid; gap: 10px; }
 .td-banner { padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; }
 .td-banner-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.td-sigs, .td-note { width: 100%; max-width: 1240px; margin-inline: auto; }
-.td-sigs summary { cursor: pointer; }
-.td-sigs { gap: 6px; }
+.td-note { width: 100%; max-width: 1240px; margin-inline: auto; }
 @media (max-width: 719px) {
   .td-title { font-size: 28px; }
   .td-card { padding: 12px; }

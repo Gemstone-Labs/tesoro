@@ -17,21 +17,23 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import nacl from "tweetnacl";
-import { BN, BorshInstructionCoder, type Idl } from "@coral-xyz/anchor";
+import { BN, BorshAccountsCoder, BorshInstructionCoder, type Idl } from "@coral-xyz/anchor";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { gameRecordPda } from "@/lib/chain/game-record";
 import { GAME_IDS } from "@/lib/chain/games";
 import { HIDDEN_GAMES } from "@/lib/games";
 import type { GameId } from "@/lib/mock/types";
 import { DemoHttpError } from "../request-auth";
-import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
-import { CORE_ID, PRIORITY_MICROLAMPORTS, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
+import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, rentExitFits, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
+import { CORE_ID, PRIORITY_MICROLAMPORTS, RECEIPT_RENT, SETTLEMENT_RECEIPT_BYTES, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
 import { EXIT_ATA_WINDOW_MS, verifyExitSetup } from "./exit-setup";
 import type { UsageStore } from "./store";
 import { ChainTransactionFailed } from "./chain-send";
 import { completionEffects, completionInput, recoverCompletions, type CompletionChain } from "./completion";
 
 const HOUR = 3_600_000;
+/** How many times a Game step's cost is measured before it is called too expensive (see `checkGameStepSimulation`). */
+const GAME_STEP_COST_READINGS = 3;
 const DAY = 24 * HOUR;
 /** A built message is good for this long (the blockhash lives about 90 s). */
 export const BUILD_TTL_MS = 75_000;
@@ -41,6 +43,11 @@ export interface ChainReads extends CompletionChain {
   account(key: PublicKey): Promise<{ owner: PublicKey; data: Uint8Array } | null>;
   rent?(bytes: number): Promise<bigint>;
   latestBlockhash(): Promise<string>;
+  /**
+   * Runs `tx` unsigned against the chain as it is now and reports whether it would fail and what `watch` would hold after it.
+   * A Game step is built only when this says it would succeed and cost the relayer no more than the fee and the receipt rent.
+   */
+  simulate?(tx: VersionedTransaction, watch: PublicKey): Promise<{ err: unknown; lamports: bigint | null }>;
   /** Sends and waits for confirmation; throws when the transaction fails. Returns the signature. */
   send(raw: Uint8Array): Promise<string>;
 }
@@ -73,6 +80,17 @@ export interface SponsorDeps {
 
 /** The Player's basket PDA, whose totals say whether the Account holds Gemas. */
 const pda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, CORE_ID)[0];
+const matchCoder = new BorshAccountsCoder(coreIdl as unknown as Idl);
+/** The Player and funder keys of a Match's two parties (empty when the data is not a MatchState). */
+function partiesOf(data: Uint8Array): PublicKey[] {
+  try {
+    const m = matchCoder.decode("MatchState", Buffer.from(data)) as { inner: { a: { player: number[]; funder: number[] }; b: { player: number[]; funder: number[] } | null } };
+    return [m.inner.a, m.inner.b].flatMap((p) => (p ? [new PublicKey(p.player), new PublicKey(p.funder)] : []));
+  } catch {
+    return [];
+  }
+}
+const isPlayerKey = (k: PublicKey, player: PublicKey) => k.equals(player) || k.equals(accountPda(player));
 export const accountPda = (authority: PublicKey) => pda([Buffer.from("account"), authority.toBuffer()]);
 export const basketPda = (account: PublicKey) => pda([Buffer.from("basket"), account.toBuffer()]);
 const BASKET_OWN_AT = 8 + 40;
@@ -213,6 +231,58 @@ export class Sponsor {
     }
   }
 
+  /**
+   * A Game step the relayer sends for a Player (ticket 04): the Player must be one of the Match's two Players (or their
+   * funder), the Match may be sent each step a few times only, and the day's rent-fronting steps are capped overall.
+   */
+  private receiptRentCache: bigint | null = null;
+  /** What the relayer fronts for a settlement receipt: the chain's own rent for the receipt's size, read once. */
+  private async receiptRent(): Promise<bigint> {
+    if (this.receiptRentCache === null) this.receiptRentCache = this.d.chain.rent ? await this.d.chain.rent(SETTLEMENT_RECEIPT_BYTES) : RECEIPT_RENT;
+    return this.receiptRentCache;
+  }
+
+  private async admitGameStep(plan: Plan, player: PublicKey, now: number): Promise<() => Promise<void>> {
+    const match = plan.obligations[0];
+    const a = await this.d.chain.account(match);
+    if (!a || !partiesOf(a.data).some((k) => isPlayerKey(k, player))) throw new DemoHttpError(403, "not-your-match", "Free transactions are for the Players of a Match.");
+    const perMatch = `gstep:${match.toBase58()}:${plan.names[0]}`;
+    if (!(await this.d.store.take(perMatch, 1, this.d.limits.gameStepsPerMatch, 10 * 60_000, now))) throw new DemoHttpError(429, "match-limit", "That step was already sent for this Match.");
+    const rent = plan.spend.refundable > 0n;
+    if (rent && !(await this.d.store.take("gstep:day", 1, this.d.limits.rentExitsPerDay, DAY, now))) {
+      await this.d.store.refund(perMatch, 1, now);
+      throw new DemoHttpError(503, "sponsor-empty", "Free transactions are used up for today. Pay the network fee from your own SOL to finish this.");
+    }
+    return async () => {
+      await this.d.store.refund(perMatch, 1, now);
+      if (rent) await this.d.store.refund("gstep:day", 1, now);
+    };
+  }
+
+  /**
+   * Runs the finished Game step against the chain before anything is signed: it must succeed, and the relayer must end up
+   * poorer by no more than the fee and the receipt's rent (what the step is meant to cost).
+   */
+  private async checkGameStepSimulation(message: ReturnType<TransactionMessage["compileToV0Message"]>, allowed: bigint) {
+    if (!this.d.chain.simulate) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
+    // The RPC reports the balance after the simulation but not before it, so the cost is the gap to a balance read just ahead,
+    // and any other transaction the relayer pays in between (it pays for every Player) shows up as cost. A real overspend is the
+    // same every time; a concurrent spend inflates one reading. So the least cost of up to three readings decides, and a
+    // concurrent refund can only lower a reading (what the instructions allow to leave is bounded by the allow-list).
+    const limit = allowed + BigInt(SIGNATURE_LAMPORTS);
+    let cheapest: bigint | null = null;
+    for (let attempt = 0; attempt < GAME_STEP_COST_READINGS; attempt++) {
+      const before = await this.d.chain.balance(this.relayer);
+      const sim = await this.d.chain.simulate(new VersionedTransaction(message), this.relayer);
+      if (sim.err) throw new DemoHttpError(409, "would-fail", "That step cannot go through yet.");
+      if (sim.lamports === null) break;
+      const cost = before - sim.lamports;
+      cheapest = cheapest === null || cost < cheapest ? cost : cheapest;
+      if (cheapest <= limit) return;
+    }
+    throw new DemoHttpError(409, "costs-too-much", "That step would cost more than the fee and the receipt.");
+  }
+
   /** Exits and continues are for Accounts: a throwaway key cannot make the relayer pay fees. */
   private async requireAccount(authority: PublicKey) {
     const a = await this.d.chain.account(accountPda(authority));
@@ -226,10 +296,22 @@ export class Sponsor {
 
   /** `sub` is the Privy user id the request came with (null only off production), the key of the one-Account-per-user gate. */
   async build(player: PublicKey, raw: unknown, sub: string | null = null): Promise<Built> {
+    // A Game step spends the Match's tries and the day's cap when it is admitted; any failure after that gives them back.
+    const held: { undo: (() => Promise<void>) | null } = { undo: null };
+    try {
+      return await this.buildWith(player, raw, sub, held);
+    } catch (e) {
+      await held.undo?.();
+      throw e;
+    }
+  }
+
+  private async buildWith(player: PublicKey, raw: unknown, sub: string | null, held: { undo: (() => Promise<void>) | null }): Promise<Built> {
     const now = this.d.now();
     const who = player.toBase58();
     const ixs = parseIntent(raw);
     const plan = await this.plan(ixs, player);
+    if (plan.kind === "game" && plan.spend.refundable > 0n) plan.spend.refundable = await this.receiptRent();
     const setup = await verifyExitSetup(plan, player, this.d.chain);
     plan.spend.sunk += setup.rent;
     if (setup.ataGrant && await this.d.store.used(setup.ataGrant, EXIT_ATA_WINDOW_MS, now) >= 1) throw new DemoHttpError(409, "setup-already-funded", "This payout token account was already funded. Restore it using the SOL returned when it was closed.");
@@ -285,7 +367,10 @@ export class Sponsor {
       await this.requireAccount(player);
       await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
-      if (!exitFits(balance, fee + plan.spend.sunk + plan.spend.refundable)) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
+      const gameStep = plan.kind === "game" && plan.obligations.length > 0;
+      if (gameStep) held.undo = await this.admitGameStep(plan, player, now);
+      const cost = fee + plan.spend.sunk + plan.spend.refundable;
+      if (!(gameStep && plan.spend.refundable > 0n ? rentExitFits(balance, cost) : exitFits(balance, cost))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
     }
 
     const instructions = [
@@ -305,6 +390,7 @@ export class Sponsor {
       if (!(e instanceof RangeError)) throw e;
       throw new DemoHttpError(400, "too-large", "This transaction is too large. Prepare fewer items at a time.");
     }
+    if (held.undo) await this.checkGameStepSimulation(message, fee + plan.spend.refundable);
     const meta: Meta = { completion: completionEffects(ixs), player: who, exp: now + BUILD_TTL_MS, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite, cost: (fee + plan.spend.sunk + plan.spend.refundable).toString(), admission: plan.class === "admission", ataGrant: setup.ataGrant };
     const metaText = JSON.stringify(meta);
     return { message: Buffer.from(bytes).toString("base64"), meta: metaText, mac: mac(this.d.macKey, bytes, metaText), expiresAt: meta.exp, class: plan.class };

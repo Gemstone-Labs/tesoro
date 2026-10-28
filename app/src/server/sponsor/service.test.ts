@@ -1,8 +1,9 @@
-import { Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
+import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
+import { Connection, Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
-import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, key, linkEvmBridgeIx, signUpIx, openMatchIx, playerIx } from "./fixtures";
+import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, gameStepIx, key, linkEvmBridgeIx, signUpIx, openMatchIx, playerIx } from "./fixtures";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type WireIx } from "./service";
@@ -28,15 +29,16 @@ const basketData = (gemas: bigint) => {
   return d;
 };
 
-function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean; sendError?: Error; noAccount?: boolean; invite?: { redeemed: boolean } } = {}) {
+function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean; sendError?: Error; noAccount?: boolean; simulate?: { err?: unknown; extraSpend?: bigint; noLamports?: boolean; raceOnce?: bigint }; invite?: { redeemed: boolean } } = {}) {
   const relayer = Keypair.generate();
   const player = Keypair.generate();
-  const game = key();
+  const game = new PublicKey("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
   const sent: VersionedTransaction[] = [];
   const alerts: bigint[] = [];
   const onboardingAlerts: number[] = [];
   const inviteKey = Keypair.generate();
   let balance = over.balance ?? 10n * SOL;
+  let raced = false;
   const accounts = new Map<string, { owner: PublicKey; data: Uint8Array }>();
   accounts.set(basketPda(accountPda(player.publicKey)).toBase58(), { owner: CORE_ID, data: basketData(over.gemas ?? 500n) });
   if (!over.noAccount) accounts.set(accountPda(player.publicKey).toBase58(), { owner: CORE_ID, data: new Uint8Array(10) });
@@ -54,6 +56,13 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
     rent: async (bytes) => BigInt(bytes + 128) * 6960n,
     account: async (k) => accounts.get(k.toBase58()) ?? null,
     latestBlockhash: async () => "11111111111111111111111111111111",
+    // The relayer pays the fee (5,000 + priority) and the receipt's rent: what a Game step is meant to cost.
+    simulate: async (tx) => {
+      const closes = Buffer.from(tx.message.compiledInstructions.at(-1)!.data).equals(Buffer.from([180, 122, 187, 197, 166, 152, 1, 222]));
+      // Another sponsored transaction lands between the balance read and the simulation, once.
+      const race = over.simulate?.raceOnce && !raced ? ((raced = true), over.simulate.raceOnce) : 0n;
+      return { err: over.simulate?.err ?? null, lamports: over.simulate?.noLamports ? null : balance - 5_000n - 400n - (closes ? 0n : 1_275_080n) - (over.simulate?.extraSpend ?? 0n) - race };
+    },
     send: async (raw) => {
       if (over.sendError) throw over.sendError;
       if (over.sendFails) throw new ChainTransactionFailed("custom program error 0x1");
@@ -246,6 +255,114 @@ describe("pause and the exit reserve", () => {
     const matchState = key();
     const s = setup({ balance: 1_000n, existing: [matchState] });
     await expect(s.sponsor.build(s.player.publicKey, wire([await chunkIx(s.relayer.publicKey, matchState)]))).rejects.toMatchObject({ code: "sponsor-empty" });
+  });
+});
+
+describe("a Game's finalize with the relayer as caller (ticket 04)", () => {
+  const matchCoder = new Program(coreIdl as unknown as Idl, new AnchorProvider(new Connection("http://localhost:8899"), {} as never, {})).coder.accounts;
+  const arr = (k: PublicKey) => Array.from(k.toBytes());
+  /** A MatchState (snake_case, through the real coder) with the given Players. */
+  const matchData = async (a: PublicKey, b: PublicKey | null) => {
+    const party = (p: PublicKey) => ({ player: arr(p), funder: arr(p), shareBps: 0 });
+    const inner = {
+      id: { opener: arr(a), n: new BN(5) }, meta: { challenge: false, asset: 0, listed: true }, game: arr(key()), settleAuthority: arr(key()), deploySlot: new BN(1),
+      terms: { platformBps: 200, studioBps: 300, studioOwner: null, studioPriority: true }, entry: new BN(500), openedAt: new BN(1), deadline: new BN(2), deadlineAbs: new BN(3),
+      a: party(a), b: b ? party(b) : null, potLines: [1, 1], stage: { open: {} }, run: null,
+    };
+    return Buffer.from(await matchCoder.encode("matchState", { bump: 255, inner, listed: true, listingEpoch: 0, payer: key(), pots: [key(), key()], room: Array.from({ length: 5 }, () => ({ account: arr(PublicKey.default), left: 0 })) }));
+  };
+  const finalizeIx = (s: ReturnType<typeof setup>, matchState: PublicKey) => gameStepIx(s.game, "finalize", matchState, s.relayer.publicKey);
+  /** A Match the Player opened, held by the fake chain. */
+  const withMatch = async (over: Parameters<typeof setup>[0] = {}, parties: (p: PublicKey) => [PublicKey, PublicKey | null] = (p) => [p, key()]) => {
+    const matchState = key();
+    const s = setup(over);
+    const [a, b] = parties(s.player.publicKey);
+    s.accounts.set(matchState.toBase58(), { owner: CORE_ID, data: await matchData(a, b) });
+    return { s, matchState };
+  };
+  it("is built and sent with the relayer as the only signer and the fee payer: the Player's wallet pays nothing", async () => {
+    const { s, matchState } = await withMatch();
+    const built = await s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]));
+    expect(built.class).toBe("exit");
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    expect(s.sent).toHaveLength(1);
+    const keys = s.sent[0].message.staticAccountKeys;
+    expect(s.sent[0].message.header.numRequiredSignatures).toBe(1);
+    expect(keys[0].equals(s.relayer.publicKey)).toBe(true);
+    expect(keys.some((k) => k.equals(s.player.publicKey))).toBe(false);
+  });
+  it("is also sent for the Player who joined, not only the opener", async () => {
+    const { s, matchState } = await withMatch({}, (p) => [key(), p]);
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).resolves.toMatchObject({ class: "exit" });
+  });
+  it("close_assignment and refund_untabled go the same way; close_assignment needs no rent hold and no daily-cap slot", async () => {
+    const { s, matchState } = await withMatch({ limits: { rentExitsPerDay: 1 } });
+    const close = gameStepIx(s.game, "close_assignment", matchState, s.relayer.publicKey);
+    const refund = gameStepIx(s.game, "refund_untabled", matchState, s.relayer.publicKey);
+    await s.sponsor.build(s.player.publicKey, wire([refund]));
+    await expect(s.sponsor.build(s.player.publicKey, wire([refund]))).rejects.toMatchObject({ code: "sponsor-empty" });
+    await expect(s.sponsor.build(s.player.publicKey, wire([close]))).resolves.toMatchObject({ class: "exit" });
+  });
+  it("is simulated before it is signed: a step that would fail is refused and does not use up the Match's tries", async () => {
+    const { s, matchState } = await withMatch({ simulate: { err: { InstructionError: [2, { Custom: 6037 }] } } });
+    for (let i = 0; i < DEFAULT_LIMITS.gameStepsPerMatch + 2; i++) await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).rejects.toMatchObject({ code: "would-fail", status: 409 });
+  });
+  it("is refused when the simulation shows it would cost the relayer more than the fee and the receipt's rent, or shows nothing", async () => {
+    const over = await withMatch({ simulate: { extraSpend: 1_000_000n } });
+    await expect(over.s.sponsor.build(over.s.player.publicKey, wire([finalizeIx(over.s, over.matchState)]))).rejects.toMatchObject({ code: "costs-too-much" });
+    const blind = await withMatch({ simulate: { noLamports: true } });
+    await expect(blind.s.sponsor.build(blind.s.player.publicKey, wire([finalizeIx(blind.s, blind.matchState)]))).rejects.toMatchObject({ code: "costs-too-much" });
+  });
+  it("gives the Match's tries back when anything after admission fails, not only the simulation", async () => {
+    const { s, matchState } = await withMatch();
+    const ok = s.deps.lookupTables;
+    s.deps.lookupTables = async () => {
+      throw new Error("rpc down");
+    };
+    for (let i = 0; i < DEFAULT_LIMITS.gameStepsPerMatch + 2; i++) await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).rejects.toThrow("rpc down");
+    s.deps.lookupTables = ok;
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).resolves.toMatchObject({ class: "exit" });
+  });
+  it("is not refused because another sponsored transaction landed while it was measured, but a real overspend still is", async () => {
+    const raced = await withMatch({ simulate: { raceOnce: 3_000_000n } });
+    await expect(raced.s.sponsor.build(raced.s.player.publicKey, wire([finalizeIx(raced.s, raced.matchState)]))).resolves.toMatchObject({ class: "exit" });
+    const drained = await withMatch({ simulate: { extraSpend: 1_000_000n, raceOnce: 3_000_000n } });
+    await expect(drained.s.sponsor.build(drained.s.player.publicKey, wire([finalizeIx(drained.s, drained.matchState)]))).rejects.toMatchObject({ code: "costs-too-much" });
+  });
+  it("holds the relayer to the chain's own receipt rent, read once", async () => {
+    const { s, matchState } = await withMatch();
+    const built = await s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]));
+    expect(BigInt(JSON.parse(built.meta).cost)).toBe(5_000n + 400n + BigInt(123 + 128) * 6960n);
+  });
+  it("is refused for a Match that is not there, and for a wallet with no Account", async () => {
+    const s = setup();
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, key())]))).rejects.toMatchObject({ code: "no-obligation" });
+    const { s: n, matchState } = await withMatch({ noAccount: true });
+    await expect(n.sponsor.build(n.player.publicKey, wire([finalizeIx(n, matchState)]))).rejects.toMatchObject({ code: "no-account" });
+  });
+  it("is refused for a Player who is not in the Match, and for a core account that is not a Match", async () => {
+    const { s, matchState } = await withMatch({}, () => [key(), key()]);
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).rejects.toMatchObject({ code: "not-your-match", status: 403 });
+    const own = accountPda(s.player.publicKey);
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, own)]))).rejects.toMatchObject({ code: "not-your-match" });
+  });
+  it("is sent at most a few times per Match, so a page cannot repeat it", async () => {
+    const { s, matchState } = await withMatch();
+    for (let i = 0; i < DEFAULT_LIMITS.gameStepsPerMatch; i++) await s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]));
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).rejects.toMatchObject({ code: "match-limit", status: 429 });
+  });
+  it("is capped across all Players per day", async () => {
+    const { s, matchState } = await withMatch({ limits: { rentExitsPerDay: 1 } });
+    await s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]));
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).rejects.toMatchObject({ code: "sponsor-empty" });
+  });
+  it("never spends what the exit holds promise: it needs the receipt's rent free of holds", async () => {
+    const { s, matchState } = await withMatch({ balance: 1_000_000n });
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).rejects.toMatchObject({ code: "sponsor-empty" });
+  });
+  it("is refused when the Player's own failures have used up their exits", async () => {
+    const { s, matchState } = await withMatch({ limits: { exitFailuresPerDay: 0 } });
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).rejects.toMatchObject({ code: "too-many-failures" });
   });
 });
 

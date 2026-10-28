@@ -9,10 +9,11 @@ import { getReadySecs, slotNow } from "@/games/block-puzzle/live-clock";
 import { stripOf } from "@/games/block-puzzle/opponent";
 import { useBurstMatch } from "@/games/block-puzzle/useBurstMatch";
 import { useAccount } from "@/lib/account";
-import { backerDelta, matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
+import { backerDelta, matchDelta, matchFee, resultFee, seatResult } from "@/lib/chain/ledger";
+import { resultOf } from "@/lib/chain/read";
 import { parseMatchKey } from "@/lib/chain/match-id";
 import { refundMatch } from "@/lib/chain/match-flow";
-import { delayedOf } from "@/lib/chain/match-status";
+import { CANCELLING_NOTE, delayedOf } from "@/lib/chain/match-status";
 import { useQueuePresence } from "@/lib/chain/usePresence";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { plainError } from "@/lib/errors";
@@ -21,7 +22,6 @@ import { BurstOpponentStrip } from "./BurstOpponentStrip";
 import { MatchResult } from "./MatchResult";
 import { MatchSpectate } from "./MatchSpectate";
 import { MatchStage, MatchStageLoading, StageAction, type StageKind } from "./MatchStage";
-import { Receipts } from "./Receipts";
 
 /** Re-renders every `ms`, so the get-ready count and the check-in clock follow the rollup's slot clock. */
 function useTicker(ms: number, on: boolean): number {
@@ -64,7 +64,6 @@ export function MatchView({ matchId }: { matchId: string }) {
 
   const slot = clock ? slotNow(clock, perf) : 0;
   const strip = stripOf({ table, assigned: !!assignment, slot, seat: seat ?? 0, ownOver: view.ownOver });
-  const sigs = [...view.sigs, ...refundSig];
 
   if (view.run && (stage === "playing" || stage === "closing") && m) {
     return (
@@ -92,7 +91,7 @@ export function MatchView({ matchId }: { matchId: string }) {
     const draw = result?.result === "draw";
     const known = result ? (draw ? "draw" : seatResult({ session: result }, mineIdx)) : null;
     const delta = asBacker && m.backing ? backerDelta({ ...m, backerSeat: m.backing.seat, shareBps: m.backing.shareBps }) : matchDelta(m);
-    const outcome = m.status === "refunded" ? "refunded" : (known ?? (delta > 0 ? "won" : delta < 0 ? "lost" : "draw"));
+    const outcome = resultOf(m) === "refunded" ? "refunded" : (known ?? (delta > 0 ? "won" : delta < 0 ? "lost" : "draw"));
     const scores = result && outcome !== "refunded" ? ([String(result.scores[mineIdx]), String(result.scores[1 - mineIdx])] as [string, string]) : null;
     const why = resultLine(view.reason, outcome);
     return (
@@ -101,19 +100,20 @@ export function MatchView({ matchId }: { matchId: string }) {
         outcome={outcome}
         delta={delta}
         entry={m.entry}
-        fee={matchFee(m)}
+        fee={resultFee(m, outcome)}
         role={asBacker ? "backer" : "player"}
         backed={!!m.backing}
         scores={scores}
+        cancelled={refundSig.length > 0}
         momentKey={m.id.toString()}
         matchId={m.id.toString()}
         playAgainHref={`/play/queue?entry=${m.entry}`}
         opponent={m.opponent}
+        points={m.settled?.points}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
         {why && <p className="note">{why}</p>}
         {view.error && <p className="status err" role="alert">{view.error}</p>}
-        <Receipts items={sigs} />
       </MatchResult>
     );
   }
@@ -140,7 +140,11 @@ export function MatchView({ matchId }: { matchId: string }) {
   let words: { kicker?: string; title?: string; line?: string } | undefined;
   let step: string | undefined;
   if (stage === "backer") kind = "backer-watch";
-  else if (stage === "waiting") {
+  else if (stage === "cancelling" || (stage === "waiting" && busy === "refund")) {
+    // Nobody joined and the refund is on its way (or being sent): never the table or opponent screens.
+    kind = "setup";
+    step = CANCELLING_NOTE;
+  } else if (stage === "waiting") {
     kind = "waiting";
   } else if (stage === "table") {
     kind = "setup";
@@ -169,6 +173,7 @@ export function MatchView({ matchId }: { matchId: string }) {
   return (
     <MatchStage
       game="block-puzzle"
+      matchId={matchId}
       kind={kind}
       entry={m.entry}
       pot={m.entry * 2 - matchFee(m)}
@@ -197,8 +202,6 @@ export function MatchView({ matchId }: { matchId: string }) {
           )}
         </>
       }
-    >
-      <Receipts items={sigs} />
-    </MatchStage>
+    />
   );
 }

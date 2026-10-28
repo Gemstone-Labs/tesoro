@@ -4,13 +4,12 @@ import { parseMatchKey } from "@/lib/chain/match-id";
 import { Busy, Button, Card, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { commitCopy } from "@/lib/chain/commit-pending";
-import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
+import { matchDelta, matchFee, resultFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
-import { Receipts } from "@/components/match/Receipts";
-import { delayedOf } from "@/lib/chain/match-status";
+import { CANCELLING_NOTE, delayedOf } from "@/lib/chain/match-status";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { MatchStage, MatchStageLoading, StageAction, delayedCopy } from "@/components/match/MatchStage";
 import { STATUS } from "./decode";
@@ -50,7 +49,7 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
         outcome={outcome}
         delta={matchDelta(m)}
         entry={m.entry}
-        fee={Number(matchFee(m))}
+        fee={resultFee(m, outcome)}
         role="player"
         backed={!!m.backing}
         scores={null}
@@ -58,28 +57,29 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
         matchId={m.id.toString()}
         playAgainHref={`/play/queue?game=vanguard&entry=${m.entry}`}
         opponent={m.opponent}
+        points={m.settled?.points}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
         {battle && seat !== null && <EndWhy battle={battle} seat={seat} />}
         {view.error && <p className="status err" role="alert">{view.error}</p>}
-        <Receipts items={view.sigs} className="vg-sigs" />
-        <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
       </MatchResult>
     );
   }
 
   const late = m && (stage === "live" || stage === "setup") ? delayedOf(m, nowSecs) : null;
   const kind = !showTable && (stage === "waiting" || stage === "setup" || stage === "closing" || stage === "live") ? (stage === "live" ? "setup" : stage) : null;
+  const cancelSent = view.busy === "refund" && stage === "waiting";
   if (kind && m) {
     return (
       <MatchStage
         game="vanguard"
-        kind={kind}
+        matchId={matchId}
+        kind={cancelSent ? "setup" : kind}
         entry={m.entry}
         pot={m.entry * 2 - matchFee(m)}
         me={me}
         opponent={m.opponent}
-        step={kind === "setup" ? view.note || "Getting your army" : kind === "closing" && !view.commit ? view.note || "Saving the result" : undefined}
+        step={cancelSent ? CANCELLING_NOTE : kind === "setup" ? view.note || "Getting your army" : kind === "closing" && !view.commit ? view.note || "Saving the result" : undefined}
         commit={kind === "closing" ? view.commit : null}
         delayed={kind === "closing" ? delayedOf(m, nowSecs) : null}
         deadline={m.deadline || undefined}
@@ -95,8 +95,6 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
         }
       >
         {late && <Notice title={delayedCopy(late).title} body={delayedCopy(late).line} />}
-        <Receipts items={view.sigs} className="vg-sigs" />
-        <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
       </MatchStage>
     );
   }
@@ -123,8 +121,6 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
             </Button>
           )}
           {view.error && <p className="status err" role="alert">{view.error}</p>}
-          <Receipts items={view.sigs} className="vg-sigs" />
-          <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
         </VanguardTable>
       )}
     </div>

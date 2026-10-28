@@ -3,21 +3,20 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { Button, CheckIcon, CountUp, GemaMark, GemaUsd, MinusIcon, SimulatedYieldLabel, XIcon, type BustName } from "@/components/ui";
+import { Button, CheckIcon, CountUp, GemaMark, GemaUsd, MinusIcon, XIcon, type BustName } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import { nextStep, ordinal, pts, seasonStanding, type SeasonStanding } from "@/lib/chain/leaderboard-view";
 import { playerSummary } from "@/lib/chain/player-account";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
-import { pointsForWin } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
-import { canRematch, rematchHref } from "@/lib/rematch";
+import { setFullScreen } from "@/games/fx";
 import { AddFriendButton } from "@/components/friends/AddFriendButton";
 import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
-import { practiceHref } from "@/lib/game-params";
 import { postUrl, winPath, winShareText } from "@/lib/win-card";
+import { refundCopy } from "@/lib/chain/match-status";
 import { MomentOverlay } from "./MomentOverlay";
 import { Odometer, Shards } from "./ResultMotion";
 import "./match.css";
@@ -30,20 +29,23 @@ export interface MatchResultProps {
   /** The Gema change for whoever is looking (the Player's, or the Backer's when `role` is backer). */
   delta: number;
   entry: number;
-  /** Platform + Studio + Leaderboard Fee taken from the Pot, in Gemas. */
-  fee: number;
+  /** Platform + Studio + Leaderboard Fee taken from the Pot, in Gemas; null when it is not known (no Fee tile). */
+  fee: number | null;
   role: "player" | "backer";
   backed: boolean;
   /** Final scores as shown: [yours, opponent's]. Null when the Match has none (refund). */
   scores: [string, string] | null;
   scoreNote?: string;
   playAgainHref: string;
-  /** The opponent of this Match and the Trading Duel asset, when known: enables Rematch (a pre-filled Challenge). */
+  /** The opponent of this Match, when known: Add a friend. */
   opponent?: string | null;
-  asset?: number | null;
+  /** Season points this Match gave the Player, as the history settled them; absent while the Match is not in the history yet. */
+  points?: number | null;
+  /** This page sent the cancel that ended the Match. */
+  cancelled?: boolean;
   /** Show the win overlay once per key (the Match id); without one it shows on every mount. */
   momentKey?: string;
-  /** The Match id: a Player's win can be shared as a card at /win/<id>. */
+  /** The Match id. */
   matchId?: string;
   /** How a Backing paid out (BackingSplit), for backed Matches. */
   split?: ReactNode;
@@ -82,35 +84,29 @@ function Score({ value, run, delay }: { value: string; run: boolean; delay: numb
   return <CountUp value={target} from={0} duration={1100} />;
 }
 
-/** Where the signed-in Player stands in the Season (null until read, or while the Leaderboard Fee is off). */
-function useStanding(): SeasonStanding | null {
+/** Where the signed-in Player stands in the Season: `loading` until the Leaderboard has been read (or failed), `standing` null while unranked or the Leaderboard Fee is off. */
+function useStanding(): { loading: boolean; standing: SeasonStanding | null } {
   const { auth, snapshot } = useAccount();
   const me = auth.status === "signed-in" ? (snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null)) : null;
-  const { data, forMe } = useLeaderboard(me);
-  return me && forMe && data && data.feeBps > 0 ? seasonStanding(data, me) : null;
+  const { data, forMe, error } = useLeaderboard(me);
+  const ready = !me || (forMe && !!data) || error;
+  return { loading: !ready, standing: me && forMe && data && data.feeBps > 0 ? seasonStanding(data, me) : null };
 }
 
-/** The Season tile after a win: the points won, then the rank and the gap, linking to the Leaderboard. Plain points until the standing is read. */
-function SeasonTile({ points, delay }: { points: number; delay: string }) {
-  const standing = useStanding();
+/** The Season tile, after a loss too: the points this Match gave (0 after a loss; unknown until the history settles them) and the Player's Leaderboard position, blank while loading, or "Not ranked yet". */
+function SeasonTile({ points, delay }: { points: number | null; delay: string }) {
+  const { loading, standing } = useStanding();
   const step = standing ? nextStep(standing) : null;
   const body = (
     <>
-      <span>{standing?.rank ? `Season · +${pts(points)}` : "Season points"}</span>
-      <b>{standing?.rank ? ordinal(standing.rank) : `+${points}`}</b>
+      <span>{points === null ? "Season" : `Season · +${pts(points)}`}</span>
+      {loading ? <b aria-busy="true">&nbsp;</b> : <b>{standing?.rank ? ordinal(standing.rank) : "Not ranked yet"}</b>}
       {step && <small>{step} <span aria-hidden="true">→</span></small>}
     </>
   );
   const cls = "cut cut-card mr-tile mr-rise";
   const style = { "--d": delay } as Css;
   return step ? <Link href="/leaderboard" className={`${cls} link`} style={style}>{body}</Link> : <div className={cls} style={style}>{body}</div>;
-}
-
-/** After a loss: no points, and where the Player still stands. */
-function LossStanding() {
-  const standing = useStanding();
-  const rank = standing?.rank;
-  return <p className="mr-copy">Losses earn no points{rank ? <>; you are still <Link href="/leaderboard">{ordinal(rank)} this Season</Link></> : null}.</p>;
 }
 
 /** "New best" beside a Block Burst score that beats every earlier finished Match of this Account. */
@@ -136,6 +132,8 @@ export function MatchResult(p: MatchResultProps) {
   const moment = momentBust(p);
   // the poster holds its first frame while the win overlay shows
   const [held, setHeld] = useState(moment !== null);
+  // The game's window cover ends with the game: the result sits inside the app shell (sidebar, bottom navbar).
+  useEffect(() => setFullScreen(false), []);
 
   const status = won ? "Won" : lost ? "Lost" : outcome === "draw" ? "Draw" : "Refunded";
   const Icon = won ? CheckIcon : lost ? XIcon : MinusIcon;
@@ -143,19 +141,19 @@ export function MatchResult(p: MatchResultProps) {
   const sign = delta > 0 ? "+" : delta < 0 ? "−" : "";
   const amount = neutral ? fmtGemas(p.entry) : `${sign}${fmtGemas(Math.abs(delta))}`;
   const amountLabel = backed ? (role === "backer" ? "Your return" : "Your share") : null;
-  const points = won && role === "player" ? pointsForWin(p.entry) : 0;
+  // After a win the points depend on the Season's cap per opponent, so they are shown only once the history has them.
+  const points = !won || role !== "player" ? 0 : (p.points ?? null);
 
   const nums = p.scores?.map(Number);
   const numeric = !!nums && nums.every(Number.isFinite);
-  const tiles: { k: string; v: ReactNode; on?: boolean; season?: number }[] = [];
+  const tiles: { k: string; v: ReactNode; on?: boolean; season?: number | null }[] = [];
+  if (role === "player") tiles.push({ k: "Season", v: null, season: points });
+  if (p.fee !== null) tiles.push({ k: "Fee", v: <><GemaMark size={22} /> {fmtGemas(p.fee)}</> });
   if (p.scores) {
     const [mine, theirs] = nums ?? [0, 0];
     tiles.push({ k: role === "backer" ? "Your Player" : "You", v: <><Score value={p.scores[0]} run={!held} delay={1200} />{role === "player" && p.game === "block-puzzle" && numeric && <NewBest score={mine} matchId={p.matchId} />}</>, on: numeric ? mine > theirs : won });
     tiles.push({ k: "Opponent", v: <Score value={p.scores[1]} run={!held} delay={1200} />, on: numeric ? theirs > mine : lost });
   }
-  tiles.push({ k: "Entry", v: <><GemaMark size={22} /> {fmtGemas(p.entry)}</> });
-  tiles.push({ k: "Fee", v: <><GemaMark size={22} /> {fmtGemas(neutral ? 0 : p.fee)}</> });
-  if (points > 0) tiles.push({ k: "Season points", v: `+${points}`, season: points });
 
   return (
     <>
@@ -189,14 +187,6 @@ export function MatchResult(p: MatchResultProps) {
               <GemaUsd className="mr-usd" value={neutral ? p.entry : Math.abs(delta)} />
             </div>
             <div className="mr-in mr-notes" style={{ "--d": "1400ms" } as Css}>
-              {won && (
-                <>
-                  <Link className="mr-pending" href="/vault">
-                    Pending · redeemable as their yield lands <span aria-hidden="true">→</span>
-                  </Link>
-                  <SimulatedYieldLabel />
-                </>
-              )}
               {backed && role === "player" ? (
                 <p className="mr-copy strong">You never owe anything, win or lose: your Backer&apos;s Gemas funded this entry.</p>
               ) : lost && role === "player" ? (
@@ -204,14 +194,27 @@ export function MatchResult(p: MatchResultProps) {
               ) : outcome === "draw" ? (
                 <p className="mr-copy">Equal scores: both entries were returned.</p>
               ) : outcome === "refunded" ? (
-                <p className="mr-copy">The Match ended without a result and your entry was returned.</p>
+                <p className="mr-copy">{refundCopy({ unjoined: !p.opponent, cancelled: !!p.cancelled })}</p>
               ) : null}
             </div>
+            {won && role === "player" && p.matchId && (
+              <div className="mr-in mr-share" style={{ "--d": "1500ms" } as Css}>
+                <Button
+                  size="lg"
+                  onClick={() => {
+                    const url = `${window.location.origin}${winPath(p.matchId!)}`;
+                    window.open(postUrl(winShareText({ game: p.game, gemas: delta, entry: p.entry }), url), "_blank", "noopener,noreferrer");
+                  }}
+                >
+                  Share your win
+                </Button>
+              </div>
+            )}
           </div>
         </section>
 
         <div className="mr-tiles">
-          {tiles.map((t, i) => t.season ? (
+          {tiles.map((t, i) => t.season !== undefined ? (
             <SeasonTile key={t.k} points={t.season} delay={`${1100 + i * 90}ms`} />
           ) : (
             <div key={t.k} className={`cut cut-card mr-tile mr-rise${t.on ? " on" : ""}`} style={{ "--d": `${1100 + i * 90}ms` } as Css}>
@@ -220,7 +223,6 @@ export function MatchResult(p: MatchResultProps) {
             </div>
           ))}
         </div>
-        {lost && role === "player" && !backed && <LossStanding />}
         {p.scoreNote && <p className="note">{p.scoreNote}</p>}
         {p.split && <div className="mr-split mr-rise" style={{ "--d": "1600ms" } as Css}>{p.split}</div>}
 
@@ -228,30 +230,11 @@ export function MatchResult(p: MatchResultProps) {
           {role === "backer" ? (
             <Button variant="money" size="lg" href="/backing">Back a Player</Button>
           ) : (
-            <Button variant="money" size="lg" href={p.playAgainHref}>Play again</Button>
+            <div className="mr-pair">
+              <Button variant="money" size="lg" href={p.playAgainHref}>Play again</Button>
+              {p.opponent && <AddFriendButton account={p.opponent} size="lg" />}
+            </div>
           )}
-          <div className="mr-second">
-            {canRematch({ role, outcome, opponent: p.opponent }) && (
-              <Button size="lg" href={rematchHref({ game: p.game, asset: p.asset, entry: p.entry, opponent: p.opponent! })}>Rematch</Button>
-            )}
-            {canRematch({ role, outcome, opponent: p.opponent }) && <AddFriendButton account={p.opponent!} size="lg" />}
-            {won && role === "player" && p.matchId && (
-              <Button
-                size="lg"
-                onClick={() => {
-                  const url = `${window.location.origin}${winPath(p.matchId!)}`;
-                  window.open(postUrl(winShareText({ game: p.game, gemas: delta, entry: p.entry }), url), "_blank", "noopener,noreferrer");
-                }}
-              >
-                Share your win
-              </Button>
-            )}
-            {lost && role === "player" && <Button size="lg" href={practiceHref(p.game, p.asset ?? undefined)}>Practice free</Button>}
-          </div>
-          <nav className="mr-links" aria-label="Leave the result">
-            <Link href="/play">Back to games</Link>
-            <Link href="/vault">Vault</Link>
-          </nav>
         </div>
         {p.children}
       </div>

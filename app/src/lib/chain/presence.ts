@@ -43,16 +43,61 @@ export async function freshLeases(ids: string[], fetcher: typeof fetch = fetch):
 /** `ids` without those that lack a fresh lease; `fresh` null (the check failed) keeps them all. */
 export const filterByLease = <T extends string>(ids: readonly T[], fresh: ReadonlySet<string> | null): T[] => (fresh ? ids.filter((id) => fresh.has(id)) : [...ids]);
 
-/** Calls `touch` now and every `everyMs` until the returned function is called. A failed touch is ignored (the next one retries). */
-export function startPresenceLoop(touch: () => Promise<unknown>, everyMs: number = PRESENCE_EVERY_MS): () => void {
+type PageEvents = Pick<Document, "addEventListener" | "removeEventListener"> & { visibilityState: DocumentVisibilityState };
+const pageEvents = (): PageEvents | undefined => (typeof document === "undefined" ? undefined : document);
+
+/**
+ * Calls `touch` now, every `everyMs`, and again the moment the page becomes visible. A page in the background or on a phone
+ * with its screen off has its timers throttled or frozen, so its lease runs out; touching on return shortens that gap to
+ * one round trip.
+ */
+export function startPresenceLoop(touch: () => Promise<unknown>, everyMs: number = PRESENCE_EVERY_MS, page: PageEvents | undefined = pageEvents()): () => void {
   let stopped = false;
   const once = () => {
     if (!stopped) touch().catch(() => undefined);
   };
+  const onVisible = () => {
+    if (page?.visibilityState === "visible") once();
+  };
   once();
   const t = setInterval(once, everyMs);
+  page?.addEventListener("visibilitychange", onVisible);
   return () => {
     stopped = true;
     clearInterval(t);
+    page?.removeEventListener("visibilitychange", onVisible);
+  };
+}
+
+interface WakeLockSentinelLike {
+  release(): Promise<void>;
+}
+type NavigatorWithWakeLock = { wakeLock?: { request(type: "screen"): Promise<WakeLockSentinelLike> } };
+
+/**
+ * Keeps the screen on while a Player waits in the Queue: a phone that dims its screen suspends the page, the presence lease
+ * runs out, and the Match stops being offered to the next Player. The browser drops the lock whenever the page is hidden,
+ * so it is taken again on return. Returns the function that lets go. Does nothing where the browser has no Wake Lock.
+ */
+export function keepScreenAwake(nav: NavigatorWithWakeLock | undefined = typeof navigator === "undefined" ? undefined : navigator, page: PageEvents | undefined = pageEvents()): () => void {
+  if (!nav?.wakeLock) return () => undefined;
+  let lock: WakeLockSentinelLike | null = null;
+  let stopped = false;
+  const take = () => {
+    if (stopped || page?.visibilityState === "hidden") return;
+    nav.wakeLock!
+      .request("screen")
+      .then((l) => {
+        if (stopped) void l.release().catch(() => undefined);
+        else lock = l;
+      })
+      .catch(() => undefined);
+  };
+  take();
+  page?.addEventListener("visibilitychange", take);
+  return () => {
+    stopped = true;
+    page?.removeEventListener("visibilitychange", take);
+    void lock?.release().catch(() => undefined);
   };
 }

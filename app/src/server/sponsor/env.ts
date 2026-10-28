@@ -10,6 +10,7 @@ import { alertRecipients } from "../notify/routes";
 import { senderFromEnv } from "../notify/sender";
 import { DemoHttpError } from "../request-auth";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
+import { gameIsListed } from "./listed";
 import { CORE_ID } from "./rules";
 import { Sponsor, type ChainReads } from "./service";
 import { inviteKeypair } from "../invite/key";
@@ -34,6 +35,11 @@ function chainReads(conn: Connection): ChainReads {
       return a ? { owner: a.owner, data: a.data } : null;
     },
     latestBlockhash: async () => (await conn.getLatestBlockhash("confirmed")).blockhash,
+    simulate: async (tx, watch) => {
+      const r = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed", accounts: { encoding: "base64", addresses: [watch.toBase58()] } });
+      const lamports = r.value.accounts?.[0]?.lamports;
+      return { err: r.value.err, lamports: lamports === undefined ? null : BigInt(lamports) };
+    },
     send: (raw) => sendConfirmed(conn, raw),
   };
 }
@@ -93,10 +99,8 @@ export function sponsor(): Sponsor {
     chain,
     isListed: async (program) => {
       const [record, data] = await Promise.all([chain.account(gameRecordPda(program)), chain.account(programDataPda(program))]);
-      if (!record || !data || !record.owner.equals(CORE_ID) || data.data.length < 12) return false;
-      const g = coder.decode("GameRecord", Buffer.from(record.data)) as { listedUntil: { toString(): string }; approvedSlot: { toString(): string } };
-      const slot = Buffer.from(data.data).readBigUInt64LE(4);
-      return BigInt(g.listedUntil.toString()) > BigInt(Math.floor(Date.now() / 1000)) && BigInt(g.approvedSlot.toString()) === slot;
+      if (!record || !data || !record.owner.equals(CORE_ID)) return false;
+      return gameIsListed(record.data, data.data, Math.floor(Date.now() / 1000));
     },
     lookupTables,
     paused: async () => process.env.TESORO_SPONSOR_PAUSED === "1" || (await onChainPaused()),

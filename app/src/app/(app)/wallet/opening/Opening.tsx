@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowRight, Check, ExternalLink, LoaderCircle, TriangleAlert } from "lucide-react";
 import { useGuideTip } from "@/components/guide/Guide";
-import { Button, SimulatedYieldLabel } from "@/components/ui";
+import { Button } from "@/components/ui";
 import { GemaMark } from "@/components/ui/gema";
 import { ChainGlyph } from "@/components/ui/inputs";
 import { useAccount } from "@/lib/account";
@@ -148,7 +148,6 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
           )}
           {finished && <div><dt>Unlock Estimate</dt><dd>In your Vault</dd></div>}
         </dl>
-        <SimulatedYieldLabel />
         <div className="op-actions">
           {finished && (
             <Button variant="money" href="/play">

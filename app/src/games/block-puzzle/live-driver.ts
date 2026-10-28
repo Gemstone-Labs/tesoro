@@ -3,12 +3,13 @@ import { atAssignedEpoch } from "../../lib/chain/table-epoch";
 import { MAX_SEED_REQUESTS, SEED_RETRY_SLOTS, SEED_SLOTS, TABLE_PHASE, canFinalizeTable, phaseAt, tableOf } from "./live-chain";
 
 /**
- * How long a table has to stay in the same state before this Player's page does a step anyone may do (the keeper does them
- * first; this is what keeps a Match moving when it is down). The opener waits a little longer, so the two pages do not send
- * the same step at once; a lost race is harmless because every step re-reads the table.
+ * How long a table has to stay in the same state before this Player's page does a step anyone may do. The joiner goes at
+ * once; the opener waits a little longer, so the two pages do not send the same step together. A lost race is harmless
+ * because every step re-reads the table. The keeper (one pass every ~30 s) does these steps only when both pages are gone,
+ * so the pages must not wait for it: waiting six seconds for it added ~25 s to every start and ~15 s to every result.
  */
-export const STEP_IN_MS = 6_000;
-export const OPENER_EXTRA_MS = 2_000;
+export const STEP_IN_MS = 0;
+export const OPENER_EXTRA_MS = 1_200;
 
 /** What the driver does next. `run` means the Player is playing: the submitter owns the moves. */
 export type Step =
@@ -44,13 +45,16 @@ export interface DriveInput {
   stalledMs: number;
 }
 
+/** Steps nobody should repeat faster than this, ms. */
+export const MIN_GAP_MS: Partial<Record<Step["kind"], number>> = { beginMatch: 2_500, seatPlayers: 2_500, requestSeed: 5_000, start: 2_500, close: 2_500, commitTable: 5_000, finalize: 8_000, checkIn: 1_500, begin: 600 };
+
 /** True once this page should do a step anyone may do. */
 export const steppedIn = (i: Pick<DriveInput, "seat" | "stalledMs">): boolean => i.stalledMs >= STEP_IN_MS + (i.seat === 0 ? OPENER_EXTRA_MS : 0);
 
 /**
  * The one step this page takes next, from what it has read. Pure: no reads, no sends. Steps anyone may do (`beginMatch`,
- * `seatPlayers`, `requestSeed`, `start`, `close`, `commitTable`, `finalize`) wait for `steppedIn`, so the keeper normally
- * does them; the Player's own steps (`checkIn`, `begin`) go at once.
+ * `seatPlayers`, `requestSeed`, `start`, `close`, `commitTable`, `finalize`) wait for `steppedIn` (the opener a little longer
+ * than the joiner); the Player's own steps (`checkIn`, `begin`) go at once.
  */
 export function nextStep(i: DriveInput): Step {
   if (i.status === "settled" || i.status === "refunded") return { kind: "done" };
