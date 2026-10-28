@@ -32,13 +32,20 @@ in one paused-keeper run. Founder's word required.
    (`app/src/lib/chain/position-size.ts`), the new IDL, and the "updating" copy for `AccountDidNotDeserialize`. Keeper on the VPS
    redeployed on it (it pauses nothing in the app).
 2. **Dry run:** `pnpm --filter @tesoro/keeper exec tsx scripts/migrate-positions-55.ts --so target/deploy/tesoro_core.so`. It reads
-   only: other `solana program` runs (the Dungeons & Moles session shares the deployer key), the admin's balance against the buffer
-   rent plus 40,640 lamports a Position, the mainnet stake-Position count (must be 0), devnet Positions by layout, legacy stake Locks
-   whose holders are owed more than their custody, and the extend the new .so needs. 2026-10-28 on devnet: 83 Positions of 235 bytes
-   (0 stake), 0 of 243, deployer 42.47 SOL against 16.01 SOL needed, extend by 15,768 bytes, 9 migration transactions.
-3. **Run:** the same with `--send --keypair ~/.config/solana/dev-2026-10.json`: stop the keeper, extend, write the buffer and
-   upgrade, `migrate_position` every 235-byte Position, refuse to go on while a 235-byte stake Position is left, start the keeper
-   and read `/healthz`. A re-run skips what is done.
+   only and needs no key. Checks: every RPC's genesis hash (read and send RPCs devnet, `--mainnet-rpc` mainnet); no other program
+   upgrade (`solana program deploy|write-buffer|extend|upgrade`, `anchor deploy|upgrade`) on this machine or on the keeper host,
+   where a failed check counts as a refusal; tesoro_core's upgrade authority and the Config admin are the deployer; the deployer
+   holds the buffer rent, the extend rent, write-buffer's fees and 40,640 lamports a Position; mainnet has 0 stake Positions. It
+   also lists devnet Positions by layout and legacy stake Locks whose holders are owed more than their custody. 2026-10-28 on
+   devnet: 83 Positions of 235 bytes (0 stake), 0 of 243, deployer 42.46 SOL against 16.10 SOL needed, extend by 15,768 bytes,
+   5 migration transactions of up to 20 Positions.
+3. **Run:** the same with `--send --keypair ~/.config/solana/dev-2026-10.json`. It stops the keeper and requires systemd to say
+   `inactive`. Unless ProgramData already holds this .so, it extends, checks again for other upgrades, writes the buffer and
+   upgrades. It then migrates every 235-byte Position and scans again until a scan finds none of any kind. Last, it starts the
+   keeper and requires `active` and a `/healthz` with a finished pass. Only a re-run whose ProgramData already holds the .so skips the upgrade
+   (it compares the bytes); the sweep and the keeper steps always run. A failure after the keeper stops prints the keeper's state,
+   whether the program was upgraded and the deployer's buffers. Before the upgrade it starts the keeper again; after it the keeper
+   stays stopped until a re-run finishes the sweep.
 4. **Post-checks:** stake Positions listed and decoded in `/wallet`; an Unlock of a migrated devnet Position pays as before; a fresh
    stake Lock runs Advance, landing and Unlock; no 235-byte Position left (dry run again).
 
