@@ -53,7 +53,6 @@ export default async function WinPage({ params }: Props) {
         <Button size="lg" href={appHref(practiceHref(win.game))}>Practice free</Button>
         <Button size="lg" href="/welcome">How it works</Button>
       </div>
-      <p className="win-note">Test mode: Gemas come from simulated yield and have no real value.</p>
     </main>
   );
 }

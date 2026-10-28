@@ -42,7 +42,7 @@ describe("the result screen", () => {
     const h = html();
     expect(h).toContain("Play again");
     expect(h).toContain("Add friend");
-    for (const gone of ["Rematch", "Practice free", "Back to games", "Vault", "Share your win", "Losses earn no points", "Entry"]) expect(h).not.toContain(gone);
+    for (const gone of ["Rematch", "Practice free", "Back to games", "Vault", "Losses earn no points", "Entry"]) expect(h).not.toContain(gone);
   });
   it("has no Add friend without a known opponent", () => {
     expect(html({ opponent: null, outcome: "refunded", delta: 0, fee: null, points: 0 })).not.toContain("Add friend");

@@ -15,6 +15,7 @@ import { setFullScreen } from "@/games/fx";
 import { AddFriendButton } from "@/components/friends/AddFriendButton";
 import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
+import { postUrl, winPath, winShareText } from "@/lib/win-card";
 import { refundCopy } from "@/lib/chain/match-status";
 import { MomentOverlay } from "./MomentOverlay";
 import { Odometer, Shards } from "./ResultMotion";
@@ -196,6 +197,19 @@ export function MatchResult(p: MatchResultProps) {
                 <p className="mr-copy">{refundCopy({ unjoined: !p.opponent, cancelled: !!p.cancelled })}</p>
               ) : null}
             </div>
+            {won && role === "player" && p.matchId && (
+              <div className="mr-in mr-share" style={{ "--d": "1500ms" } as Css}>
+                <Button
+                  size="lg"
+                  onClick={() => {
+                    const url = `${window.location.origin}${winPath(p.matchId!)}`;
+                    window.open(postUrl(winShareText({ game: p.game, gemas: delta, entry: p.entry }), url), "_blank", "noopener,noreferrer");
+                  }}
+                >
+                  Share your win
+                </Button>
+              </div>
+            )}
           </div>
         </section>
 

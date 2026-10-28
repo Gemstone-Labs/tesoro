@@ -73,7 +73,6 @@ export function AccountSheet({
       </section>
 
       <div className="as-foot">
-        <span className="meta">Test mode</span>
         <button
           type="button"
           className="as-out"

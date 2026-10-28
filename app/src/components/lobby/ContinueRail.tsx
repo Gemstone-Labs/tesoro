@@ -10,7 +10,7 @@ import { art } from "@/lib/art";
 import { commitPendingKey } from "@/lib/chain/commit-pending";
 import { matchFee } from "@/lib/chain/ledger";
 import { delayedLine, matchStanding } from "@/lib/chain/match-status";
-import type { ChainMatch } from "@/lib/chain/read";
+import { resultOf, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
@@ -21,9 +21,11 @@ const subscribeNothing = () => () => {};
 const nowSecs = () => Math.floor(Date.now() / 1000);
 
 /** Where a Match stands for its Player, and the action that card leads to. A Match with an opponent comes first. */
-function stage(m: ChainMatch, sending = false, nowMs = Date.now()) {
+export function stage(m: ChainMatch, sending = false, nowMs = Date.now()) {
   const standing = matchStanding(m, Math.floor(nowMs / 1000));
   if (standing.kind === "delayed") return { key: "delayed", status: delayedLine(standing, nowMs), action: "View", ready: false };
+  // The result is fixed and the Pot is still being paid out: nothing left to play, no time left to count.
+  if (resultOf(m)) return { key: "paying", status: "Result in · paying out", action: "View", ready: false };
   if (m.status === "active" && sending) return { key: "sending", status: "Result on its way", action: "View", ready: false };
   if (m.status === "active") return { key: "ready", status: "Opponent found", action: "Resume", ready: true };
   if (m.challenge) return { key: "waiting", status: "Waiting for your friend", action: "Open", ready: false };
@@ -137,9 +139,11 @@ export function ContinueRail({
                     <GemaMark size={13} /> {fmtGemas(m.entry)}
                   </span>
                   <span>Win {fmtGemas(m.entry * 2 - matchFee(m))}</span>
-                  <span className="continue-time">
-                    <Clock aria-hidden="true" /> {timeLeft(m.deadline - now)}
-                  </span>
+                  {s.key !== "paying" && (
+                    <span className="continue-time">
+                      <Clock aria-hidden="true" /> {timeLeft(m.deadline - now)}
+                    </span>
+                  )}
                 </span>
                 <span className={`cut cut-btn btn sm continue-cta${s.ready ? " ready" : " neutral"}`}>
                   {m.opponent ? s.status : s.action} <ArrowRight aria-hidden="true" />
