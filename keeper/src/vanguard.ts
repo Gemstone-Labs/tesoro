@@ -11,7 +11,7 @@ import {
   type TableState,
 } from "../../app/src/games/vanguard/chain.ts";
 import { PENDING, STATUS, type Battle } from "../../app/src/games/vanguard/decode.ts";
-import { act, log, type Ctx } from "./act.ts";
+import { act, finalizeOrRaced, log, type Ctx } from "./act.ts";
 import { refund } from "./blockpuzzle.ts";
 import { holdemTableStep, type HoldemTableFacts } from "./holdem.ts";
 import { needsRecommit } from "./recommit.ts";
@@ -207,7 +207,7 @@ export async function vanguard(ctx: Ctx, match: PublicKey, m: any, st: string, s
   if (step.do === "refund") return actions + +(await refund(ctx, m, subject, step.why)).ok;
   if (!a) return actions;
   const send = (what: string, fn: () => Promise<string>) => act(ctx, "match", subject, `${what} (${step.why})`, fn);
-  if (step.do === "finalize") return actions + +(await send("finalize", () => ctx.vanguard.finalize(ctx.hsigner, a))).ok;
+  if (step.do === "finalize") return actions + +(await send("finalize", () => finalizeOrRaced(ctx.vanguard, ctx.hsigner, a))).ok;
   if (step.do === "begin_match") return actions + +(await send("begin_match", () => ctx.vanguard.beginMatch(ctx.hsigner, a))).ok;
   if (step.do === "seat_players") return actions + +(await send("seat_players", () => ctx.vanguard.seatPlayers(ctx.hsigner, a))).ok;
   if (step.do === "resolve") return actions + +(await send("resolve", () => ctx.vanguard.resolve(ctx.hsigner, a))).ok;
