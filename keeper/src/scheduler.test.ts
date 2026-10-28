@@ -654,3 +654,17 @@ describe("the job", () => {
     assert.ok(f.calls.includes("commit 0"), "the healthy Game was still driven");
   });
 });
+
+describe("reads before the first table step", () => {
+  it("asks for the Game's config, the Sponsor and the fuel together, not one after the other", async () => {
+    const f = new Fake();
+    const ctx = ctxOf(f);
+    const events: string[] = [];
+    const inner = ctx.conn.getAccountInfo;
+    (ctx.conn as { getAccountInfo: unknown }).getAccountInfo = async (k: PublicKey) => (events.push("info"), inner.call(ctx.conn, k));
+    const adapter = { ...f.adapter(), config: async () => (events.push("config start"), await new Promise((r) => setTimeout(r, 15)), events.push("config end"), { generation: 1, maxTables: f.maxTables, operator: f.operator }) };
+    await runGame(ctx, adapter as never, STILL, [], newGameState(), { gate: gateOk, settings: SCHED });
+    assert.deepEqual(events.slice(0, 4).sort(), ["config end", "config start", "info", "info"]);
+    assert.equal(events.indexOf("config end"), 3, "both account reads started before the config read finished");
+  });
+});

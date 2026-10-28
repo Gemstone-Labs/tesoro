@@ -1,4 +1,4 @@
-import { Budget, log, runJob, type Ctx } from "./act.ts";
+import { Budget, log, runJob, runJobs, stillRunning, type Ctx } from "./act.ts";
 import { alertsJob } from "./alerts-job.ts";
 import { awayCleanup } from "./away.ts";
 import { backingHygiene } from "./backing.ts";
@@ -32,7 +32,7 @@ const MAX_BACKOFF_MS = 5 * 60_000;
 /** A pass is at most ~17 jobs x KEEPER_JOB_LIMIT_SECS plus a backoff sleep; no pass finished in this long means the loop is stuck. */
 const WATCHDOG_MS = Number(process.env.KEEPER_WATCHDOG_SECS ?? 40 * 60) * 1000;
 
-async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>) {
+async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>, between?: () => Promise<void>) {
   ctx.now = await clusterNow(ctx.conn);
   ctx.budget.observe(await ctx.conn.getBalance(ctx.payer.publicKey));
   // Price first: Advances stop 24 h after the last set_price, so it must not wait behind slower jobs.
@@ -63,7 +63,7 @@ async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>) {
     ["notify", notifyJob],
     ["notify-events", notifyEventsJob],
   ];
-  for (const [name, job] of jobs) await runJob(name, job, ctx);
+  await runJobs(jobs, ctx, between);
   // Last, so the alerts see this pass's outcomes.
   await runJob("alerts", alerts, ctx);
 }
@@ -89,10 +89,12 @@ async function main() {
 
   const alerts = alertsJob(health);
   const fastLane = new FastLane({
-    scan: scanMatches,
+    scan: (c) => scanMatches(c, { fresh: true }),
     probe: async (c) => (await c.conn.getSignaturesForAddress(c.core.programId, { limit: 1 }, "confirmed"))[0]?.signature ?? null,
     idleScanMs: 60_000,
     clock: (c) => clusterNow(c.conn),
+    idleEveryMs: 1000,
+    busyEveryMs: s.fastMs,
     hotMs: 20_000,
     quietMs: 5 * 60_000,
     observe: async (c) => void c.budget.observe(await c.conn.getBalance(c.payer.publicKey)),
@@ -101,24 +103,36 @@ async function main() {
   let delay = s.intervalMs;
   let fullAt = Date.now();
   let fastAt: number | null = null;
+  /** One lane turn; `fastAt` is when the next one is due. */
+  const laneTurn = async () => {
+    const started = Date.now();
+    try {
+      await fastLane.turn(ctx);
+    } catch (e) {
+      log("keeper", "-", `ERROR fast lane: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+    }
+    fastAt = rateLimit.hits > 0 ? null : Date.now() + fastLane.delayMs(started, Date.now());
+  };
+  /** Inside a full pass: a joined Match waits for one job, not for the whole pass. Skipped while rate limited or while an overdue job still runs. */
+  const laneBetweenJobs = async () => {
+    if (fastAt === null || Date.now() < fastAt || rateLimit.hits > 0 || stillRunning()) return;
+    const passNow = ctx.now;
+    await laneTurn();
+    ctx.now = passNow;
+  };
   do {
     // Between full passes the fast lane keeps Block Burst Matches moving; a rate-limited pass pauses it until the next full one.
     while (!s.once && nextTurn({ fullAt, fastAt }) === "fast") {
       await sleep(Math.max(0, fastAt! - Date.now()));
       rateLimit.hits = 0;
-      try {
-        await fastLane.turn(ctx);
-      } catch (e) {
-        log("keeper", "-", `ERROR fast lane: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
-      }
-      fastAt = rateLimit.hits > 0 ? null : Date.now() + s.fastMs;
+      await laneTurn();
     }
     await sleep(Math.max(0, fullAt - Date.now()));
     rateLimit.hits = 0;
     const started = Date.now();
     let ok = true;
     try {
-      await pass(ctx, s.once ? async () => 0 : alerts);
+      await pass(ctx, s.once ? async () => 0 : alerts, s.once || s.fastMs <= 0 ? undefined : laneBetweenJobs);
     } catch (e) {
       // A dropped connection before any job ran (cluster time, balance) must not end the loop.
       if (s.once) throw e;
@@ -132,7 +146,7 @@ async function main() {
     delay = rateLimit.hits > 0 ? Math.min(delay * 2, MAX_BACKOFF_MS) : s.intervalMs;
     if (rateLimit.hits > 0) log("keeper", "-", `rate limited ${rateLimit.hits}x, next pass in ${delay / 1000}s`);
     fullAt = Date.now() + delay;
-    fastAt = s.fastMs > 0 && rateLimit.hits === 0 ? Date.now() + s.fastMs : null;
+    fastAt = s.fastMs > 0 && rateLimit.hits === 0 ? Date.now() : null;
   } while (true);
   log("keeper", "-", `pass done, spent ${(ctx.budget.spentLastHour() / 1e9).toFixed(5)} SOL this hour`);
 }

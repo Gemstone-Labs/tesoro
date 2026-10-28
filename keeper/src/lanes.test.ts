@@ -119,3 +119,55 @@ test("while there is Block Burst work or the lane is hot, every turn reads the M
   await l.fast.turn({} as Ctx, 1_008_000);
   assert.equal(l.scans(), 5, "hot after the work: the history write still follows");
 });
+
+function clocked(matches: ReturnType<typeof match>[], probe: () => Promise<string | null>) {
+  let clocks = 0;
+  let scans = 0;
+  const fast = new FastLane({
+    scan: async () => (scans++, matches),
+    clock: async () => (clocks++, 1_000),
+    probe,
+    idleScanMs: 60_000,
+    hotMs: 20_000,
+    quietMs: 300_000,
+    jobs: [["tables", async () => 0]],
+  });
+  return { fast, clocks: () => clocks, scans: () => scans };
+}
+
+test("an idle turn that finds nothing new reads no cluster time: it is one cheap probe", async () => {
+  const l = clocked([match("open")], async () => "sig-1");
+  await l.fast.turn({} as Ctx, 1_000_000);
+  const before = l.clocks();
+  await l.fast.turn({} as Ctx, 1_001_000);
+  assert.equal(l.clocks(), before);
+});
+
+test("a turn that runs the jobs reads the cluster time once", async () => {
+  const l = clocked([match("active")], async () => "sig-1");
+  await l.fast.turn({} as Ctx, 1_000_000);
+  assert.equal(l.clocks(), 1);
+});
+
+test("a transaction that changed nothing we can see yet is looked at once more on the next turn (a node can lag the probe)", async () => {
+  let latest = "sig-1";
+  const l = clocked([match("open")], async () => latest);
+  await l.fast.turn({} as Ctx, 1_000_000);
+  latest = "sig-2";
+  await l.fast.turn({} as Ctx, 1_001_000);
+  const after = l.scans();
+  await l.fast.turn({} as Ctx, 1_002_000);
+  assert.equal(l.scans(), after + 1, "one recheck");
+  await l.fast.turn({} as Ctx, 1_003_000);
+  assert.equal(l.scans(), after + 1, "then quiet again");
+});
+
+test("the next turn is due 1 s after an idle turn started and 2 s after a busy one ended", async () => {
+  const l = clocked([match("active")], async () => "sig-1");
+  await l.fast.turn({} as Ctx, 1_000_000);
+  assert.equal(l.fast.delayMs(1_000_000, 1_000_400), 2_000);
+  const idle = clocked([], async () => "sig-1");
+  await idle.fast.turn({} as Ctx, 1_000_000);
+  await idle.fast.turn({} as Ctx, 1_030_000);
+  assert.equal(idle.fast.delayMs(1_030_000, 1_030_300), 700, "1 s from the start, 0.3 s already spent");
+});

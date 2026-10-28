@@ -436,7 +436,9 @@ async function readRows(ctx: Ctx, a: GameAdapter, generation: number, maxTables:
 export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, matches: SchedMatch[], st: GameState = stateOf(a.id), deps: Deps = {}): Promise<number> {
   const sched = deps.settings ?? schedulerSettings();
   const key = (s: string) => `tables:${a.label}:${s}`;
-  const cfg = await a.config(ctx).catch(() => null);
+  // The three reads do not depend on each other.
+  const infoOf = async (address: PublicKey) => baseStateOf((await ctx.conn.getAccountInfo(address).catch(() => null))?.owner ?? null, a.programId);
+  const [cfg, sponsorBase, fuelBase] = await Promise.all([Promise.resolve().then(() => a.config(ctx)).catch(() => null), infoOf(a.sponsorAddress()), infoOf(a.fuelAddress(set.fuel))]);
   if (!cfg) return 0; // the Game has no TableConfig yet (not deployed with tables)
   const init = { sponsor: set.sponsorInit, fuel: set.fuelInit };
   const operatorOk = cfg.operator.equals(ctx.payer.publicKey);
@@ -450,13 +452,10 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
   };
 
   // 1. infrastructure -------------------------------------------------------------------------------------
-  const infoOf = async (address: PublicKey) => baseStateOf((await ctx.conn.getAccountInfo(address).catch(() => null))?.owner ?? null, a.programId);
-  const sponsorBase = await infoOf(a.sponsorAddress());
   const sponsorReady = sponsorBase === "delegated";
   if (operatorOk && sponsorBase === "missing" && set.sponsorInit > 0n) await run(here("sponsor"), `create_sponsor (${set.sponsorInit} lamports)`, () => a.setup(ctx, { do: "create_sponsor" }, { generation: cfg.generation, index: 0 }, init));
   else if (operatorOk && sponsorBase === "program") await run(here("sponsor"), "delegate_sponsor", () => a.setup(ctx, { do: "delegate_sponsor" }, { generation: cfg.generation, index: 0 }, init));
   condition(key("sponsor-missing"), sponsorBase === "missing" && set.sponsorInit === 0n, `${a.label} tables: no Sponsor`, `The ${a.label} Sponsor account does not exist and KEEPER_${a.env}_SPONSOR_INIT is 0: tables cannot be committed. Run the setup (create_sponsor, delegate_sponsor).`);
-  const fuelBase = await infoOf(a.fuelAddress(set.fuel));
   if (operatorOk && fuelBase === "missing" && set.fuelInit > 0n) await run(here(`fuel${set.fuel}`), `create_fuel ${set.fuel}`, () => a.setup(ctx, { do: "create_fuel", n: set.fuel }, { generation: cfg.generation, index: 0 }, init));
   else if (operatorOk && fuelBase === "program") await run(here(`fuel${set.fuel}`), `delegate_fuel ${set.fuel}`, () => a.setup(ctx, { do: "delegate_fuel", n: set.fuel }, { generation: cfg.generation, index: 0 }, init));
 

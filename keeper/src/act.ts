@@ -29,6 +29,17 @@ export async function runJob<C>(name: string, job: (c: C) => Promise<number>, ct
   clearTimeout(timer);
 }
 
+/** Whether a job that went over its limit is still running in the background. */
+export const stillRunning = () => running.size > 0;
+
+/** Runs the jobs in order; `between` runs after each one (the fast lane's turn comes through it). */
+export async function runJobs<C>(jobs: [string, (c: C) => Promise<number>][], ctx: C, between?: () => Promise<void>, limitMs = JOB_LIMIT_MS) {
+  for (const [name, job] of jobs) {
+    await runJob(name, job, ctx, limitMs);
+    await between?.();
+  }
+}
+
 /** Rolling one-hour spend of the keeper payer (fees and rent), so a bug cannot drain it. */
 export class Budget {
   private spends: { at: number; lamports: number }[] = [];
@@ -57,6 +68,9 @@ export class Budget {
     return spent;
   }
 }
+
+/** Thrown from an action's function when the step turned out to be done already, by someone else: logged as a wait, not a failure. */
+export class Raced extends Error {}
 
 export interface Outcome {
   ok: boolean;
@@ -87,6 +101,10 @@ export async function act(rt: ActCtx, job: string, subject: string, what: string
     return { ok: true, detail: sig ?? "" };
   } catch (e) {
     const msg = String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300);
+    if (e instanceof Raced) {
+      log(job, subject, `wait: ${what} not needed, ${msg}`);
+      return { ok: false, detail: "raced" };
+    }
     log(job, subject, `FAIL ${what}: ${msg}`);
     return { ok: false, detail: msg };
   }
