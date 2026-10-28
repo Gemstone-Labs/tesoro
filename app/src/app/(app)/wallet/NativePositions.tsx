@@ -48,6 +48,8 @@ import { AdvanceFormView, AdvanceTakenNote } from "./AdvanceSheet";
 import { OpenFormView, useOpenIntent } from "./OpenPanel";
 import { ExtendLimitPanel } from "./ExtendLimit";
 import { PositionTile, sampledSeries } from "./PositionTile";
+import { UnlockShortfallNote, saveUnlockReceipt, useUnlockReceipt, useUnlockShortfall } from "./UnlockShortfall";
+import { shortfallLamports, unlockOutcome } from "@/lib/chain/unlock-shortfall";
 import { BRAND } from "@/lib/brand";
 
 const fmtSol = (lamports: bigint | number, digits = 4) => (Number(lamports) / LAMPORTS).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -383,12 +385,15 @@ export function NativePositionCard({
   extend = EXTEND_ADVANCE_ENABLED,
   label = "SOL Lock",
   compact,
+  shortfall,
 }: {
   position: ChainPosition;
   market: NativeMarket | null;
   extend?: boolean;
   label?: string;
   compact?: boolean;
+  /** Stories: the shortfall to show instead of dry-running the Unlock (`before`) or the one an Unlock reported (`receipt`), in lamports. */
+  shortfall?: { before?: bigint; receipt?: bigint };
 }) {
   const info = position.native as NativeInfo;
   const { auth, refresh } = useAccount();
@@ -414,12 +419,32 @@ export function NativePositionCard({
   const canUnlock = locked && debt === 0n;
   const canExtend = extend && locked && !!src && info.openAdvance === info.source?.index && debt > 0n && info.source.horizonMonths < MAX_ADVANCE_MONTHS;
   const series = src && locked && debt > 0n ? sampledSeries((at) => Number(debtGemasAt(info, speedup, at, stake)), now, estimate ? estimate - now : 10 * 60_000) : null;
+  const rateNow = market?.stake?.rate;
+  const dryRun = useUnlockShortfall(info, signer?.publicKey, rateNow, canUnlock && shortfall === undefined);
+  const gapBefore = shortfall ? (shortfall.before ?? null) : dryRun;
+  const reported = useUnlockReceipt(info.position, shortfall ? (shortfall.receipt ?? null) : undefined);
+  const unlock = async () => {
+    const sig = await unlockNative(signer!, auth.getAccessToken, info);
+    // Keep what the Unlock told us; if the receipt cannot be read, the dry run before it stands.
+    let gap = gapBefore;
+    try {
+      const out = await unlockOutcome(getChain().base, sig);
+      gap = out && rateNow && out.gapShares > 0n ? shortfallLamports(out.gapShares, rateNow) : null;
+    } catch {}
+    if (gap) saveUnlockReceipt(info.position, gap);
+    return sig;
+  };
 
   return (
     <PositionTile
       chain="SOL"
       label={label}
-      compact={compact}
+      compact={compact && !(canUnlock ? gapBefore : reported)}
+      alert={
+        canUnlock
+          ? <UnlockShortfallNote gapLamports={gapBefore} principalLamports={info.principalLamports} symbol={symbol} />
+          : !locked && <UnlockShortfallNote gapLamports={reported} principalLamports={info.principalLamports} symbol={symbol} after />
+      }
       state={!locked ? "unlocked" : !src ? "idle" : debt === 0n ? "paid" : "repaying"}
       principal={`${fmtSol(info.principalLamports, 3)} SOL`}
       debt={!src ? null : debt > 0n ? `${fmtGemas(Number(debt))} Gemas` : "0"}
@@ -441,7 +466,7 @@ export function NativePositionCard({
           {/* Redeem lives on the chain card above: it pays every SOL Gema, not this Lock's. */}
           <div className="wl-actions-row">
             {canUnlock && (
-              <Button variant="money" size="sm" disabled={!signer || a.busy !== null} onClick={() => signer && a.run("unlock", () => unlockNative(signer, auth.getAccessToken, info))}>
+              <Button variant="money" size="sm" disabled={!signer || a.busy !== null} onClick={() => signer && a.run("unlock", unlock)}>
                 {a.busy === "unlock" ? "Unlocking…" : "Unlock deposit"}
               </Button>
             )}

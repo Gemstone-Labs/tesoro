@@ -114,6 +114,7 @@ export function PositionTile({
   now,
   series,
   notes,
+  alert,
   defaultOpen = false,
   compact = false,
   children,
@@ -133,6 +134,8 @@ export function PositionTile({
   now: number;
   series: DebtSeries | null;
   notes?: ReactNode;
+  /** Always visible, folded or not: something the Player must see before acting. */
+  alert?: ReactNode;
   defaultOpen?: boolean;
   /** Folded to one line (label, Principal, when it comes back) instead of the countdown; a tap opens the whole card. */
   compact?: boolean;
@@ -180,6 +183,7 @@ export function PositionTile({
         </div>
         {open && series && debt ? <BurnDown series={series} debt={debt} /> : <p className="wl-burn-flat">{flat}</p>}
       </div>
+      {alert}
       <div className="wl-tile-body" id={bodyId} hidden={!open}>
         <dl className="wl-facts">
           <div>

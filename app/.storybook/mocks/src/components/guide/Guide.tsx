@@ -2,7 +2,7 @@
 import * as real from "../../../../../src/components/guide/Guide";
 import { storyData } from "../../../../../stories/support/data";
 
-export const { GuideProvider, useGuideTip, useGuideHidden } = real;
+export const { GuideProvider, GuideBanner, useGuideTip, useGuideHidden } = real;
 export type { GuideTip, PoseName } from "../../../../../src/components/guide/Guide";
 
 export function GuideOverlay() {

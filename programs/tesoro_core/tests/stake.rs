@@ -2445,3 +2445,5 @@ fn the_ready_part_of_an_instant_redeem_pays_the_yield_fee() {
     );
     env.check_vault();
 }
+
+mod stake_audit;

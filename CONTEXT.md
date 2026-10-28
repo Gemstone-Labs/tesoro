@@ -24,6 +24,7 @@ Your Gemas, your deposits and when each comes back, and your winnings to cash ou
 
 **Locked amount** (code and on-chain: Principal):
 The staked amount inside a Lock, as opposed to the yield it earns. It is only ever locked, never spent. In sentences Players read "your SOL" or "what you lock".
+It is not guaranteed: if the staking token's rate falls after the Lock's yield was paid out, Unlock returns what is left of the Player's tokens, which can be worth less than the Locked amount (founder, 2026-10-28; the Treasury does not cover it). The Unlock screen shows the amount short before Unlock and on the receipt, read from the program's own `UnlockShortfall` event.
 _Avoid_: Principal (in Player copy), deposit, capital, collateral
 
 **Advance**:

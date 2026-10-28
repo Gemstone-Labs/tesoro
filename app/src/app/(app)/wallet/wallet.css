@@ -225,3 +225,7 @@
 .wl-requested { margin: 0; }
 .wl-waiting { display: grid; justify-items: start; gap: 8px; }
 .wl-waiting .note { margin: 0; }
+
+.wl-short { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid rgba(242, 185, 75, 0.5); background: var(--shell); }
+.wl-short b { color: var(--warn); font-size: var(--fs-15); }
+.wl-short span { font-size: var(--fs-14); color: var(--fg-2); line-height: 1.4; }
