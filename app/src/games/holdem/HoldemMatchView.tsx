@@ -6,7 +6,6 @@ import { useAccount } from "@/lib/account";
 import { commitCopy } from "@/lib/chain/commit-pending";
 import { matchDelta, matchFee, resultFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
-import type { ChainMatch } from "@/lib/chain/read";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
