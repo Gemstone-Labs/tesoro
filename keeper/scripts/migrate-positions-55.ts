@@ -282,15 +282,17 @@ async function main() {
   } catch (e) {
     console.error(`\nFAILED: ${e instanceof Error ? e.message : String(e)}`);
     if (!keeperStopped) process.exit(1);
-    const upgraded = soDeployed((await readProgramData().catch(() => null))?.data ?? Buffer.alloc(0), so!);
+    // Unknown (ProgramData unreadable) is treated as upgraded: the keeper stays stopped rather than meet unreadable Positions.
+    const pd = await readProgramData().catch(() => null);
+    const upgraded = pd ? soDeployed(pd.data, so!) : null;
     console.error(`KEEPER IS STOPPED (systemd: ${keeperState()})`);
-    console.error(`Program upgraded: ${upgraded ? "yes" : "no"}`);
+    console.error(`Program upgraded: ${upgraded === null ? "unknown (ProgramData could not be read)" : upgraded ? "yes" : "no"}`);
     console.error(`Buffer of this run: ${buffer ?? "none recorded"}. Buffers held by the deployer:`);
     const buffers = spawnSync("solana", ["program", "show", "--buffers", "--buffer-authority", deployer.toBase58(), "-u", readRpc], { encoding: "utf8" });
     console.error((buffers.stdout || buffers.stderr || "").trim().replace(/^/gm, "  "));
     console.error("Close a stranded buffer with `solana program close <buffer> -u <rpc> -k <deployer keypair>` (its rent returns to the deployer).");
-    if (upgraded) {
-      console.error("The keeper stays stopped: the new program cannot read a 235-byte Position. Re-run the same command; it skips the upgrade and finishes the sweep.");
+    if (upgraded !== false) {
+      console.error("The keeper stays stopped: the new program, if live, cannot read a 235-byte Position. Re-run the same command; it skips the upgrade once ProgramData holds the .so, and finishes the sweep.");
     } else {
       console.error("The old program is still live, so the keeper starts again:");
       const problem = await startKeeper();
