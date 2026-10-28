@@ -384,3 +384,4 @@ fn audit_retaining_all_realised_fees_keeps_principal_whole_after_a_rate_fall() {
 
 mod growth_only;
 mod cu;
+mod migrate;
