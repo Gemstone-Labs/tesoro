@@ -90,6 +90,8 @@ async function main() {
   const alerts = alertsJob(health);
   const fastLane = new FastLane({
     scan: scanMatches,
+    probe: async (c) => (await c.conn.getSignaturesForAddress(c.core.programId, { limit: 1 }, "confirmed"))[0]?.signature ?? null,
+    idleScanMs: 60_000,
     clock: (c) => clusterNow(c.conn),
     hotMs: 20_000,
     quietMs: 5 * 60_000,

@@ -22,7 +22,7 @@ test("Block Burst work is a joined Match that is not closed away; an open one wa
   assert.deepEqual(burstWork([]), []);
 });
 
-function lane(matches: ReturnType<typeof match>[]) {
+function lane(matches: ReturnType<typeof match>[], probe?: () => Promise<string | null>) {
   const ran: string[] = [];
   let scans = 0;
   let observed = 0;
@@ -31,6 +31,8 @@ function lane(matches: ReturnType<typeof match>[]) {
     clock: async () => 1_000,
     hotMs: 20_000,
     quietMs: 300_000,
+    idleScanMs: 60_000,
+    probe,
     observe: async () => void observed++,
     jobs: ["tables", "match", "history"].map((n) => [n, async () => (ran.push(n), 0)] as [string, (c: Ctx) => Promise<number>]),
   });
@@ -78,4 +80,42 @@ test("a turn that runs the jobs first observes the keeper's balance; an idle one
   const idle = lane([]);
   await idle.fast.turn({} as Ctx, 1_000_000);
   assert.equal(idle.observed(), 0);
+});
+
+test("an idle lane does not read the Match list while nothing happened on tesoro_core, and reads it when something did", async () => {
+  let latest: string | null = "sig-1";
+  const l = lane([match("open")], async () => latest);
+  await l.fast.turn({} as Ctx, 1_000_000);
+  assert.equal(l.scans(), 1, "the first turn always reads");
+  for (const at of [1_002_000, 1_004_000, 1_006_000]) await l.fast.turn({} as Ctx, at);
+  assert.equal(l.scans(), 1, "same latest signature: no read");
+  latest = "sig-2";
+  await l.fast.turn({} as Ctx, 1_008_000);
+  assert.equal(l.scans(), 2, "a new tesoro_core transaction: read");
+});
+
+test("an idle lane still reads the Match list now and then, and whenever the probe fails", async () => {
+  let fail = false;
+  const l = lane([match("open")], async () => (fail ? Promise.reject(new Error("429")) : "sig-1"));
+  await l.fast.turn({} as Ctx, 1_000_000);
+  await l.fast.turn({} as Ctx, 1_030_000);
+  assert.equal(l.scans(), 1);
+  await l.fast.turn({} as Ctx, 1_061_000);
+  assert.equal(l.scans(), 2, "60 s since the last read");
+  fail = true;
+  await l.fast.turn({} as Ctx, 1_063_000);
+  assert.equal(l.scans(), 3, "an unreadable probe is not a reason to stay blind");
+});
+
+test("while there is Block Burst work or the lane is hot, every turn reads the Match list", async () => {
+  const matches = [match("active")];
+  const l = lane(matches, async () => "sig-1");
+  await l.fast.turn({} as Ctx, 1_000_000);
+  await l.fast.turn({} as Ctx, 1_002_000);
+  await l.fast.turn({} as Ctx, 1_004_000);
+  assert.equal(l.scans(), 3);
+  matches.length = 0;
+  await l.fast.turn({} as Ctx, 1_006_000);
+  await l.fast.turn({} as Ctx, 1_008_000);
+  assert.equal(l.scans(), 5, "hot after the work: the history write still follows");
 });
