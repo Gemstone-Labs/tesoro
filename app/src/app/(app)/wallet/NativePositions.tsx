@@ -439,7 +439,12 @@ export function NativePositionCard({
     <PositionTile
       chain="SOL"
       label={label}
-      compact={compact}
+      compact={compact && !(canUnlock ? gapBefore : reported)}
+      alert={
+        canUnlock
+          ? <UnlockShortfallNote gapLamports={gapBefore} principalLamports={info.principalLamports} symbol={symbol} />
+          : !locked && <UnlockShortfallNote gapLamports={reported} principalLamports={info.principalLamports} symbol={symbol} after />
+      }
       state={!locked ? "unlocked" : !src ? "idle" : debt === 0n ? "paid" : "repaying"}
       principal={`${fmtSol(info.principalLamports, 3)} SOL`}
       debt={!src ? null : debt > 0n ? `${fmtGemas(Number(debt))} Gemas` : "0"}
@@ -456,8 +461,6 @@ export function NativePositionCard({
         </>
       }
     >
-      {canUnlock && <UnlockShortfallNote gapLamports={gapBefore} principalLamports={info.principalLamports} symbol={symbol} />}
-      {!locked && <UnlockShortfallNote gapLamports={reported} principalLamports={info.principalLamports} symbol={symbol} after />}
       {locked && (
         <>
           {/* Redeem lives on the chain card above: it pays every SOL Gema, not this Lock's. */}
