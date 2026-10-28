@@ -18,6 +18,7 @@ function fakeChain(initial: Table) {
   let table = initial;
   let push: ((t: Table) => void) | null = null;
   const sent: { step: string; at: number }[] = [];
+  let watches = 0;
   const record = (step: string) => async () => {
     sent.push({ step, at: Date.now() });
     return "sig";
@@ -30,6 +31,7 @@ function fakeChain(initial: Table) {
     readOwnBoard: async () => null,
     currentSlot: async () => ASSIGNED + 5 * SECS,
     watchTable: async (_v: unknown, _a: unknown, cb: (t: Table) => void) => {
+      watches++;
       push = cb;
       return () => undefined;
     },
@@ -45,6 +47,7 @@ function fakeChain(initial: Table) {
   return {
     chain: chain as unknown as BurstDriverDeps["chain"],
     sent,
+    watchCount: () => watches,
     /** The rollup writes the table: the websocket pushes it. */
     move(next: Table) {
       table = next;
@@ -101,6 +104,21 @@ describe("BurstDriver", () => {
     await vi.advanceTimersByTimeAsync(50);
     expect(fake.sent.map((s) => s.step)).toEqual(["requestSeed"]);
     expect(fake.sent[0].at - pushedAt).toBeLessThan(100);
+    d.stop();
+  });
+});
+
+describe("BurstDriver, restarting", () => {
+  it("start after stop watches the table again (an effect re-run, StrictMode, Fast Refresh)", async () => {
+    const fake = fakeChain(seatedTable());
+    const d = driverFor(1, fake);
+    d.start();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(fake.watchCount()).toBe(1);
+    d.stop();
+    d.start();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(fake.watchCount()).toBe(2);
     d.stop();
   });
 });

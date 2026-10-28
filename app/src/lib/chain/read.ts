@@ -268,7 +268,7 @@ export function toChainMatch(state: any, me: PublicKey | null, session: BurstSes
   const seat = mine === a ? 0 : mine && mine === b ? 1 : null;
   const stage = enumKey(m.stage);
   const kind = m.run ? enumKey(m.run.kind) : null;
-  let status: MatchStatus = stage === "open" ? "open" : stage === "closed" ? (kind === "win" || kind === "draw" ? "settled" : "refunded") : "active";
+  const status: MatchStatus = stage === "open" ? "open" : stage === "closed" ? (kind === "win" || kind === "draw" ? "settled" : "refunded") : "active";
   const running = stage === "settling" ? "settling" : stage === "refunding" ? "refunding" : null;
   const side = (s: any): MatchSide => ({ player: pk(s.player).toBase58(), funder: pk(s.funder).toBase58(), shareBps: s.shareBps });
   const sides: [MatchSide, MatchSide | null] = [side(m.a), m.b ? side(m.b) : null];

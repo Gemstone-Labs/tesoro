@@ -177,6 +177,8 @@ export class BurstDriver {
   private stopFeed: (() => void) | null = null;
   private watchedFor = "";
   private stopped = false;
+  /** Counts start() calls: work begun before a stop must not land in the next run. */
+  private run = 0;
 
   constructor(private d: BurstDriverDeps) {
     this.mk = matchAddressOf(d.id);
@@ -225,6 +227,7 @@ export class BurstDriver {
 
   start() {
     this.stopped = false;
+    this.run++;
     const chain = this.d.chain;
     // The moves are not receipts (there are dozens); `close` shares its name with Trading Duel's, so it is named for its table.
     chain.onTx = (label, layer, sig) => {
@@ -249,7 +252,11 @@ export class BurstDriver {
     this.stopFeed = null;
     this.d.chain.onTx = undefined;
     this.submitter?.stop();
+    this.submitter = null;
     this.lock?.release();
+    this.lock = null;
+    this.beginning = false;
+    this.watchedFor = "";
   }
 
   // -- the clock: the rollup's slot, read every 2 s and run forward in between ------------------------
@@ -273,6 +280,7 @@ export class BurstDriver {
     const key = a.address.toBase58();
     if (this.watchedFor === key) return;
     this.watchedFor = key;
+    const run = this.run;
     void this.d.chain
       .watchTable(
         this.p,
@@ -289,7 +297,7 @@ export class BurstDriver {
         () => this.set((v) => (v.reconnecting ? v : { ...v, reconnecting: true })),
       )
       .then((stop) => {
-        if (this.stopped) stop();
+        if (this.stopped || run !== this.run) stop();
         else this.stopFeed = stop;
       })
       .catch(() => undefined);
@@ -300,8 +308,13 @@ export class BurstDriver {
   private async startRun(a: Assignment, t: Table, seat: 0 | 1, board: OwnBoard) {
     if (this.submitter || this.beginning) return;
     this.beginning = true;
+    const run = this.run;
     try {
       const l = await acquireSubmitterLock(this.d.id, this.d.accountKey ?? this.p.publicKey.toBase58());
+      if (this.stopped || run !== this.run) {
+        l.release();
+        return;
+      }
       this.lock = l;
       if (!l.held) {
         this.patch({ elsewhere: true });
