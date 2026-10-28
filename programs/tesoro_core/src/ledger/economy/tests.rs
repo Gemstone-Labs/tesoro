@@ -952,10 +952,12 @@ fn growth_of_landed_shares_is_covered_by_the_treasury_not_the_owners_principal()
         p.shortfall_shares > 0,
         "the landed shares' growth leaves the custody short"
     );
-    assert_eq!(p.gap_shares, 0);
+    // The priced yield is worth `ceil(priced / rate)` shares: the owner can be one share short
+    // of the growth (ticket 55 rounds the Treasury's way).
+    assert!(p.gap_shares <= 1, "gap {}", p.gap_shares);
     assert!(
-        value(p.owner_shares) >= u128::from(w.pos.principal),
-        "the owner's shares are worth at least the Principal"
+        value(p.owner_shares + p.gap_shares) >= u128::from(w.pos.principal),
+        "the owner's shares are worth the Principal, but for that share"
     );
     w.check();
 }
