@@ -53,6 +53,8 @@ struct World {
     unlock_rate: u64,
     /// `applied_net` when each Source was issued (it only moves once the Source closes).
     issued_at_net: Vec<u64>,
+    /// A Lock from before ticket 55: its Sources were issued without the issuance checks.
+    legacy: bool,
 }
 
 impl World {
@@ -86,6 +88,7 @@ impl World {
             landings: vec![],
             unlock_rate: 0,
             issued_at_net: vec![],
+            legacy: false,
         }
     }
 
@@ -118,7 +121,9 @@ impl World {
             )?,
         }
         let mut src = pos.open_advance(POSITION, months, PRICE)?;
-        check_stake_issuance(&pos, &rate, &src)?;
+        if !self.legacy {
+            check_stake_issuance(&pos, &rate, &src)?;
+        }
         src.due_at = planned_due_at(self.now, months, 1)?;
         src.yield_fee_bps = FEE;
         src.pool_bps = POOL;
@@ -304,7 +309,7 @@ impl World {
                 .unwrap_or_else(|e| panic!("source {s}: {e}"));
             held_in_books += book_shares(book);
         }
-        if self.pos.status == PositionStatus::Locked {
+        if self.pos.status == PositionStatus::Locked && !self.legacy {
             assert_eq!(
                 self.pos.held_shares, held_in_books,
                 "the Position's held shares are exactly the shares its books hold"
@@ -905,16 +910,102 @@ fn unlock_charges_the_fee_on_free_yield_only_and_never_invents_custody() {
         ),
         (400, 20, 580, 0)
     );
-    // Holders owed more than the custody holds is an inconsistency, not a payout.
+    // Holders owed more than the custody holds (a migrated legacy Lock, ticket 55): the whole
+    // custody goes to the route, the Treasury must fund the rest of the claims, the owner gets
+    // nothing back.
     let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, SOL, 500).unwrap();
+    pos.stake_rate_open = R0;
     pos.custody_shares = 100;
     pos.held_shares = 400u128 << SHARE_BITS;
+    let p = settle_unlock(&mut pos, CustodyKind::Stake, &rate).unwrap();
     assert_eq!(
-        settle_unlock(&mut pos, CustodyKind::Stake, &rate),
-        Err(CoreError::VaultShortfall)
+        (p.owner_shares, p.owed_shares, p.claims_funded_shares),
+        (0, 400, 300)
     );
-    assert_eq!(pos.status, PositionStatus::Locked);
+    assert_eq!(p.gap_shares, rate.whole_shares_for_units_ceil(SOL).unwrap());
+    let mut empty = RouteLedger::default();
+    let mut paid = p;
+    assert_eq!(
+        route_after_unlock(&mut empty, &mut paid, POOL),
+        Err(CoreError::GrowthClaimsUnfunded)
+    );
+    assert_eq!(empty, RouteLedger::default());
 }
+
+#[test]
+fn holder_claims_above_the_custody_are_funded_by_the_treasury_or_unlock_waits() {
+    // Codex's figures (design-v4 5): Treasury 4 jitoSOL, custody 10, holders owed 10.348956599.
+    let rate = ShareRate::stake(R0).unwrap();
+    let claims = |treasury: u128| {
+        let mut pos =
+            Position::new(OWNER, SourceChain::Solana, [7; 32], 9, 12 * SOL, 500).unwrap();
+        pos.stake_rate_open = R0 - R0 / 10;
+        pos.stake_rate_high = R0;
+        pos.custody_shares = 10 * SOL;
+        pos.held_shares = 10_348_956_599u128 << SHARE_BITS;
+        let p = settle_unlock(&mut pos, CustodyKind::Stake, &rate).unwrap();
+        let mut route = RouteLedger {
+            reserved: 7,
+            pool_owed: 11,
+            ..RouteLedger::default()
+        };
+        route.receive(treasury + 18).unwrap();
+        (p, route)
+    };
+    let (mut p, mut route) = claims(4 * u128::from(SOL));
+    assert_eq!(p.claims_funded_shares, 348_956_599);
+    route_after_unlock(&mut route, &mut p, POOL).unwrap();
+    assert_eq!(route.treasury_shares, 14 * u128::from(SOL) + 18);
+    assert_eq!(route.owed_shares, 10_348_956_599);
+    assert_eq!(route.spendable(), 3_651_043_401);
+    assert_eq!((route.reserved, route.pool_owed), (7, 11), "other claims untouched");
+    assert_eq!(
+        (p.owner_shares, p.topped_up_shares, p.shortfall_shares),
+        (0, 0, 0)
+    );
+    route.check(&[]).unwrap();
+    // One share short of the excess: refused, nothing changes.
+    let (mut p, mut route) = claims(348_956_598);
+    let before = route.clone();
+    assert_eq!(
+        route_after_unlock(&mut route, &mut p, POOL),
+        Err(CoreError::GrowthClaimsUnfunded)
+    );
+    assert_eq!(route, before);
+    // Exactly the excess: funded, nothing spendable left.
+    let (mut p, mut route) = claims(348_956_599);
+    route_after_unlock(&mut route, &mut p, POOL).unwrap();
+    assert_eq!(route.spendable(), 0);
+}
+
+#[test]
+fn a_migrated_lock_with_ten_uncapped_advances_unlocks_through_the_treasury() {
+    // A legacy Lock (high = open, no cap on its old Sources): ten 12-month Advances at 20% while
+    // the rate goes from 1.3 to 3.9 land more shares than its custody (Codex: 10.35 per 10).
+    // Unlock funds the excess from the
+    // Treasury and every share stays accounted for.
+    let mut w = World::new(10 * SOL);
+    w.legacy = true;
+    w.route.receive(5 * u128::from(SOL)).unwrap();
+    w.custody0 += 5 * SOL;
+    for _ in 0..10 {
+        w.pos.rate_bps = 2_000;
+        w.advance(12).unwrap();
+        w.rate += R0 / 5;
+        w.sync(w.srcs.len() - 1).unwrap();
+        assert_eq!(w.books[w.srcs.len() - 1].uncovered_total(), 0);
+    }
+    assert!(
+        w.pos.held_shares >> SHARE_BITS > u128::from(w.pos.custody_shares),
+        "holders' claims exceed the custody"
+    );
+    w.unlock().unwrap();
+    let p = w.unlocked.unwrap();
+    assert!(p.claims_funded_shares > 0);
+    assert_eq!(p.owner_shares, 0);
+    w.check();
+}
+
 
 #[test]
 fn a_short_custody_is_absorbed_by_the_free_yield_fee_then_topped_up_by_the_treasury() {
