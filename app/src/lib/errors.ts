@@ -23,7 +23,7 @@ export const RATE_BELOW_PEAK = "The staking rate is below the rate your Lock's y
 const RATE_BELOW_PEAK_PATTERN = /RateBelowPeak|custom program error: 0x1829\b|"Custom":\s*6185\b/i;
 
 /** tesoro_core YieldCapReached (6186 = 0x182a): a Lock's Advances over its life add up to its Principal. */
-export const YIELD_CAP_REACHED = "This Lock has advanced as much yield as its Principal, the most it can over its life. Redeem and Unlock still work.";
+export const YIELD_CAP_REACHED = "This Lock has advanced as much yield as its Locked amount, the most it can over its life. Redeem and Unlock still work.";
 const YIELD_CAP_PATTERN = /YieldCapReached|custom program error: 0x182a\b|"Custom":\s*6186\b/i;
 
 /** tesoro_core GrowthClaimsUnfunded (6187 = 0x182b): an old test Lock whose holders are owed more than it holds. */
