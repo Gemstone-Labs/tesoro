@@ -982,8 +982,7 @@ fn holder_claims_above_the_custody_are_funded_by_the_treasury_or_unlock_waits() 
 fn a_migrated_lock_with_ten_uncapped_advances_unlocks_through_the_treasury() {
     // A legacy Lock (high = open, no cap on its old Sources): ten 12-month Advances at 20% while
     // the rate goes from 1.3 to 3.9 land more shares than its custody (Codex: 10.35 per 10).
-    // Unlock funds the excess from the
-    // Treasury and every share stays accounted for.
+    // Unlock funds the excess from the Treasury and every share stays accounted for.
     let mut w = World::new(10 * SOL);
     w.legacy = true;
     w.route.receive(5 * u128::from(SOL)).unwrap();

@@ -1101,10 +1101,18 @@ pub struct PositionUnlocked {
     pub position: Pubkey,
 }
 
-/// A stake Unlock found the custody short of the owner's Principal and free yield. A shortfall from
-/// holders' landed shares growing with the pool is topped up by the Treasury from what it can spend
-/// (founder, 2026-10-22: Tesoro covers it); a slash is the owner's (D2). `gap_shares` is what the
-/// owner did not get. Unlock never fails.
+/// A Lock from before ticket 55 unlocked with its holders owed `excess` shares more than its
+/// custody held: the Treasury funded them from its spendable shares.
+#[event]
+pub struct HolderClaimsFunded {
+    pub position: Pubkey,
+    pub excess: u64,
+}
+
+/// A stake Unlock found the custody short of the owner's Principal and free yield. The part that
+/// is growth of holders' landed shares since their yield was priced, net of any fall, is topped up
+/// by the Treasury from what it can spend (ticket 55, SOL-02 A); a rate fall is the owner's (D2,
+/// SOL-01 A). `gap_shares` is what the owner did not get.
 #[event]
 pub struct UnlockShortfall {
     pub position: Pubkey,

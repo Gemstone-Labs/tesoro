@@ -604,6 +604,12 @@ pub(crate) fn unlock_position<'info>(
         }
         KindCtx::Reported => {}
     }
+    if payout.claims_funded_shares > 0 {
+        emit!(HolderClaimsFunded {
+            position: position_key,
+            excess: payout.claims_funded_shares,
+        });
+    }
     if payout.shortfall_shares > 0 || payout.gap_shares > 0 {
         emit!(UnlockShortfall {
             position: position_key,

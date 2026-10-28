@@ -558,6 +558,10 @@ pub struct UnlockPayout {
     pub gap_shares: u64,
     /// What the Treasury topped up out of `shortfall_shares`.
     pub topped_up_shares: u64,
+    /// Staking token, a Lock from before ticket 55 only: what holders are owed beyond the shares
+    /// its custody still holds. The whole custody goes to the route and the Treasury funds this
+    /// from spendable shares, or the Unlock waits (`GrowthClaimsUnfunded`).
+    pub claims_funded_shares: u64,
 }
 
 /// What the shares a stake Position's yield landed in grew since that yield was priced, net of
@@ -614,7 +618,6 @@ pub fn settle_unlock(
         CustodyKind::Stake => {
             let custody =
                 position.custody_shares - position.paid_shares.min(position.custody_shares);
-            let rest = custody.checked_sub(owed).ok_or(CoreError::VaultShortfall)?;
             // The Principal is counted at the higher of the rate now and at open: below the
             // opening rate the owner carries the fall (D2, no cushion; red-team 31 #1).
             let open = ShareRate::stake(position.stake_rate_open)?;
@@ -624,6 +627,21 @@ pub fn settle_unlock(
                 .whole_shares_for_units_ceil(position.principal)?
                 .checked_add(free_after)
                 .ok_or(CoreError::Math)?;
+            if owed > custody {
+                // Only a Lock issued before the lifetime cap gets here (design-v4 5): its holders
+                // are owed more than its custody. The custody goes to them; the Treasury funds
+                // the rest ([`route_after_unlock`]); the owner gets nothing back.
+                return finish_unlock(
+                    position,
+                    UnlockPayout {
+                        owed_shares: owed,
+                        gap_shares: due,
+                        claims_funded_shares: owed - custody,
+                        ..UnlockPayout::default()
+                    },
+                );
+            }
+            let rest = custody - owed;
             if rest >= due {
                 let fee = free_fee.min(rest - due);
                 UnlockPayout {
@@ -652,11 +670,15 @@ pub fn settle_unlock(
             }
         }
     };
+    finish_unlock(position, payout)
+}
+
+fn finish_unlock(position: &mut Position, payout: UnlockPayout) -> CoreResult<UnlockPayout> {
     position.status = PositionStatus::Unlocked;
     position.custody_shares = 0;
     position.paid_shares = 0;
     position.held_shares = 0;
-    position.free_shares &= one - 1;
+    position.free_shares &= (1u128 << SHARE_BITS) - 1;
     Ok(payout)
 }
 
@@ -671,8 +693,18 @@ pub fn route_after_unlock(
 ) -> CoreResult<()> {
     let mut next = route.clone();
     next.realise_yield_fee(u128::from(payout.fee_shares), pool_bps)?;
-    next.receive(u128::from(payout.owed_shares))?;
-    next.add_owed(u128::from(payout.owed_shares))?;
+    // The custody's shares the holders are owed join the route; claims beyond the custody
+    // (`claims_funded_shares`, legacy Locks only) must fit what the Treasury may spend.
+    let received = payout
+        .owed_shares
+        .checked_sub(payout.claims_funded_shares)
+        .ok_or(CoreError::Math)?;
+    next.receive(u128::from(received))?;
+    next.add_owed(u128::from(payout.owed_shares))
+        .map_err(|e| match (e, payout.claims_funded_shares) {
+            (CoreError::OwedExceedsTreasury, 1..) => CoreError::GrowthClaimsUnfunded,
+            (e, _) => e,
+        })?;
     let shortfall = u128::from(payout.shortfall_shares);
     let top = shortfall.min(next.spendable());
     next.spend(top)?;
