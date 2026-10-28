@@ -257,6 +257,7 @@ export class BurstDriver {
     this.lock = null;
     this.beginning = false;
     this.watchedFor = "";
+    this.assign = null;
   }
 
   // -- the clock: the rollup's slot, read every 2 s and run forward in between ------------------------
@@ -308,10 +309,10 @@ export class BurstDriver {
   private async startRun(a: Assignment, t: Table, seat: 0 | 1, board: OwnBoard) {
     if (this.submitter || this.beginning) return;
     this.beginning = true;
-    const run = this.run;
+    const gen = this.run;
     try {
       const l = await acquireSubmitterLock(this.d.id, this.d.accountKey ?? this.p.publicKey.toBase58());
-      if (this.stopped || run !== this.run) {
+      if (this.stopped || gen !== this.run) {
         l.release();
         return;
       }
