@@ -213,7 +213,7 @@ pub(crate) fn retire_native_custody(ctx: Context<RetireNativeCustody>) -> Result
 
 // --- Position -------------------------------------------------------------------------------
 
-/// Closes a Position shorter than the current layout. Its custody (if any) is retired apart, and
+/// Closes a Position shorter than 235 bytes (a 235-byte one is migrated, ticket 55). Its custody (if any) is retired apart, and
 /// does not need the Position.
 #[derive(Accounts)]
 pub struct RetirePosition<'info> {
@@ -236,7 +236,7 @@ pub(crate) fn retire_position(ctx: Context<RetirePosition>) -> Result<()> {
         is_stale(
             &position,
             PositionState::DISCRIMINATOR,
-            PositionState::SPACE
+            PositionStateV1::SPACE
         ),
         TesoroError::NotOldWorld
     );

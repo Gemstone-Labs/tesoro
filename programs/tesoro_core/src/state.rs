@@ -334,7 +334,94 @@ impl PositionState {
         + 16
         + 16
         + 8
-        + 2;
+        + 2
+        + 8;
+}
+
+/// The Position fields before ticket 55 appended `stake_rate_high`: only `migrate_position`
+/// reads it, to rewrite a 235-byte Position in the current layout.
+#[derive(Clone, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
+pub struct PositionV1 {
+    pub owner: Key,
+    pub source_chain: ledger::SourceChain,
+    pub source_asset: Key,
+    pub decimals: u8,
+    pub principal: u64,
+    pub rate_bps: u16,
+    pub status: ledger::PositionStatus,
+    pub advances: u32,
+    pub open_advance: Option<u32>,
+    pub last_seq: u64,
+    pub cumulative_yield: u64,
+    pub free_yield: u64,
+    pub free_yield_claimed: u64,
+    pub opened_at: i64,
+    pub applied_net: u64,
+    pub custody_shares: u64,
+    pub yield_fee_bps: u16,
+    pub stake_rate_open: u64,
+    pub held_shares: u128,
+    pub free_shares: u128,
+    pub paid_shares: u64,
+    pub pool_bps: u16,
+}
+
+/// A Position account in the layout before ticket 55 (235 bytes, same discriminator).
+#[derive(Clone, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
+pub struct PositionStateV1 {
+    pub bump: u8,
+    pub position_id: [u8; 32],
+    pub inner: PositionV1,
+}
+
+impl PositionStateV1 {
+    pub const SPACE: usize = PositionState::SPACE - 8;
+
+    /// Reads the serialised prefix of a 235-byte Position: Borsh stops where the fields end, so
+    /// bytes after them (left by a shorter `None` rewrite) are never read.
+    pub fn decode(data: &[u8]) -> Result<Self> {
+        use anchor_lang::Discriminator;
+        require!(
+            data.len() >= 8 && data[..8] == *PositionState::DISCRIMINATOR,
+            ErrorCode::AccountDiscriminatorMismatch
+        );
+        Self::deserialize(&mut &data[8..]).map_err(|_| error!(ErrorCode::AccountDidNotDeserialize))
+    }
+
+    /// The same Position in the current layout. Its highest priced rate starts at the opening
+    /// rate (zero for native and reported Positions), so it keeps today's Unlock behaviour.
+    pub fn upgrade(self) -> PositionState {
+        let o = self.inner;
+        PositionState {
+            bump: self.bump,
+            position_id: self.position_id,
+            inner: Position {
+                owner: o.owner,
+                source_chain: o.source_chain,
+                source_asset: o.source_asset,
+                decimals: o.decimals,
+                principal: o.principal,
+                rate_bps: o.rate_bps,
+                status: o.status,
+                advances: o.advances,
+                open_advance: o.open_advance,
+                last_seq: o.last_seq,
+                cumulative_yield: o.cumulative_yield,
+                free_yield: o.free_yield,
+                free_yield_claimed: o.free_yield_claimed,
+                opened_at: o.opened_at,
+                applied_net: o.applied_net,
+                custody_shares: o.custody_shares,
+                yield_fee_bps: o.yield_fee_bps,
+                stake_rate_open: o.stake_rate_open,
+                held_shares: o.held_shares,
+                free_shares: o.free_shares,
+                paid_shares: o.paid_shares,
+                pool_bps: o.pool_bps,
+                stake_rate_high: o.stake_rate_open,
+            },
+        }
+    }
 }
 
 #[account]

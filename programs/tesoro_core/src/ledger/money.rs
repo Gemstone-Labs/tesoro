@@ -86,6 +86,11 @@ pub struct Position {
     /// The Pool's share of the Yield Fee the latest Advance snapshotted: the share the fee on the
     /// owner's free yield uses at Unlock (red-team 31 #2). 0 before the first Advance.
     pub pool_bps: u16,
+    /// Staking-token Positions (ticket 55): the highest Staking Rate the Position's yield was
+    /// priced at, lamports per pool token at 1e12. Counted yield never drops below the yield at
+    /// this rate, and the Treasury's Unlock top-up is the growth of the landed shares since. Set
+    /// to the opening rate at open; zero for every other Position.
+    pub stake_rate_high: u64,
 }
 
 impl Position {
@@ -126,6 +131,7 @@ impl Position {
             free_shares: 0,
             paid_shares: 0,
             pool_bps: 0,
+            stake_rate_high: 0,
         })
     }
 

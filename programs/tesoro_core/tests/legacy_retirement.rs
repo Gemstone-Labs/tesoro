@@ -318,7 +318,7 @@ fn source_refuses_wrong_parent_and_every_existing_position_layout() {
         INVALID_ACCOUNT,
         &[source, position],
     );
-    for len in [0, 8, 159, 193, PositionState::SPACE] {
+    for len in [0, 8, 159, 193, PositionStateV1::SPACE, PositionState::SPACE] {
         let mut data = PositionState::DISCRIMINATOR.to_vec();
         data.resize(len, 0);
         env.put(position, tesoro_core::ID, data);
