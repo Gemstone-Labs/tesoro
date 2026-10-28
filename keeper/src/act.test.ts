@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, test } from "node:test";
-import { runJob } from "./act.ts";
+import { Raced, act, runJob, runJobs, stillRunning } from "./act.ts";
 import { jobs } from "./job-stats.ts";
 
 describe("runJob (OC-05)", () => {
@@ -29,4 +29,40 @@ test("an untracked run leaves the alerts' job record alone", async () => {
   await runJob("quiet-job-failing", async () => Promise.reject(new Error("x")), {}, 50, false);
   const names = jobs.entries().map(([n]) => n);
   assert.ok(!names.includes("quiet-job") && !names.includes("quiet-job-failing"));
+});
+
+test("runJobs gives the caller a turn after every job, so a short job is never stuck behind a long pass", async () => {
+  const seen: string[] = [];
+  const job = (n: string) => [n, async () => (seen.push(n), 0)] as [string, (c: unknown) => Promise<number>];
+  await runJobs([job("a"), job("b")], {}, async () => void seen.push("between"));
+  assert.deepEqual(seen, ["a", "between", "b", "between"]);
+});
+
+test("runJobs works without a between hook, and the hook sees a job that is still running after its limit", async () => {
+  const seen: string[] = [];
+  await runJobs([["x", async () => (seen.push("x"), 0)]], {});
+  assert.deepEqual(seen, ["x"]);
+  let release = () => {};
+  const slow = new Promise<void>((r) => (release = r));
+  let orphan = false;
+  await runJobs([["slow", async () => (await slow, 0)]], {}, async () => void (orphan = stillRunning()), 20);
+  assert.equal(orphan, true);
+  release();
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(stillRunning(), false);
+});
+
+test("an action that finds its step already done by someone else is a wait, not a failure", async () => {
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (m: string) => void lines.push(m);
+  try {
+    const rt = { settings: { dryRun: false }, budget: { exhausted: () => false }, conn: {}, payer: {} } as never;
+    const r = await act(rt, "match", "match=x", "close (over)", async () => { throw new Raced("closed by another caller"); });
+    assert.equal(r.ok, false);
+    assert.ok(lines.some((l) => l.includes("wait: close (over) not needed")));
+    assert.ok(!lines.some((l) => l.includes("FAIL")));
+  } finally {
+    console.log = orig;
+  }
 });

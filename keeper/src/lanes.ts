@@ -50,6 +50,10 @@ export interface FastJobs {
   observe?(ctx: Ctx): Promise<void>;
   /** Cluster time, seconds. */
   clock(ctx: Ctx): Promise<number>;
+  /** An idle lane looks (one probe) this often, counted from the start of the last look. */
+  idleEveryMs?: number;
+  /** A busy lane waits this long after a turn ends before the next one. */
+  busyEveryMs?: number;
 }
 
 /** One fast turn. With no Block Burst work (and not just after some) it only checks, cheaply, whether it should read the Match list. Returns the number of jobs run. */
@@ -60,16 +64,22 @@ export class FastLane {
   /** The latest tesoro_core transaction as of the last Match list read. */
   private seen: string | null = null;
   private scannedAt = -Infinity;
+  /** A transaction showed up that the last read did not explain: read once more (a node can lag behind the probe). */
+  private recheck = false;
   constructor(private readonly d: FastJobs) {}
 
   async turn(ctx: Ctx, nowMs = Date.now()): Promise<number> {
-    ctx.now = await this.d.clock(ctx);
     const look = await this.look(ctx, nowMs);
     if (look.scan) {
-      const work = burstWork(await this.d.scan(ctx)).join(",");
+      // The cluster time and the Match list do not depend on each other.
+      const [clock, matches] = await Promise.all([this.d.clock(ctx), this.d.scan(ctx)]);
+      ctx.now = clock;
+      const work = burstWork(matches).join(",");
+      const explained = work !== this.work;
+      this.recheck = !explained && this.seen !== null && look.latest !== null && look.latest !== this.seen;
       this.seen = look.latest;
       this.scannedAt = nowMs;
-      if (work !== this.work) {
+      if (explained) {
         this.work = work;
         this.changedAt = nowMs;
       }
@@ -82,12 +92,18 @@ export class FastLane {
     return this.d.jobs.length;
   }
 
+  /** Milliseconds to wait before the next turn: idle, one second from when the last look started; busy, two seconds after the turn ended. */
+  delayMs(startMs: number, endMs: number): number {
+    if (startMs < this.hotUntil) return this.d.busyEveryMs ?? 2000;
+    return Math.max(0, startMs + (this.d.idleEveryMs ?? 1000) - endMs);
+  }
+
   /** Hot (work, or just after it): read every turn. Idle: read when tesoro_core saw a transaction since the last read, the probe failed, or the idle interval is up. */
   private async look(ctx: Ctx, nowMs: number): Promise<{ scan: boolean; latest: string | null }> {
     if (nowMs < this.hotUntil || !this.d.probe) return { scan: true, latest: null };
     try {
       const latest = await this.d.probe(ctx);
-      return { scan: latest === null || latest !== this.seen || nowMs - this.scannedAt >= this.d.idleScanMs, latest };
+      return { scan: this.recheck || latest === null || latest !== this.seen || nowMs - this.scannedAt >= this.d.idleScanMs, latest };
     } catch {
       return { scan: true, latest: null };
     }

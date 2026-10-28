@@ -15,7 +15,7 @@ import {
   type Assignment,
   type Table,
 } from "../../app/src/games/block-puzzle/live-chain.ts";
-import { act, log, type Ctx } from "./act.ts";
+import { Raced, act, log, type Ctx } from "./act.ts";
 import { refund } from "./blockpuzzle.ts";
 import { shortKey } from "./env.ts";
 import { needsRecommit } from "./recommit.ts";
@@ -189,6 +189,12 @@ export function burstTableFacts(t: Table, nowS: number, receiptAge: (match: Publ
   };
 }
 
+/** Whether the table is still on this Match and already closed: a Player's page (or another closer) got there first. */
+export async function closedByAnother(ctx: Ctx, a: Assignment): Promise<boolean> {
+  const live = await ctx.burst.readTable(ctx.hsigner, a).catch(() => null);
+  return !!live && !!tableOf(a, live) && live.phase >= TABLE_PHASE.closed;
+}
+
 /** Block Burst hygiene for one unsettled tesoro_core Match. Returns the number of actions taken. */
 export async function blockBurst(ctx: Ctx, match: PublicKey, m: any, st: string, subject: string): Promise<number> {
   const now = ctx.now;
@@ -221,7 +227,18 @@ export async function blockBurst(ctx: Ctx, match: PublicKey, m: any, st: string,
   if (step.do === "seat_players") return actions + +(await send("seat_players", () => ctx.burst.seatPlayers(ctx.hsigner, a))).ok;
   if (step.do === "request_seed") return actions + +(await send("request_seed", () => ctx.burst.requestSeed(ctx.hsigner, a))).ok;
   if (step.do === "start") return actions + +(await send("start", () => ctx.burst.start(ctx.hsigner, a))).ok;
-  if (step.do === "close") return actions + +(await send("close", () => ctx.burst.close(ctx.hsigner, a))).ok;
+  if (step.do === "close") {
+    const closeIt = async () => {
+      try {
+        return await ctx.burst.close(ctx.hsigner, a);
+      } catch (e) {
+        // The Player's page closes a finished Match too (permissionless); losing that race is not a failure.
+        if (await closedByAnother(ctx, a)) throw new Raced("the table was already closed by another caller");
+        throw e;
+      }
+    };
+    return actions + +(await send("close", closeIt)).ok;
+  }
   log("match", subject, `${tag} wait: ${step.why}`);
   return actions;
 }

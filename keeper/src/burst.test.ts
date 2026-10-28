@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { PublicKey } from "@solana/web3.js";
 import { CHECKIN_SLOTS, END_OFFSET_SLOTS, FREEZE_OFFSET_SLOTS, SEED_RETRY_SECS, SEED_SLOTS, SLOTS_PER_SEC, TABLE_PHASE } from "../../app/src/games/block-puzzle/live-chain.ts";
 import { blankTable } from "../../app/src/games/block-puzzle/live-fixtures.ts";
-import { burstStep, burstTableFacts, burstTableStep, RESET_DELAY_SECS, type BurstFacts, type BurstTableFacts } from "./burst.ts";
+import { burstStep, closedByAnother, burstTableFacts, burstTableStep, RESET_DELAY_SECS, type BurstFacts, type BurstTableFacts } from "./burst.ts";
 
 const NOW = 10_000;
 const DEADLINE = NOW + 86_400;
@@ -132,5 +132,21 @@ describe("Block Burst table upkeep", () => {
 
   it("never touches a table in the middle of a Match", () => {
     for (const p of [TABLE_PHASE.assigned, TABLE_PHASE.seeding, TABLE_PHASE.getReady]) assert.equal(burstTableStep(tbl({ tablePhase: p, seatsOpen: true })).do, "wait");
+  });
+});
+
+
+describe("a close that lost the race", () => {
+  const a = { epoch: 7, tesoroMatch: new PublicKey(new Uint8Array(32).fill(3)) } as never;
+  const ctxWith = (live: unknown) => ({ hsigner: {}, burst: { readTable: async () => live } }) as never;
+  it("is 'closed by another caller' when the table is still on this Match and Closed", async () => {
+    assert.equal(await closedByAnother(ctxWith({ epoch: 7, tesoroMatch: new PublicKey(new Uint8Array(32).fill(3)), phase: TABLE_PHASE.closed }), a), true);
+  });
+  it("is a real failure while the table is still running, or once it moved to another Match or epoch, or cannot be read", async () => {
+    const same = new PublicKey(new Uint8Array(32).fill(3));
+    assert.equal(await closedByAnother(ctxWith({ epoch: 7, tesoroMatch: same, phase: TABLE_PHASE.getReady }), a), false);
+    assert.equal(await closedByAnother(ctxWith({ epoch: 8, tesoroMatch: same, phase: TABLE_PHASE.closed }), a), false);
+    assert.equal(await closedByAnother(ctxWith({ epoch: 7, tesoroMatch: new PublicKey(new Uint8Array(32).fill(4)), phase: TABLE_PHASE.closed }), a), false);
+    assert.equal(await closedByAnother(ctxWith(null), a), false);
   });
 });

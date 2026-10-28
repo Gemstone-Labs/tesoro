@@ -74,7 +74,7 @@ type Strategy = string | { signature: string; lastValidBlockHeight?: number };
  * RPCs (Alchemy devnet) do not serve: a transaction that landed is then reported as expired and the caller sends it
  * again. Throws the same expiry error only once the blockhash really expired and the signature is still unknown.
  */
-export async function pollConfirm(conn: Statuses, strategy: Strategy, pollMs = 1000, maxMs = 120_000) {
+export async function pollConfirm(conn: Statuses, strategy: Strategy, pollMs = 400, maxMs = 120_000) {
   const sig = typeof strategy === "string" ? strategy : strategy.signature;
   const lastValid = typeof strategy === "string" ? undefined : strategy.lastValidBlockHeight;
   const started = Date.now();
@@ -88,21 +88,34 @@ export async function pollConfirm(conn: Statuses, strategy: Strategy, pollMs = 1
   }
 }
 
-/** Sends and single reads on `rpc`; getProgramAccounts on `gpaRpc`, shared for 5s (one loop asks for the same list many times). */
-export function newConnection(rpc: string, gpaRpc: string = rpc): Connection {
-  const gpaConn = new Connection(gpaRpc, connConfig);
-  const seen = new Map<string, { at: number; p: Promise<any> }>();
-  const gpa: GpaFn = (programId, config) => {
-    const key = `${programId.toBase58()}:${JSON.stringify(config ?? {})}`;
-    const hit = seen.get(key);
-    if (hit && Date.now() - hit.at < 5000) return hit.p;
-    const p = gpaConn.getProgramAccounts(programId, config as any) as Promise<any>;
-    seen.set(key, { at: Date.now(), p });
-    p.catch(() => seen.delete(key));
+/** Answers to one request, shared for `ttlMs`: one loop asks for the same list many times. `clear` forgets them (a read that must see what just happened). */
+export class SharedReads {
+  private seen = new Map<string, { at: number; p: Promise<any> }>();
+  constructor(private readonly ttlMs = 5000) {}
+  get<T>(key: string, read: () => Promise<T>): Promise<T> {
+    const hit = this.seen.get(key);
+    if (hit && Date.now() - hit.at < this.ttlMs) return hit.p;
+    const p = read();
+    this.seen.set(key, { at: Date.now(), p });
+    p.catch(() => this.seen.delete(key));
     return p;
-  };
-  const conn = new SplitConnection(rpc, gpa, connConfig);
+  }
+  clear() {
+    this.seen.clear();
+  }
+}
+
+/** The connection of the keeper: it can forget the shared `getProgramAccounts` answers. */
+export type KeeperConnection = Connection & { forgetLists?: () => void };
+
+/** Sends and single reads on `rpc`; getProgramAccounts on `gpaRpc`, shared for 5s (one loop asks for the same list many times). */
+export function newConnection(rpc: string, gpaRpc: string = rpc): KeeperConnection {
+  const gpaConn = new Connection(gpaRpc, connConfig);
+  const shared = new SharedReads();
+  const gpa: GpaFn = (programId, config) => shared.get(`${programId.toBase58()}:${JSON.stringify(config ?? {})}`, () => gpaConn.getProgramAccounts(programId, config as any) as Promise<any>);
+  const conn: KeeperConnection = new SplitConnection(rpc, gpa, connConfig);
   conn.confirmTransaction = ((strategy: Strategy) => pollConfirm(conn, strategy)) as Connection["confirmTransaction"];
+  conn.forgetLists = () => shared.clear();
   return conn;
 }
 

@@ -18,16 +18,17 @@ import { settleMatches, viewOf, type MatchView } from "./settle.ts";
 let scanned: { now: number; all: any[] } | null = null;
 
 /** Every tesoro_core Match. The table scheduler and the Match job run in one pass: the second one reuses the first one's scan. */
-async function allMatches(ctx: Ctx): Promise<any[]> {
-  if (scanned && scanned.now === ctx.now) return scanned.all;
+async function allMatches(ctx: Ctx, fresh = false): Promise<any[]> {
+  if (!fresh && scanned && scanned.now === ctx.now) return scanned.all;
+  if (fresh) (ctx.conn as { forgetLists?: () => void }).forgetLists?.();
   const all: any[] = await ctx.core.account.matchState.all();
   scanned = { now: ctx.now, all };
   return all;
 }
 
 /** The Matches as the table scheduler reads them. */
-export async function scanMatches(ctx: Ctx): Promise<SchedMatch[]> {
-  return (await allMatches(ctx)).map(({ publicKey, account }) => ({ address: publicKey, inner: account.inner, stage: viewOf(publicKey, account).stage }));
+export async function scanMatches(ctx: Ctx, opts: { fresh?: boolean } = {}): Promise<SchedMatch[]> {
+  return (await allMatches(ctx, opts.fresh)).map(({ publicKey, account }) => ({ address: publicKey, inner: account.inner, stage: viewOf(publicKey, account).stage }));
 }
 
 /**
