@@ -23,8 +23,10 @@ describe("legal pages", () => {
 
   it("limits the Treasury's Unlock top-up to growth and caps a Lock's Advances (ticket 55)", () => {
     const html = renderToStaticMarkup(<Terms />).replace(/&#x27;|&apos;/g, "'");
-    expect(html).toContain("covers only the growth of tokens already paid out since their yield was priced, net of any fall since. It never covers a fall.");
+    expect(html).toContain("When the tokens set aside for your yield grow in value after it was priced");
+    expect(html).toContain("It covers only that growth since the yield was priced, net of any fall since. It never covers a fall.");
     expect(html).toContain("A Lock's Advances can add up to at most its Locked amount over its life.");
+    expect(html).toContain("waits until the staking token is back to at least the highest value the Lock's yield was priced at.");
   });
 
   it("renders the Privacy Policy with its providers", () => {

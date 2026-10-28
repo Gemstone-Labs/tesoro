@@ -15,7 +15,6 @@ import type { StakeMarket } from "./stake";
 import { coreIx } from "./core-ix";
 import { basketPda, bookPda, spillPda, type LineRef } from "./basket";
 import { stakeRateHighOf } from "./position-size";
-import { YIELD_CAP_REACHED } from "../errors";
 
 /**
  * Solana-native Positions (one shared simSOL custody, tesoro_core) and the SIMULATED sim_lst pool. Instructions
@@ -538,18 +537,42 @@ export function overYieldCap(
   return settled + commit > info.principalLamports;
 }
 
-/** The sentence an Advance or Extend sheet shows instead of issuing on a stake Lock that would be refused (ticket 55), else null. */
-export function stakeIssueNote(
-  info: Pick<NativeInfo, "stakeRateOpen" | "stakeRateHigh" | "principalLamports" | "appliedNet">,
-  rateNow: bigint | undefined,
-  countedNow: bigint,
-  source: { issued: bigint; returned: bigint; unitNum: bigint; unitDen: bigint },
-  symbol: string,
-): string | null {
-  const waits = advanceWaitsForRate(info, rateNow);
-  if (waits !== null) return `A new Advance or Extend is available once the ${symbol} rate is back above ${(Number(waits) / 1e12).toFixed(4)} SOL. Redeem and Unlock still work.`;
-  return overYieldCap(info, countedNow, source) ? YIELD_CAP_REACHED : null;
+/** A rate (1e12 = 1 SOL per token) as SOL with 4 decimals, rounded up, so "at least X" never shows while the rate is still below it. */
+export function fmtRateUp(rate: bigint): string {
+  const tenThousandths = (rate + 99_999_999n) / 100_000_000n;
+  return `${tenThousandths / 10_000n}.${(tenThousandths % 10_000n).toString().padStart(4, "0")}`;
 }
+
+/** The line an Advance or Extend sheet shows while a stake Lock waits for the rate (tesoro_core RateBelowPeak, ticket 55), else null. */
+export function rateWaitNote(info: Pick<NativeInfo, "stakeRateOpen" | "stakeRateHigh">, rateNow: bigint | undefined, symbol: string): string | null {
+  const waits = advanceWaitsForRate(info, rateNow);
+  return waits === null ? null : `A new Advance or Extend is available once 1 ${symbol} is worth at least ${fmtRateUp(waits)} SOL again. Redeem and Unlock still work.`;
+}
+
+type Issuance = { issued: bigint; returned: bigint; unitNum: bigint; unitDen: bigint };
+
+/**
+ * The longest Length, 1 to `max` months, whose issuance keeps a stake Lock's Advances within its Locked amount (tesoro_core
+ * YieldCapReached): `max` on a simulated Lock, 0 when not even one month fits. `issuance(m)` is the Source once m months are issued;
+ * a longer Length never issues less, so the first Length that fits counting down is the longest.
+ */
+export function longestLengthWithinCap(
+  info: Pick<NativeInfo, "stakeRateOpen" | "principalLamports" | "appliedNet">,
+  countedNow: bigint,
+  max: number,
+  issuance: (months: number) => Issuance,
+): number {
+  if (info.stakeRateOpen === 0n) return max;
+  for (let m = max; m >= 1; m--) if (!overYieldCap(info, countedNow, issuance(m))) return m;
+  return 0;
+}
+
+/** Shown instead of a Length when not even one month fits under the lifetime cap. */
+export const YIELD_CAP_FULL = "This Lock has advanced as much yield as its Locked amount allows over its life. Redeem and Unlock still work.";
+
+/** The line under a Length slider the lifetime cap shortens: why it stops at `fit` months. */
+export const lengthCapNote = (fit: number) =>
+  `Up to ${fit} ${fit === 1 ? "month" : "months"}: a longer Length would advance more yield than your Locked amount over this Lock's life.`;
 
 /** Where a market's staking-token Positions grow from (the pool's rate as read, projected at the sizing APY); undefined on a simulated market. */
 export const stakeGrowthOf = (market: Pick<NativeMarket, "stake"> | null | undefined, readAtSec: number = Math.floor(Date.now() / 1000)): StakeGrowth | undefined =>

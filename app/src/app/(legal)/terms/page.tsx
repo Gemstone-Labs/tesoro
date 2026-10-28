@@ -107,8 +107,8 @@ export default function Terms() {
           <b>If the staking token&apos;s rate falls after your yield was paid out, you get back what is left of your tokens, which can be worth less than the SOL you locked.</b> The Unlock screen shows the amount before you confirm it, and we do not make up the difference.
         </p>
         <p>
-          When the tokens paid out for your yield grew in value after it landed, your Unlock can need a top-up from our Treasury. It covers only the growth of tokens already paid out since their yield was priced, net of any fall since. It never covers a fall.
-          A Lock&apos;s Advances can add up to at most its Locked amount over its life. After a fall, a new Advance or Extend waits until the rate is back above the highest rate the Lock&apos;s yield was priced at.
+          When the tokens set aside for your yield grow in value after it was priced, your Unlock can need a top-up from our Treasury. It covers only that growth since the yield was priced, net of any fall since. It never covers a fall.
+          A Lock&apos;s Advances can add up to at most its Locked amount over its life. After a fall, a new Advance or Extend waits until the staking token is back to at least the highest value the Lock&apos;s yield was priced at.
         </p>
         <ul>
           <li><b>Redeem</b> turns Gemas into the asset they came from, only as far as the yield of the Lock they came from has actually been earned and has reached those Gemas under the payout order below. Winning Gemas never shortens your own lock. The amount you can Redeem now does not go down unless you Redeem or spend those Gemas.</li>

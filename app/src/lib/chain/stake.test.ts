@@ -3,14 +3,19 @@ import { join } from "node:path";
 import { Keypair, PublicKey, type AccountInfo } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import idl from "./idl/tesoro_core.json";
-import { YIELD_CAP_REACHED } from "../errors";
 import {
   TESORO_CORE_ID,
   TOKEN_PROGRAM_ID,
   accountPda,
+  YIELD_CAP_FULL,
   advanceWaitsForRate,
+  fmtRateUp,
+  lengthCapNote,
+  longestLengthWithinCap,
   overYieldCap,
-  stakeIssueNote,
+  quoteExtendAdvance,
+  quoteNativeAdvance,
+  rateWaitNote,
   nativeInfoFrom,
   nativeNow,
   pythFeedAddress,
@@ -255,16 +260,48 @@ describe("when a stake Lock can take another Advance or Extend (ticket 55)", () 
   });
 });
 
-describe("what the Advance and Extend sheets say when a stake Lock cannot issue", () => {
+describe("what the Advance and Extend sheets say when a stake Lock cannot issue (ticket 55)", () => {
   const lock = { stakeRateOpen: 1_200_000_000_000n, stakeRateHigh: 1_320_000_000_000n, principalLamports: 12n * SOL, appliedNet: 0n };
-  const source = { issued: 36_000n, returned: 0n, unitNum: 10n ** 13n, unitDen: 150_000_000n };
+  const PRICE = 150_000_000n;
+  /** A new Advance of `m` months on the 12 SOL Lock at 20% a year and $150. */
+  const advance = (m: number) => ({ issued: quoteNativeAdvance(12n * SOL, 2_000, m, PRICE).gemas, returned: 0n, unitNum: 10n ** 13n, unitDen: PRICE });
 
-  it("names the rate a fall must recover to, then the lifetime cap, else nothing", () => {
-    expect(stakeIssueNote(lock, 1_250_000_000_000n, 0n, source, "jitoSOL")).toBe(
-      "A new Advance or Extend is available once the jitoSOL rate is back above 1.3200 SOL. Redeem and Unlock still work.",
+  it("names the value the token must be worth again, rounded up so it never reads open while still refused", () => {
+    expect(rateWaitNote(lock, 1_250_000_000_000n, "jitoSOL")).toBe(
+      "A new Advance or Extend is available once 1 jitoSOL is worth at least 1.3200 SOL again. Redeem and Unlock still work.",
     );
-    expect(stakeIssueNote(lock, 1_400_000_000_000n, 9_700_000_000n, source, "jitoSOL")).toBe(YIELD_CAP_REACHED);
-    expect(stakeIssueNote(lock, 1_400_000_000_000n, 0n, source, "jitoSOL")).toBeNull();
+    expect(rateWaitNote(lock, 1_320_000_000_000n, "jitoSOL")).toBeNull();
+    // Peak 1.23454, rate 1.23452: still refused, and the note asks for 1.2346 (to nearest would say 1.2345, which the rate already shows).
+    const peak = 1_234_540_000_000n;
+    expect(advanceWaitsForRate({ ...lock, stakeRateHigh: peak }, 1_234_520_000_000n)).toBe(peak);
+    expect(fmtRateUp(peak)).toBe("1.2346");
+    expect(fmtRateUp(1_234_500_000_000n)).toBe("1.2345");
+    expect(fmtRateUp(1_234_500_000_001n)).toBe("1.2346");
+    expect(fmtRateUp(2_000_000_000_000n)).toBe("2.0000");
+  });
+
+  it("ends the Length at the longest that fits the lifetime cap, and says so only when one fits", () => {
+    // 12 months at 20% on 12 SOL is 2.4 SOL: with 9.6 SOL already settled it fits exactly; one lamport more and 12 months does not.
+    expect(longestLengthWithinCap(lock, 9_600_000_000n, 12, advance)).toBe(12);
+    const fit = longestLengthWithinCap(lock, 9_600_000_001n, 12, advance);
+    expect(fit).toBe(11);
+    expect(overYieldCap(lock, 9_600_000_001n, advance(fit))).toBe(false);
+    expect(overYieldCap(lock, 9_600_000_001n, advance(fit + 1))).toBe(true);
+    expect(lengthCapNote(fit)).toBe("Up to 11 months: a longer Length would advance more yield than your Locked amount over this Lock's life.");
+    expect(lengthCapNote(1)).toMatch(/^Up to 1 month:/);
+    // Not even one month: the sheet says the Lock is done advancing.
+    expect(longestLengthWithinCap(lock, 12n * SOL, 12, advance)).toBe(0);
+    expect(YIELD_CAP_FULL).not.toMatch(/shorter/);
+    // A simulated Lock has no lifetime cap.
+    expect(longestLengthWithinCap({ ...lock, stakeRateOpen: 0n }, 99n * SOL, 12, advance)).toBe(12);
+  });
+
+  it("caps an Extend on what its Source already issued and what was settled, not on yield counted since", () => {
+    const math = { ...advance(6), redeemed: 0n, yieldUnits: 0n };
+    const extend = (m: number) => quoteExtendAdvance(12n * SOL, 2_000, math, 6, m).extended;
+    // 6 months issued 1.2 SOL; with 9.6 SOL settled, 6 more fit exactly (2.4 SOL in all); one lamport more settled and 5 is the longest.
+    expect(longestLengthWithinCap({ ...lock, appliedNet: 9_600_000_000n }, 0n, 6, extend)).toBe(6);
+    expect(longestLengthWithinCap({ ...lock, appliedNet: 9_600_000_000n + 1n }, 0n, 6, extend)).toBe(5);
   });
 });
 
