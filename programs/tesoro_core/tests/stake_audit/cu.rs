@@ -18,10 +18,43 @@ fn cu(env: &mut Env, ix: Instruction, payer: &Keypair) -> u64 {
         .compute_units_consumed
 }
 
+/// A holder with a fixed key: every PDA (and so every bump search) is the same on every run.
+fn fixed_holder(env: &mut Env, seed: u8, tokens: u64) -> Person {
+    let kp = solana_sdk::signer::keypair::keypair_from_seed(&[seed; 32]).unwrap();
+    env.svm.airdrop(&kp.pubkey(), 1_000 * SOL).unwrap();
+    let key = a(kp.pubkey());
+    let account = pda(&[ACCOUNT_SEED, key.as_ref()]);
+    let create = tix(
+        accounts::CreateAccount {
+            authority: key,
+            account,
+            basket: basket_address(&account).0,
+            spill: spill_address(&account).0,
+            invite_gate: invite_gate_pda(),
+            system_program: anchor_lang::system_program::ID,
+            payer: key,
+            sponsor: None,
+        },
+        instruction::CreateAccount {
+            evm_address: [0; 20],
+        },
+        vec![],
+    );
+    env.send(&[create], &kp, &[]).unwrap();
+    let p = Person {
+        token: get_associated_token_address(&key, &env.mint),
+        kp,
+        key,
+        account,
+    };
+    env.set_tokens(&p, tokens);
+    p
+}
+
 #[test]
 fn cu_report() {
     let mut env = at_open_rate();
-    let ana = env.holder(10 * SOL);
+    let ana = fixed_holder(&mut env, 7, 10 * SOL);
     let pos = env.open(&ana, 10 * SOL).unwrap();
     env.refresh_feed();
     let (ix, source) = env.advance_ix(&ana, pos, 6);
@@ -63,7 +96,7 @@ fn cu_report() {
     env.set_total(1_700_000_000_000);
     let ix = env.unlock_ix(&ana, pos);
     let unlock_closing = cu(&mut env, ix, &ana.kp);
-    let ben = env.holder(10 * SOL);
+    let ben = fixed_holder(&mut env, 8, 10 * SOL);
     let b_pos = env.open(&ben, 10 * SOL).unwrap();
     env.set_total(1_800_000_000_000);
     let ix = env.unlock_ix(&ben, b_pos);
