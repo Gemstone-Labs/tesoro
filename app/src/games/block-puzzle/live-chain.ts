@@ -691,11 +691,6 @@ export class BlockBurstChain {
     return this.sendBase("assign_match", [ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ix], [operator]);
   }
 
-  /**
-   * Base layer, permissionless. Settles (or, for a refund, a no-start or a table that moved past the Match, refunds) the
-   * tesoro_core Match from the result in the committed table's ring, by CPI as the Game authority PDA. Returns "" when it is
-   * already settled. Fails with `NoResult` / `MatchNotOver` until the commit has landed.
-   */
   /** The finalize instruction with `caller` paying the receipt's rent (the relayer, or the Player's wallet); null when the Match is already settled. */
   async finalizeIx(caller: PublicKey, a: Assignment): Promise<TransactionInstruction | null> {
     if (!this.isLive(await this.readTesoroMatch(a.tesoroMatch))) return null;
@@ -718,16 +713,18 @@ export class BlockBurstChain {
       .instruction();
   }
 
+  /**
+   * Base layer, permissionless. Settles (or, for a refund, a no-start or a table that moved past the Match, refunds) the
+   * tesoro_core Match from the result in the committed table's ring, by CPI as the Game authority PDA. Returns "" when it is
+   * already settled. Fails with `NoResult` / `MatchNotOver` until the commit has landed.
+   */
   async finalize(payer: PlayerSigner, a: Assignment): Promise<string> {
     const ix = await this.finalizeIx(payer.publicKey, a);
     if (!ix) return "";
     return this.sendBase("finalize", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], [payer]);
   }
 
-  /**
-   * Base layer, permissionless. Refunds a joined Match that no table was ever assigned to, once it has waited
-   * `TABLE_WAIT_SECS` (5 minutes) for one. Refused while an Assignment exists for the Match.
-   */
+  /** The refund_untabled instruction with `caller` paying the receipt's rent (the relayer, or the Player's wallet). */
   async refundUntabledIx(caller: PublicKey, tesoroMatch: PublicKey): Promise<TransactionInstruction> {
     return await this.program.methods
       .refundUntabled()
@@ -746,6 +743,10 @@ export class BlockBurstChain {
       .instruction();
   }
 
+  /**
+   * Base layer, permissionless. Refunds a joined Match that no table was ever assigned to, once it has waited
+   * `TABLE_WAIT_SECS` (5 minutes) for one. Refused while an Assignment exists for the Match.
+   */
   async refundUntabled(payer: PlayerSigner, tesoroMatch: PublicKey): Promise<string> {
     const ix = await this.refundUntabledIx(payer.publicKey, tesoroMatch);
     return this.sendBase("refund_untabled", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], [payer]);
@@ -763,7 +764,7 @@ export class BlockBurstChain {
     return this.sendTee("skip_epoch", [ix], caller);
   }
 
-  /** Base layer, permissionless. Closes the Assignment once tesoro_core has frozen the Match (needs its settlement receipt); the rent goes back to the operator. */
+  /** The close_assignment instruction, `caller` signing. */
   async closeAssignmentIx(caller: PublicKey, a: Assignment): Promise<TransactionInstruction> {
     return await this.program.methods
       .closeAssignment()
@@ -771,6 +772,7 @@ export class BlockBurstChain {
       .instruction();
   }
 
+  /** Base layer, permissionless. Closes the Assignment once tesoro_core has frozen the Match (needs its settlement receipt); the rent goes back to the operator. */
   async closeAssignment(payer: PlayerSigner, a: Assignment): Promise<string> {
     const ix = await this.closeAssignmentIx(payer.publicKey, a);
     return this.sendBase("close_assignment", [ix], [payer]);
