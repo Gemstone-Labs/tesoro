@@ -20,12 +20,14 @@ export async function verifyExitSetup(plan: Plan, player: PublicKey, chain: Chai
   const s = plan.setup;
   if (!s) return { rent: 0n, ataGrant: null };
   if (!chain.rent) throw new DemoHttpError(503, "not-configured", "Payout account funding is not configured.");
-  const position = await chain.account(s.position), source = await chain.account(s.source);
-  if (!position?.owner.equals(CORE_ID) || !source?.owner.equals(CORE_ID)) bad("The payout's Lock and Source must exist.");
+  const position = await chain.account(s.position), source = s.source ? await chain.account(s.source) : null;
+  if (!position?.owner.equals(CORE_ID) || (s.source && !source?.owner.equals(CORE_ID))) bad("The payout's Lock and Source must exist.");
   let p: any, sourceState: any;
-  try { p = coder.decode("PositionState", Buffer.from(position!.data)); sourceState = coder.decode("SourceState", Buffer.from(source!.data)); }
+  try { p = coder.decode("PositionState", Buffer.from(position!.data)); sourceState = source ? coder.decode("SourceState", Buffer.from(source.data)) : null; }
   catch { bad("The payout's Lock or Source could not be read."); }
-  if (!sourcePda(s.position, sourceState.inner.index).equals(s.source) || !new PublicKey(sourceState.inner.position).equals(s.position)) bad("The Source does not belong to the payout's Lock.");
+  if (s.source && (!sourcePda(s.position, sourceState.inner.index).equals(s.source) || !new PublicKey(sourceState.inner.position).equals(s.position))) bad("The Source does not belong to the payout's Lock.");
+  // An Unlock closes the open Advance: its checkpoint pages are only ever for that Source.
+  if (plan.names.at(-1) === "unlock" && s.source && p.inner.open_advance !== sourceState.inner.index) bad("The Source is not the Lock's open Advance.");
   if (!("Solana" in p.inner.source_chain)) bad("These token accounts are only for Solana payouts.");
   const mint = new PublicKey(p.inner.source_asset);
   let rent = 0n;
@@ -37,8 +39,9 @@ export async function verifyExitSetup(plan: Plan, player: PublicKey, chain: Chai
     ataGrant = exitAtaKey(player, mint);
   }
   if (s.pages.length) {
+    if (!s.source) bad("The checkpoint's Source is unknown.");
     const book = await chain.account(s.pages[0].book);
-    if (!book?.owner.equals(CORE_ID) || !Buffer.from(book.data.subarray(0, 8)).equals(bookDisc) || book.data[9] !== 1 || !Buffer.from(book.data.subarray(16, 48)).equals(s.source.toBuffer())) bad("The payout Source's book is invalid.");
+    if (!book?.owner.equals(CORE_ID) || !Buffer.from(book.data.subarray(0, 8)).equals(bookDisc) || book.data[9] !== 1 || !Buffer.from(book.data.subarray(16, 48)).equals(s.source!.toBuffer())) bad("The payout Source's book is invalid.");
     let needed: Set<string>;
     try { needed = new Set(landingPageNumbers(decodeBook(book!.data)).map((p) => `${p.classId}:${p.page}`)); }
     catch { return bad("The payout Source's book could not be read."); }

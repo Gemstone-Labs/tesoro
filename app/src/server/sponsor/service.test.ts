@@ -1,6 +1,6 @@
 import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
 import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, gameStepIx, key, linkEvmBridgeIx, signUpIx, openMatchIx, playerIx } from "./fixtures";
@@ -12,7 +12,9 @@ import { encodeBook, freshClass } from "@/lib/chain/basket-fixture";
 import { fp } from "@/lib/chain/book";
 import { bookPda, ckptPda } from "@/lib/chain/basket";
 import { SIM_SOL_MINT, sourcePda } from "@/lib/chain/native";
-import { redeemLineIxs } from "@/lib/chain/redeem";
+import { redeemLineIxs, unlockIxs } from "@/lib/chain/redeem";
+import { planExit } from "@/lib/chain/exit-route";
+import { getChain } from "@/lib/chain/client";
 import { JITOSOL } from "@/lib/chain/stake";
 import { createAtaIdempotentIx, tokenAta } from "@/lib/chain/stake-pool";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
@@ -107,6 +109,46 @@ async function firstPayout(s: ReturnType<typeof setup>, threePages = false) {
   for (const ix of ixs.slice(0, -1)) ix.keys[0].pubkey = s.relayer.publicKey;
   return { ixs, source, position, book };
 }
+
+/** A Lock with an open Advance (Debt 0) and no token account for its Player: what an Unlock must set up. */
+async function unlockSetup(s: ReturnType<typeof setup>) {
+  const { source, position, book } = await firstPayout(s);
+  const p = s.accounts.get(position.toBase58())!.data as Buffer;
+  p[122] = 1; p.writeUInt32LE(0, 123);
+  const reader = { getMultipleAccountsInfo: (keys: PublicKey[]) => Promise.all(keys.map((k) => s.deps.chain.account(k))) };
+  const spy = vi.spyOn(getChain(), "base", "get").mockReturnValue(reader as never);
+  const ixs = await unlockIxs(s.player.publicKey, { position, openAdvance: 0, stakeRateOpen: 0n, mint: SIM_SOL_MINT });
+  spy.mockRestore();
+  const route = planExit(ixs, s.player.publicKey, s.relayer.publicKey);
+  return { ixs, route, source, position, book };
+}
+
+describe("Unlock of a 0-SOL Player whose token account is missing", () => {
+  it("is sent by the route as prepared, the relayer paying the token account and checkpoint rent", async () => {
+    const s = setup({ gemas: 0n });
+    const { route } = await unlockSetup(s);
+    expect(route.kind).toBe("prepared");
+    expect(route.ixs.length).toBeGreaterThan(1);
+    const built = await s.sponsor.build(s.player.publicKey, wire(route.ixs));
+    expect(built.class).toBe("exit");
+    expect(BigInt(JSON.parse(built.meta).cost)).toBeGreaterThan(2_000_000n);
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    expect(s.sent[0].message.staticAccountKeys[0]).toEqual(s.relayer.publicKey);
+  });
+  it("is refused when the checkpoint is not one the closing Advance's Source needs", async () => {
+    const s = setup();
+    const { route, source } = await unlockSetup(s);
+    const extra = await coreIx("init_ckpt_page", [3, 1], { payer: s.relayer.publicKey, book: bookPda(source), page: ckptPda(source, 3, 1) });
+    route.ixs.at(-1)!.keys.push({ pubkey: ckptPda(source, 3, 1), isWritable: true, isSigner: false });
+    await expect(s.sponsor.build(s.player.publicKey, wire([extra, ...route.ixs]))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+  it("is refused for a Source that is not the Position's open Advance", async () => {
+    const s = setup();
+    const { route, position } = await unlockSetup(s);
+    (s.accounts.get(position.toBase58())!.data as Buffer)[122] = 0;
+    await expect(s.sponsor.build(s.player.publicKey, wire(route.ixs))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+});
 
 describe("first payout account funding", () => {
   it("funds all three required landing pages on an extended Source", async () => {

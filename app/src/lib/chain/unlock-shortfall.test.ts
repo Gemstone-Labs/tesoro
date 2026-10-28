@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { PublicKey } from "@solana/web3.js";
-import { Keypair, SystemProgram, TransactionInstruction, type Connection, type VersionedTransaction } from "@solana/web3.js";
-import { parseUnlockShortfall, previewUnlockShortfall, shortfallLamports, shortfallCopy, unlockFeePayer } from "./unlock-shortfall";
+import { Keypair, type Connection, type VersionedTransaction } from "@solana/web3.js";
+import { parseUnlockShortfall, previewUnlockShortfall, shortfallLamports, shortfallCopy } from "./unlock-shortfall";
 import { unlockStakeIx } from "./stake";
-import { createAtaIdempotentIx } from "./stake-pool";
 import { JITOSOL } from "./stake";
 
 const POSITION = new PublicKey("11111111111111111111111111111112");
@@ -59,16 +58,6 @@ describe("the Unlock dry run", () => {
   const relayer = Keypair.generate().publicKey;
   const position = Keypair.generate().publicKey;
   const ixs = [unlockStakeIx(player, position, null, JITOSOL)];
-
-  it("is paid by the relayer when the exit is sponsored, never by a Player with no SOL", () => {
-    expect(unlockFeePayer(ixs, player, relayer).equals(relayer)).toBe(true);
-  });
-  it("is paid by the Player when the exit also creates a token account (self-pay, as exitSend)", () => {
-    const withAta = [createAtaIdempotentIx(player, player, JITOSOL.mint), ...ixs];
-    expect(unlockFeePayer(withAta, player, relayer).equals(player)).toBe(true);
-    const foreign: TransactionInstruction = SystemProgram.transfer({ fromPubkey: player, toPubkey: relayer, lamports: 1 });
-    expect(unlockFeePayer([foreign, ...ixs], player, relayer).equals(player)).toBe(true);
-  });
 
   function conn(value: { err: unknown; logs: string[] }) {
     const seen: { tx?: VersionedTransaction; opts?: unknown } = {};
