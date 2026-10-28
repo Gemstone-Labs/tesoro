@@ -178,6 +178,9 @@ core_errors! {
     ReservedGemas => "these Gemas back an Offer reservation",
     InvalidOrderTtl => "an Instant Redeem order lasts 1 hour to 30 days",
     SpillFull => "the account has no room for another line: grow its spill and retry",
+    RateBelowPeak => "the staking rate is below the highest rate this Lock's yield was priced at; a new Advance or Extend waits until it is back",
+    YieldCapReached => "a Lock's Advances over its life cannot add up to more than its Principal",
+    GrowthClaimsUnfunded => "holders are owed more than this Lock's custody holds and the Treasury cannot fund the rest; Unlock waits for Treasury funding",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;

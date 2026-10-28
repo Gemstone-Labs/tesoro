@@ -336,6 +336,36 @@ pub fn advance_line<S: ClassSlots, C: CheckpointStore + ?Sized>(
     Ok(line)
 }
 
+/// Ticket 55, stake Positions only (others pass): new Gemas of `src` may be issued only at or
+/// above the highest rate the Position's yield was priced at (`RateBelowPeak`), and only while the
+/// Position's settled yield plus everything `src` can still cover stays within its Principal
+/// (`YieldCapReached`). `src` is the Source as it will be stored (an Extend's full new issuance).
+/// With the cap, holders' shares never exceed the custody: each landing is priced above the
+/// opening rate, so the shares of at most Principal of yield are fewer than `custody_shares`.
+pub fn check_stake_issuance(position: &Position, rate: &ShareRate, src: &Source) -> CoreResult<()> {
+    if position.stake_rate_open == 0 {
+        return Ok(());
+    }
+    if rate.per_share() < u128::from(super::stake_rate_peak(position)) {
+        return Err(CoreError::RateBelowPeak);
+    }
+    let live = src.issued.checked_sub(src.returned).ok_or(CoreError::Math)?;
+    let commit = mul_div_u128(
+        u128::from(live),
+        src.unit_num,
+        u128::from(src.unit_den),
+        Round::Up,
+    )
+    .ok_or(CoreError::Math)?;
+    let total = u128::from(position.applied_net)
+        .checked_add(commit)
+        .ok_or(CoreError::Math)?;
+    if total > u128::from(position.principal) {
+        return Err(CoreError::YieldCapReached);
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------------------------
 // Extend
 // ---------------------------------------------------------------------------------------------
@@ -397,6 +427,7 @@ pub fn extend_source<S: ClassSlots, C: CheckpointStore + ?Sized>(
     }
     let mut next = src.clone();
     let minted = extend_gemas(position, &mut next, extra_months, speedup)?;
+    check_stake_issuance(position, rate, &next)?;
     let class = book.start_extension()?;
     let mut line = Book::<S>::blank_line(
         SIDE_OWN,

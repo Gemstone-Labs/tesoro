@@ -811,6 +811,8 @@ pub(crate) fn begin_advance<'a, 'info>(
         .inner
         .open_advance(position_key.to_bytes(), horizon_months, price_micro_usd)
         .map_err(core_err)?;
+    ledger::economy::check_stake_issuance(&a.position.inner, &rates.rate, &src)
+        .map_err(core_err)?;
     src.yield_fee_bps = fees.yield_fee_bps;
     src.pool_bps = fees.pool_bps;
     a.position.inner.pool_bps = fees.pool_bps;
