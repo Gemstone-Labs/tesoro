@@ -64,3 +64,18 @@ describe("checkForOlder", () => {
     expect(t.navigated).toEqual([]);
   });
 });
+
+describe("checkForOlder, when to stop looking", () => {
+  it("says the Match can never move again once it is paired, a Challenge or Backed", async () => {
+    for (const m of [mine({ challenge: true }), mine({ status: "active", opponent: "dan" }), mine({ backerSeat: 1 })]) {
+      expect(await checkForOlder(io({ fetchMine: async () => m }).base)).toBe("over");
+    }
+  });
+  it("keeps looking while the Match is still alone, or could not be read", async () => {
+    expect(await checkForOlder(io({ fetchMine: async () => mine(), merge: async () => ({ moved: false as const }) }).base)).toBe("keep");
+    expect(await checkForOlder(io({ fetchMine: async () => null }).base)).toBe("keep");
+  });
+  it("is over once the Player has moved", async () => {
+    expect(await checkForOlder(io().base)).toBe("over");
+  });
+});

@@ -26,17 +26,24 @@ export interface MergeIo {
  * Once a move is certain the page shows "moving" (so the refund of the abandoned Match never flashes up as its own screen); a
  * move that finds nothing leaves the page as it was, and one that stops half way says so.
  */
-export async function checkForOlder(io: MergeIo): Promise<void> {
+export async function checkForOlder(io: MergeIo): Promise<"keep" | "over"> {
   try {
     const mine = await io.fetchMine();
-    if (!mine || !canMove(mine)) return;
+    if (!mine) return "keep";
+    // Paired, a Challenge, Backed or closed: a Match never goes back to being alone, so the page can stop looking for good.
+    if (!canMove(mine)) return "over";
     const merged = await io.merge(mine, {
       onMove: () => io.set({ phase: "moving", error: null }),
       onStep: (step) => io.set({ phase: "moving", error: null, step }),
     });
-    if (!merged.moved) io.set({ phase: "idle", error: null });
-    else if (io.stillHere()) io.navigate(merged.entered.id);
+    if (!merged.moved) {
+      io.set({ phase: "idle", error: null });
+      return "keep";
+    }
+    if (io.stillHere()) io.navigate(merged.entered.id);
+    return "over";
   } catch (e) {
     io.set({ phase: "failed", error: e instanceof Error ? e.message : "Something went wrong while moving you to an older Match." });
+    return "over";
   }
 }
