@@ -905,6 +905,12 @@ pub mod tesoro_core {
         instructions::retire::retire_position(ctx)
     }
 
+    /// Rewrites a 235-byte Position in the 243-byte layout with `stake_rate_high` at its opening
+    /// rate (ticket 55). A 243-byte Position is left alone.
+    pub fn migrate_position(ctx: Context<MigratePosition>) -> Result<()> {
+        instructions::migrate::migrate_position(ctx)
+    }
+
     pub fn retire_source(ctx: Context<RetireSource>) -> Result<()> {
         instructions::retire::retire_source(ctx)
     }
