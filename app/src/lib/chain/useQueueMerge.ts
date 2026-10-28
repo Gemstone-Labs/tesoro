@@ -1,5 +1,6 @@
 "use client";
 
+import { PublicKey } from "@solana/web3.js";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useAccount } from "@/lib/account";
@@ -23,23 +24,27 @@ export function useQueueMerge(matchId: string): QueueMerge {
   const router = useRouter();
   const signer = auth.signer;
   const getToken = auth.getAccessToken;
-  const meKey = snapshot?.accountKey ?? null;
-  const me = meKey?.toBase58() ?? null;
+  const me = snapshot?.accountKey.toBase58() ?? null;
   // Keyed by Match: a new route starts idle without resetting in an effect.
   const [stored, setStored] = useState<QueueMerge & { matchId: string }>({ matchId, phase: "idle", error: null });
   const busy = useRef(false);
 
   useEffect(() => {
     if (!signer || !me || !parseMatchKey(matchId)) return;
+    const meKey = new PublicKey(me);
+    let over = false;
 
     const check = async () => {
-      if (busy.current || document.visibilityState === "hidden") return;
+      if (over || busy.current || document.visibilityState === "hidden") return;
       busy.current = true;
       try {
         // One tab moves a Match: another tab of the same Player waits for the first to finish.
-        const run = () =>
+        const run = async () => {
+          if ((await look()) === "over") stop();
+        };
+        const look = () =>
           checkForOlder({
-            fetchMine: () => fetchMatch(matchId, meKey!),
+            fetchMine: () => fetchMatch(matchId, meKey),
             merge: (mine, on) => mergeIntoOlderMatch(signer, getToken, mine, on),
             set: (s) => setStored({ matchId, ...s }),
             navigate: (id) => router.replace(`/play/match/${id}`),
@@ -56,11 +61,13 @@ export function useQueueMerge(matchId: string): QueueMerge {
 
     const timer = setInterval(() => void check(), MERGE_EVERY_MS);
     const first = setTimeout(() => void check(), 2_000);
-    return () => {
+    const stop = () => {
+      over = true;
       clearInterval(timer);
       clearTimeout(first);
     };
-  }, [matchId, signer, getToken, me, meKey, router]);
+    return stop;
+  }, [matchId, signer, getToken, me, router]);
 
   return stored.matchId === matchId ? stored : { phase: "idle", error: null };
 }

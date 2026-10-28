@@ -10,7 +10,6 @@ import { accountKeyOf } from "@/lib/chain/account-key";
 import { nextStep, ordinal, pts, seasonStanding, type SeasonStanding } from "@/lib/chain/leaderboard-view";
 import { playerSummary } from "@/lib/chain/player-account";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
-import { pointsForWin } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
 import { setFullScreen } from "@/games/fx";
 import { AddFriendButton } from "@/components/friends/AddFriendButton";
@@ -29,8 +28,8 @@ export interface MatchResultProps {
   /** The Gema change for whoever is looking (the Player's, or the Backer's when `role` is backer). */
   delta: number;
   entry: number;
-  /** Platform + Studio + Leaderboard Fee taken from the Pot, in Gemas. */
-  fee: number;
+  /** Platform + Studio + Leaderboard Fee taken from the Pot, in Gemas; null when it is not known (no Fee tile). */
+  fee: number | null;
   role: "player" | "backer";
   backed: boolean;
   /** Final scores as shown: [yours, opponent's]. Null when the Match has none (refund). */
@@ -84,22 +83,23 @@ function Score({ value, run, delay }: { value: string; run: boolean; delay: numb
   return <CountUp value={target} from={0} duration={1100} />;
 }
 
-/** Where the signed-in Player stands in the Season (null until read, or while the Leaderboard Fee is off). */
-function useStanding(): SeasonStanding | null {
+/** Where the signed-in Player stands in the Season: `loading` until the Leaderboard has been read (or failed), `standing` null while unranked or the Leaderboard Fee is off. */
+function useStanding(): { loading: boolean; standing: SeasonStanding | null } {
   const { auth, snapshot } = useAccount();
   const me = auth.status === "signed-in" ? (snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null)) : null;
-  const { data, forMe } = useLeaderboard(me);
-  return me && forMe && data && data.feeBps > 0 ? seasonStanding(data, me) : null;
+  const { data, forMe, error } = useLeaderboard(me);
+  const ready = !me || (forMe && !!data) || error;
+  return { loading: !ready, standing: me && forMe && data && data.feeBps > 0 ? seasonStanding(data, me) : null };
 }
 
-/** The Season tile, after a loss too: the points this Match gave (0 after a loss) and the Player's Leaderboard position, or "Not ranked yet". */
-function SeasonTile({ points, delay }: { points: number; delay: string }) {
-  const standing = useStanding();
+/** The Season tile, after a loss too: the points this Match gave (0 after a loss; unknown until the history settles them) and the Player's Leaderboard position, blank while loading, or "Not ranked yet". */
+function SeasonTile({ points, delay }: { points: number | null; delay: string }) {
+  const { loading, standing } = useStanding();
   const step = standing ? nextStep(standing) : null;
   const body = (
     <>
-      <span>Season · +{pts(points)}</span>
-      <b>{standing?.rank ? ordinal(standing.rank) : "Not ranked yet"}</b>
+      <span>{points === null ? "Season" : `Season · +${pts(points)}`}</span>
+      {loading ? <b aria-busy="true">&nbsp;</b> : <b>{standing?.rank ? ordinal(standing.rank) : "Not ranked yet"}</b>}
       {step && <small>{step} <span aria-hidden="true">→</span></small>}
     </>
   );
@@ -140,13 +140,14 @@ export function MatchResult(p: MatchResultProps) {
   const sign = delta > 0 ? "+" : delta < 0 ? "−" : "";
   const amount = neutral ? fmtGemas(p.entry) : `${sign}${fmtGemas(Math.abs(delta))}`;
   const amountLabel = backed ? (role === "backer" ? "Your return" : "Your share") : null;
-  const points = !won || role !== "player" ? 0 : (p.points ?? pointsForWin(p.entry));
+  // After a win the points depend on the Season's cap per opponent, so they are shown only once the history has them.
+  const points = !won || role !== "player" ? 0 : (p.points ?? null);
 
   const nums = p.scores?.map(Number);
   const numeric = !!nums && nums.every(Number.isFinite);
-  const tiles: { k: string; v: ReactNode; on?: boolean; season?: number }[] = [];
+  const tiles: { k: string; v: ReactNode; on?: boolean; season?: number | null }[] = [];
   if (role === "player") tiles.push({ k: "Season", v: null, season: points });
-  tiles.push({ k: "Fee", v: <><GemaMark size={22} /> {fmtGemas(p.fee)}</> });
+  if (p.fee !== null) tiles.push({ k: "Fee", v: <><GemaMark size={22} /> {fmtGemas(p.fee)}</> });
   if (p.scores) {
     const [mine, theirs] = nums ?? [0, 0];
     tiles.push({ k: role === "backer" ? "Your Player" : "You", v: <><Score value={p.scores[0]} run={!held} delay={1200} />{role === "player" && p.game === "block-puzzle" && numeric && <NewBest score={mine} matchId={p.matchId} />}</>, on: numeric ? mine > theirs : won });

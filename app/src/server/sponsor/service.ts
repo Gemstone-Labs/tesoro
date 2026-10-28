@@ -32,6 +32,8 @@ import { ChainTransactionFailed } from "./chain-send";
 import { completionEffects, completionInput, recoverCompletions, type CompletionChain } from "./completion";
 
 const HOUR = 3_600_000;
+/** How many times a Game step's cost is measured before it is called too expensive (see `checkGameStepSimulation`). */
+const GAME_STEP_COST_READINGS = 3;
 const DAY = 24 * HOUR;
 /** A built message is good for this long (the blockhash lives about 90 s). */
 export const BUILD_TTL_MS = 75_000;
@@ -263,10 +265,22 @@ export class Sponsor {
    */
   private async checkGameStepSimulation(message: ReturnType<TransactionMessage["compileToV0Message"]>, allowed: bigint) {
     if (!this.d.chain.simulate) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
-    const before = await this.d.chain.balance(this.relayer);
-    const sim = await this.d.chain.simulate(new VersionedTransaction(message), this.relayer);
-    if (sim.err) throw new DemoHttpError(409, "would-fail", "That step cannot go through yet.");
-    if (sim.lamports === null || before - sim.lamports > allowed + BigInt(SIGNATURE_LAMPORTS)) throw new DemoHttpError(409, "costs-too-much", "That step would cost more than the fee and the receipt.");
+    // The RPC reports the balance after the simulation but not before it, so the cost is the gap to a balance read just ahead,
+    // and any other transaction the relayer pays in between (it pays for every Player) shows up as cost. A real overspend is the
+    // same every time; a concurrent spend inflates one reading. So the least cost of up to three readings decides, and a
+    // concurrent refund can only lower a reading (what the instructions allow to leave is bounded by the allow-list).
+    const limit = allowed + BigInt(SIGNATURE_LAMPORTS);
+    let cheapest: bigint | null = null;
+    for (let attempt = 0; attempt < GAME_STEP_COST_READINGS; attempt++) {
+      const before = await this.d.chain.balance(this.relayer);
+      const sim = await this.d.chain.simulate(new VersionedTransaction(message), this.relayer);
+      if (sim.err) throw new DemoHttpError(409, "would-fail", "That step cannot go through yet.");
+      if (sim.lamports === null) break;
+      const cost = before - sim.lamports;
+      cheapest = cheapest === null || cost < cheapest ? cost : cheapest;
+      if (cheapest <= limit) return;
+    }
+    throw new DemoHttpError(409, "costs-too-much", "That step would cost more than the fee and the receipt.");
   }
 
   /** Exits and continues are for Accounts: a throwaway key cannot make the relayer pay fees. */
@@ -282,6 +296,17 @@ export class Sponsor {
 
   /** `sub` is the Privy user id the request came with (null only off production), the key of the one-Account-per-user gate. */
   async build(player: PublicKey, raw: unknown, sub: string | null = null): Promise<Built> {
+    // A Game step spends the Match's tries and the day's cap when it is admitted; any failure after that gives them back.
+    const held: { undo: (() => Promise<void>) | null } = { undo: null };
+    try {
+      return await this.buildWith(player, raw, sub, held);
+    } catch (e) {
+      await held.undo?.();
+      throw e;
+    }
+  }
+
+  private async buildWith(player: PublicKey, raw: unknown, sub: string | null, held: { undo: (() => Promise<void>) | null }): Promise<Built> {
     const now = this.d.now();
     const who = player.toBase58();
     const ixs = parseIntent(raw);
@@ -302,7 +327,6 @@ export class Sponsor {
     let reserve = 0n;
     let fronted = 0n;
     let onboard: string | null = null;
-    let undoStep: (() => Promise<void>) | null = null;
 
     if (plan.onboarding) {
       // A new Player has no Account and no Gemas: the gate is one Account per user, a daily cap, and the Invite when it is on.
@@ -344,7 +368,7 @@ export class Sponsor {
       await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
       const gameStep = plan.kind === "game" && plan.obligations.length > 0;
-      if (gameStep) undoStep = await this.admitGameStep(plan, player, now);
+      if (gameStep) held.undo = await this.admitGameStep(plan, player, now);
       const cost = fee + plan.spend.sunk + plan.spend.refundable;
       if (!(gameStep && plan.spend.refundable > 0n ? rentExitFits(balance, cost) : exitFits(balance, cost))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
     }
@@ -366,15 +390,7 @@ export class Sponsor {
       if (!(e instanceof RangeError)) throw e;
       throw new DemoHttpError(400, "too-large", "This transaction is too large. Prepare fewer items at a time.");
     }
-    if (undoStep) {
-      try {
-        await this.checkGameStepSimulation(message, fee + plan.spend.refundable);
-      } catch (e) {
-        // A step that would fail now (the result is not committed yet) is not one the Player has used up.
-        await undoStep();
-        throw e;
-      }
-    }
+    if (held.undo) await this.checkGameStepSimulation(message, fee + plan.spend.refundable);
     const meta: Meta = { completion: completionEffects(ixs), player: who, exp: now + BUILD_TTL_MS, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite, cost: (fee + plan.spend.sunk + plan.spend.refundable).toString(), admission: plan.class === "admission", ataGrant: setup.ataGrant };
     const metaText = JSON.stringify(meta);
     return { message: Buffer.from(bytes).toString("base64"), meta: metaText, mac: mac(this.d.macKey, bytes, metaText), expiresAt: meta.exp, class: plan.class };

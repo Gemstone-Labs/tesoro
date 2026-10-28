@@ -4,9 +4,8 @@ import { parseMatchKey } from "@/lib/chain/match-id";
 import { Busy, Button, Card, Chip, GemaAmount, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { commitCopy } from "@/lib/chain/commit-pending";
-import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
+import { matchDelta, matchFee, resultFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
-import type { ChainMatch } from "@/lib/chain/read";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
@@ -17,10 +16,6 @@ import { STATUS } from "./chain";
 import { HoldemTable } from "./HoldemTable";
 import { useHoldemMatch } from "./useHoldemMatch";
 
-
-function fmtFee(m: ChainMatch): string {
-  return String(matchFee(m));
-}
 
 /**
  * One Hold'em Match. Waiting for an opponent, the table set-up, the table itself, then the
@@ -56,7 +51,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         outcome={outcome}
         delta={delta}
         entry={m.entry}
-        fee={Number(fmtFee(m))}
+        fee={resultFee(m, outcome)}
         role="player"
         backed={!!m.backing}
         scores={outcome === "refunded" ? null : [outcome === "won" ? "Won" : "Lost", outcome === "won" ? "Lost" : "Won"]}

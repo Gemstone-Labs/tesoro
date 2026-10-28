@@ -38,6 +38,8 @@ export interface ChainMatch {
   status: MatchStatus;
   /** A settled or refunding run is under way (chunks still moving Gemas): the result is fixed, the Match is not closed. */
   running: "settling" | "refunding" | null;
+  /** Block Burst: how `finalize` fixed the result while its chunks are still paying (`status` stays "active" until the last one has). Read it through `resultOf`. */
+  fixed?: "settled" | "refunded";
   entry: number;
   /** Which side of the Match this Account is on, null when not a participant. */
   seat: 0 | 1 | null;
@@ -67,6 +69,11 @@ export interface ChainMatch {
   winner: "opener" | "joiner" | null;
   /** Block Burst: the result and Seed of a finished Match, read from the table's result ring while it still holds them (null otherwise, and for refunds). */
   session: BurstSession | null;
+}
+
+/** How the Match ended, once its result is fixed: "settled" or "refunded" (a Block Burst run still paying counts; `status` alone says only when it is closed). Null before. */
+export function resultOf(m: Pick<ChainMatch, "status" | "fixed">): "settled" | "refunded" | null {
+  return m.status === "settled" || m.status === "refunded" ? m.status : (m.fixed ?? null);
 }
 
 export interface MatchSide {
@@ -261,7 +268,7 @@ export function toChainMatch(state: any, me: PublicKey | null, session: BurstSes
   const seat = mine === a ? 0 : mine && mine === b ? 1 : null;
   const stage = enumKey(m.stage);
   const kind = m.run ? enumKey(m.run.kind) : null;
-  let status: MatchStatus = stage === "open" ? "open" : stage === "closed" ? (kind === "win" || kind === "draw" ? "settled" : "refunded") : "active";
+  const status: MatchStatus = stage === "open" ? "open" : stage === "closed" ? (kind === "win" || kind === "draw" ? "settled" : "refunded") : "active";
   const running = stage === "settling" ? "settling" : stage === "refunding" ? "refunding" : null;
   const side = (s: any): MatchSide => ({ player: pk(s.player).toBase58(), funder: pk(s.funder).toBase58(), shareBps: s.shareBps });
   const sides: [MatchSide, MatchSide | null] = [side(m.a), m.b ? side(m.b) : null];
@@ -274,9 +281,8 @@ export function toChainMatch(state: any, me: PublicKey | null, session: BurstSes
   const game = requireGame(pk(m.game));
   const backingOf = backedSeat !== null && backedSide ? { seat: backedSeat, shareBps: backedSide.shareBps } : null;
   // Block Burst: the result is final once `finalize` has started the settle run (the chunks only move the Gemas), and the run
-  // holds the Fees the chain took. So the Match counts as settled from then on, with those amounts, not after the last chunk.
+  // holds the Fees the chain took. So the result screen has those amounts from then on (`fixed`); `status` waits for the last chunk.
   const fixed = game === "block-puzzle" && (stage === "settling" || stage === "refunding" || stage === "closed") ? settledFromRun(m, seat, backingOf, backerSeat) : null;
-  if (fixed) status = fixed.status;
   return {
     id: matchKeyOf({ opener, n }),
     opener,
@@ -299,8 +305,8 @@ export function toChainMatch(state: any, me: PublicKey | null, session: BurstSes
         ? { seat: backedSeat, player: backedSide.player, funder: backedSide.funder, shareBps: backedSide.shareBps }
         : null,
     fees: { platformBps: m.terms.platformBps, studioBps: m.terms.studioBps, leaderboardBps: leaderboardBpsFor(openedAt) },
-    winner: status === "settled" ? winnerOfRun(m.run) : null,
-    ...(fixed ? { settled: fixed.settled } : {}),
+    winner: status === "settled" ? winnerOfRun(m.run) : (fixed?.winner ?? null),
+    ...(fixed ? { settled: fixed.settled, fixed: fixed.status } : {}),
     session,
   };
 }

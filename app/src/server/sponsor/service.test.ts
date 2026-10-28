@@ -29,7 +29,7 @@ const basketData = (gemas: bigint) => {
   return d;
 };
 
-function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean; sendError?: Error; noAccount?: boolean; simulate?: { err?: unknown; extraSpend?: bigint; noLamports?: boolean }; invite?: { redeemed: boolean } } = {}) {
+function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean; sendError?: Error; noAccount?: boolean; simulate?: { err?: unknown; extraSpend?: bigint; noLamports?: boolean; raceOnce?: bigint }; invite?: { redeemed: boolean } } = {}) {
   const relayer = Keypair.generate();
   const player = Keypair.generate();
   const game = new PublicKey("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
@@ -38,6 +38,7 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
   const onboardingAlerts: number[] = [];
   const inviteKey = Keypair.generate();
   let balance = over.balance ?? 10n * SOL;
+  let raced = false;
   const accounts = new Map<string, { owner: PublicKey; data: Uint8Array }>();
   accounts.set(basketPda(accountPda(player.publicKey)).toBase58(), { owner: CORE_ID, data: basketData(over.gemas ?? 500n) });
   if (!over.noAccount) accounts.set(accountPda(player.publicKey).toBase58(), { owner: CORE_ID, data: new Uint8Array(10) });
@@ -58,7 +59,9 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
     // The relayer pays the fee (5,000 + priority) and the receipt's rent: what a Game step is meant to cost.
     simulate: async (tx) => {
       const closes = Buffer.from(tx.message.compiledInstructions.at(-1)!.data).equals(Buffer.from([180, 122, 187, 197, 166, 152, 1, 222]));
-      return { err: over.simulate?.err ?? null, lamports: over.simulate?.noLamports ? null : balance - 5_000n - 400n - (closes ? 0n : 1_275_080n) - (over.simulate?.extraSpend ?? 0n) };
+      // Another sponsored transaction lands between the balance read and the simulation, once.
+      const race = over.simulate?.raceOnce && !raced ? ((raced = true), over.simulate.raceOnce) : 0n;
+      return { err: over.simulate?.err ?? null, lamports: over.simulate?.noLamports ? null : balance - 5_000n - 400n - (closes ? 0n : 1_275_080n) - (over.simulate?.extraSpend ?? 0n) - race };
     },
     send: async (raw) => {
       if (over.sendError) throw over.sendError;
@@ -309,6 +312,22 @@ describe("a Game's finalize with the relayer as caller (ticket 04)", () => {
     await expect(over.s.sponsor.build(over.s.player.publicKey, wire([finalizeIx(over.s, over.matchState)]))).rejects.toMatchObject({ code: "costs-too-much" });
     const blind = await withMatch({ simulate: { noLamports: true } });
     await expect(blind.s.sponsor.build(blind.s.player.publicKey, wire([finalizeIx(blind.s, blind.matchState)]))).rejects.toMatchObject({ code: "costs-too-much" });
+  });
+  it("gives the Match's tries back when anything after admission fails, not only the simulation", async () => {
+    const { s, matchState } = await withMatch();
+    const ok = s.deps.lookupTables;
+    s.deps.lookupTables = async () => {
+      throw new Error("rpc down");
+    };
+    for (let i = 0; i < DEFAULT_LIMITS.gameStepsPerMatch + 2; i++) await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).rejects.toThrow("rpc down");
+    s.deps.lookupTables = ok;
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalizeIx(s, matchState)]))).resolves.toMatchObject({ class: "exit" });
+  });
+  it("is not refused because another sponsored transaction landed while it was measured, but a real overspend still is", async () => {
+    const raced = await withMatch({ simulate: { raceOnce: 3_000_000n } });
+    await expect(raced.s.sponsor.build(raced.s.player.publicKey, wire([finalizeIx(raced.s, raced.matchState)]))).resolves.toMatchObject({ class: "exit" });
+    const drained = await withMatch({ simulate: { extraSpend: 1_000_000n, raceOnce: 3_000_000n } });
+    await expect(drained.s.sponsor.build(drained.s.player.publicKey, wire([finalizeIx(drained.s, drained.matchState)]))).rejects.toMatchObject({ code: "costs-too-much" });
   });
   it("holds the relayer to the chain's own receipt rent, read once", async () => {
     const { s, matchState } = await withMatch();

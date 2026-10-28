@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PublicKey } from "@solana/web3.js";
 import type { MatchPage } from "@/server/history/reads";
-import { chainMatchFromPage, toChainMatch } from "./read";
+import { chainMatchFromPage, resultOf, toChainMatch } from "./read";
 import samples from "./match-pages/settle-run-devnet-2026-10-27.json";
 
 /**
@@ -21,7 +21,10 @@ describe("the result shown when finalize has fixed it equals what the history se
         const me = pk(who);
         const early = toChainMatch({ inner: s.settling.inner }, me, null);
         const final = chainMatchFromPage(s.history, me)!;
-        expect(early.status).toBe(final.status);
+        expect(resultOf(early)).toBe(final.status);
+        // the Match itself is honest: it is not settled until the last chunk has paid
+        expect(early.status).toBe("active");
+        expect(early.running).not.toBeNull();
         expect(early.winner).toBe(final.winner);
         expect(early.settled).toMatchObject({ fee: final.settled!.fee, delta: final.settled!.delta });
       });

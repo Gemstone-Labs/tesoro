@@ -4,7 +4,7 @@ import { parseMatchKey } from "@/lib/chain/match-id";
 import { Busy, Button, Card, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { commitCopy } from "@/lib/chain/commit-pending";
-import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
+import { matchDelta, matchFee, resultFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
@@ -49,7 +49,7 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
         outcome={outcome}
         delta={matchDelta(m)}
         entry={m.entry}
-        fee={Number(matchFee(m))}
+        fee={resultFee(m, outcome)}
         role="player"
         backed={!!m.backing}
         scores={null}

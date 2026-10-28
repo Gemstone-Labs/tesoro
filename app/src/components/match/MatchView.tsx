@@ -9,7 +9,8 @@ import { getReadySecs, slotNow } from "@/games/block-puzzle/live-clock";
 import { stripOf } from "@/games/block-puzzle/opponent";
 import { useBurstMatch } from "@/games/block-puzzle/useBurstMatch";
 import { useAccount } from "@/lib/account";
-import { backerDelta, matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
+import { backerDelta, matchDelta, matchFee, resultFee, seatResult } from "@/lib/chain/ledger";
+import { resultOf } from "@/lib/chain/read";
 import { parseMatchKey } from "@/lib/chain/match-id";
 import { refundMatch } from "@/lib/chain/match-flow";
 import { CANCELLING_NOTE, delayedOf } from "@/lib/chain/match-status";
@@ -90,7 +91,7 @@ export function MatchView({ matchId }: { matchId: string }) {
     const draw = result?.result === "draw";
     const known = result ? (draw ? "draw" : seatResult({ session: result }, mineIdx)) : null;
     const delta = asBacker && m.backing ? backerDelta({ ...m, backerSeat: m.backing.seat, shareBps: m.backing.shareBps }) : matchDelta(m);
-    const outcome = m.status === "refunded" ? "refunded" : (known ?? (delta > 0 ? "won" : delta < 0 ? "lost" : "draw"));
+    const outcome = resultOf(m) === "refunded" ? "refunded" : (known ?? (delta > 0 ? "won" : delta < 0 ? "lost" : "draw"));
     const scores = result && outcome !== "refunded" ? ([String(result.scores[mineIdx]), String(result.scores[1 - mineIdx])] as [string, string]) : null;
     const why = resultLine(view.reason, outcome);
     return (
@@ -99,7 +100,7 @@ export function MatchView({ matchId }: { matchId: string }) {
         outcome={outcome}
         delta={delta}
         entry={m.entry}
-        fee={matchFee(m)}
+        fee={resultFee(m, outcome)}
         role={asBacker ? "backer" : "player"}
         backed={!!m.backing}
         scores={scores}
