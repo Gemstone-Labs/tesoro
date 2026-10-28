@@ -1,13 +1,54 @@
 import { BN, BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
+import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import coreIdl from "./idl/tesoro_core.json";
 import fixtures from "./position-size.fixtures.json";
-import { LEGACY_POSITION_SPACE, POSITION_SPACE, decodePosition, isCurrentPosition, positionBytes, stakeRateHighOf } from "./position-size";
+import stakeFixtures from "./position-stake.fixtures.json";
+import { LEGACY_POSITION_SPACE, POSITION_SPACE, decodePosition, isCurrentPosition, stakeRateHighOf } from "./position-size";
 
 const coder = new BorshAccountsCoder(coreIdl as Idl);
 const decode = (d: Buffer) => coder.decode("PositionState", d);
 const HIGH = 1_320_000_000_000n;
 const devnet = (k: "some" | "noneStale") => Buffer.from(fixtures[k].data, "base64");
+
+type StakeName = Exclude<keyof typeof stakeFixtures, "_note">;
+const STAKE = Object.keys(stakeFixtures).filter((k) => k !== "_note") as StakeName[];
+/** A stake Position image written by tesoro_core in LiteSVM, and the program's own decode of it. */
+const stake = (k: StakeName) => ({ data: Buffer.from(stakeFixtures[k].data, "hex"), expect: stakeFixtures[k].expect });
+const str = (v: { toString(): string } | null) => (v === null ? null : v.toString());
+/** The decoded fields the program's decode lists (u64/u128 as strings). */
+const fieldsOf = (p: any) => ({
+  owner: new PublicKey(p.inner.owner).toBase58(),
+  sourceAsset: new PublicKey(p.inner.source_asset).toBase58(),
+  openedAt: str(p.inner.opened_at),
+  bytes: 0,
+  openAdvance: p.inner.open_advance,
+  decimals: p.inner.decimals,
+  principal: str(p.inner.principal),
+  rateBps: p.inner.rate_bps,
+  advances: p.inner.advances,
+  lastSeq: str(p.inner.last_seq),
+  cumulativeYield: str(p.inner.cumulative_yield),
+  freeYield: str(p.inner.free_yield),
+  freeYieldClaimed: str(p.inner.free_yield_claimed),
+  appliedNet: str(p.inner.applied_net),
+  custodyShares: str(p.inner.custody_shares),
+  yieldFeeBps: p.inner.yield_fee_bps,
+  stakeRateOpen: str(p.inner.stake_rate_open),
+  heldShares: str(p.inner.held_shares),
+  freeShares: str(p.inner.free_shares),
+  paidShares: str(p.inner.paid_shares),
+  poolBps: p.inner.pool_bps,
+  stakeRateHigh: str(p.inner.stake_rate_high),
+});
+/** The coder's decode of the raw bytes, without the helper (null when it throws). */
+const rawDecode = (d: Buffer) => {
+  try {
+    return decode(d);
+  } catch {
+    return null;
+  }
+};
 
 /** A current (243-byte) Position as the program writes it, from a decoded one with `stakeRateHigh` set. */
 async function current(from: Buffer, high: bigint): Promise<Buffer> {
@@ -48,8 +89,34 @@ describe("decodePosition", () => {
     const p = decodePosition(decode, d);
     expect(p.inner.open_advance).toBeNull();
     expect(BigInt(p.inner.stake_rate_high.toString())).toBe(0n);
-    // The same fields as reading only its serialised prefix.
-    expect(positionBytes(d).subarray(0, 231)).toEqual(d.subarray(0, 231));
+    // Field values are checked against the program's own decode for the stake images below, and against the raw-offset
+    // reader (nativeInfoFrom) for these devnet ones in native.test.ts.
+  });
+
+  it("reads every stake Position the program writes as the program does (235 and 243 bytes, Some and None)", () => {
+    expect(STAKE.map((k) => [stake(k).data.length, stake(k).expect.openAdvance])).toEqual([
+      [243, 0],
+      [243, null],
+      [235, 0],
+      [235, null],
+    ]);
+    for (const k of STAKE) {
+      const { data, expect: want } = stake(k);
+      // A 235-byte Position has no stake_rate_high yet: the helper reads it as 0.
+      expect({ ...fieldsOf(decodePosition(decode, data)), bytes: data.length }, k).toEqual({ ...want, stakeRateHigh: want.stakeRateHigh ?? "0" });
+      expect(stakeRateHighOf(data), k).toBe(BigInt(want.stakeRateHigh ?? 0));
+    }
+    expect(stake("stake243Some").expect.stakeRateHigh).not.toBe(stake("stake243Some").expect.stakeRateOpen);
+  });
+
+  it("misreads a 235-byte Position whose Advance closed when decoded without the helper (why every read goes through positionBytes)", () => {
+    // The coder does not throw on a short account: it reads past the end as zeros. That happens to give a 235-byte Some its
+    // right fields, but a None keeps the old Some's tail, and those stale bytes become stake_rate_high, a rate never priced.
+    for (const d of [devnet("noneStale"), stake("stake235NoneStale").data]) {
+      const raw = rawDecode(d)!;
+      expect(str(raw.inner.stake_rate_high)).not.toBe("0");
+      expect(fieldsOf(raw)).not.toEqual(fieldsOf(decodePosition(decode, d)));
+    }
   });
 
   it("reads stake_rate_high of a 243-byte Position at both tags, stale bytes and all", async () => {
