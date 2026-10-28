@@ -76,15 +76,9 @@ export function PacksView({ quotes, highlight, canPay, testMode, feePct, onPick 
       <ul className="dep-notes">
         <Note icon={<Clock />}>You get your deposit back after about {PACK_MONTHS} months!</Note>
         <Note icon={<ChartColumn />}>What you get back depends on the SOL price when you withdraw.</Note>
-        <Note icon={<CreditCard />}>
-          {testMode ? (
-            <>Test mode · no card needed · {PACK_MONTHS} months = about {(PACK_MONTHS * 10) / 60} hours</>
-          ) : canPay ? (
-            "Card, Apple Pay or Google Pay"
-          ) : (
-            "Prefer to use crypto? Turn on Pro view at the top."
-          )}
-        </Note>
+        {!testMode && (
+          <Note icon={<CreditCard />}>{canPay ? "Card, Apple Pay or Google Pay" : "Prefer to use crypto? Turn on Pro view at the top."}</Note>
+        )}
       </ul>
       {(feePct > 0 || quotes === null) && (
         <div className="dep-small">
