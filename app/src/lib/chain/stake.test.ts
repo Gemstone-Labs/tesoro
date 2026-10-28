@@ -3,10 +3,14 @@ import { join } from "node:path";
 import { Keypair, PublicKey, type AccountInfo } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import idl from "./idl/tesoro_core.json";
+import { YIELD_CAP_REACHED } from "../errors";
 import {
   TESORO_CORE_ID,
   TOKEN_PROGRAM_ID,
   accountPda,
+  advanceWaitsForRate,
+  overYieldCap,
+  stakeIssueNote,
   nativeInfoFrom,
   nativeNow,
   pythFeedAddress,
@@ -198,6 +202,69 @@ describe("a stake Position as the app reads it", () => {
     // A simulated Position (no rate at open) is unchanged by a stake growth source.
     const sim = nativeInfoFrom(position, { ...pos, data: positionData({ mint: JITOSOL.mint, stakeRateOpen: 0n, shares: 10n * SOL, principal: 13n * SOL }) } as AccountInfo<Buffer>, null);
     expect(nativeNow(sim, 4380, 1_000_600, stake).accrued).toBe(nativeNow(sim, 4380, 1_000_600).accrued);
+  });
+});
+
+describe("a stake Position's highest priced rate (ticket 55)", () => {
+  /** The image grown to the 243-byte layout: held, free, paid, pool_bps, then stake_rate_high. */
+  const current = (high: bigint) => {
+    const old = positionData({ mint: JITOSOL.mint, stakeRateOpen: R0, shares: 10n * SOL, principal: 13n * SOL });
+    const b = Buffer.alloc(243);
+    old.copy(b);
+    b.writeBigUInt64LE(high, old.length + 16 + 16 + 8 + 2);
+    return { data: b, owner: TESORO_CORE_ID, executable: false, lamports: 1 } as AccountInfo<Buffer>;
+  };
+
+  it("is read from a migrated Position and keeps its counted yield through a fall", () => {
+    const info = nativeInfoFrom(position, current(1_350_000_000_000n), null);
+    expect(info.stakeRateHigh).toBe(1_350_000_000_000n);
+    const fell = stakeGrowthOf({ stake: { rate: 1_310_000_000_000n, sizingBps: 0 } as never }, 1_000_050);
+    // 13 SOL at 1.30 priced at 1.35: 0.5 SOL counted whatever the rate does below it.
+    expect(nativeNow(info, 1, 1_000_050, fell).accrued).toBe(500_000_000n);
+  });
+
+  it("is zero on a Position not yet migrated, which counts from its opening rate", () => {
+    const old = positionData({ mint: JITOSOL.mint, stakeRateOpen: R0, shares: 10n * SOL, principal: 13n * SOL });
+    const b = Buffer.alloc(235);
+    old.copy(b);
+    expect(nativeInfoFrom(position, { ...current(0n), data: b }, null).stakeRateHigh).toBe(0n);
+  });
+});
+
+describe("when a stake Lock can take another Advance or Extend (ticket 55)", () => {
+  const lock = { stakeRateOpen: 1_200_000_000_000n, stakeRateHigh: 1_320_000_000_000n, principalLamports: 12n * SOL, appliedNet: 0n };
+
+  it("waits below the highest priced rate (RateBelowPeak) and names the rate it waits for", () => {
+    expect(advanceWaitsForRate(lock, 1_250_000_000_000n)).toBe(1_320_000_000_000n);
+    expect(advanceWaitsForRate(lock, 1_320_000_000_000n)).toBeNull();
+    // Not migrated yet: counts from the opening rate.
+    expect(advanceWaitsForRate({ ...lock, stakeRateHigh: 0n }, 1_190_000_000_000n)).toBe(1_200_000_000_000n);
+    // A simulated Position, or no rate read yet: nothing to wait for.
+    expect(advanceWaitsForRate({ ...lock, stakeRateOpen: 0n }, 1n)).toBeNull();
+    expect(advanceWaitsForRate(lock, undefined)).toBeNull();
+  });
+
+  it("stops at Principal over the Lock's life (YieldCapReached), counting what is already settled", () => {
+    // 36,000 Gemas at $150 are 2.4 SOL: 9.6 settled + 2.4 = 12 fits, one lamport more does not.
+    const source = { issued: 36_000n, returned: 0n, unitNum: 10n ** 13n, unitDen: 150_000_000n };
+    expect(overYieldCap({ ...lock, appliedNet: 9_600_000_000n }, 9_600_000_000n, source)).toBe(false);
+    expect(overYieldCap({ ...lock, appliedNet: 9_600_000_001n }, 0n, source)).toBe(true);
+    // A new Advance settles the yield counted now first.
+    expect(overYieldCap(lock, 9_600_000_001n, source)).toBe(true);
+    expect(overYieldCap({ ...lock, stakeRateOpen: 0n, appliedNet: 99n * SOL }, 0n, source)).toBe(false);
+  });
+});
+
+describe("what the Advance and Extend sheets say when a stake Lock cannot issue", () => {
+  const lock = { stakeRateOpen: 1_200_000_000_000n, stakeRateHigh: 1_320_000_000_000n, principalLamports: 12n * SOL, appliedNet: 0n };
+  const source = { issued: 36_000n, returned: 0n, unitNum: 10n ** 13n, unitDen: 150_000_000n };
+
+  it("names the rate a fall must recover to, then the lifetime cap, else nothing", () => {
+    expect(stakeIssueNote(lock, 1_250_000_000_000n, 0n, source, "jitoSOL")).toBe(
+      "A new Advance or Extend is available once the jitoSOL rate is back above 1.3200 SOL. Redeem and Unlock still work.",
+    );
+    expect(stakeIssueNote(lock, 1_400_000_000_000n, 9_700_000_000n, source, "jitoSOL")).toBe(YIELD_CAP_REACHED);
+    expect(stakeIssueNote(lock, 1_400_000_000_000n, 0n, source, "jitoSOL")).toBeNull();
   });
 });
 

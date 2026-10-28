@@ -25,6 +25,7 @@ import {
   sharesValue,
   speedupOf,
   stakeGrowthOf,
+  stakeIssueNote,
   unlockEstimateMs,
   type NativeInfo,
   type NativeMarket,
@@ -529,6 +530,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
           })
         : now + months * SIM_MONTH_MIN * 60_000;
   const title = `${fmtSol(info.principalLamports, 3)} SOL Lock`;
+  const blocked = real && quote ? stakeIssueNote(info, market?.stake?.rate, nativeNow(info, 1, Math.floor(now / 1000), growth).accrued, { issued: quote.gemas, returned: 0n, unitNum: 10n ** 13n, unitDen: market!.price!.microUsd }, market?.stake?.token.symbol ?? tokenSymbol(info.mint)) : null;
 
   if (a.done) {
     return (
@@ -555,11 +557,12 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
         <>
           {market && !priceOk && <p className="status err" role="alert">The SOL price is updating. Try again in a few minutes.</p>}
           {real && priceOk && rateBps === 0 && <p className="status err" role="alert">The staking pool shows no recent growth to size an Advance on. Try again later.</p>}
+          {blocked && <p className="status err" role="alert">{blocked}</p>}
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
       }
       buttonLabel={a.busy ? `${step}…` : <GemasLabel action="Take Advance" gemas={gemas} />}
-      disabled={gemas <= 0 || a.busy !== null || !auth.signer}
+      disabled={gemas <= 0 || a.busy !== null || !auth.signer || blocked !== null}
       onSubmit={() => auth.signer && a.run("advance", () => takeNextAdvance(auth.signer!, auth.getAccessToken, info, months, BigInt(gemas), setStep))}
     />
   );
@@ -619,6 +622,8 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
   const addedYield = advanceUnits(info.principalLamports, rateBps, source.horizonMonths + months) - advanceUnits(info.principalLamports, rateBps, source.horizonMonths);
   const unlock = gemas > 0 ? unlockEstimateMs({ clock: clockOf(info), speedup: speedupOf(pool), appliedNet: info.appliedNet, source: quote.extended, nowMs: now, stake: stakeGrowthOf(market) }) : null;
   const title = `${fmtSol(info.principalLamports, 3)} SOL Lock`;
+  // An Extend settles nothing first: the cap counts the yield already settled (`appliedNet`).
+  const blocked = info.stakeRateOpen > 0n && gemas > 0 ? stakeIssueNote(info, market?.stake?.rate, 0n, quote.extended, market?.stake?.token.symbol ?? tokenSymbol(info.mint)) : null;
 
   if (a.done) {
     return (
@@ -653,12 +658,13 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
             onRetry={lim.reload}
             onSet={(m) => auth.signer && setLimit.run("limit", () => setExtendLimit(auth.signer!, auth.getAccessToken, m)).then(lim.reload)}
           />
+          {blocked && <p className="status err" role="alert">{blocked}</p>}
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
       }
       buttonLabel={a.busy ? `${step}…` : view.blocked ? blockedLabel(view.blocked) : <GemasLabel action="Extend" gemas={gemas} />}
-      dimmed={view.blocked !== null}
-      disabled={gemas <= 0 || a.busy !== null || !auth.signer || view.blocked !== null || lim.loading}
+      dimmed={view.blocked !== null || blocked !== null}
+      disabled={gemas <= 0 || a.busy !== null || !auth.signer || view.blocked !== null || lim.loading || blocked !== null}
       onSubmit={() => auth.signer && a.run("extend", () => extendAdvance(auth.signer!, auth.getAccessToken, info, months, BigInt(gemas), setStep))}
     />
   );

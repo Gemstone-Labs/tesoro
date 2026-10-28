@@ -15,15 +15,16 @@
 import anchor, { type Idl, type Program } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import coreIdl from "../../app/src/lib/chain/idl/tesoro_core.json" with { type: "json" };
-import { POSITION_SPACE } from "../../app/src/lib/chain/position-size.ts";
+import { LEGACY_POSITION_SPACE } from "../../app/src/lib/chain/position-size.ts";
 
 export const CORE = new PublicKey((coreIdl as { address: string }).address);
 export const SIM_SOL_MINT = new PublicKey("3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ");
 const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
-/** `State::SPACE` of the current layouts (programs/tesoro_core/src/state.rs). */
-export const SPACE = { position: POSITION_SPACE, custody: 178, treasury: 143, offer: 174 } as const;
+/** `State::SPACE` of the current layouts (programs/tesoro_core/src/state.rs). A Position is retired below 235 bytes: a 235-byte one
+ * (before ticket 55) is migrated to 243 by `migrate_position`, never retired (`retire_position` refuses it too). */
+export const SPACE = { position: LEGACY_POSITION_SPACE, custody: 178, treasury: 143, offer: 174 } as const;
 const BACKING_TTL_SECS = 24 * 60 * 60;
 
 export type Kind = "custody" | "position" | "source" | "holding" | "offer" | "request" | "treasury" | "match" | "season";

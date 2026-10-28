@@ -9,6 +9,7 @@ import { connLister, type Lister } from "./lists.ts";
 import { sendIxs, type SendOpts } from "./send.ts";
 import { SIM_SOL_MINT, connReader, dedupe, supplySources, type Reader } from "./supply.ts";
 import { simulate } from "./tee.ts";
+import { decodeCorePosition } from "./position.ts";
 
 // ---- The fee counters in a Source's book -------------------------------------------------------------------------
 
@@ -111,7 +112,7 @@ export async function candidates(ctx: Ctx, d: CounterDeps, which: "harvest" | "c
   for (let i = 0; i < withCounters.length; i++) {
     const p = positions[i];
     if (!p) continue;
-    const decoded: any = ctx.core.coder.accounts.decode("positionState", p.data);
+    const decoded: any = decodeCorePosition(ctx.core, p.data);
     const custody = await custodyOf(ctx.core, d.read, decoded, SIM_SOL_MINT);
     const chain = Object.keys(decoded.inner.sourceChain)[0] as Candidate["chain"];
     const cand: Candidate = { source: withCounters[i].address, position: withCounters[i].position, custody, chain, positionId: Uint8Array.from(decoded.positionId), counters: withCounters[i].counters };

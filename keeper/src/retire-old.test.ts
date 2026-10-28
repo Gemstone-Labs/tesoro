@@ -76,6 +76,9 @@ describe("retire plan", () => {
   it("never plans a current-size Position, custody, Treasury or Offer", () => {
     const w = new World();
     w.position(SPACE.position);
+    // A 235-byte Position (before ticket 55) is migrated by migrate_position, never retired.
+    w.position(235);
+    w.position(243);
     w.add(row("NativeCustody", SPACE.custody));
     w.add(row("Treasury", SPACE.treasury));
     w.add(row("OfferState", SPACE.offer));

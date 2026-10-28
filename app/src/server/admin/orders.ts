@@ -5,6 +5,7 @@ import { bookPda } from "@/lib/chain/basket";
 import { decodeBook, fpFloor, readyNow, syncPreview, type SourceBookView } from "@/lib/chain/book";
 import { INSTANT_ORDER_LEN, INSTANT_REDEEM_FEE_BPS, STAKE_ROUTE_AT, decodeOrder, fillPayoutShares, maxFill, orderState, type InstantOrder, type OrderState } from "@/lib/chain/instant-order";
 import { NATIVE_ROUTE_AT, parseRoute, type RouteView } from "@/lib/chain/fees";
+import { positionBytes } from "@/lib/chain/position-size";
 import { POOL, RATE_SCALE, SIM_SOL_MINT, TESORO_CORE_ID, clockOf, nativeCustodyPda, rateAt, rdI64, rdU32, rdU64, type PoolParams } from "@/lib/chain/native";
 import { baseRpc } from "@/lib/chain/rpc-config";
 import { JITOSOL, STAKE_CUSTODY_LEN, stakeCustodyPda } from "@/lib/chain/stake";
@@ -87,7 +88,7 @@ export interface OrdersRaw {
 
 const decodeOr = (name: string, info: Info) => {
   try {
-    return info ? coder.decode(name, info.data) : null;
+    return info ? coder.decode(name, name === "PositionState" ? positionBytes(info.data) : info.data) : null;
   } catch {
     return null;
   }
@@ -98,7 +99,7 @@ function syncedBook(book: SourceBookView, pos: any, src: any, pool: PoolParams |
   const p = pos.inner;
   const native = enumKey(p.sourceChain) === "solana" && (key(p.sourceAsset).equals(SIM_SOL_MINT) || big(p.stakeRateOpen ?? 0) !== 0n);
   if (!native || p.openAdvance !== src.inner.index || enumKey(p.status) !== "locked") return book;
-  const clock = clockOf({ principalLamports: big(p.principal), rateBps: p.rateBps, openedAt: Number(big(p.openedAt)), stakeRateOpen: big(p.stakeRateOpen ?? 0) });
+  const clock = clockOf({ principalLamports: big(p.principal), rateBps: p.rateBps, openedAt: Number(big(p.openedAt)), stakeRateOpen: big(p.stakeRateOpen ?? 0), stakeRateHigh: big(p.stakeRateHigh ?? 0) });
   const stake = stakeRate ? { rateNow: stakeRate, atSec: nowSec, apyBps: p.rateBps } : undefined;
   const net = positionAccrued(clock, pool?.speedup ?? 1, nowSec, stake);
   const applied = big(p.appliedNet);

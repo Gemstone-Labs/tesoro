@@ -206,6 +206,7 @@ describe("native math", () => {
     position: owner,
     mint: SIM_SOL_MINT,
     stakeRateOpen: 0n,
+    stakeRateHigh: 0n,
     custodyShares: principal,
     status: "locked",
     principalLamports: principal,

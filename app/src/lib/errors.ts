@@ -14,6 +14,22 @@ export const INSTANT_UNAVAILABLE = `Instant Redeem unavailable right now. ${BRAN
 
 export const PRICE_MOVED = "The price moved while you were confirming, so the Advance would have issued fewer Gemas than shown. Nothing was taken. Try again.";
 
+/** A Position the program cannot read yet: the upgrade that grew it (ticket 55) is being rolled out (Anchor AccountDidNotDeserialize, 3003 = 0xbbb). */
+export const UPDATING = `${BRAND.name} is updating. Try again in a minute.`;
+const UPDATING_PATTERN = /AccountDidNotDeserialize|custom program error: 0xbbb\b|"Custom":\s*3003\b/i;
+
+/** tesoro_core RateBelowPeak (6185 = 0x1829): the staking rate is below the highest rate the Lock's yield was priced at. */
+export const RATE_BELOW_PEAK = "The staking rate is below the rate your Lock's yield was last priced at. A new Advance or Extend is available once it is back up. Redeem and Unlock still work.";
+const RATE_BELOW_PEAK_PATTERN = /RateBelowPeak|custom program error: 0x1829\b|"Custom":\s*6185\b/i;
+
+/** tesoro_core YieldCapReached (6186 = 0x182a): a Lock's Advances over its life add up to its Principal. */
+export const YIELD_CAP_REACHED = "This Lock has advanced as much yield as its Principal, the most it can over its life. Redeem and Unlock still work.";
+const YIELD_CAP_PATTERN = /YieldCapReached|custom program error: 0x182a\b|"Custom":\s*6186\b/i;
+
+/** tesoro_core GrowthClaimsUnfunded (6187 = 0x182b): an old test Lock whose holders are owed more than it holds. */
+export const UNLOCK_WAITS_FOR_TREASURY = `This Lock can't unlock yet: ${BRAND.name}'s Treasury has to fund what its Gemas' holders are owed first. Try again later.`;
+const UNLOCK_WAITS_PATTERN = /GrowthClaimsUnfunded|custom program error: 0x182b\b|"Custom":\s*6187\b/i;
+
 const PRICE_MOVED_PATTERN = /AdvanceBelowMinimum|fewer Gemas than the minimum|"Custom":\s*6045\b|custom program error: 0x179d/i;
 
 /** The program refused an Advance because the price moved and it would have issued fewer Gemas than the floor. */
@@ -23,6 +39,10 @@ export function plainError(e: unknown): string {
   const text = e instanceof Error ? e.message : String(e);
   if (/TreasuryShort|treasury cannot pay|custom program error: 0x1781|"Custom":\s*6017\b/i.test(text)) return INSTANT_UNAVAILABLE;
   if (PRICE_MOVED_PATTERN.test(text)) return PRICE_MOVED;
+  if (UPDATING_PATTERN.test(text)) return UPDATING;
+  if (RATE_BELOW_PEAK_PATTERN.test(text)) return RATE_BELOW_PEAK;
+  if (YIELD_CAP_PATTERN.test(text)) return YIELD_CAP_REACHED;
+  if (UNLOCK_WAITS_PATTERN.test(text)) return UNLOCK_WAITS_FOR_TREASURY;
   const err = e as { code?: number; name?: string };
   if (err?.name === "UserRejectedRequestError" || err?.code === 4001 || /user rejected|rejected the request|user denied/i.test(text)) {
     return "You cancelled the request in your wallet.";
