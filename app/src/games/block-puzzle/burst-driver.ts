@@ -4,7 +4,7 @@ import { sessionFromTable, type BurstSession } from "@/lib/chain/burst-read";
 import { matchAddressOf } from "@/lib/chain/match-id";
 import { matchProgress } from "@/lib/chain/match-progress";
 import { isCancelling } from "@/lib/chain/match-status";
-import type { ChainMatch } from "@/lib/chain/read";
+import { resultOf, type ChainMatch } from "@/lib/chain/read";
 import { settledPda } from "@/lib/chain/basket";
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import type { GetToken } from "@/lib/chain/demo-client";
@@ -347,7 +347,7 @@ export class BurstDriver {
       const kind = r?.receipt?.kind ? Object.keys(r.receipt.kind)[0] : null;
       if (!kind) return null;
       const won = kind === "win" ? (r?.receipt?.kind?.win?.winner ?? null) : null;
-      return { ...last, status: kind === "win" || kind === "draw" ? "settled" : "refunded", running: null, winner: won === 0 ? "opener" : won === 1 ? "joiner" : null };
+      return { ...last, status: kind === "win" || kind === "draw" ? "settled" : "refunded", running: null, fixed: undefined, winner: won === 0 ? "opener" : won === 1 ? "joiner" : null };
     } catch {
       return null;
     }
@@ -383,7 +383,7 @@ export class BurstDriver {
       if (fresh === null && this.matchRef?.running) this.gone = true;
       // This page never saw the settle run (a tab in the background, a slow device) and the account is gone: the settlement
       // receipt, which outlives the account, still names how the Match ended.
-      if (fresh === null && this.matchRef && this.matchRef.status === "active" && this.matchRef.sides[1]) {
+      if (fresh === null && this.matchRef && this.matchRef.status === "active" && !resultOf(this.matchRef) && this.matchRef.sides[1]) {
         fresh = await this.closedFromReceipt(this.matchRef);
         if (fresh) this.gone = true;
       }
@@ -391,12 +391,12 @@ export class BurstDriver {
       this.matchAt = now();
     }
     const m = this.matchRef;
-    this.patch({ match: m, refundable: !!m && m.status === "active" && now() / 1000 > m.deadline });
+    this.patch({ match: m, refundable: !!m && m.status === "active" && !resultOf(m) && now() / 1000 > m.deadline });
     if (!m) return this.patchStage("notfound");
     if (m.seat === null && m.backerSeat === null) return this.patchStage("spectator");
     if (m.seat === null) {
       // A Backer watches: the result comes from the chain.
-      if (m.status === "settled" || m.status === "refunded") return void (await this.settle(m));
+      if (resultOf(m)) return void (await this.settle(m));
       return this.patchStage("backer");
     }
     const seat = m.seat;
@@ -413,14 +413,15 @@ export class BurstDriver {
     }
     const a = this.assign;
     // Joined, and the operator has not bound a table yet: look twice a second, not once (the table is the next thing to happen).
-    if (!a && m.status === "active" && !this.assignWake) {
+    if (!a && m.status === "active" && !resultOf(m) && !this.assignWake) {
       this.assignWake = setTimeout(() => {
         this.assignWake = null;
         void this.tick();
       }, ASSIGNMENT_POLL_MS);
     }
 
-    if (m.status === "settled" || m.status === "refunded") {
+    const fixed = resultOf(m);
+    if (fixed) {
       if (a && !this.baseRef) {
         this.baseRef = await chain.readTableOnBase(a).catch(() => null);
         const log = this.baseRef ? runLogOf(this.baseRef, m.address, a.epoch) : null;
@@ -480,7 +481,7 @@ export class BurstDriver {
     }
     const stalledMs = now() - this.keyRef.since;
 
-    const s = nextStep({ seat, status: m.status, assignment: a, table: t, baseTable: baseTable ?? null, slot: slotNowV, nowS: now() / 1000, board: this.boardRef, stalledMs });
+    const s = nextStep({ seat, status: resultOf(m) ?? m.status, assignment: a, table: t, baseTable: baseTable ?? null, slot: slotNowV, nowS: now() / 1000, board: this.boardRef, stalledMs });
 
     // The stage the Player sees.
     const phase = t ? phaseAt(t, slotNowV) : null;
