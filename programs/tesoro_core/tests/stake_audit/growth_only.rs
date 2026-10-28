@@ -158,3 +158,78 @@ fn growth_only_growth_hidden_by_a_later_fall_is_borne_by_the_player() {
     assert_eq!((release, treasury), (rest, 0));
     assert!(rest.abs_diff(6_904_761_905) <= 1, "rest {rest}");
 }
+
+#[test]
+fn growth_only_a_second_advance_below_the_highest_priced_rate_waits_for_the_rate() {
+    let (mut env, ana, pos) = paid_yield_scenario();
+    set_rate(&mut env, LOW_RATE);
+    env.refresh_feed();
+    let (ix, _) = env.advance_ix(&ana, pos, 6);
+    assert_eq!(
+        code(&env.send(&[ix], &ana.kp, &[]).unwrap_err()),
+        core_code(ledger::CoreError::RateBelowPeak)
+    );
+    // Back at the rate the yield was priced at: allowed, and it lands nothing new.
+    set_rate(&mut env, HIGH_RATE);
+    let second = env.advance_stake(&ana, pos, 6).unwrap();
+    assert_eq!(env.position(pos).applied_net, 1_200_000_000);
+    assert!(env.debt(second) > 0);
+    env.return_own(&ana, pos, second, env.stored(second).issued)
+        .unwrap();
+    env.fund_treasury(SOL);
+    // Today this Unlock pays 454,545,454 units from the Treasury (the double count).
+    let (_, treasury) = unlock_at(&mut env, &ana, pos, HIGH_RATE);
+    assert_eq!(treasury, 0);
+}
+
+#[test]
+fn growth_only_an_extend_waits_while_the_rate_dips_below_the_last_landing() {
+    let mut env = at_open_rate();
+    let ana = env.holder(10 * SOL);
+    let pos = env.open(&ana, 10 * SOL).unwrap();
+    let source = env.advance_stake(&ana, pos, 6).unwrap();
+    set_rate(&mut env, 1_240_000_000_000);
+    env.redeem(&ana, pos, source, 1).unwrap();
+    assert_eq!(env.position(pos).stake_rate_high, 1_240_000_000_000);
+    set_rate(&mut env, 1_239_000_000_000);
+    assert_eq!(
+        code(&env.extend_stake(&ana, pos, source, 1).unwrap_err()),
+        core_code(ledger::CoreError::RateBelowPeak)
+    );
+    // Redeem and Return still work in the dip.
+    env.redeem(&ana, pos, source, 1).unwrap();
+    set_rate(&mut env, 1_240_000_000_000);
+    env.extend_stake(&ana, pos, source, 1).unwrap();
+    env.check_vault();
+}
+
+#[test]
+fn growth_only_a_stake_lock_advances_at_most_its_principal_over_its_life() {
+    // 20% ceiling: a 12-month Advance on 12 SOL is 2.4 SOL. At 2.20 the Lock has accrued 10 SOL,
+    // so 10 + 2.4 > 12 is refused; at 2.10 (9 SOL) 9 + 2.4 fits.
+    let mut env = at_open_rate();
+    env.set_ceiling(CEILING_BPS).unwrap();
+    let ana = env.holder(10 * SOL);
+    let pos = env.open(&ana, 10 * SOL).unwrap();
+    set_rate(&mut env, 2_200_000_000_000);
+    env.refresh_feed();
+    let (ix, _) = env.advance_ix(&ana, pos, 12);
+    assert_eq!(
+        code(&env.send(&[ix], &ana.kp, &[]).unwrap_err()),
+        core_code(ledger::CoreError::YieldCapReached)
+    );
+    // A 6-month Advance (1.2 SOL) fits at 2.20; extending it to 12 months (2.4 SOL) does not.
+    let source = env.advance_stake(&ana, pos, 6).unwrap();
+    assert_eq!(env.position(pos).applied_net, 10 * SOL);
+    assert_eq!(
+        code(&env.extend_stake(&ana, pos, source, 6).unwrap_err()),
+        core_code(ledger::CoreError::YieldCapReached)
+    );
+    env.extend_stake(&ana, pos, source, 1).unwrap();
+    // Redeem and Unlock are never capped.
+    set_rate(&mut env, 2_400_000_000_000);
+    let ready = env.redeemable(&ana, source);
+    env.redeem(&ana, pos, source, ready).unwrap();
+    env.unlock(&ana, pos).unwrap();
+    env.check_vault();
+}

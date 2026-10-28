@@ -51,6 +51,8 @@ struct World {
     landings: Vec<(u128, u64)>,
     /// The rate the Position unlocked at.
     unlock_rate: u64,
+    /// `applied_net` when each Source was issued (it only moves once the Source closes).
+    issued_at_net: Vec<u64>,
 }
 
 impl World {
@@ -83,6 +85,7 @@ impl World {
             now: T0,
             landings: vec![],
             unlock_rate: 0,
+            issued_at_net: vec![],
         }
     }
 
@@ -115,6 +118,7 @@ impl World {
             )?,
         }
         let mut src = pos.open_advance(POSITION, months, PRICE)?;
+        check_stake_issuance(&pos, &rate, &src)?;
         src.due_at = planned_due_at(self.now, months, 1)?;
         src.yield_fee_bps = FEE;
         src.pool_bps = POOL;
@@ -122,6 +126,7 @@ impl World {
         let mut book = SourceBook::new();
         let ck = MemCheckpoints::new(source_key(s));
         let line = advance_line(&mut book, source_key(s), &src, &ck)?;
+        self.issued_at_net.push(pos.applied_net);
         self.pos = pos;
         self.srcs.push(src);
         self.books.push(book);
@@ -309,6 +314,17 @@ impl World {
                     >= self.pos.held_shares,
                 "the custody still covers what holders are owed"
             );
+            // Ticket 55 cap: every Source's commitment fit under Principal when it was issued.
+            if let Some(i) = self.pos.open_advance {
+                let src = &self.srcs[i as usize];
+                let commit = (src.issued - src.returned) as u128 * src.unit_num
+                    / u128::from(src.unit_den);
+                assert!(
+                    u128::from(self.issued_at_net[i as usize]) + commit
+                        <= u128::from(self.pos.principal) + 1,
+                    "Source {i} was issued over the lifetime cap"
+                );
+            }
         }
         self.route.check(&[]).expect("route");
         let custody_left = if self.pos.status == PositionStatus::Locked {
@@ -627,6 +643,63 @@ fn the_highest_priced_rate_moves_only_when_yield_lands_and_counted_yield_never_d
     let mut native = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, SOL, 500).unwrap();
     bank_free_yield(&mut native, SOL, &ShareRate::native(1_100_000_000).unwrap()).unwrap();
     assert_eq!(native.stake_rate_high, 0);
+}
+
+#[test]
+fn issuance_is_capped_at_principal_and_refused_below_the_highest_priced_rate() {
+    let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, 12 * SOL, 2_000).unwrap();
+    pos.stake_rate_open = R0;
+    pos.stake_rate_high = R0 + R0 / 10;
+    let mut src = pos.clone().open_advance(POSITION, 12, PRICE).unwrap();
+    // 2.4 SOL: 36,000 Gemas at $150.
+    assert_eq!(src.issued, 36_000);
+    let peak = ShareRate::stake(R0 + R0 / 10).unwrap();
+    let below = ShareRate::stake(R0 + R0 / 10 - 1).unwrap();
+    assert_eq!(check_stake_issuance(&pos, &peak, &src), Ok(()));
+    assert_eq!(
+        check_stake_issuance(&pos, &below, &src),
+        Err(CoreError::RateBelowPeak)
+    );
+    // Exactly at Principal passes, one lamport over is refused.
+    pos.applied_net = 12 * SOL - 2_400_000_000;
+    assert_eq!(check_stake_issuance(&pos, &peak, &src), Ok(()));
+    pos.applied_net += 1;
+    assert_eq!(
+        check_stake_issuance(&pos, &peak, &src),
+        Err(CoreError::YieldCapReached)
+    );
+    // Returned Gemas free their commitment; redeemed ones do not.
+    src.returned = 1;
+    src.redeemed = 5_000;
+    assert_eq!(check_stake_issuance(&pos, &peak, &src), Ok(()));
+    // Counted yield above Principal (rate more than doubled) refuses without underflowing.
+    pos.applied_net = 13 * SOL;
+    assert_eq!(
+        check_stake_issuance(&pos, &peak, &src),
+        Err(CoreError::YieldCapReached)
+    );
+    // Native and reported Positions are never checked here.
+    let other = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, SOL, 500).unwrap();
+    assert_eq!(check_stake_issuance(&other, &below, &src), Ok(()));
+}
+
+#[test]
+fn yearly_advances_at_twenty_percent_stop_after_four_years() {
+    // design-v4 4.1: compounding 20% a year, a 12-month Advance each year. After 3 years
+    // 0.728P + 0.2P fits; after 4 years 1.074P does not.
+    let mut w = World::new(10 * SOL);
+    let mut ok = vec![];
+    for year in 1..=5 {
+        w.pos.rate_bps = 2_000;
+        let r = w.advance(12);
+        ok.push((year, r.is_ok()));
+        if r.is_err() {
+            assert_eq!(r, Err(CoreError::YieldCapReached), "year {year}");
+            break;
+        }
+        w.rate = w.rate + w.rate / 5;
+    }
+    assert_eq!(ok, vec![(1, true), (2, true), (3, true), (4, true), (5, false)]);
 }
 
 // --- Property: random lives of a Position, with slashes ----------------------------------------

@@ -540,7 +540,8 @@ fn landed_growth_shares(position: &Position, rate: &ShareRate, free_fee: u64) ->
         .saturating_add(u128::from(position.paid_shares));
     let worth = u128::from(rate.whole_shares_for_units_ceil(priced)?);
     let growth = landed.saturating_sub(u128::from(free_fee).saturating_add(worth));
-    u64::try_from(growth).map_err(|_| CoreError::Math)
+    // Only ever compared with the custody's shortfall (a u64): saturating loses nothing.
+    Ok(u64::try_from(growth).unwrap_or(u64::MAX))
 }
 
 /// Unlock a Position whose Advance is already closed (or banked). The Yield Fee is charged on the
