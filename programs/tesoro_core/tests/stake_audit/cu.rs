@@ -47,7 +47,7 @@ fn cu_report() {
             system_program: anchor_lang::system_program::ID,
         },
         instruction::ExtendStakeAdvance {
-            extra_months: 6,
+            extra_months: 1,
             min_gemas: 1,
         },
         book_metas(&env.svm, source),

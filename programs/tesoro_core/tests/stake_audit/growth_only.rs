@@ -6,13 +6,13 @@
 use super::*;
 
 /// The pool at `total` lamports per 1e12 tokens, with a last epoch a little lower so an Advance
-/// can still be sized (`sizing_apy_bps > 0`) at any rate.
+/// can be sized at any rate (1% an epoch: far above any ceiling).
 fn set_rate(env: &mut Env, total: u64) {
     env.set_pool(pool_data(
         total,
         1_000_000_000_000,
         EPOCH,
-        total - total / 1_000,
+        total - total / 100,
         1_000_000_000_000,
     ));
 }
