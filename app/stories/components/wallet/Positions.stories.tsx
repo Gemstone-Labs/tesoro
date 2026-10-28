@@ -4,6 +4,7 @@ import { EthFaucet, EthOpenForm, EthOps, EthPositionCard } from "@/app/(app)/wal
 import { NativeAdvanceSheet, NativeExtendSheet, NativeFaucet, NativeOpenForm, NativePositionCard } from "@/app/(app)/wallet/NativePositions";
 import { DEFAULT_EXTEND_LIMIT_DATA, type ExtendLimitData } from "@/lib/chain/extend-limit";
 import { quoteNativeAdvance } from "@/lib/chain/native";
+import { JITOSOL } from "@/lib/chain/stake";
 import { ETH_VAULTS } from "@/lib/chain/eth";
 import { withScreen } from "../../screens/support/screen";
 import { withSigner } from "../../screens/support/signer";
@@ -96,6 +97,29 @@ export const SolExtendPendingRaise: Story = extendSheet(limitWith({ pendingMonth
 export const SolTakeAnotherAdvance: Story = {
   parameters: { data: { snapshot: nativeSnapshot("repaid") } },
   render: () => <NativeAdvanceSheet info={nativePosition("repaid").native!} market={NATIVE_MARKET} open onClose={() => {}} />,
+};
+/** A staking-token Lock: 12 SOL locked at rate 1.20 (jitoSOL), Debt paid. */
+function stakePosition(state: "repaid" | "unlocked") {
+  const base = nativePosition(state);
+  return {
+    ...base,
+    native: { ...base.native!, mint: JITOSOL.mint, stakeRateOpen: 1_200_000_000_000n, principalLamports: 12_000_000_000n, custodyShares: 9_090_909_092n },
+  };
+}
+/** Debt is zero and the rate fell after the yield was paid: Unlock says how much it will be short, before it is pressed. */
+export const SolUnlockShortfall: Story = {
+  parameters: { data: { snapshot: nativeSnapshot("repaid") } },
+  render: () => <NativePositionCard position={stakePosition("repaid")} market={NATIVE_MARKET} shortfall={{ before: 636_363_635n }} />,
+};
+/** Same Lock, rate unchanged: no notice. */
+export const SolUnlockInFull: Story = {
+  parameters: { data: { snapshot: nativeSnapshot("repaid") } },
+  render: () => <NativePositionCard position={stakePosition("repaid")} market={NATIVE_MARKET} shortfall={{}} />,
+};
+/** After Unlock: the receipt keeps the amount that came back short. */
+export const SolUnlockedShortfallReceipt: Story = {
+  parameters: { data: { snapshot: nativeSnapshot("unlocked") } },
+  render: () => <NativePositionCard position={stakePosition("unlocked")} market={NATIVE_MARKET} shortfall={{ receipt: 636_363_635n }} />,
 };
 export const SolUnlocked: Story = {
   parameters: { data: { snapshot: nativeSnapshot("unlocked") } },

@@ -103,6 +103,9 @@ export default function Terms() {
           Gemas that have been repaid are claims on the staking token their yield was worth when it landed, not on a fixed amount of the coin. <b>If the staking token is
           slashed or loses value, the value of your repaid Gemas falls with it, as if you held the token yourself, and we do not make up the difference.</b> We keep no cushion for this.
         </p>
+        <p>
+          <b>If the staking token&apos;s rate falls after your yield was paid out, you get back what is left of your tokens, which can be worth less than the SOL you locked.</b> The Unlock screen shows the amount before you confirm it, and we do not make up the difference.
+        </p>
         <ul>
           <li><b>Redeem</b> turns Gemas into the asset they came from, only as far as the yield of the Lock they came from has actually been earned and has reached those Gemas under the payout order below. Winning Gemas never shortens your own lock. The amount you can Redeem now does not go down unless you Redeem or spend those Gemas.</li>
           <li>

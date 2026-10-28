@@ -16,6 +16,11 @@ describe("legal pages", () => {
     expect(html).toContain("60%");
   });
 
+  it("tells Players a rate fall after paid yield can leave their Lock short", () => {
+    const html = renderToStaticMarkup(<Terms />).replace(/&#x27;|&apos;/g, "'");
+    expect(html).toContain("If the staking token's rate falls after your yield was paid out, you get back what is left of your tokens, which can be worth less than the SOL you locked.");
+  });
+
   it("renders the Privacy Policy with its providers", () => {
     const html = renderToStaticMarkup(<Privacy />);
     for (const name of ["Privy", "Supabase", "Resend", "Vercel", "MagicBlock", "LayerZero"]) expect(html).toContain(name);

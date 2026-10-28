@@ -134,16 +134,22 @@ export async function prevAdvanceOf(conn: Reader, position: PublicKey, openAdvan
   return { prev: { index: openAdvance, accounts }, create };
 }
 
-/** Unlock a Solana Position (simSOL or staking token): Debt must be zero; closes the open Advance and returns the Principal with the free yield. */
-export async function unlockPosition(signer: ChainSigner, getToken: GetToken, info: { position: PublicKey; openAdvance: number | null; stakeRateOpen: bigint; mint: PublicKey }): Promise<string> {
-  const me = signer.publicKey;
+type UnlockInfo = { position: PublicKey; openAdvance: number | null; stakeRateOpen: bigint; mint: PublicKey };
+
+/** The instructions that Unlock a Solana Position (simSOL or staking token): the open Advance closes with it, the token account is created if missing. */
+export async function unlockIxs(me: PublicKey, info: UnlockInfo): Promise<TransactionInstruction[]> {
   const { prev, create } = await prevAdvanceOf(getChain().base, info.position, info.openAdvance, me);
   const token = info.stakeRateOpen > 0n ? tokenOf(info.mint) : null;
-  return exitSend(signer, getToken, [
+  return [
     ...create,
     ...(await ataIx(getChain().base, me, token)),
     token ? unlockStakeIx(me, info.position, prev, token) : unlockIx(me, info.position, prev),
-  ]);
+  ];
+}
+
+/** Unlock a Solana Position (simSOL or staking token): Debt must be zero; closes the open Advance and returns the Principal with the free yield. */
+export async function unlockPosition(signer: ChainSigner, getToken: GetToken, info: UnlockInfo): Promise<string> {
+  return exitSend(signer, getToken, await unlockIxs(signer.publicKey, info));
 }
 
 export { accountPda };
