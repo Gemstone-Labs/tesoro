@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getChain } from "@/lib/chain/client";
 import { unlockIxs } from "@/lib/chain/redeem";
-import { previewUnlockShortfall, shortfallCopy, shortfallLamports } from "@/lib/chain/unlock-shortfall";
+import { previewUnlockShortfall, shortfallCopy, shortfallLamports, unlockFeePayer } from "@/lib/chain/unlock-shortfall";
+import { sponsorStatus } from "@/lib/chain/sponsor-client";
 import type { NativeInfo } from "@/lib/chain/native";
-import type { PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 
 /** The shortfall notice: before Unlock (`after` false) and on the receipt after. Renders nothing when the Lock returns in full. */
 export function UnlockShortfallNote({ gapLamports, principalLamports, symbol, after = false }: { gapLamports: bigint | null; principalLamports: bigint; symbol: string; after?: boolean }) {
@@ -35,9 +36,12 @@ export function useUnlockShortfall(info: NativeInfo, payer: PublicKey | undefine
     let live = true;
     (async () => {
       try {
-        const found = await previewUnlockShortfall(getChain().base, payer, await unlockIxs(payer, latest.current));
-        if (live) setGap(found && found.gapShares > 0n ? shortfallLamports(found.gapShares, rate) : null);
-      } catch {
+        const ixs = await unlockIxs(payer, latest.current);
+        const relayer = new PublicKey((await sponsorStatus()).relayer);
+        const found = await previewUnlockShortfall(getChain().base, unlockFeePayer(ixs, payer, relayer), ixs);
+        if (live) setGap(found.state === "short" ? shortfallLamports(found.shortfall.gapShares, rate) : null);
+      } catch (e) {
+        console.warn("Unlock dry run could not run", e);
         if (live) setGap(null);
       }
     })();

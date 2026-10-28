@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { PublicKey } from "@solana/web3.js";
-import { parseUnlockShortfall, shortfallLamports, shortfallCopy } from "./unlock-shortfall";
+import { Keypair, SystemProgram, TransactionInstruction, type Connection, type VersionedTransaction } from "@solana/web3.js";
+import { parseUnlockShortfall, previewUnlockShortfall, shortfallLamports, shortfallCopy, unlockFeePayer } from "./unlock-shortfall";
+import { unlockStakeIx } from "./stake";
+import { createAtaIdempotentIx } from "./stake-pool";
+import { JITOSOL } from "./stake";
 
 const POSITION = new PublicKey("11111111111111111111111111111112");
 
@@ -47,5 +51,47 @@ describe("shortfallCopy", () => {
   });
   it("is null when nothing is missing", () => {
     expect(shortfallCopy({ gapLamports: 0n, principalLamports: 12_000_000_000n, symbol: "jitoSOL" })).toBeNull();
+  });
+});
+
+describe("the Unlock dry run", () => {
+  const player = Keypair.generate().publicKey;
+  const relayer = Keypair.generate().publicKey;
+  const position = Keypair.generate().publicKey;
+  const ixs = [unlockStakeIx(player, position, null, JITOSOL)];
+
+  it("is paid by the relayer when the exit is sponsored, never by a Player with no SOL", () => {
+    expect(unlockFeePayer(ixs, player, relayer).equals(relayer)).toBe(true);
+  });
+  it("is paid by the Player when the exit also creates a token account (self-pay, as exitSend)", () => {
+    const withAta = [createAtaIdempotentIx(player, player, JITOSOL.mint), ...ixs];
+    expect(unlockFeePayer(withAta, player, relayer).equals(player)).toBe(true);
+    const foreign: TransactionInstruction = SystemProgram.transfer({ fromPubkey: player, toPubkey: relayer, lamports: 1 });
+    expect(unlockFeePayer([foreign, ...ixs], player, relayer).equals(player)).toBe(true);
+  });
+
+  function conn(value: { err: unknown; logs: string[] }) {
+    const seen: { tx?: VersionedTransaction; opts?: unknown } = {};
+    const c = { simulateTransaction: async (tx: VersionedTransaction, opts: unknown) => ((seen.tx = tx), (seen.opts = opts), { value }) } as unknown as Connection;
+    return { c, seen };
+  }
+
+  it("simulates with the given fee payer, no signatures and a replaced blockhash", async () => {
+    const { c, seen } = conn({ err: null, logs: [] });
+    await previewUnlockShortfall(c, relayer, ixs);
+    expect(seen.tx!.message.staticAccountKeys[0].equals(relayer)).toBe(true);
+    expect(seen.opts).toMatchObject({ sigVerify: false, replaceRecentBlockhash: true });
+  });
+  it("reports the shortfall the program logged", async () => {
+    const { c } = conn({ err: null, logs: [eventLine(509_090_908n)] });
+    const got = await previewUnlockShortfall(c, relayer, ixs);
+    expect(got).toMatchObject({ state: "short", shortfall: { gapShares: 509_090_908n } });
+  });
+  it("says full when the program logged no shortfall", async () => {
+    expect(await previewUnlockShortfall(conn({ err: null, logs: ["Program X success"] }).c, relayer, ixs)).toEqual({ state: "full" });
+  });
+  it("a failed simulation is unknown, never 'paid in full'", async () => {
+    const got = await previewUnlockShortfall(conn({ err: "AccountNotFound", logs: [] }).c, player, ixs);
+    expect(got.state).toBe("unknown");
   });
 });

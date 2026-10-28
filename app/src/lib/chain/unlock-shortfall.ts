@@ -1,4 +1,6 @@
-import { PublicKey, Transaction, type Connection, type TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, TransactionMessage, VersionedTransaction, type Connection, type TransactionInstruction } from "@solana/web3.js";
+import { coreIxName } from "./core-ix";
+import { TESORO_CORE_ID } from "./native";
 import { tokensToLamports } from "./stake-pool";
 
 /**
@@ -55,13 +57,36 @@ export function shortfallCopy({ gapLamports, principalLamports, symbol, after = 
   };
 }
 
-/** Dry-runs the Unlock instructions as `payer` and reads the shortfall the program would report. Null when it pays in full or the dry run fails. */
-export async function previewUnlockShortfall(conn: Connection, payer: PublicKey, ixs: TransactionInstruction[]): Promise<UnlockShortfall | null> {
-  const { blockhash } = await conn.getLatestBlockhash("confirmed");
-  const tx = new Transaction({ feePayer: payer, recentBlockhash: blockhash }).add(...ixs);
-  const res = await conn.simulateTransaction(tx);
-  if (res.value.err) return null;
-  return parseUnlockShortfall(res.value.logs ?? []);
+/**
+ * Who pays the fee when this exit is really sent: the relayer when every instruction is a core one (`exitSend`'s free path),
+ * the Player when it also creates an account. A Player with no SOL cannot be the payer of a sponsored send, so neither can
+ * the dry run.
+ */
+export function unlockFeePayer(ixs: readonly TransactionInstruction[], player: PublicKey, relayer: PublicKey): PublicKey {
+  const sponsored = ixs.every((ix) => ix.programId.equals(TESORO_CORE_ID) && coreIxName(ix) !== "init_ckpt_page");
+  return sponsored ? relayer : player;
+}
+
+export type UnlockPreview =
+  | { state: "full" }
+  | { state: "short"; shortfall: UnlockShortfall }
+  /** The dry run failed: nothing is known (the screen shows nothing; the receipt after Unlock still comes from the sent transaction). */
+  | { state: "unknown"; reason: string };
+
+/**
+ * Dry-runs the Unlock as it will be sent (same instructions, `feePayer` as the real send, no signatures, a fresh blockhash)
+ * and reads the shortfall the program would report. A failed simulation is "unknown", never "paid in full".
+ */
+export async function previewUnlockShortfall(conn: Connection, feePayer: PublicKey, ixs: TransactionInstruction[]): Promise<UnlockPreview> {
+  const message = new TransactionMessage({ payerKey: feePayer, recentBlockhash: PublicKey.default.toBase58(), instructions: ixs }).compileToV0Message();
+  const res = await conn.simulateTransaction(new VersionedTransaction(message), { sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed" });
+  if (res.value.err) {
+    const reason = JSON.stringify(res.value.err);
+    console.warn("Unlock dry run failed", reason, res.value.logs?.slice(-4));
+    return { state: "unknown", reason };
+  }
+  const shortfall = parseUnlockShortfall(res.value.logs ?? []);
+  return shortfall && shortfall.gapShares > 0n ? { state: "short", shortfall } : { state: "full" };
 }
 
 /** The shortfall a sent Unlock reported, from its confirmed transaction. Null when it paid in full; throws when the transaction cannot be read. */
