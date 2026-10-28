@@ -6,13 +6,10 @@ use super::growth_only::set_rate;
 use super::*;
 use anchor_lang::{AnchorSerialize, Discriminator};
 
-/// Rewrites a Position as the 235-byte account it would be before ticket 55: the old fields,
-/// then `fill` bytes (a Some -> None rewrite leaves stale bytes after a shorter `None`), with the
-/// rent a 235-byte account holds.
-fn to_legacy(env: &mut Env, pos: Pos, fill: u8) {
-    let state = env.load::<PositionState>(pos.position);
-    let p = state.inner;
-    let old = PositionStateV1 {
+/// The fields a Position had before ticket 55 (everything but `stake_rate_high`).
+pub(super) fn v1_of(state: &PositionState) -> PositionStateV1 {
+    let p = &state.inner;
+    PositionStateV1 {
         bump: state.bump,
         position_id: state.position_id,
         inner: PositionV1 {
@@ -39,23 +36,46 @@ fn to_legacy(env: &mut Env, pos: Pos, fill: u8) {
             paid_shares: p.paid_shares,
             pool_bps: p.pool_bps,
         },
-    };
-    let mut data = vec![fill; PositionStateV1::SPACE];
+    }
+}
+
+/// A 235-byte account as the program before ticket 55 wrote it: each state in `writes`
+/// serialised over the last, so a Some -> None rewrite leaves the tail of the longer Some behind.
+pub(super) fn legacy_image(writes: &[&PositionState]) -> Vec<u8> {
+    let mut data = vec![0u8; PositionStateV1::SPACE];
     data[..8].copy_from_slice(PositionState::DISCRIMINATOR);
-    let body = old.try_to_vec().unwrap();
-    data[8..8 + body.len()].copy_from_slice(&body);
-    let mut acct = env.svm.get_account(&s(pos.position)).unwrap();
-    acct.lamports = env
-        .svm
-        .minimum_balance_for_rent_exemption(PositionStateV1::SPACE);
+    for state in writes {
+        let body = v1_of(state).try_to_vec().unwrap();
+        data[8..8 + body.len()].copy_from_slice(&body);
+    }
+    data
+}
+
+/// Puts `data` at `key` as a program-owned account holding the rent of its length.
+pub(super) fn set_raw(env: &mut Env, key: APk, data: Vec<u8>) {
+    let mut acct = env.svm.get_account(&s(key)).unwrap_or_default();
+    acct.owner = s(tesoro_core::ID);
+    acct.lamports = env.svm.minimum_balance_for_rent_exemption(data.len());
     acct.data = data;
-    env.svm.set_account(s(pos.position), acct).unwrap();
+    env.svm.set_account(s(key), acct).unwrap();
+}
+
+/// Rewrites a Position as the 235-byte account it would be before ticket 55: the old fields,
+/// then `fill` bytes (a Some -> None rewrite leaves stale bytes after a shorter `None`), with the
+/// rent a 235-byte account holds.
+pub(super) fn to_legacy(env: &mut Env, pos: Pos, fill: u8) {
+    let state = env.load::<PositionState>(pos.position);
+    let mut data = vec![fill; PositionStateV1::SPACE];
+    let image = legacy_image(&[&state]);
+    let end = 8 + v1_of(&state).try_to_vec().unwrap().len();
+    data[..end].copy_from_slice(&image[..end]);
+    set_raw(env, pos.position, data);
 }
 
 /// Anchor's `AccountDidNotDeserialize`.
-const ANCHOR_DID_NOT_DESERIALIZE: u32 = 3003;
+pub(super) const ANCHOR_DID_NOT_DESERIALIZE: u32 = 3003;
 
-fn migrate_ix(signer: APk, position: APk) -> Instruction {
+pub(super) fn migrate_ix(signer: APk, position: APk) -> Instruction {
     tix(
         accounts::MigratePosition {
             admin: signer,
@@ -68,12 +88,12 @@ fn migrate_ix(signer: APk, position: APk) -> Instruction {
     )
 }
 
-fn migrate(env: &mut Env, pos: Pos) -> Result<(), Failed> {
+pub(super) fn migrate(env: &mut Env, pos: Pos) -> Result<(), Failed> {
     let admin = env.admin.insecure_clone();
     env.send(&[migrate_ix(a(admin.pubkey()), pos.position)], &admin, &[])
 }
 
-fn data_len(env: &Env, pos: Pos) -> usize {
+pub(super) fn data_len(env: &Env, pos: Pos) -> usize {
     env.svm.get_account(&s(pos.position)).unwrap().data.len()
 }
 

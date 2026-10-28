@@ -108,3 +108,58 @@ fn cu_report() {
          unlock(banking)={unlock_banking}"
     );
 }
+
+fn cu_tx(env: &mut Env, ixs: &[Instruction], payer: &Keypair) -> u64 {
+    env.svm.expire_blockhash();
+    let tx = Transaction::new_signed_with_payer(
+        ixs,
+        Some(&payer.pubkey()),
+        &[payer],
+        env.svm.latest_blockhash(),
+    );
+    env.svm
+        .send_transaction(tx)
+        .expect("transaction succeeds")
+        .compute_units_consumed
+}
+
+/// `migrate_position` on 235-byte Positions: alone, and ten in one transaction (the operator
+/// script's batch, keeper/src/migrate-positions.ts sizes its compute limit from these):
+/// `cargo test -p tesoro_core --test stake cu_report_migrate -- --nocapture`.
+#[test]
+fn cu_report_migrate_position() {
+    use super::migrate::{migrate_ix, to_legacy};
+    let mut env = at_open_rate();
+    let ana = fixed_holder(&mut env, 9, 11 * SOL);
+    let with_advance = env.open(&ana, SOL).unwrap();
+    env.advance_stake(&ana, with_advance, 6).unwrap();
+    let mut rest = vec![];
+    for _ in 0..10 {
+        rest.push(env.open(&ana, SOL).unwrap());
+    }
+    to_legacy(&mut env, with_advance, 0);
+    for p in &rest {
+        to_legacy(&mut env, *p, 0xab);
+    }
+    let admin = env.admin.insecure_clone();
+    let one = cu_tx(
+        &mut env,
+        &[migrate_ix(a(admin.pubkey()), with_advance.position)],
+        &admin,
+    );
+    let ixs: Vec<Instruction> = rest
+        .iter()
+        .map(|p| migrate_ix(a(admin.pubkey()), p.position))
+        .collect();
+    let ten = cu_tx(&mut env, &ixs, &admin);
+    let again = cu_tx(&mut env, &ixs, &admin);
+    for p in rest.iter().chain([&with_advance]) {
+        assert_eq!(env.svm.get_account(&s(p.position)).unwrap().data.len(), 243);
+    }
+    eprintln!("CU migrate_position(one, open Advance)={one} migrate_position(ten in one tx)={ten} migrate_position(ten already migrated)={again}");
+    // keeper/src/migrate-positions.ts asks 10,000 CU a Position (MIGRATE_CU_LIMIT) from this measurement.
+    assert!(
+        one <= 10_000 && ten <= 10 * 10_000,
+        "the operator script's 10,000 CU per Position covers a migration"
+    );
+}
