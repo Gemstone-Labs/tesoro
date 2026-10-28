@@ -10,11 +10,11 @@ use anchor_lang::{AnchorSerialize, Discriminator};
 /// then `fill` bytes (a Some -> None rewrite leaves stale bytes after a shorter `None`), with the
 /// rent a 235-byte account holds.
 fn to_legacy(env: &mut Env, pos: Pos, fill: u8) {
-    let s = env.load::<PositionState>(pos.position);
-    let p = s.inner;
+    let state = env.load::<PositionState>(pos.position);
+    let p = state.inner;
     let old = PositionStateV1 {
-        bump: s.bump,
-        position_id: s.position_id,
+        bump: state.bump,
+        position_id: state.position_id,
         inner: PositionV1 {
             owner: p.owner,
             source_chain: p.source_chain,
@@ -197,9 +197,9 @@ fn over_claimed(treasury: u64) -> (Env, Person, Pos) {
     let mut env = at_open_rate();
     let ana = env.holder(10 * SOL);
     let pos = env.open(&ana, 10 * SOL).unwrap();
-    let mut s = env.load::<PositionState>(pos.position);
-    s.inner.held_shares = 10_348_956_599u128 << 32;
-    env.write(pos.position, &s, PositionState::SPACE);
+    let mut state = env.load::<PositionState>(pos.position);
+    state.inner.held_shares = 10_348_956_599u128 << 32;
+    env.write(pos.position, &state, PositionState::SPACE);
     to_legacy(&mut env, pos, 0);
     migrate(&mut env, pos).unwrap();
     env.fund_treasury(treasury);
