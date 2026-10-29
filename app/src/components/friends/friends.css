@@ -156,7 +156,7 @@
 .fr-card-top .fr-av { width: 64px; height: 64px; }
 .fr-card-act { flex: none; display: grid; justify-items: end; gap: 6px; }
 .fr-card-act > .btn { min-height: 44px; padding-inline: 16px; }
-.fr-played { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; }
+.fr-played { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; }
 .fr-played small { color: var(--fg-2); font-size: var(--fs-13); white-space: nowrap; }
 .fr-played .fr-more { width: 32px; min-height: 28px; height: 28px; background: transparent; --edge: transparent; }
 .fr-played .fr-more svg { width: 18px; height: 18px; color: var(--fg-2); }
