@@ -34,9 +34,6 @@
 .pa-actions .af { display: grid; }
 .pa-actions .af-note { max-width: none; }
 .pa-actions .btn svg { width: 18px; height: 18px; }
-/* Challenge: the one action a visitor came for, a light fill but neutral (emerald stays with Gemas) */
-.pa-actions > .btn.neutral:first-child { background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
-.pa-actions > .btn.neutral:first-child:hover { filter: brightness(0.92); }
 
 /* section labels, Protections and Recent Matches */
 .pa-lab { display: flex; align-items: center; gap: 6px; font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }

@@ -123,15 +123,15 @@ function Calling({ code, owner }: { code: string; owner: string }) {
         {friends.status === "loading" && !signedOut ? (
           <span className="cut cut-btn fl-btn-skel skel" aria-label="Loading" />
         ) : relation === "self" ? (
-          <Button block onClick={copy} icon={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
+          <Button variant="light" block onClick={copy} icon={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
             {copied ? "Copied" : "Copy your Friend link"}
           </Button>
         ) : relation === "friend" ? (
-          <Button block href="/friends">
+          <Button variant="light" block href="/friends">
             Open Friends
           </Button>
         ) : (
-          <Button block disabled={pending} icon={<UserPlus aria-hidden="true" />} onClick={() => (signedOut ? auth.gate("add a friend", () => setPending(true)) : setPending(true))}>
+          <Button variant="light" block disabled={pending} icon={<UserPlus aria-hidden="true" />} onClick={() => (signedOut ? auth.gate("add a friend", () => setPending(true)) : setPending(true))}>
             {pending ? "Adding…" : "Add friend"}
           </Button>
         )}
