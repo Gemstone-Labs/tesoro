@@ -3,12 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { Button, CheckIcon, CountUp, GemaMark, GemaUsd, MinusIcon, XIcon, type BustName } from "@/components/ui";
+import { Button, CheckIcon, GemaMark, GemaUsd, MinusIcon, XIcon, type BustName } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import { nextStep, ordinal, pts, seasonStanding, type SeasonStanding } from "@/lib/chain/leaderboard-view";
-import { playerSummary } from "@/lib/chain/player-account";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { fmtGemas } from "@/lib/format";
 import { setFullScreen } from "@/games/fx";
@@ -33,8 +32,7 @@ export interface MatchResultProps {
   fee: number | null;
   role: "player" | "backer";
   backed: boolean;
-  /** Final scores as shown: [yours, opponent's]. Null when the Match has none (refund). */
-  scores: [string, string] | null;
+  /** A line under the tiles about how the game ended (Trading Duel: the closing price). */
   scoreNote?: string;
   playAgainHref: string;
   /** The opponent of this Match, when known: Add a friend. */
@@ -71,19 +69,6 @@ function momentBust(p: MatchResultProps): { bust: BustName; title: string } | nu
   return p.role === "player" ? { bust: "himWin", title: "You won" } : null;
 }
 
-/** A score that counts up from 0 once `run` is set and `delay` has passed; text scores (Hold'em, Trading Duel) show as they are. */
-function Score({ value, run, delay }: { value: string; run: boolean; delay: number }) {
-  const n = Number(value);
-  const [target, setTarget] = useState(0);
-  useEffect(() => {
-    if (!run) return;
-    const t = setTimeout(() => setTarget(n), delay);
-    return () => clearTimeout(t);
-  }, [n, run, delay]);
-  if (value === "" || !Number.isFinite(n)) return <>{value}</>;
-  return <CountUp value={target} from={0} duration={1100} />;
-}
-
 /** Where the signed-in Player stands in the Season: `loading` until the Leaderboard has been read (or failed), `standing` null while unranked or the Leaderboard Fee is off. */
 function useStanding(): { loading: boolean; standing: SeasonStanding | null } {
   const { auth, snapshot } = useAccount();
@@ -109,17 +94,9 @@ function SeasonTile({ points, delay }: { points: number | null; delay: string })
   return step ? <Link href="/leaderboard" className={`${cls} link`} style={style}>{body}</Link> : <div className={cls} style={style}>{body}</div>;
 }
 
-/** "New best" beside a Block Burst score that beats every earlier finished Match of this Account. */
-function NewBest({ score, matchId }: { score: number; matchId?: string }) {
-  const { snapshot } = useAccount();
-  if (!snapshot?.matchesLoaded) return null;
-  const before = playerSummary(snapshot.matches.filter((m) => m.id.toString() !== matchId)).bestScore;
-  return before !== null && score > before ? <span className="cut cut-chip mr-tag">New best</span> : null;
-}
-
 /**
  * The Match result, every game: a poster over the game's key art (the outcome in giant letters, the Gema change rolling
- * in), a strip of tiles (scores, entry, fee, Season points) and the actions. A win first gets the short character
+ * in), a strip of tiles (Season points, fee) and the actions. A win first gets the short character
  * overlay (MomentOverlay); the poster's motion waits for it to close. A Player's loss has the calm `him-lose` bust on
  * the poster itself, in colour over the drained art: no overlay, nothing between the Player and Play again. Won Gemas are claims on the loser's Source, so a
  * win always says so and links to the Wallet: never implies cash in hand. Reduced motion shows the finished screen.
@@ -144,16 +121,9 @@ export function MatchResult(p: MatchResultProps) {
   // After a win the points depend on the Season's cap per opponent, so they are shown only once the history has them.
   const points = !won || role !== "player" ? 0 : (p.points ?? null);
 
-  const nums = p.scores?.map(Number);
-  const numeric = !!nums && nums.every(Number.isFinite);
-  const tiles: { k: string; v: ReactNode; on?: boolean; season?: number | null }[] = [];
+  const tiles: { k: string; v: ReactNode; season?: number | null }[] = [];
   if (role === "player") tiles.push({ k: "Season", v: null, season: points });
   if (p.fee !== null) tiles.push({ k: "Fee", v: <><GemaMark size={22} /> {fmtGemas(p.fee)}</> });
-  if (p.scores) {
-    const [mine, theirs] = nums ?? [0, 0];
-    tiles.push({ k: role === "backer" ? "Your Player" : "You", v: <><Score value={p.scores[0]} run={!held} delay={1200} />{role === "player" && p.game === "block-puzzle" && numeric && <NewBest score={mine} matchId={p.matchId} />}</>, on: numeric ? mine > theirs : won });
-    tiles.push({ k: "Opponent", v: <Score value={p.scores[1]} run={!held} delay={1200} />, on: numeric ? theirs > mine : lost });
-  }
 
   return (
     <>
@@ -189,8 +159,6 @@ export function MatchResult(p: MatchResultProps) {
             <div className="mr-in mr-notes" style={{ "--d": "1400ms" } as Css}>
               {backed && role === "player" ? (
                 <p className="mr-copy strong">You never owe anything, win or lose: your Backer&apos;s Gemas funded this entry.</p>
-              ) : lost && role === "player" ? (
-                <p className="mr-copy">Your entry went to the winner. What you locked was never in play.</p>
               ) : outcome === "draw" ? (
                 <p className="mr-copy">Equal scores: both entries were returned.</p>
               ) : outcome === "refunded" ? (
@@ -217,7 +185,7 @@ export function MatchResult(p: MatchResultProps) {
           {tiles.map((t, i) => t.season !== undefined ? (
             <SeasonTile key={t.k} points={t.season} delay={`${1100 + i * 90}ms`} />
           ) : (
-            <div key={t.k} className={`cut cut-card mr-tile mr-rise${t.on ? " on" : ""}`} style={{ "--d": `${1100 + i * 90}ms` } as Css}>
+            <div key={t.k} className="cut cut-card mr-tile mr-rise" style={{ "--d": `${1100 + i * 90}ms` } as Css}>
               <span>{t.k}</span>
               <b>{t.v}</b>
             </div>

@@ -6,10 +6,20 @@ vi.mock("@/lib/account", async (orig) => ({ ...(await orig<typeof import("@/lib/
 import { MatchResult, type MatchResultProps } from "./MatchResult";
 
 const OPP = "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ";
-const base: MatchResultProps = { game: "block-puzzle", outcome: "won", delta: 440, entry: 500, fee: 60, role: "player", backed: false, scores: null, playAgainHref: "/play/queue", opponent: OPP, points: 5, matchId: "7" };
+const base: MatchResultProps = { game: "block-puzzle", outcome: "won", delta: 440, entry: 500, fee: 60, role: "player", backed: false, playAgainHref: "/play/queue", opponent: OPP, points: 5, matchId: "7" };
 const html = (over: Partial<MatchResultProps> = {}) => renderToStaticMarkup(<MatchResult {...base} {...over} />);
 
 describe("the result screen", () => {
+  it("shows no scores, even when a caller still passes them (founder 2026-10-29)", () => {
+    const old = { ...base, scores: ["171", "55"] };
+    const h = renderToStaticMarkup(<MatchResult {...old} />);
+    expect(h).not.toContain(">Opponent<");
+    expect(h).not.toContain(">You<");
+    expect(h).not.toContain("171");
+  });
+  it("says nothing under a loss beyond the result itself", () => {
+    expect(html({ outcome: "lost", delta: -500, points: 0 })).not.toContain("Your entry went to the winner");
+  });
   it("shows the settled gain and Fee, Season tile first", () => {
     const h = html();
     expect(h).toContain("440");

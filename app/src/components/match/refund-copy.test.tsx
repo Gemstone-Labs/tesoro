@@ -4,7 +4,7 @@ import { CANCELLING_NOTE } from "@/lib/chain/match-status";
 import { MatchResult, type MatchResultProps } from "./MatchResult";
 import { MatchStage } from "./MatchStage";
 
-const result: MatchResultProps = { game: "block-puzzle", outcome: "refunded", delta: 0, entry: 500, fee: 0, role: "player", backed: false, scores: null, playAgainHref: "/play/queue", opponent: null };
+const result: MatchResultProps = { game: "block-puzzle", outcome: "refunded", delta: 0, entry: 500, fee: 0, role: "player", backed: false, playAgainHref: "/play/queue", opponent: null };
 
 describe("refunded result reason", () => {
   it("says the Player cancelled when this page sent the cancel", () => {

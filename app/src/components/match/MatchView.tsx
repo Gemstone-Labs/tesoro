@@ -92,7 +92,6 @@ export function MatchView({ matchId }: { matchId: string }) {
     const known = result ? (draw ? "draw" : seatResult({ session: result }, mineIdx)) : null;
     const delta = asBacker && m.backing ? backerDelta({ ...m, backerSeat: m.backing.seat, shareBps: m.backing.shareBps }) : matchDelta(m);
     const outcome = resultOf(m) === "refunded" ? "refunded" : (known ?? (delta > 0 ? "won" : delta < 0 ? "lost" : "draw"));
-    const scores = result && outcome !== "refunded" ? ([String(result.scores[mineIdx]), String(result.scores[1 - mineIdx])] as [string, string]) : null;
     const why = resultLine(view.reason, outcome);
     return (
       <MatchResult
@@ -103,7 +102,6 @@ export function MatchView({ matchId }: { matchId: string }) {
         fee={resultFee(m, outcome)}
         role={asBacker ? "backer" : "player"}
         backed={!!m.backing}
-        scores={scores}
         cancelled={refundSig.length > 0}
         momentKey={m.id.toString()}
         matchId={m.id.toString()}
