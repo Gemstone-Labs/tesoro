@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Check, Ellipsis, Minus, Swords, X } from "lucide-react";
 import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/Player";
 import { InfoTip } from "@/components/money/Tip";
@@ -170,11 +170,13 @@ export function FriendsPage() {
 /** The page's shape while Friends load: the real link box and as many Friend cards as last time, each the real card's size. */
 function FriendsSkeleton() {
   const { me } = useFriends();
-  const [shape, setShape] = useState<boolean[]>([false]);
-  useEffect(() => {
-    const known = Object.values(readShape(me));
-    if (known.length) setShape(known);
-  }, [me]);
+  const remembered = useSyncExternalStore(
+    () => () => undefined,
+    () => JSON.stringify(Object.values(readShape(me))),
+    () => "[]",
+  );
+  const known = JSON.parse(remembered) as boolean[];
+  const shape = known.length ? known : [false];
   return (
     <div className="fr-page" aria-busy="true">
       <span className="sr-only" role="status">

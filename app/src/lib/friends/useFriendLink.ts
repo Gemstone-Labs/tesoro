@@ -7,19 +7,16 @@ import { loadLink, rememberedLink, replaceLink } from "./memory";
 /** Your Friend link: fetched once per page load, reused on every later visit, replaced only by Reset link. */
 export function useFriendLink(): { code: string | null; reset: () => Promise<void> } {
   const { me, status, act } = useFriends();
-  const [code, setCode] = useState<string | null>(() => (me ? rememberedLink(me) : null));
+  const [fetched, setFetched] = useState<{ of: string; code: string | null } | null>(null);
+  const code = me ? (rememberedLink(me) ?? (fetched?.of === me ? fetched.code : null)) : null;
 
   useEffect(() => {
     if (!me) return;
-    const known = rememberedLink(me);
-    if (known) {
-      setCode(known);
-      return;
-    }
+    if (rememberedLink(me)) return;
     if (status !== "ready") return;
     let stopped = false;
     loadLink(me, () => act("link").then((r) => r.code ?? null)).then(
-      (c) => !stopped && setCode(c),
+      (c) => !stopped && setFetched({ of: me, code: c }),
       () => undefined,
     );
     return () => {
@@ -29,7 +26,7 @@ export function useFriendLink(): { code: string | null; reset: () => Promise<voi
 
   const reset = useCallback(async () => {
     if (!me) return;
-    setCode(await replaceLink(me, () => act("reset-link").then((r) => r.code ?? null)));
+    setFetched({ of: me, code: await replaceLink(me, () => act("reset-link").then((r) => r.code ?? null)) });
   }, [act, me]);
 
   return { code, reset };
