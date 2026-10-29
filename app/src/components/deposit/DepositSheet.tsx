@@ -85,7 +85,9 @@ export function DepositHost() {
   const [intent, setIntent] = useState<DepositIntent | null>(null);
   // One subscription for the shell's lifetime: re-subscribing when `auth` changes would drop a request made in that same commit.
   const gate = useRef(auth.gate);
-  gate.current = auth.gate;
+  useEffect(() => {
+    gate.current = auth.gate;
+  }, [auth.gate]);
   useEffect(
     () =>
       onDeposit((next) =>
