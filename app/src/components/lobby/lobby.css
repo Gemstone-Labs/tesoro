@@ -7,10 +7,11 @@
 a.tile:hover { --edge: linear-gradient(180deg, rgba(234, 239, 236, 0.7), rgba(234, 239, 236, 0.2) 50%, rgba(234, 239, 236, 0.12)); }
 .tile-shade { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 42%, rgba(6, 9, 12, 0.55) 70%, rgba(6, 9, 12, 0.94) 100%); }
 
-/* Coming soon: one quiet strip */
-.soon-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; padding: 14px 0 0; border-top: 1px solid var(--line); color: var(--fg-2); font-size: var(--fs-14); }
+/* Coming soon: a label, then the upcoming games in a 2x2 grid whose columns match the tiles above */
+.soon-strip { display: grid; gap: 12px; padding: 14px 0 0; border-top: 1px solid var(--line); color: var(--fg-2); font-size: var(--fs-14); }
 .soon-strip > b { font-weight: 600; color: var(--fg-2); display: inline-flex; align-items: center; gap: 8px; }
 .soon-strip > b svg { width: 15px; height: 15px; }
+.soon-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .soon-item { display: inline-flex; align-items: center; gap: 10px; opacity: 0.7; }
 .soon-thumb { position: relative; width: 36px; height: 36px; overflow: hidden; --c: 7px; }
 .soon-thumb img { object-fit: cover; filter: saturate(0.4) brightness(0.7); }

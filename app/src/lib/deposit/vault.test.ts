@@ -51,9 +51,9 @@ describe("Vault view model", () => {
     expect(view(snap([slow(3)])).deposits[0].state).toBe("late");
   });
 
-  it("counts withdrawn deposits apart and keeps numbering stable", () => {
+  it("hides withdrawn deposits, keeps numbering stable and is not new", () => {
     const v = view(snap([nativePosition("unlocked"), nativePosition("repaid")]));
-    expect(v.withdrawn).toBe(1);
+    expect(v.isNew).toBe(false);
     expect(v.deposits.map((d) => d.label)).toEqual(["Deposit 2"]);
   });
 

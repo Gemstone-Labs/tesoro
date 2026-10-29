@@ -60,7 +60,7 @@ export function GamePage({ game }: { game: GameId }) {
   const { snapshot, onChain, auth } = useAccount();
   const { error, refresh } = useChainData();
   const router = useRouter();
-  const [entry, setEntry] = useState<EntrySize>(game === "block-puzzle" ? 1000 : 500);
+  const [entry, setEntry] = useState<EntrySize>(500);
   const [asset, setAsset] = useState<0 | 1 | 2>(0);
   const [how, setHow] = useState(false);
   const top = useTopScoresToday(game === "block-puzzle");

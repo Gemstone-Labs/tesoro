@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/ui";
+import { Button, toast } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { friendlyError, redeemNative } from "@/lib/chain/native-flow";
 import { smallLeftovers } from "@/lib/chain/ready-by";
@@ -38,7 +38,8 @@ export function SmallLeftovers({ lines, chain }: { lines: ChainHolding[]; chain:
         if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
         await redeemEthHoldings(ethCtx, eth, setNote);
       }
-      setNote(`Redeemed ${small.length} small ${small.length === 1 ? "line" : "lines"}.`);
+      setNote(null);
+      toast(`Redeemed ${small.length} small ${small.length === 1 ? "line" : "lines"}.`);
       await refresh();
     } catch (e) {
       setError(friendlyError(e));

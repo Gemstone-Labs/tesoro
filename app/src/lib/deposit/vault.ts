@@ -33,7 +33,6 @@ export interface VaultView {
   /** Gemas playable now. */
   gemas: number;
   deposits: DepositRow[];
-  withdrawn: number;
   /** Locks on Ethereum or HyperEVM: only the Advanced view manages them. */
   otherChainDeposits: boolean;
   /** Nothing yet: no deposits and no Gemas. */
@@ -79,7 +78,6 @@ export function vaultView({ snapshot, gemasAvailable, gemasTotal, nowMs }: { sna
   return {
     gemas: gemasAvailable,
     deposits,
-    withdrawn,
     otherChainDeposits: positions.some((p) => !p.native && p.eth !== null),
     isNew: deposits.length === 0 && withdrawn === 0 && gemasAvailable === 0 && (gemasTotal ?? 0) === 0 && !positions.some((p) => p.eth),
   };

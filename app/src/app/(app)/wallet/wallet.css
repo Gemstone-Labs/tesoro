@@ -1,6 +1,6 @@
 /* ——— Wallet (take-1: wallet-desktop) ——— */
-.wl { display: grid; gap: var(--section-gap); grid-template-columns: minmax(0, 1fr); align-content: start; }
-.wl h2 { margin: 0; }
+.vault-grid { display: grid; gap: var(--section-gap); grid-template-columns: minmax(0, 1fr); align-content: start; }
+.vault-grid h2 { margin: 0; }
 
 /* Both views use the same balance card and money rows. Padding clears the crown's 13px / 30px inset. */
 .wl-hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 28px 26px; }
