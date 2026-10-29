@@ -286,3 +286,24 @@ describe("Account snapshot with Positions of both layouts (ticket 55)", () => {
     }
   });
 });
+
+describe("Account snapshot right after an Unlock, while the cached list still shows the Position as Locked", () => {
+  const unlocked = position(accountKey, { status: { unlocked: {} }, openAdvance: null });
+  const staleList = (data: Buffer) => ({ pubkey: mine.toBase58(), account: { data: [data.toString("base64"), "base64"] as [string, string] } });
+
+  it("reads the Position as the chain has it: Unlocked, no open Advance, its Gemas still native", async () => {
+    at(60);
+    const { deps } = fake();
+    const lockedRow = staleList(chain.get(mine.toBase58())!.data);
+    const unlockedInfo = await encode("positionState", unlocked);
+    deps.lists = async (q) => (q.owner!.key.equals(accountKey) ? [lockedRow] : []);
+    const getInfos = deps.connection.getMultipleAccountsInfo;
+    deps.connection = {
+      ...deps.connection,
+      getMultipleAccountsInfo: (async (keys: PublicKey[], c: unknown) => (await (getInfos as any)(keys, c)).map((r: AccountInfo<Buffer> | null, i: number) => (keys[i].equals(mine) ? unlockedInfo : r))) as never,
+    };
+    const snap = decodeState<Awaited<ReturnType<typeof browserRead>>>(await getAccountState(authority, {}, deps));
+    expect(snap.positions.map((p) => [p.status, p.advance, p.native?.status])).toEqual([["unlocked", null, "unlocked"]]);
+    expect(snap.holdings.map((h) => h.native)).toEqual([true, true]);
+  });
+});

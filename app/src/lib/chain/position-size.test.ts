@@ -1,6 +1,7 @@
 import { BN, BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
-import { describe, expect, it } from "vitest";
+import { createRequire } from "node:module";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import coreIdl from "./idl/tesoro_core.json";
 import fixtures from "./position-size.fixtures.json";
 import stakeFixtures from "./position-stake.fixtures.json";
@@ -129,5 +130,21 @@ describe("decodePosition", () => {
       expect(BigInt(decodePosition(decode, d).inner.stake_rate_high.toString())).toBe(HIGH);
       expect(decodePosition(decode, d).inner.principal.toString()).toBe(decodePosition(decode, devnet(k)).inner.principal.toString());
     }
+  });
+
+  describe("in the browser, whose Buffer has no BigInt readers", () => {
+    // Next.js bundles its own `buffer` (v5) for the browser: no readBigUInt64LE, no readBigInt64LE.
+    const BrowserBuffer = createRequire(import.meta.url)("next/dist/compiled/buffer").Buffer;
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("reads stake_rate_high of a 243-byte Position without them", async () => {
+      expect(typeof BrowserBuffer.from([0]).readBigUInt64LE).toBe("undefined");
+      for (const k of ["some", "noneStale"] as const) {
+        const d = await current(devnet(k), HIGH);
+        vi.stubGlobal("Buffer", BrowserBuffer);
+        expect(stakeRateHighOf(d)).toBe(HIGH);
+        vi.unstubAllGlobals();
+      }
+    });
   });
 });

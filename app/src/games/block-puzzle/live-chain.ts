@@ -22,6 +22,7 @@
  * (indistinguishable from "does not exist"), never an RPC error. The Vault is not readable by anyone.
  */
 import { settledPda } from "../../lib/chain/basket";
+import { u64 } from "../../lib/chain/native";
 import * as anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID, getAuthToken, permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
@@ -123,11 +124,7 @@ const u16le = (n: number) => {
   b.writeUInt16LE(n);
   return b;
 };
-const u64le = (n: number | bigint) => {
-  const b = Buffer.alloc(8);
-  b.writeBigUInt64LE(BigInt(n));
-  return b;
-};
+const u64le = (n: number | bigint) => u64(n);
 
 export const tesoroAccountPda = (authority: PublicKey) => tesoroPda([Buffer.from("account"), authority.toBuffer()]);
 export const tesoroConfigPda = () => tesoroPda([Buffer.from("config")]);

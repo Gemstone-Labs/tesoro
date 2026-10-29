@@ -23,11 +23,13 @@ export function parseUnlockShortfall(logs: readonly string[]): UnlockShortfall |
     if (!line.startsWith(PREFIX)) continue;
     const data = Buffer.from(line.slice(PREFIX.length), "base64");
     if (data.length < 8 + 32 + 24 || !data.subarray(0, 8).equals(DISCRIMINATOR)) continue;
+    // DataView, not Buffer: the browser's Buffer polyfill has no readBigUInt64LE.
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
     return {
       position: new PublicKey(data.subarray(8, 40)),
-      shortfallShares: data.readBigUInt64LE(40),
-      toppedUpShares: data.readBigUInt64LE(48),
-      gapShares: data.readBigUInt64LE(56),
+      shortfallShares: view.getBigUint64(40, true),
+      toppedUpShares: view.getBigUint64(48, true),
+      gapShares: view.getBigUint64(56, true),
     };
   }
   return null;
