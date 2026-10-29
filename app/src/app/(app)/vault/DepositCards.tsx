@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { packArt } from "@/components/deposit/DepositPanel";
 import { Button, CheckIcon, GemaMark } from "@/components/ui";
+import { SkelText } from "@/components/ui/skel-text";
 import { PACK_MONTHS } from "@/lib/deposit/packs";
 import { depositProgress, fmtBackAt, fmtTimeLeft, likelyPack, type DepositRow } from "@/lib/deposit/vault";
 import { fmtGemas, fmtUsd } from "@/lib/format";
@@ -65,5 +66,30 @@ export function DepositCards({ deposits, busyId, canWithdraw, onWithdraw }: {
         );
       })}
     </div>
+  );
+}
+
+/** What shows while the Account is read: the same section and a deposit card in the shape of a ready one, so nothing moves when the real ones land. */
+export function DepositsSkeleton() {
+  return (
+    <section className="cut cut-card vt-deposits" aria-label="Your deposits" aria-busy="true">
+      <span className="sr-only" role="status">Loading your Vault…</span>
+      <header className="vt-deposits-head">
+        <h2 className="display">Deposits</h2>
+        <p className="vt-total"><b><SkelText className="skel-inline">$000</SkelText></b> in your Vault</p>
+      </header>
+      <div className="vt-cards">
+        <article className="cut cut-card vt-card vt-card-skel ready" aria-hidden="true">
+          <span className="vt-card-tag"><SkelText className="skel-inline">Ready</SkelText></span>
+          <span className="vt-card-art vt-card-art-skel" />
+          <h3><SkelText>Deposit 1</SkelText></h3>
+          <p className="vt-card-worth"><SkelText>$000</SkelText><small><SkelText className="skel-inline">worth today</SkelText></small></p>
+          <p className="vt-card-gave"><GemaMark size={16} /> <SkelText className="skel-inline">Gave you 00,000 Gemas</SkelText></p>
+          <div className="vt-bar"><i style={{ width: 0 }} /></div>
+          <p className="vt-card-when"><span className="ok"><CheckIcon aria-hidden="true" /><SkelText className="skel-inline">Ready to withdraw</SkelText></span></p>
+          <Button size="lg" block disabled tabIndex={-1}><SkelText>Withdraw $000</SkelText></Button>
+        </article>
+      </div>
+    </section>
   );
 }

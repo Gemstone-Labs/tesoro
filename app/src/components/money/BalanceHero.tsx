@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { FacetCrown, GemaMark, GemaUsd } from "@/components/ui";
+import { SkelText } from "@/components/ui/skel-text";
 import { InfoTip } from "./Tip";
 import "@/app/(app)/wallet/wallet.css";
 
@@ -9,6 +10,8 @@ export interface HeroRow {
   label: string;
   /** The figure, already formatted; replaced by a skeleton while busy. */
   figure: ReactNode;
+  /** The text the loading bar is sized from; the typical figure, so the row takes its usual lines. */
+  placeholder?: string;
   /** Gemas the ≈ dollar figure is worked out from; omit to hide it. */
   usdOf?: number;
   /** Money that can move now. */
@@ -44,9 +47,9 @@ export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, tot
         </h2>
         <div className="wl-total-fig">
           <GemaMark size={72} glint />
-          <b>{busy ? <span className="skel-line wl-figure-skel" aria-hidden="true" /> : figure}</b>
+          <b>{busy ? <SkelText>0,000</SkelText> : figure}</b>
         </div>
-        {busy ? <span className="skel-line wl-usd-skel" aria-hidden="true" /> : usdOf !== undefined && <GemaUsd className="wl-usd wl-total-usd" value={usdOf} />}
+        {busy ? <SkelText className="wl-usd wl-total-usd">≈ $00</SkelText> : usdOf !== undefined && <GemaUsd className="wl-usd wl-total-usd" value={usdOf} />}
         {totalNote && <p className="wl-total-note">{totalNote}</p>}
       </div>
       {rows.map((row) => (
@@ -57,8 +60,8 @@ export function BalanceHero({ label, labelInfo, figure, usdOf, busy = false, tot
           </h2>
           <span className="wl-win-fig">
             <GemaMark size={28} />
-            <b>{busy ? <span className="skel-line wl-figure-skel" aria-hidden="true" /> : row.figure}</b>
-            {busy ? <span className="skel-line wl-usd-skel" aria-hidden="true" /> : row.usdOf !== undefined && <GemaUsd className="wl-usd" value={row.usdOf} />}
+            <b>{busy ? <SkelText>{row.placeholder ?? "0,000"}</SkelText> : row.figure}</b>
+            {busy ? <SkelText className="wl-usd">≈ $0</SkelText> : row.usdOf !== undefined && <GemaUsd className="wl-usd" value={row.usdOf} />}
           </span>
           {row.action && <div className="wl-win-action">{row.action}</div>}
           {!busy && row.note && <span className="wl-win-note">{row.note}</span>}
