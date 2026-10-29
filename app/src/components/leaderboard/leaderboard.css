@@ -5,9 +5,6 @@
 .lb-skel-chest { display: block; width: 100%; height: 100%; border-radius: 50%; background: radial-gradient(closest-side, rgba(234, 239, 236, 0.09), rgba(234, 239, 236, 0.03) 70%, transparent); }
 .lb-skel-rows .skel-av, .lb-skel-season .skel-av { --edge: transparent; background: rgba(234, 239, 236, 0.07); }
 .lb-band.skel .lb-info-btn { visibility: hidden; }
-.lb-skel-usd { font-size: var(--fs-14); }
-.lb-place .lb-skel-usd { font-size: var(--fs-11); }
-.lb-row .lb-skel-usd { font-size: var(--fs-12); }
 
 /* the season before is still paying out: a gold tab clipped onto the hero's top edge (its margin eats the grid gap) */
 .lb-paying {

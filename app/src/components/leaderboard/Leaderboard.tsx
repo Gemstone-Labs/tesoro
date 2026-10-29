@@ -99,7 +99,9 @@ export function LoadingSkeleton() {
             <b className="pool-fig lb-band-fig">
               <Ink>000</Ink>
             </b>
-            <Ink className="lb-skel-usd">≈ $0.00</Ink>
+            <span className="gema-usd">
+              <Ink>≈ $0.00</Ink>
+            </span>
           </span>
           <span className="lb-band-season">
             <b>
@@ -129,16 +131,20 @@ export function LoadingSkeleton() {
               </span>
               <span className="lb-prize">
                 <span className="lb-prize-line">
-                  <Ink>000</Ink>
+                  <b>
+                    <Ink>000</Ink>
+                  </b>
                 </span>
-                <Ink className="lb-skel-usd">≈ $0.00</Ink>
+                <span className="gema-usd">
+                  <Ink>≈ $0.00</Ink>
+                </span>
               </span>
             </li>
           ))}
         </ol>
         <ol className="lb-rows lb-skel-rows">
           {Array.from({ length: PAGE_SIZE }, (_, i) => (
-            <li key={i} className="cut cut-card lb-row">
+            <li key={i} className={`cut cut-card lb-row${i === PRIZE_PLACES + 1 - PODIUM - 1 ? " first-out" : ""}`}>
               <span className="lb-rank">
                 <Ink>0</Ink>
               </span>
@@ -156,9 +162,13 @@ export function LoadingSkeleton() {
               </span>
               <span className="lb-prize">
                 <span className="lb-prize-line">
-                  <Ink>000</Ink>
+                  <b>
+                    <Ink>000</Ink>
+                  </b>
                 </span>
-                <Ink className="lb-skel-usd">≈ $0.00</Ink>
+                <span className="gema-usd">
+                  <Ink>≈ $0.00</Ink>
+                </span>
               </span>
             </li>
           ))}
