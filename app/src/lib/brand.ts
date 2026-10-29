@@ -15,7 +15,6 @@ export const BRAND = {
   handle: "@PlayTesoro",
   tagline: "Play now, pay later.",
   /** Longer line used in share cards and posts. */
-  shareTagline: "Play now, your yield pays later.",
   /** Display name on outgoing email. */
   emailFromName: "Tesoro",
 } as const;

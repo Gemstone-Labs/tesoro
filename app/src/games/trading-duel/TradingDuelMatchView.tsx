@@ -61,7 +61,6 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
   const outcome = !m || stage !== "settled" ? null : refunded ? "refunded" : m.seat !== null && seatResult(m, m.seat) === "won" ? "won" : "lost";
 
   if (stage === "settled" && m && outcome && seat !== null) {
-    const scores: [string, string] | null = duel && duel.status === STATUS.over ? [`${duel.scores[seat]} points`, `${duel.scores[1 - seat]} points`] : null;
     return (
       <MatchResult
         game="trading-duel"
@@ -71,7 +70,6 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
         fee={resultFee(m, outcome)}
         role="player"
         backed={!!m.backing}
-        scores={scores}
         scoreNote={duel?.status === STATUS.over ? `${asset.symbol} ended at ${usdMid(duel.track.last ?? duel.anchor, asset)}${isDraw(duel) ? " · equal points: a draw, both entries refunded" : ""}` : undefined}
         momentKey={m.id.toString()}
         matchId={m.id.toString()}

@@ -52,7 +52,6 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
         fee={resultFee(m, outcome)}
         role="player"
         backed={!!m.backing}
-        scores={null}
         momentKey={m.id.toString()}
         matchId={m.id.toString()}
         playAgainHref={`/play/queue?game=vanguard&entry=${m.entry}`}

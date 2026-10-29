@@ -31,8 +31,6 @@ function Preview() {
   const outcome: Outcome = c === "refunded" ? "refunded" : c === "draw" ? "draw" : won ? "won" : "lost";
   const delta = asBacker && m.backing ? backerDelta({ ...m, backerSeat: 0, shareBps: 4000 }) : matchDelta(m);
   const fee = Math.floor(m.entry * 2 * 0.05);
-  const scores: [string, string] | null =
-    outcome === "refunded" ? null : game === "holdem" ? [outcome === "won" ? "Won" : "Lost", outcome === "won" ? "Lost" : "Won"] : [String(m.session?.scores[0]), String(m.session?.scores[1])];
   return (
     <MatchResult
       game={game}
@@ -42,7 +40,6 @@ function Preview() {
       fee={fee}
       role={asBacker ? "backer" : "player"}
       backed={!!m.backing}
-      scores={scores}
       playAgainHref="/play/queue"
       split={m.backing ? <BackingSplit m={m} /> : undefined}
     />
