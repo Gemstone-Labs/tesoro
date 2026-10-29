@@ -168,7 +168,6 @@ Never full-body inside a page layout, and never during play: no character in the
 | Match result, Player lost | on the poster, right side (no overlay): `him-lose`, large crop `art.guide.himLose` |
 | Match result, Draw / Refunded, Backer lost | none |
 | Vault (Pro view), Locks | with no Positions: the `him-explain` bust in the empty card |
-| Vault (Pro view), first visit | guide tip: `him-explain` ("Pending is not lost") |
 | Vault, Opening an ETH Lock | guide tip: `her-waiting-crosschain` ("LayerZero usually takes 2–5 minutes") |
 | Backing, first visit | guide tip: `her-backing` ("What Backing means") |
 | Backing, empty states | bust card: `her-empty` |

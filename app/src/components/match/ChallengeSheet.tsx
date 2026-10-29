@@ -20,7 +20,7 @@ export function ChallengeSheet({ open, onClose, player, name }: { open: boolean;
   const friend = useFriends().relation(player) === "friend";
   const router = useRouter();
   const [game, setGame] = useState<GameId>("block-puzzle");
-  const [entry, setEntry] = useState<EntrySize>(1000);
+  const [entry, setEntry] = useState<EntrySize>(500);
   const [asset, setAsset] = useState<0 | 1 | 2>(0);
   return (
     <Sheet open={open} onClose={onClose} title={`Challenge ${name}`}>

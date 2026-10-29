@@ -30,6 +30,7 @@
 @media (min-width: 1024px) {
   .play-home { gap: 32px; }
   .games-grid { gap: 20px; }
+  .soon-grid { gap: 20px; }
   .game-tile { aspect-ratio: 1.75; --c: 16px; }
   .game-tile img { object-position: top; }
   .game-tile .tile-shade { background: linear-gradient(180deg, transparent 42%, rgba(6, 9, 12, 0.55) 70%, rgba(6, 9, 12, 0.94) 100%); }

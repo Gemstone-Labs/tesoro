@@ -106,14 +106,16 @@ export function GameGrid() {
           <b>
             <Clock aria-hidden="true" /> Coming soon
           </b>
-          {soon.map((g) => (
-            <span key={g.key} className="soon-item" aria-disabled="true">
-              <span className="cut soon-thumb" aria-hidden="true">
-                <Image src={g.tile} alt="" fill sizes="36px" />
+          <div className="soon-grid">
+            {soon.map((g) => (
+              <span key={g.key} className="soon-item" aria-disabled="true">
+                <span className="cut soon-thumb" aria-hidden="true">
+                  <Image src={g.tile} alt="" fill sizes="36px" />
+                </span>
+                {g.name}
               </span>
-              {g.name}
-            </span>
-          ))}
+            ))}
+          </div>
         </div>
       )}
     </section>

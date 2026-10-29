@@ -12,7 +12,6 @@ import { requestDeposit } from "@/lib/deposit/bus";
 import { useViewMode } from "@/lib/deposit/use-view-mode";
 import { ProViewSwitch } from "@/components/deposit/ProViewSwitch";
 import { type Chain, type GemaHolding, type Position } from "@/lib/mock";
-import { useGuideTip } from "@/components/guide/Guide";
 import { BRAND } from "@/lib/brand";
 import { AdvanceSheet } from "./AdvanceSheet";
 import type { AccountSnapshot, ChainPosition } from "@/lib/chain/read";
@@ -75,12 +74,6 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   const instantCandidatesGemas = instantCandidates(snapshot?.holdings ?? []).reduce((t, h) => t + Number(h.pending), 0);
   const instantCapped = instantGemas > 0 && instantGemas < instantCandidatesGemas;
   const instantUsdText = `≈ ${fmtUsd(Math.floor((instantGemas * (100 - (instantOffer?.feePct ?? 25))) / 100) / 100)}`;
-  useGuideTip({
-    id: "wallet-first",
-    pose: "himExplain",
-    title: "Pending is not lost",
-    text: "Gemas you win stay Pending until the yield of their Lock lands, then they become redeemable.",
-  });
 
   const market = snapshot?.market ?? null;
   const nativeIds = new Set((snapshot?.positions ?? []).filter((p) => p.native).map((p) => p.address.toBase58()));

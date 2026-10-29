@@ -5,7 +5,7 @@ import { assetFromParam, gameFromParam } from "@/lib/game-params";
 
 export default async function NewChallengePage({ searchParams }: PageProps<"/play/challenge">) {
   const sp = await searchParams;
-  const entry = ENTRY_SIZES.find((e) => String(e) === sp.entry) ?? 1000;
+  const entry = ENTRY_SIZES.find((e) => String(e) === sp.entry) ?? 500;
   const game = gameFromParam(sp.game);
   const backing = typeof sp.backing === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(sp.backing) ? sp.backing : undefined;
   return <EnterMatch kind="challenge-new" entry={entry} game={game} asset={assetFromParam(sp.asset)} backing={backing} opponent={opponentFromParam(sp.opponent)} />;
