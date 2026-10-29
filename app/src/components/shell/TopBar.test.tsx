@@ -1,14 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ mode: "simple" as "simple" | "advanced", path: "/play", requestDeposit: vi.fn(), requestGetGemas: vi.fn() }));
+const state = vi.hoisted(() => ({ mode: "simple" as "simple" | "advanced", path: "/play", requestDeposit: vi.fn() }));
 vi.mock("next/navigation", () => ({ usePathname: () => state.path }));
 vi.mock("@/lib/account", () => ({
   useAccount: () => ({ gemas: { total: 5000 }, auth: { status: "signed-in", openSignIn: () => {} }, ready: true, error: null }),
 }));
 vi.mock("@/lib/deposit/use-view-mode", () => ({ useViewMode: () => ({ mode: state.mode }) }));
 vi.mock("@/lib/deposit/bus", () => ({ requestDeposit: state.requestDeposit }));
-vi.mock("@/lib/get-gemas", () => ({ requestGetGemas: state.requestGetGemas }));
 vi.mock("./PoolChest", () => ({ PoolChest: () => null }));
 vi.mock("./AccountMenu", () => ({ AccountMenu: () => null }));
 vi.mock("./Sidebar", () => ({ Wordmark: () => null }));
