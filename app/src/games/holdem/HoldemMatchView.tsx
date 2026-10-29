@@ -4,7 +4,7 @@ import { parseMatchKey } from "@/lib/chain/match-id";
 import { Busy, Button, Card, Chip, GemaAmount, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { commitCopy } from "@/lib/chain/commit-pending";
-import { matchDelta, matchFee, resultFee, seatResult } from "@/lib/chain/ledger";
+import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
@@ -51,7 +51,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         outcome={outcome}
         delta={delta}
         entry={m.entry}
-        fee={resultFee(m, outcome)}
+        asset={m.asset}
         role="player"
         backed={!!m.backing}
         momentKey={m.id.toString()}

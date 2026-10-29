@@ -5,6 +5,10 @@ import Link from "next/link";
 import { Share2 } from "lucide-react";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Button, CheckIcon, GemaMark, GemaUsd, MinusIcon, XIcon, type BustName } from "@/components/ui";
+import { usePlayerLabel } from "@/components/account/Player";
+import { accountHistory } from "@/lib/chain/history";
+import { gameQuery } from "@/lib/game-params";
+import { recordIncluding } from "@/lib/friends/record";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
@@ -29,13 +33,13 @@ export interface MatchResultProps {
   /** The Gema change for whoever is looking (the Player's, or the Backer's when `role` is backer). */
   delta: number;
   entry: number;
-  /** Platform + Studio + Leaderboard Fee taken from the Pot, in Gemas; null when it is not known (no Fee tile). */
-  fee: number | null;
   role: "player" | "backer";
   backed: boolean;
   /** A line under the tiles about how the game ended (Trading Duel: the closing price). */
   scoreNote?: string;
   playAgainHref: string;
+  /** Trading Duel: the asset index, so a Challenge from the result trades the same one. */
+  asset?: number | null;
   /** The opponent of this Match, when known: Add a friend. */
   opponent?: string | null;
   /** Season points this Match gave the Player, as the history settled them; absent while the Match is not in the history yet. */
@@ -95,6 +99,21 @@ function SeasonTile({ points, delay }: { points: number | null; delay: string })
   return step ? <Link href="/leaderboard" className={`${cls} link`} style={style}>{body}</Link> : <div className={cls} style={style}>{body}</div>;
 }
 
+/** My record against this opponent, all games, counting this Match; blank while the history loads. Links to a Challenge for the same Game and entry. */
+function RecordTile({ opponent, game, asset, entry, matchId, outcome, delay }: { opponent: string; game: GameId; asset?: number | null; entry: number; matchId: string; outcome: "won" | "lost" | "draw"; delay: string }) {
+  const { snapshot } = useAccount();
+  const name = usePlayerLabel(opponent);
+  const rec = snapshot ? recordIncluding(accountHistory(snapshot.matches), opponent, { id: matchId, result: outcome }) : null;
+  const body = (
+    <>
+      <span>vs {name}</span>
+      {rec ? <b>{rec.won} – {rec.lost}{rec.draws > 0 && <small>{rec.draws} {rec.draws === 1 ? "draw" : "draws"}</small>}</b> : <b aria-busy="true">&nbsp;</b>}
+      <small>Challenge <span aria-hidden="true">→</span></small>
+    </>
+  );
+  return <Link href={`/play/challenge?${gameQuery(game, asset)}entry=${entry}&opponent=${opponent}`} className="cut cut-card mr-tile mr-rise link" style={{ "--d": delay } as Css}>{body}</Link>;
+}
+
 /**
  * The Match result, every game: a poster over the game's key art (the outcome in giant letters, the Gema change rolling
  * in), a strip of tiles (Season points, fee) and the actions. A win first gets the short character
@@ -122,10 +141,9 @@ export function MatchResult(p: MatchResultProps) {
   // After a win the points depend on the Season's cap per opponent, so they are shown only once the history has them.
   const points = !won || role !== "player" ? 0 : (p.points ?? null);
 
-  const tiles: { k: string; v: ReactNode; season?: number | null }[] = [];
-  // A refund has nothing to show: no points were at stake and no Fee was taken.
-  if (outcome !== "refunded" && role === "player") tiles.push({ k: "Season", v: null, season: points });
-  if (outcome !== "refunded" && p.fee !== null) tiles.push({ k: "Fee", v: <><GemaMark size={22} /> {fmtGemas(p.fee)}</> });
+  // A refund has nothing to show: no points were at stake. A Backer has no record of their own to show.
+  const showSeason = outcome !== "refunded" && role === "player";
+  const record = outcome !== "refunded" && role === "player" && p.opponent && p.matchId ? { opponent: p.opponent, matchId: p.matchId, outcome } : null;
 
   return (
     <>
@@ -184,16 +202,12 @@ export function MatchResult(p: MatchResultProps) {
           </div>
         </section>
 
-        {tiles.length > 0 && <div className="mr-tiles">
-          {tiles.map((t, i) => t.season !== undefined ? (
-            <SeasonTile key={t.k} points={t.season} delay={`${1100 + i * 90}ms`} />
-          ) : (
-            <div key={t.k} className="cut cut-card mr-tile mr-rise" style={{ "--d": `${1100 + i * 90}ms` } as Css}>
-              <span>{t.k}</span>
-              <b>{t.v}</b>
-            </div>
-          ))}
-        </div>}
+        {(showSeason || record) && (
+          <div className="mr-tiles">
+            {showSeason && <SeasonTile points={points} delay="1100ms" />}
+            {record && <RecordTile {...record} game={p.game} asset={p.asset} entry={p.entry} delay="1190ms" />}
+          </div>
+        )}
         {p.scoreNote && <p className="note">{p.scoreNote}</p>}
         {p.split && <div className="mr-split mr-rise" style={{ "--d": "1600ms" } as Css}>{p.split}</div>}
 

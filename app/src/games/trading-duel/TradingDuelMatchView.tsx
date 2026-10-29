@@ -5,7 +5,7 @@ import { Button, Chip, GemaAmount, Notice } from "@/components/ui";
 import { usePlayerLabel } from "@/components/account/Player";
 import { shownIdentity } from "@/lib/identity/display";
 import { useAccount } from "@/lib/account";
-import { matchDelta, matchFee, resultFee, seatResult } from "@/lib/chain/ledger";
+import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
@@ -67,7 +67,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
         outcome={outcome}
         delta={delta}
         entry={m.entry}
-        fee={resultFee(m, outcome)}
+        asset={m.asset}
         role="player"
         backed={!!m.backing}
         scoreNote={duel?.status === STATUS.over ? `${asset.symbol} ended at ${usdMid(duel.track.last ?? duel.anchor, asset)}${isDraw(duel) ? " · equal points: a draw, both entries refunded" : ""}` : undefined}

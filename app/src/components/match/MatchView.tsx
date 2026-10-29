@@ -9,7 +9,7 @@ import { getReadySecs, slotNow } from "@/games/block-puzzle/live-clock";
 import { stripOf } from "@/games/block-puzzle/opponent";
 import { useBurstMatch } from "@/games/block-puzzle/useBurstMatch";
 import { useAccount } from "@/lib/account";
-import { backerDelta, matchDelta, matchFee, resultFee, seatResult } from "@/lib/chain/ledger";
+import { backerDelta, matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { resultOf } from "@/lib/chain/read";
 import { parseMatchKey } from "@/lib/chain/match-id";
 import { refundMatch } from "@/lib/chain/match-flow";
@@ -99,7 +99,7 @@ export function MatchView({ matchId }: { matchId: string }) {
         outcome={outcome}
         delta={delta}
         entry={m.entry}
-        fee={resultFee(m, outcome)}
+        asset={m.asset}
         role={asBacker ? "backer" : "player"}
         backed={!!m.backing}
         cancelled={refundSig.length > 0}

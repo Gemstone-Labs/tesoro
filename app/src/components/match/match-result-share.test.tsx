@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { MatchResult, type MatchResultProps } from "./MatchResult";
 
-const base: MatchResultProps = { game: "block-puzzle", outcome: "won", delta: 780, entry: 1000, fee: 220, role: "player", backed: false, playAgainHref: "/play/queue", matchId: "7", opponent: "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ" };
+const base: MatchResultProps = { game: "block-puzzle", outcome: "won", delta: 780, entry: 1000, role: "player", backed: false, playAgainHref: "/play/queue", matchId: "7", opponent: "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ" };
 const html = (over: Partial<MatchResultProps> = {}) => renderToStaticMarkup(<MatchResult {...base} {...over} />);
 
 describe("Share your win", () => {
