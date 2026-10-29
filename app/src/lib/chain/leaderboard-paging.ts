@@ -1,5 +1,5 @@
-/** Rows per page of the Season table, under the podium. */
-export const PAGE_SIZE = 10;
+/** Rows per page of the Season table, under the podium: with the podium, ten Players a page (founder, Oct 29). */
+export const PAGE_SIZE = 7;
 /** The podium's places: always shown, never part of a page. */
 export const PODIUM = 3;
 
@@ -18,7 +18,7 @@ export const paramForPage = (page: number): string | null => (page <= 0 ? null :
 /** The 0-based page a rank below the podium sits on; null for the podium. */
 export const pageOfRank = (rank: number): number | null => (rank > PODIUM ? Math.floor((rank - PODIUM - 1) / PAGE_SIZE) : null);
 
-/** The rows of one page of `rows` (the whole standings, best first): ranks 4–13 on page 0, 14–23 on page 1, … */
+/** The rows of one page of `rows` (the whole standings, best first): ranks 4–10 on page 0, 11–17 on page 1, … */
 export const pageRows = <T,>(rows: readonly T[], page: number): T[] => rows.slice(PODIUM + page * PAGE_SIZE, PODIUM + (page + 1) * PAGE_SIZE);
 
 /** The first and last rank a page shows. */

@@ -1,16 +1,10 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { CLUSTER } from "@/lib/cluster-settings";
-import { Button, Sheet, CountUp } from "@/components/ui";
+import { Button, CountUp } from "@/components/ui";
 import { redeemableOf, useAccount } from "@/lib/account";
-import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { fmtAsset, fmtGemas, fmtUsd } from "@/lib/format";
-import { onGetGemas } from "@/lib/get-gemas";
-import { requestDeposit } from "@/lib/deposit/bus";
-import { useViewMode } from "@/lib/deposit/use-view-mode";
-import { ProViewSwitch } from "@/components/deposit/ProViewSwitch";
 import { type Chain, type GemaHolding, type Position } from "@/lib/mock";
 import { BRAND } from "@/lib/brand";
 import { AdvanceSheet } from "./AdvanceSheet";
@@ -19,10 +13,8 @@ import { returnRows } from "@/lib/chain/return-own";
 import { gemasInAsset } from "@/lib/chain/ledger";
 import { clockOf, nativeNow, speedupOf, stakeGrowthOf, unlockEstimateMs } from "@/lib/chain/native";
 import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
-import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
-import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables, ethYieldWaiting } from "./EthPositions";
-import { vaultsOn, type EthVault } from "@/lib/chain/eth";
-import { OpenPanel, OpenFormView, OpenIntentContext, type OpenIntent } from "./OpenPanel";
+import { NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
+import { EthOps, EthPositionCard, ethRedeemables, ethYieldWaiting } from "./EthPositions";
 import { BalanceHero } from "@/components/money/BalanceHero";
 import { CARD } from "@/components/money/card-copy";
 import { HoverHint } from "@/components/money/Tip";
@@ -45,28 +37,14 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   const card = part !== "body";
   const body = part !== "card";
   const { gemas, positions, holdings, auth, onChain, loading, ready, error, refresh, snapshot } = useAccount();
-  const [tab, setTab] = useState<Chain>("SOL");
   const [advanceFor, setAdvanceFor] = useState<Position | null>(null);
   const [returnFor, setReturnFor] = useState<Position | null>(null);
   const [chainReturnFor, setChainReturnFor] = useState<ChainPosition | null>(null);
   const [redeemOpen, setRedeemOpen] = useState(false);
   // A chain's own Redeem pays only that chain; the balance's Redeem pays every chain.
   const [redeemChain, setRedeemChain] = useState<Chain | undefined>(undefined);
-  const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [now] = useState(() => Date.now());
-  const [openSheet, setOpenSheet] = useState(false);
-  const [intent, setIntent] = useState<OpenIntent | null>(null);
-  const router = useRouter();
   const { orders } = useInstantRedeem();
-  const { setMode } = useViewMode();
-  // The Vault's Buy Gemas button, the top bar's Gemas pill and `/vault?open=1` open this sheet (a game adds what it needs).
-  useEffect(() => {
-    if (!body) return;
-    return onGetGemas((from) => auth.gate("buy Gemas", () => {
-      setIntent(from ? { game: from.game, need: from.need ?? null } : null);
-      setOpenSheet(true);
-    }));
-  }, [auth, body]);
   const { offer: instantOffer } = useInstantRedeem();
   const wonPending = instantCandidates(snapshot?.holdings ?? []).length > 0;
   // What Instant Redeem would pay now, in dollars: the Gemas the Treasury can buy, less the fee. "Up to" when it can't buy them all.
@@ -249,58 +227,12 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
         {onChain && <p className="note">{REAL ? "Redeem pays the staking token (jitoSOL for SOL Locks) from the yield your Lock has earned so far." : "Redeem pays test SOL (simulated) from the yield your Lock has earned so far."}</p>}
       </footer>}
 
-      {body && <Sheet
-        open={openSheet}
-        onClose={() => setOpenSheet(false)}
-        title="Buy Gemas"
-        actions={<ProViewSwitch on tip={false} onChange={() => {
-          // Pro view off: save it and swap to the deposit packs, with the game the Player came from.
-          setMode("simple");
-          setOpenSheet(false);
-          requestDeposit(intent);
-        }} />}
-      >
-        <OpenIntentContext.Provider value={intent}>
-        <OpenPanel tab={tab} onTab={setTab}>
-          {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
-          {tab === "ETH" && (onChain ? <EthVaultForm unit="ETH" vault={vaultsOn("hoodi")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="ETH" months={months} onMonths={setMonths} />)}
-          {tab === "HYPE" && (onChain ? <EthVaultForm unit="HYPE" vault={vaultsOn("hyperevm")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="HYPE" months={months} onMonths={setMonths} />)}
-        </OpenPanel>
-        </OpenIntentContext.Provider>
-      </Sheet>}
       <NativeRedeemSheet open={redeemOpen && onChain} asset={redeemChain} onClose={() => setRedeemOpen(false)} />
       <AdvanceSheet position={advanceFor} onClose={() => setAdvanceFor(null)} />
       <ReturnSheet position={returnFor} onClose={() => setReturnFor(null)} />
       {chainReturnFor && <ReturnOwnSheet position={chainReturnFor} open onClose={() => setChainReturnFor(null)} />}
       <RedeemSheet open={redeemOpen && offline} onClose={() => setRedeemOpen(false)} />
     </div>
-  );
-}
-
-/** The ETH and HYPE tabs: on the mainnet cluster a chain whose vault address is not set has nothing to open yet. */
-function EthVaultForm({ unit, vault, onOpened }: { unit: "ETH" | "HYPE"; vault: EthVault | undefined; onOpened: (opKey: string) => void }) {
-  if (!vault) return <p className="note">Locking {unit} is not available yet. It will appear here as soon as it is.</p>;
-  return <EthOpenForm vault={vault} onOpened={onOpened} />;
-}
-
-/** The open form's shape before there is a market to quote from. */
-function IdleForm({ unit, months, onMonths }: { unit: Chain; months: number; onMonths: (m: number) => void }) {
-  return (
-    <OpenFormView
-      chain={unit}
-      yieldText={`0 ${unit}`}
-      inert
-      amountText=""
-      onAmount={() => undefined}
-      months={months}
-      onMonths={onMonths}
-      gemas={null}
-      estimate="—"
-      note="Sign in to see your balance and a real quote."
-      buttonLabel="Get Gemas"
-      disabled
-      onSubmit={() => undefined}
-    />
   );
 }
 
