@@ -1,17 +1,16 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Sheet } from "@/components/ui";
 import { useAuth } from "@/lib/auth/context";
 import { backLink } from "@/lib/deposit/back-link";
 import { onDeposit, type DepositIntent } from "@/lib/deposit/bus";
 import { useViewMode } from "@/lib/deposit/use-view-mode";
-import { getGemasHref } from "@/lib/deposit/view-mode";
 import { DEPOSIT_ACK_TITLE } from "@/lib/deposit/acknowledgment";
 import type { DepositStep } from "./use-deposit-flow";
 import { CLUSTER } from "@/lib/cluster-settings";
 import { AckView, DoneView, ErrorView, PacksView, WorkingView } from "./DepositPanel";
+import { ProDepositBody } from "@/app/(app)/wallet/ProDepositBody";
 import { ProViewSwitch } from "./ProViewSwitch";
 import { useDepositFlow } from "./use-deposit-flow";
 
@@ -26,34 +25,31 @@ const TITLES: Record<DepositStep, string> = {
   error: "Buy Gemas",
 };
 
-/** The deposit modal: packs, the acknowledgment, progress, success. Controlled by `open`. */
+/**
+ * The one Buy Gemas modal: packs (Pro view off) or the SOL / ETH / HYPE forms (Pro view on), then the acknowledgment,
+ * progress and success. The Pro view switch swaps the body in place. Controlled by `open`.
+ */
 export function DepositSheet({ open, onClose, intent }: { open: boolean; onClose: () => void; intent: DepositIntent | null }) {
   const flow = useDepositFlow(intent);
   const { step, picked, reset } = flow;
-  const { setMode } = useViewMode();
-  const router = useRouter();
+  const { mode, setMode } = useViewMode();
+  const pro = mode === "advanced" && step === "packs";
   // A finished or abandoned deposit starts over the next time the modal opens.
   const wasOpen = useRef(false);
   useEffect(() => {
     if (open && !wasOpen.current && step !== "packs" && step !== "working") reset();
     wasOpen.current = open;
   }, [open, step, reset]);
-  // Pro view on: save it, then the Vault opens its own Buy Gemas sheet, with the game the Player came from.
-  const goPro = () => {
-    setMode("advanced");
-    onClose();
-    router.push(getGemasHref("advanced", intent ?? undefined));
-  };
-
   return (
     <Sheet
       open={open}
       onClose={onClose}
       title={TITLES[step]}
-      className={`dep-sheet ${step}`}
-      actions={step === "packs" && <ProViewSwitch on={false} onChange={goPro} tip={false} />}
+      className={pro ? undefined : `dep-sheet ${step}`}
+      actions={step === "packs" && <ProViewSwitch on={pro} onChange={(on) => setMode(on ? "advanced" : "simple")} tip={false} />}
     >
-      {step === "packs" && (
+      {pro && <ProDepositBody intent={intent} onDone={onClose} />}
+      {step === "packs" && !pro && (
         <PacksView
           quotes={flow.quotes}
           highlight={flow.highlight}
@@ -87,15 +83,20 @@ export function DepositHost() {
   const auth = useAuth();
   const [open, setOpen] = useState(false);
   const [intent, setIntent] = useState<DepositIntent | null>(null);
+  // One subscription for the shell's lifetime: re-subscribing when `auth` changes would drop a request made in that same commit.
+  const gate = useRef(auth.gate);
+  useEffect(() => {
+    gate.current = auth.gate;
+  }, [auth.gate]);
   useEffect(
     () =>
       onDeposit((next) =>
-        auth.gate("deposit", () => {
+        gate.current("deposit", () => {
           setIntent(next);
           setOpen(true);
         }),
       ),
-    [auth],
+    [],
   );
   return <DepositSheet open={open} onClose={() => setOpen(false)} intent={intent} />;
 }
