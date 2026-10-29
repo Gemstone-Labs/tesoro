@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { EditProfileSheet } from "@/components/account/EditProfileSheet";
 import { LimitsSheet } from "@/components/account/LimitsSheet";
+import { ToastHost } from "@/components/ui/Toast";
 import { GuideBanner, GuideOverlay, GuideProvider } from "@/components/guide/Guide";
 import { SidebarBody, isHere, useNavItems } from "./Sidebar";
 import { DepositHost } from "@/components/deposit/DepositSheet";
@@ -76,6 +77,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </main>
           {!bareScreen(path) && <SiteFooter />}
         </div>
+
+        <ToastHost />
 
         <nav className="bottom-nav" aria-label="Main">
           {nav.map(({ href, label, Icon }) => {

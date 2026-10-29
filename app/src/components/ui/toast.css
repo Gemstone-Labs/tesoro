@@ -1,0 +1,14 @@
+/* Toasts: finished-action confirmations, above the phone's bottom nav, bottom centre on desktop */
+.toast-host {
+  position: fixed; z-index: 60; left: 16px; right: 16px; bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom));
+  display: grid; gap: 8px; justify-items: center; pointer-events: none;
+}
+.toast {
+  --edge: var(--edge-em); --c: 10px; pointer-events: auto; display: flex; align-items: center; gap: 10px; max-width: 460px; width: 100%;
+  padding: 12px 14px; border: 0; background: var(--raised); color: var(--fg); font: inherit; font-size: var(--fs-14); font-weight: 700; text-align: left; cursor: pointer;
+  animation: toast-in 0.2s ease-out;
+}
+.toast svg { width: 18px; height: 18px; flex: none; color: var(--em-hi); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+@media (min-width: 1024px) { .toast-host { bottom: 24px; left: 264px; } }
