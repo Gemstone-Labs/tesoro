@@ -83,15 +83,18 @@ export function DepositHost() {
   const auth = useAuth();
   const [open, setOpen] = useState(false);
   const [intent, setIntent] = useState<DepositIntent | null>(null);
+  // One subscription for the shell's lifetime: re-subscribing when `auth` changes would drop a request made in that same commit.
+  const gate = useRef(auth.gate);
+  gate.current = auth.gate;
   useEffect(
     () =>
       onDeposit((next) =>
-        auth.gate("deposit", () => {
+        gate.current("deposit", () => {
           setIntent(next);
           setOpen(true);
         }),
       ),
-    [auth],
+    [],
   );
   return <DepositSheet open={open} onClose={() => setOpen(false)} intent={intent} />;
 }
