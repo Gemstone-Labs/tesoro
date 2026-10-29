@@ -38,6 +38,16 @@ describe("matchProgress", () => {
     expect(p.match({ id: 2 })).toEqual({ id: 2 });
   });
 
+  it("keeps a result once seen: an older read of the same Match never replaces it", () => {
+    const p = matchProgress<{ status: string; v: number }, string>("m");
+    p.match({ status: "open", v: 0 });
+    expect(p.match({ status: "refunded", v: 1 })?.v).toBe(1);
+    expect(p.match({ status: "open", v: 2 })?.v).toBe(1);
+    expect(p.match({ status: "active", v: 3 })?.v).toBe(1);
+    expect(p.match(null)?.v).toBe(1);
+    expect(p.match({ status: "refunded", v: 4 })?.v).toBe(4);
+  });
+
   it("lets loading and role stages through", () => {
     const p = matchProgress<object, string>("m");
     p.stage("closing");

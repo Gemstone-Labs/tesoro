@@ -21,6 +21,13 @@ export function recordAgainst(rows: HistoryRow[], other: string): FriendRecord {
   return r;
 }
 
+/** My record against `other` counting the Match on screen, which the history may not list yet: `current` is added unless a row already has it. */
+export function recordIncluding(rows: HistoryRow[], other: string, current: { id: string; result: "won" | "lost" | "draw" }): FriendRecord {
+  if (rows.some((r) => r.id === current.id)) return recordAgainst(rows, other);
+  const now = { id: current.id, game: "block-puzzle", entry: 0, role: "player", result: current.result, delta: 0, backing: null, scores: null, opp: other, at: Date.now(), asset: null } as const;
+  return recordAgainst([...rows, now], other);
+}
+
 /** "You 4–2", "You 2–2, 1 draw", or "Never played". */
 export function recordText(r: FriendRecord): string {
   if (!r.won && !r.lost && !r.draws) return "Never played";

@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult, type MatchResultProps } from "@/components/match/MatchResult";
 import { backed, match } from "@/lib/chain/fixture";
-import { backerDelta, matchDelta, matchFee } from "@/lib/chain/ledger";
+import { backerDelta, matchDelta } from "@/lib/chain/ledger";
 import { chainMatchFromPage, type ChainMatch } from "@/lib/chain/read";
 import real from "@/lib/chain/match-pages/block-burst-devnet-2026-10-27.json";
 import type { MatchPage } from "@/server/history/reads";
@@ -24,7 +24,6 @@ function props(game: GameId, win: boolean, extra: { backing?: "player" | "backer
     outcome,
     delta,
     entry: m.entry,
-    fee: Math.floor(m.entry * 2 * 0.05),
     role: extra.backing === "backer" ? "backer" : "player",
     backed: !!m.backing,
     playAgainHref: "/play/queue",
@@ -70,7 +69,7 @@ export const NoOpponentKnown: Story = { args: { ...props("block-puzzle", true), 
 const fromPage = (page: MatchPage, who: string, over: Partial<MatchResultProps> = {}): MatchResultProps => {
   const m = chainMatchFromPage(page, new PublicKey(who))!;
   const outcome = m.status === "refunded" ? "refunded" : page.winner === null ? "draw" : page.winner === who ? "won" : "lost";
-  return { game: "block-puzzle", outcome, delta: matchDelta(m), entry: m.entry, fee: matchFee(m), role: "player", backed: false, playAgainHref: "/play/queue", opponent: m.opponent, points: m.settled?.points, momentKey: `story-real-${outcome}`, matchId: m.id, ...over };
+  return { game: "block-puzzle", outcome, delta: matchDelta(m), entry: m.entry, role: "player", backed: false, playAgainHref: "/play/queue", opponent: m.opponent, points: m.settled?.points, momentKey: `story-real-${outcome}`, matchId: m.id, ...over };
 };
 const REAL_WIN = real["won-lost"] as unknown as MatchPage;
 const WINNER = "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ";

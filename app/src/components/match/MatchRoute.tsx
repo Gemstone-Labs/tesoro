@@ -7,6 +7,7 @@ import { VanguardMatchView } from "@/games/vanguard/VanguardMatchView";
 import { getChain } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
 import { gameOf } from "@/lib/chain/read";
+import { enteredHint } from "@/lib/chain/entered-hint";
 import { PublicKey } from "@solana/web3.js";
 import { useAccount } from "@/lib/account";
 import type { GameId } from "@/lib/mock";
@@ -21,7 +22,8 @@ type RouteGame = GameId | "unknown";
 
 /** Picks the Match view by the Game the tesoro_core Match belongs to. */
 export function MatchRoute({ matchId }: { matchId: string }) {
-  const [game, setGame] = useState<RouteGame | null>(null);
+  // A Match this tab just opened is routed at once from what the entry knew.
+  const [game, setGame] = useState<RouteGame | null>(() => enteredHint(matchId)?.game ?? null);
   const { snapshot } = useAccount();
   const merge = useQueueMerge(matchId);
 
