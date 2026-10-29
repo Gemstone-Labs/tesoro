@@ -7,7 +7,7 @@ import { CountUp } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
-import { nextStep, ordinal, pts, seasonStanding } from "@/lib/chain/leaderboard-view";
+import { ordinal, pts, seasonStanding } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { usePool } from "@/lib/chain/usePool";
 import { fmtGemas } from "@/lib/format";
@@ -162,7 +162,6 @@ export function PoolChest() {
           </div>
           <div className="pc-you-txt">
             <strong><CountUp value={standing.points} /> <small>pts</small></strong>
-            {standing.rank !== null && <small>{nextStep(standing)}</small>}
           </div>
         </div>
       )}
@@ -177,7 +176,6 @@ function YouSkeleton() {
       <div className="pc-rank skel" />
       <div className="pc-you-txt">
         <div className="skel-line lg" style={{ width: 52 }} />
-        <div className="skel-line" style={{ width: 76 }} />
       </div>
     </div>
   );
