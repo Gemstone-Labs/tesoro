@@ -41,6 +41,9 @@ function Preview() {
       role={asBacker ? "backer" : "player"}
       backed={!!m.backing}
       playAgainHref="/play/queue"
+      matchId={m.id}
+      points={won ? 5 : 0}
+      opponent={m.opponent}
       split={m.backing ? <BackingSplit m={m} /> : undefined}
     />
   );
