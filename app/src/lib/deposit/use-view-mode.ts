@@ -5,9 +5,18 @@ import { useAuth } from "@/lib/auth/context";
 import { browserStore, type Store } from "@/lib/storage";
 import { DEFAULT_VIEW_MODE, readViewMode, writeViewMode, type ViewMode } from "./view-mode";
 
-/** The view a Player has: the one they chose, else Simple. */
+/** Choices made during this visit, by Account key ("" before the key is known): they hold when storage can't. */
+const chosen = new Map<string, ViewMode>();
+
+/** The view a Player has: the one they chose (saved in this browser, or earlier this visit), else Simple. */
 export function resolveViewMode(authority: string | null | undefined, store: Store | null = browserStore()): ViewMode {
-  return (authority ? readViewMode(authority, store) : null) ?? DEFAULT_VIEW_MODE;
+  return (authority ? readViewMode(authority, store) : null) ?? chosen.get(authority ?? "") ?? DEFAULT_VIEW_MODE;
+}
+
+/** Remembers a choice for this visit and, once the Account key is known, in this browser. */
+export function saveViewMode(authority: string | null | undefined, mode: ViewMode, store: Store | null = browserStore()): void {
+  chosen.set(authority ?? "", mode);
+  if (authority) writeViewMode(authority, mode, store);
 }
 
 const listeners = new Set<() => void>();
@@ -18,7 +27,8 @@ const listeners = new Set<() => void>();
  */
 export function useViewMode(): { mode: ViewMode; setMode: (mode: ViewMode) => void; resolved: boolean } {
   const auth = useAuth();
-  const authority = auth.signer?.publicKey.toBase58() ?? null;
+  // The Account's Solana address is known as soon as the Player is signed in; the signing wallet can load later.
+  const authority = auth.addresses.solana ?? auth.signer?.publicKey.toBase58() ?? null;
   const [mode, setLocal] = useState<ViewMode>(DEFAULT_VIEW_MODE);
   const [resolved, setResolved] = useState(false);
 
@@ -34,7 +44,7 @@ export function useViewMode(): { mode: ViewMode; setMode: (mode: ViewMode) => vo
 
   const setMode = useCallback(
     (next: ViewMode) => {
-      if (authority) writeViewMode(authority, next);
+      saveViewMode(authority, next);
       setLocal(next);
       listeners.forEach((l) => l());
     },

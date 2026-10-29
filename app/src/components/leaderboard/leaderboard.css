@@ -59,7 +59,6 @@
 .lb-pager-range { color: var(--fg-2); font-size: var(--fs-14); }
 .lb-pager-btns { display: flex; gap: 6px; }
 .lb-pager .btn { min-width: 44px; justify-content: center; }
-.lb-page[aria-current="page"] { background: var(--fg); color: var(--shell); --edge: var(--edge-2); }
 
 /* the Pool: one slim gold band (chest, figure, countdown, ⓘ); the ⓘ opens how it works and the payout scale in a modal */
 .lb-band-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }

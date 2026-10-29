@@ -411,7 +411,7 @@ function Pager({ page, pages, ranked, go }: { page: number; pages: number; ranke
           i === null ? (
             <span key={`gap${k}`} className="lb-page-gap" aria-hidden="true">…</span>
           ) : (
-            <button key={i} type="button" className="cut cut-btn btn neutral sm lb-page" onClick={() => go(i)} aria-current={i === page ? "page" : undefined} aria-label={`Page ${i + 1}`}>
+            <button key={i} type="button" className={`cut cut-btn btn sm ${i === page ? "light" : "neutral"}`} onClick={() => go(i)} aria-current={i === page ? "page" : undefined} aria-label={`Page ${i + 1}`}>
               {i + 1}
             </button>
           ),
