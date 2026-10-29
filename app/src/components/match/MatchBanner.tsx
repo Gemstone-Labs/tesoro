@@ -140,10 +140,10 @@ function SkeletonSeat() {
 export function ResultFilterSkeleton() {
   return (
     <div className="mh-results" aria-hidden="true">
-      {[0, 1, 2].map((i) => (
-        <span key={i} className="cut cut-chip mh-result skel-chip">
+      {["Won 0", "Lost 0", "Refunded 0"].map((t) => (
+        <span key={t} className="cut cut-chip mh-result skel-chip">
           <i />
-          <Ink>Refunded 00</Ink>
+          <Ink>{t}</Ink>
         </span>
       ))}
     </div>

@@ -122,7 +122,10 @@ export function LoadingSkeleton() {
                 <Ink>Player</Ink>
               </span>
               <span className="lb-pts">
-                <Ink>00 pts</Ink>
+                <b>
+                  <Ink>00</Ink>
+                </b>
+                <Ink> pts</Ink>
               </span>
               <span className="lb-prize">
                 <span className="lb-prize-line">
@@ -146,7 +149,10 @@ export function LoadingSkeleton() {
                 </span>
               </span>
               <span className="lb-pts">
-                <Ink>00 pts</Ink>
+                <b>
+                  <Ink>00</Ink>
+                </b>
+                <Ink> pts</Ink>
               </span>
               <span className="lb-prize">
                 <span className="lb-prize-line">
