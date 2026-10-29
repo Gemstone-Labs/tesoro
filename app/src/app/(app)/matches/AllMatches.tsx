@@ -62,20 +62,16 @@ export function AllMatches() {
         ) : null}
       </header>
 
-      {!snapshot?.matchesLoaded ? (
-        error ? (
-          <div className="mh-state" role="alert">
-            <p>Your Matches couldn’t be loaded.</p>
-            <Button size="sm" onClick={() => void refresh()}>Try again</Button>
-          </div>
-        ) : (
-          <MatchBannerSkeleton count={4} label="Loading your Matches…" />
-        )
-      ) : null}
+      {!snapshot?.matchesLoaded && error && (
+        <div className="mh-state" role="alert">
+          <p>Your Matches couldn’t be loaded.</p>
+          <Button size="sm" onClick={() => void refresh()}>Try again</Button>
+        </div>
+      )}
       {open.length > 0 && <ContinueRail matches={open} title="Open" rows />}
       {(!snapshot?.matchesLoaded ? !error : history === undefined || rows.length > 0) && <h2 className="h-section mh-finished-h">Finished</h2>}
       {snapshot?.matchesLoaded && <DelayedMatches matches={[...snapshot.matches, ...snapshot.funded].filter((m) => !game || m.game === game)} now={now} />}
-      {snapshot?.matchesLoaded && history === undefined && <MatchBannerSkeleton count={4} label="Loading your Matches…" />}
+      {(snapshot?.matchesLoaded ? history === undefined : !error) && <MatchBannerSkeleton count={4} label="Loading your Matches…" />}
       {snapshot?.matchesLoaded && history === null && <p className="note">Your finished Matches aren’t available right now. Matches in progress are shown above.</p>}
       {snapshot?.matchesLoaded && history && (rows.length === 0 ? (
         <div className="mh-state">
