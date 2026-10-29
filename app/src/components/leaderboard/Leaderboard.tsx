@@ -259,7 +259,7 @@ function Person({ account }: { account: string }) {
   );
 }
 
-/** This season: the top three on a podium, then the rest as compact rows, 10 a page (`?page=2` in the URL). Your own row stays pinned above the nav while it is out of view. */
+/** This season: the top three on a podium, then the rest as compact rows, 7 a page so each page shows ten Players (`?page=2` in the URL). Your own row stays pinned above the nav while it is out of view. */
 function Season({ data, pool, me }: { data: LeaderboardView; pool: number; me: string | null }) {
   const rows = data.standings;
   const podium = rows.slice(0, PODIUM);
