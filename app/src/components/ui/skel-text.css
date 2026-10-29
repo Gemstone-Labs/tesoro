@@ -1,0 +1,5 @@
+.skel-text { color: transparent !important; }
+.skel-text { background: rgba(234, 239, 236, 0.07); user-select: none; position: relative; overflow: hidden; display: inline-block; vertical-align: top; clip-path: polygon(3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px), 0 3px); }
+.skel-text.wl-usd, .skel-text.skel-inline { display: inline; }
+[aria-busy="true"] .skel-text::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.07), transparent); animation: skel 1.5s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { [aria-busy="true"] .skel-text::before { animation: none; } }

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ViewSwitchLink } from "@/components/deposit/ViewSwitchLink";
-import { Button, SkeletonCards } from "@/components/ui";
+import { Button } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { requestDeposit } from "@/lib/deposit/bus";
 import { PACK_MONTHS } from "@/lib/deposit/packs";
@@ -10,7 +10,7 @@ import { vaultView, type DepositRow } from "@/lib/deposit/vault";
 import { plainError } from "@/lib/errors";
 import { fmtUsd } from "@/lib/format";
 import { withdrawAndConfirm } from "./confirm-withdraw";
-import { DepositCards } from "./DepositCards";
+import { DepositCards, DepositsSkeleton } from "./DepositCards";
 import "./vault.css";
 
 export function SimpleVault() {
@@ -47,7 +47,7 @@ export function SimpleVault() {
       )}
       {problem && <p className="status err vt-notice" role="alert">{problem}</p>}
 
-      {loadingFirst && <SkeletonCards count={2} avatar={false} label="Loading your Vault…" />}
+      {loadingFirst && <DepositsSkeleton />}
 
       {ready && view.isNew && (
         <section className="cut cut-card vt-empty" aria-label="Get started">

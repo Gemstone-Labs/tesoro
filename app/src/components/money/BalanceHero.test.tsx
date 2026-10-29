@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { shape } from "@/test-utils/shape";
 import { BalanceHero } from "./BalanceHero";
 
 const rows = [
@@ -32,8 +33,17 @@ describe("shared Vault balance card", () => {
     expect(html).not.toContain("—");
     expect(html).not.toContain("≈ $1.50 now");
     expect(html).not.toContain("≈ $2");
-    expect(html.match(/class="skel-line wl-figure-skel"/g)).toHaveLength(3);
+    expect(html.match(/class="skel-text(?: wl-usd)?(?: wl-total-usd)?"/g)).toHaveLength(6);
+    expect(html).not.toContain("skel-line");
     expect(html).toContain("Loading your Gemas…");
     expect(html).toContain('<p role="alert">Read failed</p>');
+  });
+
+  it("builds its loading card from the loaded card's own markup: same labels, rows, buttons and figure classes", () => {
+    const noNotes = rows.map((r) => ({ ...r, note: undefined }));
+    const loaded = renderToStaticMarkup(<BalanceHero label="Gemas" figure="5,700" usdOf={5700} rows={noNotes} />);
+    const busy = renderToStaticMarkup(<BalanceHero label="Gemas" figure="—" busy rows={noNotes} />);
+    expect(shape(busy)).toEqual(shape(loaded));
+    expect(busy.match(/class="sr-only"/g)).toHaveLength(1);
   });
 });

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CLUSTER } from "@/lib/cluster-settings";
-import { Button, Sheet, SkeletonCards, CountUp } from "@/components/ui";
+import { Button, Sheet, CountUp } from "@/components/ui";
 import { redeemableOf, useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { fmtAsset, fmtGemas, fmtUsd } from "@/lib/format";
@@ -27,7 +27,7 @@ import { BalanceHero } from "@/components/money/BalanceHero";
 import { CARD } from "@/components/money/card-copy";
 import { HoverHint } from "@/components/money/Tip";
 import { instantCandidates, useInstantRedeem } from "./instant";
-import { ChainPockets, type Pocket, type PocketSource } from "./ChainPockets";
+import { ChainPockets, PocketsSkeleton, type Pocket, type PocketSource } from "./ChainPockets";
 import { SmallLeftovers } from "./Leftovers";
 import { WaitingForRoom } from "./WaitingForRoom";
 import { orderState } from "@/lib/chain/instant-order";
@@ -200,6 +200,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
           },
           {
             label: "Pending",
+            placeholder: "0",
             figure: ready ? fmtGemas(pendingAmount) : "—",
             usdOf: ready ? pendingAmount : undefined,
             info: `${CARD.ownInfo} ${CARD.wonInfo(100 - (instantOffer?.feePct ?? 25))}`,
@@ -225,9 +226,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
 
       {body && <section className="wl-positions" aria-label="Your Gemas and Locks by chain">
         {loading && !ready && !error && (
-          <div className="wl-pockets">
-            <SkeletonCards count={2} avatar={false} className="wl-tile" label="Loading your Locks…" />
-          </div>
+          <PocketsSkeleton />
         )}
         {requested.length > 0 && (
           <p className="note wl-requested" role="status">
