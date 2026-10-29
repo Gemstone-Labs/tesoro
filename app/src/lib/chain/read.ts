@@ -326,8 +326,18 @@ export async function fetchMatch(id: string, me: PublicKey | null): Promise<Chai
   if (game === null) return null;
   const finished = enumKey(state.inner.stage) === "closed" || enumKey(state.inner.stage) === "settling" || enumKey(state.inner.stage) === "refunding";
   // Hold'em, Trading Duel and Vanguard play on reused tables: the winner is in tesoro_core's record, there is no per-Match account to read.
-  if (game !== "block-puzzle") return toChainMatch(state, me, null);
-  return toChainMatch(state, me, finished ? await burstSession(address) : null);
+  const m = game !== "block-puzzle" ? toChainMatch(state, me, null) : toChainMatch(state, me, finished ? await burstSession(address) : null);
+  // A closed Match keeps its account until someone calls close_match, and the account does not know the Season points: they live in the history.
+  return enumKey(state.inner.stage) === "closed" ? withHistoryPoints(m, await fetchClosedMatch(id, me)) : m;
+}
+
+/**
+ * `m` (read from its account) with what only the history knows: the Season points of the result. A Match without amounts yet
+ * (Hold'em, Trading Duel, Vanguard have no run to read them from) takes the history's amounts as they are.
+ */
+export function withHistoryPoints(m: ChainMatch, closed: ChainMatch | null): ChainMatch {
+  if (!closed?.settled) return m;
+  return { ...m, settled: m.settled ? { ...m.settled, points: closed.settled.points } : closed.settled };
 }
 
 /** A closed Match from the history route (its account no longer exists): the result, sides and Fees it settled with. */
@@ -351,7 +361,8 @@ function settledOf(p: MatchPage, mine: string | undefined, seat: 0 | 1 | null): 
   return {
     fee: p.fees.platform + p.fees.studio + p.fees.leaderboard,
     delta: party?.delta ?? 0,
-    points: mine && p.winner === mine ? (p.points ?? 0) : 0,
+    // A win's points arrive with the history's own record of the win, a moment after the result: until then they are unknown, not 0.
+    points: mine && p.winner === mine ? (p.points ?? 0) : seat !== null && p.winner === null && p.winnerSide === seat ? null : 0,
   };
 }
 

@@ -9,7 +9,7 @@ import { getReadySecs, slotNow } from "@/games/block-puzzle/live-clock";
 import { stripOf } from "@/games/block-puzzle/opponent";
 import { useBurstMatch } from "@/games/block-puzzle/useBurstMatch";
 import { useAccount } from "@/lib/account";
-import { backerDelta, matchDelta, matchFee, resultFee, seatResult } from "@/lib/chain/ledger";
+import { backerDelta, matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { resultOf } from "@/lib/chain/read";
 import { parseMatchKey } from "@/lib/chain/match-id";
 import { refundMatch } from "@/lib/chain/match-flow";
@@ -21,7 +21,7 @@ import { BackingSplit } from "./BackingSplit";
 import { BurstOpponentStrip } from "./BurstOpponentStrip";
 import { MatchResult } from "./MatchResult";
 import { MatchSpectate } from "./MatchSpectate";
-import { MatchStage, MatchStageLoading, StageAction, type StageKind } from "./MatchStage";
+import { MatchStage, MatchStageLoading, stageLoading, StageAction, type StageKind } from "./MatchStage";
 
 /** Re-renders every `ms`, so the get-ready count and the check-in clock follow the rollup's slot clock. */
 function useTicker(ms: number, on: boolean): number {
@@ -58,7 +58,7 @@ export function MatchView({ matchId }: { matchId: string }) {
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
   if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
   if (!signer) return <MatchStageLoading game="block-puzzle" me={me} step="Getting your wallet ready" />;
-  if (stage === "loading") return <MatchStageLoading game="block-puzzle" me={me} />;
+  if (stage === "loading") return stageLoading({ game: "block-puzzle", me, matchId });
   if (stage === "notfound") return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
   if (stage === "spectator") return <MatchSpectate matchId={matchId} />;
 
@@ -99,7 +99,7 @@ export function MatchView({ matchId }: { matchId: string }) {
         outcome={outcome}
         delta={delta}
         entry={m.entry}
-        fee={resultFee(m, outcome)}
+        asset={m.asset}
         role={asBacker ? "backer" : "player"}
         backed={!!m.backing}
         cancelled={refundSig.length > 0}
@@ -138,7 +138,7 @@ export function MatchView({ matchId }: { matchId: string }) {
   let words: { kicker?: string; title?: string; line?: string } | undefined;
   let step: string | undefined;
   if (stage === "backer") kind = "backer-watch";
-  else if (stage === "cancelling" || (stage === "waiting" && busy === "refund")) {
+  else if (stage === "cancelling" || (stage === "waiting" && (busy === "refund" || refundSig.length > 0))) {
     // Nobody joined and the refund is on its way (or being sent): never the table or opponent screens.
     kind = "setup";
     step = CANCELLING_NOTE;
@@ -189,8 +189,8 @@ export function MatchView({ matchId }: { matchId: string }) {
       actions={
         <>
           {kind === "waiting" && (
-            <StageAction disabled={busy !== null} onClick={() => void refund()}>
-              {busy === "refund" ? "Refunding…" : playerBacked ? "Cancel (Gemas return to your Backer)" : "Cancel and refund"}
+            <StageAction disabled={busy !== null || refundSig.length > 0} onClick={() => void refund()}>
+              {busy === "refund" || refundSig.length > 0 ? "Refunding…" : playerBacked ? "Cancel (Gemas return to your Backer)" : "Cancel and refund"}
             </StageAction>
           )}
           {view.refundable && kind !== "waiting" && (

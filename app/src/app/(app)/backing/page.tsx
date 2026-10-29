@@ -10,6 +10,7 @@ import {
   Button,
   Card,
   CheckIcon,
+  toast,
   BustCard,
   Chip,
   EntryPicker,
@@ -62,7 +63,6 @@ import { awayNotice } from "@/lib/chain/protections";
 import { useAway } from "@/lib/chain/useAway";
 import { wantsPostRequest } from "@/lib/backing/post-link";
 
-const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
 type Tab = "requests" | "mine";
 type Sort = "recent" | "entry" | "record";
@@ -107,7 +107,6 @@ export default function Backing() {
   const [offerFor, setOfferFor] = useState<ChainRequest | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ text: string; sig?: string } | null>(null);
   const [tab, setTab] = useState<Tab>("requests");
   const [sort, setSort] = useState<Sort>("recent");
   const [postOpen, setPostOpen] = useState(false);
@@ -136,11 +135,10 @@ export default function Backing() {
   const run = (key: string, label: string | (() => string), fn: () => Promise<string | undefined>) => {
     setBusy(key);
     setError(null);
-    setDone(null);
     void (async () => {
       try {
-        const sig = await fn();
-        setDone({ text: typeof label === "function" ? label() : label, sig });
+        await fn();
+        toast(typeof label === "function" ? label() : label);
         await Promise.all([refresh(), refreshAccount()]);
       } catch (e) {
         setError(explain(e));
@@ -219,19 +217,6 @@ export default function Backing() {
 
       {error && <p className="status err" role="alert">{error}</p>}
       {linked && !linked.live && <p className="status" role="status">That Request is no longer open.</p>}
-      {done && (
-        <div className="status ok" role="status">
-          <CheckIcon /> {done.text}
-          {done.sig && (
-            <>
-              {" "}
-              <a className="mono" href={explorer(done.sig)} target="_blank" rel="noreferrer">
-                {done.sig.slice(0, 8)}…
-              </a>
-            </>
-          )}
-        </div>
-      )}
       {loadError && !board && (
         <div className="stack" role="alert">
           <p className="status err">Backing couldn’t be loaded. {loadError}</p>

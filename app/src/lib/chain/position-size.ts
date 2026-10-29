@@ -36,5 +36,6 @@ export const decodePosition = <T>(decode: (data: Buffer) => T, data: Uint8Array)
 export function stakeRateHighOf(data: Uint8Array): bigint {
   if (data.length < POSITION_SPACE) return 0n;
   const end = serialisedEnd(data, POSITION_SPACE);
-  return Buffer.from(data).readBigUInt64LE(end - 8);
+  // DataView, not Buffer: the browser's Buffer polyfill has no readBigUInt64LE.
+  return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(end - 8, true);
 }

@@ -5,14 +5,14 @@ import { Button, Chip, GemaAmount, Notice } from "@/components/ui";
 import { usePlayerLabel } from "@/components/account/Player";
 import { shownIdentity } from "@/lib/identity/display";
 import { useAccount } from "@/lib/account";
-import { matchDelta, matchFee, resultFee, seatResult } from "@/lib/chain/ledger";
+import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
 import { CANCELLING_NOTE, delayedOf } from "@/lib/chain/match-status";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
-import { MatchStage, MatchStageLoading, StageAction } from "@/components/match/MatchStage";
+import { MatchStage, MatchStageLoading, stageLoading, StageAction } from "@/components/match/MatchStage";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { STATUS } from "./chain";
 import { usePriceFeed } from "./feed";
@@ -51,7 +51,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
   if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
   if (!signer) return <MatchStageLoading game="trading-duel" me={snapshot?.accountKey.toBase58() ?? null} step="Getting your wallet ready" />;
-  if (stage === "loading") return <MatchStageLoading game="trading-duel" me={snapshot?.accountKey.toBase58() ?? null} />;
+  if (stage === "loading") return stageLoading({ game: "trading-duel", me: snapshot?.accountKey.toBase58() ?? null, matchId });
   if (stage === "notfound") return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
   if (stage === "spectator") return <MatchSpectate matchId={matchId} />;
 
@@ -67,7 +67,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
         outcome={outcome}
         delta={delta}
         entry={m.entry}
-        fee={resultFee(m, outcome)}
+        asset={m.asset}
         role="player"
         backed={!!m.backing}
         scoreNote={duel?.status === STATUS.over ? `${asset.symbol} ended at ${usdMid(duel.track.last ?? duel.anchor, asset)}${isDraw(duel) ? " · equal points: a draw, both entries refunded" : ""}` : undefined}
@@ -85,7 +85,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
   }
 
   const kind = !showScreen && (stage === "waiting" || stage === "setup" || stage === "closing") ? stage : null;
-  const cancelSent = view.busy === "refund" && stage === "waiting";
+  const cancelSent = stage === "waiting" && (view.busy === "refund" || view.sigs.some((s) => s.label === "refund"));
   if (kind && m) {
     return (
       <MatchStage
@@ -106,8 +106,8 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
         error={view.error}
         actions={
           (kind === "waiting" || view.refundable) && (
-            <StageAction disabled={view.busy !== null} onClick={() => void run("refund", () => refundMatch(signer, m.id))}>
-              {view.busy === "refund" ? "Refunding…" : kind === "waiting" ? "Cancel and refund" : "Refund Match"}
+            <StageAction disabled={view.busy !== null || cancelSent} onClick={() => void run("refund", () => refundMatch(signer, m.id))}>
+              {view.busy === "refund" || cancelSent ? "Refunding…" : kind === "waiting" ? "Cancel and refund" : "Refund Match"}
             </StageAction>
           )
         }

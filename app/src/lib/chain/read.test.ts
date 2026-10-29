@@ -3,7 +3,7 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import coreIdl from "./idl/tesoro_core.json";
 import { matchPda } from "./basket";
-import { canJoinSeat, chainMatchFromPage, toChainMatch } from "./read";
+import { canJoinSeat, chainMatchFromPage, withHistoryPoints, toChainMatch } from "./read";
 import type { MatchPage } from "@/server/history/reads";
 
 // The same construction as the app client, so field names come out as the app reads them (camelCase).
@@ -126,6 +126,18 @@ describe("a closed Match from the history", () => {
   });
   it("is null for a Game this app does not play", () => {
     expect(chainMatchFromPage({ ...page, game: "chess" }, null)).toBeNull();
+  });
+  it("gives the winner's Season points, unknown (null) until the history has recorded the win, 0 for the loser", () => {
+    expect(chainMatchFromPage(page, b)!.settled?.points).toBe(5);
+    expect(chainMatchFromPage({ ...page, winner: null, loser: null, points: null }, b)!.settled?.points).toBeNull();
+    expect(chainMatchFromPage({ ...page, winner: null, loser: null, points: null }, a)!.settled?.points).toBe(0);
+  });
+  it("lends its points to the account read of a closed Match, which does not know them", () => {
+    const fromAccount = { ...chainMatchFromPage(page, b)!, settled: { fee: 60, delta: 440, points: null } };
+    expect(withHistoryPoints(fromAccount, chainMatchFromPage(page, b))!.settled).toEqual({ fee: 60, delta: 440, points: 5 });
+    const noAmounts = { ...fromAccount, settled: undefined };
+    expect(withHistoryPoints(noAmounts, chainMatchFromPage(page, b))!.settled?.points).toBe(5);
+    expect(withHistoryPoints(fromAccount, null)).toBe(fromAccount);
   });
 });
 
