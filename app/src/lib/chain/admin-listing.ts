@@ -7,7 +7,7 @@ import { getChain } from "./client";
 import { coreIx } from "./core-ix";
 import { gameRecordPda, programDataPda } from "./game-record";
 import coreIdl from "./idl/tesoro_core.json";
-import { CONFIG, TESORO_CORE_ID } from "./native";
+import { CONFIG, TESORO_CORE_ID, rdU64 } from "./native";
 
 /** `list_game` hashes the whole program on chain (about 0.5 CU a byte, ~400k for the largest Game): ask for the most a transaction may use. */
 const LIST_GAME_UNITS = 1_400_000;
@@ -35,7 +35,7 @@ export async function readStanding(program: PublicKey): Promise<GameStanding> {
   return {
     registered,
     chain: registered && record ? decodeListing(record.data) : null,
-    live: data && data.data.length > 45 ? { slot: Buffer.from(data.data).readBigUInt64LE(4), hash: await codeHash(data.data) } : null,
+    live: data && data.data.length > 45 ? { slot: rdU64(data.data, 4), hash: await codeHash(data.data) } : null,
   };
 }
 

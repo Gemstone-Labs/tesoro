@@ -44,6 +44,12 @@ const decodeOr = (src: StateSource, name: Parameters<StateSource["decode"]>[0], 
   }
 };
 
+const hasOpenAdvance = (pos: any): boolean => pos.inner.openAdvance !== null && pos.inner.openAdvance !== undefined;
+
+/** The open Advance's Source and its book, when the Position has one. */
+const openSourceKeys = (position: PublicKey, pos: any): PublicKey[] =>
+  hasOpenAdvance(pos) ? [sourceOf(position, pos.inner.openAdvance), bookPda(sourceOf(position, pos.inner.openAdvance))] : [];
+
 const sourceOf = (position: PublicKey, index: number) =>
   PublicKey.findProgramAddressSync([Buffer.from("source"), position.toBuffer(), new BN(index).toArrayLike(Buffer, "le", 4)], TESORO_CORE_ID)[0];
 
@@ -128,14 +134,13 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
   const inSpill = new Set((spill?.lines ?? []).map(keyOf));
 
   const heldSources = [...new Map(lines.map((l) => [l.source.toBase58(), l.source])).values()];
-  const withAdvance = listedPositions.filter((r) => r.account.inner.openAdvance !== null && r.account.inner.openAdvance !== undefined);
   const listedNative = listedPositions.filter((r) => isNativePosition(r.account));
   const read = batch(src);
   const wanted = [
     ...heldSources,
     ...heldSources.map(bookPda),
     ...listedPositions.map((r) => r.publicKey),
-    ...withAdvance.flatMap((r) => [sourceOf(r.publicKey, r.account.inner.openAdvance), bookPda(sourceOf(r.publicKey, r.account.inner.openAdvance))]),
+    ...listedPositions.flatMap((r) => openSourceKeys(r.publicKey, r.account)),
     ...listedNative.filter((r) => r.account.inner.advances > 0).map((r) => sourceOf(r.publicKey, r.account.inner.advances - 1)),
   ];
   await read.load(wanted);
@@ -156,11 +161,13 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     }
     return books.get(id) ?? null;
   };
-  const openSources = withAdvance.map((r) => decodeOr(src, "sourceState", read.get(sourceOf(r.publicKey, r.account.inner.openAdvance))));
   const positionRows: Row[] = listedPositions.map((r) => ({ publicKey: r.publicKey, account: decodeOr(src, "positionState", read.get(r.publicKey)) ?? r.account }));
   const ownNative = positionRows.filter((r) => isNativePosition(r.account));
-  // Only a Position that moved on since the list (a new Advance) has a latest Source that the first batch lacks: that read is the only extra round, and it is empty when nothing moved.
-  const moved = read.load(ownNative.filter((r) => r.account.inner.advances > 0).map((r) => sourceOf(r.publicKey, r.account.inner.advances - 1)));
+  // The list can be older than the read (a cached list, a Position just Unlocked or advanced): a Position that moved on since the list has Sources the first batch lacks. That read is the only extra round, and it is empty when nothing moved.
+  const moved = read.load([
+    ...ownNative.filter((r) => r.account.inner.advances > 0).map((r) => sourceOf(r.publicKey, r.account.inner.advances - 1)),
+    ...positionRows.flatMap((r) => openSourceKeys(r.publicKey, r.account)),
+  ]);
 
   // Positions behind Gemas won or backed from other Accounts: read them in one batch.
   const positionByKey = new Map<string, any>(positionRows.map((r) => [r.publicKey.toBase58(), r.account]));
@@ -174,6 +181,7 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     positionByKey.set(key.toBase58(), decoded);
     if (isNativePosition(decoded)) nativeKeys.add(key.toBase58());
   }
+  const openSources = positionRows.filter((r) => hasOpenAdvance(r.account)).map((r) => decodeOr(src, "sourceState", read.get(sourceOf(r.publicKey, r.account.inner.openAdvance))));
   const ownInfo = new Map<string, NativeInfo | null>();
   for (const r of ownNative) {
     const advances: number = r.account.inner.advances;
@@ -247,6 +255,7 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     });
   }
 
+  const withAdvance = positionRows.filter((r) => hasOpenAdvance(r.account));
   const openSourceOf = new Map<string, any>(withAdvance.map((r, i) => [r.publicKey.toBase58(), openSources[i]]));
   const positions: ChainPosition[] = positionRows.map((row) => {
     const p = row.account.inner;
