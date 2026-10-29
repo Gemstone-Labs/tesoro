@@ -177,7 +177,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
   const hasPositions = pockets.some((p) => p.positions.length > 0 || p.closed.length > 0);
 
   return (
-    <div className={part === "all" ? "wl" : "wl-part"}>
+    <div className={part === "all" ? "vault-grid" : "wl-part"}>
       {card && <BalanceHero
         label="Gemas"
         labelInfo={REAL ? undefined : <>1 Gema = $0.01.</>}

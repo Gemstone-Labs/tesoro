@@ -63,7 +63,7 @@ function Vault() {
     <>
       <VaultHeader />
       {resolved && (
-        <div className="wl">
+        <div className="vault-grid">
           <WalletView part="card" />
           <VaultActions mobile />
           <div className="vt-below">
