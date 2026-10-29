@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
+import { Ink } from "@/components/ui/Ink";
 import { CheckIcon, MinusIcon, XIcon } from "@/components/ui";
 import { art } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
@@ -88,7 +89,7 @@ function Seat({ account, score, lit, dim, you }: { account: string; score?: numb
   );
 }
 
-/** Loading Match banners: the same shape (word column, face-off, chip) with a faint sweep. */
+/** Loading Match banners: the real banner's blocks and classes with placeholder text, so each is as tall as a loaded one. */
 export function MatchBannerSkeleton({ count, label }: { count: number; label: string }) {
   return (
     <div className="mb-list">
@@ -96,17 +97,54 @@ export function MatchBannerSkeleton({ count, label }: { count: number; label: st
         {label}
       </span>
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="cut cut-card mb skel" aria-hidden="true">
-          <span className="mb-word skel-lines">
-            <span className="skel-line" style={{ width: "46%" }} />
-            <span className="skel-line lg" style={{ width: "34%", height: 34 }} />
-            <span className="skel-line" style={{ width: "40%" }} />
+        <article key={i} className="cut cut-card mb skel" aria-hidden="true">
+          <div className="mb-word">
+            <span className="mb-kick">
+              <Ink>Block Burst · 2h ago</Ink>
+            </span>
+            <b>
+              <Ink>Won</Ink>
+            </b>
+            <small>
+              <Ink>Entry 500</Ink>
+            </small>
+          </div>
+          <div className="mb-face">
+            <SkeletonSeat />
+            <span className="mb-vs" aria-hidden="true">vs</span>
+            <SkeletonSeat />
+          </div>
+          <span className="cut cut-chip mb-fig even">
+            <Ink>+440 Gemas</Ink>
           </span>
-          <span className="mb-face">
-            <span className="mb-av" />
-            <span className="mb-av" />
-          </span>
-        </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SkeletonSeat() {
+  return (
+    <span className="mb-seat">
+      <span className="mb-av-wrap">
+        <span className="mb-av" />
+      </span>
+      <span className="mb-plate">
+        <Ink>Player</Ink>
+      </span>
+    </span>
+  );
+}
+
+/** Loading result chips: three chip-shaped blocks in the row the loaded chips take. */
+export function ResultFilterSkeleton() {
+  return (
+    <div className="mh-results" aria-hidden="true">
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="cut cut-chip mh-result skel-chip">
+          <i />
+          <Ink>Refunded 00</Ink>
+        </span>
       ))}
     </div>
   );

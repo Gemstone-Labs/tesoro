@@ -45,3 +45,5 @@
 .mh-result.draw, .mh-result.no-show, .mh-result.refunded { --tone: var(--fg-2); }
 @media (max-width: 640px) { .mh-result { min-height: 44px; } }
 .mh-finished-h { font-size: var(--fs-20); margin-top: 4px; }
+.mh-result.skel-chip { pointer-events: none; }
+.mh-result.skel-chip i { box-shadow: none; background: rgba(234, 239, 236, 0.12); }
