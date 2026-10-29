@@ -13,9 +13,8 @@
 .fr-empty-body b { font-size: var(--fs-18); }
 .fr-empty-body p { color: var(--fg-2); font-size: var(--fs-15); line-height: 1.5; }
 
-.fr-count-skel { width: 90px; margin-top: 10px; }
 .skel-url { min-height: 36px; background: rgba(234, 239, 236, 0.07); }
-.fr-btn-skel { display: block; width: 130px; height: 44px; }
+.fr-btn-skel { display: block; width: 118px; height: 44px; }
 
 .fr-row { display: grid; grid-template-columns: minmax(200px, 1fr) auto; align-items: center; gap: 12px 20px; padding: 12px 18px; }
 .fr-row + .fr-row { border-top: 1px solid var(--line); }
@@ -53,9 +52,6 @@
 
 .fr-actions { display: flex; align-items: center; gap: 8px; justify-self: end; }
 .fr-actions .btn svg { width: 16px; height: 16px; }
-/* The row's main action: a light fill, neutral (emerald stays with Gemas), like Challenge on an Account page */
-.fr-actions > .btn.neutral:first-child { background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
-.fr-actions > .btn.neutral:first-child:hover { filter: brightness(0.92); }
 
 .fr-more { width: 44px; padding: 0; background: var(--surface); color: var(--fg); --edge: var(--edge-2); }
 .fr-more:hover { background: var(--surface-2); }
@@ -80,7 +76,6 @@
 .fr-reset-text { font-size: var(--fs-15); line-height: 1.5; }
 .fr-remove-note { text-align: center; }
 .fr-reset-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.fr-reset-actions > .btn:last-child { background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
 
 /* Add friend (Account page, Match result) */
 .af { display: inline-grid; gap: 4px; justify-items: start; }
@@ -123,8 +118,6 @@
 .fl-games { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 22px; font-weight: 700; }
 .fl-games li { display: flex; align-items: center; gap: 8px; }
 .fl-act { width: 100%; display: grid; gap: 8px; margin-top: 6px; }
-.fl-act > .btn.neutral:first-child { background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
-.fl-act > .btn.neutral:first-child:hover { filter: brightness(0.92); }
 .fl-small { color: var(--fg-2); font-size: var(--fs-13); }
 .fl-facts-skel { width: 100%; justify-items: center; padding: 12px 0; }
 .fl-btn-skel { display: block; height: 48px; width: 100%; }
@@ -162,8 +155,7 @@
 .fr-card-top .fr-who { min-width: 0; flex: 1 1 auto; }
 .fr-card-top .fr-av { width: 64px; height: 64px; }
 .fr-card-act { flex: none; display: grid; justify-items: end; gap: 6px; }
-.fr-card-act > .btn { min-height: 44px; padding-inline: 16px; background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
-.fr-card-act > .btn:hover { filter: brightness(0.92); }
+.fr-card-act > .btn { min-height: 44px; padding-inline: 16px; }
 .fr-played { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; }
 .fr-played small { color: var(--fg-2); font-size: var(--fs-13); white-space: nowrap; }
 .fr-played .fr-more { width: 32px; min-height: 28px; height: 28px; background: transparent; --edge: transparent; }
@@ -187,7 +179,6 @@
   /* the tab bar names the page: no title or count on phones */
   .fr-head .page-title, .fr-head .fr-count { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .fr-head { display: block; }
-  .fr-count-skel { display: none; }
   .fr-link { padding: 12px 14px 14px; }
   .fr-link-row { flex-wrap: nowrap; }
   .fr-link-url { flex: 1 1 0; }

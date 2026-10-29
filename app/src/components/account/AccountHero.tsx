@@ -90,7 +90,7 @@ export function AccountHero({ address, own, visitor, s, games, now, otherNames, 
       <div className="pa-actions">
         {own ? (
           <>
-            <Button onClick={() => setEditProfileOpen(true)} icon={<Pencil aria-hidden="true" />}>
+            <Button variant="light" onClick={() => setEditProfileOpen(true)} icon={<Pencil aria-hidden="true" />}>
               Edit profile
             </Button>
             <FriendLinkButton />
@@ -98,7 +98,7 @@ export function AccountHero({ address, own, visitor, s, games, now, otherNames, 
         ) : (
           <>
             {visitor && (
-              <Button onClick={onChallenge} icon={<Swords aria-hidden="true" />}>
+              <Button variant="light" onClick={onChallenge} icon={<Swords aria-hidden="true" />}>
                 Challenge
               </Button>
             )}

@@ -190,6 +190,9 @@ a.row:hover, button.row:hover { --edge: var(--edge-2); }
   color: #0b1012; --edge: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.35));
   background: linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 3px, transparent 3px), linear-gradient(180deg, #f4f7f6 0%, #d9dfdc 55%, #bcc4c0 100%);
 }
+.btn.light { background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
+.btn.light:hover:not(:disabled, [aria-disabled="true"]) { filter: brightness(0.92); }
+.btn.light:disabled { background: var(--surface); color: var(--fg-2); --edge: var(--edge-1); }
 .btn.silver.lg { padding-bottom: 3px; }
 .btn.silver:hover:not(:disabled, [aria-disabled="true"]) { filter: brightness(1.05); }
 .btn.silver:disabled { background: var(--surface); color: var(--fg-2); --edge: var(--edge-1); }

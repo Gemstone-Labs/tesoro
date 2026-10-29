@@ -16,6 +16,8 @@ import { playedRows } from "@/lib/chain/player-account";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
 import { fmtGemas } from "@/lib/format";
 import { useFriends } from "@/lib/friends/FriendsProvider";
+import { readShape, writeShape } from "@/lib/friends/memory";
+import { useFriendLink } from "@/lib/friends/useFriendLink";
 import { recordAgainst, recordText, sortFriends, type FriendRecord } from "@/lib/friends/record";
 import { GAME_SHORT, friendStatusText } from "@/lib/friends/words";
 import { GAME_NAMES } from "@/lib/mock";
@@ -46,6 +48,13 @@ export function FriendsPage() {
     const t = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(t);
   }, []);
+
+  const friendAccounts = view?.friends.map((f) => f.account);
+  const friendKey = friendAccounts?.join(",");
+  useEffect(() => {
+    if (friends.me && friendAccounts) writeShape(friends.me, {}, friendAccounts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [friends.me, friendKey]);
 
   const myRows = useMemo(() => (snapshot ? accountHistory(snapshot.matches) : []), [snapshot]);
   const records = useMemo(() => new Map((view?.friends ?? []).map((f) => [f.account, recordAgainst(myRows, f.account)])), [view, myRows]);
@@ -121,7 +130,7 @@ export function FriendsPage() {
                   </span>
                 </span>
                 <span className="fr-actions">
-                  <Button href={`/play/challenge/${c.matchId}`}>Open</Button>
+                  <Button variant="light" href={`/play/challenge/${c.matchId}`}>Open</Button>
                 </span>
               </li>
             ))}
@@ -158,8 +167,14 @@ export function FriendsPage() {
   );
 }
 
-/** The page's shape while Friends load: title, link box and three rows. */
+/** The page's shape while Friends load: the real link box and as many Friend cards as last time, each the real card's size. */
 function FriendsSkeleton() {
+  const { me } = useFriends();
+  const [shape, setShape] = useState<boolean[]>([false]);
+  useEffect(() => {
+    const known = Object.values(readShape(me));
+    if (known.length) setShape(known);
+  }, [me]);
   return (
     <div className="fr-page" aria-busy="true">
       <span className="sr-only" role="status">
@@ -168,17 +183,16 @@ function FriendsSkeleton() {
       <header className="fr-head">
         <div>
           <h1 className="page-title">Friends</h1>
-          <span className="skel-line lg fr-count-skel" aria-hidden="true" />
+          <p className="fr-count" aria-hidden="true">
+            {shape.length} {shape.length === 1 ? "Friend" : "Friends"}
+          </p>
         </div>
-        <div className="cut cut-card fr-link" aria-hidden="true">
-          <span className="fr-link-label">Your Friend link</span>
-          <span className="cut cut-chip fr-link-url skel-url" />
-        </div>
+        <FriendLink />
       </header>
       <section className="fr-yours" aria-hidden="true">
-        <h2 className="fr-h-out">Your Friends</h2>
+        <h2 className="fr-h-out">Your Friends ({shape.length})</h2>
         <ul className="fr-cards">
-          {[0, 1, 2].map((i) => (
+          {shape.map((chips, i) => (
             <li key={i} className="cut cut-card fr-card">
               <div className="fr-card-top">
                 <span className="fr-who">
@@ -189,14 +203,17 @@ function FriendsSkeleton() {
                   </span>
                 </span>
                 <span className="fr-card-act">
+                  <span className="fr-played" />
                   <span className="cut cut-btn fr-btn-skel skel" />
                 </span>
               </div>
-              <ul className="fr-chips">
-                {[0, 1, 2].map((j) => (
-                  <li key={j} className="fr-chip-skel" />
-                ))}
-              </ul>
+              {chips && (
+                <ul className="fr-chips">
+                  {[0, 1, 2].map((j) => (
+                    <li key={j} className="fr-chip-skel" />
+                  ))}
+                </ul>
+              )}
             </li>
           ))}
         </ul>
@@ -251,7 +268,7 @@ function RequestRow({ account }: { account: string }) {
         )}
       </Who>
       <span className="fr-actions">
-        <Button size="sm" disabled={busy} onClick={() => void run("accept")}>Accept</Button>
+        <Button variant="light" size="sm" disabled={busy} onClick={() => void run("accept")}>Accept</Button>
         <Button size="sm" disabled={busy} onClick={() => void run("decline")}>Decline</Button>
       </span>
     </li>
@@ -263,6 +280,11 @@ function FriendRow({ account, record, isNew, now }: { account: string; record: F
   const last = useMemo(() => (data ? playedRows(data.played).filter((r) => !unplayed(r.result)).slice(0, 3) : null), [data]);
   const [challenge, setChallenge] = useState(false);
   const name = usePlayerLabel(account);
+  const { me } = useFriends();
+  const hasChips = last === null ? null : last.length > 0;
+  useEffect(() => {
+    if (me && hasChips !== null) writeShape(me, { [account]: hasChips });
+  }, [me, account, hasChips]);
   return (
     <li className="cut cut-card fr-card">
       <div className="fr-card-top">
@@ -274,11 +296,12 @@ function FriendRow({ account, record, isNew, now }: { account: string; record: F
             {record.last !== null && <small>Played {ago(record.last, now)}</small>}
             <FriendMenu account={account} name={name} />
           </span>
-          <Button icon={<Swords aria-hidden="true" />} onClick={() => setChallenge(true)}>
+          <Button variant="light" icon={<Swords aria-hidden="true" />} onClick={() => setChallenge(true)}>
             Challenge
           </Button>
         </span>
       </div>
+      {(last === null || last.length > 0) && (
       <ul className="fr-chips" aria-label={`${name}'s latest Matches`}>
         {last === null
           ? [0, 1, 2].map((i) => <li key={i} className="fr-chip-skel" aria-hidden="true" />)
@@ -299,6 +322,7 @@ function FriendRow({ account, record, isNew, now }: { account: string; record: F
               );
             })}
       </ul>
+      )}
       <ChallengeSheet open={challenge} onClose={() => setChallenge(false)} player={account} name={name} />
     </li>
   );
@@ -354,22 +378,10 @@ function FriendMenu({ account, name }: { account: string; name: string }) {
 
 /** Your Friend link with adjacent Copy and Share actions, and Reset link as a setting. */
 function FriendLink() {
-  const friends = useFriends();
-  const [code, setCode] = useState<string | null>(null);
+  const { code, reset: resetLink } = useFriendLink();
   const [resetOpen, setResetOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
-  useEffect(() => {
-    let stopped = false;
-    void friends.act("link").then(
-      (r) => !stopped && setCode(r.code ?? null),
-      () => undefined,
-    );
-    return () => {
-      stopped = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   const closeReset = () => {
     setResetOpen(false);
     setResetError(null);
@@ -378,8 +390,7 @@ function FriendLink() {
     setResetting(true);
     setResetError(null);
     try {
-      const r = await friends.act("reset-link");
-      setCode(r.code ?? null);
+      await resetLink();
       setResetOpen(false);
     } catch (e) {
       setResetError(e instanceof Error ? e.message : String(e));
@@ -414,7 +425,7 @@ function FriendLink() {
           )}
           <div className="fr-reset-actions">
             <Button onClick={closeReset}>Cancel</Button>
-            <Button disabled={resetting} onClick={() => void reset()}>
+            <Button variant="light" disabled={resetting} onClick={() => void reset()}>
               {resetting ? "Resetting…" : "Reset link"}
             </Button>
           </div>
