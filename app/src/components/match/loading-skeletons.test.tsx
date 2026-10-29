@@ -25,7 +25,7 @@ describe("Leaderboard loading skeleton", () => {
   it("follows the page: Pool band, three podium places, one page of rows", () => {
     expect(html).toContain("lb-band-wrap");
     expect(count(html, /lb-place p[123]/g)).toBe(PODIUM);
-    expect(count(html, /class="cut cut-card lb-row"/g)).toBe(PAGE_SIZE);
+    expect(count(html, /class="cut cut-card lb-row[ "]/g)).toBe(PAGE_SIZE);
     expect(html.indexOf("lb-podium")).toBeLessThan(html.indexOf("lb-rows"));
   });
 });
