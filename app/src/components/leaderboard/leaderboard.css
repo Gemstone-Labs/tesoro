@@ -193,3 +193,4 @@ dialog.sheet.lb-info-sheet { width: min(840px, calc(100vw - 32px)); max-width: 8
   .lb-row { grid-template-columns: 44px minmax(0, 1fr) auto 120px; min-height: 64px; padding: 10px 20px 10px 12px; }
 }
 .lb-last-pool .gema-usd { font-size: var(--fs-13); }
+.lb-page-gap { align-self: center; color: var(--fg-2); }

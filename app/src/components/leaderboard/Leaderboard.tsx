@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight, Info } from "lucide-react";
 import Image from "next/image";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar } from "@/components/account/Player";
@@ -14,16 +15,13 @@ import { lastRankNote, type LastSeason, type LeaderboardRow, type LeaderboardVie
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { usePool } from "@/lib/chain/usePool";
 import { POINTS_DIVISOR, PRIZE_BPS, PRIZE_PLACES } from "@/lib/chain/season";
+import { PODIUM, pageCount, pageFromParam, pageItems, pageOfRank, pageRows, paramForPage, rankRange } from "@/lib/chain/leaderboard-paging";
 import { fmtGemas } from "@/lib/format";
 import "./leaderboard.css";
 
 /** Prize of rank `i` from a pool, floored as in the program. */
 const prize = (pool: number, i: number) => Math.floor((pool * PRIZE_BPS[i]) / 10_000);
 
-/** Rows per page of the season table, under the podium. */
-const PAGE = 15;
-/** The podium's places. */
-const PODIUM = 3;
 const ENTRIES = ENTRY_SIZES;
 const SHORT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const ord = (n: number) => {
@@ -200,18 +198,27 @@ function Person({ account }: { account: string }) {
   );
 }
 
-/** This season: the top three on a podium, then the rest as compact rows, 15 a page. Your own row stays pinned above the nav while it is out of view. */
+/** This season: the top three on a podium, then the rest as compact rows, 10 a page (`?page=2` in the URL). Your own row stays pinned above the nav while it is out of view. */
 function Season({ data, pool, me }: { data: LeaderboardView; pool: number; me: string | null }) {
   const rows = data.standings;
   const podium = rows.slice(0, PODIUM);
-  const rest = rows.slice(PODIUM);
-  const [page, setPage] = useState(0);
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
   const top = useRef<HTMLElement>(null);
-  const pages = Math.max(1, Math.ceil(rest.length / PAGE));
-  const p = Math.min(page, pages - 1);
-  const shown = rest.slice(p * PAGE, (p + 1) * PAGE);
+  const pages = pageCount(rows.length);
+  const p = pageFromParam(search.get("page"), pages);
+  const shown = pageRows(rows, p);
   const mine = rows.find((r) => r.account === me);
-  const myPage = mine && mine.rank > PODIUM ? Math.floor((mine.rank - PODIUM - 1) / PAGE) : null;
+  const myPage = mine ? pageOfRank(mine.rank) : null;
+  const setPage = (n: number) => {
+    const q = new URLSearchParams(search.toString());
+    const v = paramForPage(n);
+    if (v) q.set("page", v);
+    else q.delete("page");
+    const qs = q.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
   const myRow = useRef<HTMLLIElement>(null);
   const [mineInView, setMineInView] = useState(false);
   useEffect(() => {
@@ -250,13 +257,13 @@ function Season({ data, pool, me }: { data: LeaderboardView; pool: number; me: s
         ))}
       </ol>
       {shown.length > 0 && (
-        <ol className="lb-rows" start={PODIUM + 1 + p * PAGE}>
+        <ol className="lb-rows" start={rankRange(p, rows.length).from}>
           {shown.map((r) => (
             <Row key={r.account} r={r} pool={pool} me={me === r.account} rowRef={me === r.account ? myRow : undefined} />
           ))}
         </ol>
       )}
-      {pages > 1 && <Pager page={p} pages={pages} total={rest.length} go={go} />}
+      {pages > 1 && <Pager page={p} pages={pages} ranked={rows.length} go={go} />}
       {mine && mine.rank > PODIUM && !mineInView && (
         <button type="button" className="cut cut-card lb-row lb-pin me" onClick={showMine} aria-label={`You're ${ord(mine.rank)} with ${mine.points} points. Show your row`}>
           <span className="lb-rank">{mine.rank}</span>
@@ -328,28 +335,26 @@ function Row({ r, pool, me, rowRef }: { r: LeaderboardRow; pool: number; me: boo
   );
 }
 
-function Pager({ page, pages, total, go }: { page: number; pages: number; total: number; go: (n: number) => void }) {
+function Pager({ page, pages, ranked, go }: { page: number; pages: number; ranked: number; go: (n: number) => void }) {
+  const { from, to } = rankRange(page, ranked);
   return (
     <nav className="lb-pager" aria-label="Table pages">
       <span className="lb-pager-range">
-        Ranks {page * PAGE + 1}–{Math.min(total, (page + 1) * PAGE)} of {total}
+        Ranks {from}–{to} of {ranked}
       </span>
       <span className="lb-pager-btns">
         <button type="button" className="cut cut-btn btn neutral sm" onClick={() => go(page - 1)} disabled={page === 0} aria-label="Previous page">
           <ChevronLeft size={16} aria-hidden="true" />
         </button>
-        {Array.from({ length: pages }, (_, i) => (
-          <button
-            key={i}
-            type="button"
-            className="cut cut-btn btn neutral sm lb-page"
-            onClick={() => go(i)}
-            aria-current={i === page ? "page" : undefined}
-            aria-label={`Page ${i + 1}`}
-          >
-            {i + 1}
-          </button>
-        ))}
+        {pageItems(page, pages).map((i, k) =>
+          i === null ? (
+            <span key={`gap${k}`} className="lb-page-gap" aria-hidden="true">…</span>
+          ) : (
+            <button key={i} type="button" className="cut cut-btn btn neutral sm lb-page" onClick={() => go(i)} aria-current={i === page ? "page" : undefined} aria-label={`Page ${i + 1}`}>
+              {i + 1}
+            </button>
+          ),
+        )}
         <button type="button" className="cut cut-btn btn neutral sm" onClick={() => go(page + 1)} disabled={page === pages - 1} aria-label="Next page">
           <ChevronRight size={16} aria-hidden="true" />
         </button>
