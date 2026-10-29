@@ -2,6 +2,7 @@
 
 import { type ReactNode, useState } from "react";
 import { Button, ChainGlyph, Meter, Sheet } from "@/components/ui";
+import { SkelText } from "@/components/ui/skel-text";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { useRedeemCost } from "@/lib/chain/redeem-cost";
@@ -101,6 +102,64 @@ export function ChainPockets({ pockets, onRedeem }: { pockets: Pocket[]; onRedee
       </div>
       <SourcesSheet pocket={all} onClose={() => setAll(null)} />
     </>
+  );
+}
+
+/** The Pro view while the Account is read: the chain tabs and a Gemas card per chain with the loaded card's own parts, so nothing moves when the real ones land. */
+export function PocketsSkeleton() {
+  return (
+    <div className="wl-pockets-skel" aria-busy="true">
+      <span className="sr-only" role="status">Loading your Locks…</span>
+      <div className="wl-pocket-tabs" aria-hidden="true">
+        {(["SOL", "HYPE"] as const).map((c) => (
+          <button key={c} type="button" role="tab" tabIndex={-1} aria-selected={c === "SOL"}>
+            <ChainGlyph asset={GLYPH[c]} size={16} />
+            {c}
+            <span className="tnum"><SkelText className="skel-inline">0,000</SkelText></span>
+          </button>
+        ))}
+      </div>
+      <div className="wl-pockets" aria-hidden="true">
+        {(["SOL", "HYPE"] as const).map((c) => (
+          <section key={c} className={`cut cut-card wl-pocket wl-pocket-skel c-${c}${c === "SOL" ? "" : " phone-hidden"}`}>
+            <header className="wl-pocket-head">
+              <span className="wl-pocket-chain"><ChainGlyph asset={GLYPH[c]} size={20} />{c}</span>
+              <span className="wl-pocket-label">Your Gemas on {c}</span>
+              <b><SkelText>0,000 Gemas</SkelText></b>
+              <small><SkelText className="skel-inline">≈ 0.000 SOL · ≈ $00</SkelText></small>
+            </header>
+            <div className="wl-pocket-money">
+              <div className="wl-pocket-redeem">
+                <div>
+                  <small>Redeemable now</small>
+                  <b><SkelText>{`0.000 ${c}`}</SkelText></b>
+                  <span className="meta"><SkelText className="skel-inline">0 Gemas</SkelText></span>
+                </div>
+                <span className="meta wl-pocket-why"><SkelText className="skel-inline">Nothing to redeem yet</SkelText></span>
+              </div>
+              <div className="meter"><i style={{ width: 0 }} /></div>
+              <span className="meta"><SkelText className="skel-inline">0,000</SkelText> Pending</span>
+              <ul className="wl-readyby">
+                <li><span className="tnum"><SkelText className="skel-inline">0,000</SkelText></span> Gemas ready by <b><SkelText className="skel-inline">Nov 00</SkelText></b></li>
+              </ul>
+            </div>
+            <div className="wl-pocket-part wl-pocket-locks">
+              <h3>Your {c} Locks</h3>
+              <div className="wl-pocket-pos">
+                <article className="cut wl-row">
+                  <div className="wl-row-btn">
+                    <ChainGlyph asset={GLYPH[c]} size={16} />
+                    <b><SkelText>{`${c} Lock 1`}</SkelText></b>
+                    <span className="wl-row-p"><SkelText className="skel-inline">{`00.000 ${c}`}</SkelText></span>
+                    <span className="wl-row-when"><SkelText className="skel-inline">Back today 00:00 · in ~00 min</SkelText></span>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
   );
 }
 
