@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
-import { Ink } from "@/components/ui/Ink";
+import { SkelText } from "@/components/ui/skel-text";
 import { CheckIcon, MinusIcon, XIcon } from "@/components/ui";
 import { art } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
@@ -100,13 +100,13 @@ export function MatchBannerSkeleton({ count, label }: { count: number; label: st
         <article key={i} className="cut cut-card mb skel" aria-hidden="true">
           <div className="mb-word">
             <span className="mb-kick">
-              <Ink>Block Burst · 2h ago</Ink>
+              <SkelText>Block Burst · 2h ago</SkelText>
             </span>
             <b>
-              <Ink>Won</Ink>
+              <SkelText>Won</SkelText>
             </b>
             <small>
-              <Ink>Entry 500</Ink>
+              <SkelText>Entry 500</SkelText>
             </small>
           </div>
           <div className="mb-face">
@@ -115,7 +115,7 @@ export function MatchBannerSkeleton({ count, label }: { count: number; label: st
             <SkeletonSeat />
           </div>
           <span className="cut cut-chip mb-fig even">
-            <Ink>+440 Gemas</Ink>
+            <SkelText>+440 Gemas</SkelText>
           </span>
         </article>
       ))}
@@ -130,7 +130,7 @@ function SkeletonSeat() {
         <span className="mb-av" />
       </span>
       <span className="mb-plate">
-        <Ink>Player</Ink>
+        <SkelText>Player</SkelText>
       </span>
     </span>
   );
@@ -143,7 +143,7 @@ export function ResultFilterSkeleton() {
       {["Won 0", "Lost 0", "Refunded 0"].map((t) => (
         <span key={t} className="cut cut-chip mh-result skel-chip">
           <i />
-          <Ink>{t}</Ink>
+          <SkelText>{t}</SkelText>
         </span>
       ))}
     </div>

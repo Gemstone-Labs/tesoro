@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar } from "@/components/account/Player";
-import { Ink } from "@/components/ui/Ink";
+import { SkelText } from "@/components/ui/skel-text";
 import { Button, CountUp, GemaMark, GemaUsd, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { ENTRY_SIZES } from "@/lib/cluster-settings";
@@ -97,17 +97,17 @@ export function LoadingSkeleton() {
           </span>
           <span className="lb-band-pool">
             <b className="pool-fig lb-band-fig">
-              <Ink>000</Ink>
+              <SkelText>000</SkelText>
             </b>
             <span className="gema-usd">
-              <Ink>≈ $0.00</Ink>
+              <SkelText>≈ $0.00</SkelText>
             </span>
           </span>
           <span className="lb-band-season">
             <b>
-              <Ink>Season 0</Ink>
+              <SkelText>Season 0</SkelText>
             </b>
-            <Ink className="lb-skel-clock">00d 00h 00m</Ink>
+            <SkelText className="lb-skel-clock">00d 00h 00m</SkelText>
           </span>
           <span className="lb-info-btn" />
         </div>
@@ -117,26 +117,26 @@ export function LoadingSkeleton() {
           {[1, 2, 3].map((rank) => (
             <li key={rank} className={`cut cut-card lb-place p${rank}`}>
               <span className="lb-place-rank">
-                <Ink>0</Ink>
+                <SkelText>0</SkelText>
               </span>
               <span className="cut cut-btn avatar lb-place-avatar skel-av" />
               <span className="lb-name">
-                <Ink>Player</Ink>
+                <SkelText>Player</SkelText>
               </span>
               <span className="lb-pts">
                 <b>
-                  <Ink>00</Ink>
+                  <SkelText>00</SkelText>
                 </b>
-                <Ink> pts</Ink>
+                <SkelText> pts</SkelText>
               </span>
               <span className="lb-prize">
                 <span className="lb-prize-line">
                   <b>
-                    <Ink>000</Ink>
+                    <SkelText>000</SkelText>
                   </b>
                 </span>
                 <span className="gema-usd">
-                  <Ink>≈ $0.00</Ink>
+                  <SkelText>≈ $0.00</SkelText>
                 </span>
               </span>
             </li>
@@ -146,28 +146,28 @@ export function LoadingSkeleton() {
           {Array.from({ length: PAGE_SIZE }, (_, i) => (
             <li key={i} className={`cut cut-card lb-row${i === PRIZE_PLACES + 1 - PODIUM - 1 ? " first-out" : ""}`}>
               <span className="lb-rank">
-                <Ink>0</Ink>
+                <SkelText>0</SkelText>
               </span>
               <span className="lb-who">
                 <span className="cut cut-btn avatar lb-avatar skel-av" />
                 <span className="lb-name">
-                  <Ink>Player name</Ink>
+                  <SkelText>Player name</SkelText>
                 </span>
               </span>
               <span className="lb-pts">
                 <b>
-                  <Ink>00</Ink>
+                  <SkelText>00</SkelText>
                 </b>
-                <Ink> pts</Ink>
+                <SkelText> pts</SkelText>
               </span>
               <span className="lb-prize">
                 <span className="lb-prize-line">
                   <b>
-                    <Ink>000</Ink>
+                    <SkelText>000</SkelText>
                   </b>
                 </span>
                 <span className="gema-usd">
-                  <Ink>≈ $0.00</Ink>
+                  <SkelText>≈ $0.00</SkelText>
                 </span>
               </span>
             </li>
