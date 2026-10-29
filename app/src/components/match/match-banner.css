@@ -88,13 +88,10 @@
   .mb-av { width: 26px; height: 26px; }
   .mb-vs { display: none; }
   .mb-face { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-  .mb.skel .mb-face > .mb-av + .mb-av { grid-column: 2; }
 }
 
 /* loading */
 .mb.skel { background: var(--surface); }
-.mb.skel .mb-word { gap: 10px; }
-.mb.skel .mb-face > .mb-av { justify-self: center; }
-.mb.skel .mb-face > .mb-av + .mb-av { grid-column: 3; }
+.mb.skel .mb-av { border-color: transparent; background: rgba(234, 239, 236, 0.07); }
 
 @media (prefers-reduced-motion: reduce) { .mb-art img { transition: none; } }

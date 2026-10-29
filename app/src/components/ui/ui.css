@@ -547,6 +547,8 @@ button.select { font: inherit; text-align: start; white-space: nowrap; overflow:
   background-size: 220% 100%; animation: skel 1.6s ease-in-out infinite;
 }
 .skel-line { display: block; height: 12px; background: rgba(234, 239, 236, 0.07); clip-path: polygon(3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px), 0 3px); }
+/* placeholder text: takes the line box of the text it stands in for, paints a faint block */
+.skel-ink { display: inline-block; color: transparent !important; background: rgba(234, 239, 236, 0.07); user-select: none; clip-path: polygon(3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px), 0 3px); }
 .skel-line.lg { height: 18px; }
 .skel-av { width: 64px; height: 64px; flex: none; background: rgba(234, 239, 236, 0.07); --edge: transparent; }
 .skel-lines { display: grid; gap: 10px; flex: 1; min-width: 0; }

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { GameTabs, HistoryPages, ResultFilter, gameFilter, historyHref, resultCounts } from "@/components/match/MatchHistory";
 import { DelayedMatches } from "@/components/match/DelayedMatches";
 import { ContinueRail } from "@/components/lobby/ContinueRail";
-import { MatchBanner, MatchBannerSkeleton } from "@/components/match/MatchBanner";
+import { MatchBanner, MatchBannerSkeleton, ResultFilterSkeleton } from "@/components/match/MatchBanner";
 import { Button, Card } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { useChainData } from "@/lib/chain/ChainDataProvider";
@@ -55,7 +55,11 @@ export function AllMatches() {
       <header className="mh-head">
         <h1 className="page-title title-desk">Matches</h1>
         <GameTabs base="/matches" game={game} results={results} />
-        {snapshot?.matchesLoaded && <ResultFilter base="/matches" game={game} results={results} counts={resultCounts(rows)} />}
+        {snapshot?.matchesLoaded && history !== undefined ? (
+          <ResultFilter base="/matches" game={game} results={results} counts={resultCounts(rows)} />
+        ) : !error ? (
+          <ResultFilterSkeleton />
+        ) : null}
       </header>
 
       {!snapshot?.matchesLoaded ? (
@@ -69,7 +73,7 @@ export function AllMatches() {
         )
       ) : null}
       {open.length > 0 && <ContinueRail matches={open} title="Open" rows />}
-      {snapshot?.matchesLoaded && rows.length > 0 && <h2 className="h-section mh-finished-h">Finished</h2>}
+      {(!snapshot?.matchesLoaded ? !error : history === undefined || rows.length > 0) && <h2 className="h-section mh-finished-h">Finished</h2>}
       {snapshot?.matchesLoaded && <DelayedMatches matches={[...snapshot.matches, ...snapshot.funded].filter((m) => !game || m.game === game)} now={now} />}
       {snapshot?.matchesLoaded && history === undefined && <MatchBannerSkeleton count={4} label="Loading your Matches…" />}
       {snapshot?.matchesLoaded && history === null && <p className="note">Your finished Matches aren’t available right now. Matches in progress are shown above.</p>}

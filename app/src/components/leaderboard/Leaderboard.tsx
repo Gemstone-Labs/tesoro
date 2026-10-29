@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar } from "@/components/account/Player";
+import { Ink } from "@/components/ui/Ink";
 import { Button, CountUp, GemaMark, GemaUsd, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { ENTRY_SIZES } from "@/lib/cluster-settings";
@@ -15,7 +16,7 @@ import { lastRankNote, type LastSeason, type LeaderboardRow, type LeaderboardVie
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { usePool } from "@/lib/chain/usePool";
 import { POINTS_DIVISOR, PRIZE_BPS, PRIZE_PLACES } from "@/lib/chain/season";
-import { PODIUM, pageCount, pageFromParam, pageItems, pageOfRank, pageRows, paramForPage, rankRange } from "@/lib/chain/leaderboard-paging";
+import { PAGE_SIZE, PODIUM, pageCount, pageFromParam, pageItems, pageOfRank, pageRows, paramForPage, rankRange } from "@/lib/chain/leaderboard-paging";
 import { fmtGemas } from "@/lib/format";
 import "./leaderboard.css";
 
@@ -82,37 +83,97 @@ export function Leaderboard() {
   );
 }
 
-/** Loading: the page in outline (the Pool band, the podium, the rows), not a stack of bars. */
-function LoadingSkeleton() {
+/** Loading: the page in outline, built from the loaded page's own blocks and classes (Pool band, podium, one page of rows). */
+export function LoadingSkeleton() {
   return (
     <>
       <span className="sr-only" role="status">
         Loading the leaderboard…
       </span>
-      <div className="cut cut-card lb-band skel" aria-hidden="true">
-        <span className="lb-skel-chest" />
-        <span className="skel-line lb-skel-fig" />
-        <span className="skel-line lb-skel-kicker" />
+      <div className="lb-band-wrap" aria-hidden="true">
+        <div className="cut cut-card lb-band skel">
+          <span className="lb-band-art">
+            <span className="lb-skel-chest" />
+          </span>
+          <span className="lb-band-pool">
+            <b className="pool-fig lb-band-fig">
+              <Ink>000</Ink>
+            </b>
+            <span className="gema-usd">
+              <Ink>≈ $0.00</Ink>
+            </span>
+          </span>
+          <span className="lb-band-season">
+            <b>
+              <Ink>Season 0</Ink>
+            </b>
+            <Ink className="lb-skel-clock">00d 00h 00m</Ink>
+          </span>
+          <span className="lb-info-btn" />
+        </div>
       </div>
-      <ol className="lb-rows lb-skel-rows" aria-hidden="true">
-        {Array.from({ length: 6 }, (_, i) => (
-          <li key={i} className="cut cut-card lb-row">
-            <span className="lb-rank">
-              <span className="skel-line" />
-            </span>
-            <span className="lb-who">
-              <span className="cut cut-btn avatar lb-avatar skel-av" />
-              <span className="skel-line" style={{ width: `${[52, 44, 60, 48, 40][i % 5]}%` }} />
-            </span>
-            <span className="lb-pts">
-              <span className="skel-line" />
-            </span>
-            <span className="lb-prize">
-              <span className="skel-line" />
-            </span>
-          </li>
-        ))}
-      </ol>
+      <section className="lb-season lb-skel-season" aria-hidden="true">
+        <ol className="lb-podium">
+          {[1, 2, 3].map((rank) => (
+            <li key={rank} className={`cut cut-card lb-place p${rank}`}>
+              <span className="lb-place-rank">
+                <Ink>0</Ink>
+              </span>
+              <span className="cut cut-btn avatar lb-place-avatar skel-av" />
+              <span className="lb-name">
+                <Ink>Player</Ink>
+              </span>
+              <span className="lb-pts">
+                <b>
+                  <Ink>00</Ink>
+                </b>
+                <Ink> pts</Ink>
+              </span>
+              <span className="lb-prize">
+                <span className="lb-prize-line">
+                  <b>
+                    <Ink>000</Ink>
+                  </b>
+                </span>
+                <span className="gema-usd">
+                  <Ink>≈ $0.00</Ink>
+                </span>
+              </span>
+            </li>
+          ))}
+        </ol>
+        <ol className="lb-rows lb-skel-rows">
+          {Array.from({ length: PAGE_SIZE }, (_, i) => (
+            <li key={i} className={`cut cut-card lb-row${i === PRIZE_PLACES + 1 - PODIUM - 1 ? " first-out" : ""}`}>
+              <span className="lb-rank">
+                <Ink>0</Ink>
+              </span>
+              <span className="lb-who">
+                <span className="cut cut-btn avatar lb-avatar skel-av" />
+                <span className="lb-name">
+                  <Ink>Player name</Ink>
+                </span>
+              </span>
+              <span className="lb-pts">
+                <b>
+                  <Ink>00</Ink>
+                </b>
+                <Ink> pts</Ink>
+              </span>
+              <span className="lb-prize">
+                <span className="lb-prize-line">
+                  <b>
+                    <Ink>000</Ink>
+                  </b>
+                </span>
+                <span className="gema-usd">
+                  <Ink>≈ $0.00</Ink>
+                </span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      </section>
     </>
   );
 }
