@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { CLUSTER } from "@/lib/cluster-settings";
 import { Button, CountUp } from "@/components/ui";
 import { redeemableOf, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas, fmtUsd } from "@/lib/format";
-import { requestDeposit } from "@/lib/deposit/bus";
 import { type Chain, type GemaHolding, type Position } from "@/lib/mock";
 import { BRAND } from "@/lib/brand";
 import { AdvanceSheet } from "./AdvanceSheet";
