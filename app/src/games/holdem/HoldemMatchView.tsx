@@ -11,7 +11,7 @@ import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
 import { CANCELLING_NOTE, delayedOf } from "@/lib/chain/match-status";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
-import { MatchStage, MatchStageLoading, StageAction } from "@/components/match/MatchStage";
+import { MatchStage, MatchStageLoading, stageLoading, StageAction } from "@/components/match/MatchStage";
 import { STATUS } from "./chain";
 import { HoldemTable } from "./HoldemTable";
 import { useHoldemMatch } from "./useHoldemMatch";
@@ -32,7 +32,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
   if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
   if (!signer) return <MatchStageLoading game="holdem" me={snapshot?.accountKey.toBase58() ?? null} step="Getting your wallet ready" />;
-  if (stage === "loading") return <MatchStageLoading game="holdem" me={snapshot?.accountKey.toBase58() ?? null} />;
+  if (stage === "loading") return stageLoading({ game: "holdem", me: snapshot?.accountKey.toBase58() ?? null, matchId });
   if (stage === "notfound") return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
   if (stage === "spectator") return <MatchSpectate matchId={matchId} />;
 
@@ -67,7 +67,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
   }
 
   const kind = !showTable && (stage === "waiting" || stage === "setup" || stage === "closing") ? stage : null;
-  const cancelSent = view.busy === "refund" && stage === "waiting";
+  const cancelSent = stage === "waiting" && (view.busy === "refund" || view.sigs.some((s) => s.label === "refund"));
   if (kind && m) {
     return (
       <MatchStage
@@ -87,8 +87,8 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         error={view.error}
         actions={
           (kind === "waiting" || view.refundable) && (
-            <StageAction disabled={view.busy !== null} onClick={() => void run("refund", () => refundMatch(signer, m.id))}>
-              {view.busy === "refund" ? "Refunding…" : kind === "waiting" ? "Cancel and refund" : "Refund Match"}
+            <StageAction disabled={view.busy !== null || cancelSent} onClick={() => void run("refund", () => refundMatch(signer, m.id))}>
+              {view.busy === "refund" || cancelSent ? "Refunding…" : kind === "waiting" ? "Cancel and refund" : "Refund Match"}
             </StageAction>
           )
         }

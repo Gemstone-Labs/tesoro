@@ -32,6 +32,11 @@ export interface MatchProgress<M, S extends string> {
   stage(next: S, note?: string): { stage: S; note: string; held: boolean };
 }
 
+const closed = (m: unknown): boolean => {
+  const status = (m as { status?: string } | null)?.status;
+  return status === "settled" || status === "refunded";
+};
+
 /** One tracker per Match page; build a new one when the Match id changes. */
 export function matchProgress<M, S extends string>(id: string | null): MatchProgress<M, S> {
   let known: M | null = null;
@@ -39,8 +44,9 @@ export function matchProgress<M, S extends string>(id: string | null): MatchProg
   return {
     id,
     match(fresh) {
-      if (fresh) known = fresh;
-      return fresh ?? known;
+      // A read that is behind the one already seen (the account still open, or the history record not written yet) is ignored once the Match has a result: the screen never goes from Refunded to You lost.
+      if (fresh && !(closed(known) && !closed(fresh))) known = fresh;
+      return known;
     },
     stage(next, note = "") {
       const rank = stageRank(next, note);

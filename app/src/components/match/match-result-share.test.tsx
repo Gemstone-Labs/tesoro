@@ -11,6 +11,11 @@ describe("Share your win", () => {
     const poster = h.slice(h.indexOf("mr-poster"), h.indexOf("mr-tiles"));
     expect(poster).toContain("Share your win");
   });
+  it("carries the same share icon as the Friends page", () => {
+    const h = html();
+    const button = h.slice(h.indexOf("Share your win") - 600, h.indexOf("Share your win"));
+    expect(button).toMatch(/lucide-share-?2/);
+  });
   it("is not in the actions row, which stays Play again and Add friend", () => {
     const h = html();
     const actions = h.slice(h.indexOf("mr-actions"));

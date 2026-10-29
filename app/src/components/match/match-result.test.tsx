@@ -48,6 +48,12 @@ describe("the result screen", () => {
     expect(h).not.toContain(">Fee<");
     expect(html()).toContain(">Fee<");
   });
+  it("shows no tiles at all after a refund: no Season, no Fee", () => {
+    const h = html({ outcome: "refunded", delta: 0, fee: 0, points: 0 });
+    expect(h).not.toContain("mr-tiles");
+    expect(h).not.toContain("Season");
+    expect(h).not.toContain(">Fee<");
+  });
   it("has exactly Play again and Add friend as actions", () => {
     const h = html();
     expect(h).toContain("Play again");

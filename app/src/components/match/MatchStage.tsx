@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { ChartCandlestick, Check, ChevronDown, Clock, Copy, EyeOff, Hourglass, Link2, Lock, Puzzle, RotateCcw, Spade, Swords, type LucideIcon } from "lucide-react";
 import { Busy, CountUp, GemaMark } from "@/components/ui";
 import { PlayerAvatar } from "@/components/account/Player";
 import { commitCopy, type CommitState } from "@/lib/chain/commit-pending";
 import { CANCELLING_NOTE, NO_TABLE_NOTE, refundByText, tableWaitLine } from "@/lib/chain/match-status";
+import { enteredHint } from "@/lib/chain/entered-hint";
+import { estimatedWin } from "@/lib/chain/ledger";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES, type GameId } from "@/lib/mock";
 import { markPotCounted, potCountFrom } from "./pot-count";
@@ -404,6 +406,18 @@ export function MatchStage({
  * The stage before the Match has been read: the same header, seats, Pot and busy line, with the
  * parts not known yet left blank, so the screen does not jump when the Match arrives.
  */
+/**
+ * What a Match page shows before its first chain read. A Match this tab has just opened is waiting for an opponent whatever
+ * the read says, so it gets that screen at once (the entry flows straight into it, and the read later updates the same
+ * `MatchStage` in place instead of replacing a loading screen). Call it as a function, not as a component, so both are one element.
+ */
+export function stageLoading(p: { game: GameId; me: string | null; matchId: string; step?: string }): ReactElement {
+  const hint = enteredHint(p.matchId);
+  if (!hint) return <MatchStageLoading game={p.game} me={p.me} step={p.step} />;
+  const link = typeof window === "undefined" ? null : `${window.location.origin}/play/challenge/${p.matchId}`;
+  return <MatchStage game={hint.game} matchId={p.matchId} kind="waiting" entry={hint.entry} pot={estimatedWin(hint.entry)} me={p.me} opponent={null} challengeLink={hint.challenge ? link : null} />;
+}
+
 export function MatchStageLoading({ game, me, step = "Loading the Match" }: { game?: GameId; me: string | null; step?: string }) {
   return (
     <section className="stage k-loading" aria-label="Loading the Match" aria-busy="true">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GetGemasButton } from "@/components/deposit/GetGemasButton";
 import { useRouter } from "next/navigation";
 import { Busy, Button, GemaAmount } from "@/components/ui";
@@ -22,9 +22,8 @@ import { ageCall } from "@/lib/chain/age-client";
 import { ageGate, readAgeCache, writeAgeCache } from "@/lib/age-gate";
 import { AgeConfirm } from "./AgeConfirm";
 import { EntryPlan } from "./EntryPlan";
+import { rememberEntered } from "@/lib/chain/entered-hint";
 import { UnfinishedEntries } from "./UnfinishedEntries";
-import { previewEntry, DrawError } from "@/lib/chain/entry";
-import { storesFromSnapshot } from "@/lib/chain/entry-snapshot";
 import { fmtGemas } from "@/lib/format";
 import { practiceHref } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
@@ -173,6 +172,7 @@ export function EnterMatch(props: EnterKind) {
         const entered = (r: Entered, opened: string) => {
           if (r.via === "existing") return setExisting(r.id);
           setStatus(r.via === "joined" ? "Opponent found." : opened);
+          if (r.via === "opened") rememberEntered(r.id, { game, entry: entryGemas, challenge: false });
           router.replace(`/play/match/${r.id}`);
         };
         if (props.kind === "queue" && props.backing) {
@@ -182,6 +182,7 @@ export function EnterMatch(props: EnterKind) {
           setStatus("Using your Backing to open your Challenge…");
           const r = await createChallengeBacked(signer, props.backing, game, props.entry, auth.getAccessToken, asset);
           await tellFriend(r.id);
+          rememberEntered(r.id, { game, entry: props.entry, challenge: true });
           router.replace(`/play/match/${r.id}`);
         } else if (props.kind === "challenge-join" && props.backing) {
           setStatus("Joining the Challenge with your Backing…");
@@ -193,6 +194,7 @@ export function EnterMatch(props: EnterKind) {
         } else if (props.kind === "challenge-new") {
           const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game, asset, setStatus, undefined, onStaged);
           await tellFriend(id);
+          rememberEntered(id, { game, entry: props.entry, challenge: true });
           router.replace(`/play/match/${id}`);
         } else {
           setStatus("Joining the Challenge…");
@@ -218,32 +220,12 @@ export function EnterMatch(props: EnterKind) {
   const found = status === "Opponent found.";
   const busy = !signedOut && existing === null && !needsGemas && !failure && gate !== "ask";
   const seat = found ? "Opponent" : props.kind === "challenge-new" ? (picked ? pickedName : "Your friend") : props.kind === "challenge-join" ? "Opponent" : waiting.length ? `${waiting.length} waiting` : "Open seat";
-  const waitLine =
-    props.kind === "challenge-new"
-      ? pickedFriend
-        ? `${pickedName} sees it on their Friends page. You also get a link to send.`
-        : picked
-          ? "Send them your link once the Match opens: they can accept or ignore it."
-          : "Your link is ready once the Match opens."
-      : props.kind === "challenge-join"
-        ? "Joining your friend's Match."
-        : waiting.length
-          ? `${waiting.length} waiting at this entry: you take the oldest seat.`
-          : here.backed
-            ? `${here.backed === 1 ? "The Player waiting at this entry is one you back" : "The Players waiting at this entry are ones you back"}, and you can't play someone you back. You sit first and the Match starts when someone else joins.`
-            : `No one waiting yet: you sit first and the Match starts when someone joins${assetName ? ` (trading ${assetName})` : ""}.`;
-  // The program's draw for this entry, from the Account already read (own Gemas first, the fastest first). A backed entry draws the Backer's Gemas, not shown here.
-  const preview = useMemo(() => {
-    if (!snapshot?.exists || props.kind === "challenge-join" || props.backing) return null;
-    try {
-      return previewEntry(storesFromSnapshot(snapshot), BigInt(props.entry));
-    } catch (e) {
-      if (e instanceof DrawError) return null;
-      throw e;
-    }
-  }, [snapshot, props]);
-  const nowSec = Math.floor((snapshot?.fetchedAt ?? 0) / 1000);
-  const heldLine = `${props.backing ? "The entry is" : `Your ${fmtGemas(entryGemas)} Gemas are`} held for this Match. If nobody joins within an hour, ${props.backing ? "it comes" : "they come"} back.`;
+  // Under Open Challenge, before the Match exists: what happens to the Friend picked.
+  const waitLine = pickedFriend
+    ? `${pickedName} sees it on their Friends page. You also get a link to send.`
+    : picked
+      ? "Send them your link once the Match opens: they can accept or ignore it."
+      : "Your link is ready once the Match opens.";
   return (
     <section className="enter" aria-label={title}>
       <header className="enter-head">
@@ -326,9 +308,7 @@ export function EnterMatch(props: EnterKind) {
         ) : (
           <>
             <Busy>{status}</Busy>
-            <EntryPlan preview={found ? null : preview} staged={staged} nowSec={nowSec} />
-            {!found && <p className="meta">{waitLine}</p>}
-            {!found && props.kind !== "challenge-join" && <p className="meta">{heldLine}</p>}
+            <EntryPlan staged={staged} />
           </>
         )}
         {onChain && snapshot && !snapshot.exists && <p className="note">First time: we create your {BRAND.name} Account as part of this step.</p>}

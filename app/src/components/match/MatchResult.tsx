@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { Share2 } from "lucide-react";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Button, CheckIcon, GemaMark, GemaUsd, MinusIcon, XIcon, type BustName } from "@/components/ui";
 import { useAccount } from "@/lib/account";
@@ -122,8 +123,9 @@ export function MatchResult(p: MatchResultProps) {
   const points = !won || role !== "player" ? 0 : (p.points ?? null);
 
   const tiles: { k: string; v: ReactNode; season?: number | null }[] = [];
-  if (role === "player") tiles.push({ k: "Season", v: null, season: points });
-  if (p.fee !== null) tiles.push({ k: "Fee", v: <><GemaMark size={22} /> {fmtGemas(p.fee)}</> });
+  // A refund has nothing to show: no points were at stake and no Fee was taken.
+  if (outcome !== "refunded" && role === "player") tiles.push({ k: "Season", v: null, season: points });
+  if (outcome !== "refunded" && p.fee !== null) tiles.push({ k: "Fee", v: <><GemaMark size={22} /> {fmtGemas(p.fee)}</> });
 
   return (
     <>
@@ -169,6 +171,7 @@ export function MatchResult(p: MatchResultProps) {
               <div className="mr-in mr-share" style={{ "--d": "1500ms" } as Css}>
                 <Button
                   size="lg"
+                  icon={<Share2 aria-hidden="true" />}
                   onClick={() => {
                     const url = `${window.location.origin}${winPath(p.matchId!)}`;
                     window.open(postUrl(winShareText({ game: p.game, gemas: delta, entry: p.entry }), url), "_blank", "noopener,noreferrer");
@@ -181,7 +184,7 @@ export function MatchResult(p: MatchResultProps) {
           </div>
         </section>
 
-        <div className="mr-tiles">
+        {tiles.length > 0 && <div className="mr-tiles">
           {tiles.map((t, i) => t.season !== undefined ? (
             <SeasonTile key={t.k} points={t.season} delay={`${1100 + i * 90}ms`} />
           ) : (
@@ -190,7 +193,7 @@ export function MatchResult(p: MatchResultProps) {
               <b>{t.v}</b>
             </div>
           ))}
-        </div>
+        </div>}
         {p.scoreNote && <p className="note">{p.scoreNote}</p>}
         {p.split && <div className="mr-split mr-rise" style={{ "--d": "1600ms" } as Css}>{p.split}</div>}
 
