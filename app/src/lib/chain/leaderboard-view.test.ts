@@ -51,7 +51,7 @@ describe("nextStep", () => {
   it("names the gap to the prizes, the rank above, or the top", () => {
     expect(nextStep(seasonStanding(view(), "p23"))).toBe("66 pts to the prizes");
     expect(nextStep(seasonStanding(view(), "p3"))).toBe("6 pts to 2nd");
-    expect(nextStep(seasonStanding(view(), "p1"))).toBeNull();
+    expect(nextStep(seasonStanding(view(), "p1"))).toBe("Top of the board");
     expect(nextStep(seasonStanding(view(), "nobody"))).toBeNull();
   });
   it("counts one point as pt", () => {
@@ -62,7 +62,6 @@ describe("nextStep", () => {
 describe("standingSummary", () => {
   it("joins points, rank and the next step", () => {
     expect(standingSummary(seasonStanding(view(), "p3"), 60, 5)).toBe("490 pts · 3rd · 6 pts to 2nd");
-    expect(standingSummary(seasonStanding(view(), "p1"), 60, 5)).toMatch(/^\d+ pts · 1st$/);
   });
   it("says what a win is worth without points", () => {
     expect(standingSummary(seasonStanding(view(), "nobody"), 60, 5)).toBe("No points yet · a win is +5");

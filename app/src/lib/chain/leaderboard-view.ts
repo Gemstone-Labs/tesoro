@@ -72,11 +72,11 @@ export const ordinal = (n: number) => {
 };
 export const pts = (n: number) => `${n} ${n === 1 ? "pt" : "pts"}`;
 
-/** The next step up, in one short line; none at 1st. */
+/** The next step up, in one short line. */
 export function nextStep(s: SeasonStanding) {
   if (s.rank === null) return null;
   if (s.toPrizes > 0) return `${pts(s.toPrizes)} to the prizes`;
-  if (s.toNext === null) return null;
+  if (s.toNext === null) return "Top of the board";
   return `${pts(s.toNext)} to ${ordinal(s.rank - 1)}`;
 }
 

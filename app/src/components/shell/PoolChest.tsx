@@ -7,7 +7,7 @@ import { CountUp } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
-import { nextStep, ordinal, pts, seasonStanding } from "@/lib/chain/leaderboard-view";
+import { ordinal, pts, seasonStanding } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { usePool } from "@/lib/chain/usePool";
 import { fmtGemas } from "@/lib/format";
@@ -112,7 +112,6 @@ export function PoolChest() {
   const me = auth.status === "signed-in" ? (snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null)) : null;
   const { data, forMe, error } = useLeaderboard(me);
   const standing = me && forMe && data && data.feeBps > 0 ? seasonStanding(data, me) : null;
-  const step = standing && nextStep(standing);
   // Signed in (or not known yet) and your standing not read for you yet: its place waits as a placeholder.
   const youPending = !standing && !error && data?.feeBps !== 0 && (auth.status === "loading" || (auth.status === "signed-in" && !forMe));
   const [pop, setPop] = useState(0);
@@ -163,7 +162,6 @@ export function PoolChest() {
           </div>
           <div className="pc-you-txt">
             <strong><CountUp value={standing.points} /> <small>pts</small></strong>
-            {step && <small>{step}</small>}
           </div>
         </div>
       )}
@@ -178,7 +176,6 @@ function YouSkeleton() {
       <div className="pc-rank skel" />
       <div className="pc-you-txt">
         <div className="skel-line lg" style={{ width: 52 }} />
-        <div className="skel-line" style={{ width: 76 }} />
       </div>
     </div>
   );
