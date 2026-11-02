@@ -528,7 +528,7 @@ pub(crate) fn open_match<'info>(
             .consume(player.to_bytes(), game.to_bytes(), entry, ts)
             .map_err(core_err)?;
         let share = offer.inner.player_share_bps;
-        let backer = backer_side(
+        let mut backer = backer_side(
             &ctx.accounts.offer,
             &ctx.accounts.backer_account,
             &mut ctx.accounts.backer_counters,
@@ -853,7 +853,7 @@ pub(crate) fn join_match<'info>(
             .consume(player.to_bytes(), game.to_bytes(), entry, ts)
             .map_err(core_err)?;
         let share = offer.inner.player_share_bps;
-        let backer = backer_side(
+        let mut backer = backer_side(
             &ctx.accounts.offer,
             &ctx.accounts.backer_account,
             &mut ctx.accounts.backer_counters,
