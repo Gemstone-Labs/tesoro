@@ -12,7 +12,7 @@ import { loadPayer, settings } from "../src/env.ts";
 import { historyJob } from "../src/history.ts";
 import { FastLane } from "../src/lanes.ts";
 import { matchHygiene, scanMatches } from "../src/matches.ts";
-import { buildRuntime, clusterNow, fetchWithBackoff, newConnection } from "../src/runtime.ts";
+import { buildRuntime, clusterNow, newConnection, solanaFetch } from "../src/runtime.ts";
 import { burstAdapter, tablesJob } from "../src/scheduler-games.ts";
 import { BLOCK_PUZZLE_PROGRAM_ID } from "../../app/src/games/block-puzzle/chain.ts";
 
@@ -34,7 +34,7 @@ globalThis.fetch = (async (u: any, i?: any) => {
 
 const s = settings(["--dry-run"]);
 const conn = newConnection(s.rpc, s.gpaRpc);
-const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m), new Connection(s.gpaRpc, { fetch: fetchWithBackoff as typeof fetch }));
+const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m), new Connection(s.gpaRpc, { fetch: solanaFetch }));
 const ctx: Ctx = { ...buildRuntime(s, conn, payer), budget: new Budget(s.hourlyCapLamports), lz: new Budget(s.lzHourlyCapLamports) };
 const lane = new FastLane({
   scan: (c) => scanMatches(c, { fresh: true }),

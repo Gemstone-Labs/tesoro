@@ -8,6 +8,8 @@ import { HoldemChain, keypairSigner as holdemSigner } from "../../app/src/games/
 import { TradingDuelChain } from "../../app/src/games/trading-duel/chain.ts";
 import { VanguardChain } from "../../app/src/games/vanguard/chain.ts";
 import { SplitConnection, type GpaFn } from "../../app/src/lib/chain/split-connection.ts";
+import { keeperCluster } from "./cluster.ts";
+import { meter, meteredFetch } from "./credits.ts";
 import type { Settings } from "./env.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -64,7 +66,10 @@ export interface Runtime {
   now: number;
 }
 
-const connConfig = { commitment: "confirmed", fetch: fetchWithBackoff as typeof fetch, disableRetryOnRateLimit: true } as const;
+/** fetchWithBackoff for Solana RPC endpoints, metered by the keeper's one `meter` (credits.ts); a plain getProgramAccounts is refused on mainnet. Build every Solana `Connection` with it. */
+export const solanaFetch = meteredFetch(fetchWithBackoff as typeof fetch, meter, { mainnet: () => keeperCluster().id === "mainnet" });
+
+const connConfig = { commitment: "confirmed", fetch: solanaFetch, disableRetryOnRateLimit: true } as const;
 
 type Statuses = Pick<Connection, "getSignatureStatuses" | "getBlockHeight">;
 type Strategy = string | { signature: string; lastValidBlockHeight?: number };
