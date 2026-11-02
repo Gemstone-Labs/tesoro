@@ -344,10 +344,11 @@ export async function seasonPass(ctx: Ctx, d: SeasonDeps, opts: SeasonPassOption
       continue;
     }
     if (!rec) {
-      if (Date.now() - (emptyAt.get(n) ?? 0) < EMPTY_RECHECK_MS) continue;
+      // The weekly run keeps its empty Seasons in a file (`skip`); only the 20 s loop needs this in-process memo.
+      if (!opts.skip && Date.now() - (emptyAt.get(n) ?? 0) < EMPTY_RECHECK_MS) continue;
       const table = topRanks(await d.wins(n));
       if (!table.length) {
-        emptyAt.set(n, Date.now());
+        if (!opts.skip) emptyAt.set(n, Date.now());
         result.empty.push(n);
         log("season", subject, "no wins: nothing to rank, the pool carries over");
         continue;

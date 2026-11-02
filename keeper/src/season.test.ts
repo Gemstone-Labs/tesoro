@@ -282,7 +282,7 @@ describe("the season job", () => {
 
     it("walks all six unrecorded Seasons, not the last four", async () => {
       const { sent, pass } = run(await world(), winIn, sevenWeeks);
-      await pass({ lookback: Infinity, pay: false });
+      await pass({ lookback: Infinity, pay: false, skip: new Set() });
       assert.equal(sent.filter((s) => s === "recordSeason").length, 6);
     });
 
@@ -294,10 +294,10 @@ describe("the season job", () => {
 
     it("reports a Season whose record failed as pending, and a Season with no wins as empty", async () => {
       const failing = run(await world(), winIn, sevenWeeks, true);
-      const a = await failing.pass({ lookback: 1, pay: false });
+      const a = await failing.pass({ lookback: 1, pay: false, skip: new Set() });
       assert.deepEqual([a.actions, a.pending], [0, [6]]);
       const none = run(await world(), [], sevenWeeks);
-      const b = await none.pass({ lookback: 1, pay: false });
+      const b = await none.pass({ lookback: 1, pay: false, skip: new Set() });
       assert.deepEqual([b.pending, b.empty], [[], [6]]);
     });
 
