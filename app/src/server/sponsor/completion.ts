@@ -19,7 +19,7 @@ export interface CompletionInput {
   closes: string[];
   reserve: string;
   /** Seeds of the created and ensured addresses, by address. */
-  seeds: Record<string, HoldSeed>;
+  seeds?: Record<string, HoldSeed>;
 }
 export interface CompletionJournal extends Omit<CompletionInput, "closes" | "seeds"> {
   acquired: ReservationRef[];
