@@ -84,3 +84,28 @@ export async function finalizeAndFinish(deps: FinishDeps, address: PublicKey, fi
   const rest = await finishMatch(deps, address);
   return { ...rest, signatures: [...signatures, ...rest.signatures] };
 }
+
+/**
+ * Makes a page's "finish this Match" call safe to repeat on every poll: one run at a time, a Match seen finished or stalled
+ * is not retried, and a thrown failure is retried a few times and then left to the keeper's safety sweep.
+ */
+export function createFinisher(run: () => Promise<FinishResult>, maxFailures = 3): () => Promise<FinishResult | null> {
+  let settled = false;
+  let busy = false;
+  let failures = 0;
+  return async () => {
+    if (settled || busy || failures >= maxFailures) return null;
+    busy = true;
+    try {
+      const r = await run();
+      settled = r.done || (!!r.stalled && r.stalled !== "step-limit");
+      return r;
+    } catch (e) {
+      failures += 1;
+      console.warn("[finish-match]", e);
+      return null;
+    } finally {
+      busy = false;
+    }
+  };
+}

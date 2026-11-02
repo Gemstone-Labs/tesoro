@@ -1,6 +1,6 @@
 import { Keypair, TransactionInstruction } from "@solana/web3.js";
-import { describe, expect, it } from "vitest";
-import { finalizeAndFinish, finishMatch, type FinishDeps, type Planned, type Progress } from "./finish-match";
+import { describe, expect, it, vi } from "vitest";
+import { createFinisher, finalizeAndFinish, finishMatch, type FinishDeps, type Planned, type Progress } from "./finish-match";
 
 const address = Keypair.generate().publicKey;
 const ix = (tag: string) => new TransactionInstruction({ programId: address, keys: [], data: Buffer.from(tag) });
@@ -29,7 +29,7 @@ function chain(start: Snap, o: { steps?: Record<string, Snap>; failOn?: string; 
   return { deps, sent, get world() { return world; } };
 }
 
-const settling = (line: number): Snap => ({ stage: "settling", phase: 0, line });
+const settling = (line: number): Progress => ({ stage: "settling", phase: 0, line });
 const closed: Snap = { stage: "closed", phase: 2, line: 0 };
 
 describe("finishMatch", () => {
@@ -85,13 +85,16 @@ describe("finishMatch", () => {
 
   it("stops after the step limit", async () => {
     let line = 0;
-    const c = chain(settling(0));
-    c.deps.send = async (p) => {
-      line += 1;
-      c.deps.fetch = async () => settling(line);
-      return `sig-${p.ix.data.toString()}-${line}`;
+    const deps: FinishDeps = {
+      fetch: async () => settling(line),
+      plan: async (p) => ({ kind: "chunk", ix: ix(`chunk-${p.line}`) }),
+      send: async (p) => {
+        line += 1;
+        return `sig-${p.ix.data.toString()}`;
+      },
+      maxSteps: 3,
     };
-    const r = await finishMatch({ ...c.deps, maxSteps: 3 }, address);
+    const r = await finishMatch(deps, address);
     expect(r).toMatchObject({ done: false, stalled: "step-limit" });
     expect(r.signatures).toHaveLength(3);
   });
@@ -132,3 +135,47 @@ describe("finalizeAndFinish", () => {
   });
 });
 
+
+describe("createFinisher", () => {
+  const ok = { done: true, signatures: [] };
+
+  it("does not run again once the Match is finished", async () => {
+    let calls = 0;
+    const finish = createFinisher(async () => (calls++, ok));
+    await finish();
+    await finish();
+    expect(calls).toBe(1);
+  });
+
+  it("runs one call at a time", async () => {
+    let calls = 0;
+    let release!: () => void;
+    const finish = createFinisher(() => (calls++, new Promise((r) => (release = () => r(ok)))));
+    const first = finish();
+    expect(await finish()).toBeNull();
+    release();
+    await first;
+    expect(calls).toBe(1);
+  });
+
+  it("retries a failure up to the limit, then leaves it to the sweep", async () => {
+    let calls = 0;
+    const finish = createFinisher(async () => {
+      calls++;
+      throw new Error("rpc");
+    }, 2);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    for (let i = 0; i < 5; i++) await finish();
+    expect(calls).toBe(2);
+  });
+
+  it("keeps going after a step limit, stops after a stall", async () => {
+    const results = [{ done: false, stalled: "step-limit", signatures: [] }, { done: false, stalled: "missing-book", signatures: [] }];
+    let calls = 0;
+    const finish = createFinisher(async () => results[calls++]);
+    await finish();
+    await finish();
+    await finish();
+    expect(calls).toBe(2);
+  });
+});
