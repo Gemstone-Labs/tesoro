@@ -75,7 +75,7 @@ describe("releasing holds whose address was closed", () => {
     const store = new MemoryUsageStore();
     const ticket = key();
     const tseed: HoldSeed = { kind: "ticket", account: anaAccount.toBase58(), n: "2" };
-    await admit(store, await coreIx("open_ticket", [new BN(2), { entry: {} }, key(), new BN(500), 2], { payer: payer.publicKey, authority: ana, ticket, offer: null, sponsor: null }), { [ticket.toBase58()]: tseed });
+    await admit(store, await coreIx("open_ticket", [new BN(2), { entry: {} }, key(), new BN(500), 2], { payer: payer.publicKey, authority: ana, owner: accountOf(ana), ticket, offer: null, sponsor: null }), { [ticket.toBase58()]: tseed });
     const c = countersPda(anaAccount).toBase58();
     expect(await releaseClosedHolds(store, chainOf(new Map([[c, counters(99n, 2n)]])))).toBe(0);
     expect(await releaseClosedHolds(store, chainOf(new Map([[c, counters(0n, 3n)]])))).toBe(1);
@@ -105,7 +105,7 @@ describe("the seed of what an instruction creates", () => {
     const ana = Keypair.generate().publicKey;
     const match = key(), ticket = key();
     const open = await openMatchIx(payer.publicKey, ana, key(), { matchState: match });
-    const tkt = await coreIx("open_ticket", [new BN(7), { entry: {} }, key(), new BN(500), 2], { payer: payer.publicKey, authority: ana, ticket, offer: null, sponsor: null });
+    const tkt = await coreIx("open_ticket", [new BN(7), { entry: {} }, key(), new BN(500), 2], { payer: payer.publicKey, authority: ana, owner: accountOf(ana), ticket, offer: null, sponsor: null });
     const seeds = await holdSeeds([open, tkt], async () => null);
     expect(seeds[match.toBase58()]).toEqual({ kind: "match", account: accountOf(ana).toBase58(), n: "1" });
     expect(seeds[ticket.toBase58()]).toEqual({ kind: "ticket", account: accountOf(ana).toBase58(), n: "7" });
