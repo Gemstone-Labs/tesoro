@@ -226,6 +226,8 @@ pub enum MatchError {
     PoolOverflowUnclaimed,
     #[msg("the stores of the studio that is paid by this Match are full: it must make room before Players can join")]
     StudioStoresFull,
+    #[msg("a new Ticket or Pot must use the Account's next ticket nonce")]
+    TicketNonceMismatch,
 }
 
 pub fn core_err(e: CoreError) -> Error {
