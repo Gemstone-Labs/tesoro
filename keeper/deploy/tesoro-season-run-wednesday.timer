@@ -1,0 +1,10 @@
+[Unit]
+Description=Tesoro Season run, Wednesday 00:30 UTC (pay the ranks, close the Season)
+
+[Timer]
+OnCalendar=Wed *-*-* 00:30:00 UTC
+Persistent=true
+Unit=tesoro-season-run.service
+
+[Install]
+WantedBy=timers.target

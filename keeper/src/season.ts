@@ -127,7 +127,7 @@ export function seasonSigner(seasonKeeper: PublicKey, candidates: (Keypair | nul
 export interface SeasonDeps {
   read: Reader;
   send(ixs: Parameters<typeof sendIxs>[2], opts: SendOpts): Promise<string>;
-  /** Every Match won in season `n`, from core's events. */
+  /** Every Match won in season `n`: the history store when it has them, else core's events. */
   wins(n: number): Promise<Win[]>;
   /** The current epoch (stake pools are judged by it). */
   epoch(): Promise<bigint>;
@@ -271,26 +271,72 @@ export const groupsOf = <T>(items: T[], n: number): T[][] => Array.from({ length
  * with `pay_season_rank`, and finally `close_season`. Signed by the Season keeper the Economy settings name (the keeper
  * payer or the oracle key, whichever the settings point at). Every step is idempotent: the chain says what is left.
  */
-export async function seasonJob(ctx: Ctx, d: SeasonDeps = realSeasonDeps(ctx)): Promise<number> {
+export interface SeasonPassOptions {
+  /** How many finished Seasons back to look (default 4; `Infinity` walks every Season). */
+  lookback?: number;
+  /** Pay ranks and close Seasons whose window has passed (default true). The Monday run records only. */
+  pay?: boolean;
+  /** Seasons already known to be finished or empty: not read again. */
+  skip?: ReadonlySet<number>;
+}
+
+export interface SeasonPassResult {
+  actions: number;
+  /** Seasons with work left that a later pass can do: a step failed, or (when paying) the payout window is still open. */
+  pending: number[];
+  /** Seasons with no wins: nothing to record, so a later run need not look again. */
+  empty: number[];
+}
+
+/** The Seasons among `numbers` that need no more work: closed, or written by the earlier program (it paid them). One batched read. */
+export async function closedSeasons(core: Core, read: Reader, numbers: number[]): Promise<Set<number>> {
+  const out = new Set<number>();
+  if (!numbers.length) return out;
+  const infos = await read.many(numbers.map(seasonAddress));
+  infos.forEach((info, i) => {
+    if (!info) return;
+    try {
+      if (seasonOf(core.coder.accounts.decode("seasonState", info.data)).closed) out.add(numbers[i]);
+    } catch {
+      out.add(numbers[i]);
+    }
+  });
+  return out;
+}
+
+/**
+ * One pass over the Seasons (spec "Season order"). For a Season that ended (plus a grace period): fund the prize of every
+ * route with its escrow on, record the ranking from `MatchWon` wins with `record_season` (which freezes the budget), then,
+ * when `pay` is set and the 48-hour window has passed (ADR 0012), pay every unpaid, unvoided rank line by line with
+ * `pay_season_rank`, and finally `close_season`. Signed by the Season keeper the Economy settings name (the keeper payer or
+ * the oracle key). Every step is idempotent: the chain says what is left, and `pending` says whether to come back.
+ */
+export async function seasonPass(ctx: Ctx, d: SeasonDeps, opts: SeasonPassOptions = {}): Promise<SeasonPassResult> {
+  const result: SeasonPassResult = { actions: 0, pending: [], empty: [] };
+  const pay = opts.pay ?? true;
   const config: any = await ctx.core.account.config.fetch(pda("config"));
   const pool = keyOf(config.poolAccount);
   if (pool.equals(PublicKey.default)) {
     log("season", "-", "leaderboard not set up (Config has no pool): nothing to do");
-    return 0;
+    return result;
   }
   const economy: any = await ctx.core.account.economyConfig.fetchNullable(economyAddress);
   if (!economy) {
     log("season", "-", "SKIP: the Economy settings do not exist yet (set_economy)");
-    return 0;
+    return result;
   }
   const authority = seasonSigner(keyOf(economy.seasonKeeper), d.candidates());
   if (!authority) {
     log("season", "-", `SKIP: this keeper holds neither its payer nor the oracle key as the Season keeper ${shortKey(keyOf(economy.seasonKeeper))}`);
-    return 0;
+    return result;
   }
   const routeKeys = (economy.routes as PublicKey[]).map(keyOf).filter((k) => !k.equals(PublicKey.default));
-  let actions = 0;
-  for (const n of seasonsToCheck(ctx.now)) {
+  let candidates = seasonsToCheck(ctx.now, GRACE_SECS, opts.lookback ?? LOOKBACK).filter((n) => !opts.skip?.has(n));
+  if (Number.isFinite(opts.lookback ?? LOOKBACK) === false) {
+    const closed = await closedSeasons(ctx.core, d.read, candidates);
+    candidates = candidates.filter((n) => !closed.has(n));
+  }
+  for (const n of candidates) {
     const subject = `season=${n}`;
     let rec = await readSeason(ctx.core, n);
     if (!rec && (await d.read.many([seasonAddress(n)]))[0]) {
@@ -302,35 +348,47 @@ export async function seasonJob(ctx: Ctx, d: SeasonDeps = realSeasonDeps(ctx)): 
       const table = topRanks(await d.wins(n));
       if (!table.length) {
         emptyAt.set(n, Date.now());
+        result.empty.push(n);
         log("season", subject, "no wins: nothing to rank, the pool carries over");
         continue;
       }
       const routes = (await Promise.all(routeKeys.map((k) => readRoute(ctx.core, d.read, k)))).filter((r): r is RouteFacts => !!r);
       let funded = true;
       for (const route of routesToFund(routes, n)) {
-        if (await fundRoute(ctx, d, route, n, authority, pool)) actions++;
+        if (await fundRoute(ctx, d, route, n, authority, pool)) result.actions++;
         else funded = false;
       }
-      if (!funded) continue;
+      if (!funded) {
+        result.pending.push(n);
+        continue;
+      }
       // The Pool's share of ETH and HYPE yield. record_season does not wait for these routes: a prize funded later rolls into a later Season.
-      if (d.evmPrizes) actions += await d.evmPrizes(n, authority, pool).catch((e) => (log("season", subject, `WARN EVM prizes: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 160)}`), 0));
+      if (d.evmPrizes) result.actions += await d.evmPrizes(n, authority, pool).catch((e) => (log("season", subject, `WARN EVM prizes: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 160)}`), 0));
       const claimed = await claimRouteRecords(ctx, d, n, pool, routeKeys);
-      actions += claimed.actions;
-      if (!claimed.clear) continue;
-      if (!(await record(ctx, d, n, table, authority, pool, routeKeys))) continue;
-      actions++;
+      result.actions += claimed.actions;
+      if (!claimed.clear || !(await record(ctx, d, n, table, authority, pool, routeKeys))) {
+        result.pending.push(n);
+        continue;
+      }
+      result.actions++;
       rec = await readSeason(ctx.core, n);
-      if (!rec) continue;
+      if (!rec) {
+        result.pending.push(n);
+        continue;
+      }
     }
+    if (!pay) continue;
     const plan = payPlan(rec, ctx.now);
     if (plan.kind === "done") continue;
     if (plan.kind === "wait") {
       log("season", subject, `${rec.count} ranked, payout window open until ${new Date(plan.until * 1000).toISOString()}: the admin can still void a rank`);
+      result.pending.push(n);
       continue;
     }
     if (plan.kind === "close") {
       const r = await act(ctx, "season", subject, "close_season (every rank paid or voided)", async () => d.send([await closeSeasonIx(ctx.core, { season: seasonAddress(n) })], {}));
-      actions += +r.ok;
+      result.actions += +r.ok;
+      if (!r.ok) result.pending.push(n);
       continue;
     }
     let paid = 0;
@@ -338,10 +396,17 @@ export async function seasonJob(ctx: Ctx, d: SeasonDeps = realSeasonDeps(ctx)): 
       if (!(await payBatch(ctx, d, rec, group, authority, pool))) break;
       paid += group.length;
     }
-    actions += paid;
+    result.actions += paid;
+    // Not done until the next pass has seen every rank paid and sent the close.
+    result.pending.push(n);
     log("season", subject, `${rec.count} ranked, ${paid} of ${plan.steps.length} payment step(s) sent this pass`);
   }
-  return actions;
+  return result;
+}
+
+/** Job 7 of the 20 s loop: the recent Seasons, paying as well as recording. */
+export async function seasonJob(ctx: Ctx, d: SeasonDeps = realSeasonDeps(ctx)): Promise<number> {
+  return (await seasonPass(ctx, d)).actions;
 }
 
 export { PAYOUT_WINDOW_SECS, seasonStart };

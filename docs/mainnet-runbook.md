@@ -221,6 +221,8 @@ The first draft of this runbook said to start the keeper 7 days early so a trail
 2. Start it: `systemctl --user enable --now tesoro-keeper-mainnet`, `journalctl --user -u tesoro-keeper-mainnet -f -o cat`, `curl -s 127.0.0.1:<port>/healthz`.
    Check: the log says the RPC is Solana mainnet-beta (genesis check), every job runs a pass without error, `healthz` is 200, no job raises an alert for two days, the keeper's payer and `keeper-evm` balances are above the alert thresholds.
 
+3. Season run (orchestrator step, once the keeper diet ships): copy `keeper/deploy/tesoro-season-run.service` and the three `tesoro-season-run-*.timer` files to `~/.config/systemd/user/` on the VPS, point the service at the mainnet env file and state dir, then `systemctl --user daemon-reload && systemctl --user enable --now tesoro-season-run-monday.timer tesoro-season-run-wednesday.timer tesoro-season-run-retry.timer`. Monday 00:15 UTC it settles the finished Season's Matches, redeems the Treasury, harvests the Leaderboard counters, sends the Leaderboard batches, updates stale stake pools and records every unrecorded Season; Wednesday 00:30 UTC it pays each rank and closes the Season; the hourly timer retries whatever is not done (the unit shows failed while a step is left). State: `$KEEPER_STATE_DIR/season-run.json`; check with `journalctl --user -u tesoro-season-run -o cat`. A devnet cadence faster than weekly: `KEEPER_SEASON_RUN_START_SECS`, `KEEPER_SEASON_RUN_PAY_SECS`.
+
 ---
 
 ## T-1 day: smoke on a preview with mainnet env
