@@ -266,7 +266,7 @@ describe("the season job", () => {
     assert.deepEqual(sent, ["paySeasonRank"]);
   });
   describe("the pass behind the weekly run", () => {
-    const sevenWeeks = SEASON_EPOCH + 7 * SEASON_SECS + 700;
+    const sevenWeeks = SEASON_EPOCH + 6 * SEASON_SECS + 700;
     const winIn = (n: number) => [win(alice.toBase58(), 10, SEASON_EPOCH + (n - 1) * SEASON_SECS + 100), win(bob.toBase58(), 5, SEASON_EPOCH + (n - 1) * SEASON_SECS + 200)];
     const recordedBytes = (n: number, over: Record<string, unknown> = {}) =>
       accountBytes(core, "SeasonState", {
