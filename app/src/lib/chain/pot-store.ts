@@ -1,5 +1,10 @@
 import { PublicKey } from "@solana/web3.js";
 
+// The browser's Buffer polyfill has no BigInt readers, so 64-bit fields go through a DataView.
+const dv = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength);
+const u64 = (b: Uint8Array, at: number) => dv(b).getBigUint64(at, true);
+const i64 = (b: Uint8Array, at: number) => dv(b).getBigInt64(at, true);
+
 // ---- Line stores (baskets, spills, Tickets, Pots) ---------------------------------------------------------------
 
 /** Most lines a basket, and a spill, can hold (storage.rs `MAX_BASKET_LINES` / `MAX_SPILL_LINES`). */
@@ -48,9 +53,9 @@ export function decodeStore(data: Uint8Array, bodyAt = DISC): Store {
       side: body[at],
       cls: body[at + 1],
       tranche: body[at + 2],
-      dueAt: body.readBigInt64LE(at + 3),
+      dueAt: i64(body, at + 3),
       source: new PublicKey(body.subarray(at + 11, at + 43)),
-      amount: body.readBigUInt64LE(at + 43),
+      amount: u64(body, at + 43),
     };
   };
   return {
@@ -97,9 +102,9 @@ export function decodeTicketHead(data: Uint8Array): TicketFacts {
     account: new PublicKey(h.subarray(8, 40)),
     game: new PublicKey(h.subarray(40, 72)),
     payer: new PublicKey(h.subarray(72, 104)),
-    nonce: h.readBigUInt64LE(104),
-    target: h.readBigUInt64LE(112),
-    expiresAt: Number(h.readBigInt64LE(120)),
+    nonce: u64(h, 104),
+    target: u64(h, 112),
+    expiresAt: Number(i64(h, 120)),
     spillRoom: h.readUInt32LE(132),
   };
 }

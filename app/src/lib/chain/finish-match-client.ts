@@ -20,9 +20,6 @@ import {
 } from "./settle-plan";
 import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
 
-/** Compute limit the sponsor server puts on a chunk or a close (rules.ts `match_chunk` / `close_match`). */
-const CLOSE_UNITS = 300_000;
-
 const progressOf = (v: MatchView): Progress => {
   const run = runOf(v.inner.run);
   return { stage: v.stage, phase: run?.phaseI ?? 0, line: run?.lineI ?? 0 };

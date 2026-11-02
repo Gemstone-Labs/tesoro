@@ -125,8 +125,9 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
   const failures = useRef(0);
 
   const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
+  const freshToken = useCallback(() => tokenRef.current(), []);
   // Chunks and close_match for a Match whose result is committed; any Player's page may send them, the safety sweep covers the rest.
-  const finish = useMemo(() => (signer && mk ? createFinisher(() => finishMatchFree(signer, () => tokenRef.current(), mk)) : null), [signer, mk]);
+  const finish = useMemo(() => (signer && mk ? createFinisher(() => finishMatchFree(signer, freshToken, mk)) : null), [signer, mk, freshToken]);
   const p = useMemo(() => (signer ? (signer as unknown as PlayerSigner) : null), [signer]);
 
   // Every stage goes through the tracker: a late or missing read never moves the screen back.
