@@ -905,7 +905,7 @@ pub mod holdem {
         }
         table.game.phase = PHASE_NONE;
         conclude(table, now)?;
-        wipe_and_commit(&mut ctx.accounts, now)
+        wipe_and_commit(&mut *ctx.accounts, now)
     }
 
     /// Rollup. A Player folds a fresh secret into this hand. It goes into the Player's own Hole
@@ -1090,7 +1090,7 @@ pub mod holdem {
         table.vrf_ready = false;
         table.game.on_dealt(&board, &cards, now)?;
         if after_move(table, [h0, h1], now)? {
-            wipe_and_commit(&mut ctx.accounts, now)?;
+            wipe_and_commit(&mut *ctx.accounts, now)?;
         }
         Ok(())
     }
@@ -1106,7 +1106,7 @@ pub mod holdem {
         let cards = [h0.cards, h1.cards];
         table.game.act(seat, action, &board, &cards, now)?;
         if after_move(table, [h0, h1], now)? {
-            wipe_and_commit(&mut ctx.accounts, now)?;
+            wipe_and_commit(&mut *ctx.accounts, now)?;
         }
         Ok(())
     }
@@ -1132,7 +1132,7 @@ pub mod holdem {
         let cards = [h0.cards, h1.cards];
         table.game.timeout(shuffle, &board, &cards, now)?;
         if after_move(table, [h0, h1], now)? {
-            wipe_and_commit(&mut ctx.accounts, now)?;
+            wipe_and_commit(&mut *ctx.accounts, now)?;
         }
         Ok(())
     }
