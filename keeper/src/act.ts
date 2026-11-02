@@ -1,4 +1,5 @@
 import type { PublicKey } from "@solana/web3.js";
+import { meter } from "./credits.ts";
 import { jobs } from "./job-stats.ts";
 import type { Runtime } from "./runtime.ts";
 
@@ -13,7 +14,8 @@ const running = new Map<string, Promise<void>>();
 export async function runJob<C>(name: string, job: (c: C) => Promise<number>, ctx: C, limitMs = JOB_LIMIT_MS, track = true) {
   if (running.has(name)) return log(name, "-", "SKIP: previous run still going");
   if (track) jobs.started(name);
-  const run = job(ctx)
+  const run = meter
+    .inJob(name, () => job(ctx))
     .then(() => {
       if (track) jobs.ok(name);
     })
