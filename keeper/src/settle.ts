@@ -1,135 +1,24 @@
-import type { AccountMeta, PublicKey } from "@solana/web3.js";
+import type { PublicKey } from "@solana/web3.js";
 import { decodeMatchRecords, innerInstructionsOf, type MatchChunkRecord } from "../../app/src/server/history/events.ts";
+import { CHUNK_STEPS, CHUNK_UNITS, closeIx, fullAccounts, loadMatch, viewOf, planChunk as planChunkShared, planSizedChunk as planSizedChunkShared, type ChunkPlan, type Core, type Loaded, type MatchView } from "../../app/src/lib/chain/settle-plan.ts";
 import { act, log, type Ctx } from "./act.ts";
-import { creditedAccounts, runOf, sourcesAhead } from "./chunks.ts";
-import { closeMatchIx, growStoreIx, initCkptPageIx, matchChunkIx, meta, type Core } from "./core-ix.ts";
+import { runOf, sourcesAhead } from "./chunks.ts";
+import { growStoreIx, initCkptPageIx } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
-import { OVERFLOW_MATCH, POT_AT, basketOf, bookOf, countersOf, decodeStore, decodeTicketHead, keyOf, matchAddress, matchLabel, matchOverflowId, matchRefOf, overflowAddress, slack, sponsorAddress, spillOf, type MatchRef, type Store } from "./kit.ts";
-import { compile, fits, lookupTables, sendIxs, type SendOpts } from "./send.ts";
-import { connReader, dedupe, missingCutPages, supplySources, type Reader } from "./supply.ts";
+import { bookOf, matchAddress, matchLabel, type MatchRef } from "./kit.ts";
+import { fits, lookupTables, sendIxs, compile, type SendOpts } from "./send.ts";
+import { connReader, missingCutPages, type Reader } from "./supply.ts";
 
-export type Stage = "open" | "active" | "settling" | "refunding" | "closed";
+export { viewOf, closeRemaining, closeIx, fullAccounts, CHUNK_CU_TARGET } from "../../app/src/lib/chain/settle-plan.ts";
+export type { Stage, MatchView, Loaded, ChunkPlan } from "../../app/src/lib/chain/settle-plan.ts";
 
-/** A decoded `MatchState` with the fields the keeper reads named. */
-export interface MatchView {
-  address: PublicKey;
-  ref: MatchRef;
-  inner: any;
-  stage: Stage;
-  pots: [PublicKey, PublicKey];
-  payer: PublicKey;
-  /** The Accounts whose spill still holds slots for this Match (`left` > 0); empty before the room hold existed. */
-  room: { account: PublicKey; left: number }[];
-}
-
-export function viewOf(address: PublicKey, account: any): MatchView {
-  const inner = account.inner;
-  return {
-    address,
-    ref: matchRefOf(inner.id),
-    inner,
-    stage: Object.keys(inner.stage)[0].toLowerCase() as Stage,
-    pots: [keyOf(account.pots[0]), keyOf(account.pots[1])],
-    payer: keyOf(account.payer),
-    room: ((account.room ?? []) as { account: ArrayLike<number>; left: number }[]).filter((r) => r.left > 0).map((r) => ({ account: keyOf(r.account), left: r.left })),
-  };
-}
-
-/** Steps one chunk runs: more steps mean fewer transactions but more accounts in each. */
-const CHUNK_STEPS = Number(process.env.KEEPER_CHUNK_STEPS ?? 6);
 /** Chunks one Match gets in one pass, so a long Pot cannot hold up the others. */
 const CHUNKS_PER_PASS = Number(process.env.KEEPER_CHUNKS_PER_PASS ?? 12);
-/** Compute units asked for a chunk (the limit of its transaction; what it uses is held under CHUNK_CU_TARGET). */
-const CHUNK_UNITS = 400_000;
-/**
- * A chunk's simulated compute must stay under this: the 140,000 target of ticket 42 less a margin for the state moving
- * between simulation and landing. Loading a chunk's accounts costs 40-70k and a step 6-33k, so no fixed step count holds
- * it: the keeper simulates the chunk and takes fewer steps until it fits.
- */
-export const CHUNK_CU_TARGET = Number(process.env.KEEPER_CHUNK_CU_TARGET ?? 125_000);
 
-export interface Loaded {
-  view: MatchView;
-  pots: (Buffer | null)[];
-  stores: (Store | null)[];
-}
-
-async function load(read: Reader, view: MatchView): Promise<Loaded> {
-  const joined = !!view.inner.b;
-  const infos = await read.many(joined ? view.pots : [view.pots[0]]);
-  const pots = [infos[0]?.data ?? null, joined ? (infos[1]?.data ?? null) : null];
-  const stores = pots.map((p) => (p ? decodeStore(p, POT_AT) : null));
-  return { view, pots, stores };
-}
-
-export interface ChunkPlan {
-  ix: Awaited<ReturnType<typeof matchChunkIx>>;
-  steps: number;
-  /** Sources the steps touch whose book is missing: the chunk would refuse them. */
-  missing: PublicKey[];
-  credited: PublicKey[];
-}
+const load = loadMatch;
 
 /** Builds the next chunk of a Settling or Refunding Match with as many steps as fit one transaction (down to 1). */
-export async function planChunk(core: Core, read: Reader, caller: PublicKey, l: Loaded, steps: number, opts: SendOpts = {}): Promise<ChunkPlan | null> {
-  const run = runOf(l.view.inner.run);
-  if (!run) return null;
-  const credited = creditedAccounts(l.view.inner, keyOf);
-  const stores = await read.many(credited.flatMap((a) => [basketOf(a), spillOf(a)]));
-  const storeMetas: AccountMeta[] = credited.flatMap((a, i) => (stores[2 * i] && stores[2 * i + 1] ? [meta(basketOf(a)), meta(spillOf(a))] : []));
-  // An Account the Match made an overflow record for (its stores had no room at join): a credit that finds no slot lands there.
-  const recordKeys = credited.map((a) => overflowAddress(a, OVERFLOW_MATCH, matchOverflowId(l.view.ref)));
-  const records = await read.many(recordKeys);
-  records.forEach((r, i) => {
-    if (r) storeMetas.push(meta(recordKeys[i]));
-  });
-  for (let n = Math.max(1, steps); ; n = Math.max(1, Math.floor(n / 2))) {
-    const ahead = sourcesAhead(run, l.stores, n);
-    const supply = await supplySources(core, read, ahead);
-    const remaining = dedupe([...storeMetas, ...supply.metas]);
-    const ix = await matchChunkIx(core, { caller, matchState: l.view.address, potA: l.view.pots[0], potB: l.view.inner.b ? l.view.pots[1] : null, steps: n, remaining });
-    if (n === 1 || fits(caller, [ix], opts)) return { ix, steps: n, missing: supply.missing, credited };
-  }
-}
-
-/** Accounts of `credited` whose basket and spill have no room left: the ones a blocked chunk is waiting on. */
-export async function fullAccounts(read: Reader, credited: PublicKey[]): Promise<PublicKey[]> {
-  const infos = await read.many(credited.flatMap((a) => [basketOf(a), spillOf(a)]));
-  return credited.filter((_, i) => {
-    const [b, s] = [infos[2 * i], infos[2 * i + 1]];
-    return !!b && !!s && slack(decodeStore(b.data), decodeStore(s.data)) <= 0;
-  });
-}
-
-/** The remaining accounts of `close_match`: the spill of every Account that still holds room, and both Players' counters. */
-export function closeRemaining(view: MatchView): AccountMeta[] {
-  const out: AccountMeta[] = [];
-  const add = (k: PublicKey) => {
-    if (!out.some((m) => m.pubkey.equals(k))) out.push(meta(k));
-  };
-  for (const r of view.room) add(spillOf(r.account));
-  add(countersOf(keyOf(view.inner.a.player)));
-  if (view.inner.b) add(countersOf(keyOf(view.inner.b.player)));
-  return out;
-}
-
-export async function closeIx(core: Core, read: Reader, caller: PublicKey, l: Loaded) {
-  const { view } = l;
-  const joined = !!view.inner.b;
-  const head = (i: number) => (l.pots[i] ? decodeTicketHead(l.pots[i]!).payer : null);
-  const sponsorInfo = (await read.many([sponsorAddress]))[0];
-  return closeMatchIx(core, {
-    caller,
-    matchState: view.address,
-    matchPayer: view.payer,
-    potA: view.pots[0],
-    potAPayer: head(0)!,
-    potB: joined ? view.pots[1] : null,
-    potBPayer: joined ? head(1) : null,
-    sponsor: sponsorInfo ? sponsorAddress : null,
-    remaining: closeRemaining(view),
-  });
-}
+export const planChunk = (core: Core, read: Reader, caller: PublicKey, l: Loaded, steps: number, opts: SendOpts = {}) => planChunkShared(core, read, caller, l, steps, (ix) => fits(caller, [ix], opts));
 
 /** The chunk record a transaction emitted for `ref`, if its events can be read. */
 export async function chunkReport(ctx: Pick<Ctx, "conn">, signature: string, ref: MatchRef): Promise<MatchChunkRecord | null> {
@@ -174,26 +63,19 @@ export const realDeps = (ctx: Ctx): Deps => ({
   },
 });
 
-/**
- * Plans the next chunk with as many steps as fit the transaction AND the compute target: simulates it and, while it
- * uses more than CHUNK_CU_TARGET, plans again with the steps the measured cost allows (at least one fewer). A chunk
- * whose steps are cut short is harmless: the Match record keeps the progress and the next chunk resumes.
- */
-export async function planSizedChunk(ctx: Pick<Ctx, "core" | "payer">, deps: Deps, l: Loaded, opts: SendOpts, subject: string): Promise<ChunkPlan | null> {
-  let steps = CHUNK_STEPS;
-  for (;;) {
-    const plan = await planChunk(ctx.core, deps.read, ctx.payer.publicKey, l, steps, opts);
-    if (!plan || !deps.simulate) return plan;
-    const used = await deps.simulate([plan.ix], opts);
-    if (used === null || used <= CHUNK_CU_TARGET) return plan;
-    if (plan.steps <= 1) {
-      log("settle", subject, `WARN a one-step chunk simulates at ${used} CU, over the ${CHUNK_CU_TARGET} target`);
-      return plan;
-    }
-    steps = Math.max(1, Math.min(plan.steps - 1, Math.floor((plan.steps * CHUNK_CU_TARGET) / used)));
-    log("settle", subject, `chunk of ${plan.steps} steps simulates at ${used} CU: trying ${steps}`);
-  }
-}
+/** Plans the next chunk sized to the transaction and the compute target (see the shared planner). */
+export const planSizedChunk = (ctx: Pick<Ctx, "core" | "payer">, deps: Deps, l: Loaded, opts: SendOpts, subject: string): Promise<ChunkPlan | null> =>
+  planSizedChunkShared(
+    {
+      core: ctx.core,
+      read: deps.read,
+      caller: ctx.payer.publicKey,
+      fitsOne: (ix) => fits(ctx.payer.publicKey, [ix], opts),
+      simulate: deps.simulate && ((ix) => deps.simulate!([ix], opts)),
+      log: (message) => log("settle", subject, message),
+    },
+    l,
+  );
 
 /**
  * Drives one Settling or Refunding Match as far as it goes this pass: chunk after chunk until the run is done (then
