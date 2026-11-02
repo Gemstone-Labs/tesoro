@@ -125,9 +125,8 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
   const failures = useRef(0);
 
   const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
-  const freshToken = useCallback(() => tokenRef.current(), []);
   // Chunks and close_match for a Match whose result is committed; any Player's page may send them, the safety sweep covers the rest.
-  const finish = useMemo(() => (signer && mk ? createFinisher(() => finishMatchFree(signer, freshToken, mk)) : null), [signer, mk, freshToken]);
+  const finisher = useRef<{ key: string; run: () => Promise<unknown> } | null>(null);
   const p = useMemo(() => (signer ? (signer as unknown as PlayerSigner) : null), [signer]);
 
   // Every stage goes through the tracker: a late or missing read never moves the screen back.
@@ -215,7 +214,10 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
     seatRef.current = seat;
     setView((v) => (v.seat === seat ? v : { ...v, seat }));
     if (m.status === "open") return setStage("waiting");
-    if (m.running || m.status === "settled" || m.status === "refunded") void finish?.();
+    if (m.running || m.status === "settled" || m.status === "refunded") {
+      if (finisher.current?.key !== mk.toBase58()) finisher.current = { key: mk.toBase58(), run: createFinisher(() => finishMatchFree(signer, () => tokenRef.current(), mk)) };
+      void finisher.current.run();
+    }
     if (m.status === "settled" || m.status === "refunded") {
       setStage("settled");
       if (!finalRead.current) {
@@ -313,7 +315,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
       setView((v) => (v.commit?.phase === phase && v.commit.won === mine ? v : { ...v, commit: { phase, won: mine }, error: null }));
     }
     await settle(a, seat, d);
-  }, [p, signer, id, mk, progress, setStage, applyDuel, onSettled, settle, finish]);
+  }, [p, signer, id, mk, progress, setStage, applyDuel, onSettled, settle]);
 
   const tick = useCallback(async () => {
     if (working.current) return;
