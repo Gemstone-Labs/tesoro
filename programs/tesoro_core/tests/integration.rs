@@ -1160,7 +1160,9 @@ impl Env {
             fresh.owner = s(tesoro_core::ID);
             fresh.data = vec![0u8; AccountCounters::SPACE];
             fresh.data[..8].copy_from_slice(&AccountCounters::DISCRIMINATOR);
-            fresh.lamports = self.svm.minimum_balance_for_rent_exemption(fresh.data.len());
+            fresh.lamports = self
+                .svm
+                .minimum_balance_for_rent_exemption(fresh.data.len());
             fresh
         });
         let at = AccountCounters::SPACE_V1;
@@ -6135,7 +6137,11 @@ fn a_fresh_pot_takes_the_same_counter_as_a_ticket() {
         )
         .unwrap_err();
     assert_eq!(custom_code(&err), ERR_TICKET_NONCE);
-    assert_eq!(env.next_ticket(p.account), 1, "the refused Match moved nothing");
+    assert_eq!(
+        env.next_ticket(p.account),
+        1,
+        "the refused Match moved nothing"
+    );
     env.open_match(&p, 1_000).expect("the next nonce works");
     assert_eq!(env.next_ticket(p.account), 2);
 }

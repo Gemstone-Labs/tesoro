@@ -97,7 +97,11 @@ pub(crate) fn migrate_counters(ctx: Context<MigrateCounters>) -> Result<()> {
             TesoroError::InvalidAccount
         );
         let expected = Pubkey::create_program_address(
-            &[COUNTERS_SEED, ctx.accounts.account.key().as_ref(), &[data[8]]],
+            &[
+                COUNTERS_SEED,
+                ctx.accounts.account.key().as_ref(),
+                &[data[8]],
+            ],
             &crate::ID,
         )
         .map_err(|_| error!(TesoroError::InvalidAccount))?;
@@ -125,6 +129,7 @@ pub(crate) fn migrate_counters(ctx: Context<MigrateCounters>) -> Result<()> {
     }
     info.resize(AccountCounters::SPACE)?;
     let mut data = info.try_borrow_mut_data()?;
-    data[AccountCounters::SPACE_V1..].copy_from_slice(&AccountCounters::LEGACY_TICKET_BASE.to_le_bytes());
+    data[AccountCounters::SPACE_V1..]
+        .copy_from_slice(&AccountCounters::LEGACY_TICKET_BASE.to_le_bytes());
     Ok(())
 }
