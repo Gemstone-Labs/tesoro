@@ -6096,7 +6096,7 @@ fn open_and_close_ticket(env: &mut Env, p: &Person) -> u64 {
 #[test]
 fn a_ticket_must_use_the_next_nonce_and_a_closed_one_cannot_come_back() {
     let mut env = Env::new();
-    let p = env.person();
+    let (p, _) = person_with_lines(&mut env, 2, 100, 1_000);
     assert_eq!(env.next_ticket(p.account), 0);
     let skipped = env.open_ticket_at(&p, 1, 1_000, 2).unwrap_err();
     assert_eq!(custom_code(&skipped), ERR_TICKET_NONCE, "a skipped nonce");
