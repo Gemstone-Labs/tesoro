@@ -81,9 +81,16 @@ const tryStore = (data: Uint8Array | undefined, account: PublicKey): Store => {
   }
 };
 
-/** Counter layout: discriminator 8, bump 1, `next_match` u64. */
+/** Counter layout: discriminator 8, bump 1, `next_match` u64, `open_matches` u32, `open_offers` u32, `next_ticket` u64. */
 export const nextMatchOf = (data: Uint8Array | undefined): bigint =>
   data && data.length >= 17 ? new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(9, true) : 0n;
+
+/**
+ * `AccountCounters.next_ticket`: the nonce the next Ticket or Pot of this Account must use (0 before the counters exist).
+ * Counters made before the upgrade have 25 bytes and no such field: they have to be migrated first.
+ */
+export const nextTicketOf = (data: Uint8Array | undefined): bigint =>
+  data && data.length >= 33 ? new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(25, true) : 0n;
 
 export async function readEntryStores(account: PublicKey, conn: Pick<Connection, "getMultipleAccountsInfo"> = getChain().base): Promise<EntryStores> {
   const [b, s, c] = await conn.getMultipleAccountsInfo([basketPda(account), spillPda(account), countersPda(account)], "confirmed");
