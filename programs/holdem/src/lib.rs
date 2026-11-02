@@ -872,7 +872,7 @@ pub mod holdem {
         require!(table.phase == TABLE_WAITING, HoldemError::WrongPhase);
         require!(table.seats_open, HoldemError::SeatsNotOpen);
         require!(now <= table.start_deadline, HoldemError::StartWindowPassed);
-        let seat = seat_of(&table.game.players, &ctx.accounts.caller.key())?;
+        let seat = seat_of(&table.game.players, &ctx.accounts.player.key())?;
         table.checked_in[seat] = true;
         if table.checked_in == [true; 2] {
             table.phase = TABLE_LIVE;
