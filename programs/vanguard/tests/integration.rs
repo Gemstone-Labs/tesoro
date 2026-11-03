@@ -914,7 +914,6 @@ impl Env {
     }
 
     fn begin_ix(&self) -> Instruction {
-        let ad = addrs_of(self.table);
         ix(
             vanguard::ID,
             vanguard::accounts::BeginMatch {
