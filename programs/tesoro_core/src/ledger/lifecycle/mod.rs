@@ -42,11 +42,17 @@ use std::collections::BTreeMap;
 
 use anchor_lang::prelude::{borsh, AnchorDeserialize, AnchorSerialize};
 
-use super::book::{BookError, SourceBook};
+use super::book::BookError;
 use super::draw::{DrawError, Placed, PotBacking, PotPages, SourceBooks};
-use super::line_store::{Line, LineStoreError, CLASS_STUDIO, SIDE_OWN, SIDE_WON};
+use super::line_store::{Line, LineStoreError, SIDE_OWN};
 use super::{
     is_ladder_entry, mul_div_floor, to_u64, Key, BPS, MATCH_TIMEOUT_SECS, MAX_TOTAL_FEE_BPS,
+};
+
+pub mod blocks;
+use blocks::{
+    back_step, cut_step, emptied, placement, player_share, pot_of, surplus_step, win_fees,
+    win_surplus, Credit,
 };
 
 /// A Match can never be settled later than this after it opened, and no extension moves it.
@@ -397,20 +403,6 @@ pub struct SettlementLine {
     pub placement: u8,
 }
 
-struct Credit {
-    line: Line,
-    owner: Option<Key>,
-    placement: u8,
-}
-
-fn placement(p: Placed) -> u8 {
-    match p {
-        Placed::Basket => 0,
-        Placed::Spill => 1,
-        Placed::Overflow => 2,
-    }
-}
-
 impl SettlementLine {
     pub fn pot_index(&self) -> u32 {
         u32::from_le_bytes(self.pot_index_le)
@@ -483,11 +475,6 @@ pub trait Settlement {
     /// key fields) to the recipient: a Source counter when `owner` is `None`, else a fee line in
     /// the owner's basket. Changes nothing on error.
     fn credit_fee(&mut self, class: u8, owner: Option<&Key>, line: &Line) -> LcResult<()>;
-}
-
-fn fee_of(entry_pot: u128, bps: u16) -> LcResult<u64> {
-    to_u64(mul_div_floor(entry_pot, bps as u128, BPS).map_err(|_| LifecycleError::Math)?)
-        .map_err(|_| LifecycleError::Math)
 }
 
 impl MatchRecord {
@@ -688,27 +675,12 @@ impl MatchRecord {
                     return Err(LifecycleError::NotAuthorised);
                 }
                 let winner = if w == 0 { self.a } else { b };
-                let fees = [
-                    fee_of(pot, self.terms.platform_bps)?,
-                    fee_of(pot, self.terms.studio_bps)?,
-                    fee_of(pot, leaderboard_bps)?,
-                ];
+                let fees = win_fees(pot, &self.terms, leaderboard_bps)?;
                 let l = 1 - w;
-                let fee_total = fees
-                    .iter()
-                    .try_fold(0u64, |a, f| a.checked_add(*f))
-                    .ok_or(LifecycleError::Math)?;
                 // the loser's lines (together `entry`) pay every fee
-                let surplus = self
-                    .entry
-                    .checked_sub(fee_total)
-                    .ok_or(LifecycleError::FeeTooHigh)?;
+                let surplus = win_surplus(self.entry, fees)?;
                 let player_left = if winner.is_backed() {
-                    to_u64(
-                        mul_div_floor(surplus as u128, winner.share_bps as u128, BPS)
-                            .map_err(|_| LifecycleError::Math)?,
-                    )
-                    .map_err(|_| LifecycleError::Math)?
+                    player_share(surplus, winner.share_bps)?
                 } else {
                     0
                 };
@@ -1035,16 +1007,7 @@ impl MatchRecord {
                             let owner = party
                                 .ok_or(LifecycleError::Inconsistent("no party"))?
                                 .funder;
-                            let placed = w.credit(&owner, &orig)?;
-                            p.set(at, &emptied(&orig))?;
-                            (
-                                3,
-                                Credit {
-                                    line: orig,
-                                    owner: Some(owner),
-                                    placement: placement(placed),
-                                },
-                            )
+                            (3, back_step(p, at, w, &owner)?)
                         }
                         Phase::Surplus { to, .. } => {
                             let winner = if to == 0 { Some(*a) } else { *b }
@@ -1082,172 +1045,6 @@ impl MatchRecord {
             chunks: run.chunks,
         })
     }
-}
-
-fn pot_of<B: PotBacking>(pots: &mut Pots<B>, side: u8) -> LcResult<&mut PotPages<B>> {
-    pots[(side & 1) as usize]
-        .as_mut()
-        .ok_or(LifecycleError::Inconsistent("pot not supplied"))
-}
-
-fn emptied(l: &Line) -> Line {
-    let mut z = *l;
-    z.amount = 0;
-    z.uncovered = 0;
-    z
-}
-
-/// Cut `k` Gemas of the Pot line at `at` into the fee `class`.
-fn cut_step<B: PotBacking>(
-    p: &mut PotPages<B>,
-    at: usize,
-    terms: &Terms,
-    w: &mut dyn Settlement,
-    class: u8,
-    k: u64,
-) -> LcResult<Credit> {
-    let orig = p
-        .get(at)
-        .ok_or(LifecycleError::Inconsistent("cut line vanished"))?;
-    if orig.amount < k {
-        return Err(LifecycleError::Inconsistent("cut larger than its line"));
-    }
-    let owner = if class == CLASS_STUDIO {
-        terms.studio_owner
-    } else {
-        None
-    };
-    if class == CLASS_STUDIO && !terms.studio_priority {
-        // no priority: the Studio Fee is ordinary won Gemas for the recipient
-        let to = owner.ok_or(LifecycleError::Inconsistent(
-            "a plain Studio Fee needs a recipient",
-        ))?;
-        return pay_plain(p, at, w, &to, &orig, k);
-    }
-    w.sync_source(&orig.source)?;
-    w.books().snapshot(&orig.source)?;
-    let mut src = orig;
-    let mut dst = SourceBook::blank_line(SIDE_OWN, 0, orig.source, class, 0);
-    {
-        let (book, history) = w.books().book_with_history(&orig.source)?;
-        book.cut_fee(&mut src, &mut dst, k, history)?;
-    }
-    if let Err(e) = w.credit_fee(class, owner.as_ref(), &dst) {
-        w.books().rollback(&orig.source)?;
-        return Err(e);
-    }
-    if src.amount == 0 {
-        src.uncovered = 0;
-    }
-    p.set(at, &src)?;
-    Ok(Credit {
-        line: dst,
-        owner,
-        placement: if owner.is_none() { 3 } else { 255 },
-    })
-}
-
-/// Moves `k` Gemas of the Pot line at `at` to `to` as ordinary won Gemas (the whole line, or a part).
-fn pay_plain<B: PotBacking>(
-    p: &mut PotPages<B>,
-    at: usize,
-    w: &mut dyn Settlement,
-    to: &Key,
-    orig: &Line,
-    k: u64,
-) -> LcResult<Credit> {
-    if k == orig.amount {
-        let mut won = *orig;
-        won.side = SIDE_WON;
-        let placed = w.credit(to, &won)?;
-        p.set(at, &emptied(orig))?;
-        return Ok(Credit {
-            line: won,
-            owner: Some(*to),
-            placement: placement(placed),
-        });
-    }
-    w.books().snapshot(&orig.source)?;
-    let mut rest = *orig;
-    let mut part =
-        SourceBook::blank_line(SIDE_WON, orig.due_at, orig.source, orig.class, orig.tranche);
-    {
-        let (book, history) = w.books().book_with_history(&orig.source)?;
-        book.transfer(&mut rest, &mut part, k, &*history)?;
-    }
-    let placed = match w.credit(to, &part) {
-        Ok(p) => p,
-        Err(e) => {
-            w.books().rollback(&orig.source)?;
-            return Err(e);
-        }
-    };
-    p.set(at, &rest)?;
-    Ok(Credit {
-        line: part,
-        owner: Some(*to),
-        placement: placement(placed),
-    })
-}
-
-fn surplus_step<B: PotBacking>(
-    p: &mut PotPages<B>,
-    at: usize,
-    player_left: &mut u64,
-    w: &mut dyn Settlement,
-    winner: &Party,
-    orig: &Line,
-) -> LcResult<Credit> {
-    let mut won = *orig;
-    won.side = SIDE_WON;
-    if !winner.is_backed() {
-        let placed = w.credit(&winner.player, &won)?;
-        p.set(at, &emptied(orig))?;
-        return Ok(Credit {
-            line: won,
-            owner: Some(winner.player),
-            placement: placement(placed),
-        });
-    }
-    if *player_left == 0 {
-        let placed = w.credit(&winner.funder, &won)?;
-        p.set(at, &emptied(orig))?;
-        return Ok(Credit {
-            line: won,
-            owner: Some(winner.funder),
-            placement: placement(placed),
-        });
-    }
-    let take = (*player_left).min(orig.amount);
-    let (line, placed) = if take == orig.amount {
-        let placed = w.credit(&winner.player, &won)?;
-        p.set(at, &emptied(orig))?;
-        (won, placed)
-    } else {
-        w.books().snapshot(&orig.source)?;
-        let mut rest = *orig;
-        let mut part =
-            SourceBook::blank_line(SIDE_WON, orig.due_at, orig.source, orig.class, orig.tranche);
-        {
-            let (book, history) = w.books().book_with_history(&orig.source)?;
-            book.transfer(&mut rest, &mut part, take, &*history)?;
-        }
-        let placed = match w.credit(&winner.player, &part) {
-            Ok(p) => p,
-            Err(e) => {
-                w.books().rollback(&orig.source)?;
-                return Err(e);
-            }
-        };
-        p.set(at, &rest)?;
-        (part, placed)
-    };
-    *player_left -= take;
-    Ok(Credit {
-        line,
-        owner: Some(winner.player),
-        placement: placement(placed),
-    })
 }
 
 #[cfg(test)]
