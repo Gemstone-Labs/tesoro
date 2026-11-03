@@ -100,11 +100,11 @@ abstract contract MainnetVaultBase is Test {
         view
         returns (bytes memory)
     {
-        return abi.encodePacked(uint8(4), lz.eid(), _key(id), seq, bytes32(uint256(uint160(to))), amt, fee, pool);
+        return abi.encodePacked(uint8(11), lz.eid(), _key(id), seq, bytes32(uint256(uint160(to))), amt, fee, pool, uint128(0));
     }
 
     function _unlock(uint64 id, uint64 seq) internal view returns (bytes memory) {
-        return abi.encodePacked(uint8(3), lz.eid(), _key(id), seq, uint128(0));
+        return abi.encodePacked(uint8(10), lz.eid(), _key(id), seq, uint128(0));
     }
 
     function _report(uint64 id) internal returns (uint256 accrued, uint256 treasury, uint64 seq) {
@@ -622,7 +622,7 @@ abstract contract MainnetVaultBase is Test {
         tok.setRate(1.32e18);
         uint128 amt = uint128(vault.payableYield(id) / 2);
         bytes memory m = _pay(4, id, 1, redeemer, amt);
-        assertEq(m.length, 125, "header 45 | to 32 | amount 16 | fee 16 | pool 16");
+        assertEq(m.length, 141, "header 45 | to 32 | amount 16 | fee 16 | pool 16 | delivery fee 16");
         _recv(m);
         assertApproxEqAbs(tok.balanceOf(redeemer) * 1.32e18 / 1e18, amt, 2);
         assertEq(vault.getPosition(id).paidUnderlying, amt);

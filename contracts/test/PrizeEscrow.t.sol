@@ -76,15 +76,14 @@ abstract contract EscrowBase is Test {
         pool = fee / 2;
         _recv(
             abi.encodePacked(
-                uint8(4),
+                uint8(11),
                 lz.eid(),
                 _key(id),
                 seq,
                 bytes32(uint256(uint160(address(0x2222)))),
                 amt,
                 uint128(fee),
-                uint128(pool)
-            )
+                uint128(pool), uint128(0))
         );
     }
 
@@ -97,15 +96,14 @@ abstract contract EscrowBase is Test {
 
     function _prize(uint64 payoutId, address asset, address to, uint128 shares) internal view returns (bytes memory) {
         return abi.encodePacked(
-            uint8(7),
+            uint8(13),
             lz.eid(),
             _vaultKey(),
             payoutId,
             bytes32(uint256(uint160(asset))),
             bytes32(uint256(0x9a17e)),
             bytes32(uint256(uint160(to))),
-            shares
-        );
+            shares, uint128(0));
     }
 
     function _u128At(bytes memory b, uint256 at) internal pure returns (uint128 v) {
@@ -157,7 +155,7 @@ abstract contract EscrowBase is Test {
     }
 
     function _unlock(uint64 id, uint64 seq) internal view returns (bytes memory) {
-        return abi.encodePacked(uint8(3), lz.eid(), _key(id), seq, uint128(0));
+        return abi.encodePacked(uint8(10), lz.eid(), _key(id), seq, uint128(0));
     }
 
     // ---- escrow funding from batches
@@ -271,15 +269,14 @@ abstract contract EscrowBase is Test {
         assertGt(landed, 0);
         // a holder tries to take the newly landed yield: the pending batch comes first
         bytes memory pay = abi.encodePacked(
-            uint8(4),
+            uint8(11),
             lz.eid(),
             _key(id),
             uint64(1),
             bytes32(uint256(uint160(winner))),
             uint128(landed),
             uint128(0),
-            uint128(0)
-        );
+            uint128(0), uint128(0));
         vm.prank(address(lz));
         vm.expectPartialRevert(PositionVaultBase.ExceedsAccruedYield.selector);
         vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), pay, address(0), "");
@@ -447,15 +444,14 @@ abstract contract EscrowBase is Test {
         assertEq(status, 2);
         // a recipient word with dirty high bytes
         bytes memory dirty = abi.encodePacked(
-            uint8(7),
+            uint8(13),
             lz.eid(),
             _vaultKey(),
             uint64(3),
             bytes32(uint256(uint160(_token()))),
             bytes32(uint256(1)),
             bytes32(type(uint256).max),
-            uint128(esc / 4)
-        );
+            uint128(esc / 4), uint128(0));
         _recv(dirty);
         (status,) = _prizeResult(3);
         assertEq(status, 2);
@@ -636,8 +632,7 @@ contract PrizeEscrowRealTest is EscrowBase {
         assertLe(vault.treasuryBalance(), 2, "only share dust is left");
         // Instant Redeem cannot reach it either: ask for half of what the Pool is owed
         bytes memory instant = abi.encodePacked(
-            uint8(5), lz.eid(), _key(id), uint64(3), bytes32(uint256(uint160(winner))), uint128(pool / 2)
-        );
+            uint8(12), lz.eid(), _key(id), uint64(3), bytes32(uint256(uint160(winner))), uint128(pool / 2), uint128(0));
         vm.prank(address(lz));
         vm.expectPartialRevert(PositionVaultBase.InsufficientTreasury.selector);
         vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), instant, address(0), "");

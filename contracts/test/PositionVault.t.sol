@@ -49,7 +49,7 @@ abstract contract VaultBase is Test {
     address redeemer = address(0xEDEE);
 
     function _unlockMsg(uint64 id, uint64 seq) internal pure returns (bytes memory) {
-        return abi.encode(uint8(3), CHAIN, id, seq);
+        return abi.encode(uint8(10), CHAIN, id, seq, uint256(0));
     }
 
     function _payMsg(uint64 id, uint64 seq, address to, uint256 amt) internal pure returns (bytes memory) {
@@ -61,7 +61,7 @@ abstract contract VaultBase is Test {
         pure
         returns (bytes memory)
     {
-        return abi.encode(uint8(4), CHAIN, id, seq, bytes32(uint256(uint160(to))), amt, fee, pool);
+        return abi.encode(uint8(11), CHAIN, id, seq, bytes32(uint256(uint160(to))), amt, fee, pool, uint256(0));
     }
 
     function _deliver(bytes memory m) internal {
@@ -290,7 +290,7 @@ contract PositionVaultSimTest is VaultBase {
     }
 
     function _instantMsg(uint64 id, uint64 seq, address to, uint256 amt) internal pure returns (bytes memory) {
-        return abi.encode(uint8(5), CHAIN, id, seq, bytes32(uint256(uint160(to))), amt);
+        return abi.encode(uint8(12), CHAIN, id, seq, bytes32(uint256(uint160(to))), amt, uint256(0));
     }
 
     function test_withdrawTreasuryTakesFeesAndFundingAndNothingMore() public {
@@ -590,7 +590,7 @@ contract PositionVaultSimTest is VaultBase {
 
     function test_wrongChainIgnored() public {
         uint64 id = _open(1 ether);
-        _deliver(abi.encode(uint8(3), uint32(1), id, uint64(1)));
+        _deliver(abi.encode(uint8(10), uint32(1), id, uint64(1), uint256(0)));
         assertFalse(vault.getPosition(id).unlocked);
     }
 
@@ -679,12 +679,12 @@ contract PositionVaultWstETHTest is VaultBase {
         uint256 fee = vault.treasuryBalance();
         assertApproxEqAbs(fee, 0.02 ether, 2);
         uint256 holderGot = wst.balanceOf(redeemer);
-        _deliver(abi.encode(uint8(5), CHAIN, id, uint64(2), bytes32(uint256(uint160(redeemer))), fee));
+        _deliver(abi.encode(uint8(12), CHAIN, id, uint64(2), bytes32(uint256(uint160(redeemer))), fee, uint256(0)));
         assertEq(vault.instantPaid(), fee);
         assertApproxEqAbs((wst.balanceOf(redeemer) - holderGot) * 1.0403e18 / 1e18, fee, 2);
         // the next one finds an empty Treasury: it waits, never touching Principal
         vm.expectPartialRevert(PositionVaultBase.InsufficientTreasury.selector);
-        _deliver(abi.encode(uint8(5), CHAIN, id, uint64(3), bytes32(uint256(uint160(redeemer))), 1 ether));
+        _deliver(abi.encode(uint8(12), CHAIN, id, uint64(3), bytes32(uint256(uint160(redeemer))), 1 ether, uint256(0)));
     }
 
     function test_withdrawTreasuryPaysFromHeldSharesAndNeverMintsOrEatsPrincipal() public {

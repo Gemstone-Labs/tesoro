@@ -53,11 +53,11 @@ abstract contract PositionVaultBase {
     uint256 public constant RATE_SCALE = 1e18;
     uint8 public constant MSG_POSITION_LOCKED = 1;
     uint8 public constant MSG_YIELD_ACCRUED = 2;
-    uint8 public constant MSG_UNLOCK = 3;
-    uint8 public constant MSG_PAY_YIELD = 4;
-    uint8 public constant MSG_PAY_INSTANT = 5;
+    uint8 public constant MSG_UNLOCK = 10;
+    uint8 public constant MSG_PAY_YIELD = 11;
+    uint8 public constant MSG_PAY_INSTANT = 12;
     uint8 public constant MSG_CASH_IN_BATCH = 6;
-    uint8 public constant MSG_PAY_PRIZE = 7;
+    uint8 public constant MSG_PAY_PRIZE = 13;
     uint8 public constant MSG_BATCH_RESULT = 8;
     uint8 public constant MSG_PAY_PRIZE_RESULT = 9;
     uint8 public constant KIND_PLATFORM = 0;
@@ -122,6 +122,14 @@ abstract contract PositionVaultBase {
     /// @notice SimLST that mints simulated yield into this vault; address(0) for rate-based LSTs.
     address public immutable yieldMinter;
     uint256 internal constant BPS = 10_000;
+    /// @dev The most of a payout the Delivery Fee may take, whatever Solana asks or the admin allows (the bridge holds the
+    ///      same 10% ceiling).
+    uint256 internal constant MAX_DELIVERY_BPS = 1_000;
+
+    /// @notice Where the Delivery Fee goes (Tesoro's EVM fee recipient). Unset: the vault takes no Delivery Fee.
+    address public deliveryRecipient;
+    /// @notice The vault's own cap on one Delivery Fee, in underlying units. Zero: no fee is taken.
+    uint256 public maxDeliveryFee;
     /// @dev Wei per unit of the 9-decimal amounts tesoro_bridge gives tesoro_core (it rounds every report down to a
     ///      whole unit and asks for whole units back). Vaults hold 18-decimal assets.
     uint256 internal constant CORE_UNIT = 1e9;
@@ -209,6 +217,8 @@ abstract contract PositionVaultBase {
         uint64 indexed positionId, address indexed to, uint256 amountUnderlying, uint256 shares, uint64 seq
     );
     event YieldMinted(uint256 shares);
+    event DeliveryFeePaid(uint64 indexed positionId, address indexed recipient, uint256 shares, uint64 seq);
+    event DeliveryTermsSet(address recipient, uint256 maxFee);
     event BatchExecuted(uint64 indexed batchId, uint8 kind, uint256 paidUnits, bool complete);
     event BatchIgnored(uint64 indexed batchId, string reason);
     event PrizeEscrowed(uint256 shares, uint256 units, bool fromBatch);
@@ -451,7 +461,36 @@ abstract contract PositionVaultBase {
     ///      leftovers) and mints the rest, so yield is only minted at the moment it is paid. A real-LST vault
     ///      pays from its balance and reverts (retryable) when that would eat open Principal.
     function _payShares(address to, uint256 shares) internal {
-        if (shares == 0) return;
+        _payShares(to, shares, 0);
+    }
+
+    /// @dev The shares of a payout worth `payout` underlying (at `rate`) that the vault keeps as the Delivery Fee when
+    ///      Solana asks for `requested` underlying. Shrunk to the admin's cap and to a tenth of the payout; zero when no
+    ///      recipient is set. It never reverts: Solana has already taken the Player's Gemas.
+    function _deliveryShares(uint256 requested, uint256 payout, uint256 rate) internal view returns (uint256) {
+        if (requested == 0 || deliveryRecipient == address(0)) return 0;
+        uint256 fee = requested < maxDeliveryFee ? requested : maxDeliveryFee;
+        uint256 relative = (payout * MAX_DELIVERY_BPS) / BPS;
+        if (fee > relative) fee = relative;
+        return (fee * RATE_SCALE) / rate;
+    }
+
+    /// @dev Sends `shares` out, `feeShares` of them to the Delivery Fee recipient and the rest to `to`. A fee transfer
+    ///      that fails (a blocked recipient) pays the Player the fee too, so the recipient can never hold a payout up.
+    ///      Returns the fee shares actually paid.
+    function _transferSplit(address to, uint256 shares, uint256 feeShares) internal returns (uint256 paid) {
+        if (feeShares > shares) feeShares = shares;
+        if (feeShares != 0) {
+            (bool ok, bytes memory ret) =
+                address(lst).call(abi.encodeWithSelector(IERC20Minimal.transfer.selector, deliveryRecipient, feeShares));
+            if (ok && (ret.length == 0 || abi.decode(ret, (bool)))) paid = feeShares;
+        }
+        if (!lst.transfer(to, shares - paid)) revert TransferFailed();
+    }
+
+    /// @dev `_payShares` with `feeShares` of the total going to the Delivery Fee recipient; returns what was paid to it.
+    function _payShares(address to, uint256 shares, uint256 feeShares) internal returns (uint256) {
+        if (shares == 0) return 0;
         if (yieldMinter != address(0)) {
             uint256 bal = lst.balanceOf(address(this));
             uint256 reserve = _reserve();
@@ -464,6 +503,6 @@ abstract contract PositionVaultBase {
             uint256 spendable = _spendable();
             if (shares > spendable) revert InsufficientShares(shares, spendable);
         }
-        if (!lst.transfer(to, shares)) revert TransferFailed();
+        return _transferSplit(to, shares, feeShares);
     }
 }

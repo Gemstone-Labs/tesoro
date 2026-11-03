@@ -50,7 +50,7 @@ contract PrizeModule is PositionVaultBase {
         uint8 msgType = uint8(message[0]);
         uint64 id = seq;
         if (msgType == MSG_PAY_PRIZE) {
-            if (message.length != 157) revert InvalidMessageLength();
+            if (message.length != 173) revert InvalidMessageLength();
             if (chain != sourceChain) {
                 emit MessageIgnored(id, msgType, 0, "wrong chain");
                 return "";
@@ -60,7 +60,8 @@ contract PrizeModule is PositionVaultBase {
                 bytes32(message[45:77]),
                 bytes32(message[77:109]),
                 bytes32(message[109:141]),
-                uint128(bytes16(message[141:157]))
+                uint128(bytes16(message[141:157])),
+                uint128(bytes16(message[157:173]))
             );
         }
         if (message.length < 80) revert InvalidMessageLength();
@@ -91,16 +92,16 @@ contract PrizeModule is PositionVaultBase {
                 abi.decode(payload, (uint8, uint32, uint64, uint64, uint8, bytes32, uint64[], uint128[]));
             return _onCashInBatch(id, kind, recipient, ids, units);
         }
-        (,,,, bytes32 asset, bytes32 prizeSource, bytes32 to, uint256 shares) =
-            abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, bytes32, bytes32, uint256));
-        return _onPayPrize(id, asset, prizeSource, to, shares);
+        (,,,, bytes32 asset, bytes32 prizeSource, bytes32 to, uint256 shares, uint256 deliveryFee) =
+            abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, bytes32, bytes32, uint256, uint256));
+        return _onPayPrize(id, asset, prizeSource, to, shares, deliveryFee);
     }
 
     /// @dev `amount` leaves the Position's yield; `fee` of it (at most the Yield Fee cap) stays with the Treasury and
     ///      the holder gets the rest.
     ///      `pool` is the part of the Treasury's share owed to the Leaderboard Pool, never above what the Treasury
     ///      gains here, so the Treasury always holds what the Pool is owed. A refill (`to == vault`) keeps all of it.
-    function payYield(uint64 id, uint64 seq, address to, uint256 amount, uint256 fee, uint256 pool)
+    function payYield(uint64 id, uint64 seq, address to, uint256 amount, uint256 fee, uint256 pool, uint256 deliveryFee)
         external
         returns (bytes memory ack)
     {
@@ -131,7 +132,8 @@ contract PrizeModule is PositionVaultBase {
             realisedFees += c.fee;
         }
         _owePool(c.pool, c.fee, feeShares, c.rate);
-        _payShares(to, holderShares);
+        uint256 feePaid = _payShares(to, holderShares, _deliveryShares(deliveryFee, c.paid - c.fee, c.rate));
+        if (feePaid != 0) emit DeliveryFeePaid(id, deliveryRecipient, feePaid, seq);
         emit YieldPaid(id, to, c.paid - c.fee, holderShares, seq);
         return "";
     }
@@ -287,12 +289,19 @@ contract PrizeModule is PositionVaultBase {
     /// @dev Pays a prize from the escrow, once per payout id, to `to`. It debits only the escrow, so it works with an
     ///      empty Treasury. A payout that can never pay is recorded as rejected and never pays later; the answer
     ///      (1 paid / 2 rejected) is regenerated on every delivery.
-    function _onPayPrize(uint64 payoutId, bytes32 asset, bytes32 prizeSource, bytes32 recipient, uint256 shares)
+    function _onPayPrize(
+        uint64 payoutId,
+        bytes32 asset,
+        bytes32 prizeSource,
+        bytes32 recipient,
+        uint256 shares,
+        uint256 deliveryFee
+    )
         internal
         returns (bytes memory)
     {
         Payout storage r = payouts[payoutId];
-        bytes32 digest = keccak256(abi.encode(asset, prizeSource, recipient, shares));
+        bytes32 digest = keccak256(abi.encode(asset, prizeSource, recipient, shares, deliveryFee));
         if (r.status != 0) {
             if (r.digest != digest) {
                 emit PrizeRejected(payoutId, "content differs from the stored payout");

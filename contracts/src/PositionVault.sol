@@ -26,6 +26,15 @@ contract PositionVault is PositionVaultBase {
 
     // ---------------------------------------------------------------- admin
 
+    /// @notice Sets who receives the Delivery Fee and the most one fee may be (underlying units). Zero in either place
+    ///         turns the fee off; Solana's message and the 10% ceiling still bound it.
+    function setDelivery(address recipient, uint256 maxFee) external {
+        _checkAdmin();
+        deliveryRecipient = recipient;
+        maxDeliveryFee = maxFee;
+        emit DeliveryTermsSet(recipient, maxFee);
+    }
+
     /// @notice Moves LST shares from the admin into the Treasury.
     function fundTreasury(uint256 shares) external {
         _checkAdmin();
@@ -254,18 +263,23 @@ contract PositionVault is PositionVaultBase {
         if (seq > p.inSeq) p.inSeq = seq; // highest seq seen, informational
 
         if (msgType == MSG_UNLOCK) {
-            _onUnlock(id, p, seq);
+            (,,,, uint256 deliveryFee) = abi.decode(payload, (uint8, uint32, uint64, uint64, uint256));
+            _onUnlock(id, p, seq, deliveryFee);
         } else {
             if (msgType == MSG_PAY_YIELD) {
-                (,,,, bytes32 to, uint256 amount, uint256 fee, uint256 pool) =
-                    abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, uint256, uint256, uint256));
+                (,,,, bytes32 to, uint256 amount, uint256 fee, uint256 pool, uint256 deliveryFee) = abi.decode(
+                    payload, (uint8, uint32, uint64, uint64, bytes32, uint256, uint256, uint256, uint256)
+                );
                 _delegate(
-                    abi.encodeCall(PrizeModule.payYield, (id, seq, address(uint160(uint256(to))), amount, fee, pool))
+                    abi.encodeCall(
+                        PrizeModule.payYield,
+                        (id, seq, address(uint160(uint256(to))), amount, fee, pool, deliveryFee)
+                    )
                 );
             } else {
-                (,,,, bytes32 to, uint256 amount) =
-                    abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, uint256));
-                _onPayInstant(id, seq, address(uint160(uint256(to))), amount);
+                (,,,, bytes32 to, uint256 amount, uint256 deliveryFee) =
+                    abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, uint256, uint256));
+                _onPayInstant(id, seq, address(uint160(uint256(to))), amount, deliveryFee);
             }
         }
     }
@@ -286,7 +300,7 @@ contract PositionVault is PositionVaultBase {
     /// @dev Freezes the Position's accrued yield at this block, drops it from the open sums and releases
     ///      Principal (worth principalUnderlying at the current rate) to the owner. Unpaid yield stays claimable
     ///      by redeemers.
-    function _onUnlock(uint64 id, Position storage p, uint64 seq) internal {
+    function _onUnlock(uint64 id, Position storage p, uint64 seq, uint256 deliveryFee) internal {
         if (p.unlocked) return _ignore(id, MSG_UNLOCK, seq, "already unlocked");
         p.frozenAccrued = _gross(p, _clock());
         _close(p);
@@ -299,7 +313,9 @@ contract PositionVault is PositionVaultBase {
             if (release > p.heldShares) release = p.heldShares;
             _moveLeftoverToTreasury(id, p, rate, release);
         }
-        if (!lst.transfer(p.owner, release)) revert TransferFailed();
+        // The Delivery Fee comes out of the deposit that goes back to the owner (at most a tenth of it).
+        uint256 feePaid = _transferSplit(p.owner, release, _deliveryShares(deliveryFee, p.principalUnderlying, rate));
+        if (feePaid != 0) emit DeliveryFeePaid(id, deliveryRecipient, feePaid, seq);
         emit PositionUnlocked(id, p.owner, release, seq);
     }
 
@@ -325,14 +341,15 @@ contract PositionVault is PositionVaultBase {
     ///      Solana has already taken the holder's Gemas, so a payout the Treasury cannot cover now must not be
     ///      dropped: it reverts, which also leaves the seq unhandled, and the same message is delivered again (the
     ///      Yield Fee keeps growing the Treasury; the owner can fund it) and pays once.
-    function _onPayInstant(uint64 id, uint64 seq, address to, uint256 amount) internal {
+    function _onPayInstant(uint64 id, uint64 seq, address to, uint256 amount, uint256 deliveryFee) internal {
         uint256 available = treasuryBalance();
         uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
         if (amount > available) revert InsufficientTreasury(amount, available);
         if (shares > _spendable()) revert InsufficientShares(shares, _spendable());
         if (_real()) treasuryShares -= shares;
         instantPaid += amount;
-        _payShares(to, shares);
+        uint256 feePaid = _payShares(to, shares, _deliveryShares(deliveryFee, amount, rateSource.underlyingPerShare()));
+        if (feePaid != 0) emit DeliveryFeePaid(id, deliveryRecipient, feePaid, seq);
         emit InstantPaid(id, to, amount, shares, seq);
     }
 
