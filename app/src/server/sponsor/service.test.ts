@@ -955,7 +955,7 @@ describe("join and assign in one transaction", () => {
       const cases = [
         await withInner("own", (s) => ({ a: { ...base.inner.a, player: accountPda(s.player.publicKey) } })),
         await withInner("full", () => ({ b: base.inner.a })),
-        await withInner("settling", () => ({ stage: { settling: {} } })),
+        await withInner("settling", () => ({ stage: { Settling: {} } })),
       ];
       for (const c of cases) {
         await expect(c.s.sponsor.buildSelfPaid(c.s.player.publicKey, await selfJoin(c.s, c.match)), c.name).rejects.toMatchObject({ code: expect.stringMatching(/no-table|cannot-join/) });

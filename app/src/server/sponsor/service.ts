@@ -106,7 +106,7 @@ function partiesOf(data: Uint8Array): PublicKey[] {
 function openerAccountOf(data: Uint8Array): PublicKey | null {
   try {
     const m = matchCoder.decode("MatchState", Buffer.from(data)) as { inner: { a: { player: number[] }; b: unknown | null; stage: object } };
-    return m.inner.b || !("open" in m.inner.stage) ? null : new PublicKey(m.inner.a.player);
+    return m.inner.b || !("Open" in m.inner.stage) ? null : new PublicKey(m.inner.a.player);
   } catch {
     return null;
   }
