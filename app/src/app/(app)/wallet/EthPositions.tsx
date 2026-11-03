@@ -13,6 +13,8 @@ import { useAuth } from "@/lib/auth/context";
 import { playerPaysGas, type OpenCostQuote } from "@/lib/chain/eth-fee";
 import { useTreasuryRates } from "@/lib/chain/useTreasuryRates";
 import { getChain } from "@/lib/chain/client";
+import { deliveryQuote } from "@/lib/chain/delivery-fee";
+import { useDeliveryTerms } from "@/lib/chain/useDeliveryTerms";
 import { debtGemas, debtUnits } from "@/lib/chain/ledger";
 import {
   ETH_SIM_MONTH_MIN,
@@ -634,6 +636,9 @@ export function EthPositionCard({ position, market, label, compact }: { position
   const unreported = onChainDebt - projected;
   const locked = (state?.core?.status ?? position.status) === "locked";
   const { yieldFeeBps } = useTreasuryRates();
+  const deliveryTerms = useDeliveryTerms([ref.vault]).get(ref.vault.toLowerCase());
+  // Unlock sends a message to the vault's chain; the vault keeps a flat Delivery Fee out of the deposit and returns the rest.
+  const unlockQuote = deliveryTerms ? deliveryQuote({ terms: deliveryTerms, payoutUnits: BigInt(Math.round(position.principal * 1e18)), kind: "unlock" }) : null;
   const estimate = rate && vp && src && onChainDebt > 0n ? ethUnlockEstimateMs({ source: src, position: vp, rate, nowMs: now }) : null;
   // Paid back by the vault's live yield counts: Unlock first fetches the latest yield so Solana sees it (ADR 0010).
   const canUnlock = locked && !!src && projected === 0n;
@@ -676,6 +681,7 @@ export function EthPositionCard({ position, market, label, compact }: { position
         <>
           <p className="note">Earned on {net.label} {fmtEth(accrued, 5)} {net.native}{vault?.simulated === false ? "" : " (simulated)"}. {BRAND.name} keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
           {locked && unreported > 0n && <p className="note">~{fmtGemas(Number(unreported))} Gemas are already paid back by yield earned on {net.label}. Redeem and Unlock deposit fetch the latest yield first, so they take a short wait.</p>}
+          {locked && unlockQuote && unlockQuote.fee > 0n && <p className="note">Unlock deposit pays a Delivery Fee of {fmtEth(Number(unlockQuote.fee), 6)} {net.native} for the cross-chain send, so you get {fmtEth(Number(unlockQuote.youGet), 6)} {net.native}.</p>}
           {locked && !canUnlock && <p className="note">Unlock deposit returns your {net.native} on {net.label} once it is paid back. Only this Lock&apos;s own yield pays it back.</p>}
         </>
       }
