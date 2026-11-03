@@ -105,6 +105,7 @@ const [mode, a, b] = process.argv.slice(2);
 if (mode === "plan") {
   for (const k of addresses()) console.log(k.toBase58());
   console.error(`${addresses().length} addresses for ${vaults.length} vaults`);
+  for (const v of vaults) console.error(`${v}: ${quotes.get(v)!.send.length} send accounts, the payer is #${quotes.get(v)!.send.findIndex((m) => m.pubkey === quotes.get(v)!.payer)} (rules-bridge.ts expects #0, signing and writable)`);
 } else if (mode === "sizes") {
   for (const [name, n] of sizes(addresses())) console.log(`${String(n).padStart(5)} B  ${n <= 1232 ? "fits " : "OVER "} ${name}`);
   console.log(`(packet limit 1232 B; table of ${addresses().length} addresses)`);
