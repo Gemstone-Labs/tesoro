@@ -25,7 +25,12 @@ describe("pingHeartbeat", () => {
   });
 
   it("gives up on a hung monitor after the timeout", async () => {
-    const hang = ((_u: unknown, init?: RequestInit) => new Promise((_res, rej) => init?.signal?.addEventListener("abort", () => rej(new Error("aborted"))))) as typeof fetch;
+    // The real socket keeps the event loop alive; this fake needs its own ref'd timer (AbortSignal.timeout is unref'd).
+    const hang = ((_u: unknown, init?: RequestInit) =>
+      new Promise((_res, rej) => {
+        const keepAlive = setTimeout(() => {}, 5_000);
+        init?.signal?.addEventListener("abort", () => (clearTimeout(keepAlive), rej(new Error("aborted"))));
+      })) as typeof fetch;
     assert.equal(await pingHeartbeat("https://hc.example/x", "ok", hang, 20), false);
   });
 });
