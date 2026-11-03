@@ -360,7 +360,7 @@ describe("Ticket and Pot nonces come from the funder's counter", () => {
     readAccounts.mockImplementation(async (keys: PublicKey[]) =>
       keys.map((key) => (key.equals(countersPda(me)) ? counters(2n, get()) : key.equals(basketPda(me)) ? { data: funded } : key.equals(spillPda(me)) ? { data: encodeStore([]) } : null)),
     );
-  const sentPotNonce = (ix: { data: Buffer }) => String((coder.decode(ix.data) as { data: Record<string, unknown> }).data.pot_nonce);
+  const sentPotNonce = (ix: { data: Buffer } | undefined) => String((coder.decode(ix!.data) as unknown as { data: Record<string, unknown> }).data.pot_nonce);
 
   beforeEach(() => {
     sendBase.mockReset();
@@ -398,7 +398,7 @@ describe("Ticket and Pot nonces come from the funder's counter", () => {
     sponsoredSend.mockResolvedValue("sig");
     const args = { signer, getToken: async () => null, game: "holdem" as const, entry: 100n, lines: 4 };
     await prepareEntryTicket(args).catch(() => undefined);
-    const nonceOf = (ix: { data: Buffer }) => String((coder.decode(ix.data) as { data: Record<string, unknown> }).data.nonce);
+    const nonceOf = (ix: { data: Buffer }) => String((coder.decode(ix.data) as unknown as { data: Record<string, unknown> }).data.nonce);
     expect(nonceOf((sponsoredSend.mock.calls[0][2] as { data: Buffer }[])[0])).toBe("8");
     await prepareBackingTicket({ ...args, backerAccount: backer, offer: Keypair.generate().publicKey }).catch(() => undefined);
     expect(nonceOf((sponsoredSend.mock.calls[1][2] as { data: Buffer }[])[0])).toBe("21");
