@@ -18,6 +18,7 @@ pub(crate) struct Credit {
     pub(crate) placement: u8,
 }
 
+#[inline]
 pub(crate) fn placement(p: Placed) -> u8 {
     match p {
         Placed::Basket => 0,
@@ -26,6 +27,7 @@ pub(crate) fn placement(p: Placed) -> u8 {
     }
 }
 
+#[inline]
 pub(crate) fn fee_of(entry_pot: u128, bps: u16) -> LcResult<u64> {
     to_u64(mul_div_floor(entry_pot, bps as u128, BPS).map_err(|_| LifecycleError::Math)?)
         .map_err(|_| LifecycleError::Math)
@@ -63,6 +65,7 @@ pub fn player_share(surplus: u64, share_bps: u16) -> LcResult<u64> {
 
 /// Return the whole Pot line at `at` (`orig`, as just read) to `owner` (an entry back), keeping
 /// its side.
+#[inline]
 pub(crate) fn back_step<B: PotBacking>(
     p: &mut PotPages<B>,
     at: usize,
@@ -79,12 +82,14 @@ pub(crate) fn back_step<B: PotBacking>(
     })
 }
 
+#[inline]
 pub(crate) fn pot_of<B: PotBacking>(pots: &mut Pots<B>, side: u8) -> LcResult<&mut PotPages<B>> {
     pots[(side & 1) as usize]
         .as_mut()
         .ok_or(LifecycleError::Inconsistent("pot not supplied"))
 }
 
+#[inline]
 pub(crate) fn emptied(l: &Line) -> Line {
     let mut z = *l;
     z.amount = 0;
@@ -93,6 +98,7 @@ pub(crate) fn emptied(l: &Line) -> Line {
 }
 
 /// Cut `k` Gemas of the Pot line at `at` into the fee `class`.
+#[inline]
 pub(crate) fn cut_step<B: PotBacking>(
     p: &mut PotPages<B>,
     at: usize,
@@ -143,6 +149,7 @@ pub(crate) fn cut_step<B: PotBacking>(
 }
 
 /// Moves `k` Gemas of the Pot line at `at` to `to` as ordinary won Gemas (the whole line, or a part).
+#[inline]
 pub(crate) fn pay_plain<B: PotBacking>(
     p: &mut PotPages<B>,
     at: usize,
@@ -185,6 +192,7 @@ pub(crate) fn pay_plain<B: PotBacking>(
     })
 }
 
+#[inline]
 pub(crate) fn surplus_step<B: PotBacking>(
     p: &mut PotPages<B>,
     at: usize,
