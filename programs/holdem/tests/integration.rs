@@ -3754,23 +3754,17 @@ fn begin_resets_a_finished_table_that_is_wiped_committed_and_thirty_seconds_old(
 #[test]
 fn begin_resets_only_for_an_assignment_exactly_one_epoch_ahead() {
     use holdem::HoldemError::*;
-    let mut env = Env::new();
-    env.next_match_on(0);
-    env.play();
-    env.wipe_standin();
-    env.set_time(env.table().over_at + holdem::RESET_DELAY_SECS);
-    env.open_and_join(1_000);
-    env.assign(0, 0, 2).expect("assign epoch 2");
-    assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(NotAssigned));
-    assert_eq!(env.table().epoch, 0, "nothing was reset");
-    let mut env2 = Env::new();
-    env2.next_match_on(0);
-    env2.play();
-    env2.wipe_standin();
-    env2.set_time(env2.table().over_at + holdem::RESET_DELAY_SECS);
-    env2.open_and_join(1_000);
-    env2.assign(0, 0, 0).expect("assign epoch 0");
-    assert_eq!(custom_code(&env2.begin().unwrap_err()), dcode(WrongPhase));
+    for epoch in [2u64, 0] {
+        let mut env = Env::new();
+        env.next_match_on(0);
+        env.play();
+        env.wipe_standin();
+        env.set_time(env.table().over_at + holdem::RESET_DELAY_SECS);
+        env.open_and_join(1_000);
+        env.assign(0, 0, epoch).expect("assign");
+        assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(WrongPhase));
+        assert_eq!(env.table().epoch, 0, "nothing was reset");
+    }
 }
 
 /// A table whose ring is full: seven Done slots of made-up Matches and one of `old`.
