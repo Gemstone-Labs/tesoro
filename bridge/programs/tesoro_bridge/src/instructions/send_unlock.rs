@@ -33,6 +33,11 @@ pub struct SendUnlock<'info> {
         seeds::program = tesoro_core::ID
     )]
     pub core_position: Account<'info, PositionState>,
+    #[account(
+        seeds = [DELIVERY_SEED, &params.eid.to_be_bytes(), &vault_of(&params.position_id)],
+        bump = delivery_terms.bump
+    )]
+    pub delivery_terms: Account<'info, DeliveryTerms>,
     #[account(seeds = [ENDPOINT_SEED], bump = endpoint.bump, seeds::program = ENDPOINT_ID)]
     pub endpoint: Account<'info, EndpointSettings>,
     pub system_program: Program<'info, System>,
@@ -48,6 +53,12 @@ impl SendUnlock<'_> {
         let position = &mut ctx.accounts.bridge_position;
         require!(position.opened, BridgeError::NotOpened);
         require!(!position.unlock_sent, BridgeError::UnlockAlreadySent);
+        // The Delivery Fee the Player sees in the same transaction as the Unlock: the flat fee held
+        // under the caps for a payout of the Position's principal. The vault shrinks it again.
+        let delivery_fee = ctx
+            .accounts
+            .delivery_terms
+            .fee_for(position.principal, ctx.accounts.delivery_terms.max_bps_unlock);
         let seq = next_out_seq(position)?;
         position.unlock_sent = true;
 
@@ -56,7 +67,7 @@ impl SendUnlock<'_> {
             &ctx.accounts.peer,
             ctx.remaining_accounts,
             params,
-            encode_unlock(params.eid, params.position_id, seq),
+            encode_unlock(params.eid, params.position_id, seq, delivery_fee),
         )?;
         emit!(MessageSent {
             dst_eid: params.eid,
@@ -64,6 +75,7 @@ impl SendUnlock<'_> {
             msg_type: MSG_UNLOCK,
             seq,
             amount: 0,
+            delivery_fee,
         });
         Ok(())
     }

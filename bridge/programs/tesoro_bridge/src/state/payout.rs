@@ -28,6 +28,8 @@ pub struct PayoutRecord {
     pub gemas: u64,
     pub shares: u128,
     pub sends: u32,
+    /// The Delivery Fee (vault units) fixed when the cash-out was made; `PayPrizeV2` carries it.
+    pub delivery_fee: u128,
 }
 
 impl PayoutRecord {
@@ -69,6 +71,7 @@ mod tests {
             gemas: 10,
             shares: 99,
             sends: 0,
+            delivery_fee: 0,
         }
     }
 

@@ -48,6 +48,8 @@ const EVM_ADDRESS: [u8; 20] = [
 // `cast wallet sign --private-key <anvil 0> "<link message for OWNER_ACCOUNT>"`
 const LINK_SIGNATURE: &str = "4eea9b6d0a869481ca89acfd3c80de21ee3d843dd9f1156b2026672905d043eb12245b421f8f445e9df6eca436f5db9a5e15a62721226a1e8d1f60aeaf5555a31b";
 const VAULT: [u8; 20] = [0x5b; 20];
+/// 0.0000153 ETH, the Delivery Fee the test vault charges.
+const TEST_DELIVERY_FEE: u128 = 15_300_000_000_000;
 /// The EVM addresses Tesoro's Platform and Studio Accounts are paid at.
 const PLATFORM_EVM: [u8; 20] = [0xA1; 20];
 const STUDIO_EVM: [u8; 20] = [0xB2; 20];
@@ -280,7 +282,30 @@ impl Env {
                 .1,
             },
         );
+        env.put(
+            env.delivery_terms(),
+            crate::ID,
+            &DeliveryTerms {
+                eid: EID_HOODI,
+                peer_address: msg_codec::pad_address(&VAULT),
+                bump: Pubkey::find_program_address(
+                    &[DELIVERY_SEED, &EID_HOODI.to_be_bytes(), &msg_codec::pad_address(&VAULT)],
+                    &crate::ID,
+                )
+                .1,
+                delivery_fee: TEST_DELIVERY_FEE,
+                max_abs: 1_000_000_000_000_000,
+                min_redeem: 1_000_000_000_000_000,
+                max_bps_unlock: 200,
+                max_bps_yield: 1_000,
+                min_prize_gemas: 100,
+            },
+        );
         env
+    }
+
+    fn delivery_terms(&self) -> Pubkey {
+        bridge_pda(&[DELIVERY_SEED, &EID_HOODI.to_be_bytes(), &msg_codec::pad_address(&VAULT)])
     }
 
     fn vault_treasury(&self) -> Pubkey {
@@ -798,6 +823,8 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
         let mut redeem = ix(
             crate::ID,
             crate::accounts::RedeemToEvm {
+delivery_terms: env.delivery_terms(),
+peer: env.peer(),
                 holder_authority: a(owner.pubkey()),
                 store: env.store,
                 authority: env.authority,
@@ -833,6 +860,16 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
     let payout = (u128::from(claim.units_total) * 8_000 / 10_000) as u64;
     assert_eq!(claim.fee_total, claim.units_total - payout);
     assert_eq!(claim.pool_total, claim.fee_total / 2);
+    // The Delivery Fee is fixed at redeem time: the flat 0.0000153 ETH, well under 10% of the share.
+    assert_eq!(claim.delivery_fee, 15_300_000_000_000);
+    // A Redeem whose Player share is under the minimum (0.001 ETH) is refused, and burns nothing.
+    let gemas_before = econ::gemas_in(&env.svm, env.owner_account, source_key);
+    let err = redeem(&mut env, 100).expect_err("below the minimum Redeem");
+    assert_eq!(
+        custom_code(&err),
+        Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::BelowMinimumRedeem as u32)
+    );
+    assert_eq!(econ::gemas_in(&env.svm, env.owner_account, source_key), gemas_before);
     assert_eq!(
         (source.inner.fee_units, source.inner.pool_units),
         (claim.fee_total, claim.pool_total)
@@ -1116,6 +1153,7 @@ impl Env {
         let mut fill = ix(
             crate::ID,
             crate::accounts::InstantRedeemToEvm {
+delivery_terms: self.delivery_terms(),
                 filler: a(filler.pubkey()),
                 store: self.store,
                 authority: self.authority,
@@ -1327,6 +1365,8 @@ fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
     let mut redeem = ix(
         crate::ID,
         crate::accounts::RedeemToEvm {
+delivery_terms: env.delivery_terms(),
+peer: env.peer(),
             holder_authority: a(bob.pubkey()),
             store: env.store,
             authority: env.authority,
@@ -1375,6 +1415,8 @@ fn a_legacy_wei_line_is_refused_before_redeem_or_treasury_redeem_burns_anything(
     let mut redeem = ix(
         crate::ID,
         crate::accounts::RedeemToEvm {
+delivery_terms: env.delivery_terms(),
+peer: env.peer(),
             holder_authority: a(bob.pubkey()),
             store: env.store,
             authority: env.authority,
@@ -2523,6 +2565,7 @@ impl Env {
         let redeem = ix(
             crate::ID,
             crate::accounts::RedeemPrizeToEvm {
+delivery_terms: self.delivery_terms(),
                 holder_authority: a(owner.pubkey()),
                 store: self.store,
                 authority: self.authority,

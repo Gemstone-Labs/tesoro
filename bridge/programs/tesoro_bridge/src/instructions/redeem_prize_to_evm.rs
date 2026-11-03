@@ -80,6 +80,12 @@ pub struct RedeemPrizeToEvm<'info> {
         bump
     )]
     pub payout: Box<Account<'info, PayoutRecord>>,
+    /// The vault's Delivery Fee terms. A prize cash-out pays the fee like any Redeem.
+    #[account(
+        seeds = [DELIVERY_SEED, &route.eid.to_be_bytes(), &route.peer_address],
+        bump = delivery_terms.bump
+    )]
+    pub delivery_terms: Box<Account<'info, DeliveryTerms>>,
     pub core_program: Program<'info, TesoroCore>,
     pub system_program: Program<'info, System>,
 }
@@ -87,6 +93,11 @@ pub struct RedeemPrizeToEvm<'info> {
 impl RedeemPrizeToEvm<'_> {
     pub fn apply(ctx: &mut Context<RedeemPrizeToEvm>, gemas: u64) -> Result<()> {
         require!(ctx.accounts.holder_account.evm_address != [0u8; 20], BridgeError::NoEvmAddress);
+        // The prize's value in the vault's asset is only known on the vault, which holds the
+        // percentage cap; here the minimum is in Gemas and the flat fee stays under its own cap.
+        let terms = &ctx.accounts.delivery_terms;
+        terms.require_min_prize(gemas)?;
+        let delivery_fee = terms.delivery_fee.min(terms.max_abs);
         let before = ctx.accounts.prize_source.inner.shares;
         let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &[ctx.accounts.store.authority_bump]]];
         tesoro_core::cpi::begin_prize_payout_from_source(
@@ -127,6 +138,7 @@ impl RedeemPrizeToEvm<'_> {
         payout.asset = route.asset;
         payout.gemas = gemas;
         payout.shares = shares;
+        payout.delivery_fee = delivery_fee;
         emit!(PrizePayoutOpened {
             eid: payout.eid,
             peer_address: payout.peer_address,

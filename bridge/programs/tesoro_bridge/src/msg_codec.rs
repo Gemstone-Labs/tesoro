@@ -13,18 +13,21 @@ use crate::errors::BridgeError;
 // Bodies:
 //   1 PositionLocked (EVM -> Solana): owner [32] | asset [32] | principal u128 | horizon u8
 //   2 YieldAccrued   (EVM -> Solana): cumulative u128 | treasury_balance u128 | instant_paid u128 | report_time u64
-//   3 Unlock         (Solana -> EVM): amount u128 (always 0)
-//   4 PayYield       (Solana -> EVM): to [32] | amount u128 | fee u128 | pool u128
+//   10 UnlockV2      (Solana -> EVM): delivery_fee u128
+//   11 PayYieldV2    (Solana -> EVM): to [32] | amount u128 | fee u128 | pool u128 | delivery_fee u128
 //                    amount: units taken from the Position's yield; fee: the Yield Fee part of it
 //                    the vault keeps for the Treasury (0 for exempt cash-outs); pool: the part of
 //                    what the Treasury keeps that is owed to the Leaderboard Pool (ticket 31).
-//   5 PayInstant     (Solana -> EVM): to [32] | amount u128   paid from the vault's treasury
+//                    delivery_fee: the flat Delivery Fee, in the vault's asset, that the vault keeps for Tesoro out
+//                    of the holder's share (the Unlock's principal; the payment's `amount - fee`). The vault shrinks
+//                    it to its own caps and never reverts on it. 0 for refills and Treasury cash-outs.
+//   12 PayInstantV2  (Solana -> EVM): to [32] | amount u128 | delivery_fee u128   paid from the vault's treasury
 //
 // Route messages (6-9) concern the vault, not one Position. Their header is the same 45 bytes with
 // `position_id` = the vault address (20 bytes) | 12 zero bytes and `seq` = the batch id (6, 8) or
 // the payout id (7, 9), unique per vault; the vault keeps one persistent receipt per id.
 //   6 CashInBatch    (Solana -> EVM): kind u8 | recipient [32] | n u8 | n x (vault position id u64 | units u128)
-//   7 PayPrize       (Solana -> EVM): asset [32] | prize_source [32] | recipient [32] | shares u128
+//   13 PayPrizeV2    (Solana -> EVM): asset [32] | prize_source [32] | recipient [32] | shares u128 | delivery_fee u128
 //   8 BatchResult    (EVM -> Solana): n u8 | n x paid_units u128 (cumulative per entry) | escrowed_shares u128 | escrowed_units u128
 //   9 PayPrizeResult (EVM -> Solana): status u8 (1 paid, 2 rejected) | shares u128
 // See economy-notes/bridge-messages.md for what the vault must guarantee for each.
@@ -41,16 +44,16 @@ pub const YIELD_LEN_V1: usize = HEADER_LEN + 16 + 16 + 16 + 8;
 /// shares and in the Source asset's units at the time each share arrived.
 pub const YIELD_LEN: usize = YIELD_LEN_V1 + 16 + 16;
 pub const UNLOCK_LEN: usize = HEADER_LEN + 16;
-pub const PAY_YIELD_LEN: usize = HEADER_LEN + 32 + 16 + 16 + 16;
-pub const PAY_INSTANT_LEN: usize = HEADER_LEN + 32 + 16;
+pub const PAY_YIELD_LEN: usize = HEADER_LEN + 32 + 16 + 16 + 16 + 16;
+pub const PAY_INSTANT_LEN: usize = HEADER_LEN + 32 + 16 + 16;
 
 pub const MSG_POSITION_LOCKED: u8 = 1;
 pub const MSG_YIELD_ACCRUED: u8 = 2;
-pub const MSG_UNLOCK: u8 = 3;
-pub const MSG_PAY_YIELD: u8 = 4;
-pub const MSG_PAY_INSTANT: u8 = 5;
+pub const MSG_UNLOCK: u8 = 10;
+pub const MSG_PAY_YIELD: u8 = 11;
+pub const MSG_PAY_INSTANT: u8 = 12;
 pub const MSG_CASH_IN_BATCH: u8 = 6;
-pub const MSG_PAY_PRIZE: u8 = 7;
+pub const MSG_PAY_PRIZE: u8 = 13;
 pub const MSG_BATCH_RESULT: u8 = 8;
 pub const MSG_PAY_PRIZE_RESULT: u8 = 9;
 
@@ -63,7 +66,7 @@ pub const KIND_LEADERBOARD: u8 = 2;
 pub const MAX_BATCH_ENTRIES: usize = 8;
 pub const BATCH_FIXED_LEN: usize = HEADER_LEN + 1 + 32 + 1;
 pub const BATCH_ENTRY_LEN: usize = 8 + 16;
-pub const PAY_PRIZE_LEN: usize = HEADER_LEN + 32 + 32 + 32 + 16;
+pub const PAY_PRIZE_LEN: usize = HEADER_LEN + 32 + 32 + 32 + 16 + 16;
 pub const PAY_PRIZE_RESULT_LEN: usize = HEADER_LEN + 1 + 16;
 pub const PRIZE_PAID: u8 = 1;
 pub const PRIZE_REJECTED: u8 = 2;
@@ -111,10 +114,15 @@ pub fn encode_header(h: &Header, buf: &mut Vec<u8>) {
     buf.extend_from_slice(&h.seq.to_be_bytes());
 }
 
-pub fn encode_unlock(source_chain: u32, position_id: [u8; 32], seq: u64) -> Vec<u8> {
+pub fn encode_unlock(
+    source_chain: u32,
+    position_id: [u8; 32],
+    seq: u64,
+    delivery_fee: u128,
+) -> Vec<u8> {
     let mut buf = Vec::with_capacity(UNLOCK_LEN);
     encode_header(&Header { msg_type: MSG_UNLOCK, source_chain, position_id, seq }, &mut buf);
-    buf.extend_from_slice(&0u128.to_be_bytes());
+    buf.extend_from_slice(&delivery_fee.to_be_bytes());
     buf
 }
 
@@ -124,6 +132,8 @@ pub struct YieldPayment {
     pub amount: u128,
     pub fee: u128,
     pub pool: u128,
+    /// The flat Delivery Fee the vault keeps out of the holder's share.
+    pub delivery_fee: u128,
 }
 
 pub fn encode_pay_yield(
@@ -136,6 +146,7 @@ pub fn encode_pay_yield(
     let mut buf = encode_payment(MSG_PAY_YIELD, source_chain, position_id, seq, to, pay.amount);
     buf.extend_from_slice(&pay.fee.to_be_bytes());
     buf.extend_from_slice(&pay.pool.to_be_bytes());
+    buf.extend_from_slice(&pay.delivery_fee.to_be_bytes());
     buf
 }
 
@@ -145,8 +156,11 @@ pub fn encode_pay_instant(
     seq: u64,
     to: [u8; 32],
     amount: u128,
+    delivery_fee: u128,
 ) -> Vec<u8> {
-    encode_payment(MSG_PAY_INSTANT, source_chain, position_id, seq, to, amount)
+    let mut buf = encode_payment(MSG_PAY_INSTANT, source_chain, position_id, seq, to, amount);
+    buf.extend_from_slice(&delivery_fee.to_be_bytes());
+    buf
 }
 
 fn encode_payment(
@@ -214,6 +228,7 @@ pub fn encode_pay_prize(
     prize_source: [u8; 32],
     recipient: [u8; 32],
     shares: u128,
+    delivery_fee: u128,
 ) -> Vec<u8> {
     let mut buf = Vec::with_capacity(PAY_PRIZE_LEN);
     encode_header(
@@ -229,6 +244,7 @@ pub fn encode_pay_prize(
     buf.extend_from_slice(&prize_source);
     buf.extend_from_slice(&recipient);
     buf.extend_from_slice(&shares.to_be_bytes());
+    buf.extend_from_slice(&delivery_fee.to_be_bytes());
     buf
 }
 
@@ -540,15 +556,17 @@ mod tests {
             [0x11; 32],
             pad_address(&[0xCC; 20]),
             42,
+            9,
         );
         assert_eq!(prize.len(), PAY_PRIZE_LEN);
-        assert_eq!(PAY_PRIZE_LEN, 157);
+        assert_eq!(PAY_PRIZE_LEN, 173);
         assert_eq!(prize[0], MSG_PAY_PRIZE);
         assert_eq!(&prize[37..45], &4u64.to_be_bytes());
         assert_eq!(&prize[45..77], &pad_address(&[0xAB; 20]));
         assert_eq!(&prize[77..109], &[0x11; 32]);
         assert_eq!(&prize[109..141], &pad_address(&[0xCC; 20]));
         assert_eq!(&prize[141..157], &42u128.to_be_bytes());
+        assert_eq!(&prize[157..173], &9u128.to_be_bytes());
         // Outbound only: never accepted inbound.
         assert!(decode_inbound(&batch).is_err());
         assert!(decode_inbound(&prize).is_err());
@@ -563,19 +581,20 @@ mod tests {
         b.truncate(LOCKED_LEN - 1);
         assert!(decode_inbound(&b).is_err());
         assert!(decode_inbound(&locked(0)).is_err());
-        let mut unlock = encode_unlock(40449, [1; 32], 1);
+        let mut unlock = encode_unlock(40449, [1; 32], 1, 7);
         assert_eq!(unlock.len(), UNLOCK_LEN);
+        assert_eq!(&unlock[45..61], &7u128.to_be_bytes());
         assert!(decode_inbound(&unlock).is_err(), "outbound types are not inbound");
-        unlock[0] = 9;
+        unlock[0] = 9; // an unknown type
         assert!(decode_inbound(&unlock).is_err());
     }
 
     #[test]
     fn outbound_layout_matches_the_solidity_side() {
-        let amounts = YieldPayment { amount: 42, fee: 8, pool: 4 };
+        let amounts = YieldPayment { amount: 42, fee: 8, pool: 4, delivery_fee: 3 };
         let pay = encode_pay_yield(40449, [2; 32], 5, pad_address(&[0xCC; 20]), amounts);
         assert_eq!(pay.len(), PAY_YIELD_LEN);
-        assert_eq!(PAY_YIELD_LEN, 125);
+        assert_eq!(PAY_YIELD_LEN, 141);
         assert_eq!(pay[0], MSG_PAY_YIELD);
         assert_eq!(&pay[1..5], &40449u32.to_be_bytes());
         assert_eq!(&pay[37..45], &5u64.to_be_bytes());
@@ -583,12 +602,13 @@ mod tests {
         assert_eq!(&pay[77..93], &42u128.to_be_bytes());
         assert_eq!(&pay[93..109], &8u128.to_be_bytes());
         assert_eq!(&pay[109..125], &4u128.to_be_bytes());
+        assert_eq!(&pay[125..141], &3u128.to_be_bytes());
         // The same vector is checked by contracts/test/PositionVaultOApp.t.sol, so both sides agree
         // on every byte.
-        let vector = "0400009e0102020202020202020202020202020202020202020202020202020202020202\
+        let vector = "0b00009e0102020202020202020202020202020202020202020202020202020202020202\
                       020000000000000005000000000000000000000000cccccccccccccccccccccccccccccc\
                       cccccccccc0000000000000000000000000000002a00000000000000000000000000000008\
-                      00000000000000000000000000000004";
+                      0000000000000000000000000000000400000000000000000000000000000003";
         let hex: String = pay.iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!(hex, vector);
     }
@@ -604,9 +624,9 @@ mod tests {
         key[20..28].copy_from_slice(&77u64.to_be_bytes());
         let to = pad_address(&[0xCC; 20]);
         let msgs = [
-            encode_unlock(40449, key, 1),
-            encode_pay_yield(40449, key, 2, to, YieldPayment { amount: 42, fee: 8, pool: 4 }),
-            encode_pay_instant(40449, key, 3, to, 65),
+            encode_unlock(40449, key, 1, 7),
+            encode_pay_yield(40449, key, 2, to, YieldPayment { amount: 42, fee: 8, pool: 4, delivery_fee: 3 }),
+            encode_pay_instant(40449, key, 3, to, 65, 3),
         ];
         for m in &msgs {
             assert_eq!(&m[33..37], &[0u8; 4], "the low 32 bits of the key are zero");
@@ -621,15 +641,16 @@ mod tests {
 
     #[test]
     fn pay_instant_layout_matches_the_solidity_side() {
-        let pay = encode_pay_instant(40362, [3; 32], 7, pad_address(&[0xDD; 20]), 65);
+        let pay = encode_pay_instant(40362, [3; 32], 7, pad_address(&[0xDD; 20]), 65, 3);
         assert_eq!(pay.len(), PAY_INSTANT_LEN);
-        assert_eq!(PAY_INSTANT_LEN, 93);
+        assert_eq!(PAY_INSTANT_LEN, 109);
         assert_eq!(pay[0], MSG_PAY_INSTANT);
         assert_eq!(&pay[1..5], &40362u32.to_be_bytes());
         assert_eq!(&pay[5..37], &[3; 32]);
         assert_eq!(&pay[37..45], &7u64.to_be_bytes());
         assert_eq!(&pay[45..77], &pad_address(&[0xDD; 20]));
         assert_eq!(&pay[77..93], &65u128.to_be_bytes());
+        assert_eq!(&pay[93..109], &3u128.to_be_bytes());
         // Outbound only: never accepted inbound.
         assert!(decode_inbound(&pay).is_err());
     }

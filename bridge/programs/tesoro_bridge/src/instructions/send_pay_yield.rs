@@ -87,6 +87,9 @@ impl SendPayYield<'_> {
         claim.units_sent = claim.units_total;
         claim.fee_sent = claim.fee_total;
         claim.pool_sent = claim.pool_total;
+        // A refill into the vault's own Treasury pays no Delivery Fee.
+        let delivery_fee = if holder.key() == core_treasury_account() { 0 } else { claim.delivery_fee };
+        claim.delivery_fee = 0;
         let seq = next_out_seq(position)?;
         let peer = &ctx.accounts.peer;
         // A Position opened before units were normalised holds wei: it is retired, never paid.
@@ -99,6 +102,7 @@ impl SendPayYield<'_> {
             amount: peer.to_vault(pending)?,
             fee: peer.to_vault(fee)?,
             pool: peer.to_vault(pool)?,
+            delivery_fee,
         };
 
         lz_send(
@@ -114,6 +118,7 @@ impl SendPayYield<'_> {
             msg_type: MSG_PAY_YIELD,
             seq,
             amount: pay.amount,
+            delivery_fee,
         });
         Ok(())
     }

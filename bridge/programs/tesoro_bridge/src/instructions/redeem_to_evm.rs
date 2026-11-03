@@ -76,6 +76,21 @@ pub struct RedeemToEvm<'info> {
         bump
     )]
     pub claim: Account<'info, Claim>,
+    /// The vault's Delivery Fee terms; their eid and vault must be this Position's.
+    #[account(
+        seeds = [DELIVERY_SEED, &delivery_terms.eid.to_be_bytes(), &delivery_terms.peer_address],
+        bump = delivery_terms.bump,
+        constraint = delivery_terms.peer_address == vault_of(&core_position.position_id)
+            && core_chain(delivery_terms.eid)? == core_position.inner.source_chain
+            @ BridgeError::InvalidAccount
+    )]
+    pub delivery_terms: Box<Account<'info, DeliveryTerms>>,
+    /// The vault's terms: its decimals give the core-unit to vault-unit scale.
+    #[account(
+        seeds = [PEER_SEED, &store.key().to_bytes(), &delivery_terms.eid.to_be_bytes(), &delivery_terms.peer_address],
+        bump = peer.bump
+    )]
+    pub peer: Box<Account<'info, PeerConfig>>,
     pub core_program: Program<'info, TesoroCore>,
     pub system_program: Program<'info, System>,
 }
@@ -132,6 +147,14 @@ impl RedeemToEvm<'_> {
             claim.source = ctx.accounts.core_source.key();
             claim.position = ctx.accounts.core_position.key();
             claim.bump = ctx.bumps.claim;
+        }
+        // The Player's share of this Redeem, in the vault's units, must clear the minimum; the fee
+        // is fixed now for the units that wait for the next send (one fee per message).
+        let share = ctx.accounts.peer.to_vault(units.saturating_sub(fee))?;
+        let terms = &ctx.accounts.delivery_terms;
+        terms.require_min_redeem(share)?;
+        if claim.units_total == claim.units_sent {
+            claim.delivery_fee = terms.fee_for(share, terms.max_bps_yield);
         }
         claim.gemas_total =
             claim.gemas_total.checked_add(gemas).ok_or(BridgeError::AmountOverflow)?;

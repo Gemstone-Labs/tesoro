@@ -1,6 +1,7 @@
 mod batch;
 mod bridge_position;
 mod claim;
+mod delivery_terms;
 mod evm_link;
 mod payout;
 mod peer_config;
@@ -11,6 +12,7 @@ mod vault_treasury;
 pub use batch::*;
 pub use bridge_position::*;
 pub use claim::*;
+pub use delivery_terms::*;
 pub use evm_link::*;
 pub use payout::*;
 pub use peer_config::*;
