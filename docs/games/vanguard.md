@@ -114,8 +114,8 @@ The chain shows each declared action in the open: the piece number and the targe
 | Two-Step Turn | TEE | `start_two_step` (public, no sealed field) | the Player to move |
 | apply | TEE | `resolve` (no arguments; applies the pending declare in a later slot; a decided game writes its result into the ring) | anyone |
 | clock | TEE | `claim_timeout` (a missed turn, the safety cap, a start nobody finished, a stalled setup) | anyone |
-| commit | TEE | `commit_table` (the table and its Battle, paid by the Sponsor; once per result, repeatable after a wait if it was lost) | anyone |
-| wipe, reset | TEE | `wipe_seats`, then `reset_table` (30 s later; the ring is kept) | anyone |
+| commit | TEE | `claim_timeout` or `resolve` that ends the Match commits the table and its Battle in the same transaction (paid by the Sponsor); `commit_table` repeats it after a wait if it was lost | anyone |
+| wipe, reset | TEE | the same ending instruction wipes the seats; `reset_table` 30 s later (the ring is kept; `wipe_seats` remains for a table that ended another way) | anyone |
 | settle | base | `finalize` (reads the committed table's ring; CPI `settle_match`, or `refund_match` for a draw or cancel) | anyone |
 | free the slot | TEE | `release_slot` once tesoro_core's receipt is a minute old; `void_table` if tesoro_core refunded a Match the table never finished | anyone |
 

@@ -31,8 +31,8 @@ use ephemeral_rollups_sdk::{
 use table_kit::{
     absence_outcome, assignment_absent, close_private_seat, match_state_gone, may_skip,
     move_lamports, open_private_seat, read_table, receipt_at, sponsor_commit, table_wait_over,
-    KitError, SeatAccounts, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE,
-    SLOT_RESERVED,
+    KitError, SeatAccounts, SeatPrograms, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0,
+    OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -251,6 +251,90 @@ fn rescore(duel: &mut Table, t: i64) {
         duel.step,
         engine::columns_done(t),
     );
+}
+
+/// Reads a Book the program owns. The Book is an ephemeral account that `close_book_pair` closes
+/// in the same transaction, so it is read by hand rather than as a typed account (which would be
+/// written back to a closed account).
+fn read_book(info: &AccountInfo) -> Result<Book> {
+    require_keys_eq!(*info.owner, ID, DuelError::NotAPlayer);
+    let data = info.try_borrow_data()?;
+    Book::try_deserialize(&mut &data[..])
+}
+
+/// Closes both Books and their permissions; the rent returns to the table, which no longer has
+/// open seats. Shared by `close_seats` and the instructions that end a Match.
+fn close_book_pair<'info>(
+    table: &mut Account<'info, Table>,
+    books: [(&AccountInfo<'info>, &AccountInfo<'info>, u8); 2],
+    programs: &SeatPrograms<'info>,
+) -> Result<()> {
+    let table_key = table.key();
+    let gen = table.generation.to_le_bytes();
+    let idx = table.index.to_le_bytes();
+    let table_bump = [table.bump];
+    let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
+    let table_info = table.to_account_info();
+    for (seat, (book, permission, book_bump)) in books.into_iter().enumerate() {
+        let seat_arr = [seat as u8];
+        let bump_arr = [book_bump];
+        let seat_seeds: &[&[u8]] = &[BOOK_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
+        close_private_seat(
+            &SeatAccounts {
+                table: &table_info,
+                seat: book,
+                permission,
+                vault: &programs.vault,
+                magic_program: &programs.magic_program,
+                permission_program: &programs.permission_program,
+            },
+            table_seeds,
+            seat_seeds,
+        )?;
+    }
+    table.seats_open = false;
+    Ok(())
+}
+
+/// The end of a Match, in the same transaction as the instruction that ended it: closes the
+/// Books and commits the result to Solana, paid by the Sponsor. `commit_table` stays as the
+/// repeat path.
+fn close_and_commit(a: &mut Concluding, bumps: &ConcludingBumps, now: i64) -> Result<()> {
+    if a.table.seats_open {
+        close_book_pair(
+            &mut a.table,
+            [
+                (
+                    &a.book_0.to_account_info(),
+                    &a.book_0_permission.to_account_info(),
+                    bumps.book_0,
+                ),
+                (
+                    &a.book_1.to_account_info(),
+                    &a.book_1_permission.to_account_info(),
+                    bumps.book_1,
+                ),
+            ],
+            &SeatPrograms {
+                vault: a.ephemeral_vault.to_account_info(),
+                magic_program: a.magic_program.to_account_info(),
+                permission_program: a.permission_program.to_account_info(),
+            },
+        )?;
+    }
+    a.table.commit.record(now);
+    a.table.dirty = false;
+    a.table.exit(&ID)?;
+    let bump = [a.sponsor.bump];
+    sponsor_commit(
+        &a.sponsor.to_account_info(),
+        &[SPONSOR_SEED, &bump],
+        &a.magic_context.to_account_info(),
+        &a.magic_program.to_account_info(),
+        &a.magic_fee_vault.to_account_info(),
+        &TEE_VALIDATOR,
+        &a.table.to_account_info(),
+    )
 }
 
 #[ephemeral]
@@ -745,7 +829,7 @@ pub mod trading_duel {
     /// equal points is a draw, and a Match in which neither Player picked is a no-show. The
     /// result goes into the ring slot reserved at the start, which is the only thing `finalize`
     /// reads. It reads no price, so the result is the same whoever ends the Match and whenever.
-    pub fn end_match(ctx: Context<EndMatch>) -> Result<()> {
+    pub fn end_match(ctx: Context<Concluding>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
         require!(
@@ -753,16 +837,15 @@ pub mod trading_duel {
             DuelError::NotLive
         );
         require!(now >= table.ends_at, DuelError::NotEnded);
+        let books = [
+            read_book(&ctx.accounts.book_0)?,
+            read_book(&ctx.accounts.book_1)?,
+        ];
         table.track.finish();
-        reveal(
-            table,
-            [&ctx.accounts.book_0, &ctx.accounts.book_1],
-            MATCH_SECS,
-        );
+        reveal(table, [&books[0], &books[1]], MATCH_SECS);
         rescore(table, MATCH_SECS);
         table.winner = engine::winner(table.scores);
-        let nobody_acted =
-            ctx.accounts.book_0.pick_count == 0 && ctx.accounts.book_1.pick_count == 0;
+        let nobody_acted = books[0].pick_count == 0 && books[1].pick_count == 0;
         let outcome = if nobody_acted {
             table.winner = DRAW;
             OUTCOME_NO_SHOW
@@ -780,13 +863,13 @@ pub mod trading_duel {
         table.over_at = now;
         table.dirty = true;
         table.commit.on_result();
-        Ok(())
+        close_and_commit(&mut *ctx.accounts, &ctx.bumps, now)
     }
 
     /// Rollup, permissionless. A table whose Players did not both check in before the start
     /// deadline ends the Match so it can be settled from the ring like any other: the Player who
     /// checked in wins, and if neither did it is a no-show (`table_kit::absence_outcome`).
-    pub fn expire_start(ctx: Context<TableOnly>) -> Result<()> {
+    pub fn expire_start(ctx: Context<Concluding>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
         require!(table.phase == PHASE_WAITING, DuelError::WrongPhase);
@@ -803,7 +886,7 @@ pub mod trading_duel {
         table.over_at = now;
         table.dirty = true;
         table.commit.on_result();
-        Ok(())
+        close_and_commit(&mut *ctx.accounts, &ctx.bumps, now)
     }
 
     /// Rollup, permissionless. Commits the finished table to Solana, paid by the Sponsor. The
@@ -840,44 +923,27 @@ pub mod trading_duel {
         let table = &ctx.accounts.table;
         require!(table.phase == PHASE_OVER, DuelError::WrongPhase);
         require!(table.seats_open, DuelError::SeatsNotOpen);
-        let table_key = table.key();
-        let gen = table.generation.to_le_bytes();
-        let idx = table.index.to_le_bytes();
-        let table_bump = [table.bump];
-        let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
-        let table_info = ctx.accounts.table.to_account_info();
-        for seat in 0..2usize {
-            let (book, permission, book_bump) = if seat == 0 {
+        let a = &mut *ctx.accounts;
+        close_book_pair(
+            &mut a.table,
+            [
                 (
-                    &ctx.accounts.book_0,
-                    &ctx.accounts.book_0_permission,
+                    &a.book_0.to_account_info(),
+                    &a.book_0_permission.to_account_info(),
                     ctx.bumps.book_0,
-                )
-            } else {
+                ),
                 (
-                    &ctx.accounts.book_1,
-                    &ctx.accounts.book_1_permission,
+                    &a.book_1.to_account_info(),
+                    &a.book_1_permission.to_account_info(),
                     ctx.bumps.book_1,
-                )
-            };
-            let seat_arr = [seat as u8];
-            let bump_arr = [book_bump];
-            let seat_seeds: &[&[u8]] = &[BOOK_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
-            close_private_seat(
-                &SeatAccounts {
-                    table: &table_info,
-                    seat: &book.to_account_info(),
-                    permission: &permission.to_account_info(),
-                    vault: &ctx.accounts.ephemeral_vault.to_account_info(),
-                    magic_program: &ctx.accounts.magic_program.to_account_info(),
-                    permission_program: &ctx.accounts.permission_program.to_account_info(),
-                },
-                table_seeds,
-                seat_seeds,
-            )?;
-        }
-        ctx.accounts.table.seats_open = false;
-        Ok(())
+                ),
+            ],
+            &SeatPrograms {
+                vault: a.ephemeral_vault.to_account_info(),
+                magic_program: a.magic_program.to_account_info(),
+                permission_program: a.permission_program.to_account_info(),
+            },
+        )
     }
 
     /// Rollup, permissionless. Wipes the finished Match from the public table and moves to the
@@ -1291,7 +1357,7 @@ pub struct BeginMatch<'info> {
     pub tesoro_match: Box<Account<'info, MatchState>>,
 }
 
-/// A table and nothing else: `expire_start`, `reset_table`.
+/// A table and nothing else: `reset_table`.
 #[derive(Accounts)]
 pub struct TableOnly<'info> {
     pub caller: Signer<'info>,
@@ -1397,9 +1463,11 @@ pub struct SetPick<'info> {
     pub book: Box<Account<'info, Book>>,
 }
 
-/// `caller` is any payer.
+/// `end_match` and `expire_start`: each commits the result and closes the Books in its own
+/// transaction, so it names everything those two steps need. `caller` is any payer.
+#[commit]
 #[derive(Accounts)]
-pub struct EndMatch<'info> {
+pub struct Concluding<'info> {
     pub caller: Signer<'info>,
     #[account(
         mut,
@@ -1407,10 +1475,29 @@ pub struct EndMatch<'info> {
         bump = table.bump
     )]
     pub table: Box<Account<'info, Table>>,
-    #[account(seeds = [BOOK_SEED, table.key().as_ref(), &[0]], bump = book_0.bump)]
-    pub book_0: Box<Account<'info, Book>>,
-    #[account(seeds = [BOOK_SEED, table.key().as_ref(), &[1]], bump = book_1.bump)]
-    pub book_1: Box<Account<'info, Book>>,
+    /// CHECK: ephemeral Book of seat 0, read by `read_book`, closed with the Match
+    #[account(mut, seeds = [BOOK_SEED, table.key().as_ref(), &[0]], bump)]
+    pub book_0: UncheckedAccount<'info>,
+    /// CHECK: ephemeral Book of seat 1, read by `read_book`, closed with the Match
+    #[account(mut, seeds = [BOOK_SEED, table.key().as_ref(), &[1]], bump)]
+    pub book_1: UncheckedAccount<'info>,
+    /// CHECK: permission PDA of Book 0
+    #[account(mut, seeds = [PERMISSION_SEED, book_0.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
+    pub book_0_permission: UncheckedAccount<'info>,
+    /// CHECK: permission PDA of Book 1
+    #[account(mut, seeds = [PERMISSION_SEED, book_1.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
+    pub book_1_permission: UncheckedAccount<'info>,
+    /// CHECK: Permission Program
+    #[account(address = PERMISSION_PROGRAM_ID)]
+    pub permission_program: UncheckedAccount<'info>,
+    /// CHECK: ephemeral rent vault
+    #[account(mut, address = EPHEMERAL_VAULT_ID)]
+    pub ephemeral_vault: UncheckedAccount<'info>,
+    #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
+    pub sponsor: Account<'info, Sponsor>,
+    /// CHECK: the TEE validator's magic fee vault, checked in `sponsor_commit`.
+    #[account(mut)]
+    pub magic_fee_vault: UncheckedAccount<'info>,
 }
 
 /// `tick`: `caller` is any payer.
