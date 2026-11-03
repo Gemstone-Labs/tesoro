@@ -40,12 +40,68 @@ export class MemoryLeaseStore implements LeaseStore {
   }
 }
 
+/**
+ * The tables that can take a Match, kept by the server (migration 0023). A table is claimed when its join is sent and freed when
+ * its Match settles one epoch on; a rollup read (the keeper's pool repair) republishes the truth and corrects drift.
+ */
+export interface TablePool {
+  /** The unclaimed tables of `game` whose epoch is known. */
+  tables(game: GameId): Promise<TablePick[]>;
+  /** False when the table is claimed already, or the pool holds it at another epoch. */
+  claim(game: GameId, pick: TablePick, matchKey: string): Promise<boolean>;
+  /** The Match settled. `advanced`: it ran, so its table is one epoch on; otherwise the epoch is unknown until a rollup read. */
+  free(matchKey: string, advanced: boolean): Promise<boolean>;
+}
+
+/** A claim younger than this when the rollup was read is kept: its join may not be an Assignment on base yet. */
+export const CLAIM_SETTLE_MS = 3 * 60_000;
+
+/** The pool in memory, with the rules of the SQL functions; used by tests and by a server without a database. */
+export class MemoryTablePool implements TablePool {
+  private readonly rows = new Map<string, { game: GameId; pick: TablePick; claimed: { match: string; at: number } | null; known: boolean }>();
+  constructor(private readonly now: () => number = Date.now) {}
+  private static key(game: GameId, p: Pick<TablePick, "generation" | "index">) {
+    return `${game}/${p.generation}/${p.index}`;
+  }
+  async tables(game: GameId) {
+    return [...this.rows.values()].filter((r) => r.game === game && !r.claimed && r.known).map((r) => r.pick);
+  }
+  async claim(game: GameId, pick: TablePick, matchKey: string) {
+    const r = this.rows.get(MemoryTablePool.key(game, pick));
+    if (!r || !r.known || r.pick.epoch !== pick.epoch || (r.claimed && r.claimed.match !== matchKey)) return false;
+    r.claimed = { match: matchKey, at: this.now() };
+    return true;
+  }
+  async free(matchKey: string, advanced: boolean) {
+    const r = [...this.rows.values()].find((x) => x.claimed?.match === matchKey);
+    if (!r) return false;
+    r.claimed = null;
+    r.known = advanced;
+    if (advanced) r.pick = { ...r.pick, epoch: r.pick.epoch + 1n };
+    return true;
+  }
+  /** What the rollup shows: the tables able to take a Match, read at `readAt`. */
+  publish(game: GameId, tables: TablePick[], readAt = this.now()) {
+    const listed = new Set<string>();
+    for (const t of tables) {
+      const key = MemoryTablePool.key(game, t);
+      listed.add(key);
+      const old = this.rows.get(key);
+      const keep = old?.claimed && old.claimed.at > readAt - CLAIM_SETTLE_MS ? old.claimed : null;
+      this.rows.set(key, { game, pick: t, claimed: keep, known: true });
+    }
+    for (const [key, r] of this.rows) if (r.game === game && !r.claimed && !r.known && !listed.has(key)) this.rows.delete(key);
+  }
+}
+
 export interface AssignerDeps {
   /** Signs `assign_match`: the Table operator of the Games. */
   operator: Keypair;
   leases: LeaseStore;
   /** Tables of `game` that can take a Match right now (delegated, seated, Idle, a free slot, no live Assignment). */
   tables(game: GameId): Promise<TablePick[]>;
+  /** Marks the table as held by the Match once its join is sent (the pool's `claim`). */
+  claim?(game: GameId, pick: TablePick, matchKey: string): Promise<boolean>;
   now(): number;
 }
 
@@ -53,10 +109,12 @@ export interface Assignment {
   ix: TransactionInstruction;
   leaseKey: string;
   holder: string;
+  /** What the pool needs to claim the table once the join is sent (JSON-safe: it travels in the signed build meta). */
+  claim?: { game: GameId; generation: number; index: number; epoch: string; matchKey: string };
 }
 
-/** What a lease needs to be extended or released. */
-export type LeaseRef = Pick<Assignment, "leaseKey" | "holder">;
+/** What a lease needs to be extended or released, and the claim to make when the join is sent. */
+export type LeaseRef = Pick<Assignment, "leaseKey" | "holder" | "claim">;
 
 export class Assigner {
   constructor(private readonly d: AssignerDeps) {}
@@ -70,20 +128,21 @@ export class Assigner {
   }
 
   /** The `assign_match` for the lowest table nobody holds, or null (the keeper assigns the Match later). */
-  async assign(game: GameId, match: PublicKey, accountA: PublicKey, accountB: PublicKey, holder: string): Promise<Assignment | null> {
+  async assign(game: GameId, match: PublicKey, accountA: PublicKey, accountB: PublicKey, holder: string, matchKey?: string): Promise<Assignment | null> {
     if (!canAssign(game)) return null;
     const free = [...(await this.d.tables(game))].sort((x, y) => x.generation - y.generation || x.index - y.index);
     for (const pick of free) {
       const leaseKey = `${game}/${pick.generation}/${pick.index}/${pick.epoch}`;
       if (!(await this.d.leases.take(leaseKey, holder, BUILD_LEASE_MS, this.d.now()))) continue;
-      return { ix: assignMatchIx(game, { operator: this.operator, match, accountA, accountB, pick }), leaseKey, holder };
+      return { ix: assignMatchIx(game, { operator: this.operator, match, accountA, accountB, pick }), leaseKey, holder, claim: matchKey ? { game, generation: pick.generation, index: pick.index, epoch: pick.epoch.toString(), matchKey } : undefined };
     }
     return null;
   }
 
-  /** The join was sent: keep the table through the Match's start window. */
-  confirm(a: LeaseRef): Promise<void> {
-    return this.d.leases.extend(a.leaseKey, a.holder, START_WINDOW_MS, this.d.now());
+  /** The join was sent: the pool holds the table until the Match settles; the lease covers the start window meanwhile. */
+  async confirm(a: LeaseRef): Promise<void> {
+    await this.d.leases.extend(a.leaseKey, a.holder, START_WINDOW_MS, this.d.now());
+    if (a.claim && this.d.claim) await this.d.claim(a.claim.game, { generation: a.claim.generation, index: a.claim.index, epoch: BigInt(a.claim.epoch) }, a.claim.matchKey);
   }
 
   /** The join will not be sent: free the table. */

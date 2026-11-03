@@ -1,0 +1,10 @@
+[Unit]
+Description=Tesoro daily janitor (expired Tickets, old receipts and pair counters, spent Assignments, Listings, trailing APY)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/tesoro/repo
+EnvironmentFile=%h/.config/tesoro-keeper.env
+ExecStart=/usr/bin/env pnpm --filter @tesoro/keeper exec tsx src/janitor-cli.ts
+TimeoutStartSec=30min
+MemoryMax=1G

@@ -37,12 +37,4 @@ describe("table leases (migration 0021)", () => {
     await db.query("select public.release_table_lease('y', 'a')");
     expect(await take("y", "b", 60_000)).toBe(true);
   });
-
-  it("publish_table_pool replaces a Game's rows and leaves the others", async () => {
-    await db.query(`select public.publish_table_pool('holdem', '[{"generation":1,"index":0,"epoch":"4"},{"generation":1,"index":2,"epoch":"9"}]')`);
-    await db.query(`select public.publish_table_pool('vanguard', '[{"generation":1,"index":0,"epoch":"1"}]')`);
-    await db.query(`select public.publish_table_pool('holdem', '[{"generation":1,"index":1,"epoch":"5"}]')`);
-    const rows = (await db.query<{ game: string; idx: number; epoch: string }>("select game, idx, epoch::text from public.table_pool order by game, idx")).rows;
-    expect(rows).toEqual([{ game: "holdem", idx: 1, epoch: "5" }, { game: "vanguard", idx: 0, epoch: "1" }]);
-  });
 });

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { Keypair } from "@solana/web3.js";
 import { PROGRAMS } from "./mainnet-keys.ts";
-import { COMPROMISED_KEY, clusterOf, loadKeypair, parseArgs, programId, programOverrides, resolveKey } from "./cli-args.ts";
+import { COMPROMISED_KEY, KEEPER_CLI_FLAGS, unknownFlag, clusterOf, loadKeypair, parseArgs, programId, programOverrides, resolveKey } from "./cli-args.ts";
 
 test("parseArgs reads values, repeated values, bare flags and positionals", () => {
   const a = parseArgs(["PROG", "--rpc", "https://x", "--program", "holdem=1", "--program", "tesoro_core=2", "--dry-run", "5"], ["dry-run"]);
@@ -42,3 +43,24 @@ test("the cluster defaults to mainnet and accepts only test or mainnet", () => {
   assert.equal(clusterOf("test").id, "test");
   assert.throws(() => clusterOf("devnet"), /test or mainnet/);
 });
+
+test("unknownFlag accepts the keeper CLI flags and rejects anything else, --help included", () => {
+  assert.equal(unknownFlag(["--dry-run", "--rpc", "https://x", "--once"], KEEPER_CLI_FLAGS), null);
+  assert.match(unknownFlag(["--help"], KEEPER_CLI_FLAGS)!, /unknown flag --help/);
+  assert.match(unknownFlag(["--new-dev-key"], KEEPER_CLI_FLAGS)!, /unknown flag/);
+  assert.match(unknownFlag(["stray"], KEEPER_CLI_FLAGS)!, /unexpected argument/);
+});
+
+// Every keeper CLI is covered: a new src/*-cli.ts fails here until it follows the rule.
+for (const cli of readdirSync(import.meta.dirname).filter((f) => f.endsWith("-cli.ts")).sort()) {
+  test(`${cli} prints usage and exits 2 on an unknown flag, before reading any key`, () => {
+    const dir = mkdtempSync(join(tmpdir(), "cli-"));
+    const keyPath = join(dir, "keeper.json");
+    for (const flag of ["--help", "--bogus"]) {
+      const r = spawnSync(process.execPath, ["--import", "tsx", join(import.meta.dirname, cli), flag], { env: { ...process.env, KEEPER_KEYPAIR: keyPath }, encoding: "utf8" });
+      assert.equal(r.status, 2, `${cli} ${flag}: it ran instead of refusing. Call exitOnUnknownFlag(process.argv.slice(2), KEEPER_CLI_FLAGS, USAGE) from ./cli-args.ts before reading keys or env.`);
+      assert.match(r.stderr, /Usage: /, `${cli} ${flag}: no usage text. Call exitOnUnknownFlag before reading keys.`);
+    }
+    assert.equal(existsSync(keyPath), false);
+  });
+}

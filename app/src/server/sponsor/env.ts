@@ -19,7 +19,7 @@ import { MemoryUsageStore, type UsageStore } from "./store";
 import { supabaseUsageStore } from "./supabase-store";
 import { sendConfirmed } from "./chain-send";
 import { Assigner, MemoryLeaseStore } from "./assign";
-import { supabaseLeaseStore, supabasePoolTables } from "./table-pool";
+import { supabaseClaimTable, supabaseLeaseStore, supabasePoolTables } from "./table-pool";
 
 const LAMPORTS = 1_000_000_000n;
 const coder = new BorshAccountsCoder(coreIdl as unknown as Idl);
@@ -133,7 +133,7 @@ export function sponsor(): Sponsor {
 /**
  * Joins arrive with their table assigned when TESORO_TABLE_OPERATOR_SECRET_KEY holds the Table operator of the Games (base58 or
  * a JSON byte array): the key `set_config` named as `TableConfig.operator`, which is the keeper's key unless that was changed.
- * Tables come from the pool the keeper publishes, so without Supabase there is nothing to assign from.
+ * Tables come from the pool in Supabase (`table_pool`, kept by the server and repaired by the keeper), so without Supabase there is nothing to assign from.
  */
 function assignerFromEnv(): Assigner | undefined {
   if (!process.env.TESORO_TABLE_OPERATOR_SECRET_KEY) return undefined;
@@ -142,6 +142,7 @@ function assignerFromEnv(): Assigner | undefined {
     operator: inviteKeypair(process.env.TESORO_TABLE_OPERATOR_SECRET_KEY, "TESORO_TABLE_OPERATOR_SECRET_KEY"),
     leases: hosted ? supabaseLeaseStore : new MemoryLeaseStore(),
     tables: async (game) => (hosted ? supabasePoolTables(game) : []),
+    claim: hosted ? supabaseClaimTable : undefined,
     now: () => Date.now(),
   });
 }

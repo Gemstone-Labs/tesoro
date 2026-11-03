@@ -1,0 +1,10 @@
+[Unit]
+Description=Tesoro daily janitor, 03:30 UTC
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 UTC
+Persistent=true
+Unit=tesoro-janitor.service
+
+[Install]
+WantedBy=timers.target

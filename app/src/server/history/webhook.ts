@@ -3,7 +3,7 @@ import bs58 from "bs58";
 import { PublicKey } from "@solana/web3.js";
 import { gameOfProgram } from "../../lib/chain/games";
 import { decodeMatchRecords, type InnerInstruction, type MatchRecord } from "./events";
-import { ingestMatchRecords } from "./ingest";
+import { ingestMatchRecords, tableFreer } from "./ingest";
 import type { Rpc } from "./rpc";
 
 /**
@@ -168,7 +168,7 @@ export async function decodePending(deps: DecodeDeps): Promise<{ decoded: number
       failed++;
       continue;
     }
-    if (records.length) await ingestMatchRecords(deps.rpc, records, { signature: row.signature, slot: row.slot, blockTime: row.blockTime ?? undefined, finalized: true, gameOf: (p) => gameOfProgram(new PublicKey(p)) });
+    if (records.length) await ingestMatchRecords(deps.rpc, records, { signature: row.signature, slot: row.slot, blockTime: row.blockTime ?? undefined, finalized: true, gameOf: (p) => gameOfProgram(new PublicKey(p)), onMatchEnded: tableFreer(deps.rpc) });
     await deps.store.markDecoded(row.signature, null);
     decoded++;
   }
