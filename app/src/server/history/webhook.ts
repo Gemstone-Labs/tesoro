@@ -49,6 +49,8 @@ export interface WebhookStore {
   markDecoded(signature: string, error: string | null): Promise<void>;
   unfinalized(limit: number): Promise<string[]>;
   markFinalized(signatures: string[]): Promise<number>;
+  /** Deletes the unfinalized rows among `signatures` received more than `olderThanSecs` ago; history is rebuilt from chain. */
+  dropStale(signatures: string[], olderThanSecs: number): Promise<number>;
   cursor(): Promise<string | null>;
   setCursor(signature: string): Promise<void>;
 }
@@ -183,8 +185,8 @@ export interface CoreChain {
   signatures(opts: { before?: string; until?: string; limit: number }): Promise<string[]>;
   /** The raw transaction (json encoding); null when it cannot be read. */
   transaction(signature: string): Promise<RawTx | null>;
-  /** Which of these signatures are finalized. */
-  finalized(signatures: string[]): Promise<string[]>;
+  /** Which of these signatures the chain has finalized, and which it does not know at all (a dropped or forked transaction). */
+  finalized(signatures: string[]): Promise<{ finalized: string[]; unknown: string[] }>;
 }
 
 export interface CatchUpDeps {
@@ -196,6 +198,10 @@ export interface CatchUpDeps {
   pageSize?: number;
   concurrency?: number;
 }
+
+/** A row the chain no longer knows is dropped after this long (about twice the finalization lag, plus slack). */
+export const UNKNOWN_DROP_SECS = 600;
+const MAX_FINALIZE_ROUNDS = 10;
 
 /**
  * Repairs what Helius dropped: stores every finalized core transaction after the cursor that the webhook did not deliver,
@@ -232,9 +238,18 @@ export async function catchUp(deps: CatchUpDeps): Promise<{ stored: number; fina
     reached = oldestFirst[i];
   }
   if (reached) await deps.store.setCursor(reached);
-  const pending = await deps.store.unfinalized(500);
-  const done = pending.length ? await deps.chain.finalized(pending) : [];
-  const finalized = done.length ? await deps.store.markFinalized(done) : 0;
+  // Oldest rows first, 500 at a time. A row the chain does not know after UNKNOWN_DROP_SECS is dropped, so rows that never
+  // finalize cannot fill the window; go on while a round moved something.
+  let finalized = 0;
+  for (let round = 0; round < MAX_FINALIZE_ROUNDS; round++) {
+    const pending = await deps.store.unfinalized(500);
+    if (!pending.length) break;
+    const status = await deps.chain.finalized(pending);
+    const marked = status.finalized.length ? await deps.store.markFinalized(status.finalized) : 0;
+    const dropped = status.unknown.length ? await deps.store.dropStale(status.unknown, UNKNOWN_DROP_SECS) : 0;
+    finalized += marked;
+    if (!marked && !dropped) break;
+  }
   return { stored, finalized, cursor: reached ?? cursor };
 }
 
@@ -247,6 +262,7 @@ export const rpcWebhookStore = (rpc: Rpc): WebhookStore => ({
   markDecoded: async (signature, error) => void (await rpc("webhook_mark_decoded", { p_signature: signature, p_error: error })),
   unfinalized: async (limit) => (await rpc("webhook_unfinalized", { p_limit: limit })) as string[],
   markFinalized: async (signatures) => Number(await rpc("webhook_mark_finalized", { p_signatures: signatures })),
+  dropStale: async (signatures, olderThanSecs) => Number(await rpc("webhook_drop_stale", { p_signatures: signatures, p_age_secs: olderThanSecs })),
   cursor: async () => ((await rpc("webhook_cursor_get", {})) as string | null) ?? null,
   setCursor: async (signature) => void (await rpc("webhook_cursor_set", { p_signature: signature })),
 });
@@ -265,11 +281,11 @@ export function jsonRpcCoreChain(url: string, eventAuthority: string, fetchFn: t
       (await call<{ signature: string; err: unknown }[]>("getSignaturesForAddress", [eventAuthority, { before, until, limit, commitment: "finalized" }])).filter((s) => !s.err).map((s) => s.signature),
     transaction: async (signature) => call<RawTx | null>("getTransaction", [signature, { encoding: "json", maxSupportedTransactionVersion: 0, commitment: "finalized" }]),
     finalized: async (signatures) => {
-      const out: string[] = [];
+      const out: { finalized: string[]; unknown: string[] } = { finalized: [], unknown: [] };
       for (let i = 0; i < signatures.length; i += 100) {
         const chunk = signatures.slice(i, i + 100);
         const { value } = await call<{ value: ({ confirmationStatus?: string } | null)[] }>("getSignatureStatuses", [chunk, { searchTransactionHistory: true }]);
-        value.forEach((s, j) => s?.confirmationStatus === "finalized" && out.push(chunk[j]));
+        value.forEach((s, j) => (s === null ? out.unknown : s?.confirmationStatus === "finalized" ? out.finalized : []).push(chunk[j]));
       }
       return out;
     },

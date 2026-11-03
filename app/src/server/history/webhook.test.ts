@@ -125,7 +125,7 @@ describe("the catch-up scan", () => {
         return newestFirst.slice(from, stop < 0 ? newestFirst.length : stop).slice(0, limit);
       },
       transaction: async (s) => (unreadable.includes(s) ? null : raw(s, history.indexOf(s) + 100)),
-      finalized: async (ss) => ss,
+      finalized: async (ss) => ({ finalized: ss, unknown: [] }),
     };
     return { c, asked };
   }
@@ -163,5 +163,27 @@ describe("the catch-up scan", () => {
     const { c } = chain([]);
     expect(await catchUp({ store: t.store, chain: c })).toMatchObject({ finalized: 1 });
     expect((await t.store.toDecode(10)).map((r) => r.signature)).toEqual([sig(START_V0)]);
+  });
+
+  it("drops rows the chain no longer knows after 10 minutes, so they cannot fill the window: 501 stale rows and one fresh one", async () => {
+    const t = await setup();
+    await t.sql.query(`insert into public.webhook_tx(signature, slot, body, finalized, received_at)
+      select 'stale' || n, n, '{}'::jsonb, false, now() - interval '1 hour' from generate_series(1, 501) n`);
+    await receiveWebhook(t.deps, SECRET, [START_V0]); // slot far above the stale ones
+    const { c } = chain([]);
+    c.finalized = async (ss) => ({ finalized: ss.filter((x) => x === sig(START_V0)), unknown: ss.filter((x) => x.startsWith("stale")) });
+    await catchUp({ store: t.store, chain: c });
+    expect(await t.count("webhook_tx")).toBe(1);
+    expect((await t.store.toDecode(10)).map((r) => r.signature)).toEqual([sig(START_V0)]);
+  });
+
+  it("keeps a young unknown row and an old one the chain does know", async () => {
+    const t = await setup();
+    await t.sql.query(`insert into public.webhook_tx(signature, slot, body, finalized, received_at) values
+      ('young', 1, '{}', false, now() - interval '1 minute'), ('known-old', 2, '{}', false, now() - interval '1 hour')`);
+    const { c } = chain([]);
+    c.finalized = async (ss) => ({ finalized: [], unknown: ss.filter((x) => x === "young") });
+    await catchUp({ store: t.store, chain: c });
+    expect(await t.count("webhook_tx")).toBe(2);
   });
 });
