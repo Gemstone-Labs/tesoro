@@ -102,6 +102,6 @@ describe("addresses agree with the IDL's seeds", () => {
     assert.deepEqual(seedsOf("record_season", "season").map((x) => x.path ?? Buffer.from(x.value!).toString()), ["season", "number"]);
     assert.deepEqual(seedsOf("fund_season_prize_native", "prize_source").map((x) => x.path ?? Buffer.from(x.value!).toString()), ["prize", "custody", "season"]);
     assert.deepEqual(seedsOf("request_instant_redeem", "order").map((x) => x.path ?? Buffer.from(x.value!).toString()), ["instant", "holder_account", "nonce"]);
-    assert.deepEqual(seedsOf("close_pair", "pair").map((x) => x.path ?? Buffer.from(x.value!).toString()), ["pair", "opener", "joiner"]);
+    assert.deepEqual(seedsOf("close_pair", "pair").map((x) => x.path ?? Buffer.from(x.value!).toString()), ["pair2", "pair.opener", "pair.joiner"]);
   });
 });

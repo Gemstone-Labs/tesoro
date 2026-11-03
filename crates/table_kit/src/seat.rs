@@ -26,6 +26,13 @@ pub struct SeatAccounts<'a, 'info> {
     pub permission_program: &'a AccountInfo<'info>,
 }
 
+/// The programs and vault every seat change calls, as the Game's accounts name them.
+pub struct SeatPrograms<'info> {
+    pub vault: AccountInfo<'info>,
+    pub magic_program: AccountInfo<'info>,
+    pub permission_program: AccountInfo<'info>,
+}
+
 /// Creates the seat account with `space` bytes and a private permission for `player`. The caller
 /// writes the seat's data afterwards. `table_seeds` and `seat_seeds` include their bumps.
 pub fn open_private_seat<'info>(

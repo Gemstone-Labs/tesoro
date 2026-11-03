@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { debtClearedFacts, digestDue, matchFacts, offerFacts, pushDigest, pushEvents, seasonFacts, seasonFactsInput, sendEvents, type MatchFacts, type OfferFacts } from "./notify-events.ts";
+import { debtClearedFacts, digestDue, matchFacts, notifyEventsJob, offerFacts, pushDigest, pushEvents, seasonFacts, seasonFactsInput, sendEvents, tellFacts, tellSeasonPlacings, type MatchFacts, type OfferFacts } from "./notify-events.ts";
 
 const NOW = 1_800_000_000;
 const base: MatchFacts = { id: 7n, game: "holdem", status: "active", deadline: NOW + 600, entry: 500, players: ["a", "b"] };
@@ -148,5 +148,46 @@ describe("sending events to an app that does not take every Game", () => {
     const down = (async () => new Response("no", { status: 503 })) as unknown as typeof fetch;
     assert.equal(await sendEvents("u", "s", [ev("a", "holdem")], told, down), 0);
     assert.equal(told.size, 0);
+  });
+});
+
+describe("telling facts to the app (Season placings from the Season run)", () => {
+  const facts = seasonFacts({ number: 4, count: 2, winners: ["acctA", "acctB"], gemas: [900n, 500n], paid: [true, true] });
+  const wallets = async (a: string) => ({ acctA: "walletA", acctB: null })[a as "acctA"] ?? null;
+  const recorder = (status: number) => {
+    const bodies: any[] = [];
+    const fetchFn = (async (_u: string, init: any) => (bodies.push(JSON.parse(init.body)), new Response("{}", { status }))) as unknown as typeof fetch;
+    return { bodies, fetchFn };
+  };
+
+  it("sends each placing with the wallet's authority and skips an Account whose wallet cannot be read", async () => {
+    const r = recorder(200);
+    assert.deepEqual(await tellFacts(facts, wallets, "https://x/api/notify/", "s", r.fetchFn, new Set()), { sent: 1, left: 0 });
+    assert.deepEqual(r.bodies, [{ events: [{ kind: "season-placed", season: 4, rank: 1, gemas: 900, authority: "walletA" }] }]);
+  });
+
+  it("does not ask again for what the app took, and reports what it has not taken", async () => {
+    const told = new Set<string>();
+    const up = recorder(200);
+    await tellFacts(facts, wallets, "https://x/api/notify/", "s", up.fetchFn, told);
+    const again = recorder(200);
+    assert.deepEqual(await tellFacts(facts, wallets, "https://x/api/notify/", "s", again.fetchFn, told), { sent: 0, left: 0 });
+    assert.equal(again.bodies.length, 0);
+    const down = recorder(503);
+    assert.deepEqual(await tellFacts(facts, wallets, "https://x/api/notify/", "s", down.fetchFn, new Set()), { sent: 0, left: 1 });
+  });
+
+  it("does nothing when email is not set up on this keeper", async () => {
+    assert.equal(await tellSeasonPlacings({} as any, {}), 0);
+  });
+});
+
+describe("the notify job when the app sends the emails itself", () => {
+  it("stays off with KEEPER_WEBHOOK_NOTIFY=1, whatever else is set", async () => {
+    let asked = 0;
+    const fetchFn = (async () => (asked++, new Response("{}"))) as unknown as typeof fetch;
+    const ctx = new Proxy({}, { get: () => { throw new Error("must not read the chain"); } }) as any;
+    assert.equal(await notifyEventsJob(ctx, { NOTIFY_URL: "https://x/api/notify/", NOTIFY_SECRET: "s", KEEPER_WEBHOOK_NOTIFY: "1" }, fetchFn), 0);
+    assert.equal(asked, 0);
   });
 });

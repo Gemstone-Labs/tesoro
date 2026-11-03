@@ -141,10 +141,18 @@ fn judged_slot(
 }
 
 /// Counts a Match started by this opener-to-joiner pair.
-fn record_pair(pair: &mut Account<PairState>, bump: u8, payer: Pubkey, now: i64) -> Result<()> {
+fn record_pair(
+    pair: &mut Account<PairState>,
+    bump: u8,
+    payer: Pubkey,
+    (opener, joiner): (Pubkey, Pubkey),
+    now: i64,
+) -> Result<()> {
     if pair.window_start == 0 && pair.count == 0 {
         pair.bump = bump;
         pair.payer = payer;
+        pair.opener = opener;
+        pair.joiner = joiner;
     }
     require!(pair.record(now), TesoroError::PairLimitReached);
     Ok(())
@@ -805,6 +813,10 @@ pub(crate) fn join_match<'info>(
         &mut ctx.accounts.pair,
         ctx.bumps.pair,
         ctx.accounts.payer.key(),
+        (
+            Pubkey::new_from_array(ctx.accounts.match_state.inner.a.player),
+            ctx.accounts.player_account.key(),
+        ),
         ts,
     )?;
     let player = ctx.accounts.player_account.key();
@@ -1669,13 +1681,12 @@ pub(crate) fn extend_match_deadline(
 /// Returns the rent of a pair counter once its window has ended. Anyone may call; the rent goes
 /// back to whoever paid it.
 #[derive(Accounts)]
-#[instruction(opener: Pubkey, joiner: Pubkey)]
 pub struct ClosePair<'info> {
     pub caller: Signer<'info>,
     #[account(
         mut,
         close = payer,
-        seeds = [PAIR_SEED, opener.as_ref(), joiner.as_ref()],
+        seeds = [PAIR_SEED, pair.opener.as_ref(), pair.joiner.as_ref()],
         bump = pair.bump
     )]
     pub pair: Account<'info, PairState>,
@@ -1684,7 +1695,7 @@ pub struct ClosePair<'info> {
     pub payer: UncheckedAccount<'info>,
 }
 
-pub(crate) fn close_pair(ctx: Context<ClosePair>, _opener: Pubkey, _joiner: Pubkey) -> Result<()> {
+pub(crate) fn close_pair(ctx: Context<ClosePair>) -> Result<()> {
     let ended = ctx
         .accounts
         .pair

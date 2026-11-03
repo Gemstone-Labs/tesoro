@@ -49,7 +49,7 @@ const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111
  * the scan are cheaper). 200k leaves 30% over the worst reading (see ticket vgp 05). The seat and commit steps make
  * permission and MagicBlock calls: Hold'em's 400k. `finalize` pays out.
  */
-export const CU = { declare: 40_000, resolve: 200_000, finalize: 400_000, assign: 300_000, seats: 400_000, commit: 400_000 } as const;
+export const CU = { declare: 40_000, resolve: 600_000, conclude: 600_000, finalize: 400_000, assign: 300_000, seats: 400_000, commit: 400_000 } as const;
 
 /** What every declare carries: the `action_seq` it was built for (public) and the sealed Become a Spy byte. */
 export interface DeclareSeal {
@@ -606,6 +606,19 @@ export class VanguardChain {
     } as any;
   }
 
+  /** What every instruction that can end a Match names: the seat accounts it wipes, the Battle and the Sponsor it commits through. */
+  private async concludingAccounts(caller: PublicKey, ref: TableRef) {
+    const { teeValidator } = await this.readConfig();
+    return {
+      ...this.seatAccounts(caller, ref),
+      battle: addresses(ref).battle,
+      sponsor: sponsorPda(),
+      vanguardConfig: configPda(),
+      magicFeeVault: magicFeeVaultPda(teeValidator),
+      magicContext: MAGIC_CONTEXT,
+    } as any;
+  }
+
   /** Rollup, permissionless, once per table (the operator's setup). Creates the two Army seats, private to nobody until a Match is begun. */
   async initSeats(payer: PlayerSigner, ref: TableRef): Promise<string> {
     const ix = await this.program.methods.initSeats().accountsPartial(this.seatAccounts(payer.publicKey, ref)).instruction();
@@ -734,12 +747,8 @@ export class VanguardChain {
   }
 
   /** The `claim_timeout` instruction, for a caller that simulates it first. */
-  claimTimeoutIx(caller: PublicKey, ref: TableRef): Promise<TransactionInstruction> {
-    const ad = addresses(ref);
-    return this.program.methods
-      .claimTimeout()
-      .accountsPartial({ caller, table: ad.table, battle: ad.battle, army0: ad.army0, army1: ad.army1 } as any)
-      .instruction();
+  async claimTimeoutIx(caller: PublicKey, ref: TableRef): Promise<TransactionInstruction> {
+    return this.program.methods.claimTimeout().accountsPartial(await this.concludingAccounts(caller, ref)).instruction();
   }
 
   /**
@@ -749,7 +758,7 @@ export class VanguardChain {
    */
   async claimTimeout(caller: PlayerSigner, ref: TableRef): Promise<string> {
     const ix = await this.claimTimeoutIx(caller.publicKey, ref);
-    return this.sendTee("claim_timeout", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], caller);
+    return this.sendTee("claim_timeout", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.conclude }), ix], caller);
   }
 
   /**
@@ -758,11 +767,7 @@ export class VanguardChain {
    * program refuses it in the declare's own slot (`TooSoon`), so a caller retries after a moment.
    */
   async resolve(caller: PlayerSigner, ref: TableRef): Promise<string> {
-    const ad = addresses(ref);
-    const ix = await this.program.methods
-      .resolve()
-      .accountsPartial({ caller: caller.publicKey, table: ad.table, battle: ad.battle, army0: ad.army0, army1: ad.army1 } as any)
-      .instruction();
+    const ix = await this.program.methods.resolve().accountsPartial(await this.concludingAccounts(caller.publicKey, ref)).instruction();
     return this.sendTee("resolve", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.resolve }), ix], caller);
   }
 

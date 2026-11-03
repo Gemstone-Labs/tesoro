@@ -49,6 +49,9 @@ export async function postToApp(url: string, secret: string, body: unknown, fetc
   }
 }
 
+/** True when the app sends the emails itself (from the Helius webhook and its cron, ticket 13) and the keeper's notify jobs stay off. */
+export const webhookNotifyOn = (env: NodeJS.ProcessEnv = process.env) => env.KEEPER_WEBHOOK_NOTIFY === "1";
+
 export const pushSettled = (url: string, secret: string, push: SettledPush, fetchFn: typeof fetch = fetch) => postToApp(url, secret, push, fetchFn);
 
 /** Matches settled longer ago than this are not announced (a restart does not replay old history). */
@@ -67,7 +70,7 @@ export const gameOfKey = gameOfProgram;
 export async function notifyJob(ctx: Ctx, env: NodeJS.ProcessEnv = process.env, queue = startedRuns, fetchFn: typeof fetch = fetch): Promise<number> {
   const url = env.NOTIFY_URL;
   const secret = env.NOTIFY_SECRET;
-  if (!url || !secret) return 0;
+  if (!url || !secret || webhookNotifyOn(env)) return 0;
   const authorities = new Map<string, string>();
   let sent = 0;
   let looked = 0;

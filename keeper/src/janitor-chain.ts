@@ -8,10 +8,8 @@ import { discriminatorOf, type Lister } from "./lists.ts";
 import { solanaFetch } from "./runtime.ts";
 import { ADAPTERS } from "./scheduler-games.ts";
 import { sendIxs } from "./send.ts";
-import { seenPairs } from "./sweeps.ts";
 import { connReader } from "./supply.ts";
 import { simulate } from "./tee.ts";
-import { pairAddress } from "./kit.ts";
 
 const bs58 = anchor.utils.bytes.bs58;
 
@@ -47,7 +45,6 @@ export function realJanitorDeps(ctx: Ctx): JanitorDeps {
     "block-burst": (ctx.burst as any).program,
     vanguard: (ctx.vanguard as any).program,
   };
-  const known = new Map([...seenPairs.values()].map((p) => [pairAddress(p.opener, p.joiner).toBase58(), p]));
   return {
     list: v2Lister(rpc),
     read: connReader(ctx.conn),
@@ -58,7 +55,6 @@ export function realJanitorDeps(ctx: Ctx): JanitorDeps {
       return rows.map((r) => ({ publicKey: r.pubkey, account: ctx.core.coder.accounts.decode("offerState", r.account.data) }));
     },
     assignments: ADAPTERS.map((a) => assignmentSource(a.label, chains[a.label], rpc, (m) => a.closeAssignment(ctx, m))),
-    pairKeys: async (address) => known.get(address.toBase58()) ?? null,
     deploySlots: async (games) =>
       Promise.all(
         games.map(async (g) => {

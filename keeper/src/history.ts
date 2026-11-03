@@ -8,7 +8,6 @@ import type { MatchRunStartedRecord } from "../../app/src/server/history/events.
 import type { Rpc } from "../../app/src/server/history/rpc.ts";
 import { log, type Ctx } from "./act.ts";
 import { collectSignatures, pooled, transactionRecords, type ScanConn, type TxRecords } from "./events-scan.ts";
-import { notePair } from "./sweeps.ts";
 
 // ---- Where the scan stands -----------------------------------------------------------------------------------------
 
@@ -82,7 +81,6 @@ export const notifySink: Sink = async (tx) => {
   for (const r of tx.records) {
     if (r.type !== "start") continue;
     startedRuns.push({ start: r, blockTime: tx.blockTime });
-    if (r.bPlayer) notePair(r.aPlayer, r.bPlayer);
   }
   while (startedRuns.length > QUEUE_CAP) startedRuns.shift();
 };

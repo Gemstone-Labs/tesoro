@@ -184,6 +184,8 @@ struct Env {
     nonce: u64,
     now: i64,
     last_cu: u64,
+    /// The logs of the latest transaction, sent or refused.
+    last_logs: Vec<String>,
 }
 
 impl Env {
@@ -205,10 +207,12 @@ impl Env {
         match self.svm.send_transaction(tx) {
             Ok(meta) => {
                 self.last_cu = meta.compute_units_consumed;
+                self.last_logs = meta.logs.clone();
                 Ok(())
             }
             Err(e) => {
                 self.last_cu = e.meta.compute_units_consumed;
+                self.last_logs = e.meta.logs.clone();
                 Err(e)
             }
         }
@@ -376,6 +380,7 @@ impl Env {
     /// committed copy is the freshly created table).
     fn new() -> Self {
         let mut svm = LiteSVM::new();
+        litesvm_magic_stub::install(&mut svm);
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/");
         for (id, file) in [
             (tesoro_core::ID, "tesoro_core.so"),
@@ -414,6 +419,7 @@ impl Env {
             nonce: 10,
             now: T0,
             last_cu: 0,
+            last_logs: Vec::new(),
         };
         for k in [&env.admin, &env.oracle, &env.ctl, &env.operator] {
             env.svm.airdrop(&k.pubkey(), 1_000 * SOL).expect("airdrop");
@@ -805,6 +811,35 @@ impl Env {
             .expect("magic shell");
     }
 
+    /// The accounts of every instruction that can end a Match.
+    fn concluding(&self, caller: APk) -> trading_duel::accounts::Concluding {
+        let (b0, b1) = (book_addr(self.table, 0), book_addr(self.table, 1));
+        let perm = |k: APk| {
+            APk::find_program_address(
+                &[
+                    ephemeral_rollups_sdk::access_control::structs::PERMISSION_SEED,
+                    k.as_ref(),
+                ],
+                &sdk_key(PERMISSION_PROGRAM_ID),
+            )
+            .0
+        };
+        trading_duel::accounts::Concluding {
+            caller,
+            table: self.table,
+            book_0: b0,
+            book_1: b1,
+            book_0_permission: perm(b0),
+            book_1_permission: perm(b1),
+            permission_program: sdk_key(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_key(ephemeral_rollups_sdk::consts::EPHEMERAL_VAULT_ID),
+            sponsor: sponsor_addr(),
+            magic_fee_vault: table_kit::fee_vault_address(&trading_duel::TEE_VALIDATOR),
+            magic_context: sdk_key(ephemeral_rollups_sdk::consts::MAGIC_CONTEXT_ID),
+            magic_program: sdk_key(MAGIC_PROGRAM_ID),
+        }
+    }
+
     fn commit_ix(&self) -> Instruction {
         ix(
             trading_duel::ID,
@@ -841,10 +876,7 @@ impl Env {
     fn expire_ix(&self) -> Instruction {
         ix(
             trading_duel::ID,
-            trading_duel::accounts::TableOnly {
-                caller: a(self.oracle.pubkey()),
-                table: self.table,
-            },
+            self.concluding(a(self.oracle.pubkey())),
             trading_duel::instruction::ExpireStart {},
             vec![],
         )
@@ -1021,12 +1053,7 @@ impl Env {
         let (kp, key) = self.person_of(0);
         let ixn = ix(
             trading_duel::ID,
-            trading_duel::accounts::EndMatch {
-                caller: key,
-                table: self.table,
-                book_0: book_addr(self.table, 0),
-                book_1: book_addr(self.table, 1),
-            },
+            self.concluding(key),
             trading_duel::instruction::EndMatch {},
             vec![],
         );
@@ -1431,7 +1458,7 @@ fn a_late_check_in_is_refused_and_the_player_who_came_wins_when_the_other_never_
     let ixn = env.expire_ix();
     env.rollup(ixn).expect("expire");
     let t = env.table();
-    assert_eq!((t.phase, t.dirty), (trading_duel::PHASE_OVER, true));
+    assert_eq!((t.phase, t.dirty), (trading_duel::PHASE_OVER, false));
     assert_eq!(
         t.ring.find(&env.tmatch, 0).unwrap().1.outcome,
         table_kit::OUTCOME_WIN0
@@ -1724,7 +1751,7 @@ fn the_higher_score_wins_the_result_goes_into_the_ring_and_finalize_pays_the_win
     let t = env.table();
     assert_eq!(
         (t.phase, t.dirty, t.scores, t.winner),
-        (trading_duel::PHASE_OVER, true, [1200, 0], 0)
+        (trading_duel::PHASE_OVER, false, [1200, 0], 0)
     );
     assert_eq!(t.revealed, [[0; 12], [1; 12]]);
     let (_, slot) = t.ring.find(&env.tmatch, 0).expect("slot");
@@ -1750,10 +1777,12 @@ fn the_higher_score_wins_the_result_goes_into_the_ring_and_finalize_pays_the_win
         ("begin", begin_cu),
         ("check_in", check_in_cu),
         ("tick", tick_cu),
-        ("end", end_cu),
     ] {
         assert!(cu < 60_000, "{name} used {cu} CU");
     }
+    // `end_match` also closes the Books and commits: the two CPI calls here are stubs, so the real
+    // cost is devnet evidence; the app asks for 400,000.
+    assert!(end_cu < 200_000, "end used {end_cu} CU");
     assert!(finalize_cu < 250_000, "finalize used {finalize_cu} CU");
 }
 
@@ -2117,11 +2146,13 @@ fn a_table_is_reset_only_when_closed_committed_and_a_moment_old_and_it_forgets_t
     play_flat(&mut env);
     let over = env.table().over_at;
     let first = env.table();
-    // The seats are still open.
+    // `end_match` already closed the seats and committed; the gates stay for a table that got there another way.
     env.set_time(over + trading_duel::RESET_DELAY_SECS);
+    env.patch_table(|t| t.seats_open = true);
     assert_eq!(custom_code(&env.reset().unwrap_err()), dcode(SeatsOpen));
     env.close_seats_standin();
     // Not committed yet: the result must be scheduled for Solana before it can be wiped.
+    env.patch_table(|t| t.dirty = true);
     assert_eq!(custom_code(&env.reset().unwrap_err()), dcode(NotCommitted));
     env.commit_standin();
     // Too early.
@@ -2253,21 +2284,13 @@ fn an_assignment_closes_only_after_the_core_receipt_and_returns_its_rent_to_the_
 fn the_result_is_committed_once_and_the_sponsor_cannot_be_drained_by_repeats() {
     use trading_duel::DuelError::*;
     let mut env = live();
-    env.magic_shell();
     // Nothing to commit while the Match runs.
     let ixn = env.commit_ix();
     assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(NotDirty));
     pick_all(&mut env, 0, 0);
     play_flat(&mut env);
-    // With a result the call passes its own checks and reaches the MagicBlock program, which
-    // LiteSVM does not have (devnet evidence, ticket 24).
-    let ixn = env.commit_ix();
-    let err = env.rollup(ixn).unwrap_err();
-    assert!(
-        !err.meta.logs.iter().any(|l| l.contains("NotDirty")),
-        "{:?}",
-        err.meta.logs
-    );
+    assert_eq!(env.table().commit.tries, 1, "end_match sent the commit");
+    env.magic_shell();
     env.commit_standin();
     let ixn = env.commit_ix();
     assert_eq!(
@@ -2512,14 +2535,11 @@ fn tesoro_core_treasury() -> anchor_lang::prelude::Pubkey {
 // --- A commit that never reaches base ------------------------------------------------------
 
 impl Env {
-    /// A commit the rollup accepted but base never received: the table is clean, the guard has
-    /// counted the try, and base's copy is unchanged.
+    /// A commit the rollup accepted but base never received: `end_match` sent it, so the table is
+    /// clean and the guard has counted the try, while base's copy is unchanged.
     fn commit_lost_standin(&mut self) {
-        let now = self.now;
-        self.patch_table(|t| {
-            t.dirty = false;
-            t.commit.record(now);
-        });
+        assert_eq!(self.table().commit.tries, 1, "end_match sent the commit");
+        self.patch_table(|t| t.dirty = false);
     }
 }
 
@@ -2527,9 +2547,9 @@ impl Env {
 fn a_lost_commit_is_repeated_after_a_wait_and_then_finalize_pays_the_winner() {
     use trading_duel::DuelError::*;
     let mut env = live();
-    env.magic_shell();
     pick_all(&mut env, 0, 0);
     play_flat(&mut env);
+    env.magic_shell();
     env.commit_lost_standin();
     assert_eq!(
         custom_code(&env.finalize_start().unwrap_err()),
@@ -2559,9 +2579,9 @@ fn a_lost_commit_is_repeated_after_a_wait_and_then_finalize_pays_the_winner() {
 #[test]
 fn a_lost_commit_survives_the_reset() {
     let mut env = live();
-    env.magic_shell();
     pick_all(&mut env, 0, 0);
     play_flat(&mut env);
+    env.magic_shell();
     env.commit_lost_standin();
     env.close_seats_standin();
     env.set_time(env.now + trading_duel::RESET_DELAY_SECS);
@@ -2578,9 +2598,9 @@ fn a_lost_commit_survives_the_reset() {
 fn repeated_commit_calls_cost_nothing_once_the_result_is_settled_and_freed() {
     use trading_duel::DuelError::*;
     let mut env = live();
-    env.magic_shell();
     pick_all(&mut env, 0, 0);
     play_flat(&mut env);
+    env.magic_shell();
     env.commit_standin();
     let slot = env.table().slot;
     let m = env.tmatch;
@@ -2842,4 +2862,47 @@ fn a_skipped_epoch_commit_is_owed_while_the_table_is_idle() {
         dcode(NotDirty),
         "once per result"
     );
+}
+
+// --- The instruction that ends a Match commits the result and closes the seats --------------
+
+/// Whether the latest transaction called `program` (a CPI line in the logs).
+fn called(env: &Env, program: solana_sdk::pubkey::Pubkey) -> bool {
+    let line = format!("Program {program} invoke");
+    env.last_logs.iter().any(|l| l.starts_with(&line))
+}
+
+#[test]
+fn end_match_commits_the_result_and_closes_the_seats() {
+    let mut env = live();
+    play_flat(&mut env);
+    let t = env.table();
+    assert_eq!(t.phase, trading_duel::PHASE_OVER);
+    assert!(!t.dirty, "the result is already committed");
+    assert_eq!(t.commit.tries, 1, "exactly one commit, sent by end_match");
+    assert!(!t.seats_open, "the seats are already closed");
+    assert!(
+        called(&env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
+    assert!(
+        called(&env, litesvm_magic_stub::permission_program()),
+        "the seat change"
+    );
+    env.set_time(env.now + trading_duel::RESET_DELAY_SECS);
+    env.reset()
+        .expect("reset without a separate commit or close");
+}
+
+#[test]
+fn a_start_that_expires_commits_and_closes_the_seats_too() {
+    let mut env = ready();
+    env.begin().expect("begin");
+    env.open_seats_standin();
+    env.set_time(env.table().start_deadline + 1);
+    let ixn = env.expire_ix();
+    env.rollup(ixn).expect("expire");
+    let t = env.table();
+    assert!(!t.dirty && !t.seats_open && t.commit.tries == 1);
+    assert!(called(&env, litesvm_magic_stub::magic_program()));
 }

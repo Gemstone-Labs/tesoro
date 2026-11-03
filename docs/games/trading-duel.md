@@ -72,7 +72,7 @@ The **result ring** keeps the outcome of the last 8 finished Matches (Win0, Win1
 | sample and reveal | TEE | `tick` (about four times a second during the grid) | anyone |
 | end | TEE | `end_match`: writes the result into the ring slot; both Players picked nothing = no-show | anyone, after the window |
 | no check-in | TEE | `expire_start`: past the start deadline, the Player who checked in wins; nobody checked in is a no-show (`table_kit::absence_outcome`) | anyone |
-| commit | TEE | `commit_table`: once per result, paid by the Sponsor | anyone |
+| commit | TEE | `end_match` / `expire_start` close the Books and commit the result in the same transaction, paid by the Sponsor; `commit_table` repeats a lost commit | anyone |
 | close seats, reset | TEE | `close_seats`, then `reset_table` (committed, seats closed, 30 s after the end): wipes the Match, epoch + 1, ring kept | anyone |
 | settle | base | `finalize`: reads the committed table, then CPI `settle_match`, `refund_match` (draw) or `NoShow` | anyone |
 | free slot | TEE | `release_slot` (core's receipt, 60 s old), `void_table` (core already refunded a Match the table never finished) | anyone |
