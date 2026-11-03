@@ -811,7 +811,7 @@ describe("join and assign in one transaction", () => {
     expect(claims).toEqual([]);
     await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
     expect(claims.length).toBe(1);
-    expect(claims[0].slice(0, 2)).toEqual(["holdem", 0]);
+    expect(claims[0].slice(0, 2)).toEqual(["block-puzzle", 0]);
     expect(claims[0][2]).toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}-\d+$/);
   });
 

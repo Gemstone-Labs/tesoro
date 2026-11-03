@@ -15,6 +15,8 @@ export interface IngestContext {
   slot?: number;
   /** The id the app uses for a Game program ("holdem", "trading-duel", ...); null for a program it does not know. */
   gameOf: (program: string) => string | null;
+  /** Called once per Match with a start record, after its rows are written: the Match is over, so its table (if any) is free. */
+  onMatchEnded?: (matchKey: string, ran: boolean) => Promise<unknown>;
   /** Called once per Match with a start record. */
   detail?: (matchKey: string) => MatchDetail | undefined;
 }
@@ -117,6 +119,21 @@ export function payloadOf(r: MatchRecord, ctx: IngestContext): Record<string, un
  * Stores the Match records of one transaction. Safe to repeat and to call out of order. Returns how many
  * were new. `settled` carries no time on chain, so the ingest time stands in; pass `blockTime` to use the chain's.
  */
+/**
+ * Frees the table a Match held in the pool (migration 0022). Safe to repeat: a Match holds its table once. A failure never
+ * stops the history: the table stays claimed until the pool repair reads the rollup.
+ */
+export const tableFreer = (rpc: Rpc) => async (matchKey: string, ran: boolean) => {
+  try {
+    await rpc("free_table", { p_match: matchKey, p_advanced: ran });
+  } catch (e) {
+    console.warn(`table of Match ${matchKey} not freed: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+  }
+};
+
+/** A win (0) or a draw (2) is a Match that ran on its table, which moved one epoch on. Every other ending leaves the table's epoch unknown. */
+const RAN_KINDS = new Set([0, 2]);
+
 export async function ingestMatchRecords(rpc: Rpc, records: MatchRecord[], ctx: IngestContext & { blockTime?: number }): Promise<number> {
   const isLineRecord = (r: MatchRecord) => r.type === "lines-start" || r.type === "line-step" || r.type === "lines-progress";
   // Validate the whole transaction before a first-wins legacy header can be stored.
@@ -127,6 +144,7 @@ export async function ingestMatchRecords(rpc: Rpc, records: MatchRecord[], ctx: 
     const lineRecord = isLineRecord(r);
     if (r.type === "settled" && ctx.blockTime !== undefined) p.ts = ctx.blockTime;
     if (await rpc(lineRecord ? "ingest_match_line_event" : "ingest_match_event", { p })) added += 1;
+    if (r.type === "start") await ctx.onMatchEnded?.(matchKeyOf(r), RAN_KINDS.has(r.kind));
   }
   return added;
 }
