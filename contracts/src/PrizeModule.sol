@@ -4,6 +4,10 @@ pragma solidity ^0.8.28;
 import {PositionVaultBase} from "./PositionVaultBase.sol";
 import {IERC20Minimal} from "./IRateSource.sol";
 
+interface ITreasuryBalance {
+    function treasuryBalance() external view returns (uint256);
+}
+
 /// @title PrizeModule
 /// @notice The cash-in batch and prize payout half of `PositionVault`, split out to keep the vault under the EIP-170
 ///         code-size limit. A vault deploys one in its constructor (same immutables) and reaches it only by
@@ -12,10 +16,6 @@ import {IERC20Minimal} from "./IRateSource.sol";
 ///
 ///         Every entry point returns the acknowledgement payload (empty = none) instead of sending it: the vault's
 ///         transport sends it. Called directly (not through a vault) an entry point reverts.
-interface ITreasuryBalance {
-    function treasuryBalance() external view returns (uint256);
-}
-
 contract PrizeModule is PositionVaultBase {
     error DirectCall();
     error InvalidMessageLength();

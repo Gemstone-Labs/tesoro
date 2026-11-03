@@ -95,6 +95,14 @@ abstract contract EscrowBase is Test {
     }
 
     function _prize(uint64 payoutId, address asset, address to, uint128 shares) internal view returns (bytes memory) {
+        return _prizeFee(payoutId, asset, to, shares, 0);
+    }
+
+    function _prizeFee(uint64 payoutId, address asset, address to, uint128 shares, uint128 deliveryFee)
+        internal
+        view
+        returns (bytes memory)
+    {
         return abi.encodePacked(
             uint8(13),
             lz.eid(),
@@ -103,7 +111,9 @@ abstract contract EscrowBase is Test {
             bytes32(uint256(uint160(asset))),
             bytes32(uint256(0x9a17e)),
             bytes32(uint256(uint160(to))),
-            shares, uint128(0));
+            shares,
+            deliveryFee
+        );
     }
 
     function _u128At(bytes memory b, uint256 at) internal pure returns (uint128 v) {
@@ -416,6 +426,37 @@ abstract contract EscrowBase is Test {
         assertEq(shares, take);
         assertEq(vault.escrowedShares(), esc, "cumulative counter does not fall when prizes are paid");
         assertEq(vault.treasuryBalance(), treasury, "no Treasury money moved");
+    }
+
+    function test_aPrizeCashOutPaysTheDeliveryFeeOutOfTheWinnersShares() public {
+        address tesoro = address(0x7E50);
+        vault.setDelivery(tesoro, type(uint256).max);
+        uint256 esc = _fillEscrow();
+        uint128 take = uint128(esc / 2);
+        uint128 fee = take / 20;
+        bytes memory m = _prizeFee(1, _token(), winner, take, fee);
+        _recv(m);
+        assertEq(_balance(winner), take - fee);
+        assertEq(_balance(tesoro), fee);
+        assertEq(vault.escrowShares(), esc - take, "the escrow gave up the whole cash-out");
+        (uint8 status, uint128 shares) = _prizeResult(1);
+        assertEq(status, 1);
+        assertEq(shares, take, "the answer names the whole cash-out");
+        _recv(m);
+        assertEq(_balance(tesoro), fee, "a repeat pays nothing more");
+    }
+
+    function test_aDeliveryFeeAboveATenthOfThePrizeIsShrunkAndADifferentFeeIsAnotherPayout() public {
+        address tesoro = address(0x7E50);
+        vault.setDelivery(tesoro, type(uint256).max);
+        uint256 esc = _fillEscrow();
+        uint128 take = uint128(esc / 2);
+        _recv(_prizeFee(1, _token(), winner, take, take)); // asks for all of it
+        assertEq(_balance(tesoro), take / 10);
+        assertEq(_balance(winner), take - take / 10);
+        // The same id with another fee is not the stored payout: nothing moves.
+        _recv(_prizeFee(1, _token(), winner, take, 1));
+        assertEq(_balance(tesoro), take / 10);
     }
 
     function test_payPrizeIsPaidOncePerPayoutIdAndTheAnswerIsRegenerated() public {
