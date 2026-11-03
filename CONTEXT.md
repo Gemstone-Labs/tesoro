@@ -190,7 +190,7 @@ A warning the car gives as the wall nears: screws pop, then a bolt and a rattlin
 _Avoid_: signal, hint, clue
 
 **Brake**:
-A Player's one action per Railcar Match besides Jumping, usable only while aboard: it halves the car's speed for 5 seconds for everyone. A Brake pressed during another adds 5 more seconds at half speed; the car never goes slower than half speed. Distances, Tells and the Early-jump refund all move with the car, so braking changes when they arrive, not where.
+A Player's one action per Railcar Match besides Jumping, usable only while aboard: it halves the car's speed for 5 seconds. The car slows for everyone, but only the Player who Braked sees it: every other screen shows the car as before, so a Brake is a safety margin nobody else knows about. Each Player sees only their own Brake; all Brakes are revealed with the Crash point after the Match. A Brake pressed during another adds 5 more seconds at half speed; the car never goes slower than half speed. Distances, Tells and the Early-jump refund all move with the car, so braking changes when they arrive, not where.
 _Avoid_: power-up, boost
 
 **Jump**:
