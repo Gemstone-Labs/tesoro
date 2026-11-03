@@ -137,6 +137,34 @@ export function sizingApyBps(pool: Pick<StakePoolView, "totalLamports" | "poolTo
   return Number(annual < BigInt(ceilingBps) ? annual : BigInt(ceilingBps));
 }
 
+// ---- Update ---------------------------------------------------------------------------------------
+
+/** Instruction 7 of the SPL stake pool program. */
+const UPDATE_STAKE_POOL_BALANCE = 7;
+/** Where the pool keeps its validator list's address. */
+const VALIDATOR_LIST_AT = 98;
+
+/** The validator list a stake pool account names. */
+export const validatorListOf = (poolData: Uint8Array) => new PublicKey(poolData.subarray(VALIDATOR_LIST_AT, VALIDATOR_LIST_AT + 32));
+
+/**
+ * `UpdateStakePoolBalance` of the SPL stake pool program: anyone may send it. tesoro_core refuses a pool more than
+ * `MAX_STALE_EPOCHS` behind, so a payout out of a stake custody carries one when the pool has fallen that far. It needs the
+ * validator list to be current too (the pool's operators update that each epoch); when it is not, the transaction fails.
+ * Shared with the keeper.
+ */
+export function updateStakePoolBalanceIx(pool: PublicKey, info: { data: Uint8Array; owner: PublicKey }): TransactionInstruction {
+  const view = parseStakePool(info.data);
+  if (!view) throw new Error(`${pool.toBase58()} is not a stake pool`);
+  const w = (pubkey: PublicKey) => ({ pubkey, isSigner: false, isWritable: true });
+  const r = (pubkey: PublicKey) => ({ pubkey, isSigner: false, isWritable: false });
+  return new TransactionInstruction({
+    programId: info.owner,
+    keys: [w(pool), r(poolWithdrawAuthority(pool, info.owner)), w(validatorListOf(info.data)), r(view.reserveStake), w(view.managerFeeAccount), w(view.poolMint), r(TOKEN_PROGRAM_ID)],
+    data: Buffer.from([UPDATE_STAKE_POOL_BALANCE]),
+  });
+}
+
 // ---- Quote ----------------------------------------------------------------------------------------
 
 export interface DepositQuote {
