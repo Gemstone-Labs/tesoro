@@ -46,7 +46,7 @@ use ephemeral_rollups_sdk::{
 use table_kit::{
     assignment_absent, close_private_seat, create_hidden_seat, match_state_gone, may_skip,
     move_lamports, read_table, receipt_at, retire_legacy_record, sponsor_commit, swap_seat_members,
-    table_wait_over, KitError, LegacyError, SeatAccounts, OUTCOME_DRAW, OUTCOME_NO_SHOW,
+    table_wait_over, KitError, LegacyError, SeatAccounts, SeatPrograms, OUTCOME_DRAW, OUTCOME_NO_SHOW,
     OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
@@ -376,6 +376,81 @@ fn blank_log(reason: u8) -> RunLog {
     log.engine_version = ENGINE_VERSION;
     log.reason = reason;
     log
+}
+
+/// Zeroes both Boards and the Vault and swaps the Boards' permission members to nobody, so
+/// nothing the Players could read is left and the seats are never without a private permission;
+/// the table no longer has open seats. Shared by `wipe_seats` and `close`.
+fn wipe_seat_trio<'info>(
+    table: &mut Account<'info, Table>,
+    boards: [&mut Account<'info, Board>; 2],
+    seed_vault: &mut Account<'info, Vault>,
+    permissions: [AccountInfo<'info>; 2],
+    programs: &SeatPrograms<'info>,
+) -> Result<()> {
+    let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
+    let table_bump = [table.bump];
+    let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
+    let table_info = table.to_account_info();
+    let table_key = table.key();
+    seed_vault.wipe();
+    seed_vault.exit(&ID)?;
+    for (seat, (board, permission)) in boards.into_iter().zip(permissions).enumerate() {
+        board.wipe();
+        board.exit(&ID)?;
+        let seat_arr = [seat as u8];
+        let bump_arr = [board.bump];
+        let seat_seeds: &[&[u8]] = &[BOARD_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
+        swap_seat_members(
+            &SeatAccounts {
+                table: &table_info,
+                seat: &board.to_account_info(),
+                permission: &permission,
+                vault: &programs.vault,
+                magic_program: &programs.magic_program,
+                permission_program: &programs.permission_program,
+            },
+            table_seeds,
+            seat_seeds,
+            None,
+        )?;
+    }
+    table.seats_open = false;
+    Ok(())
+}
+
+/// The end of a Match, in the same transaction as the instruction that ended it: wipes the seats
+/// and commits the result to Solana, paid by the Sponsor.
+fn wipe_and_commit(a: &mut CloseMatch, now: i64) -> Result<()> {
+    if a.table.seats_open {
+        wipe_seat_trio(
+            &mut a.table,
+            [&mut *a.board_0, &mut *a.board_1],
+            &mut a.seed_vault,
+            [
+                a.board_0_permission.to_account_info(),
+                a.board_1_permission.to_account_info(),
+            ],
+            &SeatPrograms {
+                vault: a.ephemeral_vault.to_account_info(),
+                magic_program: a.magic_program.to_account_info(),
+                permission_program: a.permission_program.to_account_info(),
+            },
+        )?;
+    }
+    a.table.commit.record(now);
+    a.table.dirty = false;
+    a.table.exit(&ID)?;
+    let bump = [a.sponsor.bump];
+    sponsor_commit(
+        &a.sponsor.to_account_info(),
+        &[SPONSOR_SEED, &bump],
+        &a.magic_context.to_account_info(),
+        &a.magic_program.to_account_info(),
+        &a.magic_fee_vault.to_account_info(),
+        &TEE_VALIDATOR,
+        &a.table.to_account_info(),
+    )
 }
 
 #[ephemeral]
@@ -856,42 +931,21 @@ pub mod block_puzzle {
         let table = &ctx.accounts.table;
         require!(table.phase == TABLE_CLOSED, BlockPuzzleError::WrongPhase);
         require!(table.seats_open, BlockPuzzleError::SeatsNotOpen);
-        let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
-        let table_bump = [table.bump];
-        let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
-        let table_info = ctx.accounts.table.to_account_info();
-        let table_key = ctx.accounts.table.key();
-        ctx.accounts.board_0.wipe();
-        ctx.accounts.board_1.wipe();
-        ctx.accounts.seed_vault.wipe();
-        ctx.accounts.board_0.exit(&ID)?;
-        ctx.accounts.board_1.exit(&ID)?;
-        ctx.accounts.seed_vault.exit(&ID)?;
-        for seat in 0..2usize {
-            let (board, permission) = if seat == 0 {
-                (&ctx.accounts.board_0, &ctx.accounts.board_0_permission)
-            } else {
-                (&ctx.accounts.board_1, &ctx.accounts.board_1_permission)
-            };
-            let seat_arr = [seat as u8];
-            let bump_arr = [board.bump];
-            let seat_seeds: &[&[u8]] = &[BOARD_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
-            swap_seat_members(
-                &SeatAccounts {
-                    table: &table_info,
-                    seat: &board.to_account_info(),
-                    permission: &permission.to_account_info(),
-                    vault: &ctx.accounts.ephemeral_vault.to_account_info(),
-                    magic_program: &ctx.accounts.magic_program.to_account_info(),
-                    permission_program: &ctx.accounts.permission_program.to_account_info(),
-                },
-                table_seeds,
-                seat_seeds,
-                None,
-            )?;
-        }
-        ctx.accounts.table.seats_open = false;
-        Ok(())
+        let a = &mut *ctx.accounts;
+        wipe_seat_trio(
+            &mut a.table,
+            [&mut *a.board_0, &mut *a.board_1],
+            &mut a.seed_vault,
+            [
+                a.board_0_permission.to_account_info(),
+                a.board_1_permission.to_account_info(),
+            ],
+            &SeatPrograms {
+                vault: a.ephemeral_vault.to_account_info(),
+                magic_program: a.magic_program.to_account_info(),
+                permission_program: a.permission_program.to_account_info(),
+            },
+        )
     }
 
     /// Rollup, operator only. Retires a table's seats: closes both Boards, the Vault and their
@@ -1268,12 +1322,15 @@ pub mod block_puzzle {
     /// Rollup, permissionless. Ends the Match once its window is over (or both runs are over) and
     /// writes the result into the ring slot with both run logs: the outcome table of the spec. A
     /// Match that never ran ends here too: nobody checking in or no Seed refunds, one Player
-    /// absent loses to the present one (unless the rollup stalled), a stalled run is void.
+    /// absent loses to the present one (unless the rollup stalled), a stalled run is void. The
+    /// same transaction wipes the seats and commits the result to Solana (paid by the Sponsor),
+    /// so nothing readable stays on the table and the result is saved without a second call;
+    /// `commit_table` stays as the repeat path.
     pub fn close(ctx: Context<CloseMatch>) -> Result<()> {
         let clock = Clock::get()?;
         let (slot, now) = (clock.slot, clock.unix_timestamp);
         let table = &mut ctx.accounts.table;
-        match table.phase {
+        let ended: Result<()> = match table.phase {
             TABLE_ASSIGNED => {
                 require!(
                     slot > ov(table.checkin_end())?,
@@ -1341,7 +1398,9 @@ pub mod block_puzzle {
                 conclude(table, now, outcome, reason, log)
             }
             _ => err!(BlockPuzzleError::WrongPhase),
-        }
+        };
+        ended?;
+        wipe_and_commit(&mut *ctx.accounts, now)
     }
 
     // ------------------------------------------------------------------------------------
@@ -2085,7 +2144,8 @@ pub struct PlayHidden<'info> {
     pub board: Box<Account<'info, Board>>,
 }
 
-/// Reads both Boards, writes the table.
+/// `close`: writes the table from both Boards, then wipes the seats and commits the result.
+#[commit]
 #[derive(Accounts)]
 pub struct CloseMatch<'info> {
     pub caller: Signer<'info>,
@@ -2095,10 +2155,29 @@ pub struct CloseMatch<'info> {
         bump = table.bump
     )]
     pub table: Box<Account<'info, Table>>,
-    #[account(seeds = [BOARD_SEED, table.key().as_ref(), &[0]], bump = board_0.bump)]
+    #[account(mut, seeds = [BOARD_SEED, table.key().as_ref(), &[0]], bump = board_0.bump)]
     pub board_0: Box<Account<'info, Board>>,
-    #[account(seeds = [BOARD_SEED, table.key().as_ref(), &[1]], bump = board_1.bump)]
+    #[account(mut, seeds = [BOARD_SEED, table.key().as_ref(), &[1]], bump = board_1.bump)]
     pub board_1: Box<Account<'info, Board>>,
+    #[account(mut, seeds = [VAULT_SEED, table.key().as_ref()], bump = seed_vault.bump)]
+    pub seed_vault: Box<Account<'info, Vault>>,
+    /// CHECK: permission PDA of Board 0
+    #[account(mut, seeds = [PERMISSION_SEED, board_0.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
+    pub board_0_permission: UncheckedAccount<'info>,
+    /// CHECK: permission PDA of Board 1
+    #[account(mut, seeds = [PERMISSION_SEED, board_1.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
+    pub board_1_permission: UncheckedAccount<'info>,
+    /// CHECK: Permission Program
+    #[account(address = PERMISSION_PROGRAM_ID)]
+    pub permission_program: UncheckedAccount<'info>,
+    /// CHECK: ephemeral rent vault
+    #[account(mut, address = EPHEMERAL_VAULT_ID)]
+    pub ephemeral_vault: UncheckedAccount<'info>,
+    #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
+    pub sponsor: Account<'info, Sponsor>,
+    /// CHECK: the TEE validator's magic fee vault, checked in `sponsor_commit`.
+    #[account(mut)]
+    pub magic_fee_vault: UncheckedAccount<'info>,
 }
 
 #[commit]
