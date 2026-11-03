@@ -872,14 +872,11 @@ export class BlockBurstChain {
     return this.sendTee(hidden ? "play_hidden" : "play", [ix], player);
   }
 
-  /** Rollup, permissionless. Ends the Match once its window is over (or both runs are over) and writes the result and both run logs into the ring. */
+  /** Rollup, permissionless. Ends the Match once its window is over (or both runs are over), writes the result and both run logs into the ring, then wipes the seats and commits the table to Solana in the same transaction. */
   async close(payer: PlayerSigner, a: TableRef): Promise<string> {
-    const table = tablePda(a.generation, a.index);
-    const ix = await this.program.methods
-      .close()
-      .accountsPartial({ caller: payer.publicKey, table, board0: boardPda(table, 0), board1: boardPda(table, 1) } as any)
-      .instruction();
-    return this.sendTee("close", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], payer);
+    const accounts = { ...this.seatAccounts(payer.publicKey, a), sponsor: sponsorPda(), magicFeeVault: magicFeeVaultPda(), magicContext: MAGIC_CONTEXT } as any;
+    const ix = await this.program.methods.close().accountsPartial(accounts).instruction();
+    return this.sendTee("close", [ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), ix], payer);
   }
 
   // -- rollup: after the Match ---------------------------------------------------------------

@@ -3,9 +3,9 @@ import { settledPda } from "../../app/src/lib/chain/basket.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { closePairIx, closeReceiptIx, refreshListingIx } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
-import { gameRecordOf, pairAddress } from "./kit.ts";
+import { gameRecordOf } from "./kit.ts";
 import { assignmentClosable } from "./scheduler.ts";
-import { PAIR_WINDOW_SECS, groupsOf, listedGameOf, listingOutcome, listingStep, oldReceipts, receiptOf, type SweepDeps } from "./sweeps.ts";
+import { PAIR_RECORD_LEN, PAIR_WINDOW_SECS, groupsOf, listedGameOf, listingOutcome, listingStep, oldReceipts, receiptOf, type SweepDeps } from "./sweeps.ts";
 import { ticketJob, type TicketDeps } from "./tickets.ts";
 
 /**
@@ -41,8 +41,6 @@ export interface AssignmentSource {
 
 export interface JanitorDeps extends TicketDeps, SweepDeps {
   assignments: AssignmentSource[];
-  /** The (opener, joiner) Accounts behind a pair counter's address: the counter does not store them. Null when unknown. */
-  pairKeys(address: PublicKey): Promise<{ opener: PublicKey; joiner: PublicKey } | null>;
   /** The slot each Game's program was last deployed in (bytes 4..12 of its ProgramData: a sliced read); null when unreadable. */
   deploySlots(games: PublicKey[]): Promise<(bigint | null)[]>;
   /** Publishes the trailing APY; null while the program has no instruction for it. */
@@ -82,26 +80,18 @@ const receipts: Part = async (ctx, d) => {
 
 const pairs: Part = async (ctx, d) => {
   const due: { address: PublicKey; payer: PublicKey }[] = [];
-  for (const r of await d.list("PairState", { dataSlice: { offset: 0, length: PAIR_HEAD_BYTES } })) {
+  for (const r of await d.list("PairState", { dataSize: PAIR_RECORD_LEN, dataSlice: { offset: 0, length: PAIR_HEAD_BYTES } })) {
     const windowStart = Number(r.data.readBigInt64LE(8 + 1 + 32));
     if (ctx.now >= windowStart + PAIR_WINDOW_SECS) due.push({ address: r.pubkey, payer: new PublicKey(r.data.subarray(9, 41)) });
   }
-  const ready: { opener: PublicKey; joiner: PublicKey; address: PublicKey; payer: PublicKey }[] = [];
-  let unknown = 0;
-  for (const p of due.slice(0, PER_RUN)) {
-    const keys = await d.pairKeys(p.address);
-    if (keys && pairAddress(keys.opener, keys.joiner).equals(p.address)) ready.push({ ...keys, ...p });
-    else unknown++;
-  }
   let actions = 0;
-  for (const group of groupsOf(ready, PER_TX)) {
+  for (const group of groupsOf(due.slice(0, PER_RUN), PER_TX)) {
     const r = await act(ctx, "janitor", `pairs=${group.length}`, `close_pair x${group.length} (24 h window over)`, async () =>
-      d.send(await Promise.all(group.map((g) => closePairIx(ctx.core, { caller: ctx.payer.publicKey, opener: g.opener, joiner: g.joiner, pair: g.address, payer: g.payer }))), {}),
+      d.send(await Promise.all(group.map((g) => closePairIx(ctx.core, { caller: ctx.payer.publicKey, pair: g.address, payer: g.payer }))), {}),
     );
     actions += +r.ok;
   }
-  const note = [!due.length && "no pair counter due", unknown && `${unknown} due pair counter(s) whose Accounts are not known (the counter does not store them)`].filter(Boolean).join("; ");
-  return { actions, note: note || undefined };
+  return { actions, note: due.length ? undefined : "no pair record due" };
 };
 
 const assignments: Part = async (ctx, d) => {

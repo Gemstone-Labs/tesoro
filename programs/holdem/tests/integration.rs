@@ -184,6 +184,8 @@ struct Env {
     nonce: u64,
     now: i64,
     last_cu: u64,
+    /// The logs of the latest transaction, sent or refused.
+    last_logs: Vec<String>,
     /// Counter behind `fresh_secret`.
     secrets: u64,
 }
@@ -207,10 +209,12 @@ impl Env {
         match self.svm.send_transaction(tx) {
             Ok(meta) => {
                 self.last_cu = meta.compute_units_consumed;
+                self.last_logs = meta.logs.clone();
                 Ok(())
             }
             Err(e) => {
                 self.last_cu = e.meta.compute_units_consumed;
+                self.last_logs = e.meta.logs.clone();
                 Err(e)
             }
         }
@@ -404,6 +408,7 @@ impl Env {
             account: APk::default(),
             kp,
         };
+        litesvm_magic_stub::install(&mut svm);
         let mut env = Self {
             svm,
             admin: Keypair::new(),
@@ -424,6 +429,7 @@ impl Env {
             nonce: 10,
             now: T0,
             last_cu: 0,
+            last_logs: Vec::new(),
             secrets: 0,
         };
         for k in [&env.admin, &env.oracle, &env.ctl, &env.operator] {
@@ -763,6 +769,25 @@ impl Env {
             .expect("magic shell");
     }
 
+    /// The accounts of every instruction that can end a Match.
+    fn concluding(&self, caller: APk) -> holdem::accounts::Concluding {
+        let (h0, h1) = (hole_addr(self.table, 0), hole_addr(self.table, 1));
+        holdem::accounts::Concluding {
+            caller,
+            table: self.table,
+            hole_0: h0,
+            hole_1: h1,
+            hole_0_permission: perm_addr(h0),
+            hole_1_permission: perm_addr(h1),
+            permission_program: sdk_key(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_key(ephemeral_rollups_sdk::consts::EPHEMERAL_VAULT_ID),
+            sponsor: sponsor_addr(),
+            magic_fee_vault: table_kit::fee_vault_address(&holdem::TEE_VALIDATOR),
+            magic_context: sdk_key(ephemeral_rollups_sdk::consts::MAGIC_CONTEXT_ID),
+            magic_program: sdk_key(MAGIC_PROGRAM_ID),
+        }
+    }
+
     fn commit_ix(&self) -> Instruction {
         ix(
             holdem::ID,
@@ -799,10 +824,7 @@ impl Env {
     fn expire_ix(&self) -> Instruction {
         ix(
             holdem::ID,
-            holdem::accounts::TableOnly {
-                caller: a(self.oracle.pubkey()),
-                table: self.table,
-            },
+            self.concluding(a(self.oracle.pubkey())),
             holdem::instruction::ExpireStart {},
             vec![],
         )
@@ -993,10 +1015,12 @@ impl Env {
         match self.svm.send_transaction(tx) {
             Ok(meta) => {
                 self.last_cu = meta.compute_units_consumed;
+                self.last_logs = meta.logs.clone();
                 Ok(())
             }
             Err(e) => {
                 self.last_cu = e.meta.compute_units_consumed;
+                self.last_logs = e.meta.logs.clone();
                 Err(e)
             }
         }
@@ -1016,12 +1040,7 @@ impl Env {
     fn deal_ix(&self) -> Instruction {
         ix(
             holdem::ID,
-            holdem::accounts::Deal {
-                payer: a(self.oracle.pubkey()),
-                table: self.table,
-                hole_0: hole_addr(self.table, 0),
-                hole_1: hole_addr(self.table, 1),
-            },
+            self.concluding(a(self.oracle.pubkey())),
             holdem::instruction::Deal {},
             vec![],
         )
@@ -1081,12 +1100,7 @@ impl Env {
     fn act_ix(&self, player: APk, action: Action) -> Instruction {
         ix(
             holdem::ID,
-            holdem::accounts::Act {
-                player,
-                table: self.table,
-                hole_0: hole_addr(self.table, 0),
-                hole_1: hole_addr(self.table, 1),
-            },
+            self.concluding(player),
             holdem::instruction::Act { action },
             vec![],
         )
@@ -1101,12 +1115,7 @@ impl Env {
     fn timeout_ix(&self, caller: APk) -> Instruction {
         ix(
             holdem::ID,
-            holdem::accounts::ClaimTimeout {
-                caller,
-                table: self.table,
-                hole_0: hole_addr(self.table, 0),
-                hole_1: hole_addr(self.table, 1),
-            },
+            self.concluding(caller),
             holdem::instruction::ClaimTimeout {},
             vec![],
         )
@@ -1581,7 +1590,7 @@ fn a_late_check_in_is_refused_and_the_player_who_came_wins_when_the_other_never_
     let ixn = env.expire_ix();
     env.rollup(ixn).expect("expire");
     let t = env.table();
-    assert_eq!((t.phase, t.dirty), (holdem::TABLE_OVER, true));
+    assert_eq!((t.phase, t.dirty), (holdem::TABLE_OVER, false));
     assert_eq!(
         t.ring.find(&env.tmatch, 0).unwrap().1.outcome,
         table_kit::OUTCOME_WIN0
@@ -2183,7 +2192,7 @@ fn a_shove_and_call_decides_the_match_the_result_goes_into_the_ring_and_finalize
         env.shove_and_call().unwrap();
     }
     let t = env.table();
-    assert_eq!((t.phase, t.dirty), (holdem::TABLE_OVER, true));
+    assert_eq!((t.phase, t.dirty), (holdem::TABLE_OVER, false));
     assert_eq!(t.game.status, holdem::STATUS_OVER);
     let w = usize::from(t.game.winner);
     winner.get_or_insert(w);
@@ -2750,8 +2759,11 @@ fn a_table_is_reset_only_when_wiped_committed_and_a_moment_old_and_it_forgets_th
     let over = env.table().over_at;
     let first = env.table();
     env.set_time(over + holdem::RESET_DELAY_SECS);
+    // The last move already wiped and committed; the gates stay for a table that got there another way.
+    env.patch_table(|t| t.seats_open = true);
     assert_eq!(custom_code(&env.reset().unwrap_err()), dcode(SeatsOpen));
     env.wipe_standin();
+    env.patch_table(|t| t.dirty = true);
     assert_eq!(custom_code(&env.reset().unwrap_err()), dcode(NotCommitted));
     env.commit_standin();
     env.set_time(over + holdem::RESET_DELAY_SECS - 1);
@@ -2880,18 +2892,11 @@ fn an_assignment_closes_only_after_the_core_receipt_and_returns_its_rent_to_the_
 fn the_result_is_committed_once_and_the_sponsor_cannot_be_drained_by_repeats() {
     use holdem::HoldemError::*;
     let mut env = live();
-    env.magic_shell();
     let ixn = env.commit_ix();
     assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(NotDirty));
     env.play_match_out();
-    let ixn = env.commit_ix();
-    let err = env.rollup(ixn).unwrap_err();
-    assert!(
-        !err.meta.logs.iter().any(|l| l.contains("NotDirty")),
-        "{:?}",
-        err.meta.logs
-    );
-    env.commit_standin();
+    assert_eq!(env.table().commit.tries, 1, "the last move sent the commit");
+    env.magic_shell();
     let ixn = env.commit_ix();
     assert_eq!(
         custom_code(&env.rollup(ixn).unwrap_err()),
@@ -3136,7 +3141,8 @@ fn seat_ix(env: &Env, which: &str, signer: APk) -> Instruction {
 #[test]
 fn no_instruction_a_player_calls_can_reach_the_permission_program() {
     // The IDL says which instructions take the permission program. Only the table's own state
-    // machine steps do, and none of them is a Player's move.
+    // machine steps do, plus the instructions that can end a Match (`act` among them: a Player's
+    // last move wipes the seats in the same transaction, handing them to nobody).
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/idl/holdem.json");
     let idl: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(path).expect("IDL: pnpm build:programs"))
@@ -3157,11 +3163,20 @@ fn no_instruction_a_player_calls_can_reach_the_permission_program() {
     reaching.sort();
     assert_eq!(
         reaching,
-        ["init_seats", "retire_seats", "seat_players", "wipe_seats"]
+        [
+            "act",
+            "claim_timeout",
+            "deal",
+            "expire_start",
+            "init_seats",
+            "retire_seats",
+            "seat_players",
+            "wipe_seats"
+        ]
     );
-    // And no instruction a Player signs for takes it. (`contribute_entropy`, `act` and `check_in`
-    // are the ones with a Player signer.)
-    for name in ["contribute_entropy", "act", "check_in"] {
+    // And no other instruction a Player signs for takes it. (`contribute_entropy` and `check_in`
+    // are the others with a Player signer.)
+    for name in ["contribute_entropy", "check_in"] {
         assert!(!reaching.iter().any(|r| r == name));
     }
 }
@@ -3309,14 +3324,15 @@ fn tesoro_core_treasury() -> anchor_lang::prelude::Pubkey {
 // --- A commit that never reaches base ------------------------------------------------------
 
 impl Env {
-    /// A commit the rollup accepted but base never received: the table is clean, the guard has
-    /// counted the try, and base's copy is unchanged.
+    /// A commit the rollup accepted but base never received: the last move sent it, so the table
+    /// is clean and the guard has counted the try, while base's copy is unchanged.
     fn commit_lost_standin(&mut self) {
-        let now = self.now;
-        self.patch_table(|t| {
-            t.dirty = false;
-            t.commit.record(now);
-        });
+        assert_eq!(
+            self.table().commit.tries,
+            1,
+            "the last move sent the commit"
+        );
+        self.patch_table(|t| t.dirty = false);
     }
 }
 
@@ -3324,8 +3340,8 @@ impl Env {
 fn a_lost_commit_is_repeated_after_a_wait_and_then_finalize_pays_the_winner() {
     use holdem::HoldemError::*;
     let mut env = live();
-    env.magic_shell();
     let winner = env.play_match_out();
+    env.magic_shell();
     let loser = 1 - winner;
     env.commit_lost_standin();
     // Base still has the table from before the Match: nothing to settle from.
@@ -3365,10 +3381,10 @@ fn a_lost_commit_is_repeated_after_a_wait_and_then_finalize_pays_the_winner() {
 #[test]
 fn a_lost_commit_survives_the_reset_and_a_repeat_carries_the_whole_ring() {
     let mut env = Env::new();
-    env.magic_shell();
     env.next_match_on(0);
     env.start();
     env.play_match_out();
+    env.magic_shell();
     env.commit_lost_standin();
     env.wipe_standin();
     env.set_time(env.now + holdem::RESET_DELAY_SECS);
@@ -3388,8 +3404,8 @@ fn a_lost_commit_survives_the_reset_and_a_repeat_carries_the_whole_ring() {
 fn repeated_commit_calls_cost_nothing_once_the_result_is_settled_and_freed() {
     use holdem::HoldemError::*;
     let mut env = live();
-    env.magic_shell();
     env.play_match_out();
+    env.magic_shell();
     env.commit_standin();
     let slot = env.table().slot;
     let m = env.tmatch;
@@ -3412,8 +3428,8 @@ fn repeated_commit_calls_cost_nothing_once_the_result_is_settled_and_freed() {
 fn a_result_older_than_cores_refund_window_is_not_repeated() {
     use holdem::HoldemError::*;
     let mut env = live();
-    env.magic_shell();
     env.play_match_out();
+    env.magic_shell();
     env.commit_lost_standin();
     env.set_time(env.now + table_kit::COMMIT_WINDOW_SECS);
     let ixn = env.commit_ix();
@@ -3615,4 +3631,72 @@ fn a_skipped_epoch_can_still_start_another_match_assigned_to_it() {
     env.begin()
         .expect("a later Assignment still begins on the skipped epoch");
     assert_ne!(env.table().phase, holdem::TABLE_IDLE);
+}
+
+// --- The move that ends a Match commits the result and wipes the seats ----------------------
+
+/// Whether the latest transaction called `program` (a CPI line in the logs).
+fn called(env: &Env, program: Pk) -> bool {
+    let line = format!("Program {program} invoke");
+    env.last_logs.iter().any(|l| l.starts_with(&line))
+}
+
+#[test]
+fn the_move_that_ends_the_match_commits_the_result_and_wipes_the_seats() {
+    let mut env = live();
+    env.play_match_out();
+    let t = env.table();
+    assert_eq!(t.phase, holdem::TABLE_OVER);
+    assert!(!t.dirty, "the result is already committed");
+    assert_eq!(
+        t.commit.tries, 1,
+        "exactly one commit, sent by the last move"
+    );
+    assert!(!t.seats_open, "the seats are already wiped");
+    assert!(env.hole(0).is_blank() && env.hole(1).is_blank());
+    assert!(
+        called(&env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
+    assert!(
+        called(&env, litesvm_magic_stub::permission_program()),
+        "the seat change"
+    );
+    // Nothing is left for the repeat path to do before the table can be reused.
+    env.set_time(env.now + holdem::RESET_DELAY_SECS);
+    env.reset()
+        .expect("reset without a separate commit or wipe");
+}
+
+#[test]
+fn a_move_that_does_not_end_the_match_commits_nothing() {
+    let mut env = live();
+    let randomness = [0x42; 32];
+    env.deal_hand(randomness).expect("deal");
+    let t = env.table();
+    assert_eq!(t.game.status, holdem::STATUS_LIVE);
+    assert!(t.seats_open && t.commit.tries == 0);
+    assert!(!called(&env, litesvm_magic_stub::magic_program()));
+}
+
+#[test]
+fn a_timeout_that_ends_the_match_commits_and_wipes_too() {
+    let mut env = live();
+    env.finish_by_forfeit();
+    let t = env.table();
+    assert!(!t.dirty && !t.seats_open && t.commit.tries == 1);
+    assert!(called(&env, litesvm_magic_stub::magic_program()));
+}
+
+#[test]
+fn a_start_that_expires_commits_and_wipes_too() {
+    let mut env = ready();
+    env.begin().expect("begin");
+    env.seat_players_standin();
+    env.set_time(env.table().start_deadline + 1);
+    let ixn = env.expire_ix();
+    env.rollup(ixn).expect("expire");
+    let t = env.table();
+    assert!(!t.dirty && !t.seats_open && t.commit.tries == 1);
+    assert!(called(&env, litesvm_magic_stub::magic_program()));
 }

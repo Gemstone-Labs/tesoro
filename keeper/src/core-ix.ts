@@ -44,8 +44,8 @@ export const closeTicketIx = (core: Core, o: { caller: PublicKey; ticket: Public
 export const closeReceiptIx = (core: Core, o: { caller: PublicKey; receipt: PublicKey; payer: PublicKey }): Promise<TransactionInstruction> =>
   core.methods.closeReceipt().accountsPartial({ caller: o.caller, receipt: o.receipt, payer: o.payer }).instruction();
 
-export const closePairIx = (core: Core, o: { caller: PublicKey; opener: PublicKey; joiner: PublicKey; pair: PublicKey; payer: PublicKey }): Promise<TransactionInstruction> =>
-  core.methods.closePair(o.opener, o.joiner).accountsPartial({ caller: o.caller, pair: o.pair, payer: o.payer }).instruction();
+export const closePairIx = (core: Core, o: { caller: PublicKey; pair: PublicKey; payer: PublicKey }): Promise<TransactionInstruction> =>
+  core.methods.closePair().accountsPartial({ caller: o.caller, pair: o.pair, payer: o.payer }).instruction();
 
 export const refreshListingIx = (core: Core, o: { gameRecord: PublicKey; game: PublicKey }): Promise<TransactionInstruction> =>
   core.methods.refreshListing().accountsPartial({ gameRecord: o.gameRecord, gameProgram: o.game, programData: programDataOf(o.game) }).instruction();

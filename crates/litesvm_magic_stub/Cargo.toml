@@ -1,0 +1,12 @@
+[package]
+name = "litesvm_magic_stub"
+version = "0.1.0"
+edition = "2021"
+description = "Test support: stands in for the MagicBlock magic and permission programs in LiteSVM, which does not have them. Each accepts any instruction, so a Game's own state changes can be tested; what the real programs do is devnet evidence."
+publish = false
+
+[dependencies]
+litesvm = "=0.11.0"
+solana-program-runtime = "=3.1.14"
+solana-sdk = "3.0.0"
+ephemeral-rollups-sdk = { version = "=0.16.2", features = ["anchor-compat", "access-control"] }
