@@ -135,7 +135,7 @@ describe("the batch job", () => {
       simulate: async (ixs) => (sims.push(String(ixs.length)), null),
       now: () => Date.now(),
       listBridge: async (disc) => (disc.equals(bridgeDisc.route) ? routeRows : disc.equals(bridgeDisc.batch) ? (over.batches ?? []).map((data) => ({ pubkey: k(), data })) : disc.equals(bridgeDisc.payout) ? (over.payouts ?? []).map((data) => ({ pubkey: k(), data })) : []),
-      lz: async (_eid, _peer, msgType) => (quoted.push(msgType), { fee: 1000n, send: [{ pubkey: k(), isSigner: false, isWritable: false } satisfies AccountMeta] })),
+      lz: async (_eid, _peer, msgType) => (quoted.push(msgType), { fee: 1000n, send: [{ pubkey: k(), isSigner: false, isWritable: false } satisfies AccountMeta] }),
     };
     return { d, ctx: mkCtx(accounts), sent, sims, quoted };
   }
