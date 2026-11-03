@@ -55,6 +55,8 @@ const disc = (n: BundleName) => Buffer.from(BUNDLE_DISC[n], "hex");
 const RENT_PER_BYTE = 6_960n;
 export const CLAIM_RENT = (177n + 128n) * RENT_PER_BYTE;
 export const PAYOUT_RECORD_RENT = (246n + 128n) * RENT_PER_BYTE;
+/** Rent of the tesoro_core Position `apply_locked` creates, paid by its payer (243 B). */
+export const POSITION_RENT = (243n + 128n) * RENT_PER_BYTE;
 
 const u32le = (n: number) => {
   const b = Buffer.alloc(4);

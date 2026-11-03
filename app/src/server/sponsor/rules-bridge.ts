@@ -13,7 +13,7 @@
  * Position's vault must be one the app lists.
  */
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { CLAIM_RENT, PAYOUT_RECORD_RENT, bundleNameOf, payoutPda, type BundleName } from "@/lib/chain/bridge-bundle";
+import { CLAIM_RENT, PAYOUT_RECORD_RENT, POSITION_RENT, bundleNameOf, payoutPda, type BundleName } from "@/lib/chain/bridge-bundle";
 import {
   BRIDGE_AUTHORITY,
   BRIDGE_ID,
@@ -373,7 +373,7 @@ export function planBridgeBundle(ixs: Ix[], relayer: PublicKey, player: PublicKe
   if (vaults.size > 1) bad("bad-shape", "The steps of one transaction are for one contract.");
 
   const sends = checked.flatMap((c) => (c.send ? [c.send] : []));
-  const lz = sends.reduce((n, s) => n + s.feeLamports, 0n);
+  const lz = sends.reduce((n, s) => n + s.feeLamports, 0n) + (names.includes("apply_locked") ? POSITION_RENT : 0n);
   const cu = Math.min(1_400_000, names.reduce((n, name) => n + (name === "unlock" ? 600_000 : name === "transfer" ? 0 : ROW_CU[name as BundleName]), 0));
   const signers = [...new Map(checked.flatMap((c) => c.signers).map((s) => [s.toBase58(), s])).values()];
   const up = unlockPlan as Plan | null;

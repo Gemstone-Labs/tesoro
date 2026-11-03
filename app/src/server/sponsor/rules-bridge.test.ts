@@ -127,12 +127,14 @@ describe("refused", () => {
   });
   it("a send with options, or with a LayerZero-token fee", () => {
     const a = sendUnlock();
-    a.data = Buffer.from(a.data);
-    a.data.writeUInt32LE(4, 8 + 4 + 32);
+    const aData = Buffer.from(a.data);
+    aData.writeUInt32LE(4, 8 + 4 + 32);
+    a.data = aData;
     refused([a], "bad-data");
     const b = sendUnlock();
-    b.data = Buffer.from(b.data);
-    b.data.writeBigUInt64LE(1n, b.data.length - 8);
+    const bData = Buffer.from(b.data);
+    bData.writeBigUInt64LE(1n, bData.length - 8);
+    b.data = bData;
     refused([b], "bad-data");
   });
   it("the relayer anywhere in a send but the payer slots", () => {
@@ -156,8 +158,9 @@ describe("refused", () => {
   it("a Position on a contract the app does not list", () => {
     const strange = ethPositionId("0x" + "cd".repeat(20), 1n);
     const ix = sendUnlock();
-    ix.data = Buffer.from(ix.data);
-    strange.copy(ix.data, 12);
+    const data = Buffer.from(ix.data);
+    strange.copy(data, 12);
+    ix.data = data;
     refused([ix], "bad-vault");
   });
   it("send_pay_yield for another Account's Claim", () => {

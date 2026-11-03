@@ -400,7 +400,7 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
 /** The send accounts and fee a Player's page builds its bridge steps with (src/lib/chain/bridge-bundle.ts). Nothing is sent. */
 async function sendQuote(fields: SignedFields) {
   const vault = typeof fields.vault === "string" ? fields.vault : "";
-  const kind = fields.kind;
+  const kind = fields.intent;
   if (!isKnownVault(vault)) throw new DemoHttpError(400, "bad-request", "Unknown vault.");
   if (typeof kind !== "string" || !(kind in MSG_TYPE)) throw new DemoHttpError(400, "bad-request", "Unknown message.");
   try {
