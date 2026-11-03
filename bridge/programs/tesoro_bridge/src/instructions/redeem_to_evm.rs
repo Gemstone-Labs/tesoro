@@ -37,21 +37,21 @@ pub struct RedeemToEvm<'info> {
         bump = holder_account.bump,
         seeds::program = tesoro_core::ID
     )]
-    pub holder_account: Account<'info, TesoroAccount>,
+    pub holder_account: Box<Account<'info, TesoroAccount>>,
     #[account(
         mut,
         seeds = [CORE_POSITION_SEED, &[chain_byte(core_position.inner.source_chain)], core_position.position_id.as_ref()],
         bump = core_position.bump,
         seeds::program = tesoro_core::ID
     )]
-    pub core_position: Account<'info, PositionState>,
+    pub core_position: Box<Account<'info, PositionState>>,
     #[account(
         mut,
         seeds = [SOURCE_SEED, core_position.key().as_ref(), &core_source.inner.index.to_le_bytes()],
         bump = core_source.bump,
         seeds::program = tesoro_core::ID
     )]
-    pub core_source: Account<'info, SourceState>,
+    pub core_source: Box<Account<'info, SourceState>>,
     /// CHECK: the holder's basket; checked by tesoro_core against its seeds.
     #[account(
         mut,
@@ -75,7 +75,7 @@ pub struct RedeemToEvm<'info> {
         seeds = [CLAIM_SEED, holder_account.key().as_ref(), core_source.key().as_ref()],
         bump
     )]
-    pub claim: Account<'info, Claim>,
+    pub claim: Box<Account<'info, Claim>>,
     /// The vault's Delivery Fee terms; their eid and vault must be this Position's.
     #[account(
         seeds = [DELIVERY_SEED, &delivery_terms.eid.to_be_bytes(), &delivery_terms.peer_address],

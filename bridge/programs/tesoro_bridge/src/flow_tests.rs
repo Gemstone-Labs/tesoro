@@ -48,8 +48,8 @@ const EVM_ADDRESS: [u8; 20] = [
 // `cast wallet sign --private-key <anvil 0> "<link message for OWNER_ACCOUNT>"`
 const LINK_SIGNATURE: &str = "4eea9b6d0a869481ca89acfd3c80de21ee3d843dd9f1156b2026672905d043eb12245b421f8f445e9df6eca436f5db9a5e15a62721226a1e8d1f60aeaf5555a31b";
 const VAULT: [u8; 20] = [0x5b; 20];
-/// 0.0000153 ETH, the Delivery Fee the test vault charges.
-const TEST_DELIVERY_FEE: u128 = 15_300_000_000_000;
+/// 0.00001 ETH, the Delivery Fee the test vault charges.
+const TEST_DELIVERY_FEE: u128 = 10_000_000_000_000;
 /// The EVM addresses Tesoro's Platform and Studio Accounts are paid at.
 const PLATFORM_EVM: [u8; 20] = [0xA1; 20];
 const STUDIO_EVM: [u8; 20] = [0xB2; 20];
@@ -295,10 +295,10 @@ impl Env {
                 .1,
                 delivery_fee: TEST_DELIVERY_FEE,
                 max_abs: 1_000_000_000_000_000,
-                min_redeem: 1_000_000_000_000_000,
+                min_redeem: 500_000_000_000_000,
                 max_bps_unlock: 200,
                 max_bps_yield: 1_000,
-                min_prize_gemas: 100,
+                min_prize_gemas: 1,
             },
         );
         env
@@ -860,9 +860,9 @@ peer: env.peer(),
     let payout = (u128::from(claim.units_total) * 8_000 / 10_000) as u64;
     assert_eq!(claim.fee_total, claim.units_total - payout);
     assert_eq!(claim.pool_total, claim.fee_total / 2);
-    // The Delivery Fee is fixed at redeem time: the flat 0.0000153 ETH, well under 10% of the share.
-    assert_eq!(claim.delivery_fee, 15_300_000_000_000);
-    // A Redeem whose Player share is under the minimum (0.001 ETH) is refused, and burns nothing.
+    // The Delivery Fee is fixed at redeem time: the flat 0.00001 ETH, well under 10% of the share.
+    assert_eq!(claim.delivery_fee, 10_000_000_000_000);
+    // A Redeem whose Player share is under the minimum (0.0005 ETH) is refused, and burns nothing.
     let gemas_before = econ::gemas_in(&env.svm, env.owner_account, source_key);
     let err = redeem(&mut env, 100).expect_err("below the minimum Redeem");
     assert_eq!(
