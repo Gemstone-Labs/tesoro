@@ -9,7 +9,8 @@ import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
 import type { ChainHolding } from "./read";
 import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
-import { SIM_SOL_MINT, accountPda, redeemIx, simSolAta, sourcePda, unlockIx, type LineTarget, type PrevAdvance } from "./native";
+import coreIdl from "./idl/tesoro_core.json";
+import { SIM_SOL_MINT, TESORO_CORE_ID, accountPda, redeemIx, simSolAta, sourcePda, unlockIx, type LineTarget, type PrevAdvance } from "./native";
 import { createAtaIdempotentIx, tokenAta } from "./stake-pool";
 import { stakePoolRefreshIxs } from "./stake-pool-refresh";
 import { redeemStakeIx, stakeTokenOf, unlockStakeIx, type StakeToken } from "./stake";
@@ -24,6 +25,10 @@ type Reader = { getMultipleAccountsInfo(keys: PublicKey[]): Promise<({ data: Uin
 /** `init_ckpt_page`: the payer creates the next page of a class's checkpoint records (only the page being filled, or the next). */
 export const initCkptPageIx = (payer: PublicKey, source: PublicKey, classId: number, pageNo: number) =>
   coreIx("init_ckpt_page", { payer, book: bookPda(source), page: ckptPda(source, classId, pageNo) }, { class: classId, page_no: pageNo });
+
+const INIT_CKPT_PAGE_DISC = Buffer.from((coreIdl.instructions.find((i) => i.name === "init_ckpt_page") as { discriminator: number[] }).discriminator);
+/** Whether an instruction is tesoro_core's `init_ckpt_page`. */
+export const isInitCkptPage = (ix: TransactionInstruction) => ix.programId.equals(TESORO_CORE_ID) && Buffer.from(ix.data.subarray(0, 8)).equals(INIT_CKPT_PAGE_DISC);
 
 /** Records one landing can close per class: normalise twice and rescale once. */
 const CLOSES_PER_LANDING = 3;

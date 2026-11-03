@@ -28,7 +28,7 @@ import {
   type EthState,
   type SimRate,
 } from "./eth";
-import { opCopy, opProgress, opSteps, untrackedOpens, type EthOp } from "./eth-track";
+import { finishLabel, opCopy, opProgress, opSteps, untrackedOpens, type EthOp } from "./eth-track";
 
 const VAULT = "0x6c836b96464B5D1b55536d5a34D023528eaEe4bD";
 const rate: SimRate = { baseRate: 10n ** 18n, baseTime: 1_000n, apyBps: 500n, speedup: 4380n };
@@ -305,5 +305,19 @@ describe("old accounts are absent, not crashes", () => {
     const hoodi = vaultTreasuryPda(NETS.hoodi.eid, VAULT);
     expect(vaultTreasuryPda(NETS.hyperevm.eid, VAULT).equals(hoodi)).toBe(false);
     expect(vaultTreasuryPda(NETS.hoodi.eid, VAULT.toLowerCase()).equals(hoodi)).toBe(true);
+  });
+});
+
+describe("finishLabel", () => {
+  it("names the button for the step a failed automatic attempt leaves due", () => {
+    expect(finishLabel("apply-locked")).toBe("Finish opening");
+    expect(finishLabel("send-unlock")).toBe("Finish unlock");
+    expect(finishLabel("send-pay-yield")).toBe("Finish payout");
+    expect(finishLabel("send-pay-instant")).toBe("Finish payout");
+    expect(finishLabel("apply-yield")).toBe("Finish update");
+  });
+  it("has no button for the Advance, which needs the Player's signature anyway, or for nothing due", () => {
+    expect(finishLabel("advance")).toBeNull();
+    expect(finishLabel(null)).toBeNull();
   });
 });

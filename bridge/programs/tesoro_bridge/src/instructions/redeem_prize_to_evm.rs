@@ -15,8 +15,13 @@ use tesoro_core::{
 // its Treasury holds. The recipient is the holder's proven EVM address.
 #[derive(Accounts)]
 pub struct RedeemPrizeToEvm<'info> {
-    #[account(mut)]
+    /// The holder: signs the cash-out as the Account's authority. Pays and receives nothing, so a
+    /// holder with no SOL can cash out.
     pub holder_authority: Signer<'info>,
+    /// Pays the payout record's rent and gets it back at `close_payout` (`rent_payer`): the holder, or
+    /// a sponsor on the holder's behalf. It only funds the account; it gains no say over it.
+    #[account(mut)]
+    pub payer: Signer<'info>,
     #[account(seeds = [STORE_SEED], bump = store.bump)]
     pub store: Account<'info, Store>,
     /// CHECK: PDA that signs into tesoro_core; address fixed by seeds and the stored bump.
@@ -69,7 +74,7 @@ pub struct RedeemPrizeToEvm<'info> {
     pub prize_source: Box<Account<'info, PrizeSourceState>>,
     #[account(
         init,
-        payer = holder_authority,
+        payer = payer,
         space = 8 + PayoutRecord::INIT_SPACE,
         seeds = [
             PAYOUT_SEED,
@@ -130,7 +135,7 @@ impl RedeemPrizeToEvm<'_> {
         payout.peer_address = route.peer_address;
         payout.id = id;
         payout.bump = ctx.bumps.payout;
-        payout.rent_payer = ctx.accounts.holder_authority.key();
+        payout.rent_payer = ctx.accounts.payer.key();
         payout.state = PAYOUT_PENDING;
         payout.holder_account = ctx.accounts.holder_account.key();
         payout.recipient = ctx.accounts.holder_account.evm_address;

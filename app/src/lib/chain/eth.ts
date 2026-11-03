@@ -313,13 +313,15 @@ const lineBytes = (l: LineRef) => {
  * Redeems Gemas of one line of an ETH or HYPE Source and records the payout owed on its EVM chain (never `tesoro_core::redeem`, which would burn
  * them unrecorded). `target.accounts` are the Source's book and checkpoint pages. `send_pay_yield` then delivers the payout.
  */
-export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, vault: string, target: { line: LineRef; accounts: PublicKey[] }) => {
+export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, vault: string, target: { line: LineRef; accounts: PublicKey[] }, payer: PublicKey = holder) => {
   const net = netOfVault(vault);
   const account = coreAccountPda(holder);
   return new TransactionInstruction({
     programId: BRIDGE_ID,
     keys: [
-      meta(holder, true, true),
+      // The holder only signs; `payer` funds the Claim's rent (the holder, or the sponsor's relayer for a holder with no SOL).
+      meta(holder, false, true),
+      meta(payer, true, true),
       meta(BRIDGE_STORE),
       meta(pda([s("authority")], BRIDGE_ID)),
       meta(sourceAuthPda(net)),

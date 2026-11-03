@@ -826,6 +826,7 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
                 delivery_terms: env.delivery_terms(),
                 peer: env.peer(),
                 holder_authority: a(owner.pubkey()),
+                payer: a(owner.pubkey()),
                 store: env.store,
                 authority: env.authority,
                 core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
@@ -1437,6 +1438,7 @@ fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
             delivery_terms: env.delivery_terms(),
             peer: env.peer(),
             holder_authority: a(bob.pubkey()),
+            payer: a(bob.pubkey()),
             store: env.store,
             authority: env.authority,
             core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
@@ -1487,6 +1489,7 @@ fn a_legacy_wei_line_is_refused_before_redeem_or_treasury_redeem_burns_anything(
             delivery_terms: env.delivery_terms(),
             peer: env.peer(),
             holder_authority: a(bob.pubkey()),
+            payer: a(bob.pubkey()),
             store: env.store,
             authority: env.authority,
             core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
@@ -2646,13 +2649,24 @@ impl Env {
     }
 
     fn redeem_prize(&mut self, gemas: u64) -> std::result::Result<u64, Failed> {
+        self.redeem_prize_paid_by(gemas, None)
+    }
+
+    /// The holder cashes out; `relayer`, when given, pays the fee and the payout record's rent.
+    fn redeem_prize_paid_by(
+        &mut self,
+        gemas: u64,
+        relayer: Option<&Keypair>,
+    ) -> std::result::Result<u64, Failed> {
         let owner = self.owner.insecure_clone();
+        let payer_key = relayer.map_or(owner.pubkey(), |r| r.pubkey());
         let payout_id = self.route_state().last_payout_id + 1;
         let redeem = ix(
             crate::ID,
             crate::accounts::RedeemPrizeToEvm {
                 delivery_terms: self.delivery_terms(),
                 holder_authority: a(owner.pubkey()),
+                payer: a(payer_key),
                 store: self.store,
                 authority: self.authority,
                 route: self.route(),
@@ -2668,7 +2682,11 @@ impl Env {
             },
             crate::instruction::RedeemPrizeToEvm { gemas },
         );
-        self.send(&[redeem], &owner, &[]).map(|_| payout_id)
+        match relayer {
+            Some(r) => self.send(&[redeem], r, &[&owner]),
+            None => self.send(&[redeem], &owner, &[]),
+        }
+        .map(|_| payout_id)
     }
 
     fn send_pay_prize(&mut self, payout_id: u64) -> std::result::Result<Vec<u8>, Failed> {
@@ -3147,4 +3165,114 @@ fn a_batch_acknowledged_in_wei_with_dust_credits_only_whole_units() {
         .expect("ack");
     let b = env.batch(batch_id);
     assert_eq!(b.paid_units, units - 1);
+}
+
+/// Moves everything but the fee out of `key`, leaving it at zero lamports: a Solana signer needs no balance.
+fn drain(env: &mut Env, key: &Keypair) {
+    let fee = 5_000;
+    let left = env.lamports(a(key.pubkey()));
+    let sink = Keypair::new();
+    let mut data = vec![2, 0, 0, 0];
+    data.extend_from_slice(&(left - fee).to_le_bytes());
+    let transfer = Instruction::new_with_bytes(
+        s(anchor_lang::system_program::ID),
+        &data,
+        vec![AccountMeta::new(key.pubkey(), true), AccountMeta::new(sink.pubkey(), false)],
+    );
+    env.send(&[transfer], key, &[]).expect("drain");
+    assert_eq!(env.lamports(a(key.pubkey())), 0);
+}
+
+#[test]
+fn a_holder_with_no_sol_redeems_with_a_relayer_paying_the_claim_rent() {
+    let mut env = Env::new();
+    let id = 1;
+    env.opened_with_advance(id);
+    let (bob, bob_account, source) = env.winner_with(id, 1_000);
+    env.receive_yield(id, 2, 12_500_000_000_000_000, 0, 0);
+    env.apply_yield(id, true).expect("apply yield");
+    let relayer = Keypair::new();
+    env.svm.airdrop(&relayer.pubkey(), 5 * SOL).expect("airdrop");
+    drain(&mut env, &bob);
+
+    let claim_key = bridge_pda(&[CLAIM_SEED, bob_account.as_ref(), source.as_ref()]);
+    let mut redeem = ix(
+        crate::ID,
+        crate::accounts::RedeemToEvm {
+            delivery_terms: env.delivery_terms(),
+            peer: env.peer(),
+            holder_authority: a(bob.pubkey()),
+            payer: a(relayer.pubkey()),
+            store: env.store,
+            authority: env.authority,
+            core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+            holder_account: bob_account,
+            core_position: env.core_position(id),
+            core_source: source,
+            core_basket: basket_address(&bob_account).0,
+            core_spill: spill_address(&bob_account).0,
+            claim: claim_key,
+            core_program: tesoro_core::ID,
+            system_program: anchor_lang::system_program::ID,
+        },
+        crate::instruction::RedeemToEvm {
+            line: env.line_ref(bob_account, source, SIDE_WON),
+            gemas: 600,
+        },
+    );
+    redeem.accounts.extend(econ::book_metas(&env.svm, source));
+    let before = env.lamports(a(relayer.pubkey()));
+    env.send(&[redeem.clone()], &relayer, &[&bob])
+        .expect("a holder with 0 SOL redeems");
+    let claim: Claim = env.load(claim_key);
+    assert_eq!(claim.holder_account, bob_account);
+    assert!(claim.gemas_total == 600);
+    assert_eq!(env.lamports(a(bob.pubkey())), 0, "the holder paid nothing");
+    let rent = env.lamports(claim_key);
+    assert!(
+        before - env.lamports(a(relayer.pubkey())) >= rent,
+        "the relayer paid the Claim's rent"
+    );
+
+    // The holder alone, with no payer of its own, cannot create the Claim: a payer must sign.
+    let mut unpaid = redeem;
+    unpaid.accounts[1].is_signer = false;
+    let err = env.send(&[unpaid], &relayer, &[&bob]).expect_err("the payer signs");
+    let _ = err;
+}
+
+#[test]
+fn a_prize_payout_paid_by_a_relayer_returns_its_rent_to_the_relayer_not_the_holder() {
+    let mut env = Env::new();
+    env.prize_to_owner(1, 60);
+    let holder = a(env.owner.pubkey());
+    let relayer = Keypair::new();
+    env.svm.airdrop(&relayer.pubkey(), 5 * SOL).expect("airdrop");
+    let owner = env.owner.insecure_clone();
+    drain(&mut env, &owner);
+
+    let payout_id = env
+        .redeem_prize_paid_by(10, Some(&relayer))
+        .expect("a holder with 0 SOL cashes out");
+    let key = env.payout_address(payout_id);
+    assert_eq!(
+        env.payout(payout_id).rent_payer,
+        a(relayer.pubkey()),
+        "the payer is the rent payer"
+    );
+    assert_eq!(env.lamports(holder), 0, "the holder paid nothing");
+    let shares = env.payout(payout_id).shares;
+    env.lz_receive(prize_result(payout_id, msg_codec::PRIZE_PAID, shares), 1)
+        .expect("paid");
+
+    // The holder is not the rent receiver; neither is a stranger.
+    let err = env.close_payout(payout_id, holder).expect_err("the holder did not pay");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::WrongRentReceiver)));
+    env.close_payout(payout_id, Pubkey::new_unique()).expect_err("a stranger");
+    let rent = env.lamports(key);
+    let before = env.lamports(a(relayer.pubkey()));
+    env.close_payout(payout_id, a(relayer.pubkey())).expect("close");
+    assert!(!env.exists(key));
+    assert_eq!(env.lamports(a(relayer.pubkey())), before + rent, "back to the relayer");
+    assert_eq!(env.lamports(holder), 0, "the holder gained nothing");
 }

@@ -26,13 +26,14 @@ import type { GameId } from "@/lib/mock/types";
 import { DemoHttpError } from "../request-auth";
 import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, rentExitFits, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
 import { CORE_ID, PRIORITY_MICROLAMPORTS, RECEIPT_RENT, SETTLEMENT_RECEIPT_BYTES, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
-import { EXIT_ATA_WINDOW_MS, verifyExitSetup } from "./exit-setup";
+import { EXIT_ATA_WINDOW_MS, verifyCkptPages, verifyExitSetup } from "./exit-setup";
 import type { UsageStore } from "./store";
 import { ChainTransactionFailed } from "./chain-send";
 import { completionEffects, completionInput, holdSeeds, recoverCompletions, type CompletionChain, type HoldSeed } from "./completion";
 import { releaseClosedHolds, type ClosureReads } from "./closure";
 import { assetOfIndex } from "@/games/trading-duel/chain";
 import { joinOf, type Assigner, type Assignment } from "./assign";
+import { admitPages, admitSends, type BridgeSendGuard } from "./bridge-sends";
 
 const HOUR = 3_600_000;
 /** How many times a Game step's cost is measured before it is called too expensive (see `checkGameStepSimulation`). */
@@ -84,6 +85,8 @@ export interface SponsorDeps {
   alertOnboarding?(used: number, max: number): Promise<void>;
   /** Assigns a joined Match to a table in the join's own transaction (ticket 07); without it the keeper assigns. */
   assigner?: Assigner;
+  /** What the relayer checks before it pays a LayerZero fee inside a Player's transaction (ticket 15). Without it such a transaction is refused. */
+  bridgeSends?: BridgeSendGuard;
   now(): number;
 }
 
@@ -230,6 +233,8 @@ export function refuseHiddenGames(ixs: Ix[], hidden: ReadonlySet<GameId> = HIDDE
 
 interface Held {
   undo: (() => Promise<void>) | null;
+  /** Gives back the day's bridge-send count when the build fails after it was taken. */
+  undoSends: (() => Promise<void>) | null;
   assignment: Assignment | null;
 }
 
@@ -369,11 +374,12 @@ export class Sponsor {
   /** `sub` is the Privy user id the request came with (null only off production), the key of the one-Account-per-user gate. */
   async build(player: PublicKey, raw: unknown, sub: string | null = null): Promise<Built> {
     // A Game step spends the Match's tries and the day's cap when it is admitted; any failure after that gives them back.
-    const held: Held = { undo: null, assignment: null };
+    const held: Held = { undo: null, undoSends: null, assignment: null };
     try {
       return await this.buildWith(player, raw, sub, held);
     } catch (e) {
       await held.undo?.();
+      await held.undoSends?.();
       if (held.assignment) await this.d.assigner?.release(held.assignment).catch(() => undefined);
       throw e;
     }
@@ -386,7 +392,7 @@ export class Sponsor {
     const plan = await this.plan(ixs, player);
     if (plan.kind === "game" && plan.spend.refundable > 0n) plan.spend.refundable = await this.receiptRent();
     const setup = await verifyExitSetup(plan, player, this.d.chain);
-    plan.spend.sunk += setup.rent;
+    plan.spend.sunk += setup.rent + (await verifyCkptPages(plan.pages ?? [], this.d.chain));
     if (setup.ataGrant && await this.d.store.used(setup.ataGrant, EXIT_ATA_WINDOW_MS, now) >= 1) throw new DemoHttpError(409, "setup-already-funded", "This payout token account was already funded. Restore it using the SOL returned when it was closed.");
     if (plan.class === "admission" && !plan.signers.some((s) => s.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
     if (plan.playerSigns && !plan.signers.some((sg) => sg.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
@@ -444,6 +450,19 @@ export class Sponsor {
       await this.requireAccount(player);
       await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
+      if (plan.pages?.length || plan.sends?.length) {
+        const undoPages = plan.pages?.length ? await admitPages({ plan, player, now, store: this.d.store, limits: this.d.limits }) : null;
+        try {
+          const undoSends = plan.sends?.length ? await admitSends({ plan, player, now, store: this.d.store, limits: this.d.limits, chain: this.d.chain, guard: this.d.bridgeSends }) : null;
+          held.undoSends = async () => {
+            await undoSends?.();
+            await undoPages?.();
+          };
+        } catch (e) {
+          await undoPages?.();
+          throw e;
+        }
+      }
       const gameStep = plan.kind === "game" && plan.obligations.length > 0;
       if (gameStep) held.undo = await this.admitGameStep(plan, player, now);
       const cost = fee + plan.spend.sunk + plan.spend.refundable;

@@ -10,7 +10,7 @@ import { ChainGlyph } from "@/components/ui/inputs";
 import { useAccount } from "@/lib/account";
 import { coreUnitsToWei } from "@/lib/chain/eth-units";
 import { fmtEth, lzScanUrl, netOfVault, shortHex } from "@/lib/chain/eth";
-import { OPS_EVENT, loadOps, type EthOp } from "@/lib/chain/eth-track";
+import { OPS_EVENT, finishLabel, loadOps, type EthOp } from "@/lib/chain/eth-track";
 import { fmtGemas, fmtWhen } from "@/lib/format";
 import { useEthCtx, useOpTracker } from "../EthPositions";
 import "./opening.css";
@@ -79,7 +79,8 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
   const NOTES = notesFor(net.label);
   const { refresh } = useAccount();
   const ctx = useEthCtx()!;
-  const { stage, note, error, scan, state, finished } = useOpTracker(op, ctx, address, refresh);
+  const { stage, note, error, scan, state, finished, due, retry } = useOpTracker(op, ctx, address, refresh);
+  const finish = finishLabel(due);
   const elapsed = useElapsed(op.createdAt, !finished);
   useGuideTip({ id: "xc-open", pose: "herWaitingCrosschain", title: "Crossing chains", text: "Crossing chains usually takes 2–5 minutes. You can leave this page. Taking your Advance is the last step and needs your signature: it continues when you come back to your Vault." }, !finished);
 
@@ -133,6 +134,12 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
             );
           })}
         </ol>
+
+        {error && !finished && finish && (
+          <div className="op-actions">
+            <Button size="sm" disabled={!!note} onClick={retry}>{finish}</Button>
+          </div>
+        )}
 
         <div className="op-perf" aria-hidden="true" />
 
