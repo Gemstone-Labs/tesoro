@@ -1,6 +1,6 @@
 /**
- * Retiring tesoro_bridge records of layouts the current code cannot read (BridgePosition 172/188 B, Claim 129 B,
- * VaultTreasury 77 B). Pure: classifies a snapshot of the bridge program's accounts and builds `retire_legacy_account`.
+ * Retiring tesoro_bridge records of layouts the current code cannot read (BridgePosition 172/188 B, Claim 129/161 B,
+ * InstantClaim 129 B, PayoutRecord 230 B, VaultTreasury 77 B). Pure: classifies a snapshot of the bridge program's accounts and builds `retire_legacy_account`.
  * Devnet state is disposable (founder, 2026-10-25): these are closed, never migrated. The lengths mirror the program's
  * `LEGACY_*_LENGTHS` constants (a test fails when they differ). An old BridgePosition or VaultTreasury whose vault is one
  * of the CURRENT vaults is left alone and reported: it may belong to live EVM-side state. A vault is current when the
@@ -10,11 +10,11 @@ import { createHash } from "node:crypto";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { BRIDGE, STORE } from "./lz.ts";
 
-export type BridgeKind = "BridgePosition" | "Claim" | "VaultTreasury";
-export const BRIDGE_KINDS: BridgeKind[] = ["BridgePosition", "Claim", "VaultTreasury"];
+export type BridgeKind = "BridgePosition" | "Claim" | "VaultTreasury" | "InstantClaim" | "PayoutRecord";
+export const BRIDGE_KINDS: BridgeKind[] = ["BridgePosition", "Claim", "VaultTreasury", "InstantClaim", "PayoutRecord"];
 /** Index of the kind in the program's `LegacyKind` enum. */
-const KIND_INDEX: Record<BridgeKind, number> = { BridgePosition: 0, Claim: 1, VaultTreasury: 2 };
-export const LEGACY_BRIDGE_LEN: Record<BridgeKind, number[]> = { BridgePosition: [172, 188], Claim: [129], VaultTreasury: [77] };
+const KIND_INDEX: Record<BridgeKind, number> = { BridgePosition: 0, Claim: 1, VaultTreasury: 2, InstantClaim: 3, PayoutRecord: 4 };
+export const LEGACY_BRIDGE_LEN: Record<BridgeKind, number[]> = { BridgePosition: [172, 188], Claim: [129, 161], VaultTreasury: [77], InstantClaim: [129], PayoutRecord: [230] };
 /** Sizes of the current layouts (8 + INIT_SPACE); the size guard fails when the program's differ. */
 const CURRENT_BRIDGE_POSITION_LEN = 212;
 const CURRENT_VAULT_TREASURY_LEN = 101;
@@ -70,7 +70,7 @@ export function planBridge(rows: Row[]): { items: BridgeItem[]; held: Held[]; le
         held.push({ kind, key: r.pubkey, size: r.data.length, vault });
         continue;
       }
-      if (kind === "Claim" && r.data.readBigUInt64LE(112) > r.data.readBigUInt64LE(120)) unpaidClaims++;
+      if ((kind === "Claim" || kind === "InstantClaim") && r.data.readBigUInt64LE(112) > r.data.readBigUInt64LE(120)) unpaidClaims++;
       items.push({ kind, key: r.pubkey, size: r.data.length, lamports: r.lamports });
     }
   }

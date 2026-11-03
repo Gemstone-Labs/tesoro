@@ -25,14 +25,16 @@ describe("bridge retire plan", () => {
     assert.deepEqual(nums("LEGACY_BRIDGE_POSITION_LENGTHS"), LEGACY_BRIDGE_LEN.BridgePosition);
     assert.deepEqual(nums("LEGACY_CLAIM_LENGTHS"), LEGACY_BRIDGE_LEN.Claim);
     assert.deepEqual(nums("LEGACY_VAULT_TREASURY_LENGTHS"), LEGACY_BRIDGE_LEN.VaultTreasury);
+    assert.deepEqual(nums("LEGACY_INSTANT_CLAIM_LENGTHS"), LEGACY_BRIDGE_LEN.InstantClaim);
+    assert.deepEqual(nums("LEGACY_PAYOUT_LENGTHS"), LEGACY_BRIDGE_LEN.PayoutRecord);
   });
 
   it("closes each old size on abandoned vaults and leaves current-size records and other types alone", () => {
-    const rows = [position(172, vaultOld), position(188, vaultOld), row("Claim", 129), row("VaultTreasury", 77, (d) => vaultOld.copy(d, 24)), position(212, vaultCurrent), row("Claim", 161), row("VaultTreasury", 101, (d) => vaultCurrent.copy(d, 24)), row("Store", 74)];
+    const rows = [position(172, vaultOld), position(188, vaultOld), row("Claim", 129), row("Claim", 161), row("InstantClaim", 129), row("PayoutRecord", 230), row("VaultTreasury", 77, (d) => vaultOld.copy(d, 24)), position(212, vaultCurrent), row("Claim", 177), row("InstantClaim", 145), row("PayoutRecord", 246), row("VaultTreasury", 101, (d) => vaultCurrent.copy(d, 24)), row("Store", 74)];
     const plan = planBridge(rows);
-    assert.deepEqual(plan.items.map((i) => `${i.kind}:${i.size}`).sort(), ["BridgePosition:172", "BridgePosition:188", "Claim:129", "VaultTreasury:77"]);
+    assert.deepEqual(plan.items.map((i) => `${i.kind}:${i.size}`).sort(), ["BridgePosition:172", "BridgePosition:188", "Claim:129", "Claim:161", "InstantClaim:129", "PayoutRecord:230", "VaultTreasury:77"]);
     assert.equal(plan.held.length, 0);
-    assert.equal(plan.left, 4);
+    assert.equal(plan.left, 7);
     assert.equal(plan.held.length, 0);
   });
 

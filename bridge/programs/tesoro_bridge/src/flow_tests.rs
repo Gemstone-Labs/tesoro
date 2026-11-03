@@ -1584,6 +1584,8 @@ fn legacy_discriminator(kind: LegacyKind) -> &'static [u8] {
         LegacyKind::BridgePosition => BridgePosition::DISCRIMINATOR,
         LegacyKind::Claim => Claim::DISCRIMINATOR,
         LegacyKind::VaultTreasury => VaultTreasury::DISCRIMINATOR,
+        LegacyKind::InstantClaim => InstantClaim::DISCRIMINATOR,
+        LegacyKind::PayoutRecord => PayoutRecord::DISCRIMINATOR,
     }
 }
 
@@ -1595,6 +1597,9 @@ fn every_old_size_retires_to_the_admin() {
         (LegacyKind::BridgePosition, 172),
         (LegacyKind::BridgePosition, 188),
         (LegacyKind::Claim, 129),
+        (LegacyKind::Claim, 161),
+        (LegacyKind::InstantClaim, 129),
+        (LegacyKind::PayoutRecord, 230),
         (LegacyKind::VaultTreasury, 77),
     ];
     for (kind, len) in cases {
@@ -1618,6 +1623,8 @@ fn a_current_size_record_is_refused() {
     let cases = [
         (LegacyKind::BridgePosition, 8 + BridgePosition::INIT_SPACE),
         (LegacyKind::Claim, 8 + Claim::INIT_SPACE),
+        (LegacyKind::InstantClaim, 8 + InstantClaim::INIT_SPACE),
+        (LegacyKind::PayoutRecord, 8 + PayoutRecord::INIT_SPACE),
         (LegacyKind::VaultTreasury, 8 + VaultTreasury::INIT_SPACE),
     ];
     for (kind, len) in cases {
@@ -1632,6 +1639,16 @@ fn a_current_size_record_is_refused() {
     let ix = retire_ix(&env, &admin, key, LegacyKind::BridgePosition);
     env.send(&[ix], &admin, &[]).expect_err("wrong discriminator refused");
     assert!(env.exists(key));
+}
+
+#[test]
+fn the_legacy_sizes_are_the_current_sizes_less_the_delivery_fee_field() {
+    assert_eq!(8 + Claim::INIT_SPACE, 177);
+    assert_eq!(8 + InstantClaim::INIT_SPACE, 145);
+    assert_eq!(8 + PayoutRecord::INIT_SPACE, 246);
+    assert_eq!(LEGACY_CLAIM_LENGTHS, [129, 8 + Claim::INIT_SPACE - 16]);
+    assert_eq!(LEGACY_INSTANT_CLAIM_LENGTHS, [8 + InstantClaim::INIT_SPACE - 16]);
+    assert_eq!(LEGACY_PAYOUT_LENGTHS, [8 + PayoutRecord::INIT_SPACE - 16]);
 }
 
 #[test]
