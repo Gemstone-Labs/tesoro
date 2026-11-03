@@ -1,4 +1,5 @@
 import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { rdU64, rdU32 } from "./native";
 import { isStale, parseStakePool, updateStakePoolBalanceIx, validatorListOf } from "./stake-pool";
 
 /**
@@ -26,12 +27,12 @@ type PoolConn = {
 async function validatorListCurrent(conn: PoolConn, list: PublicKey, epoch: bigint): Promise<boolean> {
   const head = await conn.getAccountInfo(list, { dataSlice: { offset: VALIDATOR_LIST_LEN_AT, length: 4 } });
   if (!head || head.data.length < 4) return false;
-  const count = Buffer.from(head.data).readUInt32LE(0);
+  const count = rdU32(head.data, 0);
   if (count === 0) return true;
   const offset = VALIDATOR_LIST_ENTRIES_AT + (count - 1) * VALIDATOR_ENTRY_LEN;
   const last = await conn.getAccountInfo(list, { dataSlice: { offset, length: VALIDATOR_ENTRY_LEN } });
   if (!last || last.data.length < VALIDATOR_ENTRY_LEN) return false;
-  return Buffer.from(last.data).readBigUInt64LE(ENTRY_EPOCH_AT) >= epoch;
+  return rdU64(last.data, ENTRY_EPOCH_AT) >= epoch;
 }
 
 /**

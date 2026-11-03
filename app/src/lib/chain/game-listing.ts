@@ -1,4 +1,5 @@
 import type { PublicKey } from "@solana/web3.js";
+import { rdI64, rdU64 } from "./native";
 import { gameRecordPda, programDataPda } from "./game-record";
 
 /**
@@ -17,11 +18,10 @@ export type Listing = "listed" | "unlisted" | "upgraded";
 /** `record` and `programData` are the slices above; null when the account does not exist. */
 export function listingFrom(record: Uint8Array | null, programData: Uint8Array | null, now: number): Listing {
   if (!record || !programData) return "unlisted";
-  const r = Buffer.from(record.buffer, record.byteOffset, record.byteLength);
-  const listedUntil = r.readBigInt64LE(0);
+  const listedUntil = rdI64(record, 0);
   if (listedUntil <= BigInt(now)) return "unlisted";
-  const approvedSlot = r.readBigUInt64LE(8);
-  const deploySlot = Buffer.from(programData.buffer, programData.byteOffset, programData.byteLength).readBigUInt64LE(0);
+  const approvedSlot = rdU64(record, 8);
+  const deploySlot = rdU64(programData, 0);
   return deploySlot === approvedSlot ? "listed" : "upgraded";
 }
 
