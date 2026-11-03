@@ -64,3 +64,21 @@ for (const cli of readdirSync(import.meta.dirname).filter((f) => f.endsWith("-cl
     assert.equal(existsSync(keyPath), false);
   });
 }
+
+test("admin-cli exits 2 with usage on a missing command, an unknown command or an unknown flag, and 1 without --cluster, before any key is read", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cli-"));
+  const keyPath = join(dir, "keeper.json");
+  const run = (...args: string[]) => spawnSync(process.execPath, ["--import", "tsx", join(import.meta.dirname, "admin-cli.ts"), ...args], { env: { ...process.env, KEEPER_KEYPAIR: keyPath }, encoding: "utf8" });
+  for (const args of [[], ["--help"], ["wipe"], ["fees", "--bogus"], ["fees", "--help"]]) {
+    const r = run(...args);
+    assert.equal(r.status, 2, args.join(" "));
+    assert.match(r.stderr, /Usage: admin-cli/);
+  }
+  const noCluster = run("fees", "--dry-run");
+  assert.equal(noCluster.status, 1);
+  assert.match(noCluster.stderr, /--cluster test\|mainnet is required/);
+  const wrong = run("fees", "--cluster", "mainnet", "--dry-run");
+  assert.equal(wrong.status, 1);
+  assert.match(wrong.stderr, /TESORO_CLUSTER selects test/);
+  assert.equal(existsSync(keyPath), false);
+});

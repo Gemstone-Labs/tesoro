@@ -73,6 +73,18 @@ The sponsor server assigns each joining Player's Match to a table in the join's 
 
 `keeper/scripts/launch-admin.ts` prints (dry run by default) every `tesoro_core` launch init call in runbook order, with signer, named accounts and base64 data; `--execute` sends only the steps the single `--keypair` signs, never a Squads vault step (`docs/mainnet-runbook.md`, T-7 step 5). `register-game.ts`, `init-leaderboard.ts` and `whitelist-tee.ts` take `--keypair <file>` (no default key file), `--rpc`, `--cluster test|mainnet` (default test; the RPC must serve that cluster) and `--program tesoro_core=<ID>`; `fund-treasury.ts` and `withdraw-treasury.ts` are simSOL test-mode scripts and refuse mainnet. Shared parsing is `src/cli-args.ts`.
 
+### Jobs run by hand (`src/admin-cli.ts`)
+
+`pnpm --filter @tesoro/keeper exec tsx src/admin-cli.ts <command> --cluster test|mainnet [--dry-run] [--rpc <url>] [--gpa-rpc <url>]`. These replace keeper loops, so no timer starts them. `--cluster` is required and must match `TESORO_CLUSTER`; the RPC must serve that cluster; an unknown flag prints usage and exits 2 before a key is read; the key is `KEEPER_KEYPAIR` or `KEEPER_SECRET_KEY` and is never created. Each command is the keeper's own step code run once. Always `--dry-run` first: it prints `DRY-RUN would ...` for every transaction and sends and saves nothing.
+
+| Command | Run it | Key |
+|---|---|---|
+| `tables [--game <id>] [--size <n>] [--passes <n>]` | Once per Game at launch, and again only to raise the pool size. Makes the Sponsor and Fuel (when `KEEPER_<G>_SPONSOR_INIT` and `_FUEL_INIT` give lamports), then tables up to `--size` (default `KEEPER_<G>_TABLE_CAP`), repeating passes until one does nothing. Touches no running table. | the Game's `TableConfig.operator` |
+| `refill` | When the Sponsor-low alert fires, or weekly. Refills each Game's Sponsor from its Fuel when under `KEEPER_<G>_SPONSOR_FLOOR`. | the operator |
+| `fees` | Weekly, or when the Treasury wants the cash. `cash_in_fee` for the covered Platform and Studio counters of Solana Sources. | any funded key |
+| `fill --max-gemas <n>` | When Instant Redeem orders are waiting. Redeems the Treasury's repaid lines first (so it has Gemas to pay with), then expires and fills open orders, at most `n` Gemas. | `EconomyConfig.fill_keeper` |
+| `batches [--history <file>]` | Weekly, after `fees`. Seals, sends and closes Platform and Studio fee batches of EVM Sources (the Leaderboard batch and prize payouts stay with the Season run). A sent batch goes again only after the vault paid more than at the last send and a day has passed; the record is `KEEPER_STATE_DIR/admin-batches.json`. A batch an earlier run sent without a record is left alone. The Season run's batches step uses the same rule and record (all fee classes and prize payouts; a Pending payout also waits a day), so neither side resends what the other sent. | any funded key |
+
 ## Sharing
 
 The keeper imports the app's IDL-based clients (`app/src/games/*/chain.ts`) and IDL JSON directly, so it cannot drift from them. It only needs `app/` to be installed (`pnpm install` at the root).

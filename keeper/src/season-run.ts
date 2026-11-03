@@ -1,9 +1,11 @@
 import { Connection } from "@solana/web3.js";
 import { PAYOUT_WINDOW_SECS, seasonAt, seasonStart } from "../../app/src/lib/chain/season.ts";
 import { log, type Ctx } from "./act.ts";
-import { batchesJob } from "./batches.ts";
+import { fileHistory, weeklyBatchRule, type SendHistory } from "./admin-batches.ts";
+import { batchJob, realBatchDeps, type BatchDeps } from "./batches.ts";
 import { makeScanRpc, scanProgramAccounts } from "./credits.ts";
-import { harvestJob } from "./counters.ts";
+import { harvestJob, realCounterDeps } from "./counters.ts";
+import { stateDir } from "./history.ts";
 import { tellSeasonPlacings } from "./notify-events.ts";
 import { CORE_ID } from "./kit.ts";
 import { failuresSince, failureMark } from "./errors.ts";
@@ -15,7 +17,7 @@ import { settleMatches, viewOf, type MatchView } from "./settle.ts";
 import { treasuryJob } from "./treasury.ts";
 import anchor from "@coral-xyz/anchor";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 /** The steps of the weekly Season run, in order. `record` ends Monday's work; `pay` is Wednesday's. */
 export const STEP_ORDER = ["settle", "redeem", "harvest", "batches", "pools", "record", "pay"] as const;
@@ -161,7 +163,7 @@ export async function payThenTell(pay: () => Promise<StepResult>, tell: () => Pr
 const counted = (actions: number): StepResult => ({ actions, pending: actions > 0 });
 
 /** The steps over the real chain. Seasons found empty go into `store`, so no later run reads them again. */
-export function realSteps(ctx: Ctx, store: StateStore, d: SeasonDeps = realSeasonDeps(ctx)): Steps {
+export function realSteps(ctx: Ctx, store: StateStore, d: SeasonDeps = realSeasonDeps(ctx), extra: { history?: SendHistory; batchDeps?: BatchDeps } = {}): Steps {
   const pass = async (pay: boolean): Promise<StepResult> => {
     const r = await seasonPass(ctx, d, { lookback: Infinity, pay, skip: new Set(store.load()?.empty ?? []) });
     if (r.empty.length) {
@@ -174,7 +176,8 @@ export function realSteps(ctx: Ctx, store: StateStore, d: SeasonDeps = realSeaso
     settle: async () => counted(await settleMatches(ctx, await settlingViews(ctx))),
     redeem: async () => counted(await treasuryJob(ctx)),
     harvest: async () => counted(await harvestJob(ctx)),
-    batches: async () => counted(await batchesJob(ctx)),
+    // The send record is shared with `admin-cli batches`; each retry of the run is a fresh process and must not send an owed batch again.
+    batches: async () => counted(await batchJob(ctx, extra.batchDeps ?? realBatchDeps(ctx, realCounterDeps(ctx)), weeklyBatchRule(extra.history ?? fileHistory(join(stateDir(), "admin-batches.json")), { kinds: [0, 1, 2], payouts: true }))),
     pools: async () => counted(await poolJob(ctx)),
     record: () => pass(false),
     pay: () => payThenTell(() => pass(true), () => tellSeasonPlacings(ctx)),
