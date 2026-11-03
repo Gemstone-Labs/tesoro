@@ -4398,3 +4398,43 @@ fn a_finished_run_keeps_answering_the_beat_and_the_match_waits_for_the_clock_aft
     env.set_slot(env.table().play_end().unwrap() + 1);
     env.close().expect("close at the end of the window");
 }
+
+// --- The instruction that ends a Match commits the result and wipes the seats ---------------
+
+/// Whether the latest transaction called `program` (a CPI line in the logs).
+fn called(env: &Env, program: solana_sdk::pubkey::Pubkey) -> bool {
+    let line = format!("Program {program} invoke");
+    env.last_logs.iter().any(|l| l.starts_with(&line))
+}
+
+#[test]
+fn close_commits_the_result_and_wipes_the_seats() {
+    let mut env = ready();
+    env.play_out(3, 2);
+    let t = env.table();
+    assert_eq!(t.phase, block_puzzle::TABLE_CLOSED);
+    assert!(!t.dirty, "the result is already committed");
+    assert_eq!(t.commit.tries, 1, "exactly one commit, sent by close");
+    assert!(!t.seats_open, "the seats are already wiped");
+    assert!(env.board(0).is_blank() && env.board(1).is_blank());
+    assert!(called(&env, litesvm_magic_stub::magic_program()), "the commit");
+    assert!(
+        called(&env, litesvm_magic_stub::permission_program()),
+        "the seat change"
+    );
+    env.set_time(env.now + block_puzzle::RESET_DELAY_SECS);
+    env.reset().expect("reset without a separate commit or wipe");
+}
+
+#[test]
+fn close_of_a_match_that_never_ran_commits_too() {
+    let mut env = ready();
+    env.begin().expect("begin_match");
+    env.seat_players_standin();
+    let end = env.table().checkin_end().unwrap();
+    env.set_slot(end + 1);
+    env.close().expect("close");
+    let t = env.table();
+    assert!(!t.dirty && t.commit.tries == 1);
+    assert!(called(&env, litesvm_magic_stub::magic_program()));
+}

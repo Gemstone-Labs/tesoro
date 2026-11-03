@@ -6719,3 +6719,45 @@ fn a_skipped_epoch_can_still_start_another_match_assigned_to_it() {
         .expect("a later Assignment still begins on the skipped epoch");
     assert_ne!(env.table().phase, vanguard::TABLE_IDLE);
 }
+
+// --- The instruction that ends a Match commits the result and wipes the seats ---------------
+
+/// Whether the latest transaction called `program` (a CPI line in the logs).
+fn called(env: &Env, program: solana_sdk::pubkey::Pubkey) -> bool {
+    let line = format!("Program {program} invoke");
+    env.last_logs.iter().any(|l| l.starts_with(&line))
+}
+
+fn assert_committed_and_wiped(env: &Env) {
+    let t = env.table();
+    assert_eq!(t.phase, vanguard::TABLE_OVER);
+    assert!(!t.dirty, "the result is already committed");
+    assert_eq!(t.commit.tries, 1, "exactly one commit, sent by the last instruction");
+    assert!(!t.seats_open, "the seats are already wiped");
+    assert!(env.army(0).is_blank() && env.army(1).is_blank());
+    assert!(called(env, litesvm_magic_stub::magic_program()), "the commit");
+    assert!(
+        called(env, litesvm_magic_stub::permission_program()),
+        "the seat change"
+    );
+}
+
+#[test]
+fn the_resolve_that_ends_the_match_commits_the_result_and_wipes_the_seats() {
+    let mut env = play_out(1);
+    assert_committed_and_wiped(&env);
+    env.set_time(env.now + vanguard::RESET_DELAY_SECS);
+    let ixn = env.reset_ix();
+    env.rollup(ixn).expect("reset without a separate commit or wipe");
+}
+
+#[test]
+fn a_cancelled_setup_commits_and_wipes_too() {
+    let mut env = ready();
+    env.open_setup();
+    let bob = env.bob.kp.insecure_clone();
+    env.set_time(env.battle().entropy_deadline + 1);
+    env.claim_timeout(&bob).expect("anyone cancels");
+    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    assert_committed_and_wiped(&env);
+}

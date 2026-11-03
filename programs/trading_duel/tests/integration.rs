@@ -2870,3 +2870,42 @@ fn a_skipped_epoch_commit_is_owed_while_the_table_is_idle() {
         "once per result"
     );
 }
+
+// --- The instruction that ends a Match commits the result and closes the seats --------------
+
+/// Whether the latest transaction called `program` (a CPI line in the logs).
+fn called(env: &Env, program: solana_sdk::pubkey::Pubkey) -> bool {
+    let line = format!("Program {program} invoke");
+    env.last_logs.iter().any(|l| l.starts_with(&line))
+}
+
+#[test]
+fn end_match_commits_the_result_and_closes_the_seats() {
+    let mut env = live();
+    play_flat(&mut env);
+    let t = env.table();
+    assert_eq!(t.phase, trading_duel::PHASE_OVER);
+    assert!(!t.dirty, "the result is already committed");
+    assert_eq!(t.commit.tries, 1, "exactly one commit, sent by end_match");
+    assert!(!t.seats_open, "the seats are already closed");
+    assert!(called(&env, litesvm_magic_stub::magic_program()), "the commit");
+    assert!(
+        called(&env, litesvm_magic_stub::permission_program()),
+        "the seat change"
+    );
+    env.set_time(env.now + trading_duel::RESET_DELAY_SECS);
+    env.reset().expect("reset without a separate commit or close");
+}
+
+#[test]
+fn a_start_that_expires_commits_and_closes_the_seats_too() {
+    let mut env = ready();
+    env.begin().expect("begin");
+    env.open_seats_standin();
+    env.set_time(env.table().start_deadline + 1);
+    let ixn = env.expire_ix();
+    env.rollup(ixn).expect("expire");
+    let t = env.table();
+    assert!(!t.dirty && !t.seats_open && t.commit.tries == 1);
+    assert!(called(&env, litesvm_magic_stub::magic_program()));
+}
