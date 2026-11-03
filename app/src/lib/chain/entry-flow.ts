@@ -29,6 +29,8 @@ import {
   type PotRef,
 } from "./entry";
 import { GAME_IDS } from "./games";
+import { assertGameListed } from "./game-listing";
+import { getChain } from "./client";
 import { prepareBackingTicket, prepareEntryTicket, type StagedEntry } from "./ticket";
 
 const accountOf = (authority: PublicKey) => BlockPuzzleChain.coreAccount(authority);
@@ -76,6 +78,7 @@ export interface OpenedEntry {
 
 /** Opens a Match. `n` comes from the opener's counter, so the key is known before the transaction lands. */
 export async function openEntry(a: EntryArgs & { challenge: boolean; asset?: number }): Promise<OpenedEntry> {
+  await assertGameListed(getChain().base, GAME_IDS[a.game]);
   const me = accountOf(a.signer.publicKey);
   const [own, { stores, preview }] = await Promise.all([readEntryStores(me), planEntryFor(a.signer.publicKey, a.entry, a.backing)]);
   const { pot, remaining } = await potFor(a, preview);
