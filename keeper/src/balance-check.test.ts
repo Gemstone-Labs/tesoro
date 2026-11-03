@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { AlertManager, type Alert, type Watch } from "./alerts.ts";
-import { BALANCE_CHECK_EVERY_MS, balanceCheck, extraWatches, type BalanceState } from "./balance-check.ts";
+import { BALANCE_CHECK_EVERY_MS, balanceCheck, extraWatches, sponsorMinLamports, sponsorWatches, type BalanceState } from "./balance-check.ts";
 
 const H = 3_600_000;
 const watch: Watch = { key: "balance:keeper:solana", label: "keeper on Solana", unit: "SOL", min: 0.3, address: "KeepAddr", net: "solana" };
@@ -64,5 +64,37 @@ describe("extraWatches", () => {
   it("is empty when unset or malformed", () => {
     assert.deepEqual(extraWatches({}), []);
     assert.deepEqual(extraWatches({ ALERT_EXTRA_SOL: "nonsense" }), []);
+  });
+});
+
+describe("Sponsor balances", () => {
+  it("watch each Game's Sponsor with a floor of 1,000 commits (100,000 lamports each) unless configured", () => {
+    assert.equal(sponsorMinLamports({}), 100_000_000);
+    assert.equal(sponsorMinLamports({ ALERT_MIN_SPONSOR_LAMPORTS: "250000000" }), 250_000_000);
+    assert.equal(sponsorMinLamports({ ALERT_MIN_SPONSOR_LAMPORTS: "lots" }), 100_000_000);
+    const [w] = sponsorWatches([{ label: "Hold'em", address: "SponsorPda" }], 100_000_000);
+    assert.deepEqual([w.key, w.label, w.unit, w.min, w.address, w.net], ["balance:sponsor:Hold'em", "Hold'em Sponsor", "SOL", 0.1, "SponsorPda", "rollup"]);
+  });
+
+  it("checks on every run when asked, and alerts once while a Sponsor stays low", async () => {
+    const sent: Alert[] = [];
+    let saved: BalanceState | null = null;
+    const run = (now: number, lamports: number | null) =>
+      balanceCheck({
+        now,
+        everyMs: 0,
+        load: () => saved,
+        save: (s) => void (saved = s),
+        watches: sponsorWatches([{ label: "Duel", address: "S" }], 100_000_000),
+        read: async () => (lamports === null ? Number.NaN : lamports / 1e9),
+        manager: (st) => new AlertManager(async (a) => (sent.push(a), true), 4 * H).restore(st),
+      });
+    await run(0, 5_000_000);
+    await run(15 * 60_000, 5_000_000);
+    await run(30 * 60_000, null);
+    assert.deepEqual(sent.map((a) => a.kind), ["alert"]);
+    assert.match(sent[0].title, /Duel Sponsor/);
+    await run(45 * 60_000, 900_000_000);
+    assert.deepEqual(sent.map((a) => a.kind), ["alert", "recovered"]);
   });
 });

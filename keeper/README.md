@@ -32,11 +32,11 @@ The last job of each pass (`src/alerts.ts`, `src/alerts-job.ts`) emails both fou
 | Env var | Pinged by | Monitor period / grace |
 |---|---|---|
 | `KEEPER_HEARTBEAT_URL` | the safety sweep (every 5 minutes, ping `ok` whether or not a Match is stuck; `fail` when the sweep itself crashed) and, until ticket 20 removes it, the 20 s loop (once per pass) | 5 min / 15 min |
+| `JANITOR_HEARTBEAT_URL` | the daily janitor (`ok` when every part ran, `fail` when one failed) | 1 day / 6 h |
+| `POOL_HEARTBEAT_URL` | the Table pool repair (every 15 minutes; `fail` when a Game's repair threw) | 15 min / 45 min |
 | `SEASON_HEARTBEAT_URL` | the Season run (hourly retry timer; `ok` when everything due is done, `fail` when a step stopped the run) | 1 h / 2 h |
 
-The janitor and the Table pool repair are not pinged: a dead sweep timer shares their machine, and their failures show as failed units.
-
-The sweep also runs the hourly balance check (`src/balance-check.ts`, needs `NOTIFY_URL` and `NOTIFY_SECRET`): the keeper, oracle and relayer balances of "Alerts" plus any `ALERT_EXTRA_SOL="Duel Fuel=<address>:<min SOL>, ..."` accounts (use it for Fuel). It reads at most once an hour and keeps its alert state in `$KEEPER_STATE_DIR/balance-check.json`, so a low balance is mailed once, as a reminder every `ALERT_REMINDER_SECS`, and once on recovery. Sponsor PDAs live on the rollup, not the base layer, so this check cannot read them; the Table pool repair reads them.
+The sweep also runs the hourly balance check (`src/balance-check.ts`, needs `NOTIFY_URL` and `NOTIFY_SECRET`): the keeper, oracle and relayer balances of "Alerts" plus any `ALERT_EXTRA_SOL="Duel Fuel=<address>:<min SOL>, ..."` accounts (use it for Fuel). It reads at most once an hour and keeps its alert state in `$KEEPER_STATE_DIR/balance-check.json`, so a low balance is mailed once, as a reminder every `ALERT_REMINDER_SECS`, and once on recovery. The Table pool repair run also checks every Game's Sponsor, read on the rollup, on each run (every 15 minutes): below `ALERT_MIN_SPONSOR_LAMPORTS` (default 100,000,000 = 1,000 commits at 100,000 lamports) it mails once, then as a reminder, then once on recovery (state `$KEEPER_STATE_DIR/sponsor-balance.json`). A failed commit reverts the Player's ending move, so a dry Sponsor blocks Matches from ending.
 
 ## Jobs
 
