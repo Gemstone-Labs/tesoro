@@ -6338,7 +6338,7 @@ fn grow_counters_refuses_what_is_not_a_counters_account() {
 fn an_old_counters_account_grows_in_the_same_transaction_as_the_ticket_that_needs_it() {
     let mut env = Env::new();
     let (p, _) = person_with_lines(&mut env, 2, 100, 1_000);
-    env.open_match(&p, 1_000).expect("open");
+    env.force_next_ticket(p.account, 0);
     env.ensure_spill(&p.kp, p.account, 2);
     shrink_counters_to_v1(&mut env, &p);
     let nonce = AccountCounters::LEGACY_TICKET_BASE;
@@ -6373,7 +6373,7 @@ fn a_match_opened_before_the_upgrade_still_closes_with_an_old_counters_account()
     shrink_counters_to_v1(&mut d.env, &alice);
     let stranger = d.env.admin.insecure_clone();
     d.env
-        .refund_keep(&stranger, id)
+        .refund(&stranger, id, vec![])
         .expect("the old counters account does not block the close");
     let c = d
         .env
