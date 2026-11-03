@@ -55,7 +55,9 @@ fn half_word_gives_the_30s_median_of_the_exponential_part() {
 fn crash_point_odds_match_the_published_ones() {
     let mut rng = 7u64;
     let n = 200_000usize;
-    let mut crashes: Vec<u32> = (0..n).map(|_| ride(&random_draw(&mut rng)).crash_ms).collect();
+    let mut crashes: Vec<u32> = (0..n)
+        .map(|_| ride(&random_draw(&mut rng)).crash_ms)
+        .collect();
     assert!(crashes.iter().all(|c| (10_000..=120_000).contains(c)));
     crashes.sort_unstable();
     let median = crashes[n / 2] as f64 / 1000.0;
@@ -67,9 +69,15 @@ fn crash_point_odds_match_the_published_ones() {
     for k in [0u32, 10, 20, 40, 60, 80] {
         let lo = 10_000 + k * 1000;
         let alive = crashes.iter().filter(|c| **c >= lo).count() as f64;
-        let hit = crashes.iter().filter(|c| **c >= lo && **c < lo + 1000).count() as f64;
+        let hit = crashes
+            .iter()
+            .filter(|c| **c >= lo && **c < lo + 1000)
+            .count() as f64;
         let h = hit / alive;
-        assert!((h - expect).abs() < 0.006, "hazard at +{k}s was {h}, want {expect}");
+        assert!(
+            (h - expect).abs() < 0.006,
+            "hazard at +{k}s was {h}, want {expect}"
+        );
     }
 }
 
@@ -166,7 +174,9 @@ fn position_is_never_lowered_by_brakes_and_impact_is_the_first_time_at_the_crash
     let mut rng = 21u64;
     for _ in 0..2_000 {
         let n = (splitmix(&mut rng) % 6) as usize;
-        let mut brakes: Vec<u32> = (0..n).map(|_| (splitmix(&mut rng) % 120_000) as u32).collect();
+        let mut brakes: Vec<u32> = (0..n)
+            .map(|_| (splitmix(&mut rng) % 120_000) as u32)
+            .collect();
         brakes.sort_unstable();
         let crash = 10_000 + (splitmix(&mut rng) % 110_001) as u32;
         let t = impact_ms(&brakes, crash);
@@ -270,7 +280,10 @@ proptest! {
 // ---- vectors ----
 
 fn u32s(v: &[u32]) -> String {
-    format!("[{}]", v.iter().map(u32::to_string).collect::<Vec<_>>().join(","))
+    format!(
+        "[{}]",
+        v.iter().map(u32::to_string).collect::<Vec<_>>().join(",")
+    )
 }
 
 fn build_vectors() -> String {
@@ -308,18 +321,26 @@ fn build_vectors() -> String {
     ];
     for _ in 0..30 {
         let n = (splitmix(&mut rng) % 8) as usize;
-        let mut b: Vec<u32> = (0..n).map(|_| (splitmix(&mut rng) % 150_000) as u32).collect();
+        let mut b: Vec<u32> = (0..n)
+            .map(|_| (splitmix(&mut rng) % 150_000) as u32)
+            .collect();
         b.sort_unstable();
         schedules.push(b);
     }
     for b in &schedules {
-        let times: Vec<u32> = (0..25).map(|_| (splitmix(&mut rng) % 200_000) as u32).collect();
+        let times: Vec<u32> = (0..25)
+            .map(|_| (splitmix(&mut rng) % 200_000) as u32)
+            .collect();
         let positions: Vec<u32> = times.iter().map(|t| position_ms(b, *t)).collect();
         let crashes: Vec<u32> = vec![10_000, 40_000, 77_777, 120_000];
         let impacts: Vec<u32> = crashes.iter().map(|c| impact_ms(b, *c)).collect();
         tracks.push(format!(
             "{{\"brakes\":{},\"times\":{},\"positions\":{},\"crashes\":{},\"impacts\":{}}}",
-            u32s(b), u32s(&times), u32s(&positions), u32s(&crashes), u32s(&impacts)
+            u32s(b),
+            u32s(&times),
+            u32s(&positions),
+            u32s(&crashes),
+            u32s(&impacts)
         ));
     }
 
@@ -329,7 +350,8 @@ fn build_vectors() -> String {
             for entry in [500u64, 1000, 777] {
                 refunds.push(format!(
                     "{{\"position\":{pos},\"entry\":{entry},\"pct\":{},\"refund\":{}}}",
-                    refund_pct(pos), refund(entry, pos)
+                    refund_pct(pos),
+                    refund(entry, pos)
                 ));
             }
         }
@@ -339,14 +361,20 @@ fn build_vectors() -> String {
         .flat_map(|a| {
             (0..=3usize).map(move |n| {
                 let s = split(*a, n);
-                format!("{{\"amount\":\"{a}\",\"places\":{n},\"shares\":[\"{}\",\"{}\",\"{}\"]}}", s[0], s[1], s[2])
+                format!(
+                    "{{\"amount\":\"{a}\",\"places\":{n},\"shares\":[\"{}\",\"{}\",\"{}\"]}}",
+                    s[0], s[1], s[2]
+                )
             })
         })
         .collect();
 
     format!(
         "{{\"rides\":[{}],\"tracks\":[{}],\"refunds\":[{}],\"splits\":[{}]}}",
-        rides.join(","), tracks.join(","), refunds.join(","), splits.join(",")
+        rides.join(","),
+        tracks.join(","),
+        refunds.join(","),
+        splits.join(",")
     )
 }
 
@@ -359,6 +387,9 @@ fn vectors_match_committed_file() {
     } else {
         let on_disk =
             std::fs::read_to_string(path).expect("vectors.json missing; run with WRITE_VECTORS=1");
-        assert_eq!(on_disk, json, "vectors.json is stale; rerun with WRITE_VECTORS=1");
+        assert_eq!(
+            on_disk, json,
+            "vectors.json is stale; rerun with WRITE_VECTORS=1"
+        );
     }
 }

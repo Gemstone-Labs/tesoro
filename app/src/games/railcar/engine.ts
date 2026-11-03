@@ -66,7 +66,8 @@ function crashFrom(w: bigint): number {
   return Number(total > BigInt(MAX_CRASH_MS) ? BigInt(MAX_CRASH_MS) : total);
 }
 
-const lead = (w: bigint, [lo, hi]: readonly [number, number]) => lo + Number(w % BigInt(hi - lo + 1));
+const lead = (w: bigint, [lo, hi]: readonly [number, number]) =>
+  lo + Number(w % BigInt(hi - lo + 1));
 
 export function ride(draw: Uint8Array): Ride {
   if (draw.length !== 32) throw new Error("draw must be 32 bytes");
@@ -81,7 +82,8 @@ export function ride(draw: Uint8Array): Ride {
   const s = { v: w1 ^ rotl(w2, 21n) ^ rotl(w3, 42n) ^ rotl(w0, 7n) };
   const count = 2 + Number(splitmix(s) % 3n);
   const candidates: number[] = [];
-  for (let i = 0; i < count; i++) candidates.push(2_000 + Number(splitmix(s) % 16_001n));
+  for (let i = 0; i < count; i++)
+    candidates.push(2_000 + Number(splitmix(s) % 16_001n));
   candidates.sort((a, b) => a - b);
   const falseScrews = candidates.filter((c) => c + 1_000 <= screwAtMs);
 
@@ -111,7 +113,8 @@ function slowPeriods(brakes: readonly number[]): [number, number][] {
 /** Track position (track ms, rounded down) after t real ms. */
 export function positionMs(brakes: readonly number[], t: number): number {
   let slowed = 0;
-  for (const [s, e] of slowPeriods(brakes)) slowed += Math.max(0, Math.min(e, t) - Math.min(s, t));
+  for (const [s, e] of slowPeriods(brakes))
+    slowed += Math.max(0, Math.min(e, t) - Math.min(s, t));
   return Math.floor((2 * t - slowed) / 2);
 }
 
@@ -141,7 +144,8 @@ export function impactMs(brakes: readonly number[], crashMs: number): number {
 /** Early-jump refund in percent of the entry, by track position. */
 export function refundPct(position: number): number {
   if (position < 20_000) return 80;
-  if (position < 90_000) return 70 - 10 * Math.floor((position - 20_000) / 10_000);
+  if (position < 90_000)
+    return 70 - 10 * Math.floor((position - 20_000) / 10_000);
   if (position < 100_000) return 5;
   return 0;
 }
@@ -149,8 +153,11 @@ export function refundPct(position: number): number {
 export const refund = (entry: bigint, position: number): bigint =>
   (entry * BigInt(refundPct(position))) / 100n;
 
-export const refundAt = (entry: bigint, brakes: readonly number[], t: number): bigint =>
-  refund(entry, positionMs(brakes, t));
+export const refundAt = (
+  entry: bigint,
+  brakes: readonly number[],
+  t: number,
+): bigint => refund(entry, positionMs(brakes, t));
 
 /** Place shares in basis points, last Player off first. */
 export function placeSharesBps(placed: number): [number, number, number] {
@@ -161,9 +168,16 @@ export function placeSharesBps(placed: number): [number, number, number] {
 }
 
 /** Split amount between the placed Players; the rounding remainder goes to the top share. */
-export function split(amount: bigint, placed: number): [bigint, bigint, bigint] {
+export function split(
+  amount: bigint,
+  placed: number,
+): [bigint, bigint, bigint] {
   const bps = placeSharesBps(Math.min(placed, 3));
-  const out = bps.map((b) => (amount * BigInt(b)) / 10_000n) as [bigint, bigint, bigint];
+  const out = bps.map((b) => (amount * BigInt(b)) / 10_000n) as [
+    bigint,
+    bigint,
+    bigint,
+  ];
   if (bps[0] !== 0) out[0] += amount - (out[0] + out[1] + out[2]);
   return out;
 }

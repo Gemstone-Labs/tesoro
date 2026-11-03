@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import vectors from "../../../../programs/railcar/tests/vectors.json";
-import { hexToBytes, impactMs, positionMs, refund, refundPct, ride, split } from "./engine";
+import {
+  hexToBytes,
+  impactMs,
+  positionMs,
+  refund,
+  refundPct,
+  ride,
+  split,
+} from "./engine";
 
 describe("Rust parity vectors", () => {
   it("has vectors", () => {
@@ -24,10 +32,13 @@ describe("Rust parity vectors", () => {
     });
   });
 
-  it.each(vectors.tracks.map((v, i) => [i, v] as const))("track %i", (_i, v) => {
-    expect(v.times.map((t) => positionMs(v.brakes, t))).toEqual(v.positions);
-    expect(v.crashes.map((c) => impactMs(v.brakes, c))).toEqual(v.impacts);
-  });
+  it.each(vectors.tracks.map((v, i) => [i, v] as const))(
+    "track %i",
+    (_i, v) => {
+      expect(v.times.map((t) => positionMs(v.brakes, t))).toEqual(v.positions);
+      expect(v.crashes.map((c) => impactMs(v.brakes, c))).toEqual(v.impacts);
+    },
+  );
 
   it("refunds", () => {
     for (const v of vectors.refunds) {
