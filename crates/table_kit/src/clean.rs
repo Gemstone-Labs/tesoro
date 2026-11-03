@@ -23,6 +23,11 @@ pub fn is_next_epoch(table_epoch: u64, assign_epoch: u64) -> bool {
 }
 
 impl Ring {
+    /// No slot is free: the next Match can begin only if a slot is freed first.
+    pub fn is_full(&self) -> bool {
+        self.used() == RING_LEN
+    }
+
     /// Frees every Done slot whose Match has a receipt among `accounts` that is `delay` old.
     /// Returns how many it freed.
     pub fn free_proven(&mut self, accounts: &[AccountInfo], now: i64, delay: i64) -> usize {
@@ -49,6 +54,16 @@ mod tests {
         assert!(!is_next_epoch(4, 6));
         assert!(!is_next_epoch(5, 4));
         assert!(!is_next_epoch(u64::MAX, 0));
+    }
+
+    #[test]
+    fn a_ring_is_full_only_when_every_slot_is_taken() {
+        let mut r = Ring::default();
+        for n in 0..RING_LEN as u8 {
+            assert!(!r.is_full());
+            r.reserve(Pubkey::new_from_array([n + 1; 32]), 0).unwrap();
+        }
+        assert!(r.is_full());
     }
 
     #[test]
