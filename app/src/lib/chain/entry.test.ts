@@ -358,7 +358,10 @@ describe("Ticket and Pot nonces come from the funder's counter", () => {
   const funded = encodeStore([lineOf({ source: srcA, amount: 900n, dueAt: 100n })]);
   const holdCounters = (get: () => bigint) =>
     readAccounts.mockImplementation(async (keys: unknown[]) =>
-      (keys as PublicKey[]).map((key) => (key.equals(countersPda(me)) ? counters(2n, get()) : key.equals(basketPda(me)) ? { data: funded } : key.equals(spillPda(me)) ? { data: encodeStore([]) } : null)),
+      (keys as PublicKey[]).map((key) => {
+        const data = key.equals(countersPda(me)) ? counters(2n, get()).data : key.equals(basketPda(me)) ? funded : key.equals(spillPda(me)) ? encodeStore([]) : null;
+        return data && { owner: new PublicKey(coreIdl.address), data };
+      }),
     );
   const sentPotNonce = (ix: { data: Buffer } | undefined) => String((coder.decode(ix!.data) as unknown as { data: Record<string, unknown> }).data.pot_nonce);
 
