@@ -3172,7 +3172,16 @@ fn drain(env: &mut Env, key: &Keypair) {
     let fee = 5_000;
     let left = env.lamports(a(key.pubkey()));
     let sink = Keypair::new();
-    let transfer = solana_sdk::system_instruction::transfer(&key.pubkey(), &sink.pubkey(), left - fee);
+    let mut data = vec![2, 0, 0, 0];
+    data.extend_from_slice(&(left - fee).to_le_bytes());
+    let transfer = solana_sdk::instruction::Instruction::new_with_bytes(
+        solana_sdk::system_program::id(),
+        &data,
+        vec![
+            solana_sdk::instruction::AccountMeta::new(key.pubkey(), true),
+            solana_sdk::instruction::AccountMeta::new(sink.pubkey(), false),
+        ],
+    );
     env.send(&[transfer], key, &[]).expect("drain");
     assert_eq!(env.lamports(a(key.pubkey())), 0);
 }
