@@ -33,7 +33,7 @@ import { type PlayerSigner, keypairSigner } from "../holdem/chain";
 import type { BlockPuzzle } from "../../lib/chain/idl/block_puzzle.types";
 import * as engine from "./engine";
 import { watchAccount } from "./table-feed";
-import { beginReceipts, receiptMetas } from "../../lib/chain/table-clean";
+import { beginSettled, receiptMetas } from "../../lib/chain/table-clean";
 
 export { keypairSigner, type PlayerSigner };
 
@@ -809,7 +809,7 @@ export class BlockBurstChain {
     const ix = await this.program.methods
       .beginMatch()
       .accountsPartial({ assignment: a.address, tesoroMatch: a.tesoroMatch, ending: this.closeAccounts(payer.publicKey, a) } as any)
-      .remainingAccounts(table ? receiptMetas(beginReceipts(table)) : [])
+      .remainingAccounts(table ? receiptMetas(beginSettled(table)) : [])
       .instruction();
     return this.sendTee("begin_match", [ix], payer);
   }

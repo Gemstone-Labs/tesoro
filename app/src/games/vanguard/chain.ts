@@ -35,7 +35,7 @@ import {
 } from "../holdem/chain";
 import { decodeArmy, decodeBattle, type ArmyAccount, type Battle } from "./decode";
 import { gameAccounts } from "../../lib/chain/game-record";
-import { beginReceipts, receiptMetas } from "../../lib/chain/table-clean";
+import { beginSettled, receiptMetas } from "../../lib/chain/table-clean";
 
 export { keypairSigner, tesoroAccountPda, type PlayerSigner };
 
@@ -631,7 +631,7 @@ export class VanguardChain {
     const ix = await this.program.methods
       .beginMatch()
       .accountsPartial({ assignment: a.address, tesoroMatch: a.tesoroMatch, ending: await this.concludingAccounts(payer.publicKey, a) } as any)
-      .remainingAccounts(table ? receiptMetas(beginReceipts(table)) : [])
+      .remainingAccounts(table ? receiptMetas(beginSettled(table)) : [])
       .instruction();
     return this.sendTee("begin_match", [ix], payer);
   }

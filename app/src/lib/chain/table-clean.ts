@@ -29,7 +29,7 @@ export function atNextEpoch(assignment: TableEpoch, table: TableEpoch): boolean 
  * Match tesoro_core froze) and, when the ring has no free slot, the receipt of each slot's Match (it frees the ones
  * that are a minute old). A receipt that does not exist yet is simply not used.
  */
-export function beginReceipts(table: { tesoroMatch: PublicKey; ring: readonly RingSlot[] }): PublicKey[] {
+export function beginSettled(table: { tesoroMatch: PublicKey; ring: readonly RingSlot[] }): PublicKey[] {
   const matches = new Map<string, PublicKey>();
   if (!table.tesoroMatch.equals(PublicKey.default)) matches.set(table.tesoroMatch.toBase58(), table.tesoroMatch);
   if (table.ring.length > 0 && table.ring.every((s) => s.state !== SLOT_FREE)) {

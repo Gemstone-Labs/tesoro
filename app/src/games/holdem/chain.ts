@@ -43,7 +43,7 @@ import nacl from "tweetnacl";
 import { gameAccounts } from "../../lib/chain/game-record";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { baseRpc } from "../../lib/chain/rpc-config";
-import { beginReceipts, receiptMetas } from "../../lib/chain/table-clean";
+import { beginSettled, receiptMetas } from "../../lib/chain/table-clean";
 
 export const HOLDEM_PROGRAM_ID = new PublicKey("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE");
 export const TESORO_CORE_PROGRAM_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
@@ -663,7 +663,7 @@ export class HoldemChain {
     const ix = await this.program.methods
       .beginMatch()
       .accountsPartial({ assignment: a.address, tesoroMatch: a.tesoroMatch, ending: this.concludingAccounts(payer.publicKey, a) } as any)
-      .remainingAccounts(table ? receiptMetas(beginReceipts(table)) : [])
+      .remainingAccounts(table ? receiptMetas(beginSettled(table)) : [])
       .instruction();
     return this.sendTee("begin_match", [ix], payer);
   }

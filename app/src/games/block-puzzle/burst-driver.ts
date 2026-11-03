@@ -462,11 +462,12 @@ export class BurstDriver {
     let t = this.tableRef && now() - this.tableAt < 1_500 ? this.tableRef : null;
     if (!t) {
       const read = await chain.readTable(p, a).catch(() => null);
-      if (read && tableOf(a, read)) {
+      if (read && (tableOf(a, read) || atNextEpoch(a, read))) {
+        // A table one epoch behind still holds the previous Match: begin_match clears it, but it is not this Match's table to show.
         t = read;
         this.tableRef = read;
         this.tableAt = now();
-        this.patch({ table: read, reconnecting: false });
+        this.patch(tableOf(a, read) ? { table: read, reconnecting: false } : { reconnecting: false });
       } else if (!read) {
         this.patch({ reconnecting: true });
       }
@@ -489,7 +490,7 @@ export class BurstDriver {
     if (t && t.phase === TABLE_PHASE.closed && !t.dirty && (!baseTable || !tableOf(a, baseTable))) {
       baseTable = await chain.readTableOnBase(a).catch(() => null);
       this.baseRef = baseTable;
-    } else if (t && !tableOf(a, t)) {
+    } else if (t && !tableOf(a, t) && !atNextEpoch(a, t)) {
       baseTable = await chain.readTableOnBase(a).catch(() => null);
       this.baseRef = baseTable;
     }

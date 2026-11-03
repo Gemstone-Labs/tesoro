@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { settledPda } from "./basket";
-import { atNextEpoch, beginReceipts, startNote } from "./table-clean";
+import { atNextEpoch, beginSettled, startNote } from "./table-clean";
 
 const key = () => Keypair.generate().publicKey;
 const slot = (state: number, tesoroMatch: PublicKey) => ({ state, tesoroMatch });
@@ -27,27 +27,27 @@ describe("startNote", () => {
   });
 });
 
-describe("beginReceipts", () => {
+describe("beginSettled", () => {
   it("names the receipt of the Match the table holds, for a table stuck on one", () => {
     const m = key();
     const t = { tesoroMatch: m, ring: [slot(1, m), free(), free(), free(), free(), free(), free(), free()] };
-    expect(beginReceipts(t).map(String)).toEqual([String(settledPda(m))]);
+    expect(beginSettled(t).map(String)).toEqual([String(settledPda(m))]);
   });
 
   it("adds the receipt of every ring slot when the ring is full", () => {
     const ms = Array.from({ length: 8 }, key);
     const t = { tesoroMatch: PublicKey.default, ring: ms.map((m) => slot(2, m)) };
-    expect(beginReceipts(t).map(String).sort()).toEqual(ms.map((m) => String(settledPda(m))).sort());
+    expect(beginSettled(t).map(String).sort()).toEqual(ms.map((m) => String(settledPda(m))).sort());
   });
 
   it("names a Match once even when the table and a slot both hold it", () => {
     const ms = Array.from({ length: 8 }, key);
     const t = { tesoroMatch: ms[0], ring: ms.map((m) => slot(1, m)) };
-    expect(beginReceipts(t)).toHaveLength(8);
+    expect(beginSettled(t)).toHaveLength(8);
   });
 
   it("names nothing for a clean table with room in its ring", () => {
     const t = { tesoroMatch: PublicKey.default, ring: [slot(2, key()), free(), free(), free(), free(), free(), free(), free()] };
-    expect(beginReceipts(t)).toEqual([]);
+    expect(beginSettled(t)).toEqual([]);
   });
 });

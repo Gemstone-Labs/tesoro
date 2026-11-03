@@ -83,7 +83,10 @@ describe("rollup instructions", () => {
   it("begin_match names the Assignment, the table and the core Match", async () => {
     const { chain, sent, player } = capture();
     await chain.beginMatch(player, assignment);
-    expect(keys(sent[0].ix)).toEqual([player.publicKey, assignment.address, table, ID].map((k) => k.toBase58()));
+    const k = keys(sent[0].ix);
+    // The Assignment and the core Match, then the account list of the instructions that end a Match (a void wipes and commits).
+    expect(k.slice(0, 4)).toEqual([assignment.address, ID, player.publicKey, table].map((x) => x.toBase58()));
+    expect(k).toHaveLength(14);
   });
 
   it("open_seats names both Books and their permissions", async () => {

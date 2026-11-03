@@ -38,7 +38,7 @@ import {
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { COLUMNS, type Track } from "./grid";
 import { gameAccounts } from "../../lib/chain/game-record";
-import { beginReceipts, receiptMetas } from "../../lib/chain/table-clean";
+import { beginSettled, receiptMetas } from "../../lib/chain/table-clean";
 
 export { keypairSigner, type PlayerSigner } from "../holdem/chain";
 
@@ -613,7 +613,7 @@ export class TradingDuelChain {
     const ix = await this.program.methods
       .beginMatch()
       .accountsPartial({ assignment: a.address, tesoroMatch: a.tesoroMatch, ending: this.concludingAccounts(payer.publicKey, a) } as any)
-      .remainingAccounts(table ? receiptMetas(beginReceipts(table)) : [])
+      .remainingAccounts(table ? receiptMetas(beginSettled(table)) : [])
       .instruction();
     return this.sendTee("begin_match", [ix], payer);
   }
