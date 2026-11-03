@@ -328,10 +328,6 @@ export type Vanguard = {
       ],
       "accounts": [
         {
-          "name": "caller",
-          "signer": true
-        },
-        {
           "name": "assignment",
           "pda": {
             "seeds": [
@@ -350,57 +346,6 @@ export type Vanguard = {
                 "kind": "account",
                 "path": "assignment.tesoro_match",
                 "account": "assignment"
-              }
-            ]
-          }
-        },
-        {
-          "name": "table",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  98,
-                  108,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "table.generation",
-                "account": "table"
-              },
-              {
-                "kind": "account",
-                "path": "table.index",
-                "account": "table"
-              }
-            ]
-          }
-        },
-        {
-          "name": "battle",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  97,
-                  116,
-                  116,
-                  108,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "table"
               }
             ]
           }
@@ -470,22 +415,262 @@ export type Vanguard = {
           }
         },
         {
-          "name": "vanguardConfig",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
+          "name": "ending",
+          "accounts": [
+            {
+              "name": "caller",
+              "signer": true
+            },
+            {
+              "name": "table",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "value": [
+                      116,
+                      97,
+                      98,
+                      108,
+                      101
+                    ]
+                  },
+                  {
+                    "kind": "account",
+                    "path": "table.generation",
+                    "account": "table"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "table.index",
+                    "account": "table"
+                  }
                 ]
               }
-            ]
-          }
+            },
+            {
+              "name": "battle",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "value": [
+                      98,
+                      97,
+                      116,
+                      116,
+                      108,
+                      101
+                    ]
+                  },
+                  {
+                    "kind": "account",
+                    "path": "table"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "army0",
+              "writable": true
+            },
+            {
+              "name": "army1",
+              "writable": true
+            },
+            {
+              "name": "army0Permission",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "value": [
+                      112,
+                      101,
+                      114,
+                      109,
+                      105,
+                      115,
+                      115,
+                      105,
+                      111,
+                      110,
+                      58
+                    ]
+                  },
+                  {
+                    "kind": "account",
+                    "path": "army0"
+                  }
+                ],
+                "program": {
+                  "kind": "const",
+                  "value": [
+                    136,
+                    161,
+                    10,
+                    196,
+                    33,
+                    152,
+                    1,
+                    214,
+                    246,
+                    106,
+                    29,
+                    60,
+                    6,
+                    152,
+                    192,
+                    102,
+                    169,
+                    175,
+                    212,
+                    217,
+                    180,
+                    252,
+                    231,
+                    71,
+                    151,
+                    141,
+                    209,
+                    5,
+                    168,
+                    212,
+                    103,
+                    82
+                  ]
+                }
+              }
+            },
+            {
+              "name": "army1Permission",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "value": [
+                      112,
+                      101,
+                      114,
+                      109,
+                      105,
+                      115,
+                      115,
+                      105,
+                      111,
+                      110,
+                      58
+                    ]
+                  },
+                  {
+                    "kind": "account",
+                    "path": "army1"
+                  }
+                ],
+                "program": {
+                  "kind": "const",
+                  "value": [
+                    136,
+                    161,
+                    10,
+                    196,
+                    33,
+                    152,
+                    1,
+                    214,
+                    246,
+                    106,
+                    29,
+                    60,
+                    6,
+                    152,
+                    192,
+                    102,
+                    169,
+                    175,
+                    212,
+                    217,
+                    180,
+                    252,
+                    231,
+                    71,
+                    151,
+                    141,
+                    209,
+                    5,
+                    168,
+                    212,
+                    103,
+                    82
+                  ]
+                }
+              }
+            },
+            {
+              "name": "permissionProgram",
+              "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+            },
+            {
+              "name": "ephemeralVault",
+              "writable": true,
+              "address": "MagicVau1t999999999999999999999999999999999"
+            },
+            {
+              "name": "sponsor",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "value": [
+                      115,
+                      112,
+                      111,
+                      110,
+                      115,
+                      111,
+                      114
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "vanguardConfig",
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "value": [
+                      99,
+                      111,
+                      110,
+                      102,
+                      105,
+                      103
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "magicFeeVault",
+              "writable": true
+            },
+            {
+              "name": "magicProgram",
+              "address": "Magic11111111111111111111111111111111111111"
+            },
+            {
+              "name": "magicContext",
+              "writable": true,
+              "address": "MagicContext1111111111111111111111111111111"
+            }
+          ]
         }
       ],
       "args": []
