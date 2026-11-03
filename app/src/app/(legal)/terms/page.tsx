@@ -137,7 +137,7 @@ export default function Terms() {
 
       <Section id="matches" title="Matches, entries and fees">
         <p>
-          A Match is a head-to-head contest of skill between two Players with equal Gema entries, settled once. The winner takes the Pot minus fees. A draw or an
+          A Match is a contest of skill between Players with equal Gema entries, settled once. Most Matches are head-to-head, and the winner takes the Pot minus fees. A Match can have two or more Players: in Railcar, 5 to 100 Players ride one car, the last three off share the Pot, and Players still aboard at Impact lose their entry. A draw or an
           abandoned Match refunds both entries. A Player who is paired and does not show up loses the Match. Some Games, such as Hold&apos;em, include chance within a hand. You can lose everything you enter.
         </p>
         <ul>
@@ -157,6 +157,7 @@ export default function Terms() {
             comes back to us when the storage is no longer needed.
           </li>
           <li>Results are decided by the Game&apos;s program. For Games with a shared Seed, a score counts only as the server&apos;s replay of your inputs.</li>
+          <li>Railcar&apos;s Crash point is drawn at random, so Railcar includes chance. Each Player&apos;s Brake is secret until the ride ends. A dropped connection does not Jump for you: you stay aboard. If the network that runs a ride stops, the ride is void and every entry is refunded.</li>
           <li>In Block Burst, a paired Player who does not check in loses that Match.</li>
           <li>You are playing other people, not us. We do not guarantee that an opponent will be found, will finish, or will play fairly.</li>
           <li>{BRAND.name} is not a casino, a sportsbook or a lottery. We do not offer games against the house.</li>
