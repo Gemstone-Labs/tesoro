@@ -109,6 +109,9 @@ describe("accepted: the Player's bridge transactions, with the relayer paying La
       expect(p.sends![0]).toMatchObject({ kind: "prize", msgType: 13, payoutId: 4n });
       expect(p.sends![0].payout!.equals(payoutPda(netOfVault(vault).eid, Buffer.concat([Buffer.alloc(12), Buffer.from(vault.slice(2), "hex")]), 4n))).toBe(true);
     });
+    it("a cash-out with no send is not a shape we pay for", () => {
+      refused([redeemPrize()], "bad-shape");
+    });
     it("a payer who is neither the relayer nor the Player is refused", () => {
       refused([redeemPrize(key()), wire(sendPayPrizeIx({ payer: relayer, vault, payoutId: 4n, quote }))], "bad-account");
       refused([redeem(key()), sendPay()], "bad-account");
@@ -197,7 +200,6 @@ describe("refused", () => {
   it("shapes that are not in the list: a send before its redeem, a Redeem or cash-out with no send, two sends, a send after a lone apply", () => {
     refused([sendPay(), redeem()], "bad-shape");
     refused([redeem()], "bad-shape");
-    refused([redeemPrize()], "bad-shape");
     refused([sendUnlock(), sendUnlock()], "bad-shape");
     refused([applyLocked(), sendUnlock()], "bad-shape");
     refused([redeem(), sendUnlock()], "bad-shape");
