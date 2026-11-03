@@ -36,7 +36,6 @@ import {
   fetchBackingBoard,
   postOffer,
   postRequest,
-  type ChainOffer,
   type ChainRequest,
   type PlayerRecord,
 } from "@/lib/chain/backing";
