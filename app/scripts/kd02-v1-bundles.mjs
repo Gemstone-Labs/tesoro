@@ -3,7 +3,7 @@
 // Simulation runs on the real, already-moved-on state, so a program error is expected; what it shows is that the RPC took the v1 bytes.
 import { readFileSync } from "node:fs";
 import {
-  address, AccountRole, appendTransactionMessageInstruction, compileTransaction, createNoopSigner, createSolanaRpc, createTransactionMessage, getBase64EncodedWireTransaction, pipe,
+  address, AccountRole, appendTransactionMessageInstruction, createNoopSigner, createSolanaRpc, createTransactionMessage, getBase64EncodedWireTransaction, pipe,
   setTransactionMessageConfig, setTransactionMessageFeePayerSigner, setTransactionMessageLifetimeUsingBlockhash, partiallySignTransactionMessageWithSigners,
 } from "@solana/kit";
 
