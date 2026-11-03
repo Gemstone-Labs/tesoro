@@ -19,9 +19,6 @@ const fail = (what: string, error: { message: string } | null) => {
   if (error) throw new Error(`Table ${what} failed: ${error.message}`);
 };
 
-/** The keeper republishes the pool every pass; rows older than this are from a keeper that stopped, so nothing is assigned from them. */
-export const POOL_FRESH_MS = 2 * 60_000;
-
 /** Postgres through the service role (migration 0021_table_leases.sql). */
 export const supabaseLeaseStore: LeaseStore = {
   async take(key, holder, ttlMs) {
@@ -37,10 +34,16 @@ export const supabaseLeaseStore: LeaseStore = {
   },
 };
 
-/** The tables the keeper last published as ready for `game`. */
-export async function supabasePoolTables(game: GameId, now = Date.now()): Promise<TablePick[]> {
-  const since = new Date(now - POOL_FRESH_MS).toISOString();
-  const { data, error } = await db().from("table_pool").select("generation, idx, epoch").eq("game", game).gte("updated_at", since);
+/** The tables of `game` nobody holds, at the epoch their next Match will have (migration 0022). */
+export async function supabasePoolTables(game: GameId): Promise<TablePick[]> {
+  const { data, error } = await db().from("table_pool").select("generation, idx, epoch").eq("game", game).eq("epoch_known", true).is("claimed_match", null);
   fail("pool", error);
   return (data ?? []).map((r) => ({ generation: Number(r.generation), index: Number(r.idx), epoch: BigInt(r.epoch) }));
+}
+
+/** Holds `pick` for the Match whose join was sent. */
+export async function supabaseClaimTable(game: GameId, pick: TablePick, matchKey: string): Promise<boolean> {
+  const { data, error } = await db().rpc("claim_table", { p_game: game, p_generation: pick.generation, p_idx: pick.index, p_epoch: pick.epoch.toString(), p_match: matchKey });
+  fail("claim", error);
+  return data === true;
 }

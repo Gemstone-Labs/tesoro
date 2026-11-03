@@ -31,6 +31,7 @@ import type { UsageStore } from "./store";
 import { ChainTransactionFailed } from "./chain-send";
 import { completionEffects, completionInput, holdSeeds, recoverCompletions, type CompletionChain, type HoldSeed } from "./completion";
 import { releaseClosedHolds, type ClosureReads } from "./closure";
+import { assetOfIndex } from "@/games/trading-duel/chain";
 import { joinOf, type Assigner, type Assignment } from "./assign";
 
 const HOUR = 3_600_000;
@@ -101,6 +102,14 @@ function openerAccountOf(data: Uint8Array): PublicKey | null {
   try {
     const m = matchCoder.decode("MatchState", Buffer.from(data)) as { inner: { a: { player: number[] }; b: unknown | null } };
     return m.inner.b ? null : new PublicKey(m.inner.a.player);
+  } catch {
+    return null;
+  }
+}
+/** The asset a Match trades (`meta.asset`; 0 for every Game but Trading Duel), or null when the data is not a MatchState. */
+function matchAssetOf(data: Uint8Array): number | null {
+  try {
+    return (matchCoder.decode("MatchState", Buffer.from(data)) as { inner: { meta: { asset: number } } }).inner.meta.asset;
   } catch {
     return null;
   }
@@ -345,7 +354,10 @@ export class Sponsor {
     try {
       const m = await this.d.chain.account(join.match);
       const opener = m && m.owner.equals(CORE_ID) ? openerAccountOf(m.data) : null;
-      return opener ? await this.d.assigner!.assign(join.game, join.match, opener, join.joiner, holder) : null;
+      const seed = m && matchSeedOf(m.data);
+      // Trading Duel's assign_match refuses an unknown asset, and the join with it: such a Match is left to the keeper's refund path.
+      if (join.game === "trading-duel" && assetOfIndex(matchAssetOf(m?.data ?? new Uint8Array()) ?? -1) === null) return null;
+      return opener && seed ? await this.d.assigner!.assign(join.game, join.match, opener, join.joiner, holder, `${seed.account}-${seed.n}`) : null;
     } catch (e) {
       console.error("[sponsor] table assignment failed; the join travels alone", e);
       return null;
