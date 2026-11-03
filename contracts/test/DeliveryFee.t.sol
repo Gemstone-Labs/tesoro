@@ -107,16 +107,16 @@ contract DeliveryFeeTest is Test {
         vm.warp(block.timestamp + 20 minutes);
         uint256 amount = vault.payableYield(id) / 2;
         uint256 yieldFee = amount / 5;
-        _pay(id, 1, redeemer, amount, yieldFee, 0.01 ether);
-        assertEq(lst.balanceOf(tesoro), 0.01 ether);
-        assertEq(lst.balanceOf(redeemer), amount - yieldFee - 0.01 ether);
+        _pay(id, 1, redeemer, amount, yieldFee, 0.001 ether);
+        assertEq(lst.balanceOf(tesoro), 0.001 ether);
+        assertEq(lst.balanceOf(redeemer), amount - yieldFee - 0.001 ether);
     }
 
     function test_a_refill_into_the_vault_pays_no_delivery_fee() public {
         uint64 id = _open(10 ether);
         vm.warp(block.timestamp + 20 minutes);
         uint256 amount = vault.payableYield(id) / 2;
-        _pay(id, 1, address(vault), amount, 0, 0.01 ether);
+        _pay(id, 1, address(vault), amount, 0, 0.001 ether);
         assertEq(lst.balanceOf(tesoro), 0);
     }
 

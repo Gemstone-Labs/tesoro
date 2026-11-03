@@ -145,6 +145,27 @@ contract PrizeModule is PositionVaultBase {
         emit YieldPaid(id, to, c.paid - c.fee, shares, seq);
     }
 
+    /// @dev Pays `amount` underlying out of the Treasury, independent of the Position's own shares and lock state.
+    ///      Solana has already taken the holder's Gemas, so a payout the Treasury cannot cover now must not be
+    ///      dropped: it reverts, which also leaves the seq unhandled, and the same message is delivered again (the
+    ///      Yield Fee keeps growing the Treasury; the owner can fund it) and pays once.
+    function payInstant(uint64 id, uint64 seq, address to, uint256 amount, uint256 deliveryFee)
+        external
+        returns (bytes memory ack)
+    {
+        if (address(this) == self) revert DirectCall();
+        uint256 available = treasuryBalance();
+        uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
+        if (amount > available) revert InsufficientTreasury(amount, available);
+        if (shares > _spendable()) revert InsufficientShares(shares, _spendable());
+        if (_real()) treasuryShares -= shares;
+        instantPaid += amount;
+        uint256 feePaid = _payShares(to, shares, _deliveryShares(deliveryFee, amount, rateSource.underlyingPerShare()));
+        if (feePaid != 0) emit DeliveryFeePaid(id, deliveryRecipient, feePaid, seq);
+        emit InstantPaid(id, to, amount, shares, seq);
+        return "";
+    }
+
     /// @dev What one cash-out takes from a Position: `paid` of the face `amount` (all of it unless a slash left the
     ///      Position short, then the same fraction for everyone, `_settle`), the shares that move and the fee and
     ///      Pool's part scaled by the same fraction, so the Treasury keeps its share of what was really paid, once.

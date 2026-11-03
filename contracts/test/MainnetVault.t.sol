@@ -89,10 +89,10 @@ abstract contract MainnetVaultBase is Test {
         vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), m, address(0), "");
     }
 
-    /// PayYield (4) carries `amount | fee | pool` (exempt: 0, 0); PayInstant (5) carries `amount` only.
+    /// `t` 4 builds a PayYield (`amount | fee | pool | delivery fee`, exempt: 0, 0, 0), 5 a PayInstant (`amount | delivery fee`).
     function _pay(uint8 t, uint64 id, uint64 seq, address to, uint128 amt) internal view returns (bytes memory) {
         if (t == 4) return _payFee(id, seq, to, amt, 0, 0);
-        return abi.encodePacked(t, lz.eid(), _key(id), seq, bytes32(uint256(uint160(to))), amt);
+        return abi.encodePacked(uint8(12), lz.eid(), _key(id), seq, bytes32(uint256(uint160(to))), amt, uint128(0));
     }
 
     function _payFee(uint64 id, uint64 seq, address to, uint128 amt, uint128 fee, uint128 pool)

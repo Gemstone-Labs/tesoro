@@ -279,7 +279,9 @@ contract PositionVault is PositionVaultBase {
             } else {
                 (,,,, bytes32 to, uint256 amount, uint256 deliveryFee) =
                     abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, uint256, uint256));
-                _onPayInstant(id, seq, address(uint160(uint256(to))), amount, deliveryFee);
+                _delegate(
+                    abi.encodeCall(PrizeModule.payInstant, (id, seq, address(uint160(uint256(to))), amount, deliveryFee))
+                );
             }
         }
     }
@@ -335,22 +337,6 @@ contract PositionVault is PositionVaultBase {
         unlockRate[id] = rate;
         owedSharesOf[id] = owed;
         owedShares += owed;
-    }
-
-    /// @dev Pays `amount` underlying out of the Treasury, independent of the Position's own shares and lock state.
-    ///      Solana has already taken the holder's Gemas, so a payout the Treasury cannot cover now must not be
-    ///      dropped: it reverts, which also leaves the seq unhandled, and the same message is delivered again (the
-    ///      Yield Fee keeps growing the Treasury; the owner can fund it) and pays once.
-    function _onPayInstant(uint64 id, uint64 seq, address to, uint256 amount, uint256 deliveryFee) internal {
-        uint256 available = treasuryBalance();
-        uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
-        if (amount > available) revert InsufficientTreasury(amount, available);
-        if (shares > _spendable()) revert InsufficientShares(shares, _spendable());
-        if (_real()) treasuryShares -= shares;
-        instantPaid += amount;
-        uint256 feePaid = _payShares(to, shares, _deliveryShares(deliveryFee, amount, rateSource.underlyingPerShare()));
-        if (feePaid != 0) emit DeliveryFeePaid(id, deliveryRecipient, feePaid, seq);
-        emit InstantPaid(id, to, amount, shares, seq);
     }
 
     // ---------------------------------------------------------------- cash-in batches and prizes
