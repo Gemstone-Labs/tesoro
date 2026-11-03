@@ -68,6 +68,7 @@ Legend: **R** required, **O** optional, **-** not read. Visibility: **public** s
 | `NOTIFY_SECRET` | secret | O | R for email | R (shared with that cluster's keeper) | 32+ random bytes, hex |
 | `HELIUS_WEBHOOK_SECRET` | secret | O | R for webhook history | R for webhook history | 32+ random bytes, hex; the `authHeader` of the Helius webhook (route `/api/webhooks/helius`) |
 | `HELIUS_WEBHOOK_FINALIZED` | flag | O | `1` only if the webhook delivers finalized transactions | same | unset: delivered rows wait for the catch-up scan to mark them finalized |
+| `CRON_SECRET` | secret | O | R for emails from the webhook | R for emails from the webhook | 32+ random bytes, hex; Vercel sends it as `Authorization: Bearer` to the crons in `app/vercel.json` |
 | `ALERT_EMAILS` | secret | O | R for keeper alerts | R | `a@x.com,b@y.com`: the founders who get keeper alerts (POST `/api/notify/alert`, `NOTIFY_SECRET`); recipients are never read from a request |
 | `ADMIN_WALLETS` | secret | O (empty: `/admin/review` refuses everyone) | R | R | `7zr1...,GXQs...`: base58 wallets (comma separated) allowed to open `/admin/review`; the route checks a wallet-signed request against this list on every call |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | public | O (empty: skipped) | R | R | `0x4AAAAAAA...` |
@@ -166,3 +167,14 @@ An orchestrator step; needs a Helius key and migration `0020_webhook_tx.sql` app
 4. Before relying on it, check the first real delivery against the assumptions listed at the top of `app/src/server/history/webhook.ts` (body is an array; `meta.innerInstructions` present; `transaction.message.accountKeys` plain strings; `meta.loadedAddresses` for v0; whether it is delivered at confirmed or finalized). Capture the body from the Helius delivery log and replace `app/src/server/history/fixtures/helius-raw-devnet.json`.
 5. Set `KEEPER_WEBHOOK_HISTORY=1` in `~/.config/tesoro-keeper.env` and restart the keeper. Its history scan then stops writing the history tables (it still feeds the notify job) and a catch-up job runs on boot and every 15 minutes: it stores finalized core transactions the webhook missed, marks delivered rows finalized, and decodes them.
 6. Rows that cannot be decoded keep `decode_error` in `webhook_tx`; clear it (`update webhook_tx set decode_error = null where signature = ...`) to retry.
+
+## Emails from the webhook (keeper diet ticket 13)
+
+An orchestrator step; needs ticket 12's webhook running and migration `0022_notify_webhook.sql`. Email itself also needs `RESEND_API_KEY` and `NOTIFY_FROM` (prod has no `RESEND_API_KEY` yet); without them the webhook still keeps the `open_match` table up to date and sends nothing.
+
+1. Apply `app/supabase/migrations/0022_notify_webhook.sql`.
+2. Set `CRON_SECRET` in the app project's env and redeploy (the crons in `app/vercel.json` need a plan that allows a 5-minute schedule).
+3. Match settled/refunded, Offer made/accepted and Debt cleared are sent from the stored webhook transactions: right after a delivery that is finalized, otherwise by the cron once the keeper's catch-up (ticket 12) has marked the row finalized. "Delayed, refunds by ..." comes from the cron and the `open_match` table, with no RPC. The daily digest is the second cron (08:00 UTC).
+4. Set `KEEPER_WEBHOOK_NOTIFY=1` in `~/.config/tesoro-keeper.env` and restart the keeper. Its `notify` and `notify-events` jobs then do nothing (otherwise a Player could get both emails: the ids match for settled, refunded and Delayed Matches and for Offers, but a Debt cleared id differs). The Season run sends the Season placing emails when it pays.
+5. Emails are only sent for transactions up to 3 days old, so switching on late does not replay history. A Match opened before the webhook ran has no `open_match` row: its settled email still goes out (the wallet is read from the chain) but it gets no Delayed email.
+6. A transaction whose emails fail five times keeps `notify_error` in `webhook_tx`; clear it and `notify_attempts` to retry.

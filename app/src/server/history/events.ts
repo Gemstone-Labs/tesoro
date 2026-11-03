@@ -231,6 +231,24 @@ export function decodeMatchRecords(inner: InnerInstruction[]): MatchRecord[] {
   return out;
 }
 
+/** Events of the given names that tesoro_core itself emitted (the same program and event-authority checks as `decodeMatchRecords`). */
+export function decodeCoreEvents(inner: InnerInstruction[], names: string[]): { name: string; data: any }[] {
+  const out: { name: string; data: any }[] = [];
+  for (const ix of inner) {
+    if (ix.programId !== CORE.toBase58() || ix.accounts[0] !== EVENT_AUTHORITY) continue;
+    const data = Buffer.from(ix.data);
+    if (data.length <= 8 || !data.subarray(0, 8).equals(EVENT_TAG)) continue;
+    let event;
+    try {
+      event = coder.decode(data.subarray(8).toString("base64"));
+    } catch {
+      continue;
+    }
+    if (event && names.includes(event.name)) out.push({ name: event.name, data: event.data });
+  }
+  return out;
+}
+
 /** The inner instructions of a `getTransaction` response (maxSupportedTransactionVersion 0), failed transactions excluded. */
 export function innerInstructionsOf(tx: {
   meta: { err: unknown; innerInstructions?: { instructions: { programIdIndex: number; accounts: number[]; data: string }[] }[] | null; loadedAddresses?: { writable: PublicKey[]; readonly: PublicKey[] } } | null;
