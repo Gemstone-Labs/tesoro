@@ -10,7 +10,7 @@ import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type
 import { MemoryUsageStore } from "./store";
 import { encodeBook, freshClass } from "@/lib/chain/basket-fixture";
 import { fp } from "@/lib/chain/book";
-import { bookPda, ckptPda } from "@/lib/chain/basket";
+import { bookPda, ckptPda, countersPda } from "@/lib/chain/basket";
 import { SIM_SOL_MINT, sourcePda } from "@/lib/chain/native";
 import { redeemLineIxs, unlockIxs } from "@/lib/chain/redeem";
 import { planExit } from "@/lib/chain/exit-route";
@@ -845,6 +845,25 @@ describe("join and assign in one transaction", () => {
     sent.message.staticAccountKeys.slice(0, sent.message.header.numRequiredSignatures).forEach((k, i) => expect(nacl.sign.detached.verify(bytes, sent.signatures[i], k.toBytes())).toBe(true));
   });
 
+  it("puts grow_counters in front of a join that reads an old 25-byte counters account, and not when the account is current", async () => {
+    const { s, match } = withAssigner();
+    const counters = countersPda(accountPda(s.player.publicKey));
+    const disc = Buffer.from((coreIdl.accounts as { name: string; discriminator: number[] }[]).find((a) => a.name === "AccountCounters")!.discriminator);
+    const growDisc = Buffer.from((coreIdl.instructions as { name: string; discriminator: number[] }[]).find((i) => i.name === "grow_counters")!.discriminator);
+    const names = async () => {
+      const built = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+      const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+      return msg.compiledInstructions.map((i) => (Buffer.from(i.data).subarray(0, 8).equals(growDisc) ? "grow" : "other"));
+    };
+    expect(await names()).not.toContain("grow");
+    const old = Buffer.alloc(25);
+    disc.copy(old);
+    s.accounts.set(counters.toBase58(), { owner: CORE_ID, data: old });
+    const seen = await names();
+    expect(seen.filter((n) => n === "grow")).toHaveLength(1);
+    expect(seen.indexOf("grow")).toBeLessThan(seen.lastIndexOf("other") - 0);
+  });
+
   it("keeps the table through the start window once sent, so the next join gets another", async () => {
     const { s, match } = withAssigner([{ generation: 1, index: 0, epoch: 3n }, { generation: 1, index: 1, epoch: 3n }]);
     const first = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
@@ -903,14 +922,63 @@ describe("join and assign in one transaction", () => {
   });
 
   describe("paid by the Player", () => {
-    it("claims the table in the pool when it builds the join, since the page sends it", async () => {
-      const { s, match } = withAssigner();
-      const claims: number[] = [];
-      s.deps.assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: async () => [{ generation: 1, index: 0, epoch: 3n }], claim: async (_g, p) => (claims.push(p.index), true), now: () => 1_000_000 });
+    const poolWith = (s: ReturnType<typeof setup>, claims: number[], tables = [{ generation: 1, index: 0, epoch: 3n }, { generation: 1, index: 1, epoch: 3n }, { generation: 1, index: 2, epoch: 3n }]) => {
+      s.deps.assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: async () => tables, claim: async (_g, p) => (claims.push(p.index), true), now: () => 1_000_000 });
+    };
+    const selfJoin = async (s: ReturnType<typeof setup>, match: PublicKey) => {
       const ix = await join(s, match);
       ix.keys[0] = { ...ix.keys[0], pubkey: s.player.publicKey };
-      await s.sponsor.buildSelfPaid(s.player.publicKey, wire([ix]));
+      return wire([ix]);
+    };
+
+    it("claims nothing in the pool when it builds the join: the page may never send it", async () => {
+      const { s, match } = withAssigner();
+      const claims: number[] = [];
+      poolWith(s, claims);
+      await s.sponsor.buildSelfPaid(s.player.publicKey, await selfJoin(s, match));
+      expect(claims).toEqual([]);
+    });
+
+    it("a loop of builds by one Player holds one table, claims none", async () => {
+      const { s, match } = withAssigner();
+      const claims: number[] = [];
+      poolWith(s, claims);
+      const results = await Promise.allSettled(Array.from({ length: 6 }, async () => s.sponsor.buildSelfPaid(s.player.publicKey, await selfJoin(s, match))));
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter((r) => r.status === "rejected").every((r) => (r as PromiseRejectedResult).reason.code === "join-pending")).toBe(true);
+      expect(claims).toEqual([]);
+    });
+
+    it("claims the table once the Assignment of the join is on base, and not before", async () => {
+      const { s, match } = withAssigner();
+      const claims: number[] = [];
+      poolWith(s, claims);
+      const built = await s.sponsor.buildSelfPaid(s.player.publicKey, await selfJoin(s, match));
+      expect(await s.sponsor.confirmSelfPaid(built.meta, built.mac)).toBe(false);
+      expect(claims).toEqual([]);
+      s.accounts.set(PublicKey.findProgramAddressSync([Buffer.from("assign"), match.toBuffer()], s.game)[0].toBase58(), { owner: s.game, data: Buffer.alloc(40) });
+      expect(await s.sponsor.confirmSelfPaid(built.meta, built.mac)).toBe(true);
       expect(claims).toEqual([0]);
+      expect(await s.sponsor.confirmSelfPaid(built.meta, "x".repeat(built.mac.length))).toBe(false);
+    });
+
+    it("refuses a build for a Match this Player cannot join: their own, or one that is full or not Open", async () => {
+      const mc = new BorshAccountsCoder(coreIdl as unknown as Idl);
+      const base = mc.decode("MatchState", MATCH_STATE_FIXTURE) as { inner: { a: { player: PublicKey }; b: unknown; stage: object } };
+      const withInner = async (name: string, inner: (s: ReturnType<typeof setup>) => object) => {
+        const { s, match } = withAssigner();
+        poolWith(s, []);
+        s.accounts.set(match.toBase58(), { owner: CORE_ID, data: await mc.encode("MatchState", { ...base, inner: { ...base.inner, ...inner(s) } }) });
+        return { s, match, name };
+      };
+      const cases = [
+        await withInner("own", (s) => ({ a: { ...base.inner.a, player: Array.from(accountPda(s.player.publicKey).toBytes()) } })),
+        await withInner("full", () => ({ b: base.inner.a })),
+        await withInner("settling", () => ({ stage: { Settling: {} } })),
+      ];
+      for (const c of cases) {
+        await expect(c.s.sponsor.buildSelfPaid(c.s.player.publicKey, await selfJoin(c.s, c.match)), c.name).rejects.toMatchObject({ code: expect.stringMatching(/no-table|cannot-join/) });
+      }
     });
 
     it("returns the join with the assignment, fee paid by the Player, signed by the operator only", async () => {

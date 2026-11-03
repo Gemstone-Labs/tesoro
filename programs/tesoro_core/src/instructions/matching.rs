@@ -1589,16 +1589,33 @@ pub(crate) fn close_match<'info>(
                 owed.remove(at);
             }
         } else if is_counters {
-            let mut c = Account::<AccountCounters>::try_from(info)?;
+            // A counters account from before `next_ticket` (25 bytes) cannot be deserialized: its
+            // open-Match count is lowered in place, so an old Match can still be closed.
+            let v1 = info.data_len() == AccountCounters::SPACE_V1;
+            let mut c = if v1 {
+                None
+            } else {
+                Some(Account::<AccountCounters>::try_from(info)?)
+            };
             for player in &players {
-                if c.key() == counters_pda(&Pubkey::new_from_array(*player))
+                if info.key() == counters_pda(&Pubkey::new_from_array(*player))
                     && !counted.contains(player)
                 {
-                    c.open_matches = c.open_matches.saturating_sub(1);
+                    match c.as_mut() {
+                        Some(c) => c.open_matches = c.open_matches.saturating_sub(1),
+                        None => {
+                            let mut d = info.try_borrow_mut_data()?;
+                            let at = 8 + 1 + 8;
+                            let open = u32::from_le_bytes(d[at..at + 4].try_into().unwrap());
+                            d[at..at + 4].copy_from_slice(&open.saturating_sub(1).to_le_bytes());
+                        }
+                    }
                     counted.push(*player);
                 }
             }
-            c.exit(&crate::ID)?;
+            if let Some(c) = c {
+                c.exit(&crate::ID)?;
+            }
         }
     }
     require!(

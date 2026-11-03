@@ -4,7 +4,7 @@ import { postAlert } from "./alerts.ts";
 import { KEEPER_CLI_FLAGS, exitOnUnknownFlag } from "./cli-args.ts";
 import { meter } from "./credits.ts";
 import { loadPayer, settings } from "./env.ts";
-import { heartbeatFrom } from "./heartbeat.ts";
+import { heartbeatFrom, HEARTBEAT_ENV } from "./heartbeat.ts";
 import { janitor, PARTS, type PartName } from "./janitor.ts";
 import { realJanitorDeps } from "./janitor-chain.ts";
 import { buildRuntime, clusterNow, newConnection, solanaFetch } from "./runtime.ts";
@@ -21,7 +21,7 @@ async function main() {
   const argv = process.argv.slice(2);
   // `--only=a,b` is one argument; the shared flag check reads `--only a,b`.
   exitOnUnknownFlag(argv.flatMap((a) => (a.startsWith("--only=") ? ["--only", a.slice(7)] : [a])), { ...KEEPER_CLI_FLAGS, valued: [...KEEPER_CLI_FLAGS.valued, "only"] }, USAGE);
-  const heartbeat = heartbeatFrom("JANITOR_HEARTBEAT_URL");
+  const heartbeat = heartbeatFrom(HEARTBEAT_ENV.janitor);
   const s = settings();
   try {
     await run(argv, s, heartbeat);

@@ -1,6 +1,6 @@
 import { Budget, log, runJob, runJobs, stillRunning, type Ctx } from "./act.ts";
 import { alertsJob } from "./alerts-job.ts";
-import { heartbeatFrom } from "./heartbeat.ts";
+import { heartbeatFrom, HEARTBEAT_ENV } from "./heartbeat.ts";
 import { awayCleanup } from "./away.ts";
 import { backingHygiene } from "./backing.ts";
 import { batchesJob } from "./batches.ts";
@@ -94,7 +94,7 @@ async function main() {
   }
 
   const alerts = alertsJob(health);
-  const heartbeat = heartbeatFrom("KEEPER_HEARTBEAT_URL", process.env, fetch, (m) => log("keeper", "-", m));
+  const heartbeat = heartbeatFrom(HEARTBEAT_ENV.loop, process.env, fetch, (m) => log("keeper", "-", m));
   const fastLane = new FastLane({
     scan: (c) => scanMatches(c, { fresh: true }),
     probe: async (c) => (await c.conn.getSignaturesForAddress(c.core.programId, { limit: 1 }, "confirmed"))[0]?.signature ?? null,

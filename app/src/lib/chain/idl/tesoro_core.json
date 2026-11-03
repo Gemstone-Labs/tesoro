@@ -4699,6 +4699,43 @@
       ]
     },
     {
+      "name": "grow_counters",
+      "docs": [
+        "Grows a 25-byte counters account to 33 bytes with `next_ticket` at",
+        "`AccountCounters::LEGACY_TICKET_BASE`. Anyone may call it and the caller pays the rent. A",
+        "33-byte one is left alone."
+      ],
+      "discriminator": [
+        61,
+        226,
+        4,
+        54,
+        161,
+        136,
+        132,
+        226
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the rent of the 8 new bytes."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "counters",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "grow_store",
       "docs": [
         "Anyone grows a basket or spill with their own lamports (a gift to its owner)."
@@ -6818,8 +6855,7 @@
     {
       "name": "migrate_counters",
       "docs": [
-        "Grows a 25-byte counters account to 33 bytes with `next_ticket` at",
-        "`AccountCounters::LEGACY_TICKET_BASE`. A 33-byte one is left alone."
+        "The admin sweep of `grow_counters`, with the Account's counters address checked."
       ],
       "discriminator": [
         216,

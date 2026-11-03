@@ -70,4 +70,26 @@ describe("table pool kept by the server (migration 0023)", () => {
     expect((await q("select idx from public.table_pool where game = 'holdem' order by idx")).length).toBe(2);
     expect((await q("select idx from public.table_pool where game = 'vanguard'")).length).toBe(1);
   });
+
+  it("a publish from a rollup read taken before free_table cannot roll the epoch back", async () => {
+    await publish([{ index: 0, epoch: 4 }]);
+    await claim("holdem", 0, 4, "m1");
+    await free("m1", true); // epoch 5, after the read below
+    await publish([{ index: 0, epoch: 4 }], "now() - interval '1 minute'");
+    expect(await free_rows()).toEqual([{ idx: 0, epoch: "5" }]);
+  });
+
+  it("a publish never lowers an epoch, even from a read taken after the change", async () => {
+    await publish([{ index: 0, epoch: 5 }]);
+    await publish([{ index: 0, epoch: 3 }]);
+    expect(await free_rows()).toEqual([{ idx: 0, epoch: "5" }]);
+  });
+
+  it("a publish from an older read keeps a claim made after the read, and the claim's epoch", async () => {
+    await publish([{ index: 0, epoch: 4 }]);
+    await claim("holdem", 0, 4, "m1");
+    await db.exec("update public.table_pool set claimed_at = now() - interval '5 minutes', updated_at = now() - interval '5 minutes'");
+    await publish([{ index: 0, epoch: 4 }], "now() - interval '10 minutes'"); // read before the claim
+    expect(await q("select claimed_match from public.table_pool")).toEqual([{ claimed_match: "m1" }]);
+  });
 });

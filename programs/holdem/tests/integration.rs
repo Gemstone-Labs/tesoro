@@ -2900,6 +2900,46 @@ fn an_assignment_closes_only_after_the_core_receipt_and_returns_its_rent_to_the_
     assert!(env.svm.get_balance(&s(a(env.operator.pubkey()))).unwrap() > before);
 }
 
+/// The Sponsor holds only its rent-exempt minimum: it cannot pay for a commit.
+fn dry_sponsor(env: &mut Env) {
+    let key = s(sponsor_addr());
+    let mut acct = env.svm.get_account(&key).expect("sponsor");
+    acct.lamports = env.svm.minimum_balance_for_rent_exemption(acct.data.len());
+    env.svm.set_account(key, acct).expect("dry sponsor");
+}
+
+fn refill_sponsor(env: &mut Env) {
+    let key = s(sponsor_addr());
+    let mut acct = env.svm.get_account(&key).expect("sponsor");
+    acct.lamports += 1_000_000_000;
+    env.svm.set_account(key, acct).expect("refill sponsor");
+}
+
+#[test]
+fn an_empty_sponsor_does_not_stop_the_last_move_and_the_result_commits_after_a_refill() {
+    let mut env = live();
+    dry_sponsor(&mut env);
+    env.play_match_out();
+    let t = env.table();
+    assert_eq!(t.phase, holdem::TABLE_OVER, "the Match still ended");
+    assert!(
+        t.dirty && t.commit.tries == 0,
+        "the result waits for a commit"
+    );
+    assert!(!t.seats_open, "the seats are wiped regardless");
+    assert!(
+        env.last_logs.iter().any(|l| l.contains("sponsor-dry")),
+        "the move says why"
+    );
+    refill_sponsor(&mut env);
+    let ixn = env.commit_ix();
+    env.rollup(ixn).expect("commit after the refill");
+    let t = env.table();
+    assert!(!t.dirty && t.commit.tries == 1);
+    env.set_time(env.now + holdem::RESET_DELAY_SECS);
+    env.reset().expect("reset after the commit");
+}
+
 #[test]
 fn the_result_is_committed_once_and_the_sponsor_cannot_be_drained_by_repeats() {
     use holdem::HoldemError::*;
@@ -3732,7 +3772,13 @@ fn begin_resets_a_finished_table_that_is_wiped_committed_and_thirty_seconds_old(
     assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(ResetTooEarly));
     env.set_time(over + holdem::RESET_DELAY_SECS);
     env.patch_table(|t| t.dirty = true);
+    // A result left uncommitted (the Sponsor was dry): a dry Sponsor cannot commit it, a refilled one does it in this call.
+    dry_sponsor(&mut env);
     assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(NotCommitted));
+    refill_sponsor(&mut env);
+    env.begin()
+        .expect("begin commits the result left uncommitted");
+    assert!(!env.table().dirty, "committed by begin");
     env.commit_standin();
     env.patch_table(|t| t.seats_open = true);
     assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(SeatsOpen));

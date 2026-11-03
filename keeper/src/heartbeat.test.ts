@@ -69,3 +69,14 @@ describe("Heartbeat", () => {
     assert.equal(heartbeatFrom("SEASON_HEARTBEAT_URL", { SEASON_HEARTBEAT_URL: " https://hc.example/s " }, fetch, () => {}).enabled, true);
   });
 });
+
+describe("one heartbeat URL per job", () => {
+  it("names are distinct, and only the main loop reads the keeper's", async () => {
+    const { HEARTBEAT_ENV } = await import("./heartbeat.ts");
+    assert.equal(new Set(Object.values(HEARTBEAT_ENV)).size, Object.values(HEARTBEAT_ENV).length);
+    assert.equal(HEARTBEAT_ENV.sweep, "SWEEP_HEARTBEAT_URL");
+    const { readdirSync, readFileSync } = await import("node:fs");
+    const users = readdirSync(new URL(".", import.meta.url)).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && readFileSync(new URL(f, import.meta.url), "utf8").includes("HEARTBEAT_ENV.loop"));
+    assert.deepEqual(users, ["index.ts"], "a monitor shared between jobs stays green when one of them dies");
+  });
+});

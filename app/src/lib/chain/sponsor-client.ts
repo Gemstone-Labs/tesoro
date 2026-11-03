@@ -110,6 +110,20 @@ export async function sponsoredSend(signer: ChainSigner, getToken: GetToken, ixs
 export async function assignedSend(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[], send: (signed: Uint8Array) => Promise<string>): Promise<string> {
   if (!signer.signSerialized) throw new SponsorError("This wallet cannot take part in table assignment.", "unsupported-wallet", 400);
   const token = await getToken().catch(() => null);
-  const { tx } = await post<{ tx: string }>("/api/sponsor/assign", await signedIntent(signer, "assign", ixs), token);
-  return send(await signer.signSerialized(bytesOf(tx)));
+  const { tx, meta, mac } = await post<{ tx: string; meta: string; mac: string }>("/api/sponsor/assign", await signedIntent(signer, "assign", ixs), token);
+  const signature = await send(await signer.signSerialized(bytesOf(tx)));
+  void confirmAssignment(meta, mac);
+  return signature;
+}
+
+/** Tells the server the join went out so it can claim the table once the Assignment is on base; it asks a few times, and never fails the join. */
+async function confirmAssignment(meta: string, mac: string): Promise<void> {
+  for (let i = 0; i < 8; i++) {
+    await new Promise((r) => setTimeout(r, 3_000));
+    try {
+      if ((await post<{ confirmed: boolean }>("/api/sponsor/assign/confirm", { meta, mac }, null)).confirmed) return;
+    } catch {
+      return;
+    }
+  }
 }

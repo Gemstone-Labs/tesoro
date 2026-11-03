@@ -8,7 +8,7 @@ import { accountBytes, chainOf, ixNameOf, ticketBytes } from "./fixtures.ts";
 import { janitor, PARTS, type AssignmentSource, type JanitorDeps } from "./janitor.ts";
 import { loadIdl } from "./runtime.ts";
 import type { Info } from "./supply.ts";
-import { PAIR_RECORD_LEN, PAIR_WINDOW_SECS, RECEIPT_KEEP_SECS } from "./sweeps.ts";
+import { PAIR_RECORD_LEN, PAIR_WINDOW_SECS, RECEIPT_KEEP_SECS } from "./reclaim.ts";
 
 const core = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {}));
 const k = () => Keypair.generate().publicKey;

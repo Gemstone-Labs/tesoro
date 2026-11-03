@@ -2,6 +2,14 @@
  * Dead-keeper monitor. After each run the keeper pings a URL (healthchecks.io style); an external monitor mails the
  * founders when the pings stop. `/fail` is appended for a run that failed. A ping never throws and never stops a run.
  */
+/** One URL per job: a monitor shared by two jobs stays green when one of them dies. */
+export const HEARTBEAT_ENV = {
+  loop: "KEEPER_HEARTBEAT_URL",
+  sweep: "SWEEP_HEARTBEAT_URL",
+  janitor: "JANITOR_HEARTBEAT_URL",
+  season: "SEASON_HEARTBEAT_URL",
+  pool: "POOL_HEARTBEAT_URL",
+} as const;
 export const HEARTBEAT_EVERY_MS = 5 * 60_000;
 const PING_TIMEOUT_MS = 10_000;
 

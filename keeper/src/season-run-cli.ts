@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { Connection } from "@solana/web3.js";
 import { Budget, log, type Ctx } from "./act.ts";
 import { postAlert } from "./alerts.ts";
-import { heartbeatFrom } from "./heartbeat.ts";
+import { heartbeatFrom, HEARTBEAT_ENV } from "./heartbeat.ts";
 import { meter } from "./credits.ts";
 import { KEEPER_CLI_FLAGS, exitOnUnknownFlag } from "./cli-args.ts";
 import { loadPayer, settings } from "./env.ts";
@@ -20,7 +20,7 @@ const USAGE = "Usage: season-run-cli [--dry-run] [--once] [--rpc <url>] [--gpa-r
 async function main() {
   exitOnUnknownFlag(process.argv.slice(2), KEEPER_CLI_FLAGS, USAGE);
   // Own monitor, period 1 h (the retry timer): it mails when this run stops firing or keeps stopping at a step.
-  const heartbeat = heartbeatFrom("SEASON_HEARTBEAT_URL");
+  const heartbeat = heartbeatFrom(HEARTBEAT_ENV.season);
   const s = settings();
   try {
     await run(heartbeat, s);
