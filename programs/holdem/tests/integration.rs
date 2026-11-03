@@ -3828,6 +3828,10 @@ fn begin_voids_a_table_stuck_on_a_match_core_already_froze() {
     );
     env.set_time(refunded_at + holdem::RELEASE_DELAY_SECS);
     env.begin_with(&[stuck]).expect("voids");
+    eprintln!(
+        "MEASURE CU Hold'em begin that voids, wipes and commits: {}",
+        env.last_cu
+    );
     let t = env.table();
     assert_eq!((t.phase, t.dirty, t.epoch), (holdem::TABLE_OVER, false, 0));
     assert_eq!(t.ring.used(), 0, "the reserved slot is freed");

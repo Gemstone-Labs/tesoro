@@ -4581,6 +4581,10 @@ fn begin_voids_a_table_stuck_on_a_match_core_already_froze() {
     );
     env.set_time(refunded_at + block_puzzle::RELEASE_DELAY_SECS);
     env.begin_with(&[stuck]).expect("voids");
+    eprintln!(
+        "MEASURE CU Block Burst begin that voids, wipes and commits: {}",
+        env.last_cu
+    );
     let t = env.table();
     assert_eq!(
         (t.phase, t.dirty, t.epoch),
