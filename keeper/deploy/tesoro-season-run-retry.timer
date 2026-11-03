@@ -1,0 +1,10 @@
+[Unit]
+Description=Tesoro Season run, hourly retry (steps already done this week are skipped)
+
+[Timer]
+OnCalendar=hourly
+Persistent=false
+Unit=tesoro-season-run.service
+
+[Install]
+WantedBy=timers.target
