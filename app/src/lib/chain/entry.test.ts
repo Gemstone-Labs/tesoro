@@ -329,14 +329,14 @@ describe("sendEntryTx", () => {
 });
 
 describe("counters", () => {
-  it("read the Match and Ticket numbers from the 33-byte layout, and no Ticket number from the old 25 bytes", async () => {
+  it("read the Match and Ticket numbers from the 33-byte layout; an old 25-byte account is grown to 2^63 before it is used", async () => {
     const { nextMatchOf, nextTicketOf } = await import("./entry");
     const data = new Uint8Array(33);
     const view = new DataView(data.buffer);
     view.setBigUint64(9, 4n, true);
     view.setBigUint64(25, 7n, true);
     expect([nextMatchOf(data), nextTicketOf(data)]).toEqual([4n, 7n]);
-    expect([nextMatchOf(data.slice(0, 25)), nextTicketOf(data.slice(0, 25))]).toEqual([4n, 0n]);
+    expect([nextMatchOf(data.slice(0, 25)), nextTicketOf(data.slice(0, 25))]).toEqual([4n, 1n << 63n]);
     expect(nextTicketOf(undefined)).toBe(0n);
   });
 });
