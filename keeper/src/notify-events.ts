@@ -4,7 +4,7 @@ import { matchKeyOf } from "../../app/src/server/history/match-key.ts";
 import { viewOf } from "./settle.ts";
 import { PublicKey } from "@solana/web3.js";
 import { log, type Ctx } from "./act.ts";
-import { gameOfKey, postToApp, type GameId, type PushResult } from "./notify.ts";
+import { gameOfKey, postToApp, webhookNotifyOn, type GameId, type PushResult } from "./notify.ts";
 import { pk } from "./runtime.ts";
 import { allCorePositions } from "./position.ts";
 
@@ -231,16 +231,51 @@ async function seasonPaidFacts(ctx: Ctx): Promise<Fact[]> {
 }
 
 /**
+ * Sends facts to the app as events. A fact whose Account wallet cannot be read is skipped. Returns how many events the app took
+ * (`sent`) and how many it has not taken yet because it was down (`left`: send them again later; the app counts each once).
+ */
+export async function tellFacts(
+  facts: Fact[],
+  authorityOf: (account: string) => Promise<string | null>,
+  base: string,
+  secret: string,
+  fetchFn: typeof fetch = fetch,
+  alreadyTold: Set<string> = told,
+): Promise<{ sent: number; left: number }> {
+  const events: { key: string; body: object }[] = [];
+  for (const { account, ...fact } of facts) {
+    const authority = await authorityOf(account);
+    if (!authority) continue;
+    const key = JSON.stringify([account, fact]);
+    if (!alreadyTold.has(key)) events.push({ key, body: { ...fact, authority } });
+  }
+  const sent = await sendEvents(new URL("events", base).toString(), secret, events, alreadyTold, fetchFn);
+  return { sent, left: events.filter((e) => !alreadyTold.has(e.key)).length };
+}
+
+/**
+ * The Season placing emails, sent by the Season run when it has paid: one `season-placed` event per rank paid in full in the
+ * latest Season. Returns how many events the app has not taken (0 when email is not set up here: NOTIFY_URL and NOTIFY_SECRET
+ * unset). The app counts each placing once, so a run that repeats this is safe.
+ */
+export async function tellSeasonPlacings(ctx: Ctx, env: NodeJS.ProcessEnv = process.env, fetchFn: typeof fetch = fetch): Promise<number> {
+  const base = env.NOTIFY_URL;
+  const secret = env.NOTIFY_SECRET;
+  if (!base || !secret) return 0;
+  return (await tellFacts(await seasonPaidFacts(ctx), (a) => authorityOf(ctx, a), base, secret, fetchFn)).left;
+}
+
+/**
  * Job: tells the app server about Matches that are Delayed or refunded, an opponent's Block Burst run, Offers made and
  * accepted, Debt cleared and Season prizes, so it can email the Players (and calls its daily digest once a day).
  * The server holds the once-only record per fact; `told` just stops this process asking again. Each source is
  * read once per pass and one failing source does not stop the others.
+ * Off with KEEPER_WEBHOOK_NOTIFY=1: the app then sends these from the Helius webhook and its cron, and the Season run sends the placings.
  */
 export async function notifyEventsJob(ctx: Ctx, env: NodeJS.ProcessEnv = process.env, fetchFn: typeof fetch = fetch): Promise<number> {
   const base = env.NOTIFY_URL;
   const secret = env.NOTIFY_SECRET;
-  if (!base || !secret) return 0;
-  const eventsUrl = new URL("events", base).toString();
+  if (!base || !secret || webhookNotifyOn(env)) return 0;
   const facts: Fact[] = [];
   for (const [name, source] of [["matches", matchesFacts], ["backing", backingFacts], ["positions", positionFacts], ["season", seasonPaidFacts]] as const) {
     try {
@@ -249,14 +284,7 @@ export async function notifyEventsJob(ctx: Ctx, env: NodeJS.ProcessEnv = process
       log("notify", name, `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
     }
   }
-  const events: { key: string; body: object }[] = [];
-  for (const { account, ...fact } of facts) {
-    const authority = await authorityOf(ctx, account);
-    if (!authority) continue;
-    const key = JSON.stringify([account, fact]);
-    if (!told.has(key)) events.push({ key, body: { ...fact, authority } });
-  }
-  const sent = await sendEvents(eventsUrl, secret, events, told, fetchFn);
+  const { sent } = await tellFacts(facts, (a) => authorityOf(ctx, a), base, secret, fetchFn);
   const hour = Number(env.KEEPER_DIGEST_HOUR_UTC ?? 8);
   if (digestDue(Date.now(), digestDay, hour) && (await pushDigest(new URL("digest", base).toString(), secret, fetchFn))) {
     digestDay = new Date().toISOString().slice(0, 10);

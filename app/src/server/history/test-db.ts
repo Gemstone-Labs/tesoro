@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import type { Rpc } from "./rpc";
 
-const MIGRATIONS = ["0010_match_history.sql", "0013_match_end_states.sql", "0015_match_history_chunks.sql", "0016_match_source_lines.sql", "0020_webhook_tx.sql"].map((f) => new URL(`../../../supabase/migrations/${f}`, import.meta.url));
+const MIGRATIONS = ["0010_match_history.sql", "0013_match_end_states.sql", "0015_match_history_chunks.sql", "0016_match_source_lines.sql", "0020_webhook_tx.sql", "0022_notify_webhook.sql"].map((f) => new URL(`../../../supabase/migrations/${f}`, import.meta.url));
 
 /** A throwaway in-process Postgres with the current history migrations, called the way the app calls Supabase. */
 export async function testDb(): Promise<{ rpc: Rpc; sql: PGlite }> {

@@ -28,7 +28,7 @@ export interface RawTx {
     innerInstructions?: { index?: number; instructions: { programIdIndex: number; accounts: number[]; data: string }[] }[] | null;
     loadedAddresses?: { writable?: string[]; readonly?: string[] } | null;
   } | null;
-  transaction: { signatures: string[]; message: { accountKeys: string[]; addressTableLookups?: unknown[] } };
+  transaction: { signatures: string[]; message: { accountKeys: string[]; addressTableLookups?: unknown[]; instructions?: { programIdIndex: number; accounts: number[]; data: string }[] } };
 }
 
 /** A stored transaction, as the history decoder needs it. */
@@ -85,23 +85,25 @@ export function slim(tx: RawTx): RawTx {
       innerInstructions: tx.meta.innerInstructions ?? [],
       loadedAddresses: tx.meta.loadedAddresses ?? { writable: [], readonly: [] },
     },
-    transaction: { signatures: tx.transaction.signatures, message: { accountKeys: m.accountKeys, addressTableLookups: m.addressTableLookups ?? [] } },
+    transaction: { signatures: tx.transaction.signatures, message: { accountKeys: m.accountKeys, addressTableLookups: m.addressTableLookups ?? [], instructions: m.instructions ?? [] } },
   };
 }
 
-/** The Match records of a stored transaction (none for a failed one). Throws when its inner instructions cannot be read. */
-export function recordsOfRawTx(tx: RawTx): MatchRecord[] {
+/** The inner instructions of a stored transaction (none for a failed one). Throws when one names an account the transaction does not list. */
+export function innerOfRawTx(tx: RawTx): InnerInstruction[] {
   if (!tx.meta || tx.meta.err) return [];
   const keys = [...tx.transaction.message.accountKeys, ...(tx.meta.loadedAddresses?.writable ?? []), ...(tx.meta.loadedAddresses?.readonly ?? [])];
-  const inner: InnerInstruction[] = (tx.meta.innerInstructions ?? []).flatMap((g) =>
+  return (tx.meta.innerInstructions ?? []).flatMap((g) =>
     g.instructions.map((i) => {
       const programId = keys[i.programIdIndex];
       if (!programId) throw new Error(`inner instruction names account index ${i.programIdIndex}, which the transaction does not list`);
       return { programId, accounts: i.accounts.map((a) => keys[a]), data: bs58.decode(i.data) };
     }),
   );
-  return decodeMatchRecords(inner);
 }
+
+/** The Match records of a stored transaction (none for a failed one). Throws when its inner instructions cannot be read. */
+export const recordsOfRawTx = (tx: RawTx): MatchRecord[] => decodeMatchRecords(innerOfRawTx(tx));
 
 export interface ReceiveDeps {
   store: WebhookStore;
