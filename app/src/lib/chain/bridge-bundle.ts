@@ -65,12 +65,12 @@ const u32le = (n: number) => {
 };
 const u64le = (n: bigint) => {
   const b = Buffer.alloc(8);
-  b.writeBigUInt64LE(n);
+  new DataView(b.buffer, b.byteOffset, 8).setBigUint64(0, n, true);
   return b;
 };
 const u64be = (n: bigint) => {
   const b = Buffer.alloc(8);
-  b.writeBigUInt64BE(n);
+  new DataView(b.buffer, b.byteOffset, 8).setBigUint64(0, n, false);
   return b;
 };
 const u32be = (n: number) => {

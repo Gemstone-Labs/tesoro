@@ -57,7 +57,6 @@ import {
   finishUnlock,
   freshenYield,
   takeEthAdvance,
-  ethCall,
   requestGas,
   estimateOpenCost,
   fetchNativeTerms,

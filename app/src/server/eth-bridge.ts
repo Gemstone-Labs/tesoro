@@ -13,38 +13,29 @@
  */
 import "server-only";
 import { advanceSetup } from "./eth-advance";
-import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
+import { ComputeBudgetProgram, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { createPublicClient, createWalletClient, http, parseEther, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { hoodi } from "viem/chains";
-import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
-import { createSignerFromKeypair, publicKey as umiKey, signerIdentity } from "@metaplex-foundation/umi";
-import { fromWeb3JsKeypair, toWeb3JsPublicKey } from "@metaplex-foundation/umi-web3js-adapters";
-import { EndpointProgram, UlnProgram } from "@layerzerolabs/lz-solana-sdk-v2/umi";
 import { CLUSTER } from "@/lib/cluster-settings";
 import { basketPda, bookPda, spillPda } from "@/lib/chain/basket";
 import { coreIx } from "@/lib/chain/core-ix";
 import { parseTreasury } from "@/lib/chain/fees";
 import { MAX_PRICE_AGE_SECS, PRICE_QUOTE_MARGIN_SECS, TESORO_CORE_ID, economyPda, onchainPricePda, parsePythPrice, protectionsPda, pythFeedAddress, sourcePda, treasuryPda } from "@/lib/chain/native";
 import {
-  BRIDGE_AUTHORITY,
   BRIDGE_ID,
   HOODI_RPC,
   HYPEREVM_RPC,
   NETS,
   bridgePeerPda,
-  deliveryTermsPda,
   bridgePositionPda,
   bridgeStore,
-  claimPda,
   configPda,
   coreAccountPda,
   corePositionPda,
   disc,
   ethPositionId,
-  evmLinkPda,
   initPositionIdAllowed,
-  instantClaimPda,
   evmClient,
   isKnownVault,
   lstAbi,
@@ -54,7 +45,6 @@ import {
   parseBridgePosition,
   parseCorePosition,
   quoteEthAdvanceUnits,
-  sourceAuthPda,
   vaultAbi,
   withHeadroom,
   fetchVaultPosition,
@@ -68,11 +58,10 @@ import { relayerSend } from "./relayer-send";
 import { createYieldReporter } from "./yield-report";
 import { createSimFaucet } from "./sim-faucet";
 import { evmPrivateKey } from "./keys";
-import { BASE_RPC, DemoHttpError, RELAYER_MIN_LAMPORTS, chain, nonces, oracleKey, perUser, relayerKey, sendAndConfirm } from "./demo-advance";
+import { BASE_RPC, DemoHttpError, RELAYER_MIN_LAMPORTS, nonces, oracleKey, perUser, relayerKey, sendAndConfirm } from "./demo-advance";
 import { verifySignedRequest } from "./request-auth";
 import { isTransient, retryRead } from "./retry";
 import { MSG_TYPE, quoteFee, relayConn, sendAccounts, sendQuoteFor, type SendKind } from "./bridge-send";
-import { BRAND } from "../lib/brand";
 
 const DAY = 24 * 60 * 60 * 1000;
 const FUND_BELOW = parseEther("0.004");
@@ -200,12 +189,6 @@ const u32le = (n: number) => {
   b.writeUInt32LE(n);
   return b;
 };
-const u64le = (n: bigint) => {
-  const b = Buffer.alloc(8);
-  b.writeBigUInt64LE(n);
-  return b;
-};
-const vecU8 = (b: Uint8Array) => Buffer.concat([u32le(b.length), Buffer.from(b)]);
 const key = (pubkey: PublicKey, isSigner = false, isWritable = false) => ({ pubkey, isSigner, isWritable });
 
 function parseRef(fields: SignedFields) {
