@@ -94,9 +94,9 @@ function sizes(addrs: PublicKey[]) {
     const label = `${eth.netOfVault(vault).label}`;
     rows.push([`${label}: Unlock + send (Advance open, pages ${books.length - 1})`, measure(steps.unlockGroups({ ...base, open: { index: 0, accounts: books, create: [] }, applyYield: null, quote }))]);
     rows.push([`${label}: apply_yield + Unlock + send`, measure(steps.unlockGroups({ ...base, open: { index: 0, accounts: books, create: [] }, applyYield: yieldPlan, quote }))]);
-    const redeem = { ...base, source, sourceIndex: 0, gemas: 5n, target: { line, accounts: books }, create: [], holderEvm: "0x" + "ab".repeat(20), playerLamports: 0n, quote };
-    rows.push([`${label}: Redeem + send (Claim exists)`, measure(steps.redeemGroups({ ...redeem, claimExists: true, applyYield: null }))]);
-    rows.push([`${label}: rent + apply_yield + Redeem + send (0 SOL, no Claim)`, measure(steps.redeemGroups({ ...redeem, claimExists: false, applyYield: yieldPlan }))]);
+    const redeem = { ...base, source, sourceIndex: 0, gemas: 5n, target: { line, accounts: books }, create: [], holderEvm: "0x" + "ab".repeat(20), quote };
+    rows.push([`${label}: Redeem + send (relayer pays the Claim)`, measure(steps.redeemGroups({ ...redeem, applyYield: null }))]);
+    rows.push([`${label}: apply_yield + Redeem + send`, measure(steps.redeemGroups({ ...redeem, applyYield: yieldPlan }))]);
   }
   return rows;
 }

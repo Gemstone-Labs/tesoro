@@ -25,7 +25,7 @@ import { TESORO_CORE_ID, pda, s, sourcePda } from "./native";
  *
  *   apply_locked                       first Tesoro transaction of a Lock
  *   [apply_yield] unlock send_unlock   Unlock
- *   [apply_yield] redeem_to_evm send_pay_yield
+ *   [apply_yield] redeem_to_evm send_pay_yield    (payer: the relayer; the holder only signs)
  *   redeem_prize_to_evm send_pay_prize
  *
  * Guards in the bridge (`unlock_sent`, `Claim.units_sent`, the payout state) make a retry of any send safe.
@@ -51,7 +51,7 @@ export const BUNDLE_DISC = {
 export type BundleName = keyof typeof BUNDLE_DISC;
 const disc = (n: BundleName) => Buffer.from(BUNDLE_DISC[n], "hex");
 
-/** Rent of the bridge accounts a Redeem creates, paid by the signing Player: `Claim` (177 B) and `PayoutRecord` (246 B). */
+/** Rent of the bridge accounts a Redeem creates, paid by its `payer` (the relayer for a sponsored Redeem): `Claim` (177 B, never closed) and `PayoutRecord` (246 B, returned to the payer at `close_payout`). */
 const RENT_PER_BYTE = 6_960n;
 export const CLAIM_RENT = (177n + 128n) * RENT_PER_BYTE;
 export const PAYOUT_RECORD_RENT = (246n + 128n) * RENT_PER_BYTE;
@@ -237,8 +237,6 @@ export function bundleNameOf(data: Uint8Array): BundleName | null {
   return (Object.keys(BUNDLE_DISC) as BundleName[]).find((n) => BUNDLE_DISC[n] === head) ?? null;
 }
 
-/** Where the Player's SOL must come from: a system transfer of exactly `lamports` from the relayer to the Player (the rent of the Claim or Payout the Redeem creates). */
-export const rentTransferIx = (relayer: PublicKey, player: PublicKey, lamports: bigint) => SystemProgram.transfer({ fromPubkey: relayer, toPubkey: player, lamports });
 
 /**
  * The addresses of one vault's bridge steps that depend on neither the Player nor the Position: they go in the bridge's address

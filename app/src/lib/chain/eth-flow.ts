@@ -450,7 +450,7 @@ export async function finishPayout(ctx: StepCtx, vault: string, id: bigint, kind
 export async function redeemToEvm(ctx: StepCtx, ref: { vault: string; id: bigint; sourceIndex: number }, h: Pick<ChainHolding, "line" | "accounts" | "source" | "position">, gemas: bigint) {
   const base = getChain().base;
   const me = ctx.signer.publicKey;
-  const [state, lamports, quote] = await Promise.all([fetchEthState(base, ref.vault, ref.id, me, ref.sourceIndex), base.getBalance(me), quoteFor(ctx, ref.vault, "yield")]);
+  const [state, quote] = await Promise.all([fetchEthState(base, ref.vault, ref.id, me, ref.sourceIndex), quoteFor(ctx, ref.vault, "yield")]);
   if (!state.holderEvm) throw new Error("Link your wallet to an Account first.");
   return sendBridgeGroups(ctx.signer, ctx.getToken, async (payer, sponsored) => {
     const { accounts, create } = await sourceAccounts(base, h.source, h.accounts, payer);
@@ -468,8 +468,6 @@ export async function redeemToEvm(ctx: StepCtx, ref: { vault: string; id: bigint
       target: { line: h.line, accounts },
       create,
       holderEvm: state.holderEvm!,
-      claimExists: !!state.claim,
-      playerLamports: BigInt(lamports),
       applyYield,
       quote,
     });

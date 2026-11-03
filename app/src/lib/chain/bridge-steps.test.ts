@@ -62,30 +62,27 @@ describe("Unlock", () => {
 });
 
 describe("Redeem", () => {
-  const base = { player, vault, id, position, source, sourceIndex: 0, gemas: 5n, target: { line, accounts: books }, create: [], holderEvm: evm, claimExists: true, playerLamports: 0n, applyYield: null };
-  it("sponsored: the Redeem then its send, accepted by the sponsor", () => {
+  const base = { player, vault, id, position, source, sourceIndex: 0, gemas: 5n, target: { line, accounts: books }, create: [], holderEvm: evm, applyYield: null };
+  it("sponsored: the Redeem then its send, the relayer paying the Claim's rent and the holder only signing; the sponsor accepts it", () => {
     const [group] = redeemGroups({ ...base, payer: relayer, sponsored: true, quote: quote(relayer) });
     expect(names(group)).toEqual(["redeem_to_evm", "send_pay_yield"]);
-    expect(accepted(group).names).toEqual(["redeem_to_evm", "send_pay_yield"]);
+    const [holder, payer] = group[0].keys;
+    expect(holder).toMatchObject({ isSigner: true, isWritable: false });
+    expect(holder.pubkey.equals(player)).toBe(true);
+    expect(payer).toMatchObject({ isSigner: true, isWritable: true });
+    expect(payer.pubkey.equals(relayer)).toBe(true);
+    const plan = accepted(group);
+    expect(plan.names).toEqual(["redeem_to_evm", "send_pay_yield"]);
+    expect(plan.spend.sunk).toBe(285_146n + CLAIM_RENT);
   });
-  it("a Player with no SOL and no Claim yet gets the Claim's rent from the relayer, as the first instruction", () => {
-    const [group] = redeemGroups({ ...base, claimExists: false, payer: relayer, sponsored: true, quote: quote(relayer) });
-    expect(group).toHaveLength(3);
-    expect(group[0].programId.toBase58()).toBe("11111111111111111111111111111111");
-    expect(accepted(group).names).toEqual(["transfer", "redeem_to_evm", "send_pay_yield"]);
-    expect(accepted(group).spend.sunk).toBe(285_146n + CLAIM_RENT);
+  it("with a Yield Report waiting: apply_yield goes first", () => {
+    const [group] = redeemGroups({ ...base, applyYield: yieldPlan, payer: relayer, sponsored: true, quote: quote(relayer) });
+    expect(accepted(group).names).toEqual(["apply_yield", "redeem_to_evm", "send_pay_yield"]);
   });
-  it("no rent transfer when the Claim exists or the Player can pay it", () => {
-    expect(redeemGroups({ ...base, claimExists: false, playerLamports: CLAIM_RENT * 2n, payer: relayer, sponsored: true, quote: quote(relayer) })[0]).toHaveLength(2);
-    expect(redeemGroups({ ...base, claimExists: true, playerLamports: 0n, payer: relayer, sponsored: true, quote: quote(relayer) })[0]).toHaveLength(2);
-  });
-  it("with a Yield Report waiting and the rent: all four, in the order the sponsor accepts", () => {
-    const [group] = redeemGroups({ ...base, claimExists: false, applyYield: yieldPlan, payer: relayer, sponsored: true, quote: quote(relayer) });
-    expect(accepted(group).names).toEqual(["transfer", "apply_yield", "redeem_to_evm", "send_pay_yield"]);
-  });
-  it("self-paid: the Redeem, then the send alone, and never a rent transfer", () => {
-    const groups = redeemGroups({ ...base, claimExists: false, payer: player, sponsored: false, quote: quote(player) });
+  it("self-paid: the Redeem with the Player as payer, then the send alone", () => {
+    const groups = redeemGroups({ ...base, payer: player, sponsored: false, quote: quote(player) });
     expect(groups.map(names)).toEqual([["redeem_to_evm"], ["send_pay_yield"]]);
+    expect(groups[0][0].keys[1].pubkey.equals(player)).toBe(true);
   });
 });
 

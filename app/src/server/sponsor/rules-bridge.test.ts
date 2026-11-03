@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { CLAIM_RENT, PAYOUT_RECORD_RENT, applyLockedIx, applyYieldIx, payoutPda, refundPrizePayoutIx, routePda, rentTransferIx, sendPayIx, sendPayPrizeIx, sendUnlockIx, type SendQuote } from "@/lib/chain/bridge-bundle";
+import { CLAIM_RENT, PAYOUT_RECORD_RENT, applyLockedIx, applyYieldIx, payoutPda, refundPrizePayoutIx, routePda, sendPayIx, sendPayPrizeIx, sendUnlockIx, type SendQuote } from "@/lib/chain/bridge-bundle";
 import { BRIDGE_AUTHORITY, BRIDGE_ID, ETH_VAULTS, bridgePeerPda, bridgeStore, coreAccountPda, corePositionPda, deliveryTermsPda, ethPositionId, redeemToEvmIx, sourceAuthPda, coreUnlockIx, netOfVault, evmLinkPda } from "@/lib/chain/eth";
 import { basketPda, spillPda } from "@/lib/chain/basket";
 import { TESORO_CORE_ID, sourcePda } from "@/lib/chain/native";
@@ -34,11 +34,10 @@ const quote = quoteOf(relayer);
 const wire = (ix: { programId: PublicKey; keys: Ix["keys"]; data: Buffer | Uint8Array }): Ix => ({ programId: ix.programId, keys: ix.keys, data: ix.data });
 const sendUnlock = (q = quote) => wire(sendUnlockIx({ payer: relayer, vault, pid, quote: q }));
 const sendPay = (kind: "yield" | "instant" = "yield", q = quote) => wire(sendPayIx({ kind, payer: relayer, vault, pid, holder: player, holderEvm: evm, sourceIndex: 0, quote: q }));
-const redeem = () => wire(redeemToEvmIx(player, position, source, 5n, vault, { line: { side: 0, dueAt: 0n, class: 0, tranche: 0 }, accounts: [key(), key()] }));
+const redeem = (payer: PublicKey = relayer) => wire(redeemToEvmIx(player, position, source, 5n, vault, { line: { side: 0, dueAt: 0n, class: 0, tranche: 0 }, accounts: [key(), key()] }, payer));
 const unlock = () => wire(coreUnlockIx(player, position, null));
 const applyYield = (books = [key(), key()]) => wire(applyYieldIx({ vault, pid, openAdvance: 0, books }));
 const applyLocked = () => wire(applyLockedIx({ payer: relayer, vault, pid, ownerEvm: evm, ownerAccount: holder }));
-const transfer = (lamports = CLAIM_RENT) => wire(rentTransferIx(relayer, player, lamports));
 
 describe("accepted: the Player's bridge transactions, with the relayer paying LayerZero", () => {
   it("apply_locked alone", () => {
@@ -70,10 +69,13 @@ describe("accepted: the Player's bridge transactions, with the relayer paying La
   it("apply_yield, redeem_to_evm, send_pay_yield", () => {
     expect(plan([applyYield(), redeem(), sendPay()]).names).toEqual(["apply_yield", "redeem_to_evm", "send_pay_yield"]);
   });
-  it("the Claim's rent from the relayer, for a Player with no SOL, adds its exact amount to the cost", () => {
-    const p = plan([transfer(), redeem(), sendPay()]);
-    expect(p.names).toEqual(["transfer", "redeem_to_evm", "send_pay_yield"]);
+  it("the relayer as the Redeem's payer funds the Claim for a Player with no SOL; the holder only signs, and the rent counts as a cost", () => {
+    const p = plan([redeem(), sendPay()]);
     expect(p.spend.sunk).toBe(285_146n + CLAIM_RENT);
+    expect(p.signers.map((s) => s.toBase58())).toEqual([player.toBase58()]);
+  });
+  it("the Player as the payer costs the relayer nothing for the Claim", () => {
+    expect(plan([redeem(player), sendPay()]).spend.sunk).toBe(285_146n);
   });
   it("a send alone finishes a transfer that was recorded but not sent", () => {
     expect(plan([sendUnlock()]).names).toEqual(["send_unlock"]);
@@ -89,25 +91,32 @@ describe("accepted: the Player's bridge transactions, with the relayer paying La
   describe("a Season prize cashed out to the EVM wallet", () => {
     const prizeSource = key();
     const route = routePda(netOfVault(vault).eid, Buffer.concat([Buffer.alloc(12), Buffer.from(vault.slice(2), "hex")]));
-    const redeemPrize = (): Ix => {
+    const redeemPrize = (payer: PublicKey = relayer): Ix => {
       const a = (k: PublicKey, signer = false, writable = false) => ({ pubkey: k, isSigner: signer, isWritable: writable });
       return {
         programId: BRIDGE_ID,
         keys: [
-          a(player, true, true), a(bridgeStore()), a(BRIDGE_AUTHORITY), a(route, false, true), a(sourceAuthPda(netOfVault(vault))), a(holder), a(evmLinkPda(evm)),
+          a(player, true, false), a(payer, true, true), a(bridgeStore()), a(BRIDGE_AUTHORITY), a(route, false, true), a(sourceAuthPda(netOfVault(vault))), a(holder), a(evmLinkPda(evm)),
           a(basketPda(holder), false, true), a(spillPda(holder), false, true), a(prizeSource, false, true), a(key(), false, true), a(deliveryTermsPda(vault)), a(TESORO_CORE_ID), a(SystemProgram.programId),
         ],
         data: Buffer.concat([Buffer.from("2f9dfa429d66eb73", "hex"), Buffer.alloc(8)]),
       };
     };
-    it("redeem_prize_to_evm then send_pay_prize, with the payout's rent from the relayer", () => {
-      const p = plan([transfer(PAYOUT_RECORD_RENT), redeemPrize(), wire(sendPayPrizeIx({ payer: relayer, vault, payoutId: 4n, quote }))]);
-      expect(p.names).toEqual(["transfer", "redeem_prize_to_evm", "send_pay_prize"]);
+    it("redeem_prize_to_evm then send_pay_prize, the relayer paying the payout's rent (it gets it back at close_payout)", () => {
+      const p = plan([redeemPrize(), wire(sendPayPrizeIx({ payer: relayer, vault, payoutId: 4n, quote }))]);
+      expect(p.names).toEqual(["redeem_prize_to_evm", "send_pay_prize"]);
+      expect(p.spend.refundable).toBe(PAYOUT_RECORD_RENT);
       expect(p.sends![0]).toMatchObject({ kind: "prize", msgType: 13, payoutId: 4n });
       expect(p.sends![0].payout!.equals(payoutPda(netOfVault(vault).eid, Buffer.concat([Buffer.alloc(12), Buffer.from(vault.slice(2), "hex")]), 4n))).toBe(true);
     });
-    it("the Claim's rent is not the payout's rent", () => {
-      refused([transfer(CLAIM_RENT), redeemPrize()], "bad-transfer");
+    it("a payer who is neither the relayer nor the Player is refused", () => {
+      refused([redeemPrize(key()), wire(sendPayPrizeIx({ payer: relayer, vault, payoutId: 4n, quote }))], "bad-account");
+      refused([redeem(key()), sendPay()], "bad-account");
+    });
+    it("the holder must sign without being the payer's rent source: the holder slot is a read-only signer", () => {
+      const ix = redeemPrize();
+      ix.keys[0] = { ...ix.keys[0], isWritable: true };
+      refused([ix, wire(sendPayPrizeIx({ payer: relayer, vault, payoutId: 4n, quote }))], "bad-flags");
     });
     it("a rejected payout is refunded by anyone for the holder, with no fee", () => {
       const ix = wire(refundPrizePayoutIx({ vault, payoutId: 4n, holder: player, prizeSource, holderBasket: basketPda(holder), holderSpill: spillPda(holder) }));
@@ -185,28 +194,22 @@ describe("refused", () => {
     const pid2 = ethPositionId(vault, 8n);
     refused([unlock(), wire(sendUnlockIx({ payer: relayer, vault, pid: pid2, quote }))], "bad-shape");
   });
-  it("shapes that are not in the list: a send before its redeem, a lone transfer, two sends, a send after a lone apply", () => {
+  it("shapes that are not in the list: a send before its redeem, a Redeem or cash-out with no send, two sends, a send after a lone apply", () => {
     refused([sendPay(), redeem()], "bad-shape");
-    refused([transfer()], "unknown-program");
+    refused([redeem()], "bad-shape");
+    refused([redeemPrize()], "bad-shape");
     refused([sendUnlock(), sendUnlock()], "bad-shape");
     refused([applyLocked(), sendUnlock()], "bad-shape");
     refused([redeem(), sendUnlock()], "bad-shape");
   });
-  it("a rent transfer of any other amount, or to anyone but the Player", () => {
-    refused([transfer(CLAIM_RENT + 1n), redeem()], "bad-transfer");
-    const other = wire(rentTransferIx(relayer, key(), CLAIM_RENT));
-    refused([other, redeem()], "bad-account");
-    const fromPlayer = wire(rentTransferIx(player, relayer, CLAIM_RENT));
-    refused([fromPlayer, redeem()], "bad-account");
-  });
   it("a redeem_to_evm that is for another holder's Account", () => {
-    const ix = wire(redeemToEvmIx(key(), position, source, 5n, vault, { line: { side: 0, dueAt: 0n, class: 0, tranche: 0 }, accounts: [] }));
-    refused([ix], "bad-account");
+    const ix = wire(redeemToEvmIx(key(), position, source, 5n, vault, { line: { side: 0, dueAt: 0n, class: 0, tranche: 0 }, accounts: [] }, relayer));
+    refused([ix, sendPay()], "bad-account");
   });
   it("a redeem_to_evm with the relayer among its extra accounts", () => {
     const ix = redeem();
     ix.keys.push({ pubkey: relayer, isSigner: false, isWritable: true });
-    refused([ix], "relayer-in-accounts");
+    refused([ix, sendPay()], "relayer-in-accounts");
   });
   it("apply_locked with the relayer anywhere but the payer slot", () => {
     const ix = applyLocked();
@@ -219,7 +222,7 @@ describe("refused", () => {
   it("another core instruction next to a send", async () => {
     refused([await playerIx.redeem(player), sendUnlock()], "bad-shape");
   });
-  it("any program besides the bridge, core and a rent transfer", () => {
+  it("any program besides the bridge and core", () => {
     refused([applyLocked(), { programId: key(), keys: [], data: Buffer.alloc(8) }], "unknown-program");
   });
   it("the relayer's key as an extra account of apply_yield", () => {

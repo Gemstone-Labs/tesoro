@@ -5,10 +5,8 @@ import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
 import { ensureSol, type GetToken } from "./demo-client";
 import {
-  CLAIM_RENT,
   applyLockedIx,
   applyYieldIx,
-  rentTransferIx,
   sendPayIx,
   sendUnlockIx,
   type SendQuote,
@@ -24,7 +22,7 @@ import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
  *
  *   Lock      apply_locked                                 (before the Advance; the Position is created here)
  *   Unlock    [apply_yield] unlock send_unlock
- *   Redeem    [transfer] [apply_yield] redeem_to_evm send_pay_yield
+ *   Redeem    [apply_yield] redeem_to_evm send_pay_yield   (the relayer is the Claim's payer; the holder only signs)
  *
  * `build(payer, sponsored)` returns groups of instructions. Sponsored, the relayer is `payer`, there is one group and the sponsor
  * accepts it (server/sponsor/rules-bridge.ts). When it cannot or will not (paused, over a limit, no Delivery Fee, a checkpoint
@@ -101,27 +99,20 @@ export interface RedeemInput {
   /** Pages to create before the Redeem (the Source's landing pages nobody created). */
   create: TransactionInstruction[];
   holderEvm: string;
-  /** The Player already holds a `Claim` on this Source: a Redeem creates none. */
-  claimExists: boolean;
-  playerLamports: bigint;
   applyYield: ApplyYieldPlan | null;
   quote: SendQuote;
 }
 
-/** A little over the fee of the transaction, for a Player to be considered able to pay the Claim's rent themselves. */
-const FEE_ALLOWANCE = 20_000n;
-
-/** `[transfer] [apply_yield] redeem_to_evm send_pay_yield`: the transfer is the Claim's rent for a Player who cannot pay it. */
+/** `[apply_yield] redeem_to_evm send_pay_yield`: `payer` (the relayer, or the Player when they pay) funds the Claim's rent. */
 export function redeemGroups(o: RedeemInput): Groups {
   const ref = { vault: o.vault, id: o.id };
-  const redeem = redeemToEvmIx(o.player, o.position, o.source, o.gemas, o.vault, o.target);
+  const redeem = redeemToEvmIx(o.player, o.position, o.source, o.gemas, o.vault, o.target, o.payer);
   const send = sendPayIx({ kind: "yield", payer: o.payer, vault: o.vault, pid: ethPositionId(o.vault, o.id), holder: o.player, holderEvm: o.holderEvm, sourceIndex: o.sourceIndex, quote: o.quote });
   const create = [...(o.applyYield?.create ?? []), ...o.create];
   const apply = o.applyYield ? [yieldGroup(ref, o.applyYield)] : [];
   if (!o.sponsored) return [[...create, ...apply, redeem], [send]];
   if (create.length > 0) throw needsSetup();
-  const rent = !o.claimExists && o.playerLamports < CLAIM_RENT + FEE_ALLOWANCE ? [rentTransferIx(o.payer, o.player, CLAIM_RENT)] : [];
-  return [[...rent, ...apply, redeem, send]];
+  return [[...apply, redeem, send]];
 }
 
 /** `apply_yield` alone: lands a Yield Report that arrived. Nobody signs it. */

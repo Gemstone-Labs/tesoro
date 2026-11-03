@@ -4,11 +4,11 @@
  *
  *   apply_locked | apply_yield | send_unlock | send_pay_yield | send_pay_instant | send_pay_prize | refund_prize_payout
  *   [apply_yield] unlock send_unlock
- *   [rent transfer] [apply_yield] redeem_to_evm send_pay_yield
- *   [rent transfer] redeem_prize_to_evm send_pay_prize
+ *   [apply_yield] redeem_to_evm send_pay_yield
+ *   redeem_prize_to_evm send_pay_prize
  *
- * Money rules: the relayer is only ever the LayerZero payer (first account of a send, or of apply_locked) or the sender of one
- * exact rent transfer to the Player. A send's options are empty and its LayerZero-token fee is 0; its native fee is bounded here
+ * Money rules: the relayer is only ever the LayerZero payer (a send's endpoint accounts, apply_locked) or the `payer` that funds
+ * the rent of the Claim / payout record a Redeem creates (the holder signs, and only signs). A send's options are empty and its LayerZero-token fee is 0; its native fee is bounded here
  * and again by the service against a fresh quote. Every PDA is derived from the Position id in the instruction data, and the
  * Position's vault must be one the app lists.
  */
@@ -54,7 +54,7 @@ const ROW_CU: Record<BundleName, number> = {
   refund_prize_payout: 200_000,
 };
 
-/** Shapes, by instruction name; `unlock` is a tesoro_core instruction, `transfer` the rent transfer. */
+/** Shapes, by instruction name; `unlock` is a tesoro_core instruction. A Redeem always travels with its send: alone it would create a Claim for free. */
 const SHAPES: readonly (readonly string[])[] = [
   ["apply_locked"],
   ["apply_yield"],
@@ -63,18 +63,11 @@ const SHAPES: readonly (readonly string[])[] = [
   ["send_pay_instant"],
   ["send_pay_prize"],
   ["refund_prize_payout"],
-  ["redeem_to_evm"],
   ["unlock", "send_unlock"],
   ["apply_yield", "unlock", "send_unlock"],
   ["redeem_to_evm", "send_pay_yield"],
   ["apply_yield", "redeem_to_evm", "send_pay_yield"],
-  ["transfer", "redeem_to_evm"],
-  ["transfer", "redeem_to_evm", "send_pay_yield"],
-  ["transfer", "apply_yield", "redeem_to_evm", "send_pay_yield"],
-  ["redeem_prize_to_evm"],
-  ["transfer", "redeem_prize_to_evm"],
   ["redeem_prize_to_evm", "send_pay_prize"],
-  ["transfer", "redeem_prize_to_evm", "send_pay_prize"],
 ];
 
 const bad = (code: string, message: string): never => {
@@ -120,6 +113,9 @@ interface Checked {
   holderAccount?: PublicKey;
   corePosition?: PublicKey;
   signers: PublicKey[];
+  /** Rent the relayer fronts for good (a Claim is never closed) or gets back (a payout record at `close_payout`). */
+  sunk?: bigint;
+  refundable?: bigint;
 }
 
 /** Sends end `[endpoint settings, system, ...send accounts]`: the relayer is the endpoint's payer inside the send accounts and signs nowhere else. */
@@ -253,60 +249,71 @@ function checkRefundPrize(ix: Ix, relayer: PublicKey, player: PublicKey): Checke
   return { name, vault: "", pid: null, signers: [], holderAccount: coreAccountPda(player) };
 }
 
-/** The Player's `redeem_to_evm`: a Redeem of Gemas of an EVM Source, recording the payout the next send delivers. */
+/** The `payer` of a Redeem's new account: the relayer for a holder with no SOL, or the holder. It only funds the rent. */
+function redeemPayer(ix: Ix, name: string, relayer: PublicKey, player: PublicKey): PublicKey {
+  const k = ix.keys[1];
+  if (!k || !(k.pubkey.equals(relayer) || k.pubkey.equals(player))) bad("bad-account", `${name}: the rent is paid by the relayer or by the Player.`);
+  return slot(ix, name, 1, true, true);
+}
+
+/** The Player's `redeem_to_evm`: a Redeem of Gemas of an EVM Source, recording the payout the next send delivers. The holder only signs. */
 function checkRedeemToEvm(ix: Ix, relayer: PublicKey, player: PublicKey): Checked {
   const name = "redeem_to_evm";
   if (ix.data.length !== 8 + 11 + 8) bad("bad-data", `${name}: the instruction data is the wrong size.`);
-  if (ix.keys.length < 14 || ix.keys.length > 14 + MAX_EXTRA) bad("bad-accounts", `${name} has the wrong number of accounts.`);
-  const terms = ix.keys[10]?.pubkey;
+  if (ix.keys.length < 15 || ix.keys.length > 15 + MAX_EXTRA) bad("bad-accounts", `${name} has the wrong number of accounts.`);
+  const terms = ix.keys[11]?.pubkey;
   const vault = (terms && vaultOfTerms(terms)) ?? bad("bad-vault", `${name}: that is not a Lock on a contract we support.`);
   const net = netOfVault(vault);
   const holder = coreAccountPda(player);
-  slot(ix, name, 0, true, true, player);
-  slot(ix, name, 1, false, false, bridgeStore());
-  slot(ix, name, 2, false, false, BRIDGE_AUTHORITY);
-  slot(ix, name, 3, false, false, sourceAuthPda(net));
-  slot(ix, name, 4, false, true, holder);
-  const position = slot(ix, name, 5, false, true);
-  const source = slot(ix, name, 6, false, true);
-  slot(ix, name, 7, false, true, basketPda(holder));
-  slot(ix, name, 8, false, true, spillPda(holder));
-  const claim = slot(ix, name, 9, false, true, claimPda(holder, source));
-  slot(ix, name, 10, false, false, deliveryTermsPda(vault));
-  slot(ix, name, 11, false, false, bridgePeerPda(vault));
-  slot(ix, name, 12, false, false, TESORO_CORE_ID);
-  slot(ix, name, 13, false, false, SystemProgram.programId);
-  ix.keys.slice(14).forEach((k, i) => {
-    if (k.isSigner) bad("bad-accounts", `${name}: account ${14 + i} may not sign.`);
+  slot(ix, name, 0, true, false, player);
+  redeemPayer(ix, name, relayer, player);
+  slot(ix, name, 2, false, false, bridgeStore());
+  slot(ix, name, 3, false, false, BRIDGE_AUTHORITY);
+  slot(ix, name, 4, false, false, sourceAuthPda(net));
+  slot(ix, name, 5, false, true, holder);
+  const position = slot(ix, name, 6, false, true);
+  const source = slot(ix, name, 7, false, true);
+  slot(ix, name, 8, false, true, basketPda(holder));
+  slot(ix, name, 9, false, true, spillPda(holder));
+  const claim = slot(ix, name, 10, false, true, claimPda(holder, source));
+  slot(ix, name, 11, false, false, deliveryTermsPda(vault));
+  slot(ix, name, 12, false, false, bridgePeerPda(vault));
+  slot(ix, name, 13, false, false, TESORO_CORE_ID);
+  slot(ix, name, 14, false, false, SystemProgram.programId);
+  ix.keys.slice(15).forEach((k, i) => {
+    if (k.isSigner) bad("bad-accounts", `${name}: account ${15 + i} may not sign.`);
   });
-  relayerOnlyAt(ix, name, relayer, null);
-  return { name, vault, pid: null, claim, holderAccount: holder, corePosition: position, signers: [player] };
+  relayerOnlyAt(ix, name, relayer, 1);
+  const rent = ix.keys[1].pubkey.equals(relayer) ? CLAIM_RENT : 0n;
+  return { name, vault, pid: null, claim, holderAccount: holder, corePosition: position, signers: [player], sunk: rent };
 }
 
 function checkRedeemPrize(ix: Ix, relayer: PublicKey, player: PublicKey): Checked {
   const name = "redeem_prize_to_evm";
   if (ix.data.length !== 8 + 8) bad("bad-data", `${name}: the instruction data is the wrong size.`);
-  if (ix.keys.length !== 14) bad("bad-accounts", `${name} has the wrong number of accounts.`);
-  const terms = ix.keys[11]?.pubkey;
+  if (ix.keys.length !== 15) bad("bad-accounts", `${name} has the wrong number of accounts.`);
+  const terms = ix.keys[12]?.pubkey;
   const vault = (terms && vaultOfTerms(terms)) ?? bad("bad-vault", `${name}: that is not a contract we support.`);
   const net = netOfVault(vault);
   const holder = coreAccountPda(player);
-  slot(ix, name, 0, true, true, player);
-  slot(ix, name, 1, false, false, bridgeStore());
-  slot(ix, name, 2, false, false, BRIDGE_AUTHORITY);
-  slot(ix, name, 3, false, true);
-  slot(ix, name, 4, false, false, sourceAuthPda(net));
-  slot(ix, name, 5, false, false, holder);
-  slot(ix, name, 6, false, false);
-  slot(ix, name, 7, false, true, basketPda(holder));
-  slot(ix, name, 8, false, true, spillPda(holder));
-  slot(ix, name, 9, false, true);
+  slot(ix, name, 0, true, false, player);
+  redeemPayer(ix, name, relayer, player);
+  slot(ix, name, 2, false, false, bridgeStore());
+  slot(ix, name, 3, false, false, BRIDGE_AUTHORITY);
+  slot(ix, name, 4, false, true);
+  slot(ix, name, 5, false, false, sourceAuthPda(net));
+  slot(ix, name, 6, false, false, holder);
+  slot(ix, name, 7, false, false);
+  slot(ix, name, 8, false, true, basketPda(holder));
+  slot(ix, name, 9, false, true, spillPda(holder));
   slot(ix, name, 10, false, true);
-  slot(ix, name, 11, false, false, deliveryTermsPda(vault));
-  slot(ix, name, 12, false, false, TESORO_CORE_ID);
-  slot(ix, name, 13, false, false, SystemProgram.programId);
-  relayerOnlyAt(ix, name, relayer, null);
-  return { name, vault, pid: null, signers: [player], holderAccount: holder };
+  slot(ix, name, 11, false, true);
+  slot(ix, name, 12, false, false, deliveryTermsPda(vault));
+  slot(ix, name, 13, false, false, TESORO_CORE_ID);
+  slot(ix, name, 14, false, false, SystemProgram.programId);
+  relayerOnlyAt(ix, name, relayer, 1);
+  // The payout record's rent is fronted, and comes back to the payer at `close_payout`.
+  return { name, vault, pid: null, signers: [player], holderAccount: holder, refundable: ix.keys[1].pubkey.equals(relayer) ? PAYOUT_RECORD_RENT : 0n };
 }
 
 /** The listed vault whose Delivery Terms account this is. */
@@ -314,37 +321,19 @@ function vaultOfTerms(terms: PublicKey): string | null {
   return ETH_VAULTS.map((v) => v.address as string).find((v) => deliveryTermsPda(v).equals(terms)) ?? null;
 }
 
-/** The relayer's one rent transfer: exactly the rent of the account the Redeem creates, to the Player who signs it. */
-function checkTransfer(ix: Ix, relayer: PublicKey, player: PublicKey, redeem: Ix): bigint {
-  const data = Buffer.from(ix.data);
-  const prize = bundleNameOf(redeem.data) === "redeem_prize_to_evm";
-  const want = prize ? PAYOUT_RECORD_RENT : CLAIM_RENT;
-  if (data.length !== 12 || data.readUInt32LE(0) !== 2 || data.readBigUInt64LE(4) !== want) bad("bad-transfer", "The only transfer we make is the rent of the account a Redeem creates.");
-  if (ix.keys.length !== 2) bad("bad-transfer", "The transfer has the wrong number of accounts.");
-  slot(ix, "transfer", 0, true, true, relayer);
-  slot(ix, "transfer", 1, false, true, player);
-  return want;
-}
-
-/** Accepts one sponsored transaction made of bridge steps (and the Player's own `unlock`, and the rent transfer) or throws a RuleError. */
+/** Accepts one sponsored transaction made of bridge steps (and the Player's own `unlock`) or throws a RuleError. */
 export function planBridgeBundle(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
   const names = ixs.map((ix) => {
     if (ix.programId.equals(BRIDGE_ID)) return bundleNameOf(ix.data) ?? bad("bad-shape", "Only link_evm and the Player's bridge steps are paid for on the bridge.");
     if (ix.programId.equals(TESORO_CORE_ID)) return "unlock";
-    if (ix.programId.equals(SystemProgram.programId)) return "transfer";
     return bad("unknown-program", "That program is not one we pay for.");
   });
   if (!SHAPES.some((s) => s.length === names.length && s.every((n, i) => n === names[i]))) bad("bad-shape", `${names.join(" + ")} is not a transaction we pay for.`);
 
   let unlockPlan: Plan | null = null;
-  let rent = 0n;
   const checked: Checked[] = [];
   ixs.forEach((ix, i) => {
     const n = names[i];
-    if (n === "transfer") {
-      rent += checkTransfer(ix, relayer, player, ixs[i + 1]);
-      return;
-    }
     if (n === "unlock") {
       unlockPlan = planCore([ix], relayer);
       if (unlockPlan.names[0] !== "unlock") bad("bad-shape", "Only an Unlock may travel with the bridge steps.");
@@ -374,15 +363,16 @@ export function planBridgeBundle(ixs: Ix[], relayer: PublicKey, player: PublicKe
   if (vaults.size > 1) bad("bad-shape", "The steps of one transaction are for one contract.");
 
   const sends = checked.flatMap((c) => (c.send ? [c.send] : []));
-  const lz = sends.reduce((n, s) => n + s.feeLamports, 0n) + (names.includes("apply_locked") ? POSITION_RENT : 0n);
-  const cu = Math.min(1_400_000, names.reduce((n, name) => n + (name === "unlock" ? 600_000 : name === "transfer" ? 0 : ROW_CU[name as BundleName]), 0));
+  const lz = sends.reduce((n, s) => n + s.feeLamports, 0n) + (names.includes("apply_locked") ? POSITION_RENT : 0n) + checked.reduce((n, c) => n + (c.sunk ?? 0n), 0n);
+  const refundable = checked.reduce((n, c) => n + (c.refundable ?? 0n), 0n);
+  const cu = Math.min(1_400_000, names.reduce((n, name) => n + (name === "unlock" ? 600_000 : ROW_CU[name as BundleName]), 0));
   const signers = [...new Map(checked.flatMap((c) => c.signers).map((s) => [s.toBase58(), s])).values()];
   const up = unlockPlan as Plan | null;
   return {
     kind: "core",
     names,
     class: "exit",
-    spend: { refundable: 0n, sunk: lz + rent + (up?.spend.sunk ?? 0n) },
+    spend: { refundable, sunk: lz + (up?.spend.sunk ?? 0n) },
     cu,
     obligations: [],
     pair: null,

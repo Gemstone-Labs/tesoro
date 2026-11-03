@@ -1,7 +1,7 @@
 import { AddressLookupTableAccount, Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import nacl from "tweetnacl";
-import { CLAIM_RENT, applyYieldIx, rentTransferIx, sendPayIx, sendUnlockIx, stableBridgeAddresses, type SendQuote } from "@/lib/chain/bridge-bundle";
+import { CLAIM_RENT, applyYieldIx, sendPayIx, sendUnlockIx, stableBridgeAddresses, type SendQuote } from "@/lib/chain/bridge-bundle";
 import { BRIDGE_ID, ETH_VAULTS, coreUnlockIx, deliveryTermsPda, ethPositionId, corePositionPda, redeemToEvmIx } from "@/lib/chain/eth";
 import { sourcePda } from "@/lib/chain/native";
 import { key, withPayerAt13 } from "./fixtures";
@@ -149,13 +149,12 @@ describe("a sponsored Unlock that carries its LayerZero send", () => {
 });
 
 describe("a sponsored Redeem for a Player with no SOL", () => {
-  it("carries the Claim's rent from the relayer, the Redeem and its send in one message", async () => {
+  it("has the relayer pay the Claim's rent as the Redeem's payer, and counts it as a cost", async () => {
     const s = setup();
     const line = { side: 0, dueAt: 0n, class: 0, tranche: 0 };
-    const redeem = asIx(redeemToEvmIx(s.player.publicKey, s.position, s.source, 5n, vault, { line, accounts: [key()] }));
+    const redeem = asIx(redeemToEvmIx(s.player.publicKey, s.position, s.source, 5n, vault, { line, accounts: [key()] }, s.relayer.publicKey));
     const pay = asIx(sendPayIx({ kind: "yield", payer: s.relayer.publicKey, vault, pid, holder: s.player.publicKey, holderEvm: evm, sourceIndex: 0, quote: s.quote }));
-    const transfer = asIx(rentTransferIx(s.relayer.publicKey, s.player.publicKey, CLAIM_RENT));
-    const built = await s.sponsor.build(s.player.publicKey, wire([transfer, redeem, pay]));
+    const built = await s.sponsor.build(s.player.publicKey, wire([redeem, pay]));
     expect(BigInt(JSON.parse(built.meta).cost)).toBeGreaterThanOrEqual(285_146n + CLAIM_RENT);
     await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
     expect(s.sent).toHaveLength(1);
@@ -178,18 +177,17 @@ describe("message sizes with the bridge lookup table", () => {
     console.info("size unlock bundle with apply_yield", size);
     expect(size).toBeLessThanOrEqual(1232);
   });
-  it("Redeem with its send, apply_yield and the Claim's rent, for a Player with no SOL", async () => {
+  it("Redeem with its send and apply_yield, the relayer paying the Claim, for a Player with no SOL", async () => {
     const s = setup();
-    const redeem = asIx(redeemToEvmIx(s.player.publicKey, s.position, s.source, 5n, vault, { line, accounts: books() }));
+    const redeem = asIx(redeemToEvmIx(s.player.publicKey, s.position, s.source, 5n, vault, { line, accounts: books() }, s.relayer.publicKey));
     const pay = asIx(sendPayIx({ kind: "yield", payer: s.relayer.publicKey, vault, pid, holder: s.player.publicKey, holderEvm: evm, sourceIndex: 0, quote: s.quote }));
-    const transfer = asIx(rentTransferIx(s.relayer.publicKey, s.player.publicKey, CLAIM_RENT));
-    const size = await sizeOf(s, [transfer, yieldIx(), redeem, pay]);
+    const size = await sizeOf(s, [yieldIx(), redeem, pay]);
     console.info("size redeem bundle with apply_yield and rent", size);
     expect(size).toBeLessThanOrEqual(1232);
   });
   it("the same Redeem without the table does not fit, which is why the table exists", async () => {
     const s = setup({ tableFor: () => [] });
-    const redeem = asIx(redeemToEvmIx(s.player.publicKey, s.position, s.source, 5n, vault, { line, accounts: books() }));
+    const redeem = asIx(redeemToEvmIx(s.player.publicKey, s.position, s.source, 5n, vault, { line, accounts: books() }, s.relayer.publicKey));
     const pay = asIx(sendPayIx({ kind: "yield", payer: s.relayer.publicKey, vault, pid, holder: s.player.publicKey, holderEvm: evm, sourceIndex: 0, quote: s.quote }));
     await expect(s.sponsor.build(s.player.publicKey, wire([redeem, pay]))).rejects.toMatchObject({ code: "too-large" });
   });

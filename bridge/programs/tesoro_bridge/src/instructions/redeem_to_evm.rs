@@ -18,8 +18,13 @@ use tesoro_core::{
 // without recording a payout.
 #[derive(Accounts)]
 pub struct RedeemToEvm<'info> {
-    #[account(mut)]
+    /// The holder: signs the Redeem as the Account's authority. Pays and receives nothing, so a holder
+    /// with no SOL can redeem.
     pub holder_authority: Signer<'info>,
+    /// Pays the rent of the `Claim` the first time this holder redeems this Source: the holder, or a
+    /// sponsor on the holder's behalf. It only funds the account; it gains no say over it.
+    #[account(mut)]
+    pub payer: Signer<'info>,
     #[account(seeds = [STORE_SEED], bump = store.bump)]
     pub store: Account<'info, Store>,
     /// CHECK: PDA that signs into tesoro_core; address fixed by seeds and the stored bump.
@@ -70,7 +75,7 @@ pub struct RedeemToEvm<'info> {
     pub core_spill: UncheckedAccount<'info>,
     #[account(
         init_if_needed,
-        payer = holder_authority,
+        payer = payer,
         space = 8 + Claim::INIT_SPACE,
         seeds = [CLAIM_SEED, holder_account.key().as_ref(), core_source.key().as_ref()],
         bump
