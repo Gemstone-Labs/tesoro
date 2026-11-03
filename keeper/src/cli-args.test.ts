@@ -51,7 +51,7 @@ test("unknownFlag accepts the keeper CLI flags and rejects anything else, --help
   assert.match(unknownFlag(["stray"], KEEPER_CLI_FLAGS)!, /unexpected argument/);
 });
 
-for (const cli of ["season-run-cli.ts", "safety-sweep-cli.ts"]) {
+for (const cli of ["season-run-cli.ts", "safety-sweep-cli.ts", "janitor-cli.ts"]) {
   test(`${cli} prints usage and exits 2 on an unknown flag, before reading any key`, () => {
     const dir = mkdtempSync(join(tmpdir(), "cli-"));
     const keyPath = join(dir, "keeper.json");

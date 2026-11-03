@@ -1,6 +1,7 @@
 import { Connection } from "@solana/web3.js";
 import { Budget, log, type Ctx } from "./act.ts";
 import { postAlert } from "./alerts.ts";
+import { KEEPER_CLI_FLAGS, exitOnUnknownFlag } from "./cli-args.ts";
 import { meter } from "./credits.ts";
 import { loadPayer, settings } from "./env.ts";
 import { janitor, PARTS, type PartName } from "./janitor.ts";
@@ -13,9 +14,14 @@ import { buildRuntime, clusterNow, newConnection, solanaFetch } from "./runtime.
  * part ran, 1 when one failed (the unit shows as failed, which is what the alert watches).
  * `--dry-run` prints what it would do and sends nothing. `--only tickets,receipts` runs just those parts.
  */
+const USAGE = `Usage: janitor-cli [--dry-run] [--only=${PARTS.join(",")}] [--rpc <url>] [--gpa-rpc <url>]\n  --dry-run  print what would be done, send nothing`;
+
 async function main() {
+  const argv = process.argv.slice(2);
+  // `--only=a,b` is one argument; the shared flag check reads `--only a,b`.
+  exitOnUnknownFlag(argv.flatMap((a) => (a.startsWith("--only=") ? ["--only", a.slice(7)] : [a])), { ...KEEPER_CLI_FLAGS, valued: [...KEEPER_CLI_FLAGS.valued, "only"] }, USAGE);
   const s = settings();
-  const only = (process.argv.find((a) => a.startsWith("--only="))?.slice(7) ?? "").split(",").filter(Boolean);
+  const only = (argv.find((a) => a.startsWith("--only="))?.slice(7) ?? "").split(",").filter(Boolean);
   const bad = only.filter((p) => !(PARTS as readonly string[]).includes(p));
   if (bad.length) throw new Error(`unknown part(s) ${bad.join(",")}: ${PARTS.join(", ")}`);
   const conn = newConnection(s.rpc, s.gpaRpc);
