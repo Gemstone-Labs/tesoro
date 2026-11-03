@@ -477,7 +477,7 @@ describe("stake pool update in front of a staking-token payout", () => {
     refused(withKeys((u) => (u.keys[5] = { ...u.keys[5], isWritable: false })), "bad-flags");
     refused(withKeys((u) => (u.keys[3] = { ...u.keys[3], isSigner: true })), "bad-flags");
     refused(withKeys((u) => (u.data = Buffer.from([7, 0]))), "bad-shape");
-    refused(withKeys((u) => (u.data = Buffer.from([8]))), "bad-shape");
+    refused(withKeys((u) => (u.data = Buffer.from([8]))), "unknown-program");
   });
   it("is refused for another program under the stake pool program's data, or the wrong withdraw authority", () => {
     const u = update();
