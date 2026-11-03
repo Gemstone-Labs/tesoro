@@ -14,7 +14,7 @@ All times are rollup slots (100 per second, `SLOTS_PER_SEC` in `state.rs`), read
 | Seeding | 60 s, VRF retried every 20 s, at most 3 times | `seed_callback` stored the Seed |
 | Get ready | 10 s | `start_slot` |
 | Play | 90 s from `start_slot` | the freeze at 80 s hides scores; the last 3 s are the grace |
-| Closing | after `start_slot` + 93 s, or when both Boards are over | `close`, then `commit_table`, `finalize` |
+| Closing | after `start_slot` + 93 s, or when both Boards are over | `close` (also wipes the seats and commits the result), `finalize`; `commit_table` repeats a lost commit |
 
 ## Match flow
 
