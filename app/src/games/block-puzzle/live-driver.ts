@@ -1,5 +1,6 @@
 import type { Assignment, OwnBoard, Table } from "./live-chain";
 import { atAssignedEpoch } from "../../lib/chain/table-epoch";
+import { atNextEpoch } from "../../lib/chain/table-clean";
 import { MAX_SEED_REQUESTS, SEED_RETRY_SLOTS, SEED_SLOTS, TABLE_PHASE, canFinalizeTable, phaseAt, tableOf } from "./live-chain";
 
 /**
@@ -64,6 +65,9 @@ export function nextStep(i: DriveInput): Step {
   const t = i.table;
   if (!t) return { kind: "wait", why: "setup" };
   const late = steppedIn(i);
+
+  // The previous Match settled and the table is not reset yet: begin_match resets it once it may (30 s after the result).
+  if (atNextEpoch(a, t)) return late && i.nowS <= a.startDeadline ? { kind: "beginMatch" } : { kind: "wait", why: "setup" };
 
   // The table moved on to another Match: this Match's result is in the committed ring.
   if (!tableOf(a, t) && !(t.phase === TABLE_PHASE.idle && atAssignedEpoch(a, t))) return i.baseTable && canFinalizeTable(i.baseTable, a, i.nowS) && late ? { kind: "finalize" } : { kind: "wait", why: "payout" };

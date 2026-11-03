@@ -528,7 +528,7 @@ export class BurstDriver {
     try {
       switch (s.kind) {
         case "beginMatch":
-          await chain.beginMatch(p, a);
+          await chain.beginMatch(p, a, t);
           break;
         case "seatPlayers":
           await chain.seatPlayers(p, a);
@@ -563,7 +563,7 @@ export class BurstDriver {
       this.failures = 0;
     } catch (e) {
       // Another page (or the keeper) did this step first: the table has moved on. Anything else counts.
-      if (/WrongPhase|AlreadyCheckedIn|AlreadyBegan|SeatsOpen|SeedRequestNotDue|NotDirty|AlreadyFinalized|already in use|insufficient|Attempt to debit/i.test(String(e))) return;
+      if (/WrongPhase|ResetTooEarly|NotCommitted|RingFull|AlreadyCheckedIn|AlreadyBegan|SeatsOpen|SeedRequestNotDue|NotDirty|AlreadyFinalized|already in use|insufficient|Attempt to debit/i.test(String(e))) return;
       if (++this.failures >= 3) throw e;
     }
   }

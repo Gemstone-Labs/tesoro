@@ -44,10 +44,11 @@ use ephemeral_rollups_sdk::{
 };
 use setup::{Contributions, SetupContext};
 use table_kit::{
-    absence_outcome, assignment_absent, close_private_seat, create_hidden_seat, match_state_gone,
-    may_skip, move_lamports, read_table, receipt_at, retire_legacy_record, sponsor_commit_many,
-    swap_seat_members, table_wait_over, KitError, LegacyError, SeatAccounts, SeatPrograms,
-    OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
+    absence_outcome, assignment_absent, close_private_seat, create_hidden_seat, is_next_epoch,
+    match_state_gone, may_skip, move_lamports, read_table, receipt_aged, receipt_at,
+    retire_legacy_record, sponsor_commit_many, swap_seat_members, table_wait_over, KitError,
+    LegacyError, SeatAccounts, SeatPrograms, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0,
+    OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -177,6 +178,49 @@ impl From<KitError> for VanguardError {
             KitError::CommitNotDue => VanguardError::NotDirty,
         }
     }
+}
+
+/// A finished table may be reset once its seats are wiped, its result is committed and clients
+/// have had `RESET_DELAY_SECS` to read the final board.
+fn check_resettable(table: &Table, now: i64) -> Result<()> {
+    require!(table.phase == TABLE_OVER, VanguardError::WrongPhase);
+    require!(!table.seats_open, VanguardError::SeatsOpen);
+    require!(!table.dirty, VanguardError::NotCommitted);
+    require!(
+        now >= table
+            .over_at
+            .checked_add(RESET_DELAY_SECS)
+            .ok_or(VanguardError::Overflow)?,
+        VanguardError::ResetTooEarly
+    );
+    Ok(())
+}
+
+/// Forgets the finished Battle and moves the table to its next epoch.
+fn reset_in_place(table: &mut Table, battle: &mut Battle) -> Result<()> {
+    require!(
+        battle.status == STATUS_OVER || battle.status == STATUS_CANCELLED,
+        VanguardError::MatchNotOver
+    );
+    battle.zero();
+    table.reset().ok_or(VanguardError::Overflow)?;
+    Ok(())
+}
+
+/// Gives up a table whose Match core froze before the table produced a result: frees the
+/// reserved slot, cancels the Battle and moves the table to Over. The caller has shown the receipt.
+fn void_in_place(table: &mut Table, battle: &mut Battle, now: i64) -> Result<()> {
+    let (slot, key) = (table.slot, table.tesoro_match);
+    kit(table.ring.free(slot, &key, SLOT_RESERVED))?;
+    battle.clear_pending();
+    battle.status = STATUS_CANCELLED;
+    battle.winner = NO_WINNER;
+    table.phase = TABLE_OVER;
+    table.over_at = now;
+    table.dirty = false;
+    table.req_pending = false;
+    table.vrf_ready = false;
+    Ok(())
 }
 
 fn kit<T>(r: core::result::Result<T, KitError>) -> Result<T> {
@@ -904,6 +948,19 @@ pub mod vanguard {
         let now = Clock::get()?.unix_timestamp;
         let a = &ctx.accounts.assignment;
         let table = &mut ctx.accounts.table;
+        let receipts = ctx.remaining_accounts;
+        // A table stuck on a Match core froze: give it up. The seats still need wiping, so the
+        // clean-up is all this call does; the next `begin_match` resets the table.
+        if matches!(table.phase, TABLE_WAITING | TABLE_LIVE)
+            && receipt_aged(receipts, &table.tesoro_match, now, RELEASE_DELAY_SECS)
+        {
+            return void_in_place(table, &mut *ctx.accounts.battle.load_mut()?, now);
+        }
+        // A finished table is reset for the Assignment one epoch ahead, so the keeper need not.
+        if table.phase == TABLE_OVER && is_next_epoch(table.epoch, a.epoch) {
+            check_resettable(table, now)?;
+            reset_in_place(table, &mut *ctx.accounts.battle.load_mut()?)?;
+        }
         require!(table.phase == TABLE_IDLE, VanguardError::WrongPhase);
         require!(table.seats_created, VanguardError::SeatsMissing);
         require!(
@@ -917,6 +974,9 @@ pub mod vanguard {
         );
         require!(now <= a.start_deadline, VanguardError::StartWindowPassed);
         let epoch = table.epoch;
+        if table.ring.is_full() {
+            table.ring.free_proven(receipts, now, RELEASE_DELAY_SECS);
+        }
         table.slot = kit(table.ring.reserve(a.tesoro_match, epoch))?;
         table.tesoro_match = a.tesoro_match;
         table.start_deadline = a.start_deadline;
@@ -1480,24 +1540,8 @@ pub mod vanguard {
     pub fn reset_table(ctx: Context<ResetTable>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
-        require!(table.phase == TABLE_OVER, VanguardError::WrongPhase);
-        require!(!table.seats_open, VanguardError::SeatsOpen);
-        require!(!table.dirty, VanguardError::NotCommitted);
-        require!(
-            now >= table
-                .over_at
-                .checked_add(RESET_DELAY_SECS)
-                .ok_or(VanguardError::Overflow)?,
-            VanguardError::ResetTooEarly
-        );
-        let mut battle = ctx.accounts.battle.load_mut()?;
-        require!(
-            battle.status == STATUS_OVER || battle.status == STATUS_CANCELLED,
-            VanguardError::MatchNotOver
-        );
-        battle.zero();
-        table.reset().ok_or(VanguardError::Overflow)?;
-        Ok(())
+        check_resettable(table, now)?;
+        reset_in_place(table, &mut *ctx.accounts.battle.load_mut()?)
     }
 
     /// Rollup, permissionless. A table whose Match tesoro_core has already frozen (it refunded, say after an outage)
@@ -1518,18 +1562,7 @@ pub mod vanguard {
                 .ok_or(VanguardError::Overflow)?,
             VanguardError::NoReceipt
         );
-        let (slot, key) = (table.slot, table.tesoro_match);
-        kit(table.ring.free(slot, &key, SLOT_RESERVED))?;
-        let mut battle = ctx.accounts.battle.load_mut()?;
-        battle.clear_pending();
-        battle.status = STATUS_CANCELLED;
-        battle.winner = NO_WINNER;
-        table.phase = TABLE_OVER;
-        table.over_at = now;
-        table.dirty = false;
-        table.req_pending = false;
-        table.vrf_ready = false;
-        Ok(())
+        void_in_place(table, &mut *ctx.accounts.battle.load_mut()?, now)
     }
 
     /// Rollup, permissionless. Frees a Done ring slot once tesoro_core has frozen its Match (the receipt, read a

@@ -3740,8 +3740,14 @@ fn begin_resets_a_finished_table_that_is_wiped_committed_and_thirty_seconds_old(
     env.wipe_standin();
     env.begin().expect("reset, then begin");
     let t = env.table();
-    assert_eq!((t.epoch, t.phase, t.tesoro_match), (1, holdem::TABLE_WAITING, second));
-    assert!(t.ring.find(&first, 0).is_some(), "the first result keeps its slot");
+    assert_eq!(
+        (t.epoch, t.phase, t.tesoro_match),
+        (1, holdem::TABLE_WAITING, second)
+    );
+    assert!(
+        t.ring.find(&first, 0).is_some(),
+        "the first result keeps its slot"
+    );
     assert!(t.ring.find(&second, 1).is_some());
 }
 
@@ -3797,10 +3803,16 @@ fn begin_frees_a_slot_whose_receipt_is_provable_when_the_ring_is_full() {
     let slot = fill_ring(&mut env, old);
     assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(RingFull));
     env.set_time(refunded_at + holdem::RELEASE_DELAY_SECS - 1);
-    assert_eq!(custom_code(&env.begin_with(&[old]).unwrap_err()), dcode(RingFull));
+    assert_eq!(
+        custom_code(&env.begin_with(&[old]).unwrap_err()),
+        dcode(RingFull)
+    );
     // a receipt of a Match that is not in the ring frees nothing
     let other = env.tmatch;
-    assert_eq!(custom_code(&env.begin_with(&[other]).unwrap_err()), dcode(RingFull));
+    assert_eq!(
+        custom_code(&env.begin_with(&[other]).unwrap_err()),
+        dcode(RingFull)
+    );
     env.set_time(refunded_at + holdem::RELEASE_DELAY_SECS);
     env.begin_with(&[old]).expect("freed, then begun");
     let t = env.table();
@@ -3817,7 +3829,10 @@ fn begin_voids_a_table_stuck_on_a_match_core_already_froze() {
     core_refund(&mut env).expect("core refund");
     let refunded_at = env.now;
     env.set_time(refunded_at + holdem::RELEASE_DELAY_SECS - 1);
-    assert_eq!(custom_code(&env.begin_with(&[stuck]).unwrap_err()), dcode(WrongPhase));
+    assert_eq!(
+        custom_code(&env.begin_with(&[stuck]).unwrap_err()),
+        dcode(WrongPhase)
+    );
     env.set_time(refunded_at + holdem::RELEASE_DELAY_SECS);
     env.begin_with(&[stuck]).expect("voids");
     let t = env.table();

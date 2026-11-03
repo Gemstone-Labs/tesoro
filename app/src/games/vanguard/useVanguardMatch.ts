@@ -1,6 +1,7 @@
 "use client";
 
 import { atAssignedEpoch } from "@/lib/chain/table-epoch";
+import { atNextEpoch } from "@/lib/chain/table-clean";
 
 import { useAuth } from "@/lib/auth/context";
 import { finalizeFree } from "@/lib/chain/game-finalize";
@@ -269,7 +270,14 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
     const nowS = Math.floor(Date.now() / 1000);
     if (t.phase === TABLE_PHASE.idle && atAssignedEpoch(a, t)) {
       setStage("setup", "Starting the Match");
-      if (late && nowS <= a.startDeadline) await vg.beginMatch(p, a).catch(() => undefined);
+      if (late && nowS <= a.startDeadline) await vg.beginMatch(p, a, t).catch(() => undefined);
+      return;
+    }
+    // The previous Match settled and the table is not reset yet: begin_match resets it once it may (30 s after the
+    // result), so an early or failed try is quietly repeated on the next read.
+    if (atNextEpoch(a, t)) {
+      setStage("setup", "Starting the Match");
+      if (late && nowS <= a.startDeadline) await vg.beginMatch(p, a, t).catch(() => undefined);
       return;
     }
     if (!tableOf(a, t)) {

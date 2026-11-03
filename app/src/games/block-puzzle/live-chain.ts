@@ -33,6 +33,7 @@ import { type PlayerSigner, keypairSigner } from "../holdem/chain";
 import type { BlockPuzzle } from "../../lib/chain/idl/block_puzzle.types";
 import * as engine from "./engine";
 import { watchAccount } from "./table-feed";
+import { beginReceipts, receiptMetas } from "../../lib/chain/table-clean";
 
 export { keypairSigner, type PlayerSigner };
 
@@ -804,10 +805,11 @@ export class BlockBurstChain {
   }
 
   /** Rollup, permissionless. Starts the Assignment's Match on its table (reserves a ring slot); the seats are then handed over and the Players check in. */
-  async beginMatch(payer: PlayerSigner, a: Assignment): Promise<string> {
+  async beginMatch(payer: PlayerSigner, a: Assignment, table?: Pick<Table, "tesoroMatch" | "ring">): Promise<string> {
     const ix = await this.program.methods
       .beginMatch()
       .accountsPartial({ caller: payer.publicKey, assignment: a.address, table: tablePda(a.generation, a.index), tesoroMatch: a.tesoroMatch } as any)
+      .remainingAccounts(table ? receiptMetas(beginReceipts(table)) : [])
       .instruction();
     return this.sendTee("begin_match", [ix], payer);
   }
