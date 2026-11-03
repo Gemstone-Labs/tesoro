@@ -32,7 +32,7 @@ import { ChainTransactionFailed } from "./chain-send";
 import { completionEffects, completionInput, holdSeeds, recoverCompletions, type CompletionChain, type HoldSeed } from "./completion";
 import { releaseClosedHolds, type ClosureReads } from "./closure";
 import { assetOfIndex } from "@/games/trading-duel/chain";
-import { joinOf, type Assigner, type Assignment } from "./assign";
+import { joinOf, PlayerBusy, type Assigner, type Assignment, type LeaseRef } from "./assign";
 import { admitPages, admitSends, type BridgeSendGuard } from "./bridge-sends";
 
 const HOUR = 3_600_000;
@@ -102,11 +102,11 @@ function partiesOf(data: Uint8Array): PublicKey[] {
     return [];
   }
 }
-/** The opener's Account of a Match nobody has joined yet (null once it has a second Player, or when the data is not a MatchState). */
+/** The opener's Account of an Open Match nobody has joined yet (null once it has a second Player or left Open, or when the data is not a MatchState). */
 function openerAccountOf(data: Uint8Array): PublicKey | null {
   try {
-    const m = matchCoder.decode("MatchState", Buffer.from(data)) as { inner: { a: { player: number[] }; b: unknown | null } };
-    return m.inner.b ? null : new PublicKey(m.inner.a.player);
+    const m = matchCoder.decode("MatchState", Buffer.from(data)) as { inner: { a: { player: number[] }; b: unknown | null; stage: object } };
+    return m.inner.b || !("open" in m.inner.stage) ? null : new PublicKey(m.inner.a.player);
   } catch {
     return null;
   }
@@ -189,9 +189,11 @@ interface Meta {
   admission?: boolean;
   ataGrant?: string | null;
   /** The table lease taken for the `assign_match` that rides with the join; the operator signs the transaction too. */
-  assign?: { leaseKey: string; holder: string; claim?: Assignment["claim"] };
+  assign?: { leaseKey: string; holder: string; lockKey?: string; claim?: Assignment["claim"] };
 }
 
+/** What a self-paid build's MAC covers besides its meta: that meta only proves the build to `confirmSelfPaid`, never a transaction. */
+const SELF_CONFIRM = Buffer.from("self-paid-confirm");
 const mac = (key: Buffer, message: Uint8Array, meta: string) => createHmac("sha256", key).update(message).update("|").update(meta).digest("base64");
 const macOk = (key: Buffer, message: Uint8Array, meta: string, given: string) => {
   const a = Buffer.from(mac(key, message, meta));
@@ -357,15 +359,17 @@ export class Sponsor {
   }
 
   /** The `assign_match` for the Match a join enters, or null (no free table, an unreadable Match, a Game the keeper assigns): the join then travels alone and the keeper assigns later. */
-  private async assignJoin(join: NonNullable<ReturnType<typeof joinOf>>, holder: string): Promise<Assignment | null> {
+  private async assignJoin(join: NonNullable<ReturnType<typeof joinOf>>, holder: string, who: string): Promise<Assignment | "busy" | "own" | null> {
     try {
       const m = await this.d.chain.account(join.match);
       const opener = m && m.owner.equals(CORE_ID) ? openerAccountOf(m.data) : null;
       const seed = m && matchSeedOf(m.data);
       // Trading Duel's assign_match refuses an unknown asset, and the join with it: such a Match is left to the keeper's refund path.
       if (join.game === "trading-duel" && assetOfIndex(matchAssetOf(m?.data ?? new Uint8Array()) ?? -1) === null) return null;
-      return opener && seed ? await this.d.assigner!.assign(join.game, join.match, opener, join.joiner, holder, `${seed.account}-${seed.n}`) : null;
+      if (opener?.equals(join.joiner)) return "own";
+      return opener && seed ? await this.d.assigner!.assign(join.game, join.match, opener, join.joiner, holder, `${seed.account}-${seed.n}`, who) : null;
     } catch (e) {
+      if (e instanceof PlayerBusy) return "busy";
       console.error("[sponsor] table assignment failed; the join travels alone", e);
       return null;
     }
@@ -469,7 +473,10 @@ export class Sponsor {
       if (!(gameStep && plan.spend.refundable > 0n ? rentExitFits(balance, cost) : exitFits(balance, cost))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
     }
 
-    if (joining) held.assignment = await this.assignJoin(joining, randomUUID());
+    if (joining) {
+      const got = await this.assignJoin(joining, randomUUID(), who);
+      if (typeof got === "object" && got) held.assignment = got;
+    }
     const instructions = [
       ComputeBudgetProgram.setComputeUnitLimit({ units: plan.cu }),
       ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_MICROLAMPORTS }),
@@ -493,7 +500,7 @@ export class Sponsor {
       const a = await this.d.chain.account(new PublicKey(match));
       return a && a.owner.equals(CORE_ID) ? matchSeedOf(a.data) : null;
     });
-    const meta: Meta = { completion: completionEffects(ixs), seeds, player: who, exp: now + BUILD_TTL_MS, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite, cost: (fee + plan.spend.sunk + plan.spend.refundable).toString(), admission: plan.class === "admission", ataGrant: setup.ataGrant, assign: held.assignment ? { leaseKey: held.assignment.leaseKey, holder: held.assignment.holder, claim: held.assignment.claim } : undefined };
+    const meta: Meta = { completion: completionEffects(ixs), seeds, player: who, exp: now + BUILD_TTL_MS, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite, cost: (fee + plan.spend.sunk + plan.spend.refundable).toString(), admission: plan.class === "admission", ataGrant: setup.ataGrant, assign: held.assignment ? { leaseKey: held.assignment.leaseKey, holder: held.assignment.holder, lockKey: held.assignment.lockKey, claim: held.assignment.claim } : undefined };
     const metaText = JSON.stringify(meta);
     return { message: Buffer.from(bytes).toString("base64"), meta: metaText, mac: mac(this.d.macKey, bytes, metaText), expiresAt: meta.exp, class: plan.class };
   }
@@ -503,7 +510,7 @@ export class Sponsor {
    * message and sends it. Only a lone `join_match` is accepted, with the Player as the only other signer and as fee payer, and
    * no instruction may name the operator: the operator's signature then can authorize nothing but the `assign_match` we add.
    */
-  async buildSelfPaid(player: PublicKey, raw: unknown): Promise<{ tx: string; expiresAt: number }> {
+  async buildSelfPaid(player: PublicKey, raw: unknown): Promise<{ tx: string; expiresAt: number; meta: string; mac: string }> {
     const assigner = this.d.assigner;
     if (!assigner) throw new DemoHttpError(503, "not-configured", "Table assignment is not configured on this server.");
     const now = this.d.now();
@@ -520,7 +527,9 @@ export class Sponsor {
     const who = player.toBase58();
     if (!(await this.d.store.take(`assignb:${who}`, 1, this.d.limits.buildsPerDay, DAY, now))) throw new DemoHttpError(429, "account-limit", "Too many requests today.");
     await this.requireAccount(player);
-    const assignment = await this.assignJoin(join, randomUUID());
+    const assignment = await this.assignJoin(join, randomUUID(), who);
+    if (assignment === "busy") throw new DemoHttpError(429, "join-pending", "You already have a join waiting for a table. Send it, or try again in a minute.");
+    if (assignment === "own") throw new DemoHttpError(409, "cannot-join", "You cannot join your own Match.");
     if (!assignment) throw new DemoHttpError(409, "no-table", "No table is free to assign right now.");
     try {
       const message = new TransactionMessage({
@@ -535,13 +544,31 @@ export class Sponsor {
       const tx = new VersionedTransaction(message);
       if (tx.serialize().length > 1232) throw new DemoHttpError(400, "too-large", "This transaction is too large.");
       tx.sign([assigner.keypair]);
-      // The Player's page sends this join itself, so the table is held from here (an abandoned build is repaired from the rollup).
-      await assigner.confirm(assignment);
-      return { tx: Buffer.from(tx.serialize()).toString("base64"), expiresAt: now + BUILD_TTL_MS };
+      // The Player's page sends this join itself, so only the short build lease holds the table. The pool claim waits for
+      // `confirmSelfPaid`, which asks base whether the Assignment exists.
+      const meta = JSON.stringify({ match: join.match.toBase58(), game: join.game, assign: { leaseKey: assignment.leaseKey, holder: assignment.holder, lockKey: assignment.lockKey, claim: assignment.claim } });
+      return { tx: Buffer.from(tx.serialize()).toString("base64"), expiresAt: now + BUILD_TTL_MS, meta, mac: mac(this.d.macKey, SELF_CONFIRM, meta) };
     } catch (e) {
       await assigner.release(assignment).catch(() => undefined);
       throw e;
     }
+  }
+
+  /**
+   * The Player sent the join `buildSelfPaid` made: when its Assignment exists on base (only the operator's `assign_match`, in a
+   * landed transaction, creates it) the table is claimed in the pool and the build lease runs on through the start window.
+   * False while the Assignment is not there yet, or when the meta is not ours.
+   */
+  async confirmSelfPaid(metaText: string, given: string): Promise<boolean> {
+    const assigner = this.d.assigner;
+    if (!assigner || !macOk(this.d.macKey, SELF_CONFIRM, metaText, given)) return false;
+    const meta = JSON.parse(metaText) as { match: string; game: GameId; assign: LeaseRef };
+    const program = GAME_IDS[meta.game];
+    const [assignment] = PublicKey.findProgramAddressSync([Buffer.from("assign"), new PublicKey(meta.match).toBuffer()], program);
+    const a = await this.d.chain.account(assignment);
+    if (!a || !a.owner.equals(program)) return false;
+    await assigner.confirm(meta.assign);
+    return true;
   }
 
   /** Signs as fee payer and sends the message we built, once the Player's signature is on it. */
