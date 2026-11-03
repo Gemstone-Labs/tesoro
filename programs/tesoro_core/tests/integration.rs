@@ -4128,10 +4128,7 @@ fn a_pair_counter_returns_its_rent_to_the_joiner_after_the_window() {
                 pair,
                 payer: d.bob.key,
             },
-            instruction::ClosePair {
-                opener: d.alice.account,
-                joiner: d.bob.account,
-            },
+            instruction::ClosePair {},
             vec![],
         );
         d.env.send(&[i], caller, &[])
@@ -4152,10 +4149,7 @@ fn a_pair_counter_returns_its_rent_to_the_joiner_after_the_window() {
             pair,
             payer: a(stranger.pubkey()),
         },
-        instruction::ClosePair {
-            opener: d.alice.account,
-            joiner: d.bob.account,
-        },
+        instruction::ClosePair {},
         vec![],
     );
     assert!(d.env.send(&[wrong], &stranger, &[]).is_err());
@@ -4164,6 +4158,62 @@ fn a_pair_counter_returns_its_rent_to_the_joiner_after_the_window() {
     assert!(d.env.svm.get_account(&s(pair)).is_none());
     let after = d.env.svm.get_balance(&d.bob.kp.pubkey()).expect("balance");
     assert_eq!(after, before + pair_rent, "the rent came back to Bob");
+}
+
+#[test]
+fn a_pair_record_names_both_players_so_a_scan_alone_can_close_it() {
+    let mut d = duel();
+    let m = d.env.open_match(&d.alice, 500).expect("open");
+    d.env.join_match(&d.bob, m).expect("join");
+    let pair = pair_pda(d.alice.account, d.bob.account);
+    // a scanner only sees the record's bytes: read the Players and the payer from them
+    let raw = d.env.svm.get_account(&s(pair)).expect("record").data;
+    assert_eq!(raw.len(), PairState::SPACE);
+    let rec = d.env.load::<PairState>(pair);
+    assert_eq!(rec.opener, d.alice.account);
+    assert_eq!(rec.joiner, d.bob.account);
+    assert_eq!(rec.payer, d.bob.key);
+    let now = d.env.now();
+    d.env.set_time(now + PAIR_WINDOW_SECS);
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    let i = ix(
+        accounts::ClosePair {
+            caller: a(stranger.pubkey()),
+            pair,
+            payer: rec.payer,
+        },
+        instruction::ClosePair {},
+        vec![],
+    );
+    d.env.send(&[i], &stranger, &[]).expect("closed from the record alone");
+    assert!(d.env.svm.get_account(&s(pair)).is_none());
+}
+
+#[test]
+fn an_old_size_pair_record_does_not_block_a_join() {
+    let mut d = duel();
+    // a record from before the upgrade: 51 bytes under the old seed
+    let old = pda(&[b"pair", d.alice.account.as_ref(), d.bob.account.as_ref()]);
+    let mut data = vec![0u8; 51];
+    data[..8].copy_from_slice(PairState::DISCRIMINATOR);
+    d.env
+        .svm
+        .set_account(
+            s(old),
+            solana_sdk::account::Account {
+                lamports: 1_000_000,
+                data,
+                owner: s(tesoro_core::ID),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("old record");
+    let m = d.env.open_match(&d.alice, 500).expect("open");
+    d.env.join_match(&d.bob, m).expect("join is not blocked");
+    let rec = d.env.load::<PairState>(pair_pda(d.alice.account, d.bob.account));
+    assert_eq!(rec.count, 1);
 }
 
 // ---- Code hash: the listing survives ExtendProgram, not a different build ----

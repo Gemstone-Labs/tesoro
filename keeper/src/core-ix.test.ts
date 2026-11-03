@@ -37,7 +37,7 @@ describe("core instruction builders", () => {
     await ix.closeTicketIx(core, { caller, ticket, payer });
     await ix.expireInstantRedeemIx(core, { signer: caller, ownerAccount: owner, order, ownerWallet: wallet });
     await ix.closeReceiptIx(core, { caller, receipt: k(), payer });
-    await ix.closePairIx(core, { caller, opener: owner, joiner: k(), pair: k(), payer });
+    await ix.closePairIx(core, { caller, pair: k(), payer });
     await ix.fillInstantRedeemIx(core, { filler: caller, order, ownerWallet: wallet, position: k(), source: k(), gemas: 5n, remaining: [] });
   });
   it("harvest, fee cash-in, listing and page upkeep builds", async () => {
