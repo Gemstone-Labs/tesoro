@@ -47,6 +47,8 @@ export interface Limits {
   onboardPerDay: number;
   /** The day's count at which the relayer's operators are mailed (once a day). */
   onboardAlertAt: number;
+  /** LayerZero messages the relayer may send in one Account's transactions per day: each costs real SOL, paid back on the EVM side by the Delivery Fee. */
+  bridgeSendsPerDay: number;
   /** Sponsored `link_evm` per Account, ever: its rent is never returned, and set_evm_address lets an Account link any number of addresses. */
   linksPerAccount: number;
 }
@@ -68,6 +70,7 @@ export const DEFAULT_LIMITS: Limits = {
   onboardPerDay: 500,
   onboardAlertAt: 400,
   linksPerAccount: 1,
+  bridgeSendsPerDay: 20,
 };
 
 export interface Clock {

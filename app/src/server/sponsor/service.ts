@@ -33,6 +33,7 @@ import { completionEffects, completionInput, holdSeeds, recoverCompletions, type
 import { releaseClosedHolds, type ClosureReads } from "./closure";
 import { assetOfIndex } from "@/games/trading-duel/chain";
 import { joinOf, type Assigner, type Assignment } from "./assign";
+import { admitSends, type BridgeSendGuard } from "./bridge-sends";
 
 const HOUR = 3_600_000;
 /** How many times a Game step's cost is measured before it is called too expensive (see `checkGameStepSimulation`). */
@@ -82,6 +83,8 @@ export interface SponsorDeps {
   alertOnboarding?(used: number, max: number): Promise<void>;
   /** Assigns a joined Match to a table in the join's own transaction (ticket 07); without it the keeper assigns. */
   assigner?: Assigner;
+  /** What the relayer checks before it pays a LayerZero fee inside a Player's transaction (ticket 15). Without it such a transaction is refused. */
+  bridgeSends?: BridgeSendGuard;
   now(): number;
 }
 
@@ -228,6 +231,8 @@ export function refuseHiddenGames(ixs: Ix[], hidden: ReadonlySet<GameId> = HIDDE
 
 interface Held {
   undo: (() => Promise<void>) | null;
+  /** Gives back the day's bridge-send count when the build fails after it was taken. */
+  undoSends: (() => Promise<void>) | null;
   assignment: Assignment | null;
 }
 
@@ -367,11 +372,12 @@ export class Sponsor {
   /** `sub` is the Privy user id the request came with (null only off production), the key of the one-Account-per-user gate. */
   async build(player: PublicKey, raw: unknown, sub: string | null = null): Promise<Built> {
     // A Game step spends the Match's tries and the day's cap when it is admitted; any failure after that gives them back.
-    const held: Held = { undo: null, assignment: null };
+    const held: Held = { undo: null, undoSends: null, assignment: null };
     try {
       return await this.buildWith(player, raw, sub, held);
     } catch (e) {
       await held.undo?.();
+      await held.undoSends?.();
       if (held.assignment) await this.d.assigner?.release(held.assignment).catch(() => undefined);
       throw e;
     }
@@ -442,6 +448,7 @@ export class Sponsor {
       await this.requireAccount(player);
       await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
+      if (plan.sends?.length) held.undoSends = await admitSends({ plan, player, now, store: this.d.store, limits: this.d.limits, chain: this.d.chain, guard: this.d.bridgeSends });
       const gameStep = plan.kind === "game" && plan.obligations.length > 0;
       if (gameStep) held.undo = await this.admitGameStep(plan, player, now);
       const cost = fee + plan.spend.sunk + plan.spend.refundable;
