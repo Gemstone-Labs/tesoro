@@ -16,6 +16,7 @@ import { scanMatches } from "./matches.ts";
 import { keyOf } from "./kit.ts";
 import { sendIxs } from "./send.ts";
 import { runGame, gameSettings, receiptAges, type GameAdapter, type Init, type GameId, type SetupStep, type TableView, type UpkeepStep } from "./scheduler.ts";
+import { poolPublisherFromEnv } from "./table-pool.ts";
 
 /**
  * The four table Games behind `GameAdapter`. Each adapter only maps its Game's table to the scheduler's view and calls the Game's
@@ -328,11 +329,12 @@ export const ADAPTERS: GameAdapter[] = [duelAdapter, holdemAdapter, burstAdapter
  * when both run in one pass). `--once --dry-run` prints every step it would send.
  */
 export async function tablesJob(ctx: Ctx, adapters: GameAdapter[] = ADAPTERS): Promise<number> {
+  const publishPool = poolPublisherFromEnv();
   const matches = await scanMatches(ctx);
   let actions = 0;
   for (const a of adapters) {
     try {
-      actions += await runGame(ctx, a, gameSettings(a.id as GameId, a.env), matches);
+      actions += await runGame(ctx, a, gameSettings(a.id as GameId, a.env), matches, undefined, { publishPool });
     } catch (e) {
       log("tables", a.label, `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
     }

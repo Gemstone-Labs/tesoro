@@ -120,12 +120,12 @@ export async function joinEntry(a: EntryArgs & { key: string }): Promise<string>
     const r = await sendEntryTx(a.signer, a.getToken, async (payer, sponsored) => {
       if (sponsored) return main;
       return [joinMatchIx({ payer, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio, ref)] })];
-    });
+    }, { assign: true });
     return r.sig;
   }
   const r = await sendEntryTx(a.signer, a.getToken, async (payer) => [
     joinMatchIx({ payer, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio, ref)] }),
-  ]);
+  ], { assign: true });
   return r.sig;
 }
 

@@ -43,7 +43,7 @@ import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
 import { protectionsPda } from "./native";
 import { matchOverflowPda } from "./overflow";
-import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
+import { SponsorError, assignedSend, sponsorStatus, sponsoredSend } from "./sponsor-client";
 
 export { DrawError };
 
@@ -245,7 +245,7 @@ export async function sendEntryTx(
   signer: ChainSigner,
   getToken: GetToken,
   build: (payer: PublicKey, sponsored: boolean) => Promise<TransactionInstruction[]>,
-  opts: { sponsorable?: boolean } = {},
+  opts: { sponsorable?: boolean; assign?: boolean } = {},
 ): Promise<{ sig: string; sponsored: boolean }> {
   const relayer = opts.sponsorable === false ? null : await relayerKey();
   if (relayer && signer.signSerialized) {
@@ -258,7 +258,16 @@ export async function sendEntryTx(
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS).catch((e: DemoError) => {
     if (e.code !== "error") throw e;
   });
-  return { sig: await getChain().sendBase(signer, await build(signer.publicKey, false)), sponsored: false };
+  const own = await build(signer.publicKey, false);
+  // A join the Player pays for still arrives assigned when the server can; otherwise it travels alone and the keeper assigns.
+  if (opts.assign) {
+    try {
+      return { sig: await assignedSend(signer, getToken, own, (signed) => getChain().sendSignedRaw(signed)), sponsored: false };
+    } catch (e) {
+      if (!(e instanceof SponsorError)) throw e;
+    }
+  }
+  return { sig: await getChain().sendBase(signer, own), sponsored: false };
 }
 
 // ---- Match refs ------------------------------------------------------------------------------
