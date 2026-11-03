@@ -1,0 +1,10 @@
+[Unit]
+Description=Tesoro safety sweep (finish Matches a Player left, refund Backer-funded Matches nobody joined)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/tesoro/repo
+EnvironmentFile=%h/.config/tesoro-keeper.env
+ExecStart=/usr/bin/env pnpm --filter @tesoro/keeper exec tsx src/safety-sweep-cli.ts
+TimeoutStartSec=4min
+MemoryMax=1G

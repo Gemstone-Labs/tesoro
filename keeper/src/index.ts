@@ -6,6 +6,7 @@ import { batchesJob } from "./batches.ts";
 import { bridgeJob } from "./bridge.ts";
 import { cashInJob, harvestJob } from "./counters.ts";
 import { historyJob } from "./history.ts";
+import { webhookCatchUpJob } from "./webhook-history.ts";
 import { orderJob } from "./orders.ts";
 import { overflowJob } from "./overflow.ts";
 import { poolJob } from "./pools.ts";
@@ -46,6 +47,7 @@ async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>, between?: () 
     ["match", matchHygiene],
     // After the Match job, so a settle that just started is in the records; before notify, which announces from them.
     ["history", historyJob],
+    ["webhook", webhookCatchUpJob],
     ["tickets", ticketJob],
     ["sponsor", sponsorCompletionJob],
     ["orders", orderJob],

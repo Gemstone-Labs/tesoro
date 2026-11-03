@@ -57,6 +57,9 @@ export const restRpc = (url: string, serviceKey: string, fetchFn: typeof fetch =
   return res.json();
 };
 
+/** True when the Helius webhook writes the history tables (app route /api/webhooks/helius) and this scan only feeds the notify job. */
+export const webhookHistoryOn = (env: NodeJS.ProcessEnv = process.env) => env.KEEPER_WEBHOOK_HISTORY === "1";
+
 /** The history Rpc named by the environment, or null when no database is configured. */
 export function historyRpc(env: NodeJS.ProcessEnv = process.env, fetchFn: typeof fetch = fetch): Rpc | null {
   const url = env.SUPABASE_URL;
@@ -142,7 +145,8 @@ export function realHistoryDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env, 
   return {
     conn: ctx.conn,
     cursor: fileCursor(join(stateDir(env), "history-cursor.json")),
-    sinks: [...(rpc ? [databaseSink(rpc, detail)] : []), notifySink],
+    // With the Helius webhook the route writes the history tables; this scan then only feeds the notify job.
+    sinks: [...(rpc && !webhookHistoryOn(env) ? [databaseSink(rpc, detail)] : []), notifySink],
     perPass: Number(env.KEEPER_HISTORY_PER_PASS ?? 200),
     firstRunPages: Number(env.KEEPER_HISTORY_FIRST_PAGES ?? 3),
     fetchConcurrency: 6,
@@ -156,7 +160,7 @@ export async function historyJob(ctx: Ctx, deps: HistoryDeps = realHistoryDeps(c
     log("history", "-", "DRY-RUN would scan for new Match records");
     return 0;
   }
-  if (deps.sinks.length === 1) log("history", "-", "no database configured (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY): records go to notifications only");
+  if (deps.sinks.length === 1 && !webhookHistoryOn()) log("history", "-", "no database configured (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY): records go to notifications only");
   const r = await scanHistory(deps);
   if (r.handled || r.stoppedAt) log("history", "-", `${r.handled} transaction(s) handled${r.stoppedAt ? `, stopped at ${r.stoppedAt.slice(0, 8)}` : ""}`);
   return r.handled;
