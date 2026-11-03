@@ -45,6 +45,8 @@ export const vaultWord = (positionId: Uint8Array) => {
 export const STORE = pda([Buffer.from("Store")], BRIDGE);
 export const AUTHORITY = pda([Buffer.from("authority")], BRIDGE);
 export const peerPda = (eid: number, positionId: Uint8Array) => pda([Buffer.from("Peer"), STORE.toBuffer(), u32be(eid), vaultWord(positionId)], BRIDGE);
+/** A vault's Delivery Fee terms (`set_delivery_terms`). */
+export const deliveryTermsPda = (eid: number, positionId: Uint8Array) => pda([Buffer.from("delivery"), u32be(eid), vaultWord(positionId)], BRIDGE);
 export const bridgePositionPda = (eid: number, positionId: Uint8Array) => pda([Buffer.from("Position"), u32be(eid), Buffer.from(positionId)], BRIDGE);
 /** The bridge's mirror of the vault's treasury (`set_peer_config` creates it; `apply_yield` raises it). */
 export const vaultTreasuryPda = (eid: number, positionId: Uint8Array) => pda([Buffer.from("treasury"), u32be(eid), vaultWord(positionId)], BRIDGE);

@@ -6,7 +6,8 @@
 //   defaults <eid>                         default send/receive ULN + executor config for the pathway
 //   config <eid>                           the OApp's effective (resolved) config
 //   set-uln <eid> <dvnBase58> <sendConf> <recvConf>
-//   quote <eid> <vault0x> <type 3|4>       fee for one outbound message
+//   quote <eid> <vault0x> <type 10|11|12|13>   fee for one outbound message
+//   delivery <eid> <vault0x> <feeWei> <maxAbsWei> <minRedeemWei> <bpsUnlock> <bpsYield> <minPrizeGemas>   Delivery Fee terms of one vault (admin)
 import { readFileSync } from 'fs'
 import { homedir } from 'os'
 import { createHash } from 'crypto'
@@ -227,6 +228,29 @@ async function setUln(eid: number, dvn: string, sendConf: number, recvConf: numb
     await run('set_uln_config', ixs)
 }
 
+// set_delivery_terms: the flat Delivery Fee (vault base units), its absolute cap, the smallest Redeem, the percentage caps
+// (basis points, at most 1000) and the smallest prize cash-out in Gemas. Account order is the program's: admin, store, peer, terms, system.
+async function delivery(eid: number, vaultHex: string, fee: bigint, maxAbs: bigint, minRedeem: bigint, bpsUnlock: number, bpsYield: number, minPrize: bigint) {
+    const peer = hex32(vaultHex)
+    const terms = PublicKey.findProgramAddressSync([Buffer.from('delivery'), u32be(eid), peer], PROGRAM_ID)[0]
+    const u128le = (n: bigint) => Buffer.from(u128be(n)).reverse()
+    const u16 = (n: number) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b }
+    const u64 = (n: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return b }
+    const ix = new TransactionInstruction({
+        programId: PROGRAM_ID,
+        keys: [
+            { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+            { pubkey: store, isSigner: false, isWritable: false },
+            { pubkey: peerPda(eid, peer), isSigner: false, isWritable: false },
+            { pubkey: terms, isSigner: false, isWritable: true },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: Buffer.concat([disc('set_delivery_terms'), Buffer.from(new Uint32Array([eid]).buffer), peer, u128le(fee), u128le(maxAbs), u128le(minRedeem), u16(bpsUnlock), u16(bpsYield), u64(minPrize)]),
+    })
+    await run('set_delivery_terms', [ix])
+    console.log('delivery terms PDA:', terms.toBase58())
+}
+
 async function quote(eid: number, vaultHex: string, type: number) {
     const peer = hex32(vaultHex)
     const oapp = umiKey(store.toBase58())
@@ -265,6 +289,7 @@ async function main() {
         case 'config': return config(Number(a[0]))
         case 'set-uln': return setUln(Number(a[0]), a[1], Number(a[2]), Number(a[3]))
         case 'quote': return quote(Number(a[0]), a[1], Number(a[2]))
+        case 'delivery': return delivery(Number(a[0]), a[1], BigInt(a[2]), BigInt(a[3]), BigInt(a[4]), Number(a[5]), Number(a[6]), BigInt(a[7]))
         default: throw new Error('unknown command')
     }
 }

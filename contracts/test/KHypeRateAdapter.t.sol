@@ -90,7 +90,7 @@ contract KHypeRateAdapterTest is Test {
         assertApproxEqAbs(vault.accruedYield(id), 0.5 ether, 2, "all 0.5 HYPE is Gemas yield");
         assertEq(vault.treasuryBalance(), 0, "open yield is not spendable");
         assertEq(kh.balanceOf(address(vault)), vault.getPosition(id).heldShares);
-        ep.deliver(address(vault), abi.encode(uint8(3), CHAIN, id, uint64(1)));
+        ep.deliver(address(vault), abi.encode(uint8(10), CHAIN, id, uint64(1), uint256(0)));
         assertEq(vault.treasuryBalance(), 0, "Unlock takes no fee: it is charged when yield is cashed out");
     }
 

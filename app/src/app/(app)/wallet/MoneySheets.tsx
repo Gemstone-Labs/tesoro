@@ -38,6 +38,8 @@ export type RedeemPayout = {
   later: boolean;
   /** The Yield Fee this line's Gemas pay when cashed out, in bps (0 for fee and prize Gemas). Defaults to the launch rate. */
   yieldFeeBps?: number;
+  /** The Delivery Fee the vault keeps for the cross-chain send, in `token` (ETH and HYPE only). `amount` is already net of it. */
+  deliveryFee?: number;
 };
 
 /** What a line's Gemas are worth in dollars after its Yield Fee. */
@@ -209,10 +211,12 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
             const priced = rows.every((r) => r.amount !== null);
             const amount = rows.reduce((s, r) => s + (r.amount ?? 0), 0);
             const later = rows.some((r) => r.later);
+            const deliveryFee = rows.reduce((s, r) => s + (r.deliveryFee ?? 0), 0);
             return (
               <div key={asset} className="mx-asset">
                 <ChainGlyph asset={GLYPH[asset]} size={28} />
                 <span className="mx-amt">{priced && <b className="tnum">{fmtPayout(amount, asset)}</b>} {rows[0].token}</span>
+                {deliveryFee > 0 && <span className="mx-when">Delivery Fee {fmtPayout(deliveryFee, asset)} {rows[0].token}, already taken off</span>}
                 <span className="mx-when">
                   {later ? <><ClockIcon /> paid as sim{asset} on {CHAIN_NAME[asset]}, in a few minutes</> : <>to your wallet, now</>}
                 </span>

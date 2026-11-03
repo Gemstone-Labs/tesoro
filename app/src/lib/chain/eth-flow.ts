@@ -403,7 +403,7 @@ export async function takeEthAdvance(ctx: Pick<EthCtx, "signer" | "getToken">, v
 /** `redeem_to_evm`: redeems Gemas of one line of an ETH or HYPE Source and records the payout owed on its EVM chain. Then `send_pay_yield` delivers it. */
 export async function redeemToEvm(signer: ChainSigner, h: Pick<ChainHolding, "line" | "accounts" | "source" | "position">, gemas: bigint, vault: string) {
   const { accounts, create } = await sourceAccounts(getChain().base, h.source, h.accounts, signer.publicKey);
-  return getChain().sendBase(signer, [...create, redeemToEvmIx(signer.publicKey, h.position, h.source, gemas, netOfVault(vault), { line: h.line, accounts })]);
+  return getChain().sendBase(signer, [...create, redeemToEvmIx(signer.publicKey, h.position, h.source, gemas, vault, { line: h.line, accounts })]);
 }
 
 /** Debt must be zero on chain. Then `send_unlock` releases the Principal on the vault's chain. The Position's open Advance is closed here. */

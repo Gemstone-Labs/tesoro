@@ -26,11 +26,11 @@ impl QuoteSend<'_> {
     pub fn apply(ctx: &Context<QuoteSend>, params: &QuoteSendParams) -> Result<MessagingFee> {
         // Each outbound type has a fixed length, so a placeholder of the right type prices it.
         let message = match params.msg_type {
-            MSG_UNLOCK => encode_unlock(params.dst_eid, [0u8; 32], 1),
+            MSG_UNLOCK => encode_unlock(params.dst_eid, [0u8; 32], 1, 0),
             MSG_PAY_YIELD => {
                 encode_pay_yield(params.dst_eid, [0u8; 32], 1, [0u8; 32], YieldPayment::default())
             },
-            MSG_PAY_INSTANT => encode_pay_instant(params.dst_eid, [0u8; 32], 1, [0u8; 32], 0),
+            MSG_PAY_INSTANT => encode_pay_instant(params.dst_eid, [0u8; 32], 1, [0u8; 32], 0, 0),
             // A full batch prices the largest one.
             MSG_CASH_IN_BATCH => {
                 let entries: Vec<BatchEntryWire> = (0..MAX_BATCH_ENTRIES)
@@ -52,6 +52,7 @@ impl QuoteSend<'_> {
                 [0u8; 32],
                 [0u8; 32],
                 [0u8; 32],
+                0,
                 0,
             ),
             _ => return err!(BridgeError::InvalidMessageType),
@@ -75,7 +76,7 @@ impl QuoteSend<'_> {
 pub struct QuoteSendParams {
     pub dst_eid: u32,
     pub peer_address: [u8; 32],
-    /// 3 = Unlock, 4 = PayYield, 5 = PayInstant, 6 = CashInBatch (priced at its largest), 7 = PayPrize.
+    /// 10 = UnlockV2, 11 = PayYieldV2, 12 = PayInstantV2, 6 = CashInBatch (priced at its largest), 13 = PayPrizeV2.
     pub msg_type: u8,
     pub options: Vec<u8>,
     pub pay_in_lz_token: bool,

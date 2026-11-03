@@ -34,6 +34,7 @@ import {
   HYPEREVM_RPC,
   NETS,
   bridgePeerPda,
+  deliveryTermsPda,
   bridgePositionPda,
   bridgeStore,
   claimPda,
@@ -389,7 +390,7 @@ async function sendUnlock(vault: string, pid: Buffer) {
   if (view.unlockSent) return { skipped: true };
   if (core.data[8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2] !== 1) throw new DemoHttpError(409, "not-unlocked", "Unlock the Lock on Solana first.");
   const acc = await sendAccounts(vault);
-  const fee = await quoteFee(vault, 3, acc.quote);
+  const fee = await quoteFee(vault, 10, acc.quote);
   const relayer = relayerKey();
   const { endpointSettings } = endpointPdas();
   const ix = new TransactionInstruction({
@@ -400,6 +401,7 @@ async function sendUnlock(vault: string, pid: Buffer) {
       key(bridgeStore()),
       key(bridgePositionPda(pid), false, true),
       key(cp),
+      key(deliveryTermsPda(vault)),
       key(endpointSettings),
       key(SystemProgram.programId),
       ...acc.send,
@@ -431,7 +433,7 @@ async function sendPay(kind: "yield" | "instant", vault: string, pid: Buffer, ho
   if (claim.data.readBigUInt64LE(112) <= claim.data.readBigUInt64LE(120)) return { skipped: true };
   const evm = `0x${Buffer.from(account.data.subarray(41, 61)).toString("hex")}`;
   const acc = await sendAccounts(vault);
-  const fee = await quoteFee(vault, kind === "yield" ? 4 : 5, acc.quote);
+  const fee = await quoteFee(vault, kind === "yield" ? 11 : 12, acc.quote);
   const relayer = relayerKey();
   const { endpointSettings } = endpointPdas();
   const ix = new TransactionInstruction({

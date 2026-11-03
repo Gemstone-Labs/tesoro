@@ -25,7 +25,7 @@ Wire format (identical in Solidity and Rust, `abi.encodePacked`, big-endian): he
 
 The inbox is deliberate: `lz_receive` only records the fact (no CPI), because its account list is derived from the message alone and cannot include the Account, the open Source or rent-funded accounts. Applying is a second, permissionless transaction the app or keeper sends right after delivery (poll LayerZero Scan, then call `apply_locked` / `apply_yield`).
 
-Replays and reordering: `Endpoint::clear` burns the nonce; `PositionLocked` applies once (`locked_seq`), `YieldAccrued` keeps the highest seq (`last_yield_seq`), `tesoro_core` is idempotent by seq. On the vault, seq must strictly increase, so an `Unlock` (seq n) delivered after a later `PayYield` (seq n+1) would be ignored; send them minutes apart, never both in one block.
+Replays and reordering: `Endpoint::clear` burns the nonce; `PositionLocked` applies once (`locked_seq`), `YieldAccrued` keeps the highest seq (`last_yield_seq`), `tesoro_core` is idempotent by seq. On the vault every seq is handled once and independently (`_handled[id][seq]`): an `Unlock` (seq n) that arrives after a later `PayYield` (seq n+1) is still executed, and a repeat of any message is ignored. Delivery is unordered, so a message that reverts (a `PayInstant` the Treasury cannot cover yet) blocks only itself and is retried.
 
 ## `tesoro_core` changes (additive)
 
@@ -123,7 +123,7 @@ The app opens HYPE Positions from the Wallet's HYPE tab and tracks them like ETH
 - `send_pay_instant(SendParams)`: like `send_pay_yield` but reads the `InstantClaim`, sends `PayInstant(to = holder's EVM address, amount = units not yet sent)` and advances the claim in the same transaction.
 - `redeem_treasury_to_evm(gemas)` (permissionless): the Treasury Account redeems its Gemas of an EVM Source (`redeem_treasury_from_source`) and records a normal `Claim`.
 - `send_pay_yield`: `evm_link` is now optional. When the claim's holder is the Treasury Account the `PayYield` goes to the vault's own address, which books it into its treasury.
-- `quote_send` accepts message type 5.
+- `quote_send` accepts message types 10 (UnlockV2), 11 (PayYieldV2), 12 (PayInstantV2), 6 (CashInBatch, priced at its largest) and 13 (PayPrizeV2).
 
 **Loop.** Yield Fee accrues in the vault, `reportYield` tells Solana (`treasuryBalance`, `instantPaid`), a holder Instant Redeems on Solana (capped by `available()`), `PayInstant` pays them from the vault. When the Source's yield lands, `redeem_treasury_to_evm` + `send_pay_yield` refill the vault treasury at full value.
 
@@ -298,3 +298,15 @@ Recheck this section against the code when they merge.
 - **`PayPrize` message.** Bound to chain, vault, asset, prize Source, recipient, share quantity and a unique payout id. It debits only the escrow and works with an empty Treasury. Outstanding payouts stay reserved until executed. Only prize Redeem can move tokens out of an escrow.
 - **Redeem cost.** The app shows the gas and bridge cost of a small ETH or HYPE Redeem before the Player confirms, and "Redeem small leftovers" tidies tiny lines.
 - **Deploy.** Each EVM Treasury is funded at launch (runbook), because open Locks' fees are not spendable until they Unlock.
+
+## Delivery Fee (keeper diet, ticket 14, not deployed)
+
+The Player pays the cross-chain send of their own Unlock or Redeem. Tesoro's sponsor relayer is the LayerZero payer in SOL, inside the Player's transaction. The message carries a flat **Delivery Fee** in the vault's asset; the vault keeps it for Tesoro's fee recipient and releases the rest. Ana redeeming 0.01 ETH of yield with a 0.00001 ETH Delivery Fee gets 0.00999 ETH, and never needs SOL.
+
+- **Messages (V2 only).** `UnlockV2` (10) `header | delivery_fee u128` (61 B), `PayYieldV2` (11) `... | pool u128 | delivery_fee u128` (141 B), `PayInstantV2` (12) `... | amount u128 | delivery_fee u128` (109 B), `PayPrizeV2` (13) `... | shares u128 | delivery_fee u128` (173 B). The field is `delivery_fee`; `fee` in `PayYieldV2` stays the Yield Fee. Old vaults accept none of these and the new vaults accept only these, so the old devnet vaults and their Positions are retired (devnet is disposable; no mainnet vault exists).
+- **Terms on Solana.** `DeliveryTerms`, PDA `["delivery", eid u32 BE, vault bytes32]`, set by the admin with `set_delivery_terms`: flat `delivery_fee`, `max_abs`, `min_redeem`, `max_bps_unlock` (Unlock and Instant Redeem), `max_bps_yield`, `min_prize_gemas`. The program fixes a ceiling of 10% of a payout (`DELIVERY_CEILING_BPS`) that no setting raises, and `set_delivery_terms` refuses a flat fee that the smallest allowed Redeem could not carry under both percentage caps.
+- **Fixed at redeem time.** `redeem_to_evm`, `instant_redeem_to_evm` and `redeem_prize_to_evm` take the terms, refuse a Redeem whose Player share is under `min_redeem` (`min_prize_gemas` for prizes), and write the fee into `Claim.delivery_fee`, `InstantClaim.delivery_fee` or `PayoutRecord.delivery_fee`. The next send carries that snapshot and clears it, so an admin change reaches new Redeems only and one message pays one fee. `send_unlock` reads the terms in the same transaction as the Unlock (the fee for the Position's principal). The Treasury's own refill (`redeem_treasury_to_evm`) pays no fee.
+- **On the vault.** `setDelivery(recipient, maxFee)` (admin) sets the fee recipient and the vault's own cap in underlying units; unset, the vault takes nothing. The vault keeps `min(message fee, maxDeliveryFee, 10% of the payout)`, pays it in shares at the current rate, and never reverts on it: a recipient that cannot receive means the Player is paid the fee too. `DeliveryFeePaid` records it.
+- **Sponsor rules (ticket 15).** The sponsor signs a send only when its message carries a nonzero Delivery Fee, with a per-wallet rate limit. Otherwise a Player could route through paths with fee 0 and make Tesoro pay LayerZero for nothing.
+- **Price drift.** The fee is charged in ETH or HYPE and the LayerZero fee is paid in SOL, and no price is read. Review the fee against measured LayerZero fees (0.000285 SOL to Hoodi, 0.000349 SOL to HyperEVM testnet) weekly at first. An alert should fire when SOL spent on sends exceeds the Delivery Fees collected (ticket 20 owns the alerts).
+

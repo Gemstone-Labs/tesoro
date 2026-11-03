@@ -87,9 +87,7 @@ contract RealLstHandler is Test {
         uint256 t = vault.treasuryBalance();
         uint256 amount = overshoot ? t + bound(pct, 1, 1 ether) : t * bound(pct, 0, 100) / 100;
         _deliver(
-            abi.encode(
-                uint8(5), CHAIN, id, ++nextSeq[id], bytes32(uint256(uint160(redeemer))), amount, uint256(0), uint256(0)
-            )
+            abi.encode(uint8(12), CHAIN, id, ++nextSeq[id], bytes32(uint256(uint160(redeemer))), amount, uint256(0))
         );
     }
 
@@ -100,8 +98,11 @@ contract RealLstHandler is Test {
         address to = toVault ? address(vault) : redeemer;
         uint256 fee = amount * bound(feePct, 0, 100) / 100;
         uint256 pool = (toVault ? amount : fee) * bound(poolPct, 0, 100) / 100;
-        bool ok =
-            _deliver(abi.encode(uint8(4), CHAIN, id, ++nextSeq[id], bytes32(uint256(uint160(to))), amount, fee, pool));
+        bool ok = _deliver(
+            abi.encode(
+                uint8(11), CHAIN, id, ++nextSeq[id], bytes32(uint256(uint160(to))), amount, fee, pool, uint256(0)
+            )
+        );
         // a refill to the vault moves the Position's shares out just like a payout to a player
         if (ok && amount > 0 && !vault.getPosition(id).unlocked) paidOut[id] = true;
     }
@@ -115,7 +116,7 @@ contract RealLstHandler is Test {
         uint256 needed = (p.principalUnderlying * 1e18 + rate - 1) / rate;
         if (needed > p.principalShares) needed = p.principalShares;
         uint256 before = tok.balanceOf(user);
-        bool ok = _deliver(abi.encode(uint8(3), CHAIN, id, ++nextSeq[id]));
+        bool ok = _deliver(abi.encode(uint8(10), CHAIN, id, ++nextSeq[id], uint256(0)));
         // I2: an Unlock returns the Principal in full unless a player was paid yield the rate has since erased.
         if (ok && !paidOut[id] && tok.balanceOf(user) - before < needed) unlockShort = true;
     }
@@ -127,7 +128,8 @@ contract RealLstHandler is Test {
         uint64 batchId = resend && nextBatch > 0 ? uint64(bound(seed, 1, nextBatch)) : ++nextBatch;
         if (resend && batchId != nextBatch) {
             // re-deliver the stored content exactly
-            (bool exists, uint8 bkind, bytes32 recipient, PositionVaultBase.BatchEntry[] memory es) = vault.batchOf(batchId);
+            (bool exists, uint8 bkind, bytes32 recipient, PositionVaultBase.BatchEntry[] memory es) =
+                vault.batchOf(batchId);
             if (!exists) return;
             uint64[] memory bi = new uint64[](es.length);
             uint128[] memory bu = new uint128[](es.length);
@@ -172,14 +174,15 @@ contract RealLstHandler is Test {
         uint256 before = vault.escrowShares();
         _deliver(
             abi.encode(
-                uint8(7),
+                uint8(13),
                 CHAIN,
                 ++nextPayout,
                 uint64(0),
                 bytes32(uint256(uint160(address(tok)))),
                 bytes32(uint256(1)),
                 bytes32(uint256(uint160(redeemer))),
-                shares
+                shares,
+                uint256(0)
             )
         );
         prizeSharesPaid += before - vault.escrowShares();
@@ -202,14 +205,15 @@ contract RealLstHandler is Test {
             if (t > 0) vault.withdrawTreasury(t, address(0xC0FFEE));
             ok = _deliver(
                 abi.encode(
-                    uint8(7),
+                    uint8(13),
                     CHAIN,
                     uint64(type(uint64).max),
                     uint64(0),
                     bytes32(uint256(uint160(address(tok)))),
                     bytes32(uint256(1)),
                     bytes32(uint256(uint160(address(0xB0B)))),
-                    esc
+                    esc,
+                    uint256(0)
                 )
             );
             ok = ok && tok.balanceOf(address(0xB0B)) == esc && vault.escrowShares() == 0;
@@ -247,12 +251,13 @@ contract RealLstHandler is Test {
             ok = ok
                 && _deliver(
                     abi.encode(
-                        uint8(4),
+                        uint8(11),
                         CHAIN,
                         id,
                         ++nextSeq[id],
                         bytes32(uint256(uint160(redeemer))),
                         amount,
+                        uint256(0),
                         uint256(0),
                         uint256(0)
                     )

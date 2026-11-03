@@ -21,6 +21,9 @@ pub struct Claim {
     pub fee_sent: u64,
     pub pool_total: u64,
     pub pool_sent: u64,
+    /// The Delivery Fee (vault units) snapshotted when the pending units were redeemed; the next
+    /// `send_pay_yield` carries it and clears it.
+    pub delivery_fee: u128,
 }
 
 /// A holder's Instant Redeems of Gemas of one bridged Source, recorded by `instant_redeem_to_evm`.
@@ -37,4 +40,6 @@ pub struct InstantClaim {
     pub units_total: u64,
     pub units_sent: u64,
     pub bump: u8,
+    /// As `Claim.delivery_fee`, for the next `send_pay_instant`.
+    pub delivery_fee: u128,
 }
