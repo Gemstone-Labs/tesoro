@@ -693,3 +693,34 @@ describe("repairPool: the rollup read that corrects the server's pool", () => {
     assert.deepEqual(published, []);
   });
 });
+
+describe("the admin scripts' two slices of a pass (deps.only)", () => {
+  beforeEach(() => raisedConditions().forEach((c) => clearRaised(c.key)));
+  const world = () => {
+    const f = new Fake();
+    for (let i = 1; i < 8; i++) f.tables.set(i, { base: "missing", view: null });
+    withTable(f, 0, { coarse: "over", overAt: NOW - 1000, dirty: true, seatsOpen: true });
+    f.sponsorBalance = 1000;
+    return f;
+  };
+  const run = (f: Fake, only: "setup" | "refill", set: GameSettings, over: { dryRun?: boolean } = {}) =>
+    runGame(ctxOf(f, over), f.adapter(), set, [], newGameState(), { gate: gateOk, settings: { ...SCHED, createPerPass: 8 }, only });
+
+  it("setup makes the tables up to the minimum, in one pass, and touches no running table and no Sponsor balance", async () => {
+    const f = world();
+    await run(f, "setup", { ...SET, min: 3, spare: 0 });
+    assert.deepEqual(f.calls, ["setup create_table 1 1", "setup create_table 2 1"]);
+  });
+
+  it("refill tops the Sponsor up and makes and resets nothing", async () => {
+    const f = world();
+    await run(f, "refill", { ...SET, min: 3, spare: 0 });
+    assert.deepEqual(f.calls, ["refill"]);
+  });
+
+  it("a dry run of setup sends nothing", async () => {
+    const f = world();
+    await run(f, "setup", { ...SET, min: 3, spare: 0 }, { dryRun: true });
+    assert.deepEqual(f.calls, []);
+  });
+});
