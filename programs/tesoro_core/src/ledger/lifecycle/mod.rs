@@ -44,15 +44,12 @@ use anchor_lang::prelude::{borsh, AnchorDeserialize, AnchorSerialize};
 
 use super::book::BookError;
 use super::draw::{DrawError, Placed, PotBacking, PotPages, SourceBooks};
-use super::line_store::{Line, LineStoreError, SIDE_OWN};
-use super::{
-    is_ladder_entry, mul_div_floor, to_u64, Key, BPS, MATCH_TIMEOUT_SECS, MAX_TOTAL_FEE_BPS,
-};
+use super::line_store::{Line, LineStoreError};
+use super::{is_ladder_entry, Key, BPS, MATCH_TIMEOUT_SECS, MAX_TOTAL_FEE_BPS};
 
 pub mod blocks;
 use blocks::{
-    back_step, cut_step, emptied, fee_of, placement, player_share, pot_of, surplus_step, win_fees,
-    win_surplus, Credit,
+    back_step, cut_step, fee_of, player_share, pot_of, surplus_step, win_fees, win_surplus, Credit,
 };
 
 /// A Match can never be settled later than this after it opened, and no extension moves it.

@@ -2,7 +2,9 @@ use super::*;
 use crate::ledger::book::{fp, SourceBook};
 use crate::ledger::draw::{grow_spill_body, spill_body, DrawResult, MemBooks, Pool};
 use crate::ledger::line_store::{required_len, LineStore, CLASS_EXTENSION_BASE, CLASS_GENERAL};
-use crate::ledger::line_store::{CLASS_LEADERBOARD, CLASS_PLATFORM};
+use crate::ledger::line_store::{
+    CLASS_LEADERBOARD, CLASS_PLATFORM, CLASS_STUDIO, SIDE_OWN, SIDE_WON,
+};
 
 fn key(n: u8) -> Key {
     [n; 32]
