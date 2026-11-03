@@ -18,7 +18,6 @@ pub(crate) struct Credit {
     pub(crate) placement: u8,
 }
 
-#[inline(always)]
 pub(crate) fn placement(p: Placed) -> u8 {
     match p {
         Placed::Basket => 0,
@@ -63,7 +62,7 @@ pub fn player_share(surplus: u64, share_bps: u16) -> LcResult<u64> {
 }
 
 /// Return the whole Pot line at `at` (`orig`, as just read) to `owner` (an entry back), keeping
-/// its side.
+/// its side. The caller reports the credit.
 #[inline(always)]
 pub(crate) fn back_step<B: PotBacking>(
     p: &mut PotPages<B>,
@@ -71,24 +70,18 @@ pub(crate) fn back_step<B: PotBacking>(
     orig: &Line,
     w: &mut dyn Settlement,
     owner: &Key,
-) -> LcResult<Credit> {
+) -> LcResult<Placed> {
     let placed = w.credit(owner, orig)?;
     p.set(at, &emptied(orig))?;
-    Ok(Credit {
-        line: *orig,
-        owner: Some(*owner),
-        placement: placement(placed),
-    })
+    Ok(placed)
 }
 
-#[inline(always)]
 pub(crate) fn pot_of<B: PotBacking>(pots: &mut Pots<B>, side: u8) -> LcResult<&mut PotPages<B>> {
     pots[(side & 1) as usize]
         .as_mut()
         .ok_or(LifecycleError::Inconsistent("pot not supplied"))
 }
 
-#[inline(always)]
 pub(crate) fn emptied(l: &Line) -> Line {
     let mut z = *l;
     z.amount = 0;
