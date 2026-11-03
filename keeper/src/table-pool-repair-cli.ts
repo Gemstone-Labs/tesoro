@@ -1,5 +1,6 @@
 import { Connection } from "@solana/web3.js";
 import { Budget, log, type Ctx } from "./act.ts";
+import { KEEPER_CLI_FLAGS, exitOnUnknownFlag } from "./cli-args.ts";
 import { loadPayer, settings } from "./env.ts";
 import { scanMatches } from "./matches.ts";
 import { buildRuntime, clusterNow, newConnection, solanaFetch } from "./runtime.ts";
@@ -12,7 +13,10 @@ import { poolPublisherFromEnv } from "./table-pool.ts";
  * then exits. Started by a systemd timer; the server keeps the pool between runs, so this only corrects drift.
  * `--dry-run` prints what it would publish and writes nothing.
  */
+const USAGE = "Usage: table-pool-repair-cli [--dry-run] [--rpc <url>] [--gpa-rpc <url>]\n  --dry-run  print what would be published, write nothing";
+
 async function main() {
+  exitOnUnknownFlag(process.argv.slice(2), KEEPER_CLI_FLAGS, USAGE);
   const s = settings();
   const publish = poolPublisherFromEnv();
   if (!publish && !s.dryRun) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are not set: there is no pool to repair.");
