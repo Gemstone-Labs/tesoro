@@ -62,21 +62,6 @@ pub fn player_share(surplus: u64, share_bps: u16) -> LcResult<u64> {
     .map_err(|_| LifecycleError::Math)
 }
 
-/// Return the whole Pot line at `at` (`orig`, as just read) to `owner` (an entry back), keeping
-/// its side. The caller reports the credit.
-#[inline(always)]
-pub(crate) fn back_step<B: PotBacking>(
-    p: &mut PotPages<B>,
-    at: usize,
-    orig: &Line,
-    w: &mut dyn Settlement,
-    owner: &Key,
-) -> LcResult<Placed> {
-    let placed = w.credit(owner, orig)?;
-    p.set(at, &emptied(orig))?;
-    Ok(placed)
-}
-
 #[inline(always)]
 pub(crate) fn pot_of<B: PotBacking>(pots: &mut Pots<B>, side: u8) -> LcResult<&mut PotPages<B>> {
     pots[(side & 1) as usize]

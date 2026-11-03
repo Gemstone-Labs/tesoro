@@ -49,7 +49,7 @@ use super::{is_ladder_entry, Key, BPS, MATCH_TIMEOUT_SECS, MAX_TOTAL_FEE_BPS};
 
 pub mod blocks;
 use blocks::{
-    back_step, cut_step, fee_of, placement, player_share, pot_of, surplus_step, win_fees,
+    cut_step, emptied, fee_of, placement, player_share, pot_of, surplus_step, win_fees,
     win_surplus, Credit,
 };
 
@@ -1005,7 +1005,8 @@ impl MatchRecord {
                             let owner = party
                                 .ok_or(LifecycleError::Inconsistent("no party"))?
                                 .funder;
-                            let placed = back_step(p, at, &orig, w, &owner)?;
+                            let placed = w.credit(&owner, &orig)?;
+                            p.set(at, &emptied(&orig))?;
                             (
                                 3,
                                 Credit {
