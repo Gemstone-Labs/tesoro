@@ -57,6 +57,7 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
     balance: async () => balance,
     rent: async (bytes) => BigInt(bytes + 128) * 6960n,
     account: async (k) => accounts.get(k.toBase58()) ?? null,
+    accountsTogether: async (keys) => keys.map((k) => accounts.get(k.toBase58()) ?? null),
     latestBlockhash: async () => "11111111111111111111111111111111",
     // The relayer pays the fee (5,000 + priority) and the receipt's rent: what a Game step is meant to cost.
     simulate: async (tx) => {
@@ -264,6 +265,26 @@ describe("an admission", () => {
     const built = await s2.sponsor.build(s2.player.publicKey, wire([close]));
     await s2.sponsor.submit(playerSigns(built, s2.player), built.meta, built.mac);
     expect(await s2.deps.store.held()).toBe(0n);
+  });
+});
+
+describe("the float of a closed Match", () => {
+  it("is freed at the next admission, whoever closed the Match", async () => {
+    const s = setup();
+    const open = await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
+    const b1 = await s.sponsor.build(s.player.publicKey, wire([open]));
+    await s.sponsor.submit(playerSigns(b1, s.player), b1.meta, b1.mac);
+    expect(await s.deps.store.held()).toBe(DEFAULT_LIMITS.completionReserve);
+    // room for one more admission only if the hold goes
+    s.setBalance(DEFAULT_LIMITS.floor + BigInt(JSON.parse(b1.meta).fronted) + DEFAULT_LIMITS.completionReserve + 100_000n);
+    const again = await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
+    await expect(s.sponsor.build(s.player.publicKey, wire([again]))).rejects.toMatchObject({ code: "sponsor-paused" });
+    // the Match was closed by its Player, not by us: it is gone and the Account's counter is past number 1
+    const counters = Buffer.alloc(33);
+    counters.writeBigUInt64LE(2n, 9);
+    s.accounts.set(PublicKey.findProgramAddressSync([Buffer.from("counters"), accountPda(s.player.publicKey).toBuffer()], CORE_ID)[0].toBase58(), { owner: CORE_ID, data: counters });
+    await expect(s.sponsor.build(s.player.publicKey, wire([again]))).resolves.toMatchObject({ class: "admission" });
+    expect(await s.deps.store.held()).toBe(0n);
   });
 });
 

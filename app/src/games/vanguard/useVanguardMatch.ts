@@ -4,6 +4,8 @@ import { atAssignedEpoch } from "@/lib/chain/table-epoch";
 
 import { useAuth } from "@/lib/auth/context";
 import { finalizeFree } from "@/lib/chain/game-finalize";
+import { finalizeAndFinishFree, finishMatchFree } from "@/lib/chain/finish-match-client";
+import { createFinisher } from "@/lib/chain/finish-match";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getVanguard } from "@/lib/chain/client";
@@ -150,6 +152,8 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
     turnSeenRef.current = view.turnSeenAt;
   }, [view.turnSeenAt]);
   const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
+  // Chunks and close_match for a Match whose result is committed; any Player's page may send them, the safety sweep covers the rest.
+  const finisher = useRef<{ key: string; run: () => Promise<unknown> } | null>(null);
   const p = useMemo(() => (signer ? (signer as unknown as PlayerSigner) : null), [signer]);
 
   // Every stage goes through the tracker: a late or missing read never moves the screen back.
@@ -196,7 +200,7 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
    */
   const settle = useCallback(
     async (a: Assignment, seat: 0 | 1, b: Battle | null) => {
-      if (!p || !signer || id === null) return;
+      if (!p || !signer || id === null || mk === null) return;
       const vg = getVanguard();
       if (!closingSince.current) closingSince.current = now();
       const refund = !b || b.status === STATUS.cancelled || b.winner !== 0 && b.winner !== 1;
@@ -206,7 +210,7 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
       if (!base || !canFinalizeTable(base, a, Date.now() / 1000)) return;
       setView((v) => (v.commit ? { ...v, commit: null } : v));
       try {
-        await finalizeFree(vg, signer, () => tokenRef.current(), a);
+        await finalizeAndFinishFree(signer, () => tokenRef.current(), mk, () => finalizeFree(vg, signer, () => tokenRef.current(), a));
       } catch (e) {
         // The other Player may have settled it in the same moment.
         const again = await fetchMatch(id, BlockPuzzleChain.coreAccount(signer.publicKey));
@@ -214,7 +218,7 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
         if (++failures.current >= 3) throw e;
       }
     },
-    [p, signer, id],
+    [p, signer, id, mk],
   );
 
   const step = useCallback(async () => {
@@ -229,6 +233,10 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
     seatRef.current = seat;
     setView((v) => (v.seat === seat ? v : { ...v, seat }));
     if (m.status === "open") return setStage("waiting");
+    if (m.running || m.status === "settled" || m.status === "refunded") {
+      if (finisher.current?.key !== mk.toBase58()) finisher.current = { key: mk.toBase58(), run: createFinisher(() => finishMatchFree(signer, () => tokenRef.current(), mk)) };
+      void finisher.current.run();
+    }
     if (m.status === "settled" || m.status === "refunded") {
       setStage("settled");
       if (!finalRead.current) {

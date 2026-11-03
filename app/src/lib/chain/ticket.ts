@@ -13,7 +13,7 @@ import { PublicKey, SystemProgram, type AccountMeta, type Connection, type Trans
 import { BN } from "@coral-xyz/anchor";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import type { GameId } from "@/lib/mock/types";
-import { FLAG_BACKING_OPEN, FLAG_TICKET_OPEN, MAX_GROW_LINES, basketPda, decodeStore, playableTotal, sponsorPda, spillPda, ticketPda, type Line, type Store } from "./basket";
+import { FLAG_BACKING_OPEN, FLAG_TICKET_OPEN, MAX_GROW_LINES, basketPda, countersPda, decodeStore, playableTotal, sponsorPda, spillPda, ticketPda, type Line, type Store } from "./basket";
 import { coreIx as rawCoreIx, metaOf, type AccountsByName } from "./core-ix";
 import type { GetToken } from "./demo-client";
 import { booksFor, drawRemaining, MAX_INITIAL_TICKET_LINES, readEntryStores, relayerKey, sendEntryTx, STAGE_OPS, type EntryStores } from "./entry";
@@ -185,6 +185,7 @@ export function openTicketIx(a: OpenTicketArgs): TransactionInstruction {
       ticket: ticketPda(a.owner, a.nonce),
       offer: a.offer,
       sponsor: a.sponsored ? sponsorPda() : undefined,
+      counters: countersPda(a.owner),
       systemProgram: SystemProgram.programId,
     },
     { nonce: new BN(a.nonce.toString()), kind: a.kind === "backing" ? { Backing: {} } : { Entry: {} }, game: GAME_IDS[a.game], target: new BN(a.target.toString()), lines: Math.min(a.lines, MAX_INITIAL_TICKET_LINES) },

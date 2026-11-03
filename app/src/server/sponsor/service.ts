@@ -29,7 +29,8 @@ import { CORE_ID, PRIORITY_MICROLAMPORTS, RECEIPT_RENT, SETTLEMENT_RECEIPT_BYTES
 import { EXIT_ATA_WINDOW_MS, verifyExitSetup } from "./exit-setup";
 import type { UsageStore } from "./store";
 import { ChainTransactionFailed } from "./chain-send";
-import { completionEffects, completionInput, recoverCompletions, type CompletionChain } from "./completion";
+import { completionEffects, completionInput, holdSeeds, recoverCompletions, type CompletionChain, type HoldSeed } from "./completion";
+import { releaseClosedHolds, type ClosureReads } from "./closure";
 
 const HOUR = 3_600_000;
 /** How many times a Game step's cost is measured before it is called too expensive (see `checkGameStepSimulation`). */
@@ -38,7 +39,7 @@ const DAY = 24 * HOUR;
 /** A built message is good for this long (the blockhash lives about 90 s). */
 export const BUILD_TTL_MS = 75_000;
 
-export interface ChainReads extends CompletionChain {
+export interface ChainReads extends CompletionChain, Partial<ClosureReads> {
   balance(key: PublicKey): Promise<bigint>;
   account(key: PublicKey): Promise<{ owner: PublicKey; data: Uint8Array } | null>;
   rent?(bytes: number): Promise<bigint>;
@@ -90,6 +91,15 @@ function partiesOf(data: Uint8Array): PublicKey[] {
     return [];
   }
 }
+/** The opener and number of a Match, from its data (null when it is not a MatchState). */
+function matchSeedOf(data: Uint8Array): HoldSeed | null {
+  try {
+    const m = matchCoder.decode("MatchState", Buffer.from(data)) as { inner: { id: { opener: number[]; n: { toString(): string } } } };
+    return { kind: "match", account: new PublicKey(m.inner.id.opener).toBase58(), n: m.inner.id.n.toString() };
+  } catch {
+    return null;
+  }
+}
 const isPlayerKey = (k: PublicKey, player: PublicKey) => k.equals(player) || k.equals(accountPda(player));
 export const accountPda = (authority: PublicKey) => pda([Buffer.from("account"), authority.toBuffer()]);
 export const basketPda = (account: PublicKey) => pda([Buffer.from("basket"), account.toBuffer()]);
@@ -134,6 +144,8 @@ export interface Built {
 
 interface Meta {
   completion: ReturnType<typeof completionEffects>;
+  /** Where the created and ensured addresses come from, so a close can be proved without the keeper. */
+  seeds?: Record<string, HoldSeed>;
   player: string;
   exp: number;
   reserve: string;
@@ -198,7 +210,7 @@ export class Sponsor {
 
   async status() {
     const balance = await this.d.chain.balance(this.relayer);
-    return { relayer: this.relayer.toBase58(), paused: await this.d.paused(), low: balance < this.d.lowBalance };
+    return { relayer: this.relayer.toBase58(), paused: await this.d.paused(), low: balance < this.d.lowBalance, tables: (await this.d.lookupTables()).map((t) => t.key.toBase58()) };
   }
 
   private async balance(): Promise<Balance> {
@@ -240,6 +252,19 @@ export class Sponsor {
   private async receiptRent(): Promise<bigint> {
     if (this.receiptRentCache === null) this.receiptRentCache = this.d.chain.rent ? await this.d.chain.rent(SETTLEMENT_RECEIPT_BYTES) : RECEIPT_RENT;
     return this.receiptRentCache;
+  }
+
+  /**
+   * Gives back the float of every sponsored Match, Ticket or Pot that has since been closed, by whoever closed it. Runs before
+   * an admission is weighed, so a full float frees up the moment closes are visible on chain.
+   */
+  private async releaseClosed(): Promise<void> {
+    if (!this.d.chain.accountsTogether) return;
+    try {
+      await releaseClosedHolds(this.d.store, { accountsTogether: this.d.chain.accountsTogether.bind(this.d.chain) });
+    } catch (e) {
+      console.error("[sponsor] releasing closed holds failed", e);
+    }
   }
 
   private async admitGameStep(plan: Plan, player: PublicKey, now: number): Promise<() => Promise<void>> {
@@ -322,6 +347,7 @@ export class Sponsor {
     if (!(await this.d.store.take(`${bucket}:${who}`, 1, this.d.limits.buildsPerDay, DAY, now))) throw new DemoHttpError(429, "account-limit", "Too many requests today.");
 
     const fee = SIGNATURE_LAMPORTS * BigInt(1 + plan.signers.length) + (BigInt(plan.cu) * BigInt(PRIORITY_MICROLAMPORTS)) / 1_000_000n;
+    if (plan.class === "admission") await this.releaseClosed();
     const balance = await this.balance();
     await this.checkLow(balance.lamports);
     let reserve = 0n;
@@ -391,7 +417,11 @@ export class Sponsor {
       throw new DemoHttpError(400, "too-large", "This transaction is too large. Prepare fewer items at a time.");
     }
     if (held.undo) await this.checkGameStepSimulation(message, fee + plan.spend.refundable);
-    const meta: Meta = { completion: completionEffects(ixs), player: who, exp: now + BUILD_TTL_MS, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite, cost: (fee + plan.spend.sunk + plan.spend.refundable).toString(), admission: plan.class === "admission", ataGrant: setup.ataGrant };
+    const seeds = await holdSeeds(ixs, async (match) => {
+      const a = await this.d.chain.account(new PublicKey(match));
+      return a && a.owner.equals(CORE_ID) ? matchSeedOf(a.data) : null;
+    });
+    const meta: Meta = { completion: completionEffects(ixs), seeds, player: who, exp: now + BUILD_TTL_MS, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite, cost: (fee + plan.spend.sunk + plan.spend.refundable).toString(), admission: plan.class === "admission", ataGrant: setup.ataGrant };
     const metaText = JSON.stringify(meta);
     return { message: Buffer.from(bytes).toString("base64"), meta: metaText, mac: mac(this.d.macKey, bytes, metaText), expiresAt: meta.exp, class: plan.class };
   }
@@ -421,6 +451,7 @@ export class Sponsor {
       const sig = tx.signatures[i];
       if (!sig || !nacl.sign.detached.verify(bytes, sig, keys[i].toBytes())) throw new DemoHttpError(400, "unsigned", "The transaction is not signed by the Player.");
     }
+    if (meta.admission) await this.releaseClosed();
     if (!exitFits(await this.balance(), BigInt(meta.cost ?? meta.fee))) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL.");
     // The completion reserve is held only for transactions that are really sent, so an unsent build holds nothing.
     if (meta.admission) {
@@ -445,7 +476,7 @@ export class Sponsor {
     tx.sign(inviteKey ? [this.d.relayer, inviteKey] : [this.d.relayer]);
 
     const hasCompletion = Object.values(meta.completion).some((keys) => keys.length > 0);
-    const input = hasCompletion ? completionInput(tx, meta.completion, BigInt(meta.reserve)) : null;
+    const input = hasCompletion ? completionInput(tx, meta.completion, BigInt(meta.reserve), meta.seeds ?? {}) : null;
     let fresh: boolean;
     try {
       fresh = input ? await this.d.store.prepareCompletion(input) : true;

@@ -8,6 +8,8 @@ import { resultOf, type ChainMatch } from "@/lib/chain/read";
 import { settledPda } from "@/lib/chain/basket";
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import type { GetToken } from "@/lib/chain/demo-client";
+import { createFinisher } from "@/lib/chain/finish-match";
+import { finalizeAndFinishFree, finishMatchFree } from "@/lib/chain/finish-match-client";
 import { finalizeFree } from "@/lib/chain/game-finalize";
 import { plainError } from "@/lib/errors";
 import {
@@ -146,6 +148,8 @@ export class BurstDriver {
   view: BurstView = initialBurstView();
   private readonly listeners = new Set<(v: BurstView) => void>();
   private readonly mk: ReturnType<typeof matchAddressOf>;
+  /** Chunks and close_match once the result is fixed; repeating it on every poll is safe. */
+  private readonly finisher: (() => Promise<unknown>) | null;
   private readonly progress;
 
   private working = false;
@@ -182,6 +186,8 @@ export class BurstDriver {
 
   constructor(private d: BurstDriverDeps) {
     this.mk = matchAddressOf(d.id);
+    const mk = this.mk;
+    this.finisher = mk ? createFinisher(() => finishMatchFree(d.signer, () => d.getToken(), mk)) : null;
     this.progress = matchProgress<ChainMatch, Stage>(d.id);
   }
 
@@ -369,6 +375,7 @@ export class BurstDriver {
 
   /** The result is fixed: the run is over. `onSettled` (the page refreshes the Player's Gemas) waits for the last chunk. */
   private async settle(m: ChainMatch) {
+    if (m.running) void this.finisher?.();
     if (!this.settledSeen) {
       this.settledSeen = true;
       this.submitter?.stop();
@@ -547,7 +554,8 @@ export class BurstDriver {
           await chain.commitTable(p, a);
           break;
         case "finalize": {
-          const sig = await finalizeFree(chain, this.d.signer, () => this.d.getToken(), a);
+          let sig: string | undefined;
+          await finalizeAndFinishFree(this.d.signer, () => this.d.getToken(), this.mk!, async () => (sig = await finalizeFree(chain, this.d.signer, () => this.d.getToken(), a)));
           this.addSig("finalize", sig, "base");
           break;
         }

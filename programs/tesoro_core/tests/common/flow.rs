@@ -206,27 +206,34 @@ fn books_of(svm: &LiteSVM, account: APk) -> Vec<AccountMeta> {
 }
 
 fn counters_next(svm: &LiteSVM, account: APk) -> u64 {
-    svm.get_account(&s(pda(&[COUNTERS_SEED, account.as_ref()])))
-        .map_or(0, |acc| {
-            AccountCounters::try_deserialize(&mut acc.data.as_slice())
-                .expect("counters")
-                .next_match
-        })
+    counters_of(svm, account).map_or(0, |c| c.next_match)
 }
 
-/// Opens a Match for `game` with a direct draw into a fresh Pot at `["ticket", account, pot_nonce]`.
+/// The nonce the Account's next Ticket or Pot must use.
+fn next_ticket(svm: &LiteSVM, account: APk) -> u64 {
+    counters_of(svm, account).map_or(0, |c| c.next_ticket)
+}
+
+fn counters_of(svm: &LiteSVM, account: APk) -> Option<AccountCounters> {
+    svm.get_account(&s(pda(&[COUNTERS_SEED, account.as_ref()])))
+        .map(|acc| AccountCounters::try_deserialize(&mut acc.data.as_slice()).expect("counters"))
+}
+
+/// Opens a Match for `game` with a direct draw into a fresh Pot at `["ticket", account, nonce]`;
+/// the nonce is the Account's next ticket nonce, so `_pot_nonce` is not used.
 pub fn open_match(
     svm: &mut LiteSVM,
     player: &Keypair,
     game: APk,
     entry: u64,
-    pot_nonce: u64,
+    _pot_nonce: u64,
     challenge: bool,
     asset: u8,
 ) -> Result<MatchRef, Failed> {
     let authority = a(player.pubkey());
     let account = account_of(authority);
     let n = counters_next(svm, account);
+    let pot_nonce = next_ticket(svm, account);
     let key = pda(&[MATCH_SEED, account.as_ref(), &n.to_le_bytes()]);
     ensure_spill(svm, player, account, 24);
     let remaining = books_of(svm, account);
@@ -273,16 +280,18 @@ pub fn open_match(
     })
 }
 
-/// Joins `m` with a direct draw into a fresh Pot.
+/// Joins `m` with a direct draw into a fresh Pot at the Account's next ticket nonce
+/// (`_pot_nonce` is not used).
 pub fn join_match(
     svm: &mut LiteSVM,
     player: &Keypair,
     m: &MatchRef,
     game: APk,
-    pot_nonce: u64,
+    _pot_nonce: u64,
 ) -> Result<(), Failed> {
     let authority = a(player.pubkey());
     let account = account_of(authority);
+    let pot_nonce = next_ticket(svm, account);
     let state = match_state(svm, m);
     let opener = APk::new_from_array(state.inner.a.player);
     let opener_funder = APk::new_from_array(state.inner.a.funder);
