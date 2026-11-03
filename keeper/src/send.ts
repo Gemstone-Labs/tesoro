@@ -1,10 +1,10 @@
 import { AddressLookupTableAccount, ComputeBudgetProgram, PublicKey, TransactionMessage, VersionedTransaction, type Connection, type Keypair, type TransactionInstruction } from "@solana/web3.js";
 import { pollConfirm } from "./runtime.ts";
 import { completionEffects, completionInput, recoverCompletions, type CompletionStore } from "../../app/src/server/sponsor/completion.ts";
+import { MAX_ACCOUNTS, MAX_TX_BYTES, accountCount, compileTx, fits, wireSize } from "../../app/src/lib/chain/settle-plan.ts";
 import { keeperCompletionStore } from "./sponsor-completion.ts";
 
-/** A transaction is at most this many bytes on the wire. */
-export const MAX_TX_BYTES = 1232;
+export { MAX_ACCOUNTS, MAX_TX_BYTES, accountCount, fits, wireSize };
 
 type Signer = Pick<Keypair, "publicKey" | "secretKey">;
 
@@ -19,33 +19,7 @@ export interface SendOpts {
   signers?: Signer[];
 }
 
-export function compile(payer: PublicKey, blockhash: string, ixs: TransactionInstruction[], opts: SendOpts = {}): VersionedTransaction {
-  const all = opts.units ? [ComputeBudgetProgram.setComputeUnitLimit({ units: opts.units }), ...ixs] : ixs;
-  return new VersionedTransaction(new TransactionMessage({ payerKey: payer, recentBlockhash: blockhash, instructions: all }).compileToV0Message(opts.tables));
-}
-
-/** Serialized size in bytes with every signature, as the network counts it. */
-export function wireSize(payer: PublicKey, ixs: TransactionInstruction[], opts: SendOpts = {}): number {
-  return compile(payer, PublicKey.default.toBase58(), ixs, opts).serialize().length + 64 * (opts.signers?.length ?? 0);
-}
-
-/** A transaction locks at most this many accounts. */
-export const MAX_ACCOUNTS = 64;
-
-/** Accounts a compiled transaction names, counting those read through lookup tables. */
-export function accountCount(payer: PublicKey, ixs: TransactionInstruction[], opts: SendOpts = {}): number {
-  const m = compile(payer, PublicKey.default.toBase58(), ixs, opts).message;
-  return m.staticAccountKeys.length + m.addressTableLookups.reduce((n, l) => n + l.writableIndexes.length + l.readonlyIndexes.length, 0);
-}
-
-/** True when `ixs` fit one transaction: at most 1,232 bytes and 64 accounts. */
-export const fits = (payer: PublicKey, ixs: TransactionInstruction[], opts: SendOpts = {}) => {
-  try {
-    return wireSize(payer, ixs, opts) <= MAX_TX_BYTES && accountCount(payer, ixs, opts) <= MAX_ACCOUNTS;
-  } catch {
-    return false;
-  }
-};
+export const compile = compileTx;
 
 /** The lookup tables named in KEEPER_LOOKUP_TABLES (comma separated), fetched once. */
 let tablesCache: { key: string; tables: AddressLookupTableAccount[] } | null = null;
