@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -58,9 +58,26 @@ describe("cluster guard (OC-10)", () => {
     await assert.rejects(loadPayer(fakeConn(DEVNET_GENESIS).conn, s, () => {}, fakeConn(MAINNET_GENESIS).conn), /KEEPER_GPA_RPC RPC is not Solana devnet/);
   });
 
+  it("exits with an error and creates no file when the key file is missing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keeper-"));
+    const path = join(dir, "sub", "keeper.json");
+    const s = settings([], { KEEPER_KEYPAIR: path } as NodeJS.ProcessEnv);
+    await assert.rejects(loadPayer(fakeConn(DEVNET_GENESIS).conn, s, () => {}), /does not exist/);
+    assert.equal(existsSync(path), false);
+    assert.equal(existsSync(join(dir, "sub")), false);
+  });
+
+  it("creates a dev key only when --new-dev-key asks for it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keeper-"));
+    const path = join(dir, "keeper.json");
+    const s = settings(["--new-dev-key"], { KEEPER_KEYPAIR: path } as NodeJS.ProcessEnv);
+    await loadPayer(fakeConn(DEVNET_GENESIS).conn, s, () => {});
+    assert.equal(existsSync(path), true);
+  });
+
   it("never funds an empty payer: it only reads the balance and warns", async () => {
     const dir = mkdtempSync(join(tmpdir(), "keeper-"));
-    const s = { ...settings([], { KEEPER_KEYPAIR: join(dir, "keeper.json"), KEEPER_FUNDER: join(dir, "funder.json") } as NodeJS.ProcessEnv) };
+    const s = { ...settings(["--new-dev-key"], { KEEPER_KEYPAIR: join(dir, "keeper.json"), KEEPER_FUNDER: join(dir, "funder.json") } as NodeJS.ProcessEnv) };
     const { conn, calls } = fakeConn(DEVNET_GENESIS, 0);
     const lines: string[] = [];
     await loadPayer(conn, s, (m) => lines.push(m));
