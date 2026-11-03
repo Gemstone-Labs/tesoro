@@ -35,6 +35,7 @@ import {
 import { MIN_GEMAS, RETRY_MS, candidates, due, nextTry, type Candidate, type CounterDeps } from "./counters.ts";
 import { shortKey } from "./env.ts";
 import { BRIDGE, quoteFee, sendAccounts } from "./lz.ts";
+import { MSG } from "./msg-types.ts";
 import { basketOf, configAddress, economyAddress, keyOf, pda, prizeSourceOf, spillOf } from "./kit.ts";
 import { fetchWithBackoff } from "./runtime.ts";
 import { sendIxs, type SendOpts } from "./send.ts";
@@ -215,7 +216,7 @@ export async function batchJob(ctx: Ctx, d: BatchDeps, rule: BatchRule = loopRul
 }
 
 async function sendBatch(ctx: Ctx, d: BatchDeps, b: BatchRow, subject: string, rule: BatchRule): Promise<number> {
-  const lz = await d.lz(b.eid, b.peerAddress, 6);
+  const lz = await d.lz(b.eid, b.peerAddress, MSG.CASH_IN_BATCH);
   const what = `send_batch (${b.totalUnits - b.paidUnits} of ${b.totalUnits} units owed, send #${b.sends + 1})`;
   if (!(await fee(ctx, subject, what, lz))) return 0;
   const ixs = [sendBatchIx({ payer: ctx.payer.publicKey, batch: b, nativeFee: lz.fee, send: lz.send })];
@@ -233,7 +234,7 @@ async function sendBatch(ctx: Ctx, d: BatchDeps, b: BatchRow, subject: string, r
 }
 
 async function sendPayout(ctx: Ctx, d: BatchDeps, p: PayoutRow, subject: string, rule: BatchRule): Promise<number> {
-  const lz = await d.lz(p.eid, p.peerAddress, 7);
+  const lz = await d.lz(p.eid, p.peerAddress, MSG.PAY_PRIZE);
   const what = `send_pay_prize (${p.shares} shares)`;
   if (!(await fee(ctx, subject, what, lz))) return 0;
   const ixs = [sendPayPrizeIx({ payer: ctx.payer.publicKey, payout: p, nativeFee: lz.fee, send: lz.send })];

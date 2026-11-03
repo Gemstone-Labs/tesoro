@@ -5,7 +5,7 @@ import { AlertManager, alertConfig, postAlert } from "./alerts.ts";
 import { balanceOf, watches } from "./alerts-job.ts";
 import { balanceCheck, extraWatches, fileBalanceStore } from "./balance-check.ts";
 import { keeperCluster } from "./cluster.ts";
-import { heartbeatFrom, type Heartbeat } from "./heartbeat.ts";
+import { heartbeatFrom, type Heartbeat, HEARTBEAT_ENV } from "./heartbeat.ts";
 import { meter } from "./credits.ts";
 import { KEEPER_CLI_FLAGS, exitOnUnknownFlag } from "./cli-args.ts";
 import { loadPayer, settings } from "./env.ts";
@@ -24,8 +24,8 @@ const USAGE = "Usage: safety-sweep-cli [--dry-run] [--once] [--rpc <url>] [--gpa
 
 async function main() {
   exitOnUnknownFlag(process.argv.slice(2), KEEPER_CLI_FLAGS, USAGE);
-  // This run is the keeper's heartbeat: the monitor mails when these 5-minute pings stop.
-  const heartbeat = heartbeatFrom("KEEPER_HEARTBEAT_URL");
+  // The sweep has its own monitor (SWEEP_HEARTBEAT_URL); KEEPER_HEARTBEAT_URL belongs to the main loop alone.
+  const heartbeat = heartbeatFrom(HEARTBEAT_ENV.sweep);
   try {
     await run(heartbeat);
   } catch (e) {
@@ -53,7 +53,7 @@ async function run(heartbeat: Heartbeat) {
   if (!s.dryRun) await hourlyBalances(ctx);
   log("sweep", "-", `scanned ${JSON.stringify(report.scanned)}: ${report.candidates.length} candidate(s), ${report.alerts.length} stuck`);
   for (const line of meter.report()) log("credits", "-", line.replace(/^credits /, ""));
-  // The sweep ran, so the keeper is alive: a stuck Match is mailed above and shows as a failed unit, not as a dead keeper.
+  // The sweep ran: a stuck Match is mailed above and shows as a failed unit, not as a dead keeper.
   if (!s.dryRun) await heartbeat.ping("ok");
   process.exit(report.alerts.length ? 1 : 0);
 }

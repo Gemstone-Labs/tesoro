@@ -78,7 +78,7 @@ makes a Ticket or Pot must read `next_ticket` first (a second tab or a retry fai
 and a Backer's own Tickets and a Requester's Backing Ticket share the Backer's counter, so one can make the other's
 transaction fail at the cost of a fee. The cheaper fallback (release when absent after the journal's blockhash expired) was
 rejected: it can leak a hold when an address is made again, and it relies on timing. Counters made before the amendment have
-25 bytes; `migrate_counters` (admin) grows them and starts `next_ticket` at 2^63, above every nonce an old client chose.
+25 bytes; `grow_counters` (anyone; the payer pays the 8 bytes of rent) grows one and starts `next_ticket` at 2^63, above every nonce an old client chose (zero would let a closed Ticket's address come back). The sponsor and the client put it in front of any transaction that reads an old account, so no Player is locked out between the upgrade and the sweep; `migrate_counters` (admin) is the bulk sweep. `close_match` lowers the open-Match count of a 25-byte account in place.
 
 ## Rollout and rollback
 

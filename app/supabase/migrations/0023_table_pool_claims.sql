@@ -16,7 +16,7 @@ create index table_pool_claimed_match on public.table_pool (claimed_match) where
 create function public.claim_table(p_game text, p_generation int, p_idx int, p_epoch numeric, p_match text)
 returns boolean language sql security definer set search_path = public as $$
   with u as (
-    update public.table_pool set claimed_match = p_match, claimed_at = now()
+    update public.table_pool set claimed_match = p_match, claimed_at = now(), updated_at = now()
       where game = p_game and generation = p_generation and idx = p_idx and epoch = p_epoch and epoch_known
         and (claimed_match is null or claimed_match = p_match)
       returning 1
@@ -29,7 +29,7 @@ create function public.free_table(p_match text, p_advanced boolean)
 returns boolean language sql security definer set search_path = public as $$
   with u as (
     update public.table_pool set
-        claimed_match = null, claimed_at = null,
+        claimed_match = null, claimed_at = null, updated_at = now(),
         epoch = epoch + case when p_advanced then 1 else 0 end,
         epoch_known = p_advanced
       where claimed_match = p_match
@@ -39,9 +39,11 @@ $$;
 
 revoke all on function public.claim_table(text, int, int, numeric, text), public.free_table(text, boolean) from public, anon, authenticated;
 
--- The truth from a rollup read taken at `p_read_at`: the tables that can take a Match. They are added or corrected; a claim
--- is cleared only when it is older than a few minutes at the time of the read (a join sent just before the read is not yet
--- an Assignment on base). A claimed table the read does not list stays claimed; a table of unknown epoch it does not list is dropped.
+-- The truth from a rollup read taken at `p_read_at`: the tables that can take a Match. They are added or corrected, with two
+-- rules: epochs only grow, so a read never lowers one; and a row that claim_table or free_table touched after the read
+-- (updated_at > p_read_at) is left as it is, because the read is older than that change. Of the rest, a claim is cleared only
+-- when it is older than a few minutes at the time of the read (a join sent just before the read is not yet an Assignment on
+-- base). A claimed table the read does not list stays claimed; a table of unknown epoch it does not list is dropped.
 drop function public.publish_table_pool(text, jsonb);
 create function public.publish_table_pool(p_game text, p_tables jsonb, p_read_at timestamptz)
 returns void language plpgsql security definer set search_path = public as $$
@@ -51,11 +53,14 @@ begin
   insert into public.table_pool (game, generation, idx, epoch)
     select p_game, (t->>'generation')::int, (t->>'index')::int, (t->>'epoch')::numeric from jsonb_array_elements(p_tables) t
   on conflict (game, generation, idx) do update set
-    epoch = excluded.epoch,
-    epoch_known = true,
-    updated_at = now(),
-    claimed_match = case when public.table_pool.claimed_at > settled then public.table_pool.claimed_match end,
-    claimed_at = case when public.table_pool.claimed_at > settled then public.table_pool.claimed_at end;
+    epoch = case
+      when public.table_pool.updated_at > p_read_at then public.table_pool.epoch
+      when public.table_pool.epoch_known then greatest(public.table_pool.epoch, excluded.epoch)
+      else excluded.epoch end,
+    epoch_known = case when public.table_pool.updated_at > p_read_at then public.table_pool.epoch_known else true end,
+    claimed_match = case when public.table_pool.updated_at > p_read_at or public.table_pool.claimed_at > settled then public.table_pool.claimed_match end,
+    claimed_at = case when public.table_pool.updated_at > p_read_at or public.table_pool.claimed_at > settled then public.table_pool.claimed_at end,
+    updated_at = case when public.table_pool.updated_at > p_read_at then public.table_pool.updated_at else now() end;
   delete from public.table_pool p
     where p.game = p_game and p.claimed_match is null and not p.epoch_known
       and not exists (select 1 from jsonb_array_elements(p_tables) t where (t->>'generation')::int = p.generation and (t->>'index')::int = p.idx);

@@ -57,6 +57,33 @@ fn counters_pda(account: APk) -> APk {
 fn ticket_pda(account: APk, nonce: u64) -> APk {
     pda(&[TICKET_SEED, account.as_ref(), &nonce.to_le_bytes()])
 }
+
+/// `open_ticket` for an Entry Ticket at `nonce`.
+fn open_ticket_ix(p: &Person, nonce: u64, entry: u64, lines: u32) -> Instruction {
+    ix(
+        accounts::OpenTicket {
+            payer: p.key,
+            authority: p.key,
+            requester: p.account,
+            owner: p.account,
+            basket: basket_address(&p.account).0,
+            spill: spill_address(&p.account).0,
+            ticket: ticket_pda(p.account, nonce),
+            offer: None,
+            sponsor: None,
+            counters: counters_pda(p.account),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::OpenTicket {
+            nonce,
+            kind: tesoro_core::TicketKindArg::Entry,
+            game: GAME,
+            target: entry,
+            lines,
+        },
+        vec![],
+    )
+}
 fn receipt_pda(m: APk) -> APk {
     pda(&[RECEIPT_SEED, m.as_ref()])
 }
@@ -962,29 +989,7 @@ impl Env {
         lines: u32,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
         self.ensure_spill(&p.kp, p.account, lines as usize);
-        let open = ix(
-            accounts::OpenTicket {
-                payer: p.key,
-                authority: p.key,
-                requester: p.account,
-                owner: p.account,
-                basket: basket_address(&p.account).0,
-                spill: spill_address(&p.account).0,
-                ticket: ticket_pda(p.account, nonce),
-                offer: None,
-                sponsor: None,
-                counters: counters_pda(p.account),
-                system_program: anchor_lang::system_program::ID,
-            },
-            instruction::OpenTicket {
-                nonce,
-                kind: tesoro_core::TicketKindArg::Entry,
-                game: GAME,
-                target: entry,
-                lines,
-            },
-            vec![],
-        );
+        let open = open_ticket_ix(p, nonce, entry, lines);
         self.send(&[open], &p.kp, &[])
     }
 
@@ -1156,14 +1161,14 @@ impl Env {
     fn force_next_ticket(&mut self, account: APk, nonce: u64) {
         let key = s(counters_pda(account));
         let mut acc = self.svm.get_account(&key).unwrap_or_else(|| {
-            let mut fresh = solana_sdk::account::Account::default();
-            fresh.owner = s(tesoro_core::ID);
-            fresh.data = vec![0u8; AccountCounters::SPACE];
-            fresh.data[..8].copy_from_slice(AccountCounters::DISCRIMINATOR);
-            fresh.lamports = self
-                .svm
-                .minimum_balance_for_rent_exemption(fresh.data.len());
-            fresh
+            let mut data = vec![0u8; AccountCounters::SPACE];
+            data[..8].copy_from_slice(AccountCounters::DISCRIMINATOR);
+            solana_sdk::account::Account {
+                lamports: self.svm.minimum_balance_for_rent_exemption(data.len()),
+                owner: s(tesoro_core::ID),
+                data,
+                ..Default::default()
+            }
         });
         let at = AccountCounters::SPACE_V1;
         acc.data[at..at + 8].copy_from_slice(&nonce.to_le_bytes());
@@ -6246,4 +6251,136 @@ fn counters_grow_to_hold_the_ticket_nonce_and_start_above_every_old_nonce() {
     // an old, small nonce cannot be made again
     let old_nonce = env.open_ticket_at(&p, 5, 1_000, 2).unwrap_err();
     assert_eq!(custom_code(&old_nonce), ERR_TICKET_NONCE);
+}
+
+/// Cuts `p`'s counters back to the 25 bytes an earlier build made.
+fn shrink_counters_to_v1(env: &mut Env, p: &Person) {
+    let key = s(counters_pda(p.account));
+    let mut old = env.svm.get_account(&key).expect("counters");
+    old.data.truncate(AccountCounters::SPACE_V1);
+    old.lamports = env
+        .svm
+        .minimum_balance_for_rent_exemption(AccountCounters::SPACE_V1);
+    env.svm.set_account(key, old).unwrap();
+}
+
+fn grow_counters_ix(payer: &Keypair, p: &Person) -> Instruction {
+    ix(
+        accounts::GrowCounters {
+            payer: a(payer.pubkey()),
+            counters: counters_pda(p.account),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::GrowCounters {},
+        vec![],
+    )
+}
+
+#[test]
+fn a_stranger_grows_an_old_counters_account_and_changes_nothing_but_the_new_field() {
+    let mut env = Env::new();
+    let (p, _) = person_with_lines(&mut env, 2, 100, 1_000);
+    env.open_match(&p, 1_000).expect("open");
+    shrink_counters_to_v1(&mut env, &p);
+    let before = env
+        .svm
+        .get_account(&s(counters_pda(p.account)))
+        .unwrap()
+        .data;
+    let stranger = Keypair::new();
+    env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+    env.send(&[grow_counters_ix(&stranger, &p)], &stranger, &[])
+        .expect("anyone can grow it");
+    let after = env.svm.get_account(&s(counters_pda(p.account))).unwrap();
+    assert_eq!(after.data.len(), AccountCounters::SPACE);
+    assert_eq!(&after.data[..AccountCounters::SPACE_V1], &before[..]);
+    assert_eq!(
+        env.counters(p.account).next_ticket,
+        AccountCounters::LEGACY_TICKET_BASE
+    );
+    assert!(
+        after.lamports
+            >= env
+                .svm
+                .minimum_balance_for_rent_exemption(AccountCounters::SPACE),
+        "the payer paid the rent"
+    );
+    let paid = env.svm.get_balance(&stranger.pubkey()).unwrap();
+    env.send(&[grow_counters_ix(&stranger, &p)], &stranger, &[])
+        .expect("a second grow is a no-op");
+    let again = env.svm.get_account(&s(counters_pda(p.account))).unwrap();
+    assert_eq!(again.data, after.data);
+    assert!(
+        env.svm.get_balance(&stranger.pubkey()).unwrap() >= paid - 10_000,
+        "nothing more was charged but the fee"
+    );
+}
+
+#[test]
+fn grow_counters_refuses_what_is_not_a_counters_account() {
+    let mut env = Env::new();
+    let (p, _) = person_with_lines(&mut env, 2, 100, 1_000);
+    // a program-owned account of another kind, and a counters account of an unknown length
+    let basket = basket_address(&p.account).0;
+    let bad = ix(
+        accounts::GrowCounters {
+            payer: p.key,
+            counters: basket,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::GrowCounters {},
+        vec![],
+    );
+    assert!(env.send(&[bad], &p.kp, &[]).is_err());
+}
+
+#[test]
+fn an_old_counters_account_grows_in_the_same_transaction_as_the_ticket_that_needs_it() {
+    let mut env = Env::new();
+    let (p, _) = person_with_lines(&mut env, 2, 100, 1_000);
+    env.force_next_ticket(p.account, 0);
+    env.ensure_spill(&p.kp, p.account, 2);
+    shrink_counters_to_v1(&mut env, &p);
+    let nonce = AccountCounters::LEGACY_TICKET_BASE;
+    assert!(
+        env.send(&[open_ticket_ix(&p, nonce, 1_000, 2)], &p.kp, &[])
+            .is_err(),
+        "the old account cannot be read by the Ticket alone"
+    );
+    env.send(
+        &[
+            grow_counters_ix(&p.kp, &p),
+            open_ticket_ix(&p, nonce, 1_000, 2),
+        ],
+        &p.kp,
+        &[],
+    )
+    .expect("grow, then the Ticket");
+    assert_eq!(env.next_ticket(p.account), nonce + 1);
+}
+
+#[test]
+fn a_match_opened_before_the_upgrade_still_closes_with_an_old_counters_account() {
+    let mut d = duel();
+    let id = d.env.open_match(&d.alice, 500).unwrap();
+    d.env.set_break(&d.alice, 2).unwrap();
+    assert_eq!(d.env.counters(d.alice.account).open_matches, 1);
+    let alice = Person {
+        key: d.alice.key,
+        account: d.alice.account,
+        kp: d.alice.kp.insecure_clone(),
+    };
+    shrink_counters_to_v1(&mut d.env, &alice);
+    let stranger = d.env.admin.insecure_clone();
+    d.env
+        .refund(&stranger, id, vec![])
+        .expect("the old counters account does not block the close");
+    let c = d
+        .env
+        .svm
+        .get_account(&s(counters_pda(alice.account)))
+        .unwrap()
+        .data;
+    assert_eq!(c.len(), AccountCounters::SPACE_V1);
+    assert_eq!(u32::from_le_bytes(c[17..21].try_into().unwrap()), 0);
 }

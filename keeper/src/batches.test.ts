@@ -7,6 +7,7 @@ import { BATCH_DONE, BATCH_OPEN, BATCH_SEALED, PAYOUT_PAID, PAYOUT_PENDING, PAYO
 import { evmRoutesToFund, fundEvmPrizes, kindsOf, planBatches, planPayouts, routeKey, routeOf, batchJob, type BatchDeps, type EvmPrizeDeps } from "./batches.ts";
 import { accountBytes, batchBytes, bookBytes, chainOf, payoutBytes, routeBytes } from "./fixtures.ts";
 import { bookOf, configAddress, economyAddress } from "./kit.ts";
+import { MSG } from "./msg-types.ts";
 import { BRIDGE } from "./lz.ts";
 import { loadIdl } from "./runtime.ts";
 import type { Info } from "./supply.ts";
@@ -124,6 +125,7 @@ describe("the batch job", () => {
     accounts.set(position.toBase58(), await accountBytes(core, "PositionState", { positionId: [...Buffer.concat([vault, Buffer.alloc(12)])], inner: { sourceChain: over.chain ?? { ethereum: {} } } }));
     const sent: string[] = [];
     const sims: string[] = [];
+    const quoted: number[] = [];
     const routeRows = [{ pubkey: k(), data: routeBytes({ eid: EID, peer, min: 100n, lastBatchId: 2n }) }];
     const d: BatchDeps = {
       list: async (name) => (name === "SourceState" ? [{ pubkey: source, data: accounts.get(source.toBase58())! }] : []),
@@ -132,9 +134,9 @@ describe("the batch job", () => {
       simulate: async (ixs) => (sims.push(String(ixs.length)), null),
       now: () => Date.now(),
       listBridge: async (disc) => (disc.equals(bridgeDisc.route) ? routeRows : disc.equals(bridgeDisc.batch) ? (over.batches ?? []).map((data) => ({ pubkey: k(), data })) : disc.equals(bridgeDisc.payout) ? (over.payouts ?? []).map((data) => ({ pubkey: k(), data })) : []),
-      lz: async () => ({ fee: 1000n, send: [{ pubkey: k(), isSigner: false, isWritable: false } satisfies AccountMeta] }),
+      lz: async (_eid, _peer, msgType) => (quoted.push(msgType), { fee: 1000n, send: [{ pubkey: k(), isSigner: false, isWritable: false } satisfies AccountMeta] }),
     };
-    return { d, ctx: mkCtx(accounts), sent, sims };
+    return { d, ctx: mkCtx(accounts), sent, sims, quoted };
   }
 
   it("opens a batch and adds a Source's covered Platform counter in one transaction", async () => {
@@ -174,6 +176,7 @@ describe("the batch job", () => {
     const n = await batchJob(w.ctx, w.d);
     assert.equal(n, 6);
     assert.equal(w.sent.length, 6, "seal, send, close batch; send, refund, close payout");
+    assert.deepEqual(w.quoted.sort((a, b) => a - b), [MSG.CASH_IN_BATCH, MSG.PAY_PRIZE], "each send quotes its own message type");
   });
 
   it("does not send a LayerZero message above the fee cap", async () => {

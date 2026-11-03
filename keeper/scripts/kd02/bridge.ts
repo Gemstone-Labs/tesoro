@@ -9,6 +9,7 @@ import { claimPda } from "../../src/bridge-ix.ts";
 import { bookOf, ckptOf, pda, basketOf, spillOf } from "../../src/kit.ts";
 import { QA, conn, makeCtx, measureBundle, retry, simV0, toReport, saveReports, withCu, loadAlt, legacyBytes, shapeOf, type BundleReport } from "./lib.ts";
 import { u64le } from "../../src/kit.ts";
+import { MSG } from "../../src/msg-types.ts";
 
 const SPONSOR_ALT = new PublicKey("HcQqickLYCgnPkkmWZgHFjq5sThNeow19WnLZDwKF3KZ");
 const vaults = [
@@ -33,7 +34,7 @@ for (const v of vaults) {
   const pid = pidOf(v.vault, 1);
   const acc = await sendAccounts(ctx, v.eid, pid);
   lists[v.name] = { quote: acc.quote.map((m) => m.pubkey.toBase58()), send: acc.send.map((m) => m.pubkey.toBase58()) };
-  for (const [type, label] of [[3, "Unlock"], [4, "PayYield"], [5, "PayInstant"]] as const) {
+  for (const [type, label] of [[MSG.UNLOCK, "Unlock"], [MSG.PAY_YIELD, "PayYield"], [MSG.PAY_INSTANT, "PayInstant"]] as const) {
     const fees: bigint[] = [];
     for (let i = 0; i < 3; i++) fees.push(await retry(() => quoteFee(ctx, v.eid, pid, type, acc.quote)));
     console.log(JSON.stringify({ vault: v.name, eid: v.eid, message: label, lamports: fees.map(String), sol: fees.map((f) => Number(f) / 1e9) }));
@@ -71,7 +72,7 @@ for (const v of vaults) {
     .accountsPartial({ ownerAuthority: owner, ownerAccount, economy: pda("economy"), position: cpKey })
     .remainingAccounts([source, book, ...pages].map((k) => ({ pubkey: k, isSigner: false, isWritable: true })))
     .instruction();
-  const fee = await retry(() => quoteFee(ctx, eid, pid, 3, acc.quote));
+  const fee = await retry(() => quoteFee(ctx, eid, pid, MSG.UNLOCK, acc.quote));
   const sendUnlock = new TransactionInstruction({
     programId: BRIDGE,
     keys: [meta(owner, true, true), meta(peerPda(eid, pid)), meta(STORE), meta(bridgePositionPda(eid, pid), false, true), meta(cpKey), meta(ENDPOINT_SETTINGS), meta(SystemProgram.programId), ...acc.send],
@@ -92,7 +93,7 @@ for (const v of vaults) {
     ],
     data: Buffer.concat([disc("redeem_to_evm"), Buffer.alloc(11), u64le(1_000n)]),
   });
-  const feeY = await retry(() => quoteFee(ctx, eid, pid, 4, acc.quote));
+  const feeY = await retry(() => quoteFee(ctx, eid, pid, MSG.PAY_YIELD, acc.quote));
   const sendPay = new TransactionInstruction({
     programId: BRIDGE,
     keys: [
@@ -114,7 +115,7 @@ console.log("\n## in-situ CU: send_pay_yield on the live pending Claim 3Qop34c1 
   const holder = new PublicKey("71hCesb8eED3yoFjgxDG8fSfqgZV4Ngfnr2sX3jHL5Yg");
   const holderAcct: any = await (ctx.core as any).account.tesoroAccount.fetch(holder);
   const acc = await sendAccounts(ctx, eid, pid);
-  const fee = await quoteFee(ctx, eid, pid, 4, acc.quote);
+  const fee = await quoteFee(ctx, eid, pid, MSG.PAY_YIELD, acc.quote);
   const ix = new TransactionInstruction({
     programId: BRIDGE,
     keys: [

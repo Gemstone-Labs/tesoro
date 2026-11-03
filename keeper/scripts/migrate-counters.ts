@@ -1,8 +1,9 @@
 /**
  * Grows every 25-byte `["counters", account]` account to 33 bytes (`migrate_counters`, admin only) right after tesoro_core gains
  * `next_ticket`: the new field starts at 2^63, above every Ticket or Pot nonce an old client chose, so no old address can be made
- * again. A 33-byte account is left alone, so a re-run only touches what is still short. Until an Account's counters are
- * migrated, the new program cannot read them: open and join Matches, make Offers and open Tickets all fail for that Account.
+ * again. A 33-byte account is left alone, so a re-run only touches what is still short. This is the bulk sweep: any
+ * transaction that reads an old account already carries `grow_counters` (anyone may send it; the sponsor and the app put it in
+ * front), so no Player waits for this script.
  *
  *   pnpm --filter @tesoro/keeper exec tsx scripts/migrate-counters.ts [--read-rpc <url>]
  *   pnpm --filter @tesoro/keeper exec tsx scripts/migrate-counters.ts --send --keypair ~/.config/solana/dev-2026-10.json [--rpc <url>]

@@ -46,8 +46,8 @@ use ephemeral_rollups_sdk::{
 use table_kit::{
     absence_outcome, assignment_absent, close_private_seat, create_hidden_seat, is_next_epoch,
     match_state_gone, may_skip, move_lamports, read_table, receipt_aged, receipt_at,
-    retire_legacy_record, sponsor_commit, swap_seat_members, table_wait_over, KitError,
-    LegacyError, SeatAccounts, SeatPrograms, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0,
+    retire_legacy_record, sponsor_can_commit, sponsor_commit, swap_seat_members, table_wait_over,
+    KitError, LegacyError, SeatAccounts, SeatPrograms, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0,
     OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
@@ -343,6 +343,12 @@ fn wipe_and_commit(a: &mut Concluding, now: i64) -> Result<()> {
                 permission_program: a.permission_program.to_account_info(),
             },
         )?;
+    }
+    // An empty Sponsor must not revert the move that ended the Match: the table stays Over and `dirty`, and
+    // `commit_table` or the next `begin_match` commits it after a refill.
+    if !sponsor_can_commit(&a.sponsor.to_account_info()) {
+        msg!("sponsor-dry: the result is not committed; refill the Sponsor, then commit_table");
+        return a.table.exit(&ID);
     }
     a.table.commit.record(now);
     a.table.dirty = false;
@@ -882,6 +888,15 @@ pub mod holdem {
             )
         {
             void_in_place(&mut ending.table, now)?;
+            return wipe_and_commit(ending, now);
+        }
+        // A finished table whose result was not committed (the Sponsor was dry when the Match ended) is committed
+        // now that the Sponsor can pay; the next `begin_match` resets it.
+        if ending.table.phase == TABLE_OVER
+            && ending.table.dirty
+            && is_next_epoch(ending.table.epoch, a.epoch)
+            && sponsor_can_commit(&ending.sponsor.to_account_info())
+        {
             return wipe_and_commit(ending, now);
         }
         let table = &mut ending.table;

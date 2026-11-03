@@ -20,6 +20,7 @@ import {
   sendAccounts,
   sendParams,
 } from "./lz.ts";
+import { MSG } from "./msg-types.ts";
 import { simulate, simulateIxs } from "./tee.ts";
 import { treasuryAccountPda } from "../../app/src/lib/chain/native.ts";
 import anchor from "@coral-xyz/anchor";
@@ -162,7 +163,7 @@ export async function bridgeJob(ctx: Ctx): Promise<number> {
 
       // Unlocked in tesoro_core with no Debt: tell the vault to release the Principal.
       if (!p.unlockSent && status(cp.inner.status) === "unlocked" && debtFree) {
-        actions += await lzSend(ctx, subject, p.eid, p.positionId, 10, "send_unlock", (fee, send) =>
+        actions += await lzSend(ctx, subject, p.eid, p.positionId, MSG.UNLOCK, "send_unlock", (fee, send) =>
           new TransactionInstruction({
             programId: BRIDGE,
             keys: [
@@ -201,7 +202,7 @@ export async function bridgeJob(ctx: Ctx): Promise<number> {
         if (!holder) continue;
         evmLink = evmLinkPda(Uint8Array.from(holder.evmAddress));
       }
-      actions += await lzSend(ctx, `${subject} ${label(p.eid, p.positionId)}`, p.eid, p.positionId, 11, `send_pay_yield (${c.unitsTotal - c.unitsSent} units)`, (fee, send) =>
+      actions += await lzSend(ctx, `${subject} ${label(p.eid, p.positionId)}`, p.eid, p.positionId, MSG.PAY_YIELD, `send_pay_yield (${c.unitsTotal - c.unitsSent} units)`, (fee, send) =>
         new TransactionInstruction({
           programId: BRIDGE,
           keys: [
@@ -237,7 +238,7 @@ export async function bridgeJob(ctx: Ctx): Promise<number> {
       const holder: any = await ctx.core.account.tesoroAccount.fetchNullable(c.holderAccount);
       if (!holder) continue;
       const evmLink = evmLinkPda(Uint8Array.from(holder.evmAddress));
-      actions += await lzSend(ctx, `${subject} ${label(p.eid, p.positionId)}`, p.eid, p.positionId, 12, `send_pay_instant (${c.unitsTotal - c.unitsSent} units)`, (fee, send) =>
+      actions += await lzSend(ctx, `${subject} ${label(p.eid, p.positionId)}`, p.eid, p.positionId, MSG.PAY_INSTANT, `send_pay_instant (${c.unitsTotal - c.unitsSent} units)`, (fee, send) =>
         new TransactionInstruction({
           programId: BRIDGE,
           keys: [

@@ -7,24 +7,13 @@ import { clearRaised, raisedConditions } from "./alerts.ts";
 import { accountBytes, chainOf, ixNameOf } from "./fixtures.ts";
 import { programDataOf } from "./kit.ts";
 import { loadIdl } from "./runtime.ts";
-import { PAIR_WINDOW_SECS, RECEIPT_KEEP_SECS, deploySlotOf, groupsOf, listingJob, listingOutcome, listingStep, oldReceipts, pairsToClose, sweepJob, type SweepDeps } from "./sweeps.ts";
+import { PAIR_WINDOW_SECS, RECEIPT_KEEP_SECS } from "./reclaim.ts";
+import { deploySlotOf, listingJob, listingOutcome, listingStep, sweepJob, type SweepDeps } from "./sweeps.ts";
 import type { Info } from "./supply.ts";
 
 const core = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {}));
 const k = () => Keypair.generate().publicKey;
 const NOW = 1_800_000_000;
-
-describe("old accounts", () => {
-  it("lists receipts older than 14 days and pairs whose window ended", () => {
-    const r = (at: number) => ({ address: k(), payer: k(), at });
-    const [old, fresh] = [r(NOW - RECEIPT_KEEP_SECS), r(NOW - RECEIPT_KEEP_SECS + 1)];
-    assert.deepEqual(oldReceipts([old, fresh], NOW), [old]);
-    const p = (windowStart: number) => ({ address: k(), payer: k(), windowStart });
-    const [ended, open] = [p(NOW - PAIR_WINDOW_SECS), p(NOW - 5)];
-    assert.deepEqual(pairsToClose([ended, open], NOW), [ended]);
-    assert.deepEqual(groupsOf([1, 2, 3], 2), [[1, 2], [3]]);
-  });
-});
 
 describe("listing upkeep rules", () => {
   const g = { game: k(), record: k(), listedUntil: NOW + 100, approvedSlot: 50n };

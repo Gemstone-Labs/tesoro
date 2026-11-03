@@ -4432,6 +4432,46 @@ fn close_commits_the_result_and_wipes_the_seats() {
         .expect("reset without a separate commit or wipe");
 }
 
+/// The Sponsor holds only its rent-exempt minimum: it cannot pay for a commit.
+fn dry_sponsor(env: &mut Env) {
+    let key = s(sponsor_addr());
+    let mut acct = env.svm.get_account(&key).expect("sponsor");
+    acct.lamports = env.svm.minimum_balance_for_rent_exemption(acct.data.len());
+    env.svm.set_account(key, acct).expect("dry sponsor");
+}
+
+fn refill_sponsor(env: &mut Env) {
+    let key = s(sponsor_addr());
+    let mut acct = env.svm.get_account(&key).expect("sponsor");
+    acct.lamports += 1_000_000_000;
+    env.svm.set_account(key, acct).expect("refill sponsor");
+}
+
+#[test]
+fn an_empty_sponsor_does_not_stop_the_closing_move_and_the_result_commits_after_a_refill() {
+    let mut env = ready();
+    dry_sponsor(&mut env);
+    env.play_out(3, 2);
+    let t = env.table();
+    assert_eq!(t.phase, block_puzzle::TABLE_CLOSED, "the Match still ended");
+    assert!(
+        t.dirty && t.commit.tries == 0,
+        "the result waits for a commit"
+    );
+    assert!(!t.seats_open, "the seats are wiped regardless");
+    assert!(
+        env.last_logs.iter().any(|l| l.contains("sponsor-dry")),
+        "the move says why"
+    );
+    refill_sponsor(&mut env);
+    let ixn = env.commit_ix();
+    env.rollup(ixn).expect("commit after the refill");
+    let t = env.table();
+    assert!(!t.dirty && t.commit.tries == 1);
+    env.set_time(env.now + block_puzzle::RESET_DELAY_SECS);
+    env.reset().expect("reset after the commit");
+}
+
 #[test]
 fn close_of_a_match_that_never_ran_commits_too() {
     let mut env = ready();
@@ -4462,7 +4502,7 @@ fn nothing_touches_the_table_inside_the_hidden_window_not_even_close() {
             "slot {slot}"
         );
     }
-    assert!(env.table().dirty == false && env.table().phase != block_puzzle::TABLE_CLOSED);
+    assert!(!env.table().dirty && env.table().phase != block_puzzle::TABLE_CLOSED);
     assert_eq!(env.table().commit.tries, 0);
 }
 
@@ -4500,7 +4540,13 @@ fn begin_resets_a_finished_table_that_is_wiped_committed_and_thirty_seconds_old(
     assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(ResetTooEarly));
     env.set_time(over + block_puzzle::RESET_DELAY_SECS);
     env.patch_table(|t| t.dirty = true);
+    // A result left uncommitted (the Sponsor was dry): a dry Sponsor cannot commit it, a refilled one does it in this call.
+    dry_sponsor(&mut env);
     assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(NotCommitted));
+    refill_sponsor(&mut env);
+    env.begin()
+        .expect("begin commits the result left uncommitted");
+    assert!(!env.table().dirty, "committed by begin");
     env.commit_standin();
     env.patch_table(|t| t.seats_open = true);
     assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(SeatsOpen));

@@ -912,7 +912,13 @@ pub mod tesoro_core {
     }
 
     /// Grows a 25-byte counters account to 33 bytes with `next_ticket` at
-    /// `AccountCounters::LEGACY_TICKET_BASE`. A 33-byte one is left alone.
+    /// `AccountCounters::LEGACY_TICKET_BASE`. Anyone may call it and the caller pays the rent. A
+    /// 33-byte one is left alone.
+    pub fn grow_counters(ctx: Context<GrowCounters>) -> Result<()> {
+        instructions::migrate::grow_counters(ctx)
+    }
+
+    /// The admin sweep of `grow_counters`, with the Account's counters address checked.
     pub fn migrate_counters(ctx: Context<MigrateCounters>) -> Result<()> {
         instructions::migrate::migrate_counters(ctx)
     }

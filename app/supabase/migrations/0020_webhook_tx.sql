@@ -59,6 +59,18 @@ language sql security definer set search_path = public as $$
   select count(*)::integer from u
 $$;
 
+-- Deletes unfinalized rows the chain no longer knows (the catch-up passes only those) once they are older than p_age_secs.
+-- History is rebuilt from chain, so a dropped row is not flagged, it is removed.
+create function public.webhook_drop_stale(p_signatures jsonb, p_age_secs integer) returns integer
+language sql security definer set search_path = public as $$
+  with d as (
+    delete from public.webhook_tx
+    where not finalized and received_at < now() - make_interval(secs => greatest(p_age_secs, 0))
+      and signature in (select jsonb_array_elements_text(p_signatures))
+    returning 1)
+  select count(*)::integer from d
+$$;
+
 -- Where the catch-up scan stands: the newest signature up to which every transaction of core is stored.
 -- A webhook delivery never moves it, so a delivery Helius dropped in the middle is still found by the next scan.
 create table public.webhook_cursor (
@@ -81,4 +93,4 @@ language sql security definer set search_path = public as $$
 $$;
 
 revoke all on function public.webhook_store_tx(jsonb), public.webhook_to_decode(integer), public.webhook_mark_decoded(text, text),
-  public.webhook_unfinalized(integer), public.webhook_mark_finalized(jsonb), public.webhook_cursor_get(), public.webhook_cursor_set(text) from public, anon, authenticated;
+  public.webhook_unfinalized(integer), public.webhook_mark_finalized(jsonb), public.webhook_drop_stale(jsonb, integer), public.webhook_cursor_get(), public.webhook_cursor_set(text) from public, anon, authenticated;

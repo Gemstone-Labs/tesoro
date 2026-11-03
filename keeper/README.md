@@ -31,7 +31,8 @@ The last job of each pass (`src/alerts.ts`, `src/alerts-job.ts`) emails both fou
 
 | Env var | Pinged by | Monitor period / grace |
 |---|---|---|
-| `KEEPER_HEARTBEAT_URL` | the safety sweep (every 5 minutes, ping `ok` whether or not a Match is stuck; `fail` when the sweep itself crashed) and, until ticket 20 removes it, the 20 s loop (once per pass) | 5 min / 15 min |
+| `KEEPER_HEARTBEAT_URL` | the 20 s loop only (once per pass), until ticket 20 removes it | 5 min / 15 min |
+| `SWEEP_HEARTBEAT_URL` | the safety sweep (every 5 minutes, ping `ok` whether or not a Match is stuck; `fail` when the sweep itself crashed) | 5 min / 15 min |
 | `JANITOR_HEARTBEAT_URL` | the daily janitor (`ok` when every part ran, `fail` when one failed) | 1 day / 6 h |
 | `POOL_HEARTBEAT_URL` | the Table pool repair (every 15 minutes; `fail` when a Game's repair threw) | 15 min / 45 min |
 | `SEASON_HEARTBEAT_URL` | the Season run (hourly retry timer; `ok` when everything due is done, `fail` when a step stopped the run) | 1 h / 2 h |

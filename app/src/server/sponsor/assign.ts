@@ -109,12 +109,17 @@ export interface Assignment {
   ix: TransactionInstruction;
   leaseKey: string;
   holder: string;
+  /** The Player's own lock for this Game (one outstanding lease per Player per Game), freed with the lease. */
+  lockKey?: string;
   /** What the pool needs to claim the table once the join is sent (JSON-safe: it travels in the signed build meta). */
   claim?: { game: GameId; generation: number; index: number; epoch: string; matchKey: string };
 }
 
 /** What a lease needs to be extended or released, and the claim to make when the join is sent. */
-export type LeaseRef = Pick<Assignment, "leaseKey" | "holder" | "claim">;
+export type LeaseRef = Pick<Assignment, "leaseKey" | "holder" | "claim" | "lockKey">;
+
+/** The Player already holds a table lease for this Game: finish or drop that join first. */
+export class PlayerBusy extends Error {}
 
 export class Assigner {
   constructor(private readonly d: AssignerDeps) {}
@@ -127,15 +132,21 @@ export class Assigner {
     return this.d.operator;
   }
 
-  /** The `assign_match` for the lowest table nobody holds, or null (the keeper assigns the Match later). */
-  async assign(game: GameId, match: PublicKey, accountA: PublicKey, accountB: PublicKey, holder: string, matchKey?: string): Promise<Assignment | null> {
+  /**
+   * The `assign_match` for the lowest table nobody holds, or null (the keeper assigns the Match later). With `player`, a Player
+   * holds at most one lease per Game at a time (PlayerBusy otherwise), so a loop of builds cannot take the tables.
+   */
+  async assign(game: GameId, match: PublicKey, accountA: PublicKey, accountB: PublicKey, holder: string, matchKey?: string, player?: string): Promise<Assignment | null> {
     if (!canAssign(game)) return null;
+    const lockKey = player ? `player/${game}/${player}` : undefined;
+    if (lockKey && !(await this.d.leases.take(lockKey, holder, BUILD_LEASE_MS, this.d.now()))) throw new PlayerBusy();
     const free = [...(await this.d.tables(game))].sort((x, y) => x.generation - y.generation || x.index - y.index);
     for (const pick of free) {
       const leaseKey = `${game}/${pick.generation}/${pick.index}/${pick.epoch}`;
       if (!(await this.d.leases.take(leaseKey, holder, BUILD_LEASE_MS, this.d.now()))) continue;
-      return { ix: assignMatchIx(game, { operator: this.operator, match, accountA, accountB, pick }), leaseKey, holder, claim: matchKey ? { game, generation: pick.generation, index: pick.index, epoch: pick.epoch.toString(), matchKey } : undefined };
+      return { ix: assignMatchIx(game, { operator: this.operator, match, accountA, accountB, pick }), leaseKey, holder, lockKey, claim: matchKey ? { game, generation: pick.generation, index: pick.index, epoch: pick.epoch.toString(), matchKey } : undefined };
     }
+    if (lockKey) await this.d.leases.release(lockKey, holder);
     return null;
   }
 
@@ -143,11 +154,13 @@ export class Assigner {
   async confirm(a: LeaseRef): Promise<void> {
     await this.d.leases.extend(a.leaseKey, a.holder, START_WINDOW_MS, this.d.now());
     if (a.claim && this.d.claim) await this.d.claim(a.claim.game, { generation: a.claim.generation, index: a.claim.index, epoch: BigInt(a.claim.epoch) }, a.claim.matchKey);
+    if (a.lockKey) await this.d.leases.release(a.lockKey, a.holder);
   }
 
   /** The join will not be sent: free the table. */
-  release(a: LeaseRef): Promise<void> {
-    return this.d.leases.release(a.leaseKey, a.holder);
+  async release(a: LeaseRef): Promise<void> {
+    await this.d.leases.release(a.leaseKey, a.holder);
+    if (a.lockKey) await this.d.leases.release(a.lockKey, a.holder);
   }
 }
 
