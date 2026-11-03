@@ -1,5 +1,11 @@
 import { Connection } from "@solana/web3.js";
 import { Budget, log, type Ctx } from "./act.ts";
+import { AlertManager, alertConfig, postAlert } from "./alerts.ts";
+import { balanceCheck, fileBalanceStore, sponsorMinLamports, sponsorWatches } from "./balance-check.ts";
+import { keeperCluster } from "./cluster.ts";
+import { heartbeatFrom } from "./heartbeat.ts";
+import { stateDir } from "./history.ts";
+import { join } from "node:path";
 import { KEEPER_CLI_FLAGS, exitOnUnknownFlag } from "./cli-args.ts";
 import { loadPayer, settings } from "./env.ts";
 import { scanMatches } from "./matches.ts";
@@ -17,7 +23,17 @@ const USAGE = "Usage: table-pool-repair-cli [--dry-run] [--rpc <url>] [--gpa-rpc
 
 async function main() {
   exitOnUnknownFlag(process.argv.slice(2), KEEPER_CLI_FLAGS, USAGE);
+  const heartbeat = heartbeatFrom("POOL_HEARTBEAT_URL");
   const s = settings();
+  try {
+    await run(s, heartbeat);
+  } catch (e) {
+    if (!s.dryRun) await heartbeat.ping("fail");
+    throw e;
+  }
+}
+
+async function run(s: ReturnType<typeof settings>, heartbeat: ReturnType<typeof heartbeatFrom>) {
   const publish = poolPublisherFromEnv();
   if (!publish && !s.dryRun) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are not set: there is no pool to repair.");
   const conn = newConnection(s.rpc, s.gpaRpc);
@@ -38,7 +54,35 @@ async function main() {
       log("pool", a.label, `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
     }
   }
+  if (!s.dryRun) await sponsorBalances(ctx);
+  if (!s.dryRun) await heartbeat.ping(failed ? "fail" : "ok");
   process.exit(failed ? 1 : 0);
+}
+
+/** Every run: each Game's Sponsor, read on the rollup. A Sponsor that runs dry blocks Matches from ending. A failure here never fails the run. */
+async function sponsorBalances(ctx: Ctx) {
+  const base = process.env.NOTIFY_URL;
+  const secret = process.env.NOTIFY_SECRET;
+  if (!base || !secret) return;
+  try {
+    const cfg = alertConfig();
+    const byKey = new Map(ADAPTERS.map((a) => [`${a.label} Sponsor`, a]));
+    const store = fileBalanceStore(join(stateDir(), "sponsor-balance.json"));
+    const r = await balanceCheck({
+      now: Date.now(),
+      everyMs: 0,
+      ...store,
+      watches: sponsorWatches(ADAPTERS.map((a) => ({ label: a.label, address: a.sponsorAddress().toBase58() })), sponsorMinLamports()),
+      read: async (w) => {
+        const lamports = await byKey.get(w.label)!.sponsorBalance(ctx);
+        return lamports === null ? Number.NaN : lamports / 1e9;
+      },
+      manager: (st) => new AlertManager((a) => postAlert(base, secret, a), cfg.reminderMs, keeperCluster().id).restore(st),
+    });
+    log("pool", "-", `sponsors checked, ${r.low} low`);
+  } catch (e) {
+    log("pool", "-", `ERROR sponsor check ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+  }
 }
 
 main().catch((e) => {

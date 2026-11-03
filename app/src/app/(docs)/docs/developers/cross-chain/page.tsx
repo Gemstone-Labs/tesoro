@@ -71,11 +71,11 @@ export default function Page() {
         <li>
           <b>Redeem now.</b> The holder calls <code>tesoro_bridge::instant_redeem_to_evm</code>, which moves their won Gemas to {BRAND.name}&apos;s Treasury Account and
           pays {INSTANT_PAYOUT_PCT}% of their value (after the Yield Fee and the Instant Redeem Fee). The bridge keeps a mirror of each vault&apos;s Treasury (<code>VaultTreasury</code>) and refuses a payout the vault has not reported
-          funds for (the vault&apos;s balance at its latest report, less payouts recorded since). Anyone then calls <code>send_pay_instant</code> (message type 5), and the vault pays from its Treasury. To refill, the Treasury Account redeems the
+          funds for (the vault&apos;s balance at its latest report, less payouts recorded since). Anyone then calls <code>send_pay_instant</code> (message type 12), and the vault pays from its Treasury. To refill, the Treasury Account redeems the
           Gemas it bought as the yield lands (<code>redeem_treasury_to_evm</code>) and a <code>PayYield</code> to the vault&apos;s own address books the proceeds into its Treasury.
         </li>
         <li>
-          <b>Unlock.</b> After <code>tesoro_core::unlock</code>, anyone calls <code>send_unlock</code>. Yield still owed to redeemers stays in the vault.
+          <b>Unlock.</b> After <code>tesoro_core::unlock</code>, anyone calls <code>send_unlock</code>. Yield still owed to redeemers stays in the vault. Unlock and every Redeem to ETH or HYPE pay a flat Delivery Fee, in the asset the Player receives, for the cross-chain send; <code>DeliveryTerms</code> holds it and the vault never takes more than a tenth of a payout.
         </li>
       </ol>
       <p>

@@ -65,7 +65,7 @@ It talks to the live devnet deployment, so no configuration is needed. Open `/pl
 Programs need Rust 1.91.1 (pinned), Anchor 0.31.1 and Solana platform tools v1.54. Contracts need Foundry.
 
 ```bash
-pnpm build:programs                       # plain `anchor build` fails; this pins platform tools v1.54
+pnpm build:programs                       # builds with platform tools v1.54 (an unpinned Anchor build fails)
 cargo test --workspace
 
 pnpm build:contracts && pnpm test:contracts

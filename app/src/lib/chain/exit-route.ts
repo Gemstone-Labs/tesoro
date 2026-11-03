@@ -1,6 +1,7 @@
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { coreIxName } from "./core-ix";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TESORO_CORE_ID } from "./native";
+import { STAKE_TOKENS } from "./stake";
 
 /** The Player's own exits that may carry setup (their token account, checkpoint pages) paid by the relayer. */
 const PREPARED_EXITS = ["redeem", "request_instant_redeem", "unlock"];
@@ -13,19 +14,22 @@ export type ExitRoute =
   /** The Player pays the fee and any rent. */
   | { kind: "self-pay"; feePayer: PublicKey; ixs: TransactionInstruction[] };
 
+/** The stake pool update that may open a staking-token exit: it names no payer, so the relayer's key is not put in it. */
+const isPoolUpdate = (ix: TransactionInstruction) => ix.data[0] === 7 && STAKE_TOKENS.some((t) => t.poolProgram.equals(ix.programId));
+
 /**
  * The one rule for how an exit is sent and who pays its fee. `exitSend` sends what this returns and the Unlock dry run
  * simulates the same instructions with the same fee payer, so a Player with no SOL is never simulated as the payer of
  * something the relayer will carry.
  */
 export function planExit(ixs: readonly TransactionInstruction[], player: PublicKey, relayer: PublicKey): ExitRoute {
-  const setup = (ix: TransactionInstruction) => coreIxName(ix) === "init_ckpt_page" || ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID);
+  const setup = (ix: TransactionInstruction) => coreIxName(ix) === "init_ckpt_page" || ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) || isPoolUpdate(ix);
   const prefix = ixs.slice(0, -1);
   const prepared = prefix.length > 0 && PREPARED_EXITS.includes(coreIxName(ixs.at(-1)!) ?? "") && prefix.every(setup);
   if (prepared) {
     const rewritten = ixs.map((ix, i) => i === ixs.length - 1 ? ix : new TransactionInstruction({
       programId: ix.programId, data: ix.data,
-      keys: ix.keys.map((k, j) => j === 0 ? { ...k, pubkey: relayer } : k),
+      keys: isPoolUpdate(ix) ? ix.keys : ix.keys.map((k, j) => j === 0 ? { ...k, pubkey: relayer } : k),
     }));
     return { kind: "prepared", feePayer: relayer, ixs: rewritten };
   }

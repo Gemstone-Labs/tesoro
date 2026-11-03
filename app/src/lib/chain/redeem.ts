@@ -9,8 +9,10 @@ import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
 import type { ChainHolding } from "./read";
 import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
-import { SIM_SOL_MINT, accountPda, redeemIx, simSolAta, sourcePda, unlockIx, type LineTarget, type PrevAdvance } from "./native";
+import coreIdl from "./idl/tesoro_core.json";
+import { SIM_SOL_MINT, TESORO_CORE_ID, accountPda, redeemIx, simSolAta, sourcePda, unlockIx, type LineTarget, type PrevAdvance } from "./native";
 import { createAtaIdempotentIx, tokenAta } from "./stake-pool";
+import { stakePoolRefreshIxs } from "./stake-pool-refresh";
 import { redeemStakeIx, stakeTokenOf, unlockStakeIx, type StakeToken } from "./stake";
 
 /**
@@ -23,6 +25,10 @@ type Reader = { getMultipleAccountsInfo(keys: PublicKey[]): Promise<({ data: Uin
 /** `init_ckpt_page`: the payer creates the next page of a class's checkpoint records (only the page being filled, or the next). */
 export const initCkptPageIx = (payer: PublicKey, source: PublicKey, classId: number, pageNo: number) =>
   coreIx("init_ckpt_page", { payer, book: bookPda(source), page: ckptPda(source, classId, pageNo) }, { class: classId, page_no: pageNo });
+
+const INIT_CKPT_PAGE_DISC = Buffer.from((coreIdl.instructions.find((i) => i.name === "init_ckpt_page") as { discriminator: number[] }).discriminator);
+/** Whether an instruction is tesoro_core's `init_ckpt_page`. */
+export const isInitCkptPage = (ix: TransactionInstruction) => ix.programId.equals(TESORO_CORE_ID) && Buffer.from(ix.data.subarray(0, 8)).equals(INIT_CKPT_PAGE_DISC);
 
 /** Records one landing can close per class: normalise twice and rescale once. */
 const CLOSES_PER_LANDING = 3;
@@ -93,6 +99,9 @@ const tokenOf = (mint: PublicKey | null | undefined): StakeToken | null => {
   return token;
 };
 
+/** The stake pool update in front of a staking-token payout, when the pool is too far behind. The sponsor admits it (rules.ts), so the exit stays free. */
+const poolRefreshFor = (token: StakeToken | null): Promise<TransactionInstruction[]> => (token ? stakePoolRefreshIxs(getChain().base, token.pool) : Promise.resolve([]));
+
 /** The instruction that creates the holder's simSOL or staking-token account, or nothing when it exists (then the exit can be free). */
 async function ataIx(conn: Reader, me: PublicKey, token: StakeToken | null): Promise<TransactionInstruction[]> {
   const ata = token ? tokenAta(me, token.mint) : simSolAta(me);
@@ -116,8 +125,9 @@ export async function redeemLineIxs(conn: Reader, me: PublicKey, h: Pick<ChainHo
 
 /** Redeem `gemas` of one line (a native or staking-token Source), through the relayer when the token account exists. */
 export async function redeemLine(signer: ChainSigner, getToken: GetToken, h: Parameters<typeof redeemLineIxs>[2], gemas: bigint): Promise<string> {
+  const refresh = await poolRefreshFor(tokenOf(h.stakeMint));
   const ixs = await redeemLineIxs(getChain().base, signer.publicKey, h, gemas);
-  return exitSend(signer, getToken, ixs);
+  return exitSend(signer, getToken, [...refresh, ...ixs]);
 }
 
 /** The Position's open Advance as `unlock` and a new Advance need it: its index, the Source's book and the pages. Null when none is open. */
@@ -134,6 +144,7 @@ export async function unlockIxs(me: PublicKey, info: UnlockInfo): Promise<Transa
   const { prev, create } = await prevAdvanceOf(getChain().base, info.position, info.openAdvance, me);
   const token = info.stakeRateOpen > 0n ? tokenOf(info.mint) : null;
   return [
+    ...(await poolRefreshFor(token)),
     ...create,
     ...(await ataIx(getChain().base, me, token)),
     token ? unlockStakeIx(me, info.position, prev, token) : unlockIx(me, info.position, prev),

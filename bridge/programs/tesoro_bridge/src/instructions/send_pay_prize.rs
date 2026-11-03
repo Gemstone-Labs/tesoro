@@ -39,6 +39,7 @@ impl SendPayPrize<'_> {
             payout.prize_source.to_bytes(),
             pad_address(&payout.recipient),
             payout.shares,
+            payout.delivery_fee,
         );
         payout.sends = payout.sends.saturating_add(1);
         let send = SendParams {
@@ -55,6 +56,7 @@ impl SendPayPrize<'_> {
             msg_type: MSG_PAY_PRIZE,
             seq: params.payout_id,
             amount: ctx.accounts.payout.shares,
+            delivery_fee: ctx.accounts.payout.delivery_fee,
         });
         Ok(())
     }

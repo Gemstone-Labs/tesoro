@@ -28,7 +28,7 @@ export function watches(ctx: Ctx, cfg: AlertConfig, env: NodeJS.ProcessEnv = pro
   return out;
 }
 
-async function balanceOf(ctx: Ctx, w: Watch): Promise<number> {
+export async function balanceOf(ctx: Ctx, w: Watch): Promise<number> {
   if (w.net === "solana") return (await ctx.conn.getBalance(new PublicKey(w.address))) / 1e9;
   const net = NETS.find((n) => n.chain === w.net)!;
   const rpc = net.rpc(ctx.settings);

@@ -89,12 +89,20 @@ contract PositionVaultOAppTest is Test {
     }
 
     function _unlock(uint64 id, uint64 seq) internal view returns (bytes memory) {
-        return abi.encodePacked(uint8(3), HOODI, _key(id), seq, uint128(0));
+        return abi.encodePacked(uint8(10), HOODI, _key(id), seq, uint128(0));
     }
 
     function _pay(uint64 id, uint64 seq, address to, uint128 amt) internal view returns (bytes memory) {
         return abi.encodePacked(
-            uint8(4), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), uint128(amt), uint128(0), uint128(0)
+            uint8(11),
+            HOODI,
+            _key(id),
+            seq,
+            bytes32(uint256(uint160(to))),
+            uint128(amt),
+            uint128(0),
+            uint128(0),
+            uint128(0)
         );
     }
 
@@ -103,7 +111,8 @@ contract PositionVaultOAppTest is Test {
         view
         returns (bytes memory)
     {
-        return abi.encodePacked(uint8(4), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), amt, fee, pool);
+        return
+            abi.encodePacked(uint8(11), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), amt, fee, pool, uint128(0));
     }
 
     /// A cash-out that takes a Yield Fee puts that fee in the Treasury (the Treasury holds nothing else of yield).
@@ -113,37 +122,38 @@ contract PositionVaultOAppTest is Test {
         _recv(_payFee(id, 100, address(0xB0B), amt, uint128(fee), 0));
     }
 
-    function test_pay_yield_is_125_bytes_and_a_wrong_length_is_refused() public {
+    function test_pay_yield_is_141_bytes_and_a_wrong_length_is_refused() public {
         uint64 id = _open(1e18);
         vm.warp(block.timestamp + 600);
         uint128 amt = uint128(vault.payableYield(id) / 2);
         bytes memory m = _payFee(id, 1, redeemer, amt, amt / 5, amt / 10);
-        assertEq(m.length, 125, "header 45 | to 32 | amount 16 | fee 16 | pool 16");
+        assertEq(m.length, 141, "header 45 | to 32 | amount 16 | fee 16 | pool 16 | delivery fee 16");
         _recv(m);
         assertEq(lst.balanceOf(redeemer), amt - amt / 5);
         assertEq(vault.realisedFees(), amt / 5);
         assertEq(vault.poolOwedUnits(), amt / 10);
         vm.expectRevert(PositionVaultOApp.InvalidMessageLength.selector);
-        _recv(abi.encodePacked(uint8(4), HOODI, _key(id), uint64(2), bytes32(uint256(uint160(redeemer))), amt));
+        _recv(abi.encodePacked(uint8(11), HOODI, _key(id), uint64(2), bytes32(uint256(uint160(redeemer))), amt));
     }
 
     /// The literal the bridge's Rust encoder is tested against: any change to the layout breaks both sides.
     function test_pay_yield_layout_is_the_shared_literal() public {
         address holder = address(bytes20(hex"cccccccccccccccccccccccccccccccccccccccc"));
         bytes memory m = abi.encodePacked(
-            uint8(4),
+            uint8(11),
             uint32(40449),
             bytes32(hex"0202020202020202020202020202020202020202020202020202020202020202"),
             uint64(5),
             bytes32(uint256(uint160(holder))),
             uint128(42),
             uint128(8),
-            uint128(4)
+            uint128(4),
+            uint128(3)
         );
-        assertEq(m.length, 125);
+        assertEq(m.length, 141);
         assertEq(
             m,
-            hex"0400009e0102020202020202020202020202020202020202020202020202020202020202020000000000000005000000000000000000000000cccccccccccccccccccccccccccccccccccccccc0000000000000000000000000000002a0000000000000000000000000000000800000000000000000000000000000004"
+            hex"0b00009e0102020202020202020202020202020202020202020202020202020202020202020000000000000005000000000000000000000000cccccccccccccccccccccccccccccccccccccccc0000000000000000000000000000002a000000000000000000000000000000080000000000000000000000000000000400000000000000000000000000000003"
         );
 
         // The vault decodes the same field order: to, amount 42, fee 8, pool 4 (with this vault's own key).
@@ -211,7 +221,7 @@ contract PositionVaultOAppTest is Test {
     }
 
     function _instant(uint64 id, uint64 seq, address to, uint128 amt) internal view returns (bytes memory) {
-        return abi.encodePacked(uint8(5), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), amt);
+        return abi.encodePacked(uint8(12), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), amt, uint128(0));
     }
 
     function test_a_recipient_word_wider_than_an_address_is_refused_not_truncated() public {
@@ -220,9 +230,9 @@ contract PositionVaultOAppTest is Test {
         uint128 amt = uint128(vault.payableYield(id) / 2);
         bytes32 wide = bytes32(uint256(uint160(redeemer)) | (uint256(1) << 200));
         vm.expectRevert(PositionVaultOApp.BadRecipient.selector);
-        _recv(abi.encodePacked(uint8(4), HOODI, _key(id), uint64(1), wide, amt, uint128(0), uint128(0)));
+        _recv(abi.encodePacked(uint8(11), HOODI, _key(id), uint64(1), wide, amt, uint128(0), uint128(0), uint128(0)));
         vm.expectRevert(PositionVaultOApp.BadRecipient.selector);
-        _recv(abi.encodePacked(uint8(5), HOODI, _key(id), uint64(1), wide, amt));
+        _recv(abi.encodePacked(uint8(12), HOODI, _key(id), uint64(1), wide, amt, uint128(0)));
         assertEq(lst.balanceOf(redeemer), 0);
     }
 
@@ -230,18 +240,23 @@ contract PositionVaultOAppTest is Test {
         uint64 id = _open(1e18);
         bytes32 dirty = bytes32(uint256(_key(id)) | 1);
         vm.expectRevert(PositionVaultOApp.WrongVault.selector);
-        _recv(abi.encodePacked(uint8(3), HOODI, dirty, uint64(1), uint128(0)));
-        vm.expectRevert(PositionVaultOApp.WrongVault.selector);
-        _recv(abi.encodePacked(uint8(5), HOODI, dirty, uint64(1), bytes32(uint256(uint160(redeemer))), uint128(1)));
+        _recv(abi.encodePacked(uint8(10), HOODI, dirty, uint64(1), uint128(0)));
         vm.expectRevert(PositionVaultOApp.WrongVault.selector);
         _recv(
             abi.encodePacked(
-                uint8(4),
+                uint8(12), HOODI, dirty, uint64(1), bytes32(uint256(uint160(redeemer))), uint128(1), uint128(0)
+            )
+        );
+        vm.expectRevert(PositionVaultOApp.WrongVault.selector);
+        _recv(
+            abi.encodePacked(
+                uint8(11),
                 HOODI,
                 dirty,
                 uint64(1),
                 bytes32(uint256(uint160(redeemer))),
                 uint128(1),
+                uint128(0),
                 uint128(0),
                 uint128(0)
             )
@@ -287,7 +302,7 @@ contract PositionVaultOAppTest is Test {
     function test_pay_instant_rejects_wrong_length() public {
         uint64 id = _open(1e18);
         vm.expectRevert(PositionVaultOApp.InvalidMessageLength.selector);
-        _recv(abi.encodePacked(uint8(5), HOODI, _key(id), uint64(1), uint128(0)));
+        _recv(abi.encodePacked(uint8(12), HOODI, _key(id), uint64(1), uint128(0)));
     }
 
     function test_treasury_admin_is_the_owner() public {
@@ -328,7 +343,7 @@ contract PositionVaultOAppTest is Test {
     function test_rejects_other_vaults_positions_unknown_peers_and_bad_lengths() public {
         uint64 id = _open(1e18);
         bytes memory foreign = abi.encodePacked(
-            uint8(3), HOODI, bytes32((uint256(0xdead) << 96) | (uint256(id) << 32)), uint64(1), uint128(0)
+            uint8(10), HOODI, bytes32((uint256(0xdead) << 96) | (uint256(id) << 32)), uint64(1), uint128(0)
         );
         vm.expectRevert(PositionVaultOApp.WrongVault.selector);
         _recv(foreign);
@@ -338,7 +353,7 @@ contract PositionVaultOAppTest is Test {
         vault.lzReceive(Origin(SOLANA, bytes32(uint256(0xbad)), 1), bytes32(0), _unlock(id, 1), address(0), "");
 
         vm.expectRevert(PositionVaultOApp.InvalidMessageLength.selector);
-        _recv(abi.encodePacked(uint8(3), HOODI, _key(id), uint64(1)));
+        _recv(abi.encodePacked(uint8(10), HOODI, _key(id), uint64(1)));
         vm.expectRevert(PositionVaultOApp.InvalidMessageType.selector);
         _recv(abi.encodePacked(uint8(1), HOODI, _key(id), uint64(1), uint128(0)));
     }

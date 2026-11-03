@@ -111,9 +111,25 @@ interface Open {
  * while it lasts, one "recovered" when it clears. A send that fails is retried on the next tick, not lost.
  * State is in memory: a keeper restart re-announces a condition that is still there.
  */
+export interface ManagerState {
+  open: Record<string, Open>;
+  recovering: Record<string, { title: string; detail: string }>;
+}
+
 export class AlertManager {
   private open = new Map<string, Open>();
   private recovering = new Map<string, { title: string; detail: string }>();
+
+  /** Plain data, so a run-per-timer process can keep the no-repeat rule across runs. */
+  state(): ManagerState {
+    return { open: Object.fromEntries(this.open), recovering: Object.fromEntries(this.recovering) };
+  }
+
+  restore(s: ManagerState): this {
+    this.open = new Map(Object.entries(s.open));
+    this.recovering = new Map(Object.entries(s.recovering));
+    return this;
+  }
 
   constructor(
     private readonly send: (a: Alert) => Promise<boolean>,

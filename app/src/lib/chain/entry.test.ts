@@ -25,9 +25,9 @@ import { SponsorError } from "./sponsor-client";
 import { planTransaction } from "@/server/sponsor/rules";
 import { cancelTicketIx, closeTicketIx, openTicketIx, stageEntryIx, decodeTicket, stagedEntryState } from "./ticket";
 
-const { sendBase, sponsoredSend, readAccounts } = vi.hoisted(() => ({ sendBase: vi.fn(), sponsoredSend: vi.fn(), readAccounts: vi.fn(async (keys: unknown[]): Promise<({ data: Uint8Array } | null)[]> => keys.map(() => null)) }));
+const { sendBase, sponsoredSend, readAccounts, readSlice } = vi.hoisted(() => ({ sendBase: vi.fn(), sponsoredSend: vi.fn(), readSlice: vi.fn(), readAccounts: vi.fn(async (keys: unknown[]): Promise<({ data: Uint8Array } | null)[]> => keys.map(() => null)) }));
 
-vi.mock("./client", () => ({ getChain: () => ({ base: { getMultipleAccountsInfo: readAccounts }, sendBase }) }));
+vi.mock("./client", () => ({ getChain: () => ({ base: { getMultipleAccountsInfo: readAccounts, getAccountInfo: readSlice }, sendBase }) }));
 vi.mock("./sponsor-client", async (orig) => ({ ...(await orig<typeof import("./sponsor-client")>()), sponsorStatus: async () => ({ relayer: Keypair.generate().publicKey.toBase58(), paused: false, low: false }), sponsoredSend }));
 vi.mock("./demo-client", () => ({ ensureSol: async () => undefined }));
 
@@ -362,10 +362,28 @@ describe("Ticket and Pot nonces come from the funder's counter", () => {
     );
   const sentPotNonce = (ix: { data: Buffer } | undefined) => String((coder.decode(ix!.data) as unknown as { data: Record<string, unknown> }).data.pot_nonce);
 
+  /** A Game that is listed for ever, deployed in the approved slot (record slice: listed_until, approved_slot; program slice: slot). */
+  const listedGame = async (key: PublicKey, cfg: { dataSlice: { length: number } }) => {
+    const b = Buffer.alloc(cfg.dataSlice.length);
+    if (cfg.dataSlice.length === 16) b.writeBigInt64LE(4_000_000_000n, 0);
+    return { data: b };
+  };
+
   beforeEach(() => {
     sendBase.mockReset();
     sponsoredSend.mockReset();
     readAccounts.mockReset();
+    readSlice.mockReset();
+    readSlice.mockImplementation(listedGame);
+  });
+
+  it("openEntry refuses an unlisted Game before reading or sending anything", async () => {
+    const { openEntry } = await import("./entry-flow");
+    readSlice.mockResolvedValue(null);
+    await expect(openEntry({ signer, getToken: async () => null, game: "holdem", entry: 100, challenge: false })).rejects.toThrow("This Game isn't listed right now.");
+    expect(readAccounts).not.toHaveBeenCalled();
+    expect(sponsoredSend).not.toHaveBeenCalled();
+    expect(sendBase).not.toHaveBeenCalled();
   });
 
   it("openEntry builds the fresh Pot with the counter's next_ticket", async () => {

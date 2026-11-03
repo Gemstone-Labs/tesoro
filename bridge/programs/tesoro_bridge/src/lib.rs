@@ -34,6 +34,7 @@ const TREASURY_SEED: &[u8] = b"treasury";
 const ROUTE_SEED: &[u8] = b"route";
 const BATCH_SEED: &[u8] = b"batch";
 const PAYOUT_SEED: &[u8] = b"payout";
+const DELIVERY_SEED: &[u8] = b"delivery";
 
 /// LayerZero V2 endpoint ids of the source chains. The testnet ids serve test mode (Hoodi,
 /// HyperEVM testnet), the mainnet ids the mainnet vaults; one bridge deployment only ever has the
@@ -102,6 +103,13 @@ pub mod tesoro_bridge {
         params: SetPeerConfigParams,
     ) -> Result<()> {
         SetPeerConfig::apply(&mut ctx, &params)
+    }
+
+    pub fn set_delivery_terms(
+        mut ctx: Context<SetDeliveryTerms>,
+        params: SetDeliveryTermsParams,
+    ) -> Result<()> {
+        SetDeliveryTerms::apply(&mut ctx, &params)
     }
 
     pub fn set_route(mut ctx: Context<SetRoute>, params: SetRouteParams) -> Result<()> {

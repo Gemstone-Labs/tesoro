@@ -1,5 +1,5 @@
 //! LiteSVM tests of the bridge's tesoro_core-facing instructions against the built programs
-//! (`cargo build-sbf` here and `pnpm build:programs` at the repo root first). The endpoint
+//! (`cd bridge && anchor build --no-idl -- --tools-version v1.54` here and `pnpm build:programs` at the repo root first). The endpoint
 //! program is not loaded, so `lz_receive` and the send instructions are covered on devnet; the
 //! inbox they fill is written directly with the bytes `lz_receive` would produce.
 #![allow(clippy::result_large_err)]
@@ -48,6 +48,8 @@ const EVM_ADDRESS: [u8; 20] = [
 // `cast wallet sign --private-key <anvil 0> "<link message for OWNER_ACCOUNT>"`
 const LINK_SIGNATURE: &str = "4eea9b6d0a869481ca89acfd3c80de21ee3d843dd9f1156b2026672905d043eb12245b421f8f445e9df6eca436f5db9a5e15a62721226a1e8d1f60aeaf5555a31b";
 const VAULT: [u8; 20] = [0x5b; 20];
+/// 0.00001 ETH, the Delivery Fee the test vault charges.
+const TEST_DELIVERY_FEE: u128 = 10_000_000_000_000;
 /// The EVM addresses Tesoro's Platform and Studio Accounts are paid at.
 const PLATFORM_EVM: [u8; 20] = [0xA1; 20];
 const STUDIO_EVM: [u8; 20] = [0xB2; 20];
@@ -128,13 +130,13 @@ impl Env {
         svm.add_program_from_file(s(tesoro_core::ID), core_so)
             .expect("build tesoro_core first: pnpm build:programs");
         svm.add_program_from_file(s(crate::ID), bridge_so)
-            .expect("build the bridge first: cargo build-sbf");
+            .expect("build the bridge first: cd bridge && anchor build --no-idl -- --tools-version v1.54");
         // The LayerZero endpoint is a test double: it accepts `clear` and `send` and logs what it
         // was given, so the real `lz_receive` and the send instructions run end to end.
         let endpoint_so =
             concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/mock_endpoint.so");
         svm.add_program_from_file(s(oapp::endpoint::ID), endpoint_so)
-            .expect("build the bridge first: cargo build-sbf");
+            .expect("build the bridge first: cd bridge && anchor build --no-idl -- --tools-version v1.54");
         // `add_program` deploys with no upgrade authority; record one for the `set_admin` gate.
         let upgrade_authority = Keypair::new();
         let programdata = Pubkey::find_program_address(
@@ -280,7 +282,30 @@ impl Env {
                 .1,
             },
         );
+        env.put(
+            env.delivery_terms(),
+            crate::ID,
+            &DeliveryTerms {
+                eid: EID_HOODI,
+                peer_address: msg_codec::pad_address(&VAULT),
+                bump: Pubkey::find_program_address(
+                    &[DELIVERY_SEED, &EID_HOODI.to_be_bytes(), &msg_codec::pad_address(&VAULT)],
+                    &crate::ID,
+                )
+                .1,
+                delivery_fee: TEST_DELIVERY_FEE,
+                max_abs: 1_000_000_000_000_000,
+                min_redeem: 500_000_000_000_000,
+                max_bps_unlock: 200,
+                max_bps_yield: 1_000,
+                min_prize_gemas: 1,
+            },
+        );
         env
+    }
+
+    fn delivery_terms(&self) -> Pubkey {
+        bridge_pda(&[DELIVERY_SEED, &EID_HOODI.to_be_bytes(), &msg_codec::pad_address(&VAULT)])
     }
 
     fn vault_treasury(&self) -> Pubkey {
@@ -798,7 +823,10 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
         let mut redeem = ix(
             crate::ID,
             crate::accounts::RedeemToEvm {
+                delivery_terms: env.delivery_terms(),
+                peer: env.peer(),
                 holder_authority: a(owner.pubkey()),
+                payer: a(owner.pubkey()),
                 store: env.store,
                 authority: env.authority,
                 core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
@@ -833,6 +861,16 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
     let payout = (u128::from(claim.units_total) * 8_000 / 10_000) as u64;
     assert_eq!(claim.fee_total, claim.units_total - payout);
     assert_eq!(claim.pool_total, claim.fee_total / 2);
+    // The Delivery Fee is fixed at redeem time: the flat 0.00001 ETH, well under 10% of the share.
+    assert_eq!(claim.delivery_fee, 10_000_000_000_000);
+    // A Redeem whose Player share is under the minimum (0.0005 ETH) is refused, and burns nothing.
+    let gemas_before = econ::gemas_in(&env.svm, env.owner_account, source_key);
+    let err = redeem(&mut env, 100).expect_err("below the minimum Redeem");
+    assert_eq!(
+        custom_code(&err),
+        Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::BelowMinimumRedeem as u32)
+    );
+    assert_eq!(econ::gemas_in(&env.svm, env.owner_account, source_key), gemas_before);
     assert_eq!(
         (source.inner.fee_units, source.inner.pool_units),
         (claim.fee_total, claim.pool_total)
@@ -935,6 +973,75 @@ fn vaults_on_the_mainnet_layerzero_ids_register() {
     assert!(matches!(core_chain(30_101), Ok(SourceChain::Ethereum)));
     assert!(matches!(core_chain(30_367), Ok(SourceChain::HyperEvm)));
     assert!(core_chain(30_168).is_err(), "Solana's own id is not a source chain");
+}
+
+fn delivery_terms_ix(env: &Env, signer: &Keypair, params: SetDeliveryTermsParams) -> Instruction {
+    ix(
+        crate::ID,
+        crate::accounts::SetDeliveryTerms {
+            admin: a(signer.pubkey()),
+            store: env.store,
+            peer: env.peer(),
+            delivery_terms: env.delivery_terms(),
+            system_program: anchor_lang::system_program::ID,
+        },
+        crate::instruction::SetDeliveryTerms { params },
+    )
+}
+
+fn terms_params() -> SetDeliveryTermsParams {
+    SetDeliveryTermsParams {
+        eid: EID_HOODI,
+        peer_address: msg_codec::pad_address(&VAULT),
+        delivery_fee: 10_000_000_000_000,
+        max_abs: 1_000_000_000_000_000,
+        min_redeem: 500_000_000_000_000,
+        max_bps_unlock: 200,
+        max_bps_yield: 1_000,
+        min_prize_gemas: 100,
+    }
+}
+
+#[test]
+fn only_the_admin_sets_delivery_terms_and_none_may_pass_the_ceiling_or_starve_the_player() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    env.send(&[delivery_terms_ix(&env, &admin, terms_params())], &admin, &[])
+        .expect("admin sets");
+    let terms: DeliveryTerms = env.load(env.delivery_terms());
+    assert_eq!(
+        (terms.delivery_fee, terms.max_bps_yield, terms.min_prize_gemas),
+        (10_000_000_000_000, 1_000, 100)
+    );
+
+    let outsider = Keypair::new();
+    env.svm.airdrop(&s(a(outsider.pubkey())), 1_000_000_000).unwrap();
+    let err = env
+        .send(&[delivery_terms_ix(&env, &outsider, terms_params())], &outsider, &[])
+        .expect_err("not the admin");
+    assert_eq!(
+        custom_code(&err),
+        Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::Unauthorized as u32)
+    );
+
+    let too_wide = SetDeliveryTermsParams { max_bps_yield: 1_001, ..terms_params() };
+    let err = env
+        .send(&[delivery_terms_ix(&env, &admin, too_wide)], &admin, &[])
+        .expect_err("past the ceiling");
+    assert_eq!(
+        custom_code(&err),
+        Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::DeliveryTermsInvalid as u32)
+    );
+
+    // A minimum Redeem so small that 2% of it is under the flat fee would clamp the fee: refused.
+    let starved = SetDeliveryTermsParams { min_redeem: 1_000_000_000_000, ..terms_params() };
+    let err = env
+        .send(&[delivery_terms_ix(&env, &admin, starved)], &admin, &[])
+        .expect_err("fee does not fit");
+    assert_eq!(
+        custom_code(&err),
+        Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::DeliveryTermsInvalid as u32)
+    );
 }
 
 #[test]
@@ -1116,6 +1223,7 @@ impl Env {
         let mut fill = ix(
             crate::ID,
             crate::accounts::InstantRedeemToEvm {
+                delivery_terms: self.delivery_terms(),
                 filler: a(filler.pubkey()),
                 store: self.store,
                 authority: self.authority,
@@ -1327,7 +1435,10 @@ fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
     let mut redeem = ix(
         crate::ID,
         crate::accounts::RedeemToEvm {
+            delivery_terms: env.delivery_terms(),
+            peer: env.peer(),
             holder_authority: a(bob.pubkey()),
+            payer: a(bob.pubkey()),
             store: env.store,
             authority: env.authority,
             core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
@@ -1375,7 +1486,10 @@ fn a_legacy_wei_line_is_refused_before_redeem_or_treasury_redeem_burns_anything(
     let mut redeem = ix(
         crate::ID,
         crate::accounts::RedeemToEvm {
+            delivery_terms: env.delivery_terms(),
+            peer: env.peer(),
             holder_authority: a(bob.pubkey()),
+            payer: a(bob.pubkey()),
             store: env.store,
             authority: env.authority,
             core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
@@ -1473,6 +1587,8 @@ fn legacy_discriminator(kind: LegacyKind) -> &'static [u8] {
         LegacyKind::BridgePosition => BridgePosition::DISCRIMINATOR,
         LegacyKind::Claim => Claim::DISCRIMINATOR,
         LegacyKind::VaultTreasury => VaultTreasury::DISCRIMINATOR,
+        LegacyKind::InstantClaim => InstantClaim::DISCRIMINATOR,
+        LegacyKind::PayoutRecord => PayoutRecord::DISCRIMINATOR,
     }
 }
 
@@ -1484,6 +1600,9 @@ fn every_old_size_retires_to_the_admin() {
         (LegacyKind::BridgePosition, 172),
         (LegacyKind::BridgePosition, 188),
         (LegacyKind::Claim, 129),
+        (LegacyKind::Claim, 161),
+        (LegacyKind::InstantClaim, 129),
+        (LegacyKind::PayoutRecord, 230),
         (LegacyKind::VaultTreasury, 77),
     ];
     for (kind, len) in cases {
@@ -1507,6 +1626,8 @@ fn a_current_size_record_is_refused() {
     let cases = [
         (LegacyKind::BridgePosition, 8 + BridgePosition::INIT_SPACE),
         (LegacyKind::Claim, 8 + Claim::INIT_SPACE),
+        (LegacyKind::InstantClaim, 8 + InstantClaim::INIT_SPACE),
+        (LegacyKind::PayoutRecord, 8 + PayoutRecord::INIT_SPACE),
         (LegacyKind::VaultTreasury, 8 + VaultTreasury::INIT_SPACE),
     ];
     for (kind, len) in cases {
@@ -1521,6 +1642,16 @@ fn a_current_size_record_is_refused() {
     let ix = retire_ix(&env, &admin, key, LegacyKind::BridgePosition);
     env.send(&[ix], &admin, &[]).expect_err("wrong discriminator refused");
     assert!(env.exists(key));
+}
+
+#[test]
+fn the_legacy_sizes_are_the_current_sizes_less_the_delivery_fee_field() {
+    assert_eq!(8 + Claim::INIT_SPACE, 177);
+    assert_eq!(8 + InstantClaim::INIT_SPACE, 145);
+    assert_eq!(8 + PayoutRecord::INIT_SPACE, 246);
+    assert_eq!(LEGACY_CLAIM_LENGTHS, [129, 8 + Claim::INIT_SPACE - 16]);
+    assert_eq!(LEGACY_INSTANT_CLAIM_LENGTHS, [8 + InstantClaim::INIT_SPACE - 16]);
+    assert_eq!(LEGACY_PAYOUT_LENGTHS, [8 + PayoutRecord::INIT_SPACE - 16]);
 }
 
 #[test]
@@ -2518,12 +2649,24 @@ impl Env {
     }
 
     fn redeem_prize(&mut self, gemas: u64) -> std::result::Result<u64, Failed> {
+        self.redeem_prize_paid_by(gemas, None)
+    }
+
+    /// The holder cashes out; `relayer`, when given, pays the fee and the payout record's rent.
+    fn redeem_prize_paid_by(
+        &mut self,
+        gemas: u64,
+        relayer: Option<&Keypair>,
+    ) -> std::result::Result<u64, Failed> {
         let owner = self.owner.insecure_clone();
+        let payer_key = relayer.map_or(owner.pubkey(), |r| r.pubkey());
         let payout_id = self.route_state().last_payout_id + 1;
         let redeem = ix(
             crate::ID,
             crate::accounts::RedeemPrizeToEvm {
+                delivery_terms: self.delivery_terms(),
                 holder_authority: a(owner.pubkey()),
+                payer: a(payer_key),
                 store: self.store,
                 authority: self.authority,
                 route: self.route(),
@@ -2539,7 +2682,11 @@ impl Env {
             },
             crate::instruction::RedeemPrizeToEvm { gemas },
         );
-        self.send(&[redeem], &owner, &[]).map(|_| payout_id)
+        match relayer {
+            Some(r) => self.send(&[redeem], r, &[&owner]),
+            None => self.send(&[redeem], &owner, &[]),
+        }
+        .map(|_| payout_id)
     }
 
     fn send_pay_prize(&mut self, payout_id: u64) -> std::result::Result<Vec<u8>, Failed> {
@@ -3018,4 +3165,114 @@ fn a_batch_acknowledged_in_wei_with_dust_credits_only_whole_units() {
         .expect("ack");
     let b = env.batch(batch_id);
     assert_eq!(b.paid_units, units - 1);
+}
+
+/// Moves everything but the fee out of `key`, leaving it at zero lamports: a Solana signer needs no balance.
+fn drain(env: &mut Env, key: &Keypair) {
+    let fee = 5_000;
+    let left = env.lamports(a(key.pubkey()));
+    let sink = Keypair::new();
+    let mut data = vec![2, 0, 0, 0];
+    data.extend_from_slice(&(left - fee).to_le_bytes());
+    let transfer = Instruction::new_with_bytes(
+        s(anchor_lang::system_program::ID),
+        &data,
+        vec![AccountMeta::new(key.pubkey(), true), AccountMeta::new(sink.pubkey(), false)],
+    );
+    env.send(&[transfer], key, &[]).expect("drain");
+    assert_eq!(env.lamports(a(key.pubkey())), 0);
+}
+
+#[test]
+fn a_holder_with_no_sol_redeems_with_a_relayer_paying_the_claim_rent() {
+    let mut env = Env::new();
+    let id = 1;
+    env.opened_with_advance(id);
+    let (bob, bob_account, source) = env.winner_with(id, 1_000);
+    env.receive_yield(id, 2, 12_500_000_000_000_000, 0, 0);
+    env.apply_yield(id, true).expect("apply yield");
+    let relayer = Keypair::new();
+    env.svm.airdrop(&relayer.pubkey(), 5 * SOL).expect("airdrop");
+    drain(&mut env, &bob);
+
+    let claim_key = bridge_pda(&[CLAIM_SEED, bob_account.as_ref(), source.as_ref()]);
+    let mut redeem = ix(
+        crate::ID,
+        crate::accounts::RedeemToEvm {
+            delivery_terms: env.delivery_terms(),
+            peer: env.peer(),
+            holder_authority: a(bob.pubkey()),
+            payer: a(relayer.pubkey()),
+            store: env.store,
+            authority: env.authority,
+            core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+            holder_account: bob_account,
+            core_position: env.core_position(id),
+            core_source: source,
+            core_basket: basket_address(&bob_account).0,
+            core_spill: spill_address(&bob_account).0,
+            claim: claim_key,
+            core_program: tesoro_core::ID,
+            system_program: anchor_lang::system_program::ID,
+        },
+        crate::instruction::RedeemToEvm {
+            line: env.line_ref(bob_account, source, SIDE_WON),
+            gemas: 600,
+        },
+    );
+    redeem.accounts.extend(econ::book_metas(&env.svm, source));
+    let before = env.lamports(a(relayer.pubkey()));
+    env.send(&[redeem.clone()], &relayer, &[&bob])
+        .expect("a holder with 0 SOL redeems");
+    let claim: Claim = env.load(claim_key);
+    assert_eq!(claim.holder_account, bob_account);
+    assert!(claim.gemas_total == 600);
+    assert_eq!(env.lamports(a(bob.pubkey())), 0, "the holder paid nothing");
+    let rent = env.lamports(claim_key);
+    assert!(
+        before - env.lamports(a(relayer.pubkey())) >= rent,
+        "the relayer paid the Claim's rent"
+    );
+
+    // The holder alone, with no payer of its own, cannot create the Claim: a payer must sign.
+    let mut unpaid = redeem;
+    unpaid.accounts[1].is_signer = false;
+    let err = env.send(&[unpaid], &relayer, &[&bob]).expect_err("the payer signs");
+    let _ = err;
+}
+
+#[test]
+fn a_prize_payout_paid_by_a_relayer_returns_its_rent_to_the_relayer_not_the_holder() {
+    let mut env = Env::new();
+    env.prize_to_owner(1, 60);
+    let holder = a(env.owner.pubkey());
+    let relayer = Keypair::new();
+    env.svm.airdrop(&relayer.pubkey(), 5 * SOL).expect("airdrop");
+    let owner = env.owner.insecure_clone();
+    drain(&mut env, &owner);
+
+    let payout_id = env
+        .redeem_prize_paid_by(10, Some(&relayer))
+        .expect("a holder with 0 SOL cashes out");
+    let key = env.payout_address(payout_id);
+    assert_eq!(
+        env.payout(payout_id).rent_payer,
+        a(relayer.pubkey()),
+        "the payer is the rent payer"
+    );
+    assert_eq!(env.lamports(holder), 0, "the holder paid nothing");
+    let shares = env.payout(payout_id).shares;
+    env.lz_receive(prize_result(payout_id, msg_codec::PRIZE_PAID, shares), 1)
+        .expect("paid");
+
+    // The holder is not the rent receiver; neither is a stranger.
+    let err = env.close_payout(payout_id, holder).expect_err("the holder did not pay");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::WrongRentReceiver)));
+    env.close_payout(payout_id, Pubkey::new_unique()).expect_err("a stranger");
+    let rent = env.lamports(key);
+    let before = env.lamports(a(relayer.pubkey()));
+    env.close_payout(payout_id, a(relayer.pubkey())).expect("close");
+    assert!(!env.exists(key));
+    assert_eq!(env.lamports(a(relayer.pubkey())), before + rent, "back to the relayer");
+    assert_eq!(env.lamports(holder), 0, "the holder gained nothing");
 }

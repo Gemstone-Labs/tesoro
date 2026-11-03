@@ -4,6 +4,10 @@ pragma solidity ^0.8.28;
 import {PositionVaultBase} from "./PositionVaultBase.sol";
 import {IERC20Minimal} from "./IRateSource.sol";
 
+interface ITreasuryBalance {
+    function treasuryBalance() external view returns (uint256);
+}
+
 /// @title PrizeModule
 /// @notice The cash-in batch and prize payout half of `PositionVault`, split out to keep the vault under the EIP-170
 ///         code-size limit. A vault deploys one in its constructor (same immutables) and reaches it only by
@@ -50,7 +54,7 @@ contract PrizeModule is PositionVaultBase {
         uint8 msgType = uint8(message[0]);
         uint64 id = seq;
         if (msgType == MSG_PAY_PRIZE) {
-            if (message.length != 157) revert InvalidMessageLength();
+            if (message.length != 173) revert InvalidMessageLength();
             if (chain != sourceChain) {
                 emit MessageIgnored(id, msgType, 0, "wrong chain");
                 return "";
@@ -60,7 +64,8 @@ contract PrizeModule is PositionVaultBase {
                 bytes32(message[45:77]),
                 bytes32(message[77:109]),
                 bytes32(message[109:141]),
-                uint128(bytes16(message[141:157]))
+                uint128(bytes16(message[141:157])),
+                uint128(bytes16(message[157:173]))
             );
         }
         if (message.length < 80) revert InvalidMessageLength();
@@ -91,16 +96,16 @@ contract PrizeModule is PositionVaultBase {
                 abi.decode(payload, (uint8, uint32, uint64, uint64, uint8, bytes32, uint64[], uint128[]));
             return _onCashInBatch(id, kind, recipient, ids, units);
         }
-        (,,,, bytes32 asset, bytes32 prizeSource, bytes32 to, uint256 shares) =
-            abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, bytes32, bytes32, uint256));
-        return _onPayPrize(id, asset, prizeSource, to, shares);
+        (,,,, bytes32 asset, bytes32 prizeSource, bytes32 to, uint256 shares, uint256 deliveryFee) =
+            abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, bytes32, bytes32, uint256, uint256));
+        return _onPayPrize(id, asset, prizeSource, to, shares, deliveryFee);
     }
 
     /// @dev `amount` leaves the Position's yield; `fee` of it (at most the Yield Fee cap) stays with the Treasury and
     ///      the holder gets the rest.
     ///      `pool` is the part of the Treasury's share owed to the Leaderboard Pool, never above what the Treasury
     ///      gains here, so the Treasury always holds what the Pool is owed. A refill (`to == vault`) keeps all of it.
-    function payYield(uint64 id, uint64 seq, address to, uint256 amount, uint256 fee, uint256 pool)
+    function payYield(uint64 id, uint64 seq, address to, uint256 amount, uint256 fee, uint256 pool, uint256 deliveryFee)
         external
         returns (bytes memory ack)
     {
@@ -131,8 +136,37 @@ contract PrizeModule is PositionVaultBase {
             realisedFees += c.fee;
         }
         _owePool(c.pool, c.fee, feeShares, c.rate);
-        _payShares(to, holderShares);
-        emit YieldPaid(id, to, c.paid - c.fee, holderShares, seq);
+        _payHolder(id, seq, to, holderShares, deliveryFee, c);
+        return "";
+    }
+
+    /// @dev Pays the holder's share of a cash-out, less the Delivery Fee, and records both.
+    function _payHolder(uint64 id, uint64 seq, address to, uint256 shares, uint256 deliveryFee, Cashout memory c)
+        internal
+    {
+        uint256 feePaid = _payShares(to, shares, _deliveryShares(deliveryFee, c.paid - c.fee, c.rate));
+        if (feePaid != 0) emit DeliveryFeePaid(id, deliveryRecipient, feePaid, seq);
+        emit YieldPaid(id, to, c.paid - c.fee, shares, seq);
+    }
+
+    /// @dev Pays `amount` underlying out of the Treasury, independent of the Position's own shares and lock state.
+    ///      Solana has already taken the holder's Gemas, so a payout the Treasury cannot cover now must not be
+    ///      dropped: it reverts, which also leaves the seq unhandled, and the same message is delivered again (the
+    ///      Yield Fee keeps growing the Treasury; the owner can fund it) and pays once.
+    function payInstant(uint64 id, uint64 seq, address to, uint256 amount, uint256 deliveryFee)
+        external
+        returns (bytes memory ack)
+    {
+        if (address(this) == self) revert DirectCall();
+        uint256 available = ITreasuryBalance(address(this)).treasuryBalance(); // the vault's own view (delegatecall)
+        uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
+        if (amount > available) revert InsufficientTreasury(amount, available);
+        if (shares > _spendable()) revert InsufficientShares(shares, _spendable());
+        if (_real()) treasuryShares -= shares;
+        instantPaid += amount;
+        uint256 feePaid = _payShares(to, shares, _deliveryShares(deliveryFee, amount, rateSource.underlyingPerShare()));
+        if (feePaid != 0) emit DeliveryFeePaid(id, deliveryRecipient, feePaid, seq);
+        emit InstantPaid(id, to, amount, shares, seq);
         return "";
     }
 
@@ -287,12 +321,16 @@ contract PrizeModule is PositionVaultBase {
     /// @dev Pays a prize from the escrow, once per payout id, to `to`. It debits only the escrow, so it works with an
     ///      empty Treasury. A payout that can never pay is recorded as rejected and never pays later; the answer
     ///      (1 paid / 2 rejected) is regenerated on every delivery.
-    function _onPayPrize(uint64 payoutId, bytes32 asset, bytes32 prizeSource, bytes32 recipient, uint256 shares)
-        internal
-        returns (bytes memory)
-    {
+    function _onPayPrize(
+        uint64 payoutId,
+        bytes32 asset,
+        bytes32 prizeSource,
+        bytes32 recipient,
+        uint256 shares,
+        uint256 deliveryFee
+    ) internal returns (bytes memory) {
         Payout storage r = payouts[payoutId];
-        bytes32 digest = keccak256(abi.encode(asset, prizeSource, recipient, shares));
+        bytes32 digest = keccak256(abi.encode(asset, prizeSource, recipient, shares, deliveryFee));
         if (r.status != 0) {
             if (r.digest != digest) {
                 emit PrizeRejected(payoutId, "content differs from the stored payout");
@@ -311,7 +349,7 @@ contract PrizeModule is PositionVaultBase {
         if (bytes(why).length == 0) {
             escrowShares -= shares;
             if (_real()) treasuryShares -= shares;
-            if (_tryTransfer(to, shares)) {
+            if (_payPrizeOut(payoutId, to, shares, deliveryFee)) {
                 r.status = PRIZE_PAID;
                 emit PrizePaid(payoutId, to, shares);
             } else {
@@ -325,6 +363,22 @@ contract PrizeModule is PositionVaultBase {
             emit PrizeRejected(payoutId, why);
         }
         return _payoutResult(payoutId);
+    }
+
+    /// @dev Pays the winner the prize shares less the Delivery Fee (shrunk to the admin cap and a tenth of the prize).
+    ///      False when the winner cannot receive. A fee that cannot be delivered goes to the winner too.
+    function _payPrizeOut(uint64 payoutId, address to, uint256 shares, uint256 deliveryFee) internal returns (bool) {
+        uint256 rate = rateSource.underlyingPerShare();
+        uint256 feeShares = _deliveryShares(deliveryFee, (shares * rate) / RATE_SCALE, rate);
+        if (feeShares > shares) feeShares = shares;
+        if (!_tryTransfer(to, shares - feeShares)) return false;
+        if (feeShares == 0) return true;
+        if (_tryTransfer(deliveryRecipient, feeShares)) {
+            emit DeliveryFeePaid(payoutId, deliveryRecipient, feeShares, 0);
+        } else if (!_tryTransfer(to, feeShares) && _real()) {
+            treasuryShares += feeShares; // neither side can take it: it stays in the vault
+        }
+        return true;
     }
 
     function _tryTransfer(address to, uint256 shares) internal returns (bool) {

@@ -53,4 +53,6 @@ pub struct MessageSent {
     pub msg_type: u8,
     pub seq: u64,
     pub amount: u128,
+    /// The Delivery Fee the message carries (0 for none).
+    pub delivery_fee: u128,
 }

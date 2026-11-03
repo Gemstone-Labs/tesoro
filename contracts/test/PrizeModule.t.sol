@@ -21,7 +21,7 @@ contract PrizeModuleTest is Test {
 
     function test_receiveWireRefusesADirectCall() public {
         vm.expectRevert(PrizeModule.DirectCall.selector);
-        module.receiveWire(1, 1, new bytes(157));
+        module.receiveWire(1, 1, new bytes(173));
     }
 
     function test_encodeResultIsPureWireEncoding() public view {

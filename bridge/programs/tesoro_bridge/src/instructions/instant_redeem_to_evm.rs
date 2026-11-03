@@ -118,6 +118,12 @@ pub struct InstantRedeemToEvm<'info> {
         bump
     )]
     pub instant_claim: Box<Account<'info, InstantClaim>>,
+    /// The vault's Delivery Fee terms.
+    #[account(
+        seeds = [DELIVERY_SEED, &vault_treasury.eid.to_be_bytes(), &vault_treasury.peer_address],
+        bump = delivery_terms.bump
+    )]
+    pub delivery_terms: Box<Account<'info, DeliveryTerms>>,
     pub core_program: Program<'info, TesoroCore>,
     pub system_program: Program<'info, System>,
 }
@@ -182,6 +188,11 @@ impl InstantRedeemToEvm<'_> {
             claim.source = ctx.accounts.core_source.key();
             claim.position = ctx.accounts.core_position.key();
             claim.bump = ctx.bumps.instant_claim;
+        }
+        let terms = &ctx.accounts.delivery_terms;
+        terms.require_min_redeem(payout_wei)?;
+        if claim.units_total == claim.units_sent {
+            claim.delivery_fee = terms.fee_for(payout_wei, terms.max_bps_unlock);
         }
         claim.gemas_total =
             claim.gemas_total.checked_add(gemas).ok_or(BridgeError::AmountOverflow)?;

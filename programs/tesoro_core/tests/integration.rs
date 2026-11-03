@@ -1159,7 +1159,7 @@ impl Env {
             let mut fresh = solana_sdk::account::Account::default();
             fresh.owner = s(tesoro_core::ID);
             fresh.data = vec![0u8; AccountCounters::SPACE];
-            fresh.data[..8].copy_from_slice(&AccountCounters::DISCRIMINATOR);
+            fresh.data[..8].copy_from_slice(AccountCounters::DISCRIMINATOR);
             fresh.lamports = self
                 .svm
                 .minimum_balance_for_rent_exemption(fresh.data.len());

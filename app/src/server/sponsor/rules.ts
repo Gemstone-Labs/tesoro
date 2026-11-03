@@ -13,8 +13,9 @@ import { BRIDGE_ID, DISC, evmLinkPda } from "@/lib/chain/eth";
 import { bookPda, ckptPda } from "@/lib/chain/basket";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, SIM_SOL_MINT, TOKEN_PROGRAM_ID } from "@/lib/chain/native";
 import { STAKE_TOKENS } from "@/lib/chain/stake";
-import { tokenAta } from "@/lib/chain/stake-pool";
+import { poolWithdrawAuthority, tokenAta } from "@/lib/chain/stake-pool";
 import { matchIndexOf, stepSlots } from "./game-steps";
+import { planBridgeBundle } from "./rules-bridge";
 import { assetOfIndex, TRADING_DUEL_PROGRAM_ID } from "@/games/trading-duel/chain";
 
 export const CORE_ID = new PublicKey((coreIdl as { address: string }).address);
@@ -190,6 +191,40 @@ interface IdlIx {
 }
 const idlIx = (name: string) => (CORE_IDL.instructions as unknown as IdlIx[]).find((i) => i.name === name);
 
+/** A checkpoint page the relayer creates for a Source's book (`init_ckpt_page`); the service proves from the chain that the book needs it. */
+export interface CkptPage {
+  book: PublicKey;
+  page: PublicKey;
+  classId: number;
+  pageNo: number;
+}
+
+/** The tesoro_core instruction an instruction is, or null. */
+export function coreName(ix: Ix): string | null {
+  return ix.programId.equals(CORE_ID) ? (coder.decode(Buffer.from(ix.data))?.name ?? null) : null;
+}
+
+/** The arguments of a tesoro_core instruction. */
+export function coreArgs(ix: Ix): Args {
+  return (coder.decode(Buffer.from(ix.data))?.data ?? {}) as Args;
+}
+
+/** One LayerZero message the relayer pays for inside a Player's transaction (keeper diet ticket 15). */
+export interface BridgeSend {
+  kind: "unlock" | "yield" | "instant" | "prize";
+  /** The vault's address, 0x + 40 hex. */
+  vault: string;
+  /** The message type `quote_send` takes (10 Unlock, 11 PayYield, 12 PayInstant, 13 PayPrize). */
+  msgType: number;
+  feeLamports: bigint;
+  /** The endpoint's send accounts, as the instruction carries them (the relayer in the payer slot). */
+  send: KeyMeta[];
+  holderAccount?: PublicKey;
+  claim?: PublicKey;
+  payout?: PublicKey;
+  payoutId?: bigint;
+}
+
 export interface Plan {
   kind: "core" | "game";
   names: string[];
@@ -212,6 +247,10 @@ export interface Plan {
   invite: boolean;
   /** An admission that needs no Gemas: the Account exists but may hold none yet (the bridge `link_evm`). */
   noGemas: boolean;
+  /** LayerZero messages in the transaction, each paid in SOL by the relayer. */
+  sends?: BridgeSend[];
+  /** Checkpoint pages the relayer creates (rent fronted for good), to be proved needed and missing. */
+  pages?: CkptPage[];
   /** Only atomic first-payout preparation; live Position and Book semantics are verified by the service. */
   setup?: {
     position: PublicKey;
@@ -219,7 +258,34 @@ export interface Plan {
     source: PublicKey | null;
     pages: { book: PublicKey; page: PublicKey; classId: number; pageNo: number }[];
     ata?: { address: PublicKey; mint: PublicKey };
+    /** The stake pool of a staking-token payout and the update the Player put in front of it; the service rechecks both against the chain. */
+    poolUpdate?: PublicKey;
+    poolUpdateIx?: Ix;
   };
+}
+
+/** Compute the relayer sets aside for one `UpdateStakePoolBalance` in front of a payout (a bound, tuned at deploy). */
+export const POOL_UPDATE_CU = 200_000;
+/** Instruction 7 of the SPL stake pool program. */
+const UPDATE_STAKE_POOL_BALANCE = 7;
+
+/** An instruction of a known stake pool program that is `UpdateStakePoolBalance`. */
+export const isPoolUpdate = (ix: Ix) => ix.data[0] === UPDATE_STAKE_POOL_BALANCE && STAKE_TOKENS.some((t) => t.poolProgram.equals(ix.programId));
+
+/**
+ * The exact shape of `updateStakePoolBalanceIx`: seven accounts, none a signer, the writable ones fixed, one data byte, the
+ * pool one of our staking tokens' and the withdraw authority its PDA. The other four accounts are the pool's own and are
+ * checked against the pool by the service. Returns the pool.
+ */
+function checkPoolUpdate(ix: Ix): PublicKey {
+  const token = STAKE_TOKENS.find((t) => t.poolProgram.equals(ix.programId) && ix.keys[0]?.pubkey.equals(t.pool));
+  if (!token) throw new RuleError("bad-account", "That stake pool is not one of our staking tokens'.");
+  if (ix.data.length !== 1) throw new RuleError("bad-shape", "A stake pool update carries no arguments.");
+  if (ix.keys.length !== 7) throw new RuleError("bad-accounts", "A stake pool update has seven accounts.");
+  const writable = [true, false, true, false, true, true, false];
+  if (ix.keys.some((k, i) => k.isSigner || k.isWritable !== writable[i])) throw new RuleError("bad-flags", "Stake pool update: a signer or writable flag is wrong.");
+  if (!ix.keys[1].pubkey.equals(poolWithdrawAuthority(token.pool, token.poolProgram)) || !ix.keys[6].pubkey.equals(TOKEN_PROGRAM_ID)) throw new RuleError("bad-account", "Stake pool update: the withdraw authority or token program is wrong.");
+  return token.pool;
 }
 
 /** A canonical first-payout prefix cannot be sponsored alone or attached to a different obligation. */
@@ -239,8 +305,17 @@ function planPreparedExit(ixs: Ix[], relayer: PublicKey, player: PublicKey): Pla
   const setup: NonNullable<Plan["setup"]> = { source, position, pages: [] };
   const used = new Set<string>();
   const inPayout = (key: PublicKey) => terminal.keys.some((k) => k.pubkey.equals(key) && k.isWritable);
-  for (const ix of ixs.slice(0, -1)) {
-    if (ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) {
+  let cuExtra = 0;
+  for (const [at, ix] of ixs.slice(0, -1).entries()) {
+    if (isPoolUpdate(ix)) {
+      if (at !== 0 || setup.poolUpdate) throw new RuleError("bad-shape", "One stake pool update may open the transaction.");
+      const pool = checkPoolUpdate(ix);
+      // It only belongs in front of a payout of that pool's token: the payout names the pool as a read-only account.
+      if (!terminal.keys.slice(def.accounts.length).some((k) => k.pubkey.equals(pool) && !k.isWritable && !k.isSigner)) throw new RuleError("bad-account", "The stake pool update must be for the pool this payout reads.");
+      setup.poolUpdate = pool;
+      setup.poolUpdateIx = ix;
+      cuExtra = POOL_UPDATE_CU;
+    } else if (ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) {
       if (setup.ata || ix.keys.length !== 6 || ix.data.length !== 1 || ix.data[0] !== 1) throw new RuleError("bad-shape", "Only one idempotent payout token account may be prepared.");
       const [payer, ata, owner, mint, system, token] = ix.keys;
       const flags = [[true, true], [false, true], [false, false], [false, false], [false, false], [false, false]];
@@ -263,7 +338,7 @@ function planPreparedExit(ixs: Ix[], relayer: PublicKey, player: PublicKey): Pla
       setup.pages.push({ book: book.pubkey, page: address.pubkey, classId: args.class, pageNo });
     }
   }
-  return { ...plan, setup, names: [...ixs.slice(0, -1).map((i) => i.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) ? "payout_ata" : "init_ckpt_page"), ...plan.names], cu: Math.min(1_400_000, plan.cu + setup.pages.length * 100_000 + (setup.ata ? 50_000 : 0)) };
+  return { ...plan, setup, names: [...ixs.slice(0, -1).map((i) => isPoolUpdate(i) ? "update_stake_pool" : i.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) ? "payout_ata" : "init_ckpt_page"), ...plan.names], cu: Math.min(1_400_000, plan.cu + setup.pages.length * 100_000 + (setup.ata ? 50_000 : 0) + cuExtra) };
 }
 
 const seedBytes = (type: unknown, v: unknown): Buffer | null => {
@@ -305,7 +380,7 @@ function expectedPda(acc: IdlAccount, ix: IdlIx, byName: Map<string, PublicKey>,
   return PublicKey.findProgramAddressSync(seeds, other ? new PublicKey(Uint8Array.from(other.value ?? [])) : CORE_ID)[0];
 }
 
-function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): Plan {
+export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): Plan {
   let invite = false;
   const names: string[] = [];
   let spend: Spend = { ...NONE };
@@ -510,9 +585,14 @@ function planGame(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
  * listed Game (the service answers from the registry).
  */
 export function planTransaction(ixs: Ix[], ctx: { relayer: PublicKey; player: PublicKey; isGame: (program: PublicKey) => boolean; inviteKey?: PublicKey }): Plan {
+  if (ixs.length === 0) throw new RuleError("bad-shape", "A sponsored transaction has at least one instruction.");
+  if (ixs.length > 1 && ixs.some(isPoolUpdate)) return planPreparedExit(ixs, ctx.relayer, ctx.player);
+  if (ixs.some((i) => i.programId.equals(BRIDGE_ID)) || ixs.every((i) => coreName(i) === "init_ckpt_page")) {
+    const linkOnly = ixs.length === 1 && Buffer.from(ixs[0].data.subarray(0, 8)).equals(Buffer.from(DISC.link_evm, "hex"));
+    return linkOnly ? planBridge(ixs, ctx.relayer) : planBridgeBundle(ixs, ctx.relayer, ctx.player);
+  }
   if (ixs.length > 1 && ixs.slice(0, -1).some((i) => i.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) || (i.programId.equals(CORE_ID) && coder.decode(Buffer.from(i.data))?.name === "init_ckpt_page"))) return planPreparedExit(ixs, ctx.relayer, ctx.player);
   if (ixs.length === 0 || ixs.length > MAX_IXS) throw new RuleError("bad-shape", `A sponsored transaction has between one and ${MAX_IXS} instructions.`);
-  if (ixs.every((i) => i.programId.equals(BRIDGE_ID))) return planBridge(ixs, ctx.relayer);
   const core = ixs.filter((i) => i.programId.equals(CORE_ID)).length;
   if (core === ixs.length) return planCore(ixs, ctx.relayer, ctx.inviteKey);
   if (core === 0 && ctx.isGame(ixs[0].programId)) return planGame(ixs, ctx.relayer, ctx.player);

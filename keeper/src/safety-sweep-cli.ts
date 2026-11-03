@@ -1,7 +1,11 @@
 import { join } from "node:path";
 import { Connection } from "@solana/web3.js";
 import { Budget, log, type Ctx } from "./act.ts";
-import { postAlert } from "./alerts.ts";
+import { AlertManager, alertConfig, postAlert } from "./alerts.ts";
+import { balanceOf, watches } from "./alerts-job.ts";
+import { balanceCheck, extraWatches, fileBalanceStore } from "./balance-check.ts";
+import { keeperCluster } from "./cluster.ts";
+import { heartbeatFrom, type Heartbeat } from "./heartbeat.ts";
 import { meter } from "./credits.ts";
 import { KEEPER_CLI_FLAGS, exitOnUnknownFlag } from "./cli-args.ts";
 import { loadPayer, settings } from "./env.ts";
@@ -20,6 +24,17 @@ const USAGE = "Usage: safety-sweep-cli [--dry-run] [--once] [--rpc <url>] [--gpa
 
 async function main() {
   exitOnUnknownFlag(process.argv.slice(2), KEEPER_CLI_FLAGS, USAGE);
+  // This run is the keeper's heartbeat: the monitor mails when these 5-minute pings stop.
+  const heartbeat = heartbeatFrom("KEEPER_HEARTBEAT_URL");
+  try {
+    await run(heartbeat);
+  } catch (e) {
+    if (!settings().dryRun) await heartbeat.ping("fail");
+    throw e;
+  }
+}
+
+async function run(heartbeat: Heartbeat) {
   const s = settings();
   const conn = newConnection(s.rpc, s.gpaRpc);
   const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m), new Connection(s.gpaRpc, { fetch: solanaFetch }));
@@ -35,9 +50,33 @@ async function main() {
   if (base && secret && !s.dryRun) {
     for (const detail of report.newAlerts) await postAlert(base, secret, { kind: "alert", key: `sweep:${detail.split(" ")[0]}`, title: "Safety sweep: a Match is stuck", detail, source: "safety-sweep" });
   }
+  if (!s.dryRun) await hourlyBalances(ctx);
   log("sweep", "-", `scanned ${JSON.stringify(report.scanned)}: ${report.candidates.length} candidate(s), ${report.alerts.length} stuck`);
   for (const line of meter.report()) log("credits", "-", line.replace(/^credits /, ""));
+  // The sweep ran, so the keeper is alive: a stuck Match is mailed above and shows as a failed unit, not as a dead keeper.
+  if (!s.dryRun) await heartbeat.ping("ok");
   process.exit(report.alerts.length ? 1 : 0);
+}
+
+/** Hourly: keeper, oracle and relayer balances plus any ALERT_EXTRA_SOL accounts. A failure here never fails the sweep. */
+async function hourlyBalances(ctx: Ctx) {
+  const base = process.env.NOTIFY_URL;
+  const secret = process.env.NOTIFY_SECRET;
+  if (!base || !secret) return;
+  try {
+    const cfg = alertConfig();
+    const store = fileBalanceStore(join(stateDir(), "balance-check.json"));
+    const r = await balanceCheck({
+      now: Date.now(),
+      ...store,
+      watches: [...watches(ctx, cfg), ...extraWatches()],
+      read: (w) => balanceOf(ctx, w),
+      manager: (st) => new AlertManager((a) => postAlert(base, secret, a), cfg.reminderMs, keeperCluster().id).restore(st),
+    });
+    if (r.ran) log("balances", "-", `checked, ${r.low} low`);
+  } catch (e) {
+    log("balances", "-", `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+  }
 }
 
 main().catch((e) => {

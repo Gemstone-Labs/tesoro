@@ -1,4 +1,5 @@
 import "server-only";
+import { bridgeSendGuard } from "../bridge-send";
 import { createHash } from "node:crypto";
 import { BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
 import { AddressLookupTableAccount, Connection, Keypair, PublicKey } from "@solana/web3.js";
@@ -32,6 +33,7 @@ function chainReads(conn: Connection): ChainReads {
     sendRawTransaction: (raw, opts) => conn.sendRawTransaction(raw, opts),
     balance: async (k) => BigInt(await conn.getBalance(k, "confirmed")),
     rent: async (bytes) => BigInt(await conn.getMinimumBalanceForRentExemption(bytes, "confirmed")),
+    epoch: async () => BigInt((await conn.getEpochInfo("confirmed")).epoch),
     account: async (k) => {
       const a = await conn.getAccountInfo(k, "confirmed");
       return a ? { owner: a.owner, data: a.data } : null;
@@ -119,6 +121,8 @@ export function sponsor(): Sponsor {
     // A sponsored new Account while the Invite gate is on is co-signed with the Invite key, for a wallet that redeemed an Invite.
     invite: inviteFromEnv(),
     assigner: assignerFromEnv(),
+    // The relayer pays LayerZero fees inside a Player's bridge transactions only after these checks (./bridge-sends.ts).
+    bridgeSends: bridgeSendGuard,
     alertOnboarding: async (used, max) => {
       const sender = senderFromEnv();
       const to = alertRecipients(process.env.ALERT_EMAILS);

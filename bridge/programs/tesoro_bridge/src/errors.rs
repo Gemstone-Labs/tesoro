@@ -47,4 +47,6 @@ pub enum BridgeError {
     DecimalsFixed,
     InvalidDecimals,
     LegacyUnits,
+    BelowMinimumRedeem,
+    DeliveryTermsInvalid,
 }
