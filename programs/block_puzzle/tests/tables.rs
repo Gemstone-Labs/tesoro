@@ -4422,3 +4422,24 @@ fn close_of_a_match_that_never_ran_commits_too() {
     assert!(!t.dirty && t.commit.tries == 1);
     assert!(called(&env, litesvm_magic_stub::magic_program()));
 }
+
+#[test]
+fn nothing_touches_the_table_inside_the_hidden_window_not_even_close() {
+    // From the freeze to the end of play `close` (which now also commits and wipes) is refused,
+    // so no commit or seat change shows when a Player moves in that window.
+    let mut env = begun();
+    let (freeze, end) = (
+        env.table().freeze_slot().unwrap(),
+        env.table().play_end().unwrap(),
+    );
+    for slot in [freeze, freeze + 1, end - 1, end] {
+        env.set_slot(slot);
+        assert_eq!(
+            custom_code(&env.close().unwrap_err()),
+            dcode(E::NotClosable),
+            "slot {slot}"
+        );
+    }
+    assert!(env.table().dirty == false && env.table().phase != block_puzzle::TABLE_CLOSED);
+    assert_eq!(env.table().commit.tries, 0);
+}
