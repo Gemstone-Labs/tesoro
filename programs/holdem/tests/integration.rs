@@ -3327,7 +3327,11 @@ impl Env {
     /// A commit the rollup accepted but base never received: the last move sent it, so the table
     /// is clean and the guard has counted the try, while base's copy is unchanged.
     fn commit_lost_standin(&mut self) {
-        assert_eq!(self.table().commit.tries, 1, "the last move sent the commit");
+        assert_eq!(
+            self.table().commit.tries,
+            1,
+            "the last move sent the commit"
+        );
         self.patch_table(|t| t.dirty = false);
     }
 }
@@ -3644,17 +3648,24 @@ fn the_move_that_ends_the_match_commits_the_result_and_wipes_the_seats() {
     let t = env.table();
     assert_eq!(t.phase, holdem::TABLE_OVER);
     assert!(!t.dirty, "the result is already committed");
-    assert_eq!(t.commit.tries, 1, "exactly one commit, sent by the last move");
+    assert_eq!(
+        t.commit.tries, 1,
+        "exactly one commit, sent by the last move"
+    );
     assert!(!t.seats_open, "the seats are already wiped");
     assert!(env.hole(0).is_blank() && env.hole(1).is_blank());
-    assert!(called(&env, litesvm_magic_stub::magic_program()), "the commit");
+    assert!(
+        called(&env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
     assert!(
         called(&env, litesvm_magic_stub::permission_program()),
         "the seat change"
     );
     // Nothing is left for the repeat path to do before the table can be reused.
     env.set_time(env.now + holdem::RESET_DELAY_SECS);
-    env.reset().expect("reset without a separate commit or wipe");
+    env.reset()
+        .expect("reset without a separate commit or wipe");
 }
 
 #[test]

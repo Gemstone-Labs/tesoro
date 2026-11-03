@@ -2672,7 +2672,10 @@ fn a_decided_match_writes_the_ring_and_finalize_pays_from_the_committed_table() 
     env.mv(0, id_of(70), 20).expect("capture the Truck");
     let t = env.table();
     assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, false));
-    assert_eq!(t.commit.tries, 1, "the resolve that ended the Match sent the commit");
+    assert_eq!(
+        t.commit.tries, 1,
+        "the resolve that ended the Match sent the commit"
+    );
     let landed = env.committed.insert(env.table, before_match).unwrap();
     // A commit that never reached base leaves nothing to settle from.
     let err = env.finalize_start().unwrap_err();
@@ -6748,10 +6751,16 @@ fn assert_committed_and_wiped(env: &Env) {
     let t = env.table();
     assert_eq!(t.phase, vanguard::TABLE_OVER);
     assert!(!t.dirty, "the result is already committed");
-    assert_eq!(t.commit.tries, 1, "exactly one commit, sent by the last instruction");
+    assert_eq!(
+        t.commit.tries, 1,
+        "exactly one commit, sent by the last instruction"
+    );
     assert!(!t.seats_open, "the seats are already wiped");
     assert!(env.army(0).is_blank() && env.army(1).is_blank());
-    assert!(called(env, litesvm_magic_stub::magic_program()), "the commit");
+    assert!(
+        called(env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
     assert!(
         called(env, litesvm_magic_stub::permission_program()),
         "the seat change"
@@ -6764,7 +6773,8 @@ fn the_resolve_that_ends_the_match_commits_the_result_and_wipes_the_seats() {
     assert_committed_and_wiped(&env);
     env.set_time(env.now + vanguard::RESET_DELAY_SECS);
     let ixn = env.reset_ix();
-    env.rollup(ixn).expect("reset without a separate commit or wipe");
+    env.rollup(ixn)
+        .expect("reset without a separate commit or wipe");
 }
 
 #[test]

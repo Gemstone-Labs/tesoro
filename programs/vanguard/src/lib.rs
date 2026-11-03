@@ -46,8 +46,8 @@ use setup::{Contributions, SetupContext};
 use table_kit::{
     absence_outcome, assignment_absent, close_private_seat, create_hidden_seat, match_state_gone,
     may_skip, move_lamports, read_table, receipt_at, retire_legacy_record, sponsor_commit_many,
-    swap_seat_members, table_wait_over, KitError, LegacyError, SeatAccounts, SeatPrograms, OUTCOME_DRAW,
-    OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
+    swap_seat_members, table_wait_over, KitError, LegacyError, SeatAccounts, SeatPrograms,
+    OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -2271,8 +2271,6 @@ pub struct Declare<'info> {
     #[account(mut, seeds = [BATTLE_SEED, table.key().as_ref()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
 }
-
-
 
 /// `claim_timeout` and `resolve`: the instructions that can end a Match. Each wipes the seats and
 /// commits the result in its own transaction when it does, so it names everything those two steps

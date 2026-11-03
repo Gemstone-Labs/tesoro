@@ -31,8 +31,8 @@ use ephemeral_rollups_sdk::{
 use table_kit::{
     absence_outcome, assignment_absent, close_private_seat, match_state_gone, may_skip,
     move_lamports, open_private_seat, read_table, receipt_at, sponsor_commit, table_wait_over,
-    KitError, SeatAccounts, SeatPrograms, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE,
-    SLOT_RESERVED,
+    KitError, SeatAccounts, SeatPrograms, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0,
+    OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -299,11 +299,7 @@ fn close_book_pair<'info>(
 /// The end of a Match, in the same transaction as the instruction that ended it: closes the
 /// Books and commits the result to Solana, paid by the Sponsor. `commit_table` stays as the
 /// repeat path.
-fn close_and_commit(
-    a: &mut Concluding,
-    bumps: &ConcludingBumps,
-    now: i64,
-) -> Result<()> {
+fn close_and_commit(a: &mut Concluding, bumps: &ConcludingBumps, now: i64) -> Result<()> {
     if a.table.seats_open {
         close_book_pair(
             &mut a.table,

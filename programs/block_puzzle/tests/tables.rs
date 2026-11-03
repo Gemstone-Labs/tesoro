@@ -3848,7 +3848,13 @@ fn no_instruction_a_player_calls_can_reach_the_permission_program() {
     reaching.sort();
     assert_eq!(
         reaching,
-        ["close", "init_seats", "retire_seats", "seat_players", "wipe_seats"]
+        [
+            "close",
+            "init_seats",
+            "retire_seats",
+            "seat_players",
+            "wipe_seats"
+        ]
     );
     // No instruction a Player signs takes it, and none of those can write a Vault or reach a
     // permission account either.
@@ -4401,13 +4407,17 @@ fn close_commits_the_result_and_wipes_the_seats() {
     assert_eq!(t.commit.tries, 1, "exactly one commit, sent by close");
     assert!(!t.seats_open, "the seats are already wiped");
     assert!(env.board(0).is_blank() && env.board(1).is_blank());
-    assert!(called(&env, litesvm_magic_stub::magic_program()), "the commit");
+    assert!(
+        called(&env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
     assert!(
         called(&env, litesvm_magic_stub::permission_program()),
         "the seat change"
     );
     env.set_time(env.now + block_puzzle::RESET_DELAY_SECS);
-    env.reset().expect("reset without a separate commit or wipe");
+    env.reset()
+        .expect("reset without a separate commit or wipe");
 }
 
 #[test]

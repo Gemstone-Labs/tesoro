@@ -46,8 +46,8 @@ use ephemeral_rollups_sdk::{
 use table_kit::{
     assignment_absent, close_private_seat, create_hidden_seat, match_state_gone, may_skip,
     move_lamports, read_table, receipt_at, retire_legacy_record, sponsor_commit, swap_seat_members,
-    table_wait_over, KitError, LegacyError, SeatAccounts, SeatPrograms, OUTCOME_DRAW, OUTCOME_NO_SHOW,
-    OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
+    table_wait_over, KitError, LegacyError, SeatAccounts, SeatPrograms, OUTCOME_DRAW,
+    OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,

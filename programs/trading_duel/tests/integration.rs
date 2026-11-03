@@ -2881,13 +2881,17 @@ fn end_match_commits_the_result_and_closes_the_seats() {
     assert!(!t.dirty, "the result is already committed");
     assert_eq!(t.commit.tries, 1, "exactly one commit, sent by end_match");
     assert!(!t.seats_open, "the seats are already closed");
-    assert!(called(&env, litesvm_magic_stub::magic_program()), "the commit");
+    assert!(
+        called(&env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
     assert!(
         called(&env, litesvm_magic_stub::permission_program()),
         "the seat change"
     );
     env.set_time(env.now + trading_duel::RESET_DELAY_SECS);
-    env.reset().expect("reset without a separate commit or close");
+    env.reset()
+        .expect("reset without a separate commit or close");
 }
 
 #[test]
