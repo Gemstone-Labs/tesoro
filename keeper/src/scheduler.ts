@@ -398,7 +398,7 @@ export interface Deps {
   gate?: typeof resetMayProceed;
   settings?: SchedulerSettings;
   /** Publishes the tables ready for a Match after each pass (a failure never stops the pass). */
-  publishPool?: (a: GameAdapter, tables: PoolTable[]) => Promise<void>;
+  publishPool?: (a: GameAdapter, tables: PoolTable[], readAtMs: number) => Promise<void>;
 }
 
 const condition = (key: string, on: boolean, title: string, detail: string) => (on ? raise({ key, title, detail }) : clearRaised(key));
@@ -452,6 +452,26 @@ async function readRows(ctx: Ctx, a: GameAdapter, generation: number, maxTables:
   return rows;
 }
 
+/**
+ * Reads the Game's tables from the rollup and publishes the ones that can take a Match, sending nothing else. The sponsor server
+ * keeps the pool between reads; this corrects whatever drifted (a Match that ended without proof it ran, a join that was never
+ * sent). Returns how many tables it published, or null when the Game has no tables yet.
+ */
+export async function repairPool(ctx: Ctx, a: GameAdapter, matches: SchedMatch[], publish: NonNullable<Deps["publishPool"]>): Promise<number | null> {
+  const cfg = await Promise.resolve().then(() => a.config(ctx)).catch(() => null);
+  if (!cfg) return null;
+  const readAt = Date.now();
+  const rows = await readRows(ctx, a, cfg.generation, cfg.maxTables);
+  const mine = matches.filter((m) => m.stage === "active" && m.inner.b && pk(m.inner.game).equals(a.programId));
+  const assignments = await pool(mine, 8, (m) => a.assignmentOf(ctx, m.address).catch(() => undefined));
+  // An Assignment unreadable this time may hold a table: publish nothing rather than offer it.
+  if (assignments.some((x) => x === undefined)) return null;
+  const promised: Promised[] = assignments.flatMap((x) => (x ? [{ index: x.index, epoch: x.epoch, startDeadline: x.startDeadline }] : []));
+  const tables = poolOf(rows, promised, cfg.generation, ctx.now);
+  await publish(a, tables, readAt);
+  return tables.length;
+}
+
 /** Runs one Game's scheduler pass. Returns the number of actions taken. */
 export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, matches: SchedMatch[], st: GameState = stateOf(a.id), deps: Deps = {}): Promise<number> {
   const sched = deps.settings ?? schedulerSettings();
@@ -480,6 +500,7 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
   else if (operatorOk && fuelBase === "program") await run(here(`fuel${set.fuel}`), `delegate_fuel ${set.fuel}`, () => a.setup(ctx, { do: "delegate_fuel", n: set.fuel }, { generation: cfg.generation, index: 0 }, init));
 
   // 2. upkeep ----------------------------------------------------------------------------------------------
+  const readAt = Date.now();
   const rows = await readRows(ctx, a, cfg.generation, cfg.maxTables);
   for (const r of rows) {
     const stuck = r.view ? stuckReason(r.view, ctx.now, sched) : null;
@@ -548,7 +569,7 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
     }
   }
 
-  if (deps.publishPool && !ctx.settings.dryRun) await deps.publishPool(a, poolOf(rows, promised, cfg.generation, ctx.now)).catch((e) => log("tables", a.label, `pool publish failed: ${String(e?.message ?? e).slice(0, 160)}`));
+  if (deps.publishPool && !ctx.settings.dryRun) await deps.publishPool(a, poolOf(rows, promised, cfg.generation, ctx.now), readAt).catch((e) => log("tables", a.label, `pool publish failed: ${String(e?.message ?? e).slice(0, 160)}`));
 
   // 3b. fast refunds (ticket 35) -----------------------------------------------------------------------------
 

@@ -4,6 +4,7 @@ import { GAME_IDS } from "@/lib/chain/games";
 import * as burst from "@/games/block-puzzle/live-chain";
 import * as holdem from "@/games/holdem/chain";
 import * as vanguard from "@/games/vanguard/chain";
+import * as duel from "@/games/trading-duel/chain";
 import { CORE_ID } from "./rules";
 import { assignMatchIx, canAssign } from "./assign-ix";
 
@@ -19,6 +20,7 @@ describe("assignMatchIx", () => {
   const cases = [
     ["block-puzzle", burst.configPda(), burst.authorityPda(), burst.assignmentPda(match)],
     ["holdem", holdem.configPda(), holdem.authorityPda(), holdem.assignmentPda(match)],
+    ["trading-duel", duel.configPda(), duel.authorityPda(), duel.assignmentPda(match)],
     ["vanguard", vanguard.tablesPda(), vanguard.authorityPda(), vanguard.assignmentPda(match)],
   ] as const;
 
@@ -38,8 +40,7 @@ describe("assignMatchIx", () => {
     expect(ix.data.length).toBe(20);
   });
 
-  it("leaves Trading Duel to the keeper (its asset check is not in the sponsor server)", () => {
-    expect(canAssign("trading-duel")).toBe(false);
-    expect(canAssign("holdem")).toBe(true);
+  it("assigns every Game", () => {
+    for (const game of ["block-puzzle", "holdem", "trading-duel", "vanguard"] as const) expect(canAssign(game)).toBe(true);
   });
 });

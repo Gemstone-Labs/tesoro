@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { PublicKey } from "@solana/web3.js";
 import { gameOfProgram } from "../../app/src/lib/chain/games.ts";
-import { ingestMatchRecords, type MatchDetail } from "../../app/src/server/history/ingest.ts";
+import { ingestMatchRecords, tableFreer, type MatchDetail } from "../../app/src/server/history/ingest.ts";
 import type { MatchRunStartedRecord } from "../../app/src/server/history/events.ts";
 import type { Rpc } from "../../app/src/server/history/rpc.ts";
 import { log, type Ctx } from "./act.ts";
@@ -70,7 +70,7 @@ export function historyRpc(env: NodeJS.ProcessEnv = process.env, fetchFn: typeof
 /** Writes the Match records to the history tables. `detail` supplies what core's records do not carry (Block Burst scores). */
 export const databaseSink = (rpc: Rpc, detail?: (matchKey: string) => MatchDetail | undefined): Sink => async (tx) => {
   if (!tx.records.length) return;
-  await ingestMatchRecords(rpc, tx.records, { signature: tx.signature, slot: tx.slot, blockTime: tx.blockTime ?? undefined, finalized: tx.finalized, gameOf: (p) => gameOfProgram(new PublicKey(p)), detail });
+  await ingestMatchRecords(rpc, tx.records, { signature: tx.signature, slot: tx.slot, blockTime: tx.blockTime ?? undefined, finalized: tx.finalized, gameOf: (p) => gameOfProgram(new PublicKey(p)), detail, onMatchEnded: tableFreer(rpc) });
 };
 
 /** Run starts the notify job has yet to announce, newest last. Capped: a long outage must not hold memory. */
