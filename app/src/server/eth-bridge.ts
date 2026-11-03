@@ -13,7 +13,6 @@
  */
 import "server-only";
 import { advanceSetup } from "./eth-advance";
-import { applyYieldInstructions } from "./eth-yield";
 import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { createPublicClient, createWalletClient, http, parseEther, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -71,7 +70,8 @@ import { createSimFaucet } from "./sim-faucet";
 import { evmPrivateKey } from "./keys";
 import { BASE_RPC, DemoHttpError, RELAYER_MIN_LAMPORTS, chain, nonces, oracleKey, perUser, relayerKey, sendAndConfirm } from "./demo-advance";
 import { verifySignedRequest } from "./request-auth";
-import { isTransient, retryRead, retryingReads } from "./retry";
+import { isTransient, retryRead } from "./retry";
+import { MSG_TYPE, quoteFee, relayConn, sendAccounts, sendQuoteFor, type SendKind } from "./bridge-send";
 import { BRAND } from "../lib/brand";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -93,8 +93,13 @@ const limits = {
   advancePerUser: new WindowLimiter(10, DAY),
 };
 
-export type EthStep = "fund-evm" | "fund-hype" | "faucet-lst" | "init-position" | "apply-locked" | "apply-yield" | "report-yield" | "send-unlock" | "send-pay-yield" | "send-pay-instant" | "advance";
-const STEPS: EthStep[] = ["fund-evm", "fund-hype", "faucet-lst", "init-position", "apply-locked", "apply-yield", "report-yield", "send-unlock", "send-pay-yield", "send-pay-instant", "advance"];
+/**
+ * The relay no longer sends bridge steps on its own (keeper diet ticket 15): `apply_locked`, `apply_yield` and the LayerZero sends ride in the
+ * Player's own sponsored transaction (src/lib/chain/bridge-bundle.ts). What stays is what no Player transaction can carry: the inbox record
+ * the first message needs, the EVM-side Yield Report request, the test faucets, the oracle-priced Advance and the quote of a send.
+ */
+export type EthStep = "fund-evm" | "fund-hype" | "faucet-lst" | "init-position" | "report-yield" | "send-quote" | "advance";
+export const STEPS: EthStep[] = ["fund-evm", "fund-hype", "faucet-lst", "init-position", "report-yield", "send-quote", "advance"];
 
 // ---- keys and clients ----------------------------------------------------------------------------
 
@@ -108,15 +113,6 @@ function evmRelayerKey(): Hex {
     console.error(`[keys] TESORO_RELAYER_EVM_PRIVATE_KEY: ${(e as Error).message}`);
     throw new DemoHttpError(503, "not-configured", "Hoodi funding is not configured on this server.");
   }
-}
-
-/** The relay's Solana connection (reads and sends): its reads retry on rate limits and timeouts. */
-const proxies = new WeakMap<object, ReturnType<typeof chain>["conn"]>();
-function relayConn() {
-  const conn = chain().conn;
-  let proxy = proxies.get(conn);
-  if (!proxy) proxies.set(conn, (proxy = retryingReads(conn)));
-  return proxy;
 }
 
 const hoodiPublic = () => createPublicClient({ chain: hoodi, transport: http(HOODI_RPC) });
@@ -259,51 +255,6 @@ async function initPosition(vault: string, id: bigint, pid: Buffer) {
   return { skipped: false, signature: await relaySend([ix]) };
 }
 
-async function applyLocked(vault: string, pid: Buffer) {
-  const conn = relayConn();
-  const net = netOfVault(vault);
-  if (await conn.getAccountInfo(corePositionPda(pid))) return { skipped: true };
-  const bp = await conn.getAccountInfo(bridgePositionPda(pid));
-  const view = bp ? parseBridgePosition(bp.data) : null;
-  if (!view || view.lastInSeq === 0n) throw new DemoHttpError(409, "not-delivered", "Still crossing chains. This continues automatically.");
-  const link = evmLinkPda(view.ownerEvm);
-  const linkInfo = await conn.getAccountInfo(link);
-  if (!linkInfo) throw new DemoHttpError(409, "not-linked", `This wallet is not linked to a ${BRAND.name} Account yet.`);
-  const account = new PublicKey(linkInfo.data.subarray(8 + 20, 8 + 52));
-  const relayer = relayerKey();
-  const ix = new TransactionInstruction({
-    programId: BRIDGE_ID,
-    keys: [
-      key(relayer.publicKey, true, true),
-      key(bridgeStore()),
-      key(bridgePeerPda(vault)),
-      key(bridgePositionPda(pid), false, true),
-      key(BRIDGE_AUTHORITY),
-      key(link),
-      key(account),
-      key(sourceAuthPda(net)),
-      key(corePositionPda(pid), false, true),
-      key(TESORO_CORE_ID),
-      key(SystemProgram.programId),
-    ],
-    data: Buffer.concat([disc("apply_locked"), u32le(net.eid), pid]),
-  });
-  return { skipped: false, signature: await relaySend([ix]) };
-}
-
-async function applyYield(vault: string, pid: Buffer) {
-  const conn = relayConn();
-  const cp = corePositionPda(pid);
-  const [bp, core] = await conn.getMultipleAccountsInfo([bridgePositionPda(pid), cp]);
-  if (!bp || !core) throw new DemoHttpError(409, "not-opened", "The Lock is not open on Solana yet.");
-  const view = parseBridgePosition(bp.data);
-  if (!view) throw new DemoHttpError(409, "abandoned", "This Lock is on a retired contract and can no longer be updated.");
-  if (view.lastYieldSeq === 0n || view.lastYieldSeq <= view.appliedYieldSeq) return { skipped: true };
-  const openAdvance = parseCorePosition(cp, core.data).openAdvance;
-  const ixs = await applyYieldInstructions(conn, relayerKey().publicKey, vault, pid, openAdvance);
-  return { skipped: false, signature: await relaySend(ixs) };
-}
-
 // ---- Yield Report request (test mode: the relayer's EVM key) -------------------------------------
 
 const reportYieldFor = createYieldReporter({
@@ -326,135 +277,6 @@ const reportYieldFor = createYieldReporter({
     return hash;
   },
 });
-
-// ---- LayerZero sends (send_unlock, send_pay_yield, send_pay_instant) -------------------------------------------------
-
-let umiCache: { umi: ReturnType<typeof createUmi>; endpoint: EndpointProgram.Endpoint } | null = null;
-function lz() {
-  if (!umiCache) {
-    const relayer = relayerKey();
-    const umi = createUmi(BASE_RPC);
-    umi.use(signerIdentity(createSignerFromKeypair(umi, fromWeb3JsKeypair(relayer as Keypair))));
-    umiCache = { umi, endpoint: new EndpointProgram.Endpoint(EndpointProgram.ENDPOINT_PROGRAM_ID) };
-  }
-  return umiCache;
-}
-
-async function sendAccounts(vault: string) {
-  const { umi, endpoint } = lz();
-  const oapp = umiKey(bridgeStore().toBase58());
-  const eid = netOfVault(vault).eid;
-  const lib = await endpoint.getSendLibrary(umi.rpc, oapp, eid);
-  if (!lib.programId) throw new DemoHttpError(503, "not-configured", "Cross-chain transfers are not available right now.");
-  const receiver = Uint8Array.from(Buffer.from(vault.replace(/^0x/, "").padStart(64, "0"), "hex"));
-  const path = { dstEid: eid, sender: oapp, receiver };
-  const msgLibProgram = new UlnProgram.Uln(lib.programId);
-  const quoteMetas = await endpoint.getQuoteIXAccountMetaForCPI(umi.rpc, umi.identity.publicKey, { path, msgLibProgram });
-  const sendMetas = await endpoint.getSendIXAccountMetaForCPI(umi.rpc, umi.identity.publicKey, { path, msgLibProgram });
-  const conv = (l: { pubkey: Parameters<typeof toWeb3JsPublicKey>[0]; isSigner: boolean; isWritable: boolean }[]) =>
-    l.map((m) => key(toWeb3JsPublicKey(m.pubkey), m.isSigner, m.isWritable));
-  return { quote: conv(quoteMetas!), send: conv(sendMetas!) };
-}
-
-async function quoteFee(vault: string, type: number, quoteMetas: ReturnType<typeof key>[]): Promise<bigint> {
-  const conn = relayConn();
-  const relayer = relayerKey();
-  const { endpointSettings } = endpointPdas();
-  const ix = new TransactionInstruction({
-    programId: BRIDGE_ID,
-    keys: [key(bridgeStore()), key(bridgePeerPda(vault)), key(endpointSettings), ...quoteMetas],
-    data: Buffer.concat([disc("quote_send"), u32le(netOfVault(vault).eid), Buffer.from(vault.replace(/^0x/, "").padStart(64, "0"), "hex"), Buffer.from([type]), vecU8(new Uint8Array(0)), Buffer.from([0])]),
-  });
-  const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix);
-  tx.feePayer = relayer.publicKey;
-  tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
-  const sim = await conn.simulateTransaction(tx, [relayer]);
-  if (sim.value.err || !sim.value.returnData) throw new DemoHttpError(502, "chain", "Couldn’t get the cross-chain fee. Try again.");
-  return Buffer.from(sim.value.returnData.data[0], "base64").readBigUInt64LE(0);
-}
-
-function endpointPdas() {
-  const { endpoint } = lz();
-  return { endpointSettings: toWeb3JsPublicKey(endpoint.pda.setting()[0]) };
-}
-
-const sendParams = (vault: string, pid: Buffer, fee: bigint) => Buffer.concat([u32le(netOfVault(vault).eid), pid, vecU8(new Uint8Array(0)), u64le(fee), u64le(0n)]);
-
-async function sendUnlock(vault: string, pid: Buffer) {
-  const conn = relayConn();
-  const cp = corePositionPda(pid);
-  const [bp, core] = await conn.getMultipleAccountsInfo([bridgePositionPda(pid), cp]);
-  if (!bp || !core) throw new DemoHttpError(409, "not-opened", "The Lock is not open on Solana yet.");
-  const view = parseBridgePosition(bp.data);
-  if (!view) throw new DemoHttpError(409, "abandoned", "This Lock is on a retired contract and can no longer be updated.");
-  if (view.unlockSent) return { skipped: true };
-  if (core.data[8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2] !== 1) throw new DemoHttpError(409, "not-unlocked", "Unlock the Lock on Solana first.");
-  const acc = await sendAccounts(vault);
-  const fee = await quoteFee(vault, 10, acc.quote);
-  const relayer = relayerKey();
-  const { endpointSettings } = endpointPdas();
-  const ix = new TransactionInstruction({
-    programId: BRIDGE_ID,
-    keys: [
-      key(relayer.publicKey, true, true),
-      key(bridgePeerPda(vault)),
-      key(bridgeStore()),
-      key(bridgePositionPda(pid), false, true),
-      key(cp),
-      key(deliveryTermsPda(vault)),
-      key(endpointSettings),
-      key(SystemProgram.programId),
-      ...acc.send,
-    ],
-    data: Buffer.concat([disc("send_unlock"), sendParams(vault, pid, fee)]),
-  });
-  return { skipped: false, signature: await relaySend([ix], 600_000), fee: fee.toString() };
-}
-
-/**
- * Sends the payout of a recorded Claim (`send_pay_yield`) or Instant Claim (`send_pay_instant`) to the holder's linked EVM address.
- * Both claims share a layout and the same account list; only the claim PDA and the message type differ.
- */
-async function sendPay(kind: "yield" | "instant", vault: string, pid: Buffer, holderAuthority: PublicKey, sourceIndex: unknown) {
-  const conn = relayConn();
-  const cp = corePositionPda(pid);
-  const holder = coreAccountPda(holderAuthority);
-  const core = await conn.getAccountInfo(cp);
-  if (!core) throw new DemoHttpError(409, "not-opened", "The Lock is not open on Solana yet.");
-  const advances = core.data.readUInt32LE(8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1);
-  if (advances === 0) throw new DemoHttpError(409, "no-claim", "Nothing to pay out for this Lock.");
-  const index = sourceIndex === undefined ? advances - 1 : sourceIndex;
-  if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= advances) throw new DemoHttpError(400, "bad-request", "Unknown Gemas source for this Lock.");
-  const source = sourcePda(cp, index);
-  const claimKey = kind === "yield" ? claimPda(holder, source) : instantClaimPda(holder, source);
-  const [claim, account] = await conn.getMultipleAccountsInfo([claimKey, holder]);
-  if (!claim || !account) throw new DemoHttpError(409, "no-claim", "Nothing to pay out for this Lock.");
-  if (!new PublicKey(claim.data.subarray(8, 40)).equals(holder) || !new PublicKey(claim.data.subarray(40, 72)).equals(source) || !new PublicKey(claim.data.subarray(72, 104)).equals(cp)) throw new DemoHttpError(409, "no-claim", "That Claim does not belong to this Account.");
-  if (claim.data.readBigUInt64LE(112) <= claim.data.readBigUInt64LE(120)) return { skipped: true };
-  const evm = `0x${Buffer.from(account.data.subarray(41, 61)).toString("hex")}`;
-  const acc = await sendAccounts(vault);
-  const fee = await quoteFee(vault, kind === "yield" ? 11 : 12, acc.quote);
-  const relayer = relayerKey();
-  const { endpointSettings } = endpointPdas();
-  const ix = new TransactionInstruction({
-    programId: BRIDGE_ID,
-    keys: [
-      key(relayer.publicKey, true, true),
-      key(bridgePeerPda(vault)),
-      key(bridgeStore()),
-      key(bridgePositionPda(pid), false, true),
-      key(cp),
-      key(holder),
-      key(evmLinkPda(evm)),
-      key(claimKey, false, true),
-      key(endpointSettings),
-      key(SystemProgram.programId),
-      ...acc.send,
-    ],
-    data: Buffer.concat([disc(kind === "yield" ? "send_pay_yield" : "send_pay_instant"), sendParams(vault, pid, fee)]),
-  });
-  return { skipped: false, signature: await relaySend([ix], 600_000), fee: fee.toString() };
-}
 
 // ---- Advance (oracle price) ------------------------------------------------------------------------
 
@@ -575,6 +397,19 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
 
 // ---- entry points ----------------------------------------------------------------------------------
 
+/** The send accounts and fee a Player's page builds its bridge steps with (src/lib/chain/bridge-bundle.ts). Nothing is sent. */
+async function sendQuote(fields: SignedFields) {
+  const vault = typeof fields.vault === "string" ? fields.vault : "";
+  const kind = fields.kind;
+  if (!isKnownVault(vault)) throw new DemoHttpError(400, "bad-request", "Unknown vault.");
+  if (typeof kind !== "string" || !(kind in MSG_TYPE)) throw new DemoHttpError(400, "bad-request", "Unknown message.");
+  try {
+    return await sendQuoteFor(vault, kind as SendKind);
+  } catch (e) {
+    throw e instanceof DemoHttpError ? e : relayFailure(vault, e);
+  }
+}
+
 /** Public: the price the Advance would be issued at, for `asset` (ETH by default). */
 export async function handleEthPrice(asset: string | null = null) {
   const p = await assetPrice(asset === "HYPE" ? "HYPE" : "ETH");
@@ -589,7 +424,7 @@ export async function handleRedeemCost(asset: string | null = null) {
   const vault = vaultsOn(asset === "HYPE" ? "hyperevm" : "hoodi")[0];
   if (!vault) throw new DemoHttpError(503, "not-configured", "Cross-chain transfers are not available right now.");
   const acc = await sendAccounts(vault.address);
-  const fee = await quoteFee(vault.address, 4, acc.quote);
+  const fee = await quoteFee(vault.address, MSG_TYPE.yield, acc.quote);
   return { feeLamports: fee.toString() };
 }
 
@@ -612,6 +447,7 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
   if (step === "fund-evm") return fundEvm(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
   if (step === "fund-hype") return fundHype(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
   if (step === "faucet-lst") return faucetLst(wallet, fields, sub);
+  if (step === "send-quote") return sendQuote(fields);
   const ref = parseRef(fields);
   if (step === "advance") return advance(address, ref.vault, ref.pid, Number(fields.months), sub);
   const refund = takeAll([[limits.relayPerAccount, wallet], ...perUser(limits.relayPerUser, sub), [limits.relayGlobal, "all"]]);
@@ -620,18 +456,8 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
     switch (step) {
       case "init-position":
         return await initPosition(ref.vault, ref.id, ref.pid);
-      case "apply-locked":
-        return await applyLocked(ref.vault, ref.pid);
-      case "apply-yield":
-        return await applyYield(ref.vault, ref.pid).then((r) => (console.info("eth-bridge apply-yield", JSON.stringify(r)), r));
-      case "report-yield":
-        return await reportYieldFor(ref.vault, ref.id);
-      case "send-unlock":
-        return await sendUnlock(ref.vault, ref.pid);
-      case "send-pay-instant":
-        return await sendPay("instant", ref.vault, ref.pid, address, fields.sourceIndex);
       default:
-        return await sendPay("yield", ref.vault, ref.pid, address, fields.sourceIndex);
+        return await reportYieldFor(ref.vault, ref.id);
     }
   } catch (e) {
     refund();
