@@ -28,6 +28,7 @@ const bundle = await import("@/lib/chain/bridge-bundle");
 const steps = await import("@/lib/chain/bridge-steps");
 const eth = await import("@/lib/chain/eth");
 const native = await import("@/lib/chain/native");
+const redeemModule = await import("@/lib/chain/redeem");
 
 /** The relayer stands in as the payer; the table never holds it (it signs), so any key will do for planning. */
 const stand = Keypair.generate();
@@ -97,6 +98,8 @@ function sizes(addrs: PublicKey[]) {
     const redeem = { ...base, source, sourceIndex: 0, gemas: 5n, target: { line, accounts: books }, create: [], holderEvm: "0x" + "ab".repeat(20), quote };
     rows.push([`${label}: Redeem + send (relayer pays the Claim)`, measure(steps.redeemGroups({ ...redeem, applyYield: null }))]);
     rows.push([`${label}: apply_yield + Redeem + send`, measure(steps.redeemGroups({ ...redeem, applyYield: yieldPlan }))]);
+    const pages = [1, 2, 3].map((n) => redeemModule.initCkptPageIx(stand.publicKey, source, 3, n));
+    rows.push([`${label}: 3 checkpoint pages + apply_yield + Redeem + send`, measure(steps.redeemGroups({ ...redeem, create: pages, applyYield: yieldPlan }))]);
   }
   return rows;
 }
