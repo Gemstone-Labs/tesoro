@@ -19,7 +19,7 @@ Per Source: `issued`, `returned` (cancelled by the owner), `redeemed`, `yield_un
 |---|---|---|
 | `Config` | (fees, oracle; the old Game list is unused) | `["config"]` |
 | `GameRecord` | one per Game: settle authority, Studio terms, pending change, listing | `["game", program_id]` |
-| `PairState` | Matches one opener-to-joiner pair started today | `["pair", opener Account, joiner Account]` |
+| `PairState` | Matches one opener-to-joiner pair started today; names both Players and the payer | `["pair2", opener Account, joiner Account]` |
 | `TesoroAccount` | Account | `["account", authority]` |
 | `PositionState` | Position | `["position", chain_byte, position_id]` |
 | `SourceState` | Source (one per Advance) | `["source", position, index_le]` |
@@ -261,7 +261,7 @@ A Game is one `["game", program_id]` record. `Config.games` is no longer read or
 - **Why a hash.** The loader's `ExtendProgram` moves the ProgramData slot and appends zeros without changing the code (agave `solana-bpf-loader-program` `common_extend_program` writes `slot: clock_slot`; the plain instruction needs no authority unless the `enable_extend_program_checked` feature is active, 3.1.x; 4.3.2 has no feature check in the source we read). So the slot alone cannot tell a stranger's extension from an upgrade. The slot compare stays the fast path at open; `refresh_listing` is the slow path. Over 1,800,000 bytes of account data (a program extended far past its size) it cannot run and the admin relists with `list_game`. Measured on `vanguard.so` (783,672 bytes): see the ticket comment.
 - **Migration.** `MatchState` grew by 9 bytes and every Match needs its Game record to settle or refund: settle or refund all open Matches before the upgrade, then register and list the Games (the devnet wipe of ticket 24 does this).
 - **Immutable Games.** A Game that signs with `["tesoro-register"]` hands its registry to whoever can reach that CPI: expose it only behind the Game's own authority check.
-- **Pair limit.** A joiner may join at most 20 Matches opened by the same opener in a 24-hour window (`PairState`, `PairLimitReached`). The counter costs the joiner about 0.001 SOL of rent; `close_pair(opener, joiner)` (anyone, after the window) returns it to the wallet that paid. The per-Account cap on Matches open at once belongs to the Match lifecycle (ticket 09), where the per-Account Match counter lives.
+- **Pair limit.** A joiner may join at most 20 Matches opened by the same opener in a 24-hour window (`PairState`, `PairLimitReached`). The counter costs the joiner about 0.0016 SOL of rent; `close_pair()` (anyone, after the window; the record names its opener and joiner, so a scan finds and closes it) returns it to the wallet that paid. Devnet records from before this layout (51 bytes) sit under the old `pair` seed, are never read, and strand about 0.001 SOL each; mainnet has none. The per-Account cap on Matches open at once belongs to the Match lifecycle (ticket 09), where the per-Account Match counter lives.
 - **Call sites.** `open_match`, `open_match_backed`, `create_request`, `create_offer` take `game_record` (the three Game accounts for the two `open_match` variants); `join_match` and `join_match_backed` take `pair` and `system_program`; `settle_match` takes `config` and `game_record`; `refund_match` and `extend_match_deadline` take `game_record` instead of `config`. Game programs pass their own record (`["game", crate::ID]` of tesoro_core).
 
 ## Economy upgrade (ADR 0013)

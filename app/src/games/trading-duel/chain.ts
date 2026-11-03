@@ -633,6 +633,11 @@ export class TradingDuelChain {
     } as any;
   }
 
+  /** What every instruction that can end a Match names: the seat accounts it closes and the Sponsor it commits through. */
+  private concludingAccounts(caller: PublicKey, a: TableRef) {
+    return { ...this.seatAccounts(caller, a), sponsor: sponsorPda(), magicFeeVault: magicFeeVaultPda(), magicContext: MAGIC_CONTEXT } as any;
+  }
+
   /** Rollup, permissionless. Creates both Players' Books (ephemeral, private to their Player). */
   async openSeats(payer: PlayerSigner, a: TableRef): Promise<string> {
     const ix = await this.program.methods.openSeats().accountsPartial(this.seatAccounts(payer.publicKey, a)).instruction();
@@ -650,8 +655,8 @@ export class TradingDuelChain {
 
   /** Rollup, permissionless. Past the start deadline with a Player missing: ends the Match in the ring: the Player who checked in wins, nobody checking in is a no-show. */
   async expireStart(caller: PlayerSigner, a: TableRef): Promise<string> {
-    const ix = await this.program.methods.expireStart().accountsPartial({ caller: caller.publicKey, table: tablePda(a.generation, a.index) } as any).instruction();
-    return this.sendTee("expire_start", [ix], caller);
+    const ix = await this.program.methods.expireStart().accountsPartial(this.concludingAccounts(caller.publicKey, a)).instruction();
+    return this.sendTee("expire_start", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], caller);
   }
 
   // -- rollup: playing -----------------------------------------------------------------------
@@ -677,14 +682,10 @@ export class TradingDuelChain {
     return this.sendTee("tick", [ix], payer);
   }
 
-  /** Rollup, permissionless. After the window: carries the line through any column it missed, scores every column, decides the Match and writes the result into the ring. Reads no price. */
+  /** Rollup, permissionless. After the window: carries the line through any column it missed, scores every column, decides the Match, writes the result into the ring, then closes the Books and commits the table to Solana in the same transaction. Reads no price. */
   async end(payer: PlayerSigner, a: TableRef): Promise<string> {
-    const table = tablePda(a.generation, a.index);
-    const ix = await this.program.methods
-      .endMatch()
-      .accountsPartial({ caller: payer.publicKey, table, book0: bookPda(table, 0), book1: bookPda(table, 1) } as any)
-      .instruction();
-    return this.sendTee("end_match", [ix], payer);
+    const ix = await this.program.methods.endMatch().accountsPartial(this.concludingAccounts(payer.publicKey, a)).instruction();
+    return this.sendTee("end_match", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], payer);
   }
 
   // -- rollup: after the Match ---------------------------------------------------------------

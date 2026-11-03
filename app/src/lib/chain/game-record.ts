@@ -20,7 +20,7 @@ export const gameAccounts = (game: PublicKey) => ({
 });
 
 /** Matches one opener-to-joiner pair has started today: `["pair", opener Account, joiner Account]`. */
-export const pairPda = (openerAccount: PublicKey, joinerAccount: PublicKey) => pda([s("pair"), openerAccount.toBuffer(), joinerAccount.toBuffer()], TESORO_CORE_ID);
+export const pairPda = (openerAccount: PublicKey, joinerAccount: PublicKey) => pda([s("pair2"), openerAccount.toBuffer(), joinerAccount.toBuffer()], TESORO_CORE_ID);
 
 /** The PDA an immutable Game program signs with to register or change itself. */
 export const registerPda = (game: PublicKey) => PublicKey.findProgramAddressSync([s("tesoro-register")], game)[0];
