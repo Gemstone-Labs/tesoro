@@ -16,7 +16,7 @@ import type { GameId } from "@/lib/mock/types";
 import { FLAG_BACKING_OPEN, FLAG_TICKET_OPEN, MAX_GROW_LINES, basketPda, countersPda, decodeStore, playableTotal, sponsorPda, spillPda, ticketPda, type Line, type Store } from "./basket";
 import { coreIx as rawCoreIx, metaOf, type AccountsByName } from "./core-ix";
 import type { GetToken } from "./demo-client";
-import { booksFor, drawRemaining, MAX_INITIAL_TICKET_LINES, readEntryStores, relayerKey, sendEntryTx, STAGE_OPS, type EntryStores } from "./entry";
+import { booksFor, drawRemaining, MAX_INITIAL_TICKET_LINES, readEntryStores, readNextTicket, relayerKey, sendEntryTx, STAGE_OPS, type EntryStores } from "./entry";
 import { getChain } from "./client";
 import { planDraw } from "./draw";
 import { GAME_IDS } from "./games";
@@ -235,7 +235,6 @@ export interface PrepareArgs {
   entry: bigint;
   /** Lines the draw needs (`previewEntry(...).ticketLines`). */
   lines: number;
-  nonce: bigint;
   onProgress?: (s: StagedEntry) => void;
 }
 
@@ -264,10 +263,13 @@ async function restage(signer: ChainSigner, getToken: GetToken, t: TicketView, o
 export async function prepareEntryTicket(a: PrepareArgs): Promise<TicketView> {
   const owner = BlockPuzzleChain.coreAccount(a.signer.publicKey);
   const first = Math.min(a.lines, MAX_INITIAL_TICKET_LINES);
-  await sendEntryTx(a.signer, a.getToken, async (payer, sponsored) => [
-    openTicketIx({ payer, authority: a.signer.publicKey, owner, nonce: a.nonce, kind: "entry", game: a.game, target: a.entry, lines: first, sponsored }),
-  ]);
-  const address = ticketPda(owner, a.nonce);
+  // the nonce is the Account's next_ticket, read again every time the transaction is built
+  let nonce = 0n;
+  await sendEntryTx(a.signer, a.getToken, async (payer, sponsored) => {
+    nonce = await readNextTicket(owner);
+    return [openTicketIx({ payer, authority: a.signer.publicKey, owner, nonce, kind: "entry", game: a.game, target: a.entry, lines: first, sponsored })];
+  });
+  const address = ticketPda(owner, nonce);
   if (a.lines > first) {
     // grow_ticket is not in the relayer's allow-list: the Player pays this refundable rent
     await sendEntryTx(a.signer, a.getToken, async () => growTicketIxs(a.signer.publicKey, owner, address, a.lines - first), { sponsorable: false });
@@ -291,14 +293,18 @@ export async function prepareBackingTicket(
 ): Promise<TicketView> {
   const requester = a.signer.publicKey;
   const first = Math.min(a.lines, MAX_INITIAL_TICKET_LINES);
-  const address = ticketPda(a.backerAccount, a.nonce);
+  // the Backer's counter numbers a Backing Ticket too; read again every time the transaction is built
+  let nonce = 0n;
   await sendEntryTx(a.signer, a.getToken, async (payer, sponsored) => {
-    const open = openTicketIx({ payer, authority: requester, owner: a.backerAccount, nonce: a.nonce, kind: "backing", game: a.game, target: a.entry, lines: first, offer: a.offer, sponsored });
+    nonce = await readNextTicket(a.backerAccount);
+    const address = ticketPda(a.backerAccount, nonce);
+    const open = openTicketIx({ payer, authority: requester, owner: a.backerAccount, nonce, kind: "backing", game: a.game, target: a.entry, lines: first, offer: a.offer, sponsored });
     const stores = await readEntryStores(a.backerAccount);
     const plan = planDraw(stores.basket, stores.spill, a.entry, stageLimit(stores) + 0n);
     const stage = stageEntryIx(requester, a.backerAccount, address, STAGE_OPS, await drawRemaining({ steps: plan.steps.slice(0, STAGE_OPS) }));
     return [open, stage];
   });
+  const address = ticketPda(a.backerAccount, nonce);
   if (a.lines > first) {
     await sendEntryTx(a.signer, a.getToken, async () => growTicketIxs(requester, a.backerAccount, address, a.lines - first), { sponsorable: false });
   }
