@@ -328,7 +328,7 @@ function checkTransfer(ix: Ix, relayer: PublicKey, player: PublicKey, redeem: Ix
 /** Accepts one sponsored transaction made of bridge steps (and the Player's own `unlock`, and the rent transfer) or throws a RuleError. */
 export function planBridgeBundle(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
   const names = ixs.map((ix) => {
-    if (ix.programId.equals(BRIDGE_ID)) return bundleNameOf(ix.data) ?? bad("unknown-instruction", "That bridge instruction is not one we pay for.");
+    if (ix.programId.equals(BRIDGE_ID)) return bundleNameOf(ix.data) ?? bad("bad-shape", "Only link_evm and the Player's bridge steps are paid for on the bridge.");
     if (ix.programId.equals(TESORO_CORE_ID)) return "unlock";
     if (ix.programId.equals(SystemProgram.programId)) return "transfer";
     return bad("unknown-program", "That program is not one we pay for.");

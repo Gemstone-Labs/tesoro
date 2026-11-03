@@ -206,7 +206,7 @@ describe("refused", () => {
     refused([ix], "relayer-in-accounts");
   });
   it("other bridge instructions: init_position, set_route, retire, the admin steps", () => {
-    for (const d of ["c5140a0161a0b15b", "0000000000000001"]) refused([{ programId: BRIDGE_ID, keys: [], data: Buffer.from(d, "hex") }], "unknown-instruction");
+    for (const d of ["c5140a0161a0b15b", "0000000000000001"]) refused([{ programId: BRIDGE_ID, keys: [], data: Buffer.from(d, "hex") }], "bad-shape");
   });
   it("another core instruction next to a send", async () => {
     refused([await playerIx.redeem(player), sendUnlock()], "bad-shape");
