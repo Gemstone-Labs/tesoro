@@ -32,6 +32,8 @@ import { ChainTransactionFailed } from "./chain-send";
 import { completionEffects, completionInput, holdSeeds, recoverCompletions, type CompletionChain, type HoldSeed } from "./completion";
 import { releaseClosedHolds, type ClosureReads } from "./closure";
 import { assetOfIndex } from "@/games/trading-duel/chain";
+import { countersPda } from "@/lib/chain/basket";
+import { GROW_COUNTERS_CU, GROW_COUNTERS_RENT, growIxsFor } from "@/lib/chain/grow-counters";
 import { joinOf, PlayerBusy, type Assigner, type Assignment, type LeaseRef } from "./assign";
 import { admitPages, admitSends, type BridgeSendGuard } from "./bridge-sends";
 
@@ -306,6 +308,17 @@ export class Sponsor {
     }
   }
 
+  /**
+   * `grow_counters` for each of these Accounts' counters that the instructions use and that are still the 25 bytes of an earlier
+   * build: the program cannot read them otherwise, so the grow goes in front. `payer` pays its 8 bytes of rent.
+   */
+  private async growsFor(payer: PublicKey, accounts: PublicKey[], ixs: Ix[]): Promise<TransactionInstruction[]> {
+    const used = new Set(ixs.flatMap((i) => i.keys.map((k) => k.pubkey.toBase58())));
+    const keys = [...new Map(accounts.map((a) => countersPda(a)).filter((k) => used.has(k.toBase58())).map((k) => [k.toBase58(), k])).values()];
+    const infos = await Promise.all(keys.map((k) => this.d.chain.account(k)));
+    return growIxsFor(payer, keys, infos);
+  }
+
   private async admitGameStep(plan: Plan, player: PublicKey, now: number): Promise<() => Promise<void>> {
     const match = plan.obligations[0];
     const a = await this.d.chain.account(match);
@@ -397,6 +410,9 @@ export class Sponsor {
     if (plan.kind === "game" && plan.spend.refundable > 0n) plan.spend.refundable = await this.receiptRent();
     const setup = await verifyExitSetup(plan, player, this.d.chain);
     plan.spend.sunk += setup.rent + (await verifyCkptPages(plan.pages ?? [], this.d.chain));
+    const grows = await this.growsFor(this.relayer, [accountPda(player), ...plan.funders, ...plan.signers.map(accountPda)], ixs);
+    plan.cu += GROW_COUNTERS_CU * grows.length;
+    plan.spend.sunk += GROW_COUNTERS_RENT * BigInt(grows.length);
     if (setup.ataGrant && await this.d.store.used(setup.ataGrant, EXIT_ATA_WINDOW_MS, now) >= 1) throw new DemoHttpError(409, "setup-already-funded", "This payout token account was already funded. Restore it using the SOL returned when it was closed.");
     if (plan.class === "admission" && !plan.signers.some((s) => s.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
     if (plan.playerSigns && !plan.signers.some((sg) => sg.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
@@ -480,6 +496,7 @@ export class Sponsor {
     const instructions = [
       ComputeBudgetProgram.setComputeUnitLimit({ units: plan.cu }),
       ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_MICROLAMPORTS }),
+      ...grows,
       // Rebuilt from the accepted instructions: the flags are the ones the allow-list checked.
       ...ixs.map((i) => new TransactionInstruction({ programId: i.programId, keys: i.keys, data: Buffer.from(i.data) })),
       ...(held.assignment ? [held.assignment.ix] : []),
@@ -527,6 +544,7 @@ export class Sponsor {
     const who = player.toBase58();
     if (!(await this.d.store.take(`assignb:${who}`, 1, this.d.limits.buildsPerDay, DAY, now))) throw new DemoHttpError(429, "account-limit", "Too many requests today.");
     await this.requireAccount(player);
+    const grows = await this.growsFor(player, [accountPda(player)], ixs);
     const assignment = await this.assignJoin(join, randomUUID(), who);
     if (assignment === "busy") throw new DemoHttpError(429, "join-pending", "You already have a join waiting for a table. Send it, or try again in a minute.");
     if (assignment === "own") throw new DemoHttpError(409, "cannot-join", "You cannot join your own Match.");
@@ -536,7 +554,8 @@ export class Sponsor {
         payerKey: player,
         recentBlockhash: await this.d.chain.latestBlockhash(),
         instructions: [
-          ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 + ASSIGN_CU }),
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 + ASSIGN_CU + GROW_COUNTERS_CU * grows.length }),
+          ...grows,
           ...ixs.map((i) => new TransactionInstruction({ programId: i.programId, keys: i.keys, data: Buffer.from(i.data) })),
           assignment.ix,
         ],

@@ -43,6 +43,7 @@ import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
 import { protectionsPda } from "./native";
 import { matchOverflowPda } from "./overflow";
+import { COUNTERS_V1_LEN, LEGACY_TICKET_BASE, growIxsFor, type RawAccount } from "./grow-counters";
 import { SponsorError, assignedSend, sponsorStatus, sponsoredSend } from "./sponsor-client";
 
 export { DrawError };
@@ -87,10 +88,14 @@ export const nextMatchOf = (data: Uint8Array | undefined): bigint =>
 
 /**
  * `AccountCounters.next_ticket`: the nonce the next Ticket or Pot of this Account must use (0 before the counters exist).
- * Counters made before the upgrade have 25 bytes and no such field: they have to be migrated first.
+ * Counters made before the upgrade have 25 bytes and no such field: the transaction that uses the nonce grows them first
+ * (`grow_counters`), which starts the field at LEGACY_TICKET_BASE, so that is the nonce to use.
  */
-export const nextTicketOf = (data: Uint8Array | undefined): bigint =>
-  data && data.length >= 33 ? new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(25, true) : 0n;
+export const nextTicketOf = (data: Uint8Array | undefined): bigint => {
+  if (!data) return 0n;
+  if (data.length === COUNTERS_V1_LEN) return LEGACY_TICKET_BASE;
+  return data.length >= 33 ? new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(25, true) : 0n;
+};
 
 export async function readEntryStores(account: PublicKey, conn: Pick<Connection, "getMultipleAccountsInfo"> = getChain().base): Promise<EntryStores> {
   const [b, s, c] = await conn.getMultipleAccountsInfo([basketPda(account), spillPda(account), countersPda(account)], "confirmed");
@@ -267,7 +272,16 @@ export async function sendEntryTx(
       if (!(e instanceof SponsorError)) throw e;
     }
   }
-  return { sig: await getChain().sendBase(signer, own), sponsored: false };
+  return { sig: await getChain().sendBase(signer, await withCountersGrown(own, signer.publicKey)), sponsored: false };
+}
+
+/** Puts `grow_counters` in front of `ixs` for every writable account in them that is a counters account of the old 25-byte size. */
+async function withCountersGrown(ixs: TransactionInstruction[], payer: PublicKey): Promise<TransactionInstruction[]> {
+  const keys = [...new Map(ixs.flatMap((i) => i.keys).filter((k) => k.isWritable && !k.isSigner).map((k) => [k.pubkey.toBase58(), k.pubkey])).values()];
+  const infos: (RawAccount | null)[] = [];
+  for (let i = 0; i < keys.length; i += 100) infos.push(...(await getChain().base.getMultipleAccountsInfo(keys.slice(i, i + 100), "confirmed")));
+  const grows = growIxsFor(payer, keys, infos);
+  return grows.length ? [...grows, ...ixs] : ixs;
 }
 
 // ---- Match refs ------------------------------------------------------------------------------

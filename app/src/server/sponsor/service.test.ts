@@ -10,7 +10,7 @@ import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type
 import { MemoryUsageStore } from "./store";
 import { encodeBook, freshClass } from "@/lib/chain/basket-fixture";
 import { fp } from "@/lib/chain/book";
-import { bookPda, ckptPda } from "@/lib/chain/basket";
+import { bookPda, ckptPda, countersPda } from "@/lib/chain/basket";
 import { SIM_SOL_MINT, sourcePda } from "@/lib/chain/native";
 import { redeemLineIxs, unlockIxs } from "@/lib/chain/redeem";
 import { planExit } from "@/lib/chain/exit-route";
@@ -843,6 +843,25 @@ describe("join and assign in one transaction", () => {
     const sent = s.sent[0];
     const bytes = sent.message.serialize();
     sent.message.staticAccountKeys.slice(0, sent.message.header.numRequiredSignatures).forEach((k, i) => expect(nacl.sign.detached.verify(bytes, sent.signatures[i], k.toBytes())).toBe(true));
+  });
+
+  it("puts grow_counters in front of a join that reads an old 25-byte counters account, and not when the account is current", async () => {
+    const { s, match } = withAssigner();
+    const counters = countersPda(accountPda(s.player.publicKey));
+    const disc = Buffer.from((coreIdl.accounts as { name: string; discriminator: number[] }[]).find((a) => a.name === "AccountCounters")!.discriminator);
+    const growDisc = Buffer.from((coreIdl.instructions as { name: string; discriminator: number[] }[]).find((i) => i.name === "grow_counters")!.discriminator);
+    const names = async () => {
+      const built = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+      const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+      return msg.compiledInstructions.map((i) => (Buffer.from(i.data).subarray(0, 8).equals(growDisc) ? "grow" : "other"));
+    };
+    expect(await names()).not.toContain("grow");
+    const old = Buffer.alloc(25);
+    disc.copy(old);
+    s.accounts.set(counters.toBase58(), { owner: CORE_ID, data: old });
+    const seen = await names();
+    expect(seen.filter((n) => n === "grow")).toHaveLength(1);
+    expect(seen.indexOf("grow")).toBeLessThan(seen.lastIndexOf("other") - 0);
   });
 
   it("keeps the table through the start window once sent, so the next join gets another", async () => {
