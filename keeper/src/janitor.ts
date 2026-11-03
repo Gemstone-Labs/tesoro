@@ -1,11 +1,12 @@
 import { PublicKey } from "@solana/web3.js";
 import { settledPda } from "../../app/src/lib/chain/basket.ts";
 import { act, log, type Ctx } from "./act.ts";
-import { closePairIx, closeReceiptIx, refreshListingIx } from "./core-ix.ts";
+import { refreshListingIx } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
 import { gameRecordOf } from "./kit.ts";
 import { assignmentClosable } from "./scheduler.ts";
-import { PAIR_RECORD_LEN, PAIR_WINDOW_SECS, groupsOf, listedGameOf, listingOutcome, listingStep, oldReceipts, receiptOf, type SweepDeps } from "./sweeps.ts";
+import { closeOldPairs, closeOldReceipts, groupsOf } from "./reclaim.ts";
+import { listedGameOf, listingOutcome, listingStep, type SweepDeps } from "./sweeps.ts";
 import { ticketJob, type TicketDeps } from "./tickets.ts";
 
 /**
@@ -47,10 +48,8 @@ export interface JanitorDeps extends TicketDeps, SweepDeps {
   publishApy: (() => Promise<string>) | null;
 }
 
-const PER_TX = 6;
 const PER_RUN = 300;
 const TICKET_PASSES = 10;
-const PAIR_HEAD_BYTES = 8 + 1 + 32 + 8;
 
 type Alerts = JanitorReport["alerts"];
 type Part = (ctx: Ctx, d: JanitorDeps, alerts: Alerts) => Promise<Pick<PartReport, "actions" | "note">>;
@@ -67,31 +66,13 @@ const tickets: Part = async (ctx, d) => {
 };
 
 const receipts: Part = async (ctx, d) => {
-  const due = oldReceipts((await d.list("SettlementReceipt")).map((r) => receiptOf(r.pubkey, ctx.core.coder.accounts.decode("settlementReceipt", r.data))), ctx.now).slice(0, PER_RUN);
-  let actions = 0;
-  for (const group of groupsOf(due, PER_TX)) {
-    const r = await act(ctx, "janitor", `receipts=${group.length}`, `close_receipt x${group.length} (14 days old)`, async () =>
-      d.send(await Promise.all(group.map((g) => closeReceiptIx(ctx.core, { caller: ctx.payer.publicKey, receipt: g.address, payer: g.payer }))), {}),
-    );
-    actions += +r.ok;
-  }
-  return { actions, note: due.length ? undefined : "no receipt due" };
+  const r = await closeOldReceipts(ctx, d, "janitor", PER_RUN);
+  return { actions: r.actions, note: r.due ? undefined : "no receipt due" };
 };
 
 const pairs: Part = async (ctx, d) => {
-  const due: { address: PublicKey; payer: PublicKey }[] = [];
-  for (const r of await d.list("PairState", { dataSize: PAIR_RECORD_LEN, dataSlice: { offset: 0, length: PAIR_HEAD_BYTES } })) {
-    const windowStart = Number(r.data.readBigInt64LE(8 + 1 + 32));
-    if (ctx.now >= windowStart + PAIR_WINDOW_SECS) due.push({ address: r.pubkey, payer: new PublicKey(r.data.subarray(9, 41)) });
-  }
-  let actions = 0;
-  for (const group of groupsOf(due.slice(0, PER_RUN), PER_TX)) {
-    const r = await act(ctx, "janitor", `pairs=${group.length}`, `close_pair x${group.length} (24 h window over)`, async () =>
-      d.send(await Promise.all(group.map((g) => closePairIx(ctx.core, { caller: ctx.payer.publicKey, pair: g.address, payer: g.payer }))), {}),
-    );
-    actions += +r.ok;
-  }
-  return { actions, note: due.length ? undefined : "no pair record due" };
+  const r = await closeOldPairs(ctx, d, "janitor", PER_RUN);
+  return { actions: r.actions, note: r.due ? undefined : "no pair record due" };
 };
 
 const assignments: Part = async (ctx, d) => {

@@ -1,19 +1,15 @@
 import { PublicKey, type Keypair } from "@solana/web3.js";
 import { clearRaised, raise } from "./alerts.ts";
 import { act, log, type Ctx } from "./act.ts";
-import { closePairIx, closeReceiptIx, refreshListingIx } from "./core-ix.ts";
+import { refreshListingIx } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
 import { gameRecordOf, keyOf, programDataOf } from "./kit.ts";
 import { connLister, type Lister } from "./lists.ts";
 import { sendIxs, type SendOpts } from "./send.ts";
 import { connReader, type Reader } from "./supply.ts";
+import { closeOldPairs, closeOldReceipts } from "./reclaim.ts";
 import { simulate } from "./tee.ts";
 
-/** A settlement receipt is kept this long (RECEIPT_KEEP_SECS of tesoro_core). */
-export const RECEIPT_KEEP_SECS = 14 * 24 * 3600;
-/** A pair counter's window (PAIR_WINDOW_SECS of tesoro_core). */
-export const PAIR_WINDOW_SECS = 24 * 3600;
-const PER_TX = 6;
 const PER_PASS = 30;
 
 export interface SweepDeps {
@@ -30,55 +26,9 @@ export const realSweepDeps = (ctx: Ctx): SweepDeps => ({
   simulate: (ixs) => simulate(ctx.conn, ctx.payer, ixs),
 });
 
-export interface ReceiptRow {
-  address: PublicKey;
-  payer: PublicKey;
-  at: number;
-}
-
-/** A decoded `SettlementReceipt`. */
-export const receiptOf = (address: PublicKey, r: any): ReceiptRow => ({ address, payer: keyOf(r.payer), at: Number(r.receipt.at.toString()) });
-
-/** Receipts past their keeping time: closing returns the rent to whoever paid it. */
-export const oldReceipts = (rows: ReceiptRow[], now: number) => rows.filter((r) => now >= r.at + RECEIPT_KEEP_SECS);
-
-export const groupsOf = <T>(items: T[], n: number): T[][] => Array.from({ length: Math.ceil(items.length / n) }, (_, i) => items.slice(i * n, (i + 1) * n));
-
-// ---- Pairs -------------------------------------------------------------------------------------------------------------
-
-/** Bytes of a pair record that names its Players; shorter ones (pre-upgrade, devnet) are under another seed and are skipped. */
-export const PAIR_RECORD_LEN = 8 + 1 + 32 + 8 + 2 + 32 + 32;
-
-export interface PairRow {
-  address: PublicKey;
-  payer: PublicKey;
-  windowStart: number;
-}
-
-export const pairsToClose = (rows: PairRow[], now: number) => rows.filter((p) => now >= p.windowStart + PAIR_WINDOW_SECS);
-
 /** Job: closes receipts older than 14 days and pair counters whose 24 h window ended, so their rent comes back. */
 export async function sweepJob(ctx: Ctx, d: SweepDeps = realSweepDeps(ctx)): Promise<number> {
-  let actions = 0;
-  const receipts = oldReceipts((await d.list("SettlementReceipt")).map((r) => receiptOf(r.pubkey, ctx.core.coder.accounts.decode("settlementReceipt", r.data))), ctx.now).slice(0, PER_PASS);
-  for (const group of groupsOf(receipts, PER_TX)) {
-    const r = await act(ctx, "sweep", `receipts=${group.length}`, `close_receipt x${group.length} (14 days old)`, async () =>
-      d.send(await Promise.all(group.map((g) => closeReceiptIx(ctx.core, { caller: ctx.payer.publicKey, receipt: g.address, payer: g.payer }))), {}),
-    );
-    actions += +r.ok;
-  }
-
-  const pairs: PairRow[] = (await d.list("PairState", { dataSize: PAIR_RECORD_LEN })).map((r) => {
-    const s: any = ctx.core.coder.accounts.decode("pairState", r.data);
-    return { address: r.pubkey, payer: keyOf(s.payer), windowStart: Number(s.windowStart.toString()) };
-  });
-  for (const group of groupsOf(pairsToClose(pairs, ctx.now).slice(0, PER_PASS), PER_TX)) {
-    const r = await act(ctx, "sweep", `pairs=${group.length}`, `close_pair x${group.length} (24 h window over)`, async () =>
-      d.send(await Promise.all(group.map((g) => closePairIx(ctx.core, { caller: ctx.payer.publicKey, pair: g.address, payer: g.payer }))), {}),
-    );
-    actions += +r.ok;
-  }
-  return actions;
+  return (await closeOldReceipts(ctx, d, "sweep", PER_PASS)).actions + (await closeOldPairs(ctx, d, "sweep", PER_PASS)).actions;
 }
 
 // ---- Listing upkeep --------------------------------------------------------------------------------------------------
