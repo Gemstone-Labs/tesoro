@@ -5,10 +5,10 @@
 //!
 //! Every block is atomic: on `Err` the Pot, the books and the credits are unchanged.
 
-use super::{LcResult, LifecycleError, Party, Settlement, Terms};
+use super::{LcResult, LifecycleError, Party, Pots, Settlement, Terms};
 use crate::ledger::book::SourceBook;
 use crate::ledger::draw::{Placed, PotBacking, PotPages};
-use crate::ledger::line_store::{Line, CLASS_STUDIO, SIDE_WON};
+use crate::ledger::line_store::{Line, CLASS_STUDIO, SIDE_OWN, SIDE_WON};
 use crate::ledger::{mul_div_floor, to_u64, Key, BPS};
 
 /// One credit a block made: the line that moved, who got it, and where it landed.
@@ -26,7 +26,7 @@ pub(crate) fn placement(p: Placed) -> u8 {
     }
 }
 
-fn fee_of(entry_pot: u128, bps: u16) -> LcResult<u64> {
+pub(crate) fn fee_of(entry_pot: u128, bps: u16) -> LcResult<u64> {
     to_u64(mul_div_floor(entry_pot, bps as u128, BPS).map_err(|_| LifecycleError::Math)?)
         .map_err(|_| LifecycleError::Math)
 }
@@ -56,8 +56,7 @@ pub fn win_surplus(losing_lines: u64, fees: [u64; 3]) -> LcResult<u64> {
 /// The Player's floored share of a Backed winner's surplus.
 pub fn player_share(surplus: u64, share_bps: u16) -> LcResult<u64> {
     to_u64(
-        mul_div_floor(surplus as u128, share_bps as u128, BPS)
-            .map_err(|_| LifecycleError::Math)?,
+        mul_div_floor(surplus as u128, share_bps as u128, BPS).map_err(|_| LifecycleError::Math)?,
     )
     .map_err(|_| LifecycleError::Math)
 }
@@ -246,4 +245,3 @@ pub(crate) fn surplus_step<B: PotBacking>(
         placement: placement(placed),
     })
 }
-

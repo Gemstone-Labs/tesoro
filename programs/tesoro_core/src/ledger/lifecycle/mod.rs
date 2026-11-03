@@ -51,7 +51,7 @@ use super::{
 
 pub mod blocks;
 use blocks::{
-    back_step, cut_step, emptied, placement, player_share, pot_of, surplus_step, win_fees,
+    back_step, cut_step, emptied, fee_of, placement, player_share, pot_of, surplus_step, win_fees,
     win_surplus, Credit,
 };
 
