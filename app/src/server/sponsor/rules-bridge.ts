@@ -25,7 +25,7 @@ import {
   corePositionPda,
   deliveryTermsPda,
   ETH_VAULTS,
-  isKnownVault,
+  vaultByAddress,
   netOfVault,
   sourceAuthPda,
   vaultTreasuryPda,
@@ -105,8 +105,7 @@ function relayerOnlyAt(ix: Ix, name: string, relayer: PublicKey, payerAt: number
 function positionOf(ix: Ix, name: string, dataLength: number) {
   if (ix.data.length !== dataLength) bad("bad-data", `${name}: the instruction data is the wrong size.`);
   const pid = Buffer.from(ix.data.subarray(12, 44));
-  const vault = `0x${hex(pid.subarray(0, 20))}`;
-  if (!isKnownVault(vault)) bad("bad-vault", `${name}: that is not a Lock on a contract we support.`);
+  const vault = vaultByAddress(`0x${hex(pid.subarray(0, 20))}`)?.address ?? bad("bad-vault", `${name}: that is not a Lock on a contract we support.`);
   if (rdU32(ix.data, 8) !== netOfVault(vault).eid) bad("bad-data", `${name}: the endpoint id does not match the vault.`);
   return { pid, vault, net: netOfVault(vault) };
 }
@@ -220,8 +219,9 @@ function checkSendPayPrize(ix: Ix, relayer: PublicKey): Checked {
   const name = "send_pay_prize";
   if (ix.data.length !== 8 + 4 + 32 + 8 + 4 + 8 + 8) bad("bad-data", `${name}: the instruction data is the wrong size.`);
   const peer = Buffer.from(ix.data.subarray(12, 44));
-  const vault = `0x${hex(peer.subarray(12, 32))}`;
-  if (peer.subarray(0, 12).some((b) => b !== 0) || !isKnownVault(vault)) bad("bad-vault", `${name}: that is not a contract we support.`);
+  const listed = vaultByAddress(`0x${hex(peer.subarray(12, 32))}`);
+  if (peer.subarray(0, 12).some((b) => b !== 0) || !listed) bad("bad-vault", `${name}: that is not a contract we support.`);
+  const vault = listed!.address as string;
   if (rdU32(ix.data, 8) !== netOfVault(vault).eid) bad("bad-data", `${name}: the endpoint id does not match the vault.`);
   const payoutId = rdU64(ix.data, 44);
   slot(ix, name, 0, true, true, relayer);
