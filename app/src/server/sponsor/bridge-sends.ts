@@ -83,3 +83,13 @@ export async function admitSends(o: { plan: Plan; player: PublicKey; now: number
   }
   return () => o.store.refund(key, sends.length, o.now);
 }
+
+/** Takes the day's count of checkpoint pages the relayer creates for this Account's bundles; returns what gives it back. */
+export async function admitPages(o: { plan: Plan; player: PublicKey; now: number; store: UsageStore; limits: Limits }): Promise<() => Promise<void>> {
+  const n = o.plan.pages?.length ?? 0;
+  const key = `ckptpage:${o.player.toBase58()}`;
+  if (!(await o.store.take(key, n, o.limits.checkpointPagesPerDay, DAY, o.now))) {
+    throw refuse(429, "bridge-send-limit", "Free checkpoint pages are used up for today. Pay the network fee from your own SOL to finish.");
+  }
+  return () => o.store.refund(key, n, o.now);
+}

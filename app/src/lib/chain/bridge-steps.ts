@@ -14,7 +14,7 @@ import {
 import { coreUnlockIx, ethPositionId, evmLinkPda, redeemToEvmIx, corePositionPda, type EthState } from "./eth";
 import { sourcePda } from "./native";
 import type { LineRef } from "./basket";
-import { sourceAccounts } from "./redeem";
+import { isInitCkptPage, sourceAccounts } from "./redeem";
 import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
 
 /**
@@ -25,16 +25,13 @@ import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
  *   Redeem    [apply_yield] redeem_to_evm send_pay_yield   (the relayer is the Claim's payer; the holder only signs)
  *
  * `build(payer, sponsored)` returns groups of instructions. Sponsored, the relayer is `payer`, there is one group and the sponsor
- * accepts it (server/sponsor/rules-bridge.ts). When it cannot or will not (paused, over a limit, no Delivery Fee, a checkpoint
+ * accepts it (server/sponsor/rules-bridge.ts), with the relayer also creating any checkpoint page the Source's book needs. When it cannot or will not (paused, over a limit, no Delivery Fee, a checkpoint
  * page to create), the Player pays: each group goes alone, because the whole bundle fits one packet only with the bridge's lookup
  * table, which the sponsor adds and the Player's own transaction does not have.
  */
 
 export type Groups = TransactionInstruction[][];
 export type Build = (payer: PublicKey, sponsored: boolean) => Promise<Groups>;
-
-/** A step that cannot ride in the relayer's transaction (a checkpoint page nobody created yet): the Player pays it instead. */
-const needsSetup = () => new SponsorError("This step needs an account the free transaction cannot create.", "needs-setup", 409);
 
 export interface ApplyYieldPlan {
   openAdvance: number | null;
@@ -81,8 +78,7 @@ export function unlockGroups(o: UnlockInput): Groups {
   const create = [...(o.applyYield?.create ?? []), ...(o.open?.create ?? [])];
   const apply = o.applyYield ? [yieldGroup(ref, o.applyYield)] : [];
   if (!o.sponsored) return [[...create, ...apply, unlock], [send]];
-  if (create.length > 0) throw needsSetup();
-  return [[...apply, unlock, send]];
+  return [[...create, ...apply, unlock, send]];
 }
 
 export interface RedeemInput {
@@ -111,13 +107,11 @@ export function redeemGroups(o: RedeemInput): Groups {
   const create = [...(o.applyYield?.create ?? []), ...o.create];
   const apply = o.applyYield ? [yieldGroup(ref, o.applyYield)] : [];
   if (!o.sponsored) return [[...create, ...apply, redeem], [send]];
-  if (create.length > 0) throw needsSetup();
-  return [[...apply, redeem, send]];
+  return [[...create, ...apply, redeem, send]];
 }
 
 /** `apply_yield` alone: lands a Yield Report that arrived. Nobody signs it. */
 export function applyYieldGroups(o: { sponsored: boolean; vault: string; id: bigint; plan: ApplyYieldPlan }): Groups {
-  if (o.sponsored && o.plan.create.length > 0) throw needsSetup();
   return [[...o.plan.create, yieldGroup(o, o.plan)]];
 }
 
@@ -148,7 +142,18 @@ export async function sendBridgeGroups(signer: ChainSigner, getToken: GetToken, 
   if (signer.signSerialized) {
     try {
       const { relayer, paused } = await sponsorStatus();
-      if (!paused) return await sponsoredSend(signer, getToken, (await build(new PublicKey(relayer), true)).flat());
+      if (!paused) {
+        const ixs = (await build(new PublicKey(relayer), true)).flat();
+        try {
+          return await sponsoredSend(signer, getToken, ixs);
+        } catch (e) {
+          // Checkpoint pages in front can push the message over one packet: the relayer creates them first, then the rest.
+          const pages = ixs.filter(isInitCkptPage);
+          if (!(e instanceof SponsorError) || e.code !== "too-large" || pages.length === 0 || pages.length === ixs.length) throw e;
+          await sponsoredSend(signer, getToken, pages);
+          return await sponsoredSend(signer, getToken, ixs.filter((ix) => !isInitCkptPage(ix)));
+        }
+      }
     } catch (e) {
       if (!(e instanceof SponsorError) || !(e.selfPay || e.code === "unsupported-wallet")) throw e;
     }

@@ -32,7 +32,7 @@ import {
 } from "@/lib/chain/eth";
 import { basketPda, spillPda } from "@/lib/chain/basket";
 import { TESORO_CORE_ID } from "@/lib/chain/native";
-import { RuleError, planCore, type BridgeSend, type Ix, type KeyMeta, type Plan } from "./rules";
+import { RuleError, coreArgs, coreName, planCore, type BridgeSend, type CkptPage, type Ix, type KeyMeta, type Plan } from "./rules";
 
 /** The most one LayerZero message may cost the relayer (the keeper's per-message cap). The service also checks a fresh quote. */
 export const MAX_LZ_FEE_LAMPORTS = 5_000_000n;
@@ -321,8 +321,31 @@ function vaultOfTerms(terms: PublicKey): string | null {
   return ETH_VAULTS.map((v) => v.address as string).find((v) => deliveryTermsPda(v).equals(terms)) ?? null;
 }
 
+/** Checkpoint pages in front of one bundle: a Source's book may need a page nobody created, and the relayer pays its rent. */
+const MAX_PAGES = 6;
+
+/** `init_ckpt_page`: the relayer is the payer; the chain proves the page is the book's and is needed (service). */
+function checkPage(ix: Ix, relayer: PublicKey): CkptPage {
+  const name = "init_ckpt_page";
+  if (ix.keys.length !== 4 || ix.data.length !== 13) bad("bad-shape", `${name}: wrong size.`);
+  slot(ix, name, 0, true, true, relayer);
+  const book = slot(ix, name, 1, false, false);
+  const page = slot(ix, name, 2, false, true);
+  slot(ix, name, 3, false, false, SystemProgram.programId);
+  relayerOnlyAt(ix, name, relayer, 0);
+  const args = coreArgs(ix) as { class: number; page_no?: number; pageNo?: number };
+  return { book, page, classId: args.class, pageNo: args.pageNo ?? (args.page_no as number) };
+}
+
 /** Accepts one sponsored transaction made of bridge steps (and the Player's own `unlock`) or throws a RuleError. */
-export function planBridgeBundle(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
+export function planBridgeBundle(all: Ix[], relayer: PublicKey, player: PublicKey): Plan {
+  const lead = all.findIndex((ix) => coreName(ix) !== "init_ckpt_page");
+  const front = lead === -1 ? all : all.slice(0, lead);
+  const ixs = lead === -1 ? [] : all.slice(lead);
+  if (front.length > MAX_PAGES) bad("bad-shape", "Too many checkpoint pages.");
+  const pages = front.map((ix) => checkPage(ix, relayer));
+  if (new Set(pages.map((p) => p.page.toBase58())).size !== pages.length) bad("bad-shape", "A checkpoint page appears once.");
+  if (ixs.length === 0) return pagesPlan(pages);
   const names = ixs.map((ix) => {
     if (ix.programId.equals(BRIDGE_ID)) return bundleNameOf(ix.data) ?? bad("bad-shape", "Only link_evm and the Player's bridge steps are paid for on the bridge.");
     if (ix.programId.equals(TESORO_CORE_ID)) return "unlock";
@@ -365,7 +388,7 @@ export function planBridgeBundle(ixs: Ix[], relayer: PublicKey, player: PublicKe
   const sends = checked.flatMap((c) => (c.send ? [c.send] : []));
   const lz = sends.reduce((n, s) => n + s.feeLamports, 0n) + (names.includes("apply_locked") ? POSITION_RENT : 0n) + checked.reduce((n, c) => n + (c.sunk ?? 0n), 0n);
   const refundable = checked.reduce((n, c) => n + (c.refundable ?? 0n), 0n);
-  const cu = Math.min(1_400_000, names.reduce((n, name) => n + (name === "unlock" ? 600_000 : ROW_CU[name as BundleName]), 0));
+  const cu = Math.min(1_400_000, pages.length * 100_000 + names.reduce((n, name) => n + (name === "unlock" ? 600_000 : ROW_CU[name as BundleName]), 0));
   const signers = [...new Map(checked.flatMap((c) => c.signers).map((s) => [s.toBase58(), s])).values()];
   const up = unlockPlan as Plan | null;
   return {
@@ -383,6 +406,28 @@ export function planBridgeBundle(ixs: Ix[], relayer: PublicKey, player: PublicKe
     invite: false,
     noGemas: false,
     sends,
+    pages,
+  };
+}
+
+/** Only checkpoint pages: the relayer creates what a Source's book needs, so the Redeem or Unlock after it fits one packet. */
+function pagesPlan(pages: CkptPage[]): Plan {
+  return {
+    kind: "core",
+    names: pages.map(() => "init_ckpt_page"),
+    class: "exit",
+    spend: { refundable: 0n, sunk: 0n },
+    cu: Math.min(1_400_000, pages.length * 100_000),
+    obligations: [],
+    pair: null,
+    signers: [],
+    playerSigns: false,
+    funders: [],
+    onboarding: false,
+    invite: false,
+    noGemas: false,
+    sends: [],
+    pages,
   };
 }
 

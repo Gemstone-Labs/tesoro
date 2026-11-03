@@ -5,8 +5,6 @@ import { ETH_VAULTS, coreAccountPda, corePositionPda, ethPositionId } from "./et
 import { sourcePda } from "./native";
 import { linkedAccount, openingGroups, redeemGroups, sendGroups, unlockGroups, yieldDue, type ApplyYieldPlan } from "./bridge-steps";
 import { planTransaction, type Ix } from "@/server/sponsor/rules";
-import { SponsorError } from "./sponsor-client";
-import { ckptPda } from "./basket";
 import { initCkptPageIx } from "./redeem";
 
 const relayer = Keypair.generate().publicKey;
@@ -47,17 +45,12 @@ describe("Unlock", () => {
     expect(groups.map(names)).toEqual([["apply_yield", "core"], ["send_unlock"]]);
     expect(groups[1][0].keys[0].pubkey.equals(player)).toBe(true);
   });
-  it("a checkpoint page to create cannot ride in the relayer's bundle: the Player pays instead", () => {
-    const create = [initCkptPageIx(player, source, 3, 1)];
-    expect(() => unlockGroups({ ...base, open: { index: 0, accounts: books, create }, payer: relayer, sponsored: true, quote: quote(relayer) })).toThrow(SponsorError);
-    try {
-      unlockGroups({ ...base, open: { index: 0, accounts: books, create }, payer: relayer, sponsored: true, quote: quote(relayer) });
-    } catch (e) {
-      expect((e as SponsorError).selfPay).toBe(true);
-    }
-    const own = unlockGroups({ ...base, open: { index: 0, accounts: books, create }, payer: player, sponsored: false, quote: quote(player) });
+  it("a checkpoint page to create goes in front, paid by the relayer, and the sponsor accepts it", () => {
+    const create = [initCkptPageIx(relayer, source, 3, 1)];
+    const [group] = unlockGroups({ ...base, open: { index: 0, accounts: books, create }, payer: relayer, sponsored: true, quote: quote(relayer) });
+    expect(accepted(group)).toMatchObject({ names: ["unlock", "send_unlock"], pages: [expect.objectContaining({ pageNo: 1 })] });
+    const own = unlockGroups({ ...base, open: { index: 0, accounts: books, create: [initCkptPageIx(player, source, 3, 1)] }, payer: player, sponsored: false, quote: quote(player) });
     expect(own[0]).toHaveLength(2);
-    void ckptPda;
   });
 });
 

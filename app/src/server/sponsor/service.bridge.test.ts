@@ -5,6 +5,11 @@ import { CLAIM_RENT, applyYieldIx, sendPayIx, sendUnlockIx, stableBridgeAddresse
 import { BRIDGE_ID, ETH_VAULTS, coreUnlockIx, deliveryTermsPda, ethPositionId, corePositionPda, redeemToEvmIx } from "@/lib/chain/eth";
 import { sourcePda } from "@/lib/chain/native";
 import { key, withPayerAt13 } from "./fixtures";
+import coreIdl from "@/lib/chain/idl/tesoro_core.json";
+import { bookPda, ckptPda } from "@/lib/chain/basket";
+import { encodeBook, freshClass } from "@/lib/chain/basket-fixture";
+import { fp } from "@/lib/chain/book";
+import { initCkptPageIx } from "@/lib/chain/redeem";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type WireIx } from "./service";
@@ -190,5 +195,63 @@ describe("message sizes with the bridge lookup table", () => {
     const redeem = asIx(redeemToEvmIx(s.player.publicKey, s.position, s.source, 5n, vault, { line, accounts: books() }, s.relayer.publicKey));
     const pay = asIx(sendPayIx({ kind: "yield", payer: s.relayer.publicKey, vault, pid, holder: s.player.publicKey, holderEvm: evm, sourceIndex: 0, quote: s.quote }));
     await expect(s.sponsor.build(s.player.publicKey, wire([redeem, pay]))).rejects.toMatchObject({ code: "too-large" });
+  });
+});
+
+describe("a missing checkpoint page, created by the relayer", () => {
+  /** The open Advance's book: class 3 has unpaid Gemas, so its page 0 is one a landing may write. */
+  function withBook(s: ReturnType<typeof setup>, unpaidClass = 3) {
+    const classes = [freshClass(), freshClass(), freshClass(), freshClass()];
+    classes[unpaidClass] = { ...freshClass(), uncovered: fp(10n), w: fp(10n) };
+    const book = encodeBook(classes);
+    book.set(Buffer.from(coreIdl.accounts.find((a) => a.name === "SourceBookHead")!.discriminator));
+    book[9] = 1;
+    book.set(s.source.toBytes(), 16);
+    s.accounts.set(bookPda(s.source).toBase58(), { owner: CORE_ID, data: book });
+  }
+
+  it("rides in front of the Unlock and its send; the relayer's rent for the page is a cost", async () => {
+    const s = setup();
+    withBook(s);
+    const page = asIx(initCkptPageIx(s.relayer.publicKey, s.source, 3, 0));
+    const unlock = asIx(coreUnlockIx(s.player.publicKey, s.position, { index: 0, accounts: [bookPda(s.source), ckptPda(s.source, 3, 0)] }));
+    const built = await s.sponsor.build(s.player.publicKey, wire([page, unlock, s.send]));
+    expect(BigInt(JSON.parse(built.meta).cost)).toBeGreaterThan(11_000_000n);
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    expect(s.sent).toHaveLength(1);
+  });
+  it("can go alone first, when the whole bundle would not fit one packet", async () => {
+    const s = setup();
+    withBook(s);
+    const built = await s.sponsor.build(s.player.publicKey, wire([asIx(initCkptPageIx(s.relayer.publicKey, s.source, 3, 0))]));
+    expect(built.class).toBe("exit");
+  });
+  it("is refused when the page already exists", async () => {
+    const s = setup();
+    withBook(s);
+    s.accounts.set(ckptPda(s.source, 3, 0).toBase58(), { owner: CORE_ID, data: new Uint8Array(10) });
+    await expect(s.sponsor.build(s.player.publicKey, wire([asIx(initCkptPageIx(s.relayer.publicKey, s.source, 3, 0))]))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+  it("is refused when the book does not need that page", async () => {
+    const s = setup();
+    withBook(s);
+    await expect(s.sponsor.build(s.player.publicKey, wire([asIx(initCkptPageIx(s.relayer.publicKey, s.source, 1, 0))]))).rejects.toMatchObject({ code: "bad-setup" });
+    await expect(s.sponsor.build(s.player.publicKey, wire([asIx(initCkptPageIx(s.relayer.publicKey, s.source, 3, 5))]))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+  it("is refused when the page is not the book's own", async () => {
+    const s = setup();
+    withBook(s);
+    const ix = asIx(initCkptPageIx(s.relayer.publicKey, s.source, 3, 0));
+    ix.keys[2] = { ...ix.keys[2], pubkey: ckptPda(key(), 3, 0) };
+    await expect(s.sponsor.build(s.player.publicKey, wire([ix]))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+  it("is limited per Account per day, and an unknown book is refused", async () => {
+    const s = setup({ limits: { checkpointPagesPerDay: 1 } });
+    withBook(s);
+    const page = () => wire([asIx(initCkptPageIx(s.relayer.publicKey, s.source, 3, 0))]);
+    await s.sponsor.build(s.player.publicKey, page());
+    await expect(s.sponsor.build(s.player.publicKey, page())).rejects.toMatchObject({ code: "bridge-send-limit" });
+    const t = setup();
+    await expect(t.sponsor.build(t.player.publicKey, wire([asIx(initCkptPageIx(t.relayer.publicKey, t.source, 3, 0))]))).rejects.toMatchObject({ code: "bad-setup" });
   });
 });

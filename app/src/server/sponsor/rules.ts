@@ -191,6 +191,24 @@ interface IdlIx {
 }
 const idlIx = (name: string) => (CORE_IDL.instructions as unknown as IdlIx[]).find((i) => i.name === name);
 
+/** A checkpoint page the relayer creates for a Source's book (`init_ckpt_page`); the service proves from the chain that the book needs it. */
+export interface CkptPage {
+  book: PublicKey;
+  page: PublicKey;
+  classId: number;
+  pageNo: number;
+}
+
+/** The tesoro_core instruction an instruction is, or null. */
+export function coreName(ix: Ix): string | null {
+  return ix.programId.equals(CORE_ID) ? (coder.decode(Buffer.from(ix.data))?.name ?? null) : null;
+}
+
+/** The arguments of a tesoro_core instruction. */
+export function coreArgs(ix: Ix): Args {
+  return (coder.decode(Buffer.from(ix.data))?.data ?? {}) as Args;
+}
+
 /** One LayerZero message the relayer pays for inside a Player's transaction (keeper diet ticket 15). */
 export interface BridgeSend {
   kind: "unlock" | "yield" | "instant" | "prize";
@@ -231,6 +249,8 @@ export interface Plan {
   noGemas: boolean;
   /** LayerZero messages in the transaction, each paid in SOL by the relayer. */
   sends?: BridgeSend[];
+  /** Checkpoint pages the relayer creates (rent fronted for good), to be proved needed and missing. */
+  pages?: CkptPage[];
   /** Only atomic first-payout preparation; live Position and Book semantics are verified by the service. */
   setup?: {
     position: PublicKey;
@@ -529,12 +549,13 @@ function planGame(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
  * listed Game (the service answers from the registry).
  */
 export function planTransaction(ixs: Ix[], ctx: { relayer: PublicKey; player: PublicKey; isGame: (program: PublicKey) => boolean; inviteKey?: PublicKey }): Plan {
-  if (ixs.length > 1 && ixs.slice(0, -1).some((i) => i.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) || (i.programId.equals(CORE_ID) && coder.decode(Buffer.from(i.data))?.name === "init_ckpt_page"))) return planPreparedExit(ixs, ctx.relayer, ctx.player);
-  if (ixs.length === 0 || ixs.length > MAX_IXS) throw new RuleError("bad-shape", `A sponsored transaction has between one and ${MAX_IXS} instructions.`);
-  if (ixs.some((i) => i.programId.equals(BRIDGE_ID))) {
+  if (ixs.length === 0) throw new RuleError("bad-shape", "A sponsored transaction has at least one instruction.");
+  if (ixs.some((i) => i.programId.equals(BRIDGE_ID)) || ixs.every((i) => coreName(i) === "init_ckpt_page")) {
     const linkOnly = ixs.length === 1 && Buffer.from(ixs[0].data.subarray(0, 8)).equals(Buffer.from(DISC.link_evm, "hex"));
     return linkOnly ? planBridge(ixs, ctx.relayer) : planBridgeBundle(ixs, ctx.relayer, ctx.player);
   }
+  if (ixs.length > 1 && ixs.slice(0, -1).some((i) => i.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) || (i.programId.equals(CORE_ID) && coder.decode(Buffer.from(i.data))?.name === "init_ckpt_page"))) return planPreparedExit(ixs, ctx.relayer, ctx.player);
+  if (ixs.length === 0 || ixs.length > MAX_IXS) throw new RuleError("bad-shape", `A sponsored transaction has between one and ${MAX_IXS} instructions.`);
   const core = ixs.filter((i) => i.programId.equals(CORE_ID)).length;
   if (core === ixs.length) return planCore(ixs, ctx.relayer, ctx.inviteKey);
   if (core === 0 && ctx.isGame(ixs[0].programId)) return planGame(ixs, ctx.relayer, ctx.player);

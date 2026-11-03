@@ -5,6 +5,7 @@ import { BRIDGE_AUTHORITY, BRIDGE_ID, ETH_VAULTS, bridgePeerPda, bridgeStore, co
 import { basketPda, spillPda } from "@/lib/chain/basket";
 import { TESORO_CORE_ID, sourcePda } from "@/lib/chain/native";
 import { key, playerIx, withPayerAt13 } from "./fixtures";
+import { initCkptPageIx } from "@/lib/chain/redeem";
 import { MAX_LZ_FEE_LAMPORTS } from "./rules-bridge";
 import { planTransaction, type Ix } from "./rules";
 
@@ -127,6 +128,30 @@ describe("accepted: the Player's bridge transactions, with the relayer paying La
       const stranger = wire(refundPrizePayoutIx({ vault, payoutId: 4n, holder: key(), prizeSource, holderBasket: basketPda(holder), holderSpill: spillPda(holder) }));
       refused([stranger], "bad-account");
     });
+  });
+});
+
+describe("checkpoint pages created by the relayer", () => {
+  const page = (n = 0, payer: PublicKey = relayer): Ix => wire(initCkptPageIx(payer, source, 3, n));
+  it("come in front of an Unlock, a Redeem or apply_yield, and alone", () => {
+    expect(plan([page(), unlock(), sendUnlock()])).toMatchObject({ names: ["unlock", "send_unlock"], pages: [expect.objectContaining({ classId: 3, pageNo: 0 })] });
+    expect(plan([page(0), page(1), applyYield(), redeem(), sendPay()]).pages).toHaveLength(2);
+    expect(plan([page(), page(1)])).toMatchObject({ names: ["init_ckpt_page", "init_ckpt_page"], pages: expect.any(Array), sends: [] });
+  });
+  it("are refused with any payer but the relayer, with the relayer elsewhere, twice, or past six", () => {
+    refused([page(0, player), unlock(), sendUnlock()], "bad-account");
+    const dup = [page(0), page(0), unlock(), sendUnlock()];
+    refused(dup, "bad-shape");
+    refused(Array.from({ length: 7 }, (_, i) => page(i)), "bad-shape");
+    const odd = page();
+    odd.keys[1] = { ...odd.keys[1], pubkey: relayer };
+    refused([odd], "relayer-in-accounts");
+    const flags = page();
+    flags.keys[2] = { ...flags.keys[2], isWritable: false };
+    refused([flags], "bad-flags");
+  });
+  it("do not follow the bridge steps", () => {
+    refused([unlock(), sendUnlock(), page()], "bad-shape");
   });
 });
 
