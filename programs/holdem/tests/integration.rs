@@ -404,6 +404,7 @@ impl Env {
             account: APk::default(),
             kp,
         };
+        litesvm_magic_stub::install(&mut svm);
         let mut env = Self {
             svm,
             admin: Keypair::new(),
@@ -763,6 +764,25 @@ impl Env {
             .expect("magic shell");
     }
 
+    /// The accounts of every instruction that can end a Match.
+    fn concluding(&self, caller: APk) -> holdem::accounts::Concluding {
+        let (h0, h1) = (hole_addr(self.table, 0), hole_addr(self.table, 1));
+        holdem::accounts::Concluding {
+            caller,
+            table: self.table,
+            hole_0: h0,
+            hole_1: h1,
+            hole_0_permission: perm_addr(h0),
+            hole_1_permission: perm_addr(h1),
+            permission_program: sdk_key(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_key(ephemeral_rollups_sdk::consts::EPHEMERAL_VAULT_ID),
+            sponsor: sponsor_addr(),
+            magic_fee_vault: table_kit::fee_vault_address(&holdem::TEE_VALIDATOR),
+            magic_context: sdk_key(ephemeral_rollups_sdk::consts::MAGIC_CONTEXT_ID),
+            magic_program: sdk_key(MAGIC_PROGRAM_ID),
+        }
+    }
+
     fn commit_ix(&self) -> Instruction {
         ix(
             holdem::ID,
@@ -799,10 +819,7 @@ impl Env {
     fn expire_ix(&self) -> Instruction {
         ix(
             holdem::ID,
-            holdem::accounts::TableOnly {
-                caller: a(self.oracle.pubkey()),
-                table: self.table,
-            },
+            self.concluding(a(self.oracle.pubkey())),
             holdem::instruction::ExpireStart {},
             vec![],
         )
@@ -1016,12 +1033,7 @@ impl Env {
     fn deal_ix(&self) -> Instruction {
         ix(
             holdem::ID,
-            holdem::accounts::Deal {
-                payer: a(self.oracle.pubkey()),
-                table: self.table,
-                hole_0: hole_addr(self.table, 0),
-                hole_1: hole_addr(self.table, 1),
-            },
+            self.concluding(a(self.oracle.pubkey())),
             holdem::instruction::Deal {},
             vec![],
         )
@@ -1081,12 +1093,7 @@ impl Env {
     fn act_ix(&self, player: APk, action: Action) -> Instruction {
         ix(
             holdem::ID,
-            holdem::accounts::Act {
-                player,
-                table: self.table,
-                hole_0: hole_addr(self.table, 0),
-                hole_1: hole_addr(self.table, 1),
-            },
+            self.concluding(player),
             holdem::instruction::Act { action },
             vec![],
         )
@@ -1101,12 +1108,7 @@ impl Env {
     fn timeout_ix(&self, caller: APk) -> Instruction {
         ix(
             holdem::ID,
-            holdem::accounts::ClaimTimeout {
-                caller,
-                table: self.table,
-                hole_0: hole_addr(self.table, 0),
-                hole_1: hole_addr(self.table, 1),
-            },
+            self.concluding(caller),
             holdem::instruction::ClaimTimeout {},
             vec![],
         )
