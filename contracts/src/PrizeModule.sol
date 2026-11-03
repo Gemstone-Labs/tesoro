@@ -12,6 +12,10 @@ import {IERC20Minimal} from "./IRateSource.sol";
 ///
 ///         Every entry point returns the acknowledgement payload (empty = none) instead of sending it: the vault's
 ///         transport sends it. Called directly (not through a vault) an entry point reverts.
+interface ITreasuryBalance {
+    function treasuryBalance() external view returns (uint256);
+}
+
 contract PrizeModule is PositionVaultBase {
     error DirectCall();
     error InvalidMessageLength();
@@ -154,7 +158,7 @@ contract PrizeModule is PositionVaultBase {
         returns (bytes memory ack)
     {
         if (address(this) == self) revert DirectCall();
-        uint256 available = treasuryBalance();
+        uint256 available = ITreasuryBalance(address(this)).treasuryBalance(); // the vault's own view (delegatecall)
         uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
         if (amount > available) revert InsufficientTreasury(amount, available);
         if (shares > _spendable()) revert InsufficientShares(shares, _spendable());
