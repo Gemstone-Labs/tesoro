@@ -1777,10 +1777,12 @@ fn the_higher_score_wins_the_result_goes_into_the_ring_and_finalize_pays_the_win
         ("begin", begin_cu),
         ("check_in", check_in_cu),
         ("tick", tick_cu),
-        ("end", end_cu),
     ] {
         assert!(cu < 60_000, "{name} used {cu} CU");
     }
+    // `end_match` also closes the Books and commits: the two CPI calls here are stubs, so the real
+    // cost is devnet evidence; the app asks for 400,000.
+    assert!(end_cu < 200_000, "end used {end_cu} CU");
     assert!(finalize_cu < 250_000, "finalize used {finalize_cu} CU");
 }
 
