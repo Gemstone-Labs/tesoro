@@ -108,12 +108,16 @@ _Avoid_: level, round, puzzle
 In UI copy the Seed is never named: Players see "the same pieces" (Block Burst).
 
 **Match**:
-A head-to-head contest between two players with equal Gema entries (100, 500 or 1,000, on mainnet and in test mode), settled once: the winner takes the Pot minus Fees; a draw or an abandoned Match refunds both entries; a no-show (both Players checked in, then neither acted) settles as a draw minus each side's Platform Fee. No Match can start settling more than 7 days after it opened: after that, only a refund is possible, in any Game.
+A contest between two or more Players with equal entries (100, 500 or 1,000 Gemas, on mainnet and in test mode), settled once. In a head-to-head Match the winner takes the Pot minus Fees; in a Railcar Match the last three Players off share it; a draw or an abandoned Match refunds both entries; a no-show (both Players checked in, then neither acted) settles as a draw minus each side's Platform Fee. No Match can start settling more than 7 days after it opened: after that, only a refund is possible, in any Game.
 _Avoid_: game (the catalogue title), bet, wager, contest
 
 **Pot**:
-The Gemas entered into one Match, held in escrow until settlement. The winner receives the loser's actual Gemas, each keeping its Source. The program, never the app, chooses which Gemas an entry uses: the entrant's own-Sourced Gemas first, then won Gemas whose planned repayment date is earliest (see **Entry draw**).
+The Gemas entered into one Match, held in escrow until settlement. Winners receive the actual Gemas of the Players who lost them, each keeping its Source. The program, never the app, chooses which Gemas an entry uses: the entrant's own-Sourced Gemas first, then won Gemas whose planned repayment date is earliest (see **Entry draw**).
 _Avoid_: prize pool, jackpot (the Leaderboard Pool is a different thing)
+
+**Entry**:
+The Gemas a Player puts into one Match: the same amount for every Player in it, from the entry sizes on offer.
+_Avoid_: bond, stake, buy-in, bet
 
 **Queue**:
 The waiting line for one game at one entry size, where Players are paired with the next entrant. An entry that is not paired waits 1 hour before it can be refunded. The opener of a Block Burst Queue Match tells the Queue their page is there (a presence lease); a Match whose opener has been gone for 30 seconds is skipped by the Queue and the Play now count (Challenges ignore it).
@@ -160,7 +164,7 @@ One week of the Leaderboard, Monday 00:00 UTC to the next Monday, numbered from 
 _Avoid_: round, epoch, tournament
 
 **Points**:
-What a won Match earns its Player in a Season: one point for every 100 Gemas of entry, the same in every game. Losses, draws and refunds earn none. A backed Match earns them for the Player who played, not for the Backer. Only a Player's first 3 wins against the same opponent in a Season earn Points; later wins still pay the Pot. Ties in a Season go to the Player who first won in it.
+What a won Match earns its Player in a Season: one point for every 100 Gemas of entry, the same in every game. Losses, draws and refunds earn none. A backed Match earns them for the Player who played, not for the Backer. Only a Player's first 3 wins against the same opponent in a Season earn Points; later wins still pay the Pot. In Railcar only the last Player off wins Points, and the second-last Player off counts as the opponent. Ties in a Season go to the Player who first won in it.
 _Avoid_: score (a game's own result), XP, rank
 
 **Studio**:
@@ -170,6 +174,40 @@ _Avoid_: developer, partner, publisher
 **Listing** (a **Listed Game** is one whose listing is in force):
 Tesoro's acceptance of a Game: free to apply, $500 a year once accepted, tied to the exact build Tesoro approved. Only a Listed Game earns Points, gets sponsored SOL costs, has its Studio Fee repaid ahead of other holders (second in the **Payout order**) and can be Backed. Unlisted Games still work, but do none of those. An upgrade of the Game to different code ends its listing until Tesoro approves the new build; a Match opened before the upgrade can then only be refunded.
 _Avoid_: whitelist, verification, certification
+
+### Railcar
+
+**Railcar**:
+A Game in which 5 to 100 Players, each with an entry of 500 Gemas, ride one car toward a wall at a hidden distance and choose when to Jump. Railcar has one Queue. The last three Players off before Impact each get their entry back, then share the rest of the Pot 60/25/15 (two Players off: 70/30; one: all of it). Players still aboard at Impact lose their entry; if nobody Jumps, every entry is refunded. Screens may call a Railcar Match a "ride".
+_Avoid_: round, crash game, bet
+
+**Boarding**:
+How Players enter a Railcar Match. The car waits for its 5th Player, then counts down 30 seconds in which anyone may board, up to 100, and leaves. Until it leaves a Player may step off for a full refund; dropping below 5 stops the countdown.
+_Avoid_: lobby, queue (the Queue is one Game's waiting line at one entry size)
+
+**Crash point**:
+The distance at which the car hits the wall, drawn at random when it leaves and hidden from everyone until Impact. Its odds are published: an even chance at every moment after the first 10 seconds, half of all rides over by 40 seconds, certain by 2 minutes before any Brake. Anyone can check it after the Match.
+_Avoid_: multiplier, bust point
+
+**Tell**:
+A warning the car gives as the wall nears: screws pop, then a bolt and a rattling panel, then sparks and a creak. Each stage starts a random distance before the wall within published ranges, the last at least 3 seconds ahead at full speed; a few false screws come early. On a short ride whose screw stage would start before departure, the screws start when the car leaves. Tells hint, never pin the Crash point.
+_Avoid_: signal, hint, clue
+
+**Brake**:
+A Player's one action per Railcar Match besides Jumping, usable only while aboard: it halves the car's speed for 5 seconds. The car slows for everyone, but only the Player who Braked sees it: every other screen shows the car as before, so a Brake is a safety margin nobody else knows about. Each Player sees only their own Brake; all Brakes are revealed with the Crash point after the Match. A Brake pressed during another adds 5 more seconds at half speed; the car never goes slower than half speed. Distances, Tells and the Early-jump refund all move with the car, so braking changes when they arrive, not where.
+_Avoid_: power-up, boost
+
+**Jump**:
+Leaving the car during a Railcar Match. Jumps are ordered as the game receives them; a Jump that arrives after Impact does not count, and the Player is still aboard. A Player whose connection drops stays aboard; there is no automatic Jump.
+_Avoid_: cash out, exit, bail
+
+**Impact**:
+The moment the car reaches the Crash point. It ends the Match; everyone still aboard loses their entry.
+_Avoid_: crash (the Game's theme, not the event), bust
+
+**Early-jump refund**:
+The part of an entry returned to a Player who Jumps but is not among the last three off: 80% up to 20 seconds of ride at full speed, then 10 points less every 10 seconds down to 10% at 80–90 seconds, 5% at 90–100 seconds and nothing after. The rest of their entry stays in the Pot.
+_Avoid_: cash-out value, partial win
 
 ### Vanguard
 
@@ -224,7 +262,7 @@ _Avoid_: skip, forfeit
 ### Backing
 
 **Backing**:
-An agreement, accepted by both sides, in which a Backer funds a Player's full entry into one Match. On a win the Backer's entry is returned first and the remainder is split by the share the Backer offered. It cannot be revoked once the Match starts.
+An agreement, accepted by both sides, in which a Backer funds a Player's full entry into one Match. On a win the Backer's entry is returned first and the remainder is split by the share the Backer offered. A partial refund (a Railcar early jump) goes to the Backer. It cannot be revoked once the Match starts.
 _Avoid_: staking (a player), sponsorship, scholarship, loan
 
 **Request**:

@@ -2,7 +2,9 @@ use super::*;
 use crate::ledger::book::{fp, SourceBook};
 use crate::ledger::draw::{grow_spill_body, spill_body, DrawResult, MemBooks, Pool};
 use crate::ledger::line_store::{required_len, LineStore, CLASS_EXTENSION_BASE, CLASS_GENERAL};
-use crate::ledger::line_store::{CLASS_LEADERBOARD, CLASS_PLATFORM};
+use crate::ledger::line_store::{
+    CLASS_LEADERBOARD, CLASS_PLATFORM, CLASS_STUDIO, SIDE_OWN, SIDE_WON,
+};
 
 fn key(n: u8) -> Key {
     [n; 32]
@@ -1054,6 +1056,43 @@ fn a_finished_match_ignores_further_chunks_and_closes_empty() {
     assert_eq!(w.ev.len(), n);
     let closure = rec.close().unwrap();
     assert_eq!(closure.id, id(1, 0));
+}
+
+// ---------------------------------------------------------------------------------------------
+// The shared settle blocks (the head-to-head settle and any other Match path call these)
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn win_fees_floor_each_class_of_the_pot() {
+    // pot 2,001: Platform 2.5% = 50.025 -> 50, Studio 3% = 60.03 -> 60, Leaderboard 1% = 20.01 -> 20
+    assert_eq!(
+        blocks::win_fees(2001, &terms(false, 250, 300), 100),
+        Ok([50, 60, 20])
+    );
+}
+
+#[test]
+fn win_fees_refuse_a_total_above_the_cap() {
+    assert_eq!(
+        blocks::win_fees(2000, &terms(false, 9000, 900), 200),
+        Err(LifecycleError::FeeTooHigh)
+    );
+}
+
+#[test]
+fn win_surplus_is_the_entry_less_every_fee() {
+    assert_eq!(blocks::win_surplus(1000, [50, 60, 20]), Ok(870));
+    assert_eq!(
+        blocks::win_surplus(100, [50, 60, 20]),
+        Err(LifecycleError::FeeTooHigh)
+    );
+}
+
+#[test]
+fn the_players_share_of_a_surplus_floors() {
+    assert_eq!(blocks::player_share(870, 4000), Ok(348));
+    assert_eq!(blocks::player_share(7, 3333), Ok(2));
+    assert_eq!(blocks::player_share(870, 0), Ok(0));
 }
 
 // ---------------------------------------------------------------------------------------------
