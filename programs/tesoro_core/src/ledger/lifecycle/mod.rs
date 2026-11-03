@@ -1004,7 +1004,7 @@ impl MatchRecord {
                             let owner = party
                                 .ok_or(LifecycleError::Inconsistent("no party"))?
                                 .funder;
-                            (3, back_step(p, at, w, &owner)?)
+                            (3, back_step(p, at, &orig, w, &owner)?)
                         }
                         Phase::Surplus { to, .. } => {
                             let winner = if to == 0 { Some(*a) } else { *b }

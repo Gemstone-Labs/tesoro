@@ -61,20 +61,19 @@ pub fn player_share(surplus: u64, share_bps: u16) -> LcResult<u64> {
     .map_err(|_| LifecycleError::Math)
 }
 
-/// Return the whole Pot line at `at` to `owner` (an entry back), keeping its side.
+/// Return the whole Pot line at `at` (`orig`, as just read) to `owner` (an entry back), keeping
+/// its side.
 pub(crate) fn back_step<B: PotBacking>(
     p: &mut PotPages<B>,
     at: usize,
+    orig: &Line,
     w: &mut dyn Settlement,
     owner: &Key,
 ) -> LcResult<Credit> {
-    let orig = p
-        .get(at)
-        .ok_or(LifecycleError::Inconsistent("line vanished"))?;
-    let placed = w.credit(owner, &orig)?;
-    p.set(at, &emptied(&orig))?;
+    let placed = w.credit(owner, orig)?;
+    p.set(at, &emptied(orig))?;
     Ok(Credit {
-        line: orig,
+        line: *orig,
         owner: Some(*owner),
         placement: placement(placed),
     })

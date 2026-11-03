@@ -1101,7 +1101,8 @@ fn back_step_returns_the_whole_line_to_the_funder_and_empties_it() {
     let mut w = World::new(&mut rng);
     w.cur = Some(id(1, 0));
     let mut p = pot(&mut w, 1, &[(100, 0, 40), (101, 0, 60)]);
-    let credit = blocks::back_step(&mut p, 1, &mut w, &key(3)).unwrap();
+    let line = p.get(1).unwrap();
+    let credit = blocks::back_step(&mut p, 1, &line, &mut w, &key(3)).unwrap();
     assert_eq!(credit.owner, Some(key(3)));
     assert_eq!(credit.line.amount, 60);
     assert_eq!(credit.line.source, key(101));
