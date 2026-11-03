@@ -25,6 +25,19 @@ Hosted keys come from env secrets, never from the image: `KEEPER_SECRET_KEY`, `K
 
 The last job of each pass (`src/alerts.ts`, `src/alerts-job.ts`) emails both founders through the app (`POST <NOTIFY_URL>alert`, `NOTIFY_SECRET`; the app mails `ALERT_EMAILS`, so the Resend key and the recipients stay in the app and the keeper holds no mail secret). Off when `NOTIFY_URL` or `NOTIFY_SECRET` is unset. Three triggers: commits pending longer than `ALERT_COMMIT_PENDING_SECS` (1800); a job that threw `ALERT_JOB_FAILS` (5) passes in a row or had no successful run for `ALERT_JOB_STALE_SECS` (1800); a key under its minimum balance: SOL of the keeper payer, oracle (`ALERT_ORACLE_SOL_ADDRESS`) and relayer (`ALERT_RELAYER_SOL_ADDRESS`) with `ALERT_MIN_SOL_KEEPER|ORACLE|RELAYER` (0.3 / 0.2 / 0.3), and the native balance of the keeper EVM key (`ALERT_KEEPER_EVM_ADDRESS`, default from `KEEPER_EVM_PRIVATE_KEY`) and relayer EVM key (`ALERT_RELAYER_EVM_ADDRESS`) on Ethereum (`ALERT_MIN_ETH_KEEPER|RELAYER`, 0.01) and HyperEVM (`ALERT_MIN_HYPE_KEEPER|RELAYER`, 0.05). A key with no address set is not watched; a balance that cannot be read is skipped. One mail when a condition starts, a reminder at most every `ALERT_REMINDER_SECS` (14400) while it lasts, one "recovered" mail when it clears; a mail the app did not take is retried next pass. State is in memory, so a restart re-announces a condition still active.
 
+## Dead-keeper monitor and balance check
+
+`src/heartbeat.ts`: after each run the keeper GETs a heartbeat URL (10 s timeout; `<url>/fail` for a failed run; a failed ping is ignored and never stops a run). An external monitor (healthchecks.io) mails both founders when pings stop. With the URL unset the heartbeat is off and the run logs that once.
+
+| Env var | Pinged by | Monitor period / grace |
+|---|---|---|
+| `KEEPER_HEARTBEAT_URL` | the safety sweep (every 5 minutes, ping `ok` whether or not a Match is stuck; `fail` when the sweep itself crashed) and, until ticket 20 removes it, the 20 s loop (once per pass) | 5 min / 15 min |
+| `SEASON_HEARTBEAT_URL` | the Season run (hourly retry timer; `ok` when everything due is done, `fail` when a step stopped the run) | 1 h / 2 h |
+
+The janitor and the Table pool repair are not pinged: a dead sweep timer shares their machine, and their failures show as failed units.
+
+The sweep also runs the hourly balance check (`src/balance-check.ts`, needs `NOTIFY_URL` and `NOTIFY_SECRET`): the keeper, oracle and relayer balances of "Alerts" plus any `ALERT_EXTRA_SOL="Duel Fuel=<address>:<min SOL>, ..."` accounts (use it for Fuel). It reads at most once an hour and keeps its alert state in `$KEEPER_STATE_DIR/balance-check.json`, so a low balance is mailed once, as a reminder every `ALERT_REMINDER_SECS`, and once on recovery. Sponsor PDAs live on the rollup, not the base layer, so this check cannot read them; the Table pool repair reads them.
+
 ## Jobs
 
 1. **Match hygiene** (every Match in tesoro_core; Block Burst in `src/blockpuzzle.ts`, Hold'em in `src/matches.ts`)

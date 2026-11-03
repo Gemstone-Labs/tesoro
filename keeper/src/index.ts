@@ -1,5 +1,6 @@
 import { Budget, log, runJob, runJobs, stillRunning, type Ctx } from "./act.ts";
 import { alertsJob } from "./alerts-job.ts";
+import { heartbeatFrom } from "./heartbeat.ts";
 import { awayCleanup } from "./away.ts";
 import { backingHygiene } from "./backing.ts";
 import { batchesJob } from "./batches.ts";
@@ -93,6 +94,7 @@ async function main() {
   }
 
   const alerts = alertsJob(health);
+  const heartbeat = heartbeatFrom("KEEPER_HEARTBEAT_URL", process.env, fetch, (m) => log("keeper", "-", m));
   const fastLane = new FastLane({
     scan: (c) => scanMatches(c, { fresh: true }),
     probe: async (c) => (await c.conn.getSignaturesForAddress(c.core.programId, { limit: 1 }, "confirmed"))[0]?.signature ?? null,
@@ -146,6 +148,7 @@ async function main() {
     }
     if (s.once) break;
     health.beat(ok);
+    await heartbeat.ping(ok ? "ok" : "fail");
     log("keeper", "-", `alive pass=${health.passes} took=${((Date.now() - started) / 1000).toFixed(1)}s${ok ? "" : ` failed-in-a-row=${health.failedInARow}`} spent=${(ctx.budget.spentLastHour() / 1e9).toFixed(5)} SOL/h`);
     // Back off on 429s (doubling, capped); recover to the base interval on a clean pass.
     delay = rateLimit.hits > 0 ? Math.min(delay * 2, MAX_BACKOFF_MS) : s.intervalMs;
