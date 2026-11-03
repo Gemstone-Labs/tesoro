@@ -1,0 +1,51 @@
+.phone{--c:12px;width:390px;max-width:100%;background:#090d0f;color:#eaefec;font:600 14px/1.3 "Schibsted Grotesk",system-ui,sans-serif;position:relative;overflow:hidden;border:1px solid #26323a;user-select:none}
+.phone *{box-sizing:border-box}
+.cut{clip-path:polygon(8px 0,calc(100% - 8px) 0,100% 8px,100% calc(100% - 8px),calc(100% - 8px) 100%,8px 100%,0 calc(100% - 8px),0 8px)}
+.top{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 4px}
+.top .ttl{font:800 24px "Barlow Condensed",Impact,sans-serif;letter-spacing:.06em;text-transform:uppercase}
+.ibtn{width:30px;height:30px;display:grid;place-items:center;background:#171e25;color:#eaefec;border:0;font-size:15px}
+.clock{font:800 54px/1 "IBM Plex Mono",ui-monospace,monospace;text-align:center;letter-spacing:.02em;padding:2px 0 8px}
+.tells{display:flex;gap:8px;padding:0 14px 10px}
+.tell{flex:1;padding:7px 4px;text-align:center;background:#11161a;color:#eaefec55;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;transition:.3s}
+.tell i{display:block;font-style:normal;font-size:18px;filter:grayscale(1) brightness(.5)}
+.tell.on{background:#1d252c;color:#eaefec;box-shadow:inset 0 1px 0 #ffffff55}
+.tell.on i{filter:none}
+.stage{position:relative;height:300px;overflow:hidden;background:#04090c;border-block:1px solid #26323a}
+.lay{position:absolute;left:0;right:0;background-repeat:repeat-x}
+.far{top:0;height:300px;background-size:auto 300px}
+.mid{top:0;height:300px;background-size:auto 300px}
+.trk{bottom:0;height:100px;background-size:auto 100px}
+.carwrap{position:absolute;left:7px;top:112px;width:376px;height:123px}
+.car{position:absolute;inset:0;background-size:100% 100%}
+.wh{position:absolute;width:32px;height:32px;top:81px;background-size:100% 100%}
+.win{position:absolute;top:30px;width:22px;height:30px;overflow:hidden;display:grid;place-items:center}
+.win img{width:20px;height:20px;transition:opacity .3s}
+.fly{position:absolute;width:34px;height:34px;z-index:5;pointer-events:none;clip-path:polygon(25% 0,75% 0,100% 25%,100% 75%,75% 100%,25% 100%,0 75%,0 25%);background:#000}
+.fly img{width:100%;height:100%}
+.fly span{position:absolute;left:50%;top:-14px;transform:translateX(-50%);font-size:10px;font-weight:800;background:#090d0fcc;padding:0 3px;white-space:nowrap}
+.stake{display:flex;justify-content:space-between;align-items:center;margin:10px 14px 0;padding:10px 14px;background:#11161a;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.em{color:#24d8a8;font-size:22px;letter-spacing:0}
+.em::before{content:"\25C6";font-size:.7em;margin-right:6px}
+.aboard{padding:10px 0 0}
+.aboard h4{margin:0 14px 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#eaefec99;display:flex;justify-content:space-between}
+.strip{display:flex;gap:8px;overflow-x:auto;padding:0 14px 4px;scrollbar-width:none}
+.chip{flex:0 0 auto;width:52px;text-align:center;font-size:10px;transition:all .35s;overflow:hidden}
+.chip .a{display:block;width:44px;height:44px;margin:0 auto 2px;background:#000;clip-path:polygon(25% 0,75% 0,100% 25%,100% 75%,75% 100%,25% 100%,0 75%,0 25%)}
+.chip img{width:100%;height:100%;display:block}
+.chip.gone{width:0;opacity:0;margin-right:-8px}
+.chip.me .a{outline:0;background:#24d8a8}
+.acts{display:flex;gap:10px;padding:10px 14px 16px}
+.jump{flex:1;height:64px;border:0;font:800 34px "Barlow Condensed",Impact,sans-serif;letter-spacing:.06em;color:#03201a;background:linear-gradient(180deg,#5ef3cd,#2fdcac 55%,#1cc699);cursor:pointer}
+.jump:disabled{background:#15201d;color:#24d8a866;cursor:default}
+.brake{flex:0 0 104px;height:64px;background:#171e25;border:0;color:#eaefec;font:800 16px "Schibsted Grotesk",sans-serif;cursor:pointer;position:relative}
+.brake small{display:block;font-size:11px;color:#eaefec88}
+.brake:disabled{color:#eaefec66;cursor:default}
+.brkTag{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:6;background:#171e25;color:#eaefec;padding:5px 12px;font-size:12px;font-weight:800;letter-spacing:.04em;opacity:0;transition:.25s;white-space:nowrap}
+.brkTag.on{opacity:1}
+.brkTag b{color:#24d8a8;font-family:"IBM Plex Mono",monospace}
+.live{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800}
+.live::before{content:"";width:8px;height:8px;border-radius:50%;background:#f2685a}
+.chipbtn{background:#171e25;color:#eaefec;border:0;padding:6px 12px;font:800 13px "Schibsted Grotesk",sans-serif}
+.cta{margin:0 14px;width:calc(100% - 28px);height:54px;border:0;font:800 17px "Schibsted Grotesk",sans-serif;color:#03201a;background:linear-gradient(180deg,#5ef3cd,#2fdcac 55%,#1cc699)}
+.note{text-align:center;font-size:12px;color:#eaefec88;padding:8px 0 16px}
+.ctl{display:flex;gap:8px;margin:12px 0}
