@@ -283,6 +283,14 @@ impl Env {
             Ok(meta) => {
                 self.last_cu = meta.compute_units_consumed;
                 self.last_logs = meta.logs;
+                // A commit that reached the magic program puts the table on base (the stand-in for
+                // what the validator does with it).
+                let commit = format!("Program {} invoke", litesvm_magic_stub::magic_program());
+                if self.last_logs.iter().any(|l| l.starts_with(&commit)) {
+                    if let Some(acct) = self.svm.get_account(&s(self.table)) {
+                        self.committed.insert(self.table, acct.data);
+                    }
+                }
                 Ok(())
             }
             Err(e) => {
@@ -2007,7 +2015,7 @@ fn a_late_check_in_is_refused_and_the_player_who_came_wins_when_the_other_never_
     );
     env.claim_timeout_declare(&anyone).expect("cancel");
     let t = env.table();
-    assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, true));
+    assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, false));
     let b = env.battle();
     assert_eq!((b.status, b.winner), (vanguard::STATUS_OVER, 0));
     assert_eq!(
@@ -2662,7 +2670,7 @@ fn a_decided_match_writes_the_ring_and_finalize_pays_from_the_committed_table() 
     env.set_time(T0 + 2);
     env.mv(0, id_of(70), 20).expect("capture the Truck");
     let t = env.table();
-    assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, true));
+    assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, false));
     let (_, slot) = t.ring.find(&env.tmatch, 0).expect("slot");
     assert_eq!(
         (slot.state, slot.outcome),
@@ -2947,9 +2955,11 @@ fn a_table_is_reset_only_when_wiped_committed_and_a_moment_old_and_it_forgets_th
     env.set_time(T0 + 2);
     env.mv(0, id_of(70), 20).unwrap();
     let over = env.table().over_at;
-    // The seats are still the Players', the result is not committed, and it is too early.
+    // The resolve that ended the Match already wiped and committed; the gates stay for a table that got there another way.
+    env.patch_table(|t| t.seats_open = true);
     assert_eq!(custom_code(&env.reset().unwrap_err()), vcode(SeatsOpen));
     env.wipe_standin();
+    env.patch_table(|t| t.dirty = true);
     assert_eq!(custom_code(&env.reset().unwrap_err()), vcode(NotCommitted));
     env.commit_standin();
     env.set_time(over + vanguard::RESET_DELAY_SECS - 1);
