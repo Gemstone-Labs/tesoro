@@ -25,7 +25,7 @@ import { SponsorError } from "./sponsor-client";
 import { planTransaction } from "@/server/sponsor/rules";
 import { cancelTicketIx, closeTicketIx, openTicketIx, stageEntryIx, decodeTicket, stagedEntryState } from "./ticket";
 
-const { sendBase, sponsoredSend, readAccounts } = vi.hoisted(() => ({ sendBase: vi.fn(), sponsoredSend: vi.fn(), readAccounts: vi.fn(async (keys: unknown[]) => keys.map(() => null)) }));
+const { sendBase, sponsoredSend, readAccounts } = vi.hoisted(() => ({ sendBase: vi.fn(), sponsoredSend: vi.fn(), readAccounts: vi.fn(async (keys: unknown[]): Promise<({ data: Uint8Array } | null)[]> => keys.map(() => null)) }));
 
 vi.mock("./client", () => ({ getChain: () => ({ base: { getMultipleAccountsInfo: readAccounts }, sendBase }) }));
 vi.mock("./sponsor-client", async (orig) => ({ ...(await orig<typeof import("./sponsor-client")>()), sponsorStatus: async () => ({ relayer: Keypair.generate().publicKey.toBase58(), paused: false, low: false }), sponsoredSend }));
@@ -357,8 +357,8 @@ describe("Ticket and Pot nonces come from the funder's counter", () => {
   };
   const funded = encodeStore([lineOf({ source: srcA, amount: 900n, dueAt: 100n })]);
   const holdCounters = (get: () => bigint) =>
-    readAccounts.mockImplementation(async (keys: PublicKey[]) =>
-      keys.map((key) => (key.equals(countersPda(me)) ? counters(2n, get()) : key.equals(basketPda(me)) ? { data: funded } : key.equals(spillPda(me)) ? { data: encodeStore([]) } : null)),
+    readAccounts.mockImplementation(async (keys: unknown[]) =>
+      (keys as PublicKey[]).map((key) => (key.equals(countersPda(me)) ? counters(2n, get()) : key.equals(basketPda(me)) ? { data: funded } : key.equals(spillPda(me)) ? { data: encodeStore([]) } : null)),
     );
   const sentPotNonce = (ix: { data: Buffer } | undefined) => String((coder.decode(ix!.data) as unknown as { data: Record<string, unknown> }).data.pot_nonce);
 
@@ -394,7 +394,7 @@ describe("Ticket and Pot nonces come from the funder's counter", () => {
   it("a prepared Ticket opens at next_ticket, and a Backing Ticket at the Backer's", async () => {
     const { prepareEntryTicket, prepareBackingTicket } = await import("./ticket");
     const backer = Keypair.generate().publicKey;
-    readAccounts.mockImplementation(async (keys: PublicKey[]) => keys.map((key) => (key.equals(countersPda(me)) ? counters(2n, 8n) : key.equals(countersPda(backer)) ? counters(0n, 21n) : key.equals(basketPda(backer)) ? { data: funded } : key.equals(spillPda(backer)) ? { data: encodeStore([]) } : null)));
+    readAccounts.mockImplementation(async (keys: unknown[]) => (keys as PublicKey[]).map((key) => (key.equals(countersPda(me)) ? counters(2n, 8n) : key.equals(countersPda(backer)) ? counters(0n, 21n) : key.equals(basketPda(backer)) ? { data: funded } : key.equals(spillPda(backer)) ? { data: encodeStore([]) } : null)));
     sponsoredSend.mockResolvedValue("sig");
     const args = { signer, getToken: async () => null, game: "holdem" as const, entry: 100n, lines: 4 };
     await prepareEntryTicket(args).catch(() => undefined);
