@@ -3,7 +3,7 @@ import { Connection, Keypair, PublicKey, VersionedMessage, VersionedTransaction 
 import { describe, expect, it, vi } from "vitest";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
-import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, gameStepIx, key, linkEvmBridgeIx, signUpIx, openMatchIx, playerIx } from "./fixtures";
+import { joinMatchIx, accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, gameStepIx, key, linkEvmBridgeIx, signUpIx, openMatchIx, playerIx } from "./fixtures";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type WireIx } from "./service";
@@ -20,6 +20,8 @@ import { createAtaIdempotentIx, tokenAta } from "@/lib/chain/stake-pool";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { ChainTransactionFailed } from "./chain-send";
 import { recoverCompletions } from "./completion";
+import { Assigner, MemoryLeaseStore } from "./assign";
+import { MATCH_STATE_FIXTURE } from "./assign-fixture";
 
 const SOL = 1_000_000_000n;
 const wire = (ixs: Ix[]): { ixs: WireIx[] } => ({
@@ -57,6 +59,7 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
     balance: async () => balance,
     rent: async (bytes) => BigInt(bytes + 128) * 6960n,
     account: async (k) => accounts.get(k.toBase58()) ?? null,
+    accountsTogether: async (keys) => keys.map((k) => accounts.get(k.toBase58()) ?? null),
     latestBlockhash: async () => "11111111111111111111111111111111",
     // The relayer pays the fee (5,000 + priority) and the receipt's rent: what a Game step is meant to cost.
     simulate: async (tx) => {
@@ -264,6 +267,26 @@ describe("an admission", () => {
     const built = await s2.sponsor.build(s2.player.publicKey, wire([close]));
     await s2.sponsor.submit(playerSigns(built, s2.player), built.meta, built.mac);
     expect(await s2.deps.store.held()).toBe(0n);
+  });
+});
+
+describe("the float of a closed Match", () => {
+  it("is freed at the next admission, whoever closed the Match", async () => {
+    const s = setup();
+    const open = await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
+    const b1 = await s.sponsor.build(s.player.publicKey, wire([open]));
+    await s.sponsor.submit(playerSigns(b1, s.player), b1.meta, b1.mac);
+    expect(await s.deps.store.held()).toBe(DEFAULT_LIMITS.completionReserve);
+    // room for one more admission only if the hold goes
+    s.setBalance(DEFAULT_LIMITS.floor + BigInt(JSON.parse(b1.meta).fronted) + DEFAULT_LIMITS.completionReserve + 100_000n);
+    const again = await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
+    await expect(s.sponsor.build(s.player.publicKey, wire([again]))).rejects.toMatchObject({ code: "sponsor-paused" });
+    // the Match was closed by its Player, not by us: it is gone and the Account's counter is past number 1
+    const counters = Buffer.alloc(33);
+    counters.writeBigUInt64LE(2n, 9);
+    s.accounts.set(PublicKey.findProgramAddressSync([Buffer.from("counters"), accountPda(s.player.publicKey).toBuffer()], CORE_ID)[0].toBase58(), { owner: CORE_ID, data: counters });
+    await expect(s.sponsor.build(s.player.publicKey, wire([again]))).resolves.toMatchObject({ class: "admission" });
+    expect(await s.deps.store.held()).toBe(0n);
   });
 });
 
@@ -736,5 +759,95 @@ describe("the rest of sign-up on the sponsor (ticket 18c)", () => {
     const s = setup({ gemas: 0n });
     await s.sponsor.build(s.player.publicKey, wire([linkEvmBridgeIx(s.player.publicKey, s.relayer.publicKey)]), "u");
     await expect(s.sponsor.build(s.player.publicKey, wire([linkEvmBridgeIx(s.player.publicKey, s.relayer.publicKey)]), "u")).rejects.toMatchObject({ code: "link-limit" });
+  });
+});
+
+describe("join and assign in one transaction", () => {
+  const withAssigner = (tables: { generation: number; index: number; epoch: bigint }[] = [{ generation: 1, index: 0, epoch: 3n }]) => {
+    const s = setup();
+    const operator = Keypair.generate();
+    const leases = new MemoryLeaseStore();
+    s.deps.assigner = new Assigner({ operator, leases, tables: async () => tables, now: () => 1_000_000 });
+    const match = key();
+    s.accounts.set(match.toBase58(), { owner: CORE_ID, data: MATCH_STATE_FIXTURE });
+    return { s, operator, match };
+  };
+  const join = async (s: ReturnType<typeof setup>, match: PublicKey) => {
+    const ix = await joinMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
+    ix.keys[8] = { ...ix.keys[8], pubkey: match };
+    return ix;
+  };
+
+  it("adds the Game's assign_match, signed by the operator, and the relayer pays for it", async () => {
+    const { s, operator, match } = withAssigner();
+    const built = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+    const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+    const last = msg.compiledInstructions.at(-1)!;
+    expect(msg.staticAccountKeys[last.programIdIndex].toBase58()).toBe(s.game.toBase58());
+    expect(Buffer.from(last.data).subarray(0, 8)).toEqual(Buffer.from([195, 128, 179, 141, 148, 120, 135, 51]));
+    expect(msg.staticAccountKeys.slice(0, msg.header.numRequiredSignatures).map((k) => k.toBase58())).toEqual(expect.arrayContaining([s.relayer.publicKey, s.player.publicKey, operator.publicKey].map((k) => k.toBase58())));
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    const sent = s.sent[0];
+    const bytes = sent.message.serialize();
+    sent.message.staticAccountKeys.slice(0, sent.message.header.numRequiredSignatures).forEach((k, i) => expect(nacl.sign.detached.verify(bytes, sent.signatures[i], k.toBytes())).toBe(true));
+  });
+
+  it("keeps the table through the start window once sent, so the next join gets another", async () => {
+    const { s, match } = withAssigner([{ generation: 1, index: 0, epoch: 3n }, { generation: 1, index: 1, epoch: 3n }]);
+    const first = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+    await s.sponsor.submit(playerSigns(first, s.player), first.meta, first.mac);
+    s.tick(100_000);
+    const second = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+    const index = (b: { message: string }) => Buffer.from(VersionedMessage.deserialize(Buffer.from(b.message, "base64")).compiledInstructions.at(-1)!.data).readUInt16LE(10);
+    expect([index(first), index(second)]).toEqual([0, 1]);
+  });
+
+  it("sends the join alone when no table is free", async () => {
+    const { s, match } = withAssigner([]);
+    const built = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+    const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+    expect(msg.header.numRequiredSignatures).toBe(2);
+    expect(msg.staticAccountKeys[msg.compiledInstructions.at(-1)!.programIdIndex].toBase58()).toBe(CORE_ID.toBase58());
+  });
+
+  it("frees the table when the build is refused", async () => {
+    const { s, match } = withAssigner();
+    s.deps.limits = { ...s.deps.limits, buildsPerDay: 1 };
+    await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+    await expect(s.sponsor.build(s.player.publicKey, wire([await join(s, match)]))).rejects.toMatchObject({ code: "account-limit" });
+  });
+
+  describe("paid by the Player", () => {
+    it("returns the join with the assignment, fee paid by the Player, signed by the operator only", async () => {
+      const { s, operator, match } = withAssigner();
+      const ix = await join(s, match);
+      ix.keys[0] = { ...ix.keys[0], pubkey: s.player.publicKey };
+      const { tx } = await s.sponsor.buildSelfPaid(s.player.publicKey, wire([ix]));
+      const t = VersionedTransaction.deserialize(Buffer.from(tx, "base64"));
+      expect(t.message.staticAccountKeys[0].toBase58()).toBe(s.player.publicKey.toBase58());
+      const slots = t.message.staticAccountKeys.slice(0, t.message.header.numRequiredSignatures);
+      expect(slots.map((k) => k.toBase58()).sort()).toEqual([s.player.publicKey, operator.publicKey].map((k) => k.toBase58()).sort());
+      const at = slots.findIndex((k) => k.equals(operator.publicKey));
+      expect(nacl.sign.detached.verify(t.message.serialize(), t.signatures[at], operator.publicKey.toBytes())).toBe(true);
+    });
+
+    it("refuses anything but a lone join of the Player's own", async () => {
+      const { s, operator, match } = withAssigner();
+      const ix = await join(s, match);
+      ix.keys[0] = { ...ix.keys[0], pubkey: s.player.publicKey };
+      const other = await openMatchIx(s.player.publicKey, s.player.publicKey, s.game);
+      await expect(s.sponsor.buildSelfPaid(s.player.publicKey, wire([ix, other]))).rejects.toMatchObject({ code: "bad-request" });
+      const named = { ...ix, keys: [...ix.keys, { pubkey: operator.publicKey, isSigner: true, isWritable: false }] };
+      await expect(s.sponsor.buildSelfPaid(s.player.publicKey, wire([named]))).rejects.toMatchObject({ code: "bad-request" });
+      const relayerPays = await join(s, match);
+      await expect(s.sponsor.buildSelfPaid(s.player.publicKey, wire([relayerPays]))).rejects.toMatchObject({ code: "bad-request" });
+    });
+
+    it("says so when no table is free, so the page sends the join alone", async () => {
+      const { s, match } = withAssigner([]);
+      const ix = await join(s, match);
+      ix.keys[0] = { ...ix.keys[0], pubkey: s.player.publicKey };
+      await expect(s.sponsor.buildSelfPaid(s.player.publicKey, wire([ix]))).rejects.toMatchObject({ code: "no-table" });
+    });
   });
 });

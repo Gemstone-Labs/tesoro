@@ -2,7 +2,7 @@
 #![allow(clippy::result_large_err)]
 
 use anchor_lang::prelude::Pubkey as APk;
-use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
+use anchor_lang::{AccountDeserialize, Discriminator, InstructionData, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_sdk::clock::Clock;
 use solana_sdk::instruction::{AccountMeta, Instruction};
@@ -139,7 +139,6 @@ struct Env {
     platform: Person,
     studio: Person,
     matches: Vec<MRef>,
-    pot_nonce: u64,
     person_seed: u8,
     /// Do not grow spills for the caller (to test the room check).
     skip_ensure: bool,
@@ -208,7 +207,6 @@ impl Env {
             platform: placeholder(Keypair::new()),
             studio: placeholder(Keypair::new()),
             matches: Vec::new(),
-            pot_nonce: 1_000,
             person_seed: 0,
             skip_ensure: false,
             name_records: false,
@@ -942,8 +940,21 @@ impl Env {
 
     // --- Tickets -----------------------------------------------------------------------------
 
-    /// Opens an Entry Ticket with room for `lines` lines (the spill gets the room first).
+    /// Opens an Entry Ticket named `nonce` with room for `lines` lines (the spill gets the room
+    /// first): the Account's counter is set to `nonce` first, so tests can name their Tickets.
     fn open_ticket(
+        &mut self,
+        p: &Person,
+        nonce: u64,
+        entry: u64,
+        lines: u32,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        self.force_next_ticket(p.account, nonce);
+        self.open_ticket_at(p, nonce, entry, lines)
+    }
+
+    /// Opens an Entry Ticket at exactly `nonce`, whatever the counter says.
+    fn open_ticket_at(
         &mut self,
         p: &Person,
         nonce: u64,
@@ -962,6 +973,7 @@ impl Env {
                 ticket: ticket_pda(p.account, nonce),
                 offer: None,
                 sponsor: None,
+                counters: counters_pda(p.account),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::OpenTicket {
@@ -988,6 +1000,7 @@ impl Env {
         lines: u32,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
         self.ensure_spill(&req.kp, backer.account, lines as usize);
+        self.force_next_ticket(backer.account, nonce);
         let open = ix(
             accounts::OpenTicket {
                 payer: req.key,
@@ -999,6 +1012,7 @@ impl Env {
                 ticket: ticket_pda(backer.account, nonce),
                 offer: Some(offer),
                 sponsor: None,
+                counters: counters_pda(backer.account),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::OpenTicket {
@@ -1126,6 +1140,36 @@ impl Env {
             })
     }
 
+    /// The nonce the next Ticket or Pot of `account` must use (0 before the counters exist).
+    fn next_ticket(&self, account: APk) -> u64 {
+        self.svm
+            .get_account(&s(counters_pda(account)))
+            .map_or(0, |acc| {
+                AccountCounters::try_deserialize(&mut acc.data.as_slice())
+                    .expect("counters")
+                    .next_ticket
+            })
+    }
+
+    /// Test set-up only: makes `nonce` the next Ticket nonce of `account`, so a test can name its
+    /// Tickets. The tests of the counter itself never call it.
+    fn force_next_ticket(&mut self, account: APk, nonce: u64) {
+        let key = s(counters_pda(account));
+        let mut acc = self.svm.get_account(&key).unwrap_or_else(|| {
+            let mut fresh = solana_sdk::account::Account::default();
+            fresh.owner = s(tesoro_core::ID);
+            fresh.data = vec![0u8; AccountCounters::SPACE];
+            fresh.data[..8].copy_from_slice(&AccountCounters::DISCRIMINATOR);
+            fresh.lamports = self
+                .svm
+                .minimum_balance_for_rent_exemption(fresh.data.len());
+            fresh
+        });
+        let at = AccountCounters::SPACE_V1;
+        acc.data[at..at + 8].copy_from_slice(&nonce.to_le_bytes());
+        self.svm.set_account(key, acc).expect("set counters");
+    }
+
     fn counters(&self, account: APk) -> AccountCounters {
         self.load::<AccountCounters>(counters_pda(account))
     }
@@ -1241,8 +1285,7 @@ impl Env {
         pot_lines: u32,
     ) -> Result<u64, litesvm::types::FailedTransactionMetadata> {
         let n = self.counters_next(p.account);
-        self.pot_nonce += 1;
-        let nonce = self.pot_nonce;
+        let nonce = self.next_ticket(p.account);
         let pot = ticket_pda(p.account, nonce);
         let remaining = self.books_of(p.account);
         self.open_match_ix(
@@ -1374,8 +1417,7 @@ impl Env {
         p: &Person,
         id: u64,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        self.pot_nonce += 1;
-        let nonce = self.pot_nonce;
+        let nonce = self.next_ticket(p.account);
         let pot = ticket_pda(p.account, nonce);
         let remaining = self.books_of(p.account);
         self.join_match_ix(p, id, nonce, 4, pot, remaining, None)
@@ -2432,8 +2474,7 @@ impl Backing {
     ) -> Result<u64, litesvm::types::FailedTransactionMetadata> {
         let env = &mut self.d.env;
         let n = env.counters_next(self.dave.account);
-        env.pot_nonce += 1;
-        let nonce = env.pot_nonce;
+        let nonce = env.next_ticket(self.carol.account);
         let pot = ticket_pda(self.carol.account, nonce);
         let remaining = env.books_of(self.carol.account);
         env.open_match_ix(
@@ -2456,8 +2497,7 @@ impl Backing {
         id: u64,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
         let env = &mut self.d.env;
-        env.pot_nonce += 1;
-        let nonce = env.pot_nonce;
+        let nonce = env.next_ticket(self.carol.account);
         let pot = ticket_pda(self.carol.account, nonce);
         let remaining = env.books_of(self.carol.account);
         env.join_match_ix(
@@ -4040,8 +4080,7 @@ fn junk_program_accounts_cannot_strip_a_listed_match_of_its_points() {
     let junk = APk::new_unique();
     let open = |d: &mut Duel, program_data: APk| {
         let n = d.env.counters_next(d.alice.account);
-        d.env.pot_nonce += 1;
-        let nonce = d.env.pot_nonce;
+        let nonce = d.env.next_ticket(d.alice.account);
         let pot = ticket_pda(d.alice.account, nonce);
         let remaining = d.env.books_of(d.alice.account);
         let alice = Person {
@@ -4387,11 +4426,11 @@ fn the_per_transaction_line_cap_is_compute_not_accounts() {
                 &q,
                 1_000,
                 0,
-                9_000,
+                env.next_ticket(q.account),
                 false,
                 0,
                 k as u32 + 1,
-                ticket_pda(q.account, 9_000),
+                ticket_pda(q.account, env.next_ticket(q.account)),
                 vec![],
                 None,
             )
@@ -4405,11 +4444,11 @@ fn the_per_transaction_line_cap_is_compute_not_accounts() {
                     &q,
                     1_000,
                     0,
-                    9_000,
+                    env.next_ticket(q.account),
                     false,
                     0,
                     18,
-                    ticket_pda(q.account, 9_000),
+                    ticket_pda(q.account, env.next_ticket(q.account)),
                     vec![],
                     None,
                 )
@@ -4453,11 +4492,11 @@ fn a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table() {
                 &alice,
                 1_000,
                 0,
-                9_001,
+                env.next_ticket(alice.account),
                 false,
                 0,
                 k as u32 + 1,
-                ticket_pda(alice.account, 9_001),
+                ticket_pda(alice.account, env.next_ticket(alice.account)),
                 env.books_of(alice.account),
                 None,
             )
@@ -4465,9 +4504,9 @@ fn a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table() {
         env.join_match_ix(
             &bob,
             m,
-            9_002,
+            env.next_ticket(bob.account),
             k as u32 + 1,
-            ticket_pda(bob.account, 9_002),
+            ticket_pda(bob.account, env.next_ticket(bob.account)),
             env.books_of(bob.account),
             None,
         )
@@ -4632,9 +4671,9 @@ fn open_source_chunks(k: usize, steps: u8, native: bool) -> Vec<u64> {
     env.join_match_ix(
         &bob,
         m,
-        9_002,
+        env.next_ticket(bob.account),
         bn as u32 + 1,
-        ticket_pda(bob.account, 9_002),
+        ticket_pda(bob.account, env.next_ticket(bob.account)),
         env.books_of(bob.account),
         None,
     )
@@ -4715,11 +4754,11 @@ fn a_thousand_line_basket_costs_within_ten_percent_of_eight_lines() {
                 &alice,
                 1_000,
                 0,
-                9_001,
+                env.next_ticket(alice.account),
                 false,
                 0,
                 9,
-                ticket_pda(alice.account, 9_001),
+                ticket_pda(alice.account, env.next_ticket(alice.account)),
                 vec![],
                 None,
             )
@@ -4728,9 +4767,9 @@ fn a_thousand_line_basket_costs_within_ten_percent_of_eight_lines() {
         env.join_match_ix(
             &bob,
             m,
-            9_002,
+            env.next_ticket(bob.account),
             9,
-            ticket_pda(bob.account, 9_002),
+            ticket_pda(bob.account, env.next_ticket(bob.account)),
             vec![],
             None,
         )
@@ -5603,8 +5642,7 @@ fn a_full_opener_is_made_room_for_in_the_joiners_own_transaction_and_both_outcom
         let b_before = env.total_gemas(&bob);
         let grow = env.grow_spill_ix(a(bob.kp.pubkey()), alice.account, 4);
         env.pre_ixs.push(grow);
-        env.pot_nonce += 1;
-        let nonce = env.pot_nonce;
+        let nonce = env.next_ticket(bob.account);
         env.join_match_ix(
             &bob,
             m,
@@ -5708,8 +5746,7 @@ fn an_outside_studios_fee_line_has_its_slot_held_and_cannot_be_crowded_out() {
     let mut remaining = d.env.books_of(d.bob.account);
     remaining.push(rem(basket_address(&studio).0));
     remaining.push(rem(spill_address(&studio).0));
-    d.env.pot_nonce += 1;
-    let nonce = d.env.pot_nonce;
+    let nonce = d.env.next_ticket(d.bob.account);
     d.env
         .join_match_ix(
             &d.bob,
@@ -5890,8 +5927,7 @@ fn a_full_outside_studio_never_refuses_a_join_whatever_the_pot_and_loses_that_ma
     let m = env
         .open_match_with(&alice, ENTRY, false, 0, 6)
         .expect("open");
-    env.pot_nonce += 1;
-    let (nonce, remaining) = (env.pot_nonce, env.books_of(bob.account));
+    let (nonce, remaining) = (env.next_ticket(bob.account), env.books_of(bob.account));
     env.join_match_ix(
         &bob,
         m,
@@ -6040,4 +6076,120 @@ fn a_ticket_cancel_that_finds_no_room_for_a_split_line_keeps_it_in_the_ticket_un
     );
     assert_eq!(env.gemas_of(&alice, sources[0]), 500);
     env.close_ticket(&kp, &alice, 4).expect("close");
+}
+
+const ERR_TICKET_NONCE: u32 = 6400 + tesoro_core::error::MatchError::TicketNonceMismatch as u32;
+
+/// Opens, cancels and closes an empty Ticket of `p` at its next nonce.
+fn open_and_close_ticket(env: &mut Env, p: &Person) -> u64 {
+    let nonce = env.next_ticket(p.account);
+    env.open_ticket_at(p, nonce, 1_000, 2).expect("ticket");
+    let kp = p.kp.insecure_clone();
+    env.cancel_ticket_with(&kp, p, nonce, 8, vec![])
+        .expect("cancel");
+    env.close_ticket(&kp, p, nonce).expect("close");
+    assert!(env
+        .svm
+        .get_account(&s(ticket_pda(p.account, nonce)))
+        .is_none());
+    nonce
+}
+
+#[test]
+fn a_ticket_must_use_the_next_nonce_and_a_closed_one_cannot_come_back() {
+    let mut env = Env::new();
+    let (p, _) = person_with_lines(&mut env, 2, 100, 1_000);
+    assert_eq!(env.next_ticket(p.account), 0);
+    let skipped = env.open_ticket_at(&p, 1, 1_000, 2).unwrap_err();
+    assert_eq!(custom_code(&skipped), ERR_TICKET_NONCE, "a skipped nonce");
+    assert_eq!(open_and_close_ticket(&mut env, &p), 0);
+    assert_eq!(env.next_ticket(p.account), 1);
+    let again = env.open_ticket_at(&p, 0, 1_000, 2).unwrap_err();
+    assert_eq!(
+        custom_code(&again),
+        ERR_TICKET_NONCE,
+        "the address of a closed Ticket is gone for good"
+    );
+    assert_eq!(open_and_close_ticket(&mut env, &p), 1);
+    assert_eq!(env.next_ticket(p.account), 2);
+}
+
+#[test]
+fn a_fresh_pot_takes_the_same_counter_as_a_ticket() {
+    let mut env = Env::new();
+    let (p, _) = person_with_lines(&mut env, 2, 100, 1_000);
+    assert_eq!(open_and_close_ticket(&mut env, &p), 0);
+    // the closed Ticket's address is empty again, and a Pot may not take it
+    let n = env.counters_next(p.account);
+    let remaining = env.books_of(p.account);
+    let err = env
+        .open_match_ix(
+            &p,
+            1_000,
+            n,
+            0,
+            false,
+            0,
+            4,
+            ticket_pda(p.account, 0),
+            remaining,
+            None,
+        )
+        .unwrap_err();
+    assert_eq!(custom_code(&err), ERR_TICKET_NONCE);
+    assert_eq!(
+        env.next_ticket(p.account),
+        1,
+        "the refused Match moved nothing"
+    );
+    env.open_match(&p, 1_000).expect("the next nonce works");
+    assert_eq!(env.next_ticket(p.account), 2);
+}
+
+#[test]
+fn counters_grow_to_hold_the_ticket_nonce_and_start_above_every_old_nonce() {
+    let mut env = Env::new();
+    let (p, _) = person_with_lines(&mut env, 2, 100, 1_000);
+    env.open_match(&p, 1_000).expect("open");
+    let counters = counters_pda(p.account);
+    // the 25-byte account an earlier build made
+    let mut old = env.svm.get_account(&s(counters)).expect("counters");
+    old.data.truncate(AccountCounters::SPACE_V1);
+    old.lamports = env
+        .svm
+        .minimum_balance_for_rent_exemption(AccountCounters::SPACE_V1);
+    env.svm.set_account(s(counters), old).unwrap();
+    let migrate = |env: &mut Env, signer: &Keypair| {
+        let i = ix(
+            accounts::MigrateCounters {
+                admin: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                account: p.account,
+                counters,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::MigrateCounters {},
+            vec![],
+        );
+        env.send(&[i], signer, &[])
+    };
+    let stranger = p.kp.insecure_clone();
+    assert!(migrate(&mut env, &stranger).is_err(), "admin only");
+    let admin = env.admin.insecure_clone();
+    migrate(&mut env, &admin).expect("migrate");
+    let c = env.counters(p.account);
+    assert_eq!(c.next_ticket, AccountCounters::LEGACY_TICKET_BASE);
+    assert_eq!((c.next_match, c.open_matches), (1, 1), "the rest is kept");
+    assert_eq!(
+        env.svm.get_account(&s(counters)).unwrap().data.len(),
+        AccountCounters::SPACE
+    );
+    migrate(&mut env, &admin).expect("a second run leaves it alone");
+    assert_eq!(
+        env.counters(p.account).next_ticket,
+        AccountCounters::LEGACY_TICKET_BASE
+    );
+    // an old, small nonce cannot be made again
+    let old_nonce = env.open_ticket_at(&p, 5, 1_000, 2).unwrap_err();
+    assert_eq!(custom_code(&old_nonce), ERR_TICKET_NONCE);
 }

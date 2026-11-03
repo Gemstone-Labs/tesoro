@@ -8,7 +8,7 @@ import type { GameId } from "@/lib/mock/types";
 import { matchKeyOf, parseMatchKey } from "./match-id";
 import type { GetToken } from "./demo-client";
 import {
-  freshPot,
+  freshPotNow,
   drawRemaining,
   joinFactsOf,
   joinGrowPlan,
@@ -29,7 +29,6 @@ import {
   type PotRef,
 } from "./entry";
 import { GAME_IDS } from "./games";
-import { potNonce } from "./entry";
 import { prepareBackingTicket, prepareEntryTicket, type StagedEntry } from "./ticket";
 
 const accountOf = (authority: PublicKey) => BlockPuzzleChain.coreAccount(authority);
@@ -59,14 +58,15 @@ interface EntryArgs {
 }
 
 /** The Pot of this entry: a fresh account for a direct draw, a complete Ticket for a long one. */
-async function potFor(a: EntryArgs, preview: EntryPreview): Promise<{ pot: PotRef; remaining: Awaited<ReturnType<typeof drawRemaining>> }> {
+async function potFor(a: EntryArgs, preview: EntryPreview): Promise<{ pot: () => Promise<PotRef>; lines: number; remaining: Awaited<ReturnType<typeof drawRemaining>> }> {
   const funder = a.backing ? a.backing.backerAccount : accountOf(a.signer.publicKey);
-  if (!preview.needsTicket) return { pot: freshPot(funder, preview.potLines), remaining: await drawRemaining(preview.plan) };
+  // a fresh Pot takes the funder's next_ticket, read again every time the transaction is built (a retry, a self-paid rebuild)
+  if (!preview.needsTicket) return { pot: () => freshPotNow(funder, preview.potLines), lines: preview.potLines, remaining: await drawRemaining(preview.plan) };
   a.onStep?.("Preparing your entry…");
-  const nonce = potNonce();
-  const base = { signer: a.signer, getToken: a.getToken, game: a.game, entry: BigInt(a.entry), lines: preview.ticketLines, nonce, onProgress: a.onStaged };
+  const base = { signer: a.signer, getToken: a.getToken, game: a.game, entry: BigInt(a.entry), lines: preview.ticketLines, onProgress: a.onStaged };
   const t = a.backing ? await prepareBackingTicket({ ...base, backerAccount: a.backing.backerAccount, offer: a.backing.offer }) : await prepareEntryTicket(base);
-  return { pot: { address: t.address, nonce: t.nonce, lines: t.lineCap, ticket: true }, remaining: [] };
+  const pot: PotRef = { address: t.address, nonce: t.nonce, lines: t.lineCap, ticket: true };
+  return { pot: async () => pot, lines: pot.lines, remaining: [] };
 }
 
 export interface OpenedEntry {
@@ -87,7 +87,7 @@ export async function openEntry(a: EntryArgs & { challenge: boolean; asset?: num
     a.getToken,
     async (payer) => {
       const ixs: TransactionInstruction[] = [
-        openMatchIx({ payer, player: a.signer.publicKey, game: a.game, entry: BigInt(a.entry), n, challenge: a.challenge, asset: a.asset ?? 0, pot, backing: a.backing, remaining }),
+        openMatchIx({ payer, player: a.signer.publicKey, game: a.game, entry: BigInt(a.entry), n, challenge: a.challenge, asset: a.asset ?? 0, pot: await pot(), backing: a.backing, remaining }),
       ];
       return ixs;
     },
@@ -104,28 +104,28 @@ export async function joinEntry(a: EntryArgs & { key: string }): Promise<string>
   const me = accountOf(a.signer.publicKey);
   const funder = a.backing ? a.backing.backerAccount : me;
   const { preview } = await planEntryFor(a.signer.publicKey, a.entry, a.backing);
-  const { pot, remaining } = await potFor(a, preview);
+  const { pot: getPot, lines, remaining } = await potFor(a, preview);
 
   const accounts = [...new Map([facts.openerPlayer, facts.openerFunder, me, funder, ...(facts.outsideStudio ? [facts.outsideStudio] : [])].map((k) => [k.toBase58(), k])).values()];
   const read = new Map((await Promise.all(accounts.map((k) => readEntryStores(k)))).map((s) => [s.account.toBase58(), s]));
-  const needs = joinGrowPlan(facts, pot.lines, me, funder, (k) => read.get(k.toBase58()));
+  const needs = joinGrowPlan(facts, lines, me, funder, (k) => read.get(k.toBase58()));
   const relayer = await relayerKey();
-  const join = joinMatchIx({ payer: relayer ?? a.signer.publicKey, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio, ref)] });
+  // built per send: the Pot's nonce is the funder's counter as it is now, so a retry rereads it
+  const joinWith = async (payer: PublicKey) =>
+    joinMatchIx({ payer, player: a.signer.publicKey, match: ref, facts, pot: await getPot(), backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio, ref)] });
 
   // Grows need the relayer to sign, so they only travel in the sponsored transaction; sized to what it carries.
   if (relayer) {
-    const { earlier, main } = joinTransaction(true, relayer, needs, join);
+    const { earlier } = joinTransaction(true, relayer, needs, await joinWith(relayer));
     // the grows are best effort: a join is never refused for room, so a refused grow does not stop it
     for (const grows of earlier) await sendEntryTx(a.signer, a.getToken, async () => grows).catch(() => undefined);
     const r = await sendEntryTx(a.signer, a.getToken, async (payer, sponsored) => {
-      if (sponsored) return main;
-      return [joinMatchIx({ payer, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio, ref)] })];
-    });
+      if (sponsored) return joinTransaction(true, relayer, needs, await joinWith(relayer)).main;
+      return [await joinWith(payer)];
+    }, { assign: true });
     return r.sig;
   }
-  const r = await sendEntryTx(a.signer, a.getToken, async (payer) => [
-    joinMatchIx({ payer, player: a.signer.publicKey, match: ref, facts, pot, backing: a.backing, remaining: [...remaining, ...studioRemaining(facts.outsideStudio, ref)] }),
-  ]);
+  const r = await sendEntryTx(a.signer, a.getToken, async (payer) => [await joinWith(payer)], { assign: true });
   return r.sig;
 }
 

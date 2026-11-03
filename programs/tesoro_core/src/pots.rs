@@ -81,6 +81,27 @@ pub fn ticket_address(account: &Pubkey, nonce: u64) -> (Pubkey, u8) {
     )
 }
 
+/// Takes `nonce` as the Account's next Ticket or Pot address: it must be exactly the counter, and
+/// the counter moves past it. Every `["ticket", account, nonce]` address is made through here, so
+/// no nonce is ever used twice, and a nonce below the counter whose address is empty was closed.
+pub fn take_ticket_nonce(
+    counters: &mut crate::state::AccountCounters,
+    bump: u8,
+    nonce: u64,
+) -> Result<()> {
+    if counters.bump == 0 {
+        counters.bump = bump;
+    }
+    require!(
+        nonce == counters.next_ticket,
+        crate::error::MatchError::TicketNonceMismatch
+    );
+    counters.next_ticket = nonce
+        .checked_add(1)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    Ok(())
+}
+
 /// What the head holds beyond the pure `Ticket`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TicketExtra {

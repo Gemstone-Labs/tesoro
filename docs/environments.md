@@ -66,6 +66,8 @@ Legend: **R** required, **O** optional, **-** not read. Visibility: **public** s
 | `RESEND_API_KEY` | secret | O | R for email | R | `re_...` |
 | `NOTIFY_FROM` | secret | O | R for email | R | `Tesoro <hello@mail.playtesoro.com>` |
 | `NOTIFY_SECRET` | secret | O | R for email | R (shared with that cluster's keeper) | 32+ random bytes, hex |
+| `HELIUS_WEBHOOK_SECRET` | secret | O | R for webhook history | R for webhook history | 32+ random bytes, hex; the `authHeader` of the Helius webhook (route `/api/webhooks/helius`) |
+| `HELIUS_WEBHOOK_FINALIZED` | flag | O | `1` only if the webhook delivers finalized transactions | same | unset: delivered rows wait for the catch-up scan to mark them finalized |
 | `ALERT_EMAILS` | secret | O | R for keeper alerts | R | `a@x.com,b@y.com`: the founders who get keeper alerts (POST `/api/notify/alert`, `NOTIFY_SECRET`); recipients are never read from a request |
 | `ADMIN_WALLETS` | secret | O (empty: `/admin/review` refuses everyone) | R | R | `7zr1...,GXQs...`: base58 wallets (comma separated) allowed to open `/admin/review`; the route checks a wallet-signed request against this list on every call |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | public | O (empty: skipped) | R | R | `0x4AAAAAAA...` |
@@ -152,3 +154,15 @@ Agents never touch Vercel, DNS or provider dashboards. The order below keeps `ww
    3. Redeploy (the public vars are inlined at build time), then smoke: `/robots.txt` allows crawling, `/play` shows no test-mode footer, server log says `is Solana mainnet-beta`.
    4. Start the mainnet keeper, stop nothing on the test keeper.
    5. Send test-host users a note: their devnet Gemas stay on `test.playtesoro.com`.
+
+
+## Match history from the Helius webhook (keeper diet ticket 12)
+
+An orchestrator step; needs a Helius key and migration `0020_webhook_tx.sql` applied first.
+
+1. Apply `app/supabase/migrations/0020_webhook_tx.sql` to the cluster's Supabase.
+2. Set `HELIUS_WEBHOOK_SECRET` (random, 32+ bytes) in the app project's env and redeploy.
+3. In the Helius dashboard create a **Raw** webhook (100 credits) on the cluster's network: account address = the `tesoro_core` program id, transaction type Any, URL `<app host>/api/webhooks/helius`, `authHeader` = the same secret.
+4. Before relying on it, check the first real delivery against the assumptions listed at the top of `app/src/server/history/webhook.ts` (body is an array; `meta.innerInstructions` present; `transaction.message.accountKeys` plain strings; `meta.loadedAddresses` for v0; whether it is delivered at confirmed or finalized). Capture the body from the Helius delivery log and replace `app/src/server/history/fixtures/helius-raw-devnet.json`.
+5. Set `KEEPER_WEBHOOK_HISTORY=1` in `~/.config/tesoro-keeper.env` and restart the keeper. Its history scan then stops writing the history tables (it still feeds the notify job) and a catch-up job runs on boot and every 15 minutes: it stores finalized core transactions the webhook missed, marks delivered rows finalized, and decodes them.
+6. Rows that cannot be decoded keep `decode_error` in `webhook_tx`; clear it (`update webhook_tx set decode_error = null where signature = ...`) to retry.

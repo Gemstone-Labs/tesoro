@@ -209,6 +209,7 @@ fn take_entry<'b, 'info>(
     funder: &Pubkey,
     backing: bool,
     (game, entry, nonce, pot_lines): (&Pubkey, u64, u64, u32),
+    (counters, counters_bump): (&mut AccountCounters, u8),
     payer: &AccountInfo<'info>,
     system: &AccountInfo<'info>,
     (basket, spill): (&AccountInfo<'info>, &AccountInfo<'info>),
@@ -222,6 +223,7 @@ fn take_entry<'b, 'info>(
         );
         let (address, bump) = ticket_address(funder, nonce);
         require_keys_eq!(address, *pot_info.key, MatchError::WrongPot);
+        take_ticket_nonce(counters, counters_bump, nonce)?;
         create_pot_account(
             pot_info,
             payer,
@@ -537,11 +539,13 @@ pub(crate) fn open_match<'info>(
         require_can_play(backer.protections)?;
         backer.counters.open_offers = backer.counters.open_offers.saturating_sub(1);
         let funder = backer.account.key();
+        let backer_bump = backer.counters.bump;
         let (pot, hold) = take_entry(
             &pot_info,
             &funder,
             true,
             (&game, entry, pot_nonce, pot_lines),
+            (backer.counters, backer_bump),
             &payer,
             &system,
             (&backer.basket, &backer.spill),
@@ -563,6 +567,7 @@ pub(crate) fn open_match<'info>(
             &player,
             false,
             (&game, entry, pot_nonce, pot_lines),
+            (&mut ctx.accounts.counters, ctx.bumps.counters),
             &payer,
             &system,
             (&own_basket, &own_spill),
@@ -859,11 +864,13 @@ pub(crate) fn join_match<'info>(
         require_can_play(backer.protections)?;
         backer.counters.open_offers = backer.counters.open_offers.saturating_sub(1);
         let funder = backer.account.key();
+        let backer_bump = backer.counters.bump;
         let (pot, hold) = take_entry(
             &pot_info,
             &funder,
             true,
             (&game, entry, pot_nonce, pot_lines),
+            (backer.counters, backer_bump),
             &payer,
             &system,
             (&backer.basket, &backer.spill),
@@ -885,6 +892,7 @@ pub(crate) fn join_match<'info>(
             &player,
             false,
             (&game, entry, pot_nonce, pot_lines),
+            (&mut ctx.accounts.counters, ctx.bumps.counters),
             &payer,
             &system,
             (&own_basket, &own_spill),

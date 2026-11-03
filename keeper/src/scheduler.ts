@@ -166,6 +166,15 @@ export interface SchedulerSettings {
   /** Seconds between assignment cleanups. */
   cleanupSecs: number;
   cleanupPerPass: number;
+  /** Whether the keeper assigns waiting Matches. Off once the sponsor server assigns each Match in the join's own transaction (ticket 07). */
+  assign: boolean;
+}
+
+/** A table that can take a Match now, as the sponsor server picks from it. */
+export interface PoolTable {
+  generation: number;
+  index: number;
+  epoch: number;
 }
 
 const DEFAULT_CAP: Record<GameId, number> = { "trading-duel": 20, holdem: 20, "block-burst": 50, vanguard: 20 };
@@ -193,7 +202,16 @@ export function schedulerSettings(env: NodeJS.ProcessEnv = process.env): Schedul
     unsettledSecs: num(env.KEEPER_TABLES_UNSETTLED_SECS, 12 * 3600),
     cleanupSecs: num(env.KEEPER_TABLES_CLEANUP_SECS, 300),
     cleanupPerPass: Math.max(1, Math.floor(num(env.KEEPER_TABLES_CLEANUP_PER_PASS, 10))),
+    assign: !["0", "off", "false"].includes((env.KEEPER_ASSIGN ?? "").trim().toLowerCase()),
   };
+}
+
+/** The tables that can take a Match right now, in order, for the pool the sponsor server assigns from. */
+export function poolOf(rows: TableRow[], promised: Promised[], generation: number, now: number): PoolTable[] {
+  return rows
+    .filter((r) => isAvailable(r, promised, now))
+    .sort((a, b) => a.index - b.index)
+    .map((r) => ({ generation, index: r.index, epoch: r.view!.epoch }));
 }
 
 // ---- pure planning ---------------------------------------------------------------------------------
@@ -379,6 +397,8 @@ export interface SchedMatch {
 export interface Deps {
   gate?: typeof resetMayProceed;
   settings?: SchedulerSettings;
+  /** Publishes the tables ready for a Match after each pass (a failure never stops the pass). */
+  publishPool?: (a: GameAdapter, tables: PoolTable[]) => Promise<void>;
 }
 
 const condition = (key: string, on: boolean, title: string, detail: string) => (on ? raise({ key, title, detail }) : clearRaised(key));
@@ -514,7 +534,7 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
   let assigned = 0;
   const assignedNow = new Set<string>();
   const assignable = waiting.filter((w) => a.id !== "trading-duel" || assetOfIndex(Number(w.inner.meta?.asset)) !== null);
-  if (operatorOk && sponsorReady) {
+  if (operatorOk && sponsorReady && sched.assign) {
     for (const { match, row } of planAssignments(rows, assignable, promised, ctx.now)) {
       const w = waiting.find((x) => x.address.equals(match.address))!;
       const pick = { generation: cfg.generation, index: row.index, epoch: row.view!.epoch };
@@ -528,7 +548,10 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
     }
   }
 
+  if (deps.publishPool && !ctx.settings.dryRun) await deps.publishPool(a, poolOf(rows, promised, cfg.generation, ctx.now)).catch((e) => log("tables", a.label, `pool publish failed: ${String(e?.message ?? e).slice(0, 160)}`));
+
   // 3b. fast refunds (ticket 35) -----------------------------------------------------------------------------
+
   // An Assignment whose Match never began is given up so its Match refunds from a committed result; a joined Match that no
   // table took within TABLE_WAIT_SECS is refunded at once. Both come after assignment: a free table is always tried first.
   if (operatorOk) {
