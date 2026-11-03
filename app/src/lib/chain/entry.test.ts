@@ -391,6 +391,19 @@ describe("Ticket and Pot nonces come from the funder's counter", () => {
     expect(sentPotNonce(ixs[0])).toBe("6");
   });
 
+  it("a prepared Ticket opens at next_ticket, and a Backing Ticket at the Backer's", async () => {
+    const { prepareEntryTicket, prepareBackingTicket } = await import("./ticket");
+    const backer = Keypair.generate().publicKey;
+    readAccounts.mockImplementation(async (keys: PublicKey[]) => keys.map((key) => (key.equals(countersPda(me)) ? counters(2n, 8n) : key.equals(countersPda(backer)) ? counters(0n, 21n) : null)));
+    sponsoredSend.mockResolvedValue("sig");
+    const args = { signer, getToken: async () => null, game: "holdem" as const, entry: 100n, lines: 4 };
+    await prepareEntryTicket(args).catch(() => undefined);
+    const nonceOf = (ix: { data: Buffer }) => String((coder.decode(ix.data) as { data: Record<string, unknown> }).data.nonce);
+    expect(nonceOf((sponsoredSend.mock.calls[0][2] as { data: Buffer }[])[0])).toBe("8");
+    await prepareBackingTicket({ ...args, backerAccount: backer, offer: Keypair.generate().publicKey }).catch(() => undefined);
+    expect(nonceOf((sponsoredSend.mock.calls[1][2] as { data: Buffer }[])[0])).toBe("21");
+  });
+
   it("a lost race shows the plain try-again text", async () => {
     const { entryError } = await import("./entry-errors");
     expect(entryError(new Error("custom program error: 0x1920"))).toMatch(/Try again/);
