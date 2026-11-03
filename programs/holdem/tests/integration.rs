@@ -1590,7 +1590,7 @@ fn a_late_check_in_is_refused_and_the_player_who_came_wins_when_the_other_never_
     let ixn = env.expire_ix();
     env.rollup(ixn).expect("expire");
     let t = env.table();
-    assert_eq!((t.phase, t.dirty), (holdem::TABLE_OVER, true));
+    assert_eq!((t.phase, t.dirty), (holdem::TABLE_OVER, false));
     assert_eq!(
         t.ring.find(&env.tmatch, 0).unwrap().1.outcome,
         table_kit::OUTCOME_WIN0
@@ -2192,7 +2192,7 @@ fn a_shove_and_call_decides_the_match_the_result_goes_into_the_ring_and_finalize
         env.shove_and_call().unwrap();
     }
     let t = env.table();
-    assert_eq!((t.phase, t.dirty), (holdem::TABLE_OVER, true));
+    assert_eq!((t.phase, t.dirty), (holdem::TABLE_OVER, false));
     assert_eq!(t.game.status, holdem::STATUS_OVER);
     let w = usize::from(t.game.winner);
     winner.get_or_insert(w);
@@ -2759,8 +2759,11 @@ fn a_table_is_reset_only_when_wiped_committed_and_a_moment_old_and_it_forgets_th
     let over = env.table().over_at;
     let first = env.table();
     env.set_time(over + holdem::RESET_DELAY_SECS);
+    // The last move already wiped and committed; the gates stay for a table that got there another way.
+    env.patch_table(|t| t.seats_open = true);
     assert_eq!(custom_code(&env.reset().unwrap_err()), dcode(SeatsOpen));
     env.wipe_standin();
+    env.patch_table(|t| t.dirty = true);
     assert_eq!(custom_code(&env.reset().unwrap_err()), dcode(NotCommitted));
     env.commit_standin();
     env.set_time(over + holdem::RESET_DELAY_SECS - 1);
@@ -2889,18 +2892,11 @@ fn an_assignment_closes_only_after_the_core_receipt_and_returns_its_rent_to_the_
 fn the_result_is_committed_once_and_the_sponsor_cannot_be_drained_by_repeats() {
     use holdem::HoldemError::*;
     let mut env = live();
-    env.magic_shell();
     let ixn = env.commit_ix();
     assert_eq!(custom_code(&env.rollup(ixn).unwrap_err()), dcode(NotDirty));
     env.play_match_out();
-    let ixn = env.commit_ix();
-    let err = env.rollup(ixn).unwrap_err();
-    assert!(
-        !err.meta.logs.iter().any(|l| l.contains("NotDirty")),
-        "{:?}",
-        err.meta.logs
-    );
-    env.commit_standin();
+    assert_eq!(env.table().commit.tries, 1, "the last move sent the commit");
+    env.magic_shell();
     let ixn = env.commit_ix();
     assert_eq!(
         custom_code(&env.rollup(ixn).unwrap_err()),
@@ -3145,7 +3141,8 @@ fn seat_ix(env: &Env, which: &str, signer: APk) -> Instruction {
 #[test]
 fn no_instruction_a_player_calls_can_reach_the_permission_program() {
     // The IDL says which instructions take the permission program. Only the table's own state
-    // machine steps do, and none of them is a Player's move.
+    // machine steps do, plus the instructions that can end a Match (`act` among them: a Player's
+    // last move wipes the seats in the same transaction, handing them to nobody).
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/idl/holdem.json");
     let idl: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(path).expect("IDL: pnpm build:programs"))
@@ -3166,11 +3163,20 @@ fn no_instruction_a_player_calls_can_reach_the_permission_program() {
     reaching.sort();
     assert_eq!(
         reaching,
-        ["init_seats", "retire_seats", "seat_players", "wipe_seats"]
+        [
+            "act",
+            "claim_timeout",
+            "deal",
+            "expire_start",
+            "init_seats",
+            "retire_seats",
+            "seat_players",
+            "wipe_seats"
+        ]
     );
-    // And no instruction a Player signs for takes it. (`contribute_entropy`, `act` and `check_in`
-    // are the ones with a Player signer.)
-    for name in ["contribute_entropy", "act", "check_in"] {
+    // And no other instruction a Player signs for takes it. (`contribute_entropy` and `check_in`
+    // are the others with a Player signer.)
+    for name in ["contribute_entropy", "check_in"] {
         assert!(!reaching.iter().any(|r| r == name));
     }
 }
@@ -3333,8 +3339,8 @@ impl Env {
 fn a_lost_commit_is_repeated_after_a_wait_and_then_finalize_pays_the_winner() {
     use holdem::HoldemError::*;
     let mut env = live();
-    env.magic_shell();
     let winner = env.play_match_out();
+    env.magic_shell();
     let loser = 1 - winner;
     env.commit_lost_standin();
     // Base still has the table from before the Match: nothing to settle from.
@@ -3374,10 +3380,10 @@ fn a_lost_commit_is_repeated_after_a_wait_and_then_finalize_pays_the_winner() {
 #[test]
 fn a_lost_commit_survives_the_reset_and_a_repeat_carries_the_whole_ring() {
     let mut env = Env::new();
-    env.magic_shell();
     env.next_match_on(0);
     env.start();
     env.play_match_out();
+    env.magic_shell();
     env.commit_lost_standin();
     env.wipe_standin();
     env.set_time(env.now + holdem::RESET_DELAY_SECS);
@@ -3397,8 +3403,8 @@ fn a_lost_commit_survives_the_reset_and_a_repeat_carries_the_whole_ring() {
 fn repeated_commit_calls_cost_nothing_once_the_result_is_settled_and_freed() {
     use holdem::HoldemError::*;
     let mut env = live();
-    env.magic_shell();
     env.play_match_out();
+    env.magic_shell();
     env.commit_standin();
     let slot = env.table().slot;
     let m = env.tmatch;
@@ -3421,8 +3427,8 @@ fn repeated_commit_calls_cost_nothing_once_the_result_is_settled_and_freed() {
 fn a_result_older_than_cores_refund_window_is_not_repeated() {
     use holdem::HoldemError::*;
     let mut env = live();
-    env.magic_shell();
     env.play_match_out();
+    env.magic_shell();
     env.commit_lost_standin();
     env.set_time(env.now + table_kit::COMMIT_WINDOW_SECS);
     let ixn = env.commit_ix();
