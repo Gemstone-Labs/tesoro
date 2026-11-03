@@ -4,6 +4,7 @@ import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { Budget, type Ctx } from "./act.ts";
 import { clearRaised, raisedConditions } from "./alerts.ts";
+import { sponsorMinLamports } from "./balance-check.ts";
 import { PHASE } from "../../app/src/games/trading-duel/chain.ts";
 import { tableStep, type TableFacts } from "./tables.ts";
 import {
@@ -58,7 +59,8 @@ describe("settings", () => {
     assert.equal(gameSettings("holdem", "HOLDEM", {}).cap, 20);
     const s = gameSettings("vanguard", "VANGUARD", { KEEPER_VANGUARD_TABLE_CAP: "7", KEEPER_VANGUARD_TABLE_SPARE: "2", KEEPER_VANGUARD_FUEL: "3", KEEPER_VANGUARD_SPONSOR_INIT: "1000" });
     assert.deepEqual([s.cap, s.spare, s.fuel, s.sponsorInit], [7, 2, 3, 1000n]);
-    assert.equal(s.sponsorFloor, 20_000_000);
+    assert.equal(s.sponsorFloor, 150_000_000);
+    assert.ok(s.sponsorFloor > sponsorMinLamports({}), "the refill floor stays above the Sponsor alert level");
     assert.equal(schedulerSettings({}).tableWaitSecs, 300);
     assert.equal(schedulerSettings({ KEEPER_TABLE_WAIT_SECS: "60" }).tableWaitSecs, 60);
   });
@@ -169,8 +171,9 @@ class Fake {
   tables = new Map<number, FakeTable>();
   sponsor: TableRow["base"] = "delegated";
   fuel: TableRow["base"] = "delegated";
-  sponsorBalance: number | null = 50_000_000;
+  sponsorBalance: number | null = 200_000_000;
   refillFails = false;
+  refilled: bigint[] = [];
   refundFails = false;
   operator = Keypair.generate().publicKey;
   maxTables = 8;
@@ -215,7 +218,8 @@ class Fake {
       assign: async (_c, m, _i, pick) => me.log(`assign ${m.toBase58().slice(0, 4)}->${pick.index}@${pick.epoch}`),
       setup: async (_c, step: SetupStep, ref) => me.log(`setup ${step.do}${"index" in step ? " " + step.index : ""}${"n" in step ? " " + step.n : ""} ${ref.generation}`),
       sponsorBalance: async () => me.sponsorBalance,
-      refill: async () => {
+      refill: async (_c: unknown, _fuel: number, amount: bigint) => {
+        me.refilled.push(amount);
         if (me.refillFails) throw new Error("fuel empty");
         return me.log("refill");
       },
@@ -260,7 +264,7 @@ function ctxOf(f: Fake, over: { dryRun?: boolean; now?: number; accounts?: Map<s
   } as unknown as Ctx;
 }
 
-const SET: GameSettings = { cap: 4, spare: 1, min: 1, fuel: 0, fuelAmount: 50_000_000n, sponsorFloor: 20_000_000, sponsorInit: 0n, fuelInit: 0n };
+const SET: GameSettings = { cap: 4, spare: 1, min: 1, fuel: 0, fuelAmount: 50_000_000n, sponsorFloor: 150_000_000, sponsorInit: 0n, fuelInit: 0n };
 const STILL: GameSettings = { ...SET, spare: 0, min: 0 };
 const SCHED = { ...schedulerSettings({}), cleanupSecs: 1e9 };
 const gateOk = async () => true;
@@ -610,6 +614,17 @@ describe("Sponsor fuel", () => {
     await go(f);
     assert.deepEqual(f.calls, ["refill"]);
     assert.ok(!keys().includes("tables:fake:sponsor"));
+  });
+
+  it("a refill from below the alert level leaves the Sponsor above it, in one run", async () => {
+    for (const balance of [0, 1000, 99_999_999, 140_000_000]) {
+      const f = new Fake();
+      f.sponsorBalance = balance;
+      await go(f);
+      assert.equal(f.refilled.length, 1);
+      assert.ok(balance + Number(f.refilled[0]) > sponsorMinLamports({}), `balance ${balance} + ${f.refilled[0]}`);
+      assert.ok(balance + Number(f.refilled[0]) >= SET.sponsorFloor);
+    }
   });
 
   it("raises an alert when the refill fails, and clears it when the Sponsor is full again", async () => {

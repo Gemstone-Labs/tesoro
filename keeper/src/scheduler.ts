@@ -149,7 +149,7 @@ export interface GameSettings {
   /** Fuel account the Sponsor is refilled from, and how much each refill moves. */
   fuel: number;
   fuelAmount: bigint;
-  /** The Sponsor is refilled below this many rollup lamports. */
+  /** The Sponsor is refilled below this many rollup lamports (1,500 commits at 100,000; above the 1,000-commit alert level). */
   sponsorFloor: number;
   /** Lamports the keeper may put into a missing Sponsor / Fuel (0: it only raises an alert). */
   sponsorInit: bigint;
@@ -180,6 +180,12 @@ export interface PoolTable {
 const DEFAULT_CAP: Record<GameId, number> = { "trading-duel": 20, holdem: 20, "block-burst": 50, vanguard: 20 };
 const num = (v: string | undefined, d: number) => (v !== undefined && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : d);
 
+/** The usual refill amount, or more when the Sponsor is so low that one usual refill would not reach the floor. */
+export const refillAmount = (balance: number, set: Pick<GameSettings, "fuelAmount" | "sponsorFloor">): bigint => {
+  const toFloor = BigInt(Math.max(0, Math.ceil(set.sponsorFloor - balance)));
+  return toFloor > set.fuelAmount ? toFloor : set.fuelAmount;
+};
+
 export function gameSettings(id: GameId, envName: string, env: NodeJS.ProcessEnv = process.env): GameSettings {
   const k = (s: string) => env[`KEEPER_${envName}_${s}`];
   return {
@@ -188,7 +194,7 @@ export function gameSettings(id: GameId, envName: string, env: NodeJS.ProcessEnv
     min: Math.max(0, Math.floor(num(k("TABLE_MIN"), 1))),
     fuel: num(k("FUEL"), 0),
     fuelAmount: BigInt(Math.floor(num(k("FUEL_AMOUNT"), 50_000_000))),
-    sponsorFloor: num(k("SPONSOR_FLOOR"), 20_000_000),
+    sponsorFloor: num(k("SPONSOR_FLOOR"), 150_000_000),
     sponsorInit: BigInt(Math.floor(num(k("SPONSOR_INIT"), 0))),
     fuelInit: BigInt(Math.floor(num(k("FUEL_INIT"), 0))),
   };
@@ -620,7 +626,7 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
   if (doRefill && sponsorReady) {
     const balance = await a.sponsorBalance(ctx).catch(() => null);
     if (balance !== null && balance < set.sponsorFloor) {
-      const ok = await run("sponsor", `${a.label} refill_sponsor (balance ${balance} lamports)`, () => a.refill(ctx, set.fuel, set.fuelAmount));
+      const ok = await run("sponsor", `${a.label} refill_sponsor (balance ${balance} lamports)`, () => a.refill(ctx, set.fuel, refillAmount(balance, set)));
       condition(key("sponsor"), !ok, `${a.label} Sponsor is low`, `The ${a.label} Sponsor holds ${balance} lamports (floor ${set.sponsorFloor}) and refilling it from Fuel ${set.fuel} did not work. Without it no table can be committed. Create more Fuel or top it up.`);
     } else condition(key("sponsor"), false, "", "");
   }
