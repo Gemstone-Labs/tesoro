@@ -953,7 +953,7 @@ describe("join and assign in one transaction", () => {
         return { s, match, name };
       };
       const cases = [
-        await withInner("own", (s) => ({ a: { ...base.inner.a, player: accountPda(s.player.publicKey) } })),
+        await withInner("own", (s) => ({ a: { ...base.inner.a, player: Array.from(accountPda(s.player.publicKey).toBytes()) } })),
         await withInner("full", () => ({ b: base.inner.a })),
         await withInner("settling", () => ({ stage: { Settling: {} } })),
       ];
