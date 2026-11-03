@@ -352,7 +352,7 @@ contract PrizeModule is PositionVaultBase {
         if (bytes(why).length == 0) {
             escrowShares -= shares;
             if (_real()) treasuryShares -= shares;
-            if (_tryTransfer(to, shares)) {
+            if (_payPrizeOut(payoutId, to, shares, deliveryFee)) {
                 r.status = PRIZE_PAID;
                 emit PrizePaid(payoutId, to, shares);
             } else {
@@ -366,6 +366,22 @@ contract PrizeModule is PositionVaultBase {
             emit PrizeRejected(payoutId, why);
         }
         return _payoutResult(payoutId);
+    }
+
+    /// @dev Pays the winner the prize shares less the Delivery Fee (shrunk to the admin cap and a tenth of the prize).
+    ///      False when the winner cannot receive. A fee that cannot be delivered goes to the winner too.
+    function _payPrizeOut(uint64 payoutId, address to, uint256 shares, uint256 deliveryFee) internal returns (bool) {
+        uint256 rate = rateSource.underlyingPerShare();
+        uint256 feeShares = _deliveryShares(deliveryFee, (shares * rate) / RATE_SCALE, rate);
+        if (feeShares > shares) feeShares = shares;
+        if (!_tryTransfer(to, shares - feeShares)) return false;
+        if (feeShares == 0) return true;
+        if (_tryTransfer(deliveryRecipient, feeShares)) {
+            emit DeliveryFeePaid(payoutId, deliveryRecipient, feeShares, 0);
+        } else if (!_tryTransfer(to, feeShares) && _real()) {
+            treasuryShares += feeShares; // neither side can take it: it stays in the vault
+        }
+        return true;
     }
 
     function _tryTransfer(address to, uint256 shares) internal returns (bool) {

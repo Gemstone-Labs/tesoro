@@ -433,11 +433,12 @@ abstract contract EscrowBase is Test {
         vault.setDelivery(tesoro, type(uint256).max);
         uint256 esc = _fillEscrow();
         uint128 take = uint128(esc / 2);
-        uint128 fee = take / 20;
+        uint256 rate = vault.rateSource().underlyingPerShare();
+        uint128 fee = uint128((uint256(take) * rate / 1e18) / 20); // 5% of the prize, in underlying
         bytes memory m = _prizeFee(1, _token(), winner, take, fee);
         _recv(m);
-        assertEq(_balance(winner), take - fee);
-        assertEq(_balance(tesoro), fee);
+        assertApproxEqAbs(_balance(tesoro), uint256(take) / 20, 2, "5% of the prize in shares");
+        assertEq(_balance(winner) + _balance(tesoro), take, "the winner and Tesoro share exactly the cash-out");
         assertEq(vault.escrowShares(), esc - take, "the escrow gave up the whole cash-out");
         (uint8 status, uint128 shares) = _prizeResult(1);
         assertEq(status, 1);
@@ -451,12 +452,13 @@ abstract contract EscrowBase is Test {
         vault.setDelivery(tesoro, type(uint256).max);
         uint256 esc = _fillEscrow();
         uint128 take = uint128(esc / 2);
-        _recv(_prizeFee(1, _token(), winner, take, take)); // asks for all of it
-        assertEq(_balance(tesoro), take / 10);
-        assertEq(_balance(winner), take - take / 10);
+        _recv(_prizeFee(1, _token(), winner, take, type(uint128).max)); // asks for everything
+        uint256 tenth = _balance(tesoro);
+        assertApproxEqAbs(tenth, uint256(take) / 10, 2, "a tenth of the prize at most");
+        assertEq(_balance(winner) + tenth, take);
         // The same id with another fee is not the stored payout: nothing moves.
         _recv(_prizeFee(1, _token(), winner, take, 1));
-        assertEq(_balance(tesoro), take / 10);
+        assertEq(_balance(tesoro), tenth);
     }
 
     function test_payPrizeIsPaidOncePerPayoutIdAndTheAnswerIsRegenerated() public {
