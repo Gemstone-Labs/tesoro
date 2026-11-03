@@ -59,7 +59,7 @@ describe("Hold'em timeout claim", () => {
     const assignment = { ...decodeAssignment(key, coder.decode("assignment", Buffer.from(fixture.assignment, "hex"))), generation: table.generation, index: table.index, epoch: table.epoch, tesoroMatch: table.tesoroMatch };
     return { table, assignment };
   }
-  function drive() {
+  function useDrivenMatch() {
     useHoldemMatch(`${key.toBase58()}-0`, { publicKey: key } as never);
     for (const effect of mocks.effects) {
       const cleanup = effect();
@@ -72,7 +72,7 @@ describe("Hold'em timeout claim", () => {
     const claimTimeout = vi.fn().mockResolvedValue("sig");
     mocks.getHoldem.mockReturnValue({ readAssignment: vi.fn().mockResolvedValue(assignment), readTable: vi.fn().mockResolvedValue(table), claimTimeout });
     mocks.fetchMatch.mockResolvedValue({ status: "active", seat: 1, deadline: Date.now() / 1000 + 600 });
-    drive();
+    useDrivenMatch();
     await vi.advanceTimersByTimeAsync(4_000);
     expect(claimTimeout).toHaveBeenCalledTimes(1);
   });
@@ -84,7 +84,7 @@ describe("Hold'em timeout claim", () => {
     const readTable = vi.fn().mockResolvedValueOnce(table).mockResolvedValue(moved);
     mocks.getHoldem.mockReturnValue({ readAssignment: vi.fn().mockResolvedValue(assignment), readTable, claimTimeout });
     mocks.fetchMatch.mockResolvedValue({ status: "active", seat: 1, deadline: Date.now() / 1000 + 600 });
-    drive();
+    useDrivenMatch();
     await vi.advanceTimersByTimeAsync(0);
     expect(readTable).toHaveBeenCalledTimes(2);
     expect(claimTimeout).not.toHaveBeenCalled();
