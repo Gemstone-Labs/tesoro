@@ -394,7 +394,7 @@ describe("Ticket and Pot nonces come from the funder's counter", () => {
   it("a prepared Ticket opens at next_ticket, and a Backing Ticket at the Backer's", async () => {
     const { prepareEntryTicket, prepareBackingTicket } = await import("./ticket");
     const backer = Keypair.generate().publicKey;
-    readAccounts.mockImplementation(async (keys: PublicKey[]) => keys.map((key) => (key.equals(countersPda(me)) ? counters(2n, 8n) : key.equals(countersPda(backer)) ? counters(0n, 21n) : null)));
+    readAccounts.mockImplementation(async (keys: PublicKey[]) => keys.map((key) => (key.equals(countersPda(me)) ? counters(2n, 8n) : key.equals(countersPda(backer)) ? counters(0n, 21n) : key.equals(basketPda(backer)) ? { data: funded } : key.equals(spillPda(backer)) ? { data: encodeStore([]) } : null)));
     sponsoredSend.mockResolvedValue("sig");
     const args = { signer, getToken: async () => null, game: "holdem" as const, entry: 100n, lines: 4 };
     await prepareEntryTicket(args).catch(() => undefined);
