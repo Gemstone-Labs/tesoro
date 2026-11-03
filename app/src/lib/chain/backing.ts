@@ -76,6 +76,8 @@ export interface ChainOffer {
   lines: OfferLine[];
   /** Key (`<opener>-<n>`) of the live Match this Offer funded, once consumed; null when that Match is closed or unknown. */
   matchId: string | null;
+  /** Same as `matchId` when that Match is still open, nobody joined and its refund deadline has passed: the Backer can refund it. Else null. */
+  refundableMatchId: string | null;
   /** A Backing Ticket is open on this Offer (the Requester is staging the Backer's entry). */
   ticketOpen: boolean;
 }
@@ -131,7 +133,7 @@ function toRequest(row: any, { record, pnl }: PlayerForm): ChainRequest {
   };
 }
 
-function toOffer(row: any, matchId: string | null): ChainOffer {
+function toOffer(row: any, matchId: string | null, refundableMatchId: string | null = null): ChainOffer {
   const o = row.account.inner;
   const requestKey = (k: number[] | null) => (k ? pk(k).toBase58() : null);
   return {
@@ -149,6 +151,7 @@ function toOffer(row: any, matchId: string | null): ChainOffer {
     // An Offer reserves an amount in the Backer's basket, not lines: kept empty for callers written for line reservations.
     lines: [],
     matchId,
+    refundableMatchId,
     ticketOpen: !!o.ticketOpen,
   };
 }
@@ -168,7 +171,7 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
     .map((r) => toRequest(r, records.get(pk(r.account.inner.player).toBase58()) ?? noForm()))
     .sort((a, b) => b.expiresAt - a.expiresAt);
   // A consumed Offer funded the newest Match with the same Backer, Player, Game and entry.
-  const matchOf = (o: any): string | null => {
+  const matchOf = (o: any): { id: string; refundable: boolean } | null => {
     const inner = o.account.inner;
     const rows = matchRows
       .filter((m) =>
@@ -179,11 +182,17 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
         m.account.inner.entry.toString() === inner.entry.toString(),
       )
       .sort((x, y) => Number(big(y.account.inner.openedAt) - big(x.account.inner.openedAt)));
-    return rows.length ? matchKeyOfState(rows[0].account) : null;
+    if (!rows.length) return null;
+    const m = rows[0].account.inner;
+    const unjoinedExpired = enumKey(m.stage) === "open" && !m.b && Number(m.deadline.toString()) <= now();
+    return { id: matchKeyOfState(rows[0].account), refundable: unjoinedExpired };
   };
   const offers = offerRows
     .filter((o) => gameOf(pk(o.account.inner.game)) !== null)
-    .map((o) => toOffer(o, enumKey(o.account.inner.status) === "consumed" ? matchOf(o) : null))
+    .map((o) => {
+      const m = enumKey(o.account.inner.status) === "consumed" ? matchOf(o) : null;
+      return toOffer(o, m?.id ?? null, m?.refundable ? m.id : null);
+    })
     .sort((a, b) => b.expiresAt - a.expiresAt);
   return { requests, offers, fetchedAt: Date.now() };
 }
@@ -242,6 +251,21 @@ export async function withdrawOwnOpenItems(signer: ChainSigner): Promise<number>
     }
   }
   return n;
+}
+
+/**
+ * The Backer refunds a Match nobody joined, once its deadline has passed (the relayer pays). The opener's own refund or the keeper's safety
+ * sweep may land first: then the Match is gone or already refunding, which is the outcome the Backer wanted, so this returns null instead of failing.
+ * Returns the signature, or null when someone else already refunded it.
+ */
+export async function refundBackedMatch(signer: ChainSigner, matchId: string, getToken: GetToken): Promise<string | null> {
+  try {
+    return await refundMatch(signer, matchId, getToken);
+  } catch (e) {
+    const m = await fetchMatch(matchId, null).catch(() => undefined);
+    if (m === null || (m && m.status !== "open")) return null;
+    throw e;
+  }
 }
 
 /** A Player posts a Request for a Game and entry. Creates the Account first if needed. */
