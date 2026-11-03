@@ -911,6 +911,12 @@ pub mod tesoro_core {
         instructions::migrate::migrate_position(ctx)
     }
 
+    /// Grows a 25-byte counters account to 33 bytes with `next_ticket` at
+    /// `AccountCounters::LEGACY_TICKET_BASE`. A 33-byte one is left alone.
+    pub fn migrate_counters(ctx: Context<MigrateCounters>) -> Result<()> {
+        instructions::migrate::migrate_counters(ctx)
+    }
+
     pub fn retire_source(ctx: Context<RetireSource>) -> Result<()> {
         instructions::retire::retire_source(ctx)
     }

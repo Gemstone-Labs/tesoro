@@ -4,9 +4,9 @@
  * not a limit.
  */
 import { randomUUID } from "node:crypto";
-import type { CompletionInput, CompletionJournal, CompletionStore } from "./completion.ts";
+import type { ClosureRef, ClosureStore, CompletionInput, CompletionJournal, CompletionStore, HoldSeed, ReservationRef } from "./completion.ts";
 
-export interface UsageStore extends CompletionStore {
+export interface UsageStore extends CompletionStore, ClosureStore {
   /** Adds `cost` to the window of `key` when that stays within `max`; false (and nothing added) otherwise. */
   take(key: string, cost: number, max: number, windowMs: number, now: number): Promise<boolean>;
   /** Gives back a `take` whose action did not happen. */
@@ -23,6 +23,9 @@ export class MemoryUsageStore implements UsageStore {
   private readonly windows = new Map<string, { start: number; used: number }>();
   private readonly holds = new Map<string, bigint>();
   private readonly generations = new Map<string, string>();
+  private readonly seeds = new Map<string, HoldSeed>();
+  private checked = 0;
+  private readonly checkedAt = new Map<string, number>();
   private readonly inputs = new Map<string, string>();
   private readonly retried = new Set<string>();
   private readonly journals = new Map<string, CompletionJournal>();
@@ -61,11 +64,28 @@ export class MemoryUsageStore implements UsageStore {
     this.generations.set(key, randomUUID());
     return true;
   }
-  async release(key: string) {
-    const v = this.holds.get(key) ?? 0n;
+  private drop(key: string) {
     this.holds.delete(key);
     this.generations.delete(key);
+    this.seeds.delete(key);
+    this.checkedAt.delete(key);
+  }
+  async release(key: string) {
+    const v = this.holds.get(key) ?? 0n;
+    this.drop(key);
     return v;
+  }
+
+  async closureCandidates(limit = 50): Promise<ClosureRef[]> {
+    const live = [...this.seeds.keys()].filter((k) => this.holds.has(k)).sort((a, b) => (this.checkedAt.get(a) ?? 0) - (this.checkedAt.get(b) ?? 0)).slice(0, limit);
+    for (const k of live) this.checkedAt.set(k, ++this.checked);
+    return live.map((key) => ({ key, generation: this.generations.get(key)!, seed: this.seeds.get(key)! }));
+  }
+
+  async releaseClosed(ref: ReservationRef) {
+    if (this.generations.get(ref.key) !== ref.generation) return false;
+    this.drop(ref.key);
+    return true;
   }
   async held() {
     let sum = 0n;
@@ -91,6 +111,8 @@ export class MemoryUsageStore implements UsageStore {
         const generation = randomUUID();
         this.holds.set(key, BigInt(input.reserve));
         this.generations.set(key, generation);
+        const seed = input.seeds?.[key];
+        if (seed) this.seeds.set(key, seed);
         acquired.push({ key, generation });
       }
     }
@@ -106,10 +128,7 @@ export class MemoryUsageStore implements UsageStore {
     if (j.state !== "pending") return;
     if (preflight && this.retried.has(signature)) return;
     for (const r of success ? j.closes : j.acquired) {
-      if (this.generations.get(r.key) === r.generation) {
-        this.holds.delete(r.key);
-        this.generations.delete(r.key);
-      }
+      if (this.generations.get(r.key) === r.generation) this.drop(r.key);
     }
     j.state = success ? "succeeded" : "failed";
   }

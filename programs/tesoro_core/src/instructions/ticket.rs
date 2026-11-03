@@ -211,6 +211,15 @@ pub struct OpenTicket<'info> {
     pub offer: Option<Box<Account<'info, OfferState>>>,
     #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
     pub sponsor: Option<Account<'info, SponsorState>>,
+    /// The `owner` Account's counters: `next_ticket` is the nonce this Ticket must use.
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = AccountCounters::SPACE,
+        seeds = [COUNTERS_SEED, owner.key().as_ref()],
+        bump
+    )]
+    pub counters: Account<'info, AccountCounters>,
     pub system_program: Program<'info, System>,
 }
 
@@ -228,6 +237,7 @@ pub(crate) fn open_ticket(
         BasketError::GrowTooLarge
     );
     let owner_key = ctx.accounts.owner.key();
+    take_ticket_nonce(&mut ctx.accounts.counters, ctx.bumps.counters, nonce)?;
     match kind {
         TicketKindArg::Entry => {
             require_keys_eq!(

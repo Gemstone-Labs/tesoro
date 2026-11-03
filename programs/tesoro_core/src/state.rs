@@ -439,17 +439,30 @@ impl SourceState {
 pub const MAX_OPEN_MATCHES: u32 = 8;
 
 /// What an Account has counted: the id of its next Match, how many of its Matches are open, how
-/// many Offers it has open. Created with the first Match or Offer; never closed.
+/// many Offers it has open, and the nonce of its next Ticket or Pot. Created with the first
+/// Match, Offer or Ticket; never closed.
+///
+/// `next_match` and `next_ticket` only go up and a new Match, Ticket or Pot must use exactly the
+/// current value, so an address that is absent while its counter is past its number was created
+/// and closed, and can never be created again.
 #[account]
 pub struct AccountCounters {
     pub bump: u8,
     pub next_match: u64,
     pub open_matches: u32,
     pub open_offers: u32,
+    /// The nonce of the next `["ticket", account, nonce]` address, whether it becomes an Entry
+    /// Ticket, a Backing Ticket or a fresh Pot.
+    pub next_ticket: u64,
 }
 
 impl AccountCounters {
-    pub const SPACE: usize = 8 + 1 + 8 + 4 + 4;
+    pub const SPACE: usize = 8 + 1 + 8 + 4 + 4 + 8;
+    /// The size before `next_ticket` existed (`migrate_counters` grows it).
+    pub const SPACE_V1: usize = Self::SPACE - 8;
+    /// Where a migrated counter starts: above every nonce an old client could have picked from a
+    /// clock or a counter, so no old Ticket or Pot address can be made again.
+    pub const LEGACY_TICKET_BASE: u64 = 1 << 63;
 }
 
 /// A Match. The Pots (the Tickets' lines) live in the two Ticket accounts named in `pots`.

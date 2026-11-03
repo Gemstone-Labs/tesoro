@@ -5,6 +5,12 @@ import type { ObservationStore } from "./observed-completion.ts";
 
 const CORE = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
 export interface ReservationRef { key: string; generation: string }
+/**
+ * Where a held address comes from: a Match is `["match", account, n]` and a Ticket or Pot `["ticket", account, n]`, and the
+ * Core program only makes one when `n` is the next value of that Account's counter. So the address is absent while the
+ * counter is past `n` only after it was created and closed, and it can never be made again.
+ */
+export interface HoldSeed { kind: "match" | "ticket"; account: string; n: string }
 export interface CompletionInput {
   signature: string;
   raw: string;
@@ -12,8 +18,10 @@ export interface CompletionInput {
   ensures: string[];
   closes: string[];
   reserve: string;
+  /** Seeds of the created and ensured addresses, by address. */
+  seeds?: Record<string, HoldSeed>;
 }
-export interface CompletionJournal extends Omit<CompletionInput, "closes"> {
+export interface CompletionJournal extends Omit<CompletionInput, "closes" | "seeds"> {
   acquired: ReservationRef[];
   closes: ReservationRef[];
   state: "pending" | "succeeded" | "failed";
@@ -51,9 +59,48 @@ export function completionEffects(ixs: (Pick<TransactionInstruction, "programId"
   return Object.fromEntries(Object.entries(result).map(([k, v]) => [k, [...new Set(v)]])) as typeof result;
 }
 
-export function completionInput(tx: VersionedTransaction, effects: ReturnType<typeof completionEffects>, reserve: bigint): CompletionInput {
+export function completionInput(tx: VersionedTransaction, effects: ReturnType<typeof completionEffects>, reserve: bigint, seeds: Record<string, HoldSeed> = {}): CompletionInput {
   if (tx.signatures[0].every((b) => b === 0)) throw new Error("Persist only a signed sponsor transaction");
-  return { signature: bs58.encode(tx.signatures[0]), raw: Buffer.from(tx.serialize()).toString("base64"), ...effects, reserve: reserve.toString() };
+  return { signature: bs58.encode(tx.signatures[0]), raw: Buffer.from(tx.serialize()).toString("base64"), ...effects, reserve: reserve.toString(), seeds };
+}
+
+const u64At = (data: Uint8Array, at: number) => Buffer.from(data).readBigUInt64LE(at).toString();
+/** Account slots and argument offsets (after the 8-byte discriminator) that name the seed of a created address; tested against the IDL. */
+const SEEDED = [
+  { name: "open_match", kind: "match", address: 13, account: 7, n: 8 + 32 + 8 },
+  { name: "open_ticket", kind: "ticket", address: 6, account: 3, n: 8 },
+] as const;
+
+/** The seeds of what the instructions create. `join_match` only ensures a Match: its seed is read from the Match by `matchSeed`. */
+export async function holdSeeds(
+  ixs: (Pick<TransactionInstruction, "programId" | "keys"> & { data: Uint8Array })[],
+  matchSeed: (match: string) => Promise<HoldSeed | null>,
+): Promise<Record<string, HoldSeed>> {
+  const out: Record<string, HoldSeed> = {};
+  for (const ix of ixs) {
+    if (!ix.programId.equals(CORE)) continue;
+    const head = Buffer.from(ix.data).subarray(0, 8);
+    const seeded = SEEDED.find((r) => discriminator(r.name).equals(head));
+    if (seeded) {
+      const address = ix.keys[seeded.address]?.pubkey, account = ix.keys[seeded.account]?.pubkey;
+      if (!address || !account) throw new Error(`Missing ${seeded.name} account`);
+      out[address.toBase58()] = { kind: seeded.kind, account: account.toBase58(), n: u64At(ix.data, seeded.n) };
+    } else if (discriminator("join_match").equals(head)) {
+      const match = ix.keys[8]?.pubkey.toBase58();
+      const seed = match ? await matchSeed(match) : null;
+      if (match && seed) out[match] = seed;
+    }
+  }
+  return out;
+}
+
+export interface ClosureRef extends ReservationRef { seed: HoldSeed }
+/** Holds whose address can show they were closed: absent while the Account's counter is past `seed.n`. */
+export interface ClosureStore {
+  /** The next holds to check, oldest check first; marks them as checked. */
+  closureCandidates(limit?: number): Promise<ClosureRef[]>;
+  /** Compare-and-delete by generation under the journal lock. False when the hold is gone or is a newer generation. */
+  releaseClosed(ref: ReservationRef): Promise<boolean>;
 }
 
 export interface CompletionChain {
@@ -102,13 +149,15 @@ export async function reconcileCompletion(store: CompletionStore, chain: Complet
 }
 
 /** The same narrow RPC adapter is used by app and keeper; it never writes sponsor_hold directly. */
-export function completionStore(rpc: (name: string, args: Record<string, unknown>) => Promise<unknown>): CompletionStore & ObservationStore {
+export function completionStore(rpc: (name: string, args: Record<string, unknown>) => Promise<unknown>): CompletionStore & ObservationStore & ClosureStore {
   return {
     prepareCompletion: async (input) => Boolean(await rpc("sponsor_prepare_completion", { p_input: input })),
     finishCompletion: async (signature, success, preflight = false) => { await rpc("sponsor_finish_completion", { p_signature: signature, p_success: success, p_preflight: preflight }); },
     pendingCompletions: async (limit = 50) => await rpc("sponsor_pending_completions", { p_limit: limit }) as CompletionJournal[],
     claimReservations: async (limit = 3) => await rpc("sponsor_claim_reservations", { p_limit: limit }) as Awaited<ReturnType<ObservationStore["claimReservations"]>>,
     advanceReservation: async (ref, before) => { await rpc("sponsor_advance_reservation", { p_ref: ref, p_before: before }); },
+    closureCandidates: async (limit = 50) => await rpc("sponsor_closure_candidates", { p_limit: limit }) as ClosureRef[],
+    releaseClosed: async (ref) => Boolean(await rpc("sponsor_release_closed", { p_ref: ref })),
     releaseObservedCompletion: async (ref, signature) => Boolean(await rpc("sponsor_release_observed", { p_ref: ref, p_signature: signature })),
   };
 }

@@ -34,6 +34,8 @@ function chainReads(conn: Connection): ChainReads {
       const a = await conn.getAccountInfo(k, "confirmed");
       return a ? { owner: a.owner, data: a.data } : null;
     },
+    // One call, so the Account of an address and its Account's counters come from the same slot.
+    accountsTogether: async (keys) => (await conn.getMultipleAccountsInfo(keys, "finalized")).map((a) => (a ? { owner: a.owner, data: a.data } : null)),
     latestBlockhash: async () => (await conn.getLatestBlockhash("confirmed")).blockhash,
     simulate: async (tx, watch) => {
       const r = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed", accounts: { encoding: "base64", addresses: [watch.toBase58()] } });
@@ -135,5 +137,5 @@ function failClosed(): UsageStore {
   const refuse = async () => {
     throw new DemoHttpError(503, "not-configured", "Free transactions are not configured on this server.");
   };
-  return { take: refuse, refund: refuse, add: refuse, used: refuse, held: refuse, prepareCompletion: refuse, finishCompletion: refuse, pendingCompletions: refuse };
+  return { take: refuse, refund: refuse, add: refuse, used: refuse, held: refuse, prepareCompletion: refuse, finishCompletion: refuse, pendingCompletions: refuse, closureCandidates: refuse, releaseClosed: refuse };
 }
