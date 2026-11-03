@@ -483,6 +483,7 @@ impl Env {
 
     fn build(sigverify: bool) -> Self {
         let mut svm = LiteSVM::new().with_sigverify(sigverify);
+        litesvm_magic_stub::install(&mut svm);
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/");
         for (id, file) in [
             (tesoro_core::ID, "tesoro_core.so"),
@@ -1371,17 +1372,32 @@ impl Env {
         )
     }
 
+    /// The accounts of every instruction that can end a Match.
+    fn concluding(&self, caller: APk) -> vanguard::accounts::Concluding {
+        let ad = addrs_of(self.table);
+        vanguard::accounts::Concluding {
+            caller,
+            table: self.table,
+            battle: ad.battle,
+            army_0: ad.army_0,
+            army_1: ad.army_1,
+            army_0_permission: permission_pda(ad.army_0),
+            army_1_permission: permission_pda(ad.army_1),
+            permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
+            sponsor: sponsor_addr(),
+            vanguard_config: config_pda(),
+            magic_fee_vault: table_kit::fee_vault_address(&TEE),
+            magic_context: sdk_apk(ephemeral_rollups_sdk::consts::MAGIC_CONTEXT_ID),
+            magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+        }
+    }
+
     fn resolve_ix(&self, caller: APk) -> Instruction {
         let ad = addrs_of(self.table);
         ix(
             vanguard::ID,
-            vanguard::accounts::Resolve {
-                caller,
-                table: self.table,
-                battle: ad.battle,
-                army_0: ad.army_0,
-                army_1: ad.army_1,
-            },
+            self.concluding(caller),
             vanguard::instruction::Resolve {},
             vec![],
         )
@@ -1418,13 +1434,7 @@ impl Env {
         let ad = addrs_of(self.table);
         ix(
             vanguard::ID,
-            vanguard::accounts::ClaimTimeout {
-                caller,
-                table: self.table,
-                battle: ad.battle,
-                army_0: ad.army_0,
-                army_1: ad.army_1,
-            },
+            self.concluding(caller),
             vanguard::instruction::ClaimTimeout {},
             vec![],
         )

@@ -751,6 +751,7 @@ impl Env {
         // Signature checks are off so a test can present the VRF identity PDA as a signer, which only
         // the oracle's program could do on chain.
         let mut svm = LiteSVM::new().with_sigverify(false);
+        litesvm_magic_stub::install(&mut svm);
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/");
         for (id, file) in [
             (tesoro_core::ID, "tesoro_core.so"),
@@ -1149,15 +1150,30 @@ impl Env {
         self.play_with(seat, binding, expected, moves, true)
     }
 
+    /// The accounts of `close`, which also wipes the seats and commits the result.
+    fn close_accounts(&self) -> block_puzzle::accounts::CloseMatch {
+        let (b0, b1) = (board_addr(self.table, 0), board_addr(self.table, 1));
+        block_puzzle::accounts::CloseMatch {
+            caller: a(self.oracle.pubkey()),
+            table: self.table,
+            board_0: b0,
+            board_1: b1,
+            seed_vault: vault_addr(self.table),
+            board_0_permission: perm_addr(b0),
+            board_1_permission: perm_addr(b1),
+            permission_program: sdk_key(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_key(ephemeral_rollups_sdk::consts::EPHEMERAL_VAULT_ID),
+            sponsor: sponsor_addr(),
+            magic_fee_vault: table_kit::fee_vault_address(&block_puzzle::TEE_VALIDATOR),
+            magic_context: sdk_key(ephemeral_rollups_sdk::consts::MAGIC_CONTEXT_ID),
+            magic_program: sdk_key(MAGIC_PROGRAM_ID),
+        }
+    }
+
     fn close_ix(&self) -> Instruction {
         ix(
             block_puzzle::ID,
-            block_puzzle::accounts::CloseMatch {
-                caller: a(self.oracle.pubkey()),
-                table: self.table,
-                board_0: board_addr(self.table, 0),
-                board_1: board_addr(self.table, 1),
-            },
+            self.close_accounts(),
             block_puzzle::instruction::Close {},
             vec![],
         )

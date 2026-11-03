@@ -376,6 +376,7 @@ impl Env {
     /// committed copy is the freshly created table).
     fn new() -> Self {
         let mut svm = LiteSVM::new();
+        litesvm_magic_stub::install(&mut svm);
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/");
         for (id, file) in [
             (tesoro_core::ID, "tesoro_core.so"),
@@ -805,6 +806,35 @@ impl Env {
             .expect("magic shell");
     }
 
+    /// The accounts of every instruction that can end a Match.
+    fn concluding(&self, caller: APk) -> trading_duel::accounts::Concluding {
+        let (b0, b1) = (book_addr(self.table, 0), book_addr(self.table, 1));
+        let perm = |k: APk| {
+            APk::find_program_address(
+                &[
+                    ephemeral_rollups_sdk::access_control::structs::PERMISSION_SEED,
+                    k.as_ref(),
+                ],
+                &sdk_key(PERMISSION_PROGRAM_ID),
+            )
+            .0
+        };
+        trading_duel::accounts::Concluding {
+            caller,
+            table: self.table,
+            book_0: b0,
+            book_1: b1,
+            book_0_permission: perm(b0),
+            book_1_permission: perm(b1),
+            permission_program: sdk_key(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_key(ephemeral_rollups_sdk::consts::EPHEMERAL_VAULT_ID),
+            sponsor: sponsor_addr(),
+            magic_fee_vault: table_kit::fee_vault_address(&trading_duel::TEE_VALIDATOR),
+            magic_context: sdk_key(ephemeral_rollups_sdk::consts::MAGIC_CONTEXT_ID),
+            magic_program: sdk_key(MAGIC_PROGRAM_ID),
+        }
+    }
+
     fn commit_ix(&self) -> Instruction {
         ix(
             trading_duel::ID,
@@ -841,10 +871,7 @@ impl Env {
     fn expire_ix(&self) -> Instruction {
         ix(
             trading_duel::ID,
-            trading_duel::accounts::TableOnly {
-                caller: a(self.oracle.pubkey()),
-                table: self.table,
-            },
+            self.concluding(a(self.oracle.pubkey())),
             trading_duel::instruction::ExpireStart {},
             vec![],
         )
@@ -1021,12 +1048,7 @@ impl Env {
         let (kp, key) = self.person_of(0);
         let ixn = ix(
             trading_duel::ID,
-            trading_duel::accounts::EndMatch {
-                caller: key,
-                table: self.table,
-                book_0: book_addr(self.table, 0),
-                book_1: book_addr(self.table, 1),
-            },
+            self.concluding(key),
             trading_duel::instruction::EndMatch {},
             vec![],
         );
