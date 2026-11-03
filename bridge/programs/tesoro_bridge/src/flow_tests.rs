@@ -823,8 +823,8 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
         let mut redeem = ix(
             crate::ID,
             crate::accounts::RedeemToEvm {
-delivery_terms: env.delivery_terms(),
-peer: env.peer(),
+                delivery_terms: env.delivery_terms(),
+                peer: env.peer(),
                 holder_authority: a(owner.pubkey()),
                 store: env.store,
                 authority: env.authority,
@@ -1153,7 +1153,7 @@ impl Env {
         let mut fill = ix(
             crate::ID,
             crate::accounts::InstantRedeemToEvm {
-delivery_terms: self.delivery_terms(),
+                delivery_terms: self.delivery_terms(),
                 filler: a(filler.pubkey()),
                 store: self.store,
                 authority: self.authority,
@@ -1365,8 +1365,8 @@ fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
     let mut redeem = ix(
         crate::ID,
         crate::accounts::RedeemToEvm {
-delivery_terms: env.delivery_terms(),
-peer: env.peer(),
+            delivery_terms: env.delivery_terms(),
+            peer: env.peer(),
             holder_authority: a(bob.pubkey()),
             store: env.store,
             authority: env.authority,
@@ -1415,8 +1415,8 @@ fn a_legacy_wei_line_is_refused_before_redeem_or_treasury_redeem_burns_anything(
     let mut redeem = ix(
         crate::ID,
         crate::accounts::RedeemToEvm {
-delivery_terms: env.delivery_terms(),
-peer: env.peer(),
+            delivery_terms: env.delivery_terms(),
+            peer: env.peer(),
             holder_authority: a(bob.pubkey()),
             store: env.store,
             authority: env.authority,
@@ -2565,7 +2565,7 @@ impl Env {
         let redeem = ix(
             crate::ID,
             crate::accounts::RedeemPrizeToEvm {
-delivery_terms: self.delivery_terms(),
+                delivery_terms: self.delivery_terms(),
                 holder_authority: a(owner.pubkey()),
                 store: self.store,
                 authority: self.authority,

@@ -51,16 +51,18 @@ impl DeliveryTerms {
     /// that the flat fee fits under both percentage caps.
     pub fn validate(&self) -> Result<()> {
         require!(
-            self.max_bps_unlock <= DELIVERY_CEILING_BPS && self.max_bps_yield <= DELIVERY_CEILING_BPS,
+            self.max_bps_unlock <= DELIVERY_CEILING_BPS
+                && self.max_bps_yield <= DELIVERY_CEILING_BPS,
             BridgeError::DeliveryTermsInvalid
         );
         require!(self.delivery_fee <= self.max_abs, BridgeError::DeliveryTermsInvalid);
         if self.delivery_fee > 0 {
             for bps in [self.max_bps_unlock, self.max_bps_yield] {
                 require!(bps > 0, BridgeError::DeliveryTermsInvalid);
-                let fits = self.min_redeem.checked_mul(u128::from(bps)).is_some_and(|v| {
-                    v / BPS >= self.delivery_fee
-                });
+                let fits = self
+                    .min_redeem
+                    .checked_mul(u128::from(bps))
+                    .is_some_and(|v| v / BPS >= self.delivery_fee);
                 require!(fits, BridgeError::DeliveryTermsInvalid);
             }
         }

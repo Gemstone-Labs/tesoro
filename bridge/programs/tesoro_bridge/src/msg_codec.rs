@@ -625,7 +625,13 @@ mod tests {
         let to = pad_address(&[0xCC; 20]);
         let msgs = [
             encode_unlock(40449, key, 1, 7),
-            encode_pay_yield(40449, key, 2, to, YieldPayment { amount: 42, fee: 8, pool: 4, delivery_fee: 3 }),
+            encode_pay_yield(
+                40449,
+                key,
+                2,
+                to,
+                YieldPayment { amount: 42, fee: 8, pool: 4, delivery_fee: 3 },
+            ),
             encode_pay_instant(40449, key, 3, to, 65, 3),
         ];
         for m in &msgs {

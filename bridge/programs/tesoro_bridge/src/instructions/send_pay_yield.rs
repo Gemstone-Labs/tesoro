@@ -88,7 +88,8 @@ impl SendPayYield<'_> {
         claim.fee_sent = claim.fee_total;
         claim.pool_sent = claim.pool_total;
         // A refill into the vault's own Treasury pays no Delivery Fee.
-        let delivery_fee = if holder.key() == core_treasury_account() { 0 } else { claim.delivery_fee };
+        let delivery_fee =
+            if holder.key() == core_treasury_account() { 0 } else { claim.delivery_fee };
         claim.delivery_fee = 0;
         let seq = next_out_seq(position)?;
         let peer = &ctx.accounts.peer;

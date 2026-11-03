@@ -28,7 +28,10 @@ pub struct SetDeliveryTerms<'info> {
 }
 
 impl SetDeliveryTerms<'_> {
-    pub fn apply(ctx: &mut Context<SetDeliveryTerms>, params: &SetDeliveryTermsParams) -> Result<()> {
+    pub fn apply(
+        ctx: &mut Context<SetDeliveryTerms>,
+        params: &SetDeliveryTermsParams,
+    ) -> Result<()> {
         let terms = &mut ctx.accounts.delivery_terms;
         terms.eid = params.eid;
         terms.peer_address = params.peer_address;
