@@ -47,6 +47,8 @@ export interface ChainReads extends CompletionChain, Partial<ClosureReads> {
   balance(key: PublicKey): Promise<bigint>;
   account(key: PublicKey): Promise<{ owner: PublicKey; data: Uint8Array } | null>;
   rent?(bytes: number): Promise<bigint>;
+  /** The cluster's current epoch (a stake pool update is paid for only while the pool is behind it). */
+  epoch?(): Promise<bigint>;
   latestBlockhash(): Promise<string>;
   /**
    * Runs `tx` unsigned against the chain as it is now and reports whether it would fail and what `watch` would hold after it.

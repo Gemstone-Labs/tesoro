@@ -16,7 +16,10 @@ import { redeemLineIxs, unlockIxs } from "@/lib/chain/redeem";
 import { planExit } from "@/lib/chain/exit-route";
 import { getChain } from "@/lib/chain/client";
 import { JITOSOL } from "@/lib/chain/stake";
-import { createAtaIdempotentIx, tokenAta } from "@/lib/chain/stake-pool";
+import { createAtaIdempotentIx, tokenAta, STAKE_POOL_PROGRAM_ID, updateStakePoolBalanceIx } from "@/lib/chain/stake-pool";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { unlockStakeIx } from "@/lib/chain/stake";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { ChainTransactionFailed } from "./chain-send";
 import { recoverCompletions } from "./completion";
@@ -34,7 +37,7 @@ const basketData = (gemas: bigint) => {
   return d;
 };
 
-function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean; sendError?: Error; noAccount?: boolean; simulate?: { err?: unknown; extraSpend?: bigint; noLamports?: boolean; raceOnce?: bigint }; invite?: { redeemed: boolean } } = {}) {
+function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean; sendError?: Error; noAccount?: boolean; simulate?: { err?: unknown; extraSpend?: bigint; noLamports?: boolean; raceOnce?: bigint }; invite?: { redeemed: boolean }; epoch?: bigint } = {}) {
   const relayer = Keypair.generate();
   const player = Keypair.generate();
   const game = new PublicKey("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
@@ -61,6 +64,7 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
     rent: async (bytes) => BigInt(bytes + 128) * 6960n,
     account: async (k) => accounts.get(k.toBase58()) ?? null,
     accountsTogether: async (keys) => keys.map((k) => accounts.get(k.toBase58()) ?? null),
+    epoch: async () => over.epoch ?? 1075n,
     latestBlockhash: async () => "11111111111111111111111111111111",
     // The relayer pays the fee (5,000 + priority) and the receipt's rent: what a Game step is meant to cost.
     simulate: async (tx) => {
@@ -151,6 +155,54 @@ describe("Unlock of a 0-SOL Player whose token account is missing", () => {
     const { route, position } = await unlockSetup(s);
     (s.accounts.get(position.toBase58())!.data as Buffer)[122] = 0;
     await expect(s.sponsor.build(s.player.publicKey, wire(route.ixs))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+});
+
+describe("a staking-token Unlock that carries the stake pool update", () => {
+  const live = readFileSync(join(__dirname, "../../../../programs/tesoro_core/tests/fixtures/jito_pool.bin"));
+  const pool = (lastUpdate: bigint) => {
+    const d = Buffer.from(live);
+    d.writeBigUInt64LE(lastUpdate, 274);
+    return { owner: STAKE_POOL_PROGRAM_ID, data: d };
+  };
+  async function stakeUnlock(s: ReturnType<typeof setup>, lastUpdate: bigint) {
+    const { position } = await firstPayout(s);
+    (s.accounts.get(position.toBase58())!.data as Buffer).set(JITOSOL.mint.toBytes(), 74);
+    s.accounts.set(JITOSOL.pool.toBase58(), pool(lastUpdate));
+    const update = updateStakePoolBalanceIx(JITOSOL.pool, pool(lastUpdate));
+    // the Player already has the token account
+    s.accounts.set(tokenAta(s.player.publicKey, JITOSOL.mint).toBase58(), { owner: CORE_ID, data: new Uint8Array(165) });
+    return { ixs: [update, unlockStakeIx(s.player.publicKey, position, null, JITOSOL)] };
+  }
+
+  it("is admitted and paid for by the relayer while the pool is more than one epoch behind", async () => {
+    const s = setup({ gemas: 0n, paused: true });
+    const { ixs } = await stakeUnlock(s, 1073n);
+    const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
+    expect(built.class).toBe("exit");
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    expect(s.sent[0].message.staticAccountKeys[0]).toEqual(s.relayer.publicKey);
+    expect(s.sent[0].message.compiledInstructions.some((i) => s.sent[0].message.staticAccountKeys[i.programIdIndex].equals(STAKE_POOL_PROGRAM_ID))).toBe(true);
+  });
+  it("is refused when the pool is current or one epoch behind: the sponsor never pays for a no-op", async () => {
+    for (const last of [1075n, 1074n]) {
+      const s = setup();
+      const { ixs } = await stakeUnlock(s, last);
+      await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "bad-setup" });
+    }
+  });
+  it("is refused when the instruction's accounts are not the pool's own", async () => {
+    const s = setup();
+    const { ixs } = await stakeUnlock(s, 1000n);
+    ixs[0].keys[2] = { ...ixs[0].keys[2], pubkey: key() };
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+  it("is refused when the Position is not a staking-token Position", async () => {
+    const s = setup();
+    const { ixs } = await stakeUnlock(s, 1000n);
+    const p = [...s.accounts.entries()].find(([, a]) => Buffer.from(a.data.subarray(74, 106)).equals(Buffer.from(JITOSOL.mint.toBytes())))!;
+    (p[1].data as Buffer).set(SIM_SOL_MINT.toBytes(), 74);
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "bad-setup" });
   });
 });
 
