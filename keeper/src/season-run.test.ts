@@ -96,3 +96,33 @@ describe("the weekly Season run", () => {
     assert.deepEqual(store.load()?.empty, [2]);
   });
 });
+
+describe("a step that reports a failure without throwing", () => {
+  it("leaves the run unfinished at that step, and the retry starts there", async () => {
+    const { noteError } = await import("./errors.ts");
+    const { failOnErrors } = await import("./season-run.ts");
+    const store = memoryStore();
+    const first = fake();
+    const quiet = console.log;
+    console.log = () => {};
+    let failing = true;
+    const inner = first.steps.harvest;
+    first.steps.harvest = async () => {
+      const r = await inner();
+      if (failing) noteError("harvest", "source=1", new Error("send failed"));
+      return r;
+    };
+    try {
+      const a = await seasonRun(mondayRun, failOnErrors(first.steps), store);
+      assert.equal(a.stoppedAt, "harvest");
+      assert.deepEqual(first.calls, ["settle", "redeem", "harvest"]);
+      failing = false;
+      const retry = fake();
+      const b = await seasonRun(mondayRun + 3600, failOnErrors({ ...retry.steps, harvest: first.steps.harvest }), store);
+      assert.equal(b.stoppedAt, null);
+      assert.deepEqual(retry.calls, ["batches", "pools", "record"]);
+    } finally {
+      console.log = quiet;
+    }
+  });
+});

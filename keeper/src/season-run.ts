@@ -5,6 +5,7 @@ import { batchesJob } from "./batches.ts";
 import { makeScanRpc, scanProgramAccounts } from "./credits.ts";
 import { harvestJob } from "./counters.ts";
 import { CORE_ID } from "./kit.ts";
+import { errorCount } from "./errors.ts";
 import { discriminatorOf } from "./lists.ts";
 import { poolJob } from "./pools.ts";
 import { solanaFetch } from "./runtime.ts";
@@ -59,6 +60,18 @@ export function stepsDue(nowSecs: number): StepName[] {
   const start = seasonStart(season);
   if (nowSecs < start + MONDAY_AFTER_SECS) return [];
   return nowSecs < start + PAY_AFTER_SECS ? STEP_ORDER.filter((s) => s !== "pay") : [...STEP_ORDER];
+}
+
+/** Makes a step throw when any action or caught error was reported while it ran: "done" then means 0 errors, not just 0 actions left. */
+export function failOnErrors(steps: Steps): Steps {
+  const wrap = (run: () => Promise<StepResult>) => async (): Promise<StepResult> => {
+    const before = errorCount();
+    const r = await run();
+    const failed = errorCount() - before;
+    if (failed > 0) throw new Error(`${failed} action(s) failed`);
+    return r;
+  };
+  return Object.fromEntries(STEP_ORDER.map((n) => [n, wrap(steps[n])])) as Steps;
 }
 
 export interface RunReport {
@@ -133,7 +146,7 @@ export function realSteps(ctx: Ctx, store: StateStore, d: SeasonDeps = realSeaso
     }
     return { actions: r.actions, pending: r.pending.length > 0 };
   };
-  return {
+  return failOnErrors({
     settle: async () => counted(await settleMatches(ctx, await settlingViews(ctx))),
     redeem: async () => counted(await treasuryJob(ctx)),
     harvest: async () => counted(await harvestJob(ctx)),
@@ -141,7 +154,7 @@ export function realSteps(ctx: Ctx, store: StateStore, d: SeasonDeps = realSeaso
     pools: async () => counted(await poolJob(ctx)),
     record: () => pass(false),
     pay: () => pass(true),
-  };
+  });
 }
 
 /** A RunState kept in a JSON file; a missing or unreadable file is no state. */

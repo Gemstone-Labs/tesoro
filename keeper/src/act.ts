@@ -1,5 +1,6 @@
 import type { PublicKey } from "@solana/web3.js";
 import { meter } from "./credits.ts";
+import { countError } from "./errors.ts";
 import { jobs } from "./job-stats.ts";
 import type { Runtime } from "./runtime.ts";
 
@@ -108,6 +109,7 @@ export async function act(rt: ActCtx, job: string, subject: string, what: string
       log(job, subject, `wait: ${what} not needed, ${msg}`);
       return { ok: false, detail: "raced" };
     }
+    countError();
     log(job, subject, `FAIL ${what}: ${msg}`);
     return { ok: false, detail: msg };
   }
