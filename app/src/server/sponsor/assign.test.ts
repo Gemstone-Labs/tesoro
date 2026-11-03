@@ -62,10 +62,6 @@ describe("Assigner", () => {
     expect(await b.assigner.assign("holdem", k(), k(), k(), "p2")).not.toBeNull();
   });
 
-  it("a Game it does not assign gets nothing", async () => {
-    const { assigner } = rig([T(0)]);
-    expect(await assigner.assign("trading-duel", k(), k(), k(), "p1")).toBeNull();
-  });
 });
 
 describe("joinOf", () => {

@@ -109,8 +109,8 @@ export interface Assignment {
   ix: TransactionInstruction;
   leaseKey: string;
   holder: string;
-  /** What the pool needs to claim the table once the join is sent. */
-  claim?: { game: GameId; pick: TablePick; matchKey: string };
+  /** What the pool needs to claim the table once the join is sent (JSON-safe: it travels in the signed build meta). */
+  claim?: { game: GameId; generation: number; index: number; epoch: string; matchKey: string };
 }
 
 /** What a lease needs to be extended or released, and the claim to make when the join is sent. */
@@ -134,7 +134,7 @@ export class Assigner {
     for (const pick of free) {
       const leaseKey = `${game}/${pick.generation}/${pick.index}/${pick.epoch}`;
       if (!(await this.d.leases.take(leaseKey, holder, BUILD_LEASE_MS, this.d.now()))) continue;
-      return { ix: assignMatchIx(game, { operator: this.operator, match, accountA, accountB, pick }), leaseKey, holder, claim: matchKey ? { game, pick, matchKey } : undefined };
+      return { ix: assignMatchIx(game, { operator: this.operator, match, accountA, accountB, pick }), leaseKey, holder, claim: matchKey ? { game, generation: pick.generation, index: pick.index, epoch: pick.epoch.toString(), matchKey } : undefined };
     }
     return null;
   }
@@ -142,7 +142,7 @@ export class Assigner {
   /** The join was sent: the pool holds the table until the Match settles; the lease covers the start window meanwhile. */
   async confirm(a: LeaseRef): Promise<void> {
     await this.d.leases.extend(a.leaseKey, a.holder, START_WINDOW_MS, this.d.now());
-    if (a.claim && this.d.claim) await this.d.claim(a.claim.game, a.claim.pick, a.claim.matchKey);
+    if (a.claim && this.d.claim) await this.d.claim(a.claim.game, { generation: a.claim.generation, index: a.claim.index, epoch: BigInt(a.claim.epoch) }, a.claim.matchKey);
   }
 
   /** The join will not be sent: free the table. */

@@ -184,7 +184,7 @@ interface Meta {
   admission?: boolean;
   ataGrant?: string | null;
   /** The table lease taken for the `assign_match` that rides with the join; the operator signs the transaction too. */
-  assign?: { leaseKey: string; holder: string };
+  assign?: { leaseKey: string; holder: string; claim?: Assignment["claim"] };
 }
 
 const mac = (key: Buffer, message: Uint8Array, meta: string) => createHmac("sha256", key).update(message).update("|").update(meta).digest("base64");
@@ -472,7 +472,7 @@ export class Sponsor {
       const a = await this.d.chain.account(new PublicKey(match));
       return a && a.owner.equals(CORE_ID) ? matchSeedOf(a.data) : null;
     });
-    const meta: Meta = { completion: completionEffects(ixs), seeds, player: who, exp: now + BUILD_TTL_MS, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite, cost: (fee + plan.spend.sunk + plan.spend.refundable).toString(), admission: plan.class === "admission", ataGrant: setup.ataGrant, assign: held.assignment ? { leaseKey: held.assignment.leaseKey, holder: held.assignment.holder } : undefined };
+    const meta: Meta = { completion: completionEffects(ixs), seeds, player: who, exp: now + BUILD_TTL_MS, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite, cost: (fee + plan.spend.sunk + plan.spend.refundable).toString(), admission: plan.class === "admission", ataGrant: setup.ataGrant, assign: held.assignment ? { leaseKey: held.assignment.leaseKey, holder: held.assignment.holder, claim: held.assignment.claim } : undefined };
     const metaText = JSON.stringify(meta);
     return { message: Buffer.from(bytes).toString("base64"), meta: metaText, mac: mac(this.d.macKey, bytes, metaText), expiresAt: meta.exp, class: plan.class };
   }
@@ -514,6 +514,8 @@ export class Sponsor {
       const tx = new VersionedTransaction(message);
       if (tx.serialize().length > 1232) throw new DemoHttpError(400, "too-large", "This transaction is too large.");
       tx.sign([assigner.keypair]);
+      // The Player's page sends this join itself, so the table is held from here (an abandoned build is repaired from the rollup).
+      await assigner.confirm(assignment);
       return { tx: Buffer.from(tx.serialize()).toString("base64"), expiresAt: now + BUILD_TTL_MS };
     } catch (e) {
       await assigner.release(assignment).catch(() => undefined);

@@ -851,6 +851,16 @@ describe("join and assign in one transaction", () => {
   });
 
   describe("paid by the Player", () => {
+    it("claims the table in the pool when it builds the join, since the page sends it", async () => {
+      const { s, match } = withAssigner();
+      const claims: number[] = [];
+      s.deps.assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: async () => [{ generation: 1, index: 0, epoch: 3n }], claim: async (_g, p) => void claims.push(p.index), now: () => 1_000_000 });
+      const ix = await join(s, match);
+      ix.keys[0] = { ...ix.keys[0], pubkey: s.player.publicKey };
+      await s.sponsor.buildSelfPaid(s.player.publicKey, wire([ix]));
+      expect(claims).toEqual([0]);
+    });
+
     it("returns the join with the assignment, fee paid by the Player, signed by the operator only", async () => {
       const { s, operator, match } = withAssigner();
       const ix = await join(s, match);
