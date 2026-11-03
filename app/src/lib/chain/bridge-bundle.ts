@@ -16,7 +16,7 @@ import {
   sourceAuthPda,
   vaultTreasuryPda,
 } from "./eth";
-import { TESORO_CORE_ID, sourcePda } from "./native";
+import { TESORO_CORE_ID, pda, s, sourcePda } from "./native";
 
 /**
  * The bridge steps that ride in an EVM Player's own Tesoro transaction (keeper diet ticket 15), as instructions. The relayer is the
@@ -237,3 +237,25 @@ export function bundleNameOf(data: Uint8Array): BundleName | null {
 
 /** Where the Player's SOL must come from: a system transfer of exactly `lamports` from the relayer to the Player (the rent of the Claim or Payout the Redeem creates). */
 export const rentTransferIx = (relayer: PublicKey, player: PublicKey, lamports: bigint) => SystemProgram.transfer({ fromPubkey: relayer, toPubkey: player, lamports });
+
+/**
+ * The addresses of one vault's bridge steps that depend on neither the Player nor the Position: they go in the bridge's address
+ * lookup table (`app/scripts/bridge-lookup-table.mjs`). The Player's own accounts, the Position's and the program ids stay in the
+ * message. The relayer (the fee payer, a signer) is never in a table.
+ */
+export function stableBridgeAddresses(vault: string, quote: Pick<SendQuote, "endpointSettings" | "payer" | "send">): PublicKey[] {
+  const net = netOfVault(vault);
+  const own = [
+    bridgeStore(),
+    BRIDGE_AUTHORITY,
+    SystemProgram.programId,
+    bridgePeerPda(vault),
+    deliveryTermsPda(vault),
+    vaultTreasuryPda(net.eid, vault),
+    sourceAuthPda(net),
+    pda([s("economy")]),
+    new PublicKey(quote.endpointSettings),
+  ];
+  const send = quote.send.filter((m) => m.pubkey !== quote.payer).map((m) => new PublicKey(m.pubkey));
+  return [...new Map([...own, ...send].map((a) => [a.toBase58(), a])).values()];
+}
