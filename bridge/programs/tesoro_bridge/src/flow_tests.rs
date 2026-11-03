@@ -974,6 +974,58 @@ fn vaults_on_the_mainnet_layerzero_ids_register() {
     assert!(core_chain(30_168).is_err(), "Solana's own id is not a source chain");
 }
 
+fn delivery_terms_ix(env: &Env, signer: &Keypair, params: SetDeliveryTermsParams) -> Instruction {
+    ix(
+        crate::ID,
+        crate::accounts::SetDeliveryTerms {
+            admin: a(signer.pubkey()),
+            store: env.store,
+            peer: env.peer(),
+            delivery_terms: env.delivery_terms(),
+            system_program: anchor_lang::system_program::ID,
+        },
+        crate::instruction::SetDeliveryTerms { params },
+    )
+}
+
+fn terms_params() -> SetDeliveryTermsParams {
+    SetDeliveryTermsParams {
+        eid: EID_HOODI,
+        peer_address: msg_codec::pad_address(&VAULT),
+        delivery_fee: 10_000_000_000_000,
+        max_abs: 1_000_000_000_000_000,
+        min_redeem: 500_000_000_000_000,
+        max_bps_unlock: 200,
+        max_bps_yield: 1_000,
+        min_prize_gemas: 100,
+    }
+}
+
+#[test]
+fn only_the_admin_sets_delivery_terms_and_none_may_pass_the_ceiling_or_starve_the_player() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    env.send(&[delivery_terms_ix(&env, &admin, terms_params())], &admin, &[]).expect("admin sets");
+    let terms: DeliveryTerms = env.load(env.delivery_terms());
+    assert_eq!((terms.delivery_fee, terms.max_bps_yield, terms.min_prize_gemas), (10_000_000_000_000, 1_000, 100));
+
+    let outsider = Keypair::new();
+    env.svm.airdrop(&s(a(outsider.pubkey())), 1_000_000_000).unwrap();
+    let err = env
+        .send(&[delivery_terms_ix(&env, &outsider, terms_params())], &outsider, &[])
+        .expect_err("not the admin");
+    assert_eq!(custom_code(&err), Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::Unauthorized as u32));
+
+    let too_wide = SetDeliveryTermsParams { max_bps_yield: 1_001, ..terms_params() };
+    let err = env.send(&[delivery_terms_ix(&env, &admin, too_wide)], &admin, &[]).expect_err("past the ceiling");
+    assert_eq!(custom_code(&err), Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::DeliveryTermsInvalid as u32));
+
+    // A minimum Redeem so small that 2% of it is under the flat fee would clamp the fee: refused.
+    let starved = SetDeliveryTermsParams { min_redeem: 1_000_000_000_000, ..terms_params() };
+    let err = env.send(&[delivery_terms_ix(&env, &admin, starved)], &admin, &[]).expect_err("fee does not fit");
+    assert_eq!(custom_code(&err), Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::DeliveryTermsInvalid as u32));
+}
+
 #[test]
 fn only_the_upgrade_authority_may_rotate_the_bridge_admin() {
     let mut env = Env::new();
