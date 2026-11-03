@@ -119,7 +119,7 @@ export async function sendAccounts(ctx: Ctx, eid: number, positionId: Uint8Array
   return { quote: conv(quote!), send: conv(send!) };
 }
 
-/** Native fee (lamports) of a message type (3 Unlock, 4 PayYield) via a free simulation of `quote_send`. */
+/** Native fee (lamports) of a message type (a `MSG` value from msg-types.ts) via a free simulation of `quote_send`. */
 export async function quoteFee(ctx: Ctx, eid: number, positionId: Uint8Array, msgType: number, quoteMetas: AccountMeta[]): Promise<bigint> {
   const ix = new TransactionInstruction({
     programId: BRIDGE,
