@@ -220,6 +220,18 @@ The founder's rule (Oct 1): the website must not copy the mockups' density. Mock
 
 Dev only: `/design/result?case=won|lost|draw|refunded|backed-player|backed-lost|backer-won|backer-lost|holdem-won|holdem-lost` renders every result variant from fixtures (`NEXT_PUBLIC_DEV_WALLET=1`).
 
+## Railcar screens (founder-approved 2026-11-03, not built yet)
+
+Mockups and the animated prototype: `art-source/railcar/` (`SCREEN-*.md` briefs, `round2/`, `proto/`). Rules and the numbers every screen shows: `/docs/railcar` (from `app/src/games/railcar/rules.ts`, which reads the engine). Phone first (390px). Picks: Boarding bo1, Ride and Spectator = the round-2 animated prototype, Result re1, Round history = the existing `/matches` layout (no mockup).
+
+- **One railcar.** Boarding, Ride and Spectator draw the same real railcar in side view in the cave, on rails. Seats are small cut sockets that fill with Player avatars.
+- **Boarding.** Title RAILCAR and the entry; a big "Leaves in" countdown once five have boarded (before that, "Waiting for 5 Players" and how many are aboard); the boarded avatars with "You" marked; "Your seat N"; **Step off** as the one button (neutral, not emerald), captioned with the full entry coming back; an info icon for the rules. When the car leaves, the screen turns into the Ride in place: no navigation, no loading, the car starts moving right.
+- **Ride.** The car moves right over a scrolling background; Players leap off on Jump. Shows only a ride clock (real time since departure), the three Tells, the Players still aboard (names drop off as they Jump, shown as "Jumped"), the Gemas at stake, **Jump** (the main action, emerald money style) and **Brake** (neutral, "1 left"). Never speed, distance, the wall's distance or a live refund percentage, because that would show a Brake. A Player's own Brake slows the scene on their screen only, for 5 s, once. After Jumping you keep watching and see what you got back. Buttons and components come from the design system, not the prototype.
+- **Result (re1 Podium).** Headline ("Last off" and so on) with "You get" in emerald; three stacked cut plates for the last three off, then slim rows for the early jumper and the Players left aboard (red, 0); a track strip showing where the wall stood and each Jump; a "Fees" line; **Play again** (emerald) and **Share** (neutral); Add friend on another Player's row. The worked example in `/docs/railcar` is the test case (813 / 630 / 578 / 350 / 0, fees 129, wall at 1:44).
+- **Spectator (signed out).** The Ride layout without controls: Live tag with a pulse dot, a Sign in chip, clock, Tells, aboard list, Gemas at stake, and one emerald **Play the next ride** with a "Boarding next" line.
+- **Round history.** Past rides use the Matches history rows, plus the crash point, Tell leads and every Brake, revealed after the ride.
+- **Plain words.** Say "ride", "car", "Jump", "Brake", "Impact", "Crash point", "Tell", "Early-jump refund". Never the random draw's source, rollup or program names on a screen.
+
 ## Landing page (`/welcome`)
 
 Plan, copy and decisions: `~/Work/gemstone-labs/tesoro/art-source/landing/PLAN.md` (workspace); Astra brief: `PROMPTS.md` beside it. Code: `app/src/app/(marketing)/welcome/page.tsx`, `app/src/components/landing`. The landing is `/welcome`, the waitlist is `/` (see Waitlist) and Play (home of the app) is `/play`; `/lobby` redirects there. The app routes live in the `(app)` route group, so the landing loads none of Privy, chain data or the shell.
