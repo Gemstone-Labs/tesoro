@@ -25,9 +25,9 @@ import { SponsorError } from "./sponsor-client";
 import { planTransaction } from "@/server/sponsor/rules";
 import { cancelTicketIx, closeTicketIx, openTicketIx, stageEntryIx, decodeTicket, stagedEntryState } from "./ticket";
 
-const { sendBase, sponsoredSend } = vi.hoisted(() => ({ sendBase: vi.fn(), sponsoredSend: vi.fn() }));
+const { sendBase, sponsoredSend, readAccounts } = vi.hoisted(() => ({ sendBase: vi.fn(), sponsoredSend: vi.fn(), readAccounts: vi.fn(async (keys: unknown[]) => keys.map(() => null)) }));
 
-vi.mock("./client", () => ({ getChain: () => ({ base: { getMultipleAccountsInfo: async () => [] }, sendBase }) }));
+vi.mock("./client", () => ({ getChain: () => ({ base: { getMultipleAccountsInfo: readAccounts }, sendBase }) }));
 vi.mock("./sponsor-client", async (orig) => ({ ...(await orig<typeof import("./sponsor-client")>()), sponsorStatus: async () => ({ relayer: Keypair.generate().publicKey.toBase58(), paused: false, low: false }), sponsoredSend }));
 vi.mock("./demo-client", () => ({ ensureSol: async () => undefined }));
 
@@ -88,7 +88,7 @@ describe("open_match", () => {
   const account = PublicKey.findProgramAddressSync([Buffer.from("account"), player.toBuffer()], new PublicKey(coreIdl.address))[0];
 
   it("names every account of the IDL in order, the Player and payer sign, and carries the explicit fields", () => {
-    const pot = freshPot(account, 3);
+    const pot = freshPot(account, 3, 11n);
     const ix = openMatchIx({ payer, player, game: "holdem", entry: 500n, n: 7n, challenge: true, asset: 0, pot });
     const spec = idlIx("open_match");
     expect(ix.keys).toHaveLength(spec.accounts.length);
@@ -115,7 +115,7 @@ describe("open_match", () => {
   it("a backed open names the Backer's accounts and the Offer", () => {
     const backerAccount = k();
     const offer = k();
-    const ix = openMatchIx({ payer, player, game: "holdem", entry: 500n, n: 0n, challenge: false, asset: 0, pot: freshPot(backerAccount, 2), backing: { offer, backerAccount } });
+    const ix = openMatchIx({ payer, player, game: "holdem", entry: 500n, n: 0n, challenge: false, asset: 0, pot: freshPot(backerAccount, 2, 12n), backing: { offer, backerAccount } });
     const spec = idlIx("open_match");
     const at = (n: string) => ix.keys[spec.accounts.findIndex((a) => a.name === n)];
     expect(at("offer").pubkey).toEqual(offer);
@@ -135,7 +135,7 @@ describe("join_match and the holds", () => {
   const facts = { game: new PublicKey("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"), openerPlayer: opener, openerFunder: opener };
 
   it("names the IDL's accounts, including the opener baskets when the program has them", () => {
-    const ix = joinMatchIx({ payer, player, match: { opener, n: 3n }, facts, pot: freshPot(opener, 2) });
+    const ix = joinMatchIx({ payer, player, match: { opener, n: 3n }, facts, pot: freshPot(opener, 2, 13n) });
     const spec = idlIx("join_match");
     expect(ix.keys).toHaveLength(spec.accounts.length);
     const at = (n: string) => ix.keys[spec.accounts.findIndex((a) => a.name === n)]?.pubkey;
@@ -182,7 +182,7 @@ describe("join_match and the holds", () => {
 
   it("puts the grows before the join, only when sponsored, and sends the excess grows apart", () => {
     const relayer = k();
-    const join = joinMatchIx({ payer, player, match: { opener, n: 3n }, facts, pot: freshPot(opener, 2) });
+    const join = joinMatchIx({ payer, player, match: { opener, n: 3n }, facts, pot: freshPot(opener, 2, 13n) });
     expect(joinTransaction(false, relayer, [{ account: opener, extraLines: 5 }], join)).toEqual({ earlier: [], main: [join] });
     const one = joinTransaction(true, relayer, [{ account: opener, extraLines: 5 }], join);
     expect(one.main).toHaveLength(2);
@@ -218,7 +218,7 @@ describe("what the relayer's allow-list accepts", () => {
   const asLike = (i: ReturnType<typeof openMatchIx>) => ({ programId: i.programId, keys: i.keys, data: i.data });
 
   it("a direct open with the relayer as payer is a sponsored admission, the Player the only other signer", () => {
-    const open = openMatchIx({ payer: relayer, player, game: "holdem", entry: 500n, n: 1n, challenge: false, asset: 0, pot: freshPot(playerAccount, 4) });
+    const open = openMatchIx({ payer: relayer, player, game: "holdem", entry: 500n, n: 1n, challenge: false, asset: 0, pot: freshPot(playerAccount, 4, 14n) });
     const plan = planTransaction([asLike(open)], ctx);
     expect(plan.names).toEqual(["open_match"]);
     expect(plan.class).toBe("admission");
@@ -342,3 +342,66 @@ describe("counters", () => {
 });
 
 void ticketPda;
+
+
+describe("Ticket and Pot nonces come from the funder's counter", () => {
+  const player = Keypair.generate().publicKey;
+  const me = PublicKey.findProgramAddressSync([Buffer.from("account"), player.toBuffer()], new PublicKey(coreIdl.address))[0];
+  const signer = { publicKey: player, signSerialized: async (b: Uint8Array) => b, signTransaction: async (t: unknown) => t, signMessage: async (m: Uint8Array) => m } as never;
+  const counters = (nextMatch: bigint, nextTicket: bigint) => {
+    const d = new Uint8Array(33);
+    const v = new DataView(d.buffer);
+    v.setBigUint64(9, nextMatch, true);
+    v.setBigUint64(25, nextTicket, true);
+    return { data: d };
+  };
+  const funded = encodeStore([lineOf({ source: srcA, amount: 900n, dueAt: 100n })]);
+  const holdCounters = (get: () => bigint) =>
+    readAccounts.mockImplementation(async (keys: PublicKey[]) =>
+      keys.map((key) => (key.equals(countersPda(me)) ? counters(2n, get()) : key.equals(basketPda(me)) ? { data: funded } : key.equals(spillPda(me)) ? { data: encodeStore([]) } : null)),
+    );
+  const sentPotNonce = (ix: { data: Buffer }) => String((coder.decode(ix.data) as { data: Record<string, unknown> }).data.pot_nonce);
+
+  beforeEach(() => {
+    sendBase.mockReset();
+    sponsoredSend.mockReset();
+    readAccounts.mockReset();
+  });
+
+  it("openEntry builds the fresh Pot with the counter's next_ticket", async () => {
+    const { openEntry } = await import("./entry-flow");
+    holdCounters(() => 5n);
+    sponsoredSend.mockResolvedValue("sig");
+    await openEntry({ signer, getToken: async () => null, game: "holdem", entry: 100, challenge: false });
+    const ixs = sponsoredSend.mock.calls[0][2] as { data: Buffer }[];
+    expect(sentPotNonce(ixs[0])).toBe("5");
+  });
+
+  it("a retry after a failed send rereads the counter", async () => {
+    const { openEntry } = await import("./entry-flow");
+    let next = 5n;
+    holdCounters(() => next);
+    sponsoredSend.mockImplementation(async () => {
+      next = 6n;
+      throw new SponsorError("empty", "sponsor-empty", 503);
+    });
+    sendBase.mockResolvedValue("self");
+    await openEntry({ signer, getToken: async () => null, game: "holdem", entry: 100, challenge: false });
+    const ixs = sendBase.mock.calls[0][1] as { data: Buffer }[];
+    expect(sentPotNonce(ixs[0])).toBe("6");
+  });
+
+  it("a lost race shows the plain try-again text", async () => {
+    const { entryError } = await import("./entry-errors");
+    expect(entryError(new Error("custom program error: 0x1920"))).toMatch(/Try again/);
+  });
+
+  it("no clock or random nonce is left for Tickets or Pots", async () => {
+    const { readFileSync } = await import("node:fs");
+    for (const f of ["entry.ts", "entry-flow.ts", "ticket.ts"]) {
+      const src = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
+      expect(src, f).not.toMatch(/potNonce\s*=|Date\.now\(\)\s*\)?\s*\*\s*1000n|Math\.random/);
+      expect(src, f).not.toMatch(/export \{ potNonce \}/);
+    }
+  });
+});
