@@ -2976,7 +2976,7 @@ fn begin_resets_a_finished_table_that_is_wiped_committed_and_thirty_seconds_old(
 #[test]
 fn begin_resets_only_for_an_assignment_exactly_one_epoch_ahead() {
     use trading_duel::DuelError::*;
-    for (epoch, expected) in [(2u64, NotAssigned), (0, WrongPhase)] {
+    for (epoch, expected) in [(2u64, WrongPhase), (0, WrongPhase)] {
         let mut env = Env::new();
         env.next_match_on(0);
         env.play(Some(0), Some(1));

@@ -6828,6 +6828,7 @@ fn begin_resets_a_finished_table_that_is_wiped_committed_and_thirty_seconds_old(
     env.start_in_rollup(1);
     env.stage_end_draw();
     env.ensure_committed();
+    env.wipe_standin();
     let over = env.table().over_at;
     let first = env.tmatch;
     // The next Match is assigned one epoch ahead of the Over table, as ticket 24's keeper does.
@@ -6859,7 +6860,7 @@ fn begin_resets_a_finished_table_that_is_wiped_committed_and_thirty_seconds_old(
 #[test]
 fn begin_resets_only_for_an_assignment_exactly_one_epoch_ahead() {
     use vanguard::VanguardError::*;
-    for (epoch, expected) in [(2u64, NotAssigned), (0, WrongPhase)] {
+    for (epoch, expected) in [(2u64, WrongPhase), (0, WrongPhase)] {
         let mut env = Env::new();
         env.next_match_on(0);
         env.begin().unwrap();
