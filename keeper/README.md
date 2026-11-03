@@ -51,6 +51,10 @@ The last job of each pass (`src/alerts.ts`, `src/alerts-job.ts`) emails both fou
 
 Fixtures (pre-upgrade flow): `holdem-no-show.ts` and `turn-latency-spike.ts` open Matches with the Holdings client and do not run against the upgraded programs; they return with the game tickets 12 to 15. The Block Burst fixture `both-runs-closed.ts` was deleted: it called the removed per-Match Session API, and Block Burst now runs on tables (the keeper's `burst.ts` and the table scheduler drive them).
 
+## Weekly Season run
+
+`src/season-run-cli.ts` (`pnpm --filter @tesoro/keeper exec tsx src/season-run-cli.ts`) runs the Season steps that are due and not done this week, then exits (1 while a step is left): `settle` (Settling Matches, found with a paged scan), `redeem` (Treasury), `harvest` (Leaderboard counters), `batches`, `pools`, `record` (every unrecorded Season, oldest first, fund + record) from Monday 00:15 UTC; `pay` (pay each rank, close) once the 48 h window has passed, Wednesday 00:30 UTC. A step repeats up to `KEEPER_SEASON_RUN_PASSES` (5) times, a failed step stops the run, and `$KEEPER_STATE_DIR/season-run.json` lets the next hourly run resume. Units: `deploy/tesoro-season-run*.{service,timer}`. The 20 s loop still has its own `season` job for devnet.
+
 ## Admin scripts
 
 `keeper/scripts/launch-admin.ts` prints (dry run by default) every `tesoro_core` launch init call in runbook order, with signer, named accounts and base64 data; `--execute` sends only the steps the single `--keypair` signs, never a Squads vault step (`docs/mainnet-runbook.md`, T-7 step 5). `register-game.ts`, `init-leaderboard.ts` and `whitelist-tee.ts` take `--keypair <file>` (no default key file), `--rpc`, `--cluster test|mainnet` (default test; the RPC must serve that cluster) and `--program tesoro_core=<ID>`; `fund-treasury.ts` and `withdraw-treasury.ts` are simSOL test-mode scripts and refuse mainnet. Shared parsing is `src/cli-args.ts`.

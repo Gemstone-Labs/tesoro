@@ -210,7 +210,7 @@ export class Sponsor {
 
   async status() {
     const balance = await this.d.chain.balance(this.relayer);
-    return { relayer: this.relayer.toBase58(), paused: await this.d.paused(), low: balance < this.d.lowBalance };
+    return { relayer: this.relayer.toBase58(), paused: await this.d.paused(), low: balance < this.d.lowBalance, tables: (await this.d.lookupTables()).map((t) => t.key.toBase58()) };
   }
 
   private async balance(): Promise<Balance> {

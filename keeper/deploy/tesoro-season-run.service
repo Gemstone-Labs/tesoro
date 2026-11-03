@@ -1,0 +1,10 @@
+[Unit]
+Description=Tesoro weekly Season run (settle, redeem, harvest, batches, record, pay)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/tesoro/repo
+EnvironmentFile=%h/.config/tesoro-keeper.env
+ExecStart=/usr/bin/env pnpm --filter @tesoro/keeper exec tsx src/season-run-cli.ts
+TimeoutStartSec=50min
+MemoryMax=1G

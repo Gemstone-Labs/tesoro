@@ -40,6 +40,8 @@ export interface SponsorStatus {
   relayer: string;
   paused: boolean;
   low: boolean;
+  /** Address lookup tables the server compiles with: a page sizes a chunk against the same ones. */
+  tables?: string[];
 }
 
 export async function sponsorStatus(): Promise<SponsorStatus> {

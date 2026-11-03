@@ -8,7 +8,7 @@ import { accountBytes, chainOf, ixNameOf } from "./fixtures.ts";
 import { basketOf, economyAddress, pda, seasonAddress, spillOf } from "./kit.ts";
 import { storeBytes } from "./fixtures.ts";
 import { loadIdl } from "./runtime.ts";
-import { groupsOf, payPlan, rankShare, rankTotal, readRoute, routesToFund, seasonJob, seasonOf, seasonPoints, seasonSigner, seasonsToCheck, topRanks, type SeasonDeps, type SeasonRecord } from "./season.ts";
+import { closedSeasons, groupsOf, payPlan, seasonPass, rankShare, rankTotal, readRoute, routesToFund, seasonJob, seasonOf, seasonPoints, seasonSigner, seasonsToCheck, topRanks, type SeasonDeps, type SeasonRecord } from "./season.ts";
 import { SIM_SOL_MINT, type Info, type Reader } from "./supply.ts";
 
 const core = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {}));
@@ -151,18 +151,22 @@ describe("the season job", () => {
     return accounts;
   }
 
-  function run(accounts: Map<string, Buffer>, wins: { player: string; points: number; ts: number; matchId: string }[]) {
+  function run(accounts: Map<string, Buffer>, wins: { player: string; points: number; ts: number; matchId: string }[] | ((n: number) => { player: string; points: number; ts: number; matchId: string }[]), at = nowAt, failSend = false) {
     const sent: string[] = [];
     const reader: Reader = { async many(keys) { return keys.map((x) => (accounts.has(x.toBase58()) ? ({ data: accounts.get(x.toBase58())! } as Info) : null)); } };
     const deps: SeasonDeps = {
       read: reader,
-      send: async (ixs) => (sent.push(ixs.map((i) => ixNameOf(core, i)).join("+")), `sig${sent.length}`),
-      wins: async () => wins,
+      send: async (ixs) => {
+        if (failSend) throw new Error("rpc down");
+        sent.push(ixs.map((i) => ixNameOf(core, i)).join("+"));
+        return `sig${sent.length}`;
+      },
+      wins: async (n) => (typeof wins === "function" ? wins(n) : wins),
       epoch: async () => 5n,
       candidates: () => [payer],
     };
-    const ctx = { core: chainOf(core, accounts), conn: { getBalance: async () => 1e9 }, payer, now: nowAt, settings: { dryRun: false }, budget: new Budget(1e15), lz: new Budget(1e15) } as unknown as Ctx;
-    return { sent, go: () => seasonJob(ctx, deps) };
+    const ctx = { core: chainOf(core, accounts), conn: { getBalance: async () => 1e9 }, payer, now: at, settings: { dryRun: false }, budget: new Budget(1e15), lz: new Budget(1e15) } as unknown as Ctx;
+    return { sent, go: () => seasonJob(ctx, deps), pass: (opts: Parameters<typeof seasonPass>[2]) => seasonPass(ctx, deps, opts) };
   }
 
   const wins = [win(alice.toBase58(), 10, SEASON_EPOCH + 100), win(bob.toBase58(), 5, SEASON_EPOCH + 200)];
@@ -260,5 +264,65 @@ describe("the season job", () => {
     const { sent, go } = run(accounts, wins);
     await go();
     assert.deepEqual(sent, ["paySeasonRank"]);
+  });
+  describe("the pass behind the weekly run", () => {
+    const sevenWeeks = SEASON_EPOCH + 6 * SEASON_SECS + 700;
+    const winIn = (n: number) => [win(alice.toBase58(), 10, SEASON_EPOCH + (n - 1) * SEASON_SECS + 100), win(bob.toBase58(), 5, SEASON_EPOCH + (n - 1) * SEASON_SECS + 200)];
+    const recordedBytes = (n: number, over: Record<string, unknown> = {}) =>
+      accountBytes(core, "SeasonState", {
+        inner: {
+          number: n,
+          window: { number: n, recordedAt: new anchor.BN(sevenWeeks - 3600), voidedMask: 0 },
+          count: 1,
+          winners: [[...alice.toBytes()], ...Array(9).fill(Array(32).fill(0))],
+          lines: [{ side: 1, class: 3, tranche: 0, dueAt: new anchor.BN(0), source: [...k().toBytes()], amount: new anchor.BN(1000), paid: new anchor.BN(0) }],
+          ...over,
+        },
+      });
+
+    it("walks all six unrecorded Seasons, not the last four", async () => {
+      const { sent, pass } = run(await world(), winIn, sevenWeeks);
+      await pass({ lookback: Infinity, pay: false, skip: new Set() });
+      assert.equal(sent.filter((s) => s === "recordSeason").length, 6);
+    });
+
+    it("leaves out the Seasons it is told are done", async () => {
+      const { sent, pass } = run(await world(), winIn, sevenWeeks);
+      await pass({ lookback: Infinity, pay: false, skip: new Set([1, 2, 3, 4, 5]) });
+      assert.equal(sent.filter((s) => s === "recordSeason").length, 1);
+    });
+
+    it("reports a Season whose record failed as pending, and a Season with no wins as empty", async () => {
+      const failing = run(await world(), winIn, sevenWeeks, true);
+      const a = await failing.pass({ lookback: 1, pay: false, skip: new Set() });
+      assert.deepEqual([a.actions, a.pending], [0, [6]]);
+      const none = run(await world(), [], sevenWeeks);
+      const b = await none.pass({ lookback: 1, pay: false, skip: new Set() });
+      assert.deepEqual([b.pending, b.empty], [[], [6]]);
+    });
+
+    it("does not pay on the Monday pass, and keeps an unpaid Season pending on the Wednesday pass until the window has passed", async () => {
+      const accounts = await world();
+      accounts.set(seasonAddress(6).toBase58(), await recordedBytes(6, { cursor: Array(10).fill(0), window: { number: 6, recordedAt: new anchor.BN(sevenWeeks - PAYOUT_WINDOW_SECS - 10), voidedMask: 0 } }));
+      const monday = run(accounts, winIn, sevenWeeks);
+      assert.deepEqual(await monday.pass({ lookback: 1, pay: false }), { actions: 0, pending: [], empty: [] });
+      assert.deepEqual(monday.sent, []);
+      const wednesday = run(accounts, winIn, sevenWeeks);
+      assert.equal((await wednesday.pass({ lookback: 1, pay: true })).actions, 1);
+      assert.deepEqual(wednesday.sent, ["paySeasonRank"]);
+      accounts.set(seasonAddress(6).toBase58(), await recordedBytes(6, { cursor: Array(10).fill(0) }));
+      const early = run(accounts, winIn, sevenWeeks);
+      assert.deepEqual((await early.pass({ lookback: 1, pay: true })).pending, [6]);
+    });
+
+    it("finds which Seasons are closed (or from the earlier program) with one read", async () => {
+      const accounts = new Map<string, Buffer>([
+        [seasonAddress(1).toBase58(), await recordedBytes(1, { closed: true })],
+        [seasonAddress(2).toBase58(), await recordedBytes(2)],
+        [seasonAddress(3).toBase58(), Buffer.alloc(504)],
+      ]);
+      const read: Reader = { async many(keys) { return keys.map((x) => (accounts.has(x.toBase58()) ? ({ data: accounts.get(x.toBase58())! } as Info) : null)); } };
+      assert.deepEqual([...(await closedSeasons(core as any, read, [1, 2, 3, 4]))].sort(), [1, 3]);
+    });
   });
 });
