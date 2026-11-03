@@ -41,7 +41,7 @@ export class MemoryLeaseStore implements LeaseStore {
 }
 
 /**
- * The tables that can take a Match, kept by the server (migration 0022). A table is claimed when its join is sent and freed when
+ * The tables that can take a Match, kept by the server (migration 0023). A table is claimed when its join is sent and freed when
  * its Match settles one epoch on; a rollup read (the keeper's pool repair) republishes the truth and corrects drift.
  */
 export interface TablePool {

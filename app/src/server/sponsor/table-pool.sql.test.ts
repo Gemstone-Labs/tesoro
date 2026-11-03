@@ -1,4 +1,4 @@
-/** Runs migrations 0021 and 0022 on an in-process Postgres (pglite): the pool is kept by the server, not by a keeper loop. */
+/** Runs migrations 0021 and 0023 on an in-process Postgres (pglite): the pool is kept by the server, not by a keeper loop. */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
@@ -19,11 +19,11 @@ beforeAll(async () => {
   db = new PGlite();
   await db.exec("create role anon; create role authenticated;");
   await db.exec(sql("0021_table_leases.sql"));
-  await db.exec(sql("0022_table_pool_claims.sql"));
+  await db.exec(sql("0023_table_pool_claims.sql"));
 });
 beforeEach(() => db.exec("delete from public.table_pool"));
 
-describe("table pool kept by the server (migration 0022)", () => {
+describe("table pool kept by the server (migration 0023)", () => {
   it("a claimed table leaves the free list; many claims at once give it to one Match", async () => {
     await publish([{ index: 0, epoch: 4 }, { index: 1, epoch: 4 }]);
     const got = await Promise.all(Array.from({ length: 10 }, (_, i) => claim("holdem", 0, 4, `m${i}`)));

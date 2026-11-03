@@ -120,7 +120,7 @@ export function payloadOf(r: MatchRecord, ctx: IngestContext): Record<string, un
  * were new. `settled` carries no time on chain, so the ingest time stands in; pass `blockTime` to use the chain's.
  */
 /**
- * Frees the table a Match held in the pool (migration 0022). Safe to repeat: a Match holds its table once. A failure never
+ * Frees the table a Match held in the pool (migration 0023). Safe to repeat: a Match holds its table once. A failure never
  * stops the history: the table stays claimed until the pool repair reads the rollup.
  */
 export const tableFreer = (rpc: Rpc) => async (matchKey: string, ran: boolean) => {

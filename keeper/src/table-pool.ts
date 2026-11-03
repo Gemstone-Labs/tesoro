@@ -5,7 +5,7 @@ import { historyRpc } from "./history.ts";
 import type { GameAdapter, PoolTable } from "./scheduler.ts";
 
 /**
- * Publishes what a rollup read showed to `table_pool` (migrations 0021 and 0022): the tables able to take a Match, with their live
+ * Publishes what a rollup read showed to `table_pool` (migrations 0021 and 0023): the tables able to take a Match, with their live
  * epoch, read at `readAtMs`. The sponsor server keeps the pool between reads (it claims a table when it assigns a Match and the
  * history frees it when the Match settles); this read corrects any drift. Only the keeper can read a table's live epoch.
  */

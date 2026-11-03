@@ -34,7 +34,7 @@ export const supabaseLeaseStore: LeaseStore = {
   },
 };
 
-/** The tables of `game` nobody holds, at the epoch their next Match will have (migration 0022). */
+/** The tables of `game` nobody holds, at the epoch their next Match will have (migration 0023). */
 export async function supabasePoolTables(game: GameId): Promise<TablePick[]> {
   const { data, error } = await db().from("table_pool").select("generation, idx, epoch").eq("game", game).eq("epoch_known", true).is("claimed_match", null);
   fail("pool", error);
