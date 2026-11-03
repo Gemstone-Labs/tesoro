@@ -1,5 +1,5 @@
 //! LiteSVM tests of the bridge's tesoro_core-facing instructions against the built programs
-//! (`cargo build-sbf` here and `pnpm build:programs` at the repo root first). The endpoint
+//! (`cd bridge && anchor build --no-idl -- --tools-version v1.54` here and `pnpm build:programs` at the repo root first). The endpoint
 //! program is not loaded, so `lz_receive` and the send instructions are covered on devnet; the
 //! inbox they fill is written directly with the bytes `lz_receive` would produce.
 #![allow(clippy::result_large_err)]
@@ -130,13 +130,13 @@ impl Env {
         svm.add_program_from_file(s(tesoro_core::ID), core_so)
             .expect("build tesoro_core first: pnpm build:programs");
         svm.add_program_from_file(s(crate::ID), bridge_so)
-            .expect("build the bridge first: cargo build-sbf");
+            .expect("build the bridge first: cd bridge && anchor build --no-idl -- --tools-version v1.54");
         // The LayerZero endpoint is a test double: it accepts `clear` and `send` and logs what it
         // was given, so the real `lz_receive` and the send instructions run end to end.
         let endpoint_so =
             concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/mock_endpoint.so");
         svm.add_program_from_file(s(oapp::endpoint::ID), endpoint_so)
-            .expect("build the bridge first: cargo build-sbf");
+            .expect("build the bridge first: cd bridge && anchor build --no-idl -- --tools-version v1.54");
         // `add_program` deploys with no upgrade authority; record one for the `set_admin` gate.
         let upgrade_authority = Keypair::new();
         let programdata = Pubkey::find_program_address(
