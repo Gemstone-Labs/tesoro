@@ -1161,14 +1161,14 @@ impl Env {
     fn force_next_ticket(&mut self, account: APk, nonce: u64) {
         let key = s(counters_pda(account));
         let mut acc = self.svm.get_account(&key).unwrap_or_else(|| {
-            let mut fresh = solana_sdk::account::Account::default();
-            fresh.owner = s(tesoro_core::ID);
-            fresh.data = vec![0u8; AccountCounters::SPACE];
-            fresh.data[..8].copy_from_slice(AccountCounters::DISCRIMINATOR);
-            fresh.lamports = self
-                .svm
-                .minimum_balance_for_rent_exemption(fresh.data.len());
-            fresh
+            let mut data = vec![0u8; AccountCounters::SPACE];
+            data[..8].copy_from_slice(AccountCounters::DISCRIMINATOR);
+            solana_sdk::account::Account {
+                lamports: self.svm.minimum_balance_for_rent_exemption(data.len()),
+                owner: s(tesoro_core::ID),
+                data,
+                ..Default::default()
+            }
         });
         let at = AccountCounters::SPACE_V1;
         acc.data[at..at + 8].copy_from_slice(&nonce.to_le_bytes());

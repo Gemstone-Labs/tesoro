@@ -6884,7 +6884,8 @@ fn begin_resets_a_finished_table_that_is_wiped_committed_and_thirty_seconds_old(
     dry_sponsor(&mut env);
     assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(NotCommitted));
     refill_sponsor(&mut env);
-    env.begin().expect("begin commits the result left uncommitted");
+    env.begin()
+        .expect("begin commits the result left uncommitted");
     assert!(!env.table().dirty, "committed by begin");
     env.commit_standin();
     env.patch_table(|t| t.seats_open = true);
