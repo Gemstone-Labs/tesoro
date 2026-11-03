@@ -224,12 +224,24 @@ contract PositionVaultOApp is PositionVault, OApp {
             _receivePayYield(chain, id, seq, message);
         } else if (msgType == MSG_PAY_INSTANT) {
             if (message.length != 109) revert InvalidMessageLength();
-            bytes32 to = _recipient(message[45:77]);
-            uint256 amount = uint128(bytes16(message[77:93]));
-            _receive(abi.encode(msgType, chain, id, seq, to, amount, uint256(uint128(bytes16(message[93:109])))));
+            _receivePayInstant(chain, id, seq, message);
         } else {
             revert InvalidMessageType();
         }
+    }
+
+    function _receivePayInstant(uint32 chain, uint64 id, uint64 seq, bytes calldata message) internal {
+        _receive(
+            abi.encode(
+                MSG_PAY_INSTANT,
+                chain,
+                id,
+                seq,
+                _recipient(message[45:77]),
+                uint256(uint128(bytes16(message[77:93]))),
+                uint256(uint128(bytes16(message[93:109])))
+            )
+        );
     }
 
     function _receivePayYield(uint32 chain, uint64 id, uint64 seq, bytes calldata message) internal {
