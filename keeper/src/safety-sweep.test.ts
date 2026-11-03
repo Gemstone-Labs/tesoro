@@ -149,22 +149,39 @@ describe("the safety sweep: a Backer-funded Match nobody joined", () => {
 });
 
 describe("the safety sweep: a Match that does not move", () => {
-  it("alerts on the second sweep that finds it at the same place, and stops sending", async () => {
+  it("alerts after two sends that left it at the same place, and retries it only hourly", async () => {
     const h = head(1, { stage: "settling" });
     const { deps, sent } = fake([h], { stuck: new Set([h.address.toBase58()]) });
     const store = memorySweepStore();
     await run(deps, store, T0);
     await run(deps, store, T0 + GRACE_SECS); // first try
-    assert.equal(sent.length, 1);
-    const second = await run(deps, store, T0 + GRACE_SECS + 300);
-    assert.equal(sent.length, 1, "not retried");
-    assert.equal(second.alerts.length, 1);
-    assert.match(second.alerts[0], /stuck/);
-    assert.equal(second.candidates[0].action, "stuck");
+    const second = await run(deps, store, T0 + GRACE_SECS + 300); // second try, still at the same place
+    assert.equal(sent.length, 2);
+    assert.equal(second.alerts.length, 0, "the second send has just gone out; the third sweep judges it");
     const third = await run(deps, store, T0 + GRACE_SECS + 600);
-    assert.equal(sent.length, 1);
-    assert.equal(third.alerts.length, 1, "still reported, so the unit keeps failing");
-    assert.equal(third.newAlerts.length, 0, "but only announced once");
+    assert.equal(sent.length, 2, "not retried inside the hour");
+    assert.equal(third.alerts.length, 1);
+    assert.match(third.alerts[0], /stuck/);
+    assert.equal(third.candidates[0].action, "stuck");
+    const fourth = await run(deps, store, T0 + GRACE_SECS + 900);
+    assert.equal(fourth.alerts.length, 1, "still reported, so the unit keeps failing");
+    assert.equal(fourth.newAlerts.length, 0, "but only announced once");
+  });
+
+  it("retries an alerted Match after an hour, and clears the alert once it moves", async () => {
+    const h = head(1, { stage: "settling" });
+    const { deps, sent, progress } = fake([h], { stuck: new Set([h.address.toBase58()]) });
+    const store = memorySweepStore();
+    await run(deps, store, T0);
+    await run(deps, store, T0 + GRACE_SECS);
+    await run(deps, store, T0 + GRACE_SECS + 300);
+    await run(deps, store, T0 + GRACE_SECS + 600); // alerted
+    const hourLater = await run(deps, store, T0 + GRACE_SECS + 300 + 3600);
+    assert.equal(sent.length, 3, "retried so it can recover");
+    assert.equal(hourLater.alerts.length, 1, "still stuck until it moves");
+    progress.set(h.address.toBase58(), null); // a retry finally closed it
+    const after = await run(deps, store, T0 + GRACE_SECS + 300 + 3900);
+    assert.deepEqual(after.alerts, []);
   });
 
   it("does not alert on a Match that moved since the last try (a long Pot needs several sweeps)", async () => {
@@ -174,22 +191,34 @@ describe("the safety sweep: a Match that does not move", () => {
     await run(deps, store, T0);
     await run(deps, store, T0 + GRACE_SECS);
     progress.set(h.address.toBase58(), "settling:2:5"); // our chunks landed
-    const next = await run(deps, store, T0 + GRACE_SECS + 300);
-    assert.equal(sent.length, 2, "tried again");
+    await run(deps, store, T0 + GRACE_SECS + 300);
+    progress.set(h.address.toBase58(), "settling:4:5");
+    const next = await run(deps, store, T0 + GRACE_SECS + 600);
+    assert.equal(sent.length, 3, "tried again each time");
     assert.deepEqual(next.alerts, []);
   });
 
-  it("counts a send that threw as a try, and alerts when the next sweep finds the same state", async () => {
+  it("does not call a Match stuck after one transient failure: it is retried on the next sweep", async () => {
     const h = head(1, { stage: "settling" });
     const { deps, sent } = fake([h], { failing: new Set([h.address.toBase58()]) });
     const store = memorySweepStore();
     await run(deps, store, T0);
-    const tried = await run(deps, store, T0 + GRACE_SECS);
-    assert.equal(sent.length, 1);
-    assert.deepEqual(tried.alerts, []);
-    const again = await run(deps, store, T0 + GRACE_SECS + 300);
-    assert.equal(sent.length, 1);
-    assert.equal(again.alerts.length, 1);
+    for (let i = 1; i <= 3; i++) {
+      const r = await run(deps, store, T0 + GRACE_SECS + 300 * i);
+      assert.deepEqual(r.alerts, [], `sweep ${i}`);
+    }
+    assert.equal(sent.length, 3, "every sweep sent it again");
+  });
+
+  it("alerts when the send keeps failing for half an hour", async () => {
+    const h = head(1, { stage: "settling" });
+    const { deps, sent } = fake([h], { failing: new Set([h.address.toBase58()]) });
+    const store = memorySweepStore();
+    await run(deps, store, T0);
+    let last = await run(deps, store, T0 + GRACE_SECS);
+    for (let i = 1; i <= 7; i++) last = await run(deps, store, T0 + GRACE_SECS + 300 * i);
+    assert.equal(last.alerts.length, 1);
+    assert.ok(sent.length < 9, "stops hammering once alerted");
   });
 });
 

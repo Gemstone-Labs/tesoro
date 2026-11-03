@@ -16,6 +16,12 @@ import { discriminatorOf } from "./lists.ts";
  */
 
 /** A Match must have been waiting this long (seconds) before the sweep steps in for the Players. */
+/** Sends that left a Match at the same place before it is called stuck. */
+export const TRIES_BEFORE_ALERT = 2;
+/** Sweeps in a row whose send threw before the Match is called stuck (30 minutes at one sweep per 5). */
+export const ERRORS_BEFORE_ALERT = 6;
+/** An alerted Match is retried this often. */
+export const RETRY_ALERTED_SECS = 3600;
 export const GRACE_SECS = Number(process.env.KEEPER_SWEEP_GRACE_SECS ?? 10 * 60);
 
 export type Stage = "open" | "active" | "settling" | "refunding" | "closed";
@@ -69,9 +75,15 @@ export function headOf(address: PublicKey, data: Buffer): Head | null {
 export interface Seen {
   /** When the sweep first found it waiting. */
   since: number;
-  /** The Match's progress when the sweep last tried it; absent before the first try. */
+  /** The Match's progress that `tries` and `errors` count at; they restart when the Match moves. Absent before the first attempt. */
   triedAt?: string;
-  /** An alert was raised for it: it is not retried. */
+  /** Sends that went out and left the Match at `triedAt`. */
+  tries?: number;
+  /** Sweeps in a row at `triedAt` whose send threw (a 429, a failed simulation): not tries, the send may not have gone out. */
+  errors?: number;
+  /** When the sweep last sent or attempted a step. */
+  lastTryAt?: number;
+  /** An alert was raised for it; it is retried once an hour so it can recover, and the alert clears when it moves. */
   alerted?: boolean;
 }
 
@@ -166,7 +178,7 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
     const kind = caseOf(head, now);
     if (!kind) continue;
     const id = label(head.address);
-    let seen = state.seen[id];
+    let seen = state.seen[id] && { ...state.seen[id] };
     if (kind === "finalize" && !seen && !(await deps.committed(head))) continue;
     seen ??= { since: now };
     next.seen[id] = seen;
@@ -175,11 +187,6 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
     const ready = kind === "refund" || ageSecs >= GRACE_SECS;
     const candidate: Candidate = { address: head.address, case: kind, ageSecs, action: ready ? "send" : "wait" };
     report.candidates.push(candidate);
-    if (seen.alerted) {
-      candidate.action = "stuck";
-      report.alerts.push(`${id} is stuck`);
-      continue;
-    }
     if (!ready) continue;
 
     const here = await deps.progress(head.address);
@@ -188,29 +195,39 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
       report.candidates.pop();
       continue;
     }
-    if (seen.triedAt === here) {
+    if (seen.triedAt !== here) {
+      // It moved (or this is the first attempt): earlier tries and errors belong to another place.
+      seen.triedAt = here;
+      seen.tries = 0;
+      seen.errors = 0;
+      seen.alerted = false;
+    }
+    if ((seen.tries ?? 0) >= TRIES_BEFORE_ALERT || (seen.errors ?? 0) >= ERRORS_BEFORE_ALERT) {
       candidate.action = "stuck";
-      const message = `${id} is stuck: ${kind} was tried and the Match is still at ${here}`;
-      if (!dryRun) seen.alerted = true;
-      report.alerts.push(message);
-      report.newAlerts.push(message);
-      continue;
+      const why = (seen.tries ?? 0) >= TRIES_BEFORE_ALERT ? `${kind} was sent ${seen.tries} times and the Match is still at ${here}` : `${kind} failed ${seen.errors} sweeps in a row at ${here}`;
+      report.alerts.push(seen.alerted ? `${id} is stuck` : `${id} is stuck: ${why}`);
+      if (!seen.alerted) {
+        if (!dryRun) seen.alerted = true;
+        report.newAlerts.push(`${id} is stuck: ${why}`);
+      }
+      if (now - (seen.lastTryAt ?? 0) < RETRY_ALERTED_SECS) continue;
     }
     if (dryRun) continue;
-    const before = seen.triedAt;
-    seen.triedAt = here;
+    seen.lastTryAt = now;
     try {
       if (kind === "refund") await deps.refund(head);
       else {
         if (kind === "finalize") await deps.finalize(head);
         await deps.finish(head.address);
       }
+      seen.tries = (seen.tries ?? 0) + 1;
+      seen.errors = 0;
     } catch (e) {
       if (e instanceof Deferred) {
-        seen.triedAt = before;
         log("sweep", id, `wait: ${kind} deferred, ${e.message}`);
         continue;
       }
+      seen.errors = (seen.errors ?? 0) + 1;
       log("sweep", id, `ERROR ${kind}: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
     }
     if ((await deps.progress(head.address)) === null) delete next.seen[id];
