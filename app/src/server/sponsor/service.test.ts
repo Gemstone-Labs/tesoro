@@ -1,4 +1,4 @@
-import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
+import { AnchorProvider, BN, BorshAccountsCoder, Program, type Idl } from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import { describe, expect, it, vi } from "vitest";
 import nacl from "tweetnacl";
@@ -22,6 +22,7 @@ import { ChainTransactionFailed } from "./chain-send";
 import { recoverCompletions } from "./completion";
 import { Assigner, MemoryLeaseStore } from "./assign";
 import { MATCH_STATE_FIXTURE } from "./assign-fixture";
+import { GAME_IDS } from "@/lib/chain/games";
 
 const SOL = 1_000_000_000n;
 const wire = (ixs: Ix[]): { ixs: WireIx[] } => ({
@@ -802,6 +803,38 @@ describe("join and assign in one transaction", () => {
     expect([index(first), index(second)]).toEqual([0, 1]);
   });
 
+  it("claims the table for the Match in the pool once the join is sent", async () => {
+    const { s, match } = withAssigner();
+    const claims: [string, number, string][] = [];
+    s.deps.assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: async () => [{ generation: 1, index: 0, epoch: 3n }], claim: async (g, p, m) => (claims.push([g, p.index, m]), true), now: () => 1_000_000 });
+    const built = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+    expect(claims).toEqual([]);
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    expect(claims.length).toBe(1);
+    expect(claims[0].slice(0, 2)).toEqual(["block-puzzle", 0]);
+    expect(claims[0][2]).toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}-\d+$/);
+  });
+
+  describe("Trading Duel", () => {
+    const coder = new BorshAccountsCoder(coreIdl as unknown as Idl);
+    const duelJoin = async (asset: number) => {
+      const { s, match } = withAssigner();
+      const decoded = coder.decode("MatchState", MATCH_STATE_FIXTURE) as { inner: { meta: object } };
+      s.accounts.set(match.toBase58(), { owner: CORE_ID, data: await coder.encode("MatchState", { ...decoded, inner: { ...decoded.inner, meta: { ...decoded.inner.meta, asset } } }) });
+      const ix = await joinMatchIx(s.relayer.publicKey, s.player.publicKey, GAME_IDS["trading-duel"]);
+      ix.keys[8] = { ...ix.keys[8], pubkey: match };
+      const built = await s.sponsor.build(s.player.publicKey, wire([ix]));
+      const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+      return msg.staticAccountKeys[msg.compiledInstructions.at(-1)!.programIdIndex].toBase58();
+    };
+    it("is assigned in the join when the Match trades a known asset", async () => {
+      expect(await duelJoin(2)).toBe(GAME_IDS["trading-duel"].toBase58());
+    });
+    it("travels alone when the asset is unknown (the Game would refuse the assignment, and the join with it)", async () => {
+      expect(await duelJoin(9)).toBe(CORE_ID.toBase58());
+    });
+  });
+
   it("sends the join alone when no table is free", async () => {
     const { s, match } = withAssigner([]);
     const built = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
@@ -818,6 +851,16 @@ describe("join and assign in one transaction", () => {
   });
 
   describe("paid by the Player", () => {
+    it("claims the table in the pool when it builds the join, since the page sends it", async () => {
+      const { s, match } = withAssigner();
+      const claims: number[] = [];
+      s.deps.assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: async () => [{ generation: 1, index: 0, epoch: 3n }], claim: async (_g, p) => (claims.push(p.index), true), now: () => 1_000_000 });
+      const ix = await join(s, match);
+      ix.keys[0] = { ...ix.keys[0], pubkey: s.player.publicKey };
+      await s.sponsor.buildSelfPaid(s.player.publicKey, wire([ix]));
+      expect(claims).toEqual([0]);
+    });
+
     it("returns the join with the assignment, fee paid by the Player, signed by the operator only", async () => {
       const { s, operator, match } = withAssigner();
       const ix = await join(s, match);

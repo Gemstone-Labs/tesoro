@@ -9,7 +9,7 @@ import { TradingDuelChain } from "../../app/src/games/trading-duel/chain.ts";
 import { VanguardChain } from "../../app/src/games/vanguard/chain.ts";
 import { SplitConnection, type GpaFn } from "../../app/src/lib/chain/split-connection.ts";
 import { keeperCluster } from "./cluster.ts";
-import { meter, meteredFetch } from "./credits.ts";
+import { makeScanRpc, meter, meteredFetch, scanProgramAccounts } from "./credits.ts";
 import type { Settings } from "./env.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -114,11 +114,16 @@ export class SharedReads {
 export type KeeperConnection = Connection & { forgetLists?: () => void };
 
 /** Sends and single reads on `rpc`; getProgramAccounts on `gpaRpc`, shared for 5s (one loop asks for the same list many times). */
-export function newConnection(rpc: string, gpaRpc: string = rpc): KeeperConnection {
-  const gpaConn = new Connection(gpaRpc, connConfig);
+export function newConnection(rpc: string, gpaRpc: string = rpc, fetchFn: typeof fetch = solanaFetch): KeeperConnection {
+  const gpaConn = new Connection(gpaRpc, { ...connConfig, fetch: fetchFn });
+  const scanRpc = makeScanRpc(gpaRpc, fetchFn, (p, c) => gpaConn.getProgramAccounts(p, c as any) as any);
   const shared = new SharedReads();
-  const gpa: GpaFn = (programId, config) => shared.get(`${programId.toBase58()}:${JSON.stringify(config ?? {})}`, () => gpaConn.getProgramAccounts(programId, config as any) as Promise<any>);
-  const conn: KeeperConnection = new SplitConnection(rpc, gpa, connConfig);
+  /** Every list is a paginated scan (getProgramAccountsV2 on Helius), so the keeper never sends a plain getProgramAccounts where it is refused. */
+  const gpa: GpaFn = (programId, config) => {
+    const cfg = typeof config === "string" || !config ? {} : config;
+    return shared.get(`${programId.toBase58()}:${JSON.stringify(cfg)}`, () => scanProgramAccounts(scanRpc, programId, { filters: cfg.filters, dataSlice: cfg.dataSlice }));
+  };
+  const conn: KeeperConnection = new SplitConnection(rpc, gpa, { ...connConfig, fetch: fetchFn });
   conn.confirmTransaction = ((strategy: Strategy) => pollConfirm(conn, strategy)) as Connection["confirmTransaction"];
   conn.forgetLists = () => shared.clear();
   return conn;

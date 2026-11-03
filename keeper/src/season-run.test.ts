@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PAYOUT_WINDOW_SECS, SEASON_EPOCH, SEASON_SECS } from "../../app/src/lib/chain/season.ts";
-import { memoryStore, seasonRun, stepsDue, type StepName, type Steps } from "./season-run.ts";
+import { memoryStore, payThenTell, seasonRun, stepsDue, type StepName, type Steps } from "./season-run.ts";
 
 const monday = SEASON_EPOCH + 3 * SEASON_SECS;
 const mondayRun = monday + 15 * 60;
@@ -94,5 +94,73 @@ describe("the weekly Season run", () => {
     };
     await seasonRun(mondayRun, steps, store);
     assert.deepEqual(store.load()?.empty, [2]);
+  });
+});
+
+describe("the pay step and the Season placing emails", () => {
+  it("sends the placings after the payout is complete", async () => {
+    const order: string[] = [];
+    const r = await payThenTell(async () => (order.push("pay"), { actions: 3, pending: false }), async () => (order.push("tell"), 0));
+    assert.deepEqual(order, ["pay", "tell"]);
+    assert.deepEqual(r, { actions: 3, pending: false });
+  });
+
+  it("waits to send while payouts are still pending", async () => {
+    let told = 0;
+    const r = await payThenTell(async () => ({ actions: 1, pending: true }), async () => (told++, 0));
+    assert.deepEqual(r, { actions: 1, pending: true });
+    assert.equal(told, 0);
+  });
+
+  it("stays pending when the app has not taken every email, so the next run sends them again", async () => {
+    assert.deepEqual(await payThenTell(async () => ({ actions: 0, pending: false }), async () => 2), { actions: 0, pending: true });
+  });
+});
+
+describe("a step that reports a failure without throwing", () => {
+  /** Runs the Monday steps with `harvest` reporting `failed` subjects (as the jobs do), muting the log. */
+  async function runWith(failed: { subject: string }[], store = memoryStore()) {
+    const { noteError } = await import("./errors.ts");
+    const { failOnErrors } = await import("./season-run.ts");
+    const { calls, steps } = fake();
+    const inner = steps.harvest;
+    steps.harvest = async () => {
+      const r = await inner();
+      for (const f of failed) noteError("harvest", f.subject, new Error("send failed"));
+      return r;
+    };
+    const quiet = console.log;
+    console.log = () => {};
+    try {
+      return { calls, store, report: await seasonRun(mondayRun, failOnErrors(steps), store) };
+    } finally {
+      console.log = quiet;
+    }
+  }
+
+  it("stops at that step when a failure belongs to no Source, and the retry resumes there", async () => {
+    const a = await runWith([{ subject: "pool=ABCD..wxyz" }]);
+    assert.equal(a.report.stoppedAt, "harvest");
+    assert.deepEqual(a.calls, ["settle", "redeem", "harvest"]);
+    const retry = fake();
+    const b = await seasonRun(mondayRun + 3600, retry.steps, a.store);
+    assert.deepEqual(retry.calls, ["harvest", "batches", "pools", "record"]);
+    assert.equal(b.stoppedAt, null);
+  });
+
+  it("stops when only some failures name a Source", async () => {
+    const a = await runWith([{ subject: "source=AAAA..bbbb" }, { subject: "match=7" }]);
+    assert.equal(a.report.stoppedAt, "harvest");
+  });
+
+  it("skips the Sources whose actions failed, reports them, and goes on to record", async () => {
+    const a = await runWith([{ subject: "source=AAAA..bbbb" }, { subject: "source=CCCC..dddd" }, { subject: "source=AAAA..bbbb" }]);
+    assert.equal(a.report.stoppedAt, null);
+    assert.deepEqual(a.calls, ["settle", "redeem", "harvest", "batches", "pools", "record"]);
+    assert.deepEqual(a.report.skipped, [
+      { step: "harvest", source: "AAAA..bbbb" },
+      { step: "harvest", source: "CCCC..dddd" },
+    ]);
+    assert.ok(a.store.load()?.done.includes("harvest"));
   });
 });

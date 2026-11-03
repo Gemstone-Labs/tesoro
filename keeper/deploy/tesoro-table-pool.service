@@ -1,0 +1,10 @@
+[Unit]
+Description=Tesoro table pool repair (read the rollup tables, correct the server's pool)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/tesoro/repo
+EnvironmentFile=%h/.config/tesoro-keeper.env
+ExecStart=/usr/bin/env pnpm --filter @tesoro/keeper exec tsx src/table-pool-repair-cli.ts
+TimeoutStartSec=4min
+MemoryMax=1G

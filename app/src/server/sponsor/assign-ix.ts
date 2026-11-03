@@ -6,13 +6,11 @@ import { CORE_ID } from "./rules";
 /** Anchor's discriminator of `assign_match`, the same in every Game. */
 const ASSIGN_MATCH = Buffer.from([195, 128, 179, 141, 148, 120, 135, 51]);
 
-/**
- * Games the server assigns. Trading Duel is left to the keeper: it assigns only Matches whose asset it can price, a check
- * the sponsor server does not make.
- */
+/** Games the server assigns. Trading Duel's `assign_match` also checks the Match's asset; the caller refuses an unknown one first (`assignJoin`). */
 const ASSIGNABLE: Partial<Record<GameId, { config: string }>> = {
   "block-puzzle": { config: "config" },
   holdem: { config: "config" },
+  "trading-duel": { config: "config" },
   vanguard: { config: "tables" },
 };
 
