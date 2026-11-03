@@ -35,6 +35,7 @@ import {
 } from "../holdem/chain";
 import { decodeArmy, decodeBattle, type ArmyAccount, type Battle } from "./decode";
 import { gameAccounts } from "../../lib/chain/game-record";
+import { beginSettled, receiptMetas } from "../../lib/chain/table-clean";
 
 export { keypairSigner, tesoroAccountPda, type PlayerSigner };
 
@@ -626,11 +627,11 @@ export class VanguardChain {
   }
 
   /** Rollup, permissionless. Starts the Assignment's Match on its table (reserves a ring slot, binds the Battle); the seats are then handed over and the Players check in. */
-  async beginMatch(payer: PlayerSigner, a: Assignment): Promise<string> {
-    const ad = addresses(a);
+  async beginMatch(payer: PlayerSigner, a: Assignment, table?: Pick<TableState, "tesoroMatch" | "ring">): Promise<string> {
     const ix = await this.program.methods
       .beginMatch()
-      .accountsPartial({ caller: payer.publicKey, assignment: a.address, table: ad.table, battle: ad.battle, tesoroMatch: a.tesoroMatch, vanguardConfig: configPda() } as any)
+      .accountsPartial({ assignment: a.address, tesoroMatch: a.tesoroMatch, ending: await this.concludingAccounts(payer.publicKey, a) } as any)
+      .remainingAccounts(table ? receiptMetas(beginSettled(table)) : [])
       .instruction();
     return this.sendTee("begin_match", [ix], payer);
   }

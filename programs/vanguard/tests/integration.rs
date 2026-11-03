@@ -914,16 +914,12 @@ impl Env {
     }
 
     fn begin_ix(&self) -> Instruction {
-        let ad = addrs_of(self.table);
         ix(
             vanguard::ID,
             vanguard::accounts::BeginMatch {
-                caller: a(self.oracle.pubkey()),
                 assignment: assign_addr(self.tmatch),
-                table: self.table,
-                battle: ad.battle,
                 tesoro_match: self.tmatch,
-                vanguard_config: config_pda(),
+                ending: self.concluding(a(self.oracle.pubkey())),
             },
             vanguard::instruction::BeginMatch {},
             vec![],
@@ -932,6 +928,19 @@ impl Env {
 
     fn begin(&mut self) -> Result<(), Failed> {
         let ixn = self.begin_ix();
+        self.rollup(ixn)
+    }
+
+    /// `begin_match` with the settlement receipts of `matches` passed as remaining accounts.
+    fn begin_with(&mut self, matches: &[APk]) -> Result<(), Failed> {
+        let mut ixn = self.begin_ix();
+        for m in matches {
+            ixn.accounts.push(AccountMeta {
+                pubkey: s(tpda(&[b"settled", m.as_ref()])),
+                is_signer: false,
+                is_writable: false,
+            });
+        }
         self.rollup(ixn)
     }
 
@@ -6786,4 +6795,161 @@ fn a_cancelled_setup_commits_and_wipes_too() {
     env.claim_timeout(&bob).expect("anyone cancels");
     assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
     assert_committed_and_wiped(&env);
+}
+
+// --- begin_match cleans the table it is about to use (keeper diet 09) ---------------------------
+
+/// A table whose ring is full: seven Done slots of made-up Matches and one of `old`.
+fn fill_ring(env: &mut Env, old: APk) -> u8 {
+    env.patch_table(|t| {
+        for (i, slot) in t.ring.slots.iter_mut().enumerate() {
+            *slot = table_kit::Slot {
+                state: table_kit::SLOT_DONE,
+                match_key: if i == 3 { old } else { APk::new_unique() },
+                epoch: 0,
+                outcome: table_kit::OUTCOME_WIN0,
+                at: 1,
+            };
+        }
+    });
+    3
+}
+
+#[test]
+fn begin_resets_a_finished_table_that_is_wiped_committed_and_thirty_seconds_old() {
+    use vanguard::VanguardError::*;
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.begin().unwrap();
+    env.start_in_rollup(1);
+    env.stage_end_draw();
+    env.ensure_committed();
+    env.wipe_standin();
+    let over = env.table().over_at;
+    let first = env.tmatch;
+    // The next Match is assigned one epoch ahead of the Over table, as ticket 24's keeper does.
+    env.open_and_join(1_000);
+    env.assign(0, 0, 1).expect("assign epoch 1");
+    let second = env.tmatch;
+    env.set_time(over + vanguard::RESET_DELAY_SECS - 1);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(ResetTooEarly));
+    env.set_time(over + vanguard::RESET_DELAY_SECS);
+    env.patch_table(|t| t.dirty = true);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(NotCommitted));
+    env.commit_standin();
+    env.patch_table(|t| t.seats_open = true);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(SeatsOpen));
+    env.wipe_standin();
+    env.begin().expect("reset, then begin");
+    let t = env.table();
+    assert_eq!(
+        (t.epoch, t.phase, t.tesoro_match),
+        (1, vanguard::TABLE_WAITING, second)
+    );
+    assert!(
+        t.ring.find(&first, 0).is_some(),
+        "the first result keeps its slot"
+    );
+    assert!(t.ring.find(&second, 1).is_some());
+}
+
+#[test]
+fn begin_resets_only_for_an_assignment_exactly_one_epoch_ahead() {
+    use vanguard::VanguardError::*;
+    for (epoch, expected) in [(2u64, WrongPhase), (0, WrongPhase)] {
+        let mut env = Env::new();
+        env.next_match_on(0);
+        env.begin().unwrap();
+        env.start_in_rollup(1);
+        env.stage_end_draw();
+        env.ensure_committed();
+        env.wipe_standin();
+        env.set_time(env.table().over_at + vanguard::RESET_DELAY_SECS);
+        env.open_and_join(1_000);
+        env.assign(0, 0, epoch).expect("assign");
+        assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(expected));
+        assert_eq!(env.table().epoch, 0, "nothing was reset");
+    }
+}
+
+#[test]
+fn begin_frees_a_slot_whose_receipt_is_provable_when_the_ring_is_full() {
+    use vanguard::VanguardError::*;
+    let mut env = Env::new();
+    env.next_match_on(1);
+    let old = env.tmatch;
+    let deadline = env.load::<MatchState>(env.tmatch).inner.deadline;
+    env.set_time(deadline);
+    let caller = env.oracle.insecure_clone();
+    let refund = env.core_refund_ix(a(caller.pubkey()));
+    env.send(&[refund], &caller, &[]).expect("core refund");
+    env.run_settlement();
+    let refunded_at = env.now;
+    env.open_and_join(1_000);
+    env.assign(0, 0, 0).expect("assign");
+    let slot = fill_ring(&mut env, old);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(RingFull));
+    env.set_time(refunded_at + vanguard::RELEASE_DELAY_SECS - 1);
+    assert_eq!(
+        custom_code(&env.begin_with(&[old]).unwrap_err()),
+        vcode(RingFull)
+    );
+    // a receipt of a Match that is not in the ring frees nothing
+    let other = env.tmatch;
+    assert_eq!(
+        custom_code(&env.begin_with(&[other]).unwrap_err()),
+        vcode(RingFull)
+    );
+    env.set_time(refunded_at + vanguard::RELEASE_DELAY_SECS);
+    env.begin_with(&[old]).expect("freed, then begun");
+    let t = env.table();
+    assert_eq!((t.slot, t.phase), (slot, vanguard::TABLE_WAITING));
+    assert_eq!(t.ring.slots[slot as usize].match_key, env.tmatch);
+}
+
+#[test]
+fn begin_voids_a_table_stuck_on_a_match_core_already_froze() {
+    use vanguard::VanguardError::*;
+    let mut env = ready();
+    env.start_in_rollup(1);
+    let stuck = env.tmatch;
+    let deadline = env.load::<MatchState>(env.tmatch).inner.deadline;
+    env.set_time(deadline);
+    let caller = env.oracle.insecure_clone();
+    let refund = env.core_refund_ix(a(caller.pubkey()));
+    env.send(&[refund], &caller, &[]).expect("core refund");
+    env.run_settlement();
+    let refunded_at = env.now;
+    env.set_time(refunded_at + vanguard::RELEASE_DELAY_SECS - 1);
+    assert_eq!(
+        custom_code(&env.begin_with(&[stuck]).unwrap_err()),
+        vcode(WrongPhase)
+    );
+    env.set_time(refunded_at + vanguard::RELEASE_DELAY_SECS);
+    env.begin_with(&[stuck]).expect("voids");
+    eprintln!(
+        "MEASURE CU Vanguard begin that voids, wipes and commits: {}",
+        env.last_cu
+    );
+    let t = env.table();
+    assert_eq!(
+        (t.phase, t.dirty, t.epoch),
+        (vanguard::TABLE_OVER, false, 0)
+    );
+    assert_eq!(t.ring.used(), 0, "the reserved slot is freed");
+    assert!(
+        !t.seats_open && t.commit.tries == 1,
+        "the void wiped the seats and committed, in the same call"
+    );
+    assert!(
+        called(&env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
+    // the Over table is then reset by the next begin
+    env.open_and_join(1_000);
+    env.assign(0, 0, 1).expect("assign epoch 1");
+    env.set_time(env.now + vanguard::RESET_DELAY_SECS);
+    env.begin().expect("reset, then begin");
+    assert_eq!(env.table().epoch, 1);
+    assert_eq!(env.table().phase, vanguard::TABLE_WAITING);
 }

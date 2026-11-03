@@ -43,6 +43,7 @@ import nacl from "tweetnacl";
 import { gameAccounts } from "../../lib/chain/game-record";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { baseRpc } from "../../lib/chain/rpc-config";
+import { beginSettled, receiptMetas } from "../../lib/chain/table-clean";
 
 export const HOLDEM_PROGRAM_ID = new PublicKey("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE");
 export const TESORO_CORE_PROGRAM_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
@@ -658,10 +659,11 @@ export class HoldemChain {
   }
 
   /** Rollup, permissionless. Starts the Assignment's Match on its table (reserves a ring slot); the seats are then handed over and the Players check in. */
-  async beginMatch(payer: PlayerSigner, a: Assignment): Promise<string> {
+  async beginMatch(payer: PlayerSigner, a: Assignment, table?: Pick<Table, "tesoroMatch" | "ring">): Promise<string> {
     const ix = await this.program.methods
       .beginMatch()
-      .accountsPartial({ caller: payer.publicKey, assignment: a.address, table: tablePda(a.generation, a.index), tesoroMatch: a.tesoroMatch } as any)
+      .accountsPartial({ assignment: a.address, tesoroMatch: a.tesoroMatch, ending: this.concludingAccounts(payer.publicKey, a) } as any)
+      .remainingAccounts(table ? receiptMetas(beginSettled(table)) : [])
       .instruction();
     return this.sendTee("begin_match", [ix], payer);
   }

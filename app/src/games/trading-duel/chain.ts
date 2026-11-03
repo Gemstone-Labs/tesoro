@@ -38,6 +38,7 @@ import {
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { COLUMNS, type Track } from "./grid";
 import { gameAccounts } from "../../lib/chain/game-record";
+import { beginSettled, receiptMetas } from "../../lib/chain/table-clean";
 
 export { keypairSigner, type PlayerSigner } from "../holdem/chain";
 
@@ -608,10 +609,11 @@ export class TradingDuelChain {
   // -- rollup: starting ----------------------------------------------------------------------
 
   /** Rollup, permissionless. Starts the Assignment's Match on its table (reserves a ring slot); the Players then check in. */
-  async beginMatch(payer: PlayerSigner, a: Assignment): Promise<string> {
+  async beginMatch(payer: PlayerSigner, a: Assignment, table?: Pick<Table, "tesoroMatch" | "ring">): Promise<string> {
     const ix = await this.program.methods
       .beginMatch()
-      .accountsPartial({ caller: payer.publicKey, assignment: a.address, table: tablePda(a.generation, a.index), tesoroMatch: a.tesoroMatch } as any)
+      .accountsPartial({ assignment: a.address, tesoroMatch: a.tesoroMatch, ending: this.concludingAccounts(payer.publicKey, a) } as any)
+      .remainingAccounts(table ? receiptMetas(beginSettled(table)) : [])
       .instruction();
     return this.sendTee("begin_match", [ix], payer);
   }

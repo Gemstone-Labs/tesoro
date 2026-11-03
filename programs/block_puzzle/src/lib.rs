@@ -44,10 +44,11 @@ use ephemeral_rollups_sdk::{
     },
 };
 use table_kit::{
-    assignment_absent, close_private_seat, create_hidden_seat, match_state_gone, may_skip,
-    move_lamports, read_table, receipt_at, retire_legacy_record, sponsor_commit, swap_seat_members,
-    table_wait_over, KitError, LegacyError, SeatAccounts, SeatPrograms, OUTCOME_DRAW,
-    OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
+    assignment_absent, close_private_seat, create_hidden_seat, is_next_epoch, match_state_gone,
+    may_skip, move_lamports, read_table, receipt_aged, receipt_at, retire_legacy_record,
+    sponsor_commit, swap_seat_members, table_wait_over, KitError, LegacyError, SeatAccounts,
+    SeatPrograms, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE,
+    SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -185,6 +186,36 @@ impl From<KitError> for BlockPuzzleError {
             KitError::CommitNotDue => BlockPuzzleError::NotDirty,
         }
     }
+}
+
+/// A finished table may be reset once its seats are wiped, its result is committed and clients
+/// have had `RESET_DELAY_SECS` to read the final board.
+fn check_resettable(table: &Table, now: i64) -> Result<()> {
+    require!(table.phase == TABLE_CLOSED, BlockPuzzleError::WrongPhase);
+    require!(!table.seats_open, BlockPuzzleError::SeatsOpen);
+    require!(!table.dirty, BlockPuzzleError::NotCommitted);
+    require!(
+        now >= table
+            .over_at
+            .checked_add(RESET_DELAY_SECS)
+            .ok_or(BlockPuzzleError::Overflow)?,
+        BlockPuzzleError::ResetTooEarly
+    );
+    Ok(())
+}
+
+/// Gives up a table whose Match core froze before the table produced a result: frees the
+/// reserved slot and closes the table. The caller has shown the receipt.
+fn void_in_place(table: &mut Table, now: i64) -> Result<()> {
+    let (slot, key) = (table.slot, table.tesoro_match);
+    kit(table.ring.free(slot, &key, SLOT_RESERVED))?;
+    table.reason = REASON_VOID;
+    table.outcome = 0;
+    table.phase = TABLE_CLOSED;
+    table.over_at = now;
+    table.dirty = false;
+    table.req_pending = false;
+    Ok(())
 }
 
 fn kit<T>(r: core::result::Result<T, KitError>) -> Result<T> {
@@ -1052,7 +1083,28 @@ pub mod block_puzzle {
     pub fn begin_match(ctx: Context<BeginMatch>) -> Result<()> {
         let clock = Clock::get()?;
         let a = &ctx.accounts.assignment;
-        let table = &mut ctx.accounts.table;
+        let receipts = ctx.remaining_accounts;
+        let ending = &mut ctx.accounts.ending;
+        // A table stuck on a Match core froze: give it up, wipe its seats and commit it. That is
+        // all this call does; the next `begin_match` resets the table.
+        if matches!(
+            ending.table.phase,
+            TABLE_ASSIGNED | TABLE_SEEDING | TABLE_GET_READY
+        ) && receipt_aged(
+            receipts,
+            &ending.table.tesoro_match,
+            clock.unix_timestamp,
+            RELEASE_DELAY_SECS,
+        ) {
+            void_in_place(&mut ending.table, clock.unix_timestamp)?;
+            return wipe_and_commit(ending, clock.unix_timestamp);
+        }
+        let table = &mut ending.table;
+        // A finished table is reset for the Assignment one epoch ahead, so the keeper need not.
+        if table.phase == TABLE_CLOSED && is_next_epoch(table.epoch, a.epoch) {
+            check_resettable(table, clock.unix_timestamp)?;
+            table.reset().ok_or(BlockPuzzleError::Overflow)?;
+        }
         require!(table.phase == TABLE_IDLE, BlockPuzzleError::WrongPhase);
         require!(table.seats_created, BlockPuzzleError::SeatsMissing);
         require!(
@@ -1069,6 +1121,11 @@ pub mod block_puzzle {
             BlockPuzzleError::StartWindowPassed
         );
         let epoch = table.epoch;
+        if table.ring.is_full() {
+            table
+                .ring
+                .free_proven(receipts, clock.unix_timestamp, RELEASE_DELAY_SECS);
+        }
         table.slot = kit(table.ring.reserve(a.tesoro_match, epoch))?;
         let reserved = table.slot as usize;
         *table
@@ -1442,16 +1499,7 @@ pub mod block_puzzle {
     pub fn reset_table(ctx: Context<TableOnly>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
-        require!(table.phase == TABLE_CLOSED, BlockPuzzleError::WrongPhase);
-        require!(!table.seats_open, BlockPuzzleError::SeatsOpen);
-        require!(!table.dirty, BlockPuzzleError::NotCommitted);
-        require!(
-            now >= table
-                .over_at
-                .checked_add(RESET_DELAY_SECS)
-                .ok_or(BlockPuzzleError::Overflow)?,
-            BlockPuzzleError::ResetTooEarly
-        );
+        check_resettable(table, now)?;
         table.reset().ok_or(BlockPuzzleError::Overflow)?;
         Ok(())
     }
@@ -1477,15 +1525,7 @@ pub mod block_puzzle {
                 .ok_or(BlockPuzzleError::Overflow)?,
             BlockPuzzleError::NoReceipt
         );
-        let (slot, key) = (table.slot, table.tesoro_match);
-        kit(table.ring.free(slot, &key, SLOT_RESERVED))?;
-        table.reason = REASON_VOID;
-        table.outcome = 0;
-        table.phase = TABLE_CLOSED;
-        table.over_at = now;
-        table.dirty = false;
-        table.req_pending = false;
-        Ok(())
+        void_in_place(table, now)
     }
 
     /// Rollup, permissionless. Frees a Done ring slot once tesoro_core has frozen its Match (the
@@ -2007,17 +2047,13 @@ pub struct SkipEpoch<'info> {
     pub table: Box<Account<'info, Table>>,
 }
 
+/// `begin_match`. It also names everything a void needs (wipe the seats, commit), so the call that
+/// gives up a stuck table leaves it clean: `ending` is the same account list as the instructions
+/// that end a Match.
 #[derive(Accounts)]
 pub struct BeginMatch<'info> {
-    pub caller: Signer<'info>,
     #[account(seeds = [ASSIGN_SEED, assignment.tesoro_match.as_ref()], bump = assignment.bump)]
     pub assignment: Account<'info, Assignment>,
-    #[account(
-        mut,
-        seeds = [TABLE_SEED, &table.generation.to_le_bytes(), &table.index.to_le_bytes()],
-        bump = table.bump
-    )]
-    pub table: Box<Account<'info, Table>>,
     #[account(
         address = assignment.tesoro_match,
         seeds = [CORE_MATCH_SEED, tesoro_match.inner.id.opener.as_ref(), &tesoro_match.inner.id.n.to_le_bytes()],
@@ -2025,6 +2061,7 @@ pub struct BeginMatch<'info> {
         seeds::program = tesoro_core::ID
     )]
     pub tesoro_match: Box<Account<'info, MatchState>>,
+    pub ending: CloseMatch<'info>,
 }
 
 /// A table and nothing else: `start`, `reset_table`.

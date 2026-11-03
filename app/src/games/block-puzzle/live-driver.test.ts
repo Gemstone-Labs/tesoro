@@ -41,6 +41,13 @@ describe("nextStep", () => {
       expect(nextStep(input({ seat: 0, ...idle }))).toEqual({ kind: "wait", why: "setup" });
       expect(kind(input({ seat: 0, ...idle, stalledMs: LATE }))).toBe("beginMatch");
     });
+    describe("a finished table one epoch behind the Assignment", () => {
+      const behind = { table: blankTable({ phase: TABLE_PHASE.closed, epoch: 3 }), assignment: fixtureAssignment({ startDeadline: 5_000, epoch: 4 }) };
+      it("is begun, which resets it first", () => expect(kind(input(behind))).toBe("beginMatch"));
+      it("the opener gives the joiner a moment first", () => expect(nextStep(input({ seat: 0, ...behind }))).toEqual({ kind: "wait", why: "setup" }));
+      it("not after the start window", () => expect(nextStep(input({ ...behind, nowS: 5_001 }))).toEqual({ kind: "wait", why: "setup" }));
+      it("two epochs behind is not this Match's table yet", () => expect(kind(input({ ...behind, table: blankTable({ phase: TABLE_PHASE.closed, epoch: 2 }) }))).not.toBe("beginMatch"));
+    });
     it("not after the start window: tesoro_core refunds at its deadline", () => expect(nextStep(input({ ...idle, stalledMs: LATE, nowS: 5_001 }))).toEqual({ kind: "wait", why: "setup" }));
   });
 
