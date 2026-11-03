@@ -2668,17 +2668,21 @@ fn a_decided_match_writes_the_ring_and_finalize_pays_from_the_committed_table() 
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
     assert_eq!(before.0 + before.1, 2 * 75_000 - 2_000, "entries in escrow");
     env.set_time(T0 + 2);
+    let before_match = env.committed.get(&env.table).cloned().unwrap();
     env.mv(0, id_of(70), 20).expect("capture the Truck");
     let t = env.table();
     assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, false));
+    assert_eq!(t.commit.tries, 1, "the resolve that ended the Match sent the commit");
+    let landed = env.committed.insert(env.table, before_match).unwrap();
+    // A commit that never reached base leaves nothing to settle from.
+    let err = env.finalize_start().unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NoResult));
+    env.committed.insert(env.table, landed);
     let (_, slot) = t.ring.find(&env.tmatch, 0).expect("slot");
     assert_eq!(
         (slot.state, slot.outcome),
         (table_kit::SLOT_DONE, table_kit::OUTCOME_WIN0)
     );
-    // Not settled from a table that never committed.
-    let err = env.finalize_start().unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::NoResult));
     env.finalize(false).expect("finalize");
     assert_eq!(env.tesoro_status(), Stage::Closed);
     assert_eq!(env.gemas(&env.alice), before.0 + 1_900);
@@ -2849,8 +2853,10 @@ fn a_stale_commit_never_refunds_a_match_that_has_a_result() {
     env.start_in_rollup(1);
     env.stage(&truck_raid_layout(), 0);
     env.set_time(T0 + 2);
+    let before_match = env.committed.get(&env.table).cloned().unwrap();
     env.mv(0, id_of(70), 20).unwrap();
-    // The result was never committed. Base's copy is the idle table from before the Match.
+    // The result never reached base (a lost commit). Base's copy is the idle table from before the Match.
+    env.committed.insert(env.table, before_match);
     env.set_time(env.now + 1_000);
     let err = env.finalize_start().unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::NoResult));
@@ -3453,8 +3459,8 @@ fn a_full_match_to_a_truck_capture_pays_the_winner_the_pot_minus_fees() {
     assert_eq!(b.shown[id_of(20) as usize], TRUCK);
     assert_eq!(b.shown[id_of(70) as usize], RECON);
     assert_eq!(b.shown[id_of(95) as usize], GENERAL_OF_THE_ARMY);
-    assert_eq!(env.army(0).moves, 1);
-    assert_eq!(env.army(1).moves, 0);
+    // The Armies were wiped by the resolve that ended the Match.
+    assert!(env.army(0).is_blank() && env.army(1).is_blank());
     // The event ring holds the attack, then the end.
     let attack = &b.ring[0];
     assert_eq!(attack.kind, vanguard::EVENT_ATTACK);
