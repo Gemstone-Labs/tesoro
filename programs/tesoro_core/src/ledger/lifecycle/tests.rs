@@ -1057,6 +1057,67 @@ fn a_finished_match_ignores_further_chunks_and_closes_empty() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// The shared settle blocks (the head-to-head settle and any other Match path call these)
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn win_fees_floor_each_class_of_the_pot() {
+    // pot 2,001: Platform 2.5% = 50.025 -> 50, Studio 3% = 60.03 -> 60, Leaderboard 1% = 20.01 -> 20
+    assert_eq!(
+        blocks::win_fees(2001, &terms(false, 250, 300), 100),
+        Ok([50, 60, 20])
+    );
+}
+
+#[test]
+fn win_fees_refuse_a_total_above_the_cap() {
+    assert_eq!(
+        blocks::win_fees(2000, &terms(false, 9000, 900), 200),
+        Err(LifecycleError::FeeTooHigh)
+    );
+}
+
+#[test]
+fn win_surplus_is_the_entry_less_every_fee() {
+    assert_eq!(blocks::win_surplus(1000, [50, 60, 20]), Ok(870));
+    assert_eq!(
+        blocks::win_surplus(100, [50, 60, 20]),
+        Err(LifecycleError::FeeTooHigh)
+    );
+}
+
+#[test]
+fn the_players_share_of_a_surplus_floors() {
+    assert_eq!(blocks::player_share(870, 4000), Ok(348));
+    assert_eq!(blocks::player_share(7, 3333), Ok(2));
+    assert_eq!(blocks::player_share(870, 0), Ok(0));
+}
+
+#[test]
+fn back_step_returns_the_whole_line_to_the_funder_and_empties_it() {
+    let mut rng = Rng(21);
+    let mut w = World::new(&mut rng);
+    w.cur = Some(id(1, 0));
+    let mut p = pot(&mut w, 1, &[(100, 0, 40), (101, 0, 60)]);
+    let credit = blocks::back_step(&mut p, 1, &mut w, &key(3)).unwrap();
+    assert_eq!(credit.owner, Some(key(3)));
+    assert_eq!(credit.line.amount, 60);
+    assert_eq!(credit.line.source, key(101));
+    assert_eq!(p.get(1).unwrap().amount, 0);
+    assert_eq!(p.get(0).unwrap().amount, 40);
+    assert_eq!(
+        w.ev,
+        vec![Ev::Credit {
+            m: id(1, 0),
+            owner: key(3),
+            src: key(101),
+            class: CLASS_GENERAL,
+            amount: 60
+        }]
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
 // The fuzz: random Matches against an independent model
 // ---------------------------------------------------------------------------------------------
 
