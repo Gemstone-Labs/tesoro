@@ -7,6 +7,8 @@ import { sourcePda } from "@/lib/chain/native";
 import { positionBytes } from "@/lib/chain/position-size";
 import { landingPageNumbers } from "@/lib/chain/redeem";
 import { DemoHttpError } from "../request-auth";
+import { isStale, parseStakePool, updateStakePoolBalanceIx } from "@/lib/chain/stake-pool";
+import { STAKE_TOKENS } from "@/lib/chain/stake";
 import { CORE_ID, type Plan } from "./rules";
 import type { ChainReads } from "./service";
 
@@ -31,6 +33,7 @@ export async function verifyExitSetup(plan: Plan, player: PublicKey, chain: Chai
   if (plan.names.at(-1) === "unlock" && s.source && p.inner.open_advance !== sourceState.inner.index) bad("The Source is not the Lock's open Advance.");
   if (!("Solana" in p.inner.source_chain)) bad("These token accounts are only for Solana payouts.");
   const mint = new PublicKey(p.inner.source_asset);
+  if (s.poolUpdate) await verifyPoolUpdate(s.poolUpdate, s.poolUpdateIx!, mint, chain);
   let rent = 0n;
   let ataGrant: string | null = null;
   if (s.ata) {
@@ -52,4 +55,20 @@ export async function verifyExitSetup(plan: Plan, player: PublicKey, chain: Chai
     }
   }
   return { rent, ataGrant };
+}
+
+/**
+ * The stake pool update in front of a payout is paid for only when it does something: the Position's token is the one of this
+ * pool, the pool is more than one epoch behind, and the instruction is exactly the one the pool's own accounts give.
+ */
+async function verifyPoolUpdate(pool: PublicKey, ix: NonNullable<Plan["setup"]>["poolUpdateIx"] & object, mint: PublicKey, chain: ChainReads): Promise<void> {
+  if (!chain.epoch) throw new DemoHttpError(503, "not-configured", "Stake pool updates are not configured.");
+  if (!STAKE_TOKENS.some((t) => t.pool.equals(pool) && t.mint.equals(mint))) bad("The stake pool is not the one of this Lock's staking token.");
+  const [info, epoch] = await Promise.all([chain.account(pool), chain.epoch()]);
+  const view = info ? parseStakePool(info.data) : null;
+  if (!info || !view) return bad("The stake pool could not be read.");
+  if (!isStale(view, epoch)) bad("The stake pool is current; its payout needs no update.");
+  const want = updateStakePoolBalanceIx(pool, info);
+  const same = want.programId.equals(ix.programId) && Buffer.from(want.data).equals(Buffer.from(ix.data)) && want.keys.length === ix.keys.length && want.keys.every((k, i) => k.pubkey.equals(ix.keys[i].pubkey) && k.isWritable === ix.keys[i].isWritable && k.isSigner === ix.keys[i].isSigner);
+  if (!same) bad("The stake pool update does not name the pool's own accounts.");
 }

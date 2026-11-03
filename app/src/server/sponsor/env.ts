@@ -32,6 +32,7 @@ function chainReads(conn: Connection): ChainReads {
     sendRawTransaction: (raw, opts) => conn.sendRawTransaction(raw, opts),
     balance: async (k) => BigInt(await conn.getBalance(k, "confirmed")),
     rent: async (bytes) => BigInt(await conn.getMinimumBalanceForRentExemption(bytes, "confirmed")),
+    epoch: async () => BigInt((await conn.getEpochInfo("confirmed")).epoch),
     account: async (k) => {
       const a = await conn.getAccountInfo(k, "confirmed");
       return a ? { owner: a.owner, data: a.data } : null;
