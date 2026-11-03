@@ -132,10 +132,17 @@ contract PrizeModule is PositionVaultBase {
             realisedFees += c.fee;
         }
         _owePool(c.pool, c.fee, feeShares, c.rate);
-        uint256 feePaid = _payShares(to, holderShares, _deliveryShares(deliveryFee, c.paid - c.fee, c.rate));
-        if (feePaid != 0) emit DeliveryFeePaid(id, deliveryRecipient, feePaid, seq);
-        emit YieldPaid(id, to, c.paid - c.fee, holderShares, seq);
+        _payHolder(id, seq, to, holderShares, deliveryFee, c);
         return "";
+    }
+
+    /// @dev Pays the holder's share of a cash-out, less the Delivery Fee, and records both.
+    function _payHolder(uint64 id, uint64 seq, address to, uint256 shares, uint256 deliveryFee, Cashout memory c)
+        internal
+    {
+        uint256 feePaid = _payShares(to, shares, _deliveryShares(deliveryFee, c.paid - c.fee, c.rate));
+        if (feePaid != 0) emit DeliveryFeePaid(id, deliveryRecipient, feePaid, seq);
+        emit YieldPaid(id, to, c.paid - c.fee, shares, seq);
     }
 
     /// @dev What one cash-out takes from a Position: `paid` of the face `amount` (all of it unless a slash left the
