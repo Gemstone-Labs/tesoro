@@ -5,13 +5,14 @@ import { historyRpc } from "./history.ts";
 import type { GameAdapter, PoolTable } from "./scheduler.ts";
 
 /**
- * Publishes the tables that can take a Match to `table_pool` (migration 0020), replacing the Game's rows. The sponsor server
- * assigns a joining Player's Match from this pool in the join's own transaction; only the keeper can read a table's live epoch.
+ * Publishes what a rollup read showed to `table_pool` (migrations 0021 and 0022): the tables able to take a Match, with their live
+ * epoch, read at `readAtMs`. The sponsor server keeps the pool between reads (it claims a table when it assigns a Match and the
+ * history frees it when the Match settles); this read corrects any drift. Only the keeper can read a table's live epoch.
  */
-export const poolPublisher = (rpc: Rpc) => async (a: GameAdapter, tables: PoolTable[]): Promise<void> => {
+export const poolPublisher = (rpc: Rpc) => async (a: GameAdapter, tables: PoolTable[], readAtMs: number): Promise<void> => {
   const game = gameOfProgram(new PublicKey(a.programId));
   if (!game) return;
-  await rpc("publish_table_pool", { p_game: game, p_tables: tables.map((t) => ({ generation: t.generation, index: t.index, epoch: String(t.epoch) })) });
+  await rpc("publish_table_pool", { p_game: game, p_tables: tables.map((t) => ({ generation: t.generation, index: t.index, epoch: String(t.epoch) })), p_read_at: new Date(readAtMs).toISOString() });
 };
 
 /** The publisher named by the environment (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY), or undefined when no database is configured. */
