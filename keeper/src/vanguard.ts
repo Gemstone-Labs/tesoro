@@ -214,7 +214,7 @@ export async function vanguard(ctx: Ctx, match: PublicKey, m: any, st: string, s
   if (step.do === "assist_setup" && battle && tee) return actions + (await assistSetup(ctx, a, battle, tee, subject, tag));
   if (step.do === "claim_timeout" && tee) {
     const ix = await ctx.vanguard.claimTimeoutIx(ctx.payer.publicKey, a);
-    const why = await simulate(tee, ctx.payer, [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix]);
+    const why = await simulate(tee, ctx.payer, [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.conclude }), ix]);
     if (why) {
       log("match", subject, `${tag} wait: claim_timeout not yet possible (${why.slice(0, 120)}), retrying next pass`);
       return actions;

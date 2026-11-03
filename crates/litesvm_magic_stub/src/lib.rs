@@ -27,6 +27,19 @@ pub fn permission_program() -> Pubkey {
 
 /// Loads the stub at both program addresses.
 pub fn install(svm: &mut LiteSVM) {
-    svm.add_builtin(magic_program(), AcceptAnything::vm);
-    svm.add_builtin(permission_program(), AcceptAnything::vm);
+    for id in [magic_program(), permission_program()] {
+        svm.add_builtin(id, AcceptAnything::vm);
+        // `add_builtin` leaves the account owned by the BPF loader, but a builtin is owned by the native loader.
+        svm.set_account(
+            id,
+            solana_sdk::account::Account {
+                lamports: 1,
+                data: b"accept_anything".to_vec(),
+                owner: solana_sdk::native_loader::id(),
+                executable: true,
+                rent_epoch: 0,
+            },
+        )
+        .expect("builtin account");
+    }
 }
