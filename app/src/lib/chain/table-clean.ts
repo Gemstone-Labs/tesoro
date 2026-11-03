@@ -38,5 +38,12 @@ export function beginReceipts(table: { tesoroMatch: PublicKey; ring: readonly Ri
   return [...matches.values()].map(settledPda);
 }
 
+/**
+ * What the page says while it begins a Match on a table that still holds the previous one. A table that is already
+ * finished is being cleared (wiped, committed, reset) before the Match starts; one that is not yet finished is being
+ * given up first. Either way the page keeps retrying `begin_match`, so the line says what is happening, not "stuck".
+ */
+export const startNote = (tableFinished: boolean): string => (tableFinished ? "Clearing the table, then starting your Match" : "Starting the Match");
+
 /** The remaining accounts of a `begin_match` call. */
 export const receiptMetas = (receipts: readonly PublicKey[]) => receipts.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false }));

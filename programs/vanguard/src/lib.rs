@@ -947,19 +947,26 @@ pub mod vanguard {
     pub fn begin_match(ctx: Context<BeginMatch>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let a = &ctx.accounts.assignment;
-        let table = &mut ctx.accounts.table;
         let receipts = ctx.remaining_accounts;
-        // A table stuck on a Match core froze: give it up. The seats still need wiping, so the
-        // clean-up is all this call does; the next `begin_match` resets the table.
-        if matches!(table.phase, TABLE_WAITING | TABLE_LIVE)
-            && receipt_aged(receipts, &table.tesoro_match, now, RELEASE_DELAY_SECS)
+        let ending = &mut ctx.accounts.ending;
+        // A table stuck on a Match core froze: give it up, wipe its seats and commit it. That is
+        // all this call does; the next `begin_match` resets the table.
+        if matches!(ending.table.phase, TABLE_WAITING | TABLE_LIVE)
+            && receipt_aged(
+                receipts,
+                &ending.table.tesoro_match,
+                now,
+                RELEASE_DELAY_SECS,
+            )
         {
-            return void_in_place(table, &mut *ctx.accounts.battle.load_mut()?, now);
+            void_in_place(&mut ending.table, &mut *ending.battle.load_mut()?, now)?;
+            return wipe_and_commit(ending, now);
         }
+        let table = &mut ending.table;
         // A finished table is reset for the Assignment one epoch ahead, so the keeper need not.
         if table.phase == TABLE_OVER && is_next_epoch(table.epoch, a.epoch) {
             check_resettable(table, now)?;
-            reset_in_place(table, &mut *ctx.accounts.battle.load_mut()?)?;
+            reset_in_place(table, &mut *ending.battle.load_mut()?)?;
         }
         require!(table.phase == TABLE_IDLE, VanguardError::WrongPhase);
         require!(table.seats_created, VanguardError::SeatsMissing);
@@ -982,13 +989,13 @@ pub mod vanguard {
         table.start_deadline = a.start_deadline;
         table.checked_in = [false; 2];
         table.phase = TABLE_WAITING;
-        ctx.accounts.battle.load_mut()?.init(NewBattle {
+        ending.battle.load_mut()?.init(NewBattle {
             match_id: tesoro.inner.id.n,
             tesoro_match: a.tesoro_match,
             players: a.players,
             start_deadline: a.start_deadline,
             payer: a.payer,
-            oracle_queue: ctx.accounts.vanguard_config.oracle_queue,
+            oracle_queue: ending.vanguard_config.oracle_queue,
             epoch,
         });
         Ok(())
@@ -2172,19 +2179,13 @@ pub struct SkipEpoch<'info> {
     pub table: Box<Account<'info, Table>>,
 }
 
+/// `begin_match`. It also names everything a void needs (wipe the seats, commit), so the call that
+/// gives up a stuck table leaves it clean: `ending` is the same account list as the instructions
+/// that end a Match.
 #[derive(Accounts)]
 pub struct BeginMatch<'info> {
-    pub caller: Signer<'info>,
     #[account(seeds = [ASSIGN_SEED, assignment.tesoro_match.as_ref()], bump = assignment.bump)]
     pub assignment: Account<'info, Assignment>,
-    #[account(
-        mut,
-        seeds = [TABLE_SEED, &table.generation.to_le_bytes(), &table.index.to_le_bytes()],
-        bump = table.bump
-    )]
-    pub table: Box<Account<'info, Table>>,
-    #[account(mut, seeds = [BATTLE_SEED, table.key().as_ref()], bump = battle.load()?.bump)]
-    pub battle: AccountLoader<'info, Battle>,
     #[account(
         address = assignment.tesoro_match,
         seeds = [CORE_MATCH_SEED, tesoro_match.inner.id.opener.as_ref(), &tesoro_match.inner.id.n.to_le_bytes()],
@@ -2192,8 +2193,7 @@ pub struct BeginMatch<'info> {
         seeds::program = tesoro_core::ID
     )]
     pub tesoro_match: Box<Account<'info, MatchState>>,
-    #[account(seeds = [PROGRAM_CONFIG_SEED], bump = vanguard_config.bump)]
-    pub vanguard_config: Box<Account<'info, VanguardConfig>>,
+    pub ending: Concluding<'info>,
 }
 
 #[derive(Accounts)]

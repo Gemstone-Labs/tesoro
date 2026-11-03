@@ -1,4 +1,5 @@
 import type { PublicKey } from "@solana/web3.js";
+import { atNextEpoch, startNote } from "../../lib/chain/table-clean";
 import { BlockPuzzleChain, type ChainSigner } from "./chain";
 import { sessionFromTable, type BurstSession } from "@/lib/chain/burst-read";
 import { matchAddressOf } from "@/lib/chain/match-id";
@@ -103,8 +104,10 @@ export const initialBurstView = (): BurstView => ({
 });
 
 /** The stage a Player sees for an assigned Match, from the table the rollup holds. */
-export function tableStage(i: { hasTable: boolean; running: boolean; phase: string | null; closed: boolean; began: boolean }): Stage {
+/** `behind`: the table still holds the previous Match, so begin_match is clearing it for this one. */
+export function tableStage(i: { hasTable: boolean; running: boolean; phase: string | null; closed: boolean; began: boolean; behind?: boolean }): Stage {
   if (!i.hasTable) return "table";
+  if (i.behind) return "setup";
   const live = i.phase === "running" || i.phase === "frozen" || i.phase === "grace";
   if (i.running || (live && i.began)) return "playing";
   if (i.phase === "getReady" || live) return "getReady";
@@ -507,8 +510,9 @@ export class BurstDriver {
     // The stage the Player sees.
     const phase = t ? phaseAt(t, slotNowV) : null;
     const reason = t && t.phase === TABLE_PHASE.closed ? t.reason : null;
-    const stage = tableStage({ hasTable: !!t, running: s.kind === "run", phase, closed: !!t && t.phase === TABLE_PHASE.closed, began: !!this.boardRef?.began });
-    this.patchStage(stage, reason === null ? { seat } : { seat, reason });
+    const behind = !!t && !!a && atNextEpoch(a, t);
+    const stage = tableStage({ hasTable: !!t, running: s.kind === "run", phase, closed: !!t && t.phase === TABLE_PHASE.closed, began: !!this.boardRef?.began, behind });
+    this.patchStage(stage, behind ? { seat, note: startNote(!!t && t.phase === TABLE_PHASE.closed) } : reason === null ? { seat } : { seat, reason });
     if (stage === "closing" && !this.closingSince) this.closingSince = now();
     if (t && t.phase === TABLE_PHASE.closed && t.dirty && !this.commitSince) this.commitSince = now();
     if (this.commitSince) {

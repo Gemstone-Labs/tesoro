@@ -1083,21 +1083,23 @@ pub mod block_puzzle {
     pub fn begin_match(ctx: Context<BeginMatch>) -> Result<()> {
         let clock = Clock::get()?;
         let a = &ctx.accounts.assignment;
-        let table = &mut ctx.accounts.table;
         let receipts = ctx.remaining_accounts;
-        // A table stuck on a Match core froze: give it up. The seats still need wiping, so the
-        // clean-up is all this call does; the next `begin_match` resets the table.
+        let ending = &mut ctx.accounts.ending;
+        // A table stuck on a Match core froze: give it up, wipe its seats and commit it. That is
+        // all this call does; the next `begin_match` resets the table.
         if matches!(
-            table.phase,
+            ending.table.phase,
             TABLE_ASSIGNED | TABLE_SEEDING | TABLE_GET_READY
         ) && receipt_aged(
             receipts,
-            &table.tesoro_match,
+            &ending.table.tesoro_match,
             clock.unix_timestamp,
             RELEASE_DELAY_SECS,
         ) {
-            return void_in_place(table, clock.unix_timestamp);
+            void_in_place(&mut ending.table, clock.unix_timestamp)?;
+            return wipe_and_commit(ending, clock.unix_timestamp);
         }
+        let table = &mut ending.table;
         // A finished table is reset for the Assignment one epoch ahead, so the keeper need not.
         if table.phase == TABLE_CLOSED && is_next_epoch(table.epoch, a.epoch) {
             check_resettable(table, clock.unix_timestamp)?;
@@ -2045,17 +2047,13 @@ pub struct SkipEpoch<'info> {
     pub table: Box<Account<'info, Table>>,
 }
 
+/// `begin_match`. It also names everything a void needs (wipe the seats, commit), so the call that
+/// gives up a stuck table leaves it clean: `ending` is the same account list as the instructions
+/// that end a Match.
 #[derive(Accounts)]
 pub struct BeginMatch<'info> {
-    pub caller: Signer<'info>,
     #[account(seeds = [ASSIGN_SEED, assignment.tesoro_match.as_ref()], bump = assignment.bump)]
     pub assignment: Account<'info, Assignment>,
-    #[account(
-        mut,
-        seeds = [TABLE_SEED, &table.generation.to_le_bytes(), &table.index.to_le_bytes()],
-        bump = table.bump
-    )]
-    pub table: Box<Account<'info, Table>>,
     #[account(
         address = assignment.tesoro_match,
         seeds = [CORE_MATCH_SEED, tesoro_match.inner.id.opener.as_ref(), &tesoro_match.inner.id.n.to_le_bytes()],
@@ -2063,6 +2061,7 @@ pub struct BeginMatch<'info> {
         seeds::program = tesoro_core::ID
     )]
     pub tesoro_match: Box<Account<'info, MatchState>>,
+    pub ending: CloseMatch<'info>,
 }
 
 /// A table and nothing else: `start`, `reset_table`.

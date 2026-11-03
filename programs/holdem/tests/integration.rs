@@ -734,10 +734,9 @@ impl Env {
         ix(
             holdem::ID,
             holdem::accounts::BeginMatch {
-                caller: a(self.oracle.pubkey()),
                 assignment: assign_addr(self.tmatch),
-                table: self.table,
                 tesoro_match: self.tmatch,
+                ending: self.concluding(a(self.oracle.pubkey())),
             },
             holdem::instruction::BeginMatch {},
             vec![],
@@ -3832,8 +3831,15 @@ fn begin_voids_a_table_stuck_on_a_match_core_already_froze() {
     let t = env.table();
     assert_eq!((t.phase, t.dirty, t.epoch), (holdem::TABLE_OVER, false, 0));
     assert_eq!(t.ring.used(), 0, "the reserved slot is freed");
-    // the Over table is then wiped and reset by the next begin
-    env.wipe_standin();
+    // the next begin resets the table: no other call in between
+    assert!(
+        !t.seats_open && t.commit.tries == 1,
+        "the void wiped the seats and committed, in the same call"
+    );
+    assert!(
+        called(&env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
     env.open_and_join(1_000);
     env.assign(0, 0, 1).expect("assign epoch 1");
     env.set_time(env.now + holdem::RESET_DELAY_SECS);

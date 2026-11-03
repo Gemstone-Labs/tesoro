@@ -662,7 +662,7 @@ export class HoldemChain {
   async beginMatch(payer: PlayerSigner, a: Assignment, table?: Pick<Table, "tesoroMatch" | "ring">): Promise<string> {
     const ix = await this.program.methods
       .beginMatch()
-      .accountsPartial({ caller: payer.publicKey, assignment: a.address, table: tablePda(a.generation, a.index), tesoroMatch: a.tesoroMatch } as any)
+      .accountsPartial({ assignment: a.address, tesoroMatch: a.tesoroMatch, ending: this.concludingAccounts(payer.publicKey, a) } as any)
       .remainingAccounts(table ? receiptMetas(beginReceipts(table)) : [])
       .instruction();
     return this.sendTee("begin_match", [ix], payer);

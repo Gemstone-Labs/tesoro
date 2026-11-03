@@ -28,7 +28,7 @@ import { plainError } from "@/lib/errors";
 import { timeoutClaimDue } from "./timeout";
 import { absenceLine } from "@/lib/absence-copy";
 import { atAssignedEpoch } from "@/lib/chain/table-epoch";
-import { atNextEpoch } from "@/lib/chain/table-clean";
+import { atNextEpoch, startNote } from "@/lib/chain/table-clean";
 
 /** Where a Hold'em Match is in its life, read from chain. */
 export type Stage =
@@ -238,7 +238,7 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
     // The previous Match settled and the table is not reset yet: begin_match resets it once it may (30 s after the
     // result), so an early or failed try is quietly repeated on the next read.
     if (atNextEpoch(a, t)) {
-      setStage("setup", "Starting the Match");
+      setStage("setup", startNote(t.tablePhase === TABLE_PHASE.over));
       if (late && nowS <= a.startDeadline) await hd.beginMatch(p, a, t).catch(() => undefined);
       return;
     }

@@ -808,7 +808,7 @@ export class BlockBurstChain {
   async beginMatch(payer: PlayerSigner, a: Assignment, table?: Pick<Table, "tesoroMatch" | "ring">): Promise<string> {
     const ix = await this.program.methods
       .beginMatch()
-      .accountsPartial({ caller: payer.publicKey, assignment: a.address, table: tablePda(a.generation, a.index), tesoroMatch: a.tesoroMatch } as any)
+      .accountsPartial({ assignment: a.address, tesoroMatch: a.tesoroMatch, ending: this.closeAccounts(payer.publicKey, a) } as any)
       .remainingAccounts(table ? receiptMetas(beginReceipts(table)) : [])
       .instruction();
     return this.sendTee("begin_match", [ix], payer);
@@ -875,9 +875,13 @@ export class BlockBurstChain {
   }
 
   /** Rollup, permissionless. Ends the Match once its window is over (or both runs are over), writes the result and both run logs into the ring, then wipes the seats and commits the table to Solana in the same transaction. */
+  /** What every instruction that ends a Match or gives up a table names: the seat accounts it wipes and the Sponsor it commits through. */
+  private closeAccounts(caller: PublicKey, a: TableRef) {
+    return { ...this.seatAccounts(caller, a), sponsor: sponsorPda(), magicFeeVault: magicFeeVaultPda(), magicContext: MAGIC_CONTEXT } as any;
+  }
+
   async close(payer: PlayerSigner, a: TableRef): Promise<string> {
-    const accounts = { ...this.seatAccounts(payer.publicKey, a), sponsor: sponsorPda(), magicFeeVault: magicFeeVaultPda(), magicContext: MAGIC_CONTEXT } as any;
-    const ix = await this.program.methods.close().accountsPartial(accounts).instruction();
+    const ix = await this.program.methods.close().accountsPartial(this.closeAccounts(payer.publicKey, a)).instruction();
     return this.sendTee("close", [ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), ix], payer);
   }
 

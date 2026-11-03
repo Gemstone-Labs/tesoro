@@ -918,12 +918,9 @@ impl Env {
         ix(
             vanguard::ID,
             vanguard::accounts::BeginMatch {
-                caller: a(self.oracle.pubkey()),
                 assignment: assign_addr(self.tmatch),
-                table: self.table,
-                battle: ad.battle,
                 tesoro_match: self.tmatch,
-                vanguard_config: config_pda(),
+                ending: self.concluding(a(self.oracle.pubkey())),
             },
             vanguard::instruction::BeginMatch {},
             vec![],
@@ -6937,7 +6934,14 @@ fn begin_voids_a_table_stuck_on_a_match_core_already_froze() {
         (vanguard::TABLE_OVER, false, 0)
     );
     assert_eq!(t.ring.used(), 0, "the reserved slot is freed");
-    env.wipe_standin();
+    assert!(
+        !t.seats_open && t.commit.tries == 1,
+        "the void wiped the seats and committed, in the same call"
+    );
+    assert!(
+        called(&env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
     // the Over table is then reset by the next begin
     env.open_and_join(1_000);
     env.assign(0, 0, 1).expect("assign epoch 1");

@@ -722,10 +722,9 @@ impl Env {
         ix(
             trading_duel::ID,
             trading_duel::accounts::BeginMatch {
-                caller: a(self.oracle.pubkey()),
                 assignment: assign_addr(self.tmatch),
-                table: self.table,
                 tesoro_match: self.tmatch,
+                ending: self.concluding(a(self.oracle.pubkey())),
             },
             trading_duel::instruction::BeginMatch {},
             vec![],
@@ -3042,7 +3041,14 @@ fn begin_voids_a_table_stuck_on_a_match_core_already_froze() {
         (trading_duel::PHASE_OVER, false, 0)
     );
     assert_eq!(t.ring.used(), 0, "the reserved slot is freed");
-    env.close_seats_standin();
+    assert!(
+        !t.seats_open && t.commit.tries == 1,
+        "the void wiped the seats and committed, in the same call"
+    );
+    assert!(
+        called(&env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
     // the Over table is then reset by the next begin
     env.open_and_join(1_000);
     env.assign(0, 0, 1).expect("assign epoch 1");

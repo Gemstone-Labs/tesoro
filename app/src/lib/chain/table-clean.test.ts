@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { settledPda } from "./basket";
-import { atNextEpoch, beginReceipts } from "./table-clean";
+import { atNextEpoch, beginReceipts, startNote } from "./table-clean";
 
 const key = () => Keypair.generate().publicKey;
 const slot = (state: number, tesoroMatch: PublicKey) => ({ state, tesoroMatch });
@@ -17,6 +17,13 @@ describe("atNextEpoch", () => {
     expect(atNextEpoch({ generation: 0, index: 3, epoch: 6 }, table)).toBe(false);
     expect(atNextEpoch({ generation: 0, index: 2, epoch: 5 }, table)).toBe(false);
     expect(atNextEpoch({ generation: 1, index: 3, epoch: 5 }, table)).toBe(false);
+  });
+});
+
+describe("startNote", () => {
+  it("says the table is being cleared once the previous Match is finished, so a begin that only cleared does not look stuck", () => {
+    expect(startNote(true)).toBe("Clearing the table, then starting your Match");
+    expect(startNote(false)).toBe("Starting the Match");
   });
 });
 

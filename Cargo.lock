@@ -739,6 +739,7 @@ dependencies = [
  "anchor-lang",
  "ephemeral-rollups-sdk",
  "litesvm",
+ "litesvm_magic_stub",
  "proptest",
  "serde_json",
  "solana-sdk",
@@ -1770,6 +1771,7 @@ dependencies = [
  "anchor-lang",
  "ephemeral-rollups-sdk",
  "litesvm",
+ "litesvm_magic_stub",
  "serde_json",
  "solana-sdk",
  "table_kit",
@@ -2042,6 +2044,16 @@ dependencies = [
  "solana-transaction-context",
  "solana-transaction-error 3.4.0",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "litesvm_magic_stub"
+version = "0.1.0"
+dependencies = [
+ "ephemeral-rollups-sdk",
+ "litesvm",
+ "solana-program-runtime",
+ "solana-sdk",
 ]
 
 [[package]]
@@ -6181,6 +6193,7 @@ dependencies = [
  "anchor-lang",
  "ephemeral-rollups-sdk",
  "litesvm",
+ "litesvm_magic_stub",
  "serde_json",
  "solana-sdk",
  "table_kit",
@@ -6258,6 +6271,7 @@ dependencies = [
  "bytemuck",
  "ephemeral-rollups-sdk",
  "litesvm",
+ "litesvm_magic_stub",
  "serde_json",
  "solana-sdk",
  "table_kit",

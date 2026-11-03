@@ -1,6 +1,6 @@
 "use client";
 
-import { atNextEpoch } from "@/lib/chain/table-clean";
+import { atNextEpoch, startNote } from "@/lib/chain/table-clean";
 import { useAuth } from "@/lib/auth/context";
 import { finalizeFree } from "@/lib/chain/game-finalize";
 import { finalizeAndFinishFree, finishMatchFree } from "@/lib/chain/finish-match-client";
@@ -252,7 +252,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
       // The previous Match settled and the table is not reset yet: begin_match resets it once it may (30 s after the
       // result), so an early or failed try is quietly repeated on the next read.
       if ((Date.now() + offsetRef.current) / 1000 > a.startDeadline) return setStage("setup", "The Match was never started: the entries come back soon");
-      setStage("setup", "Starting the Match");
+      setStage("setup", startNote(t.phase === PHASE.over));
       if (late) await td.beginMatch(p, a, t).catch(() => undefined);
       return;
     }
