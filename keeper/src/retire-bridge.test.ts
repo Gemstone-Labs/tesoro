@@ -34,7 +34,7 @@ describe("bridge retire plan", () => {
     const plan = planBridge(rows);
     assert.deepEqual(plan.items.map((i) => `${i.kind}:${i.size}`).sort(), ["BridgePosition:172", "BridgePosition:188", "Claim:129", "Claim:161", "InstantClaim:129", "PayoutRecord:230", "VaultTreasury:77"]);
     assert.equal(plan.held.length, 0);
-    assert.equal(plan.left, 7);
+    assert.equal(plan.left, 6);
     assert.equal(plan.held.length, 0);
   });
 

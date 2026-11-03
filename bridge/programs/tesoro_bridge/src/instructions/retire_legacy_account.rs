@@ -47,7 +47,9 @@ impl RetireLegacyAccount<'_> {
             LegacyKind::VaultTreasury => {
                 (VaultTreasury::DISCRIMINATOR, &LEGACY_VAULT_TREASURY_LENGTHS)
             },
-            LegacyKind::InstantClaim => (InstantClaim::DISCRIMINATOR, &LEGACY_INSTANT_CLAIM_LENGTHS),
+            LegacyKind::InstantClaim => {
+                (InstantClaim::DISCRIMINATOR, &LEGACY_INSTANT_CLAIM_LENGTHS)
+            },
             LegacyKind::PayoutRecord => (PayoutRecord::DISCRIMINATOR, &LEGACY_PAYOUT_LENGTHS),
         };
         let info = ctx.accounts.account.to_account_info();
