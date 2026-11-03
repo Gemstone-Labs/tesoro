@@ -1005,25 +1005,42 @@ fn terms_params() -> SetDeliveryTermsParams {
 fn only_the_admin_sets_delivery_terms_and_none_may_pass_the_ceiling_or_starve_the_player() {
     let mut env = Env::new();
     let admin = env.admin.insecure_clone();
-    env.send(&[delivery_terms_ix(&env, &admin, terms_params())], &admin, &[]).expect("admin sets");
+    env.send(&[delivery_terms_ix(&env, &admin, terms_params())], &admin, &[])
+        .expect("admin sets");
     let terms: DeliveryTerms = env.load(env.delivery_terms());
-    assert_eq!((terms.delivery_fee, terms.max_bps_yield, terms.min_prize_gemas), (10_000_000_000_000, 1_000, 100));
+    assert_eq!(
+        (terms.delivery_fee, terms.max_bps_yield, terms.min_prize_gemas),
+        (10_000_000_000_000, 1_000, 100)
+    );
 
     let outsider = Keypair::new();
     env.svm.airdrop(&s(a(outsider.pubkey())), 1_000_000_000).unwrap();
     let err = env
         .send(&[delivery_terms_ix(&env, &outsider, terms_params())], &outsider, &[])
         .expect_err("not the admin");
-    assert_eq!(custom_code(&err), Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::Unauthorized as u32));
+    assert_eq!(
+        custom_code(&err),
+        Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::Unauthorized as u32)
+    );
 
     let too_wide = SetDeliveryTermsParams { max_bps_yield: 1_001, ..terms_params() };
-    let err = env.send(&[delivery_terms_ix(&env, &admin, too_wide)], &admin, &[]).expect_err("past the ceiling");
-    assert_eq!(custom_code(&err), Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::DeliveryTermsInvalid as u32));
+    let err = env
+        .send(&[delivery_terms_ix(&env, &admin, too_wide)], &admin, &[])
+        .expect_err("past the ceiling");
+    assert_eq!(
+        custom_code(&err),
+        Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::DeliveryTermsInvalid as u32)
+    );
 
     // A minimum Redeem so small that 2% of it is under the flat fee would clamp the fee: refused.
     let starved = SetDeliveryTermsParams { min_redeem: 1_000_000_000_000, ..terms_params() };
-    let err = env.send(&[delivery_terms_ix(&env, &admin, starved)], &admin, &[]).expect_err("fee does not fit");
-    assert_eq!(custom_code(&err), Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::DeliveryTermsInvalid as u32));
+    let err = env
+        .send(&[delivery_terms_ix(&env, &admin, starved)], &admin, &[])
+        .expect_err("fee does not fit");
+    assert_eq!(
+        custom_code(&err),
+        Some(anchor_lang::error::ERROR_CODE_OFFSET + BridgeError::DeliveryTermsInvalid as u32)
+    );
 }
 
 #[test]
