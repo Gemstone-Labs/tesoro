@@ -2502,10 +2502,11 @@ fn a_run_that_is_over_takes_no_more_moves_and_both_runs_over_end_the_match_early
     );
     // Both are over: the Match can be closed without waiting for the clock.
     assert!(env.slot < env.table().play_end().unwrap());
+    let moves = [env.board(0).moves, env.board(1).moves];
     env.close().expect("early close");
     let t = env.table();
     assert_eq!(t.phase, block_puzzle::TABLE_CLOSED);
-    assert_eq!(t.final_moves, [env.board(0).moves, env.board(1).moves]);
+    assert_eq!(t.final_moves, moves);
 }
 
 #[test]
@@ -2635,7 +2636,7 @@ fn neither_player_checking_in_is_a_no_show_each_side_pays_the_platform_fee() {
         (OUTCOME_NO_SHOW, block_puzzle::REASON_NEITHER)
     );
     let t = env.table();
-    assert_eq!((t.phase, t.dirty), (block_puzzle::TABLE_CLOSED, true));
+    assert_eq!((t.phase, t.dirty), (block_puzzle::TABLE_CLOSED, false));
     let (ga, gb) = settle(&mut env);
     assert_eq!(ga, gb, "both sides pay the same");
     assert!(
@@ -2973,10 +2974,10 @@ fn nothing_the_game_does_is_logged_and_the_seed_is_in_no_log() {
     let play_logs = env.last_logs.clone();
     env.play_any(1, 3).unwrap();
     let hidden_logs = env.last_logs.clone();
+    let seed = env.vault().seed;
     env.set_slot(env.table().play_end().unwrap() + 1);
     env.close().unwrap();
     let close_logs = env.last_logs.clone();
-    let seed = env.vault().seed;
     for (name, logs) in [
         ("callback", callback_logs),
         ("start", start_logs),
@@ -3021,8 +3022,9 @@ fn a_wiped_seat_is_blank_and_the_reset_forgets_the_match_but_not_the_ring() {
     let over = env.table().over_at;
     let first = env.table();
     env.set_time(over + block_puzzle::RESET_DELAY_SECS);
+    // `close` already wiped the seats and committed; the gates stay for a table that got there another way.
+    env.patch_table(|t| t.seats_open = true);
     assert_eq!(custom_code(&env.reset().unwrap_err()), dcode(E::SeatsOpen));
-    assert!(!env.board(0).is_blank() && !env.vault().is_blank());
     env.wipe_standin();
     for seat in 0..2 {
         assert!(env.board(seat).is_blank(), "seat {seat} holds nothing");
@@ -3030,6 +3032,7 @@ fn a_wiped_seat_is_blank_and_the_reset_forgets_the_match_but_not_the_ring() {
         assert_eq!(env.board(seat).moves, 0);
     }
     assert!(env.vault().is_blank());
+    env.patch_table(|t| t.dirty = true);
     assert_eq!(
         custom_code(&env.reset().unwrap_err()),
         dcode(E::NotCommitted)
@@ -3486,7 +3489,6 @@ fn an_assignment_closes_only_after_the_core_receipt_and_returns_its_rent_to_the_
 #[test]
 fn the_result_is_committed_once_and_the_sponsor_cannot_be_drained_by_repeats() {
     let mut env = begun();
-    env.magic_shell();
     let ixn = env.commit_ix();
     assert_eq!(
         custom_code(&env.rollup(ixn).unwrap_err()),
@@ -3494,14 +3496,8 @@ fn the_result_is_committed_once_and_the_sponsor_cannot_be_drained_by_repeats() {
     );
     env.set_slot(env.table().play_end().unwrap() + 1);
     env.close().unwrap();
-    let ixn = env.commit_ix();
-    let err = env.rollup(ixn).unwrap_err();
-    assert!(
-        !err.meta.logs.iter().any(|l| l.contains("NotDirty")),
-        "{:?}",
-        err.meta.logs
-    );
-    env.commit_standin();
+    assert_eq!(env.table().commit.tries, 1, "close sent the commit");
+    env.magic_shell();
     let ixn = env.commit_ix();
     assert_eq!(
         custom_code(&env.rollup(ixn).unwrap_err()),
@@ -3546,22 +3542,19 @@ fn only_the_public_table_is_ever_in_a_commit() {
 }
 
 impl Env {
-    /// A commit the rollup accepted but base never received: the table is clean, the guard has
-    /// counted the try, and base's copy is unchanged.
+    /// A commit the rollup accepted but base never received: `close` sent it, so the table is
+    /// clean and the guard has counted the try, while base's copy is unchanged.
     fn commit_lost_standin(&mut self) {
-        let now = self.now;
-        self.patch_table(|t| {
-            t.dirty = false;
-            t.commit.record(now);
-        });
+        assert_eq!(self.table().commit.tries, 1, "close sent the commit");
+        self.patch_table(|t| t.dirty = false);
     }
 }
 
 #[test]
 fn a_lost_commit_is_repeated_after_a_wait_and_then_finalize_pays_the_winner() {
     let mut env = ready();
-    env.magic_shell();
     env.play_out(8, 3);
+    env.magic_shell();
     env.commit_lost_standin();
     // Base still has the table from before the Match: nothing to settle from.
     assert_eq!(
@@ -3595,9 +3588,9 @@ fn a_lost_commit_is_repeated_after_a_wait_and_then_finalize_pays_the_winner() {
 #[test]
 fn a_lost_commit_survives_the_reset_and_repeated_calls_cost_nothing_once_freed() {
     let mut env = Env::new();
-    env.magic_shell();
     env.next_match_on(0);
     env.play_out(8, 3);
+    env.magic_shell();
     env.commit_lost_standin();
     next_epoch(&mut env);
     let t = env.table();
@@ -3855,7 +3848,7 @@ fn no_instruction_a_player_calls_can_reach_the_permission_program() {
     reaching.sort();
     assert_eq!(
         reaching,
-        ["init_seats", "retire_seats", "seat_players", "wipe_seats"]
+        ["close", "init_seats", "retire_seats", "seat_players", "wipe_seats"]
     );
     // No instruction a Player signs takes it, and none of those can write a Vault or reach a
     // permission account either.
