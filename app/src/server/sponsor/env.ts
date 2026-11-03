@@ -1,4 +1,5 @@
 import "server-only";
+import { bridgeSendGuard } from "../bridge-send";
 import { createHash } from "node:crypto";
 import { BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
 import { AddressLookupTableAccount, Connection, Keypair, PublicKey } from "@solana/web3.js";
@@ -119,6 +120,8 @@ export function sponsor(): Sponsor {
     // A sponsored new Account while the Invite gate is on is co-signed with the Invite key, for a wallet that redeemed an Invite.
     invite: inviteFromEnv(),
     assigner: assignerFromEnv(),
+    // The relayer pays LayerZero fees inside a Player's bridge transactions only after these checks (./bridge-sends.ts).
+    bridgeSends: bridgeSendGuard,
     alertOnboarding: async (used, max) => {
       const sender = senderFromEnv();
       const to = alertRecipients(process.env.ALERT_EMAILS);

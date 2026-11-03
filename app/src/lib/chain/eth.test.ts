@@ -1,6 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { weiToCoreUnits } from "./eth-units";
+import { finishLabel } from "./eth-track";
 import { sourcePda } from "./native";
 import {
   NETS,
@@ -305,5 +306,19 @@ describe("old accounts are absent, not crashes", () => {
     const hoodi = vaultTreasuryPda(NETS.hoodi.eid, VAULT);
     expect(vaultTreasuryPda(NETS.hyperevm.eid, VAULT).equals(hoodi)).toBe(false);
     expect(vaultTreasuryPda(NETS.hoodi.eid, VAULT.toLowerCase()).equals(hoodi)).toBe(true);
+  });
+});
+
+describe("finishLabel", () => {
+  it("names the button for the step a failed automatic attempt leaves due", () => {
+    expect(finishLabel("apply-locked")).toBe("Finish opening");
+    expect(finishLabel("send-unlock")).toBe("Finish unlock");
+    expect(finishLabel("send-pay-yield")).toBe("Finish payout");
+    expect(finishLabel("send-pay-instant")).toBe("Finish payout");
+    expect(finishLabel("apply-yield")).toBe("Finish update");
+  });
+  it("has no button for the Advance, which needs the Player's signature anyway, or for nothing due", () => {
+    expect(finishLabel("advance")).toBeNull();
+    expect(finishLabel(null)).toBeNull();
   });
 });

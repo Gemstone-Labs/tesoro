@@ -6,6 +6,8 @@ import type { EvmSigner } from "@/lib/auth/types";
 import { parseTreasury } from "./fees";
 import { treasuryPda } from "./native";
 import { prevAdvanceOf, sourceAccounts } from "./redeem";
+import type { SendQuote } from "./bridge-bundle";
+import { applyYieldGroups, linkedAccount, openingGroups, planApplyYield, redeemGroups, sendBridgeGroups, sendGroups, unlockGroups, yieldDue } from "./bridge-steps";
 import type { ChainHolding } from "./read";
 import { getChain } from "./client";
 import { sendSponsoredOrOwn } from "./sponsored-or-own";
@@ -23,7 +25,6 @@ import {
   projectedEthDebt,
   vaultByAddress,
   NETS,
-  coreUnlockIx,
   evmClient,
   fetchEthMarket,
   fetchLinkState,
@@ -31,7 +32,6 @@ import {
   linkMessage,
   lstAbi,
   netOfVault,
-  redeemToEvmIx,
   setEvmAddressIx,
   vaultAbi,
   withHeadroom,
@@ -373,7 +373,7 @@ export async function freshenYield(
     // The keeper normally applies an arrived report; if it has not within a moment, the relay does.
     if (s.bridge.lastYieldSeq > s.bridge.appliedYieldSeq && Date.now() - lastApply > 15_000) {
       lastApply = Date.now();
-      await ethCall("apply-yield", ctx, { vault, id: id.toString() }).catch(() => undefined);
+      await applyYieldNow(ctx, vault, id).catch(() => undefined);
     }
   }
   onStatus?.(null);
@@ -400,14 +400,90 @@ export async function takeEthAdvance(ctx: Pick<EthCtx, "signer" | "getToken">, v
   return getChain().sendSigned(await ctx.signer.signTransaction(tx));
 }
 
-/** `redeem_to_evm`: redeems Gemas of one line of an ETH or HYPE Source and records the payout owed on its EVM chain. Then `send_pay_yield` delivers it. */
-export async function redeemToEvm(signer: ChainSigner, h: Pick<ChainHolding, "line" | "accounts" | "source" | "position">, gemas: bigint, vault: string) {
-  const { accounts, create } = await sourceAccounts(getChain().base, h.source, h.accounts, signer.publicKey);
-  return getChain().sendBase(signer, [...create, redeemToEvmIx(signer.publicKey, h.position, h.source, gemas, vault, { line: h.line, accounts })]);
+// ---- Bridge steps in the Player's own sponsored transaction (keeper diet ticket 15) -----------------------------
+
+type StepCtx = Pick<EthCtx, "signer" | "getToken">;
+const quoteFor = (ctx: StepCtx, vault: string, kind: "unlock" | "yield" | "instant") => ethCall<SendQuote>("send-quote", ctx, { vault, intent: kind });
+
+/** `apply_yield`: lands a Yield Report that arrived on Solana. Nobody signs it; the relayer pays. A no-op when nothing is due. */
+export async function applyYieldNow(ctx: StepCtx, vault: string, id: bigint): Promise<string | null> {
+  const base = getChain().base;
+  const state = await fetchEthState(base, vault, id, ctx.signer.publicKey);
+  if (!yieldDue(state) || !state.core) return null;
+  return sendBridgeGroups(ctx.signer, ctx.getToken, async (payer, sponsored) => {
+    return applyYieldGroups({ sponsored, vault, id, plan: await planApplyYield(base, vault, id, state.core!.openAdvance, payer) });
+  });
 }
 
-/** Debt must be zero on chain. Then `send_unlock` releases the Principal on the vault's chain. The Position's open Advance is closed here. */
-export async function unlockEth(signer: ChainSigner, position: PublicKey, openAdvance: number | null = null) {
-  const { prev, create } = await prevAdvanceOf(getChain().base, position, openAdvance, signer.publicKey);
-  return getChain().sendBase(signer, [...create, coreUnlockIx(signer.publicKey, position, prev)]);
+/** `apply_locked`: the Lock that arrived from the EVM chain becomes a Position on Solana, so the Advance can follow. Idempotent. */
+export async function finishOpening(ctx: StepCtx, vault: string, id: bigint): Promise<string | null> {
+  const base = getChain().base;
+  const state = await fetchEthState(base, vault, id, ctx.signer.publicKey);
+  if (state.core) return null;
+  if (!state.bridge || state.bridge.lastInSeq === 0n) throw new Error("Still crossing chains. This continues automatically.");
+  const ownerAccount = await linkedAccount(base, state.bridge.ownerEvm);
+  if (!ownerAccount) throw new Error("This wallet is not linked to an Account yet.");
+  return sendBridgeGroups(ctx.signer, ctx.getToken, async (payer) => openingGroups({ payer, vault, id, ownerEvm: state.bridge!.ownerEvm, ownerAccount }));
+}
+
+/** Sends the Unlock message of a Position that is unlocked on Solana (the Unlock transaction went through but the send did not). */
+export async function finishUnlock(ctx: StepCtx, vault: string, id: bigint): Promise<string | null> {
+  const state = await fetchEthState(getChain().base, vault, id, ctx.signer.publicKey);
+  if (!state.bridge || state.bridge.unlockSent) return null;
+  if (state.core?.status !== "unlocked") throw new Error("Unlock the Lock on Solana first.");
+  const quote = await quoteFor(ctx, vault, "unlock");
+  return sendBridgeGroups(ctx.signer, ctx.getToken, async (payer) => sendGroups({ payer, vault, id, kind: "unlock", quote }));
+}
+
+/** Sends the payout of a recorded Claim (Redeem) or Instant Claim (Instant Redeem) that has not gone out in full. */
+export async function finishPayout(ctx: StepCtx, vault: string, id: bigint, kind: "yield" | "instant", sourceIndex: number): Promise<string | null> {
+  const state = await fetchEthState(getChain().base, vault, id, ctx.signer.publicKey, sourceIndex);
+  const claim = kind === "yield" ? state.claim : state.instantClaim;
+  if (!claim || claim.unitsSent >= claim.unitsTotal) return null;
+  if (!state.holderEvm) throw new Error("Link your wallet to an Account first.");
+  const quote = await quoteFor(ctx, vault, kind);
+  const player = ctx.signer.publicKey;
+  return sendBridgeGroups(ctx.signer, ctx.getToken, async (payer) => sendGroups({ payer, vault, id, kind, player, holderEvm: state.holderEvm!, sourceIndex, quote }));
+}
+
+/** `redeem_to_evm`: redeems Gemas of one line of an ETH or HYPE Source and records the payout owed on its EVM chain, and `send_pay_yield` delivers it in the same transaction. */
+export async function redeemToEvm(ctx: StepCtx, ref: { vault: string; id: bigint; sourceIndex: number }, h: Pick<ChainHolding, "line" | "accounts" | "source" | "position">, gemas: bigint) {
+  const base = getChain().base;
+  const me = ctx.signer.publicKey;
+  const [state, lamports, quote] = await Promise.all([fetchEthState(base, ref.vault, ref.id, me, ref.sourceIndex), base.getBalance(me), quoteFor(ctx, ref.vault, "yield")]);
+  if (!state.holderEvm) throw new Error("Link your wallet to an Account first.");
+  return sendBridgeGroups(ctx.signer, ctx.getToken, async (payer, sponsored) => {
+    const { accounts, create } = await sourceAccounts(base, h.source, h.accounts, payer);
+    const applyYield = yieldDue(state) && state.core ? await planApplyYield(base, ref.vault, ref.id, state.core.openAdvance, payer) : null;
+    return redeemGroups({
+      payer,
+      sponsored,
+      player: me,
+      vault: ref.vault,
+      id: ref.id,
+      position: h.position,
+      source: h.source,
+      sourceIndex: ref.sourceIndex,
+      gemas,
+      target: { line: h.line, accounts },
+      create,
+      holderEvm: state.holderEvm!,
+      claimExists: !!state.claim,
+      playerLamports: BigInt(lamports),
+      applyYield,
+      quote,
+    });
+  });
+}
+
+/** Debt must be zero on chain. `unlock` and `send_unlock` travel together: the vault releases the Principal (less the Delivery Fee). The Position's open Advance is closed here. */
+export async function unlockEth(ctx: StepCtx, ref: { vault: string; id: bigint; position: PublicKey; openAdvance: number | null }) {
+  const base = getChain().base;
+  const me = ctx.signer.publicKey;
+  const [state, quote] = await Promise.all([fetchEthState(base, ref.vault, ref.id, me), quoteFor(ctx, ref.vault, "unlock")]);
+  return sendBridgeGroups(ctx.signer, ctx.getToken, async (payer, sponsored) => {
+    const { prev, create } = await prevAdvanceOf(base, ref.position, ref.openAdvance, payer);
+    const applyYield = yieldDue(state) ? await planApplyYield(base, ref.vault, ref.id, ref.openAdvance, payer) : null;
+    return unlockGroups({ payer, sponsored, player: me, vault: ref.vault, id: ref.id, position: ref.position, open: prev ? { ...prev, create } : null, applyYield, quote });
+  });
 }

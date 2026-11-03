@@ -124,6 +124,12 @@ export function redeemGroups(o: RedeemInput): Groups {
   return [[...rent, ...apply, redeem, send]];
 }
 
+/** `apply_yield` alone: lands a Yield Report that arrived. Nobody signs it. */
+export function applyYieldGroups(o: { sponsored: boolean; vault: string; id: bigint; plan: ApplyYieldPlan }): Groups {
+  if (o.sponsored && o.plan.create.length > 0) throw needsSetup();
+  return [[...o.plan.create, yieldGroup(o, o.plan)]];
+}
+
 /** The send alone, for a transfer whose Unlock or Redeem is recorded on Solana and whose message has not gone out. */
 export function sendGroups(o: { payer: PublicKey; vault: string; id: bigint } & ({ kind: "unlock"; quote: SendQuote } | { kind: "yield" | "instant"; player: PublicKey; holderEvm: string; sourceIndex: number; quote: SendQuote })): Groups {
   const pid = ethPositionId(o.vault, o.id);
@@ -144,7 +150,8 @@ export async function linkedAccount(conn: { getAccountInfo(k: PublicKey): Promis
 
 /**
  * Sends `build`'s groups: as one transaction the relayer pays when the sponsor accepts, else each group alone from the Player's own SOL
- * (topped up on the test cluster). A refusal that is not a "pay it yourself" one is thrown. Returns the first signature.
+ * (topped up on the test cluster). A refusal that is not a "pay it yourself" one is thrown. Returns the signature of the last transaction,
+ * the one that carries the send.
  */
 export async function sendBridgeGroups(signer: ChainSigner, getToken: GetToken, build: Build): Promise<string> {
   if (signer.signSerialized) {
@@ -157,10 +164,7 @@ export async function sendBridgeGroups(signer: ChainSigner, getToken: GetToken, 
   }
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
   const groups = await build(signer.publicKey, false);
-  let first = "";
-  for (const group of groups) {
-    const sig = await getChain().sendBase(signer, group);
-    first ||= sig;
-  }
-  return first;
+  let last = "";
+  for (const group of groups) last = await getChain().sendBase(signer, group);
+  return last;
 }
