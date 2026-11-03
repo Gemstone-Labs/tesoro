@@ -3,7 +3,7 @@ import { Budget, log, type Ctx } from "./act.ts";
 import { AlertManager, alertConfig, postAlert } from "./alerts.ts";
 import { balanceCheck, fileBalanceStore, sponsorMinLamports, sponsorWatches } from "./balance-check.ts";
 import { keeperCluster } from "./cluster.ts";
-import { heartbeatFrom } from "./heartbeat.ts";
+import { heartbeatFrom, HEARTBEAT_ENV } from "./heartbeat.ts";
 import { stateDir } from "./history.ts";
 import { join } from "node:path";
 import { KEEPER_CLI_FLAGS, exitOnUnknownFlag } from "./cli-args.ts";
@@ -23,7 +23,7 @@ const USAGE = "Usage: table-pool-repair-cli [--dry-run] [--rpc <url>] [--gpa-rpc
 
 async function main() {
   exitOnUnknownFlag(process.argv.slice(2), KEEPER_CLI_FLAGS, USAGE);
-  const heartbeat = heartbeatFrom("POOL_HEARTBEAT_URL");
+  const heartbeat = heartbeatFrom(HEARTBEAT_ENV.pool);
   const s = settings();
   try {
     await run(s, heartbeat);
