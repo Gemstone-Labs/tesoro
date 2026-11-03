@@ -9,7 +9,7 @@ use litesvm::LiteSVM;
 use solana_program_runtime::declare_process_instruction;
 use solana_sdk::pubkey::Pubkey;
 
-declare_process_instruction!(AcceptAnything, 0, |_invoke_context| { Ok(()) });
+declare_process_instruction!(AcceptAnything, 1, |_invoke_context| { Ok(()) });
 
 fn address(id: ephemeral_rollups_sdk::compat::Pubkey) -> Pubkey {
     Pubkey::new_from_array(id.to_bytes())
