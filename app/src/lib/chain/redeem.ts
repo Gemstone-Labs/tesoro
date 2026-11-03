@@ -94,7 +94,7 @@ const tokenOf = (mint: PublicKey | null | undefined): StakeToken | null => {
   return token;
 };
 
-/** The stake pool update in front of a staking-token payout, when the pool is too far behind (a Player pays its fee, so the exit is not free then). */
+/** The stake pool update in front of a staking-token payout, when the pool is too far behind. The sponsor admits it (rules.ts), so the exit stays free. */
 const poolRefreshFor = (token: StakeToken | null): Promise<TransactionInstruction[]> => (token ? stakePoolRefreshIxs(getChain().base, token.pool) : Promise.resolve([]));
 
 /** The instruction that creates the holder's simSOL or staking-token account, or nothing when it exists (then the exit can be free). */

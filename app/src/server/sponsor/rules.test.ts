@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BN } from "@coral-xyz/anchor";
 import { SystemProgram, ComputeBudgetProgram, PublicKey } from "@solana/web3.js";
@@ -6,6 +8,8 @@ import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, gameStepIx,
 import { matchIndexOf, stepSlots } from "./game-steps";
 import { CORE_ID, GAME_STEPS, ORDER_RENT, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
 import { GAME_IDS } from "@/lib/chain/games";
+import { JITOSOL, redeemStakeIx, unlockStakeIx } from "@/lib/chain/stake";
+import { createAtaIdempotentIx, updateStakePoolBalanceIx } from "@/lib/chain/stake-pool";
 
 const relayer = key();
 const player = key();
@@ -424,5 +428,66 @@ describe("Block Burst Live (ticket 28)", () => {
       refusedFor([{ ...fin, data: new Uint8Array([...GAME_STEPS.finalize.disc, 1]) }], "relayer-in-accounts");
       refusedFor([fin, fin], "relayer-in-accounts");
     });
+  });
+});
+
+describe("stake pool update in front of a staking-token payout", () => {
+  const livePool = readFileSync(join(__dirname, "../../../../programs/tesoro_core/tests/fixtures/jito_pool.bin"));
+  const update = (pool = JITOSOL.pool) => updateStakePoolBalanceIx(pool, { data: livePool, owner: JITOSOL.poolProgram }) as Ix;
+  const position = key();
+  const unlock = () => unlockStakeIx(player, position, null, JITOSOL) as Ix;
+  const ata = () => createAtaIdempotentIx(relayer, player, JITOSOL.mint) as Ix;
+
+  it("is admitted before an Unlock of the Player's staking-token Position, as an exit", () => {
+    const p = plan([update(), unlock()]);
+    expect(p).toMatchObject({ kind: "core", class: "exit", names: ["update_stake_pool", "unlock"], playerSigns: true });
+    expect(p.setup?.poolUpdate?.toBase58()).toBe(JITOSOL.pool.toBase58());
+    expect(p.cu).toBeGreaterThan(plan([unlock()]).cu);
+    expect(p.spend).toEqual({ refundable: 0n, sunk: 0n });
+  });
+  it("is admitted with the payout token account in between", () => {
+    const p = plan([update(), ata(), unlock()]);
+    expect(p.names).toEqual(["update_stake_pool", "payout_ata", "unlock"]);
+    expect(p.setup?.ata?.mint.toBase58()).toBe(JITOSOL.mint.toBase58());
+    expect(p.setup?.poolUpdate).toBeTruthy();
+  });
+  it("is admitted before a staking-token Redeem", () => {
+    const source = key();
+    const redeem = redeemStakeIx(player, position, source, 1n, { line: { side: 1, dueAt: 9n, class: 3, tranche: 0 }, accounts: [] }, JITOSOL) as Ix;
+    expect(plan([update(), redeem]).names).toEqual(["update_stake_pool", "redeem"]);
+  });
+
+  it("is refused for a pool that is not one of our staking tokens'", () => {
+    refused([update(key()), unlock()], "bad-account");
+  });
+  it("is refused when the payout does not use that pool", () => {
+    const other = key();
+    const ix = unlock();
+    ix.keys = ix.keys.map((k) => (k.pubkey.equals(JITOSOL.pool) ? { ...k, pubkey: other } : k));
+    refused([update(), ix], "bad-account");
+  });
+  it("is refused with any extra account, signer, writable change or other data", () => {
+    const withKeys = (f: (u: Ix) => void) => {
+      const u = update();
+      f(u);
+      return [u, unlock()];
+    };
+    refused(withKeys((u) => u.keys.push({ pubkey: key(), isSigner: false, isWritable: false })), "bad-accounts");
+    refused(withKeys((u) => (u.keys[6] = { ...u.keys[6], isWritable: true })), "bad-flags");
+    refused(withKeys((u) => (u.keys[5] = { ...u.keys[5], isWritable: false })), "bad-flags");
+    refused(withKeys((u) => (u.keys[3] = { ...u.keys[3], isSigner: true })), "bad-flags");
+    refused(withKeys((u) => (u.data = Buffer.from([7, 0]))), "bad-shape");
+    refused(withKeys((u) => (u.data = Buffer.from([8]))), "bad-shape");
+  });
+  it("is refused for another program under the stake pool program's data, or the wrong withdraw authority", () => {
+    const u = update();
+    u.keys[1] = { ...u.keys[1], pubkey: key() };
+    refused([u, unlock()], "bad-account");
+  });
+  it("is refused alone, twice, not first, or before anything but an Unlock or Redeem", () => {
+    refused([update()], "unknown-program");
+    refused([update(), update(), unlock()], "bad-shape");
+    refused([unlock(), update()], "bad-shape");
+    refused([update(), ata()], "bad-shape");
   });
 });
