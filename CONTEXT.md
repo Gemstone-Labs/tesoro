@@ -174,7 +174,7 @@ _Avoid_: whitelist, verification, certification
 ### Railcar
 
 **Railcar**:
-A Game in which 5 to 100 Players ride one car toward a wall at a hidden distance and choose when to Jump. The last three Players off before Impact each get their entry back, then share the rest of the Pot 60/25/15 (two Players off: 70/30; one: all of it). Players still aboard at Impact lose their entry; if nobody Jumps, every entry is refunded. Screens may call a Railcar Match a "ride".
+A Game in which 5 to 100 Players, each with an entry of 500 Gemas, ride one car toward a wall at a hidden distance and choose when to Jump. Railcar has one Queue. The last three Players off before Impact each get their entry back, then share the rest of the Pot 60/25/15 (two Players off: 70/30; one: all of it). Players still aboard at Impact lose their entry; if nobody Jumps, every entry is refunded. Screens may call a Railcar Match a "ride".
 _Avoid_: round, crash game, bet
 
 **Boarding**:
@@ -190,7 +190,7 @@ A warning the car gives as the wall nears: screws pop, then a bolt and a rattlin
 _Avoid_: signal, hint, clue
 
 **Brake**:
-A Player's one action per Railcar Match besides Jumping, usable only while aboard: it halves the car's speed for 5 seconds for everyone. A Brake during another extends it rather than doubling it. Distances, Tells and the Early-jump refund all move with the car, so braking changes when they arrive, not where.
+A Player's one action per Railcar Match besides Jumping, usable only while aboard: it halves the car's speed for 5 seconds for everyone. A Brake pressed during another adds 5 more seconds at half speed; the car never goes slower than half speed. Distances, Tells and the Early-jump refund all move with the car, so braking changes when they arrive, not where.
 _Avoid_: power-up, boost
 
 **Jump**:
