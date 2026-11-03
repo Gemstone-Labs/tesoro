@@ -171,7 +171,7 @@ class Fake {
   tables = new Map<number, FakeTable>();
   sponsor: TableRow["base"] = "delegated";
   fuel: TableRow["base"] = "delegated";
-  sponsorBalance: number | null = 50_000_000;
+  sponsorBalance: number | null = 200_000_000;
   refillFails = false;
   refilled: bigint[] = [];
   refundFails = false;
