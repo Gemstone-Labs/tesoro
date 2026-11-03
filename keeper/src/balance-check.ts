@@ -26,8 +26,12 @@ export async function balanceCheck(o: {
   const prev = o.load();
   if (prev && o.now - prev.checkedAt < (o.everyMs ?? BALANCE_CHECK_EVERY_MS)) return { ran: false, low: 0 };
   const manager = o.manager(prev?.manager ?? { open: {}, recovering: {} });
-  const low = lowBalances(await readBalances(o.watches, o.read));
-  await manager.update(low, o.now);
+  const readings = await readBalances(o.watches, o.read);
+  const low = lowBalances(readings);
+  // A balance that could not be read keeps its open alert: an RPC blip is not a recovery.
+  const unread = o.watches.filter((w) => !readings.some((r) => r.key === w.key));
+  const carried = unread.flatMap((w) => (prev?.manager.open[w.key] ? [{ key: w.key, title: prev.manager.open[w.key].title, detail: prev.manager.open[w.key].detail }] : []));
+  await manager.update([...low, ...carried], o.now);
   o.save({ checkedAt: o.now, manager: manager.state() });
   return { ran: true, low: low.length };
 }
