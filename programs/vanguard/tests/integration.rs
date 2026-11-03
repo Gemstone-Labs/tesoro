@@ -6786,6 +6786,51 @@ fn the_resolve_that_ends_the_match_commits_the_result_and_wipes_the_seats() {
         .expect("reset without a separate commit or wipe");
 }
 
+/// The Sponsor holds only its rent-exempt minimum: it cannot pay for a commit.
+fn dry_sponsor(env: &mut Env) {
+    let key = s(sponsor_addr());
+    let mut acct = env.svm.get_account(&key).expect("sponsor");
+    acct.lamports = env.svm.minimum_balance_for_rent_exemption(acct.data.len());
+    env.svm.set_account(key, acct).expect("dry sponsor");
+}
+
+fn refill_sponsor(env: &mut Env) {
+    let key = s(sponsor_addr());
+    let mut acct = env.svm.get_account(&key).expect("sponsor");
+    acct.lamports += 1_000_000_000;
+    env.svm.set_account(key, acct).expect("refill sponsor");
+}
+
+#[test]
+fn an_empty_sponsor_does_not_stop_the_instruction_that_ends_the_match() {
+    let mut env = ready();
+    dry_sponsor(&mut env);
+    env.open_setup();
+    let bob = env.bob.kp.insecure_clone();
+    env.set_time(env.battle().entropy_deadline + 1);
+    env.claim_timeout(&bob)
+        .expect("anyone cancels, even with a dry Sponsor");
+    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    let t = env.table();
+    assert!(
+        t.dirty && t.commit.tries == 0,
+        "the result waits for a commit"
+    );
+    assert!(!t.seats_open, "the seats are wiped regardless");
+    assert!(
+        env.last_logs.iter().any(|l| l.contains("sponsor-dry")),
+        "the move says why"
+    );
+    refill_sponsor(&mut env);
+    let ixn = env.commit_ix();
+    env.rollup(ixn).expect("commit after the refill");
+    let t = env.table();
+    assert!(!t.dirty && t.commit.tries == 1);
+    env.set_time(env.now + vanguard::RESET_DELAY_SECS);
+    let ixn = env.reset_ix();
+    env.rollup(ixn).expect("reset after the commit");
+}
+
 #[test]
 fn a_cancelled_setup_commits_and_wipes_too() {
     let mut env = ready();

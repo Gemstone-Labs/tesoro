@@ -10,6 +10,20 @@ use ephemeral_rollups_sdk::ephem::{FoldableIntentBuilder, MagicIntentBundleBuild
 
 pub const FEE_VAULT_SEED: &[u8] = b"magic-fee-vault";
 
+/// What one Sponsor-paid commit needs the Sponsor to hold above its rent-exempt minimum: the rollup charges 100,000 lamports
+/// per commit after a delegated payer's free ones.
+pub const COMMIT_COST_LAMPORTS: u64 = 100_000;
+
+/// Whether the Sponsor can pay for a commit now. A Match-ending move checks this before it sends the commit: a CPI error cannot
+/// be caught, so an empty Sponsor would revert the last move and strand the Match; instead the move ends the Match and leaves
+/// the table Over and uncommitted (`dirty`) for the permissionless `commit_table` or the next `begin_match` once it is refilled.
+pub fn sponsor_can_commit(sponsor: &AccountInfo) -> bool {
+    let rent = Rent::get()
+        .map(|r| r.minimum_balance(sponsor.data_len()))
+        .unwrap_or(0);
+    sponsor.lamports() >= rent.saturating_add(COMMIT_COST_LAMPORTS)
+}
+
 /// The magic fee vault of `validator`.
 pub fn fee_vault_address(validator: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[FEE_VAULT_SEED, validator.as_ref()], &DELEGATION_PROGRAM).0
