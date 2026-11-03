@@ -8,7 +8,6 @@ import { evmRoutesToFund, fundEvmPrizes, kindsOf, planBatches, planPayouts, rout
 import { accountBytes, batchBytes, bookBytes, chainOf, payoutBytes, routeBytes } from "./fixtures.ts";
 import { bookOf, configAddress, economyAddress } from "./kit.ts";
 import { MSG } from "./msg-types.ts";
-import { MSG } from "./msg-types.ts";
 import { BRIDGE } from "./lz.ts";
 import { loadIdl } from "./runtime.ts";
 import type { Info } from "./supply.ts";
