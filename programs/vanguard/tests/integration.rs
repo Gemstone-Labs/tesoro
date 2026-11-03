@@ -253,6 +253,8 @@ struct Env {
     mref: Option<flow::MatchRef>,
     now: i64,
     last_cu: u64,
+    /// The logs of the latest transaction, sent or refused.
+    last_logs: Vec<String>,
     last_logs: Vec<String>,
     /// The compute of the last declare and the last resolve of `mv` and `claim_timeout`.
     declare_cu: u64,
@@ -282,11 +284,13 @@ impl Env {
         match self.svm.send_transaction(tx) {
             Ok(meta) => {
                 self.last_cu = meta.compute_units_consumed;
+                self.last_logs = meta.logs.clone();
                 self.last_logs = meta.logs;
                 Ok(())
             }
             Err(e) => {
                 self.last_cu = e.meta.compute_units_consumed;
+                self.last_logs = e.meta.logs.clone();
                 self.last_logs = e.meta.logs.clone();
                 Err(e)
             }
@@ -526,6 +530,7 @@ impl Env {
             mref: None,
             now: T0,
             last_cu: 0,
+            last_logs: Vec::new(),
             last_logs: vec![],
             declare_cu: 0,
             resolve_cu: 0,

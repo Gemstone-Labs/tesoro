@@ -184,6 +184,8 @@ struct Env {
     nonce: u64,
     now: i64,
     last_cu: u64,
+    /// The logs of the latest transaction, sent or refused.
+    last_logs: Vec<String>,
 }
 
 impl Env {
@@ -205,10 +207,12 @@ impl Env {
         match self.svm.send_transaction(tx) {
             Ok(meta) => {
                 self.last_cu = meta.compute_units_consumed;
+                self.last_logs = meta.logs.clone();
                 Ok(())
             }
             Err(e) => {
                 self.last_cu = e.meta.compute_units_consumed;
+                self.last_logs = e.meta.logs.clone();
                 Err(e)
             }
         }
@@ -415,6 +419,7 @@ impl Env {
             nonce: 10,
             now: T0,
             last_cu: 0,
+            last_logs: Vec::new(),
         };
         for k in [&env.admin, &env.oracle, &env.ctl, &env.operator] {
             env.svm.airdrop(&k.pubkey(), 1_000 * SOL).expect("airdrop");
