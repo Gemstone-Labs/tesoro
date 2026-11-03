@@ -18,6 +18,8 @@ import { supabaseInviteStore } from "../invite/supabase-store";
 import { MemoryUsageStore, type UsageStore } from "./store";
 import { supabaseUsageStore } from "./supabase-store";
 import { sendConfirmed } from "./chain-send";
+import { Assigner, MemoryLeaseStore } from "./assign";
+import { supabaseClaimTable, supabaseLeaseStore, supabasePoolTables } from "./table-pool";
 
 const LAMPORTS = 1_000_000_000n;
 const coder = new BorshAccountsCoder(coreIdl as unknown as Idl);
@@ -116,6 +118,7 @@ export function sponsor(): Sponsor {
     },
     // A sponsored new Account while the Invite gate is on is co-signed with the Invite key, for a wallet that redeemed an Invite.
     invite: inviteFromEnv(),
+    assigner: assignerFromEnv(),
     alertOnboarding: async (used, max) => {
       const sender = senderFromEnv();
       const to = alertRecipients(process.env.ALERT_EMAILS);
@@ -125,6 +128,23 @@ export function sponsor(): Sponsor {
     now: () => Date.now(),
   });
   return instance;
+}
+
+/**
+ * Joins arrive with their table assigned when TESORO_TABLE_OPERATOR_SECRET_KEY holds the Table operator of the Games (base58 or
+ * a JSON byte array): the key `set_config` named as `TableConfig.operator`, which is the keeper's key unless that was changed.
+ * Tables come from the pool in Supabase (`table_pool`, kept by the server and repaired by the keeper), so without Supabase there is nothing to assign from.
+ */
+function assignerFromEnv(): Assigner | undefined {
+  if (!process.env.TESORO_TABLE_OPERATOR_SECRET_KEY) return undefined;
+  const hosted = !!process.env.SUPABASE_URL;
+  return new Assigner({
+    operator: inviteKeypair(process.env.TESORO_TABLE_OPERATOR_SECRET_KEY, "TESORO_TABLE_OPERATOR_SECRET_KEY"),
+    leases: hosted ? supabaseLeaseStore : new MemoryLeaseStore(),
+    tables: async (game) => (hosted ? supabasePoolTables(game) : []),
+    claim: hosted ? supabaseClaimTable : undefined,
+    now: () => Date.now(),
+  });
 }
 
 function inviteFromEnv(): { key: Keypair; redeemed(authority: string): Promise<boolean> } | undefined {

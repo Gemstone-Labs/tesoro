@@ -1,3 +1,4 @@
+import { noteError } from "./errors.ts";
 import anchor from "@coral-xyz/anchor";
 import { PublicKey, type AccountMeta, type Keypair } from "@solana/web3.js";
 import { act, log, type Ctx } from "./act.ts";
@@ -157,7 +158,7 @@ export async function batchJob(ctx: Ctx, d: BatchDeps): Promise<number> {
       else if (step.kind === "close") actions += +(await act(ctx, "batches", subject, "close_batch (every entry acknowledged)", () => d.send([closeBatchIx(b)], {}))).ok;
       else actions += await sendBatch(ctx, d, b, subject);
     } catch (e) {
-      log("batches", subject, `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+      noteError("batches", subject, e);
     }
   }
 
@@ -172,7 +173,7 @@ export async function batchJob(ctx: Ctx, d: BatchDeps): Promise<number> {
         actions += +(await act(ctx, "batches", subject, `refund_prize_payout (the vault rejected it: ${p.gemas} Gemas back to the holder)`, () => d.send([ix], { units: 300_000 }))).ok;
       } else actions += await sendPayout(ctx, d, p, subject);
     } catch (e) {
-      log("batches", subject, `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+      noteError("batches", subject, e);
     }
   }
   log("batches", "-", `${routes.length} route(s), ${batches.length} batch(es), ${payouts.length} payout(s), ${actions} action(s), LayerZero fees ${(ctx.lz.spentLastHour() / 1e9).toFixed(5)} SOL this hour`);

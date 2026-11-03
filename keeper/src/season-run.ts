@@ -5,6 +5,7 @@ import { batchesJob } from "./batches.ts";
 import { makeScanRpc, scanProgramAccounts } from "./credits.ts";
 import { harvestJob } from "./counters.ts";
 import { CORE_ID } from "./kit.ts";
+import { failuresSince, failureMark } from "./errors.ts";
 import { discriminatorOf } from "./lists.ts";
 import { poolJob } from "./pools.ts";
 import { solanaFetch } from "./runtime.ts";
@@ -23,6 +24,8 @@ export type StepName = (typeof STEP_ORDER)[number];
 export interface StepResult {
   actions: number;
   pending: boolean;
+  /** Sources whose action failed this pass and were left for the next Season's run. */
+  skipped?: string[];
 }
 
 export type Steps = Record<StepName, () => Promise<StepResult>>;
@@ -61,12 +64,31 @@ export function stepsDue(nowSecs: number): StepName[] {
   return nowSecs < start + PAY_AFTER_SECS ? STEP_ORDER.filter((s) => s !== "pay") : [...STEP_ORDER];
 }
 
+/**
+ * Holds a step to "0 errors". A failure that belongs to no Source throws, so the run stops there and resumes at that step.
+ * When every failure names a Source, one bad Source cannot hold up the payout: the step finishes with those Sources
+ * in `skipped`. A skipped Source keeps its counters (nothing moved), so the next week's run harvests them into the next
+ * Season's prize; the frozen budget of this Season is unaffected.
+ */
+export function failOnErrors(steps: Steps): Steps {
+  const wrap = (run: () => Promise<StepResult>) => async (): Promise<StepResult> => {
+    const mark = failureMark();
+    const r = await run();
+    const failed = failuresSince(mark);
+    if (failed.some((f) => !f.source)) throw new Error(`${failed.length} action(s) failed`);
+    return failed.length ? { ...r, skipped: [...new Set(failed.map((f) => f.source!))] } : r;
+  };
+  return Object.fromEntries(STEP_ORDER.map((n) => [n, wrap(steps[n])])) as Steps;
+}
+
 export interface RunReport {
   season: number;
   /** Steps that finished in this run. */
   finished: StepName[];
   /** Steps finished in this or an earlier run this week. */
   done: StepName[];
+  /** Sources a step skipped because their action failed: to alert on, they roll into the next Season. */
+  skipped: { step: StepName; source: string }[];
   /** The step that stopped the run (failed or still had work after its passes); null when everything due is done. */
   stoppedAt: StepName | null;
 }
@@ -80,7 +102,7 @@ export async function seasonRun(nowSecs: number, steps: Steps, store: StateStore
   const season = seasonAt(nowSecs);
   const saved = store.load();
   const state: RunState = { season, done: saved && saved.season === season ? [...saved.done] : [], empty: saved?.empty ?? [] };
-  const report: RunReport = { season, finished: [], done: state.done, stoppedAt: null };
+  const report: RunReport = { season, finished: [], done: state.done, stoppedAt: null, skipped: [] };
   /** Saves, keeping the empty Seasons a step recorded meanwhile. */
   const save = () => {
     state.empty = [...new Set([...state.empty, ...(store.load()?.empty ?? [])])];
@@ -93,6 +115,10 @@ export async function seasonRun(nowSecs: number, steps: Steps, store: StateStore
       for (let pass = 1; pass <= maxPasses && !finished; pass++) {
         const r = await steps[name]();
         finished = !r.pending;
+        for (const source of r.skipped ?? []) {
+          if (!report.skipped.some((x) => x.step === name && x.source === source)) report.skipped.push({ step: name, source });
+          log("season-run", name, `ALERT source=${source} skipped: its action failed; its share rolls into the next Season`);
+        }
         log("season-run", name, `pass ${pass}: ${r.actions} action(s)${finished ? ", done" : ", more to do"}`);
       }
     } catch (e) {
@@ -133,7 +159,7 @@ export function realSteps(ctx: Ctx, store: StateStore, d: SeasonDeps = realSeaso
     }
     return { actions: r.actions, pending: r.pending.length > 0 };
   };
-  return {
+  return failOnErrors({
     settle: async () => counted(await settleMatches(ctx, await settlingViews(ctx))),
     redeem: async () => counted(await treasuryJob(ctx)),
     harvest: async () => counted(await harvestJob(ctx)),
@@ -141,7 +167,7 @@ export function realSteps(ctx: Ctx, store: StateStore, d: SeasonDeps = realSeaso
     pools: async () => counted(await poolJob(ctx)),
     record: () => pass(false),
     pay: () => pass(true),
-  };
+  });
 }
 
 /** A RunState kept in a JSON file; a missing or unreadable file is no state. */

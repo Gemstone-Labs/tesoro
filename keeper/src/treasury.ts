@@ -1,3 +1,4 @@
+import { noteError } from "./errors.ts";
 import { PublicKey, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 import { act, log, type Ctx } from "./act.ts";
 import { RETRY_MS, due, nextTry } from "./counters.ts";
@@ -107,7 +108,7 @@ export async function treasuryJob(ctx: Ctx, d: TreasuryDeps = realTreasuryDeps(c
       }
       actions += +(await act(ctx, "treasury", subject, `${build.what} ${best} of ${line.amount} Gemas`, async () => d.send(await build.ixs(best), { units: 600_000 }))).ok;
     } catch (e) {
-      log("treasury", subject, `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+      noteError("treasury", subject, e);
     }
   }
   log("treasury", "-", `${lines.length} line(s) in the Treasury Account, ${plan.length} tried, ${actions} redeemed`);

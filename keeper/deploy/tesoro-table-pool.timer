@@ -1,0 +1,11 @@
+[Unit]
+Description=Tesoro table pool repair, every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+AccuracySec=30s
+Persistent=false
+Unit=tesoro-table-pool.service
+
+[Install]
+WantedBy=timers.target

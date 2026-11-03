@@ -1,4 +1,5 @@
 import type { PublicKey } from "@solana/web3.js";
+import { noteError } from "./errors.ts";
 import { decodeMatchRecords, innerInstructionsOf, type MatchChunkRecord } from "../../app/src/server/history/events.ts";
 import { CHUNK_STEPS, CHUNK_UNITS, closeIx, fullAccounts, loadMatch, viewOf, planChunk as planChunkShared, planSizedChunk as planSizedChunkShared, type ChunkPlan, type Core, type Loaded, type MatchView } from "../../app/src/lib/chain/settle-plan.ts";
 import { act, log, type Ctx } from "./act.ts";
@@ -158,7 +159,7 @@ export async function settleMatches(ctx: Ctx, views: MatchView[]): Promise<numbe
     try {
       actions += await driveMatch(ctx, v);
     } catch (e) {
-      log("settle", `match=${matchLabel(v.ref)}`, `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+      noteError("settle", `match=${matchLabel(v.ref)}`, e);
     }
   }
   return actions;

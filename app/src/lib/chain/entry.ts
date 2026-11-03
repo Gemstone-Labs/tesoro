@@ -43,7 +43,7 @@ import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
 import { protectionsPda } from "./native";
 import { matchOverflowPda } from "./overflow";
-import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
+import { SponsorError, assignedSend, sponsorStatus, sponsoredSend } from "./sponsor-client";
 
 export { DrawError };
 
@@ -245,7 +245,7 @@ export async function sendEntryTx(
   signer: ChainSigner,
   getToken: GetToken,
   build: (payer: PublicKey, sponsored: boolean) => Promise<TransactionInstruction[]>,
-  opts: { sponsorable?: boolean } = {},
+  opts: { sponsorable?: boolean; assign?: boolean } = {},
 ): Promise<{ sig: string; sponsored: boolean }> {
   const relayer = opts.sponsorable === false ? null : await relayerKey();
   if (relayer && signer.signSerialized) {
@@ -258,7 +258,16 @@ export async function sendEntryTx(
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS).catch((e: DemoError) => {
     if (e.code !== "error") throw e;
   });
-  return { sig: await getChain().sendBase(signer, await build(signer.publicKey, false)), sponsored: false };
+  const own = await build(signer.publicKey, false);
+  // A join the Player pays for still arrives assigned when the server can; otherwise it travels alone and the keeper assigns.
+  if (opts.assign) {
+    try {
+      return { sig: await assignedSend(signer, getToken, own, (signed) => getChain().sendSignedRaw(signed)), sponsored: false };
+    } catch (e) {
+      if (!(e instanceof SponsorError)) throw e;
+    }
+  }
+  return { sig: await getChain().sendBase(signer, own), sponsored: false };
 }
 
 // ---- Match refs ------------------------------------------------------------------------------
@@ -277,9 +286,6 @@ export interface BackingRef {
   backerAccount: PublicKey;
 }
 
-const potNonce = () => BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000));
-export { potNonce };
-
 /** The pot of one side: a fresh address, or a complete Ticket. */
 export interface PotRef {
   address: PublicKey;
@@ -289,10 +295,19 @@ export interface PotRef {
   ticket: boolean;
 }
 
-export const freshPot = (funder: PublicKey, lines: number): PotRef => {
-  const nonce = potNonce();
-  return { address: ticketPda(funder, nonce), nonce, lines, ticket: false };
-};
+/** A fresh Pot at the funder's `next_ticket` (read it just before building: see `readNextTicket`). */
+export const freshPot = (funder: PublicKey, lines: number, nonce: bigint): PotRef => ({ address: ticketPda(funder, nonce), nonce, lines, ticket: false });
+
+/**
+ * The nonce the next Ticket or Pot of `funder` (the Account paying the entry: the Backer's for a backed one) must use.
+ * Read it right before the transaction is built and again on every retry: a second tab that got there first makes it stale.
+ */
+export async function readNextTicket(funder: PublicKey, conn: Pick<Connection, "getMultipleAccountsInfo"> = getChain().base): Promise<bigint> {
+  const [c] = await conn.getMultipleAccountsInfo([countersPda(funder)], "confirmed");
+  return nextTicketOf(c?.data);
+}
+
+export const freshPotNow = async (funder: PublicKey, lines: number): Promise<PotRef> => freshPot(funder, lines, await readNextTicket(funder));
 
 const backerAccounts = (b: BackingRef | undefined) =>
   b
