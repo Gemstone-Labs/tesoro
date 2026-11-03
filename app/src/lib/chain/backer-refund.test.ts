@@ -31,6 +31,11 @@ const match = (stage: string, deadline: number, joined: boolean) => ({
   },
 });
 
+const refundMatch = vi.hoisted(() => vi.fn());
+const fetchMatch = vi.hoisted(() => vi.fn());
+vi.mock("./match-flow", async (orig) => ({ ...(await orig<typeof import("./match-flow")>()), refundMatch }));
+vi.mock("./read", async (orig) => ({ ...(await orig<typeof import("./read")>()), fetchMatch }));
+
 const rows = { matches: [] as any[], requests: [] as any[], offers: [] as any[] };
 vi.mock("./client", () => {
   const chain = {
@@ -67,5 +72,28 @@ describe("the Backer's refund of a Match nobody joined", () => {
   it("is not offered once the Match is already refunding", async () => {
     rows.matches = [match("refunding", NOW - 10, false)];
     expect((await fetchBackingBoard()).offers[0].refundableMatchId).toBeNull();
+  });
+});
+
+describe("refunding as the Backer", () => {
+  it("sends the sponsored refund", async () => {
+    const { refundBackedMatch } = await import("./backing");
+    refundMatch.mockResolvedValueOnce("sig1");
+    expect(await refundBackedMatch({} as any, "m-1", async () => "t")).toBe("sig1");
+    expect(refundMatch).toHaveBeenCalledWith(expect.anything(), "m-1", expect.any(Function));
+  });
+
+  it("is not an error when the opener refunded first", async () => {
+    const { refundBackedMatch } = await import("./backing");
+    refundMatch.mockRejectedValueOnce(new Error("AccountNotInitialized"));
+    fetchMatch.mockResolvedValueOnce({ status: "refunded" });
+    expect(await refundBackedMatch({} as any, "m-1", async () => "t")).toBeNull();
+  });
+
+  it("is an error when the Match is still open and the refund failed", async () => {
+    const { refundBackedMatch } = await import("./backing");
+    refundMatch.mockRejectedValueOnce(new Error("network down"));
+    fetchMatch.mockResolvedValueOnce({ status: "open" });
+    await expect(refundBackedMatch({} as any, "m-1", async () => "t")).rejects.toThrow("network down");
   });
 });
