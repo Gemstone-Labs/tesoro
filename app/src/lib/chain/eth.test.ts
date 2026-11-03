@@ -1,7 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { weiToCoreUnits } from "./eth-units";
-import { finishLabel } from "./eth-track";
 import { sourcePda } from "./native";
 import {
   NETS,
@@ -29,7 +28,7 @@ import {
   type EthState,
   type SimRate,
 } from "./eth";
-import { opCopy, opProgress, opSteps, untrackedOpens, type EthOp } from "./eth-track";
+import { finishLabel, opCopy, opProgress, opSteps, untrackedOpens, type EthOp } from "./eth-track";
 
 const VAULT = "0x6c836b96464B5D1b55536d5a34D023528eaEe4bD";
 const rate: SimRate = { baseRate: 10n ** 18n, baseTime: 1_000n, apyBps: 500n, speedup: 4380n };
