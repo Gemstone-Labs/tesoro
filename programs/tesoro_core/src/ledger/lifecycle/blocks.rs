@@ -18,6 +18,7 @@ pub(crate) struct Credit {
     pub(crate) placement: u8,
 }
 
+#[inline(always)]
 pub(crate) fn placement(p: Placed) -> u8 {
     match p {
         Placed::Basket => 0,
@@ -76,12 +77,14 @@ pub(crate) fn back_step<B: PotBacking>(
     Ok(placed)
 }
 
+#[inline(always)]
 pub(crate) fn pot_of<B: PotBacking>(pots: &mut Pots<B>, side: u8) -> LcResult<&mut PotPages<B>> {
     pots[(side & 1) as usize]
         .as_mut()
         .ok_or(LifecycleError::Inconsistent("pot not supplied"))
 }
 
+#[inline(always)]
 pub(crate) fn emptied(l: &Line) -> Line {
     let mut z = *l;
     z.amount = 0;
