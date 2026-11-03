@@ -56,7 +56,7 @@ describe("Hold'em timeout claim", () => {
     vi.useFakeTimers();
     const idle = decodeTable(key, coder.decode("table", Buffer.from(fixture.idle_table, "hex")));
     const table = { ...idle, status: 1, tablePhase: 2, phase: 2, toAct: 0, deadline: Date.now() / 1000 - 10, ...over };
-    const assignment = { ...decodeAssignment(key, coder.decode("assignment", Buffer.from(fixture.assignment, "hex"))), generation: table.generation, index: table.index, epoch: table.epoch };
+    const assignment = { ...decodeAssignment(key, coder.decode("assignment", Buffer.from(fixture.assignment, "hex"))), generation: table.generation, index: table.index, epoch: table.epoch, tesoroMatch: table.tesoroMatch };
     return { table, assignment };
   }
   function drive() {
@@ -86,6 +86,7 @@ describe("Hold'em timeout claim", () => {
     mocks.fetchMatch.mockResolvedValue({ status: "active", seat: 1, deadline: Date.now() / 1000 + 600 });
     drive();
     await vi.advanceTimersByTimeAsync(0);
+    expect(readTable).toHaveBeenCalledTimes(2);
     expect(claimTimeout).not.toHaveBeenCalled();
   });
 });
