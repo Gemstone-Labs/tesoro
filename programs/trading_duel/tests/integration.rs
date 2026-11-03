@@ -2994,7 +2994,12 @@ fn begin_resets_a_finished_table_that_is_wiped_committed_and_thirty_seconds_old(
     assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(ResetTooEarly));
     env.set_time(over + trading_duel::RESET_DELAY_SECS);
     env.patch_table(|t| t.dirty = true);
+    // A result left uncommitted (the Sponsor was dry): a dry Sponsor cannot commit it, a refilled one does it in this call.
+    dry_sponsor(&mut env);
     assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(NotCommitted));
+    refill_sponsor(&mut env);
+    env.begin().expect("begin commits the result left uncommitted");
+    assert!(!env.table().dirty, "committed by begin");
     env.commit_standin();
     env.patch_table(|t| t.seats_open = true);
     assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(SeatsOpen));
