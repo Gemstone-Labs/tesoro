@@ -14,7 +14,7 @@ Four Games are live on the head-to-head path, `tesoro_core` is audited as it sta
 
 Keep the head-to-head path (two sides, the three-step settle, `MatchResult`) as it is, and add a second path in core for 2 to 100 seats with its own record, paged seats, boarding instructions and a game-agnostic result (per seat: a refund and a place share).
 
-Both paths share the code that moves Gemas: fee totals and the surplus after fees, the fee cut from a Pot line, the hand-out of a Pot line to a payee (an entry back, plain won Gemas, the Player and funder split of a Backed winner). These live in `ledger/lifecycle/blocks.rs` and are called by the head-to-head settle today and by the many-seat settle later. Moving them is a prefactor with no behaviour change: the existing core and Game test suites pass unchanged.
+Both paths share the code that moves Gemas: fee totals and the surplus after fees, the fee cut from a Pot line, the hand-out of a Pot line to a payee (plain won Gemas, the Player and funder split of a Backed winner). These live in `ledger/lifecycle/blocks.rs` and are called by the head-to-head settle today and by the many-seat settle later. Moving them is a prefactor with no behaviour change: the existing core and Game test suites pass unchanged.
 
 The many-seat path does not use the pair limit or the head-to-head NoShow rule. Head-to-head expressed in the many-seat result shape (winner place 100%, loser nothing) gives today's numbers, and a test checks this. It is a check, not a migration.
 
@@ -30,3 +30,4 @@ The many-seat path does not use the pair limit or the head-to-head NoShow rule. 
 - The head-to-head record, receipt, events and keeper reads do not change, so no migration of existing Matches and no app or keeper change for the four live Games.
 - The many-seat path adds its own record and instructions to the frozen core and its own account sizes to the audit scope.
 - The fold-in of head-to-head into the many-seat shape stays open. It is cheaper to decide after the freeze with the many-seat path in production than before it.
+- The entry return stays two lines inside the head-to-head step (credit to the funder, empty the line) rather than a shared function: a helper there cost up to 870 compute units per 12-step chunk, and the chunk test caps a chunk at 140,000 (base worst case 139,505).
