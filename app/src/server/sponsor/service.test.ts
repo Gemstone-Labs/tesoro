@@ -806,7 +806,7 @@ describe("join and assign in one transaction", () => {
   it("claims the table for the Match in the pool once the join is sent", async () => {
     const { s, match } = withAssigner();
     const claims: [string, number, string][] = [];
-    s.deps.assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: async () => [{ generation: 1, index: 0, epoch: 3n }], claim: async (g, p, m) => void claims.push([g, p.index, m]), now: () => 1_000_000 });
+    s.deps.assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: async () => [{ generation: 1, index: 0, epoch: 3n }], claim: async (g, p, m) => (claims.push([g, p.index, m]), true), now: () => 1_000_000 });
     const built = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
     expect(claims).toEqual([]);
     await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
@@ -854,7 +854,7 @@ describe("join and assign in one transaction", () => {
     it("claims the table in the pool when it builds the join, since the page sends it", async () => {
       const { s, match } = withAssigner();
       const claims: number[] = [];
-      s.deps.assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: async () => [{ generation: 1, index: 0, epoch: 3n }], claim: async (_g, p) => void claims.push(p.index), now: () => 1_000_000 });
+      s.deps.assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: async () => [{ generation: 1, index: 0, epoch: 3n }], claim: async (_g, p) => (claims.push(p.index), true), now: () => 1_000_000 });
       const ix = await join(s, match);
       ix.keys[0] = { ...ix.keys[0], pubkey: s.player.publicKey };
       await s.sponsor.buildSelfPaid(s.player.publicKey, wire([ix]));

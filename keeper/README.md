@@ -63,6 +63,13 @@ Fixtures (pre-upgrade flow): `holdem-no-show.ts` and `turn-latency-spike.ts` ope
 
 The sponsor server assigns each joining Player's Match to a table in the join's own transaction, from `table_pool` in Supabase (migrations 0021 and 0022). The server keeps the pool between reads: it claims a table when it sends the join, and the history (webhook or catch-up) frees it one epoch on when the Match settles (`free_table`). A Match that ended without proof it ran (no-show, abandoned, refunded by the Game) leaves the table's epoch unknown, so the table stays out of the pool until a rollup read. `src/table-pool-repair-cli.ts` (`pnpm --filter @tesoro/keeper exec tsx src/table-pool-repair-cli.ts`) is that read: it lists each Game's idle tables with their live epoch (`repairPool`), publishes them, and exits. A claim older than 3 minutes that the rollup shows free is cleared (a join never sent). `--dry-run` prints what it would publish. Units: `deploy/tesoro-table-pool.{service,timer}` (every 15 minutes). The scheduler's own per-pass publish is the same read and goes with the loop.
 
+||||||| 43d1cc19
+
+
+## Daily janitor
+
+`src/janitor-cli.ts` (`pnpm --filter @tesoro/keeper exec tsx src/janitor-cli.ts [--dry-run] [--only=tickets,receipts]`) runs six independent parts once and exits (1 if a part threw): `tickets` (cancel and close expired sponsored Entry Tickets), `receipts` (close those older than 14 days), `pairs` (close counters whose 24 h window ended), `assignments` (close spent Assignments of the four Games), `listings` (`refresh_listing` for a Listing a stranger's extend broke, with an alert; an alert when the code really changed), `apy` (publish the trailing APY; skipped until tesoro_core has the instruction, mainnet-launch ticket 11). All scans are paginated `getProgramAccountsV2` reads with `dataSlice`. Pair counters do not store their opener and joiner, so a counter is closed only when `pairKeys` knows them; the rest are counted in the log (a program change would fix this). Units: `deploy/tesoro-janitor.{service,timer}` (daily 03:30 UTC).
+
 ## Admin scripts
 
 `keeper/scripts/launch-admin.ts` prints (dry run by default) every `tesoro_core` launch init call in runbook order, with signer, named accounts and base64 data; `--execute` sends only the steps the single `--keypair` signs, never a Squads vault step (`docs/mainnet-runbook.md`, T-7 step 5). `register-game.ts`, `init-leaderboard.ts` and `whitelist-tee.ts` take `--keypair <file>` (no default key file), `--rpc`, `--cluster test|mainnet` (default test; the RPC must serve that cluster) and `--program tesoro_core=<ID>`; `fund-treasury.ts` and `withdraw-treasury.ts` are simSOL test-mode scripts and refuse mainnet. Shared parsing is `src/cli-args.ts`.
