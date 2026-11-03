@@ -1598,7 +1598,7 @@ pub(crate) fn close_match<'info>(
                 Some(Account::<AccountCounters>::try_from(info)?)
             };
             for player in &players {
-                if info.key() == &counters_pda(&Pubkey::new_from_array(*player))
+                if info.key() == counters_pda(&Pubkey::new_from_array(*player))
                     && !counted.contains(player)
                 {
                     match c.as_mut() {
