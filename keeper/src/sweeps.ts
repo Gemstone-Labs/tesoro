@@ -3,7 +3,7 @@ import { clearRaised, raise } from "./alerts.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { closePairIx, closeReceiptIx, refreshListingIx } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
-import { gameRecordOf, keyOf, pairAddress, programDataOf } from "./kit.ts";
+import { gameRecordOf, keyOf, programDataOf } from "./kit.ts";
 import { connLister, type Lister } from "./lists.ts";
 import { sendIxs, type SendOpts } from "./send.ts";
 import { connReader, type Reader } from "./supply.ts";
@@ -46,18 +46,10 @@ export const groupsOf = <T>(items: T[], n: number): T[][] => Array.from({ length
 
 // ---- Pairs -------------------------------------------------------------------------------------------------------------
 
-/** Pairs (opener Account, joiner Account) of Matches seen, whose counter may still exist. Fed by the history scan. */
-export const seenPairs = new Map<string, { opener: PublicKey; joiner: PublicKey }>();
-const PAIR_CAP = 5000;
-
-export const notePair = (opener: string, joiner: string) => {
-  seenPairs.set(`${opener}:${joiner}`, { opener: new PublicKey(opener), joiner: new PublicKey(joiner) });
-  while (seenPairs.size > PAIR_CAP) seenPairs.delete(seenPairs.keys().next().value!);
-};
+/** Bytes of a pair record that names its Players; shorter ones (pre-upgrade, devnet) are under another seed and are skipped. */
+export const PAIR_RECORD_LEN = 8 + 1 + 32 + 8 + 2 + 32 + 32;
 
 export interface PairRow {
-  opener: PublicKey;
-  joiner: PublicKey;
   address: PublicKey;
   payer: PublicKey;
   windowStart: number;
@@ -76,25 +68,15 @@ export async function sweepJob(ctx: Ctx, d: SweepDeps = realSweepDeps(ctx)): Pro
     actions += +r.ok;
   }
 
-  const seen = [...seenPairs.values()];
-  if (seen.length) {
-    const infos = await d.read.many(seen.map((p) => pairAddress(p.opener, p.joiner)));
-    const rows: PairRow[] = [];
-    seen.forEach((p, i) => {
-      const info = infos[i];
-      if (!info) {
-        seenPairs.delete(`${p.opener.toBase58()}:${p.joiner.toBase58()}`);
-        return;
-      }
-      const s: any = ctx.core.coder.accounts.decode("pairState", info.data);
-      rows.push({ ...p, address: pairAddress(p.opener, p.joiner), payer: keyOf(s.payer), windowStart: Number(s.windowStart.toString()) });
-    });
-    for (const group of groupsOf(pairsToClose(rows, ctx.now).slice(0, PER_PASS), PER_TX)) {
-      const r = await act(ctx, "sweep", `pairs=${group.length}`, `close_pair x${group.length} (24 h window over)`, async () =>
-        d.send(await Promise.all(group.map((g) => closePairIx(ctx.core, { caller: ctx.payer.publicKey, opener: g.opener, joiner: g.joiner, pair: g.address, payer: g.payer }))), {}),
-      );
-      actions += +r.ok;
-    }
+  const pairs: PairRow[] = (await d.list("PairState", { dataSize: PAIR_RECORD_LEN })).map((r) => {
+    const s: any = ctx.core.coder.accounts.decode("pairState", r.data);
+    return { address: r.pubkey, payer: keyOf(s.payer), windowStart: Number(s.windowStart.toString()) };
+  });
+  for (const group of groupsOf(pairsToClose(pairs, ctx.now).slice(0, PER_PASS), PER_TX)) {
+    const r = await act(ctx, "sweep", `pairs=${group.length}`, `close_pair x${group.length} (24 h window over)`, async () =>
+      d.send(await Promise.all(group.map((g) => closePairIx(ctx.core, { caller: ctx.payer.publicKey, pair: g.address, payer: g.payer }))), {}),
+    );
+    actions += +r.ok;
   }
   return actions;
 }
