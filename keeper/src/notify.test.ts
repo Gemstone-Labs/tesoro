@@ -8,7 +8,7 @@ import { Connection } from "@solana/web3.js";
 import { Budget, type Ctx } from "./act.ts";
 import { accountBytes, chainOf } from "./fixtures.ts";
 import { loadIdl } from "./runtime.ts";
-import { gameOfKey, notifyJob, pushSettled, settledPush } from "./notify.ts";
+import { gameOfKey, notifyJob, pushSettled, settledPush, webhookNotifyOn } from "./notify.ts";
 
 const [A, B, C] = [1, 2, 3].map(() => Keypair.generate().publicKey.toBase58());
 const authority = (a: string) => ({ [A]: "walletA", [B]: "walletB", [C]: "walletC" })[a];
@@ -132,6 +132,17 @@ describe("the notify job", () => {
   it("does nothing without the app's address", async () => {
     const queue = [{ start: start({ n: 9n }), blockTime: NOW }];
     assert.equal(await notifyJob(await ctx(), {} as NodeJS.ProcessEnv, queue), 0);
+    assert.equal(queue.length, 1);
+  });
+});
+
+describe("the settled-Match job when the app sends the emails itself", () => {
+  it("stays off with KEEPER_WEBHOOK_NOTIFY=1 and leaves the queue alone", async () => {
+    const queue = [{ start: start(), blockTime: null }];
+    const env = { NOTIFY_URL: "https://x/api/notify/event", NOTIFY_SECRET: "s", KEEPER_WEBHOOK_NOTIFY: "1" };
+    assert.equal(webhookNotifyOn(env), true);
+    assert.equal(webhookNotifyOn({}), false);
+    assert.equal(await notifyJob({} as Ctx, env, queue as any, (async () => { throw new Error("must not call the app"); }) as any), 0);
     assert.equal(queue.length, 1);
   });
 });

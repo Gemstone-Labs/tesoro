@@ -3847,3 +3847,71 @@ fn begin_voids_a_table_stuck_on_a_match_core_already_froze() {
     assert_eq!(env.table().epoch, 1);
     assert_eq!(env.table().phase, holdem::TABLE_WAITING);
 }
+
+// --- The move that ends a Match commits the result and wipes the seats ----------------------
+
+/// Whether the latest transaction called `program` (a CPI line in the logs).
+fn called(env: &Env, program: Pk) -> bool {
+    let line = format!("Program {program} invoke");
+    env.last_logs.iter().any(|l| l.starts_with(&line))
+}
+
+#[test]
+fn the_move_that_ends_the_match_commits_the_result_and_wipes_the_seats() {
+    let mut env = live();
+    env.play_match_out();
+    let t = env.table();
+    assert_eq!(t.phase, holdem::TABLE_OVER);
+    assert!(!t.dirty, "the result is already committed");
+    assert_eq!(
+        t.commit.tries, 1,
+        "exactly one commit, sent by the last move"
+    );
+    assert!(!t.seats_open, "the seats are already wiped");
+    assert!(env.hole(0).is_blank() && env.hole(1).is_blank());
+    assert!(
+        called(&env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
+    assert!(
+        called(&env, litesvm_magic_stub::permission_program()),
+        "the seat change"
+    );
+    // Nothing is left for the repeat path to do before the table can be reused.
+    env.set_time(env.now + holdem::RESET_DELAY_SECS);
+    env.reset()
+        .expect("reset without a separate commit or wipe");
+}
+
+#[test]
+fn a_move_that_does_not_end_the_match_commits_nothing() {
+    let mut env = live();
+    let randomness = [0x42; 32];
+    env.deal_hand(randomness).expect("deal");
+    let t = env.table();
+    assert_eq!(t.game.status, holdem::STATUS_LIVE);
+    assert!(t.seats_open && t.commit.tries == 0);
+    assert!(!called(&env, litesvm_magic_stub::magic_program()));
+}
+
+#[test]
+fn a_timeout_that_ends_the_match_commits_and_wipes_too() {
+    let mut env = live();
+    env.finish_by_forfeit();
+    let t = env.table();
+    assert!(!t.dirty && !t.seats_open && t.commit.tries == 1);
+    assert!(called(&env, litesvm_magic_stub::magic_program()));
+}
+
+#[test]
+fn a_start_that_expires_commits_and_wipes_too() {
+    let mut env = ready();
+    env.begin().expect("begin");
+    env.seat_players_standin();
+    env.set_time(env.table().start_deadline + 1);
+    let ixn = env.expire_ix();
+    env.rollup(ixn).expect("expire");
+    let t = env.table();
+    assert!(!t.dirty && !t.seats_open && t.commit.tries == 1);
+    assert!(called(&env, litesvm_magic_stub::magic_program()));
+}

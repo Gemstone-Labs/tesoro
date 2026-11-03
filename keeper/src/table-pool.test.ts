@@ -45,10 +45,10 @@ describe("KEEPER_ASSIGN", () => {
 });
 
 describe("poolPublisher", () => {
-  it("replaces the Game's rows, keyed by the app's Game id", async () => {
+  it("sends what the rollup showed and when it was read, keyed by the app's Game id", async () => {
     const calls: [string, unknown][] = [];
     const publish = poolPublisher(async (fn, args) => void calls.push([fn, args]));
-    await publish({ programId: GAME_IDS["block-puzzle"] } as GameAdapter, [{ generation: 1, index: 3, epoch: 9 }]);
-    assert.deepEqual(calls, [["publish_table_pool", { p_game: "block-puzzle", p_tables: [{ generation: 1, index: 3, epoch: "9" }] }]]);
+    await publish({ programId: GAME_IDS["block-puzzle"] } as GameAdapter, [{ generation: 1, index: 3, epoch: 9 }], Date.UTC(2026, 10, 3, 1, 2, 3));
+    assert.deepEqual(calls, [["publish_table_pool", { p_game: "block-puzzle", p_tables: [{ generation: 1, index: 3, epoch: "9" }], p_read_at: "2026-11-03T01:02:03.000Z" }]]);
   });
 });

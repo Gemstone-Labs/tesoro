@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -51,15 +51,34 @@ test("unknownFlag accepts the keeper CLI flags and rejects anything else, --help
   assert.match(unknownFlag(["stray"], KEEPER_CLI_FLAGS)!, /unexpected argument/);
 });
 
-for (const cli of ["season-run-cli.ts", "safety-sweep-cli.ts", "janitor-cli.ts"]) {
+// Every keeper CLI is covered: a new src/*-cli.ts fails here until it follows the rule.
+for (const cli of readdirSync(import.meta.dirname).filter((f) => f.endsWith("-cli.ts")).sort()) {
   test(`${cli} prints usage and exits 2 on an unknown flag, before reading any key`, () => {
     const dir = mkdtempSync(join(tmpdir(), "cli-"));
     const keyPath = join(dir, "keeper.json");
     for (const flag of ["--help", "--bogus"]) {
       const r = spawnSync(process.execPath, ["--import", "tsx", join(import.meta.dirname, cli), flag], { env: { ...process.env, KEEPER_KEYPAIR: keyPath }, encoding: "utf8" });
-      assert.equal(r.status, 2);
-      assert.match(r.stderr, /Usage: /);
+      assert.equal(r.status, 2, `${cli} ${flag}: it ran instead of refusing. Call exitOnUnknownFlag(process.argv.slice(2), KEEPER_CLI_FLAGS, USAGE) from ./cli-args.ts before reading keys or env.`);
+      assert.match(r.stderr, /Usage: /, `${cli} ${flag}: no usage text. Call exitOnUnknownFlag before reading keys.`);
     }
     assert.equal(existsSync(keyPath), false);
   });
 }
+
+test("admin-cli exits 2 with usage on a missing command, an unknown command or an unknown flag, and 1 without --cluster, before any key is read", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cli-"));
+  const keyPath = join(dir, "keeper.json");
+  const run = (...args: string[]) => spawnSync(process.execPath, ["--import", "tsx", join(import.meta.dirname, "admin-cli.ts"), ...args], { env: { ...process.env, KEEPER_KEYPAIR: keyPath }, encoding: "utf8" });
+  for (const args of [[], ["--help"], ["wipe"], ["fees", "--bogus"], ["fees", "--help"]]) {
+    const r = run(...args);
+    assert.equal(r.status, 2, args.join(" "));
+    assert.match(r.stderr, /Usage: admin-cli/);
+  }
+  const noCluster = run("fees", "--dry-run");
+  assert.equal(noCluster.status, 1);
+  assert.match(noCluster.stderr, /--cluster test\|mainnet is required/);
+  const wrong = run("fees", "--cluster", "mainnet", "--dry-run");
+  assert.equal(wrong.status, 1);
+  assert.match(wrong.stderr, /TESORO_CLUSTER selects test/);
+  assert.equal(existsSync(keyPath), false);
+});

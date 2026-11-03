@@ -16,6 +16,7 @@ import {
   planGrowth,
   planSkips,
   quiet,
+  repairPool,
   runGame,
   schedulerSettings,
   stuckReason,
@@ -666,5 +667,60 @@ describe("reads before the first table step", () => {
     await runGame(ctx, adapter as never, STILL, [], newGameState(), { gate: gateOk, settings: SCHED });
     assert.deepEqual(events.slice(0, 4).sort(), ["config end", "config start", "info", "info"]);
     assert.equal(events.indexOf("config end"), 3, "both account reads started before the config read finished");
+  });
+});
+
+describe("repairPool: the rollup read that corrects the server's pool", () => {
+  it("publishes the idle tables with their live epoch, leaves out one an Assignment holds, and sends nothing else", async () => {
+    const f = new Fake();
+    withTable(f, 0, { epoch: 4 });
+    withTable(f, 1, { epoch: 7 });
+    withTable(f, 2, { epoch: 2, coarse: "match" });
+    f.assignments.set(key(50).toBase58(), { generation: 1, index: 1, epoch: 7, startDeadline: NOW + 60 });
+    const published: unknown[] = [];
+    const before = Date.now();
+    const n = await repairPool(ctxOf(f), f.adapter(), [matchOf(50) as never], async (_a, tables, readAt) => void published.push([tables, readAt >= before]));
+    assert.equal(n, 1);
+    assert.deepEqual(published, [[[{ generation: 1, index: 0, epoch: 4 }], true]]);
+    assert.deepEqual(f.calls, []);
+  });
+
+  it("publishes nothing for a Game without tables", async () => {
+    const f = new Fake();
+    const adapter = { ...f.adapter(), config: async () => null };
+    const published: unknown[] = [];
+    assert.equal(await repairPool(ctxOf(f), adapter as never, [], async (...a) => void published.push(a)), null);
+    assert.deepEqual(published, []);
+  });
+});
+
+describe("the admin scripts' two slices of a pass (deps.only)", () => {
+  beforeEach(() => raisedConditions().forEach((c) => clearRaised(c.key)));
+  const world = () => {
+    const f = new Fake();
+    for (let i = 1; i < 8; i++) f.tables.set(i, { base: "missing", view: null });
+    withTable(f, 0, { coarse: "over", overAt: NOW - 1000, dirty: true, seatsOpen: true });
+    f.sponsorBalance = 1000;
+    return f;
+  };
+  const run = (f: Fake, only: "setup" | "refill", set: GameSettings, over: { dryRun?: boolean } = {}) =>
+    runGame(ctxOf(f, over), f.adapter(), set, [], newGameState(), { gate: gateOk, settings: { ...SCHED, createPerPass: 8 }, only });
+
+  it("setup makes the tables up to the minimum, in one pass, and touches no running table and no Sponsor balance", async () => {
+    const f = world();
+    await run(f, "setup", { ...SET, min: 3, spare: 0 });
+    assert.deepEqual(f.calls, ["setup create_table 1 1", "setup create_table 2 1"]);
+  });
+
+  it("refill tops the Sponsor up and makes and resets nothing", async () => {
+    const f = world();
+    await run(f, "refill", { ...SET, min: 3, spare: 0 });
+    assert.deepEqual(f.calls, ["refill"]);
+  });
+
+  it("a dry run of setup sends nothing", async () => {
+    const f = world();
+    await run(f, "setup", { ...SET, min: 3, spare: 0 }, { dryRun: true });
+    assert.deepEqual(f.calls, []);
   });
 });

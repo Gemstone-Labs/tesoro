@@ -65,7 +65,9 @@ pub const GAME_SEED: &[u8] = b"game";
 /// Game program (not of this program).
 pub const REGISTER_SEED: &[u8] = b"tesoro-register";
 /// Matches one opener-to-joiner pair may start in a window: `["pair", opener Account, joiner Account]`.
-pub const PAIR_SEED: &[u8] = b"pair";
+/// `pair2`, not `pair`: records from before the opener and joiner were stored (51 bytes, devnet
+/// only) sit under `pair` and can neither be read as the new layout nor block a join.
+pub const PAIR_SEED: &[u8] = b"pair2";
 
 /// Address of the Invite gate account (it may not exist yet: no account means the gate is off).
 pub fn invite_gate_pda() -> Pubkey {
@@ -166,6 +168,9 @@ pub struct PairState {
     pub payer: Pubkey,
     pub window_start: i64,
     pub count: u16,
+    /// The opener's and joiner's Accounts, so a scan alone can close an expired record.
+    pub opener: Pubkey,
+    pub joiner: Pubkey,
 }
 
 /// Matches one opener-to-joiner pair may start per window.
@@ -173,7 +178,7 @@ pub const MAX_PAIR_MATCHES: u16 = 20;
 pub const PAIR_WINDOW_SECS: i64 = 24 * 60 * 60;
 
 impl PairState {
-    pub const SPACE: usize = 8 + 1 + 32 + 8 + 2;
+    pub const SPACE: usize = 8 + 1 + 32 + 8 + 2 + 32 + 32;
 
     /// Counts one more Match started at `now`; `false` when the pair is at its limit for the window.
     pub fn record(&mut self, now: i64) -> bool {

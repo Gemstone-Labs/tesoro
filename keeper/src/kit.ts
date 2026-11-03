@@ -69,7 +69,7 @@ export const routeOverflowId = (season: number, custody: PublicKey): Buffer => {
 };
 /** `["overflow", owner, kind, id[..32], id[32..]]`: a seed is at most 32 bytes. */
 export const overflowAddress = (owner: PublicKey, kind: number, id: Uint8Array) => pda("overflow", owner.toBuffer(), Buffer.from([kind]), id.subarray(0, 32), id.subarray(32));
-export const pairAddress = (opener: PublicKey, joiner: PublicKey) => pda("pair", opener.toBuffer(), joiner.toBuffer());
+export const pairAddress = (opener: PublicKey, joiner: PublicKey) => pda("pair2", opener.toBuffer(), joiner.toBuffer());
 
 export const BPF_LOADER_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
 /** The ProgramData account of an upgradeable program. */

@@ -69,3 +69,43 @@ describe("Hold'em Match startup", () => {
     expect(readTableOnBase).not.toHaveBeenCalled();
   });
 });
+
+describe("Hold'em timeout claim", () => {
+  async function liveTable(over: Record<string, unknown>) {
+    vi.useFakeTimers();
+    const idle = decodeTable(key, coder.decode("table", Buffer.from(fixture.idle_table, "hex")));
+    const table = { ...idle, status: 1, tablePhase: 2, phase: 2, toAct: 0, deadline: Date.now() / 1000 - 10, ...over };
+    const assignment = { ...decodeAssignment(key, coder.decode("assignment", Buffer.from(fixture.assignment, "hex"))), generation: table.generation, index: table.index, epoch: table.epoch, tesoroMatch: table.tesoroMatch };
+    return { table, assignment };
+  }
+  function useDrivenMatch() {
+    useHoldemMatch(`${key.toBase58()}-0`, { publicKey: key } as never);
+    for (const effect of mocks.effects) {
+      const cleanup = effect();
+      if (cleanup) cleanups.push(cleanup);
+    }
+  }
+
+  it("claims once when the opponent's clock has run out, not on every tick", async () => {
+    const { table, assignment } = await liveTable({ toAct: 0 });
+    const claimTimeout = vi.fn().mockResolvedValue("sig");
+    mocks.getHoldem.mockReturnValue({ readAssignment: vi.fn().mockResolvedValue(assignment), readTable: vi.fn().mockResolvedValue(table), claimTimeout });
+    mocks.fetchMatch.mockResolvedValue({ status: "active", seat: 1, deadline: Date.now() / 1000 + 600 });
+    useDrivenMatch();
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(claimTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not claim when the opponent moved in the last moment", async () => {
+    const { table, assignment } = await liveTable({ toAct: 0 });
+    const moved = { ...table, deadline: Date.now() / 1000 + 25 };
+    const claimTimeout = vi.fn().mockResolvedValue("sig");
+    const readTable = vi.fn().mockResolvedValueOnce(table).mockResolvedValue(moved);
+    mocks.getHoldem.mockReturnValue({ readAssignment: vi.fn().mockResolvedValue(assignment), readTable, claimTimeout });
+    mocks.fetchMatch.mockResolvedValue({ status: "active", seat: 1, deadline: Date.now() / 1000 + 600 });
+    useDrivenMatch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(readTable).toHaveBeenCalledTimes(2);
+    expect(claimTimeout).not.toHaveBeenCalled();
+  });
+});

@@ -25,6 +25,7 @@ import {
 } from "./chain";
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
+import { timeoutClaimDue } from "./timeout";
 import { absenceLine } from "@/lib/absence-copy";
 import { atAssignedEpoch } from "@/lib/chain/table-epoch";
 import { atNextEpoch } from "@/lib/chain/table-clean";
@@ -110,6 +111,7 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
   const activeSince = useRef(0);
   const closingSince = useRef(0);
   const lastCommit = useRef(0);
+  const lastClaim = useRef(0);
   const commitSince = useRef(0);
   const commitFailures = useRef(0);
   const contributedHand = useRef(0);
@@ -269,6 +271,14 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
 
     if (t.tablePhase === TABLE_PHASE.live) {
       setStage("live");
+      if (timeoutClaimDue(t, seat, now(), lastClaim.current)) {
+        // The opponent's clock ran out: claim it without waiting for a click (the button stays as a fallback).
+        lastClaim.current = now();
+        // Read again first: a move made in the last moment moves the deadline.
+        const fresh = await hd.readTable(p, a);
+        if (fresh && timeoutClaimDue(fresh, seat, now(), 0)) await hd.claimTimeout(p, a).catch(() => undefined);
+        return;
+      }
       if (t.phase === PHASE.shuffle) await shuffle(a, t, seat);
       return;
     }

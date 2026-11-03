@@ -1880,16 +1880,19 @@
                   112,
                   97,
                   105,
-                  114
+                  114,
+                  50
                 ]
               },
               {
-                "kind": "arg",
-                "path": "opener"
+                "kind": "account",
+                "path": "pair.opener",
+                "account": "PairState"
               },
               {
-                "kind": "arg",
-                "path": "joiner"
+                "kind": "account",
+                "path": "pair.joiner",
+                "account": "PairState"
               }
             ]
           }
@@ -1899,16 +1902,7 @@
           "writable": true
         }
       ],
-      "args": [
-        {
-          "name": "opener",
-          "type": "pubkey"
-        },
-        {
-          "name": "joiner",
-          "type": "pubkey"
-        }
-      ]
+      "args": []
     },
     {
       "name": "close_receipt",
@@ -6523,7 +6517,8 @@
                   112,
                   97,
                   105,
-                  114
+                  114,
+                  50
                 ]
               },
               {
@@ -18431,6 +18426,17 @@
           {
             "name": "count",
             "type": "u16"
+          },
+          {
+            "name": "opener",
+            "docs": [
+              "The opener's and joiner's Accounts, so a scan alone can close an expired record."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "joiner",
+            "type": "pubkey"
           }
         ]
       }
