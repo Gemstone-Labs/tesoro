@@ -6,41 +6,41 @@ import { settledPda } from "../../app/src/lib/chain/basket.ts";
 import { Budget, type Ctx } from "./act.ts";
 import { accountBytes, chainOf, ixNameOf, ticketBytes } from "./fixtures.ts";
 import { janitor, PARTS, type AssignmentSource, type JanitorDeps } from "./janitor.ts";
-import { pairAddress } from "./kit.ts";
 import { loadIdl } from "./runtime.ts";
 import type { Info } from "./supply.ts";
-import { PAIR_WINDOW_SECS, RECEIPT_KEEP_SECS } from "./sweeps.ts";
+import { PAIR_RECORD_LEN, PAIR_WINDOW_SECS, RECEIPT_KEEP_SECS } from "./sweeps.ts";
 
 const core = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {}));
 const k = () => Keypair.generate().publicKey;
 const NOW = 1_800_000_000;
 
 /** A fake chain: accounts by address, listed by type name, and every send recorded. */
-function world(over: { lists?: Record<string, { pubkey: PublicKey; data: Buffer }[]>; accounts?: Map<string, Buffer>; simulateWith?: string | null; pairKeys?: Map<string, { opener: PublicKey; joiner: PublicKey }>; assignments?: AssignmentSource[]; apy?: JanitorDeps["publishApy"]; slots?: Map<string, bigint>; dryRun?: boolean } = {}) {
+function world(over: { lists?: Record<string, { pubkey: PublicKey; data: Buffer }[]>; accounts?: Map<string, Buffer>; simulateWith?: string | null; assignments?: AssignmentSource[]; apy?: JanitorDeps["publishApy"]; slots?: Map<string, bigint>; dryRun?: boolean } = {}) {
   const accounts = over.accounts ?? new Map<string, Buffer>();
   const lists = over.lists ?? {};
   const sent: string[] = [];
   const slices: Record<string, { offset: number; length: number } | undefined> = {};
+  const sizes: Record<string, number | undefined> = {};
   const d: JanitorDeps = {
     list: async (name, opts) => {
       slices[name] = opts?.dataSlice;
+      sizes[name] = opts?.dataSize;
       return (lists[name] ?? []).map((r) => (opts?.dataSlice ? { ...r, data: r.data.subarray(opts.dataSlice.offset, opts.dataSlice.offset + opts.dataSlice.length) } : r));
     },
     read: { async many(keys) { return keys.map((x) => (accounts.has(x.toBase58()) ? ({ data: accounts.get(x.toBase58())! } as Info) : null)); } },
     send: async (ixs) => (sent.push(ixs.map((i) => ixNameOf(core, i)).join("+")), "sig"),
     simulate: async () => over.simulateWith ?? null,
     offers: async () => [],
-    pairKeys: async (a) => over.pairKeys?.get(a.toBase58()) ?? null,
     assignments: over.assignments ?? [],
     deploySlots: async (games) => games.map((g) => over.slots?.get(g.toBase58()) ?? null),
     publishApy: over.apy ?? null,
   };
   const ctx = { core: chainOf(core, accounts), conn: { getBalance: async () => 1e9 }, payer: Keypair.generate(), now: NOW, settings: { dryRun: !!over.dryRun }, budget: new Budget(1e15), lz: new Budget(1e15) } as unknown as Ctx;
-  return { d, ctx, sent, slices };
+  return { d, ctx, sent, slices, sizes };
 }
 
 const receipt = async (at: number) => ({ pubkey: k(), data: await accountBytes(core, "SettlementReceipt", { matchKey: k(), payer: k(), receipt: { at: new anchor.BN(at) } }) });
-const pair = async (windowStart: number) => ({ pubkey: k(), data: await accountBytes(core, "PairState", { payer: k(), windowStart: new anchor.BN(windowStart) }) });
+const pair = async (windowStart: number) => ({ pubkey: k(), data: await accountBytes(core, "PairState", { payer: k(), windowStart: new anchor.BN(windowStart), opener: k(), joiner: k() }) });
 
 describe("the janitor with nothing due", () => {
   it("runs every part, sends nothing and says why each did nothing", async () => {
@@ -81,25 +81,23 @@ describe("receipts", () => {
   });
 });
 
-describe("pair counters", () => {
-  it("finds them by scan (a head slice) and closes those whose window ended", async () => {
-    const [opener, joiner] = [k(), k()];
-    const ended = { ...(await pair(NOW - PAIR_WINDOW_SECS)), pubkey: pairAddress(opener, joiner) };
+describe("pair records", () => {
+  it("finds them by scan alone (a head slice, current size only) and closes those whose window ended", async () => {
+    const ended = await pair(NOW - PAIR_WINDOW_SECS);
+    const endedToo = await pair(NOW - PAIR_WINDOW_SECS - 99);
     const open = await pair(NOW - 5);
-    const w = world({ lists: { PairState: [ended, open] }, pairKeys: new Map([[ended.pubkey.toBase58(), { opener, joiner }]]) });
+    const w = world({ lists: { PairState: [ended, endedToo, open] } });
     const r = await janitor(w.ctx, w.d, ["pairs"]);
-    assert.deepEqual(w.sent, ["closePair"]);
+    assert.deepEqual(w.sent, ["closePair+closePair"]);
     assert.equal(r.parts[0].actions, 1);
-    assert.ok(w.slices.PairState && w.slices.PairState.length < 100, "only the head of each counter is read");
+    assert.ok(w.slices.PairState && w.slices.PairState.length < 100, "only the head of each record is read");
+    assert.equal(w.sizes.PairState, PAIR_RECORD_LEN, "records from before the upgrade (other size) are not listed");
   });
 
-  it("reports due counters whose Accounts it cannot learn, and a resolver that names the wrong Accounts is not trusted", async () => {
-    const stray = await pair(NOW - PAIR_WINDOW_SECS - 1);
-    const unknown = world({ lists: { PairState: [stray] } });
-    assert.match((await janitor(unknown.ctx, unknown.d, ["pairs"])).parts[0].note ?? "", /1 due pair counter/);
-    const wrong = world({ lists: { PairState: [stray] }, pairKeys: new Map([[stray.pubkey.toBase58(), { opener: k(), joiner: k() }]]) });
-    await janitor(wrong.ctx, wrong.d, ["pairs"]);
-    assert.deepEqual([unknown.sent, wrong.sent], [[], []]);
+  it("says so when nothing is due", async () => {
+    const w = world({ lists: { PairState: [await pair(NOW - 5)] } });
+    assert.match((await janitor(w.ctx, w.d, ["pairs"])).parts[0].note ?? "", /no pair record due/);
+    assert.deepEqual(w.sent, []);
   });
 });
 
