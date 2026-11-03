@@ -17,6 +17,13 @@ interface RingSlot {
 const SLOT_FREE = 0;
 
 /**
+ * The most receipts one `begin_match` names: the table's own Match and the Match of each of the eight ring slots. The
+ * Games' begin transactions fit this many with room to spare (`begin-size.test.ts` measures each Game's worst case and
+ * derives how many receipts would fit), so the list is capped here and nowhere else.
+ */
+export const MAX_BEGIN_RECEIPTS = 9;
+
+/**
  * The Assignment is one epoch ahead of its table: the previous Match settled and the table has not been reset yet.
  * `begin_match` resets it (once its last receipt is 30 s old), so the page calls it instead of waiting for a keeper.
  */
@@ -35,7 +42,7 @@ export function beginSettled(table: { tesoroMatch: PublicKey; ring: readonly Rin
   if (table.ring.length > 0 && table.ring.every((s) => s.state !== SLOT_FREE)) {
     for (const s of table.ring) matches.set(s.tesoroMatch.toBase58(), s.tesoroMatch);
   }
-  return [...matches.values()].map(settledPda);
+  return [...matches.values()].slice(0, MAX_BEGIN_RECEIPTS).map(settledPda);
 }
 
 /**
