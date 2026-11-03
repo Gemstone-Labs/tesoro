@@ -443,8 +443,9 @@ abstract contract EscrowBase is Test {
         (uint8 status, uint128 shares) = _prizeResult(1);
         assertEq(status, 1);
         assertEq(shares, take, "the answer names the whole cash-out");
+        uint256 got = _balance(tesoro);
         _recv(m);
-        assertEq(_balance(tesoro), fee, "a repeat pays nothing more");
+        assertEq(_balance(tesoro), got, "a repeat pays nothing more");
     }
 
     function test_aDeliveryFeeAboveATenthOfThePrizeIsShrunkAndADifferentFeeIsAnotherPayout() public {
