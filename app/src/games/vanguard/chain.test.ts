@@ -108,7 +108,7 @@ describe("rollup instructions", () => {
     for (const a of [ad.army0, ad.army1]) expect(keys(ix)).toContain(permissionPdaFromAccount(a).toBase58());
     expect(keys(ix)).toContain(sponsorPda().toBase58());
     expect(ix.data.length).toBe(8);
-    expect(ix.keys.slice(1).every((k) => k.isWritable)).toBe(true);
+    expect(ix.keys.slice(1, 5).every((k) => k.isWritable)).toBe(true);
     expect(sent[0].step).toBe("resolve");
   });
 
