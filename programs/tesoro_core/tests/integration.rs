@@ -4186,7 +4186,9 @@ fn a_pair_record_names_both_players_so_a_scan_alone_can_close_it() {
         instruction::ClosePair {},
         vec![],
     );
-    d.env.send(&[i], &stranger, &[]).expect("closed from the record alone");
+    d.env
+        .send(&[i], &stranger, &[])
+        .expect("closed from the record alone");
     assert!(d.env.svm.get_account(&s(pair)).is_none());
 }
 
@@ -4212,7 +4214,9 @@ fn an_old_size_pair_record_does_not_block_a_join() {
         .expect("old record");
     let m = d.env.open_match(&d.alice, 500).expect("open");
     d.env.join_match(&d.bob, m).expect("join is not blocked");
-    let rec = d.env.load::<PairState>(pair_pda(d.alice.account, d.bob.account));
+    let rec = d
+        .env
+        .load::<PairState>(pair_pda(d.alice.account, d.bob.account));
     assert_eq!(rec.count, 1);
 }
 
