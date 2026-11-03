@@ -3324,14 +3324,11 @@ fn tesoro_core_treasury() -> anchor_lang::prelude::Pubkey {
 // --- A commit that never reaches base ------------------------------------------------------
 
 impl Env {
-    /// A commit the rollup accepted but base never received: the table is clean, the guard has
-    /// counted the try, and base's copy is unchanged.
+    /// A commit the rollup accepted but base never received: the last move sent it, so the table
+    /// is clean and the guard has counted the try, while base's copy is unchanged.
     fn commit_lost_standin(&mut self) {
-        let now = self.now;
-        self.patch_table(|t| {
-            t.dirty = false;
-            t.commit.record(now);
-        });
+        assert_eq!(self.table().commit.tries, 1, "the last move sent the commit");
+        self.patch_table(|t| t.dirty = false);
     }
 }
 
