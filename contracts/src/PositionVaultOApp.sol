@@ -106,8 +106,7 @@ contract PositionVaultOApp is PositionVault, OApp {
     function quoteYieldAccrued() external view returns (uint256) {
         return _quote(
             solanaEid, abi.encodePacked(_packYield(1, 1, 1, 1, 1, 1, 1), uint128(1), uint128(1)), _options(), false
-        )
-        .nativeFee;
+        ).nativeFee;
     }
 
     /// @notice Native fee to send the result of a batch with `entries` entries.

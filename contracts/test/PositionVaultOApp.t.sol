@@ -94,7 +94,16 @@ contract PositionVaultOAppTest is Test {
 
     function _pay(uint64 id, uint64 seq, address to, uint128 amt) internal view returns (bytes memory) {
         return abi.encodePacked(
-            uint8(11), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), uint128(amt), uint128(0), uint128(0), uint128(0));
+            uint8(11),
+            HOODI,
+            _key(id),
+            seq,
+            bytes32(uint256(uint160(to))),
+            uint128(amt),
+            uint128(0),
+            uint128(0),
+            uint128(0)
+        );
     }
 
     function _payFee(uint64 id, uint64 seq, address to, uint128 amt, uint128 fee, uint128 pool)
@@ -102,7 +111,8 @@ contract PositionVaultOAppTest is Test {
         view
         returns (bytes memory)
     {
-        return abi.encodePacked(uint8(11), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), amt, fee, pool, uint128(0));
+        return
+            abi.encodePacked(uint8(11), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), amt, fee, pool, uint128(0));
     }
 
     /// A cash-out that takes a Yield Fee puts that fee in the Treasury (the Treasury holds nothing else of yield).
@@ -232,7 +242,11 @@ contract PositionVaultOAppTest is Test {
         vm.expectRevert(PositionVaultOApp.WrongVault.selector);
         _recv(abi.encodePacked(uint8(10), HOODI, dirty, uint64(1), uint128(0)));
         vm.expectRevert(PositionVaultOApp.WrongVault.selector);
-        _recv(abi.encodePacked(uint8(12), HOODI, dirty, uint64(1), bytes32(uint256(uint160(redeemer))), uint128(1), uint128(0)));
+        _recv(
+            abi.encodePacked(
+                uint8(12), HOODI, dirty, uint64(1), bytes32(uint256(uint160(redeemer))), uint128(1), uint128(0)
+            )
+        );
         vm.expectRevert(PositionVaultOApp.WrongVault.selector);
         _recv(
             abi.encodePacked(
@@ -243,7 +257,9 @@ contract PositionVaultOAppTest is Test {
                 bytes32(uint256(uint160(redeemer))),
                 uint128(1),
                 uint128(0),
-                uint128(0), uint128(0))
+                uint128(0),
+                uint128(0)
+            )
         );
     }
 

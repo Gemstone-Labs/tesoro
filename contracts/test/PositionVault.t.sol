@@ -306,7 +306,9 @@ contract PositionVaultSimTest is VaultBase {
         vm.prank(alice);
         vm.expectRevert(PositionVaultBase.NotAdmin.selector);
         vault.withdrawTreasury(1, alice);
-        vm.expectRevert(abi.encodeWithSelector(PositionVaultBase.InsufficientTreasury.selector, treasury + 1e18, treasury));
+        vm.expectRevert(
+            abi.encodeWithSelector(PositionVaultBase.InsufficientTreasury.selector, treasury + 1e18, treasury)
+        );
         vault.withdrawTreasury(treasury + 1e18, address(0xC0FFEE));
 
         // more than the funding: the excess is a fee that was never minted, so it is minted now

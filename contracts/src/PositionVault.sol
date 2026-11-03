@@ -267,20 +267,20 @@ contract PositionVault is PositionVaultBase {
             _onUnlock(id, p, seq, deliveryFee);
         } else {
             if (msgType == MSG_PAY_YIELD) {
-                (,,,, bytes32 to, uint256 amount, uint256 fee, uint256 pool, uint256 deliveryFee) = abi.decode(
-                    payload, (uint8, uint32, uint64, uint64, bytes32, uint256, uint256, uint256, uint256)
-                );
+                (,,,, bytes32 to, uint256 amount, uint256 fee, uint256 pool, uint256 deliveryFee) =
+                    abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, uint256, uint256, uint256, uint256));
                 _delegate(
                     abi.encodeCall(
-                        PrizeModule.payYield,
-                        (id, seq, address(uint160(uint256(to))), amount, fee, pool, deliveryFee)
+                        PrizeModule.payYield, (id, seq, address(uint160(uint256(to))), amount, fee, pool, deliveryFee)
                     )
                 );
             } else {
                 (,,,, bytes32 to, uint256 amount, uint256 deliveryFee) =
                     abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, uint256, uint256));
                 _delegate(
-                    abi.encodeCall(PrizeModule.payInstant, (id, seq, address(uint160(uint256(to))), amount, deliveryFee))
+                    abi.encodeCall(
+                        PrizeModule.payInstant, (id, seq, address(uint160(uint256(to))), amount, deliveryFee)
+                    )
                 );
             }
         }

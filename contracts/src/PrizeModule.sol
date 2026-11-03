@@ -328,10 +328,7 @@ contract PrizeModule is PositionVaultBase {
         bytes32 recipient,
         uint256 shares,
         uint256 deliveryFee
-    )
-        internal
-        returns (bytes memory)
-    {
+    ) internal returns (bytes memory) {
         Payout storage r = payouts[payoutId];
         bytes32 digest = keccak256(abi.encode(asset, prizeSource, recipient, shares, deliveryFee));
         if (r.status != 0) {

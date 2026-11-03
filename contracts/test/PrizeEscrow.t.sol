@@ -83,7 +83,9 @@ abstract contract EscrowBase is Test {
                 bytes32(uint256(uint160(address(0x2222)))),
                 amt,
                 uint128(fee),
-                uint128(pool), uint128(0))
+                uint128(pool),
+                uint128(0)
+            )
         );
     }
 
@@ -286,7 +288,9 @@ abstract contract EscrowBase is Test {
             bytes32(uint256(uint160(winner))),
             uint128(landed),
             uint128(0),
-            uint128(0), uint128(0));
+            uint128(0),
+            uint128(0)
+        );
         vm.prank(address(lz));
         vm.expectPartialRevert(PositionVaultBase.ExceedsAccruedYield.selector);
         vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), pay, address(0), "");
@@ -495,7 +499,9 @@ abstract contract EscrowBase is Test {
             bytes32(uint256(uint160(_token()))),
             bytes32(uint256(1)),
             bytes32(type(uint256).max),
-            uint128(esc / 4), uint128(0));
+            uint128(esc / 4),
+            uint128(0)
+        );
         _recv(dirty);
         (status,) = _prizeResult(3);
         assertEq(status, 2);
@@ -676,7 +682,8 @@ contract PrizeEscrowRealTest is EscrowBase {
         assertLe(vault.treasuryBalance(), 2, "only share dust is left");
         // Instant Redeem cannot reach it either: ask for half of what the Pool is owed
         bytes memory instant = abi.encodePacked(
-            uint8(12), lz.eid(), _key(id), uint64(3), bytes32(uint256(uint160(winner))), uint128(pool / 2), uint128(0));
+            uint8(12), lz.eid(), _key(id), uint64(3), bytes32(uint256(uint160(winner))), uint128(pool / 2), uint128(0)
+        );
         vm.prank(address(lz));
         vm.expectPartialRevert(PositionVaultBase.InsufficientTreasury.selector);
         vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), instant, address(0), "");

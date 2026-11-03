@@ -100,7 +100,9 @@ abstract contract MainnetVaultBase is Test {
         view
         returns (bytes memory)
     {
-        return abi.encodePacked(uint8(11), lz.eid(), _key(id), seq, bytes32(uint256(uint160(to))), amt, fee, pool, uint128(0));
+        return abi.encodePacked(
+            uint8(11), lz.eid(), _key(id), seq, bytes32(uint256(uint160(to))), amt, fee, pool, uint128(0)
+        );
     }
 
     function _unlock(uint64 id, uint64 seq) internal view returns (bytes memory) {

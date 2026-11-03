@@ -68,7 +68,8 @@ contract VaultHandler is Test {
         uint64 before = vault.getPosition(id).inSeq;
         uint256 bal = lst.balanceOf(redeemer);
         uint256 paidBefore = vault.getPosition(id).paidUnderlying;
-        bytes memory m = abi.encode(uint8(11), CHAIN, id, seq, bytes32(uint256(uint160(redeemer))), amount, fee, pool, uint256(0));
+        bytes memory m =
+            abi.encode(uint8(11), CHAIN, id, seq, bytes32(uint256(uint160(redeemer))), amount, fee, pool, uint256(0));
         try ep.deliver(address(vault), m) {} catch {}
         _track(id, before);
         uint256 got = lst.balanceOf(redeemer) - bal;
@@ -173,7 +174,16 @@ contract PositionVaultFuzzTest is Test {
         vm.warp(block.timestamp + bound(elapsed, 1, 2 hours));
         amount = bound(amount, 0, vault.payableYield(id));
         bytes memory m = abi.encode(
-            uint8(11), CHAIN, id, uint64(1), bytes32(uint256(uint160(address(0xBEEF)))), amount, uint256(0), uint256(0), uint256(0));
+            uint8(11),
+            CHAIN,
+            id,
+            uint64(1),
+            bytes32(uint256(uint160(address(0xBEEF)))),
+            amount,
+            uint256(0),
+            uint256(0),
+            uint256(0)
+        );
         ep.deliver(address(vault), m);
         uint256 paid = vault.getPosition(id).paidUnderlying;
         uint256 bal = lst.balanceOf(address(0xBEEF));
