@@ -4,7 +4,7 @@ import nacl from "tweetnacl";
 import { CLAIM_RENT, applyYieldIx, rentTransferIx, sendPayIx, sendUnlockIx, stableBridgeAddresses, type SendQuote } from "@/lib/chain/bridge-bundle";
 import { BRIDGE_ID, ETH_VAULTS, coreUnlockIx, deliveryTermsPda, ethPositionId, corePositionPda, redeemToEvmIx } from "@/lib/chain/eth";
 import { sourcePda } from "@/lib/chain/native";
-import { key } from "./fixtures";
+import { key, withPayerAt13 } from "./fixtures";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type WireIx } from "./service";
@@ -41,7 +41,7 @@ function setup(over: { limits?: Partial<Limits>; terms?: Buffer | null; guard?: 
   const quote: SendQuote = {
     endpointSettings: key().toBase58(),
     payer: relayer.publicKey.toBase58(),
-    send: [{ pubkey: relayer.publicKey.toBase58(), signer: true, writable: true }, ...Array.from({ length: 25 }, (_, i) => ({ pubkey: key().toBase58(), signer: false, writable: i % 3 === 0 }))],
+    send: withPayerAt13(relayer.publicKey),
     feeLamports: "285146",
   };
   const accounts = new Map<string, { owner: PublicKey; data: Uint8Array }>();

@@ -122,7 +122,7 @@ interface Checked {
   signers: PublicKey[];
 }
 
-/** Sends end `[endpoint settings, system, ...send accounts]`: the relayer pays at the first send account and signs nowhere else. */
+/** Sends end `[endpoint settings, system, ...send accounts]`: the relayer is the endpoint's payer inside the send accounts and signs nowhere else. */
 function checkSend(ix: Ix, name: string, relayer: PublicKey, fixedCount: number, feeAt: number) {
   const fee = rdU64(ix.data, feeAt);
   if (rdU32(ix.data, feeAt - 4) !== 0) bad("bad-data", `${name}: options must be empty.`);
@@ -130,10 +130,11 @@ function checkSend(ix: Ix, name: string, relayer: PublicKey, fixedCount: number,
   if (fee === 0n || fee > MAX_LZ_FEE_LAMPORTS) bad("fee-too-high", `${name}: the LayerZero fee is outside what we pay.`);
   const send: KeyMeta[] = ix.keys.slice(fixedCount);
   if (send.length < SEND_ACCOUNTS_MIN || send.length > SEND_ACCOUNTS_MAX) bad("bad-accounts", `${name}: the endpoint's send accounts are the wrong count.`);
-  send.forEach((k, i) => {
+  let payers = 0;
+  send.forEach((k) => {
     if (k.isSigner && !k.pubkey.equals(relayer)) bad("bad-accounts", `${name}: only the payer signs in the endpoint's accounts.`);
-    // The relayer is the endpoint's payer: the first send account, signing and writable, and nowhere else.
-    if (k.pubkey.equals(relayer) && (i !== 0 || !k.isSigner || !k.isWritable)) bad("relayer-in-accounts", `${name}: the relayer may only be the endpoint's payer.`);
+    // The relayer is the endpoint's payer (it sits at #13 of the 26 accounts today): once, signing and writable, and nowhere else.
+    if (k.pubkey.equals(relayer) && (++payers > 1 || !k.isSigner || !k.isWritable)) bad("relayer-in-accounts", `${name}: the relayer may only be the endpoint's payer.`);
   });
   return { fee, send };
 }

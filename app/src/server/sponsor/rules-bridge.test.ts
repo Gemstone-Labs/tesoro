@@ -4,7 +4,7 @@ import { CLAIM_RENT, PAYOUT_RECORD_RENT, applyLockedIx, applyYieldIx, payoutPda,
 import { BRIDGE_AUTHORITY, BRIDGE_ID, ETH_VAULTS, bridgePeerPda, bridgeStore, coreAccountPda, corePositionPda, deliveryTermsPda, ethPositionId, redeemToEvmIx, sourceAuthPda, coreUnlockIx, netOfVault, evmLinkPda } from "@/lib/chain/eth";
 import { basketPda, spillPda } from "@/lib/chain/basket";
 import { TESORO_CORE_ID, sourcePda } from "@/lib/chain/native";
-import { key, playerIx } from "./fixtures";
+import { key, playerIx, withPayerAt13 } from "./fixtures";
 import { MAX_LZ_FEE_LAMPORTS } from "./rules-bridge";
 import { planTransaction, type Ix } from "./rules";
 
@@ -26,7 +26,7 @@ const source = sourcePda(position, 0);
 const quoteOf = (payer: PublicKey, fee = 285_146n): SendQuote => ({
   endpointSettings: key().toBase58(),
   payer: payer.toBase58(),
-  send: [{ pubkey: payer.toBase58(), signer: true, writable: true }, ...Array.from({ length: 25 }, (_, i) => ({ pubkey: key().toBase58(), signer: false, writable: i % 3 === 0 }))],
+  send: withPayerAt13(payer),
   feeLamports: fee.toString(),
 });
 const quote = quoteOf(relayer);
@@ -144,6 +144,11 @@ describe("refused", () => {
     const b = sendUnlock();
     b.keys = b.keys.map((k, i) => (i === 12 ? { ...k, pubkey: relayer } : k));
     refused([b], "relayer-in-accounts");
+  });
+  it("the relayer twice among the endpoint's accounts", () => {
+    const a = sendUnlock();
+    a.keys = a.keys.map((k, i) => (i === 12 ? { ...k, pubkey: relayer, isSigner: true, isWritable: true } : k));
+    refused([a], "relayer-in-accounts");
   });
   it("a second signer among the endpoint's accounts", () => {
     const a = sendUnlock();

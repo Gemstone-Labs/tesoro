@@ -17,10 +17,11 @@ const position = corePositionPda(ethPositionId(vault, id));
 const source = sourcePda(position, 0);
 const evm = "0x" + "ab".repeat(20);
 const books = [Keypair.generate().publicKey, Keypair.generate().publicKey];
+const k = () => ({ pubkey: Keypair.generate().publicKey.toBase58(), signer: false, writable: false });
 const quote = (payer: PublicKey): SendQuote => ({
   endpointSettings: Keypair.generate().publicKey.toBase58(),
   payer: payer.toBase58(),
-  send: [{ pubkey: payer.toBase58(), signer: true, writable: true }, ...Array.from({ length: 25 }, () => ({ pubkey: Keypair.generate().publicKey.toBase58(), signer: false, writable: false }))],
+  send: [...Array.from({ length: 13 }, () => k()), { pubkey: payer.toBase58(), signer: true, writable: true }, ...Array.from({ length: 12 }, () => k())],
   feeLamports: "285146",
 });
 const yieldPlan: ApplyYieldPlan = { openAdvance: 0, books, create: [] };
