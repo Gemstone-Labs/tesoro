@@ -1,4 +1,4 @@
-import type { Connection, PublicKey, TransactionInstruction } from "@solana/web3.js";
+import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { isStale, parseStakePool, updateStakePoolBalanceIx, validatorListOf } from "./stake-pool";
 
 /**
@@ -13,7 +13,11 @@ export const VALIDATOR_LIST_ENTRIES_AT = 9;
 export const VALIDATOR_ENTRY_LEN = 73;
 const ENTRY_EPOCH_AT = 16;
 
-type PoolConn = Pick<Connection, "getAccountInfo" | "getEpochInfo">;
+type Slice = { offset: number; length: number };
+type PoolConn = {
+  getAccountInfo(key: PublicKey, config?: { dataSlice?: Slice }): Promise<{ data: Uint8Array; owner: PublicKey } | null>;
+  getEpochInfo(): Promise<{ epoch: number }>;
+};
 
 /**
  * True when the validator list was updated this epoch. The pool's operators update it in order, so the last entry is the
