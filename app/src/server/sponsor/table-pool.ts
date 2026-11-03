@@ -22,7 +22,7 @@ const fail = (what: string, error: { message: string } | null) => {
 /** The keeper republishes the pool every pass; rows older than this are from a keeper that stopped, so nothing is assigned from them. */
 export const POOL_FRESH_MS = 2 * 60_000;
 
-/** Postgres through the service role (migration 0020_table_leases.sql). */
+/** Postgres through the service role (migration 0021_table_leases.sql). */
 export const supabaseLeaseStore: LeaseStore = {
   async take(key, holder, ttlMs) {
     const { data, error } = await db().rpc("take_table_lease", { p_key: key, p_holder: holder, p_ttl_ms: ttlMs });

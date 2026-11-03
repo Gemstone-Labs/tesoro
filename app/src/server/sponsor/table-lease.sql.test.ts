@@ -1,4 +1,4 @@
-/** Runs migration 0020 on an in-process Postgres (pglite): two joins at once must never hold the same table. */
+/** Runs migration 0021 on an in-process Postgres (pglite): two joins at once must never hold the same table. */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
@@ -12,10 +12,10 @@ const take = async (key: string, holder: string, ttlMs: number) => (await db.que
 beforeAll(async () => {
   db = new PGlite();
   await db.exec("create role anon; create role authenticated;");
-  await db.exec(readFileSync(join(__dirname, "../../../supabase/migrations/0020_table_leases.sql"), "utf8"));
+  await db.exec(readFileSync(join(__dirname, "../../../supabase/migrations/0021_table_leases.sql"), "utf8"));
 });
 
-describe("table leases (migration 0020)", () => {
+describe("table leases (migration 0021)", () => {
   it("many simultaneous takes of one table give it to exactly one holder", async () => {
     const results = await Promise.all(Array.from({ length: 20 }, (_, i) => take("holdem/1/0/3", `h${i}`, 60_000)));
     expect(results.filter(Boolean)).toHaveLength(1);
