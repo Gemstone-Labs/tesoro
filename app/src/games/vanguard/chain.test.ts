@@ -5,11 +5,15 @@ import { DELEGATION_PROGRAM_ID, permissionPdaFromAccount } from "@magicblock-lab
 import { describe, expect, it } from "vitest";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import vanguardIdl from "../../lib/chain/idl/vanguard.json";
-import { CU, TABLE_PHASE, SLOT, VANGUARD_PROGRAM_ID, VanguardChain, addresses, armyPda, assignmentPda, battlePda, canFinalizeTable, decodeAssignment, keypairSigner, slotOf, tableOf, tablePda, type Assignment, type TableRef, type TableState } from "./chain";
+import { CU, TABLE_PHASE, SLOT, VANGUARD_PROGRAM_ID, VanguardChain, addresses, armyPda, assignmentPda, battlePda, canFinalizeTable, decodeAssignment, keypairSigner, slotOf, sponsorPda, tableOf, tablePda, type Assignment, type TableRef, type TableState } from "./chain";
 
 type Sent = { step: string; ixs: TransactionInstruction[] };
 
 /** The transactions the client would send, captured instead of sent. */
+function stubConfig(chain: unknown) {
+  Object.assign(chain as Record<string, unknown>, { readConfig: async () => ({ teeValidator: Keypair.generate().publicKey, oracleQueue: Keypair.generate().publicKey }) });
+}
+
 function capture() {
   const chain = new VanguardChain(vanguardIdl as unknown as Vanguard, coreIdl);
   const sent: Sent[] = [];
@@ -94,24 +98,30 @@ describe("rollup instructions", () => {
   it("resolve takes no arguments: the caller, the table, the Battle and both Armies", async () => {
     const { chain, sent, player } = capture();
     const ad = addresses(ID);
+    stubConfig(chain);
     await chain.resolve(player, ID);
     const [limit, ix] = sent[0].ixs;
     expect(units(limit)).toBe(CU.resolve);
     expect(CU.resolve).toBeGreaterThan(60_000);
-    expect(keys(ix)).toEqual([player.publicKey, ad.table, ad.battle, ad.army0, ad.army1].map((k) => k.toBase58()));
+    // The resolve that ends the Match also wipes the Armies and commits the table and the Battle.
+    expect(keys(ix).slice(0, 5)).toEqual([player.publicKey, ad.table, ad.battle, ad.army0, ad.army1].map((k) => k.toBase58()));
+    for (const a of [ad.army0, ad.army1]) expect(keys(ix)).toContain(permissionPdaFromAccount(a).toBase58());
+    expect(keys(ix)).toContain(sponsorPda().toBase58());
     expect(ix.data.length).toBe(8);
     expect(ix.keys.slice(1).every((k) => k.isWritable)).toBe(true);
     expect(sent[0].step).toBe("resolve");
   });
 
-  it("a timeout claim names the caller, the table, the Battle and both Armies (read only: the setup phase needs to know who contributed)", async () => {
+  it("a timeout claim names the caller, the table, the Battle and both Armies, then what wipes them and commits", async () => {
     const { chain, sent, player } = capture();
     const ad = addresses(ID);
+    stubConfig(chain);
     await chain.claimTimeout(player, ID);
-    expect(units(sent[0].ixs[0])).toBe(CU.declare);
+    expect(units(sent[0].ixs[0])).toBe(CU.conclude);
     const ix = sent[0].ixs[1];
-    expect(keys(ix)).toEqual([player.publicKey, ad.table, ad.battle, ad.army0, ad.army1].map((k) => k.toBase58()));
-    expect(ix.keys[3].isWritable || ix.keys[4].isWritable).toBe(false);
+    // A claim that cancels the Match also wipes the Armies and commits, so they are writable now.
+    expect(keys(ix).slice(0, 5)).toEqual([player.publicKey, ad.table, ad.battle, ad.army0, ad.army1].map((k) => k.toBase58()));
+    expect(keys(ix)).toContain(sponsorPda().toBase58());
   });
 
   it("the Two-Step Turn takes the Player, the table and the Battle", async () => {
