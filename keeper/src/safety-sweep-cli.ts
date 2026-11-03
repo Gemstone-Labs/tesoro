@@ -3,6 +3,7 @@ import { Connection } from "@solana/web3.js";
 import { Budget, log, type Ctx } from "./act.ts";
 import { postAlert } from "./alerts.ts";
 import { meter } from "./credits.ts";
+import { KEEPER_CLI_FLAGS, exitOnUnknownFlag } from "./cli-args.ts";
 import { loadPayer, settings } from "./env.ts";
 import { stateDir } from "./history.ts";
 import { buildRuntime, clusterNow, newConnection, solanaFetch } from "./runtime.ts";
@@ -15,7 +16,10 @@ import { realSweepDeps } from "./safety-sweep-chain.ts";
  * is what the alert watches; a new stuck Match is also mailed when NOTIFY_URL and NOTIFY_SECRET are set).
  * `--once` is accepted and implied. `--dry-run` prints the candidates and the credits and sends and saves nothing.
  */
+const USAGE = "Usage: safety-sweep-cli [--dry-run] [--once] [--rpc <url>] [--gpa-rpc <url>]\n  --dry-run  print the candidates and the credit meter, send and save nothing";
+
 async function main() {
+  exitOnUnknownFlag(process.argv.slice(2), KEEPER_CLI_FLAGS, USAGE);
   const s = settings();
   const conn = newConnection(s.rpc, s.gpaRpc);
   const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m), new Connection(s.gpaRpc, { fetch: solanaFetch }));

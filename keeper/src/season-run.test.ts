@@ -98,31 +98,49 @@ describe("the weekly Season run", () => {
 });
 
 describe("a step that reports a failure without throwing", () => {
-  it("leaves the run unfinished at that step, and the retry starts there", async () => {
+  /** Runs the Monday steps with `harvest` reporting `failed` subjects (as the jobs do), muting the log. */
+  async function runWith(failed: { subject: string }[], store = memoryStore()) {
     const { noteError } = await import("./errors.ts");
     const { failOnErrors } = await import("./season-run.ts");
-    const store = memoryStore();
-    const first = fake();
-    const quiet = console.log;
-    console.log = () => {};
-    let failing = true;
-    const inner = first.steps.harvest;
-    first.steps.harvest = async () => {
+    const { calls, steps } = fake();
+    const inner = steps.harvest;
+    steps.harvest = async () => {
       const r = await inner();
-      if (failing) noteError("harvest", "source=1", new Error("send failed"));
+      for (const f of failed) noteError("harvest", f.subject, new Error("send failed"));
       return r;
     };
+    const quiet = console.log;
+    console.log = () => {};
     try {
-      const a = await seasonRun(mondayRun, failOnErrors(first.steps), store);
-      assert.equal(a.stoppedAt, "harvest");
-      assert.deepEqual(first.calls, ["settle", "redeem", "harvest"]);
-      failing = false;
-      const retry = fake();
-      const b = await seasonRun(mondayRun + 3600, failOnErrors({ ...retry.steps, harvest: first.steps.harvest }), store);
-      assert.equal(b.stoppedAt, null);
-      assert.deepEqual(retry.calls, ["batches", "pools", "record"]);
+      return { calls, store, report: await seasonRun(mondayRun, failOnErrors(steps), store) };
     } finally {
       console.log = quiet;
     }
+  }
+
+  it("stops at that step when a failure belongs to no Source, and the retry resumes there", async () => {
+    const a = await runWith([{ subject: "pool=ABCD..wxyz" }]);
+    assert.equal(a.report.stoppedAt, "harvest");
+    assert.deepEqual(a.calls, ["settle", "redeem", "harvest"]);
+    const retry = fake();
+    const b = await seasonRun(mondayRun + 3600, retry.steps, a.store);
+    assert.deepEqual(retry.calls, ["harvest", "batches", "pools", "record"]);
+    assert.equal(b.stoppedAt, null);
+  });
+
+  it("stops when only some failures name a Source", async () => {
+    const a = await runWith([{ subject: "source=AAAA..bbbb" }, { subject: "match=7" }]);
+    assert.equal(a.report.stoppedAt, "harvest");
+  });
+
+  it("skips the Sources whose actions failed, reports them, and goes on to record", async () => {
+    const a = await runWith([{ subject: "source=AAAA..bbbb" }, { subject: "source=CCCC..dddd" }, { subject: "source=AAAA..bbbb" }]);
+    assert.equal(a.report.stoppedAt, null);
+    assert.deepEqual(a.calls, ["settle", "redeem", "harvest", "batches", "pools", "record"]);
+    assert.deepEqual(a.report.skipped, [
+      { step: "harvest", source: "AAAA..bbbb" },
+      { step: "harvest", source: "CCCC..dddd" },
+    ]);
+    assert.ok(a.store.load()?.done.includes("harvest"));
   });
 });

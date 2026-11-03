@@ -109,7 +109,7 @@ export async function act(rt: ActCtx, job: string, subject: string, what: string
       log(job, subject, `wait: ${what} not needed, ${msg}`);
       return { ok: false, detail: "raced" };
     }
-    countError();
+    countError(job, subject);
     log(job, subject, `FAIL ${what}: ${msg}`);
     return { ok: false, detail: msg };
   }
