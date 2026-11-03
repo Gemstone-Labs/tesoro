@@ -3222,13 +3222,17 @@ fn a_holder_with_no_sol_redeems_with_a_relayer_paying_the_claim_rent() {
     );
     redeem.accounts.extend(econ::book_metas(&env.svm, source));
     let before = env.lamports(a(relayer.pubkey()));
-    env.send(&[redeem.clone()], &relayer, &[&bob]).expect("a holder with 0 SOL redeems");
+    env.send(&[redeem.clone()], &relayer, &[&bob])
+        .expect("a holder with 0 SOL redeems");
     let claim: Claim = env.load(claim_key);
     assert_eq!(claim.holder_account, bob_account);
     assert!(claim.gemas_total == 600);
     assert_eq!(env.lamports(a(bob.pubkey())), 0, "the holder paid nothing");
     let rent = env.lamports(claim_key);
-    assert!(before - env.lamports(a(relayer.pubkey())) >= rent, "the relayer paid the Claim's rent");
+    assert!(
+        before - env.lamports(a(relayer.pubkey())) >= rent,
+        "the relayer paid the Claim's rent"
+    );
 
     // The holder alone, with no payer of its own, cannot create the Claim: a payer must sign.
     let mut unpaid = redeem;
@@ -3247,12 +3251,19 @@ fn a_prize_payout_paid_by_a_relayer_returns_its_rent_to_the_relayer_not_the_hold
     let owner = env.owner.insecure_clone();
     drain(&mut env, &owner);
 
-    let payout_id = env.redeem_prize_paid_by(10, Some(&relayer)).expect("a holder with 0 SOL cashes out");
+    let payout_id = env
+        .redeem_prize_paid_by(10, Some(&relayer))
+        .expect("a holder with 0 SOL cashes out");
     let key = env.payout_address(payout_id);
-    assert_eq!(env.payout(payout_id).rent_payer, a(relayer.pubkey()), "the payer is the rent payer");
+    assert_eq!(
+        env.payout(payout_id).rent_payer,
+        a(relayer.pubkey()),
+        "the payer is the rent payer"
+    );
     assert_eq!(env.lamports(holder), 0, "the holder paid nothing");
     let shares = env.payout(payout_id).shares;
-    env.lz_receive(prize_result(payout_id, msg_codec::PRIZE_PAID, shares), 1).expect("paid");
+    env.lz_receive(prize_result(payout_id, msg_codec::PRIZE_PAID, shares), 1)
+        .expect("paid");
 
     // The holder is not the rent receiver; neither is a stranger.
     let err = env.close_payout(payout_id, holder).expect_err("the holder did not pay");
