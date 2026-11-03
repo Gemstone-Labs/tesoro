@@ -31,6 +31,9 @@ function termsData(o: { fee: bigint; maxAbs: bigint; bpsUnlock?: number; bpsYiel
   return d;
 }
 
+/** The bridge's lookup table as the script builds it: the vault's stable addresses and its endpoint accounts. */
+const table = (q: SendQuote) => [new AddressLookupTableAccount({ key: key(), state: { deactivationSlot: BigInt("18446744073709551615"), lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, authority: key(), addresses: stableBridgeAddresses(vault, q) } })];
+
 function setup(over: { limits?: Partial<Limits>; terms?: Buffer | null; guard?: Partial<BridgeSendGuard> | null; tableFor?: (quote: SendQuote) => AddressLookupTableAccount[] } = {}) {
   const relayer = Keypair.generate();
   const player = Keypair.generate();
@@ -67,7 +70,7 @@ function setup(over: { limits?: Partial<Limits>; terms?: Buffer | null; guard?: 
     limits: { ...DEFAULT_LIMITS, ...over.limits },
     chain,
     isListed: async () => false,
-    lookupTables: async () => over.tableFor?.(quote) ?? [],
+    lookupTables: async () => (over.tableFor ?? table)(quote),
     paused: async () => false,
     alertLowBalance: async () => {},
     lowBalance: 1n * SOL,
@@ -160,7 +163,6 @@ describe("a sponsored Redeem for a Player with no SOL", () => {
 });
 
 describe("message sizes with the bridge lookup table", () => {
-  const table = (q: SendQuote) => [new AddressLookupTableAccount({ key: key(), state: { deactivationSlot: BigInt("18446744073709551615"), lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, authority: key(), addresses: stableBridgeAddresses(vault, q) } })];
   const line = { side: 0, dueAt: 0n, class: 0, tranche: 0 };
   const sizeOf = async (s: ReturnType<typeof setup>, ixs: Ix[]) => {
     const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
@@ -170,14 +172,14 @@ describe("message sizes with the bridge lookup table", () => {
   const yieldIx = () => asIx(applyYieldIx({ vault, pid, openAdvance: 0, books: books() }));
 
   it("Unlock with the open Advance's Source, book and three pages, plus apply_yield and the send", async () => {
-    const s = setup({ tableFor: table });
+    const s = setup();
     const unlock = asIx(coreUnlockIx(s.player.publicKey, s.position, { index: 0, accounts: books() }));
     const size = await sizeOf(s, [yieldIx(), unlock, s.send]);
     console.info("size unlock bundle with apply_yield", size);
     expect(size).toBeLessThanOrEqual(1232);
   });
   it("Redeem with its send, apply_yield and the Claim's rent, for a Player with no SOL", async () => {
-    const s = setup({ tableFor: table });
+    const s = setup();
     const redeem = asIx(redeemToEvmIx(s.player.publicKey, s.position, s.source, 5n, vault, { line, accounts: books() }));
     const pay = asIx(sendPayIx({ kind: "yield", payer: s.relayer.publicKey, vault, pid, holder: s.player.publicKey, holderEvm: evm, sourceIndex: 0, quote: s.quote }));
     const transfer = asIx(rentTransferIx(s.relayer.publicKey, s.player.publicKey, CLAIM_RENT));
@@ -186,7 +188,7 @@ describe("message sizes with the bridge lookup table", () => {
     expect(size).toBeLessThanOrEqual(1232);
   });
   it("the same Redeem without the table does not fit, which is why the table exists", async () => {
-    const s = setup();
+    const s = setup({ tableFor: () => [] });
     const redeem = asIx(redeemToEvmIx(s.player.publicKey, s.position, s.source, 5n, vault, { line, accounts: books() }));
     const pay = asIx(sendPayIx({ kind: "yield", payer: s.relayer.publicKey, vault, pid, holder: s.player.publicKey, holderEvm: evm, sourceIndex: 0, quote: s.quote }));
     await expect(s.sponsor.build(s.player.publicKey, wire([redeem, pay]))).rejects.toMatchObject({ code: "too-large" });
