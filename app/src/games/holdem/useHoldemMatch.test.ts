@@ -46,7 +46,26 @@ describe("Hold'em Match startup", () => {
       if (cleanup) cleanups.push(cleanup);
     }
     await vi.advanceTimersByTimeAsync(0);
-    expect(beginMatch).toHaveBeenCalledWith(expect.objectContaining({ publicKey: key }), assignment);
+    expect(beginMatch).toHaveBeenCalledWith(expect.objectContaining({ publicKey: key }), assignment, table);
+    expect(readTableOnBase).not.toHaveBeenCalled();
+  });
+
+  it("begins a table whose previous Match settled, passing the table so its receipts are named; an early refusal is quietly retried", async () => {
+    vi.useFakeTimers();
+    const table = decodeTable(key, coder.decode("table", Buffer.from(fixture.idle_table, "hex")));
+    const decoded = decodeAssignment(key, coder.decode("assignment", Buffer.from(fixture.assignment, "hex")));
+    const assignment = { ...decoded, generation: table.generation, index: table.index, epoch: table.epoch + 1, startDeadline: Date.now() / 1000 + 60 };
+    const beginMatch = vi.fn().mockRejectedValue(new Error("ResetTooEarly"));
+    const readTableOnBase = vi.fn().mockResolvedValue(table);
+    mocks.getHoldem.mockReturnValue({ readAssignment: vi.fn().mockResolvedValue(assignment), readTable: vi.fn().mockResolvedValue(table), readTableOnBase, beginMatch });
+    mocks.fetchMatch.mockResolvedValue({ status: "active", seat: 1, deadline: Date.now() / 1000 + 600 });
+    useHoldemMatch(`${key.toBase58()}-0`, { publicKey: key } as never);
+    for (const effect of mocks.effects) {
+      const cleanup = effect();
+      if (cleanup) cleanups.push(cleanup);
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(beginMatch).toHaveBeenCalledWith(expect.objectContaining({ publicKey: key }), assignment, table);
     expect(readTableOnBase).not.toHaveBeenCalled();
   });
 });
