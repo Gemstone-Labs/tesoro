@@ -492,6 +492,18 @@ describe("fast refunds (ticket 35)", () => {
     assert.ok(keys().includes("tables:fake:wait"));
   });
 
+  it("the refill and tables slices send nothing about Matches: no assignment, no skip, no refund", async () => {
+    for (const only of ["refill", "setup"] as const) {
+      const f = new Fake();
+      f.maxTables = 0;
+      f.sponsorBalance = 1;
+      withTable(f, 0, {}, undefined);
+      f.assignments.set(key(13).toBase58(), { generation: 1, index: 0, epoch: 3, startDeadline: NOW - 10 });
+      await runGame(ctxOf(f, { now: NOW + 1000 }), f.adapter(), STILL, [matchOf(12), matchOf(13)] as never, newGameState(), { gate: gateOk, settings: { ...SCHED, assign: false }, only });
+      assert.deepEqual(f.calls.filter((c) => /^(assign|skip|refund_untabled)/.test(c)), [], only);
+    }
+  });
+
   it("gives up an Assignment whose window closed with its table Idle at its epoch", async () => {
     const f = new Fake();
     withTable(f, 0, {}, undefined);

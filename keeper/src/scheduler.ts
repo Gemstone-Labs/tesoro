@@ -567,7 +567,7 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
   let assigned = 0;
   const assignedNow = new Set<string>();
   const assignable = waiting.filter((w) => a.id !== "trading-duel" || assetOfIndex(Number(w.inner.meta?.asset)) !== null);
-  if (operatorOk && sponsorReady && sched.assign) {
+  if (doUpkeep && operatorOk && sponsorReady && sched.assign) {
     for (const { match, row } of planAssignments(rows, assignable, promised, ctx.now)) {
       const w = waiting.find((x) => x.address.equals(match.address))!;
       const pick = { generation: cfg.generation, index: row.index, epoch: row.view!.epoch };
@@ -587,7 +587,7 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
 
   // An Assignment whose Match never began is given up so its Match refunds from a committed result; a joined Match that no
   // table took within TABLE_WAIT_SECS is refunded at once. Both come after assignment: a free table is always tried first.
-  if (operatorOk) {
+  if (doUpkeep && operatorOk) {
     for (const x of planSkips(rows, expired, ctx.now)) {
       await run(`match=${shortKey(x.match)}`, `skip_epoch (table ${x.index} epoch ${x.epoch}, the Match never began)`, () => a.skip(ctx, x.match));
     }
@@ -595,7 +595,7 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
   const stillWaiting = waiting.filter((w) => !assignedNow.has(w.address.toBase58()));
   let refundedUntabled = 0;
   for (const w of dueForRefund(
-    stillWaiting.map((w) => ({ ...w, deadline: Number(w.inner.deadline.toString()), deadlineAbs: Number(w.inner.deadlineAbs?.toString() ?? Number.MAX_SAFE_INTEGER) })),
+    (doUpkeep ? stillWaiting : []).map((w) => ({ ...w, deadline: Number(w.inner.deadline.toString()), deadlineAbs: Number(w.inner.deadlineAbs?.toString() ?? Number.MAX_SAFE_INTEGER) })),
     ctx.now,
   )) {
     const ok = await run(`match=${matchLabel(matchRefOf(w.inner.id))}`, "refund_untabled (no table within the wait)", () => a.refundUntabled(ctx, w.address));
