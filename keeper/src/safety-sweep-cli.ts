@@ -11,7 +11,7 @@ import { KEEPER_CLI_FLAGS, exitOnUnknownFlag } from "./cli-args.ts";
 import { loadPayer, settings } from "./env.ts";
 import { webhookCatchUpJob } from "./webhook-history.ts";
 import { stateDir } from "./history.ts";
-import { buildRuntime, clusterNow, newConnection, solanaFetch } from "./runtime.ts";
+import { buildRuntime, newConnection, solanaFetch } from "./runtime.ts";
 import { fileSweepStore, safetySweep } from "./safety-sweep.ts";
 import { realSweepDeps } from "./safety-sweep-chain.ts";
 
@@ -40,8 +40,8 @@ async function run(heartbeat: Heartbeat) {
   const conn = newConnection(s.rpc, s.gpaRpc);
   const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m), new Connection(s.gpaRpc, { fetch: solanaFetch }));
   const ctx: Ctx = { ...buildRuntime(s, conn, payer), budget: new Budget(s.hourlyCapLamports), lz: new Budget(s.lzHourlyCapLamports) };
-  ctx.now = await clusterNow(conn);
-  ctx.budget.observe(await conn.getBalance(payer.publicKey));
+  // The machine clock, not the chain's: a sweep decides on minutes, and this saves two RPC calls (getSlot, getBlockTime) a run.
+  ctx.now = Math.floor(Date.now() / 1000);
   const store = fileSweepStore(join(stateDir(), "safety-sweep.json"));
   const report = await meter.inJob("safety-sweep", () => safetySweep(realSweepDeps(ctx), store, { now: ctx.now, dryRun: s.dryRun, full: process.argv.includes("--full") }));
   for (const c of report.candidates) log("sweep", c.address.toBase58(), `${s.dryRun ? "DRY-RUN " : ""}candidate ${c.case}: ${c.action} (known ${c.ageSecs}s)`);

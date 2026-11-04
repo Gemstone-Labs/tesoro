@@ -93,7 +93,19 @@ export interface SweepState {
   seen: Record<string, Seen>;
   /** When the last full chain scan finished (unix seconds). */
   fullScanAt?: number;
+  /** Active Matches asked about and found with no committed result: when to ask again. */
+  quiet?: Record<string, Quiet>;
 }
+
+/** Back-off for an Active Match whose Table holds no result. `key` is what the check looked at; a change of it asks again at once. */
+export interface Quiet {
+  key: string;
+  asked: number;
+  next: number;
+}
+
+/** Seconds to wait after the 1st, 2nd, 3rd... check that found no result; the last repeats. The hourly scan asks regardless. */
+export const QUIET_BACKOFF_SECS = [5 * 60, 15 * 60, 30 * 60, 60 * 60];
 
 export interface SweepStore {
   load(): SweepState;
@@ -224,7 +236,7 @@ async function findHeads(deps: SweepDeps, state: SweepState, now: number, dryRun
 export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { now: number; dryRun?: boolean; full?: boolean }): Promise<SweepReport> {
   const { now, dryRun = false, full = false } = opts;
   const state = store.load();
-  const next: SweepState = { seen: {}, fullScanAt: state.fullScanAt };
+  const next: SweepState = { seen: {}, fullScanAt: state.fullScanAt, quiet: {} };
   const report: SweepReport = { scanned: {}, candidates: [], alerts: [], newAlerts: [], mode: "full", dbMisses: [] };
 
   const { heads, dbIds } = await findHeads(deps, state, now, dryRun, full, report, next);
@@ -236,7 +248,19 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
     const id = label(head.address);
     if (dbIds && !dbIds.has(id)) report.dbMisses.push(id);
     let seen = state.seen[id] && { ...state.seen[id] };
-    if (kind === "finalize" && !seen && !(await deps.committed(head))) continue;
+    if (kind === "finalize" && !seen) {
+      const quietKey = `${head.stage}:${head.deadline}`;
+      const q = state.quiet?.[id]?.key === quietKey ? state.quiet[id] : undefined;
+      if (q && report.mode === "db" && now < q.next) {
+        next.quiet![id] = q;
+        continue;
+      }
+      if (!(await deps.committed(head))) {
+        const asked = (q?.asked ?? 0) + 1;
+        next.quiet![id] = { key: quietKey, asked, next: now + QUIET_BACKOFF_SECS[Math.min(asked, QUIET_BACKOFF_SECS.length) - 1] };
+        continue;
+      }
+    }
     seen ??= { since: now };
     next.seen[id] = seen;
 

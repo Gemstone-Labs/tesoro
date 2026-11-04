@@ -263,9 +263,13 @@ describe("the safety sweep: --dry-run", () => {
 /** The fake chain plus a database: `db` lists the Matches it knows; `scans` and `reads` count the chain calls. */
 function withDb(heads: Head[], db: Head[], opts: { committed?: Set<string>; dbFails?: boolean } = {}) {
   const base = fake(heads, { committed: opts.committed });
-  const calls = { scans: 0, reads: [] as string[][], gone: [] as string[] };
+  const calls = { committed: 0, scans: 0, reads: [] as string[][], gone: [] as string[] };
   const deps: SweepDeps = {
     ...base.deps,
+    committed: async (h) => {
+      calls.committed++;
+      return base.deps.committed(h);
+    },
     scan: async () => {
       calls.scans++;
       return base.deps.scan();
@@ -367,5 +371,56 @@ describe("the safety sweep: candidates from the database", () => {
     await run(deps, store, T0, true);
     assert.deepEqual(calls.gone, []);
     assert.equal(store.load().fullScanAt, T0 - 3600);
+  });
+});
+
+describe("the safety sweep: an Active Match with no result backs off", () => {
+  const zombie = () => head(1, { openedAt: T0 - 3600 });
+
+  it("is asked about at 5, 15, 30 minutes, then left to the hourly scan", async () => {
+    const z = zombie();
+    const { deps, calls } = withDb([z], [z]);
+    const store = memorySweepStore({ seen: {}, fullScanAt: T0 });
+    const checkedAt: number[] = [];
+    for (let t = T0; t < T0 + 2 * 3600; t += 300) {
+      const before = calls.committed;
+      await run(deps, store, t);
+      if (calls.committed > before) checkedAt.push((t - T0) / 60);
+    }
+    // 0, +5, +20 (15 later), +50 (30 later); the hourly scan at 60 asks again, then the schedule restarts from there.
+    assert.deepEqual(checkedAt.slice(0, 4), [0, 5, 20, 50]);
+    assert.ok(checkedAt.includes(60), "the hourly scan asks regardless");
+    assert.ok(calls.committed <= 8, `asked ${calls.committed} times in 2 hours`);
+  });
+
+  it("finds a result that commits during the back-off by the next hourly scan, and finishes it", async () => {
+    const z = zombie();
+    const committed = new Set<string>();
+    const { deps, sent } = withDb([z], [z], { committed });
+    const store = memorySweepStore({ seen: {}, fullScanAt: T0 });
+    for (let t = T0; t <= T0 + 3 * 3600 && !sent.length; t += 300) {
+      if (t === T0 + 3300) committed.add(z.address.toBase58());
+      await run(deps, store, t);
+    }
+    assert.equal(sent.length, 2, "finalize and finish went out");
+  });
+
+  it("asks again at once when the Match changes (a new deadline)", async () => {
+    const z = zombie();
+    const { deps, calls } = withDb([z], [z]);
+    const store = memorySweepStore({ seen: {}, fullScanAt: T0 });
+    await run(deps, store, T0);
+    await run(deps, store, T0 + 300);
+    assert.equal(calls.committed, 2);
+    z.deadline += 600;
+    await run(deps, store, T0 + 360);
+    assert.equal(calls.committed, 3);
+  });
+
+  it("does not ask a Match the sweep has no reason to look at", async () => {
+    const young = head(1, { openedAt: T0 - 30 });
+    const { deps, calls } = withDb([young], [young]);
+    await run(deps, memorySweepStore({ seen: {}, fullScanAt: T0 }), T0);
+    assert.equal(calls.committed, 0);
   });
 });

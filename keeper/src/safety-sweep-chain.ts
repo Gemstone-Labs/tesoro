@@ -149,6 +149,14 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
   const db = historyRpc(env);
   if (!db) log("sweep", "-", "no SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY: every run scans the chain");
 
+  // The spend cap needs the balance before the first send, not on a run that sends nothing.
+  let observed = false;
+  const observeBalance = async () => {
+    if (observed) return;
+    observed = true;
+    ctx.budget.observe(await ctx.conn.getBalance(ctx.payer.publicKey));
+  };
+
   return {
     ...(db && {
       dbMatches: () => dbMatches(db),
@@ -174,6 +182,7 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
       return `${p.stage}:${p.phase}:${p.line}`;
     },
     finalize: async (head) => {
+      await observeBalance();
       const game = gameOf(ctx, head.game);
       if (!game) throw new Error(`unknown game ${head.game.toBase58()}`);
       const a = await game.chain.readAssignment(head.address);
@@ -183,10 +192,12 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
       if (!r.ok && r.detail !== "raced") throw new Error(r.detail);
     },
     finish: async (address) => {
+      await observeBalance();
       const result = await finishMatch(finisher, address);
       if (result.stalled && result.stalled !== "step-limit") throw new Error(`stalled: ${result.stalled}`);
     },
     refund: async (head) => {
+      await observeBalance();
       const r = await act(ctx, "sweep", subject(head.address), "refund_match (a Backer funded it and nobody joined before the deadline)", async () =>
         sendIxs(ctx.conn, ctx.payer, [await refundMatchIx(ctx.core, { caller: ctx.payer.publicKey, payer: ctx.payer.publicKey, game: head.game, matchState: head.address })], { units: 300_000 }),
       );
