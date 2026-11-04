@@ -2,8 +2,8 @@ import { Program } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { TABLE_PHASE as BURST_PHASE, decodeTable as decodeBurstTable } from "../../games/block-puzzle/live-chain";
 import { TABLE_PHASE, decodeTable as decodeHoldemTable } from "../../games/holdem/chain";
-import { decodeTable as decodeDuelTable } from "../../games/trading-duel/chain";
-import { battlePda, decodeTable as decodeVanguardTable } from "../../games/vanguard/chain";
+import { PHASE as DUEL_PHASE, decodeTable as decodeDuelTable } from "../../games/trading-duel/chain";
+import { TABLE_PHASE as VANGUARD_PHASE, battlePda, decodeTable as decodeVanguardTable } from "../../games/vanguard/chain";
 import { STATUS as BATTLE_STATUS, decodeBattle } from "../../games/vanguard/decode";
 import { gameOfProgram } from "../../lib/chain/games";
 import { matchPda } from "../../lib/chain/basket";
@@ -106,14 +106,14 @@ async function boardOf(deps: CaptureDeps, f: Finalize, slot: number): Promise<{ 
     case "holdem": {
       const t = decodeHoldemTable(address, raw);
       if (!t.tesoroMatch.equals(match)) throw new Missing("base's Table belongs to a later Match");
-      if (t.phase !== TABLE_PHASE.over) throw new Missing("the Table is not Over on base");
+      if (t.tablePhase !== TABLE_PHASE.over) throw new Missing("the Table is not Over on base");
       [state, epoch] = [holdemEndState(t), t.epoch];
       break;
     }
     case "trading-duel": {
       const t = decodeDuelTable(address, raw);
       if (!t.tesoroMatch.equals(match)) throw new Missing("base's Table belongs to a later Match");
-      if (t.phase !== TABLE_PHASE.over) throw new Missing("the Table is not Over on base");
+      if (t.phase !== DUEL_PHASE.over) throw new Missing("the Table is not Over on base");
       [state, epoch] = [duelEndState(t), t.epoch];
       break;
     }
@@ -127,7 +127,7 @@ async function boardOf(deps: CaptureDeps, f: Finalize, slot: number): Promise<{ 
     case "vanguard": {
       const t = decodeVanguardTable(address, raw);
       if (!t.tesoroMatch.equals(match)) throw new Missing("base's Table belongs to a later Match");
-      if (t.phase !== TABLE_PHASE.over) throw new Missing("the Table is not Over on base");
+      if (t.phase !== VANGUARD_PHASE.over) throw new Missing("the Table is not Over on base");
       const bytes = await deps.base.read(battlePda(address).toBase58(), slot);
       if (!bytes) throw new Missing("the Battle is not on base");
       const b = decodeBattle(bytes);

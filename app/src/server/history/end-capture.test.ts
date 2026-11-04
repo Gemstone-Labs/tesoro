@@ -37,8 +37,12 @@ const programOf = (game: Game) => new Program(IDLS[game] as never, { connection:
 function tableBytes(game: Game, match: string, phase: number, patch: Record<string, unknown> = {}) {
   const coder = programOf(game).coder.accounts;
   const raw = coder.decode("table", Buffer.from(templates[game].table, "base64"));
-  const bytes = coder.encode("table", { ...raw, tesoroMatch: new PublicKey(match), phase, ...patch });
-  return bytes instanceof Promise ? bytes : Promise.resolve(bytes);
+  // The coder's own encode allocates 1,000 bytes; Block Burst's Table is 9 KB, so write through its layout.
+  const template = Buffer.from(templates[game].table, "base64");
+  const layout = (coder as unknown as { accountLayouts: Map<string, { encode(o: unknown, b: Buffer): number }> }).accountLayouts.get("table")!;
+  const out = Buffer.from(template);
+  layout.encode({ ...raw, tesoroMatch: new PublicKey(match), phase, ...patch }, out.subarray(8));
+  return out;
 }
 function battleBytes(match: string, status: number) {
   const b = Buffer.from(templates.vanguard.battle!, "base64");
