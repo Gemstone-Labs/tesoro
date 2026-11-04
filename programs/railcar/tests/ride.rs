@@ -2051,7 +2051,7 @@ impl Env {
         let plan = st.inner.ahead(&seats, &lines, steps as usize);
         let chunk_no = self.ahead_seen;
         self.ahead_seen += 1;
-        if chunk_no >= 3 && chunk_no % 5 != 0 {
+        if chunk_no >= 3 && !chunk_no.is_multiple_of(5) {
             return;
         }
         let raw = self.svm.get_account(&s(car.tesoro)).expect("car").data;
