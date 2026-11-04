@@ -68,7 +68,8 @@ pub const TABLE_OVER: u8 = 3;
 /// `Battle.layout_version`. Bump it when the field layout of `Battle` changes, so a client reading a Battle that was
 /// created before an upgrade knows which offsets to use. Version 3: same offsets as 2; `payer` is the Assignment's
 /// payer, `authority_bump` and `finalized` are unused, `permissioned` means the seats were handed to the Players.
-pub const LAYOUT_VERSION: u8 = 3;
+/// Version 4: same offsets as 3 up to `resolve_slack_secs`; `signers` (each seat's key) sits before `reserved`, which still closes the Battle.
+pub const LAYOUT_VERSION: u8 = 4;
 /// `Battle.pending_kind`: nothing is waiting to be resolved.
 pub const PENDING_NONE: u8 = 0;
 /// A declared move (`pending_piece`, `pending_to`) waits for `resolve`.
@@ -378,6 +379,9 @@ pub struct Battle {
     pub deal_slot: u64,
     /// See `engine::RESOLVE_SLACK_SECS`.
     pub resolve_slack_secs: u8,
+    /// The seat key each Player named in their entry (the wallet again when they named none), by seat:
+    /// copied from the Match with `players`, it may act for the seat beside the wallet.
+    pub signers: [Pubkey; 2],
     /// `reserved[..8]` is the END MASK: bit `id` (little endian `u64`, piece numbers 0-59) is set for every piece
     /// whose rank changed in the Match (a Major that dug in, a General of the Army that became a Spy), dead pieces
     /// included. Written when the Match ends, never before. The rest is unused.
@@ -398,6 +402,7 @@ pub struct NewBattle {
     pub match_id: u64,
     pub tesoro_match: Pubkey,
     pub players: [Pubkey; 2],
+    pub signers: [Pubkey; 2],
     pub start_deadline: i64,
     pub payer: Pubkey,
     pub oracle_queue: Pubkey,
@@ -433,6 +438,7 @@ impl Battle {
         self.match_id = new.match_id;
         self.tesoro_match = new.tesoro_match;
         self.players = new.players;
+        self.signers = new.signers;
         self.start_deadline = new.start_deadline;
         self.us_seat = UNSET;
         self.status = STATUS_CREATED;
@@ -470,10 +476,6 @@ impl Battle {
         self.pad_a[0] = 0;
         self.pending_slot = 0;
         self.pending_time = 0;
-    }
-
-    pub fn seat_of(&self, key: &Pubkey) -> Option<usize> {
-        self.players.iter().position(|p| p == key)
     }
 
     /// The army a seat plays (after `deal`).
@@ -710,6 +712,11 @@ pub struct Army {
     pub seat: u8,
     /// The Player who may read this seat now; default while the seat is wiped.
     pub player: Pubkey,
+    /// The seat key that may act and read beside `player`; default while the seat is wiped.
+    pub signer: Pubkey,
+    /// The Match and epoch the seat was handed over for; default while the seat is wiped.
+    pub tesoro_match: Pubkey,
+    pub epoch: u64,
     /// 0 US, 1 Italy; `UNSET` until `deal`.
     pub side: u8,
     /// Rank of each of this side's pieces, by `id % 30`; 0 for an empty slot.
@@ -749,6 +756,9 @@ impl Army {
             table,
             seat,
             player: Pubkey::default(),
+            signer: Pubkey::default(),
+            tesoro_match: Pubkey::default(),
+            epoch: 0,
             side: UNSET,
             ranks: [0; 30],
             fuel: 0,
@@ -866,6 +876,8 @@ pub struct Assignment {
     pub epoch: u64,
     /// Seat 0 opened the tesoro_core Match, seat 1 joined (the Players' authorities).
     pub players: [Pubkey; 2],
+    /// The seat key each Player named in their entry (the wallet again when they named none).
+    pub signers: [Pubkey; 2],
     /// Unix time by which both Players must have checked in.
     pub start_deadline: i64,
     /// Who paid this account's rent; it goes back there when the Assignment is closed.
@@ -1207,7 +1219,7 @@ mod layout {
 
     #[test]
     fn the_battle_has_no_padding_and_a_fixed_size() {
-        assert_eq!(core::mem::size_of::<Battle>(), 1512);
+        assert_eq!(core::mem::size_of::<Battle>(), 1576);
     }
 
     /// Offsets after the 8-byte discriminator, for clients (ticket 07's decoders). The fields up to `depot_claimed`
@@ -1267,7 +1279,8 @@ mod layout {
                 offset_of!(Battle, resolve_slack_secs),
                 1480,
             ),
-            ("reserved", offset_of!(Battle, reserved), 1481),
+            ("signers", offset_of!(Battle, signers), 1481),
+            ("reserved", offset_of!(Battle, reserved), 1545),
         ] {
             assert_eq!(got, want, "{name}");
         }

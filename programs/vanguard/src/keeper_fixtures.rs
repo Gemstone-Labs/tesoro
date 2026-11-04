@@ -76,6 +76,7 @@ fn vanguard_fixtures_match_the_program() {
         index: 3,
         epoch: 7,
         players: [key(3), key(4)],
+        signers: [key(13), key(14)],
         start_deadline: 1_300,
         payer: key(8),
     };
@@ -83,12 +84,18 @@ fn vanguard_fixtures_match_the_program() {
     // A seat that has contributed and is waiting for the oracle: the secret is in, nothing is dealt.
     let mut waiting = Army::blank(251, key(1), 1);
     waiting.player = key(4);
+    waiting.signer = key(14);
+    waiting.tesoro_match = key(2);
+    waiting.epoch = 7;
     waiting.contributed = true;
     waiting.secret = [0x5a; 32];
 
     // A dealt seat: ranks, key and its storm share, secrets spent.
     let mut dealt = Army::blank(250, key(1), 0);
     dealt.player = key(3);
+    dealt.signer = key(13);
+    dealt.tesoro_match = key(2);
+    dealt.epoch = 7;
     dealt.side = 0;
     dealt.ranks[0] = 7;
     dealt.reserved = [0xA0; 32];
