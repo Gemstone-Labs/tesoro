@@ -255,12 +255,18 @@ struct Pages {
     pots: Vec<PotPages>,
     /// Pages a chunk was not given.
     hidden: Vec<u8>,
+    /// Pages read so far.
+    read: Vec<u8>,
 }
 
 impl Seats<Vec<u8>> for Pages {
     fn seat(&mut self, i: u8) -> LcResult<Seat> {
-        if self.hidden.contains(&(i / SEATS_PER_PAGE as u8)) {
+        let page = i / SEATS_PER_PAGE as u8;
+        if self.hidden.contains(&page) {
             return Err(LifecycleError::MissingAccount);
+        }
+        if !self.read.contains(&page) {
+            self.read.push(page);
         }
         Ok(self.seats.get(i as usize).copied().unwrap_or_else(Seat::zeroed))
     }
@@ -338,6 +344,7 @@ fn car(w: &mut World, riders: &[(u8, &[(u8, u64)])], t: Terms) -> Car {
             seats,
             pots,
             hidden: vec![],
+            read: vec![],
         },
     }
 }
@@ -816,18 +823,25 @@ fn add(v: &mut Vec<Key>, k: Key) {
 
 #[test]
 fn ahead_lists_everything_the_next_chunk_touches() {
-    let mut rng = Rng(77);
     for steps in [1u32, 2, 3, 5, 12] {
         let mut w = World::new();
-        let mut c = worked_example_car(&mut w);
+        let riders: Vec<(u8, &[(u8, u64)])> = (0..23u8)
+            .map(|i| (10 + i, if i % 2 == 0 { &[(100, 200), (101, 300)][..] } else { &[(102, 500)][..] }))
+            .collect();
+        let mut c = car(&mut w, &riders, terms(200, 300));
         // a Backed place too
         w.account(key(6), 16);
-        c.pages.seats[1].funder = key(6);
-        c.pages.seats[1].share_bps = 4_000u16.to_le_bytes();
-        c.settle(&worked_example_result()).unwrap();
+        c.pages.seats[21].funder = key(6);
+        c.pages.seats[21].share_bps = 4_000u16.to_le_bytes();
+        c.settle(&ManySeatResult::Placed {
+            places: places(&[(21, 6000), (3, 2500), (14, 1500)]),
+            refunds: refunds(&[(0, 350), (7, 80), (19, 400)]),
+        })
+        .unwrap();
         while c.rec.stage() != ManyStage::Paid {
             let lines: Vec<Vec<Line>> = c.pages.pots.iter().map(|p| p.lines()).collect();
             let a = c.rec.ahead(&c.pages.seats, &lines, steps as usize);
+            c.pages.read.clear();
             let mut watch = Watch { w: &mut w, owners: vec![], sources: vec![], cut: vec![] };
             let r = c.rec.chunk(&mut c.pages, &mut watch, steps).unwrap();
             for o in &watch.owners {
@@ -840,8 +854,10 @@ fn ahead_lists_everything_the_next_chunk_touches() {
                 assert!(a.cut_sources.contains(src));
             }
             assert!(r.lines.iter().all(|l| a.seats.contains(&l.pot_side)));
-            let _ = rng.below(2);
+            for p in &c.pages.read {
+                assert!(a.pages.contains(p), "page {p} read but not listed");
+            }
         }
-        assert_eq!(w.gemas(BEN) + w.gemas(6), 630);
+        assert_eq!(w.fees().iter().sum::<u64>(), (23 * 500 - 830) * 6 / 100);
     }
 }

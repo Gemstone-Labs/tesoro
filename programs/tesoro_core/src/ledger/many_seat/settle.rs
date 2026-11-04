@@ -832,7 +832,9 @@ impl ManySeatRecord {
 /// What the next steps of a run touch, so a client knows which accounts to pass.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Ahead {
-    /// Seats walked (their page and their Pot).
+    /// Seat pages read (every seat the cursor passes, moved or skipped).
+    pub pages: Vec<u8>,
+    /// Seats whose lines move (their Pot).
     pub seats: Vec<u8>,
     /// Accounts credited (basket and spill).
     pub owners: Vec<Key>,
@@ -875,6 +877,10 @@ impl ManySeatRecord {
                 }
                 let i = r.seat_i as usize;
                 let s = &seats[i];
+                let page = (i / super::SEATS_PER_PAGE) as u8;
+                if !out.pages.contains(&page) {
+                    out.pages.push(page);
+                }
                 if r.in_seat == 0 {
                     let whole = refund_run || s.place != 0;
                     let want = if whole { entry } else { s.refund() };
@@ -912,6 +918,10 @@ impl ManySeatRecord {
                 }
                 let i = r.seat_i as usize;
                 let s = &seats[i];
+                let page = (i / super::SEATS_PER_PAGE) as u8;
+                if !out.pages.contains(&page) {
+                    out.pages.push(page);
+                }
                 if r.in_seat == 0 {
                     let lost = entry.saturating_sub(s.refund());
                     if s.state() != SeatState::Seated || s.place != 0 || lost == 0 {
