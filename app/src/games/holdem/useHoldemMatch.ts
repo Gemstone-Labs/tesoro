@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth/context";
 import { finalizeFree } from "@/lib/chain/game-finalize";
 import { finalizeAndFinishFree, finishMatchFree } from "@/lib/chain/finish-match-client";
 import { createFinisher } from "@/lib/chain/finish-match";
+import { closedWhileSeen } from "./closed-while-seen";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getHoldem } from "@/lib/chain/client";
@@ -191,7 +192,14 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
     if (!p || !signer || id === null || mk === null) return;
     const hd = getHoldem();
     const me = BlockPuzzleChain.coreAccount(signer.publicKey);
-    const m = progress.match(await fetchMatch(id, me));
+    const fresh = await fetchMatch(id, me);
+    let m = progress.match(fresh);
+    // The account closed and the history row is not written yet: base's committed table already says how it ended.
+    if (!fresh && m) {
+      const seenAssignment = assignRef.current;
+      const base = seenAssignment ? await hd.readTableOnBase(seenAssignment).catch(() => null) : null;
+      m = closedWhileSeen(m, base, seenAssignment, Date.now() / 1000) ?? m;
+    }
     setView((v) => ({ ...v, match: m, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
     if (!m) return setStage("notfound");
     if (m.seat === null) return setStage("spectator");
