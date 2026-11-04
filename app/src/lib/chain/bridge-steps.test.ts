@@ -19,7 +19,7 @@ const k = () => ({ pubkey: Keypair.generate().publicKey.toBase58(), signer: fals
 const quote = (payer: PublicKey): SendQuote => ({
   endpointSettings: Keypair.generate().publicKey.toBase58(),
   payer: payer.toBase58(),
-  send: [...Array.from({ length: 13 }, () => k()), { pubkey: payer.toBase58(), signer: true, writable: true }, ...Array.from({ length: 12 }, () => k())],
+  send: [...Array.from({ length: 13 }, () => k()), { pubkey: payer.toBase58(), signer: false, writable: true }, ...Array.from({ length: 12 }, () => k())],
   feeLamports: "285146",
 });
 const yieldPlan: ApplyYieldPlan = { openAdvance: 0, books, create: [] };
