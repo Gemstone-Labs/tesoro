@@ -8,16 +8,20 @@
 //! * **Entry.** A seat's entry is taken exactly as a head-to-head join takes it (`take_entry`: a
 //!   direct draw into a fresh Pot, or a complete Entry Ticket), counted against the Entry Limit,
 //!   and its room held (`cover_room`) so the lines can always come back.
-//! * **Step-off.** Before departure the seat empties at once and its mark carries the lines home
-//!   (`return_stepped_off` continues when one transaction cannot move them all). The Entry Limit
-//!   and the open-Match count are released at the step-off.
+//! * **Step-off.** Before departure the seat empties at once and the funder's mark carries the
+//!   lines home (`return_stepped_off` continues when one transaction cannot move them all). The
+//!   Entry Limit and the open-Match count are released at the step-off.
+//! * **Backing.** With an accepted Offer of a listed Game the Backer funds the seat (as
+//!   `join_match`): the Offer is spent, the Backer's limit counted the entry when it was made,
+//!   refunds and the entry go back to the Backer, a place's winnings split by the Offer's share.
+//!   The Backer has a seat mark too, so it funds one seat per car and rides in none of it.
 //! * **Departure** is the Game's call, with at least the car's minimum seated.
 
 use crate::books::OnchainBooks;
-use crate::error::{seat_err, ManySeatError, MatchError, TesoroError};
+use crate::error::{core_err, seat_err, ManySeatError, MatchError, TesoroError};
 use crate::instructions::basket::move_lamports;
 use crate::instructions::matching::{
-    add_hold, check_store, judged_slot_at, lc_err, listing, take_entry, terms_of,
+    add_hold, backer_side, check_store, judged_slot_at, lc_err, listing, take_entry, terms_of,
 };
 use crate::instructions::overflow::cover_room;
 use crate::instructions::settlement::ChainSettlement;
@@ -148,6 +152,34 @@ pub(crate) fn page_in<'d>(info: &AccountInfo, data: &'d mut [u8]) -> Result<&'d 
         ManySeatError::WrongSeat
     );
     Ok(bytemuck::from_bytes_mut(&mut data[DISC..]))
+}
+
+/// Writes `mark` into a seat mark account's data (checked by `mark_in` before).
+fn write_mark(info: &AccountInfo, mark: &SeatMark) -> Result<()> {
+    let mut data = info.try_borrow_mut_data()?;
+    *bytemuck::from_bytes_mut::<SeatMark>(&mut data[DISC..SeatMark::SPACE]) = *mark;
+    Ok(())
+}
+
+/// The mark of seat `seat`'s Backer in the car `match_key`, checked against the seat: this
+/// program's mark, naming the car, the seat's funder and the seat, not returning. Only core
+/// creates marks, at `["seat", match, account]`, so these fields identify it.
+pub(crate) fn funder_mark_of(
+    info: &AccountInfo,
+    match_key: &Pubkey,
+    funder: [u8; 32],
+    seat: u8,
+) -> Result<SeatMark> {
+    let data = info.try_borrow_data()?;
+    let mark = *mark_in(info, &data)?;
+    require!(
+        mark.match_key == match_key.to_bytes()
+            && mark.account == funder
+            && mark.seat == seat
+            && mark.returning == 0,
+        ManySeatError::WrongSeat
+    );
+    Ok(mark)
 }
 
 /// The seat mark in `info`'s data: this program's, of a seat mark's size and discriminator.
@@ -298,17 +330,17 @@ pub(crate) fn open_many_seat_match(
 // ---------------------------------------------------------------------------------------------
 
 /// Takes the lowest free seat of `page` (created when it is the car's next page). The entry is
-/// taken as `join_match` takes it; `pot` is a fresh address or a complete Entry Ticket.
-/// `remaining_accounts`: the books of the Sources the entry draws, and the Player's overflow
-/// record for this Match when the stores may be short.
+/// taken as `join_match` takes it; `pot` is a fresh address or a complete Entry Ticket (a Backing
+/// Ticket when backed). With an accepted `offer` the Backer funds the seat (a listed Game only)
+/// and gets a seat mark too: one seat per Account per car, whether it rides or funds.
+/// `remaining_accounts`: the books of the Sources the entry draws, and the funder's overflow
+/// record for this Match when its stores may be short.
 #[derive(Accounts)]
 #[instruction(pot_nonce: u64, pot_lines: u32, page: u8)]
 pub struct JoinManySeatMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub player_authority: Signer<'info>,
-    /// The seat key that plays this seat; the wallet itself when it wants none.
-    pub seat_signer: Signer<'info>,
     #[account(
         seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
         bump = player_account.bump
@@ -371,6 +403,31 @@ pub struct JoinManySeatMatch<'info> {
         bump
     )]
     pub seat_mark: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+    /// The accepted Offer, when the seat is backed.
+    #[account(
+        mut,
+        seeds = [OFFER_SEED, offer.inner.backer.as_ref(), &offer.nonce.to_le_bytes()],
+        bump = offer.bump
+    )]
+    pub offer: Option<Box<Account<'info, OfferState>>>,
+    pub backer_account: Option<Box<Account<'info, TesoroAccount>>>,
+    #[account(mut)]
+    pub backer_counters: Option<Account<'info, AccountCounters>>,
+    /// CHECK: the Backer's Protections address; a Backer who is away cannot fund a seat.
+    pub backer_protections: Option<UncheckedAccount<'info>>,
+    /// CHECK: the Backer's basket, checked by `check_store`.
+    #[account(mut)]
+    pub backer_basket: Option<UncheckedAccount<'info>>,
+    /// CHECK: the Backer's spill, checked by `check_store`.
+    #[account(mut)]
+    pub backer_spill: Option<UncheckedAccount<'info>>,
+    /// CHECK: the Backer's seat mark in this car (`["seat", match, backer]`); must not exist yet,
+    /// created here.
+    #[account(mut)]
+    pub funder_mark: Option<UncheckedAccount<'info>>,
+    /// The seat key that plays this seat; the wallet itself when it wants none.
+    pub seat_signer: Signer<'info>,
     /// CHECK: the seat key's marker in this car; must not exist yet, created here.
     #[account(
         mut,
@@ -378,7 +435,52 @@ pub struct JoinManySeatMatch<'info> {
         bump
     )]
     pub seat_key_mark: UncheckedAccount<'info>,
-    pub system_program: Program<'info, System>,
+}
+
+/// Refuses a mark that exists: the Account is in a seat of this car, or its lines from a
+/// stepped-off seat are still on their way home.
+fn require_no_mark(mark_info: &AccountInfo) -> Result<()> {
+    if is_empty(mark_info) {
+        return Ok(());
+    }
+    let returning = {
+        let data = mark_info.try_borrow_data()?;
+        mark_in(mark_info, &data)?.returning != 0
+    };
+    if returning {
+        err!(ManySeatError::StillReturning)
+    } else {
+        err!(ManySeatError::AlreadySeated)
+    }
+}
+
+/// Creates the seat mark of `account` for seat `seat` of the car `match_key`.
+fn create_mark<'info>(
+    mark_info: &AccountInfo<'info>,
+    payer: &AccountInfo<'info>,
+    system: &AccountInfo<'info>,
+    (match_key, id): (&Pubkey, &MatchId),
+    account: &Pubkey,
+    bump: u8,
+    seat: u8,
+) -> Result<()> {
+    create_pda(
+        mark_info,
+        payer,
+        system,
+        &[SEAT_SEED, match_key.as_ref(), account.as_ref(), &[bump]],
+        SeatMark::SPACE,
+    )?;
+    let mut data = mark_info.try_borrow_mut_data()?;
+    data[..DISC].copy_from_slice(SeatMark::DISCRIMINATOR);
+    let mark: &mut SeatMark = bytemuck::from_bytes_mut(&mut data[DISC..SeatMark::SPACE]);
+    mark.bump = bump;
+    mark.seat = seat;
+    mark.match_key = match_key.to_bytes();
+    mark.account = account.to_bytes();
+    mark.payer = payer.key.to_bytes();
+    mark.match_seed = id.seed();
+    Ok(())
 }
 
 pub(crate) fn join_many_seat_match<'info>(
@@ -416,16 +518,26 @@ pub(crate) fn join_many_seat_match<'info>(
     let payer = ctx.accounts.payer.to_account_info();
     let system = ctx.accounts.system_program.to_account_info();
     let mark_info = ctx.accounts.seat_mark.to_account_info();
-    if !is_empty(&mark_info) {
-        let returning = {
-            let data = mark_info.try_borrow_data()?;
-            mark_in(&mark_info, &data)?.returning != 0
-        };
-        return if returning {
-            err!(ManySeatError::StillReturning)
-        } else {
-            err!(ManySeatError::AlreadySeated)
-        };
+    require_no_mark(&mark_info)?;
+    let backed = ctx.accounts.offer.is_some();
+    if backed {
+        // a Backer's Gemas follow only a Game listed now, listed when the car opened, same build
+        let (listed, slot) = listing(
+            &ctx.accounts.game_record,
+            &ctx.accounts.game_program.to_account_info(),
+            &ctx.accounts.program_data.to_account_info(),
+        )?;
+        let car = ctx.accounts.match_state.load()?;
+        require!(
+            listed
+                && car.inner.meta().listed
+                && ctx.accounts.game_record.same_build_at(
+                    car.inner.deploy_slot(),
+                    car.listing_epoch(),
+                    slot
+                ),
+            TesoroError::GameNotListed
+        );
     }
 
     // one seat per seat key: a key another seat of this car already uses is refused
@@ -487,8 +599,14 @@ pub(crate) fn join_many_seat_match<'info>(
     };
     let seat = seat_index(page, slot);
 
-    // Protections and the Entry Limit, then the open-Match count
-    let counted = count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
+    // Protections and the Entry Limit, then the open-Match count. A backed Player puts none of
+    // their own Gemas at risk: the Backer's limit counted the entry when the Offer was made.
+    let counted = if backed {
+        require_can_play(&ctx.accounts.protections.to_account_info())?;
+        None
+    } else {
+        count_entry(&ctx.accounts.protections.to_account_info(), entry)?
+    };
     {
         let counters = &mut ctx.accounts.counters;
         if counters.bump == 0 {
@@ -501,34 +619,74 @@ pub(crate) fn join_many_seat_match<'info>(
         counters.open_matches += 1;
     }
 
-    // the entry
+    // the entry, from the Player or the Backer
     let mut books = OnchainBooks::load(ctx.remaining_accounts)?;
     let pot_info = ctx.accounts.pot.to_account_info();
-    let own_basket = ctx.accounts.basket.to_account_info();
-    let own_spill = ctx.accounts.spill.to_account_info();
-    let counters_bump = ctx.bumps.counters;
-    let (pot, freed) = take_entry(
-        &pot_info,
-        &player,
-        false,
-        (&game, entry, pot_nonce, pot_lines),
-        (&mut ctx.accounts.counters, counters_bump),
-        &payer,
-        &system,
-        (&own_basket, &own_spill),
-        &mut books,
-    )?;
+    let (funder, share_bps, stores, pot, freed) = if backed {
+        let offer = ctx
+            .accounts
+            .offer
+            .as_mut()
+            .ok_or_else(|| error!(MatchError::BadBacking))?;
+        offer
+            .inner
+            .consume(player.to_bytes(), game.to_bytes(), entry, ts)
+            .map_err(core_err)?;
+        let share = offer.inner.player_share_bps;
+        let backer = backer_side(
+            &ctx.accounts.offer,
+            &ctx.accounts.backer_account,
+            &mut ctx.accounts.backer_counters,
+            &ctx.accounts.backer_protections,
+            &ctx.accounts.backer_basket,
+            &ctx.accounts.backer_spill,
+        )?;
+        require_can_play(backer.protections)?;
+        backer.counters.open_offers = backer.counters.open_offers.saturating_sub(1);
+        let funder = backer.account.key();
+        let backer_bump = backer.counters.bump;
+        let (pot, freed) = take_entry(
+            &pot_info,
+            &funder,
+            true,
+            (&game, entry, pot_nonce, pot_lines),
+            (backer.counters, backer_bump),
+            &payer,
+            &system,
+            (&backer.basket, &backer.spill),
+            &mut books,
+        )?;
+        (funder, share, [backer.basket, backer.spill], pot, freed)
+    } else {
+        let stores = [
+            ctx.accounts.basket.to_account_info(),
+            ctx.accounts.spill.to_account_info(),
+        ];
+        let counters_bump = ctx.bumps.counters;
+        let (pot, freed) = take_entry(
+            &pot_info,
+            &player,
+            false,
+            (&game, entry, pot_nonce, pot_lines),
+            (&mut ctx.accounts.counters, counters_bump),
+            &payer,
+            &system,
+            (&stores[0], &stores[1]),
+            &mut books,
+        )?;
+        (player, 0, stores, pot, freed)
+    };
     let lines = u32::try_from(pot.len()).map_err(|_| ProgramError::ArithmeticOverflow)?;
     drop(pot);
     // the slots the entry freed stay held for its lines; the split part of a line freed none, so
-    // hold one more, or else the Player's overflow record for this Match takes it
+    // hold one more, or else the funder's overflow record for this Match takes it
     let mut room = [RoomHold::default(); ROOM_HOLDS];
-    add_hold(&mut room, player.to_bytes(), freed)?;
-    let plan = std::collections::BTreeMap::from([(player.to_bytes(), lines as usize)]);
+    add_hold(&mut room, funder.to_bytes(), freed)?;
+    let plan = std::collections::BTreeMap::from([(funder.to_bytes(), lines as usize)]);
     cover_room(
         &mut room,
         &plan,
-        &[own_basket, own_spill],
+        &stores,
         ctx.remaining_accounts,
         &id,
         &payer,
@@ -537,7 +695,7 @@ pub(crate) fn join_many_seat_match<'info>(
     )?;
     let hold = room
         .iter()
-        .find(|h| h.account == player.to_bytes())
+        .find(|h| h.account == funder.to_bytes())
         .map_or(0, |h| h.left);
 
     {
@@ -545,9 +703,9 @@ pub(crate) fn join_many_seat_match<'info>(
         let p = page_in(&page_info, &mut data)?;
         p.seats[slot].fill(&SeatFill {
             player: player.to_bytes(),
-            funder: player.to_bytes(),
+            funder: funder.to_bytes(),
             signer: ctx.accounts.seat_signer.key().to_bytes(),
-            share_bps: 0,
+            share_bps,
             pot: pot_info.key.to_bytes(),
             pot_lines: lines,
             hold,
@@ -555,24 +713,38 @@ pub(crate) fn join_many_seat_match<'info>(
         });
     }
 
-    let mark_bump = [ctx.bumps.seat_mark];
-    create_pda(
+    create_mark(
         &mark_info,
         &payer,
         &system,
-        &[SEAT_SEED, match_key.as_ref(), player.as_ref(), &mark_bump],
-        SeatMark::SPACE,
+        (&match_key, &id),
+        &player,
+        ctx.bumps.seat_mark,
+        seat,
     )?;
-    {
-        let mut data = mark_info.try_borrow_mut_data()?;
-        data[..DISC].copy_from_slice(SeatMark::DISCRIMINATOR);
-        let mark: &mut SeatMark = bytemuck::from_bytes_mut(&mut data[DISC..SeatMark::SPACE]);
-        mark.bump = ctx.bumps.seat_mark;
-        mark.seat = seat;
-        mark.match_key = match_key.to_bytes();
-        mark.account = player.to_bytes();
-        mark.payer = payer.key.to_bytes();
-        mark.match_seed = id.seed();
+    if backed {
+        // the Backer's mark: it funds no other seat and rides in none of this car
+        let info = ctx
+            .accounts
+            .funder_mark
+            .as_ref()
+            .ok_or_else(|| error!(MatchError::BadBacking))?
+            .to_account_info();
+        let (key, bump) = Pubkey::find_program_address(
+            &[SEAT_SEED, match_key.as_ref(), funder.as_ref()],
+            &crate::ID,
+        );
+        require_keys_eq!(key, *info.key, ManySeatError::WrongSeat);
+        require_no_mark(&info)?;
+        create_mark(
+            &info,
+            &payer,
+            &system,
+            (&match_key, &id),
+            &funder,
+            bump,
+            seat,
+        )?;
     }
     books.flush()?;
     let (seated, min_since) = {
@@ -583,7 +755,7 @@ pub(crate) fn join_many_seat_match<'info>(
         match_state: match_key,
         seat,
         player,
-        funder: player,
+        funder,
         seated,
         min_since,
     });
@@ -673,6 +845,10 @@ fn return_lines<'info>(
 /// Game's authority, or anyone when the Player is on a Break or Self-Excluded, when boarding has
 /// ended, or when the Game's build changed since the car opened (the Game accounts passed).
 ///
+/// On a backed seat the Player's mark closes at once (the Player may board again) and the
+/// Backer's mark (`funder_mark`) carries the Backer's lines home. The Offer stays used: a Backing
+/// is spent when its Match is entered, and every refund goes to the Backer.
+///
 /// `remaining_accounts`: the funder's basket and spill, the books of the lines' Sources, and the
 /// funder's overflow record for this Match if it has one.
 #[derive(Accounts)]
@@ -708,10 +884,6 @@ pub struct StepOffManySeatMatch<'info> {
     /// CHECK: receives the mark's rent once the lines are home; checked against the mark.
     #[account(mut)]
     pub mark_payer: UncheckedAccount<'info>,
-    /// CHECK: the seat key's marker, closed here to the mark's payer; checked by seeds against the
-    /// seat's key. Absent (empty) for a seat boarded before seat keys.
-    #[account(mut)]
-    pub seat_key_mark: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [COUNTERS_SEED, seat_mark.load()?.account.as_ref()],
@@ -740,6 +912,13 @@ pub struct StepOffManySeatMatch<'info> {
     pub game_program: Option<UncheckedAccount<'info>>,
     /// CHECK: the program's ProgramData; `judged_slot_at` derives and checks it.
     pub program_data: Option<UncheckedAccount<'info>>,
+    /// CHECK: the Backer's mark of a backed seat (`funder_mark_of`); it carries the lines home.
+    #[account(mut)]
+    pub funder_mark: Option<UncheckedAccount<'info>>,
+    /// CHECK: the seat key's marker, closed here to the mark's payer; checked by seeds against the
+    /// seat's key. Absent (empty) for a seat boarded before seat keys.
+    #[account(mut)]
+    pub seat_key_mark: UncheckedAccount<'info>,
 }
 
 pub(crate) fn step_off_many_seat_match<'info>(
@@ -837,12 +1016,35 @@ pub(crate) fn step_off_many_seat_match<'info>(
         );
         close_to(&key_info, &ctx.accounts.mark_payer.to_account_info())?;
     }
+    let player = Pubkey::new_from_array(mark.account);
+    // the mark that carries the lines home: the funder's
+    let mark_info = if s.funder() == s.player() {
+        ctx.accounts.seat_mark.to_account_info()
+    } else {
+        let info = ctx
+            .accounts
+            .funder_mark
+            .as_ref()
+            .ok_or_else(|| error!(MatchError::AccountMissing))?
+            .to_account_info();
+        let funder_mark = funder_mark_of(&info, &match_key, s.funder(), seat)?;
+        // the Player's mark closes now: the Player may board again at once
+        require!(
+            ctx.accounts.mark_payer.key.to_bytes() == mark.payer,
+            TesoroError::InvalidAccount
+        );
+        close_to(
+            &ctx.accounts.seat_mark.to_account_info(),
+            &ctx.accounts.mark_payer.to_account_info(),
+        )?;
+        mark = funder_mark;
+        info
+    };
     mark.returning = 1;
     mark.match_seed = id.seed();
     mark.funder = s.funder();
     mark.pot = s.pot();
     mark.set_hold(s.hold());
-    let player = Pubkey::new_from_array(mark.account);
     emit!(SeatSteppedOff {
         match_state: match_key,
         seat,
@@ -851,7 +1053,6 @@ pub(crate) fn step_off_many_seat_match<'info>(
         min_since,
     });
 
-    let mark_info = ctx.accounts.seat_mark.to_account_info();
     let (lines, done) = return_lines(
         &mut mark,
         ReturnAccounts {
@@ -865,11 +1066,11 @@ pub(crate) fn step_off_many_seat_match<'info>(
         max_lines,
     )?;
     if !done {
-        *ctx.accounts.seat_mark.load_mut()? = mark;
+        write_mark(&mark_info, &mark)?;
     }
     emit!(SeatReturned {
         match_state: match_key,
-        player,
+        player: Pubkey::new_from_array(mark.account),
         lines,
         done,
     });

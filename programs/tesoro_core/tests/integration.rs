@@ -930,6 +930,16 @@ impl Env {
         ixs: &[Instruction],
         payer: &Keypair,
     ) -> Result<usize, litesvm::types::FailedTransactionMetadata> {
+        self.send_v0_with(ixs, payer, &[])
+    }
+
+    /// `send_v0` with more signers (a seat key that co-signs).
+    fn send_v0_with(
+        &mut self,
+        ixs: &[Instruction],
+        payer: &Keypair,
+        also: &[&Keypair],
+    ) -> Result<usize, litesvm::types::FailedTransactionMetadata> {
         use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
         use solana_sdk::transaction::VersionedTransaction;
         let table: Vec<Pk> = ixs
@@ -971,8 +981,9 @@ impl Env {
         let msg =
             v0::Message::try_compile(&payer.pubkey(), ixs, &[alt], self.svm.latest_blockhash())
                 .expect("compile v0");
-        let tx =
-            VersionedTransaction::try_new(VersionedMessage::V0(msg), &[payer]).expect("sign v0");
+        let mut signers = vec![payer];
+        signers.extend_from_slice(also);
+        let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &signers).expect("sign v0");
         let size = bincode_len(&tx);
         match self.svm.send_transaction(tx) {
             Ok(meta) => {

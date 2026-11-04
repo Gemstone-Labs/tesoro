@@ -32,7 +32,7 @@ use crate::util::*;
 use anchor_lang::prelude::*;
 use anchor_lang::Discriminator;
 
-use super::many_seat::{close_to, create_pda, is_empty, mark_in, page_in};
+use super::many_seat::{close_to, create_pda, funder_mark_of, is_empty, mark_in, page_in};
 pub use crate::ledger::many_seat::{ManySeatResult, SeatPlace, SeatRefund};
 
 /// Steps one many-seat chunk takes at most, set by its own compute test (`tests/many_seat/settle.rs`:
@@ -746,7 +746,8 @@ pub(crate) fn reserve_many_seat_room(
 
 /// Closes one seat of a paid car (anyone): the seat's empty Pot goes back to whoever paid it
 /// (sponsor first), the hold left in the funder's spill is released, the Player's open-Match count
-/// goes down and the seat mark's rent goes back to its payer. The car closes once every seat is.
+/// goes down and the seat marks' rent (the Player's, and the Backer's on a backed seat) goes back
+/// to their payer. The car closes once every seat is.
 #[derive(Accounts)]
 #[instruction(seat: u8)]
 pub struct CloseManySeat<'info> {
@@ -772,10 +773,6 @@ pub struct CloseManySeat<'info> {
     /// CHECK: receives the mark's rent; checked against the mark.
     #[account(mut)]
     pub mark_payer: UncheckedAccount<'info>,
-    /// CHECK: the seat key's marker, closed here to the mark's payer; checked by seeds against the
-    /// seat's key. Empty for a seat boarded before seat keys.
-    #[account(mut)]
-    pub seat_key_mark: UncheckedAccount<'info>,
     #[account(mut)]
     pub player_counters: Account<'info, AccountCounters>,
     /// CHECK: the seat's Pot, checked against the seat.
@@ -789,6 +786,13 @@ pub struct CloseManySeat<'info> {
     /// CHECK: the funder's spill, needed when the seat still holds slots there; checked by seeds.
     #[account(mut)]
     pub funder_spill: Option<UncheckedAccount<'info>>,
+    /// CHECK: the Backer's mark of a backed seat (`funder_mark_of`), closed here.
+    #[account(mut)]
+    pub funder_mark: Option<UncheckedAccount<'info>>,
+    /// CHECK: the seat key's marker, closed here to the mark's payer; checked by seeds against the
+    /// seat's key. Empty for a seat boarded before seat keys.
+    #[account(mut)]
+    pub seat_key_mark: UncheckedAccount<'info>,
 }
 
 pub(crate) fn close_many_seat(ctx: Context<CloseManySeat>, seat: u8) -> Result<()> {
@@ -881,6 +885,17 @@ pub(crate) fn close_many_seat(ctx: Context<CloseManySeat>, seat: u8) -> Result<(
         close_to(&key_info, &ctx.accounts.mark_payer.to_account_info())?;
     }
     close_to(&mark_info, &ctx.accounts.mark_payer.to_account_info())?;
+    if funder != player {
+        let info = ctx
+            .accounts
+            .funder_mark
+            .as_ref()
+            .ok_or_else(|| error!(MatchError::AccountMissing))?
+            .to_account_info();
+        let mark = funder_mark_of(&info, &match_key, funder.to_bytes(), seat)?;
+        require!(mark.payer == mark_payer, TesoroError::InvalidAccount);
+        close_to(&info, &ctx.accounts.mark_payer.to_account_info())?;
+    }
     emit!(ManySeatSeatClosed {
         match_state: match_key,
         seat,

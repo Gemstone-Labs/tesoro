@@ -431,12 +431,12 @@ pub struct OpenMatch<'info> {
 }
 
 /// The Backer's side of a backed entry, checked against the Offer.
-struct Backer<'a, 'info> {
-    account: &'a Account<'info, TesoroAccount>,
-    counters: &'a mut Account<'info, AccountCounters>,
-    protections: &'a AccountInfo<'info>,
-    basket: AccountInfo<'info>,
-    spill: AccountInfo<'info>,
+pub(crate) struct Backer<'a, 'info> {
+    pub(crate) account: &'a Account<'info, TesoroAccount>,
+    pub(crate) counters: &'a mut Account<'info, AccountCounters>,
+    pub(crate) protections: &'a AccountInfo<'info>,
+    pub(crate) basket: AccountInfo<'info>,
+    pub(crate) spill: AccountInfo<'info>,
 }
 
 pub(crate) fn counters_pda(account: &Pubkey) -> Pubkey {
@@ -448,7 +448,7 @@ pub(crate) fn protections_pda(account: &Pubkey) -> Pubkey {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn backer_side<'a, 'info>(
+pub(crate) fn backer_side<'a, 'info>(
     offer: &'a Option<Box<Account<'info, OfferState>>>,
     account: &'a Option<Box<Account<'info, TesoroAccount>>>,
     counters: &'a mut Option<Account<'info, AccountCounters>>,

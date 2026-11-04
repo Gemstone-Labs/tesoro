@@ -1839,6 +1839,11 @@
           "name": "funder_spill",
           "writable": true,
           "optional": true
+        },
+        {
+          "name": "funder_mark",
+          "writable": true,
+          "optional": true
         }
       ],
       "args": [
@@ -6746,6 +6751,69 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "offer",
+          "docs": [
+            "The accepted Offer, when the seat is backed."
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "offer.inner.backer",
+                "account": "OfferState"
+              },
+              {
+                "kind": "account",
+                "path": "offer.nonce",
+                "account": "OfferState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "backer_account",
+          "optional": true
+        },
+        {
+          "name": "backer_counters",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "backer_protections",
+          "optional": true
+        },
+        {
+          "name": "backer_basket",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "backer_spill",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "funder_mark",
+          "docs": [
+            "created here."
+          ],
+          "writable": true,
+          "optional": true
         }
       ],
       "args": [
@@ -14303,6 +14371,11 @@
         },
         {
           "name": "program_data",
+          "optional": true
+        },
+        {
+          "name": "funder_mark",
+          "writable": true,
           "optional": true
         }
       ],
