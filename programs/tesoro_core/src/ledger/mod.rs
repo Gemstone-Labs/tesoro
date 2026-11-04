@@ -14,6 +14,7 @@ pub mod extend_limit;
 pub mod instant;
 pub mod lifecycle;
 pub mod line_store;
+pub mod many_seat;
 pub mod matches;
 pub mod money;
 pub mod native;
