@@ -81,6 +81,10 @@ The sponsor server assigns each joining Player's Match to a table in the join's 
 
 ## Daily janitor
 
+The delayed-notification cron (emails for stored webhook transactions and the Delayed check) is the app's `/api/cron/notify`. Vercel only keeps the daily digest cron (`app/vercel.json`); `deploy/tesoro-notify-cron.{service,timer}` call the notify route every 5 minutes with `Authorization: Bearer $CRON_SECRET`. Both `CRON_SECRET` and `NOTIFY_CRON_URL` (the full route, `https://www.playtesoro.com/api/cron/notify`) come from `~/.config/tesoro-keeper.env`; curl runs with `-f`, so a non-2xx answer fails the unit.
+
+The table operator (`TableConfig.operator` of each Game) may be a separate key: set `KEEPER_OPERATOR_KEYPAIR` to its key file. Every operator-only call (create/delegate tables, Sponsor and Fuel, assign, commit, reset, release, void, refunds, `table-pool-repair-cli`, `admin-cli tables`) is signed and paid by it; unset, the keeper key is the operator. The operator key must hold SOL for fees. A missing file stops the keeper at start.
+
 `src/janitor-cli.ts` (`pnpm --filter @tesoro/keeper exec tsx src/janitor-cli.ts [--dry-run] [--only=tickets,receipts]`) runs six independent parts once and exits (1 if a part threw): `tickets` (cancel and close expired sponsored Entry Tickets), `receipts` (close those older than 14 days), `pairs` (close pair records whose 24 h window ended), `assignments` (close spent Assignments of the four Games), `listings` (`refresh_listing` for a Listing a stranger's extend broke, with an alert; an alert when the code really changed), `apy` (publish the trailing APY; skipped until tesoro_core has the instruction, mainnet-launch ticket 11). All scans are paginated `getProgramAccountsV2` reads with `dataSlice`. A pair record names its opener and joiner, so the scan alone closes every expired one; records of the old 51-byte layout (devnet, seed `pair`) are not listed. Units: `deploy/tesoro-janitor.{service,timer}` (daily 03:30 UTC).
 
 ## Admin scripts
