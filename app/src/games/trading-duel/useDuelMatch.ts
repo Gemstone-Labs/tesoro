@@ -283,7 +283,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
       if (t.phase === 1 && nowS > d.startDeadline) {
         // Never both checked in: the Player who came wins, nobody coming is a no-show.
         setStage("setup", absenceLine(t.checkedIn, seat));
-        if (seat === 1 || now() - activeSince.current > GRACE_MS) await td.expireStart(p, a).catch(() => undefined);
+        if (seat === 1 || now() - activeSince.current > GRACE_MS) await td.expireStart(p, a, t).catch(() => undefined);
         return;
       }
       if (!t.seatsOpen) {
