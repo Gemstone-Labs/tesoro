@@ -122,12 +122,44 @@ fn seat_at(slot: usize) -> usize {
     DISC + PAGE_HEAD + slot * Seat::LEN
 }
 
+/// A seat's Pot bytes: the same window as a head-to-head Pot, as its own type, so the many-seat
+/// walk compiles its own copy of the shared blocks (`cut_step`, the line store) and the
+/// head-to-head chunk compiles as before (sharing one copy cost it 175 CU per 12-step chunk).
+pub struct SeatWindow<'b, 'info>(AccountWindow<'b, 'info>);
+
+impl AsRef<[u8]> for SeatWindow<'_, '_> {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+impl AsMut<[u8]> for SeatWindow<'_, '_> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
+}
+
+impl PotBacking for SeatWindow<'_, '_> {
+    fn grow_to(&mut self, len: usize) -> bool {
+        self.0.grow_to(len)
+    }
+}
+
+type SeatPot<'b, 'info> = PotPages<SeatWindow<'b, 'info>>;
+
+/// A seat's Pot, checked as `load_pot` checks it (a consumed Ticket of this program).
+fn load_seat_pot<'b, 'info>(info: &'b AccountInfo<'info>) -> Result<SeatPot<'b, 'info>> {
+    drop(load_pot(info)?);
+    PotPages::open(SeatWindow(AccountWindow::open(info, POT_AT)?))
+        .map_err(|_| error!(TesoroError::InvalidAccount))
+}
+
 /// The car's seat pages among `infos` (this program's, of a page's size and discriminator, naming
 /// this car; only core creates pages, at their PDA), by index, and every other account.
 struct ChainSeats<'b, 'info> {
     pages: [Option<&'b AccountInfo<'info>>; ledger::many_seat::MAX_SEAT_PAGES as usize],
     infos: &'b [AccountInfo<'info>],
-    pot: Option<(ledger::Key, OnchainPot<'b, 'info>)>,
+    pot: Option<(ledger::Key, SeatPot<'b, 'info>)>,
 }
 
 impl<'b, 'info> ChainSeats<'b, 'info> {
@@ -167,7 +199,7 @@ impl<'b, 'info> ChainSeats<'b, 'info> {
     }
 }
 
-impl<'b, 'info> Seats<AccountWindow<'b, 'info>> for ChainSeats<'b, 'info> {
+impl<'b, 'info> Seats<SeatWindow<'b, 'info>> for ChainSeats<'b, 'info> {
     fn seat(&mut self, i: u8) -> LcResult<Seat> {
         let info = self.page(i)?;
         let data = info
@@ -187,7 +219,7 @@ impl<'b, 'info> Seats<AccountWindow<'b, 'info>> for ChainSeats<'b, 'info> {
         Ok(())
     }
 
-    fn pot(&mut self, _i: u8, key: &ledger::Key) -> LcResult<&mut OnchainPot<'b, 'info>> {
+    fn pot(&mut self, _i: u8, key: &ledger::Key) -> LcResult<&mut SeatPot<'b, 'info>> {
         if self.pot.as_ref().is_none_or(|(k, _)| k != key) {
             self.pot = None;
             let info = self
@@ -195,7 +227,7 @@ impl<'b, 'info> Seats<AccountWindow<'b, 'info>> for ChainSeats<'b, 'info> {
                 .iter()
                 .find(|i| i.key.to_bytes() == *key && i.is_writable)
                 .ok_or(LifecycleError::MissingAccount)?;
-            let (pot, _) = load_pot(info).map_err(|_| LifecycleError::MissingAccount)?;
+            let pot = load_seat_pot(info).map_err(|_| LifecycleError::MissingAccount)?;
             self.pot = Some((*key, pot));
         }
         Ok(&mut self.pot.as_mut().ok_or(LifecycleError::MissingAccount)?.1)
@@ -558,8 +590,32 @@ pub(crate) fn many_seat_chunk<'info>(
     Ok(())
 }
 
-/// The chunk's line records in one event CPI: the event's Borsh header, then the records' bytes
-/// as they are (`SettlementLine` is plain bytes; its Borsh form is the same).
+/// `ManySeatChunkDone`'s event-CPI bytes, written by hand (equal to its Borsh form, unit-tested)
+/// so the head-to-head `MatchChunkDone` keeps its line serializer to itself: the records are plain
+/// bytes and go in as they are.
+fn seat_lines_bytes(
+    (opener, n): (Pubkey, u64),
+    (chunk_no, first_step, steps): (u32, u32, u32),
+    (done, blocked, overflowed): (bool, bool, u32),
+    lines: &[SettlementLine],
+) -> Vec<u8> {
+    let mut data = Vec::with_capacity(16 + 62 + std::mem::size_of_val(lines));
+    data.extend_from_slice(anchor_lang::event::EVENT_IX_TAG_LE);
+    data.extend_from_slice(ManySeatChunkDone::DISCRIMINATOR);
+    data.extend_from_slice(opener.as_ref());
+    data.extend_from_slice(&n.to_le_bytes());
+    data.extend_from_slice(&chunk_no.to_le_bytes());
+    data.extend_from_slice(&first_step.to_le_bytes());
+    data.extend_from_slice(&steps.to_le_bytes());
+    data.push(u8::from(done));
+    data.push(u8::from(blocked));
+    data.extend_from_slice(&overflowed.to_le_bytes());
+    data.extend_from_slice(&(lines.len() as u32).to_le_bytes());
+    data.extend_from_slice(bytemuck::cast_slice(lines));
+    data
+}
+
+/// The chunk's line records in one event CPI.
 #[inline(never)]
 fn emit_seat_lines(
     ctx: &Context<ManySeatChunk>,
@@ -572,31 +628,17 @@ fn emit_seat_lines(
         instruction::{AccountMeta, Instruction},
         program::invoke_signed,
     };
-    let event = ManySeatChunkDone {
-        opener,
-        n,
-        chunk_no: report.chunk_no,
-        first_step: if report.lines.is_empty() {
-            0
-        } else {
-            report.prior_steps.saturating_add(1)
-        },
-        steps: report.steps,
-        done: report.done,
-        blocked: report.blocked.is_some(),
-        overflowed,
-        lines: Vec::new(),
+    let first_step = if report.lines.is_empty() {
+        0
+    } else {
+        report.prior_steps.saturating_add(1)
     };
-    let mut data =
-        Vec::with_capacity(96 + report.lines.len() * std::mem::size_of::<SettlementLine>());
-    data.extend_from_slice(anchor_lang::event::EVENT_IX_TAG_LE);
-    data.extend_from_slice(ManySeatChunkDone::DISCRIMINATOR);
-    event
-        .serialize(&mut data)
-        .map_err(|_| anchor_lang::error::ErrorCode::InstructionDidNotSerialize)?;
-    let len_at = data.len() - 4;
-    data[len_at..].copy_from_slice(&(report.lines.len() as u32).to_le_bytes());
-    data.extend_from_slice(bytemuck::cast_slice(&report.lines));
+    let data = seat_lines_bytes(
+        (opener, n),
+        (report.chunk_no, first_step, report.steps),
+        (report.done, report.blocked.is_some(), overflowed),
+        &report.lines,
+    );
     let authority = ctx.accounts.event_authority.to_account_info();
     let bump = [ctx.bumps.event_authority];
     let ix = Instruction {
@@ -837,6 +879,42 @@ mod tests {
             .unwrap();
             want.resize(SettlementReceipt::SPACE, 0);
             assert_eq!(receipt_bytes(254, &m, &p, &id, kind, -9).to_vec(), want);
+        }
+    }
+
+    #[test]
+    fn the_chunk_record_is_written_byte_for_byte_as_its_borsh_form() {
+        let opener = Pubkey::new_from_array([4; 32]);
+        for count in [0usize, 1, 7] {
+            let lines: Vec<SettlementLine> = (0..count)
+                .map(|i| {
+                    let mut l: SettlementLine = bytemuck::Zeroable::zeroed();
+                    l.pot_side = 90 + i as u8;
+                    l.purpose = 5;
+                    l.recipient = [i as u8; 32];
+                    l
+                })
+                .collect();
+            let event = ManySeatChunkDone {
+                opener,
+                n: u64::MAX - 1,
+                chunk_no: 9,
+                first_step: 70,
+                steps: count as u32,
+                done: count == 7,
+                blocked: count == 1,
+                overflowed: 3,
+                lines: lines.clone(),
+            };
+            let mut want = anchor_lang::event::EVENT_IX_TAG_LE.to_vec();
+            want.extend_from_slice(&anchor_lang::Event::data(&event));
+            let got = seat_lines_bytes(
+                (opener, u64::MAX - 1),
+                (9, 70, count as u32),
+                (count == 7, count == 1, 3),
+                &lines,
+            );
+            assert_eq!(got, want);
         }
     }
 

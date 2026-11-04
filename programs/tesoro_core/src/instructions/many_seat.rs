@@ -548,14 +548,17 @@ pub(crate) fn join_many_seat_match<'info>(
         mark.match_seed = id.seed();
     }
     books.flush()?;
-    let rec = ctx.accounts.match_state.load()?.inner;
+    let (seated, min_since) = {
+        let car = ctx.accounts.match_state.load()?;
+        (car.inner.seated, car.inner.min_since())
+    };
     emit!(SeatTaken {
         match_state: match_key,
         seat,
         player,
         funder: player,
-        seated: rec.seated,
-        min_since: rec.min_since(),
+        seated,
+        min_since,
     });
     Ok(())
 }
@@ -734,8 +737,17 @@ pub(crate) fn step_off_many_seat_match<'info>(
     );
 
     // who may
-    let car = *ctx.accounts.match_state.load()?;
-    let rec = &car.inner;
+    // the car's fields this needs, read in place (the record is large: no copy)
+    let (deploy_slot, listing_epoch, settle_authority, boarding_ends, id) = {
+        let car = ctx.accounts.match_state.load()?;
+        (
+            car.inner.deploy_slot(),
+            car.listing_epoch(),
+            car.inner.settle_authority,
+            car.inner.boarding_ends(),
+            car.inner.id(),
+        )
+    };
     let caller = ctx.accounts.caller.key();
     let callers_account =
         Pubkey::find_program_address(&[ACCOUNT_SEED, caller.as_ref()], &crate::ID).0;
@@ -747,17 +759,17 @@ pub(crate) fn step_off_many_seat_match<'info>(
         (Some(record), Some(program), Some(data)) => {
             judged_slot_at(
                 record,
-                (rec.deploy_slot(), car.listing_epoch()),
+                (deploy_slot, listing_epoch),
                 &program.to_account_info(),
                 &data.to_account_info(),
-            )? != rec.deploy_slot()
+            )? != deploy_slot
         }
         _ => false,
     };
     require!(
         callers_account.to_bytes() == s.player()
-            || caller.to_bytes() == rec.settle_authority
-            || ts >= rec.boarding_ends()
+            || caller.to_bytes() == settle_authority
+            || ts >= boarding_ends
             || upgraded
             || is_away(&ctx.accounts.player_protections.to_account_info())?,
         ManySeatError::NotYourSeat
@@ -780,7 +792,7 @@ pub(crate) fn step_off_many_seat_match<'info>(
     }
     ctx.accounts.seat_page.load_mut()?.seats[slot].clear();
     mark.returning = 1;
-    mark.match_seed = rec.id().seed();
+    mark.match_seed = id.seed();
     mark.funder = s.funder();
     mark.pot = s.pot();
     mark.set_hold(s.hold());
@@ -907,10 +919,13 @@ pub struct DepartManySeatMatch<'info> {
 
 pub(crate) fn depart_many_seat_match(ctx: Context<DepartManySeatMatch>) -> Result<()> {
     let ts = now()?;
-    let car = *ctx.accounts.match_state.load()?;
+    let (deploy_slot, listing_epoch) = {
+        let car = ctx.accounts.match_state.load()?;
+        (car.inner.deploy_slot(), car.listing_epoch())
+    };
     let slot = judged_slot_at(
         &ctx.accounts.game_record,
-        (car.inner.deploy_slot(), car.listing_epoch()),
+        (deploy_slot, listing_epoch),
         &ctx.accounts.game_program.to_account_info(),
         &ctx.accounts.program_data.to_account_info(),
     )?;
