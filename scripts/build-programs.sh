@@ -36,12 +36,14 @@ anchor build --no-idl -- --tools-version v1.54 2>&1 | tee "$build_log"
 # LLVM can report an unsafe frame while Cargo still exits zero.
 python3 scripts/check-sbf-build-log.py "$build_log"
 for dir in programs/*/; do
+  grep -q cdylib "$dir/Cargo.toml" || continue
   so="target/deploy/$(basename "$dir").so"
   if [ ! "$so" -nt "$stamp" ]; then echo "error: $so was not rebuilt" >&2; exit 1; fi
 done
 # LiteSVM enables every feature; the clusters do not. Refuse a syscall no deployed program imports.
 python3 scripts/check-sbf-syscalls.py
 for dir in programs/*/; do
+  grep -q cdylib "$dir/Cargo.toml" || continue
   p=$(basename "$dir")
   anchor idl build -p "$p" -o "target/idl/$p.json" -t "target/types/$p.ts"
 done
