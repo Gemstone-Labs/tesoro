@@ -2,64 +2,54 @@
 
 /**
  * The live Railcar page: reads the boarding car or the Player's car, turns it into the one screen (`railcarView`), sends the
- * Player's actions (board, step off, Jump), signals while the ride runs and finishes the ride (finalize, room, chunks,
- * closes) from the pages of the Players the result pays. The rules of what to do next are pure (flow.ts); this file only
- * reads and sends.
+ * Player's actions (board, step off, Jump), signals while the ride runs and finishes the ride from the pages of the Players
+ * the result pays. The rules of what to do next are pure (flow.ts, finish.ts); who signs what is signers.ts: the wallet
+ * signs the boarding, nothing after it but the Jump until Railcar takes the seat key.
  *
- * Not run against a deployment yet: Railcar has no devnet program (ticket 15). Base sends are the wallet's own until the
- * relayer's allow-list gains Railcar's instructions (hand-off); rollup sends are signed by a key made for this page.
+ * Not run against a deployment yet: Railcar has no devnet program (ticket 15).
  */
-import { ComputeBudgetProgram, Keypair, PublicKey, type Connection, type TransactionInstruction } from "@solana/web3.js";
+import { AddressLookupTableAccount, ComputeBudgetProgram, Keypair, PublicKey, type Connection, type TransactionInstruction } from "@solana/web3.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { accountOfSigner, keypairSigner, type ChainSigner } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
 import { basketPda, countersPda, matchPda, settledPda, spillPda, sponsorPda as coreSponsorPda } from "@/lib/chain/basket";
 import { getChain } from "@/lib/chain/client";
-import { drawRemaining, nextMatchOf, readNextTicket, freshPot, previewEntry, readEntryStores, sendEntryTx } from "@/lib/chain/entry";
-import { decodeSeatMark, joinSeatIx, seatMarkPda, stepOffIx, type SeatView } from "@/lib/chain/many-seat";
-import { closeIxs, loadCar, planSeatChunk, roomIxs, type LoadedCar } from "@/lib/chain/many-seat-plan";
+import { drawRemaining, freshPot, nextMatchOf, previewEntry, readEntryStores, readNextTicket, sendEntryTx } from "@/lib/chain/entry";
+import { matchKeyOf } from "@/lib/chain/match-id";
+import { decodeSeatMark, joinSeatIx, seatMarkPda, stepOffIx } from "@/lib/chain/many-seat";
+import { loadCar, type LoadedCar } from "@/lib/chain/many-seat-plan";
 import { decodeTicketHead } from "@/lib/chain/pot-store";
 import { connReader, fits, supplySources, type Reader } from "@/lib/chain/settle-plan";
+import { sponsorStatus, sponsoredSend } from "@/lib/chain/sponsor-client";
 import { prepareEntryTicket } from "@/lib/chain/ticket";
+import { seatKeys, type SeatKey } from "@/lib/seat/seat-key";
+import { countingFor } from "@/lib/seat/signature-counter";
 import { browserStore } from "@/lib/storage";
-import {
-  ENTRY_GEMAS,
-  RAILCAR_PROGRAM_ID,
-  carPda,
-  checkDepartureIx,
-  commitTableIx,
-  configPda,
-  decodeCarAccount,
-  decodeConfig,
-  decodeTable,
-  finalizeIx,
-  jumpIx,
-  openCarIx,
-  signalIx,
-  startRideIx,
-  tablePda,
-  type RailcarConfigView,
-  type TableView,
-} from "./chain";
+import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, carPda, checkDepartureIx, commitTableIx, configPda, decodeCarAccount, decodeConfig, decodeTable, jumpIx, openCarIx, signalIx, startRideIx, tablePda, type RailcarConfigView, type TableView } from "./chain";
+import { finishRide } from "./finish";
 import { mayFinish, nextRideStep, queueChoice, signalIntervalMs } from "./flow";
+import { boardingSigner, finishSender, joinSeatKey, jumpSigner } from "./signers";
 import { railcarView, type FeeRates, type RailcarView } from "./view";
 
 /** Railcar's fee terms (Platform 2%, Studio 3%) and core's Leaderboard Fee (1%), until the screen reads them from the Game record. */
 const FEES: FeeRates = { platformBps: 200, studioBps: 300, leaderboardBps: 100 };
-const JOIN_UNITS = 400_000;
+/** Compute asked for when the Player pays the boarding themselves (the relayer's server sets its own). */
+const SELF_PAID_UNITS = 400_000;
+/** Finish steps one poll of one page sends; the next poll (or another page) carries on. */
+const FINISH_PER_POLL = 8;
 
 /** The car this device boarded, kept across reloads (a convenience: the chain is the record). */
 interface MyCar {
   carNo: string;
   table: number;
   match: string;
+  /** `<opener Account>-<n>`: the seat key's name. */
+  matchKey: string;
 }
 const memoryKey = (account: string) => `railcar:car:${account}`;
 const remember = (account: string, car: MyCar | null) => {
   try {
-    const s = browserStore();
-    if (car) s?.setItem(memoryKey(account), JSON.stringify(car));
-    else s?.setItem(memoryKey(account), "");
+    browserStore()?.setItem(memoryKey(account), car ? JSON.stringify(car) : "");
   } catch {
     // site data blocked: the page still finds the boarding car
   }
@@ -126,10 +116,12 @@ export interface RailcarPage {
 
 export function useRailcar(): RailcarPage {
   const { auth } = useAccount();
-  const signer: ChainSigner | null = auth.signer ?? null;
-  const me = signer ? accountOfSigner(signer) : null;
+  const wallet: ChainSigner | null = auth.signer ?? null;
+  const getToken = auth.getAccessToken;
+  const me = wallet ? accountOfSigner(wallet) : null;
   const meKey = me?.toBase58() ?? null;
   const [snap, setSnap] = useState<Snapshot | null>(null);
+  const [seat, setSeat] = useState<SeatKey | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -152,6 +144,24 @@ export function useRailcar(): RailcarPage {
     setSnap(s);
     return s;
   }, [me, meKey, tee]);
+
+  // The seat key this device holds for the Player's car (made at boarding).
+  const myMatchKey = meKey ? (recall(meKey)?.matchKey ?? null) : null;
+  const walletKey = wallet?.publicKey.toBase58() ?? null;
+  useEffect(() => {
+    if (!myMatchKey || !wallet) return;
+    countingFor(myMatchKey);
+    let live = true;
+    void seatKeys()
+      .find(myMatchKey, wallet.publicKey)
+      .catch(() => null)
+      .then((k) => live && setSeat(k));
+    return () => {
+      live = false;
+    };
+    // the wallet object changes with every render of the provider; its address is what the key belongs to
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myMatchKey, walletKey]);
 
   // Poll: faster while a ride runs.
   useEffect(() => {
@@ -176,84 +186,52 @@ export function useRailcar(): RailcarPage {
     return () => clearInterval(id);
   }, []);
 
-  // The next step for this car, sent by this page when it is one this page sends.
+  // The next step for this car, sent by this page when it is one this page sends. Never with the wallet.
   useEffect(() => {
     if (!snap?.car || !snap.loaded || stepping.current) return;
-    const t = snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : null;
-    const step = nextRideStep({ mine: { carNo: snap.car.carNo, table: snap.car.table }, core: snap.loaded.car, rollup: snap.rollup, base: snap.base, previousFrozen: snap.previousFrozen, now: Math.floor(now / 1000) });
-    const finisher = !!me && !!t && mayFinish(t, me);
-    const aboard = snap.mine;
-    const send = async (fn: () => Promise<unknown>) => {
-      stepping.current = true;
-      try {
-        await fn();
-      } catch {
-        // another page may have sent the same step first: the next read shows where things are
-      } finally {
-        stepping.current = false;
-      }
-    };
-    const chain = getChain();
-    const page = pageKey.current;
     const car = snap.car;
-    const loaded = snap.loaded;
+    const ride = snap.rollup && snap.rollup.carNo === car.carNo ? snap.rollup : null;
+    const step = nextRideStep({ mine: { carNo: car.carNo, table: car.table }, core: snap.loaded.car, rollup: snap.rollup, base: snap.base, previousFrozen: snap.previousFrozen, now: Math.floor(now / 1000) });
+    const send = finishSender(seat, getToken);
+    const page = pageKey.current;
+    const chain = getChain();
+    const run = (fn: () => Promise<unknown>) => {
+      stepping.current = true;
+      void fn()
+        .catch(() => undefined) // another page may have sent the same step first: the next read shows where things are
+        .finally(() => {
+          stepping.current = false;
+        });
+    };
+    if (!snap.mine) return;
     switch (step.kind) {
       case "depart":
-        if (aboard && signer) void send(() => chain.sendBase(signer, [checkDepartureIx(car.carNo, car.match)]));
+        if (send) run(() => send([checkDepartureIx(car.carNo, car.match)]));
         return;
       case "start-ride":
-        if (aboard) void send(() => chain.sendTee(page, [startRideIx(page.publicKey, { carNo: car.carNo, table: car.table, tesoroMatch: car.match }, loaded.car.pages, snap.rollup && snap.rollup.carNo !== car.carNo ? snap.rollup.tesoroMatch : null)]));
-        return;
-      case "finalize-previous":
-        // The previous car's Players normally finalize it; a waiting car's page does it when they did not.
-        if (aboard && signer)
-          void send(async () => {
-            const [info] = await read.current!.many([carPda(step.carNo)]);
-            if (!info) return;
-            const prev = decodeCarAccount(info.data);
-            const prevLoaded = await loadCar(read.current!, prev.tesoroMatch);
-            if (prevLoaded) await chain.sendBase(signer, [finalizeIx(signer.publicKey, { ...prev, carNo: step.carNo }, prevLoaded.car.pages)]);
-          });
+        run(() => chain.sendTee(page, [startRideIx(page.publicKey, { carNo: car.carNo, table: car.table, tesoroMatch: car.match }, snap.loaded!.car.pages, snap.rollup && snap.rollup.carNo !== car.carNo ? snap.rollup.tesoroMatch : null)]));
         return;
       case "commit":
-        if (finisher) void send(() => chain.sendTee(page, [commitTableIx(page.publicKey, car.table)]));
+        if (me && ride && mayFinish(ride, me)) run(() => chain.sendTee(page, [commitTableIx(page.publicKey, car.table)]));
         return;
       case "finalize":
-        if (finisher && signer) {
-          void send(async () => {
-            const [carInfo] = await read.current!.many([carPda(car.carNo)]);
-            if (!carInfo) return;
-            const c = decodeCarAccount(carInfo.data);
-            await chain.sendBase(signer, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), finalizeIx(signer.publicKey, { ...c, carNo: car.carNo }, loaded.car.pages)]);
-          });
-        }
-        return;
       case "settle":
-        if (finisher && signer)
-          void send(async () => {
-            const room = await roomIxs(read.current!, signer.publicKey, loaded);
-            if (room.length) await chain.sendBase(signer, room);
-            const plan = await planSeatChunk(chain.core, read.current!, signer.publicKey, loaded, (ix) => fits(signer.publicKey, [ix], { units: 400_000 }));
-            if (plan) await chain.sendBase(signer, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), plan.ix]);
-          });
-        return;
       case "close":
-        if (finisher && signer)
-          void send(async () => {
-            for (const ix of await closeIxs(read.current!, signer.publicKey, loaded)) await chain.sendBase(signer, [ix]);
-          });
+        if (send && me && (!ride || mayFinish(ride, me) || step.kind !== "finalize")) run(() => finishFromPage(send, car, snap.base));
         return;
       case "done":
-        if (meKey && snap.mine) remember(meKey, null);
+        if (meKey) remember(meKey, null);
+        if (seat) void seatKeys().release(seat.seatMatchKey);
         return;
       default:
+        // finalize-previous: the previous car's riders (or the keeper's sweep) finalize it; this page waits.
         return;
     }
-  }, [snap, now, me, meKey, signer]);
+  }, [snap, now, me, meKey, seat, getToken]);
 
   // Signals while the ride runs: open pages together send about 5 a second.
   const aboardN = snap?.rollup?.aboard ?? 0;
-  const riding = !!snap?.car && snap.rollup?.carNo === snap.car.carNo && (snap.rollup.phase === "riding" || snap.rollup.phase === "drawing");
+  const riding = !!snap?.car && snap.mine && snap.rollup?.carNo === snap.car.carNo && (snap.rollup.phase === "riding" || snap.rollup.phase === "drawing");
   const signalTable = snap?.car?.table ?? null;
   useEffect(() => {
     if (!riding || signalTable === null) return;
@@ -293,74 +271,74 @@ export function useRailcar(): RailcarPage {
   const board = useCallback(
     () =>
       act("board", async () => {
-        if (!signer || !me || !meKey) throw new Error("Sign in to board.");
+        if (!wallet || !me || !meKey) throw new Error("Sign in to board.");
         const chain = getChain();
-        const stores = await readEntryStores(me);
-        const preview = previewEntry(stores, BigInt(ENTRY_GEMAS));
-        // An entry of more lines than one transaction draws is staged in an Entry Ticket first.
-        const pot = preview.needsTicket
-          ? await prepareEntryTicket({ signer, getToken: auth.getAccessToken, game: RAILCAR_PROGRAM_ID, entry: BigInt(ENTRY_GEMAS), lines: preview.ticketLines }).then((t) => ({ address: t.address, nonce: t.nonce, lines: t.lineCap }))
-          : freshPot(me, preview.potLines, await readNextTicket(me));
-        const remaining = preview.needsTicket ? [] : await drawRemaining(preview.plan);
         const s = await refresh();
         if (!s.config) throw new Error("Railcar is not open yet.");
         const loaded = s.car && !s.mine ? s.loaded : null;
         const choice = queueChoice({ config: s.config, boarding: loaded && s.car ? { car: loaded.car, carNo: s.car.carNo, pages: loaded.pages } : null, now: Math.floor(Date.now() / 1000), mine: s.mine });
-        const ixs: TransactionInstruction[] = [ComputeBudgetProgram.setComputeUnitLimit({ units: JOIN_UNITS })];
-        let mine: MyCar;
         if (choice.kind === "seated") return;
         if (choice.kind === "backer-seated") throw new Error("Your Backer is in this car: board the next one.");
-        if (choice.kind === "join") {
-          ixs.push(joinSeatIx({ payer: signer.publicKey, player: signer.publicKey, car: choice.car, game: RAILCAR_PROGRAM_ID, page: choice.page, pot, remaining }), checkDepartureIx(choice.carNo, choice.car));
-          mine = { carNo: choice.carNo.toString(), table: s.car!.table, match: choice.car.toBase58() };
-        } else {
-          const n = nextMatchOf((await chain.base.getAccountInfo(countersPda(me)))?.data);
-          const match = matchPda(me, n);
-          if (choice.departFirst) ixs.push(checkDepartureIx(choice.departFirst.carNo, choice.departFirst.car));
-          ixs.push(
-            openCarIx({ payer: signer.publicKey, opener: signer.publicKey, config: s.config, n }),
-            joinSeatIx({ payer: signer.publicKey, player: signer.publicKey, car: match, game: RAILCAR_PROGRAM_ID, page: 0, pot, remaining }),
-            checkDepartureIx(choice.carNo, match),
-          );
-          mine = { carNo: choice.carNo.toString(), table: Number(choice.carNo % BigInt(s.config.tables)), match: match.toBase58() };
-        }
-        await sendEntryTx(signer, auth.getAccessToken, async () => ixs, { sponsorable: false });
-        remember(meKey, mine);
+        // The car's Match key names the seat key: the boarding car's opener and number, or the Player's own next Match.
+        const n = choice.kind === "open" ? nextMatchOf((await chain.base.getAccountInfo(countersPda(me)))?.data) : 0n;
+        const match = choice.kind === "join" ? choice.car : matchPda(me, n);
+        const key = choice.kind === "join" ? matchKeyOf({ opener: loaded!.car.opener.toBase58(), n: loaded!.car.n }) : matchKeyOf({ opener: me.toBase58(), n });
+        countingFor(key);
+        const seatKey = await seatKeys().forMatch(key, wallet.publicKey);
+        // An entry of more lines than one transaction draws is staged in an Entry Ticket first.
+        const stores = await readEntryStores(me);
+        const preview = previewEntry(stores, BigInt(ENTRY_GEMAS));
+        const ticket = preview.needsTicket ? await prepareEntryTicket({ signer: wallet, seat: seatKey, getToken, game: RAILCAR_PROGRAM_ID, entry: BigInt(ENTRY_GEMAS), lines: preview.ticketLines }) : null;
+        const remaining = ticket ? [] : await drawRemaining(preview.plan);
+        const build = async (payer: PublicKey, sponsored: boolean) => {
+          const pot = ticket ? { address: ticket.address, nonce: ticket.nonce, lines: ticket.lineCap } : freshPot(me, preview.potLines, await readNextTicket(me));
+          const join = joinSeatIx({ payer, player: wallet.publicKey, car: match, game: RAILCAR_PROGRAM_ID, page: choice.kind === "join" ? choice.page : 0, pot, remaining, seatSigner: joinSeatKey(seatKey) });
+          const ixs: TransactionInstruction[] = sponsored ? [] : [ComputeBudgetProgram.setComputeUnitLimit({ units: SELF_PAID_UNITS })];
+          if (choice.kind === "join") ixs.push(join, checkDepartureIx(choice.carNo, match));
+          else {
+            if (choice.departFirst) ixs.push(checkDepartureIx(choice.departFirst.carNo, choice.departFirst.car));
+            ixs.push(openCarIx({ payer, opener: wallet.publicKey, config: s.config!, n }), join, checkDepartureIx(choice.carNo, match));
+          }
+          return ixs;
+        };
+        // The one wallet signature of the ride (the seat key co-signs once core names seat keys); the relayer pays.
+        await sendEntryTx(boardingSigner(wallet, seatKey), getToken, build);
+        const carNo = choice.carNo;
+        remember(meKey, { carNo: carNo.toString(), table: Number(carNo % BigInt(s.config.tables)), match: match.toBase58(), matchKey: key });
+        setSeat(seatKey);
       }),
-    [act, signer, me, meKey, auth.getAccessToken, refresh],
+    [act, wallet, me, meKey, getToken, refresh],
   );
 
   const stepOff = useCallback(
     () =>
       act("step-off", async () => {
-        if (!signer || !me || !meKey || !snap?.loaded) return;
-        const seat = snap.loaded.seats.find((s: SeatView) => s.seated && s.player.equals(me));
-        if (!seat) return;
+        if (!wallet || !me || !meKey || !snap?.loaded) return;
+        const s = snap.loaded.seats.find((x) => x.seated && x.player.equals(me));
+        if (!s) return;
         const r = read.current!;
-        const [mark, pot, sponsor] = await r.many([seatMarkPda(snap.loaded.car.address, me), seat.pot, coreSponsorPda()]);
+        const [mark, pot, sponsor] = await r.many([seatMarkPda(snap.loaded.car.address, me), s.pot, coreSponsorPda()]);
         if (!mark || !pot) throw new Error("Your seat could not be read. Try again.");
-        const lines = snap.loaded.lines[seat.index] ?? [];
-        const books = await supplySources(getChain().core, r, lines.map((l) => ({ source: l.source, cut: false })));
-        const remaining = [basketPda(seat.funder), spillPda(seat.funder)].map((k) => ({ pubkey: k, isSigner: false, isWritable: true }));
-        await getChain().sendBase(signer, [
-          ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-          stepOffIx({ caller: signer.publicKey, car: snap.loaded.car.address, seat, markPayer: decodeSeatMark(mark.data).payer, potPayer: decodeTicketHead(pot.data).payer, sponsor: !!sponsor, remaining: [...remaining, ...books.metas] }),
-        ]);
+        const books = await supplySources(getChain().core, r, (snap.loaded.lines[s.index] ?? []).map((l) => ({ source: l.source, cut: false })));
+        const remaining = [basketPda(s.funder), spillPda(s.funder)].map((k) => ({ pubkey: k, isSigner: false, isWritable: true }));
+        const ix = stepOffIx({ caller: wallet.publicKey, car: snap.loaded.car.address, seat: s, markPayer: decodeSeatMark(mark.data).payer, potPayer: decodeTicketHead(pot.data).payer, sponsor: !!sponsor, remaining: [...remaining, ...books.metas] });
+        // Stepping off is the Player's own exit: the wallet signs it, the relayer pays when it can.
+        await sponsoredSend(wallet, getToken, [ix]).catch(() => getChain().sendBase(wallet, [ComputeBudgetProgram.setComputeUnitLimit({ units: SELF_PAID_UNITS }), ix]));
         remember(meKey, null);
       }),
-    [act, signer, me, meKey, snap],
+    [act, wallet, me, meKey, getToken, snap],
   );
 
   const jump = useCallback(
     () =>
       act("jump", async () => {
-        if (!signer || !me || !snap?.car || !snap.rollup) return;
+        if (!wallet || !me || !snap?.car || !snap.rollup) return;
         const s = snap.rollup.seats.find((x) => x.account.equals(me));
         if (!s) return;
-        // The wallet signs the Jump until Railcar takes the seat key (seat keys ticket 08).
-        await getChain().sendTee(signer, [jumpIx(signer.publicKey, signer.publicKey, snap.car.table, snap.car.carNo, s.tableSeat)]);
+        const signer = jumpSigner(wallet, seat);
+        await getChain().sendTee(signer, [jumpIx(signer.publicKey, wallet.publicKey, snap.car.table, snap.car.carNo, s.tableSeat)]);
       }),
-    [act, signer, me, snap],
+    [act, wallet, me, seat, snap],
   );
 
   const playAgain = useCallback(() => {
@@ -372,5 +350,24 @@ export function useRailcar(): RailcarPage {
     snap?.loaded && snap.car
       ? railcarView({ me: meKey, core: snap.loaded.car, seats: snap.loaded.seats, table: snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : snap.base && snap.base.carNo === snap.car.carNo ? snap.base : null, fees: FEES, nowMs: now })
       : null;
-  return { view, busy, error, signedIn: !!signer, board, stepOff, jump, playAgain };
+  return { view, busy, error, signedIn: !!wallet, board, stepOff, jump, playAgain };
+}
+
+/** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */
+async function finishFromPage(send: (ixs: TransactionInstruction[]) => Promise<string>, car: { carNo: bigint; match: PublicKey }, base: TableView | null): Promise<void> {
+  const status = await sponsorStatus();
+  const conn = getChain().base;
+  const relayer = new PublicKey(status.relayer);
+  const tables = (await Promise.all((status.tables ?? []).map((t) => conn.getAddressLookupTable(new PublicKey(t)).then((r) => r.value)))).filter((t): t is AddressLookupTableAccount => !!t);
+  await finishRide({
+    read: connReader(conn),
+    core: getChain().core as unknown as Parameters<typeof finishRide>[0]["core"],
+    caller: relayer,
+    carNo: car.carNo,
+    match: car.match,
+    committed: async () => !!base && base.carNo === car.carNo && base.phase === "over",
+    fits: (ix) => fits(relayer, [ix], { units: 1_000_000, tables }),
+    send: (ixs) => send(ixs),
+    maxSends: FINISH_PER_POLL,
+  });
 }

@@ -2,6 +2,7 @@ import "./polyfill";
 import { PublicKey, SystemProgram, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 import { TESORO_CORE } from "./basket";
 import { coreIx, metaOf } from "./core-ix";
+import coreIdlJson from "./idl/tesoro_core.json";
 import { matchOverflowPda } from "./overflow";
 
 /**
@@ -174,6 +175,8 @@ export interface SeatView {
   player: PublicKey;
   funder: PublicKey;
   pot: PublicKey;
+  /** The seat key that plays this seat (seat-key layout, 192-byte seats); null in the first layout. */
+  signer: PublicKey | null;
 }
 
 export interface SeatPageView {
@@ -184,6 +187,8 @@ export interface SeatPageView {
 }
 
 const PAGE_HEAD = 8 + 72;
+/** Where the seat-key layout keeps a seat's key: after the 160 bytes of the first layout. */
+const SEAT_SIGNER_AT = 160;
 
 /** A seat page. The seat size is read from the account's length, so the seat-key layout (a signer added at the end) reads too. */
 export function decodeSeatPage(data: Uint8Array): SeatPageView {
@@ -204,6 +209,7 @@ export function decodeSeatPage(data: Uint8Array): SeatPageView {
       player: key(data, at + 40),
       funder: key(data, at + 72),
       pot: key(data, at + 104),
+      signer: seatLen >= SEAT_SIGNER_AT + 32 ? key(data, at + SEAT_SIGNER_AT) : null,
     });
   }
   return { matchKey: key(data, 8), payer: key(data, 40), index, seats };
@@ -246,6 +252,18 @@ export const coreEventAuthority = coreKey(["__event_authority"]);
 const sponsorKey = coreKey(["sponsor"]);
 const programDataOf = (program: PublicKey) => PublicKey.findProgramAddressSync([program.toBuffer()], new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"))[0];
 
+/**
+ * Whether the deployed core takes a seat key on many-seat seats (seat keys ticket 08: `seat_signer` on the join and
+ * `seat_key_mark` on the step-off and close). Read from the IDL, so the builders follow the program the app was built
+ * against: when ticket 08's IDL lands, joins name the seat key and closes pass its mark with no other change.
+ */
+const coreIxAccounts = (name: string): string[] => ((coreIdlJson as { instructions: { name: string; accounts: { name: string }[] }[] }).instructions.find((i) => i.name === name)?.accounts ?? []).map((a) => a.name);
+export const SEATS_TAKE_SEAT_KEYS = coreIxAccounts("join_many_seat_match").includes("seat_signer");
+export const seatKeyMarkPda = (match: PublicKey, seatKey: PublicKey) => PublicKey.findProgramAddressSync([Buffer.from("seat_key"), match.toBuffer(), seatKey.toBuffer()], TESORO_CORE)[0];
+/** The seat key's mark of a seat, for the instructions that take one (none before ticket 08). */
+const seatKeyAccounts = (name: string, match: PublicKey, seat: SeatView) =>
+  coreIxAccounts(name).includes("seat_key_mark") ? { seat_key_mark: seatKeyMarkPda(match, seat.signer ?? seat.player) } : {};
+
 /** A Backer's Offer an entry boards with (`join_many_seat_match`'s optional accounts). */
 export interface SeatBacking {
   offer: PublicKey;
@@ -261,6 +279,8 @@ export interface JoinSeatArgs {
   page: number;
   pot: { address: PublicKey; nonce: bigint; lines: number };
   backing?: SeatBacking;
+  /** The seat key that will play the seat (it co-signs the join); the wallet when absent. Used once the core takes seat keys. */
+  seatSigner?: PublicKey;
   /** Books of the Sources the entry draws (and the funder's overflow record). */
   remaining?: AccountMeta[];
 }
@@ -297,6 +317,7 @@ export function joinSeatIx(a: JoinSeatArgs): TransactionInstruction {
             funder_mark: seatMarkPda(a.car, b.backerAccount),
           }
         : {}),
+      ...(SEATS_TAKE_SEAT_KEYS ? { seat_signer: a.seatSigner ?? a.player, seat_key_mark: seatKeyMarkPda(a.car, a.seatSigner ?? a.player) } : {}),
     },
     { pot_nonce: a.pot.nonce, pot_lines: a.pot.lines, page: a.page },
     a.remaining ?? [],
@@ -340,6 +361,7 @@ export function stepOffIx(a: StepOffArgs): TransactionInstruction {
       sponsor: a.sponsor ? sponsorKey : null,
       // The Backer's mark carries a backed seat's lines home (ticket 04).
       funder_mark: backed ? seatMarkPda(a.car, a.seat.funder) : null,
+      ...seatKeyAccounts("step_off_many_seat_match", a.car, a.seat),
     },
     { seat: a.seat.index, max_lines: MAX_RETURN_LINES },
     a.remaining ?? [],
@@ -380,6 +402,7 @@ export function closeSeatIx(a: CloseSeatArgs): TransactionInstruction {
       sponsor: a.sponsor ? sponsorKey : null,
       funder_spill: a.seat.hold > 0 ? spillOf(a.seat.funder) : null,
       funder_mark: backed ? seatMarkPda(a.car, a.seat.funder) : null,
+      ...seatKeyAccounts("close_many_seat", a.car, a.seat),
     },
     { seat: a.seat.index },
   );

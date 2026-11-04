@@ -28,6 +28,7 @@ const seat = (i: number, o: Partial<SeatView> = {}): SeatView => ({
   player: players[i],
   funder: players[i],
   pot: k(),
+  signer: null,
   ...o,
 });
 const seats = [seat(0, { refund: 350n }), seat(1, { place: 2, placeBps: 2500 }), seat(2, { place: 3, placeBps: 1500 }), seat(3, { place: 1, placeBps: 6000 }), seat(4)];

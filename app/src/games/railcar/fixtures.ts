@@ -20,7 +20,7 @@ export const [ANA, BEN, CY, DEE, EVE] = PLAYERS;
 const coreCar = (o: Partial<CarView>): CarView =>
   ({ address: keyOf(500), payer: ANA, opener: ANA, n: 0n, game: keyOf(501), settleAuthority: keyOf(502), studioOwner: null, entry: 500n, openedAt: T0, deadlineAbs: T0 + 7 * 86_400, minSince: 0, firstMinAt: 0, departedAt: 0, platformBps: 200, studioBps: 300, listed: true, minSeats: 5, maxSeats: 100, seated: 0, pages: 0, stage: "boarding", refundAfter: 0, run: { nPlaces: 0 } as CarView["run"], ...o }) as CarView;
 
-const seats = (n: number): SeatView[] => PLAYERS.slice(0, n).map((p, i) => ({ index: i, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: p, funder: p, pot: keyOf(600 + i) }));
+const seats = (n: number): SeatView[] => PLAYERS.slice(0, n).map((p, i) => ({ index: i, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: p, funder: p, pot: keyOf(600 + i), signer: null }));
 
 const rideSeat = (i: number, order = 0, jumpMs = 0, refund = 0n): RideSeatView => ({ tableSeat: i, seat: i, order, jumpMs, refund, account: PLAYERS[i] });
 

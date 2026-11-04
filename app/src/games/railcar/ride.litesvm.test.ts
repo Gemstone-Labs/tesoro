@@ -36,7 +36,7 @@ import { drawRemaining, freshPot, nextMatchOf, previewEntry, readEntryStores, re
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
 import { joinSeatIx } from "../../lib/chain/many-seat";
-import { closeIxs, loadCar, planSeatChunk, roomIxs } from "../../lib/chain/many-seat-plan";
+import { loadCar } from "../../lib/chain/many-seat-plan";
 import { decodeStore } from "../../lib/chain/pot-store";
 import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
 import { MAX_ACCOUNTS, MAX_TX_BYTES, type Reader } from "../../lib/chain/settle-plan";
@@ -60,6 +60,7 @@ import {
 import { ride } from "./engine";
 import { queueChoice } from "./flow";
 import { railcarView } from "./view";
+import { finishRide } from "./finish";
 
 const ROOT = join(process.cwd(), "..");
 const SO_DIR = process.env.RAILCAR_SO_DIR ?? join(ROOT, "target/deploy");
@@ -502,33 +503,35 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): 
   if (shownView.phase !== "result") throw new Error("the screen should show the result");
   const shown = riders.map((p) => shownView.rows.find((r) => r.account === p.account.toBase58())!.gets);
 
-  // Finalize on base (the committed Table), the relayer as caller, compiled with a lookup table.
-  const fin = [cu(1_400_000), finalizeIx(w.relayer.publicKey, { ...carAcct, carNo }, loaded.car.pages)];
-  w.onBase(carAcct.table, () => w.send(fin, w.relayer, [], [w.table(fin)]));
-  expect(w.info(carPda(carNo))).toBeNull();
-
-  // Room, then every chunk the planner sizes, until core has paid the car.
+  // The finish as a paid Player's page sends it (finish.ts), the relayer as caller of every step: finalize on base (the
+  // committed Table), room, every chunk the planner sizes, every close. Compiled with a lookup table, as the server does.
   const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
-  let car = (await loadCar(w.reader(), match))!;
-  const room = await roomIxs(w.reader(), w.relayer.publicKey, car);
-  for (const ix of room) w.send([ix], w.relayer);
-  rooms = room.length;
   const chunkSteps: number[] = [];
-  while (car.car.stage === "settling" || car.car.stage === "refunding") {
-    const plan = await planSeatChunk(core, w.reader(), w.relayer.publicKey, car, (ix) => w.fits(w.relayer.publicKey, [cu(1_400_000), ix]));
-    expect(plan).not.toBeNull();
-    expect(plan!.missing).toEqual([]);
-    const ixs = [cu(1_400_000), plan!.ix];
-    w.send(ixs, w.relayer, [], [w.table(ixs)]);
-    chunkSteps.push(plan!.steps);
-    expect(chunkSteps.length).toBeLessThan(400);
-    car = (await loadCar(w.reader(), match))!;
-  }
-  expect(car.car.stage).toBe("paid");
-
-  // Every seat closes, then the car.
-  for (const ix of await closeIxs(w.reader(), w.relayer.publicKey, car)) w.send([cu(400_000), ix], w.relayer, [], [w.table([ix])]);
+  const sent = await finishRide({
+    read: w.reader(),
+    core,
+    caller: w.relayer.publicKey,
+    carNo,
+    match,
+    committed: async () => {
+      const t = decodeTable(w.committed.get(table.toBase58())!);
+      return t.carNo === carNo && t.phase === "over";
+    },
+    fits: (ix) => w.fits(w.relayer.publicKey, [cu(1_400_000), ix]),
+    send: async (ixs, step) => {
+      const all = [cu(1_400_000), ...ixs];
+      const go = () => w.send(all, w.relayer, [], [w.table(all)]);
+      if (step === "finalize") w.onBase(carAcct.table, go);
+      else go();
+      if (step === "chunk") chunkSteps.push(ixs[0].data[8]);
+      if (step === "room") rooms++;
+    },
+  });
+  expect(sent.done).toBe(true);
+  expect(w.info(carPda(carNo))).toBeNull();
   expect(w.info(match)).toBeNull();
+  expect(sent.sent.filter((s) => s === "close-seat")).toHaveLength(n);
+  expect(sent.sent.at(-1)).toBe("close-car");
 
   return { riders, deltas: riders.map((p, i) => w.gemas(p, id) - before[i]), studioFee: w.studioFee() - studioBefore, chunkSteps, shown, walletSigs: w.walletSigs };
 }
