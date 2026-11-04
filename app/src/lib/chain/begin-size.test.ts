@@ -19,7 +19,7 @@ const PER_RECEIPT = 33;
 const key = () => Keypair.generate().publicKey;
 const SLOT_DONE = 2;
 /** The worst table `begin_match` can be asked about: its own Match and a full ring of eight other Matches. */
-const worstTable = () => ({ tesoroMatch: key(), ring: Array.from({ length: 8 }, () => ({ state: SLOT_DONE, tesoroMatch: key() })) });
+const worstTable = () => ({ seatsOpen: false, tesoroMatch: key(), ring: Array.from({ length: 8 }, () => ({ state: SLOT_DONE, tesoroMatch: key() })) });
 const assignment = () => ({ address: key(), tesoroMatch: key(), generation: 0, index: 2, epoch: 4, startDeadline: 1300, payer: key(), players: [key(), key()], speed: 0, asset: {} }) as never;
 
 type Begin = (chain: never, payer: never, a: never, table?: never) => Promise<unknown>;
@@ -62,7 +62,8 @@ describe("begin_match fits one transaction", () => {
       const player = holdemSigner(Keypair.generate());
       const begin = (chain as { beginMatch: Begin }).beginMatch.bind(chain) as unknown as (p: unknown, a: unknown, t?: unknown) => Promise<unknown>;
 
-      await begin(player, assignment());
+      // Trading Duel must be told whether the Books exist; the others take no table here.
+      await begin(player, assignment(), g.name === "Trading Duel" ? { seatsOpen: false } : undefined);
       const bare = sizeOf(sent[0], player.publicKey);
 
       const table = worstTable();
