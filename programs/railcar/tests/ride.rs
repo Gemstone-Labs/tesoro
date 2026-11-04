@@ -236,6 +236,8 @@ struct Env {
     /// What base last saw of each Table (the committed bytes).
     committed: HashMap<APk, Vec<u8>>,
     stakes: u8,
+    /// Keys come from fixed seeds, so PDA bump searches (and compute units) repeat run to run.
+    keys: u8,
     now: i64,
     slot: u64,
     last_cu: u64,
@@ -369,9 +371,14 @@ impl Env {
             .expect("set account");
     }
 
+    fn next_key(&mut self) -> Keypair {
+        self.keys = self.keys.checked_add(1).expect("fewer than 250 keys");
+        Keypair::new_from_array([self.keys; 32])
+    }
+
     /// A Player with a Tesoro Account and 75,000 Gemas of a Source of their own.
     fn rider(&mut self) -> Person {
-        let kp = Keypair::new();
+        let kp = self.next_key();
         self.svm.airdrop(&kp.pubkey(), 100 * SOL).expect("airdrop");
         let key = a(kp.pubkey());
         let account = flow::account_of(key);
@@ -512,13 +519,14 @@ impl Env {
         };
         let mut env = Self {
             svm,
-            admin: Keypair::new(),
-            oracle: Keypair::new(),
-            ctl: Keypair::new(),
-            operator: Keypair::new(),
+            admin: Keypair::new_from_array([251; 32]),
+            oracle: Keypair::new_from_array([252; 32]),
+            ctl: Keypair::new_from_array([253; 32]),
+            operator: Keypair::new_from_array([254; 32]),
             studio: placeholder,
             committed: HashMap::new(),
             stakes: 0,
+            keys: 0,
             now: T0,
             slot: SLOT0,
             last_cu: 0,
@@ -631,7 +639,7 @@ impl Env {
 
     /// A Tesoro Account with no Gemas.
     fn bare_person(&mut self) -> Person {
-        let kp = Keypair::new();
+        let kp = self.next_key();
         self.svm.airdrop(&kp.pubkey(), 100 * SOL).expect("airdrop");
         let key = a(kp.pubkey());
         let account = flow::account_of(key);
@@ -1834,7 +1842,13 @@ fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
         e.send_v0(&[cu_limit(1_400_000), finalize], &payer)
     })
     .expect("finalize");
-    println!("finalize, 100 seats: {} CU", env.last_cu);
+    let (_, receipt_bump) =
+        APk::find_program_address(&[b"settled", car.tesoro.as_ref()], &tesoro_core::ID);
+    println!(
+        "finalize, 100 seats: {} CU (receipt bump {receipt_bump}: {} tries in core's search)",
+        env.last_cu,
+        256 - u32::from(receipt_bump)
+    );
     // a placed seat takes a line from each forfeited Source and the outside studio a fee line:
     // the client grows their stores first (core reserves no room for winnings)
     let grow: Vec<Person> = riders[10..13]
