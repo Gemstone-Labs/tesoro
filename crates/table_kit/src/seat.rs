@@ -76,7 +76,10 @@ fn member_args(keys: Option<SeatKeys>) -> EphemeralMembersArgs {
 
 /// The members a seat gets for these keys, with their flags.
 pub fn seat_members(keys: SeatKeys) -> Vec<(Pubkey, u8)> {
-    keys.members().into_iter().map(|k| (k, READ_FLAGS)).collect()
+    keys.members()
+        .into_iter()
+        .map(|k| (k, READ_FLAGS))
+        .collect()
 }
 
 /// Creates a seat that lives as long as its table: the account and a private permission whose
@@ -90,7 +93,13 @@ pub fn create_hidden_seat<'info>(
     space: u32,
     player: Option<Pubkey>,
 ) -> Result<()> {
-    create_hidden_seat_keyed(a, table_seeds, seat_seeds, space, player.map(SeatKeys::wallet))
+    create_hidden_seat_keyed(
+        a,
+        table_seeds,
+        seat_seeds,
+        space,
+        player.map(SeatKeys::wallet),
+    )
 }
 
 /// [`create_hidden_seat`] with members `[player, signer]`.

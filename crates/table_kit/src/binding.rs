@@ -69,7 +69,10 @@ pub fn require_acting_seat(
     record: &SeatRecord,
     signer: &Pubkey,
 ) -> core::result::Result<usize, SeatBindingError> {
-    let SeatKeys { player, signer: key } = record.keys;
+    let SeatKeys {
+        player,
+        signer: key,
+    } = record.keys;
     for (i, p) in table.players.iter().enumerate() {
         if table.players[..i].contains(p) {
             return Err(SeatBindingError::Ambiguous);
