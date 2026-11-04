@@ -976,7 +976,6 @@ pub(crate) fn close_many_seat_match<'info>(
             );
             Pubkey::new_from_array(p.payer)
         };
-        drop(loader);
         require_keys_eq!(expected, *payer.key, TesoroError::InvalidAccount);
         require!(page.is_writable, TesoroError::NotWritable);
         close_to(page, payer)?;
@@ -987,14 +986,21 @@ pub(crate) fn close_many_seat_match<'info>(
     Ok(())
 }
 
+// A page is created by one system-program call, which caps an account at 10,240 bytes.
+const _: () = assert!(SeatPage::SPACE <= 10_240);
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn a_page_fits_one_account_creation() {
+    fn accounts_are_their_declared_sizes() {
         assert_eq!(SeatPage::SPACE, 8 + 72 + 1_600);
-        assert!(SeatPage::SPACE <= 10_240);
         assert_eq!(std::mem::size_of::<SeatPage>(), SeatPage::SPACE - DISC);
+        assert_eq!(std::mem::size_of::<SeatMark>(), SeatMark::SPACE - DISC);
+        assert_eq!(
+            std::mem::size_of::<ManySeatMatch>(),
+            ManySeatMatch::SPACE - DISC
+        );
     }
 }
