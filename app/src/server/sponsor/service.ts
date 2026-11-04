@@ -24,7 +24,8 @@ import { GAME_IDS, gameOfProgram } from "@/lib/chain/games";
 import { HIDDEN_GAMES } from "@/lib/games";
 import type { GameId } from "@/lib/mock/types";
 import { DemoHttpError } from "../request-auth";
-import { matchNamesSeatKey, matchSides } from "../seat-keys";
+import { carNamesSeatKey, isManySeat, matchNamesSeatKey, matchSides } from "../seat-keys";
+import { seatMarkPda } from "@/lib/chain/many-seat";
 import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, rentExitFits, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
 import { CORE_ID, PRIORITY_MICROLAMPORTS, PROTECTIONS_BYTES, RECEIPT_RENT, SETTLEMENT_RECEIPT_BYTES, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
 import { EXIT_ATA_WINDOW_MS, verifyCkptPages, verifyExitSetup } from "./exit-setup";
@@ -53,9 +54,23 @@ export const BUILD_TTL_MS = 75_000;
 export type BuildAuth = { kind: "wallet" } | { kind: "token" } | { kind: "seat"; signer: PublicKey; match: PublicKey };
 
 /** What a token-only request may build: the entry and the growth that travels with it. */
-const ENTRY_NAMES = new Set(["open_match", "join_match", "open_ticket", "stage_entry", "grow_store_sponsored"]);
+const ENTRY_NAMES = new Set(["open_match", "join_match", "open_ticket", "stage_entry", "grow_store_sponsored", "join_many_seat_match", "open_car", "check_departure"]);
 /** What a seat key may ask for: a Game's finish steps and the Match's own finish, never a move of value. */
-const SEAT_STEP_NAMES = new Set(["finalize", "refund_untabled", "close_assignment", "match_chunk", "close_match", "refund_match"]);
+const SEAT_STEP_NAMES = new Set([
+  "finalize",
+  "refund_untabled",
+  "close_assignment",
+  "match_chunk",
+  "close_match",
+  "refund_match",
+  // A many-seat car's finish (Railcar): the departure, the chunks, room for a winner, the closes and the late refund.
+  "check_departure",
+  "many_seat_chunk",
+  "reserve_many_seat_room",
+  "close_many_seat",
+  "close_many_seat_match",
+  "refund_many_seat_match",
+]);
 const JOIN_SEAT_AT = (coreIdl as unknown as { instructions: { name: string; accounts: { name: string }[] }[] }).instructions.find((i) => i.name === "join_match")!.accounts.findIndex((a) => a.name === "seat_signer");
 
 /** One rent top-up build per Account in this window: longer than a built message lives, so two cannot both land. */
@@ -146,8 +161,12 @@ function matchGameOf(data: Uint8Array): Uint8Array | null {
     return null;
   }
 }
-/** The opener and number of a Match, from its data (null when it is not a MatchState). */
+/** The opener and number of a Match, from its data (null when it is not a MatchState or a many-seat car). */
 function matchSeedOf(data: Uint8Array): HoldSeed | null {
+  if (isManySeat({ owner: CORE_ID, data })) {
+    const id = Buffer.from(data).subarray(8 + 1 + 4 + 32, 8 + 1 + 4 + 32 + 40);
+    return { kind: "match", account: new PublicKey(id.subarray(0, 32)).toBase58(), n: id.readBigUInt64LE(32).toString() };
+  }
   try {
     const m = matchCoder.decode("MatchState", Buffer.from(data)) as { inner: { id: { opener: number[]; n: { toString(): string } } } };
     return { kind: "match", account: new PublicKey(m.inner.id.opener).toBase58(), n: m.inner.id.n.toString() };
@@ -304,7 +323,8 @@ export class Sponsor {
 
   /** An obligation (Match or Ticket) must exist before it is continued or exited; an admission creates its own. */
   private async requireObligations(plan: Plan) {
-    const mustExist = plan.class === "admission" ? (plan.names.includes("join_match") ? plan.obligations.slice(0, 1) : []) : plan.obligations;
+    const joins = plan.names.includes("join_match") || plan.names.includes("join_many_seat_match");
+    const mustExist = plan.class === "admission" ? (joins ? plan.obligations.slice(0, 1) : []) : plan.obligations;
     for (const key of mustExist) {
       const a = await this.d.chain.account(key);
       if (!a || !a.owner.equals(CORE_ID)) throw new DemoHttpError(400, "no-obligation", "There is nothing open there to continue.");
@@ -349,7 +369,9 @@ export class Sponsor {
   private async admitGameStep(plan: Plan, player: PublicKey, now: number): Promise<() => Promise<void>> {
     const match = plan.obligations[0];
     const a = await this.d.chain.account(match);
-    if (!a || !partiesOf(a.data).some((k) => isPlayerKey(k, player))) throw new DemoHttpError(403, "not-your-match", "Free transactions are for the Players of a Match.");
+    // A many-seat car (Railcar) names its Players in their seat marks: `["seat", car, Account]` exists for a rider or a funder.
+    const rider = a && isManySeat(a) ? !!(await this.d.chain.account(seatMarkPda(match, accountPda(player)))) : false;
+    if (!a || !(rider || partiesOf(a.data).some((k) => isPlayerKey(k, player)))) throw new DemoHttpError(403, "not-your-match", "Free transactions are for the Players of a Match.");
     const perMatch = `gstep:${match.toBase58()}:${plan.names[0]}`;
     if (!(await this.d.store.take(perMatch, 1, this.d.limits.gameStepsPerMatch, 10 * 60_000, now))) throw new DemoHttpError(429, "match-limit", "That step was already sent for this Match.");
     const rent = plan.spend.refundable > 0n;
@@ -405,12 +427,19 @@ export class Sponsor {
       if (plan.kind !== "core" || plan.onboarding || plan.playerSigns || !plan.names.some((n) => n !== "grow_store_sponsored") || !plan.names.every((n) => ENTRY_NAMES.has(n))) {
         throw new DemoHttpError(403, "wallet-only", "This needs your wallet.");
       }
+      // Railcar's departure check is an entry step only inside a boarding transaction.
+      if (plan.names.includes("check_departure") && !plan.names.includes("join_many_seat_match")) throw new DemoHttpError(403, "wallet-only", "This needs your wallet.");
     } else if (auth.kind === "seat") {
       if (!plan.names.every((n) => SEAT_STEP_NAMES.has(n))) throw new DemoHttpError(403, "wallet-only", "This needs your wallet.");
       if (!ixs.some((i) => i.keys.some((k) => k.pubkey.equals(auth.match)))) throw new DemoHttpError(400, "bad-request", "The request names another Match than the transaction.");
       const match = await this.d.chain.account(auth.match);
-      // A cancel is the opener's, and only while the Match is Open; the seat key of the other side cannot send it.
-      if (!matchNamesSeatKey(match, accountPda(player), auth.signer, plan.names.includes("refund_match"))) throw new DemoHttpError(403, "not-your-seat-key", "That key is not this Player's key for the Match.");
+      // A many-seat car names each seat's key in the seat (read through the Player's seat mark); a head-to-head Match on its sides.
+      const named =
+        match && isManySeat(match)
+          ? await carNamesSeatKey((k) => this.d.chain.account(k), auth.match, accountPda(player), auth.signer)
+          : // A cancel is the opener's, and only while the Match is Open; the seat key of the other side cannot send it.
+            matchNamesSeatKey(match, accountPda(player), auth.signer, plan.names.includes("refund_match"));
+      if (!named) throw new DemoHttpError(403, "not-your-seat-key", "That key is not this Player's key for the Match.");
     }
   }
 
@@ -509,7 +538,7 @@ export class Sponsor {
       if (plan.funders.length || plan.noGemas) await this.requireAccount(player);
       await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
-      reserve = plan.names.some((n) => n === "open_match" || n === "join_match" || n === "open_ticket") ? this.d.limits.completionReserve : 0n;
+      reserve = plan.names.some((n) => n === "open_match" || n === "join_match" || n === "open_ticket" || n === "join_many_seat_match") ? this.d.limits.completionReserve : 0n;
       if (!admissionFits(this.d.limits, balance, plan.spend.refundable + plan.spend.sunk + fee, reserve)) {
         throw new DemoHttpError(503, "sponsor-paused", "Free transactions are used up for now. You can still play: pay the network fee from your own SOL.");
       }

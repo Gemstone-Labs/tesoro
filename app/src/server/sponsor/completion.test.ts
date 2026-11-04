@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { AddressLookupTableAccount, Keypair, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction, type VersionedTransactionResponse } from "@solana/web3.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { completionEffects, completionInput, completionStore, recoverCompletions, type CompletionChain, type CompletionStore } from "./completion";
+import { RAILCAR, completionEffects, completionInput, completionStore, holdSeeds, recoverCompletions, type CompletionChain, type CompletionStore } from "./completion";
+import railcarIdl from "@/lib/chain/idl/railcar.json";
 import { coreIx, key, openMatchIx } from "./fixtures";
 import { recoverObservedCompletions, type ObservationStore } from "./observed-completion";
 import { MemoryUsageStore } from "./store";
@@ -288,12 +289,27 @@ describe("closure evidence", () => {
   });
 
   it("the close targets use the deployed IDL's exact account roles", () => {
-    const roles = { close_match: ["match_state", "pot_a", "pot_b"], close_ticket: ["ticket"] };
+    const roles = { close_match: ["match_state", "pot_a", "pot_b"], close_ticket: ["ticket"], close_many_seat_match: ["match_state"] };
     for (const [name, expected] of Object.entries(roles)) {
       const ix = coreIdl.instructions.find((i) => i.name === name)!;
       const keys = ix.accounts.map(() => ({ pubkey: key(), isSigner: false, isWritable: true }));
       const got = completionEffects([{ programId: core, data: Buffer.from(ix.discriminator), keys }]);
       expect(got.closes).toEqual(expected.map((n) => keys[ix.accounts.findIndex((a) => a.name === n)].pubkey.toBase58()));
     }
+  });
+
+  it("a Railcar car's Match: open_car creates it (seeded by the opener's Account and n), a seat's join ensures it", async () => {
+    expect(RAILCAR.toBase58()).toBe(railcarIdl.address);
+    const open = railcarIdl.instructions.find((i) => i.name === "open_car")!;
+    const keys = open.accounts.map(() => ({ pubkey: key(), isSigner: false, isWritable: true }));
+    const data = Buffer.concat([Buffer.from(open.discriminator), Buffer.from([7, 0, 0, 0, 0, 0, 0, 0])]);
+    const at = (n: string) => keys[open.accounts.findIndex((a) => a.name === n)].pubkey.toBase58();
+    expect(completionEffects([{ programId: RAILCAR, data, keys }]).creates).toEqual([at("match_state")]);
+    const seeds = await holdSeeds([{ programId: RAILCAR, data, keys }], async () => null);
+    expect(seeds[at("match_state")]).toEqual({ kind: "match", account: at("opener_account"), n: "7" });
+    const join = coreIdl.instructions.find((i) => i.name === "join_many_seat_match")!;
+    const jkeys = join.accounts.map(() => ({ pubkey: key(), isSigner: false, isWritable: true }));
+    const match = jkeys[join.accounts.findIndex((a) => a.name === "match_state")].pubkey.toBase58();
+    expect(completionEffects([{ programId: core, data: Buffer.from(join.discriminator), keys: jkeys }]).ensures).toEqual([match]);
   });
 });
