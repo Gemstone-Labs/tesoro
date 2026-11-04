@@ -21,12 +21,13 @@ pub enum RideError {
     Math,
 }
 
-/// -1 when `a < b`, else 0 (no branch; |values| < 2^62). `black_box` hides that the mask comes
-/// from a comparison: otherwise LLVM folds it back into a select, which sBPF runs as a jump (the
-/// compute-unit test caught a 1-unit difference).
+/// -1 when `a < b`, else 0 (no branch; |values| < 2^62). `black_box` on the input keeps LLVM
+/// from seeing the subtraction cannot overflow (it then rewrites the sign shift as a compare and
+/// a jump, which the compute-unit test caught), and on the output from folding the mask's use
+/// into a select (a jump on sBPF), as Vanguard's `ct` helpers do.
 #[inline(always)]
 fn below(a: i64, b: i64) -> i64 {
-    core::hint::black_box(a.wrapping_sub(b) >> 63)
+    core::hint::black_box(core::hint::black_box(a).wrapping_sub(b) >> 63)
 }
 
 /// `a` where `mask` is -1, `b` where it is 0 (no branch).
