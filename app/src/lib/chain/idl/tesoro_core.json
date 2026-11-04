@@ -1756,9 +1756,95 @@
       "args": []
     },
     {
+      "name": "close_many_seat",
+      "docs": [
+        "Closes one seat of a paid car (anyone)."
+      ],
+      "discriminator": [
+        151,
+        33,
+        169,
+        224,
+        112,
+        112,
+        149,
+        171
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "seat_page",
+          "docs": [
+            "discriminator) and checked to name this car at the seat's index. Not an `AccountLoader`:",
+            "a second user of `AccountLoader<SeatPage>`'s exit made the step-off dearer."
+          ],
+          "writable": true
+        },
+        {
+          "name": "seat_mark",
+          "writable": true
+        },
+        {
+          "name": "mark_payer",
+          "writable": true
+        },
+        {
+          "name": "player_counters",
+          "writable": true
+        },
+        {
+          "name": "pot",
+          "writable": true
+        },
+        {
+          "name": "pot_payer",
+          "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "funder_spill",
+          "writable": true,
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "seat",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "close_many_seat_match",
       "docs": [
-        "Closes a car nobody sits in before it left (anyone)."
+        "Closes a car with no seat left (anyone)."
       ],
       "discriminator": [
         28,
@@ -7070,6 +7156,70 @@
       ]
     },
     {
+      "name": "many_seat_chunk",
+      "docs": [
+        "Runs up to `max_steps` steps of a car's settlement or refund (anyone)."
+      ],
+      "discriminator": [
+        140,
+        79,
+        225,
+        230,
+        128,
+        147,
+        166,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "max_steps",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "match_chunk",
       "docs": [
         "Runs up to `max_steps` steps of a Settling or Refunding Match (anyone)."
@@ -9974,6 +10124,127 @@
       "args": []
     },
     {
+      "name": "refund_many_seat_match",
+      "docs": [
+        "Anyone starts refunding a car a day after it left (or when its Game changed)."
+      ],
+      "discriminator": [
+        175,
+        187,
+        52,
+        179,
+        142,
+        32,
+        66,
+        221
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the receipt's rent (back to it 14 days later)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "refund_match",
       "docs": [
         "Starts refunding an Open or Active Match; the chunks follow."
@@ -10523,6 +10794,50 @@
         {
           "name": "nonce",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "reserve_many_seat_room",
+      "docs": [
+        "Anyone pays for the overflow record of an Account a settling car pays, so its credit lands."
+      ],
+      "discriminator": [
+        9,
+        10,
+        211,
+        153,
+        108,
+        89,
+        198,
+        163
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "match_state"
+        },
+        {
+          "name": "record",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "account",
+          "type": "pubkey"
+        },
+        {
+          "name": "lines",
+          "type": "u32"
         }
       ]
     },
@@ -13200,6 +13515,155 @@
         {
           "name": "company",
           "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "settle_many_seat_match",
+      "docs": [
+        "The Game's settle authority reports a Departed car's result (per seat: a refund and a",
+        "place share) and freezes its payout; the chunks follow."
+      ],
+      "discriminator": [
+        149,
+        42,
+        78,
+        65,
+        154,
+        115,
+        254,
+        6
+      ],
+      "accounts": [
+        {
+          "name": "game_authority",
+          "signer": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the receipt's rent (back to it 14 days later, `close_receipt`)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "result",
+          "type": {
+            "defined": {
+              "name": "ManySeatResult"
+            }
+          }
         }
       ]
     },
@@ -16521,6 +16985,19 @@
       ]
     },
     {
+      "name": "ManySeatChunkDone",
+      "discriminator": [
+        128,
+        93,
+        241,
+        122,
+        219,
+        246,
+        208,
+        183
+      ]
+    },
+    {
       "name": "ManySeatClosed",
       "discriminator": [
         113,
@@ -16557,6 +17034,58 @@
         210,
         22,
         100
+      ]
+    },
+    {
+      "name": "ManySeatPlaced",
+      "discriminator": [
+        43,
+        108,
+        170,
+        18,
+        212,
+        235,
+        196,
+        243
+      ]
+    },
+    {
+      "name": "ManySeatRunStarted",
+      "discriminator": [
+        215,
+        219,
+        50,
+        7,
+        25,
+        35,
+        230,
+        173
+      ]
+    },
+    {
+      "name": "ManySeatSeatClosed",
+      "discriminator": [
+        193,
+        52,
+        228,
+        13,
+        12,
+        43,
+        59,
+        100
+      ]
+    },
+    {
+      "name": "ManySeatSettled",
+      "discriminator": [
+        49,
+        127,
+        71,
+        108,
+        157,
+        31,
+        129,
+        204
       ]
     },
     {
@@ -18328,6 +18857,60 @@
       }
     },
     {
+      "name": "ManySeatChunkDone",
+      "docs": [
+        "The lines one many-seat chunk moved. `pot_side` of each record is the seat index; purpose",
+        "0-2 fee, 3 entry back, 4 winnings, 5 early refund."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "opener",
+            "type": "pubkey"
+          },
+          {
+            "name": "n",
+            "type": "u64"
+          },
+          {
+            "name": "chunk_no",
+            "type": "u32"
+          },
+          {
+            "name": "first_step",
+            "type": "u32"
+          },
+          {
+            "name": "steps",
+            "type": "u32"
+          },
+          {
+            "name": "done",
+            "type": "bool"
+          },
+          {
+            "name": "blocked",
+            "type": "bool"
+          },
+          {
+            "name": "overflowed",
+            "type": "u32"
+          },
+          {
+            "name": "lines",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "SeatLine"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "ManySeatClosed",
       "type": {
         "kind": "struct",
@@ -18437,6 +19020,59 @@
           {
             "name": "max_seats",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ManySeatPlaced",
+      "docs": [
+        "One paid place of a many-seat win (first place too; only `MatchWon` carries Points)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          },
+          {
+            "name": "opener",
+            "type": "pubkey"
+          },
+          {
+            "name": "n",
+            "type": "u64"
+          },
+          {
+            "name": "place",
+            "docs": [
+              "1 = first place."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "funder",
+            "type": "pubkey"
+          },
+          {
+            "name": "share_bps",
+            "type": "u16"
+          },
+          {
+            "name": "won",
+            "docs": [
+              "Forfeited Gemas the place gets on top of its entry."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -18635,6 +19271,194 @@
                 6
               ]
             }
+          },
+          {
+            "name": "refund_after",
+            "docs": [
+              "From departure: anyone may refund the car from this time on (`settle::start_refund`)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "run",
+            "docs": [
+              "The run (ticket 03), fixed when settling starts. See `settle`."
+            ],
+            "type": {
+              "defined": {
+                "name": "SeatRun"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ManySeatResult",
+      "docs": [
+        "What a Game reports for a many-seat Match."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Refund"
+          },
+          {
+            "name": "Placed",
+            "fields": [
+              {
+                "name": "places",
+                "type": {
+                  "vec": {
+                    "defined": {
+                      "name": "SeatPlace"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "refunds",
+                "type": {
+                  "vec": {
+                    "defined": {
+                      "name": "SeatRefund"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "ManySeatRunStarted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          },
+          {
+            "name": "opener",
+            "type": "pubkey"
+          },
+          {
+            "name": "n",
+            "type": "u64"
+          },
+          {
+            "name": "game",
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "docs": [
+              "Head-to-head run codes: 0 win, 4 abandoned, 5 Game upgraded, 6 refunded by the Game."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "entry",
+            "type": "u64"
+          },
+          {
+            "name": "seated",
+            "type": "u8"
+          },
+          {
+            "name": "places",
+            "type": "u8"
+          },
+          {
+            "name": "fees",
+            "docs": [
+              "Platform, Studio and Leaderboard Fees cut."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
+          },
+          {
+            "name": "fees_capped",
+            "docs": [
+              "The fees were capped by the forfeits (the win earns no Points)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "refunded",
+            "type": "u64"
+          },
+          {
+            "name": "forfeited",
+            "type": "u64"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ManySeatSeatClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          },
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "left",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ManySeatSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          },
+          {
+            "name": "opener",
+            "type": "pubkey"
+          },
+          {
+            "name": "n",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "chunks",
+            "type": "u32"
           }
         ]
       }
@@ -19751,6 +20575,73 @@
                 "type": "u8"
               }
             ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlaceSlot",
+      "docs": [
+        "One place as the run keeps it: who is paid, and how much."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "share_bps",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "player_share_bps",
+            "docs": [
+              "The Player's Offer share of a Backed seat's winnings (0 unbacked)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "won",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "player",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "funder",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }
@@ -21081,13 +21972,15 @@
             }
           },
           {
+            "name": "place",
+            "docs": [
+              "The seat's place in the Game's result (1 = first), 0 when unplaced (ticket 03)."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "reserved0",
-            "type": {
-              "array": [
-                "u8",
-                2
-              ]
-            }
+            "type": "u8"
           },
           {
             "name": "pot_lines",
@@ -21169,6 +22062,76 @@
                 24
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeatLine",
+      "docs": [
+        "One line record of a many-seat chunk: `SettlementLine`'s bytes (`pot_side` = the seat), as",
+        "its own type so the head-to-head event keeps its serializer to itself."
+      ],
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pot_side",
+            "type": "u8"
+          },
+          {
+            "name": "pot_index_le",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "purpose",
+            "docs": [
+              "0/1/2 fee, 3 entry back, 4 winnings, 5 early refund."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "incoming",
+            "type": {
+              "array": [
+                "u8",
+                144
+              ]
+            }
+          },
+          {
+            "name": "outgoing",
+            "type": {
+              "array": [
+                "u8",
+                144
+              ]
+            }
+          },
+          {
+            "name": "recipient_kind",
+            "type": "u8"
+          },
+          {
+            "name": "recipient",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "placement",
+            "type": "u8"
           }
         ]
       }
@@ -21344,6 +22307,44 @@
       }
     },
     {
+      "name": "SeatPlace",
+      "docs": [
+        "One place of a result: a seat and its share of the forfeits after fees."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "share_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeatRefund",
+      "docs": [
+        "An early refund: Gemas of the seat's own entry back, fee-free."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "gemas",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "SeatReturned",
       "type": {
         "kind": "struct",
@@ -21363,6 +22364,163 @@
           {
             "name": "done",
             "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeatRun",
+      "docs": [
+        "The frozen plan of a many-seat run and its cursor, read in place inside `ManySeatRecord`."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "phase",
+            "type": "u8"
+          },
+          {
+            "name": "n_places",
+            "type": "u8"
+          },
+          {
+            "name": "place_i",
+            "type": "u8"
+          },
+          {
+            "name": "seat_i",
+            "type": "u8"
+          },
+          {
+            "name": "in_seat",
+            "docs": [
+              "1 once the cursor entered `seat_i` (its `seat_left` is loaded)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "visited",
+            "docs": [
+              "Seated seats the home phase has passed."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "fees_capped",
+            "type": "u8"
+          },
+          {
+            "name": "line_i",
+            "docs": [
+              "Home phase: the next line to look at; forfeits phase: one past it (walked backward)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "seat_left",
+            "docs": [
+              "Gemas the current seat still moves in this phase."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "won_left",
+            "docs": [
+              "Gemas the current place still gets, and of them the Backed Player's share still owed."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "player_left",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "fees",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u8",
+                    8
+                  ]
+                },
+                3
+              ]
+            }
+          },
+          {
+            "name": "cut_left",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u8",
+                    8
+                  ]
+                },
+                3
+              ]
+            }
+          },
+          {
+            "name": "chunks",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "steps",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "places",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "PlaceSlot"
+                  }
+                },
+                10
+              ]
+            }
           }
         ]
       }
