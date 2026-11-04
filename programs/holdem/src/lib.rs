@@ -44,10 +44,11 @@ use ephemeral_rollups_sdk::{
     },
 };
 use table_kit::{
-    absence_outcome, assignment_absent, close_private_seat, create_hidden_seat, is_next_epoch,
-    match_state_gone, may_skip, move_lamports, read_table, receipt_aged, receipt_at,
-    retire_legacy_record, sponsor_can_commit, sponsor_commit, swap_seat_members, table_wait_over,
-    KitError, LegacyError, SeatAccounts, SeatPrograms, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0,
+    absence_outcome, acting_seat_among, assignment_absent, close_private_seat, create_hidden_seat,
+    is_next_epoch, match_state_gone, may_skip, move_lamports, read_table, receipt_aged, receipt_at,
+    require_acting_seat, retire_legacy_record, sponsor_can_commit, sponsor_commit,
+    swap_seat_members_keyed, table_wait_over, KitError, LegacyError, SeatAccounts, SeatKeys,
+    SeatPrograms, SeatRecord, TableSeats, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0,
     OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
@@ -237,11 +238,67 @@ pub fn check_speed(asset: u8) -> Result<u8> {
     Ok(asset)
 }
 
-fn seat_of(players: &[Pubkey; 2], key: &Pubkey) -> Result<usize> {
-    players
-        .iter()
-        .position(|p| p == key)
-        .ok_or_else(|| error!(HoldemError::NotAPlayer))
+fn table_seats(table: &Table) -> TableSeats<'_> {
+    TableSeats {
+        players: &table.game.players,
+        tesoro_match: table.tesoro_match,
+        epoch: table.epoch,
+        seats_open: table.seats_open,
+    }
+}
+
+fn seat_record(hole: &Hole) -> SeatRecord {
+    SeatRecord {
+        seat: usize::from(hole.seat),
+        keys: SeatKeys {
+            player: hole.player,
+            signer: hole.signer,
+        },
+        tesoro_match: hole.tesoro_match,
+        epoch: hole.epoch,
+    }
+}
+
+/// The seat `signer` acts for when no Hole is at hand (`check_in`): the one seat whose wallet or
+/// seat key it is, by what the table holds.
+fn table_acting_seat(table: &Table, signer: &Pubkey) -> Result<usize> {
+    let records = [0, 1].map(|seat| SeatRecord {
+        seat,
+        keys: SeatKeys {
+            player: table.game.players[seat],
+            signer: table.game.signers[seat],
+        },
+        tesoro_match: table.tesoro_match,
+        epoch: table.epoch,
+    });
+    acting_seat_among(&table_seats(table), &records, signer)
+        .map_err(|_| error!(HoldemError::NotAPlayer))
+}
+
+/// A seat's key as the table says it is: the Hole must carry the same one.
+fn require_signer_matches(table: &Table, hole: &Hole, seat: usize) -> Result<()> {
+    require!(
+        hole.signer == table.game.signers[seat],
+        HoldemError::NotAPlayer
+    );
+    Ok(())
+}
+
+/// `signer` is the wallet or the seat key of this Hole's Player, in this Match and epoch.
+fn require_hole(table: &Table, hole: &Hole, signer: &Pubkey) -> Result<usize> {
+    let seat = require_acting_seat(&table_seats(table), &seat_record(hole), signer)
+        .map_err(|_| error!(HoldemError::NotAPlayer))?;
+    require_signer_matches(table, hole, seat)?;
+    Ok(seat)
+}
+
+/// The seat `signer` acts for, from the two Holes: the one seat whose wallet or seat key it is.
+fn acting_seat(table: &Table, holes: [&Hole; 2], signer: &Pubkey) -> Result<usize> {
+    let records = holes.map(seat_record);
+    let seat = acting_seat_among(&table_seats(table), &records, signer)
+        .map_err(|_| error!(HoldemError::NotAPlayer))?;
+    require_signer_matches(table, holes[seat], seat)?;
+    Ok(seat)
 }
 
 /// The table is running a Match whose seats belong to its Players.
@@ -306,7 +363,7 @@ fn wipe_seat_pair<'info>(
         let seat_arr = [seat as u8];
         let bump_arr = [hole.bump];
         let seat_seeds: &[&[u8]] = &[HOLE_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
-        swap_seat_members(
+        swap_seat_members_keyed(
             &SeatAccounts {
                 table: &table_info,
                 seat: &hole.to_account_info(),
@@ -512,6 +569,16 @@ pub mod holdem {
         a.players = [
             ctx.accounts.account_a.authority,
             ctx.accounts.account_b.authority,
+        ];
+        let b_signer = tesoro
+            .inner
+            .b
+            .as_ref()
+            .map(|b| b.signer)
+            .ok_or(HoldemError::BadTesoroMatch)?;
+        a.signers = [
+            Pubkey::new_from_array(tesoro.inner.a.signer),
+            Pubkey::new_from_array(b_signer),
         ];
         a.speed = speed;
         a.start_deadline = now
@@ -730,17 +797,28 @@ pub mod holdem {
             ctx.accounts.hole_0.is_blank() && ctx.accounts.hole_1.is_blank(),
             HoldemError::SeatNotBlank
         );
-        let players = table.game.players;
+        let seat_keys = [0, 1].map(|i| SeatKeys {
+            player: table.game.players[i],
+            signer: table.game.signers[i],
+        });
+        let (key, epoch) = (table.tesoro_match, table.epoch);
         let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
         let table_bump = [table.bump];
         let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
         let table_info = ctx.accounts.table.to_account_info();
         let table_key = ctx.accounts.table.key();
-        ctx.accounts.hole_0.player = players[0];
-        ctx.accounts.hole_1.player = players[1];
+        for (hole, keys) in [&mut ctx.accounts.hole_0, &mut ctx.accounts.hole_1]
+            .into_iter()
+            .zip(seat_keys)
+        {
+            hole.player = keys.player;
+            hole.signer = keys.signer;
+            hole.tesoro_match = key;
+            hole.epoch = epoch;
+        }
         ctx.accounts.hole_0.exit(&ID)?;
         ctx.accounts.hole_1.exit(&ID)?;
-        for (seat, player) in players.into_iter().enumerate() {
+        for (seat, keys) in seat_keys.into_iter().enumerate() {
             let (hole, permission) = if seat == 0 {
                 (&ctx.accounts.hole_0, &ctx.accounts.hole_0_permission)
             } else {
@@ -749,7 +827,7 @@ pub mod holdem {
             let seat_arr = [seat as u8];
             let bump_arr = [hole.bump];
             let seat_seeds: &[&[u8]] = &[HOLE_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
-            swap_seat_members(
+            swap_seat_members_keyed(
                 &SeatAccounts {
                     table: &table_info,
                     seat: &hole.to_account_info(),
@@ -760,7 +838,7 @@ pub mod holdem {
                 },
                 table_seeds,
                 seat_seeds,
-                Some(player),
+                Some(keys),
             )?;
         }
         ctx.accounts.table.seats_open = true;
@@ -927,6 +1005,7 @@ pub mod holdem {
         table.checked_in = [false; 2];
         table.game = GameMatch {
             players: a.players,
+            signers: a.signers,
             speed: a.speed,
             ..GameMatch::default()
         };
@@ -942,7 +1021,7 @@ pub mod holdem {
         require!(table.phase == TABLE_WAITING, HoldemError::WrongPhase);
         require!(table.seats_open, HoldemError::SeatsNotOpen);
         require!(now <= table.start_deadline, HoldemError::StartWindowPassed);
-        let seat = seat_of(&table.game.players, &ctx.accounts.player.key())?;
+        let seat = table_acting_seat(table, &ctx.accounts.player.key())?;
         table.checked_in[seat] = true;
         if table.checked_in == [true; 2] {
             table.phase = TABLE_LIVE;
@@ -989,6 +1068,7 @@ pub mod holdem {
             HoldemError::WrongPhase
         );
         let hole = &mut ctx.accounts.hole;
+        require_hole(table, hole, &ctx.accounts.player.key())?;
         require!(!hole.contributed, HoldemError::AlreadyContributed);
         require!(
             deal::secret_hash(&secret) != hole.last_secret_hash,
@@ -1170,8 +1250,8 @@ pub mod holdem {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
         require_live(table)?;
-        let seat = seat_of(&table.game.players, &ctx.accounts.caller.key())?;
         let (h0, h1) = (&mut **ctx.accounts.hole_0, &mut **ctx.accounts.hole_1);
+        let seat = acting_seat(table, [&*h0, &*h1], &ctx.accounts.caller.key())?;
         let board = deal::combine_shares(&[h0.shares, h1.shares]);
         let cards = [h0.cards, h1.cards];
         table.game.act(seat, action, &board, &cards, now)?;
@@ -1826,7 +1906,8 @@ pub struct ContributeEntropy<'info> {
         mut,
         seeds = [HOLE_SEED, table.key().as_ref(), &[hole.seat]],
         bump = hole.bump,
-        constraint = hole.player == player.key() @ HoldemError::NotAPlayer
+        constraint = hole.player == player.key() || hole.signer == player.key()
+            @ HoldemError::NotAPlayer
     )]
     pub hole: Box<Account<'info, Hole>>,
 }

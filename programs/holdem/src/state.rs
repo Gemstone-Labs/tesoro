@@ -124,6 +124,8 @@ pub struct Assignment {
     pub epoch: u64,
     /// Seat 0 opened the tesoro_core Match, seat 1 joined (the Players' authorities).
     pub players: [Pubkey; 2],
+    /// The seat key each Player named in their entry (the wallet again when they named none).
+    pub signers: [Pubkey; 2],
     /// `SPEED_STANDARD` or `SPEED_TURBO`, from the Match's `meta.asset`.
     pub speed: u8,
     /// Unix time by which both Players must have checked in.
@@ -137,6 +139,9 @@ pub struct Assignment {
 pub struct GameMatch {
     /// Seat 0 opened the tesoro_core Match, seat 1 joined.
     pub players: [Pubkey; 2],
+    /// Each seat's key, copied from the Match with `players`: it may act for the seat beside the
+    /// wallet.
+    pub signers: [Pubkey; 2],
     pub speed: u8,
     pub status: u8,
     /// Winning seat when `status == STATUS_OVER`, else `NO_WINNER`.
@@ -178,6 +183,7 @@ impl Default for GameMatch {
     fn default() -> Self {
         Self {
             players: [Pubkey::default(); 2],
+            signers: [Pubkey::default(); 2],
             speed: SPEED_STANDARD,
             status: STATUS_CREATED,
             winner: NO_WINNER,
@@ -322,6 +328,11 @@ pub struct Hole {
     pub seat: u8,
     /// The Player who may read this seat now; default while the seat is wiped.
     pub player: Pubkey,
+    /// The seat key that may act and read beside `player`; default while the seat is wiped.
+    pub signer: Pubkey,
+    /// The Match and epoch the seat was handed over for; default while the seat is wiped.
+    pub tesoro_match: Pubkey,
+    pub epoch: u64,
     /// The hand the contribution below belongs to.
     pub hand_no: u32,
     pub contributed: bool,
@@ -347,6 +358,9 @@ impl Hole {
             table,
             seat,
             player: Pubkey::default(),
+            signer: Pubkey::default(),
+            tesoro_match: Pubkey::default(),
+            epoch: 0,
             hand_no: 0,
             contributed: false,
             secret: [0; 32],
@@ -391,6 +405,9 @@ impl PartialEq for Hole {
             && self.table == o.table
             && self.seat == o.seat
             && self.player == o.player
+            && self.signer == o.signer
+            && self.tesoro_match == o.tesoro_match
+            && self.epoch == o.epoch
             && self.hand_no == o.hand_no
             && self.contributed == o.contributed
             && self.secret == o.secret

@@ -25,6 +25,7 @@ describe("accounts written by holdem", () => {
     expect([t.startDeadline, t.checkedIn, t.overAt]).toEqual([1300, [true, true], 1151]);
     expect([t.reqNonce, t.reqPending, t.vrfReady]).toEqual([11, false, true]);
     expect(t.players.map((p) => p.toBase58())).toEqual([keyOf(3).toBase58(), keyOf(4).toBase58()]);
+    expect(t.signers.map((p) => p.toBase58())).toEqual([keyOf(13).toBase58(), keyOf(14).toBase58()]);
     expect([t.speed, t.status, t.winner, t.handNo, t.dealer, t.phase]).toEqual([1, STATUS.live, 255, 3, 0, PHASE.flop]);
     expect([t.smallBlind, t.bigBlind, t.stacks, t.bets, t.committed, t.pot]).toEqual([100n, 200n, [1300n, 1500n], [0n, 200n], [100n, 400n], 500n]);
     expect([t.toAct, t.lastRaise, t.deadline, t.missed]).toEqual([1, 200n, 2000, [0, 1]]);
@@ -45,6 +46,7 @@ describe("accounts written by holdem", () => {
     const a = decodeAssignment(keyOf(6), coder.decode("assignment", fixtures.assignment));
     expect([a.generation, a.index, a.epoch, a.speed, a.startDeadline]).toEqual([1, 3, 7, 1, 1300]);
     expect(a.payer.toBase58()).toBe(keyOf(8).toBase58());
+    expect(a.signers.map((p) => p.toBase58())).toEqual([keyOf(13).toBase58(), keyOf(14).toBase58()]);
     const t = decodeTable(keyOf(1), coder.decode("table", fixtures.table));
     expect(tableOf(a, t)).toBe(t);
     expect(tableOf({ ...a, epoch: 6 }, t)).toBeNull();

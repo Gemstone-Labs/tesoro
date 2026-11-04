@@ -5493,6 +5493,18 @@ export type Holdem = {
             }
           },
           {
+            "name": "signers",
+            "docs": [
+              "The seat key each Player named in their entry (the wallet again when they named none)."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
             "name": "speed",
             "docs": [
               "`SPEED_STANDARD` or `SPEED_TURBO`, from the Match's `meta.asset`."
@@ -5666,6 +5678,19 @@ export type Holdem = {
             "name": "players",
             "docs": [
               "Seat 0 opened the tesoro_core Match, seat 1 joined."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
+            "name": "signers",
+            "docs": [
+              "Each seat's key, copied from the Match with `players`: it may act for the seat beside the",
+              "wallet."
             ],
             "type": {
               "array": [
@@ -5990,6 +6015,24 @@ export type Holdem = {
               "The Player who may read this seat now; default while the seat is wiped."
             ],
             "type": "pubkey"
+          },
+          {
+            "name": "signer",
+            "docs": [
+              "The seat key that may act and read beside `player`; default while the seat is wiped."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "tesoroMatch",
+            "docs": [
+              "The Match and epoch the seat was handed over for; default while the seat is wiped."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
           },
           {
             "name": "handNo",

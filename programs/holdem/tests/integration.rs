@@ -27,6 +27,9 @@ use tesoro_core::state::*;
 #[path = "../../tesoro_core/tests/common/flow.rs"]
 mod flow;
 
+#[path = "integration/seat_keys.rs"]
+mod seat_keys;
+
 const SOL: u64 = 1_000_000_000;
 const T0: i64 = 1_000_000;
 
@@ -886,9 +889,14 @@ impl Env {
     /// Stands in for the permission half of `seat_players`: each blank Hole is stamped with its
     /// Player and the table says the seats are theirs.
     fn seat_players_standin(&mut self) {
-        let players = self.table().game.players;
-        for (seat, player) in players.into_iter().enumerate() {
-            self.patch_hole(seat, |h| h.player = player);
+        let t = self.table();
+        for (seat, player) in t.game.players.into_iter().enumerate() {
+            self.patch_hole(seat, |h| {
+                h.player = player;
+                h.signer = t.game.signers[seat];
+                h.tesoro_match = t.tesoro_match;
+                h.epoch = t.epoch;
+            });
         }
         self.patch_table(|t| t.seats_open = true);
     }

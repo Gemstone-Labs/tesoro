@@ -55,6 +55,7 @@ export function newPractice(now: number, random?: () => number): Practice {
     address: key(3),
     tesoroMatch: key(4),
     players: PLAYERS,
+    signers: PLAYERS,
     speed: 1,
     status: STATUS.live,
     ...OFF_CHAIN_TABLE,
