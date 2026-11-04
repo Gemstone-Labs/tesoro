@@ -6661,6 +6661,13 @@
           "signer": true
         },
         {
+          "name": "seat_signer",
+          "docs": [
+            "The seat key that plays this side of the Match (see `OpenMatch`)."
+          ],
+          "signer": true
+        },
+        {
           "name": "player_account",
           "pda": {
             "seeds": [
@@ -7589,6 +7596,14 @@
           "signer": true
         },
         {
+          "name": "seat_signer",
+          "docs": [
+            "The seat key that plays this side of the Match, recorded as the side's `signer`. A wallet",
+            "that wants no seat key passes itself (the same account twice)."
+          ],
+          "signer": true
+        },
+        {
           "name": "config",
           "pda": {
             "seeds": [
@@ -8445,6 +8460,14 @@
         },
         {
           "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "seat_signer",
+          "docs": [
+            "The seat key that may stage and cancel an Entry Ticket and play the Match it enters,",
+            "recorded in the Ticket. A wallet that wants no seat key passes itself."
+          ],
           "signer": true
         },
         {
@@ -19688,7 +19711,8 @@
       "name": "Party",
       "docs": [
         "One entrant. `funder == player` unless the entry is Backed; then `share_bps` is the Player's",
-        "share of the surplus from the accepted Offer."
+        "share of the surplus from the accepted Offer. `signer` is the seat key that co-signed the entry",
+        "(the Player's wallet when it named none): it may play this side and cancel it while it is open."
       ],
       "type": {
         "kind": "struct",
@@ -19714,6 +19738,15 @@
           {
             "name": "share_bps",
             "type": "u16"
+          },
+          {
+            "name": "signer",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }
@@ -22266,7 +22299,7 @@
             "type": {
               "array": [
                 "u8",
-                160
+                192
               ]
             }
           }
