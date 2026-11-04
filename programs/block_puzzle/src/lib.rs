@@ -46,8 +46,9 @@ use ephemeral_rollups_sdk::{
 use table_kit::{
     assignment_absent, close_private_seat, create_hidden_seat, is_next_epoch, match_state_gone,
     may_skip, move_lamports, read_table, receipt_aged, receipt_at, retire_legacy_record,
-    sponsor_can_commit, sponsor_commit, swap_seat_members, table_wait_over, KitError, LegacyError,
-    SeatAccounts, SeatPrograms, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1,
+    require_acting_seat, sponsor_can_commit, sponsor_commit, swap_seat_members_keyed,
+    table_wait_over, KitError, LegacyError, SeatAccounts, SeatKeys, SeatPrograms, SeatRecord,
+    TableSeats, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1,
     SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
@@ -257,11 +258,44 @@ pub fn vault_address(table: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[VAULT_SEED, table.as_ref()], &ID)
 }
 
-fn seat_of(players: &[Pubkey; 2], key: &Pubkey) -> Result<usize> {
-    players
-        .iter()
-        .position(|p| p == key)
-        .ok_or_else(|| error!(BlockPuzzleError::NotAPlayer))
+fn table_seats(table: &Table) -> TableSeats<'_> {
+    TableSeats {
+        players: &table.players,
+        tesoro_match: table.tesoro_match,
+        epoch: table.epoch,
+        seats_open: table.seats_open,
+    }
+}
+
+fn seat_record(seat: usize, keys: SeatKeys, tesoro_match: Pubkey, epoch: u64) -> SeatRecord {
+    SeatRecord {
+        seat,
+        keys,
+        tesoro_match,
+        epoch,
+    }
+}
+
+/// The seat `signer` acts for when no Board is at hand (`check_in`): the one seat whose wallet
+/// or seat key it is. A key that could be either seat is refused.
+fn acting_seat(table: &Table, signer: &Pubkey) -> Result<usize> {
+    let mut found = None;
+    for seat in 0..2 {
+        let record = seat_record(
+            seat,
+            SeatKeys {
+                player: table.players[seat],
+                signer: table.signers[seat],
+            },
+            table.tesoro_match,
+            table.epoch,
+        );
+        if require_acting_seat(&table_seats(table), &record, signer).is_ok() {
+            require!(found.is_none(), BlockPuzzleError::NotAPlayer);
+            found = Some(seat);
+        }
+    }
+    found.ok_or_else(|| error!(BlockPuzzleError::NotAPlayer))
 }
 
 fn require_binding(table: &Table, binding: &Binding) -> Result<()> {
@@ -269,15 +303,22 @@ fn require_binding(table: &Table, binding: &Binding) -> Result<()> {
     Ok(())
 }
 
-/// The seat belongs to this Match's Player and epoch.
-fn require_board(table: &Table, board: &Board, player: &Pubkey) -> Result<usize> {
-    let seat = seat_of(&table.players, player)?;
+/// `signer` is the wallet or the seat key of this Board's Player, and the Board is that seat's
+/// in this Match and epoch.
+fn require_board(table: &Table, board: &Board, signer: &Pubkey) -> Result<usize> {
+    let record = seat_record(
+        usize::from(board.seat),
+        SeatKeys {
+            player: board.player,
+            signer: board.signer,
+        },
+        board.tesoro_match,
+        board.epoch,
+    );
+    let seat = require_acting_seat(&table_seats(table), &record, signer)
+        .map_err(|_| error!(BlockPuzzleError::NotAPlayer))?;
     require!(
-        table.seats_open
-            && board.seat as usize == seat
-            && board.player == *player
-            && board.tesoro_match == table.tesoro_match
-            && board.epoch == table.epoch,
+        board.signer == table.signers[seat],
         BlockPuzzleError::NotAPlayer
     );
     Ok(seat)
@@ -432,7 +473,7 @@ fn wipe_seat_trio<'info>(
         let seat_arr = [seat as u8];
         let bump_arr = [board.bump];
         let seat_seeds: &[&[u8]] = &[BOARD_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
-        swap_seat_members(
+        swap_seat_members_keyed(
             &SeatAccounts {
                 table: &table_info,
                 seat: &board.to_account_info(),
@@ -652,6 +693,16 @@ pub mod block_puzzle {
         a.players = [
             ctx.accounts.account_a.authority,
             ctx.accounts.account_b.authority,
+        ];
+        let b_signer = tesoro
+            .inner
+            .b
+            .as_ref()
+            .map(|b| b.signer)
+            .ok_or(BlockPuzzleError::BadTesoroMatch)?;
+        a.signers = [
+            Pubkey::new_from_array(tesoro.inner.a.signer),
+            Pubkey::new_from_array(b_signer),
         ];
         a.start_deadline = now
             .checked_add(START_WINDOW_SECS)
@@ -916,24 +967,28 @@ pub mod block_puzzle {
                 && ctx.accounts.seed_vault.is_blank(),
             BlockPuzzleError::SeatNotBlank
         );
-        let players = table.players;
+        let seat_keys = [0, 1].map(|i| SeatKeys {
+            player: table.players[i],
+            signer: table.signers[i],
+        });
         let (key, epoch) = (table.tesoro_match, table.epoch);
         let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
         let table_bump = [table.bump];
         let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
         let table_info = ctx.accounts.table.to_account_info();
         let table_key = ctx.accounts.table.key();
-        for (board, player) in [&mut ctx.accounts.board_0, &mut ctx.accounts.board_1]
+        for (board, keys) in [&mut ctx.accounts.board_0, &mut ctx.accounts.board_1]
             .into_iter()
-            .zip(players)
+            .zip(seat_keys)
         {
-            board.player = player;
+            board.player = keys.player;
+            board.signer = keys.signer;
             board.tesoro_match = key;
             board.epoch = epoch;
         }
         ctx.accounts.board_0.exit(&ID)?;
         ctx.accounts.board_1.exit(&ID)?;
-        for (seat, player) in players.into_iter().enumerate() {
+        for (seat, keys) in seat_keys.into_iter().enumerate() {
             let (board, permission) = if seat == 0 {
                 (&ctx.accounts.board_0, &ctx.accounts.board_0_permission)
             } else {
@@ -942,7 +997,7 @@ pub mod block_puzzle {
             let seat_arr = [seat as u8];
             let bump_arr = [board.bump];
             let seat_seeds: &[&[u8]] = &[BOARD_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
-            swap_seat_members(
+            swap_seat_members_keyed(
                 &SeatAccounts {
                     table: &table_info,
                     seat: &board.to_account_info(),
@@ -953,7 +1008,7 @@ pub mod block_puzzle {
                 },
                 table_seeds,
                 seat_seeds,
-                Some(player),
+                Some(keys),
             )?;
         }
         ctx.accounts.table.seats_open = true;
@@ -1150,6 +1205,7 @@ pub mod block_puzzle {
         table.tesoro_match = a.tesoro_match;
         table.start_deadline = a.start_deadline;
         table.players = a.players;
+        table.signers = a.signers;
         table.checked_in = [false; 2];
         table.assigned_slot = clock.slot;
         table.assigned_ts = clock.unix_timestamp;
@@ -1169,7 +1225,7 @@ pub mod block_puzzle {
             slot <= ov(table.checkin_end())?,
             BlockPuzzleError::CheckInClosed
         );
-        let seat = seat_of(&table.players, &ctx.accounts.player.key())?;
+        let seat = acting_seat(table, &ctx.accounts.player.key())?;
         require!(!table.checked_in[seat], BlockPuzzleError::AlreadyCheckedIn);
         table.checked_in[seat] = true;
         if table.checked_in == [true; 2] {
@@ -2154,8 +2210,7 @@ pub struct Begin<'info> {
     #[account(
         mut,
         seeds = [BOARD_SEED, table.key().as_ref(), &[board.seat]],
-        bump = board.bump,
-        constraint = board.player == player.key() @ BlockPuzzleError::NotAPlayer
+        bump = board.bump
     )]
     pub board: Box<Account<'info, Board>>,
 }
@@ -2172,8 +2227,7 @@ pub struct Play<'info> {
     #[account(
         mut,
         seeds = [BOARD_SEED, table.key().as_ref(), &[board.seat]],
-        bump = board.bump,
-        constraint = board.player == player.key() @ BlockPuzzleError::NotAPlayer
+        bump = board.bump
     )]
     pub board: Box<Account<'info, Board>>,
 }
@@ -2190,8 +2244,7 @@ pub struct PlayHidden<'info> {
     #[account(
         mut,
         seeds = [BOARD_SEED, table.key().as_ref(), &[board.seat]],
-        bump = board.bump,
-        constraint = board.player == player.key() @ BlockPuzzleError::NotAPlayer
+        bump = board.bump
     )]
     pub board: Box<Account<'info, Board>>,
 }

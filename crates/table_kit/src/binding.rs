@@ -99,6 +99,26 @@ pub fn require_acting_seat(
     Ok(seat)
 }
 
+/// Resolves the seat `signer` acts for when the instruction has no single seat record to go by
+/// (a Player's check-in, or a turn taken from the table): tries every seat's record and returns
+/// the one that accepts the signer. A signer that two seats accept is refused as ambiguous.
+pub fn acting_seat_among(
+    table: &TableSeats,
+    records: &[SeatRecord],
+    signer: &Pubkey,
+) -> core::result::Result<usize, SeatBindingError> {
+    let mut found = None;
+    for record in records {
+        if let Ok(seat) = require_acting_seat(table, record, signer) {
+            if found.is_some() {
+                return Err(SeatBindingError::Ambiguous);
+            }
+            found = Some(seat);
+        }
+    }
+    found.ok_or(SeatBindingError::NotTheSeat)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,5 +309,60 @@ mod tests {
             signer: k(ANA_KEY),
         };
         assert_eq!(keys.members(), vec![k(ANA), k(ANA_KEY)]);
+    }
+
+    fn both_seats() -> [SeatRecord; 2] {
+        [
+            ana_seat(),
+            SeatRecord {
+                seat: 1,
+                keys: SeatKeys {
+                    player: k(BEN),
+                    signer: k(BEN_KEY),
+                },
+                ..ana_seat()
+            },
+        ]
+    }
+
+    #[test]
+    fn among_two_seats_each_key_finds_its_own() {
+        let p = players();
+        for (who, seat) in [(ANA, 0), (ANA_KEY, 0), (BEN, 1), (BEN_KEY, 1)] {
+            assert_eq!(
+                acting_seat_among(&table(&p), &both_seats(), &k(who)),
+                Ok(seat)
+            );
+        }
+    }
+
+    #[test]
+    fn among_two_seats_a_stranger_or_old_epoch_finds_none() {
+        let p = players();
+        assert_eq!(
+            acting_seat_among(&table(&p), &both_seats(), &k(99)),
+            Err(SeatBindingError::NotTheSeat)
+        );
+        let old = both_seats().map(|r| SeatRecord { epoch: 6, ..r });
+        assert_eq!(
+            acting_seat_among(&table(&p), &old, &k(ANA_KEY)),
+            Err(SeatBindingError::NotTheSeat)
+        );
+    }
+
+    #[test]
+    fn among_two_seats_one_key_for_both_is_ambiguous() {
+        let p = players();
+        let shared = both_seats().map(|r| SeatRecord {
+            keys: SeatKeys {
+                signer: k(77),
+                ..r.keys
+            },
+            ..r
+        });
+        assert_eq!(
+            acting_seat_among(&table(&p), &shared, &k(77)),
+            Err(SeatBindingError::Ambiguous)
+        );
     }
 }

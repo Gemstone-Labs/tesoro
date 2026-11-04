@@ -52,11 +52,22 @@ fn ix(
 }
 
 fn send(svm: &mut LiteSVM, payer: &Keypair, ixs: &[Instruction]) -> Result<(), Failed> {
+    send_with(svm, payer, None, ixs)
+}
+
+fn send_with(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    also: Option<&Keypair>,
+    ixs: &[Instruction],
+) -> Result<(), Failed> {
     svm.expire_blockhash();
+    let mut signers = vec![payer];
+    signers.extend(also);
     let tx = Transaction::new_signed_with_payer(
         ixs,
         Some(&payer.pubkey()),
-        &[payer],
+        &signers,
         svm.latest_blockhash(),
     );
     svm.send_transaction(tx).map(drop)
@@ -226,6 +237,21 @@ pub fn open_match(
     player: &Keypair,
     game: APk,
     entry: u64,
+    pot_nonce: u64,
+    challenge: bool,
+    asset: u8,
+) -> Result<MatchRef, Failed> {
+    open_match_keyed(svm, player, None, game, entry, pot_nonce, challenge, asset)
+}
+
+/// [`open_match`] naming `seat_key` as the Player's seat signer (the wallet when `None`).
+#[allow(clippy::too_many_arguments)]
+pub fn open_match_keyed(
+    svm: &mut LiteSVM,
+    player: &Keypair,
+    seat_key: Option<&Keypair>,
+    game: APk,
+    entry: u64,
     _pot_nonce: u64,
     challenge: bool,
     asset: u8,
@@ -241,7 +267,7 @@ pub fn open_match(
         tesoro_core::accounts::OpenMatch {
             payer: authority,
             player_authority: authority,
-            seat_signer: authority,
+            seat_signer: seat_key.map_or(authority, |k| a(k.pubkey())),
             config: pda(&[CONFIG_SEED]),
             economy: pda(&[ECONOMY_SEED]),
             game_record: game_record(game),
@@ -273,7 +299,7 @@ pub fn open_match(
         },
         remaining,
     );
-    send(svm, player, &[open])?;
+    send_with(svm, player, seat_key, &[open])?;
     Ok(MatchRef {
         key,
         opener: account,
@@ -286,6 +312,18 @@ pub fn open_match(
 pub fn join_match(
     svm: &mut LiteSVM,
     player: &Keypair,
+    m: &MatchRef,
+    game: APk,
+    pot_nonce: u64,
+) -> Result<(), Failed> {
+    join_match_keyed(svm, player, None, m, game, pot_nonce)
+}
+
+/// [`join_match`] naming `seat_key` as the Player's seat signer (the wallet when `None`).
+pub fn join_match_keyed(
+    svm: &mut LiteSVM,
+    player: &Keypair,
+    seat_key: Option<&Keypair>,
     m: &MatchRef,
     game: APk,
     _pot_nonce: u64,
@@ -323,7 +361,7 @@ pub fn join_match(
         tesoro_core::accounts::JoinMatch {
             payer: authority,
             player_authority: authority,
-            seat_signer: authority,
+            seat_signer: seat_key.map_or(authority, |k| a(k.pubkey())),
             player_account: account,
             counters: pda(&[COUNTERS_SEED, account.as_ref()]),
             protections: pda(&[PROTECTIONS_SEED, account.as_ref()]),
@@ -354,7 +392,7 @@ pub fn join_match(
         },
         remaining,
     );
-    send(svm, player, &[join])
+    send_with(svm, player, seat_key, &[join])
 }
 
 fn owners(svm: &LiteSVM, m: &MatchRef) -> Vec<APk> {
