@@ -1028,6 +1028,7 @@ impl<S: ClassSlots> Book<S> {
     /// A fee cut: move `k` Gemas of a playable `src` line into the fee-class line `dst` of the same
     /// Source. The ready part moves with them (and the shares the line owns for it); the unpaid
     /// part becomes senior, which is the only way a Gema changes class.
+    #[inline(always)]
     pub fn cut_fee<C: CheckpointStore + ?Sized>(
         &mut self,
         src: &mut Line,

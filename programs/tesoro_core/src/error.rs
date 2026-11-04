@@ -263,6 +263,18 @@ pub enum ManySeatError {
     WrongSeat,
     #[msg("every seat page of the car, with its payer, must be passed to close it")]
     PagesMissing,
+    #[msg("the result names a seat twice, an empty seat, a refund above the entry or on a placed seat, or shares that are not 1 to 10 places summing to 10,000")]
+    BadResult,
+    #[msg("the car has not left, or its settlement already started")]
+    NotDeparted,
+    #[msg("seven days after the car opened only a refund can start")]
+    PastDeadline,
+    #[msg("only the Game refunds the car before its refund time")]
+    NotExpired,
+    #[msg("the car's run has not paid out yet")]
+    NotPaid,
+    #[msg("this car's run pays nothing to that Account")]
+    NotPaidHere,
 }
 
 pub fn seat_err(e: crate::ledger::many_seat::SeatError) -> Error {
@@ -277,6 +289,13 @@ pub fn seat_err(e: crate::ledger::many_seat::SeatError) -> Error {
         S::NotGame => ManySeatError::NotGame.into(),
         S::GameUpgraded => MatchError::GameUpgraded.into(),
         S::NotEmpty => ManySeatError::NotEmpty.into(),
+        S::BadResult => ManySeatError::BadResult.into(),
+        S::FeeTooHigh => core_err(CoreError::FeeTooHigh),
+        S::NotDeparted => ManySeatError::NotDeparted.into(),
+        S::PastDeadline => ManySeatError::PastDeadline.into(),
+        S::PagesMissing => ManySeatError::PagesMissing.into(),
+        S::NotExpired => ManySeatError::NotExpired.into(),
+        S::NotPaid => ManySeatError::NotPaid.into(),
         S::Math => ProgramError::ArithmeticOverflow.into(),
     }
 }

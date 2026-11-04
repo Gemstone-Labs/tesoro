@@ -111,8 +111,9 @@ contract PositionVaultOAppTest is Test {
         view
         returns (bytes memory)
     {
-        return
-            abi.encodePacked(uint8(11), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), amt, fee, pool, uint128(0));
+        return abi.encodePacked(
+            uint8(11), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), amt, fee, pool, uint128(0)
+        );
     }
 
     /// A cash-out that takes a Yield Fee puts that fee in the Treasury (the Treasury holds nothing else of yield).

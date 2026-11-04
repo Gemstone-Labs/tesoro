@@ -1,5 +1,5 @@
 //! Many-seat Matches (ADR 0015): open a car, take a seat, step off, depart, close an empty car.
-//! Settling a ride is ticket 03.
+//! Settling a ride: `many_seat_settle`.
 //!
 //! * **Accounts.** The Match is a `ManySeatMatch` at `["match", opener, n]` (the opener's
 //!   `next_match`, as head-to-head). Seats are in `SeatPage`s `["seat_page", match, page]`, ten
@@ -87,7 +87,7 @@ pub struct ManySeatClosed {
 
 /// Funds, allocates and assigns a PDA of this program (lamports someone pre-sent cannot block
 /// it), as `overflow::create_record` does.
-fn create_pda<'info>(
+pub(crate) fn create_pda<'info>(
     info: &AccountInfo<'info>,
     payer: &AccountInfo<'info>,
     system: &AccountInfo<'info>,
@@ -133,7 +133,7 @@ fn create_pda<'info>(
 }
 
 /// Returns an account's rent to `to` and hands it back to the system program.
-fn close_to(info: &AccountInfo, to: &AccountInfo) -> Result<()> {
+pub(crate) fn close_to(info: &AccountInfo, to: &AccountInfo) -> Result<()> {
     move_lamports(info, to, info.lamports())?;
     info.assign(&system_program::ID);
     info.resize(0)?;
@@ -141,7 +141,7 @@ fn close_to(info: &AccountInfo, to: &AccountInfo) -> Result<()> {
 }
 
 /// The seat page in `info`'s data: this program's, of a seat page's size and discriminator.
-fn page_in<'d>(info: &AccountInfo, data: &'d mut [u8]) -> Result<&'d mut SeatPage> {
+pub(crate) fn page_in<'d>(info: &AccountInfo, data: &'d mut [u8]) -> Result<&'d mut SeatPage> {
     require_keys_eq!(*info.owner, crate::ID, ManySeatError::WrongSeat);
     require!(
         data.len() == SeatPage::SPACE && data[..DISC] == *SeatPage::DISCRIMINATOR,
@@ -151,7 +151,7 @@ fn page_in<'d>(info: &AccountInfo, data: &'d mut [u8]) -> Result<&'d mut SeatPag
 }
 
 /// The seat mark in `info`'s data: this program's, of a seat mark's size and discriminator.
-fn mark_in<'d>(info: &AccountInfo, data: &'d [u8]) -> Result<&'d SeatMark> {
+pub(crate) fn mark_in<'d>(info: &AccountInfo, data: &'d [u8]) -> Result<&'d SeatMark> {
     require_keys_eq!(*info.owner, crate::ID, ManySeatError::WrongSeat);
     require!(
         data.len() == SeatMark::SPACE && data[..DISC] == *SeatMark::DISCRIMINATOR,
@@ -548,14 +548,17 @@ pub(crate) fn join_many_seat_match<'info>(
         mark.match_seed = id.seed();
     }
     books.flush()?;
-    let rec = ctx.accounts.match_state.load()?.inner;
+    let (seated, min_since) = {
+        let car = ctx.accounts.match_state.load()?;
+        (car.inner.seated, car.inner.min_since())
+    };
     emit!(SeatTaken {
         match_state: match_key,
         seat,
         player,
         funder: player,
-        seated: rec.seated,
-        min_since: rec.min_since(),
+        seated,
+        min_since,
     });
     Ok(())
 }
@@ -734,8 +737,17 @@ pub(crate) fn step_off_many_seat_match<'info>(
     );
 
     // who may
-    let car = *ctx.accounts.match_state.load()?;
-    let rec = &car.inner;
+    // the car's fields this needs, read in place (the record is large: no copy)
+    let (deploy_slot, listing_epoch, settle_authority, boarding_ends, id) = {
+        let car = ctx.accounts.match_state.load()?;
+        (
+            car.inner.deploy_slot(),
+            car.listing_epoch(),
+            car.inner.settle_authority,
+            car.inner.boarding_ends(),
+            car.inner.id(),
+        )
+    };
     let caller = ctx.accounts.caller.key();
     let callers_account =
         Pubkey::find_program_address(&[ACCOUNT_SEED, caller.as_ref()], &crate::ID).0;
@@ -747,17 +759,17 @@ pub(crate) fn step_off_many_seat_match<'info>(
         (Some(record), Some(program), Some(data)) => {
             judged_slot_at(
                 record,
-                (rec.deploy_slot(), car.listing_epoch()),
+                (deploy_slot, listing_epoch),
                 &program.to_account_info(),
                 &data.to_account_info(),
-            )? != rec.deploy_slot()
+            )? != deploy_slot
         }
         _ => false,
     };
     require!(
         callers_account.to_bytes() == s.player()
-            || caller.to_bytes() == rec.settle_authority
-            || ts >= rec.boarding_ends()
+            || caller.to_bytes() == settle_authority
+            || ts >= boarding_ends
             || upgraded
             || is_away(&ctx.accounts.player_protections.to_account_info())?,
         ManySeatError::NotYourSeat
@@ -780,7 +792,7 @@ pub(crate) fn step_off_many_seat_match<'info>(
     }
     ctx.accounts.seat_page.load_mut()?.seats[slot].clear();
     mark.returning = 1;
-    mark.match_seed = rec.id().seed();
+    mark.match_seed = id.seed();
     mark.funder = s.funder();
     mark.pot = s.pot();
     mark.set_hold(s.hold());
@@ -907,10 +919,13 @@ pub struct DepartManySeatMatch<'info> {
 
 pub(crate) fn depart_many_seat_match(ctx: Context<DepartManySeatMatch>) -> Result<()> {
     let ts = now()?;
-    let car = *ctx.accounts.match_state.load()?;
+    let (deploy_slot, listing_epoch) = {
+        let car = ctx.accounts.match_state.load()?;
+        (car.inner.deploy_slot(), car.listing_epoch())
+    };
     let slot = judged_slot_at(
         &ctx.accounts.game_record,
-        (car.inner.deploy_slot(), car.listing_epoch()),
+        (deploy_slot, listing_epoch),
         &ctx.accounts.game_program.to_account_info(),
         &ctx.accounts.program_data.to_account_info(),
     )?;
@@ -928,9 +943,9 @@ pub(crate) fn depart_many_seat_match(ctx: Context<DepartManySeatMatch>) -> Resul
     Ok(())
 }
 
-/// Closes a car nobody sits in before it left: its pages and the Match go back to whoever paid
-/// them. Anyone may call it. `remaining_accounts`: every seat page in order, each followed by
-/// the key that paid it.
+/// Closes a car with no seat left: empty before it left, or paid with every seat closed
+/// (`close_many_seat`). Its pages and the Match go back to whoever paid them. Anyone may call it.
+/// `remaining_accounts`: every seat page in order, each followed by the key that paid it.
 #[derive(Accounts)]
 pub struct CloseManySeatMatch<'info> {
     pub caller: Signer<'info>,
@@ -956,7 +971,7 @@ pub(crate) fn close_many_seat_match<'info>(
     let match_key = ctx.accounts.match_state.key();
     let pages = {
         let mut state = ctx.accounts.match_state.load_mut()?;
-        state.inner.close_empty().map_err(seat_err)?;
+        state.inner.close_car().map_err(seat_err)?;
         state.inner.pages as usize
     };
     let infos = ctx.remaining_accounts;

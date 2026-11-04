@@ -9,6 +9,7 @@ import { heartbeatFrom, type Heartbeat, HEARTBEAT_ENV } from "./heartbeat.ts";
 import { meter } from "./credits.ts";
 import { KEEPER_CLI_FLAGS, exitOnUnknownFlag } from "./cli-args.ts";
 import { loadPayer, settings } from "./env.ts";
+import { webhookCatchUpJob } from "./webhook-history.ts";
 import { stateDir } from "./history.ts";
 import { buildRuntime, clusterNow, newConnection, solanaFetch } from "./runtime.ts";
 import { fileSweepStore, safetySweep } from "./safety-sweep.ts";
@@ -51,6 +52,8 @@ async function run(heartbeat: Heartbeat) {
     for (const detail of report.newAlerts) await postAlert(base, secret, { kind: "alert", key: `sweep:${detail.split(" ")[0]}`, title: "Safety sweep: a Match is stuck", detail, source: "safety-sweep" });
   }
   if (!s.dryRun) await hourlyBalances(ctx);
+  // The Helius webhook stores transactions at confirmed; this marks them finalized and decodes them into the history tables. Off unless KEEPER_WEBHOOK_HISTORY=1.
+  if (!s.dryRun) await webhookCatchUpJob(ctx).catch((e) => log("webhook", "-", `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`));
   log("sweep", "-", `scanned ${JSON.stringify(report.scanned)}: ${report.candidates.length} candidate(s), ${report.alerts.length} stuck`);
   for (const line of meter.report()) log("credits", "-", line.replace(/^credits /, ""));
   // The sweep ran: a stuck Match is mailed above and shows as a failed unit, not as a dead keeper.

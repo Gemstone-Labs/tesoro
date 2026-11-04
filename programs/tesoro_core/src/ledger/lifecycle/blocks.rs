@@ -43,6 +43,22 @@ pub fn win_fees(pot: u128, terms: &Terms, leaderboard_bps: u16) -> LcResult<[u64
     ])
 }
 
+/// Platform, Studio and Leaderboard fees of a many-seat Pot: the total is floored once on the
+/// summed rate, Studio and Leaderboard are floored shares, and Platform takes the rest (so the
+/// at most two Gemas of rounding go to the Platform Fee). Refuses terms above the fee cap.
+pub fn pot_fees(pot: u128, terms: &Terms, leaderboard_bps: u16) -> LcResult<[u64; 3]> {
+    terms.validate(leaderboard_bps)?;
+    let total_bps = terms.platform_bps + terms.studio_bps + leaderboard_bps;
+    let total = fee_of(pot, total_bps)?;
+    let studio = fee_of(pot, terms.studio_bps)?;
+    let leaderboard = fee_of(pot, leaderboard_bps)?;
+    let platform = total
+        .checked_sub(studio)
+        .and_then(|t| t.checked_sub(leaderboard))
+        .ok_or(LifecycleError::Math)?;
+    Ok([platform, studio, leaderboard])
+}
+
 /// What is left of the losers' lines (together `losing_lines`) once every fee is cut.
 pub fn win_surplus(losing_lines: u64, fees: [u64; 3]) -> LcResult<u64> {
     let total = fees
