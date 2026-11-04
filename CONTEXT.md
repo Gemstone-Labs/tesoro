@@ -131,6 +131,10 @@ _Avoid_: invite, private table, duel
 A seat for a Match that Block Burst, Hold'em, Trading Duel and Vanguard keep ready on MagicBlock between Matches. A Match is bound to exactly one Table, which shows nothing from the Match before. Players never set a Table up or pay for one; Tesoro does, once per Table, and each Game has a capped number of them.
 _Avoid_: room, lobby, server
 
+**Seat key**:
+A key made on the Player's device for one Match. The Player's wallet signs the entry once and names the Seat key, which then signs everything else in that Match: check-in, moves, the rollup login and the finish requests. It can act only for that Player's seat in that Match and never moves Gemas out of the Account. Players never see it.
+_Avoid_: session key, burner wallet, device wallet
+
 **Chips**:
 In-match score units in Hold'em with no value outside the Match: the stack a Player bets with at the table. (Trading Duel scores points, which work the same way.) Gemas enter a Match once and leaves once; Chips are only the scorekeeping in between.
 _Avoid_: in-game Gemas, bets
