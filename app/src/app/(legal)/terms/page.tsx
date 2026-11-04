@@ -138,7 +138,7 @@ export default function Terms() {
 
       <Section id="matches" title="Matches, entries and fees">
         <p>
-          A Match is a contest of skill between Players with equal Gema entries, settled once. Most Matches are head-to-head, and the winner takes the Pot minus fees. A Match can have two or more Players: in Railcar, 5 to 100 Players ride one car, the last three off share the Pot, and Players still aboard at Impact lose their entry. A draw or an
+          A Match is a contest of skill between Players with equal Gema entries, settled once. Most Matches are head-to-head, and the winner takes the Pot minus fees.{RAILCAR_SHOWN && " A Match can have two or more Players: in Railcar, 5 to 100 Players ride one car, the last three off share the Pot, and Players still aboard at Impact lose their entry."} A draw or an
           abandoned Match refunds both entries. A Player who is paired and does not show up loses the Match. Some Games, such as Hold&apos;em, include chance within a hand. You can lose everything you enter.
         </p>
         <ul>
