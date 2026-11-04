@@ -11,7 +11,7 @@ import { PublicKey, SystemProgram } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { BRIDGE_ID, DISC, evmLinkPda } from "@/lib/chain/eth";
 import { bookPda, ckptPda } from "@/lib/chain/basket";
-import { ASSOCIATED_TOKEN_PROGRAM_ID, SIM_SOL_MINT, TOKEN_PROGRAM_ID } from "@/lib/chain/native";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, SIM_SOL_MINT, TOKEN_PROGRAM_ID, accountPda, protectionsPda } from "@/lib/chain/native";
 import { STAKE_TOKENS } from "@/lib/chain/stake";
 import { poolWithdrawAuthority, tokenAta } from "@/lib/chain/stake-pool";
 import { matchIndexOf, stepSlots } from "./game-steps";
@@ -258,6 +258,8 @@ export interface Plan {
   funders: PublicKey[];
   /** The transaction is a lone sponsored `create_account`: the Player has no Account (and so no Gemas) yet. */
   onboarding: boolean;
+  /** The rent top-up in this transaction and the Protections account it pays for: the service proves the amount is the rent and the account is not there yet. */
+  topUp?: { protections: PublicKey; lamports: bigint };
   /** The Invite key signs it too (the server adds that signature). */
   invite: boolean;
   /** An admission that needs no Gemas: the Account exists but may hold none yet (the bridge `link_evm`). */
@@ -506,6 +508,37 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): 
   };
 }
 
+/**
+ * Size of a Protections account: `ProtectionsState::SPACE` = 8 + 1 + 32 + (40 + 8 + 8 + 48) = 145 bytes. Its rent is the
+ * cluster's (`rent(PROTECTIONS_BYTES)`): the service compares the top-up with it, the rules only bound it.
+ */
+export const PROTECTIONS_BYTES = 145;
+/** No top-up may exceed this, whatever the cluster's rent (a Protections account costs about 0.0014 SOL on devnet, 0.0019 at the old default). */
+export const MAX_TOPUP_LAMPORTS = 3_000_000n;
+
+/**
+ * A first Break or Self-Exclusion for a Player with no SOL (keeper diet ticket 27). The program makes the Player the rent payer
+ * of the Protections account, so the relayer first sends the Player exactly that rent. Only this shape is accepted: a System
+ * transfer of the Protections rent from the relayer to the Player, directly followed by the Player's `set_break` or
+ * `set_self_exclusion` (and then any clean-up steps). The service also proves the amount is the cluster's rent for the account
+ * and that the Protections account is not there yet.
+ */
+function planProtectionTopUp(ixs: Ix[], relayer: PublicKey, player: PublicKey, inviteKey?: PublicKey): Plan {
+  const bad = (why: string) => new RuleError("bad-topup", `A rent top-up is paid only as the relayer's exact Protections rent to the Player, right before their Break or Self-Exclusion: ${why}.`);
+  const [transfer, ...rest] = ixs;
+  const data = Buffer.from(transfer.data);
+  if (!transfer.programId.equals(SystemProgram.programId) || transfer.keys.length !== 2 || data.length !== 12 || data.readUInt32LE(0) !== 2) throw bad("it is not a plain transfer");
+  const [from, to] = transfer.keys;
+  if (!from.pubkey.equals(relayer) || !from.isSigner || !from.isWritable || !to.pubkey.equals(player) || to.isSigner || !to.isWritable) throw bad("wrong sender or receiver");
+  const lamports = data.readBigUInt64LE(4);
+  if (lamports === 0n || lamports > MAX_TOPUP_LAMPORTS) throw bad("wrong amount");
+  const brk = rest[0];
+  const name = brk ? coreName(brk) : null;
+  if ((name !== "set_break" && name !== "set_self_exclusion") || !brk.keys[0]?.pubkey.equals(player)) throw bad("no Break or Self-Exclusion follows");
+  const inner = planCore(rest, relayer, inviteKey);
+  return { ...inner, names: ["protections_top_up", ...inner.names], spend: { refundable: inner.spend.refundable, sunk: inner.spend.sunk + lamports }, cu: inner.cu + 1_000, topUp: { protections: protectionsPda(accountPda(player)), lamports } };
+}
+
 /** Rent of the bridge's `EvmLink` ((8 + 20 + 32 + 32 + 1) bytes + 128), which nobody gets back. */
 export const EVM_LINK_RENT = (128n + 93n) * 6_960n;
 
@@ -607,6 +640,7 @@ export function planTransaction(ixs: Ix[], ctx: { relayer: PublicKey; player: Pu
     return linkOnly ? planBridge(ixs, ctx.relayer) : planBridgeBundle(ixs, ctx.relayer, ctx.player);
   }
   if (ixs.length > 1 && ixs.slice(0, -1).some((i) => i.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) || (i.programId.equals(CORE_ID) && coder.decode(Buffer.from(i.data))?.name === "init_ckpt_page"))) return planPreparedExit(ixs, ctx.relayer, ctx.player);
+  if (ixs.length > 1 && ixs.some((i) => i.programId.equals(SystemProgram.programId))) return planProtectionTopUp(ixs, ctx.relayer, ctx.player, ctx.inviteKey);
   if (ixs.length === 0 || ixs.length > MAX_IXS) throw new RuleError("bad-shape", `A sponsored transaction has between one and ${MAX_IXS} instructions.`);
   const core = ixs.filter((i) => i.programId.equals(CORE_ID)).length;
   if (core === ixs.length) return planCore(ixs, ctx.relayer, ctx.inviteKey);

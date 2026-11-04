@@ -1,7 +1,7 @@
 import "./polyfill";
-import { ComputeBudgetProgram, PublicKey, type TransactionInstruction } from "@solana/web3.js";
+import { ComputeBudgetProgram, PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
-import { MAX_CLEANUP } from "@/server/sponsor/rules";
+import { MAX_CLEANUP, PROTECTIONS_BYTES } from "@/server/sponsor/rules";
 import { cancelOfferIx, cancelRequestIx } from "./backing";
 import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
@@ -48,30 +48,34 @@ export async function awayStepIx(owner: PublicKey, payer: PublicKey, step: AwayS
   return cancelOfferIx(owner, step.offer, step.request);
 }
 
+/** The relayer's rent for the Protections account, sent to the Player right before their first Break (the sponsor allows exactly this). */
+const rentTopUp = (relayer: PublicKey, owner: PublicKey, lamports: number) => SystemProgram.transfer({ fromPubkey: relayer, toPubkey: owner, lamports });
+
 /**
  * Starts a Break or Self-Exclusion and cleans up in the same transaction: the Player's unpaired Matches are refunded (the
  * safety sweep runs each refund's chunks), their Requests withdrawn and their Offers released; Matches already paired play out.
  * The relayer pays the fee, and the receipt rent of each refund, when it can: a Player with no SOL still gets away. Bundles
- * hold as many steps as fit. If the first bundle fails (an item moved since it was read) the Break goes through alone and the
+ * hold as many steps as fit. If the first bundle fails (an item moved since it was read) the Break goes through alone, then the
  * clean-up is retried in later bundles; whatever still fails is counted for the caller, and the daily janitor catches it.
  *
- * The first Break creates the Protections account and the program makes the Player its rent payer, so while it does not
- * exist the Player pays from their own SOL (topped up on the test cluster) and nothing is sponsored.
+ * The first Break creates the Protections account and the program makes the Player its rent payer, so while it does not exist
+ * the sponsored transaction starts with the relayer sending the Player exactly that rent. When the relayer cannot pay, the
+ * Player pays everything from their own SOL (topped up on the test cluster).
  */
-export async function startAwayWithCleanup(signer: ChainSigner, getToken: GetToken, setIx: TransactionInstruction, fundOwn: () => Promise<void>): Promise<{ signature: string; cleaned: number; failed: number }> {
+export async function startAwayWithCleanup(signer: ChainSigner, getToken: GetToken, setIx: TransactionInstruction): Promise<{ signature: string; cleaned: number; failed: number }> {
   const owner = signer.publicKey;
   const [steps, protections] = await Promise.all([readOwnOpenItems(owner), getChain().base.getAccountInfo(protectionsPda(BlockPuzzleChain.coreAccount(owner)))]);
-  const sponsorable = !!protections;
-  const feePayer = sponsorable ? await sponsorStatus().then((s) => new PublicKey(s.relayer), () => owner) : owner;
+  const feePayer = await sponsorStatus().then((s) => new PublicKey(s.relayer), () => owner);
+  const rent = protections ? 0 : await getChain().base.getMinimumBalanceForRentExemption(PROTECTIONS_BYTES);
+  const needsRent = !protections;
 
-  const send = (lead: TransactionInstruction[], batch: AwayStep[]) => {
-    const build = async (payer: PublicKey, sponsored: boolean) => {
-      const list = [...lead, ...(await Promise.all(batch.map((s) => awayStepIx(owner, payer, s))))];
+  const send = (lead: TransactionInstruction[], batch: AwayStep[]) =>
+    sendSponsoredOrOwn(signer, getToken, async (payer, sponsored) => {
+      const list = [...(sponsored && lead.length && needsRent ? [rentTopUp(payer, owner, rent)] : []), ...lead, ...(await Promise.all(batch.map((s) => awayStepIx(owner, payer, s))))];
       return sponsored ? list : [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }), ...list];
-    };
-    return sponsorable ? sendSponsoredOrOwn(signer, getToken, build) : fundOwn().then(() => build(owner, false)).then((ixs) => getChain().sendBase(signer, ixs));
-  };
-  const fitting = async (lead: TransactionInstruction[], rest: AwayStep[]) => stepsThatFit(feePayer, [owner], lead, await Promise.all(rest.map((s) => awayStepIx(owner, feePayer, s))));
+    });
+  const fitting = async (lead: TransactionInstruction[], rest: AwayStep[]) =>
+    stepsThatFit(feePayer, [owner], lead.length && needsRent ? [rentTopUp(feePayer, owner, rent), ...lead] : lead, await Promise.all(rest.map((s) => awayStepIx(owner, feePayer, s))));
 
   const first = await fitting([setIx], steps);
   let signature: string;

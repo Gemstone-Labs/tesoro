@@ -160,12 +160,12 @@ export async function setEntryLimit(signer: ChainSigner, getToken: GetToken, gem
  * Matches, Requests and Offers (see `startAwayWithCleanup`). Matches already paired play out. It cannot be ended or shortened.
  */
 export async function startBreak(signer: ChainSigner, getToken: GetToken, days: number): Promise<string> {
-  return (await startAwayWithCleanup(signer, getToken, setBreakIx(signer.publicKey, days), () => ensureSol(signer, getToken, MIN_SOL_LAMPORTS))).signature;
+  return (await startAwayWithCleanup(signer, getToken, setBreakIx(signer.publicKey, days))).signature;
 }
 
 /** Starts a Self-Exclusion (6 to 60 months) or lengthens the one running; clears out unpaired items like `startBreak`. */
 export async function startSelfExclusion(signer: ChainSigner, getToken: GetToken, months: number): Promise<string> {
-  return (await startAwayWithCleanup(signer, getToken, setSelfExclusionIx(signer.publicKey, months), () => ensureSol(signer, getToken, MIN_SOL_LAMPORTS))).signature;
+  return (await startAwayWithCleanup(signer, getToken, setSelfExclusionIx(signer.publicKey, months))).signature;
 }
 
 /**
