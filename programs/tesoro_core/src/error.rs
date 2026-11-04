@@ -228,6 +228,8 @@ pub enum MatchError {
     StudioStoresFull,
     #[msg("a new Ticket or Pot must use the Account's next ticket nonce")]
     TicketNonceMismatch,
+    #[msg("the joiner's seat key is the opener's: the two sides of a Match need different seat keys")]
+    SeatKeyShared,
 }
 
 /// Errors of the many-seat Match path (ADR 0015).

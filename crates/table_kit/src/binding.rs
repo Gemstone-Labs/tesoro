@@ -21,9 +21,10 @@ impl SeatKeys {
         }
     }
 
-    /// The permission members of the seat: `[player, signer]`, one entry when they are equal.
+    /// The permission members of the seat: `[player, signer]`, one entry when they are equal or
+    /// when the signer is the default key (no seat key recorded).
     pub fn members(&self) -> Vec<Pubkey> {
-        if self.player == self.signer {
+        if self.player == self.signer || self.signer == Pubkey::default() {
             vec![self.player]
         } else {
             vec![self.player, self.signer]
@@ -309,6 +310,15 @@ mod tests {
             signer: k(ANA_KEY),
         };
         assert_eq!(keys.members(), vec![k(ANA), k(ANA_KEY)]);
+    }
+
+    #[test]
+    fn a_default_signer_is_no_seat_key() {
+        let keys = SeatKeys {
+            player: k(ANA),
+            signer: Pubkey::default(),
+        };
+        assert_eq!(keys.members(), vec![k(ANA)]);
     }
 
     fn both_seats() -> [SeatRecord; 2] {

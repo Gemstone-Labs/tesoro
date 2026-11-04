@@ -843,6 +843,11 @@ pub(crate) fn join_match<'info>(
     )?;
     let player = ctx.accounts.player_account.key();
     let seat_signer = ctx.accounts.seat_signer.key().to_bytes();
+    // a seat key acts for one side only: a joiner cannot reuse the key that plays the opener's side
+    require!(
+        seat_signer != ctx.accounts.match_state.inner.a.signer,
+        MatchError::SeatKeyShared
+    );
     require_can_play(&ctx.accounts.opener_protections.to_account_info())?;
     if !backed {
         count_entry(&ctx.accounts.protections.to_account_info(), entry)?;

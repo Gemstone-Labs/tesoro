@@ -6,6 +6,7 @@ use tesoro_core::ledger::draw::TicketState;
 use tesoro_core::ledger::lifecycle::Stage;
 
 const WALLET_ONLY_NOT_EXPIRED: u32 = ERR_TICKET_NOT_EXPIRED;
+const SEAT_KEY_SHARED: u32 = 6400 + tesoro_core::error::MatchError::SeatKeyShared as u32;
 const NOT_TICKET_OWNER: u32 = 6400 + tesoro_core::error::MatchError::NotTicketOwner as u32;
 
 impl Env {
@@ -69,6 +70,34 @@ fn a_match_side_records_the_seat_key_that_co_signed_or_the_wallet_that_named_non
         d.env.mstate(id2).inner.b.unwrap().signer,
         dan.key.to_bytes()
     );
+}
+
+#[test]
+fn the_joiner_cannot_take_the_seat_key_that_plays_the_openers_side() {
+    let mut d = duel();
+    let shared = d.env.fresh_key();
+    let ben_key = d.env.fresh_key();
+    d.env.name_seat(&shared);
+    let id = d.env.open_match(&d.alice, 500).expect("open with a seat key");
+    // the same key co-signs the join: refused, and the Match stays open
+    let err = d.env.join_match(&d.bob, id).unwrap_err();
+    assert_eq!(custom_code(&err), SEAT_KEY_SHARED);
+    assert_eq!(d.env.mstate(id).inner.stage(), Stage::Open);
+    assert!(d.env.mstate(id).inner.b.is_none());
+    // a different key joins
+    d.env.name_seat(&ben_key);
+    d.env.join_match(&d.bob, id).expect("a different key joins");
+
+    // an opener with no seat key plays with the wallet: the wallet is its side's signer too
+    d.env.no_seat();
+    let (carol, _) = person_with_lines(&mut d.env, 2, 150, 1_000);
+    let (dan, _) = person_with_lines(&mut d.env, 2, 160, 1_000);
+    let id2 = d.env.open_match(&carol, 500).expect("open");
+    d.env.name_seat(&carol.kp);
+    let err = d.env.join_match(&dan, id2).unwrap_err();
+    assert_eq!(custom_code(&err), SEAT_KEY_SHARED);
+    d.env.no_seat();
+    d.env.join_match(&dan, id2).expect("the joiner's own wallet joins");
 }
 
 #[test]
