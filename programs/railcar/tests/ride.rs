@@ -16,7 +16,7 @@ use anchor_lang::{AccountDeserialize, AccountSerialize, Discriminator, Instructi
 use litesvm::LiteSVM;
 use railcar::state::{
     Table, Vault, AUTHORITY_SEED, COUNTDOWN_SECS, OUTCOME_PLACED, OUTCOME_REFUND, PHASE_DRAWING,
-    PHASE_IDLE, PHASE_OVER, PHASE_RIDING, SPONSOR_SEED,
+    PHASE_OVER, PHASE_RIDING, SPONSOR_SEED,
 };
 use solana_sdk::account::Account;
 use solana_sdk::clock::Clock;
@@ -251,7 +251,8 @@ impl Env {
             &signers,
             self.svm.latest_blockhash(),
         );
-        self.finish(self.svm.send_transaction(tx))
+        let r = self.svm.send_transaction(tx);
+        self.finish(r)
     }
 
     fn finish(&mut self, r: litesvm::types::TransactionResult) -> Result<(), Failed> {
@@ -1204,7 +1205,7 @@ impl Env {
             let src = APk::new_from_array(*src);
             out.push(AccountMeta::new_readonly(s(src), false));
             let source: SourceState = self.load(src);
-            out.push(rem(source.inner.position));
+            out.push(rem(APk::new_from_array(source.inner.position)));
         }
         ix(
             tesoro_core::ID,

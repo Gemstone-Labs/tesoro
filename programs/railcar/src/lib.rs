@@ -40,7 +40,7 @@ use table_kit::{
     sponsor_commit, CommitGuard, SeatAccounts, COMMIT_WINDOW_SECS, DELEGATION_PROGRAM,
 };
 use tesoro_core::{
-    ledger::many_seat::{seat_index, ManySeatResult, ManyStage, SeatState},
+    ledger::many_seat::{seat_index, ManyStage, SeatState},
     state::{
         Config as CoreConfig, EconomyConfig, GameRecord, ManySeatMatch, SeatPage, TesoroAccount,
         ACCOUNT_SEED, CONFIG_SEED as CORE_CONFIG_SEED, COUNTERS_SEED, ECONOMY_SEED, GAME_SEED,
@@ -49,7 +49,7 @@ use tesoro_core::{
 
 pub use state::*;
 
-/// Placeholder: the real program keypair is an orchestrator hand-off (ticket 15).
+// Placeholder: the real program keypair is an orchestrator hand-off (ticket 15).
 declare_id!("DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC");
 
 /// Identity of MagicBlock's TEE validator (devnet), as Block Burst pins it: the validator a
