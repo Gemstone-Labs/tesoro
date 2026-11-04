@@ -50,7 +50,7 @@ for (const g of GAMES.filter((x) => !process.env.ONLY || x.name === process.env.
       const tx = await chain.transaction(s.signature).catch(() => null);
       if (!tx) continue;
       const out = await captureEndStates({ rpc, base: connectionBaseReader(c) }, { signature: s.signature, slot: tx.slot, blockTime: tx.blockTime ?? null, body: slim(tx) });
-      if (out.length) {
+      if (out.some((o) => o.match === f.match.toBase58())) {
         console.log(" ", f.address.toBase58().slice(0, 6), f.match.toBase58().slice(0, 6), JSON.stringify(out));
         const stored = await endStateOf(rpc, f.match.toBase58());
         if (stored) console.log("    stored", JSON.stringify(stored).slice(0, 220));
