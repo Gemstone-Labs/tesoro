@@ -18,14 +18,19 @@ import { endStateOf } from "../src/server/history/end-state";
 import { testDb } from "../src/server/history/test-db";
 import { jsonRpcCoreChain, slim } from "../src/server/history/webhook";
 
+interface TableFacts {
+  tesoroMatch: PublicKey;
+  epoch: { toNumber(): number };
+  phase: number;
+}
 const url = process.argv[2] ?? "https://rpc.magicblock.app/devnet";
 const c = new Connection(url, "confirmed");
 const chain = jsonRpcCoreChain(url, "11111111111111111111111111111111");
 const GAMES = [
-  { name: "holdem", pda: h.tablePda, idl: holdemIdl, over: (t: any) => t.phase === 3 },
-  { name: "trading-duel", pda: d.tablePda, idl: duelIdl, over: (t: any) => t.phase === 3 },
-  { name: "block-puzzle", pda: b.tablePda, idl: burstIdl, over: (t: any) => t.phase === 4 },
-  { name: "vanguard", pda: v.tablePda, idl: vanguardIdl, over: (t: any) => t.phase === 3 },
+  { name: "holdem", pda: h.tablePda, idl: holdemIdl, over: (t: TableFacts) => t.phase === 3 },
+  { name: "trading-duel", pda: d.tablePda, idl: duelIdl, over: (t: TableFacts) => t.phase === 3 },
+  { name: "block-puzzle", pda: b.tablePda, idl: burstIdl, over: (t: TableFacts) => t.phase === 4 },
+  { name: "vanguard", pda: v.tablePda, idl: vanguardIdl, over: (t: TableFacts) => t.phase === 3 },
 ] as const;
 const { rpc } = await testDb();
 for (const g of GAMES.filter((x) => !process.env.ONLY || x.name === process.env.ONLY)) {
@@ -37,7 +42,7 @@ for (const g of GAMES.filter((x) => !process.env.ONLY || x.name === process.env.
     const infos = await c.getMultipleAccountsInfo(addrs.slice(k, k + 100));
     infos.forEach((info, j) => {
       if (!info || info.data.length < 100) return;
-      const t: any = coder.decode("table", Buffer.from(info.data));
+      const t = coder.decode("table", Buffer.from(info.data)) as TableFacts;
       if (g.over(t) && !t.tesoroMatch.equals(PublicKey.default)) found.push({ address: addrs[k + j], match: t.tesoroMatch, epoch: t.epoch.toNumber() });
     });
   }
