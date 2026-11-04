@@ -127,6 +127,10 @@ _Avoid_: lobby, matchmaking pool
 A Match opened by one Player for a specific opponent through a link, outside the Queue.
 _Avoid_: invite, private table, duel
 
+**Keeper**:
+The off-chain service that does only what no Player transaction can carry: the Season run, the safety sweep, the janitor and the Table-pool repair, each started by a timer and exiting when done, plus on the test cluster the Advance price writer. It pays fees and rent, holds no Player funds and is permissionless on chain. Anything a Player's next transaction can do (join with a Table assigned, finalize, settle chunks, close) is done there instead. See ADR 0015.
+_Avoid_: bot, cranker, relayer (the relayer is the fee payer of free Player transactions)
+
 **Table**:
 A seat for a Match that Block Burst, Hold'em, Trading Duel and Vanguard keep ready on MagicBlock between Matches. A Match is bound to exactly one Table, which shows nothing from the Match before. Players never set a Table up or pay for one; Tesoro does, once per Table, and each Game has a capped number of them.
 _Avoid_: room, lobby, server

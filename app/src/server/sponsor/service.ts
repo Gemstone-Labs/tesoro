@@ -26,7 +26,7 @@ import type { GameId } from "@/lib/mock/types";
 import { DemoHttpError } from "../request-auth";
 import { matchNamesSeatKey, matchSides } from "../seat-keys";
 import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, rentExitFits, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
-import { CORE_ID, PRIORITY_MICROLAMPORTS, RECEIPT_RENT, SETTLEMENT_RECEIPT_BYTES, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
+import { CORE_ID, PRIORITY_MICROLAMPORTS, PROTECTIONS_BYTES, RECEIPT_RENT, SETTLEMENT_RECEIPT_BYTES, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
 import { EXIT_ATA_WINDOW_MS, verifyCkptPages, verifyExitSetup } from "./exit-setup";
 import type { UsageStore } from "./store";
 import { ChainTransactionFailed } from "./chain-send";
@@ -58,6 +58,8 @@ const ENTRY_NAMES = new Set(["open_match", "join_match", "open_ticket", "stage_e
 const SEAT_STEP_NAMES = new Set(["finalize", "refund_untabled", "close_assignment", "match_chunk", "close_match", "refund_match"]);
 const JOIN_SEAT_AT = (coreIdl as unknown as { instructions: { name: string; accounts: { name: string }[] }[] }).instructions.find((i) => i.name === "join_match")!.accounts.findIndex((a) => a.name === "seat_signer");
 
+/** One rent top-up build per Account in this window: longer than a built message lives, so two cannot both land. */
+const TOPUP_WINDOW_MS = 15 * 60_000;
 /** Compute budget `assign_match` adds to a join (measured 28k to 36k CU). */
 const ASSIGN_CU = 40_000;
 
@@ -456,6 +458,15 @@ export class Sponsor {
     plan.cu += GROW_COUNTERS_CU * grows.length;
     plan.spend.sunk += GROW_COUNTERS_RENT * BigInt(grows.length);
     if (setup.ataGrant && await this.d.store.used(setup.ataGrant, EXIT_ATA_WINDOW_MS, now) >= 1) throw new DemoHttpError(409, "setup-already-funded", "This payout token account was already funded. Restore it using the SOL returned when it was closed.");
+    if (plan.topUp) {
+      // The rent is a one-time gift: nothing closes a Protections account, so it is sent only while there is none, to an Account that exists, and one build at a time
+      // (otherwise several builds made before the first lands would each hand out the rent).
+      if (!(await this.d.chain.account(accountPda(player)))) throw new DemoHttpError(400, "no-account", "There is no Account to protect yet.");
+      if (!this.d.chain.rent) throw new DemoHttpError(503, "no-rent", "Rent cannot be read right now.");
+      if (plan.topUp.lamports !== (await this.d.chain.rent(PROTECTIONS_BYTES))) throw new DemoHttpError(400, "bad-topup", "The top-up must be exactly the rent of the protections account.");
+      if (await this.d.chain.account(plan.topUp.protections)) throw new DemoHttpError(409, "has-protections", "This Account's protections already exist, so a Break needs no top-up.");
+      if (!(await this.d.store.take(`topup:${who}`, 1, 1, TOPUP_WINDOW_MS, now))) throw new DemoHttpError(429, "topup-limit", "A top-up for your Break was just built. Try again in a few minutes.");
+    }
     if (plan.class === "admission" && !plan.signers.some((s) => s.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
     if (plan.playerSigns && !plan.signers.some((sg) => sg.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
     // Admissions and exits have separate build counters: spam on one can never use up the other (exits always work).

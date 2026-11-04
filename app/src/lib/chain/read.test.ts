@@ -56,7 +56,7 @@ describe("toChainMatch (a MatchState of the economy upgrade)", () => {
     const run = (kind: string) => ({ kind: { [kind[0].toLowerCase() + kind.slice(1)]: {} }, receipt: { id: { opener: arr(a), n: new BN(5) }, kind: { [kind[0].toLowerCase() + kind.slice(1)]: {} }, at: new BN(1) }, fees: [0, 0, 0].map((n) => new BN(n)), phases: Array.from({ length: 4 }, () => ({ cuts: {} })), nPhases: 0, phaseI: 0, lineI: 0, cutLeft: [[0, 0, 0], [0, 0, 0]].map((r) => r.map((n) => new BN(n))), playerLeft: new BN(0), chunks: 0, steps: 0 });
     const read = async (stage: string, kind?: string) => toChainMatch(await state({ ...sides, stage: { [stage[0].toLowerCase() + stage.slice(1)]: {} }, run: kind ? run(kind) : null }), a, null);
     expect(await read("Active")).toMatchObject({ status: "active", running: null });
-    expect(await read("Settling", "Win")).toMatchObject({ status: "active", running: "settling" });
+    expect(await read("Settling", "Win")).toMatchObject({ status: "active", running: "settling", fixed: "settled" });
     expect(await read("Refunding", "Draw")).toMatchObject({ status: "active", running: "refunding" });
     expect(await read("Closed", "Win")).toMatchObject({ status: "settled" });
     expect(await read("Closed", "Draw")).toMatchObject({ status: "settled" });

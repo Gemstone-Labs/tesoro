@@ -12,7 +12,8 @@ import { matchAddressOf } from "@/lib/chain/match-id";
 import { matchProgress } from "@/lib/chain/match-progress";
 import { setupNote } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
-import { ASSETS, DRAW, PHASE, STATUS, assetOfIndex, decodeDuel, type Assignment, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
+import { closedWhileSeen } from "@/lib/chain/closed-while-seen";
+import { ASSETS, DRAW, PHASE, STATUS, assetOfIndex, canFinalizeTable, slotOf, decodeDuel, type Assignment, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
 import { addSighting, canFinalize, clockOffsetMs, dropPending, settlePending, type ClockSighting, type PendingPicks } from "./matchView";
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
@@ -207,7 +208,14 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
     if (!p || !signer || id === null || mk === null) return;
     const td = getTradingDuel();
       const me = accountOfSigner(signer);
-    const m = progress.match(await fetchMatch(id, me));
+    const fresh = await fetchMatch(id, me);
+    let m = progress.match(fresh);
+    // The account closed and the history row is not written yet: base's committed table already says how it ended.
+    if (!fresh && m && assignRef.current) {
+      const a = assignRef.current;
+      const base = await td.readTableOnBase(a).catch(() => null);
+      m = closedWhileSeen(m, base ? { canFinalize: canFinalizeTable(base, a, Date.now() / 1000), hasResult: !!slotOf(base, a.tesoroMatch, a.epoch) } : null) ?? m;
+    }
     setView((v) => ({ ...v, match: m, asset: (m && assetOfIndex(m.asset)) || v.asset, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
     if (!m) return setStage("notfound");
     if (m.seat === null) return setStage("spectator");

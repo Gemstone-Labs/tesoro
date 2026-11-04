@@ -118,9 +118,11 @@ The keeper loads `app/.env.local` for any variable its own env leaves unset (loc
 | `ALERT_MIN_HYPE_KEEPER`, `_RELAYER` | O (0.05) | O | minimum native balance of the EVM keys on HyperEVM |
 | `ALERT_ORACLE_SOL_ADDRESS`, `ALERT_RELAYER_SOL_ADDRESS` | O | R to watch them | public addresses (the keeper payer is always watched) |
 | `ALERT_KEEPER_EVM_ADDRESS`, `ALERT_RELAYER_EVM_ADDRESS` | O | R to watch them | `0x...`; the keeper's defaults to the address of `KEEPER_EVM_PRIVATE_KEY` |
+| `KEEPER_OPERATOR_KEYPAIR` | O (unset: the keeper key) | R: a separate key file | path of the Table operator key (`TableConfig.operator` of each Game); signs Tables, Sponsor, Fuel and assignment. The app's sponsor server holds the same key as `TESORO_TABLE_OPERATOR_SECRET_KEY` |
+| `CRON_SECRET`, `NOTIFY_CRON_URL` | R | R | on the VPS env file: the bearer secret and the full URL the `tesoro-notify-cron` timer calls (`https://www.playtesoro.com/api/cron/notify`) |
 | `KEEPER_HEALTH_HOST`, `KEEPER_HEALTH_PORT` | O | O | `127.0.0.1`, `8787` (one keeper per host or a second port) |
 | `KEEPER_STATE_DIR` | O | R: separate dir per cluster | `~/.local/state/tesoro-keeper-mainnet` |
-| `KEEPER_INTERVAL_SECS`, `KEEPER_FAST_SECS`, `KEEPER_WATCHDOG_SECS`, `KEEPER_JOB_LIMIT_SECS`, `KEEPER_RPC_TIMEOUT_MS` | O | O | loop timing |
+| `KEEPER_INTERVAL_SECS` (devnet price writer only), `KEEPER_WATCHDOG_SECS`, `KEEPER_JOB_LIMIT_SECS`, `KEEPER_RPC_TIMEOUT_MS` | O | O | loop timing |
 | `KEEPER_MAX_SOL_PER_HOUR`, `KEEPER_MAX_LZ_FEE_SOL`, `KEEPER_MAX_LZ_SOL_PER_HOUR`, `KEEPER_MAX_ETH_PER_HOUR`, `KEEPER_MAX_HYPE_PER_HOUR`, `KEEPER_YIELD_BUDGET_SHARE` | O | review before launch | spend caps |
 | `KEEPER_YIELD_*`, `KEEPER_ETH_YIELD_MINS`, `KEEPER_TREASURY_*`, `KEEPER_PRICE_REFRESH_SECS`, `KEEPER_SEASON_GRACE_SECS`, `KEEPER_DUEL_END_GRACE_SECS` | O | O | job tuning |
 
@@ -167,6 +169,12 @@ An orchestrator step; needs a Helius key and migration `0020_webhook_tx.sql` app
 4. Before relying on it, check the first real delivery against the assumptions listed at the top of `app/src/server/history/webhook.ts` (body is an array; `meta.innerInstructions` present; `transaction.message.accountKeys` plain strings; `meta.loadedAddresses` for v0; whether it is delivered at confirmed or finalized). Capture the body from the Helius delivery log and replace `app/src/server/history/fixtures/helius-raw-devnet.json`.
 5. Set `KEEPER_WEBHOOK_HISTORY=1` in `~/.config/tesoro-keeper.env` and restart the keeper. Its history scan then stops writing the history tables (it still feeds the notify job) and a catch-up job runs on boot and every 15 minutes: it stores finalized core transactions the webhook missed, marks delivered rows finalized, and decodes them.
 6. Rows that cannot be decoded keep `decode_error` in `webhook_tx`; clear it (`update webhook_tx set decode_error = null where signature = ...`) to retry.
+
+## Final boards from the webhook (keeper diet ticket 23)
+
+An orchestrator step; needs the webhook above running and migration `0025_end_state_missing.sql` applied (after 0013 and 0023). No new env: the route reads base through `TESORO_BASE_RPC`, the keeper catch-up through its own RPC.
+
+When a delivered transaction holds a Game's `finalize` of a won or drawn Match, the route reads base's Table (and Vanguard's Battle) at that slot and stores the public board in `match_end_states`. It keeps a board only when base's Table names that Match and is Over; otherwise it writes a row in `match_end_missing` (reason in the row). A catch-up row gets one more try. A marker never blocks a board: a later capture replaces it. Check: `select game, count(*) from match_end_states where captured_at > now() - interval '1 day' group by 1;` and `select reason, count(*) from match_end_missing group by 1;`.
 
 ## Emails from the webhook (keeper diet ticket 13)
 

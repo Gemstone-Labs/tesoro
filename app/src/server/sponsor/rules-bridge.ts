@@ -129,8 +129,9 @@ function checkSend(ix: Ix, name: string, relayer: PublicKey, fixedCount: number,
   let payers = 0;
   send.forEach((k) => {
     if (k.isSigner && !k.pubkey.equals(relayer)) bad("bad-accounts", `${name}: only the payer signs in the endpoint's accounts.`);
-    // The relayer is the endpoint's payer (it sits at #13 of the 26 accounts today): once, signing and writable, and nowhere else.
-    if (k.pubkey.equals(relayer) && (++payers > 1 || !k.isSigner || !k.isWritable)) bad("relayer-in-accounts", `${name}: the relayer may only be the endpoint's payer.`);
+    // The relayer is the endpoint's payer (it sits at #13 of the 26 accounts today): once, writable, and nowhere else. The endpoint
+    // quotes that slot as a non-signer (CPI metas); the relayer signs the transaction as its fee payer, so the flag changes nothing.
+    if (k.pubkey.equals(relayer) && (++payers > 1 || !k.isWritable)) bad("relayer-in-accounts", `${name}: the relayer may only be the endpoint's payer.`);
   });
   return { fee, send };
 }

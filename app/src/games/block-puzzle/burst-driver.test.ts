@@ -178,6 +178,19 @@ describe("BurstDriver, a table that still holds the previous Match", () => {
   });
 });
 
+describe("BurstDriver, an idle table assigned at its own epoch", () => {
+  // A table that was never used (or already reset) is assigned at its current epoch, and begin_match has not written the Match key yet.
+  it("begins the Match: the idle table is the Match's table even though it does not name the Match yet", async () => {
+    const idle = blankTable({ phase: TABLE_PHASE.idle, epoch: 4, tesoroMatch: fixtureKey(30) });
+    const fake = fakeChain(idle);
+    const d = driverFor(1, fake);
+    d.start();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(fake.sent.map((s) => s.step)).toContain("beginMatch");
+    d.stop();
+  });
+});
+
 describe("BurstDriver, waiting for a table", () => {
   it("looks for the Assignment twice a second, not once", async () => {
     const fake = fakeChain(seatedTable());

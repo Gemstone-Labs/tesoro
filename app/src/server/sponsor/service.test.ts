@@ -1,17 +1,17 @@
 import { AnchorProvider, BN, BorshAccountsCoder, Program, type Idl } from "@coral-xyz/anchor";
-import { Connection, Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, SystemProgram, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import { describe, expect, it, vi } from "vitest";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
 import { growIx, joinMatchIx, accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, gameStepIx, key, linkEvmBridgeIx, signUpIx, openMatchIx, playerIx } from "./fixtures";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
-import { CORE_ID, type Ix } from "./rules";
+import { CORE_ID, PROTECTIONS_BYTES, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type WireIx } from "./service";
 import { MemoryUsageStore } from "./store";
 import { encodeBook, freshClass } from "@/lib/chain/basket-fixture";
 import { fp } from "@/lib/chain/book";
 import { bookPda, ckptPda, countersPda } from "@/lib/chain/basket";
-import { SIM_SOL_MINT, sourcePda } from "@/lib/chain/native";
+import { SIM_SOL_MINT, protectionsPda, sourcePda } from "@/lib/chain/native";
 import { redeemLineIxs, unlockIxs } from "@/lib/chain/redeem";
 import { planExit } from "@/lib/chain/exit-route";
 import { getChain } from "@/lib/chain/client";
@@ -1234,5 +1234,41 @@ describe("seat keys on the sponsor (ticket 10)", () => {
       // Ana's own wallet-signed build is untouched by Mallory's.
       await expect(s.sponsor.build(s.player.publicKey, wire([open]), "did:privy:ana")).resolves.toMatchObject({ class: "admission" });
     });
+  });
+});
+
+describe("a first Break for a Player with no SOL (keeper diet ticket 27)", () => {
+  const rent = BigInt(PROTECTIONS_BYTES + 128) * 6960n; // the test chain's rent()
+  const topUp = async (s: ReturnType<typeof setup>, lamports = rent): Promise<Ix[]> => {
+    const t = SystemProgram.transfer({ fromPubkey: s.relayer.publicKey, toPubkey: s.player.publicKey, lamports });
+    return [{ programId: t.programId, keys: t.keys, data: t.data }, await coreIx("set_break", [3], { ownerAuthority: s.player.publicKey })];
+  };
+  it("builds: the relayer sends the rent and pays the fee", async () => {
+    const s = setup();
+    const b = await s.sponsor.build(s.player.publicKey, wire(await topUp(s)));
+    const msg = VersionedMessage.deserialize(Buffer.from(b.message, "base64"));
+    expect(msg.staticAccountKeys[0].equals(s.relayer.publicKey)).toBe(true);
+    expect(msg.compiledInstructions.length).toBe(4); // compute limit, price, transfer, set_break
+  });
+  it("is refused unless the amount is exactly the cluster's rent for a Protections account", async () => {
+    const s = setup();
+    await expect(s.sponsor.build(s.player.publicKey, wire(await topUp(s, rent + 1n)))).rejects.toMatchObject({ code: "bad-topup" });
+    await expect(s.sponsor.build(s.player.publicKey, wire(await topUp(s, rent - 1n)))).rejects.toMatchObject({ code: "bad-topup" });
+  });
+  it("is refused when the Account already has a Protections account: the rent is a one-time gift", async () => {
+    const s = setup();
+    s.accounts.set(protectionsPda(accountPda(s.player.publicKey)).toBase58(), { owner: CORE_ID, data: new Uint8Array(145) });
+    await expect(s.sponsor.build(s.player.publicKey, wire(await topUp(s)))).rejects.toMatchObject({ code: "has-protections" });
+  });
+  it("is refused for a wallet with no Account: nothing to protect", async () => {
+    const s = setup({ noAccount: true });
+    await expect(s.sponsor.build(s.player.publicKey, wire(await topUp(s)))).rejects.toMatchObject({ code: "no-account" });
+  });
+  it("is built once at a time: a second build before the first can have landed is refused, a later one is not", async () => {
+    const s = setup();
+    await s.sponsor.build(s.player.publicKey, wire(await topUp(s)));
+    await expect(s.sponsor.build(s.player.publicKey, wire(await topUp(s)))).rejects.toMatchObject({ code: "topup-limit" });
+    s.tick(16 * 60_000);
+    await s.sponsor.build(s.player.publicKey, wire(await topUp(s)));
   });
 });

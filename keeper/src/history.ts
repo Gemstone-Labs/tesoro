@@ -53,7 +53,8 @@ export const restRpc = (url: string, serviceKey: string, fetchFn: typeof fetch =
     body: JSON.stringify(args),
   });
   if (!res.ok) throw new Error(`Match history ${fn} failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
-  return res.json();
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 };
 
 /** True when the Helius webhook writes the history tables (app route /api/webhooks/helius) and this scan only feeds the notify job. */
