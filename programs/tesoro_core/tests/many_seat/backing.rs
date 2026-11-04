@@ -350,3 +350,18 @@ fn stepping_off_a_backed_seat_sends_the_entry_home_to_the_backer() {
     // Ben boards again with his own Gemas
     env.board(&ben, car).expect("Ben again");
 }
+
+#[test]
+fn an_unbacked_step_off_ignores_a_funder_mark_passed_with_it() {
+    let (mut env, car, riders) = seated_car(3, (2, 10));
+    let (ana, ben) = (&riders[0], &riders[1]);
+    let mut i = env.step_off_ix(ben.key, car, ben, 8, false);
+    // `funder_mark` is the last named account: pass Ana's live mark there
+    i.accounts[13] = AccountMeta::new(s(mark_pda(car.key, ana.account)), false);
+    env.send_v0(&[i], &ben.kp.insecure_clone())
+        .expect("step off");
+    assert!(env.mark(car, ben).is_none());
+    assert_eq!(env.total_gemas(ben), 2_000);
+    assert_eq!(env.mark(car, ana).expect("Ana's mark").returning, 0);
+    assert_eq!(env.car(car).inner.seated, 2);
+}
