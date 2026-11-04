@@ -38,6 +38,25 @@ describe("matchProgress", () => {
     expect(p.match({ id: 2 })).toEqual({ id: 2 });
   });
 
+  // The history row of a closed Match arrives after the webhook finalizes it; the page must not wait on it to show a result it already knew.
+  it("a Match seen with its result fixed and its run under way is settled when the account is gone and the history knows nothing", () => {
+    const p = matchProgress<{ status: string; running: string | null; fixed?: string; winner: string | null }, string>("m");
+    p.match({ status: "active", running: "settling", fixed: "settled", winner: "joiner" });
+    expect(p.match(null)).toEqual({ status: "settled", running: null, fixed: undefined, winner: "joiner" });
+  });
+
+  it("a refunding run that vanishes is refunded", () => {
+    const p = matchProgress<{ status: string; running: string | null; fixed?: string; winner: string | null }, string>("m");
+    p.match({ status: "active", running: "refunding", fixed: "refunded", winner: null });
+    expect(p.match(null)?.status).toBe("refunded");
+  });
+
+  it("an active Match without a fixed result is not settled by a missing read", () => {
+    const p = matchProgress<{ status: string; running: string | null; fixed?: string }, string>("m");
+    p.match({ status: "active", running: null });
+    expect(p.match(null)?.status).toBe("active");
+  });
+
   it("keeps a result once seen: an older read of the same Match never replaces it", () => {
     const p = matchProgress<{ status: string; v: number }, string>("m");
     p.match({ status: "open", v: 0 });
