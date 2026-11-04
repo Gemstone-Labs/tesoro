@@ -296,7 +296,7 @@ class World {
       this.send([railcarIx("create_table", { operator: this.operator.publicKey, config: configPda(), table }, { index })], this.operator);
       // `init_vault` stand-in: the Vault exists, blank, and the Table says so.
       const [vault, vbump] = PublicKey.findProgramAddressSync([Buffer.from("vault"), table.toBuffer()], RAILCAR_PROGRAM_ID);
-      const blank = await vaultCoder.encode("Vault", { bump: vbump, table, car_no: new BN(0), ready: false, draw: new Array(32).fill(0), crash_ms: 0, screw_at_ms: 0, bolt_at_ms: 0, spark_at_ms: 0, false_screws: [0, 0, 0, 0], false_len: 0, reserved: new Array(64).fill(0) });
+      const blank = await vaultCoder.encode("Vault", { version: 1, bump: vbump, table, car_no: new BN(0), ready: false, draw: new Array(32).fill(0), crash_ms: 0, screw_at_ms: 0, bolt_at_ms: 0, spark_at_ms: 0, false_screws: [0, 0, 0, 0], false_len: 0, slow_end_ms: 0, slow_total_ms: 0, press_count: 0, presses: new Array(101).fill(0), press_seat: new Array(101).fill(0), reserved: new Array(128).fill(0) });
       this.svm.set(vault, { lamports: Number(SOL), data: blank, owner: RAILCAR_PROGRAM_ID, executable: false });
       const t = this.get(table)!;
       const td = Buffer.from(t.data);

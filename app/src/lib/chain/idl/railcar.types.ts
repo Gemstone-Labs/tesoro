@@ -13,6 +13,135 @@ export type Railcar = {
   },
   "instructions": [
     {
+      "name": "bindBrake",
+      "docs": [
+        "Rollup, anyone, once per seat per ride (a repeat does nothing). Hands Table seat `seat`'s",
+        "Brake seat to this ride's Player: created the first time the seat index rides on this",
+        "Table, otherwise zeroed and its permission members swapped. The members come from the",
+        "Table seat only: the wallet of its core Account and the seat key core recorded. Pages bind",
+        "every seat while the draw is asked for, so a binding never marks a Player who means to",
+        "Brake; no Brake counts until every seat is bound."
+      ],
+      "discriminator": [
+        231,
+        133,
+        28,
+        175,
+        93,
+        1,
+        244,
+        157
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true
+        },
+        {
+          "name": "playerAccount",
+          "docs": [
+            "The seat's core Account (checked against the Table seat): its wallet becomes a member."
+          ]
+        },
+        {
+          "name": "brakeSeat",
+          "writable": true
+        },
+        {
+          "name": "brakePermission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "brakeSeat"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "permissionProgram",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "ephemeralVault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "magicProgram",
+          "address": "Magic11111111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "carNo",
+          "type": "u64"
+        },
+        {
+          "name": "seat",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "checkDeparture",
       "docs": [
         "Base, anyone. Makes a Boarding car leave when it is due: at once when full; otherwise 30 s",
@@ -1249,27 +1378,9 @@ export type Railcar = {
         {
           "name": "table",
           "docs": [
-            "delegated); its owner and contents are checked in `finalize`."
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  98,
-                  108,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "car.table",
-                "account": "car"
-              }
-            ]
-          }
+            "delegated); its address (from its stored bump), owner and contents are checked in",
+            "`finalize`."
+          ]
         },
         {
           "name": "matchState",
@@ -1450,65 +1561,10 @@ export type Railcar = {
         },
         {
           "name": "receipt",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  101,
-                  116,
-                  116,
-                  108,
-                  101,
-                  100
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "car.tesoro_match",
-                "account": "car"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                139,
-                232,
-                217,
-                200,
-                195,
-                196,
-                42,
-                210,
-                40,
-                249,
-                196,
-                130,
-                26,
-                66,
-                171,
-                32,
-                36,
-                239,
-                175,
-                140,
-                108,
-                61,
-                148,
-                110,
-                71,
-                7,
-                159,
-                115,
-                202,
-                186,
-                136,
-                218
-              ]
-            }
-          }
+          "docs": [
+            "`[\"settled\", match]` (deriving it here too would repeat core's bump search)."
+          ],
+          "writable": true
         },
         {
           "name": "systemProgram",
@@ -1751,7 +1807,8 @@ export type Railcar = {
     {
       "name": "jump",
       "docs": [
-        "Rollup, the Player of Table seat `seat` (the wallet of the seat's core Account). Before",
+        "Rollup, the Player of Table seat `seat`: the wallet of the seat's core Account or the",
+        "seat's key (`tesoro_core::util::acts_for`, as core checks a seat's signer). Before",
         "the Impact slot the Player is off: the Jump takes the next place in the order. At or after",
         "it the Jump does not count: the ride ends with the Player aboard. When the last Player",
         "aboard Jumps, the ride ends then. `car_no` makes a transaction held back from an earlier",
@@ -1770,13 +1827,10 @@ export type Railcar = {
       "accounts": [
         {
           "name": "player",
-          "signer": true
-        },
-        {
-          "name": "playerAccount",
           "docs": [
-            "The Player's core Account: its wallet must sign."
-          ]
+            "The seat's Player: the wallet of its core Account, or the seat key core recorded for it."
+          ],
+          "signer": true
         },
         {
           "name": "table",
@@ -2873,9 +2927,131 @@ export type Railcar = {
         }
       ],
       "args": []
+    },
+    {
+      "name": "tick",
+      "docs": [
+        "Rollup, the Player of Table seat `seat` (wallet or seat key, as `jump`): a Player page's",
+        "signal, about every second, with `brake` = 1 when the Player presses their Brake (a `u8`,",
+        "not a `bool`: Borsh's bool decoding branches, so a press would cost one compute unit less). It moves",
+        "the Tell stage and ends the ride from the Impact slot on, as `signal` does; before that, a",
+        "Brake by a Player aboard who has not Braked on this ride sets the slow period's end to",
+        "max(now, end) + 5 s. Anything else about the Brake does nothing (no error): a refusal would",
+        "tell anyone who simulates the transaction that this Player has Braked. A Brake at or after",
+        "the Impact slot ends the ride and does not count."
+      ],
+      "discriminator": [
+        92,
+        79,
+        44,
+        8,
+        101,
+        80,
+        63,
+        15
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "docs": [
+            "The seat's Player: the wallet of its core Account, or the seat key core recorded for it."
+          ],
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "brakeSeat",
+          "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "magicFeeVault",
+          "writable": true
+        },
+        {
+          "name": "magicProgram",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magicContext",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "carNo",
+          "type": "u64"
+        },
+        {
+          "name": "seat",
+          "type": "u8"
+        },
+        {
+          "name": "brake",
+          "type": "u8"
+        }
+      ]
     }
   ],
   "accounts": [
+    {
+      "name": "brakeSeat",
+      "discriminator": [
+        35,
+        163,
+        188,
+        179,
+        115,
+        170,
+        226,
+        143
+      ]
+    },
     {
       "name": "car",
       "discriminator": [
@@ -3241,6 +3417,67 @@ export type Railcar = {
     }
   ],
   "types": [
+    {
+      "name": "brakeSeat",
+      "docs": [
+        "One Table seat's own Brake, readable only by its Player (permission members: the Player's",
+        "wallet and seat key). Rollup-only, created the first time the seat index rides on its Table,",
+        "then zeroed and handed to each ride's Player by `bind_brake` (never closed while the Table",
+        "runs: closing publishes its past transactions)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "table",
+            "type": "pubkey"
+          },
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "bound",
+            "docs": [
+              "1 once bound to `car_no`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "carNo",
+            "type": "u64"
+          },
+          {
+            "name": "used",
+            "docs": [
+              "1 once the Player has Braked on this ride, at ride ms `press_ms`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "pressMs",
+            "type": "u32"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          }
+        ]
+      }
+    },
     {
       "name": "car",
       "docs": [
@@ -4090,6 +4327,31 @@ export type Railcar = {
       }
     },
     {
+      "name": "revealedBrake",
+      "docs": [
+        "One Player's Brake, made public with the ride's end."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seat",
+            "docs": [
+              "The core seat index."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "ms",
+            "docs": [
+              "Ride ms of the press."
+            ],
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
       "name": "rideOver",
       "type": {
         "kind": "struct",
@@ -4203,14 +4465,36 @@ export type Railcar = {
             }
           },
           {
-            "name": "reserved",
+            "name": "signer",
             "docs": [
-              "Room for a per-seat key and the Brake (tickets 07 and seat keys)."
+              "The seat key core recorded for this seat at join (seat-keys decision D4); zero when none",
+              "is recorded, and then only the Player's wallet acts for the seat."
             ],
             "type": {
               "array": [
                 "u8",
-                24
+                32
+              ]
+            }
+          },
+          {
+            "name": "brakeAt",
+            "docs": [
+              "After the ride: the Player's Brake, ride ms + 1 (0: no Brake). Zero during the ride."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                4
               ]
             }
           }
@@ -4240,6 +4524,28 @@ export type Railcar = {
           {
             "name": "reason",
             "type": "u8"
+          },
+          {
+            "name": "draw",
+            "docs": [
+              "The reveal, for the round history: the draw (zero when it never came) and every Brake."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "brakes",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "revealedBrake"
+                }
+              }
+            }
           }
         ]
       }
@@ -4695,14 +5001,38 @@ export type Railcar = {
             }
           },
           {
-            "name": "reserved",
+            "name": "revealDraw",
             "docs": [
-              "Room for the reveal and the outage rule (tickets 07, 08)."
+              "After the ride: the draw (with the seats' `brake_ms`, enough for the engine to recompute",
+              "the ride), and `revealed` = 1. Zero during the ride."
             ],
             "type": {
               "array": [
                 "u8",
-                128
+                32
+              ]
+            }
+          },
+          {
+            "name": "revealed",
+            "type": "u8"
+          },
+          {
+            "name": "brakesBound",
+            "docs": [
+              "Seats whose Brake seat is bound to this ride; no Brake counts until all are."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Room for the outage rule (ticket 08)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                94
               ]
             }
           },
@@ -4756,12 +5086,17 @@ export type Railcar = {
     {
       "name": "vault",
       "docs": [
-        "The private half of a ride: the VRF output and what it decides. A rollup-only account behind",
-        "a private permission with no member, created once per Table; nobody reads it during a ride."
+        "The private half of a ride: the VRF output, what it decides and the Brakes pressed. A",
+        "rollup-only account behind a private permission with no member, created once per Table;",
+        "nobody reads it during a ride."
       ],
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
           {
             "name": "bump",
             "type": "u8"
@@ -4820,14 +5155,53 @@ export type Railcar = {
             "type": "u8"
           },
           {
+            "name": "slowEndMs",
+            "docs": [
+              "The Brake schedule: every press adds one 5 s slow piece after the earlier ones, so its end",
+              "(`slow_end_ms`) and the slow time in all (`slow_total_ms`) give the track position at any",
+              "moment from the last press on (`ride::half_position`)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "slowTotalMs",
+            "type": "u32"
+          },
+          {
+            "name": "pressCount",
+            "docs": [
+              "Presses in the order they landed (ride ms, ascending) and their Table seats, for the",
+              "refunds and the reveal at the end."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "presses",
+            "type": {
+              "array": [
+                "u32",
+                101
+              ]
+            }
+          },
+          {
+            "name": "pressSeat",
+            "type": {
+              "array": [
+                "u8",
+                101
+              ]
+            }
+          },
+          {
             "name": "reserved",
             "docs": [
-              "Room for the Brake schedule and the reveal (tickets 07, 08)."
+              "Room for the outage rule (ticket 08) and later."
             ],
             "type": {
               "array": [
                 "u8",
-                64
+                128
               ]
             }
           }
