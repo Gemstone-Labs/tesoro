@@ -42,9 +42,9 @@ use ephemeral_rollups_sdk::{
     },
 };
 use table_kit::{
-    create_hidden_seat, create_hidden_seat_keyed, match_state_gone, swap_seat_members_keyed,
-    SeatKeys, move_lamports, receipt_at, sponsor_can_commit,
-    sponsor_commit, CommitGuard, SeatAccounts, COMMIT_WINDOW_SECS, DELEGATION_PROGRAM,
+    create_hidden_seat, create_hidden_seat_keyed, match_state_gone, move_lamports, receipt_at,
+    sponsor_can_commit, sponsor_commit, swap_seat_members_keyed, CommitGuard, SeatAccounts,
+    SeatKeys, COMMIT_WINDOW_SECS, DELEGATION_PROGRAM,
 };
 use tesoro_core::{
     ledger::many_seat::{seat_index, ManyStage, SeatState},
@@ -1078,7 +1078,10 @@ pub mod railcar {
         }
         record.try_serialize(&mut &mut info.try_borrow_mut_data()?[..])?;
         let mut t = ctx.accounts.table.load_mut()?;
-        t.brakes_bound = t.brakes_bound.checked_add(1).ok_or(RailcarError::Overflow)?;
+        t.brakes_bound = t
+            .brakes_bound
+            .checked_add(1)
+            .ok_or(RailcarError::Overflow)?;
         Ok(())
     }
 

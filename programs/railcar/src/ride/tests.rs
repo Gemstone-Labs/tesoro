@@ -13,9 +13,9 @@ fn vault(crash_ms: u32) -> Vault {
     let mut v = Vault::blank(0, Pubkey::default());
     v.ready = true;
     v.crash_ms = crash_ms;
-    v.screw_at_ms = crash_ms - 30_000;
-    v.bolt_at_ms = crash_ms - 10_000;
-    v.spark_at_ms = crash_ms - 5_000;
+    v.screw_at_ms = crash_ms.saturating_sub(30_000);
+    v.bolt_at_ms = crash_ms.saturating_sub(10_000);
+    v.spark_at_ms = crash_ms.saturating_sub(5_000);
     v.false_screws[..2].copy_from_slice(&[4_000, 9_000]);
     v.false_len = 2;
     v
@@ -253,10 +253,20 @@ fn a_second_brake_by_the_same_player_does_nothing() {
     let mut v = vault(52_000);
     let (t, mut seats) = braking(5);
     press(&t, &mut v, &mut seats, ANA, 40.0);
-    let once = (v.slow_end_ms, v.slow_total_ms, v.press_count, seats[ANA].press_ms);
+    let once = (
+        v.slow_end_ms,
+        v.slow_total_ms,
+        v.press_count,
+        seats[ANA].press_ms,
+    );
     press(&t, &mut v, &mut seats, ANA, 42.0);
     assert_eq!(
-        (v.slow_end_ms, v.slow_total_ms, v.press_count, seats[ANA].press_ms),
+        (
+            v.slow_end_ms,
+            v.slow_total_ms,
+            v.press_count,
+            seats[ANA].press_ms
+        ),
         once
     );
     assert_eq!(impact_ms(&v), 54_500);
@@ -276,7 +286,10 @@ fn a_brake_off_the_car_or_before_every_seat_is_bound_does_nothing() {
     t.brakes_bound = 5;
     let ms = t.ride_ms(at(41.0));
     tick(&t, &mut v, &mut seats[CY], CY as u8, ms, false);
-    assert_eq!((v.press_count, seats[CY].used, impact_ms(&v)), (0, 0, 52_000));
+    assert_eq!(
+        (v.press_count, seats[CY].used, impact_ms(&v)),
+        (0, 0, 52_000)
+    );
 }
 
 #[test]

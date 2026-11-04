@@ -73,8 +73,8 @@ pub fn impact_ms(v: &Vault) -> u32 {
 pub fn advance(t: &mut Table, v: &Vault, slot: u64) -> bool {
     let ms = t.ride_ms(slot);
     let half = half_position(v, ms);
-    let hit = at_least(half, 2 * i64::from(v.crash_ms))
-        | at_least(i64::from(ms), i64::from(RIDE_CAP_MS));
+    let hit =
+        at_least(half, 2 * i64::from(v.crash_ms)) | at_least(i64::from(ms), i64::from(RIDE_CAP_MS));
     if hit == 1 {
         return true;
     }

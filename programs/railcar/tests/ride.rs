@@ -17,8 +17,8 @@ use anchor_lang::{
 };
 use litesvm::LiteSVM;
 use railcar::state::{
-    BrakeSeat, Table, Vault, AUTHORITY_SEED, COUNTDOWN_SECS, OUTCOME_PLACED, OUTCOME_REFUND, PHASE_DRAWING,
-    PHASE_OVER, PHASE_RIDING, SPONSOR_SEED,
+    BrakeSeat, Table, Vault, AUTHORITY_SEED, COUNTDOWN_SECS, OUTCOME_PLACED, OUTCOME_REFUND,
+    PHASE_DRAWING, PHASE_OVER, PHASE_RIDING, SPONSOR_SEED,
 };
 use solana_sdk::account::Account;
 use solana_sdk::clock::Clock;
@@ -1184,7 +1184,11 @@ impl Env {
     fn bind(&mut self, table: APk, p: &Person) -> Result<(), Failed> {
         let seat = self.seat_of(table, p);
         let (key, _) = railcar::brake_seat_address(&table, seat);
-        if self.svm.get_account(&s(key)).is_none_or(|acc| acc.data.is_empty()) {
+        if self
+            .svm
+            .get_account(&s(key))
+            .is_none_or(|acc| acc.data.is_empty())
+        {
             self.brake_seat_standin(table, seat);
         }
         let car_no = self.table(table).car_no();
@@ -2079,7 +2083,8 @@ fn the_spec_brake_example_moves_the_wall_and_orders_the_jumps() {
     env.signal(car.table).expect("signal");
     assert_eq!(env.table(car.table).phase, PHASE_RIDING);
     env.at_ride(car.table, 53.0);
-    env.jump(car.table, &riders[ANA]).expect("Ana Jumps in time");
+    env.jump(car.table, &riders[ANA])
+        .expect("Ana Jumps in time");
     env.at_ride(car.table, 54.49);
     env.signal(car.table).expect("signal");
     assert_eq!(env.table(car.table).phase, PHASE_RIDING);
@@ -2167,10 +2172,18 @@ fn a_brake_changes_no_public_byte_and_only_the_players_own_brake_seat() {
         .map(|i| bytes(&env, railcar::brake_seat_address(&car.table, i).0))
         .collect();
     env.brake(car.table, &riders[ANA]).expect("brake");
-    assert_eq!(bytes(&env, car.table), public_before, "the Table is unchanged");
+    assert_eq!(
+        bytes(&env, car.table),
+        public_before,
+        "the Table is unchanged"
+    );
     for i in 0..5u8 {
         let after = bytes(&env, railcar::brake_seat_address(&car.table, i).0);
-        assert_eq!(after != seats_before[usize::from(i)], i == ana, "Brake seat {i}");
+        assert_eq!(
+            after != seats_before[usize::from(i)],
+            i == ana,
+            "Brake seat {i}"
+        );
     }
     let mine = env.brake_seat(car.table, ana);
     assert_eq!((mine.used, mine.press_ms), (1, 30_000));
@@ -2190,7 +2203,11 @@ fn the_revealed_table_lets_the_engine_recompute_the_whole_ride() {
         env.brake(car.table, &riders[who]).expect("brake");
     }
     let t = env.table(car.table);
-    assert_eq!((t.revealed, t.reveal_draw), (0, [0; 32]), "nothing shown yet");
+    assert_eq!(
+        (t.revealed, t.reveal_draw),
+        (0, [0; 32]),
+        "nothing shown yet"
+    );
     assert!(t.seats[..5].iter().all(|s| s.brake_ms().is_none()));
     for (who, secs) in [(BEN, 5.0), (ANA, 20.0), (EVE, 40.0), (CY, 61.0)] {
         env.at_ride(car.table, secs);
@@ -2250,7 +2267,10 @@ fn ticks_need_their_seat_bound_and_a_repeat_bind_does_nothing() {
     // binding again on this ride changes nothing (Ana keeps her used Brake)
     env.bind(car.table, &riders[ANA]).expect("repeat bind");
     assert_eq!(
-        (env.brake_seat(car.table, ana).used, env.table(car.table).brakes_bound),
+        (
+            env.brake_seat(car.table, ana).used,
+            env.table(car.table).brakes_bound
+        ),
         (1, 5)
     );
 }
@@ -2307,7 +2327,10 @@ fn compute_is_the_same_whatever_the_brakes_are() {
     };
     variants.push(("Ben's Brake over", brakes(&mut env, 20.0, &[BEN])));
     variants.push(("Ben's Brake on", brakes(&mut env, 30.0, &[BEN])));
-    variants.push(("four Brakes on", brakes(&mut env, 30.0, &[BEN, CY, DEE, EVE])));
+    variants.push((
+        "four Brakes on",
+        brakes(&mut env, 30.0, &[BEN, CY, DEE, EVE]),
+    ));
     variants.push(("Ana Braked", brakes(&mut env, 30.0, &[ANA])));
     let ana = env.seat_of(table, &riders[ANA]);
     let car_no = env.table(table).car_no();
@@ -2341,7 +2364,7 @@ fn compute_is_the_same_whatever_the_brakes_are() {
             let tick = |brake| env.tick_ix(table, &riders[ANA], car_no, ana, brake);
             let (with, without) = (tick(true), tick(false));
             let cu = [
-                env.simulate_cu(&[signal.clone()], &oracle),
+                env.simulate_cu(std::slice::from_ref(&signal), &oracle),
                 env.simulate_cu(&[without], &kp),
                 env.simulate_cu(&[with], &kp),
             ];
@@ -2352,7 +2375,10 @@ fn compute_is_the_same_whatever_the_brakes_are() {
         for (name, cu) in &seen {
             assert_eq!(*cu, first, "{secs} s, {name} vs {}", seen[0].0);
         }
-        assert_eq!(first[1], first[2], "{secs} s: a tick with and without the Brake");
+        assert_eq!(
+            first[1], first[2],
+            "{secs} s: a tick with and without the Brake"
+        );
     }
 }
 
@@ -2380,7 +2406,13 @@ fn a_hundred_brakes_and_ninety_nine_jumps_end_inside_one_default_transaction() {
     println!("impact signal, 100 Brakes, 99 Jumps: {} CU", env.last_cu);
     assert!(env.last_cu < 200_000);
     let t = env.table(car.table);
-    assert_eq!(t.seats[..100].iter().filter(|s| s.brake_ms().is_some()).count(), 100);
+    assert_eq!(
+        t.seats[..100]
+            .iter()
+            .filter(|s| s.brake_ms().is_some())
+            .count(),
+        100
+    );
     let pages = env.page_metas(&car);
     let finalize = env.finalize_ix(&car, pages);
     let payer = env.admin.insecure_clone();
