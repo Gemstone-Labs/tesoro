@@ -475,10 +475,24 @@ fn a_page_the_chunk_was_not_given_stops_it_and_nothing_is_skipped() {
     })
     .unwrap();
     c.pages.hidden = vec![1];
-    let r = c.rec.chunk(&mut c.pages, &mut w, 20).unwrap();
-    // seats 0-9 came home (nothing: they forfeit), then seat 11's entry is on the hidden page
-    assert_eq!(r.blocked, Some(LifecycleError::MissingAccount));
+    // seats 0-9 bring nothing home (they forfeit), then seat 11's entry is on the hidden page:
+    // a chunk that could not take one step fails, and changes nothing
+    let before = c.rec;
+    assert_eq!(
+        c.rec.chunk(&mut c.pages, &mut w, 20).unwrap_err(),
+        LifecycleError::MissingAccount
+    );
+    assert_eq!(c.rec.run.steps(), before.run.steps());
     assert_eq!(w.gemas(21), 0);
+    // with page 1 but not page 0 a later chunk stops at the forfeits of seat 0
+    c.pages.hidden = vec![];
+    let r = c.rec.chunk(&mut c.pages, &mut w, 1).unwrap();
+    assert_eq!((r.steps, w.gemas(21)), (1, 500));
+    c.pages.hidden = vec![0];
+    assert_eq!(
+        c.rec.chunk(&mut c.pages, &mut w, 20).unwrap_err(),
+        LifecycleError::MissingAccount
+    );
     c.pages.hidden = vec![];
     c.run(&mut w, 20);
     // 11 entries forfeited: 6,000 Pot, 360 fees, 5,140 won
@@ -707,6 +721,9 @@ fn every_gema_lands_where_the_payout_says() {
         let view: Vec<(u8, &[(u8, u64)])> = riders.iter().map(|(w, l)| (*w, &l[..])).collect();
         let t = terms(rng.below(1_500) as u16, rng.below(1_000) as u16);
         let mut c = car(&mut w, &view, t);
+        for (who, _) in &riders {
+            w.grow_spill(&key(*who), 256);
+        }
         // places: 1-3 distinct seats, shares not increasing, summing to 10,000
         let n_places = 1 + rng.below(3.min(n as u64)) as usize;
         let mut seats: Vec<u8> = (0..n as u8).collect();
