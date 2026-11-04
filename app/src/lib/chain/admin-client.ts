@@ -1,4 +1,5 @@
 import type { ChainSigner } from "@/games/block-puzzle/chain";
+import { signAsWallet } from "@/lib/seat/wallet-only";
 import type { ReviewReply } from "@/lib/review/flags";
 import { newNonce, signedMessage } from "./signed-request";
 
@@ -9,7 +10,7 @@ export async function fetchReview(signer: ChainSigner, getToken: () => Promise<s
   const address = signer.publicKey.toBase58();
   const ts = Date.now();
   const nonce = newNonce();
-  const signature = await signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-admin", "review", address, ts, nonce, {})));
+  const signature = await signAsWallet(signer, signedMessage("tesoro-admin", "review", address, ts, nonce, {}));
   const token = await getToken().catch(() => null);
   const res = await fetch("/api/admin/review", {
     method: "POST",
@@ -26,7 +27,7 @@ export async function fetchOrders(signer: ChainSigner, getToken: () => Promise<s
   const address = signer.publicKey.toBase58();
   const ts = Date.now();
   const nonce = newNonce();
-  const signature = await signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-admin", "orders", address, ts, nonce, {})));
+  const signature = await signAsWallet(signer, signedMessage("tesoro-admin", "orders", address, ts, nonce, {}));
   const token = await getToken().catch(() => null);
   const res = await fetch("/api/admin/orders", {
     method: "POST",
@@ -48,7 +49,7 @@ export async function callListing(
   const address = signer.publicKey.toBase58();
   const ts = Date.now();
   const nonce = newNonce();
-  const signature = await signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-admin", step, address, ts, nonce, fields)));
+  const signature = await signAsWallet(signer, signedMessage("tesoro-admin", step, address, ts, nonce, fields));
   const token = await getToken().catch(() => null);
   const res = await fetch("/api/admin/listing", {
     method: "POST",

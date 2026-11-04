@@ -20,6 +20,7 @@ export function blankTable(over: Partial<Table> = {}): Table {
     slot: 0,
     startDeadline: 0,
     players: [fixtureKey(2), fixtureKey(3)],
+    signers: [fixtureKey(2), fixtureKey(3)],
     checkedIn: [false, false],
     assignedSlot: ASSIGNED,
     assignedTs: 0,
@@ -51,6 +52,7 @@ export const fixtureAssignment = (over: Partial<Assignment> = {}): Assignment =>
   index: 0,
   epoch: 4,
   players: [fixtureKey(2), fixtureKey(3)],
+  signers: [fixtureKey(2), fixtureKey(3)],
   startDeadline: 0,
   payer: fixtureKey(4),
   ...over,
@@ -59,6 +61,7 @@ export const fixtureAssignment = (over: Partial<Assignment> = {}): Assignment =>
 export const fixtureBoard = (over: Partial<OwnBoard> = {}): OwnBoard => ({
   seat: 0,
   player: fixtureKey(2),
+  signer: fixtureKey(2),
   tesoroMatch: fixtureKey(1),
   epoch: 4,
   began: false,

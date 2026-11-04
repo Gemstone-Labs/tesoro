@@ -1,7 +1,9 @@
+import { PublicKey } from "@solana/web3.js";
 import { accountKeyOf } from "../../lib/chain/account-key";
-import { parseMatchKey } from "../../lib/chain/match-id";
+import { matchAddressOf, parseMatchKey } from "../../lib/chain/match-id";
 import { DemoHttpError, NonceStore, verifySignedRequest, type AuthEnv } from "../request-auth";
 import { WindowLimiter } from "../rate-limit";
+import { matchNamesSeatKey, type MatchAccount } from "../seat-keys";
 import { freshKeys, parseIds, type PresenceStore } from "./lease";
 
 const nonces = new NonceStore();
@@ -11,15 +13,23 @@ const limiter = new WindowLimiter(12, 60_000);
 export interface PresenceDeps {
   store: PresenceStore;
   now?: () => number;
+  /** Reads a Match account from the base layer: needed to check a Seat key's ping (without it a Seat key is refused). */
+  readMatch?: (address: PublicKey) => Promise<MatchAccount | null>;
 }
 
-/** The opener of a Queue Match says "still here". Only the Match's opener can touch its row. */
+/** The opener of a Queue Match says "still here". Only the Match's opener can touch its row: its wallet, or the Seat key the Match names for the opener. */
 export async function handleTouch(deps: PresenceDeps, body: unknown, authorization: string | null, env?: AuthEnv, now?: number): Promise<{ ok: true }> {
-  const req = await verifySignedRequest("tesoro-presence", ["touch"] as const, body, authorization, { nonces, env, now });
+  const req = await verifySignedRequest("tesoro-presence", ["touch"] as const, body, authorization, { nonces, env, now, seatKey: true });
   const match = String(req.fields.match ?? "");
   const key = parseMatchKey(match);
   if (!key) throw new DemoHttpError(400, "bad-request", "Malformed request.");
   if (key.opener !== accountKeyOf(req.address.toBase58())) throw new DemoHttpError(403, "not-opener", "Only the Player who opened the Match can do that.");
+  if (req.seat) {
+    const address = matchAddressOf(match);
+    if (!address || !deps.readMatch || !matchNamesSeatKey(await deps.readMatch(address), req.account, req.signer, true)) {
+      throw new DemoHttpError(403, "not-your-seat-key", "That key is not this Player's key for the Match.");
+    }
+  }
   if (!limiter.take(req.address.toBase58(), 1, deps.now?.())) throw new DemoHttpError(429, "too-many", "Too many requests.");
   await deps.store.touch(match, new Date((deps.now ?? Date.now)()).toISOString());
   return { ok: true };

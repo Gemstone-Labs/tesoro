@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
+import { accountOfSigner } from "@/games/block-puzzle/chain";
 import { entryError } from "@/lib/chain/entry-errors";
 import { cancelTicket, resumeTicket } from "@/lib/chain/ticket";
 import { useOpenTickets } from "@/lib/chain/use-entry";
@@ -16,7 +16,7 @@ import { fmtGemas } from "@/lib/format";
 export function UnfinishedEntries() {
   const { auth, refresh } = useAccount();
   const signer = auth.signer;
-  const { tickets, refresh: reload } = useOpenTickets(signer ? BlockPuzzleChain.coreAccount(signer.publicKey) : null);
+  const { tickets, refresh: reload } = useOpenTickets(signer ? accountOfSigner(signer) : null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const open = tickets.filter((t) => t.ticket.state === "open" && t.ticket.kind === "entry");

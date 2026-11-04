@@ -7,7 +7,7 @@
 //! place (see `crate::storage`).
 //!
 //! ```text
-//! | 8 B discriminator | 160 B ticket head (below) | LineStore body: 128 B header + 144 B per line |
+//! | 8 B discriminator | 192 B ticket head (below) | LineStore body: 128 B header + 144 B per line |
 //! ```
 //!
 //! Head layout (little endian):
@@ -29,6 +29,8 @@
 //! | 132 | spill_room u32 (spill slots this Ticket holds in the Account's spill) |
 //! | 136 | reserved_left u64 (Backing: reservation not yet staged) |
 //! | 144 | sponsored_lamports u64 (rent the sponsor fronted, returned to it first) |
+//! | 152 | signer [32] (the seat key that co-signed `open_ticket`; may stage and cancel an Entry Ticket) |
+//! | 184 | reserved, 8 bytes |
 
 use crate::error::TesoroError;
 use crate::ledger::draw::{PotBacking, PotPages, Ticket, TicketKind, TicketState};
@@ -37,8 +39,8 @@ use crate::storage::DISC;
 use anchor_lang::prelude::*;
 use std::cell::RefMut;
 
-pub const TICKET_VERSION: u8 = 1;
-pub const TICKET_HEAD_LEN: usize = 160;
+pub const TICKET_VERSION: u8 = 2;
+pub const TICKET_HEAD_LEN: usize = 192;
 /// Where the Pot's line store starts in a Ticket account's data.
 pub const POT_AT: usize = DISC + TICKET_HEAD_LEN;
 
@@ -64,6 +66,9 @@ const H_LINE_CAP: usize = 128;
 const H_SPILL_ROOM: usize = 132;
 const H_RESERVED_LEFT: usize = 136;
 const H_SPONSORED: usize = 144;
+const H_SIGNER: usize = 152;
+/// Where the seat key sits in the Ticket head (tests and decoders).
+pub const SIGNER_AT: usize = H_SIGNER;
 
 /// Bytes of a Ticket account with `lines` lines.
 pub fn ticket_len(lines: usize) -> usize {
@@ -109,6 +114,8 @@ pub struct TicketExtra {
     pub payer: Pubkey,
     pub spill_room: u32,
     pub sponsored_lamports: u64,
+    /// The seat key that co-signed `open_ticket`; the default key for a Pot made by a direct draw.
+    pub signer: Pubkey,
 }
 
 fn arr<const N: usize>(s: &[u8]) -> [u8; N] {
@@ -225,6 +232,7 @@ pub(crate) fn write_head_fields(head: &mut [u8], f: &HeadFields, x: &TicketExtra
     head[H_SPILL_ROOM..H_SPILL_ROOM + 4].copy_from_slice(&x.spill_room.to_le_bytes());
     head[H_RESERVED_LEFT..H_RESERVED_LEFT + 8].copy_from_slice(&f.reserved_left.to_le_bytes());
     head[H_SPONSORED..H_SPONSORED + 8].copy_from_slice(&x.sponsored_lamports.to_le_bytes());
+    head[H_SIGNER..H_SIGNER + 32].copy_from_slice(x.signer.as_ref());
 }
 
 /// Writes the head of a freshly created Ticket account: everything but the line store.
@@ -295,6 +303,7 @@ pub fn load_ticket<'b, 'info>(
         payer: Pubkey::new_from_array(arr(&head[H_PAYER..H_PAYER + 32])),
         spill_room: u32::from_le_bytes(arr(&head[H_SPILL_ROOM..H_SPILL_ROOM + 4])),
         sponsored_lamports: u64::from_le_bytes(arr(&head[H_SPONSORED..H_SPONSORED + 8])),
+        signer: Pubkey::new_from_array(arr(&head[H_SIGNER..H_SIGNER + 32])),
     };
     let ticket_fields = (
         arr::<32>(&head[H_GAME..H_GAME + 32]),

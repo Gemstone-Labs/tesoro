@@ -7,7 +7,7 @@ import { describe, it } from "node:test";
 import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { OUTCOME, PHASE, SLOT, STATUS, decodeAssignment, decodeBook, decodeDuel, decodeTable, canFinalizeTable, slotOf } from "../../app/src/games/trading-duel/chain.ts";
-import { OUTCOME as BB_OUTCOME, REASON as BB_REASON, TABLE_PHASE as BB_PHASE, decodeTable as decodeBurstTable, runLogOf as burstRunLog } from "../../app/src/games/block-puzzle/live-chain.ts";
+import { OUTCOME as BB_OUTCOME, REASON as BB_REASON, TABLE_PHASE as BB_PHASE, decodeAssignment as decodeBurstAssignment, decodeTable as decodeBurstTable, runLogOf as burstRunLog } from "../../app/src/games/block-puzzle/live-chain.ts";
 import { decodeMatchRecords } from "../../app/src/server/history/events.ts";
 import { decodeBatch, decodeClaim, decodePayout, decodeRoute } from "./bridge-ix.ts";
 import { counterAmounts } from "./counters.ts";
@@ -53,6 +53,7 @@ describe("line stores written by tesoro_core", () => {
     const t = decodeTicketHead(core.ticket);
     assert.deepEqual([t.kind, t.state, t.nonce, t.target, t.expiresAt, t.spillRoom], ["backing", "cancelling", 77n, 5000n, 1_800_000_000, 6]);
     assert.deepEqual([t.account.toBase58(), t.game.toBase58(), t.payer.toBase58()], [keyOf(5).toBase58(), keyOf(6).toBase58(), keyOf(7).toBase58()]);
+    assert.equal(t.signer.toBase58(), keyOf(8).toBase58());
     const pot = decodeStore(core.ticket, POT_AT);
     assert.deepEqual(pot.lines().map((l) => [l.side, l.amount]), [[0, 11n], [1, 22n]]);
   });
@@ -85,6 +86,9 @@ describe("a Match written by tesoro_core", () => {
   it("room holds, payer and Pots are read where the program wrote them", () => {
     const v = viewOf(keyOf(98), coder.decode("matchState", core.match));
     assert.deepEqual(v.room.map((r) => [r.account.toBase58(), r.left]), [0, 1, 2, 3, 4].map((i) => [new PublicKey(Buffer.alloc(32, 40 + i)).toBase58(), 3 + i]));
+    // each side names the seat key that co-signed its entry
+    const record = coder.decode("matchState", core.match).inner;
+    assert.deepEqual([record.a.signer, record.b.signer].map((k: number[]) => new PublicKey(Uint8Array.from(k)).toBase58()), [12, 13].map((n) => new PublicKey(Buffer.alloc(32, n)).toBase58()));
     assert.equal(v.stage, "settling");
     assert.equal(v.ref.n, 2n ** 64n - 1n);
     assert.equal(v.pots.length, 2);
@@ -151,6 +155,8 @@ describe("Trading Duel accounts written by trading_duel", () => {
     assert.equal(t.ring[3].state, SLOT.reserved);
     const a = decodeAssignment(keyOf(5), duelCoder.decode("assignment", duelFx.assignment));
     assert.deepEqual([a.generation, a.index, a.epoch, a.startDeadline], [1, 3, 7, 1300]);
+    const seatKeys = [keyOf(13).toBase58(), keyOf(14).toBase58()];
+    assert.deepEqual([t.signers.map((k) => k.toBase58()), a.signers.map((k) => k.toBase58())], [seatKeys, seatKeys]);
     assert.equal(decodeDuel(a, t)?.status, STATUS.live);
     assert.equal(decodeDuel({ ...a, epoch: 6 }, t), null);
   });
@@ -167,6 +173,8 @@ describe("Trading Duel accounts written by trading_duel", () => {
   it("a Book and the table config", () => {
     const b = decodeBook(keyOf(60), duelCoder.decode("book", duelFx.book));
     assert.deepEqual([b.seat, b.pickCount, b.picks[2], b.picks[11]], [1, 2, 6, -3]);
+    const raw: any = duelCoder.decode("book", duelFx.book);
+    assert.deepEqual([raw.signer.toBase58(), raw.tesoroMatch.toBase58(), raw.epoch.toNumber()], [keyOf(14).toBase58(), keyOf(2).toBase58(), 7]);
     const c: any = duelCoder.decode("tableConfig", duelFx.table_config);
     assert.deepEqual([c.generation, c.maxTables], [1, 4]);
   });
@@ -180,6 +188,11 @@ describe("Block Burst accounts written by block_puzzle", () => {
     const log = burstRunLog(t, keyOf(9), 6)!;
     assert.deepEqual([log.scores, log.counts, log.reason], [[18, 77], [3, 4], BB_REASON.played]);
     assert.equal(t.ring[1].outcome, BB_OUTCOME.win1);
+    assert.deepEqual(t.signers.map((k) => k.toBase58()), [keyOf(13).toBase58(), keyOf(14).toBase58()]);
+    const asg = decodeBurstAssignment(keyOf(5), coder.decode("assignment", burstFx.assignment));
+    assert.deepEqual(asg.signers.map((k) => k.toBase58()), [keyOf(13).toBase58(), keyOf(14).toBase58()]);
+    const board: any = coder.decode("board", burstFx.board);
+    assert.deepEqual([board.player.toBase58(), board.signer.toBase58()], [keyOf(4).toBase58(), keyOf(14).toBase58()]);
   });
   it("a closed table says why", () => {
     const t = decodeBurstTable(keyOf(1), coder.decode("table", burstFx.closed_table));

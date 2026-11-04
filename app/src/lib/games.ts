@@ -17,6 +17,12 @@ export const HIDDEN_GAMES = parseHiddenGames(process.env.NEXT_PUBLIC_HIDDEN_GAME
 
 export const isHiddenGame = (g: GameId): boolean => HIDDEN_GAMES.has(g);
 
+/**
+ * Railcar is being built: its rulebook, Help answer and Risks and Terms lines show only where NEXT_PUBLIC_SHOW_RAILCAR=1.
+ * Unset on Production until Railcar launches.
+ */
+export const RAILCAR_SHOWN = process.env.NEXT_PUBLIC_SHOW_RAILCAR === "1";
+
 /** Every Game shown here, in the order the app lists them. */
 export const GAME_LIST = (Object.keys(KNOWN) as GameId[]).filter((g) => !HIDDEN_GAMES.has(g));
 

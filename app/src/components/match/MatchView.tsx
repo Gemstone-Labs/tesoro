@@ -9,6 +9,7 @@ import { getReadySecs, slotNow } from "@/games/block-puzzle/live-clock";
 import { stripOf } from "@/games/block-puzzle/opponent";
 import { useBurstMatch } from "@/games/block-puzzle/useBurstMatch";
 import { useAccount } from "@/lib/account";
+import { useMatchSigner } from "@/lib/seat/useMatchSigner";
 import { backerDelta, matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { resultOf } from "@/lib/chain/read";
 import { parseMatchKey } from "@/lib/chain/match-id";
@@ -41,9 +42,11 @@ function useTicker(ms: number, on: boolean): number {
  */
 export function MatchView({ matchId }: { matchId: string }) {
   const { auth, refresh, snapshot } = useAccount();
-  const signer = auth.signer;
+  const wallet = auth.signer;
   const nowSecs = useNowSecs();
   const id = parseMatchKey(matchId) ? matchId : null;
+  // who plays this Match from this page: its seat key when this device holds it, else the wallet
+  const { signer } = useMatchSigner(id);
   const me = snapshot?.accountKey.toBase58() ?? null;
   const { view } = useBurstMatch(id, signer, me, refresh);
   const { stage, match: m, seat, table, clock, assignment } = view;
@@ -57,7 +60,7 @@ export function MatchView({ matchId }: { matchId: string }) {
 
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
   if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
-  if (!signer) return <MatchStageLoading game="block-puzzle" me={me} step="Getting your wallet ready" />;
+  if (!signer || !wallet) return <MatchStageLoading game="block-puzzle" me={me} step="Getting your wallet ready" />;
   if (stage === "loading") return stageLoading({ game: "block-puzzle", me, matchId });
   if (stage === "notfound") return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
   if (stage === "spectator") return <MatchSpectate matchId={matchId} />;
@@ -121,7 +124,7 @@ export function MatchView({ matchId }: { matchId: string }) {
     setBusy("refund");
     setRefundError(null);
     try {
-      const sig = await refundMatch(signer, m.id, auth.getAccessToken);
+      const sig = await refundMatch(wallet, m.id, auth.getAccessToken);
       setRefundSig((s) => [...s, { label: "refund", sig, layer: "base" }]);
     } catch (e) {
       setRefundError(plainError(e));

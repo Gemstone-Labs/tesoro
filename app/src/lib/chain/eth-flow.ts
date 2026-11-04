@@ -1,4 +1,5 @@
 import "./polyfill";
+import { signAsWallet } from "@/lib/seat/wallet-only";
 import { PublicKey, Transaction } from "@solana/web3.js";
 import { maxUint256, parseEventLogs, type Address, type Hex } from "viem";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
@@ -66,7 +67,7 @@ export async function ethCall<T = Record<string, unknown>>(step: string, ctx: Pi
   const address = ctx.signer.publicKey.toBase58();
   const ts = Date.now();
   const nonce = newNonce();
-  const signature = await ctx.signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-eth", step, address, ts, nonce, body)));
+  const signature = await signAsWallet(ctx.signer, signedMessage("tesoro-eth", step, address, ts, nonce, body));
   const token = await ctx.getToken().catch(() => null);
   const res = await fetch("/api/eth-bridge", {
     method: "POST",

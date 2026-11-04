@@ -132,6 +132,7 @@ export function chainState(game: Game, start: Game, history: GameEvent[], o: { u
     ring,
     tesoroMatch: key(10),
     players: FIXTURE_PLAYERS,
+    signers: FIXTURE_PLAYERS,
     sq: sqs,
     shown,
     trail,
@@ -182,7 +183,7 @@ export function chainState(game: Game, start: Game, history: GameEvent[], o: { u
     for (const p of start.pieces) if (p.army === a) ranks[p.id % 30] = game.changed[p.id] === "dug" ? 13 : game.changed[p.id] === "spy" ? 14 : CODE[p.rank];
     truck = game.truckTurn[a];
     const fuel = game.pieces.find((p) => p.army === a && p.rank === "F")?.fuel ?? 0;
-    return { bump: 255, table: key(20), seat, player: FIXTURE_PLAYERS[seat], side: armyCode(a), ranks, fuel, truckTurn: truck, moves: 0, sealKey: new Uint8Array(32).fill(0x40 + seat), contributed: false, dealt: true };
+    return { bump: 255, table: key(20), seat, player: FIXTURE_PLAYERS[seat], signer: FIXTURE_PLAYERS[seat], tesoroMatch: key(10), epoch: 0, side: armyCode(a), ranks, fuel, truckTurn: truck, moves: 0, sealKey: new Uint8Array(32).fill(0x40 + seat), contributed: false, dealt: true };
   };
   const seatOfUs = usSeat;
   const armies: [ArmyAccount, ArmyAccount] = [army(seatOfUs === 0 ? "us" : "it", 0), army(seatOfUs === 0 ? "it" : "us", 1)];

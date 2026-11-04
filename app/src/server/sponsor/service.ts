@@ -20,10 +20,11 @@ import nacl from "tweetnacl";
 import { BN, BorshAccountsCoder, BorshInstructionCoder, type Idl } from "@coral-xyz/anchor";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { gameRecordPda } from "@/lib/chain/game-record";
-import { GAME_IDS } from "@/lib/chain/games";
+import { GAME_IDS, gameOfProgram } from "@/lib/chain/games";
 import { HIDDEN_GAMES } from "@/lib/games";
 import type { GameId } from "@/lib/mock/types";
 import { DemoHttpError } from "../request-auth";
+import { matchNamesSeatKey, matchSides } from "../seat-keys";
 import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, rentExitFits, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
 import { CORE_ID, PRIORITY_MICROLAMPORTS, PROTECTIONS_BYTES, RECEIPT_RENT, SETTLEMENT_RECEIPT_BYTES, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
 import { EXIT_ATA_WINDOW_MS, verifyCkptPages, verifyExitSetup } from "./exit-setup";
@@ -34,6 +35,7 @@ import { releaseClosedHolds, type ClosureReads } from "./closure";
 import { assetOfIndex } from "@/games/trading-duel/chain";
 import { countersPda } from "@/lib/chain/basket";
 import { GROW_COUNTERS_CU, GROW_COUNTERS_RENT, growIxsFor } from "@/lib/chain/grow-counters";
+import { canAssign } from "./assign-ix";
 import { joinOf, PlayerBusy, type Assigner, type Assignment, type LeaseRef } from "./assign";
 import { admitPages, admitSends, type BridgeSendGuard } from "./bridge-sends";
 
@@ -43,6 +45,19 @@ const GAME_STEP_COST_READINGS = 3;
 const DAY = 24 * HOUR;
 /** A built message is good for this long (the blockhash lives about 90 s). */
 export const BUILD_TTL_MS = 75_000;
+/**
+ * Who vouches for a build request. `wallet`: the Account's wallet signed it (every instruction is open to it). `token`: only
+ * the Privy login did, so only an entry is built (the wallet and the seat key sign the transaction, which `submit` checks).
+ * `seat`: the Match's seat key for this Account signed it, for the Match's own finish steps only.
+ */
+export type BuildAuth = { kind: "wallet" } | { kind: "token" } | { kind: "seat"; signer: PublicKey; match: PublicKey };
+
+/** What a token-only request may build: the entry and the growth that travels with it. */
+const ENTRY_NAMES = new Set(["open_match", "join_match", "open_ticket", "stage_entry", "grow_store_sponsored"]);
+/** What a seat key may ask for: a Game's finish steps and the Match's own finish, never a move of value. */
+const SEAT_STEP_NAMES = new Set(["finalize", "refund_untabled", "close_assignment", "match_chunk", "close_match", "refund_match"]);
+const JOIN_SEAT_AT = (coreIdl as unknown as { instructions: { name: string; accounts: { name: string }[] }[] }).instructions.find((i) => i.name === "join_match")!.accounts.findIndex((a) => a.name === "seat_signer");
+
 /** One rent top-up build per Account in this window: longer than a built message lives, so two cannot both land. */
 const TOPUP_WINDOW_MS = 15 * 60_000;
 /** Compute budget `assign_match` adds to a join (measured 28k to 36k CU). */
@@ -123,6 +138,14 @@ function matchAssetOf(data: Uint8Array): number | null {
     return null;
   }
 }
+/** The Game program of a Match (its 32 bytes), or null when the data is not a MatchState. */
+function matchGameOf(data: Uint8Array): Uint8Array | null {
+  try {
+    return Uint8Array.from((matchCoder.decode("MatchState", Buffer.from(data)) as { inner: { game: number[] } }).inner.game);
+  } catch {
+    return null;
+  }
+}
 /** The opener and number of a Match, from its data (null when it is not a MatchState). */
 function matchSeedOf(data: Uint8Array): HoldSeed | null {
   try {
@@ -172,6 +195,8 @@ export interface Built {
   mac: string;
   expiresAt: number;
   class: Plan["class"];
+  /** A join was built without its table assignment (no table was free, or the packet was full): once the join confirms, ask for the table with `buildTable`. */
+  table?: boolean;
 }
 
 interface Meta {
@@ -370,10 +395,26 @@ export class Sponsor {
 
   /** A transaction with several signers (a Backing Ticket): every one of them is an Account, not a throwaway key. */
   private async requireOtherSigners(plan: Plan, player: PublicKey) {
-    for (const sg of plan.signers) if (!sg.equals(player)) await this.requireAccount(sg);
+    const seats = plan.seatSigners ?? [];
+    for (const sg of plan.signers) if (!sg.equals(player) && !seats.some((k) => k.equals(sg))) await this.requireAccount(sg);
   }
 
-  /** The `assign_match` for the Match a join enters, or null (no free table, an unreadable Match, a Game the keeper assigns): the join then travels alone and the keeper assigns later. */
+  /** Refuses what the way the request was vouched for does not allow (see `BuildAuth`). */
+  private async checkAuth(auth: BuildAuth, plan: Plan, ixs: Ix[], player: PublicKey) {
+    if (auth.kind === "token") {
+      if (plan.kind !== "core" || plan.onboarding || plan.playerSigns || !plan.names.some((n) => n !== "grow_store_sponsored") || !plan.names.every((n) => ENTRY_NAMES.has(n))) {
+        throw new DemoHttpError(403, "wallet-only", "This needs your wallet.");
+      }
+    } else if (auth.kind === "seat") {
+      if (!plan.names.every((n) => SEAT_STEP_NAMES.has(n))) throw new DemoHttpError(403, "wallet-only", "This needs your wallet.");
+      if (!ixs.some((i) => i.keys.some((k) => k.pubkey.equals(auth.match)))) throw new DemoHttpError(400, "bad-request", "The request names another Match than the transaction.");
+      const match = await this.d.chain.account(auth.match);
+      // A cancel is the opener's, and only while the Match is Open; the seat key of the other side cannot send it.
+      if (!matchNamesSeatKey(match, accountPda(player), auth.signer, plan.names.includes("refund_match"))) throw new DemoHttpError(403, "not-your-seat-key", "That key is not this Player's key for the Match.");
+    }
+  }
+
+  /** The `assign_match` for the Match a join enters, or null (no free table, an unreadable Match, a Game we do not assign): the join then goes alone, flagged `table` so the page asks for the table once it confirms. */
   private async assignJoin(join: NonNullable<ReturnType<typeof joinOf>>, holder: string, who: string): Promise<Assignment | "busy" | "own" | null> {
     try {
       const m = await this.d.chain.account(join.match);
@@ -391,11 +432,11 @@ export class Sponsor {
   }
 
   /** `sub` is the Privy user id the request came with (null only off production), the key of the one-Account-per-user gate. */
-  async build(player: PublicKey, raw: unknown, sub: string | null = null): Promise<Built> {
+  async build(player: PublicKey, raw: unknown, sub: string | null = null, auth: BuildAuth = { kind: "wallet" }): Promise<Built> {
     // A Game step spends the Match's tries and the day's cap when it is admitted; any failure after that gives them back.
     const held: Held = { undo: null, undoSends: null, assignment: null };
     try {
-      return await this.buildWith(player, raw, sub, held);
+      return await this.buildWith(player, raw, sub, held, auth);
     } catch (e) {
       await held.undo?.();
       await held.undoSends?.();
@@ -404,11 +445,12 @@ export class Sponsor {
     }
   }
 
-  private async buildWith(player: PublicKey, raw: unknown, sub: string | null, held: Held): Promise<Built> {
+  private async buildWith(player: PublicKey, raw: unknown, sub: string | null, held: Held, auth: BuildAuth): Promise<Built> {
     const now = this.d.now();
     const who = player.toBase58();
     const ixs = parseIntent(raw);
     const plan = await this.plan(ixs, player);
+    await this.checkAuth(auth, plan, ixs, player);
     if (plan.kind === "game" && plan.spend.refundable > 0n) plan.spend.refundable = await this.receiptRent();
     const setup = await verifyExitSetup(plan, player, this.d.chain);
     plan.spend.sunk += setup.rent + (await verifyCkptPages(plan.pages ?? [], this.d.chain));
@@ -432,7 +474,9 @@ export class Sponsor {
     const joining = this.d.assigner && plan.class === "admission" ? joinOf(ixs) : null;
     if (joining) plan.cu += ASSIGN_CU;
     const bucket = plan.class === "admission" ? "build" : "buildx";
-    if (!(await this.d.store.take(`${bucket}:${who}`, 1, this.d.limits.buildsPerDay, DAY, now))) throw new DemoHttpError(429, "account-limit", "Too many requests today.");
+    // A token-only request names its Account without proving it owns it, so it spends its own user's count, never the Account's.
+    const counted = auth.kind === "token" && sub ? `user:${sub}` : who;
+    if (!(await this.d.store.take(`${bucket}:${counted}`, 1, this.d.limits.buildsPerDay, DAY, now))) throw new DemoHttpError(429, "account-limit", "Too many requests today.");
 
     const fee = SIGNATURE_LAMPORTS * BigInt(1 + plan.signers.length + (joining ? 1 : 0)) + (BigInt(plan.cu) * BigInt(PRIORITY_MICROLAMPORTS)) / 1_000_000n;
     if (plan.class === "admission") await this.releaseClosed();
@@ -504,25 +548,37 @@ export class Sponsor {
       const got = await this.assignJoin(joining, randomUUID(), who);
       if (typeof got === "object" && got) held.assignment = got;
     }
-    const instructions = [
-      ComputeBudgetProgram.setComputeUnitLimit({ units: plan.cu }),
-      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_MICROLAMPORTS }),
-      ...grows,
-      // Rebuilt from the accepted instructions: the flags are the ones the allow-list checked.
-      ...ixs.map((i) => new TransactionInstruction({ programId: i.programId, keys: i.keys, data: Buffer.from(i.data) })),
-      ...(held.assignment ? [held.assignment.ix] : []),
-    ];
-    const message = new TransactionMessage({ payerKey: this.relayer, recentBlockhash: await this.d.chain.latestBlockhash(), instructions }).compileToV0Message(
-      await this.d.lookupTables(),
-    );
-    let bytes: Uint8Array;
-    try {
-      bytes = message.serialize();
-      if (new VersionedTransaction(message).serialize().length > 1232) throw new RangeError("packet size");
-    } catch (e) {
-      if (!(e instanceof RangeError)) throw e;
-      throw new DemoHttpError(400, "too-large", "This transaction is too large. Prepare fewer items at a time.");
+    const lookupTables = await this.d.lookupTables();
+    const blockhash = await this.d.chain.latestBlockhash();
+    const compile = (assignment: Assignment | null) => {
+      const instructions = [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: plan.cu }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_MICROLAMPORTS }),
+        ...grows,
+        // Rebuilt from the accepted instructions: the flags are the ones the allow-list checked.
+        ...ixs.map((i) => new TransactionInstruction({ programId: i.programId, keys: i.keys, data: Buffer.from(i.data) })),
+        ...(assignment ? [assignment.ix] : []),
+      ];
+      const message = new TransactionMessage({ payerKey: this.relayer, recentBlockhash: blockhash, instructions }).compileToV0Message(lookupTables);
+      try {
+        const bytes = message.serialize();
+        if (new VersionedTransaction(message).serialize().length > 1232) throw new RangeError("packet size");
+        return { message, bytes };
+      } catch (e) {
+        if (!(e instanceof RangeError)) throw e;
+        return null;
+      }
+    };
+    // A Backed entry (the Backing accounts) plus a seat key and the table assignment does not fit one packet: the join then
+    // goes alone and the page asks for the table once it confirms (`buildTable`).
+    let compiled = compile(held.assignment);
+    if (!compiled && held.assignment) {
+      await this.d.assigner?.release(held.assignment).catch(() => undefined);
+      held.assignment = null;
+      compiled = compile(null);
     }
+    if (!compiled) throw new DemoHttpError(400, "too-large", "This transaction is too large. Prepare fewer items at a time.");
+    const { message, bytes } = compiled;
     if (held.undo) await this.checkGameStepSimulation(message, fee + plan.spend.refundable);
     const seeds = await holdSeeds(ixs, async (match) => {
       const a = await this.d.chain.account(new PublicKey(match));
@@ -530,7 +586,59 @@ export class Sponsor {
     });
     const meta: Meta = { completion: completionEffects(ixs), seeds, player: who, exp: now + BUILD_TTL_MS, reserve: reserve.toString(), fronted: fronted.toString(), cycle: plan.names.some((n) => n === "cancel_ticket" || n === "refund_match"), fee: fee.toString(), onboard, invite: plan.invite, cost: (fee + plan.spend.sunk + plan.spend.refundable).toString(), admission: plan.class === "admission", ataGrant: setup.ataGrant, assign: held.assignment ? { leaseKey: held.assignment.leaseKey, holder: held.assignment.holder, lockKey: held.assignment.lockKey, claim: held.assignment.claim } : undefined };
     const metaText = JSON.stringify(meta);
-    return { message: Buffer.from(bytes).toString("base64"), meta: metaText, mac: mac(this.d.macKey, bytes, metaText), expiresAt: meta.exp, class: plan.class };
+    return { message: Buffer.from(bytes).toString("base64"), meta: metaText, mac: mac(this.d.macKey, bytes, metaText), expiresAt: meta.exp, class: plan.class, ...(joining && !held.assignment ? { table: true } : {}) };
+  }
+
+  /**
+   * The table for a Match whose join went out without one (`Built.table`): the operator's `assign_match` alone, in a transaction
+   * the relayer pays. Asked for by a Player of the joined Match, with the wallet or the seat key the Match names; same lease and
+   * pool claim as an assignment inside the join (`submit` confirms it). Never for a Match that already has its Assignment.
+   */
+  async buildTable(player: PublicKey, matchAddress: PublicKey, auth: BuildAuth = { kind: "wallet" }): Promise<Built> {
+    if (auth.kind === "token") throw new DemoHttpError(403, "wallet-only", "This needs your wallet.");
+    const assigner = this.d.assigner;
+    if (!assigner) throw new DemoHttpError(503, "not-configured", "Table assignment is not configured on this server.");
+    const now = this.d.now();
+    const account = accountPda(player);
+    const match = await this.d.chain.account(matchAddress);
+    const sides = match && match.owner.equals(CORE_ID) ? matchSides(match.data) : [];
+    const mine = sides.find((x) => x.player.equals(account));
+    if (sides.length < 2 || !mine) throw new DemoHttpError(403, "not-your-match", "Free transactions are for the Players of a joined Match.");
+    if (auth.kind === "seat" && (!auth.match.equals(matchAddress) || !mine.signer.equals(auth.signer))) throw new DemoHttpError(403, "not-your-seat-key", "That key is not this Player's key for the Match.");
+    const game = gameOfProgram(new PublicKey(matchGameOf(match!.data) ?? PublicKey.default));
+    const seed = matchSeedOf(match!.data);
+    if (!game || !canAssign(game) || !seed) throw new DemoHttpError(400, "bad-request", "That Match has no table to assign.");
+    if (game === "trading-duel" && assetOfIndex(matchAssetOf(match!.data) ?? -1) === null) throw new DemoHttpError(400, "bad-request", "That Match has no table to assign.");
+    const [assignmentAddress] = PublicKey.findProgramAddressSync([Buffer.from("assign"), matchAddress.toBuffer()], GAME_IDS[game]);
+    if (await this.d.chain.account(assignmentAddress)) throw new DemoHttpError(409, "assigned", "That Match already has its table.");
+    const who = player.toBase58();
+    if (!(await this.d.store.take(`table:${who}`, 1, this.d.limits.buildsPerDay, DAY, now))) throw new DemoHttpError(429, "account-limit", "Too many requests today.");
+    let assignment: Assignment | null;
+    try {
+      assignment = await assigner.assign(game, matchAddress, sides[0].player, sides[1].player, randomUUID(), `${seed.account}-${seed.n}`, who);
+    } catch (e) {
+      if (e instanceof PlayerBusy) throw new DemoHttpError(429, "join-pending", "You already have a table request waiting. Try again in a minute.");
+      throw e;
+    }
+    if (!assignment) throw new DemoHttpError(409, "no-table", "No table is free to assign right now.");
+    try {
+      const fee = SIGNATURE_LAMPORTS * 2n + (BigInt(ASSIGN_CU) * BigInt(PRIORITY_MICROLAMPORTS)) / 1_000_000n;
+      const balance = await this.balance();
+      await this.checkLow(balance.lamports);
+      if (!exitFits(balance, fee)) throw new DemoHttpError(503, "sponsor-empty", "Free transactions are unavailable. Pay the network fee from your own SOL to finish this.");
+      const message = new TransactionMessage({
+        payerKey: this.relayer,
+        recentBlockhash: await this.d.chain.latestBlockhash(),
+        instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: ASSIGN_CU }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_MICROLAMPORTS }), assignment.ix],
+      }).compileToV0Message();
+      const bytes = message.serialize();
+      const meta: Meta = { completion: { creates: [], ensures: [], closes: [] }, player: who, exp: now + BUILD_TTL_MS, reserve: "0", fronted: "0", cycle: false, fee: fee.toString(), onboard: null, invite: false, cost: fee.toString(), admission: false, assign: { leaseKey: assignment.leaseKey, holder: assignment.holder, lockKey: assignment.lockKey, claim: assignment.claim } };
+      const metaText = JSON.stringify(meta);
+      return { message: Buffer.from(bytes).toString("base64"), meta: metaText, mac: mac(this.d.macKey, bytes, metaText), expiresAt: meta.exp, class: "exit" };
+    } catch (e) {
+      await assigner.release(assignment).catch(() => undefined);
+      throw e;
+    }
   }
 
   /**
@@ -538,7 +646,8 @@ export class Sponsor {
    * message and sends it. Only a lone `join_match` is accepted, with the Player as the only other signer and as fee payer, and
    * no instruction may name the operator: the operator's signature then can authorize nothing but the `assign_match` we add.
    */
-  async buildSelfPaid(player: PublicKey, raw: unknown): Promise<{ tx: string; expiresAt: number; meta: string; mac: string }> {
+  async buildSelfPaid(player: PublicKey, raw: unknown, sub: string | null = null, auth: BuildAuth = { kind: "wallet" }): Promise<{ tx: string; expiresAt: number; meta: string; mac: string }> {
+    if (auth.kind === "seat") throw new DemoHttpError(403, "wallet-only", "This needs your wallet.");
     const assigner = this.d.assigner;
     if (!assigner) throw new DemoHttpError(503, "not-configured", "Table assignment is not configured on this server.");
     const now = this.d.now();
@@ -549,10 +658,11 @@ export class Sponsor {
     const joinIx = ixs[names.indexOf("join_match")];
     const lone = !!join && ixs.length === 1 && names[0] === "join_match";
     const named = lone && joinIx.keys.some((k) => k.pubkey.equals(assigner.operator));
+    const seat = lone ? joinIx.keys[JOIN_SEAT_AT]?.pubkey.toBase58() : undefined;
     const signers = lone ? joinIx.keys.filter((k) => k.isSigner).map((k) => k.pubkey.toBase58()) : [];
     const payerOk = lone && joinIx.keys[0].pubkey.equals(player) && joinIx.keys[1].pubkey.equals(player) && join.joiner.equals(accountPda(player));
-    if (!lone || named || !payerOk || signers.some((k) => k !== player.toBase58())) throw new DemoHttpError(400, "bad-request", "That is not a join we can assign a table to.");
-    const who = player.toBase58();
+    if (!lone || named || !payerOk || signers.some((k) => k !== player.toBase58() && k !== seat)) throw new DemoHttpError(400, "bad-request", "That is not a join we can assign a table to.");
+    const who = auth.kind === "token" && sub ? `user:${sub}` : player.toBase58();
     if (!(await this.d.store.take(`assignb:${who}`, 1, this.d.limits.buildsPerDay, DAY, now))) throw new DemoHttpError(429, "account-limit", "Too many requests today.");
     await this.requireAccount(player);
     const grows = await this.growsFor(player, [accountPda(player)], ixs);

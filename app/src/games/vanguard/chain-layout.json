@@ -2,25 +2,28 @@
   "army": {
     "offsets": {
       "bump": 8,
-      "contributed": 144,
-      "dealt": 242,
-      "extEntropy": 210,
-      "fuel": 105,
-      "half": 178,
-      "halfSet": 177,
-      "moves": 110,
+      "contributed": 216,
+      "dealt": 314,
+      "epoch": 138,
+      "extEntropy": 282,
+      "fuel": 177,
+      "half": 250,
+      "halfSet": 249,
+      "moves": 182,
       "player": 42,
-      "ranks": 75,
-      "reserved": 112,
+      "ranks": 147,
+      "reserved": 184,
       "seat": 41,
-      "secret": 145,
-      "side": 74,
-      "stormAt": 243,
-      "stormSeed": 245,
+      "secret": 217,
+      "side": 146,
+      "signer": 74,
+      "stormAt": 315,
+      "stormSeed": 317,
       "table": 9,
-      "truckTurn": 106
+      "tesoroMatch": 106,
+      "truckTurn": 178
     },
-    "size": 249
+    "size": 321
   },
   "battle": {
     "noSquare": 255,
@@ -55,12 +58,13 @@
       "permissioned": 1345,
       "players": 736,
       "reason": 1347,
-      "reserved": 1489,
+      "reserved": 1553,
       "resolveSlackSecs": 1488,
       "ring": 64,
       "rulesVersion": 1359,
       "setupDeadline": 1360,
       "shown": 860,
+      "signers": 1489,
       "sq": 800,
       "startDeadline": 24,
       "startedAt": 48,
@@ -90,7 +94,7 @@
       "slots": 16,
       "stride": 40
     },
-    "size": 1520,
+    "size": 1584,
     "trailWidth": 6
   },
   "generated": "by programs/vanguard/tests/golden.rs; WRITE_GOLDEN=1 cargo test -p vanguard --test golden"

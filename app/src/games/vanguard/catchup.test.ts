@@ -13,7 +13,7 @@ function battle(over: Partial<Battle> = {}): Battle {
   return {
     matchId: 1n, moved: 0n, startDeadline: 0, entropyDeadline: 0, deadline: 1000, startedAt: 900, eventSeq: 0, turnNo: 0, moves: 0,
     ring: Array.from({ length: 16 }, () => ({ seq: 0, kind: 0, data: Array<number>(35).fill(0) })),
-    tesoroMatch: key(1), players: [key(2), key(3)], sq, shown: Array(60).fill(0), trail: Array.from({ length: 60 }, () => [0, 0, 0, 0, 0, 0]), trailLen: Array(60).fill(0),
+    tesoroMatch: key(1), players: [key(2), key(3)], signers: [key(2), key(3)], sq, shown: Array(60).fill(0), trail: Array.from({ length: 60 }, () => [0, 0, 0, 0, 0, 0]), trailLen: Array(60).fill(0),
     bump: 0, authorityBump: 0, usSeat: 0, status: 2, finalized: 0, permissioned: 1, winner: 255, reason: 255, turn: 0, stepsLeft: 1, twoStepActive: 0, stormDone: 0,
     twoStep: [0, 0], timeouts: [0, 0], depotClaimed: [0, 0],
     layoutVersion: 2, rulesVersion: 3, setupDeadline: 0, capDeadline: 0, payer: key(4), oracleQueue: key(5), moveCap: 200, capSecs: 900, turnSecs: 5, graceSecs: 1,

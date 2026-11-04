@@ -1,5 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
+
+// Railcar shows only where NEXT_PUBLIC_SHOW_RAILCAR=1; these pages are read with it on (it is read when the modules load).
+vi.hoisted(() => {
+  process.env.NEXT_PUBLIC_SHOW_RAILCAR = "1";
+});
 
 vi.mock("next/link", () => ({ default: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a> }));
 
@@ -71,5 +76,25 @@ describe("Risks, Terms and Help carry the Railcar lines", () => {
     expect(q).toBeDefined();
     const t = text(<>{q!.a}</>);
     expect(t).toContain("last three");
+  });
+});
+
+describe("Railcar before launch", () => {
+  afterAll(() => {
+    process.env.NEXT_PUBLIC_SHOW_RAILCAR = "1";
+    vi.resetModules();
+  });
+
+  it("is a 404 and leaves Help, Risks and Terms without Railcar when NEXT_PUBLIC_SHOW_RAILCAR is unset", async () => {
+    delete process.env.NEXT_PUBLIC_SHOW_RAILCAR;
+    vi.resetModules();
+    const page = (await import("./page")).default;
+    expect(() => renderToStaticMarkup(page())).toThrow(/NEXT_HTTP_ERROR_FALLBACK;404/);
+    const risks = (await import("../risks/page")).default;
+    const terms = (await import("../../../(legal)/terms/page")).default;
+    const { TOPICS: topics } = await import("../../../(app)/help/help-content");
+    expect(text(risks())).not.toContain("Railcar");
+    expect(text(terms())).not.toContain("Railcar");
+    expect(topics.flatMap((t) => t.qs.map((q) => q.q)).join(" ")).not.toContain("Railcar");
   });
 });

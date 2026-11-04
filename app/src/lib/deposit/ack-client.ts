@@ -1,4 +1,5 @@
 import type { ChainSigner } from "@/games/block-puzzle/chain";
+import { signAsWallet } from "@/lib/seat/wallet-only";
 import type { GetToken } from "../chain/demo-client";
 import { newNonce, signedMessage } from "../chain/signed-request";
 import { DEPOSIT_ACK_VERSION } from "./acknowledgment";
@@ -11,7 +12,7 @@ async function call(step: "confirm", signer: ChainSigner, getToken: GetToken): P
   const ts = Date.now();
   const nonce = newNonce();
   const version = DEPOSIT_ACK_VERSION;
-  const signature = await signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-deposit-ack", step, address, ts, nonce, { version })));
+  const signature = await signAsWallet(signer, signedMessage("tesoro-deposit-ack", step, address, ts, nonce, { version }));
   const token = await getToken().catch(() => null);
   const res = await fetch("/api/deposit-ack", {
     method: "POST",

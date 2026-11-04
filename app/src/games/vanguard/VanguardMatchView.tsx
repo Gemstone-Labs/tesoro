@@ -3,6 +3,7 @@
 import { parseMatchKey } from "@/lib/chain/match-id";
 import { Busy, Button, Card, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { useMatchSigner } from "@/lib/seat/useMatchSigner";
 import { commitCopy } from "@/lib/chain/commit-pending";
 import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
@@ -23,16 +24,18 @@ import { useVanguardMatch } from "./useVanguardMatch";
  */
 export function VanguardMatchView({ matchId }: { matchId: string }) {
   const { auth, refresh, snapshot } = useAccount();
-  const signer = auth.signer;
+  const wallet = auth.signer;
   const nowSecs = useNowSecs();
   const id = parseMatchKey(matchId) ? matchId : null;
+  // who plays this Match from this page: its seat key when this device holds it, else the wallet
+  const { signer } = useMatchSigner(id);
   const { view, move, power, twoStep, run } = useVanguardMatch(id, signer, refresh);
   const { stage, match: m, battle, army, seat } = view;
   const me = snapshot?.accountKey.toBase58() ?? null;
 
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
   if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
-  if (!signer) return <MatchStageLoading game="vanguard" me={me} step="Getting your wallet ready" />;
+  if (!signer || !wallet) return <MatchStageLoading game="vanguard" me={me} step="Getting your wallet ready" />;
   if (stage === "loading") return stageLoading({ game: "vanguard", me, matchId });
   if (stage === "notfound") return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
   if (stage === "spectator") return <MatchSpectate matchId={matchId} />;
@@ -87,7 +90,7 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
         error={view.error}
         actions={
           (kind === "waiting" || view.refundable) && (
-            <StageAction disabled={view.busy !== null || cancelSent} onClick={() => void run("refund", () => refundMatch(signer, m.id))}>
+            <StageAction disabled={view.busy !== null || cancelSent} onClick={() => void run("refund", () => refundMatch(wallet, m.id, auth.getAccessToken))}>
               {view.busy === "refund" || cancelSent ? "Refunding…" : kind === "waiting" ? "Cancel and refund" : "Refund Match"}
             </StageAction>
           )
@@ -115,7 +118,7 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
             </Card>
           )}
           {m && view.refundable && stage === "closing" && (
-            <Button disabled={view.busy !== null} onClick={() => run("refund", () => refundMatch(signer, m.id))}>
+            <Button disabled={view.busy !== null} onClick={() => run("refund", () => refundMatch(wallet, m.id, auth.getAccessToken))}>
               Refund Match
             </Button>
           )}

@@ -143,7 +143,7 @@ describe("retire plan", () => {
     const w = new World();
     const m435 = w.add(row("MatchState", 435));
     const m915 = w.add(row("MatchState", 915));
-    w.add(row("MatchState", 776));
+    w.add(row("MatchState", 840));
     const season = w.add(row("SeasonState", 504));
     w.add(row("SeasonState", 1387));
     const currentSource = w.add(row("SourceState", 170, (d) => put(d, 9, key())));

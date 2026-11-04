@@ -35,6 +35,7 @@ fn trading_duel_fixtures_match_the_program() {
     table.tesoro_match = key(2);
     table.slot = 3;
     table.players = [key(3), key(4)];
+    table.signers = [key(13), key(14)];
     table.asset = ASSET_ETH;
     table.start_deadline = 1_300;
     table.checked_in = [true, true];
@@ -80,12 +81,23 @@ fn trading_duel_fixtures_match_the_program() {
         index: 3,
         epoch: 7,
         players: [key(3), key(4)],
+        signers: [key(13), key(14)],
         asset: ASSET_ETH,
         start_deadline: 1_300,
         payer: key(8),
     };
 
-    let mut book = Book::new(251, key(1), key(4), 1);
+    let mut book = Book::new(
+        251,
+        key(1),
+        SeatKeys {
+            player: key(4),
+            signer: key(14),
+        },
+        key(2),
+        7,
+        1,
+    );
     book.picks[2] = 6;
     book.picks[11] = -3;
     book.pick_count = 2;
