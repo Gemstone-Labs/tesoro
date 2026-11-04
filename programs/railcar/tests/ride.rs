@@ -2037,7 +2037,7 @@ impl Env {
 
     /// One case for the TypeScript `ahead` port, before a chunk: the car's and its pages' raw
     /// bytes, each seat's lines (source, amount) and what core's `ahead` names for `steps`. A long
-    /// run keeps its first three chunks and every 25th.
+    /// run keeps its first three chunks and every 5th.
     fn record_ahead(&mut self, car: &Car, steps: u8) {
         if self.ahead_cases.is_none() {
             return;
@@ -2051,7 +2051,7 @@ impl Env {
         let plan = st.inner.ahead(&seats, &lines, steps as usize);
         let chunk_no = self.ahead_seen;
         self.ahead_seen += 1;
-        if chunk_no >= 3 && chunk_no % 25 != 0 {
+        if chunk_no >= 3 && chunk_no % 5 != 0 {
             return;
         }
         let raw = self.svm.get_account(&s(car.tesoro)).expect("car").data;
