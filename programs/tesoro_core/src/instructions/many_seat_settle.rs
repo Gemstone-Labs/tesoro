@@ -111,9 +111,14 @@ pub struct ManySeatSeatClosed {
 // Seats and Pots from the remaining accounts
 // ---------------------------------------------------------------------------------------------
 
+/// A page's head: match key, payer, bump, index, reserved.
+const PAGE_HEAD: usize = 32 + 32 + 1 + 1 + 6;
+/// Where a page keeps its index.
+const PAGE_INDEX_AT: usize = DISC + 64 + 1;
+
 /// Offset of seat `slot` in a page's data.
 fn seat_at(slot: usize) -> usize {
-    DISC + 80 + slot * Seat::LEN
+    DISC + PAGE_HEAD + slot * Seat::LEN
 }
 
 /// The car's seat pages among `infos` (this program's, of a page's size and discriminator, naming
@@ -136,7 +141,7 @@ impl<'b, 'info> ChainSeats<'b, 'info> {
                 if data[..DISC] != *SeatPage::DISCRIMINATOR || data[DISC..DISC + 32] != match_key.to_bytes() {
                     continue;
                 }
-                data[DISC + 72]
+                data[PAGE_INDEX_AT]
             };
             require!(info.is_writable, TesoroError::NotWritable);
             if let Some(slot) = pages.get_mut(index as usize) {
@@ -834,11 +839,14 @@ mod tests {
     fn a_seat_sits_where_the_page_layout_puts_it() {
         let mut page: SeatPage = bytemuck::Zeroable::zeroed();
         page.seats[3].player = [9; 32];
+        page.seats[4].player = [1; 32];
+        page.index = 7;
         let mut data = SeatPage::DISCRIMINATOR.to_vec();
         data.extend_from_slice(bytemuck::bytes_of(&page));
         let at = seat_at(3);
         let seat: &Seat = bytemuck::from_bytes(&data[at..at + Seat::LEN]);
         assert_eq!(seat.player, [9; 32]);
-        assert_eq!(data[DISC + 72], page.index);
+        assert_eq!(data[PAGE_INDEX_AT], 7);
+        assert_eq!(data.len(), SeatPage::SPACE);
     }
 }
