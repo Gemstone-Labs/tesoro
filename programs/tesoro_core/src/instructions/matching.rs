@@ -1237,9 +1237,9 @@ pub(crate) fn refund_match(ctx: Context<RefundMatch>) -> Result<()> {
             &caller,
             &Pubkey::new_from_array(m.a.signer),
         ) || match &ctx.accounts.opener_protections {
-                Some(p) => is_away(&p.to_account_info())?,
-                None => false,
-            })
+            Some(p) => is_away(&p.to_account_info())?,
+            None => false,
+        })
     {
         RefundBy::Opener(m.a.player)
     } else {

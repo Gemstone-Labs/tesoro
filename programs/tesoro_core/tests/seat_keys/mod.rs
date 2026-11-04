@@ -46,7 +46,10 @@ fn a_match_side_records_the_seat_key_that_co_signed_or_the_wallet_that_named_non
     let ana_key = d.env.fresh_key();
     let ben_key = d.env.fresh_key();
     d.env.name_seat(&ana_key);
-    let id = d.env.open_match(&d.alice, 500).expect("open with a seat key");
+    let id = d
+        .env
+        .open_match(&d.alice, 500)
+        .expect("open with a seat key");
     assert_eq!(d.env.mstate(id).inner.a.signer, key_of(&ana_key).to_bytes());
     assert_eq!(d.env.mstate(id).inner.a.player, d.alice.account.to_bytes());
     d.env.name_seat(&ben_key);
@@ -74,7 +77,8 @@ fn a_seat_signer_that_did_not_sign_is_refused_on_every_entry_path() {
     let not_signing = Keypair::new();
     // open_ticket
     let nonce = d.env.next_ticket(d.alice.account);
-    d.env.ensure_spill(&d.alice.kp.insecure_clone(), d.alice.account, 4);
+    d.env
+        .ensure_spill(&d.alice.kp.insecure_clone(), d.alice.account, 4);
     let open = open_ticket_ix(&d.alice, nonce, 500, 4, key_of(&not_signing));
     let alice = d.alice.kp.insecure_clone();
     assert!(d.env.send(&[open], &alice, &[]).is_err());
@@ -204,30 +208,28 @@ fn the_requesters_seat_key_is_named_by_a_backed_entry_but_only_the_backer_cancel
         .expect("anyone stages a Backing Ticket");
     // the Requester's key does not cancel the Backer's Ticket: that is the Backer's, or anyone
     // after the deadline
-    let err = b
-        .d
-        .env
-        .cancel_backing_ticket(&dave_key, &carol, 9, Some(offer), books.clone())
-        .unwrap_err();
+    let err =
+        b.d.env
+            .cancel_backing_ticket(&dave_key, &carol, 9, Some(offer), books.clone())
+            .unwrap_err();
     assert_eq!(custom_code(&err), WALLET_ONLY_NOT_EXPIRED);
     // the backed entry names the Requester's seat key
     let n = b.d.env.counters_next(dave.account);
-    let id = b
-        .d
-        .env
-        .open_match_ix(
-            &dave,
-            500,
-            n,
-            9,
-            false,
-            0,
-            1,
-            ticket_pda(carol.account, 9),
-            books,
-            Some((offer, carol.account)),
-        )
-        .expect("backed open");
+    let id =
+        b.d.env
+            .open_match_ix(
+                &dave,
+                500,
+                n,
+                9,
+                false,
+                0,
+                1,
+                ticket_pda(carol.account, 9),
+                books,
+                Some((offer, carol.account)),
+            )
+            .expect("backed open");
     let side = b.d.env.mstate(id).inner.a;
     assert_eq!(side.signer, key_of(&dave_key).to_bytes());
     assert_eq!(side.player, dave.account.to_bytes());
@@ -263,7 +265,9 @@ fn only_the_wallet_or_the_named_seat_key_cancels_an_open_match_at_once() {
     d.env.refund_keep(&alice, id2).expect("wallet cancels");
     d.env.name_seat(&ana_key);
     let id3 = d.env.open_match(&d.alice, 500).expect("named open");
-    d.env.refund_keep(&alice, id3).expect("wallet cancels a seat-keyed Match");
+    d.env
+        .refund_keep(&alice, id3)
+        .expect("wallet cancels a seat-keyed Match");
     assert_eq!(d.env.mstate(id3).inner.stage(), Stage::Closed);
 }
 

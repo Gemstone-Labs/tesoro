@@ -53,6 +53,7 @@ describe("line stores written by tesoro_core", () => {
     const t = decodeTicketHead(core.ticket);
     assert.deepEqual([t.kind, t.state, t.nonce, t.target, t.expiresAt, t.spillRoom], ["backing", "cancelling", 77n, 5000n, 1_800_000_000, 6]);
     assert.deepEqual([t.account.toBase58(), t.game.toBase58(), t.payer.toBase58()], [keyOf(5).toBase58(), keyOf(6).toBase58(), keyOf(7).toBase58()]);
+    assert.equal(t.signer.toBase58(), keyOf(8).toBase58());
     const pot = decodeStore(core.ticket, POT_AT);
     assert.deepEqual(pot.lines().map((l) => [l.side, l.amount]), [[0, 11n], [1, 22n]]);
   });
@@ -85,6 +86,9 @@ describe("a Match written by tesoro_core", () => {
   it("room holds, payer and Pots are read where the program wrote them", () => {
     const v = viewOf(keyOf(98), coder.decode("matchState", core.match));
     assert.deepEqual(v.room.map((r) => [r.account.toBase58(), r.left]), [0, 1, 2, 3, 4].map((i) => [new PublicKey(Buffer.alloc(32, 40 + i)).toBase58(), 3 + i]));
+    // each side names the seat key that co-signed its entry
+    const record = coder.decode("matchState", core.match).inner;
+    assert.deepEqual([record.a.signer, record.b.signer].map((k: PublicKey) => k.toBase58()), [12, 13].map((n) => new PublicKey(Buffer.alloc(32, n)).toBase58()));
     assert.equal(v.stage, "settling");
     assert.equal(v.ref.n, 2n ** 64n - 1n);
     assert.equal(v.pots.length, 2);

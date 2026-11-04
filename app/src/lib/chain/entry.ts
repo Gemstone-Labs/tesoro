@@ -350,6 +350,8 @@ export interface OpenArgs {
   pot: PotRef;
   backing?: BackingRef;
   remaining?: AccountMeta[];
+  /** The seat key that co-signs the entry and plays the Match; the wallet names itself when absent. */
+  seatSigner?: PublicKey;
 }
 
 /** `open_match`. `player` is the wallet (authority). */
@@ -361,6 +363,7 @@ export function openMatchIx(a: OpenArgs): TransactionInstruction {
     {
       payer: a.payer,
       playerAuthority: a.player,
+      seatSigner: a.seatSigner ?? a.player,
       config: pda("config"),
       economy: pda("economy"),
       ...gameAccounts(game),
@@ -468,6 +471,8 @@ export interface JoinArgs {
   pot: PotRef;
   backing?: BackingRef;
   remaining?: AccountMeta[];
+  /** The seat key that co-signs the entry and plays the Match; the wallet names itself when absent. */
+  seatSigner?: PublicKey;
 }
 
 /** `join_match`: both of the opener's baskets and spills are accounts of it. */
@@ -476,6 +481,7 @@ export function joinMatchIx(a: JoinArgs): TransactionInstruction {
   const accounts: Record<string, PublicKey | undefined> = {
     payer: a.payer,
     playerAuthority: a.player,
+    seatSigner: a.seatSigner ?? a.player,
     playerAccount: account,
     counters: countersPda(account),
     protections: protectionsPda(account),
