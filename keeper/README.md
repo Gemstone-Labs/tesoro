@@ -1,15 +1,31 @@
 # Keeper
 
-Off-chain process that keeps the devnet demo moving without a human. Every job is idempotent, permissionless on chain (the keeper is just a fee payer) and logs one line per action.
+Off-chain service for what no Player transaction can carry (ADR 0015). Every step is idempotent, permissionless on chain (the keeper is just a fee payer) and logs one line per action.
+
+## What runs
+
+| Run | Started by | What it does |
+|---|---|---|
+| Season run | `deploy/tesoro-season-run*.timer` (Monday 00:15 UTC, Wednesday 00:30 UTC, hourly retry) | settle, redeem, harvest, batches, pools, record, pay |
+| Safety sweep | `deploy/tesoro-safety-sweep.timer` (5 min) | finishes a Match a Player left (10 min grace), refunds a Backer-funded Match nobody joined, hourly balance check |
+| Janitor | `deploy/tesoro-janitor.timer` (daily 03:30 UTC) | spent tickets, receipts, pair records, Assignments, Listings |
+| Table-pool repair | `deploy/tesoro-table-pool.timer` (15 min) | republishes each Table's live epoch to `table_pool`, Sponsor balance alerts |
+| Notify cron | `deploy/tesoro-notify-cron.timer` (5 min) | calls the app's `/api/cron/notify` |
+| Admin | by hand: `src/admin-cli.ts <tables\|fees\|fill\|refill\|batches>` | Tables, Sponsors, Fuel, fee cash-in, Instant Redeem fills, fee batches |
+| Devnet price writer | `pnpm --filter @tesoro/keeper start` (service `tesoro-keeper`), test cluster only | writes the Advance price; exits at once on mainnet |
+
+Everything below in "Jobs" describes code that used to run in a 20 s loop together with a 1 s fast lane. The loop and the lane are gone; the code stays because the runs, `admin-cli`, scripts and the pages call it.
+
+Devnet checks that prove the rule are in `app/scripts/` (`match-timing.mts` with `SPONSOR_ORIGIN` for sponsored Block Burst Matches with page drivers, `kd20-who.mts` for who sent each transaction of a Match, `kd20-eth.mts` for an EVM Lock and Unlock with the Delivery Fee).
 
 ```
-pnpm --filter @tesoro/keeper start            # loop, every 20 s
+pnpm --filter @tesoro/keeper start            # devnet price writer, every 60 s (exits at once on mainnet)
 pnpm --filter @tesoro/keeper start --once     # one pass, then exit
 pnpm --filter @tesoro/keeper start --once --dry-run   # say what it would do, send nothing
 pnpm --filter @tesoro/keeper typecheck
 ```
 
-Flags / env: `--interval <secs>` (`KEEPER_INTERVAL_SECS`, 20), `--fast <secs>` (`KEEPER_FAST_SECS`, 2; 0 turns off the Block Burst fast lane: between full passes the table, Match and history jobs run for Block Burst alone while a joined Match is not closed, so assign, begin, settle and close do not wait a whole pass; with nothing to do it reads one signature a second, the latest on tesoro_core, and reads the Match list (fresh, never from the 5 s shared answers) when that changed, once more after a change the list did not explain, or when 60 s passed; its turns also run between the jobs of a full pass, so a joined Match waits for one job, not the whole pass), `--max-sol-per-hour <n>` (`KEEPER_MAX_SOL_PER_HOUR`, 0.5), `--rpc <url>` (`KEEPER_RPC`, default `https://rpc.magicblock.app/devnet`; the public devnet RPC rate-limits), `KEEPER_KEYPAIR` (`~/.config/tesoro/keeper.json`; `KEEPER_SECRET_KEY` holding the file's JSON array wins when set), `TESORO_IDL_DIR`, `KEEPER_RPC_TIMEOUT_MS` (30000: each RPC request gives up after this), `KEEPER_JOB_LIMIT_SECS` (120: a job still running after this no longer holds up the others and is skipped until it finishes).
+Flags / env: `--interval <secs>` (`KEEPER_INTERVAL_SECS`, 60), `--max-sol-per-hour <n>` (`KEEPER_MAX_SOL_PER_HOUR`, 0.5), `--rpc <url>` (`KEEPER_RPC`, default `https://rpc.magicblock.app/devnet`; the public devnet RPC rate-limits), `KEEPER_KEYPAIR` (`~/.config/tesoro/keeper.json`; `KEEPER_SECRET_KEY` holding the file's JSON array wins when set), `TESORO_IDL_DIR`, `KEEPER_RPC_TIMEOUT_MS` (30000: each RPC request gives up after this), `KEEPER_JOB_LIMIT_SECS` (120: a job still running after this no longer holds up the others and is skipped until it finishes).
 
 Cluster: at startup the keeper checks the genesis hash of `KEEPER_RPC` and `KEEPER_GPA_RPC` and refuses to start unless both are Solana devnet. The Hoodi RPC must answer chain id 560048: a different chain stops the start, an unreachable one is rechecked by the eth job before it sends. The compromised key `AXwY…` (`~/.config/solana/id.json`) is refused as payer or oracle.
 
