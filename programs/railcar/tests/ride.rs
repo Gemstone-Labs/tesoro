@@ -1064,6 +1064,17 @@ impl Env {
         self.table(table).ride_slot() + (secs * SPS as f64).round() as u64
     }
 
+    /// The first slot at or after ride ms `ms`.
+    fn at_ms(&mut self, table: APk, ms: u32) {
+        let slot = self.table(table).ride_slot() + u64::from(ms).div_ceil(1_000 / SPS);
+        self.set_slot(slot);
+    }
+
+    /// The Impact slot of the ride on `table`.
+    fn impact_slot(&self, table: APk) -> u64 {
+        self.table(table).ride_slot() + u64::from(self.vault(table).crash_ms).div_ceil(1_000 / SPS)
+    }
+
     fn at_ride(&mut self, table: APk, secs: f64) {
         let slot = self.ride_at(table, secs);
         self.set_slot(slot);
@@ -1294,8 +1305,11 @@ fn the_worked_example_pays_to_the_gema() {
     env.at_ride(car.table, 100.0);
     env.signal(car.table).expect("signal");
     assert_eq!(env.table(car.table).phase, PHASE_RIDING);
-    let crash = f64::from(env.vault(car.table).crash_ms) / 1_000.0;
-    env.at_ride(car.table, crash);
+    let impact = env.impact_slot(car.table);
+    env.set_slot(impact - 1);
+    env.signal(car.table).expect("signal");
+    assert_eq!(env.table(car.table).phase, PHASE_RIDING, "a slot before the wall");
+    env.set_slot(impact);
     env.signal(car.table).expect("impact");
     let t = env.table(car.table);
     assert_eq!((t.phase, t.outcome, t.dirty), (PHASE_OVER, OUTCOME_PLACED, 0));
@@ -1313,4 +1327,414 @@ fn the_worked_example_pays_to_the_gema() {
         env.svm.get_account(&s(car.key)).is_none_or(|acc| acc.lamports == 0),
         "the car closed with its settlement"
     );
+}
+
+// =========================================================================================
+// Who gets what
+// =========================================================================================
+
+/// Each rider's Gemas after the car settled, against before.
+fn settle_deltas(env: &mut Env, car: &Car, riders: &[Person], before: &[u64]) -> Vec<i64> {
+    env.settle(car);
+    riders
+        .iter()
+        .zip(before)
+        .map(|(p, b)| env.gemas(p) as i64 - *b as i64)
+        .collect()
+}
+
+fn end_by_signal(env: &mut Env, car: &Car) {
+    let impact = env.impact_slot(car.table);
+    env.set_slot(impact);
+    env.signal(car.table).expect("impact");
+    assert_eq!(env.table(car.table).phase, PHASE_OVER);
+}
+
+#[test]
+fn nobody_jumping_refunds_every_entry_with_no_fee() {
+    let (mut env, car, riders) = riding(draw_where(|r| r.crash_ms < 40_000));
+    let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    let studio_before = env.fee_gemas(&env.studio);
+    end_by_signal(&mut env, &car);
+    assert_eq!(env.table(car.table).outcome, OUTCOME_REFUND);
+    assert_eq!(settle_deltas(&mut env, &car, &riders, &before), vec![0; 5]);
+    assert_eq!(env.fee_gemas(&env.studio), studio_before);
+}
+
+#[test]
+fn one_jumper_takes_the_rest_and_two_split_seventy_thirty() {
+    let draw = draw_where(|r| r.crash_ms >= 40_000);
+    // one: Dee off at 12 s takes everything after fees (2,500 - 150 - her 500 = 1,850)
+    let (mut env, car, riders) = riding(draw);
+    let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    env.at_ride(car.table, 12.0);
+    env.jump(car.table, &riders[DEE]).expect("jump");
+    end_by_signal(&mut env, &car);
+    assert_eq!(
+        settle_deltas(&mut env, &car, &riders, &before),
+        vec![-500, -500, -500, 1_850, -500]
+    );
+    // two: Cy at 30 s, Ben at 31 s; the 1,350 after fees and entries splits 945 / 405
+    let (mut env, car, riders) = riding(draw);
+    let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    env.at_ride(car.table, 30.0);
+    env.jump(car.table, &riders[CY]).expect("jump");
+    env.at_ride(car.table, 31.0);
+    env.jump(car.table, &riders[BEN]).expect("jump");
+    end_by_signal(&mut env, &car);
+    assert_eq!(
+        settle_deltas(&mut env, &car, &riders, &before),
+        vec![-500, 945, 405, -500, -500]
+    );
+}
+
+#[test]
+fn when_everyone_jumps_the_ride_ends_at_the_last_jump() {
+    let (mut env, car, riders) = riding(draw_where(|r| r.crash_ms >= 30_000));
+    let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    for (i, p) in riders.iter().enumerate() {
+        env.at_ride(car.table, 5.0 + i as f64);
+        env.jump(car.table, p).expect("jump");
+    }
+    let t = env.table(car.table);
+    assert_eq!((t.phase, t.aboard, t.over_ms()), (PHASE_OVER, 0, 9_000));
+    // Ana and Ben get 80% back (400 each); the Pot after refunds is 1,700 and its 6% fees 102 come
+    // from their 200 forfeited; the 98 left split 60/25/15 with the rounding to Eve: 60, 24, 14
+    assert_eq!(
+        settle_deltas(&mut env, &car, &riders, &before),
+        vec![-100, -100, 14, 24, 60]
+    );
+}
+
+#[test]
+fn a_jump_at_or_after_the_impact_slot_ends_the_ride_with_the_player_aboard() {
+    let (mut env, car, riders) = riding(draw_where(|r| r.crash_ms >= 20_000));
+    env.at_ride(car.table, 11.0);
+    env.jump(car.table, &riders[ANA]).expect("jump");
+    // the last slot before the wall still counts
+    let impact = env.impact_slot(car.table);
+    env.set_slot(impact - 1);
+    env.jump(car.table, &riders[BEN]).expect("in time");
+    // Cy's Jump lands on the Impact slot: it succeeds, ends the ride, and Cy is aboard
+    env.set_slot(impact);
+    env.jump(car.table, &riders[CY]).expect("the ride ends");
+    let t = env.table(car.table);
+    assert_eq!((t.phase, t.jumps), (PHASE_OVER, 2));
+    let cy = env.seat_of(car.table, &riders[CY]);
+    assert!(t.seats[usize::from(cy)].aboard());
+    // after the end nothing more is taken
+    let late = env.jump(car.table, &riders[DEE]).unwrap_err();
+    assert_eq!(code(&late), rcode(railcar::RailcarError::WrongPhase));
+}
+
+#[test]
+fn jumps_are_ordered_as_they_arrive_even_in_the_same_slot() {
+    let (mut env, car, riders) = riding(draw_where(|r| r.crash_ms >= 30_000));
+    let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    env.at_ride(car.table, 20.0);
+    env.jump(car.table, &riders[BEN]).expect("Ben first");
+    env.jump(car.table, &riders[ANA]).expect("Ana second, same slot");
+    let t = env.table(car.table);
+    let order = |p: &Person| t.seats[usize::from(env.seat_of(car.table, p))].order;
+    assert_eq!((order(&riders[BEN]), order(&riders[ANA])), (1, 2));
+    end_by_signal(&mut env, &car);
+    // Ana was last off: 70% of the 1,350 left, Ben 30%
+    assert_eq!(
+        settle_deltas(&mut env, &car, &riders, &before),
+        vec![945, 405, -500, -500, -500]
+    );
+}
+
+#[test]
+fn a_jump_names_its_car_and_its_own_seat() {
+    let (mut env, car, riders) = riding(draw_where(|r| r.crash_ms >= 30_000));
+    env.at_ride(car.table, 15.0);
+    let seat = env.seat_of(car.table, &riders[ANA]);
+    let stale = env.jump_ix(car.table, &riders[ANA], car.no + 2, seat);
+    let kp = riders[ANA].kp.insecure_clone();
+    let err = env.send(&[stale], &kp, &[]).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::StaleBinding));
+    let bens = env.seat_of(car.table, &riders[BEN]);
+    let wrong = env.jump_ix(car.table, &riders[ANA], car.no, bens);
+    let err = env.send(&[wrong], &kp, &[]).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::NotAPlayer));
+    assert_eq!(env.table(car.table).jumps, 0);
+}
+
+#[test]
+fn signals_show_the_tells_only_once_the_car_passes_them() {
+    let (mut env, car, _riders) = riding(draw_where(|r| r.crash_ms >= 60_000 && r.screw_at_ms > 25_000));
+    let v = env.vault(car.table);
+    let slot_before = env.table(car.table).ride_slot() + u64::from(v.screw_at_ms - 1) / (1_000 / SPS);
+    env.set_slot(slot_before);
+    env.signal(car.table).expect("signal");
+    assert_eq!(env.table(car.table).tell, 0);
+    env.at_ms(car.table, v.screw_at_ms);
+    env.signal(car.table).expect("signal");
+    assert_eq!(env.table(car.table).tell, 1);
+    env.at_ms(car.table, v.spark_at_ms);
+    env.signal(car.table).expect("signal");
+    let t = env.table(car.table);
+    assert_eq!((t.tell, t.phase), (3, PHASE_RIDING));
+}
+
+#[test]
+fn a_draw_that_never_comes_refunds_the_car() {
+    let mut env = Env::new(2);
+    let (car, riders) = boarded(&mut env, 5);
+    let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    env.set_time(env.now + COUNTDOWN_SECS);
+    env.check(&car).expect("depart");
+    env.start_ride(&car).expect("start");
+    assert_eq!(env.table(car.table).phase, PHASE_DRAWING);
+    let started = env.table(car.table).started_slot();
+    env.set_slot(started + railcar::state::DRAW_WINDOW_SLOTS);
+    env.signal(car.table).expect("still waiting");
+    assert_eq!(env.table(car.table).phase, PHASE_DRAWING);
+    env.set_slot(started + railcar::state::DRAW_WINDOW_SLOTS + 1);
+    let late = env.callback(car.table, [1; 32]).unwrap_err();
+    assert_eq!(code(&late), rcode(railcar::RailcarError::StaleRequest));
+    env.signal(car.table).expect("void");
+    let t = env.table(car.table);
+    assert_eq!(
+        (t.outcome, t.reason),
+        (OUTCOME_REFUND, railcar::state::REASON_NO_DRAW)
+    );
+    assert_eq!(settle_deltas(&mut env, &car, &riders, &before), vec![0; 5]);
+}
+
+// =========================================================================================
+// Boarding
+// =========================================================================================
+
+#[test]
+fn the_car_waits_below_five_and_leaves_thirty_seconds_after_the_fifth() {
+    let mut env = Env::new(2);
+    let (car, riders) = boarded(&mut env, 4);
+    env.set_time(env.now + 10_000);
+    env.check(&car).expect("no-op");
+    assert_eq!(env.stage(&car), ManyStage::Boarding, "no time limit below 5");
+    let fifth = env.rider();
+    env.queue(&fifth).expect("fifth");
+    let first = env.core_car(&car).inner.first_min_at();
+    assert_eq!(first, env.now);
+    env.set_time(first + COUNTDOWN_SECS - 1);
+    env.check(&car).expect("no-op");
+    assert_eq!(env.stage(&car), ManyStage::Boarding);
+    env.set_time(first + COUNTDOWN_SECS);
+    env.check(&car).expect("depart");
+    assert_eq!(env.stage(&car), ManyStage::Departed);
+    assert_eq!(env.core_car(&car).inner.seated, 5);
+    drop(riders);
+}
+
+#[test]
+fn stepping_off_and_back_on_never_moves_the_departure_time() {
+    let mut env = Env::new(2);
+    let (car, riders) = boarded(&mut env, 5);
+    let first = env.core_car(&car).inner.first_min_at();
+    env.set_time(first + 20);
+    env.step_off(&riders[BEN], &car).expect("step off");
+    env.set_time(first + 25);
+    env.queue(&riders[BEN]).expect("back on");
+    assert_eq!(env.core_car(&car).inner.min_since(), first + 25, "core's countdown restarted");
+    env.set_time(first + COUNTDOWN_SECS);
+    env.check(&car).expect("depart");
+    assert_eq!(env.stage(&car), ManyStage::Departed, "the first end time holds");
+}
+
+#[test]
+fn a_car_short_of_five_at_its_end_time_leaves_the_moment_a_fifth_boards() {
+    let mut env = Env::new(2);
+    let (car, riders) = boarded(&mut env, 5);
+    let first = env.core_car(&car).inner.first_min_at();
+    env.set_time(first + 20);
+    env.step_off(&riders[EVE], &car).expect("step off");
+    env.set_time(first + COUNTDOWN_SECS + 1);
+    env.check(&car).expect("no-op");
+    assert_eq!(env.stage(&car), ManyStage::Boarding, "never with 4");
+    env.set_time(first + 300);
+    let newcomer = env.rider();
+    let boarded_car = env.queue(&newcomer).expect("board");
+    assert_eq!(boarded_car.key, car.key);
+    assert_eq!(env.stage(&car), ManyStage::Departed, "left in the 5th's transaction");
+}
+
+#[test]
+fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
+    let mut env = Env::new(2);
+    let (car, riders) = boarded(&mut env, 100);
+    assert_eq!(
+        env.stage(&car),
+        ManyStage::Departed,
+        "a full car leaves in the transaction that fills it"
+    );
+    let late = env.rider();
+    let next = env.queue(&late).expect("next car");
+    assert_eq!((next.no, env.stage(&next)), (1, ManyStage::Boarding));
+    assert_eq!(next.table, railcar::table_address(1));
+    // the ride: 10 Jump early, then the last three; everyone else is aboard at Impact
+    let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    let studio_before = env.fee_gemas(&env.studio);
+    env.start_ride(&car).expect("start");
+    println!("start_ride, 100 seats: {} CU", env.last_cu);
+    env.callback(car.table, draw_where(|r| r.crash_ms >= 60_000)).expect("draw");
+    assert_eq!(env.table(car.table).seated, 100);
+    for (k, p) in riders.iter().take(13).enumerate() {
+        env.at_ride(car.table, 2.0 + 4.0 * k as f64);
+        env.jump(car.table, p).expect("jump");
+        println!("jump {k}: {} CU", env.last_cu);
+    }
+    end_by_signal(&mut env, &car);
+    println!("impact signal, 100 seats: {} CU", env.last_cu);
+    let pages = env.page_metas(&car);
+    let finalize = env.finalize_ix(&car, pages);
+    let payer = env.admin.insecure_clone();
+    let table = car.table;
+    env.on_base(table, |e| e.send_v0(&[cu_limit(1_400_000), finalize], &payer))
+        .expect("finalize");
+    println!("finalize, 100 seats: {} CU", env.last_cu);
+    env.run_car(&car);
+    let delta: Vec<i64> = riders
+        .iter()
+        .zip(&before)
+        .map(|(p, b)| env.gemas(p) as i64 - *b as i64)
+        .collect();
+    // early Jumpers at 2..42 s: 80, 80, 80, 80, 80, 70, 70, 60, 60, 50 % back
+    let refunds = [400, 400, 400, 400, 400, 350, 350, 300, 300, 250];
+    for (k, r) in refunds.iter().enumerate() {
+        assert_eq!(delta[k], *r - 500, "early Jumper {k}");
+    }
+    assert!(delta[13..].iter().all(|d| *d == -500), "aboard at Impact");
+    // refunds 3,550: the Pot after refunds is 46,450 and its 6% fees 2,787
+    let fees: i64 = 2_787;
+    assert_eq!(delta.iter().sum::<i64>(), -fees);
+    assert!(delta[12] > delta[11] && delta[11] > delta[10], "last off first");
+    assert_eq!(
+        env.fee_gemas(&env.studio) - studio_before,
+        1_393,
+        "Studio Fee: 3% of 46,450, rounded down"
+    );
+}
+
+// =========================================================================================
+// Tables and the result
+// =========================================================================================
+
+/// Five more riders board the next car through the Queue and it leaves.
+fn next_departed(env: &mut Env) -> Car {
+    let (car, _) = boarded(env, 5);
+    env.set_time(env.now + COUNTDOWN_SECS);
+    env.check(&car).expect("depart");
+    car
+}
+
+#[test]
+fn a_table_takes_its_next_car_only_after_core_froze_the_last_one() {
+    let draw = draw_where(|r| r.crash_ms >= 30_000);
+    let (mut env, car0, riders) = riding(draw);
+    let car1 = next_departed(&mut env);
+    let car2 = next_departed(&mut env);
+    assert_eq!((car1.table, car2.table), (railcar::table_address(1), car0.table));
+    // car 2 shares Table 0 with car 0, still riding
+    let err = env.start_ride(&car2).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::WrongPhase));
+    env.at_ride(car0.table, 12.0);
+    env.jump(car0.table, &riders[ANA]).expect("jump");
+    end_by_signal(&mut env, &car0);
+    let err = env.start_ride(&car2).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::PreviousNotFrozen));
+    env.finalize(&car0).expect("finalize car 0");
+    env.start_ride(&car2).expect("Table 0 takes car 2");
+    let t = env.table(car2.table);
+    assert_eq!((t.car_no(), t.phase, t.seated, t.jumps), (2, PHASE_DRAWING, 5, 0));
+    env.start_ride(&car1).expect("Table 1 takes car 1");
+}
+
+#[test]
+fn finalize_needs_the_cars_own_finished_table_and_all_its_pages() {
+    let draw = draw_where(|r| r.crash_ms >= 30_000);
+    let (mut env, car, riders) = riding(draw);
+    // base still holds the Table as it was before the ride
+    let err = env.finalize(&car).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::BadTable));
+    env.at_ride(car.table, 12.0);
+    env.jump(car.table, &riders[ANA]).expect("jump");
+    // a commit of the ride in progress is not a result either
+    env.commit_standin(car.table);
+    let err = env.finalize(&car).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::BadTable));
+    end_by_signal(&mut env, &car);
+    let err = env.finalize_with(&car, vec![]).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::PagesMissing));
+    env.finalize(&car).expect("finalize");
+    assert_eq!(env.stage(&car), ManyStage::Settling);
+}
+
+#[test]
+fn a_table_passes_over_a_car_that_will_never_ride() {
+    let mut env = Env::new(2);
+    // car 0 (Table 0): its only rider steps off and anyone closes the empty car
+    let ana = env.rider();
+    let car0 = env.queue(&ana).expect("open");
+    env.step_off(&ana, &car0).expect("step off");
+    let close = ix(
+        tesoro_core::ID,
+        tesoro_core::accounts::CloseManySeatMatch {
+            caller: a(env.admin.pubkey()),
+            match_state: car0.tesoro,
+            match_payer: ana.key,
+        },
+        tesoro_core::instruction::CloseManySeatMatch {},
+        vec![rem(page_pda(car0.tesoro, 0)), rem(ana.key)],
+    );
+    let admin = env.admin.insecure_clone();
+    env.send(&[close], &admin, &[]).expect("close empty car");
+    let car1 = next_departed(&mut env);
+    let car2 = next_departed(&mut env);
+    assert_eq!((car1.no, car2.no), (1, 2));
+    let err = env.start_ride(&car2).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::WrongCar));
+    let skip = ix(
+        railcar::ID,
+        railcar::accounts::SkipCar {
+            caller: a(admin.pubkey()),
+            table: car0.table,
+            config: config_addr(),
+            car: car0.key,
+            match_state: car0.tesoro,
+            receipt: receipt(car0.tesoro),
+        },
+        railcar::instruction::SkipCar {},
+        vec![],
+    );
+    env.send(&[skip.clone()], &admin, &[]).expect("skip car 0");
+    env.start_ride(&car2).expect("car 2 rides");
+    // a car still on its way cannot be skipped
+    let skip_two = ix(
+        railcar::ID,
+        railcar::accounts::SkipCar {
+            caller: a(admin.pubkey()),
+            table: car1.table,
+            config: config_addr(),
+            car: car1.key,
+            match_state: car1.tesoro,
+            receipt: receipt(car1.tesoro),
+        },
+        railcar::instruction::SkipCar {},
+        vec![],
+    );
+    let err = env.send(&[skip_two], &admin, &[]).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::CannotSkip));
+}
+
+#[test]
+fn only_one_car_boards_at_a_time() {
+    let mut env = Env::new(2);
+    let (car, riders) = boarded(&mut env, 3);
+    let other = env.rider();
+    let err = env.open_car(&other).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::CarBoarding));
+    assert_eq!(env.config().next_car, 1);
+    drop((car, riders));
 }
