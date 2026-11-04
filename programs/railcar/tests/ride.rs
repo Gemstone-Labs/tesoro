@@ -1842,7 +1842,8 @@ fn a_table_passes_over_a_car_that_will_never_ride() {
         railcar::instruction::SkipCar {},
         vec![],
     );
-    env.send(&[skip.clone()], &admin, &[]).expect("skip car 0");
+    env.send(std::slice::from_ref(&skip), &admin, &[])
+        .expect("skip car 0");
     env.start_ride(&car2).expect("car 2 rides");
     // a car still on its way cannot be skipped
     let skip_two = ix(
