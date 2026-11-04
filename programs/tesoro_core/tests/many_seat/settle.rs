@@ -108,10 +108,10 @@ impl Env {
         let mut seats = vec![];
         let mut lines = vec![];
         for p in 0..st.inner.pages {
-            for s in self.page(car, p).seats {
-                let l = if s.state() == SeatState::Seated {
+            for seat in self.page(car, p).seats {
+                let l = if seat.state() == SeatState::Seated {
                     self.svm
-                        .get_account(&s(APk::new_from_array(s.pot())))
+                        .get_account(&s(APk::new_from_array(seat.pot())))
                         .filter(|acc| acc.data.len() > tesoro_core::pots::POT_AT)
                         .map(|acc| {
                             PotPages::open(acc.data[tesoro_core::pots::POT_AT..].to_vec())
@@ -122,7 +122,7 @@ impl Env {
                 } else {
                     vec![]
                 };
-                seats.push(s);
+                seats.push(seat);
                 lines.push(l);
             }
         }
@@ -218,8 +218,8 @@ impl Env {
 
     fn close_seat_ix(&self, caller: APk, car: Car, seat: u8) -> Instruction {
         let page = self.page(car, seat / SEATS_PER_PAGE as u8);
-        let s = page.seats[seat as usize % SEATS_PER_PAGE];
-        let player = APk::new_from_array(s.player());
+        let st = page.seats[seat as usize % SEATS_PER_PAGE];
+        let player = APk::new_from_array(st.player());
         let mark = mark_pda(car.key, player);
         let mark_payer = self
             .svm
@@ -227,7 +227,7 @@ impl Env {
             .map(|acc| *bytemuck::from_bytes::<SeatMark>(&acc.data[8..SeatMark::SPACE]))
             .expect("mark")
             .payer;
-        let pot = APk::new_from_array(s.pot());
+        let pot = APk::new_from_array(st.pot());
         ix(
             accounts::CloseManySeat {
                 caller,
@@ -239,7 +239,7 @@ impl Env {
                 pot,
                 pot_payer: pot_payer_of(&self.svm, pot),
                 sponsor: None,
-                funder_spill: Some(spill_address(&APk::new_from_array(s.funder())).0),
+                funder_spill: Some(spill_address(&APk::new_from_array(st.funder())).0),
             },
             instruction::CloseManySeat { seat },
             vec![],
