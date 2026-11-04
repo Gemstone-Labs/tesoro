@@ -34,10 +34,11 @@ use anchor_lang::Discriminator;
 use super::many_seat::{close_to, create_pda, mark_in};
 pub use crate::ledger::many_seat::{ManySeatResult, SeatPlace, SeatRefund};
 
-/// Steps one many-seat chunk takes at most. Measured worst case in `tests/many_seat/settle.rs`
-/// (100 seats with Entry Tickets, fee cuts across many Sources); the client takes fewer when the
-/// accounts of the next steps would pass a transaction's account limit.
-pub const MAX_SEAT_CHUNK_STEPS: u8 = 8;
+/// Steps one many-seat chunk takes at most, set by its own compute test (`tests/many_seat/settle.rs`:
+/// 100 seats with Entry Tickets, fee cuts across many Sources; 8 steps used 145,206 CU, over the
+/// 140,000 chunk budget). The client takes fewer when the accounts of the next steps would pass a
+/// transaction's account limit.
+pub const MAX_SEAT_CHUNK_STEPS: u8 = 7;
 
 #[event]
 pub struct ManySeatRunStarted {

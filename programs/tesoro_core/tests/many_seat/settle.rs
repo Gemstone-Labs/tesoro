@@ -407,40 +407,21 @@ fn the_other_place_splits_and_a_full_refund() {
 }
 
 #[test]
-fn fees_set_high_are_capped_at_the_forfeits_and_the_win_earns_no_points() {
-    let mut env = Env::new();
-    env.enable_leaderboard(100);
-    let admin = env.admin.insecure_clone();
-    let set = ix(
-        accounts::UpdateConfig {
-            admin: a(admin.pubkey()),
-            config: pda(&[CONFIG_SEED]),
-            platform_recipient: env.platform.account,
-            treasury: common::treasury(),
-        },
-        instruction::UpdateConfig {
-            oracle_authority: a(env.oracle.pubkey()),
-            platform_bps: 4_000,
-        },
-        vec![],
-    );
-    env.send(&[set], &admin, &[]).expect("platform 40%");
-    let riders: Vec<Person> = (0..5).map(|_| env.rider(2_000)).collect();
-    let car = env.open_car(&riders[0], (5, 100));
-    for p in &riders {
-        env.board(p, car).expect("board");
-    }
-    env.depart(car).expect("depart");
-    // two early refunds of 400: P 1,700 asks 44% = 748, only 200 is forfeited
-    env.settle_car(car, result(&[(2, 6000), (3, 2500), (4, 1500)], &[(0, 400), (1, 400)]))
+fn fees_are_capped_at_the_forfeits_and_the_win_earns_no_points() {
+    // The config cannot set rates above its cap, but at the default 6% the cap binds when a Game
+    // refunds nearly every unplaced entry: Ana and Ben get 490 back, Pot after refunds 1,520 asks
+    // 91 in fees (Platform 31, Studio 45, Leaderboard 15) and only 20 is forfeited.
+    let (mut env, car, riders, sources) = five_riders();
+    env.settle_car(car, result(&[(2, 6000), (3, 2500), (4, 1500)], &[(0, 490), (1, 490)]))
         .expect("settle");
     let run: Vec<ManySeatRunStarted> = env.started();
-    assert_eq!((run[0].fees, run[0].fees_capped), ([200, 0, 0], true));
+    assert_eq!((run[0].fees, run[0].fees_capped), ([20, 0, 0], true));
     let won: Vec<MatchWon> = env.started();
-    assert_eq!(won[0].points, 0);
+    assert_eq!((won[0].points, won[0].pool_fee), (0, 0));
     env.run_car(car);
     let got: Vec<u64> = riders.iter().map(|p| env.total_gemas(p) - 1_500).collect();
-    assert_eq!(got, vec![400, 400, 500, 500, 500]);
+    assert_eq!(got, vec![490, 490, 500, 500, 500]);
+    assert_eq!(env.counters_of(&sources, CLASS_PLATFORM), 20);
 }
 
 #[test]
@@ -650,9 +631,9 @@ fn a_chunk_cannot_be_fed_another_cars_page_or_pot() {
 }
 
 /// 100 riders whose entries are staged in Entry Tickets: 10 lines of 50 from 10 shared Sources.
-/// Railcar's shape: the last three off 60/25/15, 60 early jumpers refunded 5-80%, 37 aboard.
-#[test]
-fn a_hundred_seats_with_entry_tickets_settle_inside_the_chunk_budget() {
+/// Railcar's shape: the last three off 60/25/15, 60 early jumpers refunded 5-80%, 37 aboard. The
+/// client sends chunks of `steps`; returns the worst chunk and the number of chunks.
+fn hundred_seats(steps: u8) -> (Sent, usize, u64) {
     let mut env = Env::new();
     env.enable_leaderboard(100);
     let sources: Vec<APk> = (0..10).map(|i| env.forge_source(200 + i as u8, 0)).collect();
@@ -686,17 +667,12 @@ fn a_hundred_seats_with_entry_tickets_settle_inside_the_chunk_budget() {
     env.settle_car(car, result(&[(99, 6000), (98, 2500), (97, 1500)], &refunds))
         .expect("settle");
     let start_cu = env.last_cu;
-    let sent = env.run_car(car);
+    let mut sent = vec![];
+    while env.car(car).inner.stage() != ManyStage::Paid {
+        sent.push(env.car_chunk(car, steps).expect("chunk"));
+        assert!(sent.len() < 5_000);
+    }
     let worst = sent.iter().max_by_key(|s| s.cu).copied().expect("chunks");
-    let most_accounts = sent.iter().map(|s| s.accounts).max().unwrap_or(0);
-    println!(
-        "100 seats, Entry Tickets (10 lines each): settle start {start_cu} CU; {} chunks; worst chunk {} CU ({} steps, {} accounts); most accounts {most_accounts}",
-        sent.len(),
-        worst.cu,
-        worst.steps,
-        worst.accounts
-    );
-    assert!(worst.cu < CHUNK_CU_BUDGET, "worst chunk {worst:?}");
     // every Gema is where the payout says
     let pot = 100 * CAR_ENTRY - refunded;
     let fees = pot * 6 / 100;
@@ -707,4 +683,23 @@ fn a_hundred_seats_with_entry_tickets_settle_inside_the_chunk_budget() {
     }
     env.close_paid_car(car);
     assert!(riders.iter().all(|p| env.counters(p.account).open_matches == 0));
+    (worst, sent.len(), start_cu)
+}
+
+#[test]
+fn a_hundred_seats_with_entry_tickets_settle_inside_the_chunk_budget() {
+    let max = tesoro_core::MAX_SEAT_CHUNK_STEPS;
+    let mut at_cap = None;
+    for steps in [max - 2, max - 1, max] {
+        let (worst, chunks, start_cu) = hundred_seats(steps);
+        println!(
+            "100 seats, Entry Tickets (10 lines each), chunks of {steps}: settle start {start_cu} CU; {chunks} chunks; worst chunk {} CU ({} steps, {} accounts)",
+            worst.cu, worst.steps, worst.accounts
+        );
+        if steps == max {
+            at_cap = Some(worst);
+        }
+    }
+    let worst = at_cap.expect("cap measured");
+    assert!(worst.cu < CHUNK_CU_BUDGET, "worst chunk {worst:?}");
 }
