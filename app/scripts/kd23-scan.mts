@@ -16,10 +16,11 @@ import vanguardIdl from "../src/lib/chain/idl/vanguard.json";
 import { captureEndStates, connectionBaseReader } from "../src/server/history/end-capture";
 import { endStateOf } from "../src/server/history/end-state";
 import { testDb } from "../src/server/history/test-db";
-import { slim, type RawTx } from "../src/server/history/webhook";
+import { jsonRpcCoreChain, slim } from "../src/server/history/webhook";
 
 const url = process.argv[2] ?? "https://rpc.magicblock.app/devnet";
 const c = new Connection(url, "confirmed");
+const chain = jsonRpcCoreChain(url, "11111111111111111111111111111111");
 const GAMES = [
   { name: "holdem", pda: h.tablePda, idl: holdemIdl, over: (t: any) => t.phase === 3 },
   { name: "trading-duel", pda: d.tablePda, idl: duelIdl, over: (t: any) => t.phase === 3 },
@@ -46,9 +47,9 @@ for (const g of GAMES) {
     let done = false;
     for (const s of sigs) {
       if (s.err) continue;
-      const tx = (await c.getTransaction(s.signature, { maxSupportedTransactionVersion: 0, commitment: "confirmed" })) as unknown as RawTx | null;
+      const tx = await chain.transaction(s.signature).catch(() => null);
       if (!tx) continue;
-      const out = await captureEndStates({ rpc, base: connectionBaseReader(c) }, { signature: s.signature, slot: tx.slot, blockTime: tx.blockTime ?? null, body: slim({ ...tx, transaction: { ...tx.transaction, message: { ...tx.transaction.message, accountKeys: (tx.transaction.message as any).accountKeys ?? (tx.transaction.message as any).staticAccountKeys?.map((k: PublicKey) => k.toBase58()) } } } as RawTx) });
+      const out = await captureEndStates({ rpc, base: connectionBaseReader(c) }, { signature: s.signature, slot: tx.slot, blockTime: tx.blockTime ?? null, body: slim(tx) });
       if (out.length) {
         console.log(" ", f.address.toBase58().slice(0, 6), f.match.toBase58().slice(0, 6), JSON.stringify(out));
         const stored = await endStateOf(rpc, f.match.toBase58());
