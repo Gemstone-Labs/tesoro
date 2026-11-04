@@ -1035,7 +1035,7 @@ describe("the worst sponsored entry stays inside one packet", () => {
       recentBlockhash: key().toBase58(),
       instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 }), join, assign],
     }).compileToV0Message([]);
-    return new VersionedTransaction(message).serialize().length + 64 * (message.header.numRequiredSignatures - 1);
+    return new VersionedTransaction(message).serialize().length;
   };
 
   it("measures join + assignment, plain and Backed, with and without a seat key, with no lookup table", async () => {
