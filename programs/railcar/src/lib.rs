@@ -45,6 +45,7 @@ use tesoro_core::{
         Config as CoreConfig, EconomyConfig, GameRecord, ManySeatMatch, SeatPage, TesoroAccount,
         ACCOUNT_SEED, CONFIG_SEED as CORE_CONFIG_SEED, COUNTERS_SEED, ECONOMY_SEED, GAME_SEED,
     },
+    util::acts_for,
 };
 
 pub use state::*;
@@ -908,7 +909,8 @@ pub mod railcar {
         Ok(())
     }
 
-    /// Rollup, the Player of Table seat `seat` (the wallet of the seat's core Account). Before
+    /// Rollup, the Player of Table seat `seat`: the wallet of the seat's core Account or the
+    /// seat's key (`tesoro_core::util::acts_for`, as core checks a seat's signer). Before
     /// the Impact slot the Player is off: the Jump takes the next place in the order. At or after
     /// it the Jump does not count: the ride ends with the Player aboard. When the last Player
     /// aboard Jumps, the ride ends then. `car_no` makes a transaction held back from an earlier
@@ -924,9 +926,14 @@ pub mod railcar {
                 RailcarError::WrongPhase
             );
             let i = usize::from(seat);
+            require!(i < usize::from(t.seated), RailcarError::NotAPlayer);
+            let s = t.seats[i];
             require!(
-                i < usize::from(t.seated)
-                    && t.seats[i].account == ctx.accounts.player_account.key().to_bytes(),
+                acts_for(
+                    &Pubkey::new_from_array(s.account),
+                    &ctx.accounts.player.key(),
+                    &Pubkey::new_from_array(s.signer)
+                ),
                 RailcarError::NotAPlayer
             );
             if ride::advance(&mut t, v, clock.slot) {
@@ -1414,12 +1421,8 @@ pub struct Signal<'info> {
 #[commit]
 #[derive(Accounts)]
 pub struct Jump<'info> {
+    /// The seat's Player: the wallet of its core Account, or the seat key core recorded for it.
     pub player: Signer<'info>,
-    /// The Player's core Account: its wallet must sign.
-    #[account(
-        constraint = player_account.authority == player.key() @ RailcarError::NotAPlayer
-    )]
-    pub player_account: Box<Account<'info, TesoroAccount>>,
     #[account(mut, seeds = [TABLE_SEED, &table.load()?.index], bump = table.load()?.bump)]
     pub table: AccountLoader<'info, Table>,
     #[account(seeds = [VAULT_SEED, table.key().as_ref()], bump = vault.bump)]
