@@ -113,7 +113,10 @@ pub struct ManySeatRecord {
     /// Seat pages created so far (always in order, page `pages` is the next one).
     pub pages: u8,
     stage: u8,
-    pub reserved: [u8; 6],
+    /// Canonical bump of the car's receipt `["settled", match]`, found once at open so settling
+    /// checks the address with one hash instead of a bump search.
+    receipt_bump: u8,
+    pub reserved: [u8; 5],
     /// From departure: anyone may refund the car from this time on (`settle::start_refund`).
     refund_after: [u8; 8],
     /// The run (ticket 03), fixed when settling starts. See `settle`.
@@ -131,7 +134,7 @@ const PAID: u8 = 5;
 pub const REFUND_AFTER_SECS: i64 = 24 * 60 * 60;
 
 impl ManySeatRecord {
-    pub const LEN: usize = 32 * 4 + 8 * 8 + 2 * 2 + 10 + 6 + 8 + SeatRun::LEN;
+    pub const LEN: usize = 32 * 4 + 8 * 8 + 2 * 2 + 10 + 1 + 5 + 8 + SeatRun::LEN;
 
     #[allow(clippy::too_many_arguments)]
     pub fn open(
@@ -180,7 +183,8 @@ impl ManySeatRecord {
             seated: 0,
             pages: 0,
             stage: BOARDING,
-            reserved: [0; 6],
+            receipt_bump: 0,
+            reserved: [0; 5],
             refund_after: [0; 8],
             run: bytemuck::Zeroable::zeroed(),
         })
@@ -253,6 +257,14 @@ impl ManySeatRecord {
             ManyStage::Paid => PAID,
             ManyStage::Closed => CLOSED,
         };
+    }
+
+    /// Canonical bump of the car's receipt PDA (set by the instruction layer at open).
+    pub fn receipt_bump(&self) -> u8 {
+        self.receipt_bump
+    }
+    pub fn set_receipt_bump(&mut self, bump: u8) {
+        self.receipt_bump = bump;
     }
 
     /// Anyone may refund the car from this time on (0 before departure).

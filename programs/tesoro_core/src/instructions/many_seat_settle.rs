@@ -373,8 +373,13 @@ pub struct SettleManySeatMatch<'info> {
         bump = match_state.load()?.bump
     )]
     pub match_state: AccountLoader<'info, ManySeatMatch>,
-    /// CHECK: the receipt PDA, created here (it must not exist).
-    #[account(mut, seeds = [ledger::lifecycle::RECEIPT_SEED, match_state.key().as_ref()], bump)]
+    /// CHECK: the receipt PDA, created here (it must not exist); its canonical bump was found at
+    /// open.
+    #[account(
+        mut,
+        seeds = [ledger::lifecycle::RECEIPT_SEED, match_state.key().as_ref()],
+        bump = match_state.load()?.inner.receipt_bump()
+    )]
     pub receipt: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -510,8 +515,13 @@ pub struct RefundManySeatMatch<'info> {
         bump = match_state.load()?.bump
     )]
     pub match_state: AccountLoader<'info, ManySeatMatch>,
-    /// CHECK: the receipt PDA, created here (it must not exist).
-    #[account(mut, seeds = [ledger::lifecycle::RECEIPT_SEED, match_state.key().as_ref()], bump)]
+    /// CHECK: the receipt PDA, created here (it must not exist); its canonical bump was found at
+    /// open.
+    #[account(
+        mut,
+        seeds = [ledger::lifecycle::RECEIPT_SEED, match_state.key().as_ref()],
+        bump = match_state.load()?.inner.receipt_bump()
+    )]
     pub receipt: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }

@@ -379,6 +379,11 @@ impl Env {
     /// A Player with a Tesoro Account and 75,000 Gemas of a Source of their own.
     fn rider(&mut self) -> Person {
         let kp = self.next_key();
+        self.rider_from(kp)
+    }
+
+    /// A rider with this wallet.
+    fn rider_from(&mut self, kp: Keypair) -> Person {
         self.svm.airdrop(&kp.pubkey(), 100 * SOL).expect("airdrop");
         let key = a(kp.pubkey());
         let account = flow::account_of(key);
@@ -1921,4 +1926,84 @@ fn a_seat_key_jumps_for_its_seat_and_no_other_key_does() {
     env.jump(car.table, &as_key).expect("the seat key jumps");
     let t = env.table(car.table);
     assert_eq!((t.jumps, t.seats[usize::from(seat)].order), (1, 1));
+}
+
+// =========================================================================================
+// Compute: finalize does not depend on the receipt's bump
+// =========================================================================================
+
+/// The canonical bump of the receipt of the first car `wallet` opens.
+fn receipt_bump_of_first_car(wallet: &Keypair) -> u8 {
+    let account = flow::account_of(a(wallet.pubkey()));
+    let car = tpda(&[MATCH_SEED, account.as_ref(), &0u64.to_le_bytes()]);
+    APk::find_program_address(&[b"settled", car.as_ref()], &tesoro_core::ID).1
+}
+
+/// A wallet whose first car's receipt has a bump at most `max` (256 - max tries to find).
+fn wallet_with_receipt_bump_at_most(max: u8) -> Keypair {
+    for i in 0u32..1_000_000 {
+        let mut seed = [9u8; 32];
+        seed[..4].copy_from_slice(&i.to_le_bytes());
+        let kp = Keypair::new_from_array(seed);
+        if receipt_bump_of_first_car(&kp) <= max {
+            return kp;
+        }
+    }
+    panic!("no wallet found");
+}
+
+/// A 100-seat ride opened by `opener`: 13 Jumps at 2, 6, ... 50 s, Impact, `finalize`. Returns
+/// `finalize`'s compute units and the car's receipt bump.
+fn hundred_seat_finalize(opener: Keypair) -> (u64, u8) {
+    let mut env = Env::new(2);
+    let first = env.rider_from(opener);
+    let mut riders = vec![first];
+    riders.extend((0..99).map(|_| env.rider()));
+    let mut car = None;
+    for p in &riders {
+        car = Some(env.queue(p).expect("board"));
+    }
+    let car = car.expect("a car");
+    assert_eq!(env.stage(&car), ManyStage::Departed);
+    let (_, bump) = APk::find_program_address(&[b"settled", car.tesoro.as_ref()], &tesoro_core::ID);
+    assert_eq!(
+        env.core_car(&car).inner.receipt_bump(),
+        bump,
+        "core stored the canonical bump"
+    );
+    env.start_ride(&car).expect("start");
+    env.callback(car.table, draw_where(|r| r.crash_ms >= 60_000))
+        .expect("draw");
+    for (k, p) in riders.iter().take(13).enumerate() {
+        env.at_ride(car.table, 2.0 + 4.0 * k as f64);
+        env.jump(car.table, p).expect("jump");
+    }
+    end_by_signal(&mut env, &car);
+    env.finalize(&car).expect("finalize");
+    (env.last_cu, bump)
+}
+
+#[test]
+fn finalize_costs_the_same_whatever_the_receipt_bump() {
+    let easy = (0u32..)
+        .map(|i| {
+            let mut seed = [8u8; 32];
+            seed[..4].copy_from_slice(&i.to_le_bytes());
+            Keypair::new_from_array(seed)
+        })
+        .find(|kp| receipt_bump_of_first_car(kp) == 255)
+        .expect("a one-try receipt");
+    let hard = wallet_with_receipt_bump_at_most(245);
+    let (cu_easy, bump_easy) = hundred_seat_finalize(easy);
+    let (cu_hard, bump_hard) = hundred_seat_finalize(hard);
+    println!(
+        "finalize, 100 seats: {cu_easy} CU (receipt bump {bump_easy}), {cu_hard} CU (receipt bump {bump_hard}, {} tries to find)",
+        256 - u32::from(bump_hard)
+    );
+    assert!(bump_hard <= 245);
+    // the same work but for one rider's keys: well under one bump try (about 1,500 CU)
+    assert!(
+        cu_easy.abs_diff(cu_hard) < 500,
+        "finalize depends on the receipt bump: {cu_easy} vs {cu_hard}"
+    );
 }
