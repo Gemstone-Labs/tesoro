@@ -44,12 +44,12 @@ use ephemeral_rollups_sdk::{
     },
 };
 use table_kit::{
-    assignment_absent, close_private_seat, create_hidden_seat, is_next_epoch, match_state_gone,
-    may_skip, move_lamports, read_table, receipt_aged, receipt_at, retire_legacy_record,
-    require_acting_seat, sponsor_can_commit, sponsor_commit, swap_seat_members_keyed,
-    table_wait_over, KitError, LegacyError, SeatAccounts, SeatKeys, SeatPrograms, SeatRecord,
-    TableSeats, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1,
-    SLOT_DONE, SLOT_RESERVED,
+    acting_seat_among, assignment_absent, close_private_seat, create_hidden_seat, is_next_epoch,
+    match_state_gone, may_skip, move_lamports, read_table, receipt_aged, receipt_at,
+    require_acting_seat, retire_legacy_record, sponsor_can_commit, sponsor_commit,
+    swap_seat_members_keyed, table_wait_over, KitError, LegacyError, SeatAccounts, SeatKeys,
+    SeatPrograms, SeatRecord, TableSeats, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0,
+    OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -277,11 +277,10 @@ fn seat_record(seat: usize, keys: SeatKeys, tesoro_match: Pubkey, epoch: u64) ->
 }
 
 /// The seat `signer` acts for when no Board is at hand (`check_in`): the one seat whose wallet
-/// or seat key it is. A key that could be either seat is refused.
+/// or seat key it is.
 fn acting_seat(table: &Table, signer: &Pubkey) -> Result<usize> {
-    let mut found = None;
-    for seat in 0..2 {
-        let record = seat_record(
+    let records = [0, 1].map(|seat| {
+        seat_record(
             seat,
             SeatKeys {
                 player: table.players[seat],
@@ -289,13 +288,10 @@ fn acting_seat(table: &Table, signer: &Pubkey) -> Result<usize> {
             },
             table.tesoro_match,
             table.epoch,
-        );
-        if require_acting_seat(&table_seats(table), &record, signer).is_ok() {
-            require!(found.is_none(), BlockPuzzleError::NotAPlayer);
-            found = Some(seat);
-        }
-    }
-    found.ok_or_else(|| error!(BlockPuzzleError::NotAPlayer))
+        )
+    });
+    acting_seat_among(&table_seats(table), &records, signer)
+        .map_err(|_| error!(BlockPuzzleError::NotAPlayer))
 }
 
 fn require_binding(table: &Table, binding: &Binding) -> Result<()> {
@@ -2210,7 +2206,9 @@ pub struct Begin<'info> {
     #[account(
         mut,
         seeds = [BOARD_SEED, table.key().as_ref(), &[board.seat]],
-        bump = board.bump
+        bump = board.bump,
+        constraint = board.player == player.key() || board.signer == player.key()
+            @ BlockPuzzleError::NotAPlayer
     )]
     pub board: Box<Account<'info, Board>>,
 }
@@ -2227,7 +2225,9 @@ pub struct Play<'info> {
     #[account(
         mut,
         seeds = [BOARD_SEED, table.key().as_ref(), &[board.seat]],
-        bump = board.bump
+        bump = board.bump,
+        constraint = board.player == player.key() || board.signer == player.key()
+            @ BlockPuzzleError::NotAPlayer
     )]
     pub board: Box<Account<'info, Board>>,
 }
@@ -2244,7 +2244,9 @@ pub struct PlayHidden<'info> {
     #[account(
         mut,
         seeds = [BOARD_SEED, table.key().as_ref(), &[board.seat]],
-        bump = board.bump
+        bump = board.bump,
+        constraint = board.player == player.key() || board.signer == player.key()
+            @ BlockPuzzleError::NotAPlayer
     )]
     pub board: Box<Account<'info, Board>>,
 }

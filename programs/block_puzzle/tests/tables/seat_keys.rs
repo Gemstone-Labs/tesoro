@@ -54,7 +54,7 @@ fn seated() -> (Env, Keypair, Keypair) {
 
 /// `ix` with `who` in its first (signer) account, sent and paid by `who`.
 fn as_signer(env: &mut Env, who: &Keypair, mut ixn: Instruction) -> Result<(), Failed> {
-    ixn.accounts[0].pubkey = a(who.pubkey());
+    ixn.accounts[0].pubkey = who.pubkey();
     env.send(&[ixn], who, &[])
 }
 
@@ -238,4 +238,28 @@ fn an_old_seat_key_does_nothing_on_a_reused_table() {
     }
     let ixn = env.begin_run_ix(0, b);
     as_signer(&mut env, &ck, ixn).unwrap();
+}
+
+#[test]
+fn the_seat_check_keeps_the_heaviest_player_instructions_in_budget() {
+    let (mut env, ak, _bk) = seated();
+    running_now(&mut env);
+    env.begin_run(0).unwrap();
+    env.begin_run(1).unwrap();
+    let b = env.binding();
+    let start = env.table().start_slot;
+    env.set_slot(start + SPS);
+    let moves = env.moves(0, block_puzzle::MAX_PLAY_BATCH);
+    let ixn = env.play_ix(0, b, 0, moves, false);
+    as_signer(&mut env, &ak, ixn).unwrap();
+    let public_play = env.last_cu;
+    let freeze = env.table().freeze_slot().unwrap();
+    env.set_slot(freeze);
+    let before = env.board(0).moves;
+    let moves = env.moves(0, block_puzzle::MAX_PLAY_BATCH);
+    let ixn = env.play_ix(0, b, before, moves, true);
+    as_signer(&mut env, &ak, ixn).unwrap();
+    let hidden_beat = env.last_cu;
+    println!("CU by seat key: play(8 moves) {public_play}, play_hidden(8 moves) {hidden_beat}");
+    assert!(public_play < 100_000 && hidden_beat < 100_000);
 }
