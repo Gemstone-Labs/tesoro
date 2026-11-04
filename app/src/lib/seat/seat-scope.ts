@@ -8,6 +8,7 @@ import { SeatScopeError } from "./seat-scope-error";
 import type { TransactionInstruction } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import holdemIdl from "@/lib/chain/idl/holdem.json";
+import railcarIdl from "@/lib/chain/idl/railcar.json";
 
 type IdlLike = { instructions: { name: string; discriminator: number[] }[] };
 
@@ -17,10 +18,12 @@ const disc = (idl: IdlLike, name: string): string => {
   return i.discriminator.join(",");
 };
 
-/** Core finish steps and the Game steps every Game shares (same discriminators in each Game). */
+/** Core finish steps, the Game steps every Game shares (same discriminators in each Game), and a Railcar car's finish. */
 const SEAT_STEPS = new Set<string>([
   ...["match_chunk", "close_match", "refund_match"].map((n) => disc(coreIdl as IdlLike, n)),
   ...["finalize", "refund_untabled", "close_assignment"].map((n) => disc(holdemIdl as IdlLike, n)),
+  ...["many_seat_chunk", "reserve_many_seat_room", "close_many_seat", "close_many_seat_match", "refund_many_seat_match"].map((n) => disc(coreIdl as IdlLike, n)),
+  ...["check_departure", "finalize"].map((n) => disc(railcarIdl as IdlLike, n)),
 ]);
 
 export const isSeatStep = (ix: Pick<TransactionInstruction, "data">): boolean => SEAT_STEPS.has(Array.from(ix.data.subarray(0, 8)).join(","));

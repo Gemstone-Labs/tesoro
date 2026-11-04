@@ -4,6 +4,8 @@ import { PublicKey, VersionedTransaction, type Connection, type VersionedTransac
 import type { ObservationStore } from "./observed-completion.ts";
 
 const CORE = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
+/** Railcar's `open_car` creates the car's core Match by CPI (completion.test.ts keeps it equal to the IDL's address). */
+export const RAILCAR = new PublicKey("DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC");
 export interface ReservationRef { key: string; generation: string }
 /**
  * Where a held address comes from: a Match is `["match", account, n]` and a Ticket or Pot `["ticket", account, n]`, and the
@@ -41,14 +43,18 @@ const ROLES = [
   { name: "join_match", kind: "ensures", slots: [9] },
   { name: "close_match", kind: "closes", slots: [1, 3, 5] },
   { name: "close_ticket", kind: "closes", slots: [1] },
+  { name: "join_many_seat_match", kind: "ensures", slots: [8] },
+  { name: "close_many_seat_match", kind: "closes", slots: [1] },
 ] as const;
+const RAILCAR_ROLES = [{ name: "open_car", kind: "creates", slots: [5] }] as const;
 const discriminator = (name: string) => createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
 
 export function completionEffects(ixs: (Pick<TransactionInstruction, "programId" | "keys"> & { data: Uint8Array })[]) {
   const result: { creates: string[]; ensures: string[]; closes: string[] } = { creates: [], ensures: [], closes: [] };
   for (const ix of ixs) {
-    if (!ix.programId.equals(CORE)) continue;
-    const role = ROLES.find((r) => discriminator(r.name).equals(Buffer.from(ix.data).subarray(0, 8)));
+    const roles = ix.programId.equals(CORE) ? ROLES : ix.programId.equals(RAILCAR) ? RAILCAR_ROLES : null;
+    if (!roles) continue;
+    const role = (roles as readonly { name: string; kind: "creates" | "ensures" | "closes"; slots: readonly number[] }[]).find((r) => discriminator(r.name).equals(Buffer.from(ix.data).subarray(0, 8)));
     if (!role) continue;
     for (const slot of role.slots) {
       const key = ix.keys[slot]?.pubkey;
@@ -70,6 +76,8 @@ const SEEDED = [
   { name: "open_match", kind: "match", address: 14, account: 8, n: 8 + 32 + 8 },
   { name: "open_ticket", kind: "ticket", address: 7, account: 4, n: 8 },
 ] as const;
+/** Railcar's `open_car(n)`: the car's Match is `["match", opener Account, n]`. */
+const RAILCAR_SEEDED = { name: "open_car", kind: "match", address: 5, account: 11, n: 8 } as const;
 
 /** The seeds of what the instructions create. `join_match` only ensures a Match: its seed is read from the Match by `matchSeed`. */
 export async function holdSeeds(
@@ -78,15 +86,21 @@ export async function holdSeeds(
 ): Promise<Record<string, HoldSeed>> {
   const out: Record<string, HoldSeed> = {};
   for (const ix of ixs) {
-    if (!ix.programId.equals(CORE)) continue;
     const head = Buffer.from(ix.data).subarray(0, 8);
+    if (ix.programId.equals(RAILCAR) && discriminator(RAILCAR_SEEDED.name).equals(head)) {
+      const address = ix.keys[RAILCAR_SEEDED.address]?.pubkey, account = ix.keys[RAILCAR_SEEDED.account]?.pubkey;
+      if (!address || !account) throw new Error("Missing open_car account");
+      out[address.toBase58()] = { kind: "match", account: account.toBase58(), n: u64At(ix.data, RAILCAR_SEEDED.n) };
+      continue;
+    }
+    if (!ix.programId.equals(CORE)) continue;
     const seeded = SEEDED.find((r) => discriminator(r.name).equals(head));
     if (seeded) {
       const address = ix.keys[seeded.address]?.pubkey, account = ix.keys[seeded.account]?.pubkey;
       if (!address || !account) throw new Error(`Missing ${seeded.name} account`);
       out[address.toBase58()] = { kind: seeded.kind, account: account.toBase58(), n: u64At(ix.data, seeded.n) };
-    } else if (discriminator("join_match").equals(head)) {
-      const match = ix.keys[9]?.pubkey.toBase58();
+    } else if (discriminator("join_match").equals(head) || discriminator("join_many_seat_match").equals(head)) {
+      const match = ix.keys[discriminator("join_match").equals(head) ? 9 : 8]?.pubkey.toBase58();
       const seed = match ? await matchSeed(match) : null;
       if (match && seed) out[match] = seed;
     }

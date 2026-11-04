@@ -16,6 +16,7 @@ import { STAKE_TOKENS } from "@/lib/chain/stake";
 import { poolWithdrawAuthority, tokenAta } from "@/lib/chain/stake-pool";
 import { matchIndexOf, stepSlots } from "./game-steps";
 import { planBridgeBundle } from "./rules-bridge";
+import { RAILCAR_ID, planRailcar } from "./rules-railcar";
 import { assetOfIndex, TRADING_DUEL_PROGRAM_ID } from "@/games/trading-duel/chain";
 
 export const CORE_ID = new PublicKey((coreIdl as { address: string }).address);
@@ -92,6 +93,15 @@ export const ACCOUNT_REFUNDABLE = 4n * LINE_RENT;
 export const ACCOUNT_SUNK = (189n + 264n + 264n) * 6_960n;
 
 const lines = (v: unknown) => BigInt(Number(v ?? 0));
+/**
+ * Many-seat (Railcar) rents the relayer fronts, all given back when the car closes: a seat page (`SeatPage`, 2,000 bytes with
+ * the seat-key layout), the seat marks (Player's and seat key's, 216 bytes each) and the car's Match record. Bounds, not exact.
+ */
+export const SEAT_PAGE_RENT = (2_000n + 128n) * 6_960n;
+export const SEAT_MARK_RENT = (216n + 128n) * 6_960n;
+export const CAR_MATCH_RENT = (1_200n + 128n) * 6_960n;
+/** Lines one `reserve_many_seat_room` may buy (a winner of a 100-seat car needs about 100; rent comes back on the claim). */
+export const MAX_ROOM_LINES = 200;
 const NONE: Spend = { refundable: 0n, sunk: 0n };
 
 /**
@@ -149,6 +159,18 @@ export const ROWS: Readonly<Record<string, Row>> = {
   set_name_evm: { class: "continue", relayer: ["payer"], cu: 200_000, playerSigns: true },
   set_evm_address: { class: "continue", relayer: [], cu: 100_000, playerSigns: true },
   create_account: { class: "admission", relayer: ["payer"], cu: 300_000, extra: 1, playerSigns: true, onboarding: true, spend: () => ({ refundable: ACCOUNT_REFUNDABLE, sunk: ACCOUNT_SUNK }) },
+  // Many-seat Matches (Railcar, ADR 0015). A seat: the relayer fronts the Pot, the page it may create and the seat marks; all
+  // come back when the seat and the car close. It travels inside Railcar's boarding shapes (rules-railcar.ts).
+  join_many_seat_match: { class: "admission", relayer: ["payer"], cu: 400_000, extra: 60, spend: (a) => ({ refundable: SEAT_PAGE_RENT + 2n * SEAT_MARK_RENT + TICKET_HEAD_RENT + lines(a.pot_lines) * LINE_RENT, sunk: 0n }) },
+  // The Player steps off before departure (the Player signs as caller); the mark's and Pot's rent go back to whoever paid them.
+  step_off_many_seat_match: { class: "exit", relayer: ["mark_payer", "pot_payer"], cu: 400_000, extra: 60, playerSigns: true },
+  // The finish of a car, permissionless: anyone's chunks, room for a winner, the closes, a refund past the car's refund time.
+  many_seat_chunk: { class: "exit", relayer: ["caller"], cu: 1_000_000, extra: 60 },
+  reserve_many_seat_room: { class: "exit", relayer: ["payer"], cu: 200_000, spend: (a) => ({ refundable: TICKET_HEAD_RENT + lines(a.lines) * LINE_RENT, sunk: 0n }) },
+  close_many_seat: { class: "exit", relayer: ["caller", "mark_payer", "pot_payer"], cu: 300_000 },
+  // Remaining: every page and who paid it (the relayer, when it did), ten pages at most.
+  close_many_seat_match: { class: "exit", relayer: ["caller", "match_payer"], cu: 300_000, extra: 20 },
+  refund_many_seat_match: { class: "exit", relayer: ["caller", "payer"], cu: 300_000, spend: () => ({ refundable: RECEIPT_RENT, sunk: 0n }) },
 };
 
 /**
@@ -160,8 +182,12 @@ export const ROWS: Readonly<Record<string, Row>> = {
  */
 const MAX_GROWS = 5;
 const grows = (n: number) => Array<string>(n).fill("grow_store_sponsored");
+/** Rows that never travel alone: a many-seat join goes in Railcar's boarding shapes (rules-railcar.ts), with its departure check. */
+const NOT_ALONE = new Set(["join_many_seat_match"]);
 export const TX_SHAPES: readonly (readonly string[])[] = [
-  ...Object.keys(ROWS).map((n) => [n]),
+  ...Object.keys(ROWS)
+    .filter((n) => !NOT_ALONE.has(n))
+    .map((n) => [n]),
   ...Array.from({ length: MAX_GROWS - 1 }, (_, i) => grows(i + 2)),
   ...Array.from({ length: MAX_GROWS }, (_, i) => [...grows(i + 1), "join_match"]),
   // A Backing Ticket: the Requester opens it and stages the Backer's lines in the same transaction. The accepted Offer is
@@ -377,6 +403,17 @@ const seedBytes = (type: unknown, v: unknown): Buffer | null => {
   return null;
 };
 
+/**
+ * Seeds the IDL gets wrong: Anchor names a zero-copy account's field read (`match_state.load()?.inner.game`, the seat mark's
+ * `account`) by the account alone, so these look like keys of the account itself. The program checks them; the rules do not
+ * derive them.
+ */
+const ELIDED_SEEDS: Readonly<Record<string, readonly string[]>> = {
+  join_many_seat_match: ["game_record"],
+  step_off_many_seat_match: ["seat_mark", "player_counters", "player_protections", "game_record"],
+  refund_many_seat_match: ["game_record"],
+};
+
 /** The PDA an IDL account is declared to be, or null when a seed reads account data we do not have. */
 function expectedPda(acc: IdlAccount, ix: IdlIx, byName: Map<string, PublicKey>, args: Args): PublicKey | null {
   if (!acc.pda) return null;
@@ -399,7 +436,8 @@ function expectedPda(acc: IdlAccount, ix: IdlIx, byName: Map<string, PublicKey>,
   return PublicKey.findProgramAddressSync(seeds, other ? new PublicKey(Uint8Array.from(other.value ?? [])) : CORE_ID)[0];
 }
 
-export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): Plan {
+/** `partOf`: the instructions are part of a larger shape another planner checks (Railcar's boarding); their own shape is not checked here. */
+export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey, partOf?: "railcar"): Plan {
   let invite = false;
   const names: string[] = [];
   let spend: Spend = { ...NONE };
@@ -424,6 +462,7 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): 
     if (ix.data.length > MAX_DATA_BYTES) throw new RuleError("too-large", "Instruction data is too large.");
     const args = decoded.data as Args;
     if (name === "open_match" && (args.game as PublicKey).equals(TRADING_DUEL_PROGRAM_ID) && !assetOfIndex(Number(args.asset))) throw new RuleError("bad-asset", "That Trading Duel asset is not supported.");
+    if (name === "reserve_many_seat_room" && (Number(args.lines) < 1 || Number(args.lines) > MAX_ROOM_LINES)) throw new RuleError("bad-args", `Room for 1 to ${MAX_ROOM_LINES} lines at a time.`);
     const own = def.accounts.length;
     if (ix.keys.length < own || ix.keys.length > own + (row.extra ?? 0)) throw new RuleError("bad-accounts", `${name} has the wrong number of accounts.`);
 
@@ -448,8 +487,10 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): 
           invite = true;
           return;
         }
-        // Chunk accounts beyond the IDL's: read or write, never a signer, never the relayer.
-        if (k.isSigner || isRelayer) throw new RuleError("bad-accounts", `${name}: extra accounts may not sign or be the relayer.`);
+        // Chunk accounts beyond the IDL's: read or write, never a signer, never the relayer (except as the payer a page's
+        // rent goes back to when a car closes: `close_many_seat_match` takes page, payer pairs).
+        const pagePayer = name === "close_many_seat_match" && (i - own) % 2 === 1 && k.isWritable;
+        if (k.isSigner || (isRelayer && !pagePayer)) throw new RuleError("bad-accounts", `${name}: extra accounts may not sign or be the relayer.`);
         return;
       }
       const placeholder = acc.optional && k.pubkey.equals(CORE_ID);
@@ -465,6 +506,7 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): 
     // Fixed PDAs must be the real ones.
     def.accounts.forEach((acc, i) => {
       if (acc.optional && ix.keys[i].pubkey.equals(CORE_ID)) return;
+      if (ELIDED_SEEDS[name]?.includes(acc.name)) return;
       const want = expectedPda(acc, def, byName, args);
       if (want && !want.equals(ix.keys[i].pubkey)) throw new RuleError("bad-account", `${name}: ${acc.name} is not the expected address.`);
     });
@@ -473,7 +515,7 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): 
       const k = byName.get(n);
       if (k) obligations.push(k);
     }
-    const funder = name === "open_ticket" ? byName.get("owner") : name === "open_match" || name === "join_match" ? byName.get("backer_account") : undefined;
+    const funder = name === "open_ticket" ? byName.get("owner") : name === "open_match" || name === "join_match" || name === "join_many_seat_match" ? byName.get("backer_account") : undefined;
     if (funder && !funder.equals(CORE_ID)) funders.set(funder.toBase58(), funder);
     if (name === "join_match") pair = byName.get("pair") ?? null;
     const seat = byName.get("seat_signer");
@@ -486,7 +528,7 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): 
     if (order.indexOf(row.class) > order.indexOf(cls)) cls = row.class;
   }
 
-  if (!TX_SHAPES.some((s) => s.length === names.length && s.every((n, i) => n === names[i])) && !isCleanupShape(names)) {
+  if (!partOf && !TX_SHAPES.some((s) => s.length === names.length && s.every((n, i) => n === names[i])) && !isCleanupShape(names)) {
     throw new RuleError("bad-shape", `${names.join(" + ")} is not a transaction we pay for.`);
   }
   if (names.length === 2 && names[0] === "open_ticket" && names[1] === "stage_entry") {
@@ -647,6 +689,7 @@ export function planTransaction(ixs: Ix[], ctx: { relayer: PublicKey; player: Pu
   }
   if (ixs.length > 1 && ixs.slice(0, -1).some((i) => i.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID) || (i.programId.equals(CORE_ID) && coder.decode(Buffer.from(i.data))?.name === "init_ckpt_page"))) return planPreparedExit(ixs, ctx.relayer, ctx.player);
   if (ixs.length > 1 && ixs.some((i) => i.programId.equals(SystemProgram.programId))) return planProtectionTopUp(ixs, ctx.relayer, ctx.player, ctx.inviteKey);
+  if (ixs.some((i) => i.programId.equals(RAILCAR_ID))) return planRailcar(ixs, ctx.relayer, ctx.player, ctx.isGame);
   if (ixs.length === 0 || ixs.length > MAX_IXS) throw new RuleError("bad-shape", `A sponsored transaction has between one and ${MAX_IXS} instructions.`);
   const core = ixs.filter((i) => i.programId.equals(CORE_ID)).length;
   if (core === ixs.length) return planCore(ixs, ctx.relayer, ctx.inviteKey);

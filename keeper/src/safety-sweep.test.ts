@@ -4,7 +4,8 @@ import { describe, it } from "node:test";
 import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { loadIdl } from "./runtime.ts";
-import { Deferred, GRACE_SECS, headOf, memorySweepStore, RIDE_TIMEOUT_SECS, safetySweep, SLICE_LEN, type Head, type SweepDeps } from "./safety-sweep.ts";
+import { decodeCar } from "../../app/src/lib/chain/many-seat.ts";
+import { Deferred, GRACE_SECS, carHeadAt, headOf, memorySweepStore, RIDE_TIMEOUT_SECS, safetySweep, SLICE_LEN, type Head, type SweepDeps } from "./safety-sweep.ts";
 
 const coder = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {})).coder.accounts;
 const fixture = Buffer.from((JSON.parse(readFileSync(new URL("../fixtures/core-layouts.json", import.meta.url), "utf8")) as Record<string, string>).match, "hex");
@@ -42,6 +43,22 @@ describe("reading a Match head from a sliced scan row", () => {
 
   it("ignores rows that are not Match accounts", () => {
     assert.equal(headOf(key(1), Buffer.alloc(SLICE_LEN, 1)), null);
+  });
+});
+
+describe("reading a car's head from a sliced scan row", () => {
+  // The worked example's car as Railcar's LiteSVM left it before its first chunk.
+  const car = Buffer.from((JSON.parse(readFileSync(new URL("../../app/src/lib/chain/many-seat-ahead.worked-example.fixtures.json", import.meta.url), "utf8")) as { cases: { match: string }[] }).cases[0].match, "hex");
+  it("reads what the app's car decoder reads", () => {
+    const full = decodeCar(key(1), car);
+    const h = carHeadAt(key(1), car.subarray(0, SLICE_LEN));
+    assert.ok(h?.car);
+    assert.deepEqual([h.stage, h.game.toBase58(), h.openedAt, h.deadline], ["settling", full.game.toBase58(), full.openedAt, full.deadlineAbs]);
+    assert.deepEqual(h.car, { seated: full.seated, minSeats: full.minSeats, firstMinAt: full.firstMinAt, departedAt: full.departedAt, refundAfter: full.refundAfter });
+  });
+  it("is not a Match head, and a Match row is not a car", () => {
+    assert.equal(headOf(key(1), car.subarray(0, SLICE_LEN)), null);
+    assert.equal(carHeadAt(key(1), fixture.subarray(0, SLICE_LEN)), null);
   });
 });
 

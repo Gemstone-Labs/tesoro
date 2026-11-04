@@ -1,0 +1,1 @@
+`noop.so`: a program that accepts any instruction (`noop_aligned.so` from the Agave `solana-bpf-loader-program` 4.3.2 test ELFs, Apache-2.0). `ride.litesvm.test.ts` loads it at the MagicBlock magic, permission and VRF program addresses, as the Rust tests load `litesvm_magic_stub`.

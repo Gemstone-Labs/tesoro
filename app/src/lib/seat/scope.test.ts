@@ -66,6 +66,7 @@ describe("wallet-only actions refuse a seat key", () => {
     expect(users(/seatKeys\(\)|useMatchSigner\(/)).toEqual([
       "components/match/MatchView.tsx",
       "games/holdem/HoldemMatchView.tsx",
+      "games/railcar/useRailcar.ts", // Railcar's boarding names the key; its finish and Jump use it
       "games/trading-duel/TradingDuelMatchView.tsx",
       "games/vanguard/VanguardMatchView.tsx",
       "lib/chain/entry-flow.ts",

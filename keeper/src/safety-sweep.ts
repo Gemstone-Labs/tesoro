@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { PublicKey } from "@solana/web3.js";
 import { log } from "./act.ts";
-import { carHeadOf, type CarStage } from "../../app/src/lib/chain/many-seat-plan.ts";
 import { discriminatorOf } from "./lists.ts";
 
 /**
@@ -66,21 +65,29 @@ export interface CarFacts {
   refundAfter: number;
 }
 
-const CAR_STAGES: Record<CarStage, Stage> = { boarding: "open", departed: "active", settling: "settling", refunding: "refunding", paid: "closed", closed: "closed" };
+/** Core's stage byte of a car (`ledger::many_seat`), mapped onto the Match stages. */
+const CAR_STAGES: Record<number, Stage> = { 0: "open", 1: "active", 2: "closed", 3: "settling", 4: "refunding", 5: "closed" };
+/** `ManySeatMatch`: discriminator, bump, listing epoch, payer, then the record. */
+const CAR_INNER = 8 + 1 + 4 + 32;
+let carDiscriminator: Buffer | null = null;
 
-/** A car's head from a sliced scan row; null when the row is not a car. */
+/** A car's head from a sliced scan row (its first `SLICE_LEN` bytes hold every field read here); null when the row is not a car. */
 export function carHeadAt(address: PublicKey, data: Buffer): Head | null {
-  const c = carHeadOf(data);
-  if (!c) return null;
+  carDiscriminator ??= discriminatorOf("ManySeatMatch");
+  if (data.length < CAR_INNER + 220 || !data.subarray(0, 8).equals(carDiscriminator)) return null;
+  const b = data.subarray(CAR_INNER);
+  const stage = CAR_STAGES[b[205]];
+  if (!stage) return null;
+  const at = (o: number) => Number(b.readBigInt64LE(o));
   return {
     address,
-    game: c.game,
-    stage: CAR_STAGES[c.stage],
+    game: new PublicKey(b.subarray(40, 72)),
+    stage,
     joined: true,
     backed: false,
-    openedAt: c.openedAt,
-    deadline: c.deadlineAbs,
-    car: { seated: c.seated, minSeats: c.minSeats, firstMinAt: c.firstMinAt, departedAt: c.departedAt, refundAfter: c.refundAfter },
+    openedAt: at(152),
+    deadline: at(160),
+    car: { seated: b[203], minSeats: b[201], firstMinAt: at(176), departedAt: at(184), refundAfter: at(212) },
   };
 }
 

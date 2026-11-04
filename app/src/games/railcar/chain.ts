@@ -1,336 +1,319 @@
-import * as anchor from "@coral-xyz/anchor";
-import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
-import { DELEGATION_PROGRAM_ID, MAGIC_PROGRAM_ID, getAuthToken } from "@magicblock-labs/ephemeral-rollups-sdk";
-import railcarIdl from "../../lib/chain/idl/railcar.json";
-import { gameAccounts } from "../../lib/chain/game-record";
-import { MAGICBLOCK } from "../../lib/cluster-settings";
-import { receiptPda, seatPagePda, type CarView } from "../../lib/chain/many-seat-plan";
-import { rdI64, rdU64, u64 } from "../../lib/chain/native";
-import type { Railcar } from "../../lib/chain/idl/railcar.types";
-import type { PlayerSigner } from "../holdem/chain";
-
 /**
- * Railcar on chain, as far as finishing a ride needs it (programs/railcar, `.scratch/railcar/06-ride-decision.md`): the
- * public Table and the Car, and the steps any Player's page sends: `check_departure`, `start_ride`, `signal`,
- * `commit_table`, `finalize`, `skip_car`, `close_car`. The keeper's safety sweep sends the same steps for a ride whose
- * pages are all gone (`nextRideStep` picks the step).
+ * On-chain client for Railcar (programs/railcar): accounts, decoders and instruction builders. Pure: no network calls.
+ *
+ * Base layer: `open_car` (the first Player of a car opens core's many-seat Match), core's `join_many_seat_match` with
+ * `check_departure` in the same transaction, then `finalize` (core settle by CPI) and core's chunks and closes.
+ * Rollup (the Table, delegated to the TEE): `start_ride` -> VRF -> `signal` from open pages / `jump` -> the Table commits
+ * itself at Impact. Time is rollup slots (`SLOTS_PER_SEC`); the ride clock starts at `Table.rideSlot`.
  */
+import "../../lib/chain/polyfill";
+import { BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
+import { PublicKey, SystemProgram, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
+import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
+import { TESORO_CORE, matchPda, settledPda } from "../../lib/chain/basket";
+import { idlIxBuilder } from "../../lib/chain/core-ix";
+import { seatPagePda } from "../../lib/chain/many-seat";
+import { MAGICBLOCK } from "../../lib/cluster-settings";
+import idl from "../../lib/chain/idl/railcar.json";
 
-export const RAILCAR_PROGRAM_ID = new PublicKey((railcarIdl as { address: string }).address);
-const TESORO_CORE = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
-const TEE_VALIDATOR = new PublicKey(MAGICBLOCK.teeValidator);
+const railcar = idlIxBuilder(idl as { address: string; instructions: unknown[] });
+/** Placeholder until the real program keypair exists (ticket 15). */
+export const RAILCAR_PROGRAM_ID = railcar.programId;
+export const railcarIx = railcar.build;
+
+// ---- Constants (programs/railcar/src/state.rs) ----------------------------------------------------------------------
+
+export const ENTRY_GEMAS = 500;
+export const MIN_SEATS = 5;
+export const MAX_SEATS = 100;
+export const COUNTDOWN_SECS = 30;
+export const SLOTS_PER_SEC = 100;
+export const MS_PER_SLOT = 1000 / SLOTS_PER_SEC;
+export const DRAW_WINDOW_SECS = 90;
+export const NO_SEAT = 255;
+
+export type TablePhase = "idle" | "drawing" | "riding" | "over";
+const PHASES: TablePhase[] = ["idle", "drawing", "riding", "over"];
+export type RideOutcome = "none" | "placed" | "refund";
+const OUTCOMES: RideOutcome[] = ["none", "placed", "refund"];
+export type RideReason = "none" | "played" | "nobody-jumped" | "no-draw" | "outage";
+const REASONS: RideReason[] = ["none", "played", "nobody-jumped", "no-draw", "outage"];
+
+// ---- Addresses -------------------------------------------------------------------------------------------------------
+
+const pda = (...seeds: (string | Uint8Array)[]) => PublicKey.findProgramAddressSync(seeds.map((s) => (typeof s === "string" ? Buffer.from(s) : s)), RAILCAR_PROGRAM_ID)[0];
+const corePda = (...seeds: (string | Uint8Array)[]) => PublicKey.findProgramAddressSync(seeds.map((s) => (typeof s === "string" ? Buffer.from(s) : s)), TESORO_CORE)[0];
+const le = (n: bigint | number, len: number) => {
+  const b = Buffer.alloc(len);
+  let v = BigInt(n);
+  for (let i = 0; i < len; i++) {
+    b[i] = Number(v & 0xffn);
+    v >>= 8n;
+  }
+  return b;
+};
+
+export const configPda = () => pda("config");
+export const carPda = (carNo: bigint | number) => pda("car", le(carNo, 8));
+export const tablePda = (index: number) => pda("table", le(index, 2));
+export const vaultPda = (table: PublicKey) => pda("vault", table.toBuffer());
+export const sponsorPda = () => pda("sponsor");
+export const authorityPda = () => pda("authority");
+export const identityPda = () => pda("identity");
+const coreAccountOf = (wallet: PublicKey) => corePda("account", wallet.toBuffer());
+const gameRecord = () => corePda("game", RAILCAR_PROGRAM_ID.toBuffer());
+const programData = () => PublicKey.findProgramAddressSync([RAILCAR_PROGRAM_ID.toBuffer()], new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"))[0];
+const MAGIC_PROGRAM = new PublicKey("Magic11111111111111111111111111111111111111");
 const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 const ORACLE_QUEUE = new PublicKey("5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc");
+const VRF_PROGRAM = new PublicKey("Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz");
+const SLOT_HASHES = new PublicKey("SysvarS1otHashes111111111111111111111111111");
+export const magicFeeVault = () => PublicKey.findProgramAddressSync([Buffer.from("magic-fee-vault"), new PublicKey(MAGICBLOCK.teeValidator).toBuffer()], DELEGATION_PROGRAM_ID)[0];
 
-// Mirrors programs/railcar/src/state.rs.
-export const SLOTS_PER_SEC = 100;
-export const DRAW_WINDOW_SLOTS = 90 * SLOTS_PER_SEC;
-/** The longest a ride runs once its draw is in (the 10-minute cap with Brakes). */
-export const RIDE_CAP_SECS = 10 * 60;
-/** `table_kit::COMMIT_RETRY_SECS`: a lost commit may be sent again this long after the last. */
-export const COMMIT_RETRY_SECS = 120;
+// ---- Accounts ---------------------------------------------------------------------------------------------------------
 
-export const PHASE = { idle: 0, drawing: 1, riding: 2, over: 3 } as const;
-export const OUTCOME = { none: 0, placed: 1, refund: 2 } as const;
-export const REASON = { none: 0, played: 1, nobodyJumped: 2, noDraw: 3, outage: 4 } as const;
+const accounts = new BorshAccountsCoder(idl as unknown as Idl);
 
-const pda = (...seeds: Uint8Array[]) => PublicKey.findProgramAddressSync(seeds, RAILCAR_PROGRAM_ID)[0];
-const utf = (s: string) => Buffer.from(s);
-const u16le = (n: number) => Uint8Array.from([n & 0xff, n >> 8]);
+export interface RailcarConfigView {
+  operator: PublicKey;
+  tables: number;
+  /** The number the next car gets. */
+  nextCar: bigint;
+  /** The core Match of the car boarding now (the default key before the first car). */
+  boardingMatch: PublicKey;
+}
 
-export const configPda = () => pda(utf("config"));
-export const tablePda = (index: number) => pda(utf("table"), u16le(index));
-export const carPda = (carNo: bigint) => pda(utf("car"), u64(carNo));
-export const vaultPda = (table: PublicKey) => pda(utf("vault"), table.toBuffer());
-export const sponsorPda = () => pda(utf("sponsor"));
-export const authorityPda = () => pda(utf("authority"));
-export const magicFeeVaultPda = () => PublicKey.findProgramAddressSync([utf("magic-fee-vault"), TEE_VALIDATOR.toBuffer()], DELEGATION_PROGRAM_ID)[0];
-const coreEventAuthority = PublicKey.findProgramAddressSync([utf("__event_authority")], TESORO_CORE)[0];
+export function decodeConfig(data: Uint8Array): RailcarConfigView {
+  const c = accounts.decode("RailcarConfig", Buffer.from(data));
+  return { operator: c.operator, tables: c.tables, nextCar: BigInt(c.next_car.toString()), boardingMatch: c.boarding_match };
+}
 
-// ---- the public Table (zero-copy bytes, read in place) ------------------------------------------------------------
+export interface CarAccountView {
+  carNo: bigint;
+  /** The core many-seat Match it boards. */
+  tesoroMatch: PublicKey;
+  table: number;
+  tables: number;
+  openedAt: number;
+  payer: PublicKey;
+}
 
-/** Offsets in a Table account (after the 8-byte discriminator), checked against the IDL by chain.test.ts. */
-export const TABLE_AT = { index: 2, phase: 4, outcome: 5, reason: 6, seated: 9, aboard: 10, jumps: 11, dirty: 16, carNo: 24, nextCar: 32, car: 40, tesoroMatch: 72, startedSlot: 136, rideSlot: 144, rideTs: 152, overAt: 164, commitAt: 172 } as const;
+export function decodeCarAccount(data: Uint8Array): CarAccountView {
+  const c = accounts.decode("Car", Buffer.from(data));
+  return { carNo: BigInt(c.car_no.toString()), tesoroMatch: c.tesoro_match, table: c.table, tables: c.tables, openedAt: Number(c.opened_at.toString()), payer: c.payer };
+}
 
+/** One seat of a ride, public. */
+export interface RideSeatView {
+  /** Index in the Table's seats (what `jump` names). */
+  tableSeat: number;
+  /** The seat's index in the core Match. */
+  seat: number;
+  /** 0 while aboard, else the place in the Jump order (1 = first off). */
+  order: number;
+  /** Ride ms of the Jump. */
+  jumpMs: number;
+  /** Gemas of the entry the result refunds (written when the ride ends). */
+  refund: bigint;
+  /** The Player's core Account. */
+  account: PublicKey;
+}
+
+/** A Table: one ride at a time (public part). */
 export interface TableView {
-  address: PublicKey;
   index: number;
-  phase: number;
-  outcome: number;
-  reason: number;
+  phase: TablePhase;
+  outcome: RideOutcome;
+  reason: RideReason;
+  /** Tell stages passed: 0 none, 1 screws, 2 bolt and panel, 3 sparks and creak. */
+  tell: number;
+  falseScrews: number;
   seated: number;
+  aboard: number;
   jumps: number;
-  dirty: boolean;
+  /** Table seats of the places, last Player off first (`NO_SEAT` unused). */
+  places: number[];
   carNo: bigint;
   nextCar: bigint;
   car: PublicKey;
   tesoroMatch: PublicKey;
+  entry: bigint;
   startedSlot: bigint;
+  /** The ride clock: slot and unix time of the draw's arrival. */
   rideSlot: bigint;
   rideTs: number;
+  overMs: number;
   overAt: number;
+  /** The result waits for its first commit (the Sponsor could not pay it). */
+  dirty: boolean;
+  /** Unix time of the last commit sent. */
   commitAt: number;
+  seats: RideSeatView[];
 }
 
-export function decodeTable(address: PublicKey, data: Uint8Array): TableView {
-  const b = data.subarray(8);
-  const at = TABLE_AT;
-  const key = (o: number) => new PublicKey(b.subarray(o, o + 32));
+const dv = (d: Uint8Array) => new DataView(d.buffer, d.byteOffset, d.byteLength);
+const RIDE_SEAT = 72;
+const SEATS_AT = 8 + 308;
+
+/** The Table, read in place (zero-copy, alignment 1). */
+export function decodeTable(data: Uint8Array): TableView {
+  const v = dv(data);
+  const b = 8;
+  const seated = data[b + 9];
+  const seats: RideSeatView[] = [];
+  for (let i = 0; i < seated; i++) {
+    const at = SEATS_AT + i * RIDE_SEAT;
+    seats.push({ tableSeat: i, seat: data[at], order: data[at + 1], jumpMs: v.getUint32(at + 4, true), refund: v.getBigUint64(at + 8, true), account: new PublicKey(data.subarray(at + 16, at + 48)) });
+  }
   return {
-    address,
-    index: b[at.index] | (b[at.index + 1] << 8),
-    phase: b[at.phase],
-    outcome: b[at.outcome],
-    reason: b[at.reason],
-    seated: b[at.seated],
-    jumps: b[at.jumps],
-    dirty: b[at.dirty] === 1,
-    carNo: rdU64(b, at.carNo),
-    nextCar: rdU64(b, at.nextCar),
-    car: key(at.car),
-    tesoroMatch: key(at.tesoroMatch),
-    startedSlot: rdU64(b, at.startedSlot),
-    rideSlot: rdU64(b, at.rideSlot),
-    rideTs: Number(rdI64(b, at.rideTs)),
-    overAt: Number(rdI64(b, at.overAt)),
-    commitAt: Number(rdI64(b, at.commitAt)),
+    index: v.getUint16(b + 2, true),
+    phase: PHASES[data[b + 4]] ?? "idle",
+    outcome: OUTCOMES[data[b + 5]] ?? "none",
+    reason: REASONS[data[b + 6]] ?? "none",
+    tell: data[b + 7],
+    falseScrews: data[b + 8],
+    seated,
+    aboard: data[b + 10],
+    jumps: data[b + 11],
+    places: [data[b + 12], data[b + 13], data[b + 14]],
+    carNo: v.getBigUint64(b + 24, true),
+    nextCar: v.getBigUint64(b + 32, true),
+    car: new PublicKey(data.subarray(b + 40, b + 72)),
+    tesoroMatch: new PublicKey(data.subarray(b + 72, b + 104)),
+    entry: v.getBigUint64(b + 104, true),
+    startedSlot: v.getBigUint64(b + 136, true),
+    rideSlot: v.getBigUint64(b + 144, true),
+    rideTs: Number(v.getBigInt64(b + 152, true)),
+    overMs: v.getUint32(b + 160, true),
+    overAt: Number(v.getBigInt64(b + 164, true)),
+    dirty: data[b + 16] === 1,
+    commitAt: Number(v.getBigInt64(b + 172, true)),
+    seats,
   };
 }
 
-export interface CarAccount {
-  address: PublicKey;
-  carNo: bigint;
-  tesoroMatch: PublicKey;
-  table: number;
-  tables: number;
+// ---- Instructions: base layer -----------------------------------------------------------------------------------------
+
+export interface OpenCarArgs {
   payer: PublicKey;
+  /** The opening Player's wallet (it signs). */
+  opener: PublicKey;
+  config: RailcarConfigView;
+  /** The opener's `next_match` (the new core Match is `["match", opener Account, n]`). */
+  n: bigint;
 }
 
-/** Where a core car rides: its Railcar Car (null once closed), its Table and the Table on the rollup and on base. */
-export interface Ride {
-  carNo: bigint | null;
-  car: CarAccount | null;
-  table: TableView;
-  /** Base's committed copy of the Table (null when unreadable). */
-  baseTable: TableView | null;
-  /** Core froze the car the Table last rode (its receipt exists), so the Table may take its next car. */
-  previousFrozen: boolean;
+/** `open_car`: opens the next car (core's many-seat Match for 500 Gemas, 5 to 100 seats) when none can take seats. */
+export function openCarIx(a: OpenCarArgs): TransactionInstruction {
+  const account = coreAccountOf(a.opener);
+  return railcarIx(
+    "open_car",
+    {
+      payer: a.payer,
+      opener: a.opener,
+      config: configPda(),
+      car: carPda(a.config.nextCar),
+      boarding_match: a.config.boardingMatch,
+      match_state: matchPda(account, a.n),
+      core_config: corePda("config"),
+      economy: corePda("economy"),
+      game_record: gameRecord(),
+      game_program: RAILCAR_PROGRAM_ID,
+      program_data: programData(),
+      opener_account: account,
+      counters: corePda("counters", account.toBuffer()),
+      authority: authorityPda(),
+      system_program: SystemProgram.programId,
+    },
+    { n: a.n },
+  );
 }
 
-export interface RailcarChainOptions {
-  base?: Connection;
-  teeRpc?: string;
+/** `check_departure`: anyone; makes a due car leave, else does nothing (so every join carries it). */
+export const checkDepartureIx = (carNo: bigint, match: PublicKey): TransactionInstruction =>
+  railcarIx("check_departure", { car: carPda(carNo), match_state: match, game_record: gameRecord(), game_program: RAILCAR_PROGRAM_ID, program_data: programData(), authority: authorityPda() });
+
+/** `finalize`: anyone; reads the committed Table and sends core the result. Remaining = every seat page of the car. */
+export function finalizeIx(caller: PublicKey, car: { carNo: bigint; table: number; tesoroMatch: PublicKey; payer: PublicKey }, pages: number): TransactionInstruction {
+  const remaining: AccountMeta[] = Array.from({ length: pages }, (_, p) => ({ pubkey: seatPagePda(car.tesoroMatch, p), isSigner: false, isWritable: true }));
+  return railcarIx(
+    "finalize",
+    {
+      caller,
+      car: carPda(car.carNo),
+      car_payer: car.payer,
+      table: tablePda(car.table),
+      match_state: car.tesoroMatch,
+      core_config: corePda("config"),
+      game_record: gameRecord(),
+      authority: authorityPda(),
+      game_program: RAILCAR_PROGRAM_ID,
+      program_data: programData(),
+      receipt: settledPda(car.tesoroMatch),
+      system_program: SystemProgram.programId,
+      core_event_authority: corePda("__event_authority"),
+      event_authority: pda("__event_authority"),
+      program: RAILCAR_PROGRAM_ID,
+    },
+    {},
+    remaining,
+  );
 }
 
-export class RailcarChain {
-  readonly base: Connection;
-  /** Typed from the generated IDL: a call to an instruction the program no longer has is a compile error. */
-  readonly program: anchor.Program<Railcar>;
-  readonly tesoro: anchor.Program<any>;
-  private readonly teeRpc: string;
-  private readonly tee = new Map<string, Connection>();
+/** Railcar's `close_car`: anyone, once core froze the car (its receipt) or closed it; the rent goes back to its payer. */
+export const closeRailcarCarIx = (caller: PublicKey, car: { carNo: bigint; tesoroMatch: PublicKey; payer: PublicKey }): TransactionInstruction =>
+  railcarIx("close_car", { caller, car: carPda(car.carNo), car_payer: car.payer, receipt: settledPda(car.tesoroMatch), match_state: car.tesoroMatch });
 
-  constructor(idl: Railcar, tesoroIdl: any, opts: RailcarChainOptions & { base: Connection }) {
-    this.base = opts.base;
-    this.teeRpc = opts.teeRpc ?? MAGICBLOCK.teeRpc;
-    const provider = new anchor.AnchorProvider(this.base, { publicKey: Keypair.generate().publicKey, signTransaction: async (t: any) => t, signAllTransactions: async (t: any) => t }, { commitment: "confirmed" });
-    this.program = new anchor.Program(idl, provider);
-    this.tesoro = new anchor.Program(tesoroIdl, provider);
-  }
+// ---- Instructions: rollup ---------------------------------------------------------------------------------------------
 
-  /** A TEE connection authenticated as `signer` (tokens are per key). */
-  async teeConnection(signer: PlayerSigner): Promise<Connection> {
-    const k = signer.publicKey.toBase58();
-    const cached = this.tee.get(k);
-    if (cached) return cached;
-    const { token } = await getAuthToken(this.teeRpc, signer.publicKey, (m: Uint8Array) => signer.signMessage(m));
-    const conn = new Connection(`${this.teeRpc}?token=${token}`, { commitment: "confirmed" });
-    this.tee.set(k, conn);
-    return conn;
-  }
+const magic = () => ({ sponsor: sponsorPda(), magic_fee_vault: magicFeeVault(), magic_program: MAGIC_PROGRAM, magic_context: MAGIC_CONTEXT });
 
-  // -- reads --------------------------------------------------------------------------------------
-
-  async config(): Promise<{ tables: number; nextCar: bigint; boardingMatch: PublicKey }> {
-    const info = await this.base.getAccountInfo(configPda());
-    if (!info) throw new Error("Railcar has no config");
-    const c: any = this.program.coder.accounts.decode("railcarConfig", info.data);
-    return { tables: c.tables, nextCar: BigInt(c.nextCar.toString()), boardingMatch: c.boardingMatch };
-  }
-
-  /** The Railcar Car of the car boarding now, when it is `coreCar`. */
-  async boardingCar(coreCar: PublicKey): Promise<CarAccount | null> {
-    const c = await this.config();
-    if (!c.boardingMatch.equals(coreCar) || c.nextCar === 0n) return null;
-    const address = carPda(c.nextCar - 1n);
-    const info = await this.base.getAccountInfo(address);
-    return info ? this.decodeCar(address, info.data) : null;
-  }
-
-  private decodeCar(address: PublicKey, data: Buffer): CarAccount {
-    const c: any = this.program.coder.accounts.decode("car", data);
-    return { address, carNo: BigInt(c.carNo.toString()), tesoroMatch: c.tesoroMatch, table: c.table, tables: c.tables, payer: c.payer };
-  }
-
-  /**
-   * Finds the ride of core car `coreCar` among the Tables: the Table whose current car it is, or whose next car it is. Null
-   * when no Table has it yet (an earlier car still holds its Table).
-   */
-  async findRide(viewer: PlayerSigner, coreCar: PublicKey): Promise<Ride | null> {
-    const n = (await this.config()).tables;
-    const addresses = Array.from({ length: n }, (_, i) => tablePda(i));
-    const tee = await this.teeConnection(viewer);
-    const live = await tee.getMultipleAccountsInfo(addresses);
-    const tables = live.map((info, i) => (info ? decodeTable(addresses[i], info.data) : null));
-    const around = async (t: TableView) => {
-      const [base, receipt] = await this.base.getMultipleAccountsInfo([t.address, receiptPda(t.tesoroMatch)]);
-      return { baseTable: base ? decodeTable(t.address, base.data) : null, previousFrozen: t.phase === PHASE.idle || !!receipt };
-    };
-    for (const t of tables) {
-      if (t && t.phase !== PHASE.idle && t.tesoroMatch.equals(coreCar)) {
-        const info = await this.base.getAccountInfo(t.car);
-        return { carNo: t.carNo, car: info ? this.decodeCar(t.car, info.data) : null, table: t, ...(await around(t)) };
-      }
-    }
-    const nexts = tables.filter((t): t is TableView => !!t);
-    const cars = await this.base.getMultipleAccountsInfo(nexts.map((t) => carPda(t.nextCar)));
-    for (let i = 0; i < nexts.length; i++) {
-      const info = cars[i];
-      if (!info) continue;
-      const car = this.decodeCar(carPda(nexts[i].nextCar), info.data);
-      if (car.tesoroMatch.equals(coreCar)) return { carNo: car.carNo, car, table: nexts[i], ...(await around(nexts[i])) };
-    }
-    return null;
-  }
-
-  // -- instructions ---------------------------------------------------------------------------------
-
-  private readonly pages = (car: CarView): AccountMeta[] => Array.from({ length: car.pages }, (_, p) => ({ pubkey: seatPagePda(car.address, p), isSigner: false, isWritable: true }));
-
-  private magic() {
-    return { sponsor: sponsorPda(), magicFeeVault: magicFeeVaultPda(), magicContext: MAGIC_CONTEXT, magicProgram: MAGIC_PROGRAM_ID };
-  }
-
-  checkDepartureIx(car: CarAccount): Promise<TransactionInstruction> {
-    return this.program.methods
-      .checkDeparture()
-      .accountsPartial({ car: car.address, matchState: car.tesoroMatch, ...gameAccounts(RAILCAR_PROGRAM_ID), authority: authorityPda(), tesoroProgram: TESORO_CORE })
-      .instruction();
-  }
-
-  startRideIx(payer: PublicKey, car: CarAccount, coreCar: CarView, table: TableView): Promise<TransactionInstruction> {
-    return this.program.methods
-      .startRide()
-      .accountsPartial({ payer, table: table.address, vault: vaultPda(table.address), car: car.address, matchState: car.tesoroMatch, previousReceipt: receiptPda(table.tesoroMatch), oracleQueue: ORACLE_QUEUE })
-      .remainingAccounts(this.pages(coreCar))
-      .instruction();
-  }
-
-  signalIx(caller: PublicKey, table: PublicKey): Promise<TransactionInstruction> {
-    return this.program.methods
-      .signal()
-      .accountsPartial({ caller, table, vault: vaultPda(table), ...this.magic() })
-      .instruction();
-  }
-
-  commitTableIx(caller: PublicKey, table: PublicKey): Promise<TransactionInstruction> {
-    return this.program.methods
-      .commitTable()
-      .accountsPartial({ caller, table, ...this.magic() })
-      .instruction();
-  }
-
-  finalizeIx(caller: PublicKey, car: CarAccount, coreCar: CarView): Promise<TransactionInstruction> {
-    return this.program.methods
-      .finalize()
-      .accountsPartial({
-        caller,
-        car: car.address,
-        carPayer: car.payer,
-        table: tablePda(car.table),
-        matchState: car.tesoroMatch,
-        ...gameAccounts(RAILCAR_PROGRAM_ID),
-        authority: authorityPda(),
-        receipt: receiptPda(car.tesoroMatch),
-        coreEventAuthority,
-        tesoroProgram: TESORO_CORE,
-      })
-      .remainingAccounts(this.pages(coreCar))
-      .instruction();
-  }
-
-  skipCarIx(caller: PublicKey, table: TableView, carAddress: PublicKey, coreCar: PublicKey): Promise<TransactionInstruction> {
-    return this.program.methods
-      .skipCar()
-      .accountsPartial({ caller, table: table.address, config: configPda(), car: carAddress, matchState: coreCar, receipt: receiptPda(coreCar) })
-      .instruction();
-  }
-
-  closeCarIx(caller: PublicKey, car: CarAccount): Promise<TransactionInstruction> {
-    return this.program.methods
-      .closeCar()
-      .accountsPartial({ caller, car: car.address, carPayer: car.payer, receipt: receiptPda(car.tesoroMatch), matchState: car.tesoroMatch })
-      .instruction();
-  }
-
-  // -- sending ------------------------------------------------------------------------------------
-
-  async sendBase(signer: PlayerSigner, ixs: TransactionInstruction[]): Promise<string> {
-    return this.send(this.base, signer, ixs);
-  }
-
-  async sendRollup(signer: PlayerSigner, ixs: TransactionInstruction[]): Promise<string> {
-    return this.send(await this.teeConnection(signer), signer, ixs);
-  }
-
-  private async send(conn: Connection, signer: PlayerSigner, ixs: TransactionInstruction[]): Promise<string> {
-    const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }), ...ixs);
-    tx.feePayer = signer.publicKey;
-    const latest = await conn.getLatestBlockhash();
-    tx.recentBlockhash = latest.blockhash;
-    const signed = await signer.signTransaction(tx);
-    const sig = await conn.sendRawTransaction(signed.serialize(), { skipPreflight: false });
-    const res = await conn.confirmTransaction({ signature: sig, ...latest }, "confirmed");
-    if (res.value.err) throw new Error(`failed ${sig}: ${JSON.stringify(res.value.err)}`);
-    return sig;
-  }
+/** `start_ride`: anyone; puts the Table's next (departed) car on it and asks for the draw. Remaining = every seat page. */
+export function startRideIx(payer: PublicKey, car: { carNo: bigint; table: number; tesoroMatch: PublicKey }, pages: number, previousMatch: PublicKey | null): TransactionInstruction {
+  const table = tablePda(car.table);
+  const remaining: AccountMeta[] = Array.from({ length: pages }, (_, p) => ({ pubkey: seatPagePda(car.tesoroMatch, p), isSigner: false, isWritable: false }));
+  return railcarIx(
+    "start_ride",
+    {
+      payer,
+      table,
+      vault: vaultPda(table),
+      car: carPda(car.carNo),
+      match_state: car.tesoroMatch,
+      previous_receipt: previousMatch ? settledPda(previousMatch) : SystemProgram.programId,
+      oracle_queue: ORACLE_QUEUE,
+      program_identity: identityPda(),
+      vrf_program: VRF_PROGRAM,
+      slot_hashes: SLOT_HASHES,
+      system_program: SystemProgram.programId,
+    },
+    {},
+    remaining,
+  );
 }
 
-// ---- the step an unfinished ride needs ----------------------------------------------------------------------------
+/** `signal`: anyone; moves the Tell stage and, from the Impact slot, ends the ride and commits the Table. */
+export const signalIx = (caller: PublicKey, tableIndex: number): TransactionInstruction => {
+  const table = tablePda(tableIndex);
+  return railcarIx("signal", { caller, table, vault: vaultPda(table), ...magic() });
+};
 
-/** What `nextRideStep` decides from: the core car, its ride and the rollup's slot. */
-export interface RideFacts {
-  coreCar: CarView;
-  ride: Ride | null;
-  /** The rollup's current slot. */
-  slot: bigint;
-  now: number;
-}
+/** `jump`: the Player of Table seat `tableSeat`. `signer` is the wallet of the seat's core Account. */
+export const jumpIx = (signer: PublicKey, wallet: PublicKey, tableIndex: number, carNo: bigint, tableSeat: number): TransactionInstruction => {
+  const table = tablePda(tableIndex);
+  return railcarIx("jump", { player: signer, player_account: coreAccountOf(wallet), table, vault: vaultPda(table), ...magic() }, { car_no: carNo, seat: tableSeat });
+};
 
-export type RidePlan = { step: "check_departure" | "start_ride" | "signal" | "commit_table" | "finalize" | "refund" | "signal_then_check" } | { wait: string };
+/** `commit_table`: anyone; a result's commit, or a repeat of one that may have been lost. */
+export const commitTableIx = (caller: PublicKey, tableIndex: number): TransactionInstruction =>
+  railcarIx("commit_table", { caller, table: tablePda(tableIndex), sponsor: sponsorPda(), magic_fee_vault: magicFeeVault(), magic_program: MAGIC_PROGRAM, magic_context: MAGIC_CONTEXT });
 
-/**
- * The one step a car whose pages are gone needs, the way a page would have sent it. Pure, so the order of the rules is tested:
- * a finished ride whose result base holds is finalized before anything else; past core's refund time a ride that cannot be
- * finalized is refunded through core; otherwise the ride is moved on (started, its Impact applied, its result committed).
- */
-export function nextRideStep(f: RideFacts): RidePlan {
-  const { coreCar, ride, slot, now } = f;
-  if (coreCar.stage === "boarding") return { step: "check_departure" };
-  if (coreCar.stage !== "departed") return { wait: `the car is ${coreCar.stage}` };
-  const mine = ride && ride.table.phase !== PHASE.idle && ride.table.tesoroMatch.equals(coreCar.address) ? ride.table : null;
-  const base = ride?.baseTable;
-  if (mine && mine.phase === PHASE.over && ride?.car && base && base.phase === PHASE.over && base.carNo === mine.carNo && base.tesoroMatch.equals(coreCar.address)) return { step: "finalize" };
-  if (now >= coreCar.refundAfter) return { step: "refund" };
-  if (!ride) return { wait: "an earlier car still holds the Table" };
-  if (!mine) {
-    if (ride.table.nextCar !== ride.carNo) return { wait: "an earlier car still holds the Table" };
-    if (!ride.previousFrozen) return { wait: "the Table's previous car is not frozen yet" };
-    return { step: "start_ride" };
-  }
-  if (mine.phase === PHASE.drawing) return slot > mine.startedSlot + BigInt(DRAW_WINDOW_SLOTS) ? { step: "signal" } : { wait: "the draw window is open" };
-  if (mine.phase === PHASE.riding) return now >= mine.rideTs + RIDE_CAP_SECS ? { step: "signal" } : { step: "signal_then_check" };
-  if (mine.dirty) return { step: "commit_table" };
-  if (now >= mine.commitAt + COMMIT_RETRY_SECS) return { step: "commit_table" };
-  return { wait: "the commit is on its way to base" };
-}
+/** `skip_car`: anyone; the Table passes over its next car when that car will never ride (core froze or closed it). */
+export const skipCarIx = (caller: PublicKey, tableIndex: number, carNo: bigint, tesoroMatch: PublicKey): TransactionInstruction =>
+  railcarIx("skip_car", { caller, table: tablePda(tableIndex), config: configPda(), car: carPda(carNo), match_state: tesoroMatch, receipt: settledPda(tesoroMatch) });
+
+/** `request_draw`: anyone; asks again when no draw came within 20 s. */
+export const requestDrawIx = (payer: PublicKey, tableIndex: number): TransactionInstruction => {
+  const table = tablePda(tableIndex);
+  return railcarIx("request_draw", { payer, table, vault: vaultPda(table), oracle_queue: ORACLE_QUEUE, program_identity: identityPda(), vrf_program: VRF_PROGRAM, slot_hashes: SLOT_HASHES, system_program: SystemProgram.programId });
+};
