@@ -263,6 +263,8 @@ pub enum ManySeatError {
     WrongSeat,
     #[msg("every seat page of the car, with its payer, must be passed to close it")]
     PagesMissing,
+    #[msg("the result names a seat twice, an empty seat, a refund above the entry or on a placed seat, or shares that are not 1 to 10 places summing to 10,000")]
+    BadResult,
 }
 
 pub fn seat_err(e: crate::ledger::many_seat::SeatError) -> Error {
@@ -277,6 +279,8 @@ pub fn seat_err(e: crate::ledger::many_seat::SeatError) -> Error {
         S::NotGame => ManySeatError::NotGame.into(),
         S::GameUpgraded => MatchError::GameUpgraded.into(),
         S::NotEmpty => ManySeatError::NotEmpty.into(),
+        S::BadResult => ManySeatError::BadResult.into(),
+        S::FeeTooHigh => MatchError::FeeTooHigh.into(),
         S::Math => ProgramError::ArithmeticOverflow.into(),
     }
 }

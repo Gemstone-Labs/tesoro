@@ -40,6 +40,10 @@ pub enum SeatError {
     NotGame,
     GameUpgraded,
     NotEmpty,
+    /// The result names a seat twice, an empty seat, a refund above the entry or on a placed
+    /// seat, or place shares that are not 1 to 10 places summing to 10,000.
+    BadResult,
+    FeeTooHigh,
     Math,
 }
 
