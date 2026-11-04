@@ -3,7 +3,7 @@ import { Connection, Keypair, PublicKey, VersionedMessage, VersionedTransaction 
 import { describe, expect, it, vi } from "vitest";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
-import { joinMatchIx, accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, gameStepIx, key, linkEvmBridgeIx, signUpIx, openMatchIx, playerIx } from "./fixtures";
+import { growIx, joinMatchIx, accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, gameStepIx, key, linkEvmBridgeIx, signUpIx, openMatchIx, playerIx } from "./fixtures";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type WireIx } from "./service";
@@ -867,6 +867,26 @@ describe("join and assign in one transaction", () => {
     expect(seen.indexOf("grow")).toBeLessThan(seen.lastIndexOf("other") - 0);
   });
 
+  it("sends a join that no longer fits with its assignment on its own, and frees the table (a Backed entry with a seat key)", async () => {
+    const { s, match } = withAssigner();
+    const seatKey = key();
+    const fits = await join(s, match);
+    fits.keys[2] = { ...fits.keys[2], pubkey: seatKey };
+    const lone = await s.sponsor.build(s.player.publicKey, wire([fits]));
+    expect(VersionedMessage.deserialize(Buffer.from(lone.message, "base64")).compiledInstructions.at(-1)!.data.subarray(0, 8)).toEqual(Uint8Array.from([195, 128, 179, 141, 148, 120, 135, 51]));
+    // grow_store_sponsored accounts in front stand in for the Backing accounts: too many bytes for the join and its assignment
+    const grows = await Promise.all([growIx(s.relayer.publicKey, accountPda(s.player.publicKey)), growIx(s.relayer.publicKey, key()), growIx(s.relayer.publicKey, key())]);
+    const crowded = await join(s, match);
+    s.tick(100_000);
+    const built = await s.sponsor.build(s.player.publicKey, wire([...grows, crowded]));
+    const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+    expect(JSON.parse(built.meta).assign).toBeUndefined();
+    expect(built.table).toBe(true);
+    expect(lone.table).toBeUndefined();
+    expect(msg.staticAccountKeys[msg.compiledInstructions.at(-1)!.programIdIndex].equals(CORE_ID)).toBe(true);
+    expect(Buffer.from(built.message, "base64").length).toBeLessThanOrEqual(1232);
+  });
+
   it("keeps the table through the start window once sent, so the next join gets another", async () => {
     const { s, match } = withAssigner([{ generation: 1, index: 0, epoch: 3n }, { generation: 1, index: 1, epoch: 3n }]);
     const first = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
@@ -1021,7 +1041,7 @@ describe("join and assign in one transaction", () => {
 describe("the sponsored entry's size with a seat key", () => {
   // the real client builder, relayer paying; the Player signs the join and the operator the assignment. A seat key that is not
   // the wallet adds one account key (32 B) and one signature (64 B).
-  const sizeOf = (backed: boolean, seatKey: boolean) => {
+  const sizeOf = (backed: boolean, seatKey: boolean, withAssign = true) => {
     const relayer = key(), opener = key(), backer = key();
     const game = "block-puzzle" as const;
     const join = joinMatchIxOf({
@@ -1037,7 +1057,7 @@ describe("the sponsored entry's size with a seat key", () => {
     const message = new TransactionMessage({
       payerKey: relayer,
       recentBlockhash: key().toBase58(),
-      instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 }), join, assign],
+      instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 }), join, ...(withAssign ? [assign] : [])],
     }).compileToV0Message([]);
     return new VersionedTransaction(message).serialize().length;
   };
@@ -1048,5 +1068,171 @@ describe("the sponsored entry's size with a seat key", () => {
     expect(sizes.plainSeat - sizes.plain).toBe(96);
     expect(sizes.backedSeat - sizes.backed).toBe(96);
     expect(sizes.plainSeat).toBeLessThanOrEqual(1232);
+  });
+
+  // The Backed entry with a seat key is 1,421 B with its assignment: the sponsor sends the join alone and the keeper assigns the table.
+  it("a Backed join with a seat key fits on its own", () => {
+    const alone = sizeOf(true, true, false);
+    console.info("backed join + seat key, no assignment, bytes", alone);
+    expect(sizeOf(true, true)).toBeGreaterThan(1232);
+    expect(alone).toBeLessThanOrEqual(1232);
+  });
+});
+
+describe("seat keys on the sponsor (ticket 10)", () => {
+  const matchCoder = new Program(coreIdl as unknown as Idl, new AnchorProvider(new Connection("http://localhost:8899"), {} as never, {})).coder.accounts;
+  const arr = (k: PublicKey) => Array.from(k.toBytes());
+  type Side = { account: PublicKey; seat: PublicKey };
+  /** A MatchState (through the real coder) whose sides name an Account and its seat key. */
+  const matchData = async (a: Side, b: Side | null, stage: object = { open: {} }, game: PublicKey = key()) => {
+    const party = (p: Side) => ({ player: arr(p.account), funder: arr(p.account), shareBps: 0, signer: arr(p.seat) });
+    const inner = {
+      id: { opener: arr(a.account), n: new BN(5) }, meta: { challenge: false, asset: 0, listed: true }, game: arr(game), settleAuthority: arr(key()), deploySlot: new BN(1),
+      terms: { platformBps: 200, studioBps: 300, studioOwner: null, studioPriority: true }, entry: new BN(500), openedAt: new BN(1), deadline: new BN(2), deadlineAbs: new BN(3),
+      a: party(a), b: b ? party(b) : null, potLines: [1, 1], stage, run: null,
+    };
+    return Buffer.from(await matchCoder.encode("matchState", { bump: 255, inner, listed: true, listingEpoch: 0, payer: key(), pots: [key(), key()], room: Array.from({ length: 5 }, () => ({ account: arr(PublicKey.default), left: 0 })) }));
+  };
+  /** Ana (the setup's Player) is side A with seat key `ana`; Ben is side B with `ben`. */
+  async function world(stage?: object) {
+    const s = setup();
+    const ana = key(), ben = key(), match = key();
+    s.accounts.set(match.toBase58(), { owner: CORE_ID, data: await matchData({ account: accountPda(s.player.publicKey), seat: ana }, { account: key(), seat: ben }, stage) });
+    return { s, ana, ben, match };
+  }
+  const seat = (signer: PublicKey, match: PublicKey) => ({ kind: "seat", signer, match }) as const;
+
+  it("builds a Game step and the Match's finish for the seat key the Match names for this Account", async () => {
+    const { s, ana, match } = await world();
+    const finalize = gameStepIx(s.game, "finalize", match, s.relayer.publicKey);
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalize]), null, seat(ana, match))).resolves.toMatchObject({ class: "exit" });
+    const chunk = await chunkIx(s.relayer.publicKey, match);
+    await expect(s.sponsor.build(s.player.publicKey, wire([chunk]), null, seat(ana, match))).resolves.toMatchObject({ class: "exit" });
+  });
+
+  it("refuses the opponent's seat key, a key from another Match and a stranger's key", async () => {
+    const { s, ben, match } = await world();
+    const finalize = gameStepIx(s.game, "finalize", match, s.relayer.publicKey);
+    for (const wrong of [ben, key()]) {
+      await expect(s.sponsor.build(s.player.publicKey, wire([finalize]), null, seat(wrong, match))).rejects.toMatchObject({ code: "not-your-seat-key" });
+    }
+    // Another wallet's request with the key Ana's Match names for Ana.
+    const other = await world();
+    other.s.accounts.set(match.toBase58(), s.accounts.get(match.toBase58())!);
+    const otherFinalize = gameStepIx(other.s.game, "finalize", match, other.s.relayer.publicKey);
+    await expect(other.s.sponsor.build(other.s.player.publicKey, wire([otherFinalize]), null, seat(other.ana, match))).rejects.toMatchObject({ code: "not-your-seat-key" });
+    // A stranger's wallet with a key the Match names for someone else.
+    const stranger = setup();
+    stranger.accounts.set(match.toBase58(), s.accounts.get(match.toBase58())!);
+    const strangerFinalize = gameStepIx(stranger.game, "finalize", match, stranger.relayer.publicKey);
+    await expect(stranger.sponsor.build(stranger.player.publicKey, wire([strangerFinalize]), null, seat(ben, match))).rejects.toMatchObject({ code: "not-your-seat-key" });
+  });
+
+  it("refuses a request whose Match is not the one in the transaction", async () => {
+    const { s, ana, match } = await world();
+    const finalize = gameStepIx(s.game, "finalize", match, s.relayer.publicKey);
+    await expect(s.sponsor.build(s.player.publicKey, wire([finalize]), null, seat(ana, key()))).rejects.toMatchObject({ code: "bad-request" });
+  });
+
+  it("cancels (refund_match) only for the opener side's key", async () => {
+    const { s, ana, ben, match } = await world();
+    const r = s.relayer.publicKey;
+    const refund = await coreIx("refund_match", [], { caller: r, payer: r, gameProgram: s.game, programData: key(), gameRecord: key(), matchState: match, openerProtections: null });
+    await expect(s.sponsor.build(s.player.publicKey, wire([refund]), null, seat(ana, match))).resolves.toMatchObject({ class: "exit" });
+    // The joiner's key may finish a Match but cannot cancel the opener's side.
+    const joiner = setup();
+    joiner.accounts.set(match.toBase58(), { owner: CORE_ID, data: await matchData({ account: key(), seat: key() }, { account: accountPda(joiner.player.publicKey), seat: ben }) });
+    await expect(joiner.sponsor.build(joiner.player.publicKey, wire([refund]), null, seat(ben, match))).rejects.toMatchObject({ code: "not-your-seat-key" });
+  });
+
+  it("never builds what moves value or enters: a seat key gets wallet-only for the rest", async () => {
+    const { s, ana, match } = await world();
+    const p = s.player.publicKey;
+    const wallets = [playerIx.redeem(p), playerIx.unlock(p), playerIx.returnOwn(p), playerIx.claimFreeYield(p), playerIx.cancelRequest(p), playerIx.takeNativeAdvance(p), playerIx.requestInstantRedeem(p)];
+    for (const ix of wallets) await expect(s.sponsor.build(p, wire([await ix]), null, seat(ana, match))).rejects.toMatchObject({ code: "wallet-only" });
+    const open = await openMatchIx(s.relayer.publicKey, p, s.game);
+    await expect(s.sponsor.build(p, wire([open]), null, seat(ana, match))).rejects.toMatchObject({ code: "wallet-only" });
+    const join = await joinMatchIx(s.relayer.publicKey, p, s.game);
+    await expect(s.sponsor.build(p, wire([join]), null, seat(ana, match))).rejects.toMatchObject({ code: "wallet-only" });
+    await expect(s.sponsor.buildSelfPaid(p, wire([join]), null, seat(ana, match))).rejects.toMatchObject({ code: "wallet-only" });
+  });
+
+  describe("the table of a join that went out without one", () => {
+    const joined = async (over: { claims?: string[] } = {}) => {
+      const s = setup();
+      const ana = key(), ben = key(), match = key();
+      s.deps.assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: async () => [{ generation: 1, index: 0, epoch: 3n }], claim: async (g, p, m) => (over.claims?.push(`${g}/${p.index}/${m}`), true), now: () => 1_000_000 });
+      s.accounts.set(match.toBase58(), { owner: CORE_ID, data: await matchData({ account: key(), seat: key() }, { account: accountPda(s.player.publicKey), seat: ana }, { active: {} }, s.game) });
+      return { s, ana, ben, match };
+    };
+    it("builds the operator's assign_match alone, claims the table when sent, and needs no keeper", async () => {
+      const claims: string[] = [];
+      const { s, ana, match } = await joined({ claims });
+      const built = await s.sponsor.buildTable(s.player.publicKey, match, seat(ana, match));
+      const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+      expect(msg.header.numRequiredSignatures).toBe(2);
+      expect(Buffer.from(msg.compiledInstructions.at(-1)!.data).subarray(0, 8)).toEqual(Buffer.from([195, 128, 179, 141, 148, 120, 135, 51]));
+      console.info("assignment-only transaction bytes", new VersionedTransaction(msg).serialize().length);
+      expect(claims).toEqual([]);
+      await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+      expect(s.sent).toHaveLength(1);
+      expect(claims[0]).toMatch(/^block-puzzle\/0\/[1-9A-HJ-NP-Za-km-z]{32,44}-5$/);
+    });
+    it("is also open to the wallet, and refuses the other side's key, a stranger and a Match that already has its table", async () => {
+      const { s, ana, ben, match } = await joined();
+      await expect(s.sponsor.buildTable(s.player.publicKey, match)).resolves.toMatchObject({ class: "exit" });
+      s.tick(100_000);
+      for (const wrong of [ben, key()]) await expect(s.sponsor.buildTable(s.player.publicKey, match, seat(wrong, match))).rejects.toMatchObject({ code: "not-your-seat-key" });
+      await expect(s.sponsor.buildTable(s.player.publicKey, match, seat(ana, key()))).rejects.toMatchObject({ code: "not-your-seat-key" });
+      const stranger = setup();
+      stranger.deps.assigner = s.deps.assigner;
+      stranger.accounts.set(match.toBase58(), s.accounts.get(match.toBase58())!);
+      await expect(stranger.sponsor.buildTable(stranger.player.publicKey, match)).rejects.toMatchObject({ code: "not-your-match" });
+      await expect(s.sponsor.buildTable(s.player.publicKey, match, { kind: "token" })).rejects.toMatchObject({ code: "wallet-only" });
+      s.accounts.set(PublicKey.findProgramAddressSync([Buffer.from("assign"), match.toBuffer()], s.game)[0].toBase58(), { owner: s.game, data: Buffer.alloc(40) });
+      await expect(s.sponsor.buildTable(s.player.publicKey, match)).rejects.toMatchObject({ code: "assigned" });
+    });
+    it("says so when no table is free", async () => {
+      const { s, match } = await joined();
+      s.deps.assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: async () => [], now: () => 1_000_000 });
+      await expect(new Sponsor(s.deps).buildTable(s.player.publicKey, match)).rejects.toMatchObject({ code: "no-table" });
+    });
+  });
+
+  describe("the entry, vouched for by the Privy login alone", () => {
+    it("builds an entry that names a seat key, and the seat key's signature is required by submit", async () => {
+      const s = setup();
+      const seatKp = Keypair.generate();
+      const open = await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game, { seatSigner: seatKp.publicKey });
+      const built = await s.sponsor.build(s.player.publicKey, wire([open]), "did:privy:ana", { kind: "token" });
+      expect(built.class).toBe("admission");
+      const message = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+      const walletOnly = new VersionedTransaction(message);
+      walletOnly.sign([s.player]);
+      await expect(s.sponsor.submit(Buffer.from(walletOnly.serialize()).toString("base64"), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
+      const both = new VersionedTransaction(message);
+      both.sign([s.player, seatKp]);
+      await expect(s.sponsor.submit(Buffer.from(both.serialize()).toString("base64"), built.meta, built.mac)).resolves.toMatchObject({ signature: "sig1" });
+    });
+
+    it("refuses anything but an entry, for the Account's own address or any other", async () => {
+      const s = setup();
+      const p = s.player.publicKey;
+      for (const ix of [playerIx.redeem(p), playerIx.unlock(p), playerIx.takeNativeAdvance(p)]) {
+        await expect(s.sponsor.build(p, wire([await ix]), "did:privy:ana", { kind: "token" })).rejects.toMatchObject({ code: "wallet-only" });
+      }
+      await expect(s.sponsor.build(p, wire([await chunkIx(s.relayer.publicKey, key())]), "did:privy:ana", { kind: "token" })).rejects.toMatchObject({ code: "wallet-only" });
+      const signUp = await createAccountIx(s.relayer.publicKey, p, { sponsored: true });
+      await expect(s.sponsor.build(p, wire([signUp]), "did:privy:ana", { kind: "token" })).rejects.toMatchObject({ code: "wallet-only" });
+    });
+
+    it("counts the build against the Privy user, not the Account whose address it names", async () => {
+      const s = setup({ limits: { buildsPerDay: 1 } });
+      const open = await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
+      await s.sponsor.build(s.player.publicKey, wire([open]), "did:privy:mallory", { kind: "token" });
+      await expect(s.sponsor.build(s.player.publicKey, wire([open]), "did:privy:mallory", { kind: "token" })).rejects.toMatchObject({ code: "account-limit" });
+      // Ana's own wallet-signed build is untouched by Mallory's.
+      await expect(s.sponsor.build(s.player.publicKey, wire([open]), "did:privy:ana")).resolves.toMatchObject({ class: "admission" });
+    });
   });
 });

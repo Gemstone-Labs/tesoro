@@ -1,5 +1,5 @@
-import { DemoHttpError, NonceStore, verifySignedRequest } from "@/server/request-auth";
-import { parseIntentText } from "@/server/sponsor/intent";
+import { DemoHttpError, NonceStore } from "@/server/request-auth";
+import { handleAssign } from "@/server/sponsor/routes";
 import { sponsor } from "@/server/sponsor/env";
 
 export const runtime = "nodejs";
@@ -9,8 +9,7 @@ const nonces = new NonceStore();
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
-    const req = await verifySignedRequest("tesoro-sponsor", ["assign"] as const, body, request.headers.get("authorization"), { nonces });
-    return Response.json(await sponsor().buildSelfPaid(req.address, parseIntentText(req.fields.intent)));
+    return Response.json(await handleAssign(sponsor(), nonces, body, request.headers.get("authorization"), request.headers.get("privy-id-token")));
   } catch (e) {
     if (e instanceof DemoHttpError) return Response.json({ error: e.message, code: e.code }, { status: e.status });
     console.error("sponsor assign", e);

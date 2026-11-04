@@ -133,7 +133,7 @@ export class Assigner {
   }
 
   /**
-   * The `assign_match` for the lowest table nobody holds, or null (the keeper assigns the Match later). With `player`, a Player
+   * The `assign_match` for the lowest table nobody holds, or null (no table is free: the page asks again with `buildTable`). With `player`, a Player
    * holds at most one lease per Game at a time (PlayerBusy otherwise), so a loop of builds cannot take the tables.
    */
   async assign(game: GameId, match: PublicKey, accountA: PublicKey, accountB: PublicKey, holder: string, matchKey?: string, player?: string): Promise<Assignment | null> {
