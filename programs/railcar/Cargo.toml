@@ -8,7 +8,9 @@ crate-type = ["cdylib", "lib"]
 name = "railcar"
 
 [features]
-default = []
+# No on-chain IDL instructions: nothing uploads an IDL account, and Anchor's generated IDL
+# resize handler is the only caller of the deprecated `AccountInfo::realloc`.
+default = ["no-idl"]
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
