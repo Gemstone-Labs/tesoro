@@ -576,10 +576,8 @@ fn a_backed_place_returns_the_backers_entry_then_splits_the_winnings_by_the_offe
 }
 
 fn refused(c: &mut Car, result: ManySeatResult) -> SeatError {
-    let before = (c.rec, c.pages.seats.clone());
     let e = c.settle(&result).unwrap_err();
     assert_eq!(c.rec.stage(), ManyStage::Departed);
-    let _ = before;
     e
 }
 
@@ -722,11 +720,12 @@ fn every_gema_lands_where_the_payout_says() {
         let fix = 10_000i32 - shares.iter().map(|s| *s as i32).sum::<i32>();
         shares[0] = (shares[0] as i32 + fix) as u16;
         let pl: Vec<(u8, u16)> = seats[..n_places].iter().copied().zip(shares.clone()).collect();
-        let mut rf: Vec<(u8, u64)> = seats[n_places..]
-            .iter()
-            .filter(|_| rng.below(2) == 0)
-            .map(|s| (*s, 1 + rng.below(ENTRY)))
-            .collect();
+        let mut rf: Vec<(u8, u64)> = vec![];
+        for s in &seats[n_places..] {
+            if rng.below(2) == 0 {
+                rf.push((*s, 1 + rng.below(ENTRY)));
+            }
+        }
         rf.sort_unstable();
         let refunded: u64 = rf.iter().map(|r| r.1).sum();
         let pay = plan_payout(ENTRY, n as u8, &shares, refunded, &t, LB).unwrap();
