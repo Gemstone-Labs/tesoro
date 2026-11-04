@@ -20,8 +20,10 @@
 //! | | Entry Ticket | Backing Ticket |
 //! |---|---|---|
 //! | open | the owner | the Requester the Offer was accepted for (signature required) |
-//! | stage | the owner | anyone (the program fixes order and destination) |
-//! | cancel | the owner, or anyone once it expired | the Backer, or anyone once it expired |
+//! | stage | the owner or its seat key | anyone (the program fixes order and destination) |
+//! | cancel | the owner or its seat key, or anyone once it expired | the Backer, or anyone once it expired |
+//!
+//! The seat key is the one that co-signed `open_ticket` (`util::acts_for`).
 
 use crate::books::OnchainBooks;
 use crate::error::{core_err, BasketError, MatchError, TesoroError};
@@ -33,7 +35,7 @@ use crate::ledger::{CoreError, OfferStatus};
 use crate::pots::*;
 use crate::state::*;
 use crate::storage::*;
-use crate::util::now;
+use crate::util::{acts_for, now};
 use anchor_lang::prelude::*;
 
 /// Which Ticket to open.
@@ -171,6 +173,9 @@ pub struct OpenTicket<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub authority: Signer<'info>,
+    /// The seat key that may stage and cancel an Entry Ticket and play the Match it enters,
+    /// recorded in the Ticket. A wallet that wants no seat key passes itself.
+    pub seat_signer: Signer<'info>,
     #[account(
         seeds = [ACCOUNT_SEED, authority.key().as_ref()],
         bump = requester.bump
@@ -291,6 +296,7 @@ pub(crate) fn open_ticket(
         payer: ctx.accounts.payer.key(),
         spill_room: 0,
         sponsored_lamports: 0,
+        signer: ctx.accounts.seat_signer.key(),
     };
     if let Some(sponsor) = ctx.accounts.sponsor.as_mut() {
         let rent = Rent::get()?.minimum_balance(ticket_len(lines as usize));
@@ -426,7 +432,11 @@ pub(crate) fn stage_entry<'info>(
         ctx.accounts.owner.key(),
         MatchError::TicketMismatch
     );
-    let owner_signs = ctx.accounts.signer.key() == ctx.accounts.owner.authority;
+    let owner_signs = acts_for(
+        &ctx.accounts.owner.key(),
+        &ctx.accounts.signer.key(),
+        &extra.signer,
+    );
     let mut books = OnchainBooks::load(ctx.remaining_accounts)?;
     with_pool_hold(
         &ctx.accounts.basket.to_account_info(),
@@ -494,7 +504,17 @@ pub(crate) fn cancel_ticket<'info>(
         ctx.accounts.owner.key(),
         MatchError::TicketMismatch
     );
-    let by_owner = ctx.accounts.signer.key() == ctx.accounts.owner.authority;
+    // an Entry Ticket is also cancelled by its seat key; a Backing Ticket by the Backer's wallet
+    // alone (its recorded key is the Requester's)
+    let named = match t.kind {
+        TicketKind::Entry => extra.signer,
+        TicketKind::Backing => ctx.accounts.owner.authority,
+    };
+    let by_owner = acts_for(
+        &ctx.accounts.owner.key(),
+        &ctx.accounts.signer.key(),
+        &named,
+    );
     let mut books = OnchainBooks::load(ctx.remaining_accounts)?;
     let done = with_pool_hold(
         &ctx.accounts.basket.to_account_info(),

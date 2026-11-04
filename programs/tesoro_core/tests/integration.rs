@@ -59,11 +59,12 @@ fn ticket_pda(account: APk, nonce: u64) -> APk {
 }
 
 /// `open_ticket` for an Entry Ticket at `nonce`.
-fn open_ticket_ix(p: &Person, nonce: u64, entry: u64, lines: u32) -> Instruction {
+fn open_ticket_ix(p: &Person, nonce: u64, entry: u64, lines: u32, seat: APk) -> Instruction {
     ix(
         accounts::OpenTicket {
             payer: p.key,
             authority: p.key,
+            seat_signer: seat,
             requester: p.account,
             owner: p.account,
             basket: basket_address(&p.account).0,
@@ -175,6 +176,11 @@ struct Env {
     name_records: bool,
     /// Do not grow the Game's outside studio's spill when joining (to test a full studio).
     skip_studio_room: bool,
+    /// The seat key the next Match entry or Entry Ticket names and signs with (default: the
+    /// Player's wallet names itself).
+    seat_key: Option<Keypair>,
+    /// The seat key is named but does not sign (to test that it has to).
+    seat_unsigned: bool,
     last_cu: u64,
     /// The native custody and its rate Pool, when `install_native_rates` set them up: a chunk then
     /// passes them and open-Advance Sources are native Positions.
@@ -239,6 +245,8 @@ impl Env {
             name_records: false,
             skip_studio_room: false,
             pre_ixs: Vec::new(),
+            seat_key: None,
+            seat_unsigned: false,
             last_cu: 0,
             last_size: 0,
             native_rates: None,
@@ -334,6 +342,16 @@ impl Env {
                 self.last_cu = e.meta.compute_units_consumed;
                 Err(e)
             }
+        }
+    }
+
+    /// The seat key the next entry names (the `seat_key` set, else the wallet itself) and the
+    /// extra signer it needs.
+    fn seat_for(&self, p: &Person) -> (APk, Vec<Keypair>) {
+        match &self.seat_key {
+            Some(k) if self.seat_unsigned => (a(k.pubkey()), vec![]),
+            Some(k) => (a(k.pubkey()), vec![k.insecure_clone()]),
+            None => (p.key, vec![]),
         }
     }
 
@@ -989,8 +1007,9 @@ impl Env {
         lines: u32,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
         self.ensure_spill(&p.kp, p.account, lines as usize);
-        let open = open_ticket_ix(p, nonce, entry, lines);
-        self.send(&[open], &p.kp, &[])
+        let (seat, signers) = self.seat_for(p);
+        let open = open_ticket_ix(p, nonce, entry, lines, seat);
+        self.send(&[open], &p.kp, &signers.iter().collect::<Vec<_>>())
     }
 
     /// A Backing Ticket for the accepted `offer`, opened by the Requester `req` on the Backer's
@@ -1006,10 +1025,12 @@ impl Env {
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
         self.ensure_spill(&req.kp, backer.account, lines as usize);
         self.force_next_ticket(backer.account, nonce);
+        let (seat, signers) = self.seat_for(req);
         let open = ix(
             accounts::OpenTicket {
                 payer: req.key,
                 authority: req.key,
+                seat_signer: seat,
                 requester: req.account,
                 owner: backer.account,
                 basket: basket_address(&backer.account).0,
@@ -1029,7 +1050,7 @@ impl Env {
             },
             vec![],
         );
-        self.send(&[open], &req.kp, &[])
+        self.send(&[open], &req.kp, &signers.iter().collect::<Vec<_>>())
     }
 
     fn cancel_backing_ticket(
@@ -1373,10 +1394,12 @@ impl Env {
         if let Some(b) = backer {
             self.ensure_spill(&p.kp, b, room);
         }
+        let (seat, signers) = self.seat_for(p);
         let open = ix(
             accounts::OpenMatch {
                 payer: p.key,
                 player_authority: p.key,
+                seat_signer: seat,
                 config: pda(&[CONFIG_SEED]),
                 economy: pda(&[ECONOMY_SEED]),
                 game_record,
@@ -1408,7 +1431,7 @@ impl Env {
             },
             remaining,
         );
-        self.send(&[open], &p.kp, &[])?;
+        self.send(&[open], &p.kp, &signers.iter().collect::<Vec<_>>())?;
         self.matches.push(MRef {
             key,
             opener: p.account,
@@ -1484,10 +1507,12 @@ impl Env {
                 remaining.push(rem(overflow_address(&k, OVERFLOW_MATCH, &seed).0));
             }
         }
+        let (seat, signers) = self.seat_for(p);
         let join = ix(
             accounts::JoinMatch {
                 payer: p.key,
                 player_authority: p.key,
+                seat_signer: seat,
                 player_account: p.account,
                 counters: counters_pda(p.account),
                 protections: protections_pda(p.account),
@@ -1520,7 +1545,7 @@ impl Env {
         );
         let mut ixs = std::mem::take(&mut self.pre_ixs);
         ixs.push(join);
-        self.send(&ixs, &p.kp, &[])
+        self.send(&ixs, &p.kp, &signers.iter().collect::<Vec<_>>())
     }
 
     fn opener_account(&self, id: u64) -> APk {
@@ -6343,14 +6368,14 @@ fn an_old_counters_account_grows_in_the_same_transaction_as_the_ticket_that_need
     shrink_counters_to_v1(&mut env, &p);
     let nonce = AccountCounters::LEGACY_TICKET_BASE;
     assert!(
-        env.send(&[open_ticket_ix(&p, nonce, 1_000, 2)], &p.kp, &[])
+        env.send(&[open_ticket_ix(&p, nonce, 1_000, 2, p.key)], &p.kp, &[])
             .is_err(),
         "the old account cannot be read by the Ticket alone"
     );
     env.send(
         &[
             grow_counters_ix(&p.kp, &p),
-            open_ticket_ix(&p, nonce, 1_000, 2),
+            open_ticket_ix(&p, nonce, 1_000, 2, p.key),
         ],
         &p.kp,
         &[],
@@ -6386,3 +6411,4 @@ fn a_match_opened_before_the_upgrade_still_closes_with_an_old_counters_account()
 }
 
 mod many_seat;
+mod seat_keys;

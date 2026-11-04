@@ -342,6 +342,7 @@ fn party(p: u8, f: u8, share: u16) -> Party {
         player: key(p),
         funder: key(f),
         share_bps: share,
+        signer: key(p),
     }
 }
 
@@ -1290,6 +1291,7 @@ impl Sim {
             player: key(player),
             funder: key(funder),
             share_bps: share,
+            signer: key(player),
         };
         let fk = key(funder);
         if self.w.free(&fk) < entry {
@@ -1347,6 +1349,7 @@ impl Sim {
             player: key(player),
             funder: key(funder),
             share_bps: share,
+            signer: key(player),
         };
         let fk = key(funder);
         if self.w.free(&fk) < entry {
