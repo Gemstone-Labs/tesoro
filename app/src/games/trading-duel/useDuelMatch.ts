@@ -6,7 +6,7 @@ import { finalizeFree } from "@/lib/chain/game-finalize";
 import { finalizeAndFinishFree, finishMatchFree } from "@/lib/chain/finish-match-client";
 import { createFinisher } from "@/lib/chain/finish-match";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
+import { accountOfSigner, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getTradingDuel } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
 import { matchProgress } from "@/lib/chain/match-progress";
@@ -196,7 +196,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
       try {
         await finalizeAndFinishFree(signer, () => tokenRef.current(), mk, () => finalizeFree(td, signer, () => tokenRef.current(), a));
       } catch (e) {
-        const again = await fetchMatch(id, BlockPuzzleChain.coreAccount(signer.publicKey));
+        const again = await fetchMatch(id, accountOfSigner(signer));
         if (again && (again.status === "settled" || again.status === "refunded")) return;
         if (++failures.current >= 3) throw e;
       }
@@ -207,7 +207,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
   const step = useCallback(async () => {
     if (!p || !signer || id === null || mk === null) return;
     const td = getTradingDuel();
-      const me = BlockPuzzleChain.coreAccount(signer.publicKey);
+      const me = accountOfSigner(signer);
     const fresh = await fetchMatch(id, me);
     let m = progress.match(fresh);
     // The account closed and the history row is not written yet: base's committed table already says how it ended.

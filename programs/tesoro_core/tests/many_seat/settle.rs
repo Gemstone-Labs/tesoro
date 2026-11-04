@@ -9,7 +9,7 @@ use tesoro_core::{ManySeatChunkDone, ManySeatPlaced, ManySeatRunStarted, ManySea
 
 const CHUNK_CU_BUDGET: u64 = 140_000;
 
-fn result(places: &[(u8, u16)], refunds: &[(u8, u64)]) -> ManySeatResult {
+pub(super) fn result(places: &[(u8, u16)], refunds: &[(u8, u64)]) -> ManySeatResult {
     ManySeatResult::Placed {
         places: places
             .iter()
@@ -24,7 +24,7 @@ fn result(places: &[(u8, u16)], refunds: &[(u8, u64)]) -> ManySeatResult {
 
 /// One chunk as sent: its compute units and the accounts it named.
 #[derive(Debug, Clone, Copy)]
-struct Sent {
+pub(super) struct Sent {
     cu: u64,
     accounts: usize,
     steps: u8,
@@ -67,7 +67,7 @@ impl Env {
         Ok(())
     }
 
-    fn settle_car(
+    pub(super) fn settle_car(
         &mut self,
         car: Car,
         result: ManySeatResult,
@@ -206,7 +206,7 @@ impl Env {
     }
 
     /// Chunks until the run is paid; every chunk sent.
-    fn run_car(&mut self, car: Car) -> Vec<Sent> {
+    pub(super) fn run_car(&mut self, car: Car) -> Vec<Sent> {
         let mut sent = vec![];
         for _ in 0..5_000 {
             if self.car(car).inner.stage() == ManyStage::Paid {
@@ -244,6 +244,7 @@ impl Env {
                 pot_payer: pot_payer_of(&self.svm, pot),
                 sponsor: None,
                 funder_spill: Some(spill_address(&APk::new_from_array(st.funder())).0),
+                funder_mark: self.funder_mark_of(car, seat),
             },
             instruction::CloseManySeat { seat },
             vec![],
@@ -251,7 +252,7 @@ impl Env {
     }
 
     /// Closes every seat, then the car.
-    fn close_paid_car(&mut self, car: Car) {
+    pub(super) fn close_paid_car(&mut self, car: Car) {
         let caller = self.admin.insecure_clone();
         let (seats, _) = self.seats_and_lines(car);
         for (i, st) in seats.iter().enumerate() {
@@ -264,7 +265,7 @@ impl Env {
         self.close_car(&caller, car, &pages).expect("close car");
     }
 
-    fn started<T: anchor_lang::Event>(&self) -> Vec<T> {
+    pub(super) fn started<T: anchor_lang::Event>(&self) -> Vec<T> {
         self.start_events
             .iter()
             .filter_map(|e| decode_event::<T>(e))
@@ -301,11 +302,11 @@ fn five_riders() -> (Env, Car, Vec<Person>, Vec<APk>) {
     (env, car, riders, sources)
 }
 
-const ANA: usize = 0;
-const BEN: usize = 1;
-const CY: usize = 2;
-const DEE: usize = 3;
-const EVE: usize = 4;
+pub(super) const ANA: usize = 0;
+pub(super) const BEN: usize = 1;
+pub(super) const CY: usize = 2;
+pub(super) const DEE: usize = 3;
+pub(super) const EVE: usize = 4;
 
 #[test]
 fn the_worked_example_settles_to_the_gema() {

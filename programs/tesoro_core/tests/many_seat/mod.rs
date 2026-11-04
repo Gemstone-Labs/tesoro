@@ -129,8 +129,25 @@ impl Env {
         remaining: Vec<AccountMeta>,
     ) -> Result<u8, litesvm::types::FailedTransactionMetadata> {
         self.ensure_spill(&p.kp, p.account, 16 + 2 * pot_lines as usize);
+        let join = self.join_ix(p, car, page, (pot_nonce, pot_lines, pot), remaining, None);
+        let kp = p.kp.insecure_clone();
+        self.send(&[join], &kp, &[])?;
+        Ok(self.mark(car, p).expect("mark").seat)
+    }
+
+    /// A join; with `backing` = (accepted Offer, Backer's Account) the Backer funds the seat.
+    fn join_ix(
+        &self,
+        p: &Person,
+        car: Car,
+        page: u8,
+        (pot_nonce, pot_lines, pot): (u64, u32, APk),
+        remaining: Vec<AccountMeta>,
+        backing: Option<(APk, APk)>,
+    ) -> Instruction {
         let (game_record, game_program, program_data) = self.game_accounts();
-        let join = ix(
+        let backer = backing.map(|(_, b)| b);
+        ix(
             accounts::JoinManySeatMatch {
                 payer: p.key,
                 player_authority: p.key,
@@ -147,6 +164,13 @@ impl Env {
                 seat_page: page_pda(car.key, page),
                 seat_mark: mark_pda(car.key, p.account),
                 system_program: anchor_lang::system_program::ID,
+                offer: backing.map(|(o, _)| o),
+                backer_account: backer,
+                backer_counters: backer.map(counters_pda),
+                backer_protections: backer.map(protections_pda),
+                backer_basket: backer.map(|b| basket_address(&b).0),
+                backer_spill: backer.map(|b| spill_address(&b).0),
+                funder_mark: backer.map(|b| mark_pda(car.key, b)),
             },
             instruction::JoinManySeatMatch {
                 pot_nonce,
@@ -154,10 +178,13 @@ impl Env {
                 page,
             },
             remaining,
-        );
-        let kp = p.kp.insecure_clone();
-        self.send(&[join], &kp, &[])?;
-        Ok(self.mark(car, p).expect("mark").seat)
+        )
+    }
+
+    /// The mark of the seat's Backer, when the seat is backed.
+    fn funder_mark_of(&self, car: Car, seat: u8) -> Option<APk> {
+        let st = self.page(car, seat / SEATS_PER_PAGE as u8).seats[seat as usize % SEATS_PER_PAGE];
+        (st.funder() != st.player()).then(|| mark_pda(car.key, APk::new_from_array(st.funder())))
     }
 
     fn mark(&self, car: Car, p: &Person) -> Option<SeatMark> {
@@ -229,6 +256,7 @@ impl Env {
                 game_record: game.then_some(game_record),
                 game_program: game.then_some(game_program),
                 program_data: game.then_some(program_data),
+                funder_mark: self.funder_mark_of(car, mark.seat),
             },
             instruction::StepOffManySeatMatch {
                 seat: mark.seat,
@@ -802,4 +830,5 @@ fn a_step_off_returning_its_most_lines_fits_the_chunk_budget() {
     let at_cap = sweep.iter().find(|(k, _)| *k == max).expect("cap").1;
     assert!(at_cap < RETURN_CU_BUDGET, "{max} lines used {at_cap} CU");
 }
+mod backing;
 mod settle;

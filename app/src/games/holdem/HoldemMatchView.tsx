@@ -3,6 +3,7 @@
 import { parseMatchKey } from "@/lib/chain/match-id";
 import { Busy, Button, Card, Chip, GemaAmount, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { useMatchSigner } from "@/lib/seat/useMatchSigner";
 import { commitCopy } from "@/lib/chain/commit-pending";
 import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
@@ -23,15 +24,17 @@ import { useHoldemMatch } from "./useHoldemMatch";
  */
 export function HoldemMatchView({ matchId }: { matchId: string }) {
   const { auth, refresh, snapshot } = useAccount();
-  const signer = auth.signer;
+  const wallet = auth.signer;
   const nowSecs = useNowSecs();
   const id = parseMatchKey(matchId) ? matchId : null;
+  // who plays this Match from this page: its seat key when this device holds it, else the wallet
+  const { signer } = useMatchSigner(id);
   const { view, act, claimTimeout, run } = useHoldemMatch(id, signer, refresh);
   const { stage, match: m, table: t, seat } = view;
 
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
   if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
-  if (!signer) return <MatchStageLoading game="holdem" me={snapshot?.accountKey.toBase58() ?? null} step="Getting your wallet ready" />;
+  if (!signer || !wallet) return <MatchStageLoading game="holdem" me={snapshot?.accountKey.toBase58() ?? null} step="Getting your wallet ready" />;
   if (stage === "loading") return stageLoading({ game: "holdem", me: snapshot?.accountKey.toBase58() ?? null, matchId });
   if (stage === "notfound") return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
   if (stage === "spectator") return <MatchSpectate matchId={matchId} />;
@@ -87,7 +90,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         error={view.error}
         actions={
           (kind === "waiting" || view.refundable) && (
-            <StageAction disabled={view.busy !== null || cancelSent} onClick={() => void run("refund", () => refundMatch(signer, m.id))}>
+            <StageAction disabled={view.busy !== null || cancelSent} onClick={() => void run("refund", () => refundMatch(wallet, m.id, auth.getAccessToken))}>
               {view.busy === "refund" || cancelSent ? "Refunding…" : kind === "waiting" ? "Cancel and refund" : "Refund Match"}
             </StageAction>
           )
@@ -125,7 +128,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
 
 
       {m && refundable && stage === "closing" && (
-        <Button disabled={view.busy !== null} onClick={() => run("refund", () => refundMatch(signer, m.id))}>
+        <Button disabled={view.busy !== null} onClick={() => run("refund", () => refundMatch(wallet, m.id, auth.getAccessToken))}>
           Refund Match
         </Button>
       )}

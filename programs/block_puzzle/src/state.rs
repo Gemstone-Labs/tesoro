@@ -193,6 +193,8 @@ pub struct Assignment {
     pub epoch: u64,
     /// Seat 0 opened the tesoro_core Match, seat 1 joined (the Players' authorities).
     pub players: [Pubkey; 2],
+    /// The seat key each Player named in their entry (the wallet again when they named none).
+    pub signers: [Pubkey; 2],
     /// Unix time by which the Match must have begun on the table.
     pub start_deadline: i64,
     /// Who paid this account's rent; it goes back there when the Assignment is closed.
@@ -260,6 +262,9 @@ pub struct Table {
     pub start_deadline: i64,
     /// Seat 0 opened the tesoro_core Match, seat 1 joined.
     pub players: [Pubkey; 2],
+    /// Each seat's key, copied from the Match with `players`: it may act for the seat beside the
+    /// wallet.
+    pub signers: [Pubkey; 2],
     pub checked_in: [bool; 2],
     /// Slot and clock when the Match began on the table.
     pub assigned_slot: u64,
@@ -315,6 +320,7 @@ impl Table {
             slot: 0,
             start_deadline: 0,
             players: [Pubkey::default(); 2],
+            signers: [Pubkey::default(); 2],
             checked_in: [false; 2],
             assigned_slot: 0,
             assigned_ts: 0,
@@ -497,6 +503,8 @@ pub struct Board {
     pub seat: u8,
     /// The Player who may read this seat now; default while the seat is wiped.
     pub player: Pubkey,
+    /// The seat key that may act and read beside `player`; default while the seat is wiped.
+    pub signer: Pubkey,
     /// The Match and epoch the seat was handed over for.
     pub tesoro_match: Pubkey,
     pub epoch: u64,
@@ -527,6 +535,7 @@ impl Board {
             table,
             seat,
             player: Pubkey::default(),
+            signer: Pubkey::default(),
             tesoro_match: Pubkey::default(),
             epoch: 0,
             began: false,

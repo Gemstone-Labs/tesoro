@@ -40,9 +40,10 @@ describe("line stores", () => {
 describe("Ticket head", () => {
   it("reads kind, state, owner, expiry and the held spill room", () => {
     const account = k();
-    const t = decodeTicketHead(ticketBytes({ kind: 1, state: 1, account, nonce: 9n, target: 500n, expiresAt: 1234, spillRoom: 3 }));
+    const t = decodeTicketHead(ticketBytes({ kind: 1, state: 1, account, nonce: 9n, target: 500n, expiresAt: 1234, spillRoom: 3, signer: account }));
     assert.deepEqual([t.kind, t.state, t.nonce, t.target, t.expiresAt, t.spillRoom], ["backing", "cancelling", 9n, 500n, 1234, 3]);
     assert.equal(t.account.toBase58(), account.toBase58());
+    assert.equal(t.signer.toBase58(), account.toBase58());
   });
   it("refuses a head with an unknown state", () => {
     assert.throws(() => decodeTicketHead(ticketBytes({ state: 9, account: k() })));

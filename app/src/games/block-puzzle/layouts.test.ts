@@ -45,6 +45,7 @@ describe("accounts written by block_puzzle", () => {
     expect([t.generation, t.index, t.epoch, t.phase, t.seatsCreated, t.seatsOpen, t.dirty, t.slot]).toEqual([1, 3, 7, TABLE_PHASE.getReady, true, true, false, 3]);
     expect(t.tesoroMatch.toBase58()).toBe(keyOf(2).toBase58());
     expect(t.players.map((p) => p.toBase58())).toEqual([keyOf(3).toBase58(), keyOf(4).toBase58()]);
+    expect(t.signers.map((p) => p.toBase58())).toEqual([keyOf(13).toBase58(), keyOf(14).toBase58()]);
     expect([t.checkedIn, t.assignedSlot, t.assignedTs, t.seedingSlot]).toEqual([[true, true], 50000, 1000, 50400]);
     expect([t.reqNonce, t.reqPending, t.reqCount, t.seedReady, t.readySlot, t.startSlot]).toEqual([11, false, 1, true, 50900, 51900]);
     expect([t.shownScore, t.shownMoves]).toEqual([[37, 12], [14, 6]]);
@@ -70,6 +71,7 @@ describe("accounts written by block_puzzle", () => {
   it("an Assignment, and whether a table is on its Match and epoch", () => {
     const a = decodeAssignment(keyOf(6), coder.decode("assignment", fixtures.assignment));
     expect([a.generation, a.index, a.epoch, a.startDeadline]).toEqual([1, 3, 7, 1300]);
+    expect(a.signers.map((p) => p.toBase58())).toEqual([keyOf(13).toBase58(), keyOf(14).toBase58()]);
     const t = table();
     expect(tableOf(a, t)).toBe(t);
     expect(tableOf({ ...a, epoch: 6 }, t)).toBeNull();

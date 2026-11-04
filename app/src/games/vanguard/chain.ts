@@ -121,6 +121,7 @@ export interface Assignment extends TableRef {
   tesoroMatch: PublicKey;
   epoch: number;
   players: [PublicKey, PublicKey];
+  signers: [PublicKey, PublicKey];
   startDeadline: number;
   payer: PublicKey;
 }
@@ -133,6 +134,7 @@ export function decodeAssignment(address: PublicKey, a: any): Assignment {
     index: a.index,
     epoch: a.epoch.toNumber(),
     players: a.players,
+    signers: a.signers,
     startDeadline: a.startDeadline.toNumber(),
     payer: a.payer,
   };

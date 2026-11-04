@@ -11,7 +11,9 @@
  */
 import { PublicKey, SystemProgram, type AccountMeta, type Connection, type TransactionInstruction } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
-import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
+import { accountOfSigner, BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
+import { cosigned, ticketSteps } from "@/lib/seat/cosigned";
+import type { SeatKey } from "@/lib/seat/seat-key";
 import type { GameId } from "@/lib/mock/types";
 import { FLAG_BACKING_OPEN, FLAG_TICKET_OPEN, MAX_GROW_LINES, basketPda, countersPda, decodeStore, playableTotal, sponsorPda, spillPda, ticketPda, type Line, type Store } from "./basket";
 import { coreIx as rawCoreIx, metaOf, type AccountsByName } from "./core-ix";
@@ -156,6 +158,8 @@ export interface OpenTicketArgs {
   payer: PublicKey;
   /** The wallet that signs: the owner for an Entry Ticket, the Requester for a Backing Ticket. */
   authority: PublicKey;
+  /** The seat key that co-signs and may stage and cancel an Entry Ticket; the wallet names itself when absent. */
+  seatSigner?: PublicKey;
   /** The Account whose lines are staged: the Player's own, or the Backer's. */
   owner: PublicKey;
   nonce: bigint;
@@ -178,6 +182,7 @@ export function openTicketIx(a: OpenTicketArgs): TransactionInstruction {
     {
       payer: a.payer,
       authority: a.authority,
+      seatSigner: a.seatSigner ?? a.authority,
       requester: requesterOf(a.authority),
       owner: a.owner,
       basket: basketPda(a.owner),
@@ -229,7 +234,10 @@ export async function nextStageIx(signer: PublicKey, t: TicketView, stores: Pick
 }
 
 export interface PrepareArgs {
+  /** The wallet (never a seat key). */
   signer: ChainSigner;
+  /** The seat key named in the entry: it co-signs the Ticket's opening and stages the rest, so the wallet signs once. */
+  seat?: SeatKey;
   getToken: GetToken;
   game: GameId;
   entry: bigint;
@@ -238,16 +246,19 @@ export interface PrepareArgs {
   onProgress?: (s: StagedEntry) => void;
 }
 
-async function restage(signer: ChainSigner, getToken: GetToken, t: TicketView, onProgress?: (s: StagedEntry) => void): Promise<TicketView> {
+async function restage(signer: ChainSigner, getToken: GetToken, t: TicketView, onProgress?: (s: StagedEntry) => void, seat?: SeatKey): Promise<TicketView> {
   let view = t;
+  // an Entry Ticket is staged by the seat key it names (no wallet signature); the wallet pays when the relayer cannot
+  const stager = seat ? ticketSteps(signer, seat) : signer;
+  const selfPay = seat ? cosigned(signer, seat) : undefined;
   const maxTx = Math.ceil(view.lineCap / STAGE_OPS) + 8;
   for (let i = 0; i < maxTx; i++) {
     onProgress?.(stagedEntryState(view));
     if (view.staged >= view.target) return view;
     const stores = await readEntryStores(view.account);
-    const ix = await nextStageIx(signer.publicKey, view, stores);
+    const ix = await nextStageIx(stager.publicKey, view, stores);
     if (!ix) return view;
-    await sendEntryTx(signer, getToken, async () => [ix]);
+    await sendEntryTx(stager, getToken, async () => [ix], { selfPay });
     const fresh = await readTicket(view.address);
     if (!fresh) throw new Error("The prepared entry disappeared.");
     view = fresh;
@@ -261,13 +272,13 @@ async function restage(signer: ChainSigner, getToken: GetToken, t: TicketView, o
  * Resume with `resumeTicket` after a reload.
  */
 export async function prepareEntryTicket(a: PrepareArgs): Promise<TicketView> {
-  const owner = BlockPuzzleChain.coreAccount(a.signer.publicKey);
+  const owner = accountOfSigner(a.signer);
   const first = Math.min(a.lines, MAX_INITIAL_TICKET_LINES);
   // the nonce is the Account's next_ticket, read again every time the transaction is built
   let nonce = 0n;
-  await sendEntryTx(a.signer, a.getToken, async (payer, sponsored) => {
+  await sendEntryTx(a.seat ? cosigned(a.signer, a.seat) : a.signer, a.getToken, async (payer, sponsored) => {
     nonce = await readNextTicket(owner);
-    return [openTicketIx({ payer, authority: a.signer.publicKey, owner, nonce, kind: "entry", game: a.game, target: a.entry, lines: first, sponsored })];
+    return [openTicketIx({ payer, authority: a.signer.publicKey, seatSigner: a.seat?.publicKey, owner, nonce, kind: "entry", game: a.game, target: a.entry, lines: first, sponsored })];
   });
   const address = ticketPda(owner, nonce);
   if (a.lines > first) {
@@ -276,12 +287,12 @@ export async function prepareEntryTicket(a: PrepareArgs): Promise<TicketView> {
   }
   const t = await readTicket(address);
   if (!t) throw new Error("The entry could not be prepared. Try again.");
-  return restage(a.signer, a.getToken, t, a.onProgress);
+  return restage(a.signer, a.getToken, t, a.onProgress, a.seat);
 }
 
-/** Continues staging a Ticket found after a reload. */
-export async function resumeTicket(signer: ChainSigner, getToken: GetToken, t: TicketView, onProgress?: (s: StagedEntry) => void): Promise<TicketView> {
-  return restage(signer, getToken, t, onProgress);
+/** Continues staging a Ticket found after a reload. `seat`: the key that opened it, when this device still holds it. */
+export async function resumeTicket(signer: ChainSigner, getToken: GetToken, t: TicketView, onProgress?: (s: StagedEntry) => void, seat?: SeatKey): Promise<TicketView> {
+  return restage(signer, getToken, t, onProgress, seat);
 }
 
 /**
@@ -295,10 +306,10 @@ export async function prepareBackingTicket(
   const first = Math.min(a.lines, MAX_INITIAL_TICKET_LINES);
   // the Backer's counter numbers a Backing Ticket too; read again every time the transaction is built
   let nonce = 0n;
-  await sendEntryTx(a.signer, a.getToken, async (payer, sponsored) => {
+  await sendEntryTx(a.seat ? cosigned(a.signer, a.seat) : a.signer, a.getToken, async (payer, sponsored) => {
     nonce = await readNextTicket(a.backerAccount);
     const address = ticketPda(a.backerAccount, nonce);
-    const open = openTicketIx({ payer, authority: requester, owner: a.backerAccount, nonce, kind: "backing", game: a.game, target: a.entry, lines: first, offer: a.offer, sponsored });
+    const open = openTicketIx({ payer, authority: requester, seatSigner: a.seat?.publicKey, owner: a.backerAccount, nonce, kind: "backing", game: a.game, target: a.entry, lines: first, offer: a.offer, sponsored });
     const stores = await readEntryStores(a.backerAccount);
     const plan = planDraw(stores.basket, stores.spill, a.entry, stageLimit(stores) + 0n);
     const stage = stageEntryIx(requester, a.backerAccount, address, STAGE_OPS, await drawRemaining({ steps: plan.steps.slice(0, STAGE_OPS) }));
@@ -320,7 +331,7 @@ export async function cancelTicket(signer: ChainSigner, getToken: GetToken, t: T
     const current: TicketView = view;
     const sources = [...new Map(current.stagedLines.map((l) => [l.source.toBase58(), l.source])).values()];
     const remaining = await booksFor(sources, current.stagedLines);
-    await sendEntryTx(signer, getToken, async () => [cancelTicketIx(signer.publicKey, current.account, current.address, 32, opts.offer, remaining)]);
+    await sendEntryTx(signer, getToken, async () => [cancelTicketIx(signer.publicKey, current.account, current.address, 32, opts.offer, remaining)], { entry: false });
     view = await readTicket(t.address);
     if (view) opts.onProgress?.(stagedEntryState(view));
   }
@@ -328,7 +339,7 @@ export async function cancelTicket(signer: ChainSigner, getToken: GetToken, t: T
     const closing: TicketView = view;
     const relayer = await relayerKey();
     const sponsored = !!relayer && closing.payer.equals(relayer);
-    await sendEntryTx(signer, getToken, async () => [closeTicketIx(signer.publicKey, closing.address, closing.payer, sponsored)]);
+    await sendEntryTx(signer, getToken, async () => [closeTicketIx(signer.publicKey, closing.address, closing.payer, sponsored)], { entry: false });
   }
 }
 

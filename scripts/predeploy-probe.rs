@@ -12,7 +12,8 @@ pub fn fixed<T: Discriminator + AccountDeserialize>(name: &str, size: usize) {
     println!("TESORO_LAYOUT {{\"type\":\"{}\",\"discriminator\":{:?},\"base\":{},\"stride\":0,\"maxExtra\":0}}", name, T::DISCRIMINATOR, size);
     DECODERS.with(|d| {
         d.borrow_mut().push((name.to_string(), |data| {
-            T::try_deserialize(&mut &data[..]).is_ok()
+            // a zero-copy record of the wrong length panics in bytemuck: that is "does not decode", not a probe failure
+            std::panic::catch_unwind(|| T::try_deserialize(&mut &data[..]).is_ok()).unwrap_or(false)
         }))
     });
 }

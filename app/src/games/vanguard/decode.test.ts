@@ -19,6 +19,7 @@ describe("the Battle decoder against account bytes the Rust program wrote", () =
       e.bump, e.authorityBump, e.usSeat, e.status, e.finalized, e.permissioned, e.winner, e.reason, e.turn, e.stepsLeft, e.twoStepActive, e.stormDone,
     ]);
     expect([b.twoStep, b.timeouts, b.depotClaimed]).toEqual([e.twoStep, e.timeouts, e.depotClaimed]);
+    expect(b.signers.map((k) => k.toBuffer().toString("hex"))).toEqual(e.signers);
   });
 
   it("reads the stored rules, the setup deadline and the pending action", () => {
@@ -121,10 +122,11 @@ describe("the account tails the layout table does not name", () => {
   const armyBytes = () => bytes(golden.army.bytes).slice();
 
   it("puts the sealing key right after the move counter in the Army, and the end mask in the Battle's last 31", () => {
-    // the Rust offsets test pins Battle.reserved at 8 + 1481 and the Army is Borsh with `reserved: [u8; 32]` after `moves`
+    // the Rust offsets test pins Battle.signers at 8 + 1481 and Battle.reserved at 8 + 1545 and the Army is Borsh with `reserved: [u8; 32]` after `moves`
     expect(layout.army.offsets.moves + 2).toBe(layout.army.offsets.reserved);
     expect(layout.army.offsets.reserved + 32).toBe(layout.army.offsets.contributed);
-    expect(layout.battle.offsets.resolveSlackSecs + 1).toBe(layout.battle.size - 31);
+    expect(layout.battle.offsets.resolveSlackSecs + 1).toBe(layout.battle.offsets.signers);
+    expect(layout.battle.offsets.signers + 64).toBe(layout.battle.size - 31);
   });
 
   it("decodes the Army key and keeps the ranks and counters it had", () => {

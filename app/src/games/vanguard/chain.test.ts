@@ -214,7 +214,7 @@ describe("deployment values come from the program's own config", () => {
 
 describe("tables and Assignments", () => {
   const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
-  const asg = (over: Partial<Assignment> = {}): Assignment => ({ address: assignmentPda(MATCH), tesoroMatch: MATCH, generation: 0, index: 3, epoch: 4, players: [key(1), key(2)], startDeadline: 1300, payer: key(3), ...over });
+  const asg = (over: Partial<Assignment> = {}): Assignment => ({ address: assignmentPda(MATCH), tesoroMatch: MATCH, generation: 0, index: 3, epoch: 4, players: [key(1), key(2)], signers: [key(1), key(2)], startDeadline: 1300, payer: key(3), ...over });
   const table = (over: Partial<TableState> = {}): TableState => ({
     address: tablePda(0, 3),
     generation: 0,
@@ -242,7 +242,7 @@ describe("tables and Assignments", () => {
     const a = asg();
     expect(a.address.equals(assignmentPda(MATCH))).toBe(true);
     expect(assignmentPda(MATCH).equals(assignmentPda(matchPda(Keypair.generate().publicKey, 7n)))).toBe(false);
-    const decoded = decodeAssignment(a.address, { tesoroMatch: MATCH, generation: 0, index: 3, epoch: { toNumber: () => 4 }, players: [key(1), key(2)], startDeadline: { toNumber: () => 1300 }, payer: key(3) });
+    const decoded = decodeAssignment(a.address, { tesoroMatch: MATCH, generation: 0, index: 3, epoch: { toNumber: () => 4 }, players: [key(1), key(2)], signers: [key(1), key(2)], startDeadline: { toNumber: () => 1300 }, payer: key(3) });
     expect(decoded).toEqual(a);
   });
 

@@ -1,4 +1,5 @@
 import { Transaction } from "@solana/web3.js";
+import { signAsWallet } from "@/lib/seat/wallet-only";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain } from "./client";
 import { newNonce, signedMessage } from "./signed-request";
@@ -12,7 +13,7 @@ export async function redeemInviteTx(signer: ChainSigner, getToken: () => Promis
   const ts = Date.now();
   const nonce = newNonce();
   const fields = { code };
-  const signature = await signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-invite", "redeem", address, ts, nonce, fields)));
+  const signature = await signAsWallet(signer, signedMessage("tesoro-invite", "redeem", address, ts, nonce, fields));
   const token = await getToken().catch(() => null);
   const res = await fetch("/api/invite/redeem", {
     method: "POST",

@@ -36,9 +36,9 @@ export interface CompletionStore {
 
 // Account roles in the deployed Core instruction interface; tested against its IDL.
 const ROLES = [
-  { name: "open_match", kind: "creates", slots: [13] },
-  { name: "open_ticket", kind: "creates", slots: [6] },
-  { name: "join_match", kind: "ensures", slots: [8] },
+  { name: "open_match", kind: "creates", slots: [14] },
+  { name: "open_ticket", kind: "creates", slots: [7] },
+  { name: "join_match", kind: "ensures", slots: [9] },
   { name: "close_match", kind: "closes", slots: [1, 3, 5] },
   { name: "close_ticket", kind: "closes", slots: [1] },
 ] as const;
@@ -67,8 +67,8 @@ export function completionInput(tx: VersionedTransaction, effects: ReturnType<ty
 const u64At = (data: Uint8Array, at: number) => Buffer.from(data).readBigUInt64LE(at).toString();
 /** Account slots and argument offsets (after the 8-byte discriminator) that name the seed of a created address; tested against the IDL. */
 const SEEDED = [
-  { name: "open_match", kind: "match", address: 13, account: 7, n: 8 + 32 + 8 },
-  { name: "open_ticket", kind: "ticket", address: 6, account: 3, n: 8 },
+  { name: "open_match", kind: "match", address: 14, account: 8, n: 8 + 32 + 8 },
+  { name: "open_ticket", kind: "ticket", address: 7, account: 4, n: 8 },
 ] as const;
 
 /** The seeds of what the instructions create. `join_match` only ensures a Match: its seed is read from the Match by `matchSeed`. */
@@ -86,7 +86,7 @@ export async function holdSeeds(
       if (!address || !account) throw new Error(`Missing ${seeded.name} account`);
       out[address.toBase58()] = { kind: seeded.kind, account: account.toBase58(), n: u64At(ix.data, seeded.n) };
     } else if (discriminator("join_match").equals(head)) {
-      const match = ix.keys[8]?.pubkey.toBase58();
+      const match = ix.keys[9]?.pubkey.toBase58();
       const seed = match ? await matchSeed(match) : null;
       if (match && seed) out[match] = seed;
     }

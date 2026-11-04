@@ -44,6 +44,7 @@ fn block_puzzle_fixtures_match_the_program() {
     table.slot = 3;
     table.start_deadline = 1_300;
     table.players = [key(3), key(4)];
+    table.signers = [key(13), key(14)];
     table.checked_in = [true, true];
     table.assigned_slot = 50_000;
     table.assigned_ts = 1_000;
@@ -103,12 +104,14 @@ fn block_puzzle_fixtures_match_the_program() {
         index: 3,
         epoch: 7,
         players: [key(3), key(4)],
+        signers: [key(13), key(14)],
         start_deadline: 1_300,
         payer: key(8),
     };
 
     let mut board = Board::blank(251, key(1), 1);
     board.player = key(4);
+    board.signer = key(14);
     board.tesoro_match = key(2);
     board.epoch = 7;
     board.began = true;

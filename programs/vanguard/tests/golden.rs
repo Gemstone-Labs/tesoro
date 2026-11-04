@@ -59,14 +59,17 @@ fn layout() -> Value {
         storm_from => "stormFrom", storm_to => "stormTo", pending_kind => "pendingKind",
         pending_piece => "pendingPiece", pending_to => "pendingTo", pending_seat => "pendingSeat",
         action_seq => "actionSeq", pending_slot => "pendingSlot", pending_time => "pendingTime",
-        deal_slot => "dealSlot", pad_a => "padA", reserved => "reserved",
+        deal_slot => "dealSlot", pad_a => "padA", signers => "signers", reserved => "reserved",
     );
     // The Army is Borsh, so its fields follow each other with no padding: offset = 8 + the sizes before it.
-    let fields: [(&str, usize); 8] = [
+    let fields: [(&str, usize); 11] = [
         ("bump", 1),
         ("table", 32),
         ("seat", 1),
         ("player", 32),
+        ("signer", 32),
+        ("tesoroMatch", 32),
+        ("epoch", 8),
         ("side", 1),
         ("ranks", 30),
         ("fuel", 1),
@@ -395,6 +398,7 @@ fn probe_battle() -> Battle {
     b.pad_a[0] = 0x5C;
     // the end mask: pieces 0, 5, 31 and 55 changed rank
     b.reserved[..8].copy_from_slice(&((1u64 << 55) | (1 << 31) | (1 << 5) | 1).to_le_bytes());
+    b.signers = [pk(0x33), pk(0x44)];
     b.action_seq = 77;
     b.pending_slot = 0x0102_0304_0506;
     b.pending_time = 1_760_000_222;
@@ -467,6 +471,7 @@ fn battle_golden() -> Value {
             "pendingTime": b.pending_time,
             "dealSlot": b.deal_slot.to_string(),
             "padA": hex(&b.pad_a),
+            "signers": [hex(b.signers[0].as_ref()), hex(b.signers[1].as_ref())],
             "reserved": hex(&b.reserved),
             "endMask": u64::from_le_bytes(b.reserved[..8].try_into().expect("8 bytes")).to_string(),
         }
@@ -523,6 +528,9 @@ fn army_golden() -> Value {
         table: pk(0x11),
         seat: 1,
         player: pk(0x22),
+        signer: pk(0x55),
+        tesoro_match: pk(0x66),
+        epoch: 7,
         side: 0,
         ranks,
         fuel: 2,
@@ -544,6 +552,7 @@ fn army_golden() -> Value {
         "bytes": hex(&bytes),
         "expected": {
             "bump": a.bump, "table": hex(a.table.as_ref()), "seat": a.seat, "player": hex(a.player.as_ref()),
+            "signer": hex(a.signer.as_ref()), "tesoroMatch": hex(a.tesoro_match.as_ref()), "epoch": a.epoch,
             "side": a.side, "ranks": hex(&a.ranks), "fuel": a.fuel, "truckTurn": a.truck_turn, "moves": a.moves,
             "reserved": hex(&a.reserved), "contributed": a.contributed, "dealt": a.dealt,
             "stormAt": a.storm_at, "stormSeed": a.storm_seed,

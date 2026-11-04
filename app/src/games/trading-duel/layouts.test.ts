@@ -24,6 +24,7 @@ describe("accounts written by trading_duel", () => {
     expect([t.generation, t.index, t.epoch, t.phase, t.seatsOpen, t.dirty, t.slot]).toEqual([1, 3, 7, PHASE.live, true, true, 3]);
     expect(t.tesoroMatch.toBase58()).toBe(keyOf(2).toBase58());
     expect(t.players.map((p) => p.toBase58())).toEqual([keyOf(3).toBase58(), keyOf(4).toBase58()]);
+    expect(t.signers.map((p) => p.toBase58())).toEqual([keyOf(13).toBase58(), keyOf(14).toBase58()]);
     expect([t.asset.symbol, t.startDeadline, t.checkedIn, t.startsAt, t.gridAt, t.endsAt, t.overAt]).toEqual(["ETH", 1300, [true, true], 1000, 1030, 1150, 1151]);
     expect([t.anchor, t.step, t.lastTick]).toEqual([300_000_000_000n, 60_000_000n, 1001]);
     expect(t.track.lo.slice(0, 3)).toEqual([1n, 2n, 3n]);
@@ -56,6 +57,7 @@ describe("accounts written by trading_duel", () => {
     const a = decodeAssignment(keyOf(5), coder.decode("assignment", fixtures.assignment));
     expect([a.generation, a.index, a.epoch, a.asset.symbol, a.startDeadline]).toEqual([1, 3, 7, "ETH", 1300]);
     expect(a.payer.toBase58()).toBe(keyOf(8).toBase58());
+    expect(a.signers.map((p) => p.toBase58())).toEqual([keyOf(13).toBase58(), keyOf(14).toBase58()]);
     const t = decodeTable(keyOf(1), coder.decode("table", fixtures.table));
     const d = decodeDuel(a, t)!;
     expect([d.status, d.epoch, d.dirty, d.seatsOpen]).toEqual([STATUS.live, 7, true, true]);

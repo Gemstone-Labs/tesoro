@@ -1,4 +1,5 @@
 import type { ChainSigner } from "@/games/block-puzzle/chain";
+import { signAsWallet } from "@/lib/seat/wallet-only";
 import type { GameId } from "@/lib/mock/types";
 import { newNonce, signedMessage } from "@/lib/chain/signed-request";
 
@@ -49,7 +50,7 @@ export async function startFriendsSession(signer: ChainSigner, getToken: GetToke
   const address = signer.publicKey.toBase58();
   const ts = Date.now();
   const nonce = newNonce();
-  const signature = await signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-friends", "session", address, ts, nonce, {})));
+  const signature = await signAsWallet(signer, signedMessage("tesoro-friends", "session", address, ts, nonce, {}));
   const r = await post("/api/friends/session", { step: "session", address, ts, nonce, signature: b64(signature) }, getToken);
   return r.account as string;
 }

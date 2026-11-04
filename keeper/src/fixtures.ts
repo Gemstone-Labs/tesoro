@@ -1,5 +1,5 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { DISC, LINE_LEN, POT_AT, STORE_HEADER, type StoreLine } from "./kit.ts";
+import { DISC, LINE_LEN, POT_AT, STORE_HEADER, TICKET_HEAD, type StoreLine } from "./kit.ts";
 
 /** Account bytes of a line store (tests): `bodyAt` is 8 for a basket or spill and `POT_AT` for a Pot. */
 export function storeBytes(lines: Partial<StoreLine>[], opts: { account?: PublicKey; capacity?: number; first?: number; roomReserved?: number; bodyAt?: number } = {}): Buffer {
@@ -28,10 +28,10 @@ export function storeBytes(lines: Partial<StoreLine>[], opts: { account?: Public
 export const potBytes = (lines: Partial<StoreLine>[], opts: Parameters<typeof storeBytes>[1] = {}) => storeBytes(lines, { ...opts, bodyAt: POT_AT });
 
 /** A Ticket account head (tests): see programs/tesoro_core/src/pots.rs. */
-export function ticketBytes(h: { kind?: number; state?: number; account: PublicKey; game?: PublicKey; payer?: PublicKey; nonce?: bigint; target?: bigint; expiresAt?: number; spillRoom?: number }, lines: Partial<StoreLine>[] = []): Buffer {
+export function ticketBytes(h: { kind?: number; state?: number; account: PublicKey; game?: PublicKey; payer?: PublicKey; nonce?: bigint; target?: bigint; expiresAt?: number; spillRoom?: number; signer?: PublicKey }, lines: Partial<StoreLine>[] = []): Buffer {
   const buf = potBytes(lines, { capacity: Math.max(lines.length, 1) });
-  const head = buf.subarray(DISC, DISC + 160);
-  head[0] = 1;
+  const head = buf.subarray(DISC, DISC + TICKET_HEAD);
+  head[0] = 2;
   head[2] = h.kind ?? 0;
   head[3] = h.state ?? 0;
   h.account.toBuffer().copy(head, 8);
@@ -41,6 +41,7 @@ export function ticketBytes(h: { kind?: number; state?: number; account: PublicK
   head.writeBigUInt64LE(h.target ?? 0n, 112);
   head.writeBigInt64LE(BigInt(h.expiresAt ?? 0), 120);
   head.writeUInt32LE(h.spillRoom ?? 0, 132);
+  (h.signer ?? PublicKey.default).toBuffer().copy(head, 152);
   return buf;
 }
 

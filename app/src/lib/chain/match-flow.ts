@@ -1,6 +1,7 @@
 import "./polyfill";
 import { ComputeBudgetProgram, PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
-import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
+import { BlockPuzzleChain, isSeatKey, type ChainSigner } from "@/games/block-puzzle/chain";
+import { seatKeys } from "@/lib/seat/seat-key";
 import type { GameId } from "@/lib/mock/types";
 import { sponsorPda } from "./basket";
 import { getChain } from "./client";
@@ -10,7 +11,7 @@ import { MIN_SOL_LAMPORTS } from "./config";
 import { ensureSol, type GetToken } from "./demo-client";
 import { DrawError } from "./draw";
 import { openEntry, joinEntry } from "./entry-flow";
-import { readEntryStores, type BackingRef } from "./entry";
+import { readEntryStores, relayerKey, type BackingRef } from "./entry";
 import { entryError } from "./entry-errors";
 import type { StagedEntry } from "./ticket";
 import { matchKeyOf } from "./match-id";
@@ -223,11 +224,23 @@ export async function joinChallenge(signer: ChainSigner, key: string, getToken: 
  * pays the fee and the receipt's rent first (a Player with no SOL can still get out); without it, or when the relayer cannot,
  * the wallet pays.
  */
-export const refundMatch = (signer: ChainSigner, id: string, getToken?: GetToken): Promise<string> =>
-  getToken
+export async function refundMatch(signer: ChainSigner, id: string, getToken?: GetToken): Promise<string> {
+  // The seat key of this Match cancels it with no wallet signature; any trouble (no key on this device, the relayer paused or
+  // refusing) falls through to the wallet, which can always do it.
+  const seat = getToken && !isSeatKey(signer) ? await seatKeys().find(id, signer.publicKey).catch(() => null) : null;
+  const relayer = seat && getToken ? await relayerKey() : null;
+  if (seat && relayer && getToken) {
+    try {
+      return await sponsoredSend(seat, getToken, [await getChain().refundMatchIx(seat.publicKey, relayer, id)]);
+    } catch (e) {
+      if (!(e instanceof SponsorError)) throw e;
+    }
+  }
+  return getToken
     ? sendSponsoredOrOwn(signer, getToken, async (payer, sponsored) => {
         const ix = await getChain().refundMatchIx(signer.publicKey, payer, id);
         // The server sets the compute budget of a sponsored transaction itself.
         return sponsored ? [ix] : [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix];
       })
     : getChain().refundMatch(signer, id);
+}

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { BRAND } from "@/lib/brand";
 import { fmtGemas } from "@/lib/format";
@@ -14,12 +15,14 @@ import {
   tellRows,
   workedExample,
 } from "@/games/railcar/rules";
+import { RAILCAR_SHOWN } from "@/lib/games";
 
 export const metadata: Metadata = { title: "Railcar", alternates: { canonical: "/docs/railcar" } };
 
 const g = (n: bigint) => fmtGemas(Number(n));
 
 export default function Page() {
+  if (!RAILCAR_SHOWN) notFound();
   const odds = crashOdds();
   const tells = tellRows();
   const w = workedExample();

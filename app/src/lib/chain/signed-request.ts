@@ -7,8 +7,12 @@ export const SIGNED_FIELDS = ["evm", "vault", "id", "months", "position", "sourc
 export type SignedFields = Partial<Record<(typeof SIGNED_FIELDS)[number], string | number>>;
 export type SignedScope = "tesoro-demo" | "tesoro-eth" | "tesoro-notify" | "tesoro-admin" | "tesoro-invite" | "tesoro-age" | "tesoro-sponsor" | "tesoro-friends" | "tesoro-deposit-ack" | "tesoro-presence";
 
-export const signedMessage = (scope: SignedScope, step: string, address: string, ts: number, nonce: string, fields: SignedFields) =>
-  `${scope}|${step}|${address}|${ts}|${nonce}|${JSON.stringify(SIGNED_FIELDS.map((k) => fields[k] ?? null))}`;
+/**
+ * `seatKey` is set when a Seat key signs for the wallet `address`: the message then names the key, so a wallet
+ * signature can never pass as a seat-key one (or the reverse) and the key is bound to the Account it acts for.
+ */
+export const signedMessage = (scope: SignedScope, step: string, address: string, ts: number, nonce: string, fields: SignedFields, seatKey?: string) =>
+  `${scope}|${step}|${address}|${ts}|${nonce}|${JSON.stringify(SIGNED_FIELDS.map((k) => fields[k] ?? null))}${seatKey ? `|seat:${seatKey}` : ""}`;
 
 /** 16 random bytes, hex. */
 export function newNonce(): string {

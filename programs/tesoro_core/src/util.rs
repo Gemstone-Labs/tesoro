@@ -6,6 +6,16 @@ pub fn now() -> Result<i64> {
     Ok(Clock::get()?.unix_timestamp)
 }
 
+/// Whether `signer` may act for the Player `account` on a Match side or Entry Ticket that names
+/// `named` as its seat key: the Account's own wallet (the key its address derives from), or the
+/// seat key the entry named. A wallet that wanted no seat key names itself, so `named` is then the
+/// wallet. Only the single side or Ticket the caller passes is looked at: another Match's seat key
+/// is a stranger here. Phase and ownership rules stay with the caller.
+pub fn acts_for(account: &Pubkey, signer: &Pubkey, named: &Pubkey) -> bool {
+    signer == named
+        || Pubkey::find_program_address(&[ACCOUNT_SEED, signer.as_ref()], &crate::ID).0 == *account
+}
+
 /// Reads the Protections held at a Player Account's `["protections", account]` address (checked
 /// by the caller's seeds). Nothing lives there until the Player sets a Protection: `None`.
 fn read_protections(protections: &AccountInfo) -> Result<Option<crate::ledger::Protections>> {

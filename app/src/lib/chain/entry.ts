@@ -44,7 +44,7 @@ import { MIN_SOL_LAMPORTS } from "./config";
 import { protectionsPda } from "./native";
 import { matchOverflowPda } from "./overflow";
 import { COUNTERS_V1_LEN, LEGACY_TICKET_BASE, growIxsFor, type RawAccount } from "./grow-counters";
-import { SponsorError, assignedSend, sponsorStatus, sponsoredSend } from "./sponsor-client";
+import { SponsorError, assignedSend, sponsorStatus, sponsoredSendBuilt } from "./sponsor-client";
 
 export { DrawError };
 
@@ -250,29 +250,31 @@ export async function sendEntryTx(
   signer: ChainSigner,
   getToken: GetToken,
   build: (payer: PublicKey, sponsored: boolean) => Promise<TransactionInstruction[]>,
-  opts: { sponsorable?: boolean; assign?: boolean } = {},
-): Promise<{ sig: string; sponsored: boolean }> {
+  opts: { sponsorable?: boolean; assign?: boolean; /** Not an entry step (a Ticket cancel): the wallet vouches, not the login alone. */ entry?: boolean; /** Who signs and pays when the relayer cannot: the wallet (with the seat key). Defaults to `signer`. */ selfPay?: ChainSigner } = {},
+): Promise<{ sig: string; sponsored: boolean; /** The join travelled without its table: ask for it once it confirms. */ table: boolean }> {
   const relayer = opts.sponsorable === false ? null : await relayerKey();
   if (relayer && signer.signSerialized) {
     try {
-      return { sig: await sponsoredSend(signer, getToken, await build(relayer, true)), sponsored: true };
+      const sent = await sponsoredSendBuilt(signer, getToken, await build(relayer, true), { entry: opts.entry !== false });
+      return { sig: sent.sig, sponsored: true, table: sent.table };
     } catch (e) {
       if (!mayPayYourself(e)) throw e;
     }
   }
-  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS).catch((e: DemoError) => {
+  const payerSigner = opts.selfPay ?? signer;
+  await ensureSol(payerSigner, getToken, MIN_SOL_LAMPORTS).catch((e: DemoError) => {
     if (e.code !== "error") throw e;
   });
-  const own = await build(signer.publicKey, false);
+  const own = await build(payerSigner.publicKey, false);
   // A join the Player pays for still arrives assigned when the server can; otherwise it travels alone and the keeper assigns.
   if (opts.assign) {
     try {
-      return { sig: await assignedSend(signer, getToken, own, (signed) => getChain().sendSignedRaw(signed)), sponsored: false };
+      return { sig: await assignedSend(payerSigner, getToken, own, (signed) => getChain().sendSignedRaw(signed)), sponsored: false, table: false };
     } catch (e) {
       if (!(e instanceof SponsorError)) throw e;
     }
   }
-  return { sig: await getChain().sendBase(signer, await withCountersGrown(own, signer.publicKey)), sponsored: false };
+  return { sig: await getChain().sendBase(payerSigner, await withCountersGrown(own, payerSigner.publicKey)), sponsored: false, table: !!opts.assign };
 }
 
 /** Puts `grow_counters` in front of `ixs` for every writable account in them that is a counters account of the old 25-byte size. */
@@ -350,6 +352,8 @@ export interface OpenArgs {
   pot: PotRef;
   backing?: BackingRef;
   remaining?: AccountMeta[];
+  /** The seat key that co-signs the entry and plays the Match; the wallet names itself when absent. */
+  seatSigner?: PublicKey;
 }
 
 /** `open_match`. `player` is the wallet (authority). */
@@ -361,6 +365,7 @@ export function openMatchIx(a: OpenArgs): TransactionInstruction {
     {
       payer: a.payer,
       playerAuthority: a.player,
+      seatSigner: a.seatSigner ?? a.player,
       config: pda("config"),
       economy: pda("economy"),
       ...gameAccounts(game),
@@ -468,6 +473,8 @@ export interface JoinArgs {
   pot: PotRef;
   backing?: BackingRef;
   remaining?: AccountMeta[];
+  /** The seat key that co-signs the entry and plays the Match; the wallet names itself when absent. */
+  seatSigner?: PublicKey;
 }
 
 /** `join_match`: both of the opener's baskets and spills are accounts of it. */
@@ -476,6 +483,7 @@ export function joinMatchIx(a: JoinArgs): TransactionInstruction {
   const accounts: Record<string, PublicKey | undefined> = {
     payer: a.payer,
     playerAuthority: a.player,
+    seatSigner: a.seatSigner ?? a.player,
     playerAccount: account,
     counters: countersPda(account),
     protections: protectionsPda(account),

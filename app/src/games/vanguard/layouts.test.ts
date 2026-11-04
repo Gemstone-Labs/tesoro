@@ -40,6 +40,7 @@ describe("accounts written by vanguard", () => {
     const a = decodeAssignment(keyOf(6), coder.decode("assignment", fixtures.assignment));
     expect([a.generation, a.index, a.epoch, a.startDeadline]).toEqual([1, 3, 7, 1300]);
     expect(a.payer.toBase58()).toBe(keyOf(8).toBase58());
+    expect(a.signers.map((p) => p.toBase58())).toEqual([keyOf(13).toBase58(), keyOf(14).toBase58()]);
     const t = decodeTable(keyOf(1), coder.decode("table", fixtures.table));
     expect(tableOf(a, t)).toBe(true);
     expect(tableOf({ ...a, epoch: 6 }, t)).toBe(false);
@@ -53,6 +54,7 @@ describe("accounts written by vanguard", () => {
     const army = decodeArmy(new Uint8Array(fixtures.army_waiting));
     expect([army.seat, army.contributed, army.dealt, army.side]).toEqual([idlArmy.seat, true, false, 255]);
     expect(army.player.toBase58()).toBe(keyOf(4).toBase58());
+    expect([army.signer.toBase58(), army.tesoroMatch.toBase58(), army.epoch]).toEqual([keyOf(14).toBase58(), keyOf(2).toBase58(), 7]);
     expect(army.table.toBase58()).toBe(keyOf(1).toBase58());
     expect(army.sealKey).toEqual(new Uint8Array(32));
   });
