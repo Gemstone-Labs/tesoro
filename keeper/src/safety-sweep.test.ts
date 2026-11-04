@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { loadIdl } from "./runtime.ts";
-import { Deferred, GRACE_SECS, headOf, memorySweepStore, safetySweep, SLICE_LEN, type Head, type SweepDeps } from "./safety-sweep.ts";
+import { Deferred, GRACE_SECS, headOf, memorySweepStore, RIDE_TIMEOUT_SECS, safetySweep, SLICE_LEN, type Head, type SweepDeps } from "./safety-sweep.ts";
 
 const coder = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {})).coder.accounts;
 const fixture = Buffer.from((JSON.parse(readFileSync(new URL("../fixtures/core-layouts.json", import.meta.url), "utf8")) as Record<string, string>).match, "hex");
@@ -492,5 +492,115 @@ describe("the safety sweep: an Active Match past its deadline with no result", (
     const r = await run(deps, memorySweepStore(), T0, true);
     assert.deepEqual(sent, []);
     assert.deepEqual([r.candidates[0].case, r.candidates[0].action], ["refund", "send"]);
+  });
+});
+
+// ---- many-seat cars (Railcar) -------------------------------------------------------------------------------------
+
+describe("the safety sweep: a Railcar ride whose pages are all gone", () => {
+  const car = (n: number, over: Partial<Head> = {}, facts: Partial<NonNullable<Head["car"]>> = {}): Head => ({
+    ...head(n, { stage: "active", openedAt: T0 - 600, deadline: T0 + 7 * 86_400 }),
+    car: { seated: 5, minSeats: 5, firstMinAt: T0 - 30, departedAt: T0, refundAfter: T0 + 86_400, ...facts },
+    ...over,
+  });
+
+  /**
+   * A car on a fake chain. Its ride: the draw is in at T0 and its Impact at T0 + 120 s. A ride step before the Impact defers;
+   * after it, the first step is the signal that ends the ride, the second `finalize` (core then settles); `finish` closes it.
+   */
+  function rideChain(h: Head) {
+    const id = h.address.toBase58();
+    const sent: string[] = [];
+    let state: "riding" | "over" | "settling" | "gone" = "riding";
+    let now = 0;
+    const deps: SweepDeps = {
+      scan: async () => (state === "gone" ? [] : [state === "settling" ? { ...h, stage: "settling" as const } : h]),
+      committed: async () => false,
+      progress: async () => (state === "gone" ? null : `car:${state}`),
+      finalize: async () => assert.fail("a car is never finalized as a Match"),
+      finish: async (a) => {
+        assert.equal(a.toBase58(), id);
+        sent.push("finish");
+        state = "gone";
+      },
+      refund: async () => assert.fail("the sweep refunds a car through its ride step"),
+      ride: async () => {
+        if (now < T0 + 120) throw new Deferred("the ride has not reached its Impact yet");
+        if (state === "riding") {
+          sent.push("signal");
+          state = "over";
+        } else {
+          sent.push("finalize");
+          state = "settling";
+        }
+      },
+    };
+    return { deps, sent, at: (t: number) => (now = t) };
+  }
+
+  it("leaves the ride to its pages until RIDE_TIMEOUT_SECS after departure, then finishes it", async () => {
+    const h = car(1);
+    const { deps, sent, at } = rideChain(h);
+    const store = memorySweepStore();
+    const tick = async (t: number) => {
+      at(t);
+      return run(deps, store, t);
+    };
+    const early = await tick(T0 + RIDE_TIMEOUT_SECS - 1);
+    assert.deepEqual([sent, early.candidates.length], [[], 0], "the ride is the pages' until its timeout");
+    // every five minutes: the signal that applies the Impact, then finalize, then core's chunks and closes
+    const r1 = await tick(T0 + RIDE_TIMEOUT_SECS);
+    assert.deepEqual([r1.candidates[0].case, r1.candidates[0].action], ["ride", "send"]);
+    await tick(T0 + RIDE_TIMEOUT_SECS + 300);
+    assert.deepEqual(sent, ["signal", "finalize"]);
+    await tick(T0 + RIDE_TIMEOUT_SECS + 600);
+    await tick(T0 + RIDE_TIMEOUT_SECS + 900);
+    assert.deepEqual(sent, ["signal", "finalize", "finish"]);
+    const last = await tick(T0 + RIDE_TIMEOUT_SECS + 1200);
+    assert.deepEqual([last.candidates.length, last.alerts], [0, []]);
+  });
+
+  it("does not count a ride step that found nothing due as a try, so a long ride raises no alert", async () => {
+    const h = car(2, {}, { departedAt: T0 - 2 * RIDE_TIMEOUT_SECS });
+    const { deps, sent, at } = rideChain(h);
+    const store = memorySweepStore();
+    for (let k = 0; k < 4; k++) {
+      // a candidate every run, but its Impact (T0 + 120 s here) stays ahead of each
+      at(T0 - 600 + k * 120);
+      const r = await run(deps, store, T0 - 600 + k * 120);
+      assert.deepEqual([r.candidates[0]?.case, r.candidates[0]?.action, r.alerts], ["ride", "send", []]);
+    }
+    assert.deepEqual(sent, []);
+  });
+
+  it("sends a car that held its minimum and never left on its way, and leaves a short car alone", async () => {
+    const due = car(3, { stage: "open" }, { departedAt: 0, firstMinAt: T0 - RIDE_TIMEOUT_SECS });
+    const short = car(4, { stage: "open" }, { departedAt: 0, seated: 4, firstMinAt: 0 });
+    const asked: string[] = [];
+    const { deps } = fake([due, short]);
+    deps.ride = async (h) => void asked.push(h.address.toBase58());
+    await run(deps, memorySweepStore(), T0);
+    assert.deepEqual(asked, [due.address.toBase58()]);
+  });
+
+  it("finishes a car core is settling or has paid after the usual grace, through the same finisher", async () => {
+    const settling = car(5, { stage: "settling" });
+    const paid = car(6, { stage: "closed" });
+    const { deps, sent } = fake([settling, paid]);
+    const store = memorySweepStore();
+    await run(deps, store, T0);
+    assert.deepEqual(sent, []);
+    await run(deps, store, T0 + GRACE_SECS);
+    assert.deepEqual(sent.sort(), [`finish ${settling.address.toBase58().slice(0, 4)}`, `finish ${paid.address.toBase58().slice(0, 4)}`].sort());
+  });
+
+  it("is no database miss when only the full scan finds it", async () => {
+    const h = car(7, { stage: "settling" });
+    const { deps } = fake([h]);
+    deps.dbMatches = async () => [];
+    deps.readHeads = async () => ({ heads: [], gone: [] });
+    deps.markGone = async () => {};
+    const r = await safetySweep(deps, memorySweepStore(), { now: T0, full: true });
+    assert.deepEqual(r.dbMisses, []);
   });
 });

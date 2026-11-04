@@ -1,0 +1,4855 @@
+{
+  "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC",
+  "metadata": {
+    "name": "railcar",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "check_departure",
+      "docs": [
+        "Base, anyone. Makes a Boarding car leave when it is due: at once when full; otherwise 30 s",
+        "after it first held 5 Players (a step-off never moves that time), with 5 or more aboard,",
+        "so a car short of 5 at that time leaves in the call after a 5th boards. Anything else is a",
+        "no-op, so a join's transaction can always carry it."
+      ],
+      "discriminator": [
+        131,
+        44,
+        118,
+        96,
+        84,
+        13,
+        243,
+        89
+      ],
+      "accounts": [
+        {
+          "name": "car",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "car.car_no",
+                "account": "Car"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  182,
+                  216,
+                  42,
+                  78,
+                  37,
+                  26,
+                  192,
+                  91,
+                  118,
+                  127,
+                  104,
+                  131,
+                  22,
+                  153,
+                  213,
+                  76,
+                  88,
+                  43,
+                  87,
+                  255,
+                  98,
+                  1,
+                  15,
+                  118,
+                  66,
+                  83,
+                  207,
+                  243,
+                  183,
+                  25,
+                  140,
+                  217
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "game_program",
+          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tesoro_program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_car",
+      "docs": [
+        "Base, anyone. Closes a car core has frozen (its receipt exists) or closed (an empty car);",
+        "the rent goes back to whoever paid it."
+      ],
+      "discriminator": [
+        215,
+        236,
+        75,
+        124,
+        139,
+        155,
+        83,
+        16
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "car",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "car.car_no",
+                "account": "Car"
+              }
+            ]
+          }
+        },
+        {
+          "name": "car_payer",
+          "writable": true
+        },
+        {
+          "name": "receipt"
+        },
+        {
+          "name": "match_state"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "commit_table",
+      "docs": [
+        "Rollup, anyone. Commits the Table to base, paid by the Sponsor: a result's first commit,",
+        "or a repeat of a commit that may have been lost, with Block Burst's doubling wait while",
+        "the result is younger than core's refund window."
+      ],
+      "discriminator": [
+        136,
+        45,
+        98,
+        44,
+        165,
+        128,
+        228,
+        243
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_fee_vault",
+          "writable": true
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_fuel",
+      "docs": [
+        "Base, operator. Creates a reserve the operator later empties into the Sponsor."
+      ],
+      "discriminator": [
+        82,
+        113,
+        189,
+        193,
+        159,
+        137,
+        154,
+        157
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "fuel",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "n",
+          "type": "u8"
+        },
+        {
+          "name": "lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_sponsor",
+      "docs": [
+        "Base, operator. Creates the Sponsor that pays commits; `lamports` is its first balance."
+      ],
+      "discriminator": [
+        13,
+        118,
+        139,
+        130,
+        225,
+        182,
+        191,
+        42
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_table",
+      "docs": [
+        "Base, operator. Creates Table `index`, funded for its Vault's rent."
+      ],
+      "discriminator": [
+        214,
+        142,
+        131,
+        250,
+        242,
+        83,
+        135,
+        185
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "index",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "delegate_fuel",
+      "docs": [
+        "Base, operator. Delegates a fuel reserve."
+      ],
+      "discriminator": [
+        61,
+        213,
+        181,
+        49,
+        144,
+        165,
+        105,
+        215
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_fuel",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "fuel"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                182,
+                216,
+                42,
+                78,
+                37,
+                26,
+                192,
+                91,
+                118,
+                127,
+                104,
+                131,
+                22,
+                153,
+                213,
+                76,
+                88,
+                43,
+                87,
+                255,
+                98,
+                1,
+                15,
+                118,
+                66,
+                83,
+                207,
+                243,
+                183,
+                25,
+                140,
+                217
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_fuel",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "fuel"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_fuel",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "fuel"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "fuel",
+          "writable": true
+        },
+        {
+          "name": "validator",
+          "optional": true
+        },
+        {
+          "name": "owner_program",
+          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "n",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "delegate_sponsor",
+      "docs": [
+        "Base, operator. Delegates the Sponsor, once."
+      ],
+      "discriminator": [
+        103,
+        51,
+        15,
+        141,
+        25,
+        188,
+        197,
+        245
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "sponsor"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                182,
+                216,
+                42,
+                78,
+                37,
+                26,
+                192,
+                91,
+                118,
+                127,
+                104,
+                131,
+                22,
+                153,
+                213,
+                76,
+                88,
+                43,
+                87,
+                255,
+                98,
+                1,
+                15,
+                118,
+                66,
+                83,
+                207,
+                243,
+                183,
+                25,
+                140,
+                217
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "sponsor"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "sponsor"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "validator",
+          "optional": true
+        },
+        {
+          "name": "owner_program",
+          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "delegate_table",
+      "docs": [
+        "Base, operator. Delegates a Table to the TEE validator, once."
+      ],
+      "discriminator": [
+        161,
+        66,
+        67,
+        113,
+        58,
+        219,
+        238,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                182,
+                216,
+                42,
+                78,
+                37,
+                26,
+                192,
+                91,
+                118,
+                127,
+                104,
+                131,
+                22,
+                153,
+                213,
+                76,
+                88,
+                43,
+                87,
+                255,
+                98,
+                1,
+                15,
+                118,
+                66,
+                83,
+                207,
+                243,
+                183,
+                25,
+                140,
+                217
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "table",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "validator",
+          "optional": true
+        },
+        {
+          "name": "owner_program",
+          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "index",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "draw_callback",
+      "docs": [
+        "Rollup, called by the VRF program only. Keeps the output and the ride it gives in the",
+        "Vault if it answers the one outstanding request of this car inside the draw window, and",
+        "starts the ride clock."
+      ],
+      "discriminator": [
+        126,
+        49,
+        233,
+        52,
+        8,
+        16,
+        174,
+        172
+      ],
+      "accounts": [
+        {
+          "name": "vrf_program_identity",
+          "docs": [
+            "Scoped VRF identity PDA, bound to this program. Its presence as a signer proves",
+            "the callback was issued by the VRF program for this program."
+          ],
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "request",
+          "docs": [
+            "outstanding request. The account itself need not exist."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "randomness",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "finalize",
+      "docs": [
+        "Base, anyone. Reads base's committed copy of the car's Table and sends core the result, by",
+        "CPI signed by Railcar's authority: the places and early refunds, or a full refund. The",
+        "Table must name this car and Match, be over, and hold exactly the car's seated Players.",
+        "`remaining_accounts`: every seat page of the car. Closes the car (its job is done)."
+      ],
+      "discriminator": [
+        171,
+        61,
+        218,
+        56,
+        127,
+        115,
+        12,
+        217
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Pays the settlement receipt's rent in tesoro_core."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "car",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "car.car_no",
+                "account": "Car"
+              }
+            ]
+          }
+        },
+        {
+          "name": "car_payer",
+          "writable": true
+        },
+        {
+          "name": "table",
+          "docs": [
+            "delegated); its owner and contents are checked in `finalize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  98,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "car.table",
+                "account": "Car"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "core_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  182,
+                  216,
+                  42,
+                  78,
+                  37,
+                  26,
+                  192,
+                  91,
+                  118,
+                  127,
+                  104,
+                  131,
+                  22,
+                  153,
+                  213,
+                  76,
+                  88,
+                  43,
+                  87,
+                  255,
+                  98,
+                  1,
+                  15,
+                  118,
+                  66,
+                  83,
+                  207,
+                  243,
+                  183,
+                  25,
+                  140,
+                  217
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program",
+          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "receipt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "car.tesoro_match",
+                "account": "Car"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "core_event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "tesoro_program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_vault",
+      "docs": [
+        "Rollup, anyone, once per Table. Creates the Vault as an ephemeral account behind a private",
+        "permission with no member; the Table pays its rent. It is never closed while the Table",
+        "runs."
+      ],
+      "discriminator": [
+        77,
+        79,
+        85,
+        150,
+        33,
+        217,
+        52,
+        106
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "jump",
+      "docs": [
+        "Rollup, the Player of Table seat `seat` (the wallet of the seat's core Account). Before",
+        "the Impact slot the Player is off: the Jump takes the next place in the order. At or after",
+        "it the Jump does not count: the ride ends with the Player aboard. When the last Player",
+        "aboard Jumps, the ride ends then. A Jump that finds the rollup stalled (the outage rule)",
+        "voids the ride and is not recorded. `car_no` makes a transaction held back from an earlier",
+        "ride worthless on a later one."
+      ],
+      "discriminator": [
+        115,
+        18,
+        221,
+        88,
+        166,
+        230,
+        219,
+        32
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "signer": true
+        },
+        {
+          "name": "player_account",
+          "docs": [
+            "The Player's core Account: its wallet must sign."
+          ]
+        },
+        {
+          "name": "table",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_fee_vault",
+          "writable": true
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "car_no",
+          "type": "u64"
+        },
+        {
+          "name": "seat",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "open_car",
+      "docs": [
+        "Base, the opening Player. Opens the next car (core's many-seat open for 500 Gemas, 5 to",
+        "100 seats, signed by Railcar's authority) when no car can still take seats. The opener",
+        "boards with core's join like everyone else, in the same transaction."
+      ],
+      "discriminator": [
+        174,
+        155,
+        21,
+        91,
+        140,
+        178,
+        34,
+        139
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "opener",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "car",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.next_car",
+                "account": "RailcarConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "boarding_match",
+          "docs": [
+            "read by hand in `still_boarding`."
+          ]
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "core_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "economy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  182,
+                  216,
+                  42,
+                  78,
+                  37,
+                  26,
+                  192,
+                  91,
+                  118,
+                  127,
+                  104,
+                  131,
+                  22,
+                  153,
+                  213,
+                  76,
+                  88,
+                  43,
+                  87,
+                  255,
+                  98,
+                  1,
+                  15,
+                  118,
+                  66,
+                  83,
+                  207,
+                  243,
+                  183,
+                  25,
+                  140,
+                  217
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "game_program",
+          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "opener_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "opener"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "counters",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "opener_account"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tesoro_program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "n",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "process_undelegation",
+      "discriminator": [
+        196,
+        28,
+        41,
+        206,
+        48,
+        37,
+        51,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "base_account",
+          "writable": true
+        },
+        {
+          "name": "buffer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  110,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101,
+                  45,
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "base_account"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                181,
+                183,
+                0,
+                225,
+                242,
+                87,
+                58,
+                192,
+                204,
+                6,
+                34,
+                1,
+                52,
+                74,
+                207,
+                151,
+                184,
+                53,
+                6,
+                235,
+                140,
+                229,
+                25,
+                152,
+                204,
+                98,
+                126,
+                24,
+                147,
+                128,
+                167,
+                62
+              ]
+            }
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "account_seeds",
+          "type": {
+            "vec": "bytes"
+          }
+        }
+      ]
+    },
+    {
+      "name": "refill_sponsor",
+      "docs": [
+        "Rollup, operator. Moves lamports from a fuel reserve into the Sponsor."
+      ],
+      "discriminator": [
+        212,
+        210,
+        18,
+        240,
+        37,
+        50,
+        86,
+        2
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "fuel",
+          "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "request_draw",
+      "docs": [
+        "Rollup, anyone. Asks again when no answer came within `DRAW_RETRY_SLOTS`, at most",
+        "`MAX_DRAW_REQUESTS` in all, never once the draw is in."
+      ],
+      "discriminator": [
+        22,
+        180,
+        8,
+        81,
+        47,
+        21,
+        86,
+        159
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle_queue",
+          "writable": true,
+          "address": "5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc"
+        },
+        {
+          "name": "program_identity",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vrf_program",
+          "address": "Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz"
+        },
+        {
+          "name": "slot_hashes",
+          "address": "SysvarS1otHashes111111111111111111111111111"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "set_config",
+      "docs": [
+        "Base, upgrade authority only. Names the operator and the number of Tables; the number is",
+        "fixed once the first car opened (a car's Table is `car_no % tables`)."
+      ],
+      "discriminator": [
+        108,
+        158,
+        154,
+        175,
+        212,
+        98,
+        52,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program",
+          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "operator",
+          "type": "pubkey"
+        },
+        {
+          "name": "tables",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "signal",
+      "docs": [
+        "Rollup, anyone (each open page sends one about every second). Moves the public Tell",
+        "stage; from the Impact slot on it ends the ride and commits the Table. A draw that never",
+        "came voids the ride once its window is over, and so does a rollup that ran under half",
+        "speed for 5 s during the ride (the outage rule, judged before the Impact)."
+      ],
+      "discriminator": [
+        106,
+        129,
+        52,
+        212,
+        183,
+        190,
+        163,
+        21
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_fee_vault",
+          "writable": true
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "skip_car",
+      "docs": [
+        "Rollup, anyone. Passes over the Table's next car when it will never ride: it was closed",
+        "(core froze or closed its Match), its Match is gone, or core has frozen it."
+      ],
+      "discriminator": [
+        105,
+        209,
+        234,
+        52,
+        167,
+        108,
+        220,
+        188
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "car"
+        },
+        {
+          "name": "match_state"
+        },
+        {
+          "name": "receipt"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "start_ride",
+      "docs": [
+        "Rollup, anyone. Puts the Table's next car on it once that car has left: copies its seated",
+        "Players from every seat page (remaining accounts) and asks for the draw. A Table whose",
+        "last ride is over is reset first, once core has frozen that car (its receipt)."
+      ],
+      "discriminator": [
+        198,
+        221,
+        145,
+        132,
+        226,
+        85,
+        136,
+        97
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "table",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "table"
+              }
+            ]
+          }
+        },
+        {
+          "name": "car",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "car.car_no",
+                "account": "Car"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_state"
+        },
+        {
+          "name": "previous_receipt",
+          "docs": [
+            "`receipt_at`."
+          ]
+        },
+        {
+          "name": "oracle_queue",
+          "writable": true,
+          "address": "5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc"
+        },
+        {
+          "name": "program_identity",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vrf_program",
+          "address": "Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz"
+        },
+        {
+          "name": "slot_hashes",
+          "address": "SysvarS1otHashes111111111111111111111111111"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Car",
+      "discriminator": [
+        102,
+        252,
+        242,
+        250,
+        81,
+        44,
+        72,
+        153
+      ]
+    },
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "EconomyConfig",
+      "discriminator": [
+        217,
+        204,
+        127,
+        47,
+        151,
+        223,
+        164,
+        182
+      ]
+    },
+    {
+      "name": "Fuel",
+      "discriminator": [
+        5,
+        57,
+        10,
+        107,
+        149,
+        19,
+        213,
+        157
+      ]
+    },
+    {
+      "name": "GameRecord",
+      "discriminator": [
+        28,
+        157,
+        20,
+        4,
+        219,
+        32,
+        208,
+        147
+      ]
+    },
+    {
+      "name": "ManySeatMatch",
+      "discriminator": [
+        9,
+        147,
+        183,
+        140,
+        132,
+        123,
+        76,
+        15
+      ]
+    },
+    {
+      "name": "RailcarConfig",
+      "discriminator": [
+        45,
+        85,
+        70,
+        242,
+        12,
+        95,
+        223,
+        221
+      ]
+    },
+    {
+      "name": "Sponsor",
+      "discriminator": [
+        19,
+        128,
+        115,
+        109,
+        118,
+        109,
+        66,
+        213
+      ]
+    },
+    {
+      "name": "Table",
+      "discriminator": [
+        34,
+        100,
+        138,
+        97,
+        236,
+        129,
+        230,
+        112
+      ]
+    },
+    {
+      "name": "TesoroAccount",
+      "discriminator": [
+        50,
+        226,
+        60,
+        36,
+        163,
+        217,
+        197,
+        178
+      ]
+    },
+    {
+      "name": "Vault",
+      "discriminator": [
+        211,
+        8,
+        232,
+        43,
+        2,
+        152,
+        117,
+        119
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "CarDeparted",
+      "discriminator": [
+        147,
+        71,
+        160,
+        148,
+        83,
+        169,
+        116,
+        170
+      ]
+    },
+    {
+      "name": "CarOpened",
+      "discriminator": [
+        34,
+        107,
+        81,
+        230,
+        11,
+        104,
+        240,
+        96
+      ]
+    },
+    {
+      "name": "Jumped",
+      "discriminator": [
+        128,
+        194,
+        141,
+        253,
+        12,
+        146,
+        229,
+        13
+      ]
+    },
+    {
+      "name": "RideOver",
+      "discriminator": [
+        10,
+        214,
+        51,
+        83,
+        189,
+        162,
+        110,
+        157
+      ]
+    },
+    {
+      "name": "RideRunning",
+      "discriminator": [
+        146,
+        13,
+        101,
+        93,
+        30,
+        140,
+        153,
+        213
+      ]
+    },
+    {
+      "name": "RideSettled",
+      "discriminator": [
+        147,
+        166,
+        132,
+        241,
+        229,
+        70,
+        246,
+        239
+      ]
+    },
+    {
+      "name": "RideStarted",
+      "discriminator": [
+        62,
+        156,
+        220,
+        95,
+        182,
+        238,
+        0,
+        193
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "NotUpgradeAuthority",
+      "msg": "Only the upgrade authority may do this"
+    },
+    {
+      "code": 6001,
+      "name": "NotOperator",
+      "msg": "Only the operator may do this"
+    },
+    {
+      "code": 6002,
+      "name": "BadConfig",
+      "msg": "Invalid configuration"
+    },
+    {
+      "code": 6003,
+      "name": "BadTableSlot",
+      "msg": "That Table index is not allowed"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidValidator",
+      "msg": "Delegation must name the TEE validator"
+    },
+    {
+      "code": 6005,
+      "name": "CarBoarding",
+      "msg": "A car is still boarding: board it"
+    },
+    {
+      "code": 6006,
+      "name": "WrongCar",
+      "msg": "Not this Table's next car"
+    },
+    {
+      "code": 6007,
+      "name": "NotDeparted",
+      "msg": "The car has not left"
+    },
+    {
+      "code": 6008,
+      "name": "PagesMissing",
+      "msg": "A seat page of the car is missing"
+    },
+    {
+      "code": 6009,
+      "name": "WrongPhase",
+      "msg": "Not valid in this phase of the ride"
+    },
+    {
+      "code": 6010,
+      "name": "VaultMissing",
+      "msg": "The Table has no Vault yet"
+    },
+    {
+      "code": 6011,
+      "name": "VaultExists",
+      "msg": "The Table already has its Vault"
+    },
+    {
+      "code": 6012,
+      "name": "DrawNotDue",
+      "msg": "No draw request is due"
+    },
+    {
+      "code": 6013,
+      "name": "StaleRequest",
+      "msg": "The randomness answer is not for the current request"
+    },
+    {
+      "code": 6014,
+      "name": "NotAPlayer",
+      "msg": "Not a Player of this ride, or not this seat"
+    },
+    {
+      "code": 6015,
+      "name": "AlreadyJumped",
+      "msg": "Already off the car"
+    },
+    {
+      "code": 6016,
+      "name": "StaleBinding",
+      "msg": "The instruction names another car"
+    },
+    {
+      "code": 6017,
+      "name": "PreviousNotFrozen",
+      "msg": "Core has not frozen the Table's previous car yet"
+    },
+    {
+      "code": 6018,
+      "name": "BadTable",
+      "msg": "Not the car's Table, or the Table has no result for it"
+    },
+    {
+      "code": 6019,
+      "name": "SeatsDiffer",
+      "msg": "The Table's seats differ from the car's"
+    },
+    {
+      "code": 6020,
+      "name": "NotFrozen",
+      "msg": "Core has not frozen this car yet"
+    },
+    {
+      "code": 6021,
+      "name": "CannotSkip",
+      "msg": "That car may still ride"
+    },
+    {
+      "code": 6022,
+      "name": "CommitNotDue",
+      "msg": "No commit is due"
+    },
+    {
+      "code": 6023,
+      "name": "SponsorDry",
+      "msg": "The Sponsor cannot pay a commit"
+    },
+    {
+      "code": 6024,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    }
+  ],
+  "types": [
+    {
+      "name": "Car",
+      "docs": [
+        "One car: the core many-seat Match it boards and the Table it rides on. On base, never",
+        "delegated; the rollup reads it. Closed once core froze its Match."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "car_no",
+            "type": "u64"
+          },
+          {
+            "name": "tesoro_match",
+            "type": "pubkey"
+          },
+          {
+            "name": "table",
+            "type": "u16"
+          },
+          {
+            "name": "tables",
+            "docs": [
+              "`Config.tables` when the car opened: the car after it on the same Table is",
+              "`car_no + tables`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "opened_at",
+            "type": "i64"
+          },
+          {
+            "name": "payer",
+            "docs": [
+              "Who paid this account's rent; it goes back there when the car closes."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CarDeparted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "car_no",
+            "type": "u64"
+          },
+          {
+            "name": "tesoro_match",
+            "type": "pubkey"
+          },
+          {
+            "name": "seated",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CarOpened",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "car_no",
+            "type": "u64"
+          },
+          {
+            "name": "car",
+            "type": "pubkey"
+          },
+          {
+            "name": "tesoro_match",
+            "type": "pubkey"
+          },
+          {
+            "name": "table",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle_authority",
+            "docs": [
+              "Trusted for now to supply the issuance price and `YieldAccrued`/`PositionLocked` facts.",
+              "This is the seam for the LayerZero receiver (messages) and Pyth (price)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "platform_bps",
+            "type": "u16"
+          },
+          {
+            "name": "platform_recipient",
+            "docs": [
+              "`TesoroAccount` that receives the Platform Fee."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "legacy_games",
+            "docs": [
+              "Unused since the per-Game records; its bytes stay so older accounts keep their layout."
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "LegacyGameEntry"
+                }
+              }
+            }
+          },
+          {
+            "name": "leaderboard_bps",
+            "docs": [
+              "Leaderboard Fee in basis points of the Pot. Appended after `games`: an account created",
+              "before it reads the fields as zero (the unused tail of the account is zeroed) and is",
+              "extended by `init_leaderboard`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "pool_account",
+            "docs": [
+              "The Leaderboard Pool: `TesoroAccount` owned by the `[\"leaderboard\"]` address. Zero until",
+              "`init_leaderboard`; the fee is off while it is."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "leaderboard_since",
+            "docs": [
+              "Unix time `init_leaderboard` first ran: Matches opened before it were not charged the fee, so",
+              "readers show the fee only for Matches opened at or after it. Zero until then."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "entry_sizes",
+            "docs": [
+              "Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default ladder",
+              "(100 / 500 / 1,000) applies, so an older Config needs no call. Appended after the Leaderboard",
+              "fields: an account created before reads them as zero from its zeroed tail."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
+            "name": "oracle_locked",
+            "docs": [
+              "Set by the admin on mainnet (`set_oracle_lock`): the oracle key can no longer register",
+              "Positions, report their yield or name an Advance's price (test-mode paths), so a stolen",
+              "oracle key cannot mint Gemas. Appended last: an older Config reads it as false."
+            ],
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EconomyConfig",
+      "docs": [
+        "Who may do what in the economy upgrade, as explicit settings (never the oracle authority).",
+        "Seeds `[\"economy\"]`; created by the admin's `set_economy`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "season_keeper",
+            "docs": [
+              "Runs Seasons (`fund_season_prize`, `record_season`, `pay_season_rank`) besides the admin."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "fill_keeper",
+            "docs": [
+              "May fill Instant Redeem orders while `keeper_fills` is on (the admin always may)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "keeper_fills",
+            "docs": [
+              "Off by default: only the admin fills."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "pool_share",
+            "docs": [
+              "The Pool's share of every realised Yield Fee, changeable from a Season announced ahead."
+            ],
+            "type": {
+              "defined": {
+                "name": "PoolShare"
+              }
+            }
+          },
+          {
+            "name": "routes",
+            "docs": [
+              "Custodies whose prize escrow `record_season` waits for (zero = unused slot)."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                4
+              ]
+            }
+          },
+          {
+            "name": "tesoro_studio",
+            "docs": [
+              "The Account that receives the Studio Fee counters of Tesoro's own Games (`cash_in_fee`);",
+              "zero until the admin names it."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Fuel",
+      "docs": [
+        "A delegated lamport reserve the operator empties into the Sponsor inside the rollup."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "n",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameRecord",
+      "docs": [
+        "One Game. Registered once by whoever controls its program (see `registry`); changed only by",
+        "that same control, after `GAME_CHANGE_DELAY_SECS`. Listing is written by the admin."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "game",
+            "docs": [
+              "The Game program's id."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "settle_authority",
+            "docs": [
+              "Only this key may settle the Game's Matches (a PDA of the Game program, or a server key)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_recipient",
+            "docs": [
+              "`TesoroAccount` that receives the Studio Fee."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_at",
+            "docs": [
+              "Unix time a proposed change was made; zero while none is waiting."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "pending_by",
+            "docs": [
+              "The control key that proposed it. Applying needs the same key to be in control still."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_settle_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "pending_studio_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "listed_until",
+            "docs": [
+              "The Game counts as listed until this unix time (admin). Zero: never listed."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "approved_slot",
+            "docs": [
+              "The deploy slot the admin approved. A program upgraded since has a different slot and",
+              "counts as unlisted until the admin approves again."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "approved_hash",
+            "docs": [
+              "SHA-256 of the approved build's executable bytes without trailing zeros (`registry::code_hash`).",
+              "A moved slot keeps the listing only through `refresh_listing`, which proves the bytes are these."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "listing_epoch",
+            "docs": [
+              "Counts the builds the admin approved: bumped by `list_game` only when it sets a different",
+              "hash, never by `refresh_listing`. A Match remembers the epoch it opened under, so a moved",
+              "deploy slot with the same epoch is the same build."
+            ],
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Jumped",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "car_no",
+            "type": "u64"
+          },
+          {
+            "name": "seat",
+            "docs": [
+              "The core seat index."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "order",
+            "type": "u8"
+          },
+          {
+            "name": "ride_ms",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LegacyGameEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_recipient",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ManySeatMatch",
+      "docs": [
+        "A many-seat Match (ADR 0015) at the same address as a head-to-head one,",
+        "`[\"match\", opener Account, n]` with the opener's `next_match`, so its id, overflow records and",
+        "receipt work like a head-to-head Match's. Read in place (no Borsh, see `ManySeatRecord`). The",
+        "seats are in `SeatPage`s."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "listing_epoch",
+            "docs": [
+              "`GameRecord.listing_epoch` when the car opened (little endian)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "payer",
+            "docs": [
+              "Who paid the rent of this account; it goes back there when the Match is closed."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "inner",
+            "type": {
+              "defined": {
+                "name": "ManySeatRecord"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ManySeatRecord",
+      "docs": [
+        "The many-seat Match record (`state::ManySeatMatch`), read and written in place.",
+        "",
+        "Byte arrays only (alignment 1, no padding), and no Borsh: a record that shared `MatchId`,",
+        "`MatchMeta` or `Terms` Borsh code with the head-to-head `MatchState` changed how the",
+        "head-to-head settle chunk was compiled (its 12-step worst case rose 24-30 CU), so the",
+        "many-seat path keeps its own layout and builds those values through accessors."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "opener",
+            "docs": [
+              "The id: the opener's Account and its `next_match` (little endian)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "n",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "game",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "settle_authority",
+            "docs": [
+              "The Game's settle authority when the car opened: only it departs and settles."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "studio_owner",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "deploy_slot",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "entry",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "opened_at",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "deadline_abs",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "min_since",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "first_min_at",
+            "docs": [
+              "When `seated` first reached `min_seats`; never cleared (a Game's fixed departure time)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "departed_at",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "platform_bps",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "studio_bps",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "has_studio_owner",
+            "type": "u8"
+          },
+          {
+            "name": "studio_priority",
+            "type": "u8"
+          },
+          {
+            "name": "challenge",
+            "type": "u8"
+          },
+          {
+            "name": "asset",
+            "type": "u8"
+          },
+          {
+            "name": "listed",
+            "type": "u8"
+          },
+          {
+            "name": "min_seats",
+            "type": "u8"
+          },
+          {
+            "name": "max_seats",
+            "type": "u8"
+          },
+          {
+            "name": "seated",
+            "docs": [
+              "Seats taken right now."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "pages",
+            "docs": [
+              "Seat pages created so far (always in order, page `pages` is the next one)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "stage",
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
+          },
+          {
+            "name": "refund_after",
+            "docs": [
+              "From departure: anyone may refund the car from this time on (`settle::start_refund`)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "run",
+            "docs": [
+              "The run (ticket 03), fixed when settling starts. See `settle`."
+            ],
+            "type": {
+              "defined": {
+                "name": "SeatRun"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlaceSlot",
+      "docs": [
+        "One place as the run keeps it: who is paid, and how much."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "share_bps",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "player_share_bps",
+            "docs": [
+              "The Player's Offer share of a Backed seat's winnings (0 unbacked)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "won",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "player",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "funder",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolShare",
+      "docs": [
+        "The Pool's share of every realised Yield Fee, changeable only from a Season announced ahead."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bps",
+            "type": "u16"
+          },
+          {
+            "name": "next_from",
+            "docs": [
+              "First Season the pending change applies to; 0 = none pending."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "next_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RailcarConfig",
+      "docs": [
+        "Railcar's settings and its one boarding line. The upgrade authority names the operator and",
+        "the number of Tables (fixed once the first car opened, since a car's Table is",
+        "`car_no % tables`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "operator",
+            "type": "pubkey"
+          },
+          {
+            "name": "tables",
+            "type": "u16"
+          },
+          {
+            "name": "next_car",
+            "docs": [
+              "The number the next car gets."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "boarding_match",
+            "docs": [
+              "The core Match of the car boarding now (default before the first car)."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RideOver",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "car_no",
+            "type": "u64"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "reason",
+            "type": "u8"
+          },
+          {
+            "name": "over_ms",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RideRunning",
+      "docs": [
+        "The draw is in and the ride clock runs from `ride_slot`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "car_no",
+            "type": "u64"
+          },
+          {
+            "name": "ride_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RideSeat",
+      "docs": [
+        "One seat of a ride, public. Byte arrays only (alignment 1)."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seat",
+            "docs": [
+              "The seat's index in the core many-seat Match."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "order",
+            "docs": [
+              "0 while aboard, else the Player's place in the Jump order (1 = first off)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "flags",
+            "type": "u8"
+          },
+          {
+            "name": "reserved0",
+            "type": "u8"
+          },
+          {
+            "name": "jump_ms",
+            "docs": [
+              "Ride time of the Jump, real ms since the ride clock started."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "refund",
+            "docs": [
+              "Gemas of the entry the result refunds (written when the ride ends)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "account",
+            "docs": [
+              "The Player's core Account."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Room for a per-seat key and the Brake (tickets 07 and seat keys)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                24
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RideSettled",
+      "docs": [
+        "`finalize` handed the result to core (event-CPI)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "car_no",
+            "type": "u64"
+          },
+          {
+            "name": "tesoro_match",
+            "type": "pubkey"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "reason",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RideStarted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "car_no",
+            "type": "u64"
+          },
+          {
+            "name": "table",
+            "type": "u16"
+          },
+          {
+            "name": "seated",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeatRun",
+      "docs": [
+        "The frozen plan of a many-seat run and its cursor, read in place inside `ManySeatRecord`."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "phase",
+            "type": "u8"
+          },
+          {
+            "name": "n_places",
+            "type": "u8"
+          },
+          {
+            "name": "place_i",
+            "type": "u8"
+          },
+          {
+            "name": "seat_i",
+            "type": "u8"
+          },
+          {
+            "name": "in_seat",
+            "docs": [
+              "1 once the cursor entered `seat_i` (its `seat_left` is loaded)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "visited",
+            "docs": [
+              "Seated seats the home phase has passed."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "fees_capped",
+            "type": "u8"
+          },
+          {
+            "name": "line_i",
+            "docs": [
+              "Home phase: the next line to look at; forfeits phase: one past it (walked backward)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "seat_left",
+            "docs": [
+              "Gemas the current seat still moves in this phase."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "won_left",
+            "docs": [
+              "Gemas the current place still gets, and of them the Backed Player's share still owed."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "player_left",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "fees",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u8",
+                    8
+                  ]
+                },
+                3
+              ]
+            }
+          },
+          {
+            "name": "cut_left",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u8",
+                    8
+                  ]
+                },
+                3
+              ]
+            }
+          },
+          {
+            "name": "chunks",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "steps",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "places",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "PlaceSlot"
+                  }
+                },
+                10
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Sponsor",
+      "docs": [
+        "A program-owned lamport holder, delegated once, that pays the commits as the fee payer."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Table",
+      "docs": [
+        "A Table: one ride at a time, delegated to the TEE validator and kept for months. Public: who",
+        "boarded and who is aboard, the Jump order, the Tell stage, the ride start, the entry (the",
+        "Gemas at stake are `entry * seated`) and the outcome. Read in place (no Borsh): a signal comes",
+        "several times a second and touches a few bytes. Byte arrays only (alignment 1, no padding)."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "index",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "phase",
+            "type": "u8"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "reason",
+            "type": "u8"
+          },
+          {
+            "name": "tell",
+            "docs": [
+              "Tell stages passed (0 none, 1 screws, 2 bolt and panel, 3 sparks and creak)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "false_screws",
+            "docs": [
+              "False screws passed."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "seated",
+            "type": "u8"
+          },
+          {
+            "name": "aboard",
+            "type": "u8"
+          },
+          {
+            "name": "jumps",
+            "type": "u8"
+          },
+          {
+            "name": "places",
+            "docs": [
+              "Table seats of the places, last Player off first (`NO_SEAT` when unused)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                3
+              ]
+            }
+          },
+          {
+            "name": "vault_ready",
+            "docs": [
+              "The Vault exists (`init_vault`)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "dirty",
+            "docs": [
+              "A result waits for its first commit."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "req_pending",
+            "type": "u8"
+          },
+          {
+            "name": "req_count",
+            "type": "u8"
+          },
+          {
+            "name": "commit_tries",
+            "type": "u8"
+          },
+          {
+            "name": "reserved0",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "car_no",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "next_car",
+            "docs": [
+              "The car this Table takes next (`car_no % tables == index`, strictly in order)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "car",
+            "docs": [
+              "The Railcar `Car` account and its core Match."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "tesoro_match",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "entry",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "vrf_nonce",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "req_nonce",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "req_slot",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "started_slot",
+            "docs": [
+              "Slot of `start_ride` (the draw window runs from here)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "ride_slot",
+            "docs": [
+              "The ride clock: slot and time of the draw's arrival."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "ride_ts",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "over_ms",
+            "docs": [
+              "Ride ms and unix time at the end."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "over_at",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "commit_at",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Room for the reveal (ticket 07)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                112
+              ]
+            }
+          },
+          {
+            "name": "pace_slot",
+            "docs": [
+              "The pace mark: slot and time of the last moment the ride was on pace (outage rule)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "pace_ts",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "seats",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "RideSeat"
+                  }
+                },
+                100
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TesoroAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "Solana wallet that controls the Account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "evm_address",
+            "docs": [
+              "The EVM family address of the Account (zero until set)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                20
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Vault",
+      "docs": [
+        "The private half of a ride: the VRF output and what it decides. A rollup-only account behind",
+        "a private permission with no member, created once per Table; nobody reads it during a ride."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "table",
+            "type": "pubkey"
+          },
+          {
+            "name": "car_no",
+            "docs": [
+              "The car the draw below belongs to."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "ready",
+            "type": "bool"
+          },
+          {
+            "name": "draw",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "crash_ms",
+            "type": "u32"
+          },
+          {
+            "name": "screw_at_ms",
+            "type": "u32"
+          },
+          {
+            "name": "bolt_at_ms",
+            "type": "u32"
+          },
+          {
+            "name": "spark_at_ms",
+            "type": "u32"
+          },
+          {
+            "name": "false_screws",
+            "type": {
+              "array": [
+                "u32",
+                4
+              ]
+            }
+          },
+          {
+            "name": "false_len",
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Room for the Brake schedule and the reveal (tickets 07, 08)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

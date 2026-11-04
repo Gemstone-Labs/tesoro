@@ -7,6 +7,7 @@ import { BlockBurstChain } from "../../app/src/games/block-puzzle/live-chain.ts"
 import { HoldemChain, keypairSigner as holdemSigner } from "../../app/src/games/holdem/chain.ts";
 import { TradingDuelChain } from "../../app/src/games/trading-duel/chain.ts";
 import { VanguardChain } from "../../app/src/games/vanguard/chain.ts";
+import { RailcarChain } from "../../app/src/games/railcar/chain.ts";
 import { SplitConnection, type GpaFn } from "../../app/src/lib/chain/split-connection.ts";
 import { keeperCluster } from "./cluster.ts";
 import { makeScanRpc, meter, meteredFetch, scanProgramAccounts } from "./credits.ts";
@@ -60,6 +61,7 @@ export interface Runtime {
   burst: BlockBurstChain;
   duel: TradingDuelChain;
   vanguard: VanguardChain;
+  railcar: RailcarChain;
   signer: ReturnType<typeof keypairSigner>;
   hsigner: ReturnType<typeof holdemSigner>;
   osigner: ReturnType<typeof holdemSigner>;
@@ -139,8 +141,9 @@ export function buildRuntime(settings: Settings, conn: Connection, payer: Keypai
   const burst = new BlockBurstChain(loadIdl("block_puzzle"), coreIdl, { base: conn });
   const duel = new TradingDuelChain(loadIdl("trading_duel"), coreIdl, { base: conn });
   const vanguard = new VanguardChain(loadIdl("vanguard"), coreIdl, { base: conn });
+  const railcar = new RailcarChain(loadIdl("railcar"), coreIdl, { base: conn });
   const operator = settings.operatorKeypairPath ? readKeypair(settings.operatorKeypairPath) : payer;
-  return { settings, conn, payer, operator, osigner: holdemSigner(operator), bp, holdem, burst, duel, vanguard, signer: keypairSigner(payer), hsigner: holdemSigner(payer), core: bp.core, coreIdl, now: 0 };
+  return { settings, conn, payer, operator, osigner: holdemSigner(operator), bp, holdem, burst, duel, vanguard, railcar, signer: keypairSigner(payer), hsigner: holdemSigner(payer), core: bp.core, coreIdl, now: 0 };
 }
 
 /** Cluster time, so deadline checks agree with the on-chain Clock. */

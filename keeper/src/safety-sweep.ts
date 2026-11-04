@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { PublicKey } from "@solana/web3.js";
 import { log } from "./act.ts";
+import { carHeadOf, type CarStage } from "../../app/src/lib/chain/many-seat-plan.ts";
 import { discriminatorOf } from "./lists.ts";
 
 /**
@@ -11,6 +12,11 @@ import { discriminatorOf } from "./lists.ts";
  *    committed: `finalize`, then the chunks, then `close_match`;
  *  - `finish`: a Settling, Refunding or Closed Match, 10 minutes after the sweep first saw it: the chunks, then `close_match`;
  *  - `refund`: an Open Match a Backer funded that nobody joined, once its deadline has passed: `refund_match`.
+ * A many-seat Match (a Railcar car) is a fourth case and a second way into the first two:
+ *  - `ride`: a car that left (or is due to leave) and whose ride nobody finished, `RIDE_TIMEOUT_SECS` after it left: the one
+ *    step a Player's page would have sent (the Game's adapter picks it: start the ride, the signal that applies its Impact,
+ *    the Table's commit, `finalize`, or core's refund once 24 h have passed), one per sweep;
+ *  - `finish`: a car core is settling or has paid: its chunks, then each seat's close and the car's.
  * Every send is idempotent, so a page that did the step first costs nothing. A Match the sweep tried once and finds in the
  * same state on the next sweep is stuck: it raises an alert and is not retried.
  */
@@ -25,6 +31,11 @@ export const RETRY_ALERTED_SECS = 3600;
 /** A full chain scan runs at least this often (seconds); the runs between take their candidates from the database. */
 export const FULL_SCAN_SECS = Number(process.env.KEEPER_SWEEP_FULL_SCAN_SECS ?? 60 * 60);
 export const GRACE_SECS = Number(process.env.KEEPER_SWEEP_GRACE_SECS ?? 10 * 60);
+/**
+ * A car's ride is left to its Players' pages this long after it left: Railcar's 90 s draw window plus its 10-minute ride cap
+ * and a margin. A car that held its minimum this long ago and never left is late by as much.
+ */
+export const RIDE_TIMEOUT_SECS = Number(process.env.KEEPER_SWEEP_RIDE_TIMEOUT_SECS ?? 15 * 60);
 
 export type Stage = "open" | "active" | "settling" | "refunding" | "closed";
 const STAGES: Stage[] = ["open", "active", "settling", "refunding", "closed"];
@@ -40,7 +51,41 @@ export interface Head {
   backed: boolean;
   openedAt: number;
   deadline: number;
+  /** Set for a many-seat Match (a car); its stage is mapped onto the Match stages (Boarding open, Departed active, Paid closed). */
+  car?: CarFacts;
 }
+
+/** What the sweep reads of a car to tell whether its ride was left unfinished. */
+export interface CarFacts {
+  seated: number;
+  minSeats: number;
+  /** When the car first held its minimum (0 never). */
+  firstMinAt: number;
+  departedAt: number;
+  /** From this time anyone may refund the car through core. */
+  refundAfter: number;
+}
+
+const CAR_STAGES: Record<CarStage, Stage> = { boarding: "open", departed: "active", settling: "settling", refunding: "refunding", paid: "closed", closed: "closed" };
+
+/** A car's head from a sliced scan row; null when the row is not a car. */
+export function carHeadAt(address: PublicKey, data: Buffer): Head | null {
+  const c = carHeadOf(data);
+  if (!c) return null;
+  return {
+    address,
+    game: c.game,
+    stage: CAR_STAGES[c.stage],
+    joined: true,
+    backed: false,
+    openedAt: c.openedAt,
+    deadline: c.deadlineAbs,
+    car: { seated: c.seated, minSeats: c.minSeats, firstMinAt: c.firstMinAt, departedAt: c.departedAt, refundAfter: c.refundAfter },
+  };
+}
+
+/** A Match's or a car's head. */
+export const anyHeadOf = (address: PublicKey, data: Buffer): Head | null => headOf(address, data) ?? carHeadAt(address, data);
 
 /**
  * Bytes of a Match account the sweep reads: through the `stage` byte of the longest layout. The byte's offset moves with the two
@@ -159,9 +204,14 @@ export interface SweepDeps {
   /** The chunks, then `close_match`, as far as they go. Throws when a step fails with the Match unmoved. */
   finish(address: PublicKey): Promise<void>;
   refund(head: Head): Promise<void>;
+  /**
+   * The one step a car's unfinished ride needs now, through its Game's adapter. Throws `Deferred` when nothing is due yet (the
+   * ride is still inside its time), which is not a try.
+   */
+  ride?(head: Head): Promise<void>;
 }
 
-export type Case = "finalize" | "finish" | "refund";
+export type Case = "finalize" | "finish" | "refund" | "ride";
 
 export interface Candidate {
   address: PublicKey;
@@ -193,6 +243,12 @@ const label = (a: PublicKey) => a.toBase58();
 
 /** Picks the case a head falls in; `finalize` also needs the committed check, made by the caller. */
 function caseOf(h: Head, now: number): Case | null {
+  if (h.car) {
+    const c = h.car;
+    if (h.stage === "open") return c.seated >= c.minSeats && c.firstMinAt > 0 && now - c.firstMinAt >= RIDE_TIMEOUT_SECS ? "ride" : null;
+    if (h.stage === "active") return now - c.departedAt >= RIDE_TIMEOUT_SECS ? "ride" : null;
+    return "finish";
+  }
   if (h.stage === "open") return !h.joined && now > h.deadline ? "refund" : null;
   if (h.stage === "active") return now - h.openedAt >= GRACE_SECS ? "finalize" : null;
   return "finish";
@@ -248,7 +304,8 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
     let kind = caseOf(head, now);
     if (!kind) continue;
     const id = label(head.address);
-    if (dbIds && !dbIds.has(id)) report.dbMisses.push(id);
+    // The webhook's open_match table lists head-to-head Matches only: a car the full scan finds is no miss.
+    if (dbIds && !head.car && !dbIds.has(id)) report.dbMisses.push(id);
     let seen = state.seen[id] && { ...state.seen[id] };
     if (kind === "finalize" && !seen) {
       const quietKey = `${head.stage}:${head.deadline}`;
@@ -279,7 +336,8 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
     next.seen[id] = seen;
 
     const ageSecs = now - seen.since;
-    const ready = kind === "refund" || ageSecs >= GRACE_SECS;
+    // A ride case is already past its own timeout.
+    const ready = kind === "refund" || kind === "ride" || ageSecs >= GRACE_SECS;
     const candidate: Candidate = { address: head.address, case: kind, ageSecs, action: ready ? "send" : "wait" };
     report.candidates.push(candidate);
     if (!ready) continue;
@@ -326,7 +384,10 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
     if (dryRun) continue;
     seen.lastTryAt = now;
     try {
-      if (kind === "refund") await deps.refund(head);
+      if (kind === "ride") {
+        if (!deps.ride) continue;
+        await deps.ride(head);
+      } else if (kind === "refund") await deps.refund(head);
       else {
         if (kind === "finalize") await deps.finalize(head);
         await deps.finish(head.address);
