@@ -32,6 +32,7 @@ const assignment: Assignment = {
   index: 2,
   epoch: 4,
   players: [Keypair.generate().publicKey, Keypair.generate().publicKey],
+  signers: [Keypair.generate().publicKey, Keypair.generate().publicKey],
   asset: ASSETS[1],
   startDeadline: 1300,
   payer: Keypair.generate().publicKey,

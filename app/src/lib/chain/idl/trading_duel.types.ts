@@ -4340,6 +4340,18 @@ export type TradingDuel = {
             }
           },
           {
+            "name": "signers",
+            "docs": [
+              "The seat key each Player named in their entry (the wallet again when they named none)."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
             "name": "asset",
             "type": "u8"
           },
@@ -4380,6 +4392,24 @@ export type TradingDuel = {
           {
             "name": "player",
             "type": "pubkey"
+          },
+          {
+            "name": "signer",
+            "docs": [
+              "The seat key that may pick and read beside `player`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "tesoroMatch",
+            "docs": [
+              "The Match and epoch this Book was opened for."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
           },
           {
             "name": "seat",
@@ -5352,6 +5382,19 @@ export type TradingDuel = {
           },
           {
             "name": "players",
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
+            "name": "signers",
+            "docs": [
+              "Each seat's key, copied from the Match with `players`: it may act for the seat beside the",
+              "wallet."
+            ],
             "type": {
               "array": [
                 "pubkey",
