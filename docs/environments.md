@@ -118,9 +118,11 @@ The keeper loads `app/.env.local` for any variable its own env leaves unset (loc
 | `ALERT_MIN_HYPE_KEEPER`, `_RELAYER` | O (0.05) | O | minimum native balance of the EVM keys on HyperEVM |
 | `ALERT_ORACLE_SOL_ADDRESS`, `ALERT_RELAYER_SOL_ADDRESS` | O | R to watch them | public addresses (the keeper payer is always watched) |
 | `ALERT_KEEPER_EVM_ADDRESS`, `ALERT_RELAYER_EVM_ADDRESS` | O | R to watch them | `0x...`; the keeper's defaults to the address of `KEEPER_EVM_PRIVATE_KEY` |
+| `KEEPER_OPERATOR_KEYPAIR` | O (unset: the keeper key) | R: a separate key file | path of the Table operator key (`TableConfig.operator` of each Game); signs Tables, Sponsor, Fuel and assignment. The app's sponsor server holds the same key as `TESORO_TABLE_OPERATOR_SECRET_KEY` |
+| `CRON_SECRET`, `NOTIFY_CRON_URL` | R | R | on the VPS env file: the bearer secret and the full URL the `tesoro-notify-cron` timer calls (`https://www.playtesoro.com/api/cron/notify`) |
 | `KEEPER_HEALTH_HOST`, `KEEPER_HEALTH_PORT` | O | O | `127.0.0.1`, `8787` (one keeper per host or a second port) |
 | `KEEPER_STATE_DIR` | O | R: separate dir per cluster | `~/.local/state/tesoro-keeper-mainnet` |
-| `KEEPER_INTERVAL_SECS`, `KEEPER_FAST_SECS`, `KEEPER_WATCHDOG_SECS`, `KEEPER_JOB_LIMIT_SECS`, `KEEPER_RPC_TIMEOUT_MS` | O | O | loop timing |
+| `KEEPER_INTERVAL_SECS` (devnet price writer only), `KEEPER_WATCHDOG_SECS`, `KEEPER_JOB_LIMIT_SECS`, `KEEPER_RPC_TIMEOUT_MS` | O | O | loop timing |
 | `KEEPER_MAX_SOL_PER_HOUR`, `KEEPER_MAX_LZ_FEE_SOL`, `KEEPER_MAX_LZ_SOL_PER_HOUR`, `KEEPER_MAX_ETH_PER_HOUR`, `KEEPER_MAX_HYPE_PER_HOUR`, `KEEPER_YIELD_BUDGET_SHARE` | O | review before launch | spend caps |
 | `KEEPER_YIELD_*`, `KEEPER_ETH_YIELD_MINS`, `KEEPER_TREASURY_*`, `KEEPER_PRICE_REFRESH_SECS`, `KEEPER_SEASON_GRACE_SECS`, `KEEPER_DUEL_END_GRACE_SECS` | O | O | job tuning |
 
