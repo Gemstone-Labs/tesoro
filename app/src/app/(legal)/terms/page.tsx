@@ -3,6 +3,7 @@ import Link from "next/link";
 import { LegalPage, Section } from "@/components/legal/LegalPage";
 import { ENTITY } from "@/lib/legal/entity";
 import { BRAND } from "@/lib/brand";
+import { RAILCAR_SHOWN } from "@/lib/games";
 
 // DRAFT PENDING LEGAL REVIEW: written in-house, not yet reviewed by a lawyer. See lib/legal/entity.ts.
 const TITLE = "Terms of Service";
@@ -157,7 +158,7 @@ export default function Terms() {
             comes back to us when the storage is no longer needed.
           </li>
           <li>Results are decided by the Game&apos;s program. For Games with a shared Seed, a score counts only as the server&apos;s replay of your inputs.</li>
-          <li>Railcar&apos;s Crash point is drawn at random, so Railcar includes chance. Each Player&apos;s Brake is secret until the ride ends. A dropped connection does not Jump for you: you stay aboard. If the network that runs a ride stops, the ride is void and every entry is refunded.</li>
+          {RAILCAR_SHOWN && <li>Railcar&apos;s Crash point is drawn at random, so Railcar includes chance. Each Player&apos;s Brake is secret until the ride ends. A dropped connection does not Jump for you: you stay aboard. If the network that runs a ride stops, the ride is void and every entry is refunded.</li>}
           <li>In Block Burst, a paired Player who does not check in loses that Match.</li>
           <li>You are playing other people, not us. We do not guarantee that an opponent will be found, will finish, or will play fairly.</li>
           <li>{BRAND.name} is not a casino, a sportsbook or a lottery. We do not offer games against the house.</li>

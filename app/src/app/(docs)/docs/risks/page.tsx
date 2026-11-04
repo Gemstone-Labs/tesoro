@@ -3,6 +3,7 @@ import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { Handshake, ShieldCheck } from "lucide-react";
 import { Compare } from "@/components/docs/visual";
 import { BRAND } from "@/lib/brand";
+import { RAILCAR_SHOWN } from "@/lib/games";
 
 export const metadata: Metadata = { title: "Risks and limits", alternates: { canonical: "/docs/risks" } };
 
@@ -45,9 +46,13 @@ export default function Page() {
         <li><b>Unlisted Games.</b> A Game {BRAND.name} has not listed, or whose code changed after listing, earns no Points, gets no sponsored costs and cannot be Backed. Its Studio can still hold a Match for at most 7 days before a refund is possible.</li>
         <li><b>Sponsored costs can pause.</b> {BRAND.name} pays network costs in Listed Games from a budget. If it is spent, new Matches pause until you pay your own costs or it is refilled; exits keep working.</li>
         <li><b>You can lose your entry.</b> Every Match is a contest of skill against another Player, and you can lose what you enter. A Backer can lose the whole entry they fund.</li>
-        <li><b>Railcar&apos;s Crash point is random.</b> You cannot know where the wall is, and no Tell pins the moment. Waiting can win more, and can cost your whole entry. The odds are published in the <a href="/docs/railcar">Railcar rulebook</a>.</li>
-        <li><b>A Player&apos;s Brake is secret.</b> The car slows for everyone, but only the Player who Braked sees it, so other Players read the car with less than the full picture. All Brakes are published after the ride.</li>
-        <li><b>There is no automatic Jump.</b> If your connection drops in Railcar, you stay aboard and can lose your entry.</li>
+        {RAILCAR_SHOWN && (
+          <>
+          <li><b>Railcar&apos;s Crash point is random.</b> You cannot know where the wall is, and no Tell pins the moment. Waiting can win more, and can cost your whole entry. The odds are published in the <a href="/docs/railcar">Railcar rulebook</a>.</li>
+          <li><b>A Player&apos;s Brake is secret.</b> The car slows for everyone, but only the Player who Braked sees it, so other Players read the car with less than the full picture. All Brakes are published after the ride.</li>
+          <li><b>There is no automatic Jump.</b> If your connection drops in Railcar, you stay aboard and can lose your entry.</li>
+          </>
+        )}
         <li><b>Skill is not luck-free.</b> Block Burst shares the same pieces between Players, but Hold&apos;em has chance in every hand.</li>
       </ul>
 

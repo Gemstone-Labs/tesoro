@@ -1,4 +1,5 @@
 import { BRAND } from "@/lib/brand";
+import { RAILCAR_SHOWN } from "@/lib/games";
 export type DocPage = {
   href: string;
   title: string;
@@ -22,7 +23,7 @@ export const DOC_GROUPS: DocGroup[] = [
       { href: "/docs/positions", title: "Locks and Advances", summary: "Lock a staking token, take an Advance, get your Lock back.", keywords: "locked amount length left to pay back unlock estimate lock principal horizon debt" },
       { href: "/docs/gemas", title: "Gemas", summary: "The play unit, what backs it, and how Redeem works.", keywords: "source redeem pending value $0.01" },
       { href: "/docs/matches", title: "Games and Matches", summary: "Block Burst, Hold'em and Trading Duel, entries, Queue, Challenge.", keywords: "queue challenge pot entry draw refund chips" },
-      { href: "/docs/railcar", title: "Railcar", summary: "Rulebook for the many-Player ride game: crash odds, Tells, refunds and payouts.", keywords: "railcar ride crash point tell brake jump impact boarding early-jump refund" },
+      ...(RAILCAR_SHOWN ? [{ href: "/docs/railcar", title: "Railcar", summary: "Rulebook for the many-Player ride game: crash odds, Tells, refunds and payouts.", keywords: "railcar ride crash point tell brake jump impact boarding early-jump refund" }] : []),
       { href: "/docs/backing", title: "Backing", summary: "Fund a Player's entry and share what they win.", keywords: "backer request offer split surplus" },
       { href: "/docs/leaderboard", title: "Leaderboard", summary: "Weekly seasons, points for wins, and the Leaderboard Pool.", keywords: "season points pool top 10 prize ranking" },
       { href: "/docs/fees", title: "Fees", summary: `Every fee ${BRAND.name} takes, in one table, with a worked Match.`, keywords: "platform studio leaderboard fee percent cost" },
