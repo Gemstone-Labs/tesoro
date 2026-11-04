@@ -280,7 +280,7 @@ pub fn seat_err(e: crate::ledger::many_seat::SeatError) -> Error {
         S::GameUpgraded => MatchError::GameUpgraded.into(),
         S::NotEmpty => ManySeatError::NotEmpty.into(),
         S::BadResult => ManySeatError::BadResult.into(),
-        S::FeeTooHigh => MatchError::FeeTooHigh.into(),
+        S::FeeTooHigh => core_err(CoreError::FeeTooHigh),
         S::Math => ProgramError::ArithmeticOverflow.into(),
     }
 }
