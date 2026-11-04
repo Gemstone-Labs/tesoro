@@ -882,7 +882,11 @@ impl Env {
         let config = self.config();
         if config.next_car > 0 {
             let car = self.car_at(config.next_car - 1);
-            if self.core_car(&car).inner.stage() == ManyStage::Boarding {
+            let open = self
+                .svm
+                .get_account(&s(car.tesoro))
+                .is_some_and(|acc| acc.data.len() == ManySeatMatch::SPACE);
+            if open && self.core_car(&car).inner.stage() == ManyStage::Boarding {
                 self.board(p, &car)?;
                 return Ok(car);
             }
