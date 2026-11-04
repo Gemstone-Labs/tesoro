@@ -22,6 +22,8 @@ export const TRIES_BEFORE_ALERT = 2;
 export const ERRORS_BEFORE_ALERT = 6;
 /** An alerted Match is retried this often. */
 export const RETRY_ALERTED_SECS = 3600;
+/** A full chain scan runs at least this often (seconds); the runs between take their candidates from the database. */
+export const FULL_SCAN_SECS = Number(process.env.KEEPER_SWEEP_FULL_SCAN_SECS ?? 60 * 60);
 export const GRACE_SECS = Number(process.env.KEEPER_SWEEP_GRACE_SECS ?? 10 * 60);
 
 export type Stage = "open" | "active" | "settling" | "refunding" | "closed";
@@ -89,6 +91,8 @@ export interface Seen {
 
 export interface SweepState {
   seen: Record<string, Seen>;
+  /** When the last full chain scan finished (unix seconds). */
+  fullScanAt?: number;
 }
 
 export interface SweepStore {
@@ -124,6 +128,15 @@ export function fileSweepStore(path: string): SweepStore {
 export interface SweepDeps {
   /** Every Match, read as heads (a sliced, paged scan). */
   scan(): Promise<Head[]>;
+  /**
+   * The Matches the database (fed by the Helius webhook) says still have an account. With `readHeads` this lets a run skip the
+   * scan; without them every run scans. Throws when the database cannot be read.
+   */
+  dbMatches?(): Promise<PublicKey[]>;
+  /** Reads these Match accounts by address; `gone` lists the ones that no longer exist. */
+  readHeads?(addresses: PublicKey[]): Promise<{ heads: Head[]; gone: PublicKey[] }>;
+  /** Tells the database these Match accounts no longer exist. */
+  markGone?(addresses: PublicKey[]): Promise<void>;
   /** Base's committed copy of the Match's Table holds its result (so `finalize` would settle it). */
   committed(head: Head): Promise<boolean>;
   /** Where the Match is now: a key that changes when a step lands; null once it is closed away. */
@@ -153,6 +166,10 @@ export interface SweepReport {
   alerts: string[];
   /** Alerts raised by this run. */
   newAlerts: string[];
+  /** `db`: candidates came from the database; `full`: the hourly chain scan; `fallback`: the database failed, so the chain was scanned. */
+  mode: "db" | "full" | "fallback";
+  /** Found by a full scan with something to do, but unknown to the database (the webhook missed them). */
+  dbMisses: string[];
 }
 
 /** Thrown by a send that did not go out for a reason that is no fault of the Match (the hourly spend cap): not counted as a try. */
@@ -167,17 +184,57 @@ function caseOf(h: Head, now: number): Case | null {
   return "finish";
 }
 
-export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { now: number; dryRun?: boolean }): Promise<SweepReport> {
-  const { now, dryRun = false } = opts;
-  const state = store.load();
-  const next: SweepState = { seen: {} };
-  const report: SweepReport = { scanned: {}, candidates: [], alerts: [], newAlerts: [] };
+/**
+ * Where this run's Matches come from. Between hourly scans: the database's Matches plus any Match the sweep already tracks,
+ * read by address. Hourly (or when the database is unavailable): the full chain scan, as before.
+ */
+async function findHeads(deps: SweepDeps, state: SweepState, now: number, dryRun: boolean, forceFull: boolean, report: SweepReport, next: SweepState) {
+  const hasDb = !!(deps.dbMatches && deps.readHeads);
+  const full = !hasDb || forceFull || now - (state.fullScanAt ?? 0) >= FULL_SCAN_SECS;
+  let dbAddresses: PublicKey[] | null = null;
+  if (hasDb) {
+    try {
+      dbAddresses = await deps.dbMatches!();
+    } catch (e) {
+      log("sweep", "-", `database unreadable (${String((e as Error).message ?? e).split("\n")[0].slice(0, 160)}): scanning the chain`);
+      report.mode = "fallback";
+    }
+  }
+  const tellGone = async (gone: PublicKey[]) => {
+    if (!gone.length || dryRun) return;
+    await deps.markGone!(gone).catch((e) => log("sweep", "-", `could not tell the database ${gone.length} Match(es) are gone: ${String((e as Error).message ?? e).slice(0, 160)}`));
+  };
+  if (hasDb && dbAddresses && !full) {
+    const tracked = Object.keys(state.seen).map((k) => new PublicKey(k));
+    const byId = new Map([...dbAddresses, ...tracked].map((a) => [label(a), a]));
+    const { heads, gone } = await deps.readHeads!([...byId.values()]);
+    await tellGone(gone);
+    report.mode = "db";
+    return { heads, dbIds: null as Set<string> | null };
+  }
+  const heads = await deps.scan();
+  if (report.mode !== "fallback") report.mode = "full";
+  if (!dryRun) next.fullScanAt = now;
+  if (!dbAddresses) return { heads, dbIds: null };
+  const live = new Set(heads.map((h) => label(h.address)));
+  await tellGone(dbAddresses.filter((a) => !live.has(label(a))));
+  return { heads, dbIds: new Set(dbAddresses.map(label)) };
+}
 
-  for (const head of await deps.scan()) {
+export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { now: number; dryRun?: boolean; full?: boolean }): Promise<SweepReport> {
+  const { now, dryRun = false, full = false } = opts;
+  const state = store.load();
+  const next: SweepState = { seen: {}, fullScanAt: state.fullScanAt };
+  const report: SweepReport = { scanned: {}, candidates: [], alerts: [], newAlerts: [], mode: "full", dbMisses: [] };
+
+  const { heads, dbIds } = await findHeads(deps, state, now, dryRun, full, report, next);
+
+  for (const head of heads) {
     report.scanned[head.stage] = (report.scanned[head.stage] ?? 0) + 1;
     const kind = caseOf(head, now);
     if (!kind) continue;
     const id = label(head.address);
+    if (dbIds && !dbIds.has(id)) report.dbMisses.push(id);
     let seen = state.seen[id] && { ...state.seen[id] };
     if (kind === "finalize" && !seen && !(await deps.committed(head))) continue;
     seen ??= { since: now };
