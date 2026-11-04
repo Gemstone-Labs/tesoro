@@ -67,7 +67,7 @@ export async function recordEndState(rpc: Rpc, matchAddress: string, epoch: numb
   return (await rpc("record_end_state", { p: { match_address: matchAddress, game: state.game, epoch, state } })) as boolean;
 }
 
-/** Marks a Match whose board could not be kept (migration 0024). Not written when a board is stored. */
+/** Marks a Match whose board could not be kept (migration 0025). Not written when a board is stored. */
 export async function recordEndMissing(rpc: Rpc, matchAddress: string, game: string, reason: string): Promise<boolean> {
   return (await rpc("record_end_missing", { p: { match_address: matchAddress, game, reason } })) as boolean;
 }
