@@ -28,8 +28,14 @@ fn emit_layouts() {
         "VaultTreasury",
         8 + crate::state::VaultTreasury::INIT_SPACE,
     );
+    fixed::<crate::state::DeliveryTerms>(
+        "DeliveryTerms",
+        8 + crate::state::DeliveryTerms::INIT_SPACE,
+    );
     probe::retired("BridgePosition", &crate::LEGACY_BRIDGE_POSITION_LENGTHS);
     probe::retired("Claim", &crate::LEGACY_CLAIM_LENGTHS);
+    probe::retired("InstantClaim", &crate::LEGACY_INSTANT_CLAIM_LENGTHS);
+    probe::retired("PayoutRecord", &crate::LEGACY_PAYOUT_LENGTHS);
     probe::retired("VaultTreasury", &crate::LEGACY_VAULT_TREASURY_LENGTHS);
     probe::decode_report();
 }
