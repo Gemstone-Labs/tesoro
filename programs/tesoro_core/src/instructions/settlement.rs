@@ -69,6 +69,9 @@ fn lc(_: Error) -> LifecycleError {
 }
 
 impl<'info> ChainSettlement<'info> {
+    /// Inlined so the head-to-head chunk keeps its measured cost whatever else loads a settlement
+    /// (a second caller made the 12-step worst case 30 CU dearer).
+    #[inline(always)]
     pub fn load(infos: &'info [AccountInfo<'info>]) -> Result<Self> {
         let books = OnchainBooks::load(infos)?;
         let mut baskets: Vec<(Key, &'info AccountInfo<'info>)> = Vec::new();
@@ -144,6 +147,7 @@ impl<'info> ChainSettlement<'info> {
 
     /// Names the Match being settled: a credit that finds no slot falls back to the Account's
     /// overflow record for this Match, when one was passed.
+    #[inline(always)]
     pub fn set_match(&mut self, id: &crate::ledger::lifecycle::MatchId) {
         self.match_seed = Some(id.seed());
     }
@@ -155,6 +159,7 @@ impl<'info> ChainSettlement<'info> {
 
     /// The slots the Match holds in each Account's stores: a credit that needs a new slot uses
     /// its Account's share first.
+    #[inline(always)]
     pub fn set_holds(&mut self, room: &[RoomHold]) {
         self.holds = room
             .iter()
@@ -164,6 +169,7 @@ impl<'info> ChainSettlement<'info> {
     }
 
     /// What is left of the Account's share.
+    #[inline(always)]
     pub fn hold_of(&self, account: &Key) -> Option<u32> {
         self.holds
             .iter()
