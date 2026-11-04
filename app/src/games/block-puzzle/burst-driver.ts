@@ -1,5 +1,6 @@
 import type { PublicKey } from "@solana/web3.js";
 import { atNextEpoch, startNote } from "../../lib/chain/table-clean";
+import { atAssignedEpoch } from "../../lib/chain/table-epoch";
 import { BlockPuzzleChain, type ChainSigner } from "./chain";
 import { sessionFromTable, type BurstSession } from "@/lib/chain/burst-read";
 import { matchAddressOf } from "@/lib/chain/match-id";
@@ -462,8 +463,9 @@ export class BurstDriver {
     let t = this.tableRef && now() - this.tableAt < 1_500 ? this.tableRef : null;
     if (!t) {
       const read = await chain.readTable(p, a).catch(() => null);
-      if (read && (tableOf(a, read) || atNextEpoch(a, read))) {
+      if (read && (tableOf(a, read) || atNextEpoch(a, read) || (read.phase === TABLE_PHASE.idle && atAssignedEpoch(a, read)))) {
         // A table one epoch behind still holds the previous Match: begin_match clears it, but it is not this Match's table to show.
+        // An idle table at the assigned epoch is this Match's table that begin_match has not named yet.
         t = read;
         this.tableRef = read;
         this.tableAt = now();

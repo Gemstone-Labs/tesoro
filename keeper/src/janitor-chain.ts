@@ -24,8 +24,15 @@ export const v2Lister = (rpc: ScanRpc): Lister => async (account, opts = {}) => 
 /** Where the Assignment account's `tesoro_match` sits: after the discriminator and the bump. */
 const MATCH_AT = 8 + 1;
 
+/** Anchor camel-cases account names once a program is loaded, so the IDL names it "assignment". */
+export function assignmentDiscriminator(program: { idl: any }): number[] {
+  const found = program.idl.accounts.find((a: { name: string }) => a.name.toLowerCase() === "assignment");
+  if (!found) throw new Error("the Game's IDL has no Assignment account");
+  return found.discriminator;
+}
+
 function assignmentSource(label: string, program: { programId: PublicKey; idl: any }, rpc: ScanRpc, close: (m: PublicKey) => Promise<string>): AssignmentSource {
-  const disc: number[] = program.idl.accounts.find((a: { name: string }) => a.name === "Assignment").discriminator;
+  const disc = assignmentDiscriminator(program);
   return {
     label,
     matches: async () => {
