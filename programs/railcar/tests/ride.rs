@@ -12,7 +12,9 @@
 #![allow(dead_code)]
 
 use anchor_lang::prelude::Pubkey as APk;
-use anchor_lang::{AccountDeserialize, AccountSerialize, Discriminator, InstructionData, ToAccountMetas};
+use anchor_lang::{
+    AccountDeserialize, AccountSerialize, Discriminator, InstructionData, ToAccountMetas,
+};
 use litesvm::LiteSVM;
 use railcar::state::{
     Table, Vault, AUTHORITY_SEED, COUNTDOWN_SECS, OUTCOME_PLACED, OUTCOME_REFUND, PHASE_DRAWING,
@@ -241,7 +243,12 @@ struct Env {
 }
 
 impl Env {
-    fn send(&mut self, ixs: &[Instruction], payer: &Keypair, extra: &[&Keypair]) -> Result<(), Failed> {
+    fn send(
+        &mut self,
+        ixs: &[Instruction],
+        payer: &Keypair,
+        extra: &[&Keypair],
+    ) -> Result<(), Failed> {
         self.svm.expire_blockhash();
         let mut signers: Vec<&Keypair> = vec![payer];
         signers.extend_from_slice(extra);
@@ -308,9 +315,11 @@ impl Env {
             key: alt_key,
             addresses: table,
         };
-        let msg = v0::Message::try_compile(&payer.pubkey(), ixs, &[alt], self.svm.latest_blockhash())
-            .expect("compile v0");
-        let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[payer]).expect("sign v0");
+        let msg =
+            v0::Message::try_compile(&payer.pubkey(), ixs, &[alt], self.svm.latest_blockhash())
+                .expect("compile v0");
+        let tx =
+            VersionedTransaction::try_new(VersionedMessage::V0(msg), &[payer]).expect("sign v0");
         let r = self.svm.send_transaction(tx);
         self.finish(r)
     }
@@ -342,7 +351,10 @@ impl Env {
     fn put<T: AccountSerialize>(&mut self, k: APk, value: &T, owner: APk) {
         let mut data = Vec::new();
         value.try_serialize(&mut data).expect("serialize");
-        let lamports = self.svm.get_account(&s(k)).map_or(SOL, |acct| acct.lamports);
+        let lamports = self
+            .svm
+            .get_account(&s(k))
+            .map_or(SOL, |acct| acct.lamports);
         self.svm
             .set_account(
                 s(k),
@@ -480,13 +492,17 @@ impl Env {
             s(sdk_key(ephemeral_rollups_sdk::vrf::consts::VRF_PROGRAM_ID)),
         );
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/");
-        for (id, file) in [(tesoro_core::ID, "tesoro_core.so"), (railcar::ID, "railcar.so")] {
+        for (id, file) in [
+            (tesoro_core::ID, "tesoro_core.so"),
+            (railcar::ID, "railcar.so"),
+        ] {
             let path = format!("{root}{file}");
             assert!(
                 std::path::Path::new(&path).exists(),
                 "build the programs first: pnpm build:programs"
             );
-            svm.add_program_from_file(s(id), path).expect("load program");
+            svm.add_program_from_file(s(id), path)
+                .expect("load program");
         }
         let placeholder = Person {
             kp: Keypair::new(),
@@ -568,7 +584,8 @@ impl Env {
             },
             vec![],
         );
-        env.send(&[register], &admin, &[&ctl]).expect("register game");
+        env.send(&[register], &admin, &[&ctl])
+            .expect("register game");
         let list = ix(
             tesoro_core::ID,
             tesoro_core::accounts::ListGame {
@@ -584,11 +601,13 @@ impl Env {
             },
             vec![],
         );
-        env.send(&[cu_limit(1_400_000), list], &admin, &[]).expect("list game");
+        env.send(&[cu_limit(1_400_000), list], &admin, &[])
+            .expect("list game");
         let studio = dup(&env.studio);
         flow::ensure_spill(&mut env.svm, &studio.kp, studio.account, 64);
 
-        env.set_config(a(env.operator.pubkey()), tables).expect("set config");
+        env.set_config(a(env.operator.pubkey()), tables)
+            .expect("set config");
         let op = env.operator.insecure_clone();
         let sponsor = ix(
             railcar::ID,
@@ -703,7 +722,9 @@ impl Env {
 
     fn patch_table(&mut self, table: APk, f: impl FnOnce(&mut Table)) {
         let mut acct = self.svm.get_account(&s(table)).expect("table");
-        f(bytemuck::from_bytes_mut::<Table>(&mut acct.data[8..Table::SPACE]));
+        f(bytemuck::from_bytes_mut::<Table>(
+            &mut acct.data[8..Table::SPACE],
+        ));
         self.svm.set_account(s(table), acct).expect("patch table");
     }
 
@@ -721,7 +742,11 @@ impl Env {
     }
 
     fn page(&self, car: &Car, page: u8) -> SeatPage {
-        let d = self.svm.get_account(&s(page_pda(car.tesoro, page))).expect("page").data;
+        let d = self
+            .svm
+            .get_account(&s(page_pda(car.tesoro, page)))
+            .expect("page")
+            .data;
         *bytemuck::from_bytes::<SeatPage>(&d[8..SeatPage::SPACE])
     }
 
@@ -782,7 +807,9 @@ impl Env {
         let counters: Option<AccountCounters> = self
             .svm
             .get_account(&s(tpda(&[COUNTERS_SEED, p.account.as_ref()])))
-            .map(|acc| AccountCounters::try_deserialize(&mut acc.data.as_slice()).expect("counters"));
+            .map(|acc| {
+                AccountCounters::try_deserialize(&mut acc.data.as_slice()).expect("counters")
+            });
         let nonce = counters.map_or(0, |c| c.next_ticket);
         ix(
             tesoro_core::ID,
@@ -838,7 +865,9 @@ impl Env {
         let counters: Option<AccountCounters> = self
             .svm
             .get_account(&s(tpda(&[COUNTERS_SEED, p.account.as_ref()])))
-            .map(|acc| AccountCounters::try_deserialize(&mut acc.data.as_slice()).expect("counters"));
+            .map(|acc| {
+                AccountCounters::try_deserialize(&mut acc.data.as_slice()).expect("counters")
+            });
         let n = counters.map_or(0, |c| c.next_match);
         let config = self.config();
         ix(
@@ -902,14 +931,21 @@ impl Env {
     }
 
     fn step_off(&mut self, p: &Person, car: &Car) -> Result<(), Failed> {
-        let d = self.svm.get_account(&s(mark_pda(car.tesoro, p.account))).expect("mark").data;
+        let d = self
+            .svm
+            .get_account(&s(mark_pda(car.tesoro, p.account)))
+            .expect("mark")
+            .data;
         let mark = *bytemuck::from_bytes::<SeatMark>(&d[8..SeatMark::SPACE]);
         let seat_page = mark.seat / SEATS_PER_PAGE as u8;
         let seat = self.page(car, seat_page).seats[mark.seat as usize % SEATS_PER_PAGE];
         let pot = APk::new_from_array(seat.pot());
         let pd = self.svm.get_account(&s(pot)).expect("pot").data;
         let pot_payer = APk::new_from_array(pd[8 + 72..8 + 104].try_into().expect("payer"));
-        let mut remaining = vec![rem(basket_address(&p.account).0), rem(spill_address(&p.account).0)];
+        let mut remaining = vec![
+            rem(basket_address(&p.account).0),
+            rem(spill_address(&p.account).0),
+        ];
         remaining.extend(book_metas(&self.svm, p.source));
         let i = ix(
             tesoro_core::ID,
@@ -976,7 +1012,9 @@ impl Env {
     /// The VRF program's callback: its scoped identity signs, as the oracle's CPI makes it.
     fn callback(&mut self, table: APk, randomness: [u8; 32]) -> Result<(), Failed> {
         let t = self.table(table);
-        let identity = sdk_key(ephemeral_rollups_sdk::vrf::consts::scoped_vrf_identity(&railcar::ID));
+        let identity = sdk_key(ephemeral_rollups_sdk::vrf::consts::scoped_vrf_identity(
+            &railcar::ID,
+        ));
         let i = ix(
             railcar::ID,
             railcar::accounts::DrawCallback {
@@ -1164,7 +1202,10 @@ impl Env {
     }
 
     /// Every seat of the car and its Pot's lines.
-    fn seats_and_lines(&self, car: &Car) -> (Vec<Seat>, Vec<Vec<tesoro_core::ledger::line_store::Line>>) {
+    fn seats_and_lines(
+        &self,
+        car: &Car,
+    ) -> (Vec<Seat>, Vec<Vec<tesoro_core::ledger::line_store::Line>>) {
         let st = self.core_car(car);
         let mut seats = vec![];
         let mut lines = vec![];
@@ -1195,7 +1236,11 @@ impl Env {
         let st = self.core_car(car);
         let (seats, lines) = self.seats_and_lines(car);
         let plan = st.inner.ahead(&seats, &lines, steps as usize);
-        let mut out: Vec<AccountMeta> = plan.pages.iter().map(|p| rem(page_pda(car.tesoro, *p))).collect();
+        let mut out: Vec<AccountMeta> = plan
+            .pages
+            .iter()
+            .map(|p| rem(page_pda(car.tesoro, *p)))
+            .collect();
         for i in &plan.seats {
             out.push(rem(APk::new_from_array(seats[*i as usize].pot())));
         }
@@ -1205,7 +1250,11 @@ impl Env {
             out.push(rem(basket_address(&o).0));
             out.push(rem(spill_address(&o).0));
             let record = overflow_address(&o, OVERFLOW_MATCH, &id.seed()).0;
-            if self.svm.get_account(&s(record)).is_some_and(|r| !r.data.is_empty()) {
+            if self
+                .svm
+                .get_account(&s(record))
+                .is_some_and(|r| !r.data.is_empty())
+            {
                 out.push(rem(record));
             }
         }
@@ -1249,7 +1298,8 @@ impl Env {
                 steps -= 1;
                 i = self.chunk_ix(car, steps);
             }
-            self.send_v0(&[cu_limit(1_400_000), i], &payer).expect("chunk");
+            self.send_v0(&[cu_limit(1_400_000), i], &payer)
+                .expect("chunk");
         }
         panic!("the run did not finish");
     }
@@ -1266,7 +1316,9 @@ fn draw_where(want: impl Fn(&railcar::engine::Ride) -> bool) -> [u8; 32] {
     for i in 0u64..100_000 {
         let mut d = [0u8; 32];
         for (k, w) in d.chunks_exact_mut(8).enumerate() {
-            let mut z = (i * 4 + k as u64).wrapping_add(1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            let mut z = (i * 4 + k as u64)
+                .wrapping_add(1)
+                .wrapping_mul(0x9E37_79B9_7F4A_7C15);
             z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
             z ^= z >> 31;
             w.copy_from_slice(&z.to_le_bytes());
@@ -1329,11 +1381,18 @@ fn the_worked_example_pays_to_the_gema() {
     let impact = env.impact_slot(car.table);
     env.set_slot(impact - 1);
     env.signal(car.table).expect("signal");
-    assert_eq!(env.table(car.table).phase, PHASE_RIDING, "a slot before the wall");
+    assert_eq!(
+        env.table(car.table).phase,
+        PHASE_RIDING,
+        "a slot before the wall"
+    );
     env.set_slot(impact);
     env.signal(car.table).expect("impact");
     let t = env.table(car.table);
-    assert_eq!((t.phase, t.outcome, t.dirty), (PHASE_OVER, OUTCOME_PLACED, 0));
+    assert_eq!(
+        (t.phase, t.outcome, t.dirty),
+        (PHASE_OVER, OUTCOME_PLACED, 0)
+    );
     env.settle(&car);
     let delta: Vec<i64> = riders
         .iter()
@@ -1342,10 +1401,16 @@ fn the_worked_example_pays_to_the_gema() {
         .collect();
     // what each gets back for the 500 they boarded with: Dee 813, Ben 630, Cy 578, Ana 350, Eve 0
     assert_eq!(delta, vec![350, 630, 578, 813, 0]);
-    assert_eq!(env.fee_gemas(&env.studio) - studio_before, 64, "Studio Fee 3%");
+    assert_eq!(
+        env.fee_gemas(&env.studio) - studio_before,
+        64,
+        "Studio Fee 3%"
+    );
     assert_eq!(env.stage(&car), ManyStage::Paid);
     assert!(
-        env.svm.get_account(&s(car.key)).is_none_or(|acc| acc.lamports == 0),
+        env.svm
+            .get_account(&s(car.key))
+            .is_none_or(|acc| acc.lamports == 0),
         "the car closed with its settlement"
     );
 }
@@ -1378,7 +1443,10 @@ fn nobody_jumping_refunds_every_entry_with_no_fee() {
     let studio_before = env.fee_gemas(&env.studio);
     end_by_signal(&mut env, &car);
     assert_eq!(env.table(car.table).outcome, OUTCOME_REFUND);
-    assert_eq!(settle_deltas(&mut env, &car, &riders, &before), vec![500; 5]);
+    assert_eq!(
+        settle_deltas(&mut env, &car, &riders, &before),
+        vec![500; 5]
+    );
     assert_eq!(env.fee_gemas(&env.studio), studio_before);
 }
 
@@ -1454,7 +1522,8 @@ fn jumps_are_ordered_as_they_arrive_even_in_the_same_slot() {
     let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
     env.at_ride(car.table, 20.0);
     env.jump(car.table, &riders[BEN]).expect("Ben first");
-    env.jump(car.table, &riders[ANA]).expect("Ana second, same slot");
+    env.jump(car.table, &riders[ANA])
+        .expect("Ana second, same slot");
     let t = env.table(car.table);
     let order = |p: &Person| t.seats[usize::from(env.seat_of(car.table, p))].order;
     assert_eq!((order(&riders[BEN]), order(&riders[ANA])), (1, 2));
@@ -1484,9 +1553,12 @@ fn a_jump_names_its_car_and_its_own_seat() {
 
 #[test]
 fn signals_show_the_tells_only_once_the_car_passes_them() {
-    let (mut env, car, _riders) = riding(draw_where(|r| r.crash_ms >= 60_000 && r.screw_at_ms > 25_000));
+    let (mut env, car, _riders) = riding(draw_where(|r| {
+        r.crash_ms >= 60_000 && r.screw_at_ms > 25_000
+    }));
     let v = env.vault(car.table);
-    let slot_before = env.table(car.table).ride_slot() + u64::from(v.screw_at_ms - 1) / (1_000 / SPS);
+    let slot_before =
+        env.table(car.table).ride_slot() + u64::from(v.screw_at_ms - 1) / (1_000 / SPS);
     env.set_slot(slot_before);
     env.signal(car.table).expect("signal");
     assert_eq!(env.table(car.table).tell, 0);
@@ -1521,7 +1593,10 @@ fn a_draw_that_never_comes_refunds_the_car() {
         (t.outcome, t.reason),
         (OUTCOME_REFUND, railcar::state::REASON_NO_DRAW)
     );
-    assert_eq!(settle_deltas(&mut env, &car, &riders, &before), vec![500; 5]);
+    assert_eq!(
+        settle_deltas(&mut env, &car, &riders, &before),
+        vec![500; 5]
+    );
 }
 
 // =========================================================================================
@@ -1534,7 +1609,11 @@ fn the_car_waits_below_five_and_leaves_thirty_seconds_after_the_fifth() {
     let (car, riders) = boarded(&mut env, 4);
     env.set_time(env.now + 10_000);
     env.check(&car).expect("no-op");
-    assert_eq!(env.stage(&car), ManyStage::Boarding, "no time limit below 5");
+    assert_eq!(
+        env.stage(&car),
+        ManyStage::Boarding,
+        "no time limit below 5"
+    );
     let fifth = env.rider();
     env.queue(&fifth).expect("fifth");
     let first = env.core_car(&car).inner.first_min_at();
@@ -1558,10 +1637,18 @@ fn stepping_off_and_back_on_never_moves_the_departure_time() {
     env.step_off(&riders[BEN], &car).expect("step off");
     env.set_time(first + 25);
     env.queue(&riders[BEN]).expect("back on");
-    assert_eq!(env.core_car(&car).inner.min_since(), first + 25, "core's countdown restarted");
+    assert_eq!(
+        env.core_car(&car).inner.min_since(),
+        first + 25,
+        "core's countdown restarted"
+    );
     env.set_time(first + COUNTDOWN_SECS);
     env.check(&car).expect("depart");
-    assert_eq!(env.stage(&car), ManyStage::Departed, "the first end time holds");
+    assert_eq!(
+        env.stage(&car),
+        ManyStage::Departed,
+        "the first end time holds"
+    );
 }
 
 #[test]
@@ -1578,7 +1665,11 @@ fn a_car_short_of_five_at_its_end_time_leaves_the_moment_a_fifth_boards() {
     let newcomer = env.rider();
     let boarded_car = env.queue(&newcomer).expect("board");
     assert_eq!(boarded_car.key, car.key);
-    assert_eq!(env.stage(&car), ManyStage::Departed, "left in the 5th's transaction");
+    assert_eq!(
+        env.stage(&car),
+        ManyStage::Departed,
+        "left in the 5th's transaction"
+    );
 }
 
 #[test]
@@ -1599,7 +1690,8 @@ fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
     let studio_before = env.fee_gemas(&env.studio);
     env.start_ride(&car).expect("start");
     println!("start_ride, 100 seats: {} CU", env.last_cu);
-    env.callback(car.table, draw_where(|r| r.crash_ms >= 60_000)).expect("draw");
+    env.callback(car.table, draw_where(|r| r.crash_ms >= 60_000))
+        .expect("draw");
     assert_eq!(env.table(car.table).seated, 100);
     for (k, p) in riders.iter().take(13).enumerate() {
         env.at_ride(car.table, 2.0 + 4.0 * k as f64);
@@ -1612,8 +1704,10 @@ fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
     let finalize = env.finalize_ix(&car, pages);
     let payer = env.admin.insecure_clone();
     let table = car.table;
-    env.on_base(table, |e| e.send_v0(&[cu_limit(1_400_000), finalize], &payer))
-        .expect("finalize");
+    env.on_base(table, |e| {
+        e.send_v0(&[cu_limit(1_400_000), finalize], &payer)
+    })
+    .expect("finalize");
     println!("finalize, 100 seats: {} CU", env.last_cu);
     // a placed seat takes a line from each forfeited Source and the outside studio a fee line:
     // the client grows their stores first (core reserves no room for winnings)
@@ -1631,20 +1725,23 @@ fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
         .zip(&before)
         .map(|(p, b)| env.gemas(p) as i64 - *b as i64)
         .collect();
-    // early Jumpers at 2..42 s: 80, 80, 80, 80, 80, 70, 70, 60, 60, 50 % back
-    let refunds = [400, 400, 400, 400, 400, 350, 350, 300, 300, 250];
+    // early Jumpers every 4 s from 2 s to 38 s: 80% to 20 s, 70% to 30 s, 60% to 40 s
+    let refunds = [400, 400, 400, 400, 400, 350, 350, 300, 300, 300];
     for (k, r) in refunds.iter().enumerate() {
         assert_eq!(delta[k], *r, "early Jumper {k}");
     }
     assert!(delta[13..].iter().all(|d| *d == 0), "aboard at Impact");
-    // refunds 3,550: the Pot after refunds is 46,450 and its 6% fees 2,787
-    let fees: i64 = 2_787;
+    // refunds 3,600: the Pot after refunds is 46,400 and its 6% fees 2,784
+    let fees: i64 = 2_784;
     assert_eq!(delta.iter().sum::<i64>(), 50_000 - fees);
-    assert!(delta[12] > delta[11] && delta[11] > delta[10], "last off first");
+    assert!(
+        delta[12] > delta[11] && delta[11] > delta[10],
+        "last off first"
+    );
     assert_eq!(
         env.fee_gemas(&env.studio) - studio_before,
-        1_393,
-        "Studio Fee: 3% of 46,450, rounded down"
+        1_392,
+        "Studio Fee: 3% of 46,400"
     );
 }
 
@@ -1666,7 +1763,10 @@ fn a_table_takes_its_next_car_only_after_core_froze_the_last_one() {
     let (mut env, car0, riders) = riding(draw);
     let car1 = next_departed(&mut env);
     let car2 = next_departed(&mut env);
-    assert_eq!((car1.table, car2.table), (railcar::table_address(1), car0.table));
+    assert_eq!(
+        (car1.table, car2.table),
+        (railcar::table_address(1), car0.table)
+    );
     // car 2 shares Table 0 with car 0, still riding
     let err = env.start_ride(&car2).unwrap_err();
     assert_eq!(code(&err), rcode(railcar::RailcarError::WrongPhase));
@@ -1678,7 +1778,10 @@ fn a_table_takes_its_next_car_only_after_core_froze_the_last_one() {
     env.finalize(&car0).expect("finalize car 0");
     env.start_ride(&car2).expect("Table 0 takes car 2");
     let t = env.table(car2.table);
-    assert_eq!((t.car_no(), t.phase, t.seated, t.jumps), (2, PHASE_DRAWING, 5, 0));
+    assert_eq!(
+        (t.car_no(), t.phase, t.seated, t.jumps),
+        (2, PHASE_DRAWING, 5, 0)
+    );
     env.start_ride(&car1).expect("Table 1 takes car 1");
 }
 

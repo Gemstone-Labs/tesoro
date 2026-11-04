@@ -68,10 +68,16 @@ fn the_worked_example_reports_three_places_and_anas_refund() {
                     share_bps: 1_500
                 },
             ],
-            refunds: vec![SeatRefund { seat: 0, gemas: 350 }],
+            refunds: vec![SeatRefund {
+                seat: 0,
+                gemas: 350
+            }],
         })
     );
-    assert_eq!((t.phase, t.dirty, t.over_ms(), t.over_at()), (PHASE_OVER, 1, 120_000, 77));
+    assert_eq!(
+        (t.phase, t.dirty, t.over_ms(), t.over_at()),
+        (PHASE_OVER, 1, 120_000, 77)
+    );
 }
 
 #[test]
@@ -85,7 +91,10 @@ fn two_and_one_jumpers_split_seventy_thirty_and_all() {
         panic!("placed");
     };
     assert_eq!(
-        places.iter().map(|p| (p.seat, p.share_bps)).collect::<Vec<_>>(),
+        places
+            .iter()
+            .map(|p| (p.seat, p.share_bps))
+            .collect::<Vec<_>>(),
         vec![(1, 7_000), (2, 3_000)]
     );
     assert!(refunds.is_empty());
@@ -98,7 +107,10 @@ fn two_and_one_jumpers_split_seventy_thirty_and_all() {
         panic!("placed");
     };
     assert_eq!(
-        places.iter().map(|p| (p.seat, p.share_bps)).collect::<Vec<_>>(),
+        places
+            .iter()
+            .map(|p| (p.seat, p.share_bps))
+            .collect::<Vec<_>>(),
         vec![(3, 10_000)]
     );
 }
@@ -152,7 +164,14 @@ fn a_player_jumps_once_and_the_order_has_no_ties() {
 fn early_refunds_follow_the_schedule_at_the_jump() {
     let mut t = riding(6);
     // 19.99 s: 80%, 20 s: 70%, 95 s: 5%, then three placed
-    for (who, secs) in [(0, 19.99), (1, 20.0), (2, 95.0), (3, 100.5), (4, 101.0), (5, 102.0)] {
+    for (who, secs) in [
+        (0, 19.99),
+        (1, 20.0),
+        (2, 95.0),
+        (3, 100.5),
+        (4, 101.0),
+        (5, 102.0),
+    ] {
         jump(&mut t, who, at(secs)).unwrap();
     }
     conclude(&mut t, 102_000, 0);

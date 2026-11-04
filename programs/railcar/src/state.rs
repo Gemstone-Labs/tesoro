@@ -340,7 +340,9 @@ impl Table {
 
     /// Ride ms at `slot` (0 before the clock started).
     pub fn ride_ms(&self, slot: u64) -> u32 {
-        let ms = slot.saturating_sub(self.ride_slot()).saturating_mul(MS_PER_SLOT);
+        let ms = slot
+            .saturating_sub(self.ride_slot())
+            .saturating_mul(MS_PER_SLOT);
         u32::try_from(ms).unwrap_or(u32::MAX)
     }
 

@@ -292,7 +292,11 @@ fn commit_table_now<'info>(
 fn end_ride<'info>(
     table: &AccountLoader<'info, Table>,
     sponsor: &Account<'info, Sponsor>,
-    magic: (&AccountInfo<'info>, &AccountInfo<'info>, &AccountInfo<'info>),
+    magic: (
+        &AccountInfo<'info>,
+        &AccountInfo<'info>,
+        &AccountInfo<'info>,
+    ),
     now: i64,
 ) -> Result<()> {
     let (car_no, outcome, reason, over_ms) = {
@@ -310,7 +314,14 @@ fn end_ride<'info>(
 
 /// The VRF request for the Table's car: the program chooses the input (Table, car, request
 /// number) and the answer is accepted only for this request.
-fn draw_request(t: &mut Table, table: &Pubkey, vault: &Pubkey, payer: &Pubkey, queue: &Pubkey, slot: u64) -> Result<anchor_lang::solana_program::instruction::Instruction> {
+fn draw_request(
+    t: &mut Table,
+    table: &Pubkey,
+    vault: &Pubkey,
+    payer: &Pubkey,
+    queue: &Pubkey,
+    slot: u64,
+) -> Result<anchor_lang::solana_program::instruction::Instruction> {
     let nonce = t.vrf_nonce();
     let marker = Table::request_marker(table, nonce);
     t.set_vrf_nonce(nonce.checked_add(1).ok_or(RailcarError::Overflow)?);
@@ -330,19 +341,21 @@ fn draw_request(t: &mut Table, table: &Pubkey, vault: &Pubkey, payer: &Pubkey, q
         is_signer: false,
         is_writable,
     };
-    Ok(create_request_scoped_randomness_ix(RequestRandomnessParams {
-        payer: *payer,
-        oracle_queue: *queue,
-        callback_program_id: ID,
-        callback_discriminator: instruction::DrawCallback::DISCRIMINATOR.to_vec(),
-        caller_seed,
-        accounts_metas: Some(vec![
-            meta(*table, true),
-            meta(*vault, true),
-            meta(marker, false),
-        ]),
-        ..Default::default()
-    }))
+    Ok(create_request_scoped_randomness_ix(
+        RequestRandomnessParams {
+            payer: *payer,
+            oracle_queue: *queue,
+            callback_program_id: ID,
+            callback_discriminator: instruction::DrawCallback::DISCRIMINATOR.to_vec(),
+            caller_seed,
+            accounts_metas: Some(vec![
+                meta(*table, true),
+                meta(*vault, true),
+                meta(marker, false),
+            ]),
+            ..Default::default()
+        },
+    ))
 }
 
 #[ephemeral]
@@ -378,10 +391,7 @@ pub mod railcar {
             index < ctx.accounts.config.tables,
             RailcarError::BadTableSlot
         );
-        ctx.accounts
-            .table
-            .load_init()?
-            .init(ctx.bumps.table, index);
+        ctx.accounts.table.load_init()?.init(ctx.bumps.table, index);
         fund(
             &ctx.accounts.system_program,
             &ctx.accounts.operator,
