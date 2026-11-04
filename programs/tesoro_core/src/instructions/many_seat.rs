@@ -141,7 +141,7 @@ pub(crate) fn close_to(info: &AccountInfo, to: &AccountInfo) -> Result<()> {
 }
 
 /// The seat page in `info`'s data: this program's, of a seat page's size and discriminator.
-fn page_in<'d>(info: &AccountInfo, data: &'d mut [u8]) -> Result<&'d mut SeatPage> {
+pub(crate) fn page_in<'d>(info: &AccountInfo, data: &'d mut [u8]) -> Result<&'d mut SeatPage> {
     require_keys_eq!(*info.owner, crate::ID, ManySeatError::WrongSeat);
     require!(
         data.len() == SeatPage::SPACE && data[..DISC] == *SeatPage::DISCRIMINATOR,

@@ -32,7 +32,7 @@ use crate::util::*;
 use anchor_lang::prelude::*;
 use anchor_lang::Discriminator;
 
-use super::many_seat::{close_to, create_pda, mark_in};
+use super::many_seat::{close_to, create_pda, mark_in, page_in};
 pub use crate::ledger::many_seat::{ManySeatResult, SeatPlace, SeatRefund};
 
 /// Steps one many-seat chunk takes at most, set by its own compute test (`tests/many_seat/settle.rs`:
@@ -761,16 +761,11 @@ pub struct CloseManySeat<'info> {
         bump = match_state.load()?.bump
     )]
     pub match_state: AccountLoader<'info, ManySeatMatch>,
-    #[account(
-        mut,
-        seeds = [
-            SEAT_PAGE_SEED,
-            match_state.key().as_ref(),
-            &[seat / SEATS_PER_PAGE as u8]
-        ],
-        bump = seat_page.load()?.bump
-    )]
-    pub seat_page: AccountLoader<'info, SeatPage>,
+    /// CHECK: the seat's page, read in place (`page_in`: this program's, a page's size and
+    /// discriminator) and checked to name this car at the seat's index. Not an `AccountLoader`:
+    /// a second user of `AccountLoader<SeatPage>`'s exit made the step-off dearer.
+    #[account(mut)]
+    pub seat_page: UncheckedAccount<'info>,
     /// CHECK: the seat Player's mark in this car; checked against the seat, closed here.
     #[account(mut)]
     pub seat_mark: UncheckedAccount<'info>,
@@ -795,10 +790,13 @@ pub struct CloseManySeat<'info> {
 pub(crate) fn close_many_seat(ctx: Context<CloseManySeat>, seat: u8) -> Result<()> {
     let match_key = ctx.accounts.match_state.key();
     let slot = seat as usize % SEATS_PER_PAGE;
+    let page_info = ctx.accounts.seat_page.to_account_info();
     let mut s = {
-        let p = ctx.accounts.seat_page.load()?;
+        let mut data = page_info.try_borrow_mut_data()?;
+        let p = page_in(&page_info, &mut data)?;
         require!(
-            p.match_key == match_key.to_bytes(),
+            p.match_key == match_key.to_bytes()
+                && p.index as usize == seat as usize / SEATS_PER_PAGE,
             ManySeatError::WrongSeat
         );
         p.seats[slot]
@@ -838,7 +836,10 @@ pub(crate) fn close_many_seat(ctx: Context<CloseManySeat>, seat: u8) -> Result<(
         car.inner.close_seat(&mut s).map_err(seat_err)?;
         car.inner.seated
     };
-    ctx.accounts.seat_page.load_mut()?.seats[slot] = s;
+    {
+        let mut data = page_info.try_borrow_mut_data()?;
+        page_in(&page_info, &mut data)?.seats[slot] = s;
+    }
     // the Pot is empty and goes back to its payer
     require!(pot_total(&pot)? == 0, MatchError::PotNotEmpty);
     let (_, extra) = load_pot(&pot)?;
