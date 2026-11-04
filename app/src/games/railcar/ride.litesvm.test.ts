@@ -20,7 +20,6 @@ import {
   ComputeBudgetProgram,
   Keypair,
   PublicKey,
-  SystemProgram,
   TransactionMessage,
   VersionedTransaction,
   type AccountInfo,
@@ -47,7 +46,6 @@ import {
   decodeCarAccount,
   decodeConfig,
   decodeTable,
-  finalizeIx,
   jumpIx,
   openCarIx,
   railcarIx,
@@ -98,7 +96,7 @@ interface Person {
 }
 
 // The worked example's riders, by seat.
-const [ANA, BEN, CY, DEE, EVE] = [0, 1, 2, 3, 4];
+const [ANA, BEN, CY, DEE] = [0, 1, 2, 3];
 
 type Acct = { lamports: number; data: Uint8Array; owner: PublicKey; executable: boolean };
 type Lite = typeof import("litesvm");
