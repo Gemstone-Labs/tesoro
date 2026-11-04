@@ -9,7 +9,9 @@ import type { Rpc } from "./rpc";
 /**
  * Match history from a Helius raw webhook on tesoro_core.
  *
- * ASSUMED, to check against the first real delivery (no Helius key was available when this was written; the shape is the
+ * CHECKED 2026-11-04 against real devnet deliveries (rows of `webhook_tx`; fixtures/helius-delivery-real-2026-11-04.json decodes in webhook.test.ts):
+ * the route accepted every shape below, the rows were stored at `confirmed` (not finalized) and the finalize + decode catch-up turned 354 of 354
+ * into history. The shape was first written without a Helius key, from the
  * Raw webhook example of the Helius docs plus real `getTransaction` responses with `encoding: "json"`, see fixtures):
  *  1. The body is a JSON array of `{ blockTime, indexWithinBlock, meta, slot, transaction }` (one object is accepted too).
  *  2. `transaction.signatures[0]` is the signature; `transaction.message.accountKeys` is a list of base58 strings.
