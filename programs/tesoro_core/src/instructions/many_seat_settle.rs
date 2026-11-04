@@ -22,7 +22,7 @@ use crate::instructions::ticket::{close_pot_account, release_room};
 use crate::ledger;
 use crate::ledger::lifecycle::{ChunkReport, LcResult, LifecycleError, Settlement, SettlementLine};
 use crate::ledger::many_seat::{
-    ManySeatResult, ManyStage, Seat, SeatCredits, Seats, Started, KIND_WIN, SEATS_PER_PAGE,
+    ManyStage, Seat, SeatCredits, Seats, Started, KIND_WIN, SEATS_PER_PAGE,
 };
 use crate::pots::*;
 use crate::state::*;
