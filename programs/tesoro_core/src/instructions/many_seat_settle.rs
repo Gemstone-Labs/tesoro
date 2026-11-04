@@ -20,6 +20,7 @@ use crate::instructions::overflow::reserve_record;
 use crate::instructions::settlement::ChainSettlement;
 use crate::instructions::ticket::{close_pot_account, release_room};
 use crate::ledger;
+use crate::ledger::draw::{PotBacking, PotPages};
 use crate::ledger::lifecycle::{ChunkReport, LcResult, LifecycleError, Settlement, SettlementLine};
 use crate::ledger::many_seat::{
     ManyStage, Seat, SeatCredits, Seats, Started, KIND_WIN, SEATS_PER_PAGE,
