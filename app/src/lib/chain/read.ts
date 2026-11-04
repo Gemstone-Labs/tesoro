@@ -280,9 +280,9 @@ export function toChainMatch(state: any, me: PublicKey | null, session: BurstSes
   const n = big(m.id.n);
   const game = requireGame(pk(m.game));
   const backingOf = backedSeat !== null && backedSide ? { seat: backedSeat, shareBps: backedSide.shareBps } : null;
-  // Block Burst: the result is final once `finalize` has started the settle run (the chunks only move the Gemas), and the run
+  // Every Game: the result is final once `finalize` has started the settle run (the chunks only move the Gemas), and the run
   // holds the Fees the chain took. So the result screen has those amounts from then on (`fixed`); `status` waits for the last chunk.
-  const fixed = game === "block-puzzle" && (stage === "settling" || stage === "refunding" || stage === "closed") ? settledFromRun(m, seat, backingOf, backerSeat) : null;
+  const fixed = (stage === "settling" || stage === "refunding" || stage === "closed") ? settledFromRun(m, seat, backingOf, backerSeat) : null;
   return {
     id: matchKeyOf({ opener, n }),
     opener,

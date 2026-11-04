@@ -158,24 +158,53 @@ describe("createFinisher", () => {
     expect(calls).toBe(1);
   });
 
-  it("retries a failure up to the limit, then leaves it to the sweep", async () => {
+  it("retries a failure with a growing wait, up to the limit, then leaves it to the sweep", async () => {
     let calls = 0;
-    const finish = createFinisher(async () => {
-      calls++;
-      throw new Error("rpc");
-    }, 2);
+    let t = 0;
+    const finish = createFinisher(
+      async () => {
+        calls++;
+        throw new Error("rpc");
+      },
+      { maxAttempts: 3, now: () => t },
+    );
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    for (let i = 0; i < 5; i++) await finish();
-    expect(calls).toBe(2);
+    await finish();
+    await finish(); // too soon: still waiting out the first backoff
+    expect(calls).toBe(1);
+    for (let i = 0; i < 6; i++) {
+      t += 60_000;
+      await finish();
+    }
+    expect(calls).toBe(3);
   });
 
-  it("keeps going after a step limit, stops after a stall", async () => {
-    const results = [{ done: false, stalled: "step-limit", signatures: [] }, { done: false, stalled: "missing-book", signatures: [] }];
+  it("keeps going after a step limit; a stall is retried after a wait and the reason is logged", async () => {
+    const results = [{ done: false, stalled: "step-limit", signatures: [] }, { done: false, stalled: "no-run", signatures: [] }, ok];
     let calls = 0;
-    const finish = createFinisher(async () => results[calls++]);
+    let t = 0;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const finish = createFinisher(async () => results[calls++], { now: () => t });
     await finish();
     await finish();
-    await finish();
+    await finish(); // inside the wait after the stall
     expect(calls).toBe(2);
+    expect(warn.mock.calls.some((c) => String(c[1]).includes("no-run"))).toBe(true);
+    t += 60_000;
+    await finish();
+    await finish();
+    expect(calls).toBe(3);
+  });
+
+  it("gives up for good only after the attempt limit of stalls", async () => {
+    let calls = 0;
+    let t = 0;
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const finish = createFinisher(async () => (calls++, { done: false, stalled: "no-run", signatures: [] }), { maxAttempts: 4, now: () => t });
+    for (let i = 0; i < 10; i++) {
+      t += 60_000;
+      await finish();
+    }
+    expect(calls).toBe(4);
   });
 });
