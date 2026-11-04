@@ -60,9 +60,9 @@ describe("departure", () => {
     expect(departureDue(five, T0 + 39)).toBe(false);
     expect(departureDue(five, T0 + 40)).toBe(true);
     // Someone stepped off and back on: the end time is still 30 s after the first 5th.
-    expect(departureDue({ ...five, minSince: T0 + 35 }, T0 + 40)).toBe(true);
+    expect(departureDue(coreCar({ ...five, minSince: T0 + 35 }), T0 + 40)).toBe(true);
     // Below 5 at the end time: the car waits, then leaves the moment a 5th boards.
-    expect(departureDue({ ...five, seated: 4, minSince: 0 }, T0 + 60)).toBe(false);
+    expect(departureDue(coreCar({ ...five, seated: 4, minSince: 0 }), T0 + 60)).toBe(false);
   });
 
   it("leaves at once when it holds 100", () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronLeft, CircleMinus, Hexagon, Info, Zap, type LucideIcon } from "lucide-react";
+import { ChevronLeft, CircleMinus, Hexagon, Info, UserPlus, Zap, type LucideIcon } from "lucide-react";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { Button, GemaAmount, GemaMark } from "@/components/ui";
 import { fmtGemas } from "@/lib/format";
@@ -218,7 +218,7 @@ function RailcarResult({ view, actions }: { view: Extract<RailcarView, { phase: 
         <p className="rc-res-game">Railcar</p>
         <h1 className="rc-res-title">{mine?.headline ?? "Ride over"}</h1>
         {mine && (
-          <p className="rc-res-gets">
+          <p className={`rc-res-gets${mine.gets === 0n ? " lost" : ""}`}>
             You get <GemaAmount value={g(mine.gets)} size="xl" />
             {mine.won > 0n && (
               <span className="cut cut-chip rc-res-won">
@@ -241,10 +241,12 @@ function RailcarResult({ view, actions }: { view: Extract<RailcarView, { phase: 
               </span>
               <span className="rc-plate-n">{r.place}</span>
               <span className="rc-plate-who">{r.me ? "You" : <PlayerName account={r.account} />}</span>
-              {!r.me && actions.onAddFriend && (
-                <Button size="sm" onClick={() => actions.onAddFriend?.(r.account)}>
-                  Add friend
-                </Button>
+              {!r.me && actions.onAddFriend ? (
+                <button type="button" className="cut cut-btn rc-friend" aria-label="Add friend" title="Add friend" onClick={() => actions.onAddFriend?.(r.account)}>
+                  <UserPlus aria-hidden="true" />
+                </button>
+              ) : (
+                <span />
               )}
               <GemaAmount value={g(r.gets)} size="lg" />
             </li>
