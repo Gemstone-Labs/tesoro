@@ -230,6 +230,57 @@ pub enum MatchError {
     TicketNonceMismatch,
 }
 
+/// Errors of the many-seat Match path (ADR 0015).
+#[error_code(offset = 6500)]
+pub enum ManySeatError {
+    #[msg("a many-seat Match has 2 to 100 seats, its minimum at most its maximum")]
+    BadSeatBounds,
+    #[msg("the entry is not one of the entry sizes")]
+    BadEntry,
+    #[msg("the car is not boarding: it left or closed")]
+    NotBoarding,
+    #[msg("boarding has ended: the car can no longer take seats or leave")]
+    BoardingOver,
+    #[msg("the car is full: board the next one")]
+    Full,
+    #[msg("the car has fewer seats taken than its minimum")]
+    BelowMinimum,
+    #[msg("only the Game's settle authority opens a car or makes it leave")]
+    NotGame,
+    #[msg("the car still has seats taken")]
+    NotEmpty,
+    #[msg("this Account already has a seat in this car")]
+    AlreadySeated,
+    #[msg("this Account's last seat in this car is still returning its Gemas")]
+    StillReturning,
+    #[msg("this seat page has no free seat: try the next page")]
+    PageFull,
+    #[msg("seat pages are created in order, up to the car's maximum")]
+    BadPage,
+    #[msg("only the seat's Player steps off, unless they are away, boarding ended or the Game changed")]
+    NotYourSeat,
+    #[msg("the seat, its page, its mark or its Pot do not match")]
+    WrongSeat,
+    #[msg("every seat page of the car, with its payer, must be passed to close it")]
+    PagesMissing,
+}
+
+pub fn seat_err(e: crate::ledger::many_seat::SeatError) -> Error {
+    use crate::ledger::many_seat::SeatError as S;
+    match e {
+        S::BadSeatBounds => ManySeatError::BadSeatBounds.into(),
+        S::BadEntry => ManySeatError::BadEntry.into(),
+        S::NotBoarding => ManySeatError::NotBoarding.into(),
+        S::BoardingOver => ManySeatError::BoardingOver.into(),
+        S::Full => ManySeatError::Full.into(),
+        S::BelowMinimum => ManySeatError::BelowMinimum.into(),
+        S::NotGame => ManySeatError::NotGame.into(),
+        S::GameUpgraded => MatchError::GameUpgraded.into(),
+        S::NotEmpty => ManySeatError::NotEmpty.into(),
+        S::Math => ProgramError::ArithmeticOverflow.into(),
+    }
+}
+
 pub fn core_err(e: CoreError) -> Error {
     Error::from(AnchorError {
         error_name: e.name().to_string(),

@@ -184,3 +184,13 @@ fn a_seat_round_trips_its_fields() {
     s.clear();
     assert_eq!(s, Seat::zeroed());
 }
+
+#[test]
+fn the_record_len_is_its_largest_borsh_size() {
+    let mut c = car(5, 100);
+    c.terms.studio_owner = Some([4; 32]);
+    let bytes = anchor_lang::AnchorSerialize::try_to_vec(&c).unwrap();
+    assert_eq!(bytes.len(), ManySeatRecord::LEN);
+    assert_eq!(std::mem::size_of::<Seat>(), Seat::LEN);
+    assert_eq!(std::mem::align_of::<Seat>(), 1);
+}

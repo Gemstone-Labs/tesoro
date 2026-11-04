@@ -89,7 +89,7 @@ pub(crate) fn lc_err(e: LifecycleError) -> Error {
 /// admin approved it is unlisted. While the admin's listing is in force, a program that cannot be
 /// read (closed, wrong accounts) is an error, not "unlisted": otherwise an opener could pass junk
 /// to strip the Points from a Match their opponent is about to join.
-fn listing(
+pub(crate) fn listing(
     record: &GameRecord,
     game_program: &AccountInfo,
     program_data: &AccountInfo,
@@ -114,12 +114,29 @@ fn judged_slot(
     game_program: &AccountInfo,
     program_data: &AccountInfo,
 ) -> Result<u64> {
+    judged_slot_at(
+        record,
+        (m.inner.deploy_slot, m.listing_epoch),
+        game_program,
+        program_data,
+    )
+}
+
+/// [`judged_slot`] for any Match, by its deploy slot and listing epoch at open.
+pub(crate) fn judged_slot_at(
+    record: &GameRecord,
+    (deploy_slot, listing_epoch): (u64, u32),
+    game_program: &AccountInfo,
+    program_data: &AccountInfo,
+) -> Result<u64> {
     match crate::instructions::registry::read_deploy(game_program, program_data) {
-        Ok(deploy) => Ok(if record.same_build(m, deploy.slot) {
-            m.inner.deploy_slot
-        } else {
-            deploy.slot
-        }),
+        Ok(deploy) => Ok(
+            if record.same_build_at(deploy_slot, listing_epoch, deploy.slot) {
+                deploy_slot
+            } else {
+                deploy.slot
+            },
+        ),
         Err(_) => {
             let own_program_data = Pubkey::find_program_address(
                 &[game_program.key.as_ref()],
@@ -131,11 +148,7 @@ fn judged_slot(
                     || *program_data.key == own_program_data,
                 TesoroError::GameProofInvalid
             );
-            Ok(if m.inner.deploy_slot == 0 {
-                0
-            } else {
-                u64::MAX
-            })
+            Ok(if deploy_slot == 0 { 0 } else { u64::MAX })
         }
     }
 }
@@ -162,7 +175,7 @@ fn record_pair(
 /// Studio Fee into the Source's Studio counter (`studio_owner: None`, cashed in by `cash_in_fee`);
 /// any other listed Game's Studio Fee is a Studio-class line in the recipient's basket, and an
 /// unlisted Game's is ordinary won Gemas.
-fn terms_of(
+pub(crate) fn terms_of(
     config: &Config,
     economy: &EconomyConfig,
     game_record: &GameRecord,
@@ -212,7 +225,7 @@ pub(crate) fn check_store(info: &AccountInfo, seed: &[u8], owner: &Pubkey) -> Re
 /// account is the Pot), or, when `pot_info` is a fresh address, the entry is drawn right here
 /// into a new account. Returns the Pot, the key of its account and who paid its rent.
 #[allow(clippy::too_many_arguments)]
-fn take_entry<'b, 'info>(
+pub(crate) fn take_entry<'b, 'info>(
     pot_info: &'b AccountInfo<'info>,
     funder: &Pubkey,
     backing: bool,
@@ -422,11 +435,11 @@ struct Backer<'a, 'info> {
     spill: AccountInfo<'info>,
 }
 
-fn counters_pda(account: &Pubkey) -> Pubkey {
+pub(crate) fn counters_pda(account: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[COUNTERS_SEED, account.as_ref()], &crate::ID).0
 }
 
-fn protections_pda(account: &Pubkey) -> Pubkey {
+pub(crate) fn protections_pda(account: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[PROTECTIONS_SEED, account.as_ref()], &crate::ID).0
 }
 
