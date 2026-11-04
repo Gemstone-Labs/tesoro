@@ -150,6 +150,16 @@ fn page_in<'d>(info: &AccountInfo, data: &'d mut [u8]) -> Result<&'d mut SeatPag
     Ok(bytemuck::from_bytes_mut(&mut data[DISC..]))
 }
 
+/// The seat mark in `info`'s data: this program's, of a seat mark's size and discriminator.
+fn mark_in<'d>(info: &AccountInfo, data: &'d [u8]) -> Result<&'d SeatMark> {
+    require_keys_eq!(*info.owner, crate::ID, ManySeatError::WrongSeat);
+    require!(
+        data.len() == SeatMark::SPACE && data[..DISC] == *SeatMark::DISCRIMINATOR,
+        ManySeatError::WrongSeat
+    );
+    Ok(bytemuck::from_bytes(&data[DISC..]))
+}
+
 /// The Match id behind a seed (`MatchId::seed`).
 fn id_of_seed(seed: &[u8; 40]) -> MatchId {
     let mut opener = [0u8; 32];
@@ -401,9 +411,11 @@ pub(crate) fn join_many_seat_match<'info>(
     let system = ctx.accounts.system_program.to_account_info();
     let mark_info = ctx.accounts.seat_mark.to_account_info();
     if !is_empty(&mark_info) {
-        require_keys_eq!(*mark_info.owner, crate::ID, ManySeatError::WrongSeat);
-        let mark = SeatMark::try_deserialize(&mut &mark_info.try_borrow_data()?[..])?;
-        return if mark.returning {
+        let returning = {
+            let data = mark_info.try_borrow_data()?;
+            mark_in(&mark_info, &data)?.returning != 0
+        };
+        return if returning {
             err!(ManySeatError::StillReturning)
         } else {
             err!(ManySeatError::AlreadySeated)
@@ -524,21 +536,16 @@ pub(crate) fn join_many_seat_match<'info>(
         &[SEAT_SEED, match_key.as_ref(), player.as_ref(), &mark_bump],
         SeatMark::SPACE,
     )?;
-    let mark = SeatMark {
-        bump: ctx.bumps.seat_mark,
-        seat,
-        returning: false,
-        match_key,
-        account: player,
-        payer: payer.key(),
-        match_seed: id.seed(),
-        funder: Pubkey::default(),
-        pot: Pubkey::default(),
-        hold: 0,
-    };
     {
         let mut data = mark_info.try_borrow_mut_data()?;
-        mark.try_serialize(&mut &mut data[..])?;
+        data[..DISC].copy_from_slice(SeatMark::DISCRIMINATOR);
+        let mark: &mut SeatMark = bytemuck::from_bytes_mut(&mut data[DISC..SeatMark::SPACE]);
+        mark.bump = ctx.bumps.seat_mark;
+        mark.seat = seat;
+        mark.match_key = match_key.to_bytes();
+        mark.account = player.to_bytes();
+        mark.payer = payer.key.to_bytes();
+        mark.match_seed = id.seed();
     }
     books.flush()?;
     let rec = ctx.accounts.match_state.load()?.inner;
@@ -578,15 +585,15 @@ fn return_lines<'info>(
     max_lines: u8,
 ) -> Result<(u8, bool)> {
     let max = max_lines.clamp(1, MAX_RETURN_LINES);
-    require_keys_eq!(*a.pot.key, mark.pot, ManySeatError::WrongSeat);
-    let funder = mark.funder.to_bytes();
+    require!(a.pot.key.to_bytes() == mark.pot, ManySeatError::WrongSeat);
+    let funder = mark.funder;
     let (moved, left, extra) = {
         let (mut pot, extra) = load_pot(a.pot)?;
         require!(pot.owner() == funder, ManySeatError::WrongSeat);
         let mut settlement = ChainSettlement::load(remaining)?;
         settlement.set_holds(&[RoomHold {
             account: funder,
-            left: mark.hold,
+            left: mark.hold(),
         }]);
         settlement.set_match(&id_of_seed(&mark.match_seed));
         let mut moved = 0u8;
@@ -604,7 +611,7 @@ fn return_lines<'info>(
                 .map_err(|e| lc_err(LifecycleError::Draw(e)))?;
             moved += 1;
         }
-        mark.hold = settlement.hold_of(&funder).unwrap_or(0);
+        mark.set_hold(settlement.hold_of(&funder).unwrap_or(0));
         settlement.finish()?;
         (moved, pot.len(), extra)
     };
@@ -613,15 +620,19 @@ fn return_lines<'info>(
     }
     require_keys_eq!(extra.payer, *a.pot_payer.key, TesoroError::InvalidAccount);
     close_pot_account(a.pot, a.pot_payer, a.sponsor, extra.sponsored_lamports)?;
-    if mark.hold > 0 {
+    if mark.hold() > 0 {
+        let funder = Pubkey::new_from_array(funder);
         let spill = remaining
             .iter()
-            .find(|i| check_store(i, SPILL_SEED, &mark.funder).is_ok())
+            .find(|i| check_store(i, SPILL_SEED, &funder).is_ok())
             .ok_or_else(|| error!(MatchError::AccountMissing))?;
-        release_room(spill, mark.hold)?;
-        mark.hold = 0;
+        release_room(spill, mark.hold())?;
+        mark.set_hold(0);
     }
-    require_keys_eq!(*a.mark_payer.key, mark.payer, TesoroError::InvalidAccount);
+    require!(
+        a.mark_payer.key.to_bytes() == mark.payer,
+        TesoroError::InvalidAccount
+    );
     close_to(a.mark_info, a.mark_payer)?;
     Ok((moved, true))
 }
@@ -660,23 +671,23 @@ pub struct StepOffManySeatMatch<'info> {
     pub seat_page: AccountLoader<'info, SeatPage>,
     #[account(
         mut,
-        seeds = [SEAT_SEED, match_state.key().as_ref(), seat_mark.account.as_ref()],
-        bump = seat_mark.bump
+        seeds = [SEAT_SEED, match_state.key().as_ref(), seat_mark.load()?.account.as_ref()],
+        bump = seat_mark.load()?.bump
     )]
-    pub seat_mark: Box<Account<'info, SeatMark>>,
+    pub seat_mark: AccountLoader<'info, SeatMark>,
     /// CHECK: receives the mark's rent once the lines are home; checked against the mark.
     #[account(mut)]
     pub mark_payer: UncheckedAccount<'info>,
     #[account(
         mut,
-        seeds = [COUNTERS_SEED, seat_mark.account.as_ref()],
+        seeds = [COUNTERS_SEED, seat_mark.load()?.account.as_ref()],
         bump = player_counters.bump
     )]
     pub player_counters: Account<'info, AccountCounters>,
     /// CHECK: the Player's Protections address (seeds from the seat's Player).
     #[account(
         mut,
-        seeds = [PROTECTIONS_SEED, seat_mark.account.as_ref()],
+        seeds = [PROTECTIONS_SEED, seat_mark.load()?.account.as_ref()],
         bump
     )]
     pub player_protections: UncheckedAccount<'info>,
@@ -713,12 +724,12 @@ pub(crate) fn step_off_many_seat_match<'info>(
         );
         p.seats[slot]
     };
-    let mark = &ctx.accounts.seat_mark;
+    let mut mark = *ctx.accounts.seat_mark.load()?;
     require!(
         s.state() == SeatState::Seated
-            && !mark.returning
+            && mark.returning == 0
             && mark.seat == seat
-            && s.player() == mark.account.to_bytes(),
+            && s.player() == mark.account,
         ManySeatError::WrongSeat
     );
 
@@ -768,13 +779,12 @@ pub(crate) fn step_off_many_seat_match<'info>(
         )?;
     }
     ctx.accounts.seat_page.load_mut()?.seats[slot].clear();
-    let mark = &mut ctx.accounts.seat_mark;
-    mark.returning = true;
+    mark.returning = 1;
     mark.match_seed = rec.id().seed();
-    mark.funder = Pubkey::new_from_array(s.funder());
-    mark.pot = Pubkey::new_from_array(s.pot());
-    mark.hold = s.hold();
-    let player = mark.account;
+    mark.funder = s.funder();
+    mark.pot = s.pot();
+    mark.set_hold(s.hold());
+    let player = Pubkey::new_from_array(mark.account);
     emit!(SeatSteppedOff {
         match_state: match_key,
         seat,
@@ -784,7 +794,6 @@ pub(crate) fn step_off_many_seat_match<'info>(
     });
 
     let mark_info = ctx.accounts.seat_mark.to_account_info();
-    let mut mark: SeatMark = (**ctx.accounts.seat_mark).clone();
     let (lines, done) = return_lines(
         &mut mark,
         ReturnAccounts {
@@ -798,7 +807,7 @@ pub(crate) fn step_off_many_seat_match<'info>(
         max_lines,
     )?;
     if !done {
-        **ctx.accounts.seat_mark = mark;
+        *ctx.accounts.seat_mark.load_mut()? = mark;
     }
     emit!(SeatReturned {
         match_state: match_key,
@@ -816,11 +825,15 @@ pub struct ReturnSteppedOff<'info> {
     pub caller: Signer<'info>,
     #[account(
         mut,
-        seeds = [SEAT_SEED, seat_mark.match_key.as_ref(), seat_mark.account.as_ref()],
-        bump = seat_mark.bump,
-        constraint = seat_mark.returning @ ManySeatError::WrongSeat
+        seeds = [
+            SEAT_SEED,
+            seat_mark.load()?.match_key.as_ref(),
+            seat_mark.load()?.account.as_ref()
+        ],
+        bump = seat_mark.load()?.bump,
+        constraint = seat_mark.load()?.returning != 0 @ ManySeatError::WrongSeat
     )]
-    pub seat_mark: Box<Account<'info, SeatMark>>,
+    pub seat_mark: AccountLoader<'info, SeatMark>,
     /// CHECK: receives the mark's rent once the lines are home; checked against the mark.
     #[account(mut)]
     pub mark_payer: UncheckedAccount<'info>,
@@ -839,7 +852,7 @@ pub(crate) fn return_stepped_off<'info>(
     max_lines: u8,
 ) -> Result<()> {
     let mark_info = ctx.accounts.seat_mark.to_account_info();
-    let mut mark: SeatMark = (**ctx.accounts.seat_mark).clone();
+    let mut mark = *ctx.accounts.seat_mark.load()?;
     let (lines, done) = return_lines(
         &mut mark,
         ReturnAccounts {
@@ -853,11 +866,11 @@ pub(crate) fn return_stepped_off<'info>(
         max_lines,
     )?;
     if !done {
-        **ctx.accounts.seat_mark = mark.clone();
+        *ctx.accounts.seat_mark.load_mut()? = mark;
     }
     emit!(SeatReturned {
-        match_state: mark.match_key,
-        player: mark.account,
+        match_state: Pubkey::new_from_array(mark.match_key),
+        player: Pubkey::new_from_array(mark.account),
         lines,
         done,
     });

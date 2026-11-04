@@ -157,14 +157,14 @@ impl Env {
         );
         let kp = p.kp.insecure_clone();
         self.send(&[join], &kp, &[])?;
-        let mark: SeatMark = self.load(mark_pda(car.key, p.account));
-        Ok(mark.seat)
+        Ok(self.mark(car, p).expect("mark").seat)
     }
 
     fn mark(&self, car: Car, p: &Person) -> Option<SeatMark> {
         self.svm
             .get_account(&s(mark_pda(car.key, p.account)))
-            .map(|acc| SeatMark::try_deserialize(&mut acc.data.as_slice()).expect("mark"))
+            .filter(|acc| !acc.data.is_empty())
+            .map(|acc| *bytemuck::from_bytes::<SeatMark>(&acc.data[8..SeatMark::SPACE]))
     }
 
     /// The stores, books and overflow record a return of the last `max` lines of `pot` to
@@ -210,7 +210,7 @@ impl Env {
                 match_state: car.key,
                 seat_page: page_pda(car.key, mark.seat / SEATS_PER_PAGE as u8),
                 seat_mark: mark_pda(car.key, p.account),
-                mark_payer: mark.payer,
+                mark_payer: APk::new_from_array(mark.payer),
                 player_counters: counters_pda(p.account),
                 player_protections: protections_pda(p.account),
                 pot,
@@ -251,13 +251,13 @@ impl Env {
             accounts::ReturnSteppedOff {
                 caller: a(caller.pubkey()),
                 seat_mark: mark_pda(car.key, p.account),
-                mark_payer: mark.payer,
-                pot: mark.pot,
-                pot_payer: pot_payer_of(&self.svm, mark.pot),
+                mark_payer: APk::new_from_array(mark.payer),
+                pot: APk::new_from_array(mark.pot),
+                pot_payer: pot_payer_of(&self.svm, APk::new_from_array(mark.pot)),
                 sponsor: None,
             },
             instruction::ReturnSteppedOff { max_lines },
-            self.return_remaining(car, mark.funder, mark.pot, max_lines),
+            self.return_remaining(car, APk::new_from_array(mark.funder), APk::new_from_array(mark.pot), max_lines),
         );
         let kp = caller.insecure_clone();
         self.send_v0(&[i], &kp).map(drop)
@@ -607,7 +607,7 @@ fn an_entry_staged_in_an_entry_ticket_boards_and_comes_back_over_several_calls()
     env.send_v0(&[i], &kp).expect("step off");
     assert_eq!(env.total_gemas(&ana), 8 * 20);
     let mark = env.mark(car, &ana).expect("still returning");
-    assert!(mark.returning);
+    assert_eq!(mark.returning, 1);
     assert_eq!(env.car(car).inner.seated, 0, "the seat is free at once");
     let err = env.board(&ana, car).unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::StillReturning));

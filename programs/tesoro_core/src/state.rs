@@ -563,26 +563,35 @@ impl SeatPage {
 
 /// An Account's place in a many-seat Match: `["seat", match, account]`. Its existence is what
 /// keeps an Account to one seat. After a step-off it carries the seat's lines back (`returning`)
-/// and closes once they are all home, the rent back to `payer`.
-#[account]
+/// and closes once they are all home, the rent back to `payer`. Read in place, like the Match.
+#[account(zero_copy)]
 pub struct SeatMark {
     pub bump: u8,
     pub seat: u8,
-    pub returning: bool,
-    pub match_key: Pubkey,
-    pub account: Pubkey,
-    pub payer: Pubkey,
+    /// 1 once the seat stepped off and its lines are on their way back.
+    pub returning: u8,
+    pub reserved: u8,
+    /// While returning: slots held for the lines in the funder's stores (little endian).
+    pub hold: [u8; 4],
+    pub match_key: [u8; 32],
+    pub account: [u8; 32],
+    pub payer: [u8; 32],
     /// While returning: the Match's id as its seed bytes (opener, n: its overflow records), the
-    /// funder the lines go back to, the Pot that holds them and the slots held for them in the
-    /// funder's stores.
+    /// funder the lines go back to and the Pot that holds them.
     pub match_seed: [u8; 40],
-    pub funder: Pubkey,
-    pub pot: Pubkey,
-    pub hold: u32,
+    pub funder: [u8; 32],
+    pub pot: [u8; 32],
 }
 
 impl SeatMark {
-    pub const SPACE: usize = 8 + 1 + 1 + 1 + 32 + 32 + 32 + 40 + 32 + 32 + 4;
+    pub const SPACE: usize = 8 + 8 + 32 * 5 + 40;
+
+    pub fn hold(&self) -> u32 {
+        u32::from_le_bytes(self.hold)
+    }
+    pub fn set_hold(&mut self, slots: u32) {
+        self.hold = slots.to_le_bytes();
+    }
 }
 
 /// Written when a Match enters Settling or Refunding: proof, in core, that its outcome is frozen
