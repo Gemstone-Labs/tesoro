@@ -802,6 +802,13 @@ impl Env {
                 seat_page: page_pda(car.tesoro, page),
                 seat_mark: mark_pda(car.tesoro, p.account),
                 system_program: anchor_lang::system_program::ID,
+                offer: None,
+                backer_account: None,
+                backer_counters: None,
+                backer_protections: None,
+                backer_basket: None,
+                backer_spill: None,
+                funder_mark: None,
             },
             tesoro_core::instruction::JoinManySeatMatch {
                 pot_nonce: nonce,
@@ -920,6 +927,7 @@ impl Env {
                 game_record: None,
                 game_program: None,
                 program_data: None,
+                funder_mark: None,
             },
             tesoro_core::instruction::StepOffManySeatMatch {
                 seat: mark.seat,
