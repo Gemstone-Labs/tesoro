@@ -72,7 +72,7 @@ describe("joinOf", () => {
     const ix = await joinMatchIx(relayer, player, game);
     const j = joinOf([ix]);
     expect(j?.game).toBe("holdem");
-    expect(j?.match.toBase58()).toBe(ix.keys[8].pubkey.toBase58());
+    expect(j?.match.toBase58()).toBe(ix.keys[9].pubkey.toBase58());
     expect(j?.joiner.toBase58()).toBe(ix.keys[2].pubkey.toBase58());
   });
 

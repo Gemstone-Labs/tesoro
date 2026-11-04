@@ -25,6 +25,8 @@ import { ChainTransactionFailed } from "./chain-send";
 import { recoverCompletions } from "./completion";
 import { Assigner, MemoryLeaseStore } from "./assign";
 import { MATCH_STATE_FIXTURE } from "./assign-fixture";
+import { assignMatchIx } from "./assign-ix";
+import { ComputeBudgetProgram, TransactionMessage } from "@solana/web3.js";
 import { GAME_IDS } from "@/lib/chain/games";
 
 const SOL = 1_000_000_000n;
@@ -827,7 +829,7 @@ describe("join and assign in one transaction", () => {
   };
   const join = async (s: ReturnType<typeof setup>, match: PublicKey) => {
     const ix = await joinMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
-    ix.keys[8] = { ...ix.keys[8], pubkey: match };
+    ix.keys[9] = { ...ix.keys[9], pubkey: match };
     return ix;
   };
 
@@ -893,7 +895,7 @@ describe("join and assign in one transaction", () => {
       const decoded = coder.decode("MatchState", MATCH_STATE_FIXTURE) as { inner: { meta: object } };
       s.accounts.set(match.toBase58(), { owner: CORE_ID, data: await coder.encode("MatchState", { ...decoded, inner: { ...decoded.inner, meta: { ...decoded.inner.meta, asset } } }) });
       const ix = await joinMatchIx(s.relayer.publicKey, s.player.publicKey, GAME_IDS["trading-duel"]);
-      ix.keys[8] = { ...ix.keys[8], pubkey: match };
+      ix.keys[9] = { ...ix.keys[9], pubkey: match };
       const built = await s.sponsor.build(s.player.publicKey, wire([ix]));
       const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
       return msg.staticAccountKeys[msg.compiledInstructions.at(-1)!.programIdIndex].toBase58();
@@ -1012,5 +1014,38 @@ describe("join and assign in one transaction", () => {
       ix.keys[0] = { ...ix.keys[0], pubkey: s.player.publicKey };
       await expect(s.sponsor.buildSelfPaid(s.player.publicKey, wire([ix]))).rejects.toMatchObject({ code: "no-table" });
     });
+  });
+});
+
+describe("the worst sponsored entry stays inside one packet", () => {
+  // relayer pays; the Player signs the join, the operator signs the assignment; a seat key that is not the wallet adds one
+  // account key (32 B) and one signature (64 B)
+  const sizeOf = async (backed: boolean, seatKey: boolean) => {
+    const relayer = key(), player = key(), game = new PublicKey("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
+    const join = await joinMatchIx(relayer, player, game);
+    if (backed) {
+      const at = (name: string) => (coreIdl.instructions.find((i) => i.name === "join_match")!.accounts as { name: string }[]).findIndex((a) => a.name === name);
+      for (const name of ["offer", "backer_account", "backer_counters", "backer_protections", "backer_basket", "backer_spill"]) join.keys[at(name)] = { pubkey: key(), isSigner: false, isWritable: true };
+    }
+    if (seatKey) join.keys[2] = { pubkey: key(), isSigner: true, isWritable: false };
+    const operator = key();
+    const assign = assignMatchIx("block-puzzle", { operator, match: join.keys[9].pubkey, accountA: key(), accountB: key(), pick: { generation: 1, index: 0, epoch: 3n } });
+    const message = new TransactionMessage({
+      payerKey: relayer,
+      recentBlockhash: key().toBase58(),
+      instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 }), join, assign],
+    }).compileToV0Message([]);
+    return new VersionedTransaction(message).serialize().length + 64 * (message.header.numRequiredSignatures - 1);
+  };
+
+  it("measures join + assignment, plain and Backed, with and without a seat key, with no lookup table", async () => {
+    const sizes = {
+      plain: await sizeOf(false, false),
+      plainSeat: await sizeOf(false, true),
+      backed: await sizeOf(true, false),
+      backedSeat: await sizeOf(true, true),
+    };
+    console.info("sponsored entry bytes (no lookup table)", JSON.stringify(sizes));
+    for (const [name, size] of Object.entries(sizes)) expect(size, name).toBeLessThanOrEqual(1232);
   });
 });

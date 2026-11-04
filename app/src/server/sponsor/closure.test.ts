@@ -115,7 +115,7 @@ describe("the seed of what an instruction creates", () => {
   it("reads the seed of a joined Match from the Match itself", async () => {
     const ana = Keypair.generate().publicKey;
     const join = await joinMatchIx(payer.publicKey, ana, key());
-    const match = join.keys[8].pubkey.toBase58();
+    const match = join.keys[9].pubkey.toBase58();
     const seed: HoldSeed = { kind: "match", account: key().toBase58(), n: "3" };
     expect(await holdSeeds([join], async (m) => (m === match ? seed : null))).toEqual({ [match]: seed });
     expect(await holdSeeds([join], async () => null)).toEqual({});
