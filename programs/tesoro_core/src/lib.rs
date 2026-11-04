@@ -1000,7 +1000,43 @@ pub mod tesoro_core {
         instructions::many_seat::depart_many_seat_match(ctx)
     }
 
-    /// Closes a car nobody sits in before it left (anyone).
+    /// The Game's settle authority reports a Departed car's result (per seat: a refund and a
+    /// place share) and freezes its payout; the chunks follow.
+    pub fn settle_many_seat_match<'info>(
+        ctx: Context<'_, '_, 'info, 'info, SettleManySeatMatch<'info>>,
+        result: ManySeatResult,
+    ) -> Result<()> {
+        instructions::many_seat_settle::settle_many_seat_match(ctx, result)
+    }
+
+    /// Anyone starts refunding a car a day after it left (or when its Game changed).
+    pub fn refund_many_seat_match(ctx: Context<RefundManySeatMatch>) -> Result<()> {
+        instructions::many_seat_settle::refund_many_seat_match(ctx)
+    }
+
+    /// Runs up to `max_steps` steps of a car's settlement or refund (anyone).
+    pub fn many_seat_chunk<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ManySeatChunk<'info>>,
+        max_steps: u8,
+    ) -> Result<()> {
+        instructions::many_seat_settle::many_seat_chunk(ctx, max_steps)
+    }
+
+    /// Anyone pays for the overflow record of an Account a settling car pays, so its credit lands.
+    pub fn reserve_many_seat_room(
+        ctx: Context<ReserveManySeatRoom>,
+        account: Pubkey,
+        lines: u32,
+    ) -> Result<()> {
+        instructions::many_seat_settle::reserve_many_seat_room(ctx, account, lines)
+    }
+
+    /// Closes one seat of a paid car (anyone).
+    pub fn close_many_seat(ctx: Context<CloseManySeat>, seat: u8) -> Result<()> {
+        instructions::many_seat_settle::close_many_seat(ctx, seat)
+    }
+
+    /// Closes a car with no seat left (anyone).
     pub fn close_many_seat_match<'info>(
         ctx: Context<'_, '_, 'info, 'info, CloseManySeatMatch<'info>>,
     ) -> Result<()> {

@@ -1,5 +1,5 @@
 //! Many-seat Matches (ADR 0015): open a car, take a seat, step off, depart, close an empty car.
-//! Settling a ride is ticket 03.
+//! Settling a ride: `many_seat_settle`.
 //!
 //! * **Accounts.** The Match is a `ManySeatMatch` at `["match", opener, n]` (the opener's
 //!   `next_match`, as head-to-head). Seats are in `SeatPage`s `["seat_page", match, page]`, ten
@@ -87,7 +87,7 @@ pub struct ManySeatClosed {
 
 /// Funds, allocates and assigns a PDA of this program (lamports someone pre-sent cannot block
 /// it), as `overflow::create_record` does.
-fn create_pda<'info>(
+pub(crate) fn create_pda<'info>(
     info: &AccountInfo<'info>,
     payer: &AccountInfo<'info>,
     system: &AccountInfo<'info>,
@@ -133,7 +133,7 @@ fn create_pda<'info>(
 }
 
 /// Returns an account's rent to `to` and hands it back to the system program.
-fn close_to(info: &AccountInfo, to: &AccountInfo) -> Result<()> {
+pub(crate) fn close_to(info: &AccountInfo, to: &AccountInfo) -> Result<()> {
     move_lamports(info, to, info.lamports())?;
     info.assign(&system_program::ID);
     info.resize(0)?;
@@ -151,7 +151,7 @@ fn page_in<'d>(info: &AccountInfo, data: &'d mut [u8]) -> Result<&'d mut SeatPag
 }
 
 /// The seat mark in `info`'s data: this program's, of a seat mark's size and discriminator.
-fn mark_in<'d>(info: &AccountInfo, data: &'d [u8]) -> Result<&'d SeatMark> {
+pub(crate) fn mark_in<'d>(info: &AccountInfo, data: &'d [u8]) -> Result<&'d SeatMark> {
     require_keys_eq!(*info.owner, crate::ID, ManySeatError::WrongSeat);
     require!(
         data.len() == SeatMark::SPACE && data[..DISC] == *SeatMark::DISCRIMINATOR,
@@ -928,9 +928,9 @@ pub(crate) fn depart_many_seat_match(ctx: Context<DepartManySeatMatch>) -> Resul
     Ok(())
 }
 
-/// Closes a car nobody sits in before it left: its pages and the Match go back to whoever paid
-/// them. Anyone may call it. `remaining_accounts`: every seat page in order, each followed by
-/// the key that paid it.
+/// Closes a car with no seat left: empty before it left, or paid with every seat closed
+/// (`close_many_seat`). Its pages and the Match go back to whoever paid them. Anyone may call it.
+/// `remaining_accounts`: every seat page in order, each followed by the key that paid it.
 #[derive(Accounts)]
 pub struct CloseManySeatMatch<'info> {
     pub caller: Signer<'info>,
@@ -956,7 +956,7 @@ pub(crate) fn close_many_seat_match<'info>(
     let match_key = ctx.accounts.match_state.key();
     let pages = {
         let mut state = ctx.accounts.match_state.load_mut()?;
-        state.inner.close_empty().map_err(seat_err)?;
+        state.inner.close_car().map_err(seat_err)?;
         state.inner.pages as usize
     };
     let infos = ctx.remaining_accounts;

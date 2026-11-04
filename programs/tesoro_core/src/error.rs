@@ -273,6 +273,8 @@ pub enum ManySeatError {
     NotExpired,
     #[msg("the car's run has not paid out yet")]
     NotPaid,
+    #[msg("this car's run pays nothing to that Account")]
+    NotPaidHere,
 }
 
 pub fn seat_err(e: crate::ledger::many_seat::SeatError) -> Error {
