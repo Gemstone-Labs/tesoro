@@ -3161,7 +3161,11 @@ fn begin_on_a_fresh_table_names_the_absent_books_read_only() {
     env.assign(0, 0, 0).expect("assign");
     assert!(!env.table().seats_open);
     let ixn = env.begin_ix();
-    assert_eq!(book_metas(&ixn, &env), vec![false; 4], "absent accounts are never writable");
+    assert_eq!(
+        book_metas(&ixn, &env),
+        vec![false; 4],
+        "absent accounts are never writable"
+    );
     env.rollup(ixn).expect("begin");
     assert_eq!(env.table().phase, trading_duel::PHASE_WAITING);
 }
@@ -3195,7 +3199,10 @@ fn a_void_with_the_present_books_read_only_fails_and_changes_nothing() {
     });
     let ixn = env.books_writable(ixn, false);
     let before = env.table();
-    assert!(env.rollup(ixn).is_err(), "closing a read-only Book is refused");
+    assert!(
+        env.rollup(ixn).is_err(),
+        "closing a read-only Book is refused"
+    );
     let after = env.table();
     assert!(after.seats_open && after.phase == before.phase);
 }
