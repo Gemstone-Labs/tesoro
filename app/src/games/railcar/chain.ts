@@ -5,6 +5,8 @@ import railcarIdl from "../../lib/chain/idl/railcar.json";
 import { gameAccounts } from "../../lib/chain/game-record";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { receiptPda, seatPagePda, type CarView } from "../../lib/chain/many-seat-plan";
+import { rdI64, rdU64, u64 } from "../../lib/chain/native";
+import type { Railcar } from "../../lib/chain/idl/railcar.types";
 import type { PlayerSigner } from "../holdem/chain";
 
 /**
@@ -34,16 +36,11 @@ export const REASON = { none: 0, played: 1, nobodyJumped: 2, noDraw: 3, outage: 
 
 const pda = (...seeds: Uint8Array[]) => PublicKey.findProgramAddressSync(seeds, RAILCAR_PROGRAM_ID)[0];
 const utf = (s: string) => Buffer.from(s);
-const u16le = (n: number) => Buffer.from(Uint16Array.from([n]).buffer);
-const u64le = (n: bigint) => {
-  const b = Buffer.alloc(8);
-  b.writeBigUInt64LE(n);
-  return b;
-};
+const u16le = (n: number) => Uint8Array.from([n & 0xff, n >> 8]);
 
 export const configPda = () => pda(utf("config"));
 export const tablePda = (index: number) => pda(utf("table"), u16le(index));
-export const carPda = (carNo: bigint) => pda(utf("car"), u64le(carNo));
+export const carPda = (carNo: bigint) => pda(utf("car"), u64(carNo));
 export const vaultPda = (table: PublicKey) => pda(utf("vault"), table.toBuffer());
 export const sponsorPda = () => pda(utf("sponsor"));
 export const authorityPda = () => pda(utf("authority"));
@@ -76,26 +73,27 @@ export interface TableView {
 }
 
 export function decodeTable(address: PublicKey, data: Uint8Array): TableView {
-  const b = Buffer.from(data.buffer, data.byteOffset, data.byteLength).subarray(8);
+  const b = data.subarray(8);
   const at = TABLE_AT;
+  const key = (o: number) => new PublicKey(b.subarray(o, o + 32));
   return {
     address,
-    index: b.readUInt16LE(at.index),
+    index: b[at.index] | (b[at.index + 1] << 8),
     phase: b[at.phase],
     outcome: b[at.outcome],
     reason: b[at.reason],
     seated: b[at.seated],
     jumps: b[at.jumps],
     dirty: b[at.dirty] === 1,
-    carNo: b.readBigUInt64LE(at.carNo),
-    nextCar: b.readBigUInt64LE(at.nextCar),
-    car: new PublicKey(b.subarray(at.car, at.car + 32)),
-    tesoroMatch: new PublicKey(b.subarray(at.tesoroMatch, at.tesoroMatch + 32)),
-    startedSlot: b.readBigUInt64LE(at.startedSlot),
-    rideSlot: b.readBigUInt64LE(at.rideSlot),
-    rideTs: Number(b.readBigInt64LE(at.rideTs)),
-    overAt: Number(b.readBigInt64LE(at.overAt)),
-    commitAt: Number(b.readBigInt64LE(at.commitAt)),
+    carNo: rdU64(b, at.carNo),
+    nextCar: rdU64(b, at.nextCar),
+    car: key(at.car),
+    tesoroMatch: key(at.tesoroMatch),
+    startedSlot: rdU64(b, at.startedSlot),
+    rideSlot: rdU64(b, at.rideSlot),
+    rideTs: Number(rdI64(b, at.rideTs)),
+    overAt: Number(rdI64(b, at.overAt)),
+    commitAt: Number(rdI64(b, at.commitAt)),
   };
 }
 
@@ -126,12 +124,13 @@ export interface RailcarChainOptions {
 
 export class RailcarChain {
   readonly base: Connection;
-  readonly program: anchor.Program<any>;
+  /** Typed from the generated IDL: a call to an instruction the program no longer has is a compile error. */
+  readonly program: anchor.Program<Railcar>;
   readonly tesoro: anchor.Program<any>;
   private readonly teeRpc: string;
   private readonly tee = new Map<string, Connection>();
 
-  constructor(idl: any, tesoroIdl: any, opts: RailcarChainOptions & { base: Connection }) {
+  constructor(idl: Railcar, tesoroIdl: any, opts: RailcarChainOptions & { base: Connection }) {
     this.base = opts.base;
     this.teeRpc = opts.teeRpc ?? MAGICBLOCK.teeRpc;
     const provider = new anchor.AnchorProvider(this.base, { publicKey: Keypair.generate().publicKey, signTransaction: async (t: any) => t, signAllTransactions: async (t: any) => t }, { commitment: "confirmed" });

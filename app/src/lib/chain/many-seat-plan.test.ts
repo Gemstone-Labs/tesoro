@@ -33,9 +33,9 @@ function portOf(c: Case): CarAhead {
 const named = (a: CarAhead) => ({ pages: a.pages, seats: a.seats, owners: a.owners.map(String), sources: a.sources.map(String), cutSources: a.cutSources.map(String) });
 
 describe.each([
-  ["the worked example (places and an early refund)", workedExample.cases as Case[]],
-  ["a full refund (nobody jumped)", refund.cases as Case[]],
-  ["a hundred seats", hundred.cases as Case[]],
+  ["the worked example (places and an early refund)", workedExample.cases as unknown as Case[]],
+  ["a full refund (nobody jumped)", refund.cases as unknown as Case[]],
+  ["a hundred seats", hundred.cases as unknown as Case[]],
 ])("the next chunk's accounts: %s", (_name, cases) => {
   it("has cases", () => expect(cases.length).toBeGreaterThan(0));
   it.each(cases.map((c) => [c.chunk, c] as const))("chunk %i names what core's ahead names", (_n, c) => {
@@ -44,7 +44,7 @@ describe.each([
 });
 
 describe("decoding a car", () => {
-  const c = workedExample.cases[0] as Case;
+  const c = workedExample.cases[0] as unknown as Case;
   it("reads the worked example's car as core wrote it", () => {
     const car = decodeCar(ADDRESS, bytes(c.match));
     expect([car.stage, car.seated, car.pages, car.entry, car.minSeats, car.maxSeats]).toEqual(["settling", 5, 1, 500n, 5, 100]);

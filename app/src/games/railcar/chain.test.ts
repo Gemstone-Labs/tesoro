@@ -44,7 +44,10 @@ describe("the step an unfinished Railcar ride needs", () => {
     expect(step(ride({ phase: PHASE.over, commitAt: T0 - COMMIT_RETRY_SECS }))).toEqual({ step: "commit_table" });
     const over = table({ phase: PHASE.over });
     expect(step(ride({ phase: PHASE.over }, { baseTable: over }))).toEqual({ step: "finalize" });
-    expect(step(ride({ phase: PHASE.over }, { baseTable: table({ phase: PHASE.over, carNo: 5n }) }))).toMatchObject({ wait: expect.any(String) });
+    // base still shows the Table's previous ride: wait for the commit, and send it again once it may have been lost
+    const stale = { baseTable: table({ phase: PHASE.over, carNo: 5n, tesoroMatch: other }) };
+    expect(step(ride({ phase: PHASE.over, commitAt: T0 - 10 }, stale))).toEqual({ wait: "the commit is on its way to base" });
+    expect(step(ride({ phase: PHASE.over, commitAt: T0 - COMMIT_RETRY_SECS }, stale))).toEqual({ step: "commit_table" });
   });
 
   it("refunds through core after 24 h unless base already holds the result", () => {
