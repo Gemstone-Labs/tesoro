@@ -89,9 +89,9 @@ export interface SendQuote {
   feeLamports: string;
 }
 
-/** The endpoint's send accounts with `payer` in the payer slot. The quote lists the payer as a non-signer (CPI metas); in the instruction it signs, and the sponsor's rules require that. */
+/** The endpoint's send accounts with `payer` in the payer slot. */
 export function sendMetas(q: SendQuote, payer: PublicKey): AccountMeta[] {
-  return q.send.map((m) => (m.pubkey === q.payer ? k(payer, true, true) : k(new PublicKey(m.pubkey), m.signer, m.writable)));
+  return q.send.map((m) => (m.pubkey === q.payer ? k(payer, m.signer, m.writable) : k(new PublicKey(m.pubkey), m.signer, m.writable)));
 }
 
 /** `SendParams` after the eid and Position id: empty options, the native fee, no LayerZero-token fee. */
