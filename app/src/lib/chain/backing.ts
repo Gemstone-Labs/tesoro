@@ -1,7 +1,7 @@
 import "./polyfill";
 import { BN } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { accountOfSigner, type ChainSigner } from "@/games/block-puzzle/chain";
+import { accountOfSigner, BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import type { GameId } from "@/lib/mock/types";
 import { gameRecordPda } from "./game-record";
 import { protectionsPda } from "./native";
