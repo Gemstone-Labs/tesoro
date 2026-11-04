@@ -55,12 +55,12 @@ export const createFuelIx = (program: any, operator: PublicKey, n: number, lampo
   program.methods.createFuel(n, new anchor.BN(lamports.toString())).accountsPartial({ operator, fuel }).instruction();
 
 export async function sendSetup(ctx: Ctx, program: any, step: SetupStep, ref: { generation: number; index: number }, validator: PublicKey, init: Init, fuelPda: (n: number) => PublicKey): Promise<string> {
-  const operator = ctx.payer.publicKey;
+  const operator = ctx.operator.publicKey;
   let ix: TransactionInstruction;
   if (step.do === "create_sponsor") ix = await createSponsorIx(program, operator, init.sponsor);
   else if (step.do === "create_fuel") ix = await createFuelIx(program, operator, step.n, init.fuel, fuelPda(step.n));
   else ix = await setupIx(program, step, ref, operator, validator, fuelPda);
-  return sendIxs(ctx.conn, ctx.payer, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);
+  return sendIxs(ctx.conn, ctx.operator, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);
 }
 
 const tableConfigOf = async (program: any, address: PublicKey) => {
@@ -94,7 +94,7 @@ export const duelAdapter: GameAdapter = {
   sponsorAddress: duelChain.sponsorPda,
   fuelAddress: duelChain.fuelPda,
   read: async (ctx, ref) => {
-    const t = await ctx.duel.readTable(ctx.hsigner, ref);
+    const t = await ctx.duel.readTable(ctx.osigner, ref);
     return t ? duelView(t) : null;
   },
   step: async (ctx, v, ref, lastRecommit): Promise<UpkeepStep> => {
@@ -103,30 +103,30 @@ export const duelAdapter: GameAdapter = {
     const base = await ctx.duel.readTableOnBase(ref).catch(() => null);
     return tableStep(tableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit));
   },
-  commit: (ctx, ref) => ctx.duel.commitTable(ctx.hsigner, ref),
-  seats: (ctx, ref) => ctx.duel.closeSeats(ctx.hsigner, ref),
-  reset: (ctx, ref) => ctx.duel.resetTable(ctx.hsigner, duelChain.tablePda(ref.generation, ref.index)),
-  release: (ctx, ref, _v, slot, match) => ctx.duel.releaseSlot(ctx.hsigner, duelChain.tablePda(ref.generation, ref.index), slot, match),
-  void: (ctx, ref, v) => ctx.duel.voidTable(ctx.hsigner, duelChain.tablePda(ref.generation, ref.index), v.tesoroMatch),
+  commit: (ctx, ref) => ctx.duel.commitTable(ctx.osigner, ref),
+  seats: (ctx, ref) => ctx.duel.closeSeats(ctx.osigner, ref),
+  reset: (ctx, ref) => ctx.duel.resetTable(ctx.osigner, duelChain.tablePda(ref.generation, ref.index)),
+  release: (ctx, ref, _v, slot, match) => ctx.duel.releaseSlot(ctx.osigner, duelChain.tablePda(ref.generation, ref.index), slot, match),
+  void: (ctx, ref, v) => ctx.duel.voidTable(ctx.osigner, duelChain.tablePda(ref.generation, ref.index), v.tesoroMatch),
   endState: async (_ctx, _ref, v) => ({ tesoroMatch: v.tesoroMatch, epoch: v.epoch, fn: duelEndState, table: v.raw }),
   assignmentOf: (ctx, m) => ctx.duel.readAssignment(m),
   assign: async (ctx, m, inner, pick) => {
     const [a, b]: any[] = await Promise.all([ctx.core.account.tesoroAccount.fetch(keyOf(inner.a.player)), ctx.core.account.tesoroAccount.fetch(keyOf(inner.b.player))]);
-    return ctx.duel.assignMatch(ctx.hsigner, m, a.authority, b.authority, pick.generation, pick.index, pick.epoch);
+    return ctx.duel.assignMatch(ctx.osigner, m, a.authority, b.authority, pick.generation, pick.index, pick.epoch);
   },
   setup: (ctx, step, ref, init) => sendSetup(ctx, ctx.duel.program, step, ref, holdemChain.TEE_VALIDATOR, init, duelChain.fuelPda),
-  sponsorBalance: async (ctx) => (await (await ctx.duel.teeConnection(ctx.hsigner)).getBalance(duelChain.sponsorPda()).catch(() => null)),
-  refill: (ctx, fuel, amount) => ctx.duel.refillSponsor(ctx.hsigner, fuel, amount),
+  sponsorBalance: async (ctx) => (await (await ctx.duel.teeConnection(ctx.osigner)).getBalance(duelChain.sponsorPda()).catch(() => null)),
+  refill: (ctx, fuel, amount) => ctx.duel.refillSponsor(ctx.osigner, fuel, amount),
   assignmentMatches: async (ctx) => ((await (ctx.duel.program.account as any).assignment.all()) as any[]).map((x) => x.account.tesoroMatch as PublicKey),
-  refundUntabled: (ctx, m) => ctx.duel.refundUntabled(ctx.hsigner, m),
+  refundUntabled: (ctx, m) => ctx.duel.refundUntabled(ctx.osigner, m),
   skip: async (ctx, m) => {
     const a = await ctx.duel.readAssignment(m);
-    return a ? ctx.duel.skipEpoch(ctx.hsigner, a) : "";
+    return a ? ctx.duel.skipEpoch(ctx.osigner, a) : "";
   },
   closeAssignment: async (ctx, m) => {
     const a = await ctx.duel.readAssignment(m);
     if (!a) return "";
-    return ctx.duel.closeAssignment(ctx.hsigner, a);
+    return ctx.duel.closeAssignment(ctx.osigner, a);
   },
 };
 
@@ -156,7 +156,7 @@ export const holdemAdapter: GameAdapter = {
   sponsorAddress: holdemChain.sponsorPda,
   fuelAddress: holdemChain.fuelPda,
   read: async (ctx, ref) => {
-    const t = await ctx.holdem.readTable(ctx.hsigner, ref);
+    const t = await ctx.holdem.readTable(ctx.osigner, ref);
     return t ? holdemView(t) : null;
   },
   step: async (ctx, v, ref, lastRecommit): Promise<UpkeepStep> => {
@@ -165,29 +165,29 @@ export const holdemAdapter: GameAdapter = {
     const base = await ctx.holdem.readTableOnBase(ref).catch(() => null);
     return holdemTableStep(holdemTableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit));
   },
-  commit: (ctx, ref) => ctx.holdem.commitTable(ctx.hsigner, ref),
-  seats: (ctx, ref) => ctx.holdem.wipeSeats(ctx.hsigner, ref),
-  reset: (ctx, ref) => ctx.holdem.resetTable(ctx.hsigner, holdemChain.tablePda(ref.generation, ref.index)),
-  release: (ctx, ref, _v, slot, match) => ctx.holdem.releaseSlot(ctx.hsigner, holdemChain.tablePda(ref.generation, ref.index), slot, match),
-  void: (ctx, ref, v) => ctx.holdem.voidTable(ctx.hsigner, holdemChain.tablePda(ref.generation, ref.index), v.tesoroMatch),
+  commit: (ctx, ref) => ctx.holdem.commitTable(ctx.osigner, ref),
+  seats: (ctx, ref) => ctx.holdem.wipeSeats(ctx.osigner, ref),
+  reset: (ctx, ref) => ctx.holdem.resetTable(ctx.osigner, holdemChain.tablePda(ref.generation, ref.index)),
+  release: (ctx, ref, _v, slot, match) => ctx.holdem.releaseSlot(ctx.osigner, holdemChain.tablePda(ref.generation, ref.index), slot, match),
+  void: (ctx, ref, v) => ctx.holdem.voidTable(ctx.osigner, holdemChain.tablePda(ref.generation, ref.index), v.tesoroMatch),
   endState: async (_ctx, _ref, v) => ({ tesoroMatch: v.tesoroMatch, epoch: v.epoch, fn: holdemEndState, table: v.raw }),
   assignmentOf: (ctx, m) => ctx.holdem.readAssignment(m),
   assign: async (ctx, m, inner, pick) => {
     const [a, b]: any[] = await Promise.all([ctx.core.account.tesoroAccount.fetch(keyOf(inner.a.player)), ctx.core.account.tesoroAccount.fetch(keyOf(inner.b.player))]);
-    return ctx.holdem.assignMatch(ctx.hsigner, m, a.authority, b.authority, pick.generation, pick.index, pick.epoch);
+    return ctx.holdem.assignMatch(ctx.osigner, m, a.authority, b.authority, pick.generation, pick.index, pick.epoch);
   },
-  setup: (ctx, step, ref, init) => (step.do === "init_seats" ? ctx.holdem.initSeats(ctx.hsigner, { generation: ref.generation, index: step.index }) : sendSetup(ctx, ctx.holdem.program, step, ref, holdemChain.TEE_VALIDATOR, init, holdemChain.fuelPda)),
-  sponsorBalance: async (ctx) => (await (await ctx.holdem.teeConnection(ctx.hsigner)).getBalance(holdemChain.sponsorPda()).catch(() => null)),
-  refill: (ctx, fuel, amount) => ctx.holdem.refillSponsor(ctx.hsigner, fuel, amount),
+  setup: (ctx, step, ref, init) => (step.do === "init_seats" ? ctx.holdem.initSeats(ctx.osigner, { generation: ref.generation, index: step.index }) : sendSetup(ctx, ctx.holdem.program, step, ref, holdemChain.TEE_VALIDATOR, init, holdemChain.fuelPda)),
+  sponsorBalance: async (ctx) => (await (await ctx.holdem.teeConnection(ctx.osigner)).getBalance(holdemChain.sponsorPda()).catch(() => null)),
+  refill: (ctx, fuel, amount) => ctx.holdem.refillSponsor(ctx.osigner, fuel, amount),
   assignmentMatches: async (ctx) => ((await (ctx.holdem.program.account as any).assignment.all()) as any[]).map((x) => x.account.tesoroMatch as PublicKey),
-  refundUntabled: (ctx, m) => ctx.holdem.refundUntabled(ctx.hsigner, m),
+  refundUntabled: (ctx, m) => ctx.holdem.refundUntabled(ctx.osigner, m),
   skip: async (ctx, m) => {
     const a = await ctx.holdem.readAssignment(m);
-    return a ? ctx.holdem.skipEpoch(ctx.hsigner, a) : "";
+    return a ? ctx.holdem.skipEpoch(ctx.osigner, a) : "";
   },
   closeAssignment: async (ctx, m) => {
     const a = await ctx.holdem.readAssignment(m);
-    return a ? ctx.holdem.closeAssignment(ctx.hsigner, a) : "";
+    return a ? ctx.holdem.closeAssignment(ctx.osigner, a) : "";
   },
 };
 
@@ -217,39 +217,39 @@ export const burstAdapter: GameAdapter = {
   sponsorAddress: burstChain.sponsorPda,
   fuelAddress: burstChain.fuelPda,
   read: async (ctx, ref) => {
-    const t = await ctx.burst.readTable(ctx.hsigner, ref);
+    const t = await ctx.burst.readTable(ctx.osigner, ref);
     return t ? burstView(t) : null;
   },
   step: async (ctx, v, ref, lastRecommit): Promise<UpkeepStep> => {
     const t = v.raw as burstChain.Table;
     const ages = await receiptAges(ctx, [t.tesoroMatch, ...t.ring.filter((s) => s.state === burstChain.SLOT.done).map((s) => s.tesoroMatch)], settledPda);
     const base = await ctx.burst.readTableOnBase(ref).catch(() => null);
-    const slot = t.phase === burstChain.TABLE_PHASE.getReady ? await ctx.burst.currentSlot(ctx.hsigner).catch(() => null) : 0;
+    const slot = t.phase === burstChain.TABLE_PHASE.getReady ? await ctx.burst.currentSlot(ctx.osigner).catch(() => null) : 0;
     return burstTableStep(burstTableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit, slot));
   },
-  commit: (ctx, ref) => ctx.burst.commitTable(ctx.hsigner, ref),
-  seats: (ctx, ref) => ctx.burst.wipeSeats(ctx.hsigner, ref),
-  reset: (ctx, ref) => ctx.burst.resetTable(ctx.hsigner, burstChain.tablePda(ref.generation, ref.index)),
-  release: (ctx, ref, _v, slot, match) => ctx.burst.releaseSlot(ctx.hsigner, burstChain.tablePda(ref.generation, ref.index), slot, match),
-  void: (ctx, ref, v) => ctx.burst.voidTable(ctx.hsigner, burstChain.tablePda(ref.generation, ref.index), v.tesoroMatch),
+  commit: (ctx, ref) => ctx.burst.commitTable(ctx.osigner, ref),
+  seats: (ctx, ref) => ctx.burst.wipeSeats(ctx.osigner, ref),
+  reset: (ctx, ref) => ctx.burst.resetTable(ctx.osigner, burstChain.tablePda(ref.generation, ref.index)),
+  release: (ctx, ref, _v, slot, match) => ctx.burst.releaseSlot(ctx.osigner, burstChain.tablePda(ref.generation, ref.index), slot, match),
+  void: (ctx, ref, v) => ctx.burst.voidTable(ctx.osigner, burstChain.tablePda(ref.generation, ref.index), v.tesoroMatch),
   endState: async (_ctx, _ref, v) => ({ tesoroMatch: v.tesoroMatch, epoch: v.epoch, fn: burstEndState, table: v.raw }),
   assignmentOf: (ctx, m) => ctx.burst.readAssignment(m),
   assign: async (ctx, m, inner, pick) => {
     const [a, b]: any[] = await Promise.all([ctx.core.account.tesoroAccount.fetch(keyOf(inner.a.player)), ctx.core.account.tesoroAccount.fetch(keyOf(inner.b.player))]);
-    return ctx.burst.assignMatch(ctx.hsigner, m, a.authority, b.authority, pick.generation, pick.index, pick.epoch);
+    return ctx.burst.assignMatch(ctx.osigner, m, a.authority, b.authority, pick.generation, pick.index, pick.epoch);
   },
-  setup: (ctx, step, ref, init) => (step.do === "init_seats" ? ctx.burst.initSeats(ctx.hsigner, { generation: ref.generation, index: step.index }) : sendSetup(ctx, ctx.burst.program, step, ref, burstChain.TEE_VALIDATOR, init, burstChain.fuelPda)),
-  sponsorBalance: async (ctx) => (await (await ctx.burst.teeConnection(ctx.hsigner)).getBalance(burstChain.sponsorPda()).catch(() => null)),
-  refill: (ctx, fuel, amount) => ctx.burst.refillSponsor(ctx.hsigner, fuel, amount),
+  setup: (ctx, step, ref, init) => (step.do === "init_seats" ? ctx.burst.initSeats(ctx.osigner, { generation: ref.generation, index: step.index }) : sendSetup(ctx, ctx.burst.program, step, ref, burstChain.TEE_VALIDATOR, init, burstChain.fuelPda)),
+  sponsorBalance: async (ctx) => (await (await ctx.burst.teeConnection(ctx.osigner)).getBalance(burstChain.sponsorPda()).catch(() => null)),
+  refill: (ctx, fuel, amount) => ctx.burst.refillSponsor(ctx.osigner, fuel, amount),
   assignmentMatches: async (ctx) => ((await (ctx.burst.program.account as any).assignment.all()) as any[]).map((x) => x.account.tesoroMatch as PublicKey),
-  refundUntabled: (ctx, m) => ctx.burst.refundUntabled(ctx.hsigner, m),
+  refundUntabled: (ctx, m) => ctx.burst.refundUntabled(ctx.osigner, m),
   skip: async (ctx, m) => {
     const a = await ctx.burst.readAssignment(m);
-    return a ? ctx.burst.skipEpoch(ctx.hsigner, a) : "";
+    return a ? ctx.burst.skipEpoch(ctx.osigner, a) : "";
   },
   closeAssignment: async (ctx, m) => {
     const a = await ctx.burst.readAssignment(m);
-    return a ? ctx.burst.closeAssignment(ctx.hsigner, a) : "";
+    return a ? ctx.burst.closeAssignment(ctx.osigner, a) : "";
   },
 };
 
@@ -279,7 +279,7 @@ export const vanguardAdapter: GameAdapter = {
   sponsorAddress: vanguardChain.sponsorPda,
   fuelAddress: vanguardChain.fuelPda,
   read: async (ctx, ref) => {
-    const t = await ctx.vanguard.readTable(ctx.hsigner, ref);
+    const t = await ctx.vanguard.readTable(ctx.osigner, ref);
     return t ? vanguardView(t) : null;
   },
   step: async (ctx, v, ref, lastRecommit): Promise<UpkeepStep> => {
@@ -288,37 +288,37 @@ export const vanguardAdapter: GameAdapter = {
     const base = await ctx.vanguard.readTableOnBase(ref).catch(() => null);
     return holdemTableStep(vanguardTableFacts(t, ctx.now, (m) => ages.get(m.toBase58()) ?? null, base, lastRecommit));
   },
-  commit: (ctx, ref) => ctx.vanguard.commitTable(ctx.hsigner, ref),
-  seats: (ctx, ref) => ctx.vanguard.wipeSeats(ctx.hsigner, ref),
-  reset: (ctx, ref) => ctx.vanguard.resetTable(ctx.hsigner, ref),
-  release: (ctx, ref, _v, slot, match) => ctx.vanguard.releaseSlot(ctx.hsigner, vanguardChain.tablePda(ref.generation, ref.index), slot, match),
-  void: (ctx, ref, v) => ctx.vanguard.voidTable(ctx.hsigner, ref, v.tesoroMatch),
+  commit: (ctx, ref) => ctx.vanguard.commitTable(ctx.osigner, ref),
+  seats: (ctx, ref) => ctx.vanguard.wipeSeats(ctx.osigner, ref),
+  reset: (ctx, ref) => ctx.vanguard.resetTable(ctx.osigner, ref),
+  release: (ctx, ref, _v, slot, match) => ctx.vanguard.releaseSlot(ctx.osigner, vanguardChain.tablePda(ref.generation, ref.index), slot, match),
+  void: (ctx, ref, v) => ctx.vanguard.voidTable(ctx.osigner, ref, v.tesoroMatch),
   endState: async (ctx, ref, v) => {
     // The reset zeroes the Battle: its end board goes to the Match history first. A Battle of another Match has no board to keep.
-    const b = await ctx.vanguard.readBattle(ctx.hsigner, ref).catch(() => null);
+    const b = await ctx.vanguard.readBattle(ctx.osigner, ref).catch(() => null);
     const board = b && b.tesoroMatch.equals(v.tesoroMatch) ? b : null;
     return { tesoroMatch: v.tesoroMatch, epoch: v.epoch, fn: board ? vanguardEndState : () => null, table: board as never };
   },
   assignmentOf: (ctx, m) => ctx.vanguard.readAssignment(m),
   assign: async (ctx, m, inner, pick) => {
     const [a, b]: any[] = await Promise.all([ctx.core.account.tesoroAccount.fetch(keyOf(inner.a.player)), ctx.core.account.tesoroAccount.fetch(keyOf(inner.b.player))]);
-    return ctx.vanguard.assignMatch(ctx.hsigner, m, a.authority, b.authority, pick.generation, pick.index, pick.epoch);
+    return ctx.vanguard.assignMatch(ctx.osigner, m, a.authority, b.authority, pick.generation, pick.index, pick.epoch);
   },
   setup: async (ctx, step, ref, init) =>
     step.do === "init_seats"
-      ? ctx.vanguard.initSeats(ctx.hsigner, { generation: ref.generation, index: step.index })
+      ? ctx.vanguard.initSeats(ctx.osigner, { generation: ref.generation, index: step.index })
       : sendSetup(ctx, ctx.vanguard.program, step, ref, (await ctx.vanguard.readConfig()).teeValidator, init, vanguardChain.fuelPda),
-  sponsorBalance: async (ctx) => (await (await ctx.vanguard.teeConnection(ctx.hsigner)).getBalance(vanguardChain.sponsorPda()).catch(() => null)),
-  refill: (ctx, fuel, amount) => ctx.vanguard.refillSponsor(ctx.hsigner, fuel, amount),
+  sponsorBalance: async (ctx) => (await (await ctx.vanguard.teeConnection(ctx.osigner)).getBalance(vanguardChain.sponsorPda()).catch(() => null)),
+  refill: (ctx, fuel, amount) => ctx.vanguard.refillSponsor(ctx.osigner, fuel, amount),
   assignmentMatches: async (ctx) => ((await (ctx.vanguard.program.account as any).assignment.all()) as any[]).map((x) => x.account.tesoroMatch as PublicKey),
-  refundUntabled: (ctx, m) => ctx.vanguard.refundUntabled(ctx.hsigner, m),
+  refundUntabled: (ctx, m) => ctx.vanguard.refundUntabled(ctx.osigner, m),
   skip: async (ctx, m) => {
     const a = await ctx.vanguard.readAssignment(m);
-    return a ? ctx.vanguard.skipEpoch(ctx.hsigner, a) : "";
+    return a ? ctx.vanguard.skipEpoch(ctx.osigner, a) : "";
   },
   closeAssignment: async (ctx, m) => {
     const a = await ctx.vanguard.readAssignment(m);
-    return a ? ctx.vanguard.closeAssignment(ctx.hsigner, a) : "";
+    return a ? ctx.vanguard.closeAssignment(ctx.osigner, a) : "";
   },
 };
 

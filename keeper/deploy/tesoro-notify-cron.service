@@ -1,0 +1,10 @@
+[Unit]
+Description=Tesoro delayed-notification cron (calls the app's /api/cron/notify)
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/tesoro-keeper.env
+# NOTIFY_CRON_URL is the full route, e.g. https://www.playtesoro.com/api/cron/notify. -f makes a non-2xx answer fail the unit.
+ExecStart=/bin/sh -c 'curl -fsS --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "${NOTIFY_CRON_URL:?NOTIFY_CRON_URL is not set}"'
+TimeoutStartSec=90
+MemoryMax=128M

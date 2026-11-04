@@ -254,6 +254,7 @@ function ctxOf(f: Fake, over: { dryRun?: boolean; now?: number; accounts?: Map<s
     settings: { dryRun: !!over.dryRun },
     budget: new Budget(1e15),
     payer,
+    operator: payer,
     now: over.now ?? NOW,
     conn: {
       getBalance: async () => 1e9,
@@ -420,7 +421,7 @@ describe("assignment", () => {
     assert.deepEqual(f.calls.filter((c) => c.startsWith("assign")), [`assign ${key(13).toBase58().slice(0, 4)}->0@3`]);
   });
 
-  it("assigns nothing when the keeper is not the operator, and says so", async () => {
+  it("assigns nothing when the signing key is not the operator, and says so", async () => {
     const f = new Fake();
     withTable(f, 0, {});
     const ctx = ctxOf(f);
