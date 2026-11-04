@@ -1796,6 +1796,13 @@
           "writable": true
         },
         {
+          "name": "seat_key_mark",
+          "docs": [
+            "seat's key. Empty for a seat boarded before seat keys."
+          ],
+          "writable": true
+        },
+        {
           "name": "player_counters",
           "writable": true
         },
@@ -6517,6 +6524,13 @@
           "signer": true
         },
         {
+          "name": "seat_signer",
+          "docs": [
+            "The seat key that plays this seat; the wallet itself when it wants none."
+          ],
+          "signer": true
+        },
+        {
           "name": "player_account",
           "pda": {
             "seeds": [
@@ -6696,6 +6710,35 @@
               {
                 "kind": "account",
                 "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "seat_key_mark",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  116,
+                  95,
+                  107,
+                  101,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              },
+              {
+                "kind": "account",
+                "path": "seat_signer"
               }
             ]
           }
@@ -14142,6 +14185,13 @@
         },
         {
           "name": "mark_payer",
+          "writable": true
+        },
+        {
+          "name": "seat_key_mark",
+          "docs": [
+            "seat's key. Absent (empty) for a seat boarded before seat keys."
+          ],
           "writable": true
         },
         {
@@ -22080,6 +22130,15 @@
           },
           {
             "name": "pot",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "signer",
             "type": {
               "array": [
                 "u8",
