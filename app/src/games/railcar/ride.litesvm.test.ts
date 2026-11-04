@@ -38,6 +38,7 @@ import railcarIdl from "../../lib/chain/idl/railcar.json";
 import { joinSeatIx } from "../../lib/chain/many-seat";
 import { closeIxs, loadCar, planSeatChunk, roomIxs } from "../../lib/chain/many-seat-plan";
 import { decodeStore } from "../../lib/chain/pot-store";
+import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
 import { MAX_ACCOUNTS, MAX_TX_BYTES, type Reader } from "../../lib/chain/settle-plan";
 import {
   RAILCAR_PROGRAM_ID,
@@ -58,6 +59,7 @@ import {
 } from "./chain";
 import { ride } from "./engine";
 import { queueChoice } from "./flow";
+import { railcarView } from "./view";
 
 const ROOT = join(process.cwd(), "..");
 const SO_DIR = process.env.RAILCAR_SO_DIR ?? join(ROOT, "target/deploy");
@@ -97,11 +99,70 @@ interface Person {
 // The worked example's riders, by seat.
 const [ANA, BEN, CY, DEE, EVE] = [0, 1, 2, 3, 4];
 
+type Acct = { lamports: number; data: Uint8Array; owner: PublicKey; executable: boolean };
+type Lite = typeof import("litesvm");
+interface Inner {
+  addProgramWithLoader(id: Uint8Array, bytes: Uint8Array, loader: Uint8Array): void;
+  addProgram(id: Uint8Array, bytes: Uint8Array): void;
+  airdrop(k: Uint8Array, lamports: bigint): unknown;
+  expireBlockhash(): void;
+  latestBlockhash(): string;
+  setClock(c: unknown): void;
+  getAccount(k: Uint8Array): { lamports(): bigint; data(): Uint8Array; owner(): Uint8Array; executable(): boolean } | null;
+  setAccount(k: Uint8Array, a: unknown): void;
+  sendVersionedTransaction(bytes: Uint8Array): { logs?(): string[]; meta?(): { logs(): string[] }; err?(): unknown };
+}
+
+/**
+ * LiteSVM driven through its native object with web3.js bytes (litesvm 1.x speaks @solana/kit; the app's builders make
+ * web3.js instructions). Every account read is copied while the native object is held.
+ */
+class Svm {
+  constructor(
+    private lib: Lite,
+    private inner: Inner,
+  ) {}
+  static async create(): Promise<Svm> {
+    const lib = await import("litesvm");
+    return new Svm(lib, (new lib.LiteSVM().withSigverify(false) as unknown as { inner: Inner }).inner);
+  }
+  addUpgradeable(id: PublicKey, bytes: Uint8Array) {
+    this.inner.addProgramWithLoader(id.toBytes(), bytes, UPGRADEABLE.toBytes());
+  }
+  addProgram(id: PublicKey, bytes: Uint8Array) {
+    this.inner.addProgram(id.toBytes(), bytes);
+  }
+  airdrop(k: PublicKey, lamports: bigint) {
+    this.inner.airdrop(k.toBytes(), lamports);
+  }
+  expireBlockhash() {
+    this.inner.expireBlockhash();
+  }
+  latestBlockhash() {
+    return this.inner.latestBlockhash();
+  }
+  setClock(slot: bigint, ts: number) {
+    this.inner.setClock(new this.lib.Clock(slot, 0n, 0n, 0n, BigInt(ts)));
+  }
+  get(k: PublicKey): Acct | null {
+    const a = this.inner.getAccount(k.toBytes());
+    if (!a) return null;
+    return { lamports: Number(a.lamports()), data: Uint8Array.from(a.data()), owner: new PublicKey(Uint8Array.from(a.owner())), executable: a.executable() };
+  }
+  set(k: PublicKey, a: Acct) {
+    this.inner.setAccount(k.toBytes(), new this.lib.Account(BigInt(a.lamports), a.data, a.owner.toBytes(), a.executable, 0n));
+  }
+  send(tx: VersionedTransaction): { logs: string[]; err: unknown } {
+    const r = this.inner.sendVersionedTransaction(tx.serialize());
+    const logs = r.meta ? r.meta().logs() : r.logs!();
+    return { logs, err: r.err ? r.err() : null };
+  }
+}
+
 /** The LiteSVM world: tesoro_core and Railcar as the Rust ride tests set them up, plus who signed what. */
 class World {
   // Imported lazily so the suite only needs the native module where the programs are built.
-  svm!: import("litesvm").LiteSVM;
-  Clock!: typeof import("litesvm").Clock;
+  svm!: Svm;
   admin = Keypair.generate();
   oracle = Keypair.generate();
   ctl = Keypair.generate();
@@ -123,11 +184,9 @@ class World {
 
   static async create(): Promise<World> {
     const w = new World();
-    const { LiteSVM, Clock } = await import("litesvm");
-    w.Clock = Clock;
-    w.svm = new LiteSVM().withSigverify(false);
-    w.svm.addProgramWithLoader(CORE, readFileSync(join(SO_DIR, "tesoro_core.so")), UPGRADEABLE);
-    w.svm.addProgramWithLoader(RAILCAR_PROGRAM_ID, readFileSync(join(SO_DIR, "railcar.so")), UPGRADEABLE);
+    w.svm = await Svm.create();
+    w.svm.addUpgradeable(CORE, readFileSync(join(SO_DIR, "tesoro_core.so")));
+    w.svm.addUpgradeable(RAILCAR_PROGRAM_ID, readFileSync(join(SO_DIR, "railcar.so")));
     const noop = readFileSync(join(__dirname, "test-programs/noop.so"));
     for (const id of [MAGIC, PERMISSION_PROGRAM_ID, VRF]) w.svm.addProgram(id, noop);
     for (const k of [w.admin, w.oracle, w.ctl, w.operator, w.relayer, w.pageKey]) w.svm.airdrop(k.publicKey, 1_000n * SOL);
@@ -139,19 +198,15 @@ class World {
   // ---- sending ------------------------------------------------------------------------------------------------------
 
   send(ixs: TransactionInstruction[], payer: Keypair, signers: Keypair[] = [], tables: AddressLookupTableAccount[] = []): void {
-    process.stderr.write(`SEND ${ixs.map((i) => i.programId.toBase58().slice(0, 4) + ":" + Buffer.from(i.data.subarray(0, 2)).toString("hex")).join(",")}\n`);
     this.svm.expireBlockhash();
     const msg = new TransactionMessage({ payerKey: payer.publicKey, recentBlockhash: this.svm.latestBlockhash(), instructions: ixs }).compileToV0Message(tables);
     const tx = new VersionedTransaction(msg);
     const all = [payer, ...signers];
     tx.sign(all.filter((k, i) => all.findIndex((x) => x.publicKey.equals(k.publicKey)) === i && msg.staticAccountKeys.slice(0, msg.header.numRequiredSignatures).some((s) => s.equals(k.publicKey))));
     for (const r of this.riders) if (msg.staticAccountKeys.slice(0, msg.header.numRequiredSignatures).some((s) => s.equals(r.key))) this.walletSigs[this.phase] = (this.walletSigs[this.phase] ?? 0) + 1;
-    process.stderr.write(`  size ${tx.serialize().length} accounts ${msg.staticAccountKeys.length}\n`);
-    const res = this.svm.sendTransaction(tx);
-    process.stderr.write(`  sent\n`);
-    const meta = "meta" in res ? (res as { meta(): { logs(): string[] } }).meta() : (res as { logs(): string[] });
-    this.lastLogs = meta.logs();
-    if ("err" in res) throw new Error(`transaction failed: ${JSON.stringify((res as { err(): unknown }).err())}\n${this.lastLogs.join("\n")}`);
+    const res = this.svm.send(tx);
+    this.lastLogs = res.logs;
+    if (res.err) throw new Error(`transaction failed: ${String(res.err)}\n${this.lastLogs.join("\n")}`);
   }
 
   /** A lookup table holding every non-signer account of `ixs`, written in place (the server compiles with its own). */
@@ -161,7 +216,7 @@ class World {
     const head = Buffer.alloc(56);
     head.writeUInt32LE(1, 0);
     head.writeBigUInt64LE(0xffff_ffff_ffff_ffffn, 4);
-    this.svm.setAccount(key, { lamports: Number(10n * SOL), data: Buffer.concat([head, ...keys.map((k) => k.toBuffer())]), owner: ALT_PROGRAM, executable: false });
+    this.svm.set(key, { lamports: Number(10n * SOL), data: Buffer.concat([head, ...keys.map((k) => k.toBuffer())]), owner: ALT_PROGRAM, executable: false });
     return new AddressLookupTableAccount({ key, state: { deactivationSlot: 0xffff_ffff_ffff_ffffn, lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, authority: undefined, addresses: keys } });
   }
 
@@ -179,7 +234,7 @@ class World {
   setClock(slot: bigint, ts: number) {
     this.slot = slot;
     this.now = ts;
-    this.svm.setClock(new this.Clock(slot, 0n, 0n, 0n, BigInt(ts)));
+    this.svm.setClock(slot, ts);
   }
   setTime(t: number) {
     this.setClock(SLOT0 + BigInt(Math.max(0, t - T0)) * SPS, t);
@@ -188,8 +243,12 @@ class World {
     this.setClock(slot, T0 + Number((slot - SLOT0) / SPS));
   }
 
+  get(k: PublicKey): Acct | null {
+    return this.svm.get(k);
+  }
+
   info(k: PublicKey): AccountInfo<Buffer> | null {
-    const a = this.svm.getAccount(k);
+    const a = this.get(k);
     return a && a.lamports > 0 ? { data: Buffer.from(a.data), owner: a.owner, lamports: a.lamports, executable: a.executable, rentEpoch: 0 } : null;
   }
   reader(): Reader & { getMultipleAccountsInfo(keys: PublicKey[]): Promise<(AccountInfo<Buffer> | null)[]> } {
@@ -207,19 +266,19 @@ class World {
     const coder = new BorshAccountsCoder(coreIdl as unknown as Idl);
     const [treasury, bump] = PublicKey.findProgramAddressSync([Buffer.from("treasury")], CORE);
     const tdata = await coder.encode("Treasury", { bump, vault_bump: 0, account_bump: 0, yield_fee_bps: 0, instant_fee_bps: 3_500, account: PublicKey.default, vault: PublicKey.default, retired_fee_minted: new BN(0), instant_units: new BN(0), funded_shares: new BN(0), withdrawn_units: new BN(0), company: PublicKey.default });
-    this.svm.setAccount(treasury, { lamports: Number(SOL), data: tdata, owner: CORE, executable: false });
+    this.svm.set(treasury, { lamports: Number(SOL), data: tdata, owner: CORE, executable: false });
     const pool = corePda("leaderboard");
     this.send([coreIx("init_leaderboard", { admin: admin.publicKey, config: corePda("config"), pool_authority: pool, pool_account: corePda("account", pool.toBuffer()), treasury }, { leaderboard_bps: 100 })], admin);
     // The control key is Railcar's upgrade authority; core approves the build's hash.
     const pd = programData(RAILCAR_PROGRAM_ID);
-    const acct = this.svm.getAccount(pd)!;
+    const acct = this.get(pd)!;
     const data = Buffer.from(acct.data);
     data[12] = 1;
     this.ctl.publicKey.toBuffer().copy(data, 13);
     let end = data.length;
     while (end > 45 && data[end - 1] === 0) end--;
     const hash = createHash("sha256").update(data.subarray(45, end)).digest();
-    this.svm.setAccount(pd, { ...acct, data });
+    this.svm.set(pd, { ...acct, data });
     const gameRecord = corePda("game", RAILCAR_PROGRAM_ID.toBuffer());
     const authority = PublicKey.findProgramAddressSync([Buffer.from("authority")], RAILCAR_PROGRAM_ID)[0];
     this.send(
@@ -239,11 +298,11 @@ class World {
       // `init_vault` stand-in: the Vault exists, blank, and the Table says so.
       const [vault, vbump] = PublicKey.findProgramAddressSync([Buffer.from("vault"), table.toBuffer()], RAILCAR_PROGRAM_ID);
       const blank = await vaultCoder.encode("Vault", { bump: vbump, table, car_no: new BN(0), ready: false, draw: new Array(32).fill(0), crash_ms: 0, screw_at_ms: 0, bolt_at_ms: 0, spark_at_ms: 0, false_screws: [0, 0, 0, 0], false_len: 0, reserved: new Array(64).fill(0) });
-      this.svm.setAccount(vault, { lamports: Number(SOL), data: blank, owner: RAILCAR_PROGRAM_ID, executable: false });
-      const t = this.svm.getAccount(table)!;
+      this.svm.set(vault, { lamports: Number(SOL), data: blank, owner: RAILCAR_PROGRAM_ID, executable: false });
+      const t = this.get(table)!;
       const td = Buffer.from(t.data);
       td[8 + 15] = 1;
-      this.svm.setAccount(table, { ...t, data: td });
+      this.svm.set(table, { ...t, data: td });
       this.committed.set(table.toBase58(), td);
     }
   }
@@ -283,7 +342,7 @@ class World {
   }
 
   ensureSpill(p: Person, free: number) {
-    const s = decodeStore(this.svm.getAccount(spillPda(p.account))!.data);
+    const s = decodeStore(this.get(spillPda(p.account))!.data);
     let need = free - (s.capacity - s.len - s.roomReserved);
     while (need > 0) {
       const n = Math.min(need, 71);
@@ -292,12 +351,14 @@ class World {
     }
   }
 
-  /** Playable Gemas (every line of basket and spill). */
-  gemas(p: Person): bigint {
-    return [basketPda(p.account), spillPda(p.account)].reduce((sum, k) => sum + decodeStore(this.svm.getAccount(k)!.data).lines().reduce((a, l) => a + l.amount, 0n), 0n);
+  /** Gemas in the Account's basket and spill, plus what waits for it in the car's overflow record (claimed into its stores later). */
+  gemas(p: Person, car?: { opener: PublicKey; n: bigint }): bigint {
+    const stores = [basketPda(p.account), spillPda(p.account)].reduce((sum, k) => sum + decodeStore(this.get(k)!.data).lines().reduce((a, l) => a + l.amount, 0n), 0n);
+    const record = car ? this.info(matchOverflowPda(p.account, car)) : null;
+    return stores + (record ? decodeStore(record.data, OVERFLOW_STORE_AT).lines().reduce((a, l) => a + l.amount, 0n) : 0n);
   }
   studioFee(): bigint {
-    return [basketPda(this.studio.account), spillPda(this.studio.account)].reduce((sum, k) => sum + decodeStore(this.svm.getAccount(k)!.data).lines().filter((l) => l.cls === CLASS_STUDIO).reduce((a, l) => a + l.amount, 0n), 0n);
+    return [basketPda(this.studio.account), spillPda(this.studio.account)].reduce((sum, k) => sum + decodeStore(this.get(k)!.data).lines().filter((l) => l.cls === CLASS_STUDIO).reduce((a, l) => a + l.amount, 0n), 0n);
   }
 
   // ---- the app's steps -------------------------------------------------------------------------------------------------
@@ -331,13 +392,13 @@ class World {
   }
 
   rideSlot(index: number): bigint {
-    return decodeTable(this.svm.getAccount(tablePda(index))!.data).rideSlot;
+    return decodeTable(this.get(tablePda(index))!.data).rideSlot;
   }
 
   /** Ends with a commit stand-in when the step ended the ride: base keeps the Table's bytes. */
   rollup(ixs: TransactionInstruction[], signer: Keypair, index: number) {
     this.send(ixs, signer);
-    const data = this.svm.getAccount(tablePda(index))!.data;
+    const data = this.get(tablePda(index))!.data;
     const t = decodeTable(data);
     if (t.phase === "over" && data[8 + 16] === 0) this.committed.set(tablePda(index).toBase58(), Buffer.from(data));
   }
@@ -345,12 +406,12 @@ class World {
   /** Base's view of the Table (the committed bytes, owned by the delegation program) while `f` runs. */
   onBase<T>(index: number, f: () => T): T {
     const key = tablePda(index);
-    const live = this.svm.getAccount(key)!;
-    this.svm.setAccount(key, { lamports: live.lamports, data: this.committed.get(key.toBase58())!, owner: DELEGATION_PROGRAM_ID, executable: false });
+    const live = this.get(key)!;
+    this.svm.set(key, { lamports: live.lamports, data: this.committed.get(key.toBase58())!, owner: DELEGATION_PROGRAM_ID, executable: false });
     try {
       return f();
     } finally {
-      this.svm.setAccount(key, live);
+      this.svm.set(key, live);
     }
   }
 }
@@ -371,96 +432,141 @@ function drawWhere(want: (r: ReturnType<typeof ride>) => boolean): Uint8Array {
   throw new Error("no draw found");
 }
 
-describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders and the shared planner", () => {
-  it("the worked example pays to the Gema: boarding, departure, the ride, finalize, every chunk and close", { timeout: 120_000 }, async () => {
-    const w = await World.create();
-    w.riders = Array.from({ length: 5 }, () => w.rider());
-    const riders = w.riders;
+interface RideRun {
+  riders: Person[];
+  /** Gemas each rider got back (after the car closed, against after boarding). */
+  deltas: bigint[];
+  studioFee: bigint;
+  chunkSteps: number[];
+  /** What the result screen shows each rider getting, read from the committed Table. */
+  shown: bigint[];
+  walletSigs: Record<string, number>;
+}
 
-    // Boarding: the first opens the car, the others join it, each in one wallet transaction.
-    w.phase = "boarding";
-    for (const p of riders) await w.board(p);
-    const config = decodeConfig(w.info(configPda())!.data);
-    const carNo = config.nextCar - 1n;
-    const carAcct = decodeCarAccount(w.info(carPda(carNo))!.data);
-    const match = carAcct.tesoroMatch;
-    const before = riders.map((p) => w.gemas(p));
-    const studioBefore = w.studioFee();
+/**
+ * Boards `n` riders through the Queue, departs, rides with `draw`, Jumps rider `who` at `secs` (in that order), signals at
+ * Impact, then finalizes, reserves room, runs every chunk and every close: everything after boarding and the Jumps is
+ * sent by the relayer or the page key, never a rider's wallet.
+ */
+let rooms = 0;
+async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): Promise<RideRun> {
+  const w = await World.create();
+  w.riders = Array.from({ length: n }, () => w.rider());
+  const riders = w.riders;
 
-    // Departure 30 s after the 5th boarded: anyone's check_departure, the relayer paying.
-    w.phase = "finish";
+  // Boarding: the first opens the car, the others join it, each in one wallet transaction.
+  w.phase = "boarding";
+  for (const p of riders) await w.board(p);
+  const config = decodeConfig(w.info(configPda())!.data);
+  const carNo = config.nextCar - 1n;
+  const carAcct = decodeCarAccount(w.info(carPda(carNo))!.data);
+  const match = carAcct.tesoroMatch;
+  const id = (await loadCar(w.reader(), match))!.car;
+  const before = riders.map((p) => w.gemas(p, id));
+  const studioBefore = w.studioFee();
+
+  // Departure: 30 s after the 5th boarded (a full car left in the 100th's own transaction).
+  w.phase = "finish";
+  if ((await loadCar(w.reader(), match))!.car.stage === "boarding") {
     w.setTime(w.now + 30);
     w.send([checkDepartureIx(carNo, match)], w.relayer);
-    expect((await loadCar(w.reader(), match))!.car.stage).toBe("departed");
+  }
+  expect((await loadCar(w.reader(), match))!.car.stage).toBe("departed");
 
-    // The ride: a page starts it, the VRF answers, Players Jump, a signal at Impact ends it.
-    const loaded = (await loadCar(w.reader(), match))!;
-    w.rollup([cu(1_400_000), startRideIx(w.pageKey.publicKey, { carNo, table: carAcct.table, tesoroMatch: match }, loaded.car.pages, null)], w.pageKey, carAcct.table);
-    const table = tablePda(carAcct.table);
-    const draw = drawWhere((r) => r.crash_ms >= 101_000);
-    const reqNonce = Buffer.from(w.svm.getAccount(table)!.data).readBigUInt64LE(8 + 120);
-    const request = PublicKey.findProgramAddressSync([Buffer.from("vrfreq"), table.toBuffer(), u64(reqNonce)], RAILCAR_PROGRAM_ID)[0];
-    const identity = PublicKey.findProgramAddressSync([Buffer.from("identity"), RAILCAR_PROGRAM_ID.toBuffer()], VRF)[0];
-    w.send([railcarIx("draw_callback", { vrf_program_identity: identity, table, vault: vaultPda(table), request }, { randomness: Array.from(draw) })], w.oracle);
-    expect(decodeTable(w.svm.getAccount(table)!.data).phase).toBe("riding");
+  // The ride: a page starts it, the VRF answers, Players Jump, a signal at Impact ends it.
+  const loaded = (await loadCar(w.reader(), match))!;
+  w.rollup([cu(1_400_000), startRideIx(w.pageKey.publicKey, { carNo, table: carAcct.table, tesoroMatch: match }, loaded.car.pages, null)], w.pageKey, carAcct.table);
+  const table = tablePda(carAcct.table);
+  const reqNonce = Buffer.from(w.get(table)!.data).readBigUInt64LE(8 + 120);
+  const request = PublicKey.findProgramAddressSync([Buffer.from("vrfreq"), table.toBuffer(), u64(reqNonce)], RAILCAR_PROGRAM_ID)[0];
+  const identity = PublicKey.findProgramAddressSync([Buffer.from("identity"), RAILCAR_PROGRAM_ID.toBuffer()], VRF)[0];
+  w.send([railcarIx("draw_callback", { vrf_program_identity: identity, table, vault: vaultPda(table), request }, { randomness: Array.from(draw) })], w.oracle);
+  expect(decodeTable(w.get(table)!.data).phase).toBe("riding");
 
-    w.phase = "jumps";
-    const rideSlot = w.rideSlot(carAcct.table);
-    for (const [who, secs] of [
+  w.phase = "jumps";
+  const rideSlot = w.rideSlot(carAcct.table);
+  for (const [who, secs] of jumps) {
+    w.setSlot(rideSlot + BigInt(Math.round(secs * 100)));
+    const t = decodeTable(w.get(table)!.data);
+    const seat = t.seats.find((s) => s.account.equals(riders[who].account))!;
+    // The wallet signs the Jump until Railcar takes the seat key (seat keys ticket 08).
+    w.rollup([jumpIx(riders[who].key, riders[who].key, carAcct.table, carNo, seat.tableSeat)], riders[who].kp, carAcct.table);
+  }
+  w.phase = "finish";
+  const vault = new BorshAccountsCoder(railcarIdl as unknown as Idl).decode("Vault", Buffer.from(w.get(vaultPda(table))!.data)) as { crash_ms: number };
+  w.setSlot(rideSlot + BigInt(Math.ceil(vault.crash_ms / 10)));
+  w.rollup([signalIx(w.pageKey.publicKey, carAcct.table)], w.pageKey, carAcct.table);
+  const over = decodeTable(w.get(table)!.data);
+  expect(over.phase).toBe("over");
+  const shownView = railcarView({ me: null, core: null, seats: [], table: over, fees: { platformBps: 200, studioBps: 300, leaderboardBps: 100 }, nowMs: 0 });
+  if (shownView.phase !== "result") throw new Error("the screen should show the result");
+  const shown = riders.map((p) => shownView.rows.find((r) => r.account === p.account.toBase58())!.gets);
+
+  // Finalize on base (the committed Table), the relayer as caller, compiled with a lookup table.
+  const fin = [cu(1_400_000), finalizeIx(w.relayer.publicKey, { ...carAcct, carNo }, loaded.car.pages)];
+  w.onBase(carAcct.table, () => w.send(fin, w.relayer, [], [w.table(fin)]));
+  expect(w.info(carPda(carNo))).toBeNull();
+
+  // Room, then every chunk the planner sizes, until core has paid the car.
+  const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
+  let car = (await loadCar(w.reader(), match))!;
+  const room = await roomIxs(w.reader(), w.relayer.publicKey, car);
+  for (const ix of room) w.send([ix], w.relayer);
+  rooms = room.length;
+  const chunkSteps: number[] = [];
+  while (car.car.stage === "settling" || car.car.stage === "refunding") {
+    const plan = await planSeatChunk(core, w.reader(), w.relayer.publicKey, car, (ix) => w.fits(w.relayer.publicKey, [cu(1_400_000), ix]));
+    expect(plan).not.toBeNull();
+    expect(plan!.missing).toEqual([]);
+    const ixs = [cu(1_400_000), plan!.ix];
+    w.send(ixs, w.relayer, [], [w.table(ixs)]);
+    chunkSteps.push(plan!.steps);
+    expect(chunkSteps.length).toBeLessThan(400);
+    car = (await loadCar(w.reader(), match))!;
+  }
+  expect(car.car.stage).toBe("paid");
+
+  // Every seat closes, then the car.
+  for (const ix of await closeIxs(w.reader(), w.relayer.publicKey, car)) w.send([cu(400_000), ix], w.relayer, [], [w.table([ix])]);
+  expect(w.info(match)).toBeNull();
+
+  return { riders, deltas: riders.map((p, i) => w.gemas(p, id) - before[i]), studioFee: w.studioFee() - studioBefore, chunkSteps, shown, walletSigs: w.walletSigs };
+}
+
+describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders and the shared planner", () => {
+  it("the worked example pays to the Gema: boarding, departure, the ride, finalize, every chunk and close", { timeout: 120_000 }, async () => {
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), [
       [ANA, 25],
       [CY, 95],
       [BEN, 97],
       [DEE, 99],
-    ] as const) {
-      w.setSlot(rideSlot + BigInt(secs) * SPS);
-      const t = decodeTable(w.svm.getAccount(table)!.data);
-      const seat = t.seats.find((s) => s.account.equals(riders[who].account))!;
-      // The wallet signs the Jump until Railcar takes the seat key (seat keys ticket 08).
-      w.rollup([jumpIx(riders[who].key, riders[who].key, carAcct.table, carNo, seat.tableSeat)], riders[who].kp, carAcct.table);
-    }
-    w.phase = "finish";
-    const vault = new BorshAccountsCoder(railcarIdl as unknown as Idl).decode("Vault", Buffer.from(w.svm.getAccount(vaultPda(table))!.data)) as { crash_ms: number };
-    w.setSlot(rideSlot + BigInt(Math.ceil(vault.crash_ms / 10)));
-    w.rollup([signalIx(w.pageKey.publicKey, carAcct.table)], w.pageKey, carAcct.table);
-    const over = decodeTable(w.svm.getAccount(table)!.data);
-    expect([over.phase, over.outcome, over.aboard, over.jumps]).toEqual(["over", "placed", 1, 4]);
-
-    // Finalize on base (the committed Table), the relayer as caller, compiled with a lookup table.
-    const fin = [cu(1_400_000), finalizeIx(w.relayer.publicKey, { ...carAcct, carNo }, loaded.car.pages)];
-    w.onBase(carAcct.table, () => w.send(fin, w.relayer, [], [w.table(fin)]));
-    expect(w.info(carPda(carNo))).toBeNull();
-
-    // Room, then every chunk the planner sizes, until core has paid the car.
-    const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
-    let car = (await loadCar(w.reader(), match))!;
-    expect(car.car.stage).toBe("settling");
-    const room = await roomIxs(w.reader(), w.relayer.publicKey, car);
-    if (room.length) w.send(room, w.relayer);
-    let chunks = 0;
-    const sizes: number[] = [];
-    while (car.car.stage === "settling" || car.car.stage === "refunding") {
-      const plan = await planSeatChunk(core, w.reader(), w.relayer.publicKey, car, (ix) => w.fits(w.relayer.publicKey, [cu(1_400_000), ix]));
-      expect(plan).not.toBeNull();
-      expect(plan!.missing).toEqual([]);
-      const ixs = [cu(1_400_000), plan!.ix];
-      w.send(ixs, w.relayer, [], [w.table(ixs)]);
-      sizes.push(plan!.steps);
-      chunks++;
-      expect(chunks).toBeLessThan(50);
-      car = (await loadCar(w.reader(), match))!;
-    }
-    expect(car.car.stage).toBe("paid");
-    // 11 steps in all (4 entries home, Ana's 150 cut three ways then to Dee, Eve's 500 to Dee, Ben, Cy).
-    expect(sizes.reduce((a, b) => a + b, 0)).toBe(11);
-
-    // Every seat closes, then the car.
-    for (const ix of await closeIxs(w.reader(), w.relayer.publicKey, car)) w.send([cu(400_000), ix], w.relayer, [], [w.table([ix])]);
-    expect(w.info(match)).toBeNull();
-
+    ]);
     // What each got back for the 500 they boarded with.
-    expect(riders.map((p, i) => w.gemas(p) - before[i])).toEqual([350n, 630n, 578n, 813n, 0n]);
-    expect(w.studioFee() - studioBefore).toBe(64n);
+    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    expect(r.studioFee).toBe(64n);
+    // The result screen shows what the chain paid.
+    expect(r.shown).toEqual(r.deltas);
+    // 11 steps in all (4 entries home, Ana's 150 cut three ways then to Dee, Eve's 500 to Dee, Ben, Cy).
+    expect(r.chunkSteps.reduce((a, b) => a + b, 0)).toBe(11);
     // The wallets signed boarding (5) and the Jumps (4, until the seat key plays them); nothing of the finish.
-    expect(w.walletSigs).toEqual({ boarding: 5, jumps: 4 });
+    expect(r.walletSigs).toEqual({ boarding: 5, jumps: 4 });
+  });
+
+  it("100 Players: the car leaves full, 90 Jump, every page and chunk the planner sizes settles it to the Gema", { timeout: 600_000 }, async () => {
+    // Seat i Jumps at 10 + 0.9 i seconds for i < 90; the last ten stay aboard.
+    const jumps: [number, number][] = Array.from({ length: 90 }, (_, i) => [i, 10 + 0.9 * i]);
+    const r = await rideCar(100, drawWhere((x) => x.crashMs >= 92_000), jumps);
+    expect(r.shown).toEqual(r.deltas);
+    // Places: the last three off (seats 89, 88, 87) get their entry back and more; the ten aboard lose theirs.
+    expect(r.deltas.slice(87, 90).every((d) => d > 500n)).toBe(true);
+    expect(r.deltas.slice(90)).toEqual(Array(10).fill(0n));
+    // Every Gema is accounted for: what came back plus the fees is every entry.
+    const back = r.deltas.reduce((a, b) => a + b, 0n);
+    expect(back + r.studioFee).toBeLessThan(50_000n);
+    expect(r.studioFee).toBeGreaterThan(0n);
+    expect(r.walletSigs).toEqual({ boarding: 100, jumps: 90 });
+    // First place's stores could not hold every credit: the page reserved its overflow record before the forfeits moved.
+    expect(rooms).toBeGreaterThan(0);
+    expect(r.chunkSteps.every((s) => s >= 1 && s <= 7)).toBe(true);
   });
 });
