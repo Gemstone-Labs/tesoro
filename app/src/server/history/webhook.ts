@@ -115,6 +115,8 @@ export interface ReceiveDeps {
   schedule: (work: () => Promise<unknown>) => void;
   /** The work to schedule: normally `decodePending`. */
   afterStore: () => Promise<unknown>;
+  /** Runs first in the scheduled work, on the delivered transactions at once (confirmed is enough): the final boards must be read before a reset. Its failure never stops `afterStore`. */
+  capture?: (txs: StoredTx[]) => Promise<unknown>;
   secret: string | undefined;
   /** Mark rows finalized when delivered (the webhook is set to finalized). */
   deliveredFinalized?: boolean;
@@ -134,6 +136,7 @@ export async function receiveWebhook(deps: ReceiveDeps, authorization: string | 
   let stored = 0;
   let duplicates = 0;
   let ignored = invalid;
+  const delivered: StoredTx[] = [];
   for (const tx of txs) {
     if (!tx.meta || tx.meta.err) {
       ignored++;
@@ -142,8 +145,14 @@ export async function receiveWebhook(deps: ReceiveDeps, authorization: string | 
     const fresh = await deps.store.put({ signature: signatureOf(tx), slot: tx.slot, blockTime: tx.blockTime ?? null, body: slim(tx), finalized: !!deps.deliveredFinalized });
     if (fresh) stored++;
     else duplicates++;
+    delivered.push({ signature: signatureOf(tx), slot: tx.slot, blockTime: tx.blockTime ?? null, body: slim(tx) });
   }
-  if (stored || duplicates) deps.schedule(deps.afterStore);
+  if (stored || duplicates) {
+    deps.schedule(async () => {
+      await deps.capture?.(delivered).catch(() => undefined);
+      return deps.afterStore();
+    });
+  }
   return { stored, duplicates, ignored };
 }
 
@@ -152,6 +161,8 @@ export interface DecodeDeps {
   rpc: Rpc;
   limit?: number;
   warn?: (message: string) => void;
+  /** Called for every finalized row before it is decoded; `lastTry` is true because no later pass reads the row again. Its failure never stops the decode. */
+  captureEnds?: (tx: StoredTx, lastTry: boolean) => Promise<unknown>;
 }
 
 /**
@@ -162,6 +173,7 @@ export async function decodePending(deps: DecodeDeps): Promise<{ decoded: number
   let decoded = 0;
   let failed = 0;
   for (const row of await deps.store.toDecode(deps.limit ?? 200)) {
+    await deps.captureEnds?.(row, true).catch((e) => deps.warn?.(`end state of ${row.signature.slice(0, 8)} not captured: ${String((e as Error).message ?? e)}`));
     let records: MatchRecord[];
     try {
       records = recordsOfRawTx(row.body);

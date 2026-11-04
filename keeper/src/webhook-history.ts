@@ -1,6 +1,8 @@
 import { log, type Ctx } from "./act.ts";
 import { historyRpc, webhookHistoryOn } from "./history.ts";
 import { eventAuthority } from "./kit.ts";
+import { Connection } from "@solana/web3.js";
+import { endCaptureHooks } from "../../app/src/server/history/end-capture.ts";
 import { catchUp, decodePending, jsonRpcCoreChain, rpcWebhookStore } from "../../app/src/server/history/webhook.ts";
 
 /**
@@ -39,7 +41,8 @@ function realCatchUpDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): CatchU
       if (!rpc) throw new Error("webhook history needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
       const store = rpcWebhookStore(rpc);
       const c = await catchUp({ store, chain: jsonRpcCoreChain(ctx.settings.rpc, eventAuthority.toBase58()), firstPages: Number(env.KEEPER_HISTORY_FIRST_PAGES ?? 1) });
-      const d = await decodePending({ store, rpc, warn: (m) => log("webhook", "-", `WARN ${m}`) });
+      const ends = endCaptureHooks(rpc, new Connection(ctx.settings.rpc, "confirmed"), (m) => log("webhook", "-", m));
+      const d = await decodePending({ store, rpc, captureEnds: ends.captureEnds, warn: (m) => log("webhook", "-", `WARN ${m}`) });
       return { stored: c.stored, finalized: c.finalized, decoded: d.decoded, failed: d.failed };
     },
   };
