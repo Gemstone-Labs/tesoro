@@ -95,7 +95,7 @@ const DEPARTED: u8 = 1;
 const CLOSED: u8 = 2;
 
 impl ManySeatRecord {
-    pub const LEN: usize = 32 * 5 + 8 * 7 + 2 * 2 + 10 + 6;
+    pub const LEN: usize = 32 * 4 + 8 * 7 + 2 * 2 + 10 + 6;
 
     #[allow(clippy::too_many_arguments)]
     pub fn open(
