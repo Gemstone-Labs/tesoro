@@ -164,6 +164,23 @@ export function opProgress(op: EthOp, s: EthState | null, vp: VaultPosition | nu
   }
 }
 
+/** The button that finishes an operation by hand when its automatic step failed, named for what the Player sees; null for steps with no such button. */
+export function finishLabel(next: OpAction | null): string | null {
+  switch (next) {
+    case "apply-locked":
+      return "Finish opening";
+    case "send-unlock":
+      return "Finish unlock";
+    case "send-pay-yield":
+    case "send-pay-instant":
+      return "Finish payout";
+    case "apply-yield":
+      return "Finish update";
+    default:
+      return null;
+  }
+}
+
 export interface ScanStatus {
   name: string;
   destinationTx: string | null;

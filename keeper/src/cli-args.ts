@@ -107,3 +107,35 @@ export async function adminSigning(a: Args, over: Partial<Record<ProgramName, st
 
 /** The common flags every admin script shares, for usage text. */
 export const COMMON_FLAGS = "--keypair <file> [--rpc <url>] [--cluster test|mainnet] [--program tesoro_core=<ID>]";
+
+/** The flags a keeper CLI accepts: `bare` ones take no value, `valued` ones take the next argument. */
+export interface FlagSpec {
+  bare: string[];
+  valued: string[];
+}
+
+/** The problem with `argv` (an unknown flag, `--help` included, or a stray argument), or null when it is fine. */
+export function unknownFlag(argv: string[], spec: FlagSpec): string | null {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (!a.startsWith("--")) return `unexpected argument ${a}`;
+    const name = a.slice(2);
+    if (spec.valued.includes(name)) i++;
+    else if (!spec.bare.includes(name)) return `unknown flag ${a}`;
+  }
+  return null;
+}
+
+/** Prints `usage` and exits 2 on an unknown flag or `--help`; a CLI calls it first, before it reads a key or sends anything. */
+export function exitOnUnknownFlag(argv: string[], spec: FlagSpec, usage: string): void {
+  const bad = unknownFlag(argv, spec);
+  if (bad === null) return;
+  console.error(`${bad}\n${usage}`);
+  process.exit(2);
+}
+
+/** The settings flags every keeper CLI shares (`settings()` reads them). `--new-dev-key` is not among them: only the main keeper takes it. */
+export const KEEPER_CLI_FLAGS: FlagSpec = {
+  bare: ["dry-run", "once"],
+  valued: ["rpc", "gpa-rpc", "hoodi-rpc", "hyperevm-rpc", "interval", "fast", "max-sol-per-hour", "max-lz-fee-sol", "max-lz-sol-per-hour"],
+};

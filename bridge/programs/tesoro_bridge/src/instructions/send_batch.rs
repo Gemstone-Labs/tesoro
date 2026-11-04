@@ -70,6 +70,7 @@ impl SendBatch<'_> {
             msg_type: MSG_CASH_IN_BATCH,
             seq: params.batch_id,
             amount: total,
+            delivery_fee: 0,
         });
         Ok(())
     }

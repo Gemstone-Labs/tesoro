@@ -22,6 +22,8 @@ export interface Settings {
   /** List queries (getProgramAccounts): the public devnet RPC allows them, most free tiers do not. */
   gpaRpc: string;
   keypairPath: string;
+  /** Key file of the table operator (`TableConfig.operator`); unset means the keeper key is the operator. */
+  operatorKeypairPath: string | undefined;
   intervalMs: number;
   /** Between full passes, how often the Block Burst fast lane runs (0 turns it off). */
   fastMs: number;
@@ -35,6 +37,8 @@ export interface Settings {
   hyperEvmRpc: string;
   /** Simulated: report what would be done, send nothing. */
   dryRun: boolean;
+  /** `--new-dev-key`: the main keeper may create its key file when it is missing. No other path ever creates a key. */
+  newDevKey: boolean;
 }
 
 export function settings(argv = process.argv.slice(2), env = process.env): Settings {
@@ -56,6 +60,7 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
     rpc: rpcOr(value("rpc") || env.KEEPER_RPC || env.TESORO_BASE_RPC, "KEEPER_RPC", cluster.solana.defaultRpc),
     gpaRpc: rpcOr(value("gpa-rpc") || env.KEEPER_GPA_RPC, "KEEPER_GPA_RPC", cluster.solana.defaultGpaRpc),
     keypairPath: env.KEEPER_KEYPAIR ?? join(homedir(), ".config/tesoro/keeper.json"),
+    operatorKeypairPath: env.KEEPER_OPERATOR_KEYPAIR || undefined,
     intervalMs: num(value("interval") ?? env.KEEPER_INTERVAL_SECS, 20) * 1000,
     fastMs: num(value("fast") ?? env.KEEPER_FAST_SECS, 2) * 1000,
     once: flag("once"),
@@ -65,6 +70,7 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
     hoodiRpc: rpcOr(value("hoodi-rpc") ?? env.KEEPER_HOODI_RPC, "KEEPER_HOODI_RPC", "https://ethereum-hoodi-rpc.publicnode.com"),
     hyperEvmRpc: rpcOr(value("hyperevm-rpc") ?? env.KEEPER_HYPEREVM_RPC, "KEEPER_HYPEREVM_RPC", "https://rpc.hyperliquid-testnet.xyz/evm"),
     dryRun: flag("dry-run"),
+    newDevKey: flag("new-dev-key"),
   };
 }
 
@@ -79,7 +85,7 @@ export function readKeypair(path: string): Keypair {
 
 /**
  * Refuses to start unless both RPCs serve the cluster's Solana network, then loads the keeper's payer: `KEEPER_SECRET_KEY` when set,
- * else the key file (created on first run). With `KEEPER_KEYS_FROM_ENV=1` (hosted) a missing secret is fatal instead.
+ * else the key file. A missing key file is an error; only `--new-dev-key` (main keeper) creates one. With `KEEPER_KEYS_FROM_ENV=1` (hosted) a missing secret is fatal instead.
  * The keeper never funds itself: an empty payer is reported and topped up by hand.
  */
 export async function loadPayer(conn: Connection, s: Settings, log: (m: string) => void, gpa: Connection = conn): Promise<Keypair> {
@@ -93,6 +99,8 @@ export async function loadPayer(conn: Connection, s: Settings, log: (m: string) 
     throw new Error("KEEPER_SECRET_KEY is not set (KEEPER_KEYS_FROM_ENV=1: no key files on this host)");
   } else if (existsSync(s.keypairPath)) {
     payer = readKeypair(s.keypairPath);
+  } else if (!s.newDevKey) {
+    throw new Error(`no keeper key: ${s.keypairPath} does not exist and KEEPER_SECRET_KEY is not set (nothing was created; the main keeper creates a dev key only with --new-dev-key)`);
   } else {
     mkdirSync(dirname(s.keypairPath), { recursive: true });
     payer = Keypair.generate();

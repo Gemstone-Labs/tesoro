@@ -1,6 +1,6 @@
 # 0014: Journal sponsor reservations by generation before broadcast
 
-Status: accepted for implementation; runtime rollout requires the database and every sponsor writer to move together.
+Status: accepted for implementation; runtime rollout requires the database and every sponsor writer to move together. Amended by keeper diet ticket 16 (see "Release at admission"): the observer below is only for holds made before that amendment.
 
 ## Context
 
@@ -47,6 +47,38 @@ This proof depends on two current Core rules: Match IDs use a permanent increasi
 sponsored Ticket cannot adopt an existing reservation. A self-paid Ticket recreation therefore cannot turn the old reserve
 into a new sponsored lifecycle. Legacy rows without an originating signature remain outside this observer and need a
 generation captured before closure or separately reviewed historical provenance.
+
+## Release at admission (keeper diet ticket 16)
+
+The observer above exists because a Ticket or Pot address `["ticket", account, nonce]` could be made again after it
+closed, so "the address is absent" proved nothing. Core now removes that cause. `AccountCounters` (the never-closed
+`["counters", account]` account that already numbers Matches) gains `next_ticket`. `open_ticket` and the fresh Pot of
+`open_match` and `join_match` must pass exactly the seed Account's `next_ticket` as the nonce, and the counter moves past it
+in the same transaction. A Match already needed `n == next_match`. So for every address the sponsor holds, an address that
+holds no Core account while its counter is past its number was created, then closed, and can never be made again.
+
+The server therefore releases a hold at its next admission, with no keeper pass and whoever closed the account (the
+keeper, the winner's page, a Player paying their own fee):
+
+- The journal stores each created or ensured address's seed (`match` or `ticket`, the Account, the number) on the
+  `sponsor_hold` row. A joined Match gets its seed from the Match account at build time.
+- The check reads the address and the Account's counters in one `getMultipleAccounts` call at finalized commitment, so both
+  come from one slot. A creating transaction that lands between two reads cannot look like a close.
+- The hold goes only if the address is absent or not owned by Core, the counters account has the current 33-byte layout,
+  and the counter is greater than the number. It is deleted by compare-and-delete on its generation under the existing
+  advisory lock, so a newer hold on the same address is never touched.
+- Holds without a seed (made before the amendment) keep the observer; once none are left, the observer and the keeper's
+  sponsor job are unused.
+
+Review (fresh-context reviewer, 2026-11-02, verdict SAFE WITH CHANGES). Nothing resets or lowers a counter (no close,
+retire or admin path touches counters), no other instruction creates at a `["ticket", ...]` or `["match", ...]` address,
+and the single-call read closes the race. Changes taken: the one-call read; a missing, short or foreign counters account
+proves nothing; the Backer's counters are mutable in a backed Pot. Objections kept as accepted costs: every client that
+makes a Ticket or Pot must read `next_ticket` first (a second tab or a retry fails with `TicketNonceMismatch` and is rebuilt),
+and a Backer's own Tickets and a Requester's Backing Ticket share the Backer's counter, so one can make the other's
+transaction fail at the cost of a fee. The cheaper fallback (release when absent after the journal's blockhash expired) was
+rejected: it can leak a hold when an address is made again, and it relies on timing. Counters made before the amendment have
+25 bytes; `grow_counters` (anyone; the payer pays the 8 bytes of rent) grows one and starts `next_ticket` at 2^63, above every nonce an old client chose (zero would let a closed Ticket's address come back). The sponsor and the client put it in front of any transaction that reads an old account, so no Player is locked out between the upgrade and the sweep; `migrate_counters` (admin) is the bulk sweep. `close_match` lowers the open-Match count of a 25-byte account in place.
 
 ## Rollout and rollback
 

@@ -1,7 +1,10 @@
 "use client";
 
+import { atNextEpoch, startNote } from "@/lib/chain/table-clean";
 import { useAuth } from "@/lib/auth/context";
 import { finalizeFree } from "@/lib/chain/game-finalize";
+import { finalizeAndFinishFree, finishMatchFree } from "@/lib/chain/finish-match-client";
+import { createFinisher } from "@/lib/chain/finish-match";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getTradingDuel } from "@/lib/chain/client";
@@ -123,6 +126,8 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
   const failures = useRef(0);
 
   const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
+  // Chunks and close_match for a Match whose result is committed; any Player's page may send them, the safety sweep covers the rest.
+  const finisher = useRef<{ key: string; run: () => Promise<unknown> } | null>(null);
   const p = useMemo(() => (signer ? (signer as unknown as PlayerSigner) : null), [signer]);
 
   // Every stage goes through the tracker: a late or missing read never moves the screen back.
@@ -188,7 +193,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
       if (!base || !canFinalize(base, a, Date.now() / 1000)) return;
       setView((v) => (v.commit ? { ...v, commit: null } : v));
       try {
-        await finalizeFree(td, signer, () => tokenRef.current(), a);
+        await finalizeAndFinishFree(signer, () => tokenRef.current(), mk, () => finalizeFree(td, signer, () => tokenRef.current(), a));
       } catch (e) {
         const again = await fetchMatch(id, BlockPuzzleChain.coreAccount(signer.publicKey));
         if (again && (again.status === "settled" || again.status === "refunded")) return;
@@ -210,6 +215,10 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
     seatRef.current = seat;
     setView((v) => (v.seat === seat ? v : { ...v, seat }));
     if (m.status === "open") return setStage("waiting");
+    if (m.running || m.status === "settled" || m.status === "refunded") {
+      if (finisher.current?.key !== mk.toBase58()) finisher.current = { key: mk.toBase58(), run: createFinisher(() => finishMatchFree(signer, () => tokenRef.current(), mk)) };
+      void finisher.current.run();
+    }
     if (m.status === "settled" || m.status === "refunded") {
       setStage("settled");
       if (!finalRead.current) {
@@ -239,11 +248,19 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
     const t = await td.readTable(p, a);
     if (!t) return setStage("setup", "Setting up the Match");
     const d = decodeDuel(a, t);
+    if (!d && atNextEpoch(a, t)) {
+      // The previous Match settled and the table is not reset yet: begin_match resets it once it may (30 s after the
+      // result), so an early or failed try is quietly repeated on the next read.
+      if ((Date.now() + offsetRef.current) / 1000 > a.startDeadline) return setStage("setup", "The Match was never started: the entries come back soon");
+      setStage("setup", startNote(t.phase === PHASE.over));
+      if (late) await td.beginMatch(p, a, t).catch(() => undefined);
+      return;
+    }
     if (!d && t.phase === PHASE.idle && t.epoch === a.epoch) {
       // Assigned, not begun: the table is Idle at the Match's epoch. Begin only inside the start window (the program refuses later).
       if ((Date.now() + offsetRef.current) / 1000 > a.startDeadline) return setStage("setup", "The Match was never started: the entries come back soon");
       setStage("setup", "Starting the Match");
-      if (late) await td.beginMatch(p, a).catch(() => undefined);
+      if (late) await td.beginMatch(p, a, t).catch(() => undefined);
       return;
     }
     if (!d) {

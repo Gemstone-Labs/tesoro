@@ -61,8 +61,8 @@ export const NETS: Record<NetKey, EvmNet> = {
  * for the new vault. The keeper reads vaults off the Position ids on chain and needs no address.
  */
 const SIM_VAULT_ADDRESSES = {
-  hoodi: { vault: "0x7A996874B9Ffc35cC36bF154D02a23D16863a087", lst: "0xD82840623A7a00C37b0883d221Fa84e39ddA2a28" },
-  hyperevm: { vault: "0xdD12E37A9C35137Be8a4F871507986dA4671B20B", lst: "0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3" },
+  hoodi: { vault: "0xFAd3f091D2aC03B837748181A14692e9212d6628", lst: "0xD82840623A7a00C37b0883d221Fa84e39ddA2a28" },
+  hyperevm: { vault: "0x681E4422893cA5a76194dff008F530fc9abd7E09", lst: "0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3" },
 } as const satisfies Record<NetKey, { vault: Address; lst: Address }>;
 
 export interface EthVault {
@@ -244,6 +244,8 @@ export const BRIDGE_AUTHORITY = pda([s("authority")], BRIDGE_ID);
 export const bridgeStore = () => BRIDGE_STORE;
 /** The network a Position id belongs to: its first 20 bytes are the vault. */
 const netOfPid = (pid: Uint8Array) => netOfVault(`0x${Buffer.from(pid.subarray(0, 20)).toString("hex")}`);
+/** A vault's Delivery Fee terms (`set_delivery_terms`). */
+export const deliveryTermsPda = (vault: string) => pda([s("delivery"), u32be(netOfVault(vault).eid), hexBytes(vault, 32)], BRIDGE_ID);
 export const bridgePeerPda = (vault: string) => pda([s("Peer"), BRIDGE_STORE.toBuffer(), u32be(netOfVault(vault).eid), hexBytes(vault, 32)], BRIDGE_ID);
 /** The bridge's mirror of a vault's treasury: `["treasury", eid u32 BE, vault address left-padded to 32 bytes]`. */
 export const vaultTreasuryPda = (eid: number, vault: string) => pda([s("treasury"), u32be(eid), hexBytes(vault, 32)], BRIDGE_ID);
@@ -311,12 +313,15 @@ const lineBytes = (l: LineRef) => {
  * Redeems Gemas of one line of an ETH or HYPE Source and records the payout owed on its EVM chain (never `tesoro_core::redeem`, which would burn
  * them unrecorded). `target.accounts` are the Source's book and checkpoint pages. `send_pay_yield` then delivers the payout.
  */
-export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, net: EvmNet, target: { line: LineRef; accounts: PublicKey[] }) => {
+export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, vault: string, target: { line: LineRef; accounts: PublicKey[] }, payer: PublicKey = holder) => {
+  const net = netOfVault(vault);
   const account = coreAccountPda(holder);
   return new TransactionInstruction({
     programId: BRIDGE_ID,
     keys: [
-      meta(holder, true, true),
+      // The holder only signs; `payer` funds the Claim's rent (the holder, or the sponsor's relayer for a holder with no SOL).
+      meta(holder, false, true),
+      meta(payer, true, true),
       meta(BRIDGE_STORE),
       meta(pda([s("authority")], BRIDGE_ID)),
       meta(sourceAuthPda(net)),
@@ -326,6 +331,8 @@ export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: Pu
       meta(basketPda(account), true),
       meta(spillPda(account), true),
       meta(claimPda(account, source), true),
+      meta(deliveryTermsPda(vault)),
+      meta(bridgePeerPda(vault)),
       meta(TESORO_CORE_ID),
       meta(SystemProgram.programId),
       ...target.accounts.map((k) => meta(k, true)),

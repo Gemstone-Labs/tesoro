@@ -5,7 +5,7 @@ import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js
 import { permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import duelIdl from "../../lib/chain/idl/trading_duel.json";
-import { ASSETS, TRADING_DUEL_PROGRAM_ID, TradingDuelChain, assignmentPda, bookPda, keypairSigner, sponsorPda, tablePda, type Assignment } from "./chain";
+import { ASSETS, TRADING_DUEL_PROGRAM_ID, TradingDuelChain, assignmentPda, bookPda, keypairSigner, magicFeeVaultPda, sponsorPda, tablePda, type Assignment } from "./chain";
 import { NO_PICK } from "./grid";
 
 /** The instructions the client would send, captured instead of sent. */
@@ -47,14 +47,18 @@ describe("table addresses", () => {
 });
 
 describe("rollup instructions", () => {
-  it("tick takes caller, table, both Books and the price feed; end_match the same without the feed", async () => {
+  it("tick takes caller, table, both Books and the price feed; end_match names the same four, then what closes the Books and commits", async () => {
     const { chain, sent, player } = capture();
     await chain.tick(player, assignment, ASSETS[1]);
     await chain.end(player, assignment);
     for (const s of sent) expect(s.ix.programId.equals(TRADING_DUEL_PROGRAM_ID)).toBe(true);
     const base = [player.publicKey, table, bookPda(table, 0), bookPda(table, 1)].map((k) => k.toBase58());
     expect(keys(sent[0].ix)).toEqual([...base, ASSETS[1].feed.toBase58()]);
-    expect(keys(sent[1].ix)).toEqual(base);
+    const end = keys(sent[1].ix);
+    expect(end.slice(0, 4)).toEqual(base);
+    for (const k of [bookPda(table, 0), bookPda(table, 1)]) expect(end).toContain(permissionPdaFromAccount(k).toBase58());
+    expect(end).toContain(sponsorPda().toBase58());
+    expect(end).toContain(magicFeeVaultPda().toBase58());
     expect(sent.map((s) => s.step)).toEqual(["tick", "end_match"]);
     expect(sent[0].ix.keys[0].isSigner).toBe(true);
     expect(sent[0].ix.keys[1].isWritable).toBe(true);
@@ -79,7 +83,10 @@ describe("rollup instructions", () => {
   it("begin_match names the Assignment, the table and the core Match", async () => {
     const { chain, sent, player } = capture();
     await chain.beginMatch(player, assignment);
-    expect(keys(sent[0].ix)).toEqual([player.publicKey, assignment.address, table, ID].map((k) => k.toBase58()));
+    const k = keys(sent[0].ix);
+    // The Assignment and the core Match, then the account list of the instructions that end a Match (a void wipes and commits).
+    expect(k.slice(0, 4)).toEqual([assignment.address, ID, player.publicKey, table].map((x) => x.toBase58()));
+    expect(k).toHaveLength(14);
   });
 
   it("open_seats names both Books and their permissions", async () => {

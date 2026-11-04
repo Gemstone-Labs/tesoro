@@ -15,8 +15,13 @@ use tesoro_core::{
 // its Treasury holds. The recipient is the holder's proven EVM address.
 #[derive(Accounts)]
 pub struct RedeemPrizeToEvm<'info> {
-    #[account(mut)]
+    /// The holder: signs the cash-out as the Account's authority. Pays and receives nothing, so a
+    /// holder with no SOL can cash out.
     pub holder_authority: Signer<'info>,
+    /// Pays the payout record's rent and gets it back at `close_payout` (`rent_payer`): the holder, or
+    /// a sponsor on the holder's behalf. It only funds the account; it gains no say over it.
+    #[account(mut)]
+    pub payer: Signer<'info>,
     #[account(seeds = [STORE_SEED], bump = store.bump)]
     pub store: Account<'info, Store>,
     /// CHECK: PDA that signs into tesoro_core; address fixed by seeds and the stored bump.
@@ -69,7 +74,7 @@ pub struct RedeemPrizeToEvm<'info> {
     pub prize_source: Box<Account<'info, PrizeSourceState>>,
     #[account(
         init,
-        payer = holder_authority,
+        payer = payer,
         space = 8 + PayoutRecord::INIT_SPACE,
         seeds = [
             PAYOUT_SEED,
@@ -80,6 +85,12 @@ pub struct RedeemPrizeToEvm<'info> {
         bump
     )]
     pub payout: Box<Account<'info, PayoutRecord>>,
+    /// The vault's Delivery Fee terms. A prize cash-out pays the fee like any Redeem.
+    #[account(
+        seeds = [DELIVERY_SEED, &route.eid.to_be_bytes(), &route.peer_address],
+        bump = delivery_terms.bump
+    )]
+    pub delivery_terms: Box<Account<'info, DeliveryTerms>>,
     pub core_program: Program<'info, TesoroCore>,
     pub system_program: Program<'info, System>,
 }
@@ -87,6 +98,11 @@ pub struct RedeemPrizeToEvm<'info> {
 impl RedeemPrizeToEvm<'_> {
     pub fn apply(ctx: &mut Context<RedeemPrizeToEvm>, gemas: u64) -> Result<()> {
         require!(ctx.accounts.holder_account.evm_address != [0u8; 20], BridgeError::NoEvmAddress);
+        // The prize's value in the vault's asset is only known on the vault, which holds the
+        // percentage cap; here the minimum is in Gemas and the flat fee stays under its own cap.
+        let terms = &ctx.accounts.delivery_terms;
+        terms.require_min_prize(gemas)?;
+        let delivery_fee = terms.delivery_fee.min(terms.max_abs);
         let before = ctx.accounts.prize_source.inner.shares;
         let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &[ctx.accounts.store.authority_bump]]];
         tesoro_core::cpi::begin_prize_payout_from_source(
@@ -119,7 +135,7 @@ impl RedeemPrizeToEvm<'_> {
         payout.peer_address = route.peer_address;
         payout.id = id;
         payout.bump = ctx.bumps.payout;
-        payout.rent_payer = ctx.accounts.holder_authority.key();
+        payout.rent_payer = ctx.accounts.payer.key();
         payout.state = PAYOUT_PENDING;
         payout.holder_account = ctx.accounts.holder_account.key();
         payout.recipient = ctx.accounts.holder_account.evm_address;
@@ -127,6 +143,7 @@ impl RedeemPrizeToEvm<'_> {
         payout.asset = route.asset;
         payout.gemas = gemas;
         payout.shares = shares;
+        payout.delivery_fee = delivery_fee;
         emit!(PrizePayoutOpened {
             eid: payout.eid,
             peer_address: payout.peer_address,

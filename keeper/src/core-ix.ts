@@ -2,42 +2,13 @@ import anchor from "@coral-xyz/anchor";
 import type { AccountMeta, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { gameRecordOf, pda, programDataOf } from "./kit.ts";
 
-/** The tesoro_core program client (`ctx.core`), which the app and the keeper type differently (two installs of anchor). */
-export type Core = { methods: any; coder: any; account: any; programId: any };
-
-export const meta = (pubkey: PublicKey, writable = true): AccountMeta => ({ pubkey, isSigner: false, isWritable: writable });
+import { closeMatchIx, matchChunkIx, meta, type Core } from "../../app/src/lib/chain/settle-plan.ts";
+export { closeMatchIx, matchChunkIx, meta };
+export type { Core };
 
 const BN = anchor.BN;
 export type StoreKind = "basket" | "spill";
 const storeKind = (k: StoreKind) => (k === "basket" ? { basket: {} } : { spill: {} });
-
-/** Runs up to `steps` steps of a Settling or Refunding Match. Anyone may send it. */
-export const matchChunkIx = (core: Core, o: { caller: PublicKey; matchState: PublicKey; potA: PublicKey; potB?: PublicKey | null; steps: number; remaining: AccountMeta[] }): Promise<TransactionInstruction> =>
-  core.methods
-    .matchChunk(o.steps)
-    .accountsPartial({ caller: o.caller, matchState: o.matchState, potA: o.potA, potB: o.potB ?? null })
-    .remainingAccounts(o.remaining)
-    .instruction();
-
-/** Closes a finished Match: remaining = the spill of every room hold with Gemas left, then both Players' counters. */
-export const closeMatchIx = (
-  core: Core,
-  o: { caller: PublicKey; matchState: PublicKey; matchPayer: PublicKey; potA: PublicKey; potAPayer: PublicKey; potB?: PublicKey | null; potBPayer?: PublicKey | null; sponsor?: PublicKey | null; remaining: AccountMeta[] },
-): Promise<TransactionInstruction> =>
-  core.methods
-    .closeMatch()
-    .accountsPartial({
-      caller: o.caller,
-      matchState: o.matchState,
-      matchPayer: o.matchPayer,
-      potA: o.potA,
-      potAPayer: o.potAPayer,
-      potB: o.potB ?? null,
-      potBPayer: o.potBPayer ?? null,
-      sponsor: o.sponsor ?? null,
-    })
-    .remainingAccounts(o.remaining)
-    .instruction();
 
 /** Starts a refund of an Open or Active Match: the Game's authority at any time, anyone once its deadline passed or its Game was upgraded. */
 export const refundMatchIx = (core: Core, o: { caller: PublicKey; payer: PublicKey; game: PublicKey; matchState: PublicKey; openerProtections?: PublicKey | null }): Promise<TransactionInstruction> =>
@@ -73,8 +44,8 @@ export const closeTicketIx = (core: Core, o: { caller: PublicKey; ticket: Public
 export const closeReceiptIx = (core: Core, o: { caller: PublicKey; receipt: PublicKey; payer: PublicKey }): Promise<TransactionInstruction> =>
   core.methods.closeReceipt().accountsPartial({ caller: o.caller, receipt: o.receipt, payer: o.payer }).instruction();
 
-export const closePairIx = (core: Core, o: { caller: PublicKey; opener: PublicKey; joiner: PublicKey; pair: PublicKey; payer: PublicKey }): Promise<TransactionInstruction> =>
-  core.methods.closePair(o.opener, o.joiner).accountsPartial({ caller: o.caller, pair: o.pair, payer: o.payer }).instruction();
+export const closePairIx = (core: Core, o: { caller: PublicKey; pair: PublicKey; payer: PublicKey }): Promise<TransactionInstruction> =>
+  core.methods.closePair().accountsPartial({ caller: o.caller, pair: o.pair, payer: o.payer }).instruction();
 
 export const refreshListingIx = (core: Core, o: { gameRecord: PublicKey; game: PublicKey }): Promise<TransactionInstruction> =>
   core.methods.refreshListing().accountsPartial({ gameRecord: o.gameRecord, gameProgram: o.game, programData: programDataOf(o.game) }).instruction();

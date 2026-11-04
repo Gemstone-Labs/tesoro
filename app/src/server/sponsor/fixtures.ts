@@ -174,3 +174,9 @@ export function gameStepIx(program: PublicKey, step: StepName, match: PublicKey,
 }
 const keysFor = (program: PublicKey, step: StepName, match: PublicKey) =>
   Array.from({ length: stepKeyCount(program, step) }, (_, i) => (i === matchIndexOf(program, step) ? match : key()));
+
+/** The LayerZero endpoint's send accounts for a vault as devnet returns them: 26, the payer at #13 (bridge-lookup-table.mts prints it). */
+export function withPayerAt13(payer: PublicKey): { pubkey: string; signer: boolean; writable: boolean }[] {
+  const others = Array.from({ length: 25 }, (_, i) => ({ pubkey: key().toBase58(), signer: false, writable: i % 3 === 0 }));
+  return [...others.slice(0, 13), { pubkey: payer.toBase58(), signer: true, writable: true }, ...others.slice(13)];
+}

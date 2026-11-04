@@ -8,7 +8,9 @@ import { HoldemChain, keypairSigner as holdemSigner } from "../../app/src/games/
 import { TradingDuelChain } from "../../app/src/games/trading-duel/chain.ts";
 import { VanguardChain } from "../../app/src/games/vanguard/chain.ts";
 import { SplitConnection, type GpaFn } from "../../app/src/lib/chain/split-connection.ts";
-import type { Settings } from "./env.ts";
+import { keeperCluster } from "./cluster.ts";
+import { makeScanRpc, meter, meteredFetch, scanProgramAccounts } from "./credits.ts";
+import { readKeypair, type Settings } from "./env.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "../..");
@@ -51,6 +53,8 @@ export interface Runtime {
   settings: Settings;
   conn: Connection;
   payer: Keypair;
+  /** Signs and pays the operator-only calls (tables, assign, Sponsor and Fuel): `KEEPER_OPERATOR_KEYPAIR`, else the keeper key. */
+  operator: Keypair;
   bp: BlockPuzzleChain;
   holdem: HoldemChain;
   burst: BlockBurstChain;
@@ -58,13 +62,17 @@ export interface Runtime {
   vanguard: VanguardChain;
   signer: ReturnType<typeof keypairSigner>;
   hsigner: ReturnType<typeof holdemSigner>;
+  osigner: ReturnType<typeof holdemSigner>;
   core: BlockPuzzleChain["core"];
   coreIdl: any;
   /** Unix seconds of the cluster (the clock the programs use), not the local one. */
   now: number;
 }
 
-const connConfig = { commitment: "confirmed", fetch: fetchWithBackoff as typeof fetch, disableRetryOnRateLimit: true } as const;
+/** fetchWithBackoff for Solana RPC endpoints, metered by the keeper's one `meter` (credits.ts); a plain getProgramAccounts is refused on mainnet. Build every Solana `Connection` with it. */
+export const solanaFetch = meteredFetch(fetchWithBackoff as typeof fetch, meter, { mainnet: () => keeperCluster().id === "mainnet" });
+
+const connConfig = { commitment: "confirmed", fetch: solanaFetch, disableRetryOnRateLimit: true } as const;
 
 type Statuses = Pick<Connection, "getSignatureStatuses" | "getBlockHeight">;
 type Strategy = string | { signature: string; lastValidBlockHeight?: number };
@@ -109,11 +117,16 @@ export class SharedReads {
 export type KeeperConnection = Connection & { forgetLists?: () => void };
 
 /** Sends and single reads on `rpc`; getProgramAccounts on `gpaRpc`, shared for 5s (one loop asks for the same list many times). */
-export function newConnection(rpc: string, gpaRpc: string = rpc): KeeperConnection {
-  const gpaConn = new Connection(gpaRpc, connConfig);
+export function newConnection(rpc: string, gpaRpc: string = rpc, fetchFn: typeof fetch = solanaFetch): KeeperConnection {
+  const gpaConn = new Connection(gpaRpc, { ...connConfig, fetch: fetchFn });
+  const scanRpc = makeScanRpc(gpaRpc, fetchFn, (p, c) => gpaConn.getProgramAccounts(p, c as any) as any);
   const shared = new SharedReads();
-  const gpa: GpaFn = (programId, config) => shared.get(`${programId.toBase58()}:${JSON.stringify(config ?? {})}`, () => gpaConn.getProgramAccounts(programId, config as any) as Promise<any>);
-  const conn: KeeperConnection = new SplitConnection(rpc, gpa, connConfig);
+  /** Every list is a paginated scan (getProgramAccountsV2 on Helius), so the keeper never sends a plain getProgramAccounts where it is refused. */
+  const gpa: GpaFn = (programId, config) => {
+    const cfg = typeof config === "string" || !config ? {} : config;
+    return shared.get(`${programId.toBase58()}:${JSON.stringify(cfg)}`, () => scanProgramAccounts(scanRpc, programId, { filters: cfg.filters, dataSlice: cfg.dataSlice }));
+  };
+  const conn: KeeperConnection = new SplitConnection(rpc, gpa, { ...connConfig, fetch: fetchFn });
   conn.confirmTransaction = ((strategy: Strategy) => pollConfirm(conn, strategy)) as Connection["confirmTransaction"];
   conn.forgetLists = () => shared.clear();
   return conn;
@@ -126,7 +139,8 @@ export function buildRuntime(settings: Settings, conn: Connection, payer: Keypai
   const burst = new BlockBurstChain(loadIdl("block_puzzle"), coreIdl, { base: conn });
   const duel = new TradingDuelChain(loadIdl("trading_duel"), coreIdl, { base: conn });
   const vanguard = new VanguardChain(loadIdl("vanguard"), coreIdl, { base: conn });
-  return { settings, conn, payer, bp, holdem, burst, duel, vanguard, signer: keypairSigner(payer), hsigner: holdemSigner(payer), core: bp.core, coreIdl, now: 0 };
+  const operator = settings.operatorKeypairPath ? readKeypair(settings.operatorKeypairPath) : payer;
+  return { settings, conn, payer, operator, osigner: holdemSigner(operator), bp, holdem, burst, duel, vanguard, signer: keypairSigner(payer), hsigner: holdemSigner(payer), core: bp.core, coreIdl, now: 0 };
 }
 
 /** Cluster time, so deadline checks agree with the on-chain Clock. */

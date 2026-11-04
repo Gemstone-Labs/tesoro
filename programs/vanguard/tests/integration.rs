@@ -283,11 +283,18 @@ impl Env {
             Ok(meta) => {
                 self.last_cu = meta.compute_units_consumed;
                 self.last_logs = meta.logs;
+                // A commit that reached the magic program puts the table on base (the stand-in for
+                // what the validator does with it).
+                let commit = format!("Program {} invoke", litesvm_magic_stub::magic_program());
+                if self.last_logs.iter().any(|l| l.starts_with(&commit)) {
+                    if let Some(acct) = self.svm.get_account(&s(self.table)) {
+                        self.committed.insert(self.table, acct.data);
+                    }
+                }
                 Ok(())
             }
             Err(e) => {
                 self.last_cu = e.meta.compute_units_consumed;
-                self.last_logs = e.meta.logs.clone();
                 Err(e)
             }
         }
@@ -483,6 +490,7 @@ impl Env {
 
     fn build(sigverify: bool) -> Self {
         let mut svm = LiteSVM::new().with_sigverify(sigverify);
+        litesvm_magic_stub::install(&mut svm);
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/");
         for (id, file) in [
             (tesoro_core::ID, "tesoro_core.so"),
@@ -496,9 +504,6 @@ impl Env {
             svm.add_program_from_file(s(id), path)
                 .expect("load program");
         }
-        // The Magic program is only passed as an account; an executable stands in for it.
-        svm.add_program_from_file(sdk_key(MAGIC_PROGRAM_ID), format!("{root}tesoro_core.so"))
-            .expect("magic stand-in");
         let placeholder = |kp: Keypair| Person {
             key: a(kp.pubkey()),
             account: APk::default(),
@@ -909,16 +914,12 @@ impl Env {
     }
 
     fn begin_ix(&self) -> Instruction {
-        let ad = addrs_of(self.table);
         ix(
             vanguard::ID,
             vanguard::accounts::BeginMatch {
-                caller: a(self.oracle.pubkey()),
                 assignment: assign_addr(self.tmatch),
-                table: self.table,
-                battle: ad.battle,
                 tesoro_match: self.tmatch,
-                vanguard_config: config_pda(),
+                ending: self.concluding(a(self.oracle.pubkey())),
             },
             vanguard::instruction::BeginMatch {},
             vec![],
@@ -927,6 +928,19 @@ impl Env {
 
     fn begin(&mut self) -> Result<(), Failed> {
         let ixn = self.begin_ix();
+        self.rollup(ixn)
+    }
+
+    /// `begin_match` with the settlement receipts of `matches` passed as remaining accounts.
+    fn begin_with(&mut self, matches: &[APk]) -> Result<(), Failed> {
+        let mut ixn = self.begin_ix();
+        for m in matches {
+            ixn.accounts.push(AccountMeta {
+                pubkey: s(tpda(&[b"settled", m.as_ref()])),
+                is_signer: false,
+                is_writable: false,
+            });
+        }
         self.rollup(ixn)
     }
 
@@ -1371,17 +1385,32 @@ impl Env {
         )
     }
 
+    /// The accounts of every instruction that can end a Match.
+    fn concluding(&self, caller: APk) -> vanguard::accounts::Concluding {
+        let ad = addrs_of(self.table);
+        vanguard::accounts::Concluding {
+            caller,
+            table: self.table,
+            battle: ad.battle,
+            army_0: ad.army_0,
+            army_1: ad.army_1,
+            army_0_permission: permission_pda(ad.army_0),
+            army_1_permission: permission_pda(ad.army_1),
+            permission_program: sdk_apk(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_apk(EPHEMERAL_VAULT_ID),
+            sponsor: sponsor_addr(),
+            vanguard_config: config_pda(),
+            magic_fee_vault: table_kit::fee_vault_address(&TEE),
+            magic_context: sdk_apk(ephemeral_rollups_sdk::consts::MAGIC_CONTEXT_ID),
+            magic_program: sdk_apk(MAGIC_PROGRAM_ID),
+        }
+    }
+
     fn resolve_ix(&self, caller: APk) -> Instruction {
         let ad = addrs_of(self.table);
         ix(
             vanguard::ID,
-            vanguard::accounts::Resolve {
-                caller,
-                table: self.table,
-                battle: ad.battle,
-                army_0: ad.army_0,
-                army_1: ad.army_1,
-            },
+            self.concluding(caller),
             vanguard::instruction::Resolve {},
             vec![],
         )
@@ -1418,13 +1447,7 @@ impl Env {
         let ad = addrs_of(self.table);
         ix(
             vanguard::ID,
-            vanguard::accounts::ClaimTimeout {
-                caller,
-                table: self.table,
-                battle: ad.battle,
-                army_0: ad.army_0,
-                army_1: ad.army_1,
-            },
+            self.concluding(caller),
             vanguard::instruction::ClaimTimeout {},
             vec![],
         )
@@ -2001,7 +2024,7 @@ fn a_late_check_in_is_refused_and_the_player_who_came_wins_when_the_other_never_
     );
     env.claim_timeout_declare(&anyone).expect("cancel");
     let t = env.table();
-    assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, true));
+    assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, false));
     let b = env.battle();
     assert_eq!((b.status, b.winner), (vanguard::STATUS_OVER, 0));
     assert_eq!(
@@ -2618,12 +2641,14 @@ fn commit_table_commits_only_the_two_public_accounts_and_only_while_owed() {
         custom_code(&env.rollup(ixn.clone()).unwrap_err()),
         vcode(NotDirty)
     );
-    env.magic_shell();
     env.start_in_rollup(1);
     env.stage(&truck_raid_layout(), 0);
     env.set_time(T0 + 2);
     env.mv(0, id_of(70), 20).expect("capture");
-    assert!(env.table().dirty);
+    // The resolve that ended the Match already committed; stand in for a commit that was lost.
+    assert!(!env.table().dirty && env.table().commit.tries == 1);
+    env.magic_shell();
+    env.patch_table(|t| t.dirty = true);
     // With a result owed the checks pass and the call reaches the MagicBlock program, which LiteSVM does not have.
     let err = env.rollup(ixn.clone()).unwrap_err();
     assert!(
@@ -2652,17 +2677,24 @@ fn a_decided_match_writes_the_ring_and_finalize_pays_from_the_committed_table() 
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
     assert_eq!(before.0 + before.1, 2 * 75_000 - 2_000, "entries in escrow");
     env.set_time(T0 + 2);
+    let before_match = env.committed.get(&env.table).cloned().unwrap();
     env.mv(0, id_of(70), 20).expect("capture the Truck");
     let t = env.table();
-    assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, true));
+    assert_eq!((t.phase, t.dirty), (vanguard::TABLE_OVER, false));
+    assert_eq!(
+        t.commit.tries, 1,
+        "the resolve that ended the Match sent the commit"
+    );
+    let landed = env.committed.insert(env.table, before_match).unwrap();
+    // A commit that never reached base leaves nothing to settle from.
+    let err = env.finalize_start().unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NoResult));
+    env.committed.insert(env.table, landed);
     let (_, slot) = t.ring.find(&env.tmatch, 0).expect("slot");
     assert_eq!(
         (slot.state, slot.outcome),
         (table_kit::SLOT_DONE, table_kit::OUTCOME_WIN0)
     );
-    // Not settled from a table that never committed.
-    let err = env.finalize_start().unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::NoResult));
     env.finalize(false).expect("finalize");
     assert_eq!(env.tesoro_status(), Stage::Closed);
     assert_eq!(env.gemas(&env.alice), before.0 + 1_900);
@@ -2833,8 +2865,10 @@ fn a_stale_commit_never_refunds_a_match_that_has_a_result() {
     env.start_in_rollup(1);
     env.stage(&truck_raid_layout(), 0);
     env.set_time(T0 + 2);
+    let before_match = env.committed.get(&env.table).cloned().unwrap();
     env.mv(0, id_of(70), 20).unwrap();
-    // The result was never committed. Base's copy is the idle table from before the Match.
+    // The result never reached base (a lost commit). Base's copy is the idle table from before the Match.
+    env.committed.insert(env.table, before_match);
     env.set_time(env.now + 1_000);
     let err = env.finalize_start().unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::NoResult));
@@ -2939,9 +2973,11 @@ fn a_table_is_reset_only_when_wiped_committed_and_a_moment_old_and_it_forgets_th
     env.set_time(T0 + 2);
     env.mv(0, id_of(70), 20).unwrap();
     let over = env.table().over_at;
-    // The seats are still the Players', the result is not committed, and it is too early.
+    // The resolve that ended the Match already wiped and committed; the gates stay for a table that got there another way.
+    env.patch_table(|t| t.seats_open = true);
     assert_eq!(custom_code(&env.reset().unwrap_err()), vcode(SeatsOpen));
     env.wipe_standin();
+    env.patch_table(|t| t.dirty = true);
     assert_eq!(custom_code(&env.reset().unwrap_err()), vcode(NotCommitted));
     env.commit_standin();
     env.set_time(over + vanguard::RESET_DELAY_SECS - 1);
@@ -3083,7 +3119,14 @@ fn no_instruction_a_player_calls_can_reach_the_permission_program() {
     reaching.sort();
     assert_eq!(
         reaching,
-        ["init_seats", "retire_seats", "seat_players", "wipe_seats"]
+        [
+            "claim_timeout",
+            "init_seats",
+            "resolve",
+            "retire_seats",
+            "seat_players",
+            "wipe_seats"
+        ]
     );
     // None of them undelegates or commits an Army: the program has no such call at all.
     let src = include_str!("../src/lib.rs");
@@ -3428,8 +3471,8 @@ fn a_full_match_to_a_truck_capture_pays_the_winner_the_pot_minus_fees() {
     assert_eq!(b.shown[id_of(20) as usize], TRUCK);
     assert_eq!(b.shown[id_of(70) as usize], RECON);
     assert_eq!(b.shown[id_of(95) as usize], GENERAL_OF_THE_ARMY);
-    assert_eq!(env.army(0).moves, 1);
-    assert_eq!(env.army(1).moves, 0);
+    // The Armies were wiped by the resolve that ended the Match.
+    assert!(env.army(0).is_blank() && env.army(1).is_blank());
     // The event ring holds the attack, then the end.
     let attack = &b.ring[0];
     assert_eq!(attack.kind, vanguard::EVENT_ATTACK);
@@ -6194,7 +6237,7 @@ fn a_match_on_older_rules_is_not_cancellable_in_any_state_and_keeps_playing() {
 
 #[test]
 fn compute_of_the_new_declares_and_resolves_has_headroom_in_the_client_budgets() {
-    const RESOLVE_BUDGET: u64 = 200_000;
+    const RESOLVE_BUDGET: u64 = 600_000;
     const DECLARE_BUDGET: u64 = 40_000;
     let mut rows: Vec<(String, u64, u64)> = vec![];
     let sw = SLOT_US_GOTA + 1;
@@ -6703,4 +6746,261 @@ fn a_skipped_epoch_can_still_start_another_match_assigned_to_it() {
     env.begin()
         .expect("a later Assignment still begins on the skipped epoch");
     assert_ne!(env.table().phase, vanguard::TABLE_IDLE);
+}
+
+// --- The instruction that ends a Match commits the result and wipes the seats ---------------
+
+/// Whether the latest transaction called `program` (a CPI line in the logs).
+fn called(env: &Env, program: solana_sdk::pubkey::Pubkey) -> bool {
+    let line = format!("Program {program} invoke");
+    env.last_logs.iter().any(|l| l.starts_with(&line))
+}
+
+fn assert_committed_and_wiped(env: &Env) {
+    let t = env.table();
+    assert_eq!(t.phase, vanguard::TABLE_OVER);
+    assert!(!t.dirty, "the result is already committed");
+    assert_eq!(
+        t.commit.tries, 1,
+        "exactly one commit, sent by the last instruction"
+    );
+    assert!(!t.seats_open, "the seats are already wiped");
+    assert!(env.army(0).is_blank() && env.army(1).is_blank());
+    assert!(
+        called(env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
+    assert!(
+        called(env, litesvm_magic_stub::permission_program()),
+        "the seat change"
+    );
+}
+
+#[test]
+fn the_resolve_that_ends_the_match_commits_the_result_and_wipes_the_seats() {
+    let mut env = play_out(1);
+    assert_committed_and_wiped(&env);
+    env.set_time(env.now + vanguard::RESET_DELAY_SECS);
+    let ixn = env.reset_ix();
+    env.rollup(ixn)
+        .expect("reset without a separate commit or wipe");
+}
+
+/// The Sponsor holds only its rent-exempt minimum: it cannot pay for a commit.
+fn dry_sponsor(env: &mut Env) {
+    let key = s(sponsor_addr());
+    let mut acct = env.svm.get_account(&key).expect("sponsor");
+    acct.lamports = env.svm.minimum_balance_for_rent_exemption(acct.data.len());
+    env.svm.set_account(key, acct).expect("dry sponsor");
+}
+
+fn refill_sponsor(env: &mut Env) {
+    let key = s(sponsor_addr());
+    let mut acct = env.svm.get_account(&key).expect("sponsor");
+    acct.lamports += 1_000_000_000;
+    env.svm.set_account(key, acct).expect("refill sponsor");
+}
+
+#[test]
+fn an_empty_sponsor_does_not_stop_the_instruction_that_ends_the_match() {
+    let mut env = ready();
+    dry_sponsor(&mut env);
+    env.open_setup();
+    let bob = env.bob.kp.insecure_clone();
+    env.set_time(env.battle().entropy_deadline + 1);
+    env.claim_timeout(&bob)
+        .expect("anyone cancels, even with a dry Sponsor");
+    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    let t = env.table();
+    assert!(
+        t.dirty && t.commit.tries == 0,
+        "the result waits for a commit"
+    );
+    assert!(!t.seats_open, "the seats are wiped regardless");
+    assert!(
+        env.last_logs.iter().any(|l| l.contains("sponsor-dry")),
+        "the move says why"
+    );
+    refill_sponsor(&mut env);
+    let ixn = env.commit_ix();
+    env.rollup(ixn).expect("commit after the refill");
+    let t = env.table();
+    assert!(!t.dirty && t.commit.tries == 1);
+    env.set_time(env.now + vanguard::RESET_DELAY_SECS);
+    let ixn = env.reset_ix();
+    env.rollup(ixn).expect("reset after the commit");
+}
+
+#[test]
+fn a_cancelled_setup_commits_and_wipes_too() {
+    let mut env = ready();
+    env.open_setup();
+    let bob = env.bob.kp.insecure_clone();
+    env.set_time(env.battle().entropy_deadline + 1);
+    env.claim_timeout(&bob).expect("anyone cancels");
+    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    assert_committed_and_wiped(&env);
+}
+
+// --- begin_match cleans the table it is about to use (keeper diet 09) ---------------------------
+
+/// A table whose ring is full: seven Done slots of made-up Matches and one of `old`.
+fn fill_ring(env: &mut Env, old: APk) -> u8 {
+    env.patch_table(|t| {
+        for (i, slot) in t.ring.slots.iter_mut().enumerate() {
+            *slot = table_kit::Slot {
+                state: table_kit::SLOT_DONE,
+                match_key: if i == 3 { old } else { APk::new_unique() },
+                epoch: 0,
+                outcome: table_kit::OUTCOME_WIN0,
+                at: 1,
+            };
+        }
+    });
+    3
+}
+
+#[test]
+fn begin_resets_a_finished_table_that_is_wiped_committed_and_thirty_seconds_old() {
+    use vanguard::VanguardError::*;
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.begin().unwrap();
+    env.start_in_rollup(1);
+    env.stage_end_draw();
+    env.ensure_committed();
+    env.wipe_standin();
+    let over = env.table().over_at;
+    let first = env.tmatch;
+    // The next Match is assigned one epoch ahead of the Over table, as ticket 24's keeper does.
+    env.open_and_join(1_000);
+    env.assign(0, 0, 1).expect("assign epoch 1");
+    let second = env.tmatch;
+    env.set_time(over + vanguard::RESET_DELAY_SECS - 1);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(ResetTooEarly));
+    env.set_time(over + vanguard::RESET_DELAY_SECS);
+    env.patch_table(|t| t.dirty = true);
+    // A result left uncommitted (the Sponsor was dry): a dry Sponsor cannot commit it, a refilled one does it in this call.
+    dry_sponsor(&mut env);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(NotCommitted));
+    refill_sponsor(&mut env);
+    env.begin()
+        .expect("begin commits the result left uncommitted");
+    assert!(!env.table().dirty, "committed by begin");
+    env.commit_standin();
+    env.patch_table(|t| t.seats_open = true);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(SeatsOpen));
+    env.wipe_standin();
+    env.begin().expect("reset, then begin");
+    let t = env.table();
+    assert_eq!(
+        (t.epoch, t.phase, t.tesoro_match),
+        (1, vanguard::TABLE_WAITING, second)
+    );
+    assert!(
+        t.ring.find(&first, 0).is_some(),
+        "the first result keeps its slot"
+    );
+    assert!(t.ring.find(&second, 1).is_some());
+}
+
+#[test]
+fn begin_resets_only_for_an_assignment_exactly_one_epoch_ahead() {
+    use vanguard::VanguardError::*;
+    for (epoch, expected) in [(2u64, WrongPhase), (0, WrongPhase)] {
+        let mut env = Env::new();
+        env.next_match_on(0);
+        env.begin().unwrap();
+        env.start_in_rollup(1);
+        env.stage_end_draw();
+        env.ensure_committed();
+        env.wipe_standin();
+        env.set_time(env.table().over_at + vanguard::RESET_DELAY_SECS);
+        env.open_and_join(1_000);
+        env.assign(0, 0, epoch).expect("assign");
+        assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(expected));
+        assert_eq!(env.table().epoch, 0, "nothing was reset");
+    }
+}
+
+#[test]
+fn begin_frees_a_slot_whose_receipt_is_provable_when_the_ring_is_full() {
+    use vanguard::VanguardError::*;
+    let mut env = Env::new();
+    env.next_match_on(1);
+    let old = env.tmatch;
+    let deadline = env.load::<MatchState>(env.tmatch).inner.deadline;
+    env.set_time(deadline);
+    let caller = env.oracle.insecure_clone();
+    let refund = env.core_refund_ix(a(caller.pubkey()));
+    env.send(&[refund], &caller, &[]).expect("core refund");
+    env.run_settlement();
+    let refunded_at = env.now;
+    env.open_and_join(1_000);
+    env.assign(0, 0, 0).expect("assign");
+    let slot = fill_ring(&mut env, old);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), vcode(RingFull));
+    env.set_time(refunded_at + vanguard::RELEASE_DELAY_SECS - 1);
+    assert_eq!(
+        custom_code(&env.begin_with(&[old]).unwrap_err()),
+        vcode(RingFull)
+    );
+    // a receipt of a Match that is not in the ring frees nothing
+    let other = env.tmatch;
+    assert_eq!(
+        custom_code(&env.begin_with(&[other]).unwrap_err()),
+        vcode(RingFull)
+    );
+    env.set_time(refunded_at + vanguard::RELEASE_DELAY_SECS);
+    env.begin_with(&[old]).expect("freed, then begun");
+    let t = env.table();
+    assert_eq!((t.slot, t.phase), (slot, vanguard::TABLE_WAITING));
+    assert_eq!(t.ring.slots[slot as usize].match_key, env.tmatch);
+}
+
+#[test]
+fn begin_voids_a_table_stuck_on_a_match_core_already_froze() {
+    use vanguard::VanguardError::*;
+    let mut env = ready();
+    env.start_in_rollup(1);
+    let stuck = env.tmatch;
+    let deadline = env.load::<MatchState>(env.tmatch).inner.deadline;
+    env.set_time(deadline);
+    let caller = env.oracle.insecure_clone();
+    let refund = env.core_refund_ix(a(caller.pubkey()));
+    env.send(&[refund], &caller, &[]).expect("core refund");
+    env.run_settlement();
+    let refunded_at = env.now;
+    env.set_time(refunded_at + vanguard::RELEASE_DELAY_SECS - 1);
+    assert_eq!(
+        custom_code(&env.begin_with(&[stuck]).unwrap_err()),
+        vcode(WrongPhase)
+    );
+    env.set_time(refunded_at + vanguard::RELEASE_DELAY_SECS);
+    env.begin_with(&[stuck]).expect("voids");
+    eprintln!(
+        "MEASURE CU Vanguard begin that voids, wipes and commits: {}",
+        env.last_cu
+    );
+    let t = env.table();
+    assert_eq!(
+        (t.phase, t.dirty, t.epoch),
+        (vanguard::TABLE_OVER, false, 0)
+    );
+    assert_eq!(t.ring.used(), 0, "the reserved slot is freed");
+    assert!(
+        !t.seats_open && t.commit.tries == 1,
+        "the void wiped the seats and committed, in the same call"
+    );
+    assert!(
+        called(&env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
+    // the Over table is then reset by the next begin
+    env.open_and_join(1_000);
+    env.assign(0, 0, 1).expect("assign epoch 1");
+    env.set_time(env.now + vanguard::RESET_DELAY_SECS);
+    env.begin().expect("reset, then begin");
+    assert_eq!(env.table().epoch, 1);
+    assert_eq!(env.table().phase, vanguard::TABLE_WAITING);
 }

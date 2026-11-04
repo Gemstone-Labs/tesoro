@@ -321,10 +321,6 @@
       ],
       "accounts": [
         {
-          "name": "caller",
-          "signer": true
-        },
-        {
           "name": "assignment",
           "pda": {
             "seeds": [
@@ -343,34 +339,6 @@
                 "kind": "account",
                 "path": "assignment.tesoro_match",
                 "account": "Assignment"
-              }
-            ]
-          }
-        },
-        {
-          "name": "table",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  98,
-                  108,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "table.generation",
-                "account": "Table"
-              },
-              {
-                "kind": "account",
-                "path": "table.index",
-                "account": "Table"
               }
             ]
           }
@@ -438,6 +406,223 @@
               ]
             }
           }
+        },
+        {
+          "name": "ending",
+          "accounts": [
+            {
+              "name": "caller",
+              "signer": true
+            },
+            {
+              "name": "table",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "value": [
+                      116,
+                      97,
+                      98,
+                      108,
+                      101
+                    ]
+                  },
+                  {
+                    "kind": "account",
+                    "path": "table.generation",
+                    "account": "Table"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "table.index",
+                    "account": "Table"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "book_0",
+              "writable": true
+            },
+            {
+              "name": "book_1",
+              "writable": true
+            },
+            {
+              "name": "book_0_permission",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "value": [
+                      112,
+                      101,
+                      114,
+                      109,
+                      105,
+                      115,
+                      115,
+                      105,
+                      111,
+                      110,
+                      58
+                    ]
+                  },
+                  {
+                    "kind": "account",
+                    "path": "book_0"
+                  }
+                ],
+                "program": {
+                  "kind": "const",
+                  "value": [
+                    136,
+                    161,
+                    10,
+                    196,
+                    33,
+                    152,
+                    1,
+                    214,
+                    246,
+                    106,
+                    29,
+                    60,
+                    6,
+                    152,
+                    192,
+                    102,
+                    169,
+                    175,
+                    212,
+                    217,
+                    180,
+                    252,
+                    231,
+                    71,
+                    151,
+                    141,
+                    209,
+                    5,
+                    168,
+                    212,
+                    103,
+                    82
+                  ]
+                }
+              }
+            },
+            {
+              "name": "book_1_permission",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "value": [
+                      112,
+                      101,
+                      114,
+                      109,
+                      105,
+                      115,
+                      115,
+                      105,
+                      111,
+                      110,
+                      58
+                    ]
+                  },
+                  {
+                    "kind": "account",
+                    "path": "book_1"
+                  }
+                ],
+                "program": {
+                  "kind": "const",
+                  "value": [
+                    136,
+                    161,
+                    10,
+                    196,
+                    33,
+                    152,
+                    1,
+                    214,
+                    246,
+                    106,
+                    29,
+                    60,
+                    6,
+                    152,
+                    192,
+                    102,
+                    169,
+                    175,
+                    212,
+                    217,
+                    180,
+                    252,
+                    231,
+                    71,
+                    151,
+                    141,
+                    209,
+                    5,
+                    168,
+                    212,
+                    103,
+                    82
+                  ]
+                }
+              }
+            },
+            {
+              "name": "permission_program",
+              "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+            },
+            {
+              "name": "ephemeral_vault",
+              "writable": true,
+              "address": "MagicVau1t999999999999999999999999999999999"
+            },
+            {
+              "name": "sponsor",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "value": [
+                      115,
+                      112,
+                      111,
+                      110,
+                      115,
+                      111,
+                      114
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "magic_fee_vault",
+              "writable": true
+            },
+            {
+              "name": "magic_program",
+              "address": "Magic11111111111111111111111111111111111111"
+            },
+            {
+              "name": "magic_context",
+              "writable": true,
+              "address": "MagicContext1111111111111111111111111111111"
+            }
+          ]
         }
       ],
       "args": []
@@ -1742,10 +1927,184 @@
           }
         },
         {
-          "name": "book_0"
+          "name": "book_0",
+          "writable": true
         },
         {
-          "name": "book_1"
+          "name": "book_1",
+          "writable": true
+        },
+        {
+          "name": "book_0_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "book_0"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "book_1_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "book_1"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_fee_vault",
+          "writable": true
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
         }
       ],
       "args": []
@@ -1799,6 +2158,186 @@
               }
             ]
           }
+        },
+        {
+          "name": "book_0",
+          "writable": true
+        },
+        {
+          "name": "book_1",
+          "writable": true
+        },
+        {
+          "name": "book_0_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "book_0"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "book_1_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "book_1"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_fee_vault",
+          "writable": true
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
         }
       ],
       "args": []

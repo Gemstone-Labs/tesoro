@@ -163,6 +163,34 @@ describe("BurstDriver, reads", () => {
   });
 });
 
+describe("BurstDriver, a table that still holds the previous Match", () => {
+  it("says the table is being cleared and keeps retrying the begin that only cleared it", async () => {
+    const behind = blankTable({ phase: TABLE_PHASE.closed, epoch: 3, dirty: false });
+    const fake = fakeChain(behind);
+    const proposed: [string, string | undefined][] = [];
+    const signer = { publicKey: joiner, signTransaction: async (t: never) => t, signMessage: async () => new Uint8Array(64) };
+    const d = new BurstDriver({ id: matchKey, signer: signer as never, accountKey: null, getToken: async () => null, chain: fake.chain, fetchMatch: async () => activeMatch(1), onProposed: (s, n) => proposed.push([s, n]) });
+    d.start();
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(fake.sent.filter((s) => s.step === "beginMatch").length).toBeGreaterThanOrEqual(2);
+    expect(proposed.at(-1)).toEqual(["setup", "Clearing the table, then starting your Match"]);
+    d.stop();
+  });
+});
+
+describe("BurstDriver, an idle table assigned at its own epoch", () => {
+  // A table that was never used (or already reset) is assigned at its current epoch, and begin_match has not written the Match key yet.
+  it("begins the Match: the idle table is the Match's table even though it does not name the Match yet", async () => {
+    const idle = blankTable({ phase: TABLE_PHASE.idle, epoch: 4, tesoroMatch: fixtureKey(30) });
+    const fake = fakeChain(idle);
+    const d = driverFor(1, fake);
+    d.start();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(fake.sent.map((s) => s.step)).toContain("beginMatch");
+    d.stop();
+  });
+});
+
 describe("BurstDriver, waiting for a table", () => {
   it("looks for the Assignment twice a second, not once", async () => {
     const fake = fakeChain(seatedTable());

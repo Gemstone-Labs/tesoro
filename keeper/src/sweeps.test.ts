@@ -5,26 +5,15 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { Budget, type Ctx } from "./act.ts";
 import { clearRaised, raisedConditions } from "./alerts.ts";
 import { accountBytes, chainOf, ixNameOf } from "./fixtures.ts";
-import { pairAddress, programDataOf } from "./kit.ts";
+import { programDataOf } from "./kit.ts";
 import { loadIdl } from "./runtime.ts";
-import { PAIR_WINDOW_SECS, RECEIPT_KEEP_SECS, deploySlotOf, groupsOf, listingJob, listingOutcome, listingStep, notePair, oldReceipts, pairsToClose, seenPairs, sweepJob, type SweepDeps } from "./sweeps.ts";
+import { PAIR_WINDOW_SECS, RECEIPT_KEEP_SECS } from "./reclaim.ts";
+import { deploySlotOf, listingJob, listingOutcome, listingStep, sweepJob, type SweepDeps } from "./sweeps.ts";
 import type { Info } from "./supply.ts";
 
 const core = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {}));
 const k = () => Keypair.generate().publicKey;
 const NOW = 1_800_000_000;
-
-describe("old accounts", () => {
-  it("lists receipts older than 14 days and pairs whose window ended", () => {
-    const r = (at: number) => ({ address: k(), payer: k(), at });
-    const [old, fresh] = [r(NOW - RECEIPT_KEEP_SECS), r(NOW - RECEIPT_KEEP_SECS + 1)];
-    assert.deepEqual(oldReceipts([old, fresh], NOW), [old]);
-    const p = (windowStart: number) => ({ opener: k(), joiner: k(), address: k(), payer: k(), windowStart });
-    const [ended, open] = [p(NOW - PAIR_WINDOW_SECS), p(NOW - 5)];
-    assert.deepEqual(pairsToClose([ended, open], NOW), [ended]);
-    assert.deepEqual(groupsOf([1, 2, 3], 2), [[1, 2], [3]]);
-  });
-});
 
 describe("listing upkeep rules", () => {
   const g = { game: k(), record: k(), listedUntil: NOW + 100, approvedSlot: 50n };
@@ -62,17 +51,15 @@ describe("the sweep and listing jobs", () => {
     return { d, ctx, sent };
   }
 
-  it("closes old receipts in groups and old pair counters, forgetting pairs whose account is gone", async () => {
+  it("closes old receipts in groups and expired pair records found by a scan alone", async () => {
     const receipt = async (at: number) => ({ pubkey: k(), data: await accountBytes(core, "SettlementReceipt", { matchKey: k(), payer: k(), receipt: { at: new anchor.BN(at) } }) });
-    const [opener, joiner, gone] = [k(), k(), k()];
-    seenPairs.clear();
-    notePair(opener.toBase58(), joiner.toBase58());
-    notePair(opener.toBase58(), gone.toBase58());
-    const accounts = new Map<string, Buffer>([[pairAddress(opener, joiner).toBase58(), await accountBytes(core, "PairState", { payer: k(), windowStart: new anchor.BN(NOW - PAIR_WINDOW_SECS - 1) })]]);
-    const w = run(accounts, { SettlementReceipt: [await receipt(NOW - RECEIPT_KEEP_SECS - 1), await receipt(NOW - 10), await receipt(NOW - RECEIPT_KEEP_SECS - 5)] });
+    const pair = async (windowStart: number) => ({ pubkey: k(), data: await accountBytes(core, "PairState", { payer: k(), windowStart: new anchor.BN(windowStart), opener: k(), joiner: k() }) });
+    const w = run(new Map(), {
+      SettlementReceipt: [await receipt(NOW - RECEIPT_KEEP_SECS - 1), await receipt(NOW - 10), await receipt(NOW - RECEIPT_KEEP_SECS - 5)],
+      PairState: [await pair(NOW - PAIR_WINDOW_SECS - 1), await pair(NOW - 10), await pair(NOW - PAIR_WINDOW_SECS - 9)],
+    });
     await sweepJob(w.ctx, w.d);
-    assert.deepEqual(w.sent, ["closeReceipt+closeReceipt", "closePair"]);
-    assert.equal(seenPairs.size, 1, "the pair without an account is forgotten");
+    assert.deepEqual(w.sent, ["closeReceipt+closeReceipt", "closePair+closePair"]);
   });
 
   const gameRecord = async (game: PublicKey, over: object = {}) => ({ pubkey: k(), data: await accountBytes(core, "GameRecord", { game, listedUntil: new anchor.BN(NOW + 1000), approvedSlot: new anchor.BN(50), ...over }) });

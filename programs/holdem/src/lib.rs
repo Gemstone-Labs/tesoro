@@ -44,10 +44,11 @@ use ephemeral_rollups_sdk::{
     },
 };
 use table_kit::{
-    absence_outcome, assignment_absent, close_private_seat, create_hidden_seat, match_state_gone,
-    may_skip, move_lamports, read_table, receipt_at, retire_legacy_record, sponsor_commit,
-    swap_seat_members, table_wait_over, KitError, LegacyError, SeatAccounts, OUTCOME_DRAW,
-    OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
+    absence_outcome, assignment_absent, close_private_seat, create_hidden_seat, is_next_epoch,
+    match_state_gone, may_skip, move_lamports, read_table, receipt_aged, receipt_at,
+    retire_legacy_record, sponsor_can_commit, sponsor_commit, swap_seat_members, table_wait_over,
+    KitError, LegacyError, SeatAccounts, SeatPrograms, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0,
+    OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -177,6 +178,37 @@ impl From<KitError> for HoldemError {
     }
 }
 
+/// A finished table may be reset once its seats are wiped, its result is committed and clients
+/// have had `RESET_DELAY_SECS` to read the final board.
+fn check_resettable(table: &Table, now: i64) -> Result<()> {
+    require!(table.phase == TABLE_OVER, HoldemError::WrongPhase);
+    require!(!table.seats_open, HoldemError::SeatsOpen);
+    require!(!table.dirty, HoldemError::NotCommitted);
+    require!(
+        now >= table
+            .over_at
+            .checked_add(RESET_DELAY_SECS)
+            .ok_or(HoldemError::Overflow)?,
+        HoldemError::ResetTooEarly
+    );
+    Ok(())
+}
+
+/// Gives up a table whose Match core froze before the table produced a result: frees the
+/// reserved slot and moves the table to Over. The caller has shown the receipt.
+fn void_in_place(table: &mut Table, now: i64) -> Result<()> {
+    let (slot, key) = (table.slot, table.tesoro_match);
+    kit(table.ring.free(slot, &key, SLOT_RESERVED))?;
+    table.game.status = STATUS_CANCELLED;
+    table.game.winner = NO_WINNER;
+    table.phase = TABLE_OVER;
+    table.over_at = now;
+    table.dirty = false;
+    table.req_pending = false;
+    table.vrf_ready = false;
+    Ok(())
+}
+
 fn kit<T>(r: core::result::Result<T, KitError>) -> Result<T> {
     r.map_err(|e| error!(HoldemError::from(e)))
 }
@@ -224,7 +256,7 @@ fn require_live(table: &Table) -> Result<()> {
 /// What a hand's transitions leave behind, called after every move that can end a hand or the
 /// Match: a finished hand's cards and shares are wiped from the seats, and a finished Match writes
 /// its result into the ring.
-fn after_move(table: &mut Table, holes: [&mut Hole; 2], now: i64) -> Result<()> {
+fn after_move(table: &mut Table, holes: [&mut Hole; 2], now: i64) -> Result<bool> {
     if table.game.phase == PHASE_SHUFFLE || table.game.phase == PHASE_NONE {
         for hole in holes {
             hole.clear_hand();
@@ -234,9 +266,10 @@ fn after_move(table: &mut Table, holes: [&mut Hole; 2], now: i64) -> Result<()> 
 }
 
 /// Writes the Match's result into the ring slot reserved at the start and marks the table Over.
-fn conclude(table: &mut Table, now: i64) -> Result<()> {
+/// Returns whether the Match ended with this call.
+fn conclude(table: &mut Table, now: i64) -> Result<bool> {
     let outcome = match table.game.status {
-        STATUS_LIVE => return Ok(()),
+        STATUS_LIVE => return Ok(false),
         STATUS_OVER if table.game.winner == 0 => OUTCOME_WIN0,
         STATUS_OVER => OUTCOME_WIN1,
         _ if table.game.no_show => OUTCOME_NO_SHOW,
@@ -250,7 +283,86 @@ fn conclude(table: &mut Table, now: i64) -> Result<()> {
     table.commit.on_result();
     table.req_pending = false;
     table.vrf_ready = false;
+    Ok(true)
+}
+
+/// Zeroes both Holes and swaps their permission members to nobody, so nothing the Players could
+/// read is left and the seats are never without a private permission; the table no longer has
+/// open seats. Shared by `wipe_seats` and the instructions that end a Match.
+fn wipe_seat_pair<'info>(
+    table: &mut Account<'info, Table>,
+    holes: [&mut Account<'info, Hole>; 2],
+    permissions: [AccountInfo<'info>; 2],
+    programs: &SeatPrograms<'info>,
+) -> Result<()> {
+    let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
+    let table_bump = [table.bump];
+    let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
+    let table_info = table.to_account_info();
+    let table_key = table.key();
+    for (seat, (hole, permission)) in holes.into_iter().zip(permissions).enumerate() {
+        hole.wipe();
+        hole.exit(&ID)?;
+        let seat_arr = [seat as u8];
+        let bump_arr = [hole.bump];
+        let seat_seeds: &[&[u8]] = &[HOLE_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
+        swap_seat_members(
+            &SeatAccounts {
+                table: &table_info,
+                seat: &hole.to_account_info(),
+                permission: &permission,
+                vault: &programs.vault,
+                magic_program: &programs.magic_program,
+                permission_program: &programs.permission_program,
+            },
+            table_seeds,
+            seat_seeds,
+            None,
+        )?;
+    }
+    table.seats_open = false;
     Ok(())
+}
+
+/// The end of a Match, in the same transaction as the move that ended it: wipes the seats and
+/// commits the result to Solana, paid by the Sponsor, so a Player who closes the app right after
+/// the last move still has the result saved and nothing readable stays on the table.
+/// `commit_table` stays as the repeat path.
+fn wipe_and_commit(a: &mut Concluding, now: i64) -> Result<()> {
+    if a.table.seats_open {
+        wipe_seat_pair(
+            &mut a.table,
+            [&mut *a.hole_0, &mut *a.hole_1],
+            [
+                a.hole_0_permission.to_account_info(),
+                a.hole_1_permission.to_account_info(),
+            ],
+            &SeatPrograms {
+                vault: a.ephemeral_vault.to_account_info(),
+                magic_program: a.magic_program.to_account_info(),
+                permission_program: a.permission_program.to_account_info(),
+            },
+        )?;
+    }
+    // An empty Sponsor must not revert the move that ended the Match: the table stays Over and `dirty`, and
+    // `commit_table` or the next `begin_match` commits it after a refill.
+    if !sponsor_can_commit(&a.sponsor.to_account_info()) {
+        msg!("sponsor-dry: the result is not committed; refill the Sponsor, then commit_table");
+        return a.table.exit(&ID);
+    }
+    a.table.commit.record(now);
+    a.table.dirty = false;
+    a.table.exit(&ID)?;
+    let bump = [a.sponsor.bump];
+    sponsor_commit(
+        &a.sponsor.to_account_info(),
+        &[SPONSOR_SEED, &bump],
+        &a.magic_context.to_account_info(),
+        &a.magic_program.to_account_info(),
+        &a.magic_fee_vault.to_account_info(),
+        &TEE_VALIDATOR,
+        &a.table.to_account_info(),
+    )
 }
 
 #[ephemeral]
@@ -662,40 +774,20 @@ pub mod holdem {
         let table = &ctx.accounts.table;
         require!(table.phase == TABLE_OVER, HoldemError::WrongPhase);
         require!(table.seats_open, HoldemError::SeatsNotOpen);
-        let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
-        let table_bump = [table.bump];
-        let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
-        let table_info = ctx.accounts.table.to_account_info();
-        let table_key = ctx.accounts.table.key();
-        ctx.accounts.hole_0.wipe();
-        ctx.accounts.hole_1.wipe();
-        ctx.accounts.hole_0.exit(&ID)?;
-        ctx.accounts.hole_1.exit(&ID)?;
-        for seat in 0..2usize {
-            let (hole, permission) = if seat == 0 {
-                (&ctx.accounts.hole_0, &ctx.accounts.hole_0_permission)
-            } else {
-                (&ctx.accounts.hole_1, &ctx.accounts.hole_1_permission)
-            };
-            let seat_arr = [seat as u8];
-            let bump_arr = [hole.bump];
-            let seat_seeds: &[&[u8]] = &[HOLE_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
-            swap_seat_members(
-                &SeatAccounts {
-                    table: &table_info,
-                    seat: &hole.to_account_info(),
-                    permission: &permission.to_account_info(),
-                    vault: &ctx.accounts.ephemeral_vault.to_account_info(),
-                    magic_program: &ctx.accounts.magic_program.to_account_info(),
-                    permission_program: &ctx.accounts.permission_program.to_account_info(),
-                },
-                table_seeds,
-                seat_seeds,
-                None,
-            )?;
-        }
-        ctx.accounts.table.seats_open = false;
-        Ok(())
+        let a = &mut *ctx.accounts;
+        wipe_seat_pair(
+            &mut a.table,
+            [&mut *a.hole_0, &mut *a.hole_1],
+            [
+                a.hole_0_permission.to_account_info(),
+                a.hole_1_permission.to_account_info(),
+            ],
+            &SeatPrograms {
+                vault: a.ephemeral_vault.to_account_info(),
+                magic_program: a.magic_program.to_account_info(),
+                permission_program: a.permission_program.to_account_info(),
+            },
+        )
     }
 
     /// Rollup, operator only. Retires a table's seats: closes both Holes and their permissions
@@ -783,7 +875,36 @@ pub mod holdem {
     pub fn begin_match(ctx: Context<BeginMatch>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let a = &ctx.accounts.assignment;
-        let table = &mut ctx.accounts.table;
+        let receipts = ctx.remaining_accounts;
+        let ending = &mut ctx.accounts.ending;
+        // A table stuck on a Match core froze: give it up, wipe its seats and commit it. That is
+        // all this call does; the next `begin_match` resets the table.
+        if matches!(ending.table.phase, TABLE_WAITING | TABLE_LIVE)
+            && receipt_aged(
+                receipts,
+                &ending.table.tesoro_match,
+                now,
+                RELEASE_DELAY_SECS,
+            )
+        {
+            void_in_place(&mut ending.table, now)?;
+            return wipe_and_commit(ending, now);
+        }
+        // A finished table whose result was not committed (the Sponsor was dry when the Match ended) is committed
+        // now that the Sponsor can pay; the next `begin_match` resets it.
+        if ending.table.phase == TABLE_OVER
+            && ending.table.dirty
+            && is_next_epoch(ending.table.epoch, a.epoch)
+            && sponsor_can_commit(&ending.sponsor.to_account_info())
+        {
+            return wipe_and_commit(ending, now);
+        }
+        let table = &mut ending.table;
+        // A finished table is reset for the Assignment one epoch ahead, so the keeper need not.
+        if table.phase == TABLE_OVER && is_next_epoch(table.epoch, a.epoch) {
+            check_resettable(table, now)?;
+            table.reset().ok_or(HoldemError::Overflow)?;
+        }
         require!(table.phase == TABLE_IDLE, HoldemError::WrongPhase);
         require!(table.seats_created, HoldemError::SeatsMissing);
         require!(
@@ -797,6 +918,9 @@ pub mod holdem {
         );
         require!(now <= a.start_deadline, HoldemError::StartWindowPassed);
         let epoch = table.epoch;
+        if table.ring.is_full() {
+            table.ring.free_proven(receipts, now, RELEASE_DELAY_SECS);
+        }
         table.slot = kit(table.ring.reserve(a.tesoro_match, epoch))?;
         table.tesoro_match = a.tesoro_match;
         table.start_deadline = a.start_deadline;
@@ -830,7 +954,7 @@ pub mod holdem {
     /// Rollup, permissionless. A table whose Players did not both check in before the start
     /// deadline ends the Match so it can be settled from the ring like any other: the Player who
     /// checked in wins, and if neither did it is a no-show (`table_kit::absence_outcome`).
-    pub fn expire_start(ctx: Context<TableOnly>) -> Result<()> {
+    pub fn expire_start(ctx: Context<Concluding>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
         require!(table.phase == TABLE_WAITING, HoldemError::WrongPhase);
@@ -850,7 +974,8 @@ pub mod holdem {
             }
         }
         table.game.phase = PHASE_NONE;
-        conclude(table, now)
+        conclude(table, now)?;
+        wipe_and_commit(&mut *ctx.accounts, now)
     }
 
     /// Rollup. A Player folds a fresh secret into this hand. It goes into the Player's own Hole
@@ -990,7 +1115,7 @@ pub mod holdem {
     /// Rollup, permissionless. Once the answer is in: derives the seed, draws the nine cards,
     /// writes each Player's hole cards and their shares of the board, zeroes every secret and
     /// half, and opens preflop betting. The seed and the deck are never stored.
-    pub fn deal(ctx: Context<Deal>) -> Result<()> {
+    pub fn deal(ctx: Context<Concluding>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
         require_live(table)?;
@@ -1034,27 +1159,33 @@ pub mod holdem {
         }
         table.vrf_ready = false;
         table.game.on_dealt(&board, &cards, now)?;
-        after_move(table, [h0, h1], now)
+        if after_move(table, [h0, h1], now)? {
+            wipe_and_commit(&mut *ctx.accounts, now)?;
+        }
+        Ok(())
     }
 
     /// Rollup. A Player acts on their turn.
-    pub fn act(ctx: Context<Act>, action: Action) -> Result<()> {
+    pub fn act(ctx: Context<Concluding>, action: Action) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
         require_live(table)?;
-        let seat = seat_of(&table.game.players, &ctx.accounts.player.key())?;
+        let seat = seat_of(&table.game.players, &ctx.accounts.caller.key())?;
         let (h0, h1) = (&mut **ctx.accounts.hole_0, &mut **ctx.accounts.hole_1);
         let board = deal::combine_shares(&[h0.shares, h1.shares]);
         let cards = [h0.cards, h1.cards];
         table.game.act(seat, action, &board, &cards, now)?;
-        after_move(table, [h0, h1], now)
+        if after_move(table, [h0, h1], now)? {
+            wipe_and_commit(&mut *ctx.accounts, now)?;
+        }
+        Ok(())
     }
 
     /// Rollup, permissionless. Once the current deadline has passed: an idle Player is checked
     /// (or folded when facing a bet); missing entropy cancels hand one (no-show, both entries
     /// refunded) or forfeits a later hand; an answer that never comes ends the hand in a refund;
     /// three missed turns in a row forfeit the Match.
-    pub fn claim_timeout(ctx: Context<ClaimTimeout>) -> Result<()> {
+    pub fn claim_timeout(ctx: Context<Concluding>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
         require_live(table)?;
@@ -1070,7 +1201,10 @@ pub mod holdem {
         let board = deal::combine_shares(&[h0.shares, h1.shares]);
         let cards = [h0.cards, h1.cards];
         table.game.timeout(shuffle, &board, &cards, now)?;
-        after_move(table, [h0, h1], now)
+        if after_move(table, [h0, h1], now)? {
+            wipe_and_commit(&mut *ctx.accounts, now)?;
+        }
+        Ok(())
     }
 
     // ------------------------------------------------------------------------------------
@@ -1112,16 +1246,7 @@ pub mod holdem {
     pub fn reset_table(ctx: Context<TableOnly>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
-        require!(table.phase == TABLE_OVER, HoldemError::WrongPhase);
-        require!(!table.seats_open, HoldemError::SeatsOpen);
-        require!(!table.dirty, HoldemError::NotCommitted);
-        require!(
-            now >= table
-                .over_at
-                .checked_add(RESET_DELAY_SECS)
-                .ok_or(HoldemError::Overflow)?,
-            HoldemError::ResetTooEarly
-        );
+        check_resettable(table, now)?;
         table.reset().ok_or(HoldemError::Overflow)?;
         Ok(())
     }
@@ -1144,16 +1269,7 @@ pub mod holdem {
                 .ok_or(HoldemError::Overflow)?,
             HoldemError::NoReceipt
         );
-        let (slot, key) = (table.slot, table.tesoro_match);
-        kit(table.ring.free(slot, &key, SLOT_RESERVED))?;
-        table.game.status = STATUS_CANCELLED;
-        table.game.winner = NO_WINNER;
-        table.phase = TABLE_OVER;
-        table.over_at = now;
-        table.dirty = false;
-        table.req_pending = false;
-        table.vrf_ready = false;
-        Ok(())
+        void_in_place(table, now)
     }
 
     /// Rollup, permissionless. Frees a Done ring slot once tesoro_core has frozen its Match (the
@@ -1657,17 +1773,13 @@ pub struct SkipEpoch<'info> {
     pub table: Box<Account<'info, Table>>,
 }
 
+/// `begin_match`. It also names everything a void needs (wipe the seats, commit), so the call that
+/// gives up a stuck table leaves it clean: `ending` is the same account list as the instructions
+/// that end a Match.
 #[derive(Accounts)]
 pub struct BeginMatch<'info> {
-    pub caller: Signer<'info>,
     #[account(seeds = [ASSIGN_SEED, assignment.tesoro_match.as_ref()], bump = assignment.bump)]
     pub assignment: Account<'info, Assignment>,
-    #[account(
-        mut,
-        seeds = [TABLE_SEED, &table.generation.to_le_bytes(), &table.index.to_le_bytes()],
-        bump = table.bump
-    )]
-    pub table: Box<Account<'info, Table>>,
     #[account(
         address = assignment.tesoro_match,
         seeds = [CORE_MATCH_SEED, tesoro_match.inner.id.opener.as_ref(), &tesoro_match.inner.id.n.to_le_bytes()],
@@ -1675,6 +1787,7 @@ pub struct BeginMatch<'info> {
         seeds::program = tesoro_core::ID
     )]
     pub tesoro_match: Box<Account<'info, MatchState>>,
+    pub ending: Concluding<'info>,
 }
 
 /// A table and nothing else: `expire_start`, `reset_table`.
@@ -1760,38 +1873,13 @@ pub struct VrfCallbackShuffle<'info> {
     pub request: UncheckedAccount<'info>,
 }
 
+/// `deal`, `act`, `claim_timeout` and `expire_start`: every instruction that can end a Match.
+/// Each commits the result and wipes the seats in its own transaction when it does, so it names
+/// everything those two steps need.
+#[commit]
 #[derive(Accounts)]
-pub struct Deal<'info> {
-    pub payer: Signer<'info>,
-    #[account(
-        mut,
-        seeds = [TABLE_SEED, &table.generation.to_le_bytes(), &table.index.to_le_bytes()],
-        bump = table.bump
-    )]
-    pub table: Box<Account<'info, Table>>,
-    #[account(mut, seeds = [HOLE_SEED, table.key().as_ref(), &[0]], bump = hole_0.bump)]
-    pub hole_0: Box<Account<'info, Hole>>,
-    #[account(mut, seeds = [HOLE_SEED, table.key().as_ref(), &[1]], bump = hole_1.bump)]
-    pub hole_1: Box<Account<'info, Hole>>,
-}
-
-#[derive(Accounts)]
-pub struct Act<'info> {
-    pub player: Signer<'info>,
-    #[account(
-        mut,
-        seeds = [TABLE_SEED, &table.generation.to_le_bytes(), &table.index.to_le_bytes()],
-        bump = table.bump
-    )]
-    pub table: Box<Account<'info, Table>>,
-    #[account(mut, seeds = [HOLE_SEED, table.key().as_ref(), &[0]], bump = hole_0.bump)]
-    pub hole_0: Box<Account<'info, Hole>>,
-    #[account(mut, seeds = [HOLE_SEED, table.key().as_ref(), &[1]], bump = hole_1.bump)]
-    pub hole_1: Box<Account<'info, Hole>>,
-}
-
-#[derive(Accounts)]
-pub struct ClaimTimeout<'info> {
+pub struct Concluding<'info> {
+    /// The acting Player for `act`; any payer otherwise.
     pub caller: Signer<'info>,
     #[account(
         mut,
@@ -1803,6 +1891,23 @@ pub struct ClaimTimeout<'info> {
     pub hole_0: Box<Account<'info, Hole>>,
     #[account(mut, seeds = [HOLE_SEED, table.key().as_ref(), &[1]], bump = hole_1.bump)]
     pub hole_1: Box<Account<'info, Hole>>,
+    /// CHECK: permission PDA of Hole 0
+    #[account(mut, seeds = [PERMISSION_SEED, hole_0.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
+    pub hole_0_permission: UncheckedAccount<'info>,
+    /// CHECK: permission PDA of Hole 1
+    #[account(mut, seeds = [PERMISSION_SEED, hole_1.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
+    pub hole_1_permission: UncheckedAccount<'info>,
+    /// CHECK: Permission Program
+    #[account(address = PERMISSION_PROGRAM_ID)]
+    pub permission_program: UncheckedAccount<'info>,
+    /// CHECK: ephemeral rent vault
+    #[account(mut, address = EPHEMERAL_VAULT_ID)]
+    pub ephemeral_vault: UncheckedAccount<'info>,
+    #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
+    pub sponsor: Account<'info, Sponsor>,
+    /// CHECK: the TEE validator's magic fee vault, checked in `sponsor_commit`.
+    #[account(mut)]
+    pub magic_fee_vault: UncheckedAccount<'info>,
 }
 
 #[commit]

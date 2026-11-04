@@ -149,7 +149,7 @@ export interface GameSettings {
   /** Fuel account the Sponsor is refilled from, and how much each refill moves. */
   fuel: number;
   fuelAmount: bigint;
-  /** The Sponsor is refilled below this many rollup lamports. */
+  /** The Sponsor is refilled below this many rollup lamports (1,500 commits at 100,000; above the 1,000-commit alert level). */
   sponsorFloor: number;
   /** Lamports the keeper may put into a missing Sponsor / Fuel (0: it only raises an alert). */
   sponsorInit: bigint;
@@ -166,10 +166,25 @@ export interface SchedulerSettings {
   /** Seconds between assignment cleanups. */
   cleanupSecs: number;
   cleanupPerPass: number;
+  /** Whether the keeper assigns waiting Matches. Off once the sponsor server assigns each Match in the join's own transaction (ticket 07). */
+  assign: boolean;
+}
+
+/** A table that can take a Match now, as the sponsor server picks from it. */
+export interface PoolTable {
+  generation: number;
+  index: number;
+  epoch: number;
 }
 
 const DEFAULT_CAP: Record<GameId, number> = { "trading-duel": 20, holdem: 20, "block-burst": 50, vanguard: 20 };
 const num = (v: string | undefined, d: number) => (v !== undefined && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : d);
+
+/** The usual refill amount, or more when the Sponsor is so low that one usual refill would not reach the floor. */
+export const refillAmount = (balance: number, set: Pick<GameSettings, "fuelAmount" | "sponsorFloor">): bigint => {
+  const toFloor = BigInt(Math.max(0, Math.ceil(set.sponsorFloor - balance)));
+  return toFloor > set.fuelAmount ? toFloor : set.fuelAmount;
+};
 
 export function gameSettings(id: GameId, envName: string, env: NodeJS.ProcessEnv = process.env): GameSettings {
   const k = (s: string) => env[`KEEPER_${envName}_${s}`];
@@ -179,7 +194,7 @@ export function gameSettings(id: GameId, envName: string, env: NodeJS.ProcessEnv
     min: Math.max(0, Math.floor(num(k("TABLE_MIN"), 1))),
     fuel: num(k("FUEL"), 0),
     fuelAmount: BigInt(Math.floor(num(k("FUEL_AMOUNT"), 50_000_000))),
-    sponsorFloor: num(k("SPONSOR_FLOOR"), 20_000_000),
+    sponsorFloor: num(k("SPONSOR_FLOOR"), 150_000_000),
     sponsorInit: BigInt(Math.floor(num(k("SPONSOR_INIT"), 0))),
     fuelInit: BigInt(Math.floor(num(k("FUEL_INIT"), 0))),
   };
@@ -193,7 +208,16 @@ export function schedulerSettings(env: NodeJS.ProcessEnv = process.env): Schedul
     unsettledSecs: num(env.KEEPER_TABLES_UNSETTLED_SECS, 12 * 3600),
     cleanupSecs: num(env.KEEPER_TABLES_CLEANUP_SECS, 300),
     cleanupPerPass: Math.max(1, Math.floor(num(env.KEEPER_TABLES_CLEANUP_PER_PASS, 10))),
+    assign: !["0", "off", "false"].includes((env.KEEPER_ASSIGN ?? "").trim().toLowerCase()),
   };
+}
+
+/** The tables that can take a Match right now, in order, for the pool the sponsor server assigns from. */
+export function poolOf(rows: TableRow[], promised: Promised[], generation: number, now: number): PoolTable[] {
+  return rows
+    .filter((r) => isAvailable(r, promised, now))
+    .sort((a, b) => a.index - b.index)
+    .map((r) => ({ generation, index: r.index, epoch: r.view!.epoch }));
 }
 
 // ---- pure planning ---------------------------------------------------------------------------------
@@ -379,6 +403,13 @@ export interface SchedMatch {
 export interface Deps {
   gate?: typeof resetMayProceed;
   settings?: SchedulerSettings;
+  /** Publishes the tables ready for a Match after each pass (a failure never stops the pass). */
+  publishPool?: (a: GameAdapter, tables: PoolTable[], readAtMs: number) => Promise<void>;
+  /**
+   * Runs one slice of the pass for the admin script: `setup` makes the Sponsor, Fuel and tables (growth) and nothing else;
+   * `refill` only refills the Sponsor. Without it the pass does everything.
+   */
+  only?: "setup" | "refill";
 }
 
 const condition = (key: string, on: boolean, title: string, detail: string) => (on ? raise({ key, title, detail }) : clearRaised(key));
@@ -432,6 +463,26 @@ async function readRows(ctx: Ctx, a: GameAdapter, generation: number, maxTables:
   return rows;
 }
 
+/**
+ * Reads the Game's tables from the rollup and publishes the ones that can take a Match, sending nothing else. The sponsor server
+ * keeps the pool between reads; this corrects whatever drifted (a Match that ended without proof it ran, a join that was never
+ * sent). Returns how many tables it published, or null when the Game has no tables yet.
+ */
+export async function repairPool(ctx: Ctx, a: GameAdapter, matches: SchedMatch[], publish: NonNullable<Deps["publishPool"]>): Promise<number | null> {
+  const cfg = await Promise.resolve().then(() => a.config(ctx)).catch(() => null);
+  if (!cfg) return null;
+  const readAt = Date.now();
+  const rows = await readRows(ctx, a, cfg.generation, cfg.maxTables);
+  const mine = matches.filter((m) => m.stage === "active" && m.inner.b && pk(m.inner.game).equals(a.programId));
+  const assignments = await pool(mine, 8, (m) => a.assignmentOf(ctx, m.address).catch(() => undefined));
+  // An Assignment unreadable this time may hold a table: publish nothing rather than offer it.
+  if (assignments.some((x) => x === undefined)) return null;
+  const promised: Promised[] = assignments.flatMap((x) => (x ? [{ index: x.index, epoch: x.epoch, startDeadline: x.startDeadline }] : []));
+  const tables = poolOf(rows, promised, cfg.generation, ctx.now);
+  await publish(a, tables, readAt);
+  return tables.length;
+}
+
 /** Runs one Game's scheduler pass. Returns the number of actions taken. */
 export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, matches: SchedMatch[], st: GameState = stateOf(a.id), deps: Deps = {}): Promise<number> {
   const sched = deps.settings ?? schedulerSettings();
@@ -441,8 +492,8 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
   const [cfg, sponsorBase, fuelBase] = await Promise.all([Promise.resolve().then(() => a.config(ctx)).catch(() => null), infoOf(a.sponsorAddress()), infoOf(a.fuelAddress(set.fuel))]);
   if (!cfg) return 0; // the Game has no TableConfig yet (not deployed with tables)
   const init = { sponsor: set.sponsorInit, fuel: set.fuelInit };
-  const operatorOk = cfg.operator.equals(ctx.payer.publicKey);
-  condition(key("operator"), !operatorOk, `${a.label} tables: the keeper is not the operator`, `TableConfig.operator of ${a.label} is ${cfg.operator.toBase58()}, not the keeper key ${ctx.payer.publicKey.toBase58()}: no table can be created or assigned until set_config names the keeper.`);
+  const operatorOk = cfg.operator.equals(ctx.operator.publicKey);
+  condition(key("operator"), !operatorOk, `${a.label} tables: the signing key is not the operator`, `TableConfig.operator of ${a.label} is ${cfg.operator.toBase58()}, not the operator key ${ctx.operator.publicKey.toBase58()}: no table can be created or assigned until set_config names the operator key.`);
   const here = (what: string) => `table=${a.label}/${cfg.generation}/${what}`;
   let actions = 0;
   const run = async (subject: string, what: string, fn: () => Promise<string>) => {
@@ -453,20 +504,22 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
 
   // 1. infrastructure -------------------------------------------------------------------------------------
   const sponsorReady = sponsorBase === "delegated";
-  if (operatorOk && sponsorBase === "missing" && set.sponsorInit > 0n) await run(here("sponsor"), `create_sponsor (${set.sponsorInit} lamports)`, () => a.setup(ctx, { do: "create_sponsor" }, { generation: cfg.generation, index: 0 }, init));
-  else if (operatorOk && sponsorBase === "program") await run(here("sponsor"), "delegate_sponsor", () => a.setup(ctx, { do: "delegate_sponsor" }, { generation: cfg.generation, index: 0 }, init));
+  const [doSetup, doUpkeep, doRefill] = [deps.only !== "refill", !deps.only, deps.only !== "setup"];
+  if (doSetup && operatorOk && sponsorBase === "missing" && set.sponsorInit > 0n) await run(here("sponsor"), `create_sponsor (${set.sponsorInit} lamports)`, () => a.setup(ctx, { do: "create_sponsor" }, { generation: cfg.generation, index: 0 }, init));
+  else if (doSetup && operatorOk && sponsorBase === "program") await run(here("sponsor"), "delegate_sponsor", () => a.setup(ctx, { do: "delegate_sponsor" }, { generation: cfg.generation, index: 0 }, init));
   condition(key("sponsor-missing"), sponsorBase === "missing" && set.sponsorInit === 0n, `${a.label} tables: no Sponsor`, `The ${a.label} Sponsor account does not exist and KEEPER_${a.env}_SPONSOR_INIT is 0: tables cannot be committed. Run the setup (create_sponsor, delegate_sponsor).`);
-  if (operatorOk && fuelBase === "missing" && set.fuelInit > 0n) await run(here(`fuel${set.fuel}`), `create_fuel ${set.fuel}`, () => a.setup(ctx, { do: "create_fuel", n: set.fuel }, { generation: cfg.generation, index: 0 }, init));
-  else if (operatorOk && fuelBase === "program") await run(here(`fuel${set.fuel}`), `delegate_fuel ${set.fuel}`, () => a.setup(ctx, { do: "delegate_fuel", n: set.fuel }, { generation: cfg.generation, index: 0 }, init));
+  if (doSetup && operatorOk && fuelBase === "missing" && set.fuelInit > 0n) await run(here(`fuel${set.fuel}`), `create_fuel ${set.fuel}`, () => a.setup(ctx, { do: "create_fuel", n: set.fuel }, { generation: cfg.generation, index: 0 }, init));
+  else if (doSetup && operatorOk && fuelBase === "program") await run(here(`fuel${set.fuel}`), `delegate_fuel ${set.fuel}`, () => a.setup(ctx, { do: "delegate_fuel", n: set.fuel }, { generation: cfg.generation, index: 0 }, init));
 
   // 2. upkeep ----------------------------------------------------------------------------------------------
+  const readAt = Date.now();
   const rows = await readRows(ctx, a, cfg.generation, cfg.maxTables);
-  for (const r of rows) {
+  for (const r of doUpkeep ? rows : []) {
     const stuck = r.view ? stuckReason(r.view, ctx.now, sched) : null;
     condition(key(`stuck:${r.index}`), !!stuck, `${a.label} table ${r.index} is stuck`, `Table ${a.tableAddress(cfg.generation, r.index).toBase58()} (${a.label}): ${stuck}.`);
   }
   const steps = await pool(
-    rows.filter((r) => r.view && !quiet(r.view)),
+    rows.filter((r) => doUpkeep && r.view && !quiet(r.view)),
     6,
     async (r) => {
       const ref = { generation: cfg.generation, index: r.index };
@@ -514,7 +567,7 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
   let assigned = 0;
   const assignedNow = new Set<string>();
   const assignable = waiting.filter((w) => a.id !== "trading-duel" || assetOfIndex(Number(w.inner.meta?.asset)) !== null);
-  if (operatorOk && sponsorReady) {
+  if (doUpkeep && operatorOk && sponsorReady && sched.assign) {
     for (const { match, row } of planAssignments(rows, assignable, promised, ctx.now)) {
       const w = waiting.find((x) => x.address.equals(match.address))!;
       const pick = { generation: cfg.generation, index: row.index, epoch: row.view!.epoch };
@@ -528,10 +581,13 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
     }
   }
 
+  if (deps.publishPool && doUpkeep && !ctx.settings.dryRun) await deps.publishPool(a, poolOf(rows, promised, cfg.generation, ctx.now), readAt).catch((e) => log("tables", a.label, `pool publish failed: ${String(e?.message ?? e).slice(0, 160)}`));
+
   // 3b. fast refunds (ticket 35) -----------------------------------------------------------------------------
+
   // An Assignment whose Match never began is given up so its Match refunds from a committed result; a joined Match that no
   // table took within TABLE_WAIT_SECS is refunded at once. Both come after assignment: a free table is always tried first.
-  if (operatorOk) {
+  if (doUpkeep && operatorOk) {
     for (const x of planSkips(rows, expired, ctx.now)) {
       await run(`match=${shortKey(x.match)}`, `skip_epoch (table ${x.index} epoch ${x.epoch}, the Match never began)`, () => a.skip(ctx, x.match));
     }
@@ -539,7 +595,7 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
   const stillWaiting = waiting.filter((w) => !assignedNow.has(w.address.toBase58()));
   let refundedUntabled = 0;
   for (const w of dueForRefund(
-    stillWaiting.map((w) => ({ ...w, deadline: Number(w.inner.deadline.toString()), deadlineAbs: Number(w.inner.deadlineAbs?.toString() ?? Number.MAX_SAFE_INTEGER) })),
+    (doUpkeep ? stillWaiting : []).map((w) => ({ ...w, deadline: Number(w.inner.deadline.toString()), deadlineAbs: Number(w.inner.deadlineAbs?.toString() ?? Number.MAX_SAFE_INTEGER) })),
     ctx.now,
   )) {
     const ok = await run(`match=${matchLabel(matchRefOf(w.inner.id))}`, "refund_untabled (no table within the wait)", () => a.refundUntabled(ctx, w.address));
@@ -553,28 +609,30 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
   const unplaced = waiting.length - assigned - refundedUntabled;
   const demand = assignable.filter((w) => !assignedNow.has(w.address.toBase58()) && st.firstSeen.has(w.address.toBase58())).length;
   const growth = planGrowth({ rows, promised, waiting: demand, cap: set.cap, maxTables: cfg.maxTables, spare: set.spare, min: set.min, createPerPass: sched.createPerPass, preSeated: a.preSeated, now: ctx.now });
-  if (operatorOk && sponsorBase !== "missing") {
+  if (!doSetup) {
+    // the refill slice makes no table
+  } else if (operatorOk && sponsorBase !== "missing") {
     for (const s of growth.steps) {
       const ref = { generation: cfg.generation, index: s.index };
       await run(here(String(s.index)), s.do, () => a.setup(ctx, { do: s.do, index: s.index }, ref, init));
     }
-  } else if (growth.steps.length) log("tables", a.label, `SKIP ${growth.steps.length} setup step(s): ${operatorOk ? "no Sponsor yet" : "the keeper is not the operator"}`);
+  } else if (growth.steps.length) log("tables", a.label, `SKIP ${growth.steps.length} setup step(s): ${operatorOk ? "no Sponsor yet" : "the signing key is not the operator"}`);
   condition(key("cap"), growth.capReached, `${a.label} tables: cap reached`, `${unplaced} ${a.label} Match(es) wait for a table and the Game already has ${growth.existing} of at most ${Math.min(set.cap, cfg.maxTables)} (KEEPER_${a.env}_TABLE_CAP, TableConfig.max_tables). Raise the cap or the Matches will be refunded at their deadline.`);
   const oldest = [...st.firstSeen.values()].reduce((m, t) => Math.min(m, t), Infinity);
   const late = unplaced > 0 && ctx.now - oldest >= sched.tableWaitSecs;
   condition(key("wait"), late, `${a.label}: a Match is waiting for a table`, `${unplaced} joined ${a.label} Match(es) have had no table for ${Math.round((ctx.now - oldest) / 60)} min (limit ${Math.round(sched.tableWaitSecs / 60)} min). the keeper refunds each after ${Math.round(TABLE_WAIT_SECS / 60)} min (refund_untabled) and that did not happen; check the tables, the cap and the keeper's payer.`);
 
   // 5. the Sponsor's fuel ------------------------------------------------------------------------------------
-  if (sponsorReady) {
+  if (doRefill && sponsorReady) {
     const balance = await a.sponsorBalance(ctx).catch(() => null);
     if (balance !== null && balance < set.sponsorFloor) {
-      const ok = await run("sponsor", `${a.label} refill_sponsor (balance ${balance} lamports)`, () => a.refill(ctx, set.fuel, set.fuelAmount));
+      const ok = await run("sponsor", `${a.label} refill_sponsor (balance ${balance} lamports)`, () => a.refill(ctx, set.fuel, refillAmount(balance, set)));
       condition(key("sponsor"), !ok, `${a.label} Sponsor is low`, `The ${a.label} Sponsor holds ${balance} lamports (floor ${set.sponsorFloor}) and refilling it from Fuel ${set.fuel} did not work. Without it no table can be committed. Create more Fuel or top it up.`);
     } else condition(key("sponsor"), false, "", "");
   }
 
   // 6. clean up Assignments of frozen Matches (rent back to the keeper) -------------------------------------------
-  if (ctx.now - st.lastCleanup >= sched.cleanupSecs) {
+  if (doUpkeep && ctx.now - st.lastCleanup >= sched.cleanupSecs) {
     st.lastCleanup = ctx.now;
     actions += await cleanAssignments(ctx, a, here, sched.cleanupPerPass);
   }

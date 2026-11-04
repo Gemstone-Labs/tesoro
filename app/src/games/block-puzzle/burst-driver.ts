@@ -1,4 +1,6 @@
 import type { PublicKey } from "@solana/web3.js";
+import { atNextEpoch, startNote } from "../../lib/chain/table-clean";
+import { atAssignedEpoch } from "../../lib/chain/table-epoch";
 import { BlockPuzzleChain, type ChainSigner } from "./chain";
 import { sessionFromTable, type BurstSession } from "@/lib/chain/burst-read";
 import { matchAddressOf } from "@/lib/chain/match-id";
@@ -8,6 +10,8 @@ import { resultOf, type ChainMatch } from "@/lib/chain/read";
 import { settledPda } from "@/lib/chain/basket";
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import type { GetToken } from "@/lib/chain/demo-client";
+import { createFinisher } from "@/lib/chain/finish-match";
+import { finalizeAndFinishFree, finishMatchFree } from "@/lib/chain/finish-match-client";
 import { finalizeFree } from "@/lib/chain/game-finalize";
 import { plainError } from "@/lib/errors";
 import {
@@ -101,8 +105,10 @@ export const initialBurstView = (): BurstView => ({
 });
 
 /** The stage a Player sees for an assigned Match, from the table the rollup holds. */
-export function tableStage(i: { hasTable: boolean; running: boolean; phase: string | null; closed: boolean; began: boolean }): Stage {
+/** `behind`: the table still holds the previous Match, so begin_match is clearing it for this one. */
+export function tableStage(i: { hasTable: boolean; running: boolean; phase: string | null; closed: boolean; began: boolean; behind?: boolean }): Stage {
   if (!i.hasTable) return "table";
+  if (i.behind) return "setup";
   const live = i.phase === "running" || i.phase === "frozen" || i.phase === "grace";
   if (i.running || (live && i.began)) return "playing";
   if (i.phase === "getReady" || live) return "getReady";
@@ -146,6 +152,8 @@ export class BurstDriver {
   view: BurstView = initialBurstView();
   private readonly listeners = new Set<(v: BurstView) => void>();
   private readonly mk: ReturnType<typeof matchAddressOf>;
+  /** Chunks and close_match once the result is fixed; repeating it on every poll is safe. */
+  private readonly finisher: (() => Promise<unknown>) | null;
   private readonly progress;
 
   private working = false;
@@ -182,6 +190,8 @@ export class BurstDriver {
 
   constructor(private d: BurstDriverDeps) {
     this.mk = matchAddressOf(d.id);
+    const mk = this.mk;
+    this.finisher = mk ? createFinisher(() => finishMatchFree(d.signer, () => d.getToken(), mk)) : null;
     this.progress = matchProgress<ChainMatch, Stage>(d.id);
   }
 
@@ -369,6 +379,7 @@ export class BurstDriver {
 
   /** The result is fixed: the run is over. `onSettled` (the page refreshes the Player's Gemas) waits for the last chunk. */
   private async settle(m: ChainMatch) {
+    if (m.running) void this.finisher?.();
     if (!this.settledSeen) {
       this.settledSeen = true;
       this.submitter?.stop();
@@ -452,11 +463,13 @@ export class BurstDriver {
     let t = this.tableRef && now() - this.tableAt < 1_500 ? this.tableRef : null;
     if (!t) {
       const read = await chain.readTable(p, a).catch(() => null);
-      if (read && tableOf(a, read)) {
+      if (read && (tableOf(a, read) || atNextEpoch(a, read) || (read.phase === TABLE_PHASE.idle && atAssignedEpoch(a, read)))) {
+        // A table one epoch behind still holds the previous Match: begin_match clears it, but it is not this Match's table to show.
+        // An idle table at the assigned epoch is this Match's table that begin_match has not named yet.
         t = read;
         this.tableRef = read;
         this.tableAt = now();
-        this.patch({ table: read, reconnecting: false });
+        this.patch(tableOf(a, read) ? { table: read, reconnecting: false } : { reconnecting: false });
       } else if (!read) {
         this.patch({ reconnecting: true });
       }
@@ -479,7 +492,7 @@ export class BurstDriver {
     if (t && t.phase === TABLE_PHASE.closed && !t.dirty && (!baseTable || !tableOf(a, baseTable))) {
       baseTable = await chain.readTableOnBase(a).catch(() => null);
       this.baseRef = baseTable;
-    } else if (t && !tableOf(a, t)) {
+    } else if (t && !tableOf(a, t) && !atNextEpoch(a, t)) {
       baseTable = await chain.readTableOnBase(a).catch(() => null);
       this.baseRef = baseTable;
     }
@@ -500,8 +513,9 @@ export class BurstDriver {
     // The stage the Player sees.
     const phase = t ? phaseAt(t, slotNowV) : null;
     const reason = t && t.phase === TABLE_PHASE.closed ? t.reason : null;
-    const stage = tableStage({ hasTable: !!t, running: s.kind === "run", phase, closed: !!t && t.phase === TABLE_PHASE.closed, began: !!this.boardRef?.began });
-    this.patchStage(stage, reason === null ? { seat } : { seat, reason });
+    const behind = !!t && !!a && atNextEpoch(a, t);
+    const stage = tableStage({ hasTable: !!t, running: s.kind === "run", phase, closed: !!t && t.phase === TABLE_PHASE.closed, began: !!this.boardRef?.began, behind });
+    this.patchStage(stage, behind ? { seat, note: startNote(!!t && t.phase === TABLE_PHASE.closed) } : reason === null ? { seat } : { seat, reason });
     if (stage === "closing" && !this.closingSince) this.closingSince = now();
     if (t && t.phase === TABLE_PHASE.closed && t.dirty && !this.commitSince) this.commitSince = now();
     if (this.commitSince) {
@@ -521,7 +535,7 @@ export class BurstDriver {
     try {
       switch (s.kind) {
         case "beginMatch":
-          await chain.beginMatch(p, a);
+          await chain.beginMatch(p, a, t);
           break;
         case "seatPlayers":
           await chain.seatPlayers(p, a);
@@ -547,7 +561,8 @@ export class BurstDriver {
           await chain.commitTable(p, a);
           break;
         case "finalize": {
-          const sig = await finalizeFree(chain, this.d.signer, () => this.d.getToken(), a);
+          let sig: string | undefined;
+          await finalizeAndFinishFree(this.d.signer, () => this.d.getToken(), this.mk!, async () => (sig = await finalizeFree(chain, this.d.signer, () => this.d.getToken(), a)));
           this.addSig("finalize", sig, "base");
           break;
         }
@@ -555,7 +570,7 @@ export class BurstDriver {
       this.failures = 0;
     } catch (e) {
       // Another page (or the keeper) did this step first: the table has moved on. Anything else counts.
-      if (/WrongPhase|AlreadyCheckedIn|AlreadyBegan|SeatsOpen|SeedRequestNotDue|NotDirty|AlreadyFinalized|already in use|insufficient|Attempt to debit/i.test(String(e))) return;
+      if (/WrongPhase|ResetTooEarly|NotCommitted|RingFull|AlreadyCheckedIn|AlreadyBegan|SeatsOpen|SeedRequestNotDue|NotDirty|AlreadyFinalized|already in use|insufficient|Attempt to debit/i.test(String(e))) return;
       if (++this.failures >= 3) throw e;
     }
   }

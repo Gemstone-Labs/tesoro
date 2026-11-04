@@ -65,7 +65,9 @@ pub const GAME_SEED: &[u8] = b"game";
 /// Game program (not of this program).
 pub const REGISTER_SEED: &[u8] = b"tesoro-register";
 /// Matches one opener-to-joiner pair may start in a window: `["pair", opener Account, joiner Account]`.
-pub const PAIR_SEED: &[u8] = b"pair";
+/// `pair2`, not `pair`: records from before the opener and joiner were stored (51 bytes, devnet
+/// only) sit under `pair` and can neither be read as the new layout nor block a join.
+pub const PAIR_SEED: &[u8] = b"pair2";
 
 /// Address of the Invite gate account (it may not exist yet: no account means the gate is off).
 pub fn invite_gate_pda() -> Pubkey {
@@ -166,6 +168,9 @@ pub struct PairState {
     pub payer: Pubkey,
     pub window_start: i64,
     pub count: u16,
+    /// The opener's and joiner's Accounts, so a scan alone can close an expired record.
+    pub opener: Pubkey,
+    pub joiner: Pubkey,
 }
 
 /// Matches one opener-to-joiner pair may start per window.
@@ -173,7 +178,7 @@ pub const MAX_PAIR_MATCHES: u16 = 20;
 pub const PAIR_WINDOW_SECS: i64 = 24 * 60 * 60;
 
 impl PairState {
-    pub const SPACE: usize = 8 + 1 + 32 + 8 + 2;
+    pub const SPACE: usize = 8 + 1 + 32 + 8 + 2 + 32 + 32;
 
     /// Counts one more Match started at `now`; `false` when the pair is at its limit for the window.
     pub fn record(&mut self, now: i64) -> bool {
@@ -439,17 +444,30 @@ impl SourceState {
 pub const MAX_OPEN_MATCHES: u32 = 8;
 
 /// What an Account has counted: the id of its next Match, how many of its Matches are open, how
-/// many Offers it has open. Created with the first Match or Offer; never closed.
+/// many Offers it has open, and the nonce of its next Ticket or Pot. Created with the first
+/// Match, Offer or Ticket; never closed.
+///
+/// `next_match` and `next_ticket` only go up and a new Match, Ticket or Pot must use exactly the
+/// current value, so an address that is absent while its counter is past its number was created
+/// and closed, and can never be created again.
 #[account]
 pub struct AccountCounters {
     pub bump: u8,
     pub next_match: u64,
     pub open_matches: u32,
     pub open_offers: u32,
+    /// The nonce of the next `["ticket", account, nonce]` address, whether it becomes an Entry
+    /// Ticket, a Backing Ticket or a fresh Pot.
+    pub next_ticket: u64,
 }
 
 impl AccountCounters {
-    pub const SPACE: usize = 8 + 1 + 8 + 4 + 4;
+    pub const SPACE: usize = 8 + 1 + 8 + 4 + 4 + 8;
+    /// The size before `next_ticket` existed (`migrate_counters` grows it).
+    pub const SPACE_V1: usize = Self::SPACE - 8;
+    /// Where a migrated counter starts: above every nonce an old client could have picked from a
+    /// clock or a counter, so no old Ticket or Pot address can be made again.
+    pub const LEGACY_TICKET_BASE: u64 = 1 << 63;
 }
 
 /// A Match. The Pots (the Tickets' lines) live in the two Ticket accounts named in `pots`.

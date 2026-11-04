@@ -32,10 +32,10 @@ import {
   cancelOffer,
   cancelRequest,
   expireOffer,
+  refundBackedMatch,
   fetchBackingBoard,
   postOffer,
   postRequest,
-  type ChainOffer,
   type ChainRequest,
   type PlayerRecord,
 } from "@/lib/chain/backing";
@@ -56,6 +56,7 @@ const SORT_OPTIONS: { value: Sort; label: string }[] = [
 ];
 import { GemasLabel } from "../wallet/AdvanceQuote";
 import { RequestCard } from "@/components/backing/RequestCard";
+import { MyOffer } from "@/components/backing/MyOffer";
 import { BackingExample, FEES } from "./BackingExample";
 import "./backing.css";
 import { entryError } from "@/lib/chain/entry-errors";
@@ -353,6 +354,10 @@ export default function Backing() {
                     busy={busy}
                     onCancel={() => act("cancel an Offer", `co-${o.address.toBase58()}`, "Offer cancelled. Your Gemas are released.", (s) => cancelOffer(s, o))}
                     onRelease={() => act("release Gemas", `ex-${o.address.toBase58()}`, "Expired. Your Gemas are released.", (s) => expireOffer(s, o))}
+                    onRefund={() =>
+                      o.refundableMatchId !== null &&
+                      act("refund a Match", `rf-${o.address.toBase58()}`, "Refunded. Your Gemas return to you.", async (s) => (await refundBackedMatch(s, o.refundableMatchId as string, auth.getAccessToken)) ?? undefined)
+                    }
                   />
                 ))}
               </div>
@@ -493,66 +498,6 @@ function MyRequest({ r, nowMs, busy, onCancel }: { r: ChainRequest; nowMs: numbe
     </Card>
   );
 }
-
-function MyOffer({
-  offer,
-  requests,
-  nowMs,
-  busy,
-  onCancel,
-  onRelease,
-}: {
-  offer: ChainOffer;
-  requests: Map<string, ChainRequest>;
-  nowMs: number;
-  busy: string | null;
-  onCancel: () => void;
-  onRelease: () => void;
-}) {
-  const nowSecs = nowMs / 1000;
-  const reserved = offer.lines.reduce((s, l) => s + Number(l.amount), 0);
-  const lapsed = (offer.status === "open" && nowSecs >= offer.expiresAt) || (offer.status === "accepted" && nowSecs >= offer.useBy);
-  const playerKey = offer.player ?? requests.get(offer.request)?.player ?? null;
-  const key = offer.address.toBase58();
-  const status =
-    offer.status === "consumed"
-      ? "Match started: your Gemas are in the Pot"
-      : lapsed
-        ? "Expired: release your reserved Gemas"
-        : offer.status === "accepted"
-          ? <>Accepted by <PlayerName account={offer.player ?? ""} /> · they have {timeLeft(offer.useBy, nowMs).replace(" left", "")} to start</>
-          : <>Waiting for {playerKey ? <PlayerName account={playerKey} /> : "the Player"} · {timeLeft(offer.expiresAt, nowMs)}</>;
-  return (
-    <Card as="article" aria-label="Your Offer">
-      <div className="stack">
-        <div className="spread">
-          <span className="row-body">
-            <span className="row-title">Offer · {fmtGemas(offer.entry)}</span>
-            <span className="row-meta">{GAME_NAMES[offer.game]} · Player keeps {offer.shareBps / 100}% of the surplus</span>
-          </span>
-          {offer.status === "consumed" ? <Chip tone="money">Used</Chip> : <Chip tone="strong">{fmtGemas(reserved)} reserved</Chip>}
-        </div>
-        <p className="note">{status}</p>
-        <div className="hstack wrap">
-          {offer.status === "consumed" && offer.matchId !== null && (
-            <Button size="sm" href={`/play/match/${offer.matchId.toString()}`}>See the Match</Button>
-          )}
-          {lapsed && (
-            <Button size="sm" disabled={busy !== null} onClick={onRelease}>
-              {busy === `ex-${key}` ? "Releasing…" : "Release Gemas"}
-            </Button>
-          )}
-          {!lapsed && (offer.status === "open" || offer.status === "accepted") && (
-            <Button size="sm" disabled={busy !== null} onClick={onCancel}>
-              {busy === `co-${key}` ? "Cancelling…" : "Cancel Offer"}
-            </Button>
-          )}
-        </div>
-      </div>
-    </Card>
-  );
-}
-
 
 /**
  * MAKE AN OFFER: a modal over the page, the Player's card (as on the board) beside the terms. The Offer

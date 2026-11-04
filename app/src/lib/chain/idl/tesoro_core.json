@@ -1880,16 +1880,19 @@
                   112,
                   97,
                   105,
-                  114
+                  114,
+                  50
                 ]
               },
               {
-                "kind": "arg",
-                "path": "opener"
+                "kind": "account",
+                "path": "pair.opener",
+                "account": "PairState"
               },
               {
-                "kind": "arg",
-                "path": "joiner"
+                "kind": "account",
+                "path": "pair.joiner",
+                "account": "PairState"
               }
             ]
           }
@@ -1899,16 +1902,7 @@
           "writable": true
         }
       ],
-      "args": [
-        {
-          "name": "opener",
-          "type": "pubkey"
-        },
-        {
-          "name": "joiner",
-          "type": "pubkey"
-        }
-      ]
+      "args": []
     },
     {
       "name": "close_receipt",
@@ -4705,6 +4699,43 @@
       ]
     },
     {
+      "name": "grow_counters",
+      "docs": [
+        "Grows a 25-byte counters account to 33 bytes with `next_ticket` at",
+        "`AccountCounters::LEGACY_TICKET_BASE`. Anyone may call it and the caller pays the rent. A",
+        "33-byte one is left alone."
+      ],
+      "discriminator": [
+        61,
+        226,
+        4,
+        54,
+        161,
+        136,
+        132,
+        226
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the rent of the 8 new bytes."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "counters",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "grow_store",
       "docs": [
         "Anyone grows a basket or spill with their own lamports (a gift to its owner)."
@@ -6523,7 +6554,8 @@
                   112,
                   97,
                   105,
-                  114
+                  114,
+                  50
                 ]
               },
               {
@@ -6819,6 +6851,68 @@
           "type": "u8"
         }
       ]
+    },
+    {
+      "name": "migrate_counters",
+      "docs": [
+        "The admin sweep of `grow_counters`, with the Account's counters address checked."
+      ],
+      "discriminator": [
+        216,
+        171,
+        254,
+        195,
+        238,
+        248,
+        221,
+        41
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Pays the rent of the 8 new bytes."
+          ],
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "account"
+        },
+        {
+          "name": "counters",
+          "docs": [
+            "discriminator checked in the handler): a 25-byte one is grown, a 33-byte one is left alone."
+          ],
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "migrate_native_custody",
@@ -8012,6 +8106,34 @@
                   111,
                   114
                 ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "counters",
+          "docs": [
+            "The `owner` Account's counters: `next_ticket` is the nonce this Ticket must use."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
               }
             ]
           }
@@ -16201,7 +16323,12 @@
       "name": "AccountCounters",
       "docs": [
         "What an Account has counted: the id of its next Match, how many of its Matches are open, how",
-        "many Offers it has open. Created with the first Match or Offer; never closed."
+        "many Offers it has open, and the nonce of its next Ticket or Pot. Created with the first",
+        "Match, Offer or Ticket; never closed.",
+        "",
+        "`next_match` and `next_ticket` only go up and a new Match, Ticket or Pot must use exactly the",
+        "current value, so an address that is absent while its counter is past its number was created",
+        "and closed, and can never be created again."
       ],
       "type": {
         "kind": "struct",
@@ -16221,6 +16348,14 @@
           {
             "name": "open_offers",
             "type": "u32"
+          },
+          {
+            "name": "next_ticket",
+            "docs": [
+              "The nonce of the next `[\"ticket\", account, nonce]` address, whether it becomes an Entry",
+              "Ticket, a Backing Ticket or a fresh Pot."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -18327,6 +18462,17 @@
           {
             "name": "count",
             "type": "u16"
+          },
+          {
+            "name": "opener",
+            "docs": [
+              "The opener's and joiner's Accounts, so a scan alone can close an expired record."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "joiner",
+            "type": "pubkey"
           }
         ]
       }

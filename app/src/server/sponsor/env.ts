@@ -1,4 +1,5 @@
 import "server-only";
+import { bridgeSendGuard } from "../bridge-send";
 import { createHash } from "node:crypto";
 import { BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
 import { AddressLookupTableAccount, Connection, Keypair, PublicKey } from "@solana/web3.js";
@@ -18,6 +19,8 @@ import { supabaseInviteStore } from "../invite/supabase-store";
 import { MemoryUsageStore, type UsageStore } from "./store";
 import { supabaseUsageStore } from "./supabase-store";
 import { sendConfirmed } from "./chain-send";
+import { Assigner, MemoryLeaseStore } from "./assign";
+import { supabaseClaimTable, supabaseLeaseStore, supabasePoolTables } from "./table-pool";
 
 const LAMPORTS = 1_000_000_000n;
 const coder = new BorshAccountsCoder(coreIdl as unknown as Idl);
@@ -30,10 +33,13 @@ function chainReads(conn: Connection): ChainReads {
     sendRawTransaction: (raw, opts) => conn.sendRawTransaction(raw, opts),
     balance: async (k) => BigInt(await conn.getBalance(k, "confirmed")),
     rent: async (bytes) => BigInt(await conn.getMinimumBalanceForRentExemption(bytes, "confirmed")),
+    epoch: async () => BigInt((await conn.getEpochInfo("confirmed")).epoch),
     account: async (k) => {
       const a = await conn.getAccountInfo(k, "confirmed");
       return a ? { owner: a.owner, data: a.data } : null;
     },
+    // One call, so the Account of an address and its Account's counters come from the same slot.
+    accountsTogether: async (keys) => (await conn.getMultipleAccountsInfo(keys, "finalized")).map((a) => (a ? { owner: a.owner, data: a.data } : null)),
     latestBlockhash: async () => (await conn.getLatestBlockhash("confirmed")).blockhash,
     simulate: async (tx, watch) => {
       const r = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed", accounts: { encoding: "base64", addresses: [watch.toBase58()] } });
@@ -114,6 +120,9 @@ export function sponsor(): Sponsor {
     },
     // A sponsored new Account while the Invite gate is on is co-signed with the Invite key, for a wallet that redeemed an Invite.
     invite: inviteFromEnv(),
+    assigner: assignerFromEnv(),
+    // The relayer pays LayerZero fees inside a Player's bridge transactions only after these checks (./bridge-sends.ts).
+    bridgeSends: bridgeSendGuard,
     alertOnboarding: async (used, max) => {
       const sender = senderFromEnv();
       const to = alertRecipients(process.env.ALERT_EMAILS);
@@ -123,6 +132,23 @@ export function sponsor(): Sponsor {
     now: () => Date.now(),
   });
   return instance;
+}
+
+/**
+ * Joins arrive with their table assigned when TESORO_TABLE_OPERATOR_SECRET_KEY holds the Table operator of the Games (base58 or
+ * a JSON byte array): the key `set_config` named as `TableConfig.operator`, which is the keeper's key unless that was changed.
+ * Tables come from the pool in Supabase (`table_pool`, kept by the server and repaired by the keeper), so without Supabase there is nothing to assign from.
+ */
+function assignerFromEnv(): Assigner | undefined {
+  if (!process.env.TESORO_TABLE_OPERATOR_SECRET_KEY) return undefined;
+  const hosted = !!process.env.SUPABASE_URL;
+  return new Assigner({
+    operator: inviteKeypair(process.env.TESORO_TABLE_OPERATOR_SECRET_KEY, "TESORO_TABLE_OPERATOR_SECRET_KEY"),
+    leases: hosted ? supabaseLeaseStore : new MemoryLeaseStore(),
+    tables: async (game) => (hosted ? supabasePoolTables(game) : []),
+    claim: hosted ? supabaseClaimTable : undefined,
+    now: () => Date.now(),
+  });
 }
 
 function inviteFromEnv(): { key: Keypair; redeemed(authority: string): Promise<boolean> } | undefined {
@@ -135,5 +161,5 @@ function failClosed(): UsageStore {
   const refuse = async () => {
     throw new DemoHttpError(503, "not-configured", "Free transactions are not configured on this server.");
   };
-  return { take: refuse, refund: refuse, add: refuse, used: refuse, held: refuse, prepareCompletion: refuse, finishCompletion: refuse, pendingCompletions: refuse };
+  return { take: refuse, refund: refuse, add: refuse, used: refuse, held: refuse, prepareCompletion: refuse, finishCompletion: refuse, pendingCompletions: refuse, closureCandidates: refuse, releaseClosed: refuse };
 }

@@ -41,6 +41,8 @@ import { tokenSymbol } from "@/lib/chain/stake-pool";
 import { tokensForUnits, unitsForTokens } from "@/lib/chain/stake";
 import { MAX_ADVANCE_MONTHS, blockedLabel, extendLimitView, fetchExtendLimit, type ExtendLimitData } from "@/lib/chain/extend-limit";
 import { getChain } from "@/lib/chain/client";
+import { deliveryQuote } from "@/lib/chain/delivery-fee";
+import { useDeliveryTerms } from "@/lib/chain/useDeliveryTerms";
 import type { Chain } from "@/lib/mock";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { NOTHING_REDEEMABLE_YET, ethRedeemables, ethYieldWaiting, redeemEthHoldings, useEthCtx } from "./EthPositions";
@@ -708,6 +710,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
   const ethRows = ethRedeemables(snapshot?.holdings ?? []);
   const ethWaiting = ethYieldWaiting(snapshot?.holdings ?? []);
   const ethCtx = useEthCtx();
+  const deliveryTerms = useDeliveryTerms(ethRows.flatMap((h) => (h.eth ? [h.eth.vault] : [])));
   const pool = snapshot?.market?.pool ?? null;
   const from = (h: ChainHolding) => (h.isOwn ? `Your ${h.asset} Lock` : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`);
   const payouts: RedeemPayout[] = [
@@ -726,16 +729,24 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
       later: false,
       yieldFeeBps: h.yieldFeeBps,
     })),
-    ...ethRows.map((h) => ({
-      key: h.key,
-      asset: h.asset,
-      from: from(h),
-      gemas: Number(h.redeemable),
-      amount: (gemasInAsset(h.redeemable, h) * (10_000 - h.yieldFeeBps)) / 10_000,
-      token: h.asset,
-      later: true,
-      yieldFeeBps: h.yieldFeeBps,
-    })),
+    ...ethRows.map((h) => {
+      const gross = (gemasInAsset(h.redeemable, h) * (10_000 - h.yieldFeeBps)) / 10_000;
+      const terms = h.eth ? deliveryTerms.get(h.eth.vault.toLowerCase()) : undefined;
+      // The vault keeps a flat Delivery Fee for the cross-chain send and releases the rest.
+      const q = terms ? deliveryQuote({ terms, payoutUnits: BigInt(Math.floor(gross * 1e18)), kind: "yield" }) : null;
+      const deliveryFee = q ? Number(q.fee) / 1e18 : 0;
+      return {
+        key: h.key,
+        asset: h.asset,
+        from: from(h),
+        gemas: Number(h.redeemable),
+        amount: gross - deliveryFee,
+        token: h.asset,
+        later: true,
+        yieldFeeBps: h.yieldFeeBps,
+        deliveryFee,
+      };
+    }),
   ];
 
   const { offer: instant, orders, freshPlan, reloadOrders } = useInstantRedeem(asset);

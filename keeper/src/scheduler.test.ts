@@ -4,6 +4,7 @@ import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { Budget, type Ctx } from "./act.ts";
 import { clearRaised, raisedConditions } from "./alerts.ts";
+import { sponsorMinLamports } from "./balance-check.ts";
 import { PHASE } from "../../app/src/games/trading-duel/chain.ts";
 import { tableStep, type TableFacts } from "./tables.ts";
 import {
@@ -16,6 +17,7 @@ import {
   planGrowth,
   planSkips,
   quiet,
+  repairPool,
   runGame,
   schedulerSettings,
   stuckReason,
@@ -57,7 +59,8 @@ describe("settings", () => {
     assert.equal(gameSettings("holdem", "HOLDEM", {}).cap, 20);
     const s = gameSettings("vanguard", "VANGUARD", { KEEPER_VANGUARD_TABLE_CAP: "7", KEEPER_VANGUARD_TABLE_SPARE: "2", KEEPER_VANGUARD_FUEL: "3", KEEPER_VANGUARD_SPONSOR_INIT: "1000" });
     assert.deepEqual([s.cap, s.spare, s.fuel, s.sponsorInit], [7, 2, 3, 1000n]);
-    assert.equal(s.sponsorFloor, 20_000_000);
+    assert.equal(s.sponsorFloor, 150_000_000);
+    assert.ok(s.sponsorFloor > sponsorMinLamports({}), "the refill floor stays above the Sponsor alert level");
     assert.equal(schedulerSettings({}).tableWaitSecs, 300);
     assert.equal(schedulerSettings({ KEEPER_TABLE_WAIT_SECS: "60" }).tableWaitSecs, 60);
   });
@@ -168,8 +171,9 @@ class Fake {
   tables = new Map<number, FakeTable>();
   sponsor: TableRow["base"] = "delegated";
   fuel: TableRow["base"] = "delegated";
-  sponsorBalance: number | null = 50_000_000;
+  sponsorBalance: number | null = 200_000_000;
   refillFails = false;
+  refilled: bigint[] = [];
   refundFails = false;
   operator = Keypair.generate().publicKey;
   maxTables = 8;
@@ -214,7 +218,8 @@ class Fake {
       assign: async (_c, m, _i, pick) => me.log(`assign ${m.toBase58().slice(0, 4)}->${pick.index}@${pick.epoch}`),
       setup: async (_c, step: SetupStep, ref) => me.log(`setup ${step.do}${"index" in step ? " " + step.index : ""}${"n" in step ? " " + step.n : ""} ${ref.generation}`),
       sponsorBalance: async () => me.sponsorBalance,
-      refill: async () => {
+      refill: async (_c: unknown, _fuel: number, amount: bigint) => {
+        me.refilled.push(amount);
         if (me.refillFails) throw new Error("fuel empty");
         return me.log("refill");
       },
@@ -249,6 +254,7 @@ function ctxOf(f: Fake, over: { dryRun?: boolean; now?: number; accounts?: Map<s
     settings: { dryRun: !!over.dryRun },
     budget: new Budget(1e15),
     payer,
+    operator: payer,
     now: over.now ?? NOW,
     conn: {
       getBalance: async () => 1e9,
@@ -259,7 +265,7 @@ function ctxOf(f: Fake, over: { dryRun?: boolean; now?: number; accounts?: Map<s
   } as unknown as Ctx;
 }
 
-const SET: GameSettings = { cap: 4, spare: 1, min: 1, fuel: 0, fuelAmount: 50_000_000n, sponsorFloor: 20_000_000, sponsorInit: 0n, fuelInit: 0n };
+const SET: GameSettings = { cap: 4, spare: 1, min: 1, fuel: 0, fuelAmount: 50_000_000n, sponsorFloor: 150_000_000, sponsorInit: 0n, fuelInit: 0n };
 const STILL: GameSettings = { ...SET, spare: 0, min: 0 };
 const SCHED = { ...schedulerSettings({}), cleanupSecs: 1e9 };
 const gateOk = async () => true;
@@ -415,7 +421,7 @@ describe("assignment", () => {
     assert.deepEqual(f.calls.filter((c) => c.startsWith("assign")), [`assign ${key(13).toBase58().slice(0, 4)}->0@3`]);
   });
 
-  it("assigns nothing when the keeper is not the operator, and says so", async () => {
+  it("assigns nothing when the signing key is not the operator, and says so", async () => {
     const f = new Fake();
     withTable(f, 0, {});
     const ctx = ctxOf(f);
@@ -485,6 +491,18 @@ describe("fast refunds (ticket 35)", () => {
     st.firstSeen.set(key(12).toBase58(), NOW);
     await again(NOW + 302);
     assert.ok(keys().includes("tables:fake:wait"));
+  });
+
+  it("the refill and tables slices send nothing about Matches: no assignment, no skip, no refund", async () => {
+    for (const only of ["refill", "setup"] as const) {
+      const f = new Fake();
+      f.maxTables = 0;
+      f.sponsorBalance = 1;
+      withTable(f, 0, {}, undefined);
+      f.assignments.set(key(13).toBase58(), { generation: 1, index: 0, epoch: 3, startDeadline: NOW - 10 });
+      await runGame(ctxOf(f, { now: NOW + 1000 }), f.adapter(), STILL, [matchOf(12), matchOf(13)] as never, newGameState(), { gate: gateOk, settings: { ...SCHED, assign: false }, only });
+      assert.deepEqual(f.calls.filter((c) => /^(assign|skip|refund_untabled)/.test(c)), [], only);
+    }
   });
 
   it("gives up an Assignment whose window closed with its table Idle at its epoch", async () => {
@@ -611,6 +629,17 @@ describe("Sponsor fuel", () => {
     assert.ok(!keys().includes("tables:fake:sponsor"));
   });
 
+  it("a refill from below the alert level leaves the Sponsor above it, in one run", async () => {
+    for (const balance of [0, 1000, 99_999_999, 140_000_000]) {
+      const f = new Fake();
+      f.sponsorBalance = balance;
+      await go(f);
+      assert.equal(f.refilled.length, 1);
+      assert.ok(balance + Number(f.refilled[0]) > sponsorMinLamports({}), `balance ${balance} + ${f.refilled[0]}`);
+      assert.ok(balance + Number(f.refilled[0]) >= SET.sponsorFloor);
+    }
+  });
+
   it("raises an alert when the refill fails, and clears it when the Sponsor is full again", async () => {
     const f = new Fake();
     f.sponsorBalance = 1000;
@@ -666,5 +695,60 @@ describe("reads before the first table step", () => {
     await runGame(ctx, adapter as never, STILL, [], newGameState(), { gate: gateOk, settings: SCHED });
     assert.deepEqual(events.slice(0, 4).sort(), ["config end", "config start", "info", "info"]);
     assert.equal(events.indexOf("config end"), 3, "both account reads started before the config read finished");
+  });
+});
+
+describe("repairPool: the rollup read that corrects the server's pool", () => {
+  it("publishes the idle tables with their live epoch, leaves out one an Assignment holds, and sends nothing else", async () => {
+    const f = new Fake();
+    withTable(f, 0, { epoch: 4 });
+    withTable(f, 1, { epoch: 7 });
+    withTable(f, 2, { epoch: 2, coarse: "match" });
+    f.assignments.set(key(50).toBase58(), { generation: 1, index: 1, epoch: 7, startDeadline: NOW + 60 });
+    const published: unknown[] = [];
+    const before = Date.now();
+    const n = await repairPool(ctxOf(f), f.adapter(), [matchOf(50) as never], async (_a, tables, readAt) => void published.push([tables, readAt >= before]));
+    assert.equal(n, 1);
+    assert.deepEqual(published, [[[{ generation: 1, index: 0, epoch: 4 }], true]]);
+    assert.deepEqual(f.calls, []);
+  });
+
+  it("publishes nothing for a Game without tables", async () => {
+    const f = new Fake();
+    const adapter = { ...f.adapter(), config: async () => null };
+    const published: unknown[] = [];
+    assert.equal(await repairPool(ctxOf(f), adapter as never, [], async (...a) => void published.push(a)), null);
+    assert.deepEqual(published, []);
+  });
+});
+
+describe("the admin scripts' two slices of a pass (deps.only)", () => {
+  beforeEach(() => raisedConditions().forEach((c) => clearRaised(c.key)));
+  const world = () => {
+    const f = new Fake();
+    for (let i = 1; i < 8; i++) f.tables.set(i, { base: "missing", view: null });
+    withTable(f, 0, { coarse: "over", overAt: NOW - 1000, dirty: true, seatsOpen: true });
+    f.sponsorBalance = 1000;
+    return f;
+  };
+  const run = (f: Fake, only: "setup" | "refill", set: GameSettings, over: { dryRun?: boolean } = {}) =>
+    runGame(ctxOf(f, over), f.adapter(), set, [], newGameState(), { gate: gateOk, settings: { ...SCHED, createPerPass: 8 }, only });
+
+  it("setup makes the tables up to the minimum, in one pass, and touches no running table and no Sponsor balance", async () => {
+    const f = world();
+    await run(f, "setup", { ...SET, min: 3, spare: 0 });
+    assert.deepEqual(f.calls, ["setup create_table 1 1", "setup create_table 2 1"]);
+  });
+
+  it("refill tops the Sponsor up and makes and resets nothing", async () => {
+    const f = world();
+    await run(f, "refill", { ...SET, min: 3, spare: 0 });
+    assert.deepEqual(f.calls, ["refill"]);
+  });
+
+  it("a dry run of setup sends nothing", async () => {
+    const f = world();
+    await run(f, "setup", { ...SET, min: 3, spare: 0 }, { dryRun: true });
+    assert.deepEqual(f.calls, []);
   });
 });

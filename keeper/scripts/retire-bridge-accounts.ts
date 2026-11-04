@@ -1,5 +1,5 @@
 /**
- * Retires the tesoro_bridge records of layouts the current program cannot read (BridgePosition 172/188 B, Claim 129 B,
+ * Retires the tesoro_bridge records of layouts the current program cannot read (BridgePosition 172/188 B, Claim 129/161 B, InstantClaim 129 B, PayoutRecord 230 B,
  * VaultTreasury 77 B) with `retire_legacy_account` (admin only, rent to the admin). Run after the bridge upgrade that adds it.
  * An old record whose vault is a CURRENT vault (a registered PeerConfig) is left alone and listed.
  *

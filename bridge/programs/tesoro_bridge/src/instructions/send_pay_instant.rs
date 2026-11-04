@@ -69,6 +69,8 @@ impl SendPayInstant<'_> {
         let position = &mut ctx.accounts.bridge_position;
         require!(position.opened, BridgeError::NotOpened);
         claim.units_sent = claim.units_total;
+        let delivery_fee = claim.delivery_fee;
+        claim.delivery_fee = 0;
         let seq = next_out_seq(position)?;
         // A Position opened before units were normalised holds wei: it is retired, never paid.
         require!(
@@ -89,6 +91,7 @@ impl SendPayInstant<'_> {
                 seq,
                 pad_address(&ctx.accounts.holder_account.evm_address),
                 amount,
+                delivery_fee,
             ),
         )?;
         emit!(MessageSent {
@@ -97,6 +100,7 @@ impl SendPayInstant<'_> {
             msg_type: MSG_PAY_INSTANT,
             seq,
             amount,
+            delivery_fee,
         });
         Ok(())
     }

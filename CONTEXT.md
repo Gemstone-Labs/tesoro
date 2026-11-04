@@ -139,6 +139,10 @@ _Avoid_: rake, commission, house edge
 20% of yield when it is cashed out (SOL, ETH and HYPE alike): on a Redeem, on the repaid part of an Instant Redeem, when the Treasury redeems the Gemas it bought, and on a Lock owner's free yield at Unlock (including what a Return gave back). Taken once per cash-out, from what leaves: 1,000 Gemas Redeem for $8.00. Never charged on a Locked amount, on fee Gemas (Platform, Studio, Leaderboard Fees) or on prize Gemas. Half is Tesoro's revenue and half is owed to the Leaderboard Pool, both counted when the cash-out happens. Each Advance keeps the Yield Fee and the Pool's share in force when it was taken.
 _Avoid_: performance fee, staking commission, interest
 
+**Delivery Fee**:
+A flat amount, in the asset the Player receives (ETH or HYPE), that the vault keeps when an Unlock or a Redeem is sent to an EVM chain. It pays for the cross-chain send, which Tesoro's sponsor makes in SOL inside the Player's own transaction, so the Player never needs SOL. Shown before signing as "You get X, Delivery Fee Y". Fixed when the Redeem is made, never more than a tenth of what the Player receives, and a Redeem below a minimum is refused. Not charged on SOL, and not a revenue: it covers the send.
+_Avoid_: gas fee, bridge fee, network fee
+
 **Studio Fee**:
 The additional share of the Pot a game's studio sets for itself on top of the Platform Fee, taken in Gemas at settlement. At most 10% of the Pot.
 _Avoid_: developer cut, revenue share

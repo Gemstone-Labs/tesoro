@@ -72,6 +72,7 @@ fn keeper_fixtures_match_the_program() {
         gemas: 345,
         shares: 6789,
         sends: 2,
+        delivery_fee: 9,
     };
     let claim = Claim {
         holder_account: key(13),
@@ -85,6 +86,7 @@ fn keeper_fixtures_match_the_program() {
         fee_sent: 10,
         pool_total: 20,
         pool_sent: 5,
+        delivery_fee: 7,
     };
     let instant = InstantClaim {
         holder_account: key(16),
@@ -94,6 +96,7 @@ fn keeper_fixtures_match_the_program() {
         units_total: 201,
         units_sent: 51,
         bump: 251,
+        delivery_fee: 8,
     };
     let out = [
         ("route", bytes(&route)),

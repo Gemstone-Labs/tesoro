@@ -1,11 +1,13 @@
 import { Budget, log, runJob, runJobs, stillRunning, type Ctx } from "./act.ts";
 import { alertsJob } from "./alerts-job.ts";
+import { heartbeatFrom, HEARTBEAT_ENV } from "./heartbeat.ts";
 import { awayCleanup } from "./away.ts";
 import { backingHygiene } from "./backing.ts";
 import { batchesJob } from "./batches.ts";
 import { bridgeJob } from "./bridge.ts";
 import { cashInJob, harvestJob } from "./counters.ts";
 import { historyJob } from "./history.ts";
+import { webhookCatchUpJob } from "./webhook-history.ts";
 import { orderJob } from "./orders.ts";
 import { overflowJob } from "./overflow.ts";
 import { poolJob } from "./pools.ts";
@@ -19,7 +21,8 @@ import { notifyEventsJob } from "./notify-events.ts";
 import { priceJob, priceJobEnabled } from "./price.ts";
 import { Connection } from "@solana/web3.js";
 import { BLOCK_PUZZLE_PROGRAM_ID } from "../../app/src/games/block-puzzle/chain.ts";
-import { buildRuntime, clusterNow, fetchWithBackoff, newConnection, rateLimit } from "./runtime.ts";
+import { buildRuntime, clusterNow, newConnection, rateLimit, solanaFetch } from "./runtime.ts";
+import { meter } from "./credits.ts";
 import { seasonJob } from "./season.ts";
 import { FastLane, nextTurn } from "./lanes.ts";
 import { burstAdapter, tablesJob } from "./scheduler-games.ts";
@@ -45,6 +48,7 @@ async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>, between?: () 
     ["match", matchHygiene],
     // After the Match job, so a settle that just started is in the records; before notify, which announces from them.
     ["history", historyJob],
+    ["webhook", webhookCatchUpJob],
     ["tickets", ticketJob],
     ["sponsor", sponsorCompletionJob],
     ["orders", orderJob],
@@ -66,13 +70,15 @@ async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>, between?: () 
   await runJobs(jobs, ctx, between);
   // Last, so the alerts see this pass's outcomes.
   await runJob("alerts", alerts, ctx);
+  for (const line of meter.report()) log("credits", "-", line.replace(/^credits /, ""));
+  meter.reset();
 }
 
 async function main() {
   const s = settings();
   const hostOf = (u: string) => new URL(u).host;
   const conn = newConnection(s.rpc, s.gpaRpc);
-  const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m), new Connection(s.gpaRpc, { fetch: fetchWithBackoff as typeof fetch }));
+  const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m), new Connection(s.gpaRpc, { fetch: solanaFetch }));
   const ctx: Ctx = {
     ...buildRuntime(s, conn, payer),
     budget: new Budget(s.hourlyCapLamports),
@@ -88,6 +94,7 @@ async function main() {
   }
 
   const alerts = alertsJob(health);
+  const heartbeat = heartbeatFrom(HEARTBEAT_ENV.loop, process.env, fetch, (m) => log("keeper", "-", m));
   const fastLane = new FastLane({
     scan: (c) => scanMatches(c, { fresh: true }),
     probe: async (c) => (await c.conn.getSignaturesForAddress(c.core.programId, { limit: 1 }, "confirmed"))[0]?.signature ?? null,
@@ -141,6 +148,7 @@ async function main() {
     }
     if (s.once) break;
     health.beat(ok);
+    await heartbeat.ping(ok ? "ok" : "fail");
     log("keeper", "-", `alive pass=${health.passes} took=${((Date.now() - started) / 1000).toFixed(1)}s${ok ? "" : ` failed-in-a-row=${health.failedInARow}`} spent=${(ctx.budget.spentLastHour() / 1e9).toFixed(5)} SOL/h`);
     // Back off on 429s (doubling, capped); recover to the base interval on a clean pass.
     delay = rateLimit.hits > 0 ? Math.min(delay * 2, MAX_BACKOFF_MS) : s.intervalMs;

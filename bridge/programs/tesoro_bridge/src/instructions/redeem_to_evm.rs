@@ -18,8 +18,13 @@ use tesoro_core::{
 // without recording a payout.
 #[derive(Accounts)]
 pub struct RedeemToEvm<'info> {
-    #[account(mut)]
+    /// The holder: signs the Redeem as the Account's authority. Pays and receives nothing, so a holder
+    /// with no SOL can redeem.
     pub holder_authority: Signer<'info>,
+    /// Pays the rent of the `Claim` the first time this holder redeems this Source: the holder, or a
+    /// sponsor on the holder's behalf. It only funds the account; it gains no say over it.
+    #[account(mut)]
+    pub payer: Signer<'info>,
     #[account(seeds = [STORE_SEED], bump = store.bump)]
     pub store: Account<'info, Store>,
     /// CHECK: PDA that signs into tesoro_core; address fixed by seeds and the stored bump.
@@ -37,21 +42,21 @@ pub struct RedeemToEvm<'info> {
         bump = holder_account.bump,
         seeds::program = tesoro_core::ID
     )]
-    pub holder_account: Account<'info, TesoroAccount>,
+    pub holder_account: Box<Account<'info, TesoroAccount>>,
     #[account(
         mut,
         seeds = [CORE_POSITION_SEED, &[chain_byte(core_position.inner.source_chain)], core_position.position_id.as_ref()],
         bump = core_position.bump,
         seeds::program = tesoro_core::ID
     )]
-    pub core_position: Account<'info, PositionState>,
+    pub core_position: Box<Account<'info, PositionState>>,
     #[account(
         mut,
         seeds = [SOURCE_SEED, core_position.key().as_ref(), &core_source.inner.index.to_le_bytes()],
         bump = core_source.bump,
         seeds::program = tesoro_core::ID
     )]
-    pub core_source: Account<'info, SourceState>,
+    pub core_source: Box<Account<'info, SourceState>>,
     /// CHECK: the holder's basket; checked by tesoro_core against its seeds.
     #[account(
         mut,
@@ -70,12 +75,27 @@ pub struct RedeemToEvm<'info> {
     pub core_spill: UncheckedAccount<'info>,
     #[account(
         init_if_needed,
-        payer = holder_authority,
+        payer = payer,
         space = 8 + Claim::INIT_SPACE,
         seeds = [CLAIM_SEED, holder_account.key().as_ref(), core_source.key().as_ref()],
         bump
     )]
-    pub claim: Account<'info, Claim>,
+    pub claim: Box<Account<'info, Claim>>,
+    /// The vault's Delivery Fee terms; their eid and vault must be this Position's.
+    #[account(
+        seeds = [DELIVERY_SEED, &delivery_terms.eid.to_be_bytes(), &delivery_terms.peer_address],
+        bump = delivery_terms.bump,
+        constraint = delivery_terms.peer_address == vault_of(&core_position.position_id)
+            && core_chain(delivery_terms.eid)? == core_position.inner.source_chain
+            @ BridgeError::InvalidAccount
+    )]
+    pub delivery_terms: Box<Account<'info, DeliveryTerms>>,
+    /// The vault's terms: its decimals give the core-unit to vault-unit scale.
+    #[account(
+        seeds = [PEER_SEED, &store.key().to_bytes(), &delivery_terms.eid.to_be_bytes(), &delivery_terms.peer_address],
+        bump = peer.bump
+    )]
+    pub peer: Box<Account<'info, PeerConfig>>,
     pub core_program: Program<'info, TesoroCore>,
     pub system_program: Program<'info, System>,
 }
@@ -132,6 +152,14 @@ impl RedeemToEvm<'_> {
             claim.source = ctx.accounts.core_source.key();
             claim.position = ctx.accounts.core_position.key();
             claim.bump = ctx.bumps.claim;
+        }
+        // The Player's share of this Redeem, in the vault's units, must clear the minimum; the fee
+        // is fixed now for the units that wait for the next send (one fee per message).
+        let share = ctx.accounts.peer.to_vault(units.saturating_sub(fee))?;
+        let terms = &ctx.accounts.delivery_terms;
+        terms.require_min_redeem(share)?;
+        if claim.units_total == claim.units_sent {
+            claim.delivery_fee = terms.fee_for(share, terms.max_bps_yield);
         }
         claim.gemas_total =
             claim.gemas_total.checked_add(gemas).ok_or(BridgeError::AmountOverflow)?;

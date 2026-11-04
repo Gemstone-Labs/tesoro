@@ -26,12 +26,15 @@ import {PrizeModule} from "./PrizeModule.sol";
 ///                     recorded that this figure does not cover yet (they are still waiting to be paid).
 ///                     reportTime = block.timestamp of the report; Solana takes a Treasury snapshot only if it is not older than the
 ///                     one it holds, so an old report cannot be replayed over a newer one.
-///   3 Unlock         (Solana to EVM): header | uint128 0
-///   4 PayYield       (Solana to EVM): header | bytes32 to | uint128 amountUnderlying
-///   5 PayInstant     (Solana to EVM): header | bytes32 to | uint128 amountUnderlying (paid from the Treasury; reverts, and is delivered again, while the Treasury holds less)
-///   Route messages (6-9) use key = vault address (20 bytes) | 12 zero bytes and the id field carries the batch / payout id:
+///   Solana-to-EVM messages carry the Delivery Fee: a flat amount in the vault's asset that pays for the LayerZero send
+///   Tesoro's sponsor makes in SOL. The vault keeps `min(deliveryFee, maxDeliveryFee, a tenth of the payout)` for
+///   `deliveryRecipient` and pays the Player the rest; it never reverts on the fee.
+///   10 UnlockV2      (Solana to EVM): header | uint128 deliveryFee (61 bytes)
+///   11 PayYieldV2    (Solana to EVM): header | bytes32 to | uint128 amountUnderlying | uint128 fee | uint128 pool | uint128 deliveryFee (141 bytes)
+///   12 PayInstantV2  (Solana to EVM): header | bytes32 to | uint128 amountUnderlying | uint128 deliveryFee (109 bytes; paid from the Treasury; reverts, and is delivered again, while the Treasury holds less)
+///   Route messages (6-9 and 13) use key = vault address (20 bytes) | 12 zero bytes and the id field carries the batch / payout id:
 ///   6 CashInBatch    (Solana to EVM): header | uint8 kind (0 Platform, 1 Studio, 2 Leaderboard) | bytes32 recipient | uint8 n (1..8) | n x (uint64 positionId | uint128 units)
-///   7 PayPrize       (Solana to EVM): header | bytes32 asset | bytes32 prizeSource | bytes32 recipient | uint128 shares (157 bytes)
+///   13 PayPrizeV2    (Solana to EVM): header | bytes32 asset | bytes32 prizeSource | bytes32 recipient | uint128 shares | uint128 deliveryFee (173 bytes)
 ///   8 BatchResult    (EVM to Solana): header | uint8 n | n x uint128 paidUnits (CUMULATIVE per entry) | uint128 escrowedShares | uint128 escrowedUnits
 ///   9 PayPrizeResult (EVM to Solana): header | uint8 status (1 paid, 2 rejected) | uint128 shares (62 bytes)
 ///   Results are sent from the vault's own native balance (fund it by sending native to the vault); when it cannot pay
@@ -103,8 +106,7 @@ contract PositionVaultOApp is PositionVault, OApp {
     function quoteYieldAccrued() external view returns (uint256) {
         return _quote(
             solanaEid, abi.encodePacked(_packYield(1, 1, 1, 1, 1, 1, 1), uint128(1), uint128(1)), _options(), false
-        )
-        .nativeFee;
+        ).nativeFee;
     }
 
     /// @notice Native fee to send the result of a batch with `entries` entries.
@@ -214,19 +216,31 @@ contract PositionVaultOApp is PositionVault, OApp {
         uint64 id = uint64(uint256(positionKey) >> 32);
         if (msgType == MSG_UNLOCK) {
             if (message.length != 61) revert InvalidMessageLength();
-            _receive(abi.encode(msgType, chain, id, seq));
+            _receive(abi.encode(msgType, chain, id, seq, uint256(uint128(bytes16(message[45:61])))));
         } else if (msgType == MSG_PAY_YIELD) {
-            // header 45 | to 32 | amount u128 | fee u128 | pool u128
-            if (message.length != 125) revert InvalidMessageLength();
+            // header 45 | to 32 | amount u128 | fee u128 | pool u128 | deliveryFee u128
+            if (message.length != 141) revert InvalidMessageLength();
             _receivePayYield(chain, id, seq, message);
         } else if (msgType == MSG_PAY_INSTANT) {
-            if (message.length != 93) revert InvalidMessageLength();
-            bytes32 to = _recipient(message[45:77]);
-            uint256 amount = uint128(bytes16(message[77:93]));
-            _receive(abi.encode(msgType, chain, id, seq, to, amount));
+            if (message.length != 109) revert InvalidMessageLength();
+            _receivePayInstant(chain, id, seq, message);
         } else {
             revert InvalidMessageType();
         }
+    }
+
+    function _receivePayInstant(uint32 chain, uint64 id, uint64 seq, bytes calldata message) internal {
+        _receive(
+            abi.encode(
+                MSG_PAY_INSTANT,
+                chain,
+                id,
+                seq,
+                _recipient(message[45:77]),
+                uint256(uint128(bytes16(message[77:93]))),
+                uint256(uint128(bytes16(message[93:109])))
+            )
+        );
     }
 
     function _receivePayYield(uint32 chain, uint64 id, uint64 seq, bytes calldata message) internal {
@@ -239,7 +253,8 @@ contract PositionVaultOApp is PositionVault, OApp {
                 _recipient(message[45:77]),
                 uint256(uint128(bytes16(message[77:93]))),
                 uint256(uint128(bytes16(message[93:109]))),
-                uint256(uint128(bytes16(message[109:125])))
+                uint256(uint128(bytes16(message[109:125]))),
+                uint256(uint128(bytes16(message[125:141])))
             )
         );
     }

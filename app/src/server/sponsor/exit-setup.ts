@@ -4,10 +4,13 @@ import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { decodeBook } from "@/lib/chain/book";
 import { CKPT_PAGE_AT, CKPT_PAGE_HEADER, CKPT_PER_PAGE, CKPT_RECORD_LEN } from "@/lib/chain/basket";
 import { sourcePda } from "@/lib/chain/native";
+import { bookPda, ckptPda } from "@/lib/chain/basket";
 import { positionBytes } from "@/lib/chain/position-size";
 import { landingPageNumbers } from "@/lib/chain/redeem";
 import { DemoHttpError } from "../request-auth";
-import { CORE_ID, type Plan } from "./rules";
+import { isStale, parseStakePool, updateStakePoolBalanceIx } from "@/lib/chain/stake-pool";
+import { STAKE_TOKENS } from "@/lib/chain/stake";
+import { CORE_ID, type CkptPage, type Plan } from "./rules";
 import type { ChainReads } from "./service";
 
 const coder = new BorshAccountsCoder(coreIdl as Idl);
@@ -31,6 +34,7 @@ export async function verifyExitSetup(plan: Plan, player: PublicKey, chain: Chai
   if (plan.names.at(-1) === "unlock" && s.source && p.inner.open_advance !== sourceState.inner.index) bad("The Source is not the Lock's open Advance.");
   if (!("Solana" in p.inner.source_chain)) bad("These token accounts are only for Solana payouts.");
   const mint = new PublicKey(p.inner.source_asset);
+  if (s.poolUpdate) await verifyPoolUpdate(s.poolUpdate, s.poolUpdateIx!, mint, chain);
   let rent = 0n;
   let ataGrant: string | null = null;
   if (s.ata) {
@@ -52,4 +56,47 @@ export async function verifyExitSetup(plan: Plan, player: PublicKey, chain: Chai
     }
   }
   return { rent, ataGrant };
+}
+
+/**
+ * The stake pool update in front of a payout is paid for only when it does something: the Position's token is the one of this
+ * pool, the pool is more than one epoch behind, and the instruction is exactly the one the pool's own accounts give.
+ */
+async function verifyPoolUpdate(pool: PublicKey, ix: NonNullable<Plan["setup"]>["poolUpdateIx"] & object, mint: PublicKey, chain: ChainReads): Promise<void> {
+  if (!chain.epoch) throw new DemoHttpError(503, "not-configured", "Stake pool updates are not configured.");
+  if (!STAKE_TOKENS.some((t) => t.pool.equals(pool) && t.mint.equals(mint))) bad("The stake pool is not the one of this Lock's staking token.");
+  const [info, epoch] = await Promise.all([chain.account(pool), chain.epoch()]);
+  const view = info ? parseStakePool(info.data) : null;
+  if (!info || !view) return bad("The stake pool could not be read.");
+  if (!isStale(view, epoch)) bad("The stake pool is current; its payout needs no update.");
+  const want = updateStakePoolBalanceIx(pool, info);
+  const same = want.programId.equals(ix.programId) && Buffer.from(want.data).equals(Buffer.from(ix.data)) && want.keys.length === ix.keys.length && want.keys.every((k, i) => k.pubkey.equals(ix.keys[i].pubkey) && k.isWritable === ix.keys[i].isWritable && k.isSigner === ix.keys[i].isSigner);
+  if (!same) bad("The stake pool update does not name the pool's own accounts.");
+}
+
+/**
+ * Checkpoint pages the relayer creates for a bridge bundle: each must be the page of the book it names (the book's own Source), be
+ * one the book needs to land a payout or a yield, and not exist yet. Returns the rent the relayer fronts, from the chain.
+ */
+export async function verifyCkptPages(pages: CkptPage[], chain: ChainReads): Promise<bigint> {
+  if (pages.length === 0) return 0n;
+  if (!chain.rent) throw new DemoHttpError(503, "not-configured", "Checkpoint funding is not configured.");
+  const rentOfPage = await chain.rent(CKPT_PAGE_AT + CKPT_PAGE_HEADER + CKPT_PER_PAGE * CKPT_RECORD_LEN);
+  let rent = 0n;
+  const needed = new Map<string, Set<string>>();
+  for (const p of pages) {
+    const book = await chain.account(p.book);
+    if (!book?.owner.equals(CORE_ID) || !Buffer.from(book.data.subarray(0, 8)).equals(bookDisc) || book.data[9] !== 1) bad("The Source's book is invalid.");
+    const source = new PublicKey(book!.data.subarray(16, 48));
+    if (!bookPda(source).equals(p.book) || !ckptPda(source, p.classId, p.pageNo).equals(p.page)) bad("The checkpoint is not this book's page.");
+    let set = needed.get(p.book.toBase58());
+    if (!set) {
+      try { set = new Set(landingPageNumbers(decodeBook(book!.data)).map((w) => `${w.classId}:${w.page}`)); }
+      catch { return bad("The Source's book could not be read."); }
+      needed.set(p.book.toBase58(), set);
+    }
+    if (!set.has(`${p.classId}:${p.pageNo}`) || await chain.account(p.page)) bad("The checkpoint is not missing or is not needed.");
+    rent += rentOfPage;
+  }
+  return rent;
 }

@@ -44,9 +44,10 @@ use ephemeral_rollups_sdk::{
 };
 use setup::{Contributions, SetupContext};
 use table_kit::{
-    absence_outcome, assignment_absent, close_private_seat, create_hidden_seat, match_state_gone,
-    may_skip, move_lamports, read_table, receipt_at, retire_legacy_record, sponsor_commit_many,
-    swap_seat_members, table_wait_over, KitError, LegacyError, SeatAccounts, OUTCOME_DRAW,
+    absence_outcome, assignment_absent, close_private_seat, create_hidden_seat, is_next_epoch,
+    match_state_gone, may_skip, move_lamports, read_table, receipt_aged, receipt_at,
+    retire_legacy_record, sponsor_can_commit, sponsor_commit_many, swap_seat_members,
+    table_wait_over, KitError, LegacyError, SeatAccounts, SeatPrograms, OUTCOME_DRAW,
     OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
@@ -179,6 +180,49 @@ impl From<KitError> for VanguardError {
     }
 }
 
+/// A finished table may be reset once its seats are wiped, its result is committed and clients
+/// have had `RESET_DELAY_SECS` to read the final board.
+fn check_resettable(table: &Table, now: i64) -> Result<()> {
+    require!(table.phase == TABLE_OVER, VanguardError::WrongPhase);
+    require!(!table.seats_open, VanguardError::SeatsOpen);
+    require!(!table.dirty, VanguardError::NotCommitted);
+    require!(
+        now >= table
+            .over_at
+            .checked_add(RESET_DELAY_SECS)
+            .ok_or(VanguardError::Overflow)?,
+        VanguardError::ResetTooEarly
+    );
+    Ok(())
+}
+
+/// Forgets the finished Battle and moves the table to its next epoch.
+fn reset_in_place(table: &mut Table, battle: &mut Battle) -> Result<()> {
+    require!(
+        battle.status == STATUS_OVER || battle.status == STATUS_CANCELLED,
+        VanguardError::MatchNotOver
+    );
+    battle.zero();
+    table.reset().ok_or(VanguardError::Overflow)?;
+    Ok(())
+}
+
+/// Gives up a table whose Match core froze before the table produced a result: frees the
+/// reserved slot, cancels the Battle and moves the table to Over. The caller has shown the receipt.
+fn void_in_place(table: &mut Table, battle: &mut Battle, now: i64) -> Result<()> {
+    let (slot, key) = (table.slot, table.tesoro_match);
+    kit(table.ring.free(slot, &key, SLOT_RESERVED))?;
+    battle.clear_pending();
+    battle.status = STATUS_CANCELLED;
+    battle.winner = NO_WINNER;
+    table.phase = TABLE_OVER;
+    table.over_at = now;
+    table.dirty = false;
+    table.req_pending = false;
+    table.vrf_ready = false;
+    Ok(())
+}
+
 fn kit<T>(r: core::result::Result<T, KitError>) -> Result<T> {
     r.map_err(|e| error!(VanguardError::from(e)))
 }
@@ -238,7 +282,12 @@ fn require_live(table: &Table, battle: &Battle) -> Result<()> {
 /// showed up wins a normal Match with the normal Fees, as if the other had lost on time; if neither showed up it is a
 /// no-show (each side pays the Platform Fee); if both did and the delay was the oracle's, nobody forfeits and both
 /// entries are refunded.
-fn end_absent(table: &mut Table, battle: &mut Battle, present: [bool; 2], now: i64) -> Result<()> {
+fn end_absent(
+    table: &mut Table,
+    battle: &mut Battle,
+    present: [bool; 2],
+    now: i64,
+) -> Result<bool> {
     match absence_outcome(present) {
         Some(OUTCOME_WIN0) | Some(OUTCOME_WIN1) => {
             battle.status = STATUS_OVER;
@@ -259,9 +308,10 @@ fn end_absent(table: &mut Table, battle: &mut Battle, present: [bool; 2], now: i
 
 /// Writes the Match's result into the ring slot reserved at the start and marks the table Over. Every path that ends
 /// a Match (a decided game, a cancelled setup) calls this once the Battle says so.
-fn conclude(table: &mut Table, battle: &Battle, no_show: bool, now: i64) -> Result<()> {
+/// Returns whether the Match ended with this call.
+fn conclude(table: &mut Table, battle: &Battle, no_show: bool, now: i64) -> Result<bool> {
     if table.phase == TABLE_OVER {
-        return Ok(());
+        return Ok(false);
     }
     let outcome = match battle.status {
         STATUS_OVER if battle.winner == DRAW => OUTCOME_DRAW,
@@ -269,7 +319,7 @@ fn conclude(table: &mut Table, battle: &Battle, no_show: bool, now: i64) -> Resu
         STATUS_OVER => OUTCOME_WIN1,
         STATUS_CANCELLED if no_show => OUTCOME_NO_SHOW,
         STATUS_CANCELLED => OUTCOME_DRAW,
-        _ => return Ok(()),
+        _ => return Ok(false),
     };
     let (slot, key, epoch) = (table.slot, table.tesoro_match, table.epoch);
     kit(table.ring.record(slot, &key, epoch, outcome, now))?;
@@ -279,7 +329,85 @@ fn conclude(table: &mut Table, battle: &Battle, no_show: bool, now: i64) -> Resu
     table.commit.on_result();
     table.req_pending = false;
     table.vrf_ready = false;
+    Ok(true)
+}
+
+/// Zeroes both Armies and swaps their permission members to nobody, so nothing the Players could
+/// read is left and the seats are never without a private permission; the table no longer has
+/// open seats. Shared by `wipe_seats` and the instructions that end a Match.
+fn wipe_seat_pair<'info>(
+    table: &mut Account<'info, Table>,
+    armies: [&mut Account<'info, Army>; 2],
+    permissions: [AccountInfo<'info>; 2],
+    programs: &SeatPrograms<'info>,
+) -> Result<()> {
+    let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
+    let table_bump = [table.bump];
+    let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
+    let table_info = table.to_account_info();
+    let table_key = table.key();
+    for (seat, (army, permission)) in armies.into_iter().zip(permissions).enumerate() {
+        army.wipe();
+        army.exit(&ID)?;
+        let seat_arr = [seat as u8];
+        let bump_arr = [army.bump];
+        let seat_seeds: &[&[u8]] = &[ARMY_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
+        swap_seat_members(
+            &SeatAccounts {
+                table: &table_info,
+                seat: &army.to_account_info(),
+                permission: &permission,
+                vault: &programs.vault,
+                magic_program: &programs.magic_program,
+                permission_program: &programs.permission_program,
+            },
+            table_seeds,
+            seat_seeds,
+            None,
+        )?;
+    }
+    table.seats_open = false;
     Ok(())
+}
+
+/// The end of a Match, in the same transaction as the instruction that ended it: wipes the seats
+/// and commits the table and its Battle to Solana, paid by the Sponsor. `commit_table` stays as
+/// the repeat path. The caller has released its borrow of the Battle.
+fn wipe_and_commit(a: &mut Concluding, now: i64) -> Result<()> {
+    if a.table.seats_open {
+        wipe_seat_pair(
+            &mut a.table,
+            [&mut *a.army_0, &mut *a.army_1],
+            [
+                a.army_0_permission.to_account_info(),
+                a.army_1_permission.to_account_info(),
+            ],
+            &SeatPrograms {
+                vault: a.ephemeral_vault.to_account_info(),
+                magic_program: a.magic_program.to_account_info(),
+                permission_program: a.permission_program.to_account_info(),
+            },
+        )?;
+    }
+    // An empty Sponsor must not revert the move that ended the Match: the table stays Over and `dirty`, and
+    // `commit_table` or the next `begin_match` commits it after a refill.
+    if !sponsor_can_commit(&a.sponsor.to_account_info()) {
+        msg!("sponsor-dry: the result is not committed; refill the Sponsor, then commit_table");
+        return a.table.exit(&ID);
+    }
+    a.table.commit.record(now);
+    a.table.dirty = false;
+    a.table.exit(&ID)?;
+    let bump = [a.sponsor.bump];
+    sponsor_commit_many(
+        &a.sponsor.to_account_info(),
+        &[SPONSOR_SEED, &bump],
+        &a.magic_context.to_account_info(),
+        &a.magic_program.to_account_info(),
+        &a.magic_fee_vault.to_account_info(),
+        &a.vanguard_config.tee_validator,
+        &[a.table.to_account_info(), a.battle.to_account_info()],
+    )
 }
 
 #[ephemeral]
@@ -724,40 +852,20 @@ pub mod vanguard {
         let table = &ctx.accounts.table;
         require!(table.phase == TABLE_OVER, VanguardError::WrongPhase);
         require!(table.seats_open, VanguardError::SeatsNotOpen);
-        let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
-        let table_bump = [table.bump];
-        let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
-        let table_info = ctx.accounts.table.to_account_info();
-        let table_key = ctx.accounts.table.key();
-        ctx.accounts.army_0.wipe();
-        ctx.accounts.army_1.wipe();
-        ctx.accounts.army_0.exit(&ID)?;
-        ctx.accounts.army_1.exit(&ID)?;
-        for seat in 0..2usize {
-            let (army, permission) = if seat == 0 {
-                (&ctx.accounts.army_0, &ctx.accounts.army_0_permission)
-            } else {
-                (&ctx.accounts.army_1, &ctx.accounts.army_1_permission)
-            };
-            let seat_arr = [seat as u8];
-            let bump_arr = [army.bump];
-            let seat_seeds: &[&[u8]] = &[ARMY_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
-            swap_seat_members(
-                &SeatAccounts {
-                    table: &table_info,
-                    seat: &army.to_account_info(),
-                    permission: &permission.to_account_info(),
-                    vault: &ctx.accounts.ephemeral_vault.to_account_info(),
-                    magic_program: &ctx.accounts.magic_program.to_account_info(),
-                    permission_program: &ctx.accounts.permission_program.to_account_info(),
-                },
-                table_seeds,
-                seat_seeds,
-                None,
-            )?;
-        }
-        ctx.accounts.table.seats_open = false;
-        Ok(())
+        let a = &mut *ctx.accounts;
+        wipe_seat_pair(
+            &mut a.table,
+            [&mut *a.army_0, &mut *a.army_1],
+            [
+                a.army_0_permission.to_account_info(),
+                a.army_1_permission.to_account_info(),
+            ],
+            &SeatPrograms {
+                vault: a.ephemeral_vault.to_account_info(),
+                magic_program: a.magic_program.to_account_info(),
+                permission_program: a.permission_program.to_account_info(),
+            },
+        )
     }
 
     /// Rollup, operator only. Retires a table's seats: closes both Armies and their permissions and returns the rent
@@ -845,7 +953,36 @@ pub mod vanguard {
     pub fn begin_match(ctx: Context<BeginMatch>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let a = &ctx.accounts.assignment;
-        let table = &mut ctx.accounts.table;
+        let receipts = ctx.remaining_accounts;
+        let ending = &mut ctx.accounts.ending;
+        // A table stuck on a Match core froze: give it up, wipe its seats and commit it. That is
+        // all this call does; the next `begin_match` resets the table.
+        if matches!(ending.table.phase, TABLE_WAITING | TABLE_LIVE)
+            && receipt_aged(
+                receipts,
+                &ending.table.tesoro_match,
+                now,
+                RELEASE_DELAY_SECS,
+            )
+        {
+            void_in_place(&mut ending.table, &mut *ending.battle.load_mut()?, now)?;
+            return wipe_and_commit(ending, now);
+        }
+        // A finished table whose result was not committed (the Sponsor was dry when the Match ended) is committed
+        // now that the Sponsor can pay; the next `begin_match` resets it.
+        if ending.table.phase == TABLE_OVER
+            && ending.table.dirty
+            && is_next_epoch(ending.table.epoch, a.epoch)
+            && sponsor_can_commit(&ending.sponsor.to_account_info())
+        {
+            return wipe_and_commit(ending, now);
+        }
+        let table = &mut ending.table;
+        // A finished table is reset for the Assignment one epoch ahead, so the keeper need not.
+        if table.phase == TABLE_OVER && is_next_epoch(table.epoch, a.epoch) {
+            check_resettable(table, now)?;
+            reset_in_place(table, &mut *ending.battle.load_mut()?)?;
+        }
         require!(table.phase == TABLE_IDLE, VanguardError::WrongPhase);
         require!(table.seats_created, VanguardError::SeatsMissing);
         require!(
@@ -859,18 +996,21 @@ pub mod vanguard {
         );
         require!(now <= a.start_deadline, VanguardError::StartWindowPassed);
         let epoch = table.epoch;
+        if table.ring.is_full() {
+            table.ring.free_proven(receipts, now, RELEASE_DELAY_SECS);
+        }
         table.slot = kit(table.ring.reserve(a.tesoro_match, epoch))?;
         table.tesoro_match = a.tesoro_match;
         table.start_deadline = a.start_deadline;
         table.checked_in = [false; 2];
         table.phase = TABLE_WAITING;
-        ctx.accounts.battle.load_mut()?.init(NewBattle {
+        ending.battle.load_mut()?.init(NewBattle {
             match_id: tesoro.inner.id.n,
             tesoro_match: a.tesoro_match,
             players: a.players,
             start_deadline: a.start_deadline,
             payer: a.payer,
-            oracle_queue: ctx.accounts.vanguard_config.oracle_queue,
+            oracle_queue: ending.vanguard_config.oracle_queue,
             epoch,
         });
         Ok(())
@@ -1233,10 +1373,11 @@ pub mod vanguard {
     /// who did wins, nobody is a no-show, both with the oracle late is a refund). In a live Match it declares a timeout: once
     /// the turn's deadline has passed the turn is lost (three in a row lose the Match), once the time cap has passed
     /// the Match ends on the tiebreak. Which of the two is decided now, from the clock, and `resolve` applies it.
-    pub fn claim_timeout(ctx: Context<ClaimTimeout>) -> Result<()> {
+    pub fn claim_timeout(ctx: Context<Concluding>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let slot = Clock::get()?.slot;
         let table = &mut ctx.accounts.table;
+        let mut ended = false;
         let mut battle = ctx.accounts.battle.load_mut()?;
         require!(
             (table.phase == TABLE_WAITING || table.phase == TABLE_LIVE)
@@ -1249,7 +1390,7 @@ pub mod vanguard {
                 require!(now > battle.start_deadline, VanguardError::NotTimedOut);
                 // The Player who checked in wins; if neither did it is a no-show.
                 let present = table.checked_in;
-                end_absent(table, &mut battle, present, now)?;
+                ended = end_absent(table, &mut battle, present, now)?;
             }
             STATUS_SETUP => {
                 require!(table.phase == TABLE_LIVE, VanguardError::BadState);
@@ -1261,7 +1402,7 @@ pub mod vanguard {
                 if now > battle.setup_deadline {
                     // The hard deadline: a late claim by the absent Player must not turn their loss into a refund,
                     // so the same absence rule applies (both contributed: the oracle stalled, refund).
-                    end_absent(table, &mut battle, contributed, now)?;
+                    ended = end_absent(table, &mut battle, contributed, now)?;
                 } else {
                     require!(now > battle.entropy_deadline, VanguardError::NotTimedOut);
                     if both && table.req_made {
@@ -1272,7 +1413,7 @@ pub mod vanguard {
                             .ok_or(VanguardError::Overflow)?
                             .min(battle.setup_deadline);
                     } else {
-                        end_absent(table, &mut battle, contributed, now)?;
+                        ended = end_absent(table, &mut battle, contributed, now)?;
                     }
                 }
             }
@@ -1295,6 +1436,10 @@ pub mod vanguard {
             }
             _ => return err!(VanguardError::MatchOver),
         }
+        drop(battle);
+        if ended {
+            wipe_and_commit(&mut *ctx.accounts, now)?;
+        }
         Ok(())
     }
 
@@ -1306,7 +1451,7 @@ pub mod vanguard {
     /// deadline counts from the resolve time, but never from later than the declare time plus `RESOLVE_SLACK_SECS`: a
     /// slow resolve never eats the next Player's time, and a held-back one buys none. A decided game writes its
     /// result into the ring.
-    pub fn resolve(mut ctx: Context<Resolve>) -> Result<()> {
+    pub fn resolve(mut ctx: Context<Concluding>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let slot = Clock::get()?.slot;
         let accounts = &mut ctx.accounts;
@@ -1368,7 +1513,12 @@ pub mod vanguard {
             };
             mover.moves = mover.moves.wrapping_add(1);
         }
-        conclude(&mut accounts.table, &battle, false, now)
+        let ended = conclude(&mut accounts.table, &battle, false, now)?;
+        drop(battle);
+        if ended {
+            wipe_and_commit(&mut *ctx.accounts, now)?;
+        }
+        Ok(())
     }
 
     // ------------------------------------------------------------------------------------
@@ -1412,24 +1562,8 @@ pub mod vanguard {
     pub fn reset_table(ctx: Context<ResetTable>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
-        require!(table.phase == TABLE_OVER, VanguardError::WrongPhase);
-        require!(!table.seats_open, VanguardError::SeatsOpen);
-        require!(!table.dirty, VanguardError::NotCommitted);
-        require!(
-            now >= table
-                .over_at
-                .checked_add(RESET_DELAY_SECS)
-                .ok_or(VanguardError::Overflow)?,
-            VanguardError::ResetTooEarly
-        );
-        let mut battle = ctx.accounts.battle.load_mut()?;
-        require!(
-            battle.status == STATUS_OVER || battle.status == STATUS_CANCELLED,
-            VanguardError::MatchNotOver
-        );
-        battle.zero();
-        table.reset().ok_or(VanguardError::Overflow)?;
-        Ok(())
+        check_resettable(table, now)?;
+        reset_in_place(table, &mut *ctx.accounts.battle.load_mut()?)
     }
 
     /// Rollup, permissionless. A table whose Match tesoro_core has already frozen (it refunded, say after an outage)
@@ -1450,18 +1584,7 @@ pub mod vanguard {
                 .ok_or(VanguardError::Overflow)?,
             VanguardError::NoReceipt
         );
-        let (slot, key) = (table.slot, table.tesoro_match);
-        kit(table.ring.free(slot, &key, SLOT_RESERVED))?;
-        let mut battle = ctx.accounts.battle.load_mut()?;
-        battle.clear_pending();
-        battle.status = STATUS_CANCELLED;
-        battle.winner = NO_WINNER;
-        table.phase = TABLE_OVER;
-        table.over_at = now;
-        table.dirty = false;
-        table.req_pending = false;
-        table.vrf_ready = false;
-        Ok(())
+        void_in_place(table, &mut *ctx.accounts.battle.load_mut()?, now)
     }
 
     /// Rollup, permissionless. Frees a Done ring slot once tesoro_core has frozen its Match (the receipt, read a
@@ -2071,19 +2194,13 @@ pub struct SkipEpoch<'info> {
     pub table: Box<Account<'info, Table>>,
 }
 
+/// `begin_match`. It also names everything a void needs (wipe the seats, commit), so the call that
+/// gives up a stuck table leaves it clean: `ending` is the same account list as the instructions
+/// that end a Match.
 #[derive(Accounts)]
 pub struct BeginMatch<'info> {
-    pub caller: Signer<'info>,
     #[account(seeds = [ASSIGN_SEED, assignment.tesoro_match.as_ref()], bump = assignment.bump)]
     pub assignment: Account<'info, Assignment>,
-    #[account(
-        mut,
-        seeds = [TABLE_SEED, &table.generation.to_le_bytes(), &table.index.to_le_bytes()],
-        bump = table.bump
-    )]
-    pub table: Box<Account<'info, Table>>,
-    #[account(mut, seeds = [BATTLE_SEED, table.key().as_ref()], bump = battle.load()?.bump)]
-    pub battle: AccountLoader<'info, Battle>,
     #[account(
         address = assignment.tesoro_match,
         seeds = [CORE_MATCH_SEED, tesoro_match.inner.id.opener.as_ref(), &tesoro_match.inner.id.n.to_le_bytes()],
@@ -2091,8 +2208,7 @@ pub struct BeginMatch<'info> {
         seeds::program = tesoro_core::ID
     )]
     pub tesoro_match: Box<Account<'info, MatchState>>,
-    #[account(seeds = [PROGRAM_CONFIG_SEED], bump = vanguard_config.bump)]
-    pub vanguard_config: Box<Account<'info, VanguardConfig>>,
+    pub ending: Concluding<'info>,
 }
 
 #[derive(Accounts)]
@@ -2204,25 +2320,12 @@ pub struct Declare<'info> {
     pub battle: AccountLoader<'info, Battle>,
 }
 
+/// `claim_timeout` and `resolve`: the instructions that can end a Match. Each wipes the seats and
+/// commits the result in its own transaction when it does, so it names everything those two steps
+/// need. `caller` is any payer.
+#[commit]
 #[derive(Accounts)]
-pub struct ClaimTimeout<'info> {
-    pub caller: Signer<'info>,
-    #[account(
-        mut,
-        seeds = [TABLE_SEED, &table.generation.to_le_bytes(), &table.index.to_le_bytes()],
-        bump = table.bump
-    )]
-    pub table: Box<Account<'info, Table>>,
-    #[account(mut, seeds = [BATTLE_SEED, table.key().as_ref()], bump = battle.load()?.bump)]
-    pub battle: AccountLoader<'info, Battle>,
-    #[account(seeds = [ARMY_SEED, table.key().as_ref(), &[0]], bump = army_0.bump)]
-    pub army_0: Box<Account<'info, Army>>,
-    #[account(seeds = [ARMY_SEED, table.key().as_ref(), &[1]], bump = army_1.bump)]
-    pub army_1: Box<Account<'info, Army>>,
-}
-
-#[derive(Accounts)]
-pub struct Resolve<'info> {
+pub struct Concluding<'info> {
     pub caller: Signer<'info>,
     #[account(
         mut,
@@ -2236,6 +2339,25 @@ pub struct Resolve<'info> {
     pub army_0: Box<Account<'info, Army>>,
     #[account(mut, seeds = [ARMY_SEED, table.key().as_ref(), &[1]], bump = army_1.bump)]
     pub army_1: Box<Account<'info, Army>>,
+    /// CHECK: permission PDA of Army 0
+    #[account(mut, seeds = [PERMISSION_SEED, army_0.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
+    pub army_0_permission: UncheckedAccount<'info>,
+    /// CHECK: permission PDA of Army 1
+    #[account(mut, seeds = [PERMISSION_SEED, army_1.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
+    pub army_1_permission: UncheckedAccount<'info>,
+    /// CHECK: Permission Program
+    #[account(address = PERMISSION_PROGRAM_ID)]
+    pub permission_program: UncheckedAccount<'info>,
+    /// CHECK: ephemeral rent vault
+    #[account(mut, address = EPHEMERAL_VAULT_ID)]
+    pub ephemeral_vault: UncheckedAccount<'info>,
+    #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
+    pub sponsor: Account<'info, Sponsor>,
+    #[account(seeds = [PROGRAM_CONFIG_SEED], bump = vanguard_config.bump)]
+    pub vanguard_config: Box<Account<'info, VanguardConfig>>,
+    /// CHECK: the TEE validator's magic fee vault, checked in `sponsor_commit_many`.
+    #[account(mut)]
+    pub magic_fee_vault: UncheckedAccount<'info>,
 }
 
 #[commit]

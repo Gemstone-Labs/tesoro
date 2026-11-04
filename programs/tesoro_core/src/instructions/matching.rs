@@ -141,10 +141,18 @@ fn judged_slot(
 }
 
 /// Counts a Match started by this opener-to-joiner pair.
-fn record_pair(pair: &mut Account<PairState>, bump: u8, payer: Pubkey, now: i64) -> Result<()> {
+fn record_pair(
+    pair: &mut Account<PairState>,
+    bump: u8,
+    payer: Pubkey,
+    (opener, joiner): (Pubkey, Pubkey),
+    now: i64,
+) -> Result<()> {
     if pair.window_start == 0 && pair.count == 0 {
         pair.bump = bump;
         pair.payer = payer;
+        pair.opener = opener;
+        pair.joiner = joiner;
     }
     require!(pair.record(now), TesoroError::PairLimitReached);
     Ok(())
@@ -209,6 +217,7 @@ fn take_entry<'b, 'info>(
     funder: &Pubkey,
     backing: bool,
     (game, entry, nonce, pot_lines): (&Pubkey, u64, u64, u32),
+    (counters, counters_bump): (&mut AccountCounters, u8),
     payer: &AccountInfo<'info>,
     system: &AccountInfo<'info>,
     (basket, spill): (&AccountInfo<'info>, &AccountInfo<'info>),
@@ -222,6 +231,7 @@ fn take_entry<'b, 'info>(
         );
         let (address, bump) = ticket_address(funder, nonce);
         require_keys_eq!(address, *pot_info.key, MatchError::WrongPot);
+        take_ticket_nonce(counters, counters_bump, nonce)?;
         create_pot_account(
             pot_info,
             payer,
@@ -537,11 +547,13 @@ pub(crate) fn open_match<'info>(
         require_can_play(backer.protections)?;
         backer.counters.open_offers = backer.counters.open_offers.saturating_sub(1);
         let funder = backer.account.key();
+        let backer_bump = backer.counters.bump;
         let (pot, hold) = take_entry(
             &pot_info,
             &funder,
             true,
             (&game, entry, pot_nonce, pot_lines),
+            (backer.counters, backer_bump),
             &payer,
             &system,
             (&backer.basket, &backer.spill),
@@ -563,6 +575,7 @@ pub(crate) fn open_match<'info>(
             &player,
             false,
             (&game, entry, pot_nonce, pot_lines),
+            (&mut ctx.accounts.counters, ctx.bumps.counters),
             &payer,
             &system,
             (&own_basket, &own_spill),
@@ -800,6 +813,10 @@ pub(crate) fn join_match<'info>(
         &mut ctx.accounts.pair,
         ctx.bumps.pair,
         ctx.accounts.payer.key(),
+        (
+            Pubkey::new_from_array(ctx.accounts.match_state.inner.a.player),
+            ctx.accounts.player_account.key(),
+        ),
         ts,
     )?;
     let player = ctx.accounts.player_account.key();
@@ -859,11 +876,13 @@ pub(crate) fn join_match<'info>(
         require_can_play(backer.protections)?;
         backer.counters.open_offers = backer.counters.open_offers.saturating_sub(1);
         let funder = backer.account.key();
+        let backer_bump = backer.counters.bump;
         let (pot, hold) = take_entry(
             &pot_info,
             &funder,
             true,
             (&game, entry, pot_nonce, pot_lines),
+            (backer.counters, backer_bump),
             &payer,
             &system,
             (&backer.basket, &backer.spill),
@@ -885,6 +904,7 @@ pub(crate) fn join_match<'info>(
             &player,
             false,
             (&game, entry, pot_nonce, pot_lines),
+            (&mut ctx.accounts.counters, ctx.bumps.counters),
             &payer,
             &system,
             (&own_basket, &own_spill),
@@ -1569,16 +1589,33 @@ pub(crate) fn close_match<'info>(
                 owed.remove(at);
             }
         } else if is_counters {
-            let mut c = Account::<AccountCounters>::try_from(info)?;
+            // A counters account from before `next_ticket` (25 bytes) cannot be deserialized: its
+            // open-Match count is lowered in place, so an old Match can still be closed.
+            let v1 = info.data_len() == AccountCounters::SPACE_V1;
+            let mut c = if v1 {
+                None
+            } else {
+                Some(Account::<AccountCounters>::try_from(info)?)
+            };
             for player in &players {
-                if c.key() == counters_pda(&Pubkey::new_from_array(*player))
+                if info.key() == counters_pda(&Pubkey::new_from_array(*player))
                     && !counted.contains(player)
                 {
-                    c.open_matches = c.open_matches.saturating_sub(1);
+                    match c.as_mut() {
+                        Some(c) => c.open_matches = c.open_matches.saturating_sub(1),
+                        None => {
+                            let mut d = info.try_borrow_mut_data()?;
+                            let at = 8 + 1 + 8;
+                            let open = u32::from_le_bytes(d[at..at + 4].try_into().unwrap());
+                            d[at..at + 4].copy_from_slice(&open.saturating_sub(1).to_le_bytes());
+                        }
+                    }
                     counted.push(*player);
                 }
             }
-            c.exit(&crate::ID)?;
+            if let Some(c) = c {
+                c.exit(&crate::ID)?;
+            }
         }
     }
     require!(
@@ -1661,13 +1698,12 @@ pub(crate) fn extend_match_deadline(
 /// Returns the rent of a pair counter once its window has ended. Anyone may call; the rent goes
 /// back to whoever paid it.
 #[derive(Accounts)]
-#[instruction(opener: Pubkey, joiner: Pubkey)]
 pub struct ClosePair<'info> {
     pub caller: Signer<'info>,
     #[account(
         mut,
         close = payer,
-        seeds = [PAIR_SEED, opener.as_ref(), joiner.as_ref()],
+        seeds = [PAIR_SEED, pair.opener.as_ref(), pair.joiner.as_ref()],
         bump = pair.bump
     )]
     pub pair: Account<'info, PairState>,
@@ -1676,7 +1712,7 @@ pub struct ClosePair<'info> {
     pub payer: UncheckedAccount<'info>,
 }
 
-pub(crate) fn close_pair(ctx: Context<ClosePair>, _opener: Pubkey, _joiner: Pubkey) -> Result<()> {
+pub(crate) fn close_pair(ctx: Context<ClosePair>) -> Result<()> {
     let ended = ctx
         .accounts
         .pair

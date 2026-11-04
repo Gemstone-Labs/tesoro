@@ -1,25 +1,31 @@
-import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
+import { AnchorProvider, BN, BorshAccountsCoder, Program, type Idl } from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import { describe, expect, it, vi } from "vitest";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
-import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, gameStepIx, key, linkEvmBridgeIx, signUpIx, openMatchIx, playerIx } from "./fixtures";
+import { joinMatchIx, accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, gameStepIx, key, linkEvmBridgeIx, signUpIx, openMatchIx, playerIx } from "./fixtures";
 import { DEFAULT_LIMITS, type Limits } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type WireIx } from "./service";
 import { MemoryUsageStore } from "./store";
 import { encodeBook, freshClass } from "@/lib/chain/basket-fixture";
 import { fp } from "@/lib/chain/book";
-import { bookPda, ckptPda } from "@/lib/chain/basket";
+import { bookPda, ckptPda, countersPda } from "@/lib/chain/basket";
 import { SIM_SOL_MINT, sourcePda } from "@/lib/chain/native";
 import { redeemLineIxs, unlockIxs } from "@/lib/chain/redeem";
 import { planExit } from "@/lib/chain/exit-route";
 import { getChain } from "@/lib/chain/client";
 import { JITOSOL } from "@/lib/chain/stake";
-import { createAtaIdempotentIx, tokenAta } from "@/lib/chain/stake-pool";
+import { createAtaIdempotentIx, tokenAta, STAKE_POOL_PROGRAM_ID, updateStakePoolBalanceIx } from "@/lib/chain/stake-pool";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { unlockStakeIx } from "@/lib/chain/stake";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { ChainTransactionFailed } from "./chain-send";
 import { recoverCompletions } from "./completion";
+import { Assigner, MemoryLeaseStore } from "./assign";
+import { MATCH_STATE_FIXTURE } from "./assign-fixture";
+import { GAME_IDS } from "@/lib/chain/games";
 
 const SOL = 1_000_000_000n;
 const wire = (ixs: Ix[]): { ixs: WireIx[] } => ({
@@ -31,7 +37,7 @@ const basketData = (gemas: bigint) => {
   return d;
 };
 
-function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean; sendError?: Error; noAccount?: boolean; simulate?: { err?: unknown; extraSpend?: bigint; noLamports?: boolean; raceOnce?: bigint }; invite?: { redeemed: boolean } } = {}) {
+function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: boolean; gemas?: bigint; existing?: PublicKey[]; sendFails?: boolean; sendError?: Error; noAccount?: boolean; simulate?: { err?: unknown; extraSpend?: bigint; noLamports?: boolean; raceOnce?: bigint }; invite?: { redeemed: boolean }; epoch?: bigint } = {}) {
   const relayer = Keypair.generate();
   const player = Keypair.generate();
   const game = new PublicKey("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
@@ -57,6 +63,8 @@ function setup(over: { balance?: bigint; limits?: Partial<Limits>; paused?: bool
     balance: async () => balance,
     rent: async (bytes) => BigInt(bytes + 128) * 6960n,
     account: async (k) => accounts.get(k.toBase58()) ?? null,
+    accountsTogether: async (keys) => keys.map((k) => accounts.get(k.toBase58()) ?? null),
+    epoch: async () => over.epoch ?? 1075n,
     latestBlockhash: async () => "11111111111111111111111111111111",
     // The relayer pays the fee (5,000 + priority) and the receipt's rent: what a Game step is meant to cost.
     simulate: async (tx) => {
@@ -147,6 +155,54 @@ describe("Unlock of a 0-SOL Player whose token account is missing", () => {
     const { route, position } = await unlockSetup(s);
     (s.accounts.get(position.toBase58())!.data as Buffer)[122] = 0;
     await expect(s.sponsor.build(s.player.publicKey, wire(route.ixs))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+});
+
+describe("a staking-token Unlock that carries the stake pool update", () => {
+  const live = readFileSync(join(__dirname, "../../../../programs/tesoro_core/tests/fixtures/jito_pool.bin"));
+  const pool = (lastUpdate: bigint) => {
+    const d = Buffer.from(live);
+    d.writeBigUInt64LE(lastUpdate, 274);
+    return { owner: STAKE_POOL_PROGRAM_ID, data: d };
+  };
+  async function stakeUnlock(s: ReturnType<typeof setup>, lastUpdate: bigint) {
+    const { position } = await firstPayout(s);
+    (s.accounts.get(position.toBase58())!.data as Buffer).set(JITOSOL.mint.toBytes(), 74);
+    s.accounts.set(JITOSOL.pool.toBase58(), pool(lastUpdate));
+    const update = updateStakePoolBalanceIx(JITOSOL.pool, pool(lastUpdate));
+    // the Player already has the token account
+    s.accounts.set(tokenAta(s.player.publicKey, JITOSOL.mint).toBase58(), { owner: CORE_ID, data: new Uint8Array(165) });
+    return { ixs: [update, unlockStakeIx(s.player.publicKey, position, null, JITOSOL)] };
+  }
+
+  it("is admitted and paid for by the relayer while the pool is more than one epoch behind", async () => {
+    const s = setup({ gemas: 0n, paused: true });
+    const { ixs } = await stakeUnlock(s, 1073n);
+    const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
+    expect(built.class).toBe("exit");
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    expect(s.sent[0].message.staticAccountKeys[0]).toEqual(s.relayer.publicKey);
+    expect(s.sent[0].message.compiledInstructions.some((i) => s.sent[0].message.staticAccountKeys[i.programIdIndex].equals(STAKE_POOL_PROGRAM_ID))).toBe(true);
+  });
+  it("is refused when the pool is current or one epoch behind: the sponsor never pays for a no-op", async () => {
+    for (const last of [1075n, 1074n]) {
+      const s = setup();
+      const { ixs } = await stakeUnlock(s, last);
+      await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "bad-setup" });
+    }
+  });
+  it("is refused when the instruction's accounts are not the pool's own", async () => {
+    const s = setup();
+    const { ixs } = await stakeUnlock(s, 1000n);
+    ixs[0].keys[2] = { ...ixs[0].keys[2], pubkey: key() };
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+  it("is refused when the Position is not a staking-token Position", async () => {
+    const s = setup();
+    const { ixs } = await stakeUnlock(s, 1000n);
+    const p = [...s.accounts.entries()].find(([, a]) => Buffer.from(a.data.subarray(74, 106)).equals(Buffer.from(JITOSOL.mint.toBytes())))!;
+    (p[1].data as Buffer).set(SIM_SOL_MINT.toBytes(), 74);
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "bad-setup" });
   });
 });
 
@@ -264,6 +320,26 @@ describe("an admission", () => {
     const built = await s2.sponsor.build(s2.player.publicKey, wire([close]));
     await s2.sponsor.submit(playerSigns(built, s2.player), built.meta, built.mac);
     expect(await s2.deps.store.held()).toBe(0n);
+  });
+});
+
+describe("the float of a closed Match", () => {
+  it("is freed at the next admission, whoever closed the Match", async () => {
+    const s = setup();
+    const open = await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
+    const b1 = await s.sponsor.build(s.player.publicKey, wire([open]));
+    await s.sponsor.submit(playerSigns(b1, s.player), b1.meta, b1.mac);
+    expect(await s.deps.store.held()).toBe(DEFAULT_LIMITS.completionReserve);
+    // room for one more admission only if the hold goes
+    s.setBalance(DEFAULT_LIMITS.floor + BigInt(JSON.parse(b1.meta).fronted) + DEFAULT_LIMITS.completionReserve + 100_000n);
+    const again = await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
+    await expect(s.sponsor.build(s.player.publicKey, wire([again]))).rejects.toMatchObject({ code: "sponsor-paused" });
+    // the Match was closed by its Player, not by us: it is gone and the Account's counter is past number 1
+    const counters = Buffer.alloc(33);
+    counters.writeBigUInt64LE(2n, 9);
+    s.accounts.set(PublicKey.findProgramAddressSync([Buffer.from("counters"), accountPda(s.player.publicKey).toBuffer()], CORE_ID)[0].toBase58(), { owner: CORE_ID, data: counters });
+    await expect(s.sponsor.build(s.player.publicKey, wire([again]))).resolves.toMatchObject({ class: "admission" });
+    expect(await s.deps.store.held()).toBe(0n);
   });
 });
 
@@ -736,5 +812,205 @@ describe("the rest of sign-up on the sponsor (ticket 18c)", () => {
     const s = setup({ gemas: 0n });
     await s.sponsor.build(s.player.publicKey, wire([linkEvmBridgeIx(s.player.publicKey, s.relayer.publicKey)]), "u");
     await expect(s.sponsor.build(s.player.publicKey, wire([linkEvmBridgeIx(s.player.publicKey, s.relayer.publicKey)]), "u")).rejects.toMatchObject({ code: "link-limit" });
+  });
+});
+
+describe("join and assign in one transaction", () => {
+  const withAssigner = (tables: { generation: number; index: number; epoch: bigint }[] = [{ generation: 1, index: 0, epoch: 3n }]) => {
+    const s = setup();
+    const operator = Keypair.generate();
+    const leases = new MemoryLeaseStore();
+    s.deps.assigner = new Assigner({ operator, leases, tables: async () => tables, now: () => 1_000_000 });
+    const match = key();
+    s.accounts.set(match.toBase58(), { owner: CORE_ID, data: MATCH_STATE_FIXTURE });
+    return { s, operator, match };
+  };
+  const join = async (s: ReturnType<typeof setup>, match: PublicKey) => {
+    const ix = await joinMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
+    ix.keys[8] = { ...ix.keys[8], pubkey: match };
+    return ix;
+  };
+
+  it("adds the Game's assign_match, signed by the operator, and the relayer pays for it", async () => {
+    const { s, operator, match } = withAssigner();
+    const built = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+    const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+    const last = msg.compiledInstructions.at(-1)!;
+    expect(msg.staticAccountKeys[last.programIdIndex].toBase58()).toBe(s.game.toBase58());
+    expect(Buffer.from(last.data).subarray(0, 8)).toEqual(Buffer.from([195, 128, 179, 141, 148, 120, 135, 51]));
+    expect(msg.staticAccountKeys.slice(0, msg.header.numRequiredSignatures).map((k) => k.toBase58())).toEqual(expect.arrayContaining([s.relayer.publicKey, s.player.publicKey, operator.publicKey].map((k) => k.toBase58())));
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    const sent = s.sent[0];
+    const bytes = sent.message.serialize();
+    sent.message.staticAccountKeys.slice(0, sent.message.header.numRequiredSignatures).forEach((k, i) => expect(nacl.sign.detached.verify(bytes, sent.signatures[i], k.toBytes())).toBe(true));
+  });
+
+  it("puts grow_counters in front of a join that reads an old 25-byte counters account, and not when the account is current", async () => {
+    const { s, match } = withAssigner();
+    const counters = countersPda(accountPda(s.player.publicKey));
+    const disc = Buffer.from((coreIdl.accounts as { name: string; discriminator: number[] }[]).find((a) => a.name === "AccountCounters")!.discriminator);
+    const growDisc = Buffer.from((coreIdl.instructions as { name: string; discriminator: number[] }[]).find((i) => i.name === "grow_counters")!.discriminator);
+    const names = async () => {
+      const built = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+      const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+      return msg.compiledInstructions.map((i) => (Buffer.from(i.data).subarray(0, 8).equals(growDisc) ? "grow" : "other"));
+    };
+    expect(await names()).not.toContain("grow");
+    const old = Buffer.alloc(25);
+    disc.copy(old);
+    s.accounts.set(counters.toBase58(), { owner: CORE_ID, data: old });
+    const seen = await names();
+    expect(seen.filter((n) => n === "grow")).toHaveLength(1);
+    expect(seen.indexOf("grow")).toBeLessThan(seen.lastIndexOf("other") - 0);
+  });
+
+  it("keeps the table through the start window once sent, so the next join gets another", async () => {
+    const { s, match } = withAssigner([{ generation: 1, index: 0, epoch: 3n }, { generation: 1, index: 1, epoch: 3n }]);
+    const first = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+    await s.sponsor.submit(playerSigns(first, s.player), first.meta, first.mac);
+    s.tick(100_000);
+    const second = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+    const index = (b: { message: string }) => Buffer.from(VersionedMessage.deserialize(Buffer.from(b.message, "base64")).compiledInstructions.at(-1)!.data).readUInt16LE(10);
+    expect([index(first), index(second)]).toEqual([0, 1]);
+  });
+
+  it("claims the table for the Match in the pool once the join is sent", async () => {
+    const { s, match } = withAssigner();
+    const claims: [string, number, string][] = [];
+    s.deps.assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: async () => [{ generation: 1, index: 0, epoch: 3n }], claim: async (g, p, m) => (claims.push([g, p.index, m]), true), now: () => 1_000_000 });
+    const built = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+    expect(claims).toEqual([]);
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    expect(claims.length).toBe(1);
+    expect(claims[0].slice(0, 2)).toEqual(["block-puzzle", 0]);
+    expect(claims[0][2]).toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}-\d+$/);
+  });
+
+  describe("Trading Duel", () => {
+    const coder = new BorshAccountsCoder(coreIdl as unknown as Idl);
+    const duelJoin = async (asset: number) => {
+      const { s, match } = withAssigner();
+      const decoded = coder.decode("MatchState", MATCH_STATE_FIXTURE) as { inner: { meta: object } };
+      s.accounts.set(match.toBase58(), { owner: CORE_ID, data: await coder.encode("MatchState", { ...decoded, inner: { ...decoded.inner, meta: { ...decoded.inner.meta, asset } } }) });
+      const ix = await joinMatchIx(s.relayer.publicKey, s.player.publicKey, GAME_IDS["trading-duel"]);
+      ix.keys[8] = { ...ix.keys[8], pubkey: match };
+      const built = await s.sponsor.build(s.player.publicKey, wire([ix]));
+      const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+      return msg.staticAccountKeys[msg.compiledInstructions.at(-1)!.programIdIndex].toBase58();
+    };
+    it("is assigned in the join when the Match trades a known asset", async () => {
+      expect(await duelJoin(2)).toBe(GAME_IDS["trading-duel"].toBase58());
+    });
+    it("travels alone when the asset is unknown (the Game would refuse the assignment, and the join with it)", async () => {
+      expect(await duelJoin(9)).toBe(CORE_ID.toBase58());
+    });
+  });
+
+  it("sends the join alone when no table is free", async () => {
+    const { s, match } = withAssigner([]);
+    const built = await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+    const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+    expect(msg.header.numRequiredSignatures).toBe(2);
+    expect(msg.staticAccountKeys[msg.compiledInstructions.at(-1)!.programIdIndex].toBase58()).toBe(CORE_ID.toBase58());
+  });
+
+  it("frees the table when the build is refused", async () => {
+    const { s, match } = withAssigner();
+    s.deps.limits = { ...s.deps.limits, buildsPerDay: 1 };
+    await s.sponsor.build(s.player.publicKey, wire([await join(s, match)]));
+    await expect(s.sponsor.build(s.player.publicKey, wire([await join(s, match)]))).rejects.toMatchObject({ code: "account-limit" });
+  });
+
+  describe("paid by the Player", () => {
+    const poolWith = (s: ReturnType<typeof setup>, claims: number[], tables = [{ generation: 1, index: 0, epoch: 3n }, { generation: 1, index: 1, epoch: 3n }, { generation: 1, index: 2, epoch: 3n }]) => {
+      s.deps.assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: async () => tables, claim: async (_g, p) => (claims.push(p.index), true), now: () => 1_000_000 });
+    };
+    const selfJoin = async (s: ReturnType<typeof setup>, match: PublicKey) => {
+      const ix = await join(s, match);
+      ix.keys[0] = { ...ix.keys[0], pubkey: s.player.publicKey };
+      return wire([ix]);
+    };
+
+    it("claims nothing in the pool when it builds the join: the page may never send it", async () => {
+      const { s, match } = withAssigner();
+      const claims: number[] = [];
+      poolWith(s, claims);
+      await s.sponsor.buildSelfPaid(s.player.publicKey, await selfJoin(s, match));
+      expect(claims).toEqual([]);
+    });
+
+    it("a loop of builds by one Player holds one table, claims none", async () => {
+      const { s, match } = withAssigner();
+      const claims: number[] = [];
+      poolWith(s, claims);
+      const results = await Promise.allSettled(Array.from({ length: 6 }, async () => s.sponsor.buildSelfPaid(s.player.publicKey, await selfJoin(s, match))));
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter((r) => r.status === "rejected").every((r) => (r as PromiseRejectedResult).reason.code === "join-pending")).toBe(true);
+      expect(claims).toEqual([]);
+    });
+
+    it("claims the table once the Assignment of the join is on base, and not before", async () => {
+      const { s, match } = withAssigner();
+      const claims: number[] = [];
+      poolWith(s, claims);
+      const built = await s.sponsor.buildSelfPaid(s.player.publicKey, await selfJoin(s, match));
+      expect(await s.sponsor.confirmSelfPaid(built.meta, built.mac)).toBe(false);
+      expect(claims).toEqual([]);
+      s.accounts.set(PublicKey.findProgramAddressSync([Buffer.from("assign"), match.toBuffer()], s.game)[0].toBase58(), { owner: s.game, data: Buffer.alloc(40) });
+      expect(await s.sponsor.confirmSelfPaid(built.meta, built.mac)).toBe(true);
+      expect(claims).toEqual([0]);
+      expect(await s.sponsor.confirmSelfPaid(built.meta, "x".repeat(built.mac.length))).toBe(false);
+    });
+
+    it("refuses a build for a Match this Player cannot join: their own, or one that is full or not Open", async () => {
+      const mc = new BorshAccountsCoder(coreIdl as unknown as Idl);
+      const base = mc.decode("MatchState", MATCH_STATE_FIXTURE) as { inner: { a: { player: PublicKey }; b: unknown; stage: object } };
+      const withInner = async (name: string, inner: (s: ReturnType<typeof setup>) => object) => {
+        const { s, match } = withAssigner();
+        poolWith(s, []);
+        s.accounts.set(match.toBase58(), { owner: CORE_ID, data: await mc.encode("MatchState", { ...base, inner: { ...base.inner, ...inner(s) } }) });
+        return { s, match, name };
+      };
+      const cases = [
+        await withInner("own", (s) => ({ a: { ...base.inner.a, player: Array.from(accountPda(s.player.publicKey).toBytes()) } })),
+        await withInner("full", () => ({ b: base.inner.a })),
+        await withInner("settling", () => ({ stage: { Settling: {} } })),
+      ];
+      for (const c of cases) {
+        await expect(c.s.sponsor.buildSelfPaid(c.s.player.publicKey, await selfJoin(c.s, c.match)), c.name).rejects.toMatchObject({ code: expect.stringMatching(/no-table|cannot-join/) });
+      }
+    });
+
+    it("returns the join with the assignment, fee paid by the Player, signed by the operator only", async () => {
+      const { s, operator, match } = withAssigner();
+      const ix = await join(s, match);
+      ix.keys[0] = { ...ix.keys[0], pubkey: s.player.publicKey };
+      const { tx } = await s.sponsor.buildSelfPaid(s.player.publicKey, wire([ix]));
+      const t = VersionedTransaction.deserialize(Buffer.from(tx, "base64"));
+      expect(t.message.staticAccountKeys[0].toBase58()).toBe(s.player.publicKey.toBase58());
+      const slots = t.message.staticAccountKeys.slice(0, t.message.header.numRequiredSignatures);
+      expect(slots.map((k) => k.toBase58()).sort()).toEqual([s.player.publicKey, operator.publicKey].map((k) => k.toBase58()).sort());
+      const at = slots.findIndex((k) => k.equals(operator.publicKey));
+      expect(nacl.sign.detached.verify(t.message.serialize(), t.signatures[at], operator.publicKey.toBytes())).toBe(true);
+    });
+
+    it("refuses anything but a lone join of the Player's own", async () => {
+      const { s, operator, match } = withAssigner();
+      const ix = await join(s, match);
+      ix.keys[0] = { ...ix.keys[0], pubkey: s.player.publicKey };
+      const other = await openMatchIx(s.player.publicKey, s.player.publicKey, s.game);
+      await expect(s.sponsor.buildSelfPaid(s.player.publicKey, wire([ix, other]))).rejects.toMatchObject({ code: "bad-request" });
+      const named = { ...ix, keys: [...ix.keys, { pubkey: operator.publicKey, isSigner: true, isWritable: false }] };
+      await expect(s.sponsor.buildSelfPaid(s.player.publicKey, wire([named]))).rejects.toMatchObject({ code: "bad-request" });
+      const relayerPays = await join(s, match);
+      await expect(s.sponsor.buildSelfPaid(s.player.publicKey, wire([relayerPays]))).rejects.toMatchObject({ code: "bad-request" });
+    });
+
+    it("says so when no table is free, so the page sends the join alone", async () => {
+      const { s, match } = withAssigner([]);
+      const ix = await join(s, match);
+      ix.keys[0] = { ...ix.keys[0], pubkey: s.player.publicKey };
+      await expect(s.sponsor.buildSelfPaid(s.player.publicKey, wire([ix]))).rejects.toMatchObject({ code: "no-table" });
+    });
   });
 });

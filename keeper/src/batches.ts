@@ -1,3 +1,4 @@
+import { noteError } from "./errors.ts";
 import anchor from "@coral-xyz/anchor";
 import { PublicKey, type AccountMeta, type Keypair } from "@solana/web3.js";
 import { act, log, type Ctx } from "./act.ts";
@@ -34,6 +35,7 @@ import {
 import { MIN_GEMAS, RETRY_MS, candidates, due, nextTry, type Candidate, type CounterDeps } from "./counters.ts";
 import { shortKey } from "./env.ts";
 import { BRIDGE, quoteFee, sendAccounts } from "./lz.ts";
+import { MSG } from "./msg-types.ts";
 import { basketOf, configAddress, economyAddress, keyOf, pda, prizeSourceOf, spillOf } from "./kit.ts";
 import { fetchWithBackoff } from "./runtime.ts";
 import { sendIxs, type SendOpts } from "./send.ts";
@@ -46,6 +48,27 @@ const lastSent = new Map<string, number>();
 
 export const KIND_NAMES = ["Platform", "Studio", "Leaderboard"] as const;
 
+/** What a run of the batch job may do: which fee classes, when a Sealed batch is sent again, and whether it handles prize payouts. */
+export interface BatchRule {
+  kinds: readonly number[];
+  canSend(batch: BatchRow, nowMs: number): boolean;
+  sent(batch: BatchRow, nowMs: number): void;
+  /** Whether prize payouts are handled, and when a Pending one is sent again. */
+  payouts: boolean;
+  canSendPayout(payout: PayoutRow, nowMs: number): boolean;
+  sentPayout(payout: PayoutRow, nowMs: number): void;
+}
+
+/** The loop's rule: every class, a Sealed batch is sent again every KEEPER_BATCH_RESEND_SECS, payouts included. */
+export const loopRule: BatchRule = {
+  kinds: [0, 1, 2],
+  canSend: (batch, nowMs) => nowMs - (lastSent.get(batch.address.toBase58()) ?? 0) >= RESEND_MS,
+  sent: (batch, nowMs) => void lastSent.set(batch.address.toBase58(), nowMs),
+  payouts: true,
+  canSendPayout: (payout, nowMs) => nowMs - (lastSent.get(payout.address.toBase58()) ?? 0) >= RESEND_MS,
+  sentPayout: (payout, nowMs) => void lastSent.set(payout.address.toBase58(), nowMs),
+};
+
 // ---- Plans (pure) -------------------------------------------------------------------------------------------------------
 
 export type BatchStep = { kind: "seal"; batch: BatchRow } | { kind: "send"; batch: BatchRow } | { kind: "close"; batch: BatchRow };
@@ -57,12 +80,19 @@ export const routeKey = (eid: number, peerAddress: Uint8Array) => `${eid}:${Buff
  * time, again every `resendMs` until the acknowledgements add up: a message can be lost, never replayed into a double
  * payment), and seal an Open one that holds entries and reached the route's minimum or its entry limit.
  */
-export function planBatches(batches: BatchRow[], routes: Map<string, RouteRow>, sentAt: Map<string, number>, nowMs: number, resendMs: number): BatchStep[] {
+export function planBatches(
+  batches: BatchRow[],
+  routes: Map<string, RouteRow>,
+  sentAt: Map<string, number>,
+  nowMs: number,
+  resendMs: number,
+  canSend: (batch: BatchRow, nowMs: number) => boolean = (batch, now) => now - (sentAt.get(batch.address.toBase58()) ?? 0) >= resendMs,
+): BatchStep[] {
   const out: BatchStep[] = [];
   for (const batch of batches) {
     if (batch.state === BATCH_DONE) out.push({ kind: "close", batch });
     else if (batch.state === BATCH_SEALED) {
-      if (batch.totalUnits > batch.paidUnits && nowMs - (sentAt.get(batch.address.toBase58()) ?? 0) >= resendMs) out.push({ kind: "send", batch });
+      if (batch.totalUnits > batch.paidUnits && canSend(batch, nowMs)) out.push({ kind: "send", batch });
     } else if (batch.state === BATCH_OPEN && batch.count > 0) {
       const route = routes.get(routeKey(batch.eid, batch.peerAddress));
       if (route && (batch.totalUnits >= route.minBatchUnits || batch.count >= MAX_BATCH_ENTRIES)) out.push({ kind: "seal", batch });
@@ -74,11 +104,17 @@ export function planBatches(batches: BatchRow[], routes: Map<string, RouteRow>, 
 export type PayoutStep = { kind: "send"; payout: PayoutRow } | { kind: "refund"; payout: PayoutRow } | { kind: "close"; payout: PayoutRow };
 
 /** A Pending payout is (re)sent until the vault answers; a Rejected one is refunded to the holder; a Paid or Refunded one is closed. */
-export function planPayouts(payouts: PayoutRow[], sentAt: Map<string, number>, nowMs: number, resendMs: number): PayoutStep[] {
+export function planPayouts(
+  payouts: PayoutRow[],
+  sentAt: Map<string, number>,
+  nowMs: number,
+  resendMs: number,
+  canSend: (payout: PayoutRow, nowMs: number) => boolean = (payout, now) => now - (sentAt.get(payout.address.toBase58()) ?? 0) >= resendMs,
+): PayoutStep[] {
   const out: PayoutStep[] = [];
   for (const payout of payouts) {
     if (payout.state === PAYOUT_PENDING) {
-      if (nowMs - (sentAt.get(payout.address.toBase58()) ?? 0) >= resendMs) out.push({ kind: "send", payout });
+      if (canSend(payout, nowMs)) out.push({ kind: "send", payout });
     } else if (payout.state === PAYOUT_REJECTED) out.push({ kind: "refund", payout });
     else if (payout.state === PAYOUT_PAID || payout.state === PAYOUT_REFUNDED) out.push({ kind: "close", payout });
   }
@@ -142,27 +178,27 @@ export async function feeRecipients(ctx: Ctx, read: Reader): Promise<(PublicKey 
  *   3. prize payouts: send a Pending one again until the vault answers, refund a Rejected one to its holder, close a final one.
  * Everything is permissionless and idempotent in the bridge; the sends cost a LayerZero fee, capped per message and per hour.
  */
-export async function batchJob(ctx: Ctx, d: BatchDeps): Promise<number> {
+export async function batchJob(ctx: Ctx, d: BatchDeps, rule: BatchRule = loopRule): Promise<number> {
   const routes = (await d.listBridge(bridgeDisc.route)).map((r) => decodeRoute(r.pubkey, r.data));
   if (!routes.length) return 0;
   const byKey = new Map(routes.map((r) => [routeKey(r.eid, r.peerAddress), r]));
-  let actions = await fillBatches(ctx, d, routes);
+  let actions = await fillBatches(ctx, d, routes, rule.kinds);
 
-  const batches = (await d.listBridge(bridgeDisc.batch)).map((b) => decodeBatch(b.pubkey, b.data));
-  for (const step of planBatches(batches, byKey, lastSent, Date.now(), RESEND_MS)) {
+  const batches = (await d.listBridge(bridgeDisc.batch)).map((b) => decodeBatch(b.pubkey, b.data)).filter((b) => rule.kinds.includes(b.kind));
+  for (const step of planBatches(batches, byKey, lastSent, Date.now(), RESEND_MS, rule.canSend)) {
     const b = step.batch;
     const subject = `batch=${shortKey(b.address)}#${b.id}`;
     try {
       if (step.kind === "seal") actions += +(await act(ctx, "batches", subject, `seal_batch (${b.count} entries, ${b.totalUnits} units, ${KIND_NAMES[b.kind]})`, () => d.send([sealBatchIx(b)], {}))).ok;
       else if (step.kind === "close") actions += +(await act(ctx, "batches", subject, "close_batch (every entry acknowledged)", () => d.send([closeBatchIx(b)], {}))).ok;
-      else actions += await sendBatch(ctx, d, b, subject);
+      else actions += await sendBatch(ctx, d, b, subject, rule);
     } catch (e) {
-      log("batches", subject, `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+      noteError("batches", subject, e);
     }
   }
 
-  const payouts = (await d.listBridge(bridgeDisc.payout)).map((p) => decodePayout(p.pubkey, p.data));
-  for (const step of planPayouts(payouts, lastSent, Date.now(), RESEND_MS)) {
+  const payouts = rule.payouts ? (await d.listBridge(bridgeDisc.payout)).map((p) => decodePayout(p.pubkey, p.data)) : [];
+  for (const step of planPayouts(payouts, lastSent, Date.now(), RESEND_MS, rule.canSendPayout)) {
     const p = step.payout;
     const subject = `payout=${shortKey(p.address)}#${p.id}`;
     try {
@@ -170,17 +206,17 @@ export async function batchJob(ctx: Ctx, d: BatchDeps): Promise<number> {
       else if (step.kind === "refund") {
         const ix = refundPrizePayoutIx({ payout: p, holderBasket: basketOf(p.holderAccount), holderSpill: spillOf(p.holderAccount) });
         actions += +(await act(ctx, "batches", subject, `refund_prize_payout (the vault rejected it: ${p.gemas} Gemas back to the holder)`, () => d.send([ix], { units: 300_000 }))).ok;
-      } else actions += await sendPayout(ctx, d, p, subject);
+      } else actions += await sendPayout(ctx, d, p, subject, rule);
     } catch (e) {
-      log("batches", subject, `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+      noteError("batches", subject, e);
     }
   }
   log("batches", "-", `${routes.length} route(s), ${batches.length} batch(es), ${payouts.length} payout(s), ${actions} action(s), LayerZero fees ${(ctx.lz.spentLastHour() / 1e9).toFixed(5)} SOL this hour`);
   return actions;
 }
 
-async function sendBatch(ctx: Ctx, d: BatchDeps, b: BatchRow, subject: string): Promise<number> {
-  const lz = await d.lz(b.eid, b.peerAddress, 6);
+async function sendBatch(ctx: Ctx, d: BatchDeps, b: BatchRow, subject: string, rule: BatchRule): Promise<number> {
+  const lz = await d.lz(b.eid, b.peerAddress, MSG.CASH_IN_BATCH);
   const what = `send_batch (${b.totalUnits - b.paidUnits} of ${b.totalUnits} units owed, send #${b.sends + 1})`;
   if (!(await fee(ctx, subject, what, lz))) return 0;
   const ixs = [sendBatchIx({ payer: ctx.payer.publicKey, batch: b, nativeFee: lz.fee, send: lz.send })];
@@ -192,13 +228,13 @@ async function sendBatch(ctx: Ctx, d: BatchDeps, b: BatchRow, subject: string): 
   const r = await act(ctx, "batches", subject, `${what}, LayerZero fee ${Number(lz.fee) / 1e9} SOL`, () => d.send(ixs, { units: 600_000 }));
   if (r.ok && !ctx.settings.dryRun) {
     ctx.lz.record(Number(lz.fee));
-    lastSent.set(b.address.toBase58(), Date.now());
+    rule.sent(b, Date.now());
   }
   return +r.ok;
 }
 
-async function sendPayout(ctx: Ctx, d: BatchDeps, p: PayoutRow, subject: string): Promise<number> {
-  const lz = await d.lz(p.eid, p.peerAddress, 7);
+async function sendPayout(ctx: Ctx, d: BatchDeps, p: PayoutRow, subject: string, rule: BatchRule): Promise<number> {
+  const lz = await d.lz(p.eid, p.peerAddress, MSG.PAY_PRIZE);
   const what = `send_pay_prize (${p.shares} shares)`;
   if (!(await fee(ctx, subject, what, lz))) return 0;
   const ixs = [sendPayPrizeIx({ payer: ctx.payer.publicKey, payout: p, nativeFee: lz.fee, send: lz.send })];
@@ -210,17 +246,17 @@ async function sendPayout(ctx: Ctx, d: BatchDeps, p: PayoutRow, subject: string)
   const r = await act(ctx, "batches", subject, `${what}, LayerZero fee ${Number(lz.fee) / 1e9} SOL`, () => d.send(ixs, { units: 600_000 }));
   if (r.ok && !ctx.settings.dryRun) {
     ctx.lz.record(Number(lz.fee));
-    lastSent.set(p.address.toBase58(), Date.now());
+    rule.sentPayout(p, Date.now());
   }
   return +r.ok;
 }
 
 /** Step 1: puts covered counters of EVM Sources into their routes' open batches. */
-async function fillBatches(ctx: Ctx, d: BatchDeps, routes: RouteRow[]): Promise<number> {
+async function fillBatches(ctx: Ctx, d: BatchDeps, routes: RouteRow[], allowed: readonly number[]): Promise<number> {
   const recipients = await feeRecipients(ctx, d.read);
-  const wanted = routes.some((r) => kindsOf(r).some((k) => !!recipients[k]));
+  const wanted = routes.some((r) => kindsOf(r).some((k) => allowed.includes(k) && !!recipients[k]));
   if (!wanted) return 0;
-  const list = await candidates(ctx, d, "batches", (c) => c.chain !== "solana" && !c.custody, (c) => c.some((v, k) => k <= 2 && v >= MIN_GEMAS));
+  const list = await candidates(ctx, d, "batches", (c) => c.chain !== "solana" && !c.custody, (c) => c.some((v, k) => allowed.includes(k) && v >= MIN_GEMAS));
   if (!list.length) return 0;
   const open = new Map<string, BatchRow>();
   for (const b of (await d.listBridge(bridgeDisc.batch)).map((x) => decodeBatch(x.pubkey, x.data))) if (b.state === BATCH_OPEN) open.set(`${routeKey(b.eid, b.peerAddress)}:${b.kind}`, b);
@@ -230,7 +266,7 @@ async function fillBatches(ctx: Ctx, d: BatchDeps, routes: RouteRow[]): Promise<
     if (!route) continue;
     for (const kind of kindsOf(route)) {
       const recipient = recipients[kind];
-      if (!recipient || c.counters[kind] < MIN_GEMAS) continue;
+      if (!allowed.includes(kind) || !recipient || c.counters[kind] < MIN_GEMAS) continue;
       const tryKey = `batch:${c.source.toBase58()}:${kind}`;
       if (!due(tryKey, Date.now())) continue;
       const slot = `${routeKey(route.eid, route.peerAddress)}:${kind}`;

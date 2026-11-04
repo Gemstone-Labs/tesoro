@@ -13,6 +13,8 @@ import { useAuth } from "@/lib/auth/context";
 import { playerPaysGas, type OpenCostQuote } from "@/lib/chain/eth-fee";
 import { useTreasuryRates } from "@/lib/chain/useTreasuryRates";
 import { getChain } from "@/lib/chain/client";
+import { deliveryQuote } from "@/lib/chain/delivery-fee";
+import { useDeliveryTerms } from "@/lib/chain/useDeliveryTerms";
 import { debtGemas, debtUnits } from "@/lib/chain/ledger";
 import {
   ETH_SIM_MONTH_MIN,
@@ -49,9 +51,12 @@ import {
   getTestSimEth,
   openEthPosition,
   redeemToEvm,
+  applyYieldNow,
+  finishOpening,
+  finishPayout,
+  finishUnlock,
   freshenYield,
   takeEthAdvance,
-  ethCall,
   requestGas,
   estimateOpenCost,
   fetchNativeTerms,
@@ -67,6 +72,7 @@ import {
   addOp,
   fetchScanStatus,
   loadOps,
+  finishLabel,
   opCopy,
   opProgress,
   opSteps,
@@ -434,6 +440,8 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
   const [error, setError] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanStatus | null>(null);
   const [snap, setSnap] = useState<EthState | null>(null);
+  const [due, setDue] = useState<NonNullable<ReturnType<typeof opProgress>["next"]> | null>(null);
+  const tickRef = useRef<() => Promise<void>>(async () => {});
   const busy = useRef(false);
   const lastTry = useRef(0);
   const opRef = useRef(op);
@@ -468,6 +476,7 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
         let progress = first.progress;
         setSnap(state);
         setStage(progress.stage);
+        setDue(progress.next);
         if (!progress.next) setError(null);
         const scanKey = cur.kind === "open" || cur.kind === "yield" ? cur.hash : cur.sendSig;
         if (scanKey) fetchScanStatus(scanKey).then((s) => !stopped && setScan(s));
@@ -485,6 +494,7 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
           progress = after.progress;
           setSnap(after.state);
           setStage(progress.stage);
+          setDue(progress.next);
         }
         if (progress.stage >= steps.length) {
           patchOp(address, cur.key, { done: true });
@@ -496,6 +506,7 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
         busy.current = false;
       }
     };
+    tickRef.current = tick;
     void tick();
     const t = setInterval(tick, POLL_MS);
     return () => {
@@ -506,13 +517,20 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [op.key, op.done]);
 
-  return { stage, note, error, scan, state: snap, finished: !!op.done || stage >= steps.length };
+  /** Tries the due step now instead of at the next poll (the "Finish ..." button). */
+  const retry = useCallback(() => {
+    lastTry.current = 0;
+    void tickRef.current();
+  }, []);
+
+  return { stage, note, error, scan, state: snap, due, retry, finished: !!op.done || stage >= steps.length };
 }
 
 function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; address: string; onProgress: () => Promise<unknown> }) {
-  const { stage, note, error, scan, finished } = useOpTracker(op, ctx, address, onProgress);
+  const { stage, note, error, scan, finished, due, retry } = useOpTracker(op, ctx, address, onProgress);
   const steps = opSteps(op.kind, op.vault);
   const copy = opCopy(op.kind, op.vault);
+  const finish = finishLabel(due);
   const net = netOfVault(op.vault);
   const outbound = op.kind === "redeem" || op.kind === "instant" || op.kind === "unlock";
   const scanText = scan ? `Transfer: ${scan.name.toLowerCase()}` : op.hash || op.sendSig ? "Transfer: waiting for the first update" : null;
@@ -543,6 +561,7 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
         {!finished && note && <p className="status" role="status"><ClockIcon width={14} height={14} /> {note}</p>}
         {!finished && !note && scanText && <p className="meta mono">{scanText}</p>}
         {error && !finished && <p className="status err" role="alert">{error} · retrying</p>}
+        {error && !finished && finish && <Button size="sm" disabled={!!note} onClick={retry}>{finish}</Button>}
         <Links
           vault={op.vault}
           evm={op.kind === "open" || op.kind === "yield" ? op.hash : (scan?.destinationTx ?? undefined)}
@@ -569,17 +588,29 @@ function titleOf(op: EthOp) {
   return { open: `Locking ${native}`, yield: "Getting the latest yield", redeem: `Redeeming ${native} Gemas`, instant: `Redeeming ${native} Gemas now`, unlock: "Unlocking your coins" }[op.kind];
 }
 
-/** One relayed step. The server skips a step that is already done (a keeper may have run it). */
+/** One step of an operation, sent through the sponsor in the Player's own transaction. The bridge skips a step that is already done. */
 async function perform(next: NonNullable<ReturnType<typeof opProgress>["next"]>, op: EthOp, ctx: EthCtx, state: EthState, address: string) {
-  const ref = { vault: op.vault, id: op.id };
+  const id = BigInt(op.id);
   if (next === "advance") {
-    await takeEthAdvance(ctx, op.vault, BigInt(op.id), op.months ?? 1);
+    await takeEthAdvance(ctx, op.vault, id, op.months ?? 1);
     return;
   }
-  const pays = next === "send-pay-yield" || next === "send-pay-instant";
-  const r = await ethCall<{ signature?: string }>(next, ctx, pays && op.sourceIndex !== undefined ? { ...ref, sourceIndex: op.sourceIndex } : ref);
-  if (r.signature && (pays || next === "send-unlock")) patchOp(address, op.key, { sendSig: r.signature });
-  void state;
+  if (next === "apply-locked") {
+    await finishOpening(ctx, op.vault, id);
+    return;
+  }
+  if (next === "apply-yield") {
+    await applyYieldNow(ctx, op.vault, id);
+    return;
+  }
+  if (next === "send-unlock") {
+    const sig = await finishUnlock(ctx, op.vault, id);
+    if (sig) patchOp(address, op.key, { sendSig: sig });
+    return;
+  }
+  const sourceIndex = op.sourceIndex ?? (state.core ? state.core.advances - 1 : 0);
+  const sig = await finishPayout(ctx, op.vault, id, next === "send-pay-instant" ? "instant" : "yield", sourceIndex);
+  if (sig) patchOp(address, op.key, { sendSig: sig });
 }
 
 // ---- Position card -----------------------------------------------------------------------------------------
@@ -634,6 +665,9 @@ export function EthPositionCard({ position, market, label, compact }: { position
   const unreported = onChainDebt - projected;
   const locked = (state?.core?.status ?? position.status) === "locked";
   const { yieldFeeBps } = useTreasuryRates();
+  const deliveryTerms = useDeliveryTerms([ref.vault]).get(ref.vault.toLowerCase());
+  // Unlock sends a message to the vault's chain; the vault keeps a flat Delivery Fee out of the deposit and returns the rest.
+  const unlockQuote = deliveryTerms ? deliveryQuote({ terms: deliveryTerms, payoutUnits: BigInt(Math.round(position.principal * 1e18)), kind: "unlock" }) : null;
   const estimate = rate && vp && src && onChainDebt > 0n ? ethUnlockEstimateMs({ source: src, position: vp, rate, nowMs: now }) : null;
   // Paid back by the vault's live yield counts: Unlock first fetches the latest yield so Solana sees it (ADR 0010).
   const canUnlock = locked && !!src && projected === 0n;
@@ -652,8 +686,18 @@ export function EthPositionCard({ position, market, label, compact }: { position
       }
       const fresh = await fetchEthState(getChain().base, ref.vault, ref.id, ctx.signer.publicKey);
       if (!fresh.source || debtGemas(fresh.source.math) > 0n) throw new Error("It is not paid back yet. Try again in a moment.");
-      const sig = await unlockEth(ctx.signer, position.address, position.advance ? Number(position.advances) - 1 : null);
-      addOp(address, { kind: "unlock", vault: ref.vault, id: ref.id.toString(), hash: sig });
+      const sig = await unlockEth(ctx, { vault: ref.vault, id: ref.id, position: position.address, openAdvance: position.advance ? Number(position.advances) - 1 : null });
+      addOp(address, { kind: "unlock", vault: ref.vault, id: ref.id.toString(), hash: sig, sendSig: sig });
+      await refresh();
+    });
+
+  // Unlocked on Solana but the message to the vault never went out (the page was closed between the two): one tap sends it.
+  const unlockDue = !locked && !inFlight && !!state?.bridge && state.bridge.opened && !state.bridge.unlockSent && state.core?.status === "unlocked";
+  const finishUnlockNow = () =>
+    ctx &&
+    a.run("finish-unlock", async () => {
+      const sig = await finishUnlock(ctx, ref.vault, ref.id);
+      if (sig) addOp(address, { kind: "unlock", vault: ref.vault, id: ref.id.toString(), hash: sig, sendSig: sig });
       await refresh();
     });
 
@@ -676,6 +720,7 @@ export function EthPositionCard({ position, market, label, compact }: { position
         <>
           <p className="note">Earned on {net.label} {fmtEth(accrued, 5)} {net.native}{vault?.simulated === false ? "" : " (simulated)"}. {BRAND.name} keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
           {locked && unreported > 0n && <p className="note">~{fmtGemas(Number(unreported))} Gemas are already paid back by yield earned on {net.label}. Redeem and Unlock deposit fetch the latest yield first, so they take a short wait.</p>}
+          {locked && unlockQuote && unlockQuote.fee > 0n && <p className="note">Unlock deposit pays a Delivery Fee of {fmtEth(Number(unlockQuote.fee), 6)} {net.native} for the cross-chain send, so you get {fmtEth(Number(unlockQuote.youGet), 6)} {net.native}.</p>}
           {locked && !canUnlock && <p className="note">Unlock deposit returns your {net.native} on {net.label} once it is paid back. Only this Lock&apos;s own yield pays it back.</p>}
         </>
       }
@@ -696,6 +741,13 @@ export function EthPositionCard({ position, market, label, compact }: { position
           <ReturnOwnSheet position={position} open={returning} onClose={() => setReturning(false)} onReturned={load} />
         </>
       )}
+      {unlockDue && (
+        <div className="wl-actions-row">
+          <Button variant="money" size="sm" disabled={!ctx || a.busy !== null} onClick={finishUnlockNow}>
+            {a.busy === "finish-unlock" ? "Sending…" : "Finish unlock"}
+          </Button>
+        </div>
+      )}
       {a.error && <p className="status err" role="alert">{a.error}</p>}
     </PositionTile>
   );
@@ -712,10 +764,10 @@ async function redeemEthSource(ctx: EthCtx, address: string, ref: { vault: strin
   const sourceIndex = head.core ? ethSourceIndex(head.core.position, source, head.core.advances) : null;
   if (sourceIndex === null) throw new Error("This Gemas holding is not from an Advance of this Lock.");
   const [before, fromBlock] = await Promise.all([fetchEthState(base, ref.vault, ref.id, holder, sourceIndex), evmClient(netOfVault(ref.vault)).getBlockNumber()]);
-  const sig = await redeemToEvm(ctx.signer, h, gemas, ref.vault);
+  const sig = await redeemToEvm(ctx, { vault: ref.vault, id: ref.id, sourceIndex }, h, gemas);
   const after = await fetchEthState(base, ref.vault, ref.id, holder, sourceIndex);
   const total = after.claim?.unitsTotal ?? 0n;
-  addOp(address, { kind: "redeem", vault: ref.vault, id: ref.id.toString(), hash: sig, sourceIndex, baseline: total.toString(), units: (total - (before.claim?.unitsTotal ?? 0n)).toString(), fromBlock: fromBlock.toString() });
+  addOp(address, { kind: "redeem", vault: ref.vault, id: ref.id.toString(), hash: sig, sendSig: sig, sourceIndex, baseline: total.toString(), units: (total - (before.claim?.unitsTotal ?? 0n)).toString(), fromBlock: fromBlock.toString() });
 }
 
 /**

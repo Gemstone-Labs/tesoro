@@ -220,7 +220,6 @@ impl Env {
             }
             Err(e) => {
                 self.last_cu = e.meta.compute_units_consumed;
-                self.last_logs = e.meta.logs.clone();
                 Err(e)
             }
         }
@@ -596,10 +595,9 @@ impl Env {
         ix(
             block_puzzle::ID,
             block_puzzle::accounts::BeginMatch {
-                caller: a(self.oracle.pubkey()),
                 assignment: assign_addr(self.tmatch),
-                table: self.table,
                 tesoro_match: self.tmatch,
+                ending: self.close_accounts(),
             },
             block_puzzle::instruction::BeginMatch {},
             vec![],
@@ -608,6 +606,19 @@ impl Env {
 
     fn begin(&mut self) -> Result<(), Failed> {
         let ixn = self.begin_ix();
+        self.rollup(ixn)
+    }
+
+    /// `begin_match` with the settlement receipts of `matches` passed as remaining accounts.
+    fn begin_with(&mut self, matches: &[APk]) -> Result<(), Failed> {
+        let mut ixn = self.begin_ix();
+        for m in matches {
+            ixn.accounts.push(AccountMeta {
+                pubkey: s(tpda(&[b"settled", m.as_ref()])),
+                is_signer: false,
+                is_writable: false,
+            });
+        }
         self.rollup(ixn)
     }
 
@@ -751,6 +762,7 @@ impl Env {
         // Signature checks are off so a test can present the VRF identity PDA as a signer, which only
         // the oracle's program could do on chain.
         let mut svm = LiteSVM::new().with_sigverify(false);
+        litesvm_magic_stub::install(&mut svm);
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/");
         for (id, file) in [
             (tesoro_core::ID, "tesoro_core.so"),
@@ -1011,7 +1023,6 @@ impl Env {
             }
             Err(e) => {
                 self.last_cu = e.meta.compute_units_consumed;
-                self.last_logs = e.meta.logs.clone();
                 Err(e)
             }
         }
@@ -1149,15 +1160,30 @@ impl Env {
         self.play_with(seat, binding, expected, moves, true)
     }
 
+    /// The accounts of `close`, which also wipes the seats and commits the result.
+    fn close_accounts(&self) -> block_puzzle::accounts::CloseMatch {
+        let (b0, b1) = (board_addr(self.table, 0), board_addr(self.table, 1));
+        block_puzzle::accounts::CloseMatch {
+            caller: a(self.oracle.pubkey()),
+            table: self.table,
+            board_0: b0,
+            board_1: b1,
+            seed_vault: vault_addr(self.table),
+            board_0_permission: perm_addr(b0),
+            board_1_permission: perm_addr(b1),
+            permission_program: sdk_key(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_key(ephemeral_rollups_sdk::consts::EPHEMERAL_VAULT_ID),
+            sponsor: sponsor_addr(),
+            magic_fee_vault: table_kit::fee_vault_address(&block_puzzle::TEE_VALIDATOR),
+            magic_context: sdk_key(ephemeral_rollups_sdk::consts::MAGIC_CONTEXT_ID),
+            magic_program: sdk_key(MAGIC_PROGRAM_ID),
+        }
+    }
+
     fn close_ix(&self) -> Instruction {
         ix(
             block_puzzle::ID,
-            block_puzzle::accounts::CloseMatch {
-                caller: a(self.oracle.pubkey()),
-                table: self.table,
-                board_0: board_addr(self.table, 0),
-                board_1: board_addr(self.table, 1),
-            },
+            self.close_accounts(),
             block_puzzle::instruction::Close {},
             vec![],
         )
@@ -2488,10 +2514,11 @@ fn a_run_that_is_over_takes_no_more_moves_and_both_runs_over_end_the_match_early
     );
     // Both are over: the Match can be closed without waiting for the clock.
     assert!(env.slot < env.table().play_end().unwrap());
+    let moves = [env.board(0).moves, env.board(1).moves];
     env.close().expect("early close");
     let t = env.table();
     assert_eq!(t.phase, block_puzzle::TABLE_CLOSED);
-    assert_eq!(t.final_moves, [env.board(0).moves, env.board(1).moves]);
+    assert_eq!(t.final_moves, moves);
 }
 
 #[test]
@@ -2621,7 +2648,7 @@ fn neither_player_checking_in_is_a_no_show_each_side_pays_the_platform_fee() {
         (OUTCOME_NO_SHOW, block_puzzle::REASON_NEITHER)
     );
     let t = env.table();
-    assert_eq!((t.phase, t.dirty), (block_puzzle::TABLE_CLOSED, true));
+    assert_eq!((t.phase, t.dirty), (block_puzzle::TABLE_CLOSED, false));
     let (ga, gb) = settle(&mut env);
     assert_eq!(ga, gb, "both sides pay the same");
     assert!(
@@ -2959,10 +2986,10 @@ fn nothing_the_game_does_is_logged_and_the_seed_is_in_no_log() {
     let play_logs = env.last_logs.clone();
     env.play_any(1, 3).unwrap();
     let hidden_logs = env.last_logs.clone();
+    let seed = env.vault().seed;
     env.set_slot(env.table().play_end().unwrap() + 1);
     env.close().unwrap();
     let close_logs = env.last_logs.clone();
-    let seed = env.vault().seed;
     for (name, logs) in [
         ("callback", callback_logs),
         ("start", start_logs),
@@ -3007,8 +3034,9 @@ fn a_wiped_seat_is_blank_and_the_reset_forgets_the_match_but_not_the_ring() {
     let over = env.table().over_at;
     let first = env.table();
     env.set_time(over + block_puzzle::RESET_DELAY_SECS);
+    // `close` already wiped the seats and committed; the gates stay for a table that got there another way.
+    env.patch_table(|t| t.seats_open = true);
     assert_eq!(custom_code(&env.reset().unwrap_err()), dcode(E::SeatsOpen));
-    assert!(!env.board(0).is_blank() && !env.vault().is_blank());
     env.wipe_standin();
     for seat in 0..2 {
         assert!(env.board(seat).is_blank(), "seat {seat} holds nothing");
@@ -3016,6 +3044,7 @@ fn a_wiped_seat_is_blank_and_the_reset_forgets_the_match_but_not_the_ring() {
         assert_eq!(env.board(seat).moves, 0);
     }
     assert!(env.vault().is_blank());
+    env.patch_table(|t| t.dirty = true);
     assert_eq!(
         custom_code(&env.reset().unwrap_err()),
         dcode(E::NotCommitted)
@@ -3472,7 +3501,6 @@ fn an_assignment_closes_only_after_the_core_receipt_and_returns_its_rent_to_the_
 #[test]
 fn the_result_is_committed_once_and_the_sponsor_cannot_be_drained_by_repeats() {
     let mut env = begun();
-    env.magic_shell();
     let ixn = env.commit_ix();
     assert_eq!(
         custom_code(&env.rollup(ixn).unwrap_err()),
@@ -3480,14 +3508,8 @@ fn the_result_is_committed_once_and_the_sponsor_cannot_be_drained_by_repeats() {
     );
     env.set_slot(env.table().play_end().unwrap() + 1);
     env.close().unwrap();
-    let ixn = env.commit_ix();
-    let err = env.rollup(ixn).unwrap_err();
-    assert!(
-        !err.meta.logs.iter().any(|l| l.contains("NotDirty")),
-        "{:?}",
-        err.meta.logs
-    );
-    env.commit_standin();
+    assert_eq!(env.table().commit.tries, 1, "close sent the commit");
+    env.magic_shell();
     let ixn = env.commit_ix();
     assert_eq!(
         custom_code(&env.rollup(ixn).unwrap_err()),
@@ -3532,22 +3554,19 @@ fn only_the_public_table_is_ever_in_a_commit() {
 }
 
 impl Env {
-    /// A commit the rollup accepted but base never received: the table is clean, the guard has
-    /// counted the try, and base's copy is unchanged.
+    /// A commit the rollup accepted but base never received: `close` sent it, so the table is
+    /// clean and the guard has counted the try, while base's copy is unchanged.
     fn commit_lost_standin(&mut self) {
-        let now = self.now;
-        self.patch_table(|t| {
-            t.dirty = false;
-            t.commit.record(now);
-        });
+        assert_eq!(self.table().commit.tries, 1, "close sent the commit");
+        self.patch_table(|t| t.dirty = false);
     }
 }
 
 #[test]
 fn a_lost_commit_is_repeated_after_a_wait_and_then_finalize_pays_the_winner() {
     let mut env = ready();
-    env.magic_shell();
     env.play_out(8, 3);
+    env.magic_shell();
     env.commit_lost_standin();
     // Base still has the table from before the Match: nothing to settle from.
     assert_eq!(
@@ -3581,9 +3600,9 @@ fn a_lost_commit_is_repeated_after_a_wait_and_then_finalize_pays_the_winner() {
 #[test]
 fn a_lost_commit_survives_the_reset_and_repeated_calls_cost_nothing_once_freed() {
     let mut env = Env::new();
-    env.magic_shell();
     env.next_match_on(0);
     env.play_out(8, 3);
+    env.magic_shell();
     env.commit_lost_standin();
     next_epoch(&mut env);
     let t = env.table();
@@ -3841,7 +3860,13 @@ fn no_instruction_a_player_calls_can_reach_the_permission_program() {
     reaching.sort();
     assert_eq!(
         reaching,
-        ["init_seats", "retire_seats", "seat_players", "wipe_seats"]
+        [
+            "close",
+            "init_seats",
+            "retire_seats",
+            "seat_players",
+            "wipe_seats"
+        ]
     );
     // No instruction a Player signs takes it, and none of those can write a Vault or reach a
     // permission account either.
@@ -4374,4 +4399,257 @@ fn a_finished_run_keeps_answering_the_beat_and_the_match_waits_for_the_clock_aft
     );
     env.set_slot(env.table().play_end().unwrap() + 1);
     env.close().expect("close at the end of the window");
+}
+
+// --- The instruction that ends a Match commits the result and wipes the seats ---------------
+
+/// Whether the latest transaction called `program` (a CPI line in the logs).
+fn called(env: &Env, program: solana_sdk::pubkey::Pubkey) -> bool {
+    let line = format!("Program {program} invoke");
+    env.last_logs.iter().any(|l| l.starts_with(&line))
+}
+
+#[test]
+fn close_commits_the_result_and_wipes_the_seats() {
+    let mut env = ready();
+    env.play_out(3, 2);
+    let t = env.table();
+    assert_eq!(t.phase, block_puzzle::TABLE_CLOSED);
+    assert!(!t.dirty, "the result is already committed");
+    assert_eq!(t.commit.tries, 1, "exactly one commit, sent by close");
+    assert!(!t.seats_open, "the seats are already wiped");
+    assert!(env.board(0).is_blank() && env.board(1).is_blank());
+    assert!(
+        called(&env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
+    assert!(
+        called(&env, litesvm_magic_stub::permission_program()),
+        "the seat change"
+    );
+    env.set_time(env.now + block_puzzle::RESET_DELAY_SECS);
+    env.reset()
+        .expect("reset without a separate commit or wipe");
+}
+
+/// The Sponsor holds only its rent-exempt minimum: it cannot pay for a commit.
+fn dry_sponsor(env: &mut Env) {
+    let key = s(sponsor_addr());
+    let mut acct = env.svm.get_account(&key).expect("sponsor");
+    acct.lamports = env.svm.minimum_balance_for_rent_exemption(acct.data.len());
+    env.svm.set_account(key, acct).expect("dry sponsor");
+}
+
+fn refill_sponsor(env: &mut Env) {
+    let key = s(sponsor_addr());
+    let mut acct = env.svm.get_account(&key).expect("sponsor");
+    acct.lamports += 1_000_000_000;
+    env.svm.set_account(key, acct).expect("refill sponsor");
+}
+
+#[test]
+fn an_empty_sponsor_does_not_stop_the_closing_move_and_the_result_commits_after_a_refill() {
+    let mut env = ready();
+    dry_sponsor(&mut env);
+    env.play_out(3, 2);
+    let t = env.table();
+    assert_eq!(t.phase, block_puzzle::TABLE_CLOSED, "the Match still ended");
+    assert!(
+        t.dirty && t.commit.tries == 0,
+        "the result waits for a commit"
+    );
+    assert!(!t.seats_open, "the seats are wiped regardless");
+    assert!(
+        env.last_logs.iter().any(|l| l.contains("sponsor-dry")),
+        "the move says why"
+    );
+    refill_sponsor(&mut env);
+    let ixn = env.commit_ix();
+    env.rollup(ixn).expect("commit after the refill");
+    let t = env.table();
+    assert!(!t.dirty && t.commit.tries == 1);
+    env.set_time(env.now + block_puzzle::RESET_DELAY_SECS);
+    env.reset().expect("reset after the commit");
+}
+
+#[test]
+fn close_of_a_match_that_never_ran_commits_too() {
+    let mut env = ready();
+    env.begin().expect("begin_match");
+    env.seat_players_standin();
+    let end = env.table().checkin_end().unwrap();
+    env.set_slot(end + 1);
+    env.close().expect("close");
+    let t = env.table();
+    assert!(!t.dirty && t.commit.tries == 1);
+    assert!(called(&env, litesvm_magic_stub::magic_program()));
+}
+
+#[test]
+fn nothing_touches_the_table_inside_the_hidden_window_not_even_close() {
+    // From the freeze to the end of play `close` (which now also commits and wipes) is refused,
+    // so no commit or seat change shows when a Player moves in that window.
+    let mut env = begun();
+    let (freeze, end) = (
+        env.table().freeze_slot().unwrap(),
+        env.table().play_end().unwrap(),
+    );
+    for slot in [freeze, freeze + 1, end - 1, end] {
+        env.set_slot(slot);
+        assert_eq!(
+            custom_code(&env.close().unwrap_err()),
+            dcode(E::NotClosable),
+            "slot {slot}"
+        );
+    }
+    assert!(!env.table().dirty && env.table().phase != block_puzzle::TABLE_CLOSED);
+    assert_eq!(env.table().commit.tries, 0);
+}
+
+// --- begin_match cleans the table it is about to use (keeper diet 09) ---------------------------
+
+/// A table whose ring is full: seven Done slots of made-up Matches and one of `old`.
+fn fill_ring(env: &mut Env, old: APk) -> u8 {
+    env.patch_table(|t| {
+        for (i, slot) in t.ring.slots.iter_mut().enumerate() {
+            *slot = table_kit::Slot {
+                state: table_kit::SLOT_DONE,
+                match_key: if i == 3 { old } else { APk::new_unique() },
+                epoch: 0,
+                outcome: table_kit::OUTCOME_WIN0,
+                at: 1,
+            };
+        }
+    });
+    3
+}
+
+#[test]
+fn begin_resets_a_finished_table_that_is_wiped_committed_and_thirty_seconds_old() {
+    use block_puzzle::BlockPuzzleError::*;
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.play_out(4, 3);
+    let over = env.table().over_at;
+    let first = env.tmatch;
+    // The next Match is assigned one epoch ahead of the Over table, as ticket 24's keeper does.
+    env.open_and_join(1_000);
+    env.assign(0, 0, 1).expect("assign epoch 1");
+    let second = env.tmatch;
+    env.set_time(over + block_puzzle::RESET_DELAY_SECS - 1);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(ResetTooEarly));
+    env.set_time(over + block_puzzle::RESET_DELAY_SECS);
+    env.patch_table(|t| t.dirty = true);
+    // A result left uncommitted (the Sponsor was dry): a dry Sponsor cannot commit it, a refilled one does it in this call.
+    dry_sponsor(&mut env);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(NotCommitted));
+    refill_sponsor(&mut env);
+    env.begin()
+        .expect("begin commits the result left uncommitted");
+    assert!(!env.table().dirty, "committed by begin");
+    env.commit_standin();
+    env.patch_table(|t| t.seats_open = true);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(SeatsOpen));
+    env.wipe_standin();
+    env.begin().expect("reset, then begin");
+    let t = env.table();
+    assert_eq!(
+        (t.epoch, t.phase, t.tesoro_match),
+        (1, block_puzzle::TABLE_ASSIGNED, second)
+    );
+    assert!(
+        t.ring.find(&first, 0).is_some(),
+        "the first result keeps its slot"
+    );
+    assert!(t.ring.find(&second, 1).is_some());
+}
+
+#[test]
+fn begin_resets_only_for_an_assignment_exactly_one_epoch_ahead() {
+    use block_puzzle::BlockPuzzleError::*;
+    for (epoch, expected) in [(2u64, WrongPhase), (0, WrongPhase)] {
+        let mut env = Env::new();
+        env.next_match_on(0);
+        env.play_out(4, 3);
+        env.wipe_standin();
+        env.set_time(env.table().over_at + block_puzzle::RESET_DELAY_SECS);
+        env.open_and_join(1_000);
+        env.assign(0, 0, epoch).expect("assign");
+        assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(expected));
+        assert_eq!(env.table().epoch, 0, "nothing was reset");
+    }
+}
+
+#[test]
+fn begin_frees_a_slot_whose_receipt_is_provable_when_the_ring_is_full() {
+    use block_puzzle::BlockPuzzleError::*;
+    let mut env = Env::new();
+    env.next_match_on(1);
+    let old = env.tmatch;
+    env.set_time(T0 + block_puzzle::TABLE_WINDOW_SECS + 1);
+    core_refund(&mut env).expect("core refund");
+    let refunded_at = env.now;
+    env.open_and_join(1_000);
+    env.assign(0, 0, 0).expect("assign");
+    let slot = fill_ring(&mut env, old);
+    assert_eq!(custom_code(&env.begin().unwrap_err()), dcode(RingFull));
+    env.set_time(refunded_at + block_puzzle::RELEASE_DELAY_SECS - 1);
+    assert_eq!(
+        custom_code(&env.begin_with(&[old]).unwrap_err()),
+        dcode(RingFull)
+    );
+    // a receipt of a Match that is not in the ring frees nothing
+    let other = env.tmatch;
+    assert_eq!(
+        custom_code(&env.begin_with(&[other]).unwrap_err()),
+        dcode(RingFull)
+    );
+    env.set_time(refunded_at + block_puzzle::RELEASE_DELAY_SECS);
+    env.begin_with(&[old]).expect("freed, then begun");
+    let t = env.table();
+    assert_eq!((t.slot, t.phase), (slot, block_puzzle::TABLE_ASSIGNED));
+    assert_eq!(t.ring.slots[slot as usize].match_key, env.tmatch);
+}
+
+#[test]
+fn begin_voids_a_table_stuck_on_a_match_core_already_froze() {
+    use block_puzzle::BlockPuzzleError::*;
+    let mut env = ready();
+    env.begin().expect("begin");
+    let stuck = env.tmatch;
+    env.set_time(T0 + block_puzzle::TABLE_WINDOW_SECS + 1);
+    core_refund(&mut env).expect("core refund");
+    let refunded_at = env.now;
+    env.set_time(refunded_at + block_puzzle::RELEASE_DELAY_SECS - 1);
+    assert_eq!(
+        custom_code(&env.begin_with(&[stuck]).unwrap_err()),
+        dcode(WrongPhase)
+    );
+    env.set_time(refunded_at + block_puzzle::RELEASE_DELAY_SECS);
+    env.begin_with(&[stuck]).expect("voids");
+    eprintln!(
+        "MEASURE CU Block Burst begin that voids, wipes and commits: {}",
+        env.last_cu
+    );
+    let t = env.table();
+    assert_eq!(
+        (t.phase, t.dirty, t.epoch),
+        (block_puzzle::TABLE_CLOSED, false, 0)
+    );
+    assert_eq!(t.ring.used(), 0, "the reserved slot is freed");
+    assert!(
+        !t.seats_open && t.commit.tries == 1,
+        "the void wiped the seats and committed, in the same call"
+    );
+    assert!(
+        called(&env, litesvm_magic_stub::magic_program()),
+        "the commit"
+    );
+    // the Over table is then reset by the next begin
+    env.open_and_join(1_000);
+    env.assign(0, 0, 1).expect("assign epoch 1");
+    env.set_time(env.now + block_puzzle::RESET_DELAY_SECS);
+    env.begin().expect("reset, then begin");
+    assert_eq!(env.table().epoch, 1);
+    assert_eq!(env.table().phase, block_puzzle::TABLE_ASSIGNED);
 }

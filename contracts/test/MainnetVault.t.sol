@@ -89,10 +89,10 @@ abstract contract MainnetVaultBase is Test {
         vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), m, address(0), "");
     }
 
-    /// PayYield (4) carries `amount | fee | pool` (exempt: 0, 0); PayInstant (5) carries `amount` only.
+    /// `t` 4 builds a PayYield (`amount | fee | pool | delivery fee`, exempt: 0, 0, 0), 5 a PayInstant (`amount | delivery fee`).
     function _pay(uint8 t, uint64 id, uint64 seq, address to, uint128 amt) internal view returns (bytes memory) {
         if (t == 4) return _payFee(id, seq, to, amt, 0, 0);
-        return abi.encodePacked(t, lz.eid(), _key(id), seq, bytes32(uint256(uint160(to))), amt);
+        return abi.encodePacked(uint8(12), lz.eid(), _key(id), seq, bytes32(uint256(uint160(to))), amt, uint128(0));
     }
 
     function _payFee(uint64 id, uint64 seq, address to, uint128 amt, uint128 fee, uint128 pool)
@@ -100,11 +100,13 @@ abstract contract MainnetVaultBase is Test {
         view
         returns (bytes memory)
     {
-        return abi.encodePacked(uint8(4), lz.eid(), _key(id), seq, bytes32(uint256(uint160(to))), amt, fee, pool);
+        return abi.encodePacked(
+            uint8(11), lz.eid(), _key(id), seq, bytes32(uint256(uint160(to))), amt, fee, pool, uint128(0)
+        );
     }
 
     function _unlock(uint64 id, uint64 seq) internal view returns (bytes memory) {
-        return abi.encodePacked(uint8(3), lz.eid(), _key(id), seq, uint128(0));
+        return abi.encodePacked(uint8(10), lz.eid(), _key(id), seq, uint128(0));
     }
 
     function _report(uint64 id) internal returns (uint256 accrued, uint256 treasury, uint64 seq) {
@@ -622,7 +624,7 @@ abstract contract MainnetVaultBase is Test {
         tok.setRate(1.32e18);
         uint128 amt = uint128(vault.payableYield(id) / 2);
         bytes memory m = _pay(4, id, 1, redeemer, amt);
-        assertEq(m.length, 125, "header 45 | to 32 | amount 16 | fee 16 | pool 16");
+        assertEq(m.length, 141, "header 45 | to 32 | amount 16 | fee 16 | pool 16 | delivery fee 16");
         _recv(m);
         assertApproxEqAbs(tok.balanceOf(redeemer) * 1.32e18 / 1e18, amt, 2);
         assertEq(vault.getPosition(id).paidUnderlying, amt);

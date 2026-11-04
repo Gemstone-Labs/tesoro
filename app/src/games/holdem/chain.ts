@@ -43,6 +43,7 @@ import nacl from "tweetnacl";
 import { gameAccounts } from "../../lib/chain/game-record";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { baseRpc } from "../../lib/chain/rpc-config";
+import { beginSettled, receiptMetas } from "../../lib/chain/table-clean";
 
 export const HOLDEM_PROGRAM_ID = new PublicKey("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE");
 export const TESORO_CORE_PROGRAM_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
@@ -646,6 +647,11 @@ export class HoldemChain {
     } as any;
   }
 
+  /** What every instruction that can end a Match names: the seat accounts it wipes and the Sponsor it commits through. */
+  private concludingAccounts(caller: PublicKey, a: TableRef) {
+    return { ...this.seatAccounts(caller, a), sponsor: sponsorPda(), magicFeeVault: magicFeeVaultPda(), magicContext: MAGIC_CONTEXT } as any;
+  }
+
   /** Rollup, permissionless, once per table (the operator's setup). Creates the two Hole seats, private to nobody until a Match is begun. */
   async initSeats(payer: PlayerSigner, a: TableRef): Promise<string> {
     const ix = await this.program.methods.initSeats().accountsPartial(this.seatAccounts(payer.publicKey, a)).instruction();
@@ -653,10 +659,11 @@ export class HoldemChain {
   }
 
   /** Rollup, permissionless. Starts the Assignment's Match on its table (reserves a ring slot); the seats are then handed over and the Players check in. */
-  async beginMatch(payer: PlayerSigner, a: Assignment): Promise<string> {
+  async beginMatch(payer: PlayerSigner, a: Assignment, table?: Pick<Table, "tesoroMatch" | "ring">): Promise<string> {
     const ix = await this.program.methods
       .beginMatch()
-      .accountsPartial({ caller: payer.publicKey, assignment: a.address, table: tablePda(a.generation, a.index), tesoroMatch: a.tesoroMatch } as any)
+      .accountsPartial({ assignment: a.address, tesoroMatch: a.tesoroMatch, ending: this.concludingAccounts(payer.publicKey, a) } as any)
+      .remainingAccounts(table ? receiptMetas(beginSettled(table)) : [])
       .instruction();
     return this.sendTee("begin_match", [ix], payer);
   }
@@ -675,8 +682,8 @@ export class HoldemChain {
 
   /** Rollup, permissionless. Past the start deadline with a Player missing: ends the Match in the ring: the Player who checked in wins, nobody checking in is a no-show. */
   async expireStart(caller: PlayerSigner, a: TableRef): Promise<string> {
-    const ix = await this.program.methods.expireStart().accountsPartial({ caller: caller.publicKey, table: tablePda(a.generation, a.index) } as any).instruction();
-    return this.sendTee("expire_start", [ix], caller);
+    const ix = await this.program.methods.expireStart().accountsPartial(this.concludingAccounts(caller.publicKey, a)).instruction();
+    return this.sendTee("expire_start", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], caller);
   }
 
   // -- rollup: playing -----------------------------------------------------------------------
@@ -714,22 +721,14 @@ export class HoldemChain {
 
   /** Rollup, permissionless. Deals the hand once both secrets and the oracle's answer are in. */
   async deal(payer: PlayerSigner, a: TableRef): Promise<string> {
-    const table = tablePda(a.generation, a.index);
-    const ix = await this.program.methods
-      .deal()
-      .accountsPartial({ payer: payer.publicKey, table, hole0: holePda(table, 0), hole1: holePda(table, 1) } as any)
-      .instruction();
-    return this.sendTee("deal", [ix], payer);
+    const ix = await this.program.methods.deal().accountsPartial(this.concludingAccounts(payer.publicKey, a)).instruction();
+    return this.sendTee("deal", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], payer);
   }
 
   /** Rollup. A betting action on your turn. */
   async act(player: PlayerSigner, a: TableRef, action: Action): Promise<string> {
-    const table = tablePda(a.generation, a.index);
-    const ix = await this.program.methods
-      .act(action as any)
-      .accountsPartial({ player: player.publicKey, table, hole0: holePda(table, 0), hole1: holePda(table, 1) } as any)
-      .instruction();
-    return this.sendTee(`act ${Object.keys(action)[0]}`, [ix], player);
+    const ix = await this.program.methods.act(action as any).accountsPartial(this.concludingAccounts(player.publicKey, a)).instruction();
+    return this.sendTee(`act ${Object.keys(action)[0]}`, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], player);
   }
 
   /**
@@ -737,12 +736,8 @@ export class HoldemChain {
    * forfeits after three missed turns, refunds a hand whose randomness never came.
    */
   async claimTimeout(caller: PlayerSigner, a: TableRef): Promise<string> {
-    const table = tablePda(a.generation, a.index);
-    const ix = await this.program.methods
-      .claimTimeout()
-      .accountsPartial({ caller: caller.publicKey, table, hole0: holePda(table, 0), hole1: holePda(table, 1) } as any)
-      .instruction();
-    return this.sendTee("claim_timeout", [ix], caller);
+    const ix = await this.program.methods.claimTimeout().accountsPartial(this.concludingAccounts(caller.publicKey, a)).instruction();
+    return this.sendTee("claim_timeout", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], caller);
   }
 
   // -- rollup: after the Match ---------------------------------------------------------------

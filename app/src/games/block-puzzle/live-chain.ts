@@ -33,6 +33,7 @@ import { type PlayerSigner, keypairSigner } from "../holdem/chain";
 import type { BlockPuzzle } from "../../lib/chain/idl/block_puzzle.types";
 import * as engine from "./engine";
 import { watchAccount } from "./table-feed";
+import { beginSettled, receiptMetas } from "../../lib/chain/table-clean";
 
 export { keypairSigner, type PlayerSigner };
 
@@ -804,10 +805,11 @@ export class BlockBurstChain {
   }
 
   /** Rollup, permissionless. Starts the Assignment's Match on its table (reserves a ring slot); the seats are then handed over and the Players check in. */
-  async beginMatch(payer: PlayerSigner, a: Assignment): Promise<string> {
+  async beginMatch(payer: PlayerSigner, a: Assignment, table?: Pick<Table, "tesoroMatch" | "ring">): Promise<string> {
     const ix = await this.program.methods
       .beginMatch()
-      .accountsPartial({ caller: payer.publicKey, assignment: a.address, table: tablePda(a.generation, a.index), tesoroMatch: a.tesoroMatch } as any)
+      .accountsPartial({ assignment: a.address, tesoroMatch: a.tesoroMatch, ending: this.closeAccounts(payer.publicKey, a) } as any)
+      .remainingAccounts(table ? receiptMetas(beginSettled(table)) : [])
       .instruction();
     return this.sendTee("begin_match", [ix], payer);
   }
@@ -872,14 +874,15 @@ export class BlockBurstChain {
     return this.sendTee(hidden ? "play_hidden" : "play", [ix], player);
   }
 
-  /** Rollup, permissionless. Ends the Match once its window is over (or both runs are over) and writes the result and both run logs into the ring. */
+  /** Rollup, permissionless. Ends the Match once its window is over (or both runs are over), writes the result and both run logs into the ring, then wipes the seats and commits the table to Solana in the same transaction. */
+  /** What every instruction that ends a Match or gives up a table names: the seat accounts it wipes and the Sponsor it commits through. */
+  private closeAccounts(caller: PublicKey, a: TableRef) {
+    return { ...this.seatAccounts(caller, a), sponsor: sponsorPda(), magicFeeVault: magicFeeVaultPda(), magicContext: MAGIC_CONTEXT } as any;
+  }
+
   async close(payer: PlayerSigner, a: TableRef): Promise<string> {
-    const table = tablePda(a.generation, a.index);
-    const ix = await this.program.methods
-      .close()
-      .accountsPartial({ caller: payer.publicKey, table, board0: boardPda(table, 0), board1: boardPda(table, 1) } as any)
-      .instruction();
-    return this.sendTee("close", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], payer);
+    const ix = await this.program.methods.close().accountsPartial(this.closeAccounts(payer.publicKey, a)).instruction();
+    return this.sendTee("close", [ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), ix], payer);
   }
 
   // -- rollup: after the Match ---------------------------------------------------------------

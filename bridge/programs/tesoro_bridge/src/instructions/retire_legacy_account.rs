@@ -7,13 +7,19 @@ pub enum LegacyKind {
     BridgePosition,
     Claim,
     VaultTreasury,
+    InstantClaim,
+    PayoutRecord,
 }
 
 /// Exact lengths of the records written before the Yield Fee at cash-out and the 9-decimal units
 /// (`BridgePosition` without the Treasury report fields, `Claim` without the fee counters,
-/// `VaultTreasury` without the Instant payout fields). The current code cannot read them.
+/// `VaultTreasury` without the Instant payout fields). The current code cannot read them. Ticket 14 (Delivery Fee)
+/// added 16 bytes to `Claim` (161 to 177), `InstantClaim` (129 to 145) and `PayoutRecord` (230 to 246): the
+/// 161-byte Claim, the 129-byte InstantClaim and the 230-byte PayoutRecord are legacy too.
 pub const LEGACY_BRIDGE_POSITION_LENGTHS: [usize; 2] = [172, 188];
-pub const LEGACY_CLAIM_LENGTHS: [usize; 1] = [129];
+pub const LEGACY_CLAIM_LENGTHS: [usize; 2] = [129, 161];
+pub const LEGACY_INSTANT_CLAIM_LENGTHS: [usize; 1] = [129];
+pub const LEGACY_PAYOUT_LENGTHS: [usize; 1] = [230];
 pub const LEGACY_VAULT_TREASURY_LENGTHS: [usize; 1] = [77];
 
 /// Closes a historical record by owner, discriminator and exact length only, to the admin. No field
@@ -41,6 +47,10 @@ impl RetireLegacyAccount<'_> {
             LegacyKind::VaultTreasury => {
                 (VaultTreasury::DISCRIMINATOR, &LEGACY_VAULT_TREASURY_LENGTHS)
             },
+            LegacyKind::InstantClaim => {
+                (InstantClaim::DISCRIMINATOR, &LEGACY_INSTANT_CLAIM_LENGTHS)
+            },
+            LegacyKind::PayoutRecord => (PayoutRecord::DISCRIMINATOR, &LEGACY_PAYOUT_LENGTHS),
         };
         let info = ctx.accounts.account.to_account_info();
         require_keys_eq!(*info.owner, crate::ID, BridgeError::InvalidAccount);

@@ -65,8 +65,8 @@ pub mod tesoro_core {
     }
 
     /// Returns the rent of an opener-to-joiner pair counter after its window.
-    pub fn close_pair(ctx: Context<ClosePair>, opener: Pubkey, joiner: Pubkey) -> Result<()> {
-        instructions::matching::close_pair(ctx, opener, joiner)
+    pub fn close_pair(ctx: Context<ClosePair>) -> Result<()> {
+        instructions::matching::close_pair(ctx)
     }
 
     pub fn apply_game_change(ctx: Context<ApplyGameChange>) -> Result<()> {
@@ -909,6 +909,18 @@ pub mod tesoro_core {
     /// rate (ticket 55). A 243-byte Position is left alone.
     pub fn migrate_position(ctx: Context<MigratePosition>) -> Result<()> {
         instructions::migrate::migrate_position(ctx)
+    }
+
+    /// Grows a 25-byte counters account to 33 bytes with `next_ticket` at
+    /// `AccountCounters::LEGACY_TICKET_BASE`. Anyone may call it and the caller pays the rent. A
+    /// 33-byte one is left alone.
+    pub fn grow_counters(ctx: Context<GrowCounters>) -> Result<()> {
+        instructions::migrate::grow_counters(ctx)
+    }
+
+    /// The admin sweep of `grow_counters`, with the Account's counters address checked.
+    pub fn migrate_counters(ctx: Context<MigrateCounters>) -> Result<()> {
+        instructions::migrate::migrate_counters(ctx)
     }
 
     pub fn retire_source(ctx: Context<RetireSource>) -> Result<()> {

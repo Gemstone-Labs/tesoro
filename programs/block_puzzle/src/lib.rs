@@ -44,10 +44,11 @@ use ephemeral_rollups_sdk::{
     },
 };
 use table_kit::{
-    assignment_absent, close_private_seat, create_hidden_seat, match_state_gone, may_skip,
-    move_lamports, read_table, receipt_at, retire_legacy_record, sponsor_commit, swap_seat_members,
-    table_wait_over, KitError, LegacyError, SeatAccounts, OUTCOME_DRAW, OUTCOME_NO_SHOW,
-    OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
+    assignment_absent, close_private_seat, create_hidden_seat, is_next_epoch, match_state_gone,
+    may_skip, move_lamports, read_table, receipt_aged, receipt_at, retire_legacy_record,
+    sponsor_can_commit, sponsor_commit, swap_seat_members, table_wait_over, KitError, LegacyError,
+    SeatAccounts, SeatPrograms, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1,
+    SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -185,6 +186,36 @@ impl From<KitError> for BlockPuzzleError {
             KitError::CommitNotDue => BlockPuzzleError::NotDirty,
         }
     }
+}
+
+/// A finished table may be reset once its seats are wiped, its result is committed and clients
+/// have had `RESET_DELAY_SECS` to read the final board.
+fn check_resettable(table: &Table, now: i64) -> Result<()> {
+    require!(table.phase == TABLE_CLOSED, BlockPuzzleError::WrongPhase);
+    require!(!table.seats_open, BlockPuzzleError::SeatsOpen);
+    require!(!table.dirty, BlockPuzzleError::NotCommitted);
+    require!(
+        now >= table
+            .over_at
+            .checked_add(RESET_DELAY_SECS)
+            .ok_or(BlockPuzzleError::Overflow)?,
+        BlockPuzzleError::ResetTooEarly
+    );
+    Ok(())
+}
+
+/// Gives up a table whose Match core froze before the table produced a result: frees the
+/// reserved slot and closes the table. The caller has shown the receipt.
+fn void_in_place(table: &mut Table, now: i64) -> Result<()> {
+    let (slot, key) = (table.slot, table.tesoro_match);
+    kit(table.ring.free(slot, &key, SLOT_RESERVED))?;
+    table.reason = REASON_VOID;
+    table.outcome = 0;
+    table.phase = TABLE_CLOSED;
+    table.over_at = now;
+    table.dirty = false;
+    table.req_pending = false;
+    Ok(())
 }
 
 fn kit<T>(r: core::result::Result<T, KitError>) -> Result<T> {
@@ -376,6 +407,87 @@ fn blank_log(reason: u8) -> RunLog {
     log.engine_version = ENGINE_VERSION;
     log.reason = reason;
     log
+}
+
+/// Zeroes both Boards and the Vault and swaps the Boards' permission members to nobody, so
+/// nothing the Players could read is left and the seats are never without a private permission;
+/// the table no longer has open seats. Shared by `wipe_seats` and `close`.
+fn wipe_seat_trio<'info>(
+    table: &mut Account<'info, Table>,
+    boards: [&mut Account<'info, Board>; 2],
+    seed_vault: &mut Account<'info, Vault>,
+    permissions: [AccountInfo<'info>; 2],
+    programs: &SeatPrograms<'info>,
+) -> Result<()> {
+    let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
+    let table_bump = [table.bump];
+    let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
+    let table_info = table.to_account_info();
+    let table_key = table.key();
+    seed_vault.wipe();
+    seed_vault.exit(&ID)?;
+    for (seat, (board, permission)) in boards.into_iter().zip(permissions).enumerate() {
+        board.wipe();
+        board.exit(&ID)?;
+        let seat_arr = [seat as u8];
+        let bump_arr = [board.bump];
+        let seat_seeds: &[&[u8]] = &[BOARD_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
+        swap_seat_members(
+            &SeatAccounts {
+                table: &table_info,
+                seat: &board.to_account_info(),
+                permission: &permission,
+                vault: &programs.vault,
+                magic_program: &programs.magic_program,
+                permission_program: &programs.permission_program,
+            },
+            table_seeds,
+            seat_seeds,
+            None,
+        )?;
+    }
+    table.seats_open = false;
+    Ok(())
+}
+
+/// The end of a Match, in the same transaction as the instruction that ended it: wipes the seats
+/// and commits the result to Solana, paid by the Sponsor.
+fn wipe_and_commit(a: &mut CloseMatch, now: i64) -> Result<()> {
+    if a.table.seats_open {
+        wipe_seat_trio(
+            &mut a.table,
+            [&mut *a.board_0, &mut *a.board_1],
+            &mut a.seed_vault,
+            [
+                a.board_0_permission.to_account_info(),
+                a.board_1_permission.to_account_info(),
+            ],
+            &SeatPrograms {
+                vault: a.ephemeral_vault.to_account_info(),
+                magic_program: a.magic_program.to_account_info(),
+                permission_program: a.permission_program.to_account_info(),
+            },
+        )?;
+    }
+    // An empty Sponsor must not revert the move that ended the Match: the table stays Over and `dirty`, and
+    // `commit_table` or the next `begin_match` commits it after a refill.
+    if !sponsor_can_commit(&a.sponsor.to_account_info()) {
+        msg!("sponsor-dry: the result is not committed; refill the Sponsor, then commit_table");
+        return a.table.exit(&ID);
+    }
+    a.table.commit.record(now);
+    a.table.dirty = false;
+    a.table.exit(&ID)?;
+    let bump = [a.sponsor.bump];
+    sponsor_commit(
+        &a.sponsor.to_account_info(),
+        &[SPONSOR_SEED, &bump],
+        &a.magic_context.to_account_info(),
+        &a.magic_program.to_account_info(),
+        &a.magic_fee_vault.to_account_info(),
+        &TEE_VALIDATOR,
+        &a.table.to_account_info(),
+    )
 }
 
 #[ephemeral]
@@ -856,42 +968,21 @@ pub mod block_puzzle {
         let table = &ctx.accounts.table;
         require!(table.phase == TABLE_CLOSED, BlockPuzzleError::WrongPhase);
         require!(table.seats_open, BlockPuzzleError::SeatsNotOpen);
-        let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
-        let table_bump = [table.bump];
-        let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
-        let table_info = ctx.accounts.table.to_account_info();
-        let table_key = ctx.accounts.table.key();
-        ctx.accounts.board_0.wipe();
-        ctx.accounts.board_1.wipe();
-        ctx.accounts.seed_vault.wipe();
-        ctx.accounts.board_0.exit(&ID)?;
-        ctx.accounts.board_1.exit(&ID)?;
-        ctx.accounts.seed_vault.exit(&ID)?;
-        for seat in 0..2usize {
-            let (board, permission) = if seat == 0 {
-                (&ctx.accounts.board_0, &ctx.accounts.board_0_permission)
-            } else {
-                (&ctx.accounts.board_1, &ctx.accounts.board_1_permission)
-            };
-            let seat_arr = [seat as u8];
-            let bump_arr = [board.bump];
-            let seat_seeds: &[&[u8]] = &[BOARD_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
-            swap_seat_members(
-                &SeatAccounts {
-                    table: &table_info,
-                    seat: &board.to_account_info(),
-                    permission: &permission.to_account_info(),
-                    vault: &ctx.accounts.ephemeral_vault.to_account_info(),
-                    magic_program: &ctx.accounts.magic_program.to_account_info(),
-                    permission_program: &ctx.accounts.permission_program.to_account_info(),
-                },
-                table_seeds,
-                seat_seeds,
-                None,
-            )?;
-        }
-        ctx.accounts.table.seats_open = false;
-        Ok(())
+        let a = &mut *ctx.accounts;
+        wipe_seat_trio(
+            &mut a.table,
+            [&mut *a.board_0, &mut *a.board_1],
+            &mut a.seed_vault,
+            [
+                a.board_0_permission.to_account_info(),
+                a.board_1_permission.to_account_info(),
+            ],
+            &SeatPrograms {
+                vault: a.ephemeral_vault.to_account_info(),
+                magic_program: a.magic_program.to_account_info(),
+                permission_program: a.permission_program.to_account_info(),
+            },
+        )
     }
 
     /// Rollup, operator only. Retires a table's seats: closes both Boards, the Vault and their
@@ -998,7 +1089,37 @@ pub mod block_puzzle {
     pub fn begin_match(ctx: Context<BeginMatch>) -> Result<()> {
         let clock = Clock::get()?;
         let a = &ctx.accounts.assignment;
-        let table = &mut ctx.accounts.table;
+        let receipts = ctx.remaining_accounts;
+        let ending = &mut ctx.accounts.ending;
+        // A table stuck on a Match core froze: give it up, wipe its seats and commit it. That is
+        // all this call does; the next `begin_match` resets the table.
+        if matches!(
+            ending.table.phase,
+            TABLE_ASSIGNED | TABLE_SEEDING | TABLE_GET_READY
+        ) && receipt_aged(
+            receipts,
+            &ending.table.tesoro_match,
+            clock.unix_timestamp,
+            RELEASE_DELAY_SECS,
+        ) {
+            void_in_place(&mut ending.table, clock.unix_timestamp)?;
+            return wipe_and_commit(ending, clock.unix_timestamp);
+        }
+        // A finished table whose result was not committed (the Sponsor was dry when the Match ended) is committed
+        // now that the Sponsor can pay; the next `begin_match` resets it.
+        if ending.table.phase == TABLE_CLOSED
+            && ending.table.dirty
+            && is_next_epoch(ending.table.epoch, a.epoch)
+            && sponsor_can_commit(&ending.sponsor.to_account_info())
+        {
+            return wipe_and_commit(ending, clock.unix_timestamp);
+        }
+        let table = &mut ending.table;
+        // A finished table is reset for the Assignment one epoch ahead, so the keeper need not.
+        if table.phase == TABLE_CLOSED && is_next_epoch(table.epoch, a.epoch) {
+            check_resettable(table, clock.unix_timestamp)?;
+            table.reset().ok_or(BlockPuzzleError::Overflow)?;
+        }
         require!(table.phase == TABLE_IDLE, BlockPuzzleError::WrongPhase);
         require!(table.seats_created, BlockPuzzleError::SeatsMissing);
         require!(
@@ -1015,6 +1136,11 @@ pub mod block_puzzle {
             BlockPuzzleError::StartWindowPassed
         );
         let epoch = table.epoch;
+        if table.ring.is_full() {
+            table
+                .ring
+                .free_proven(receipts, clock.unix_timestamp, RELEASE_DELAY_SECS);
+        }
         table.slot = kit(table.ring.reserve(a.tesoro_match, epoch))?;
         let reserved = table.slot as usize;
         *table
@@ -1268,12 +1394,15 @@ pub mod block_puzzle {
     /// Rollup, permissionless. Ends the Match once its window is over (or both runs are over) and
     /// writes the result into the ring slot with both run logs: the outcome table of the spec. A
     /// Match that never ran ends here too: nobody checking in or no Seed refunds, one Player
-    /// absent loses to the present one (unless the rollup stalled), a stalled run is void.
+    /// absent loses to the present one (unless the rollup stalled), a stalled run is void. The
+    /// same transaction wipes the seats and commits the result to Solana (paid by the Sponsor),
+    /// so nothing readable stays on the table and the result is saved without a second call;
+    /// `commit_table` stays as the repeat path.
     pub fn close(ctx: Context<CloseMatch>) -> Result<()> {
         let clock = Clock::get()?;
         let (slot, now) = (clock.slot, clock.unix_timestamp);
         let table = &mut ctx.accounts.table;
-        match table.phase {
+        let ended: Result<()> = match table.phase {
             TABLE_ASSIGNED => {
                 require!(
                     slot > ov(table.checkin_end())?,
@@ -1341,7 +1470,9 @@ pub mod block_puzzle {
                 conclude(table, now, outcome, reason, log)
             }
             _ => err!(BlockPuzzleError::WrongPhase),
-        }
+        };
+        ended?;
+        wipe_and_commit(&mut *ctx.accounts, now)
     }
 
     // ------------------------------------------------------------------------------------
@@ -1383,16 +1514,7 @@ pub mod block_puzzle {
     pub fn reset_table(ctx: Context<TableOnly>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let table = &mut ctx.accounts.table;
-        require!(table.phase == TABLE_CLOSED, BlockPuzzleError::WrongPhase);
-        require!(!table.seats_open, BlockPuzzleError::SeatsOpen);
-        require!(!table.dirty, BlockPuzzleError::NotCommitted);
-        require!(
-            now >= table
-                .over_at
-                .checked_add(RESET_DELAY_SECS)
-                .ok_or(BlockPuzzleError::Overflow)?,
-            BlockPuzzleError::ResetTooEarly
-        );
+        check_resettable(table, now)?;
         table.reset().ok_or(BlockPuzzleError::Overflow)?;
         Ok(())
     }
@@ -1418,15 +1540,7 @@ pub mod block_puzzle {
                 .ok_or(BlockPuzzleError::Overflow)?,
             BlockPuzzleError::NoReceipt
         );
-        let (slot, key) = (table.slot, table.tesoro_match);
-        kit(table.ring.free(slot, &key, SLOT_RESERVED))?;
-        table.reason = REASON_VOID;
-        table.outcome = 0;
-        table.phase = TABLE_CLOSED;
-        table.over_at = now;
-        table.dirty = false;
-        table.req_pending = false;
-        Ok(())
+        void_in_place(table, now)
     }
 
     /// Rollup, permissionless. Frees a Done ring slot once tesoro_core has frozen its Match (the
@@ -1948,17 +2062,13 @@ pub struct SkipEpoch<'info> {
     pub table: Box<Account<'info, Table>>,
 }
 
+/// `begin_match`. It also names everything a void needs (wipe the seats, commit), so the call that
+/// gives up a stuck table leaves it clean: `ending` is the same account list as the instructions
+/// that end a Match.
 #[derive(Accounts)]
 pub struct BeginMatch<'info> {
-    pub caller: Signer<'info>,
     #[account(seeds = [ASSIGN_SEED, assignment.tesoro_match.as_ref()], bump = assignment.bump)]
     pub assignment: Account<'info, Assignment>,
-    #[account(
-        mut,
-        seeds = [TABLE_SEED, &table.generation.to_le_bytes(), &table.index.to_le_bytes()],
-        bump = table.bump
-    )]
-    pub table: Box<Account<'info, Table>>,
     #[account(
         address = assignment.tesoro_match,
         seeds = [CORE_MATCH_SEED, tesoro_match.inner.id.opener.as_ref(), &tesoro_match.inner.id.n.to_le_bytes()],
@@ -1966,6 +2076,7 @@ pub struct BeginMatch<'info> {
         seeds::program = tesoro_core::ID
     )]
     pub tesoro_match: Box<Account<'info, MatchState>>,
+    pub ending: CloseMatch<'info>,
 }
 
 /// A table and nothing else: `start`, `reset_table`.
@@ -2085,7 +2196,8 @@ pub struct PlayHidden<'info> {
     pub board: Box<Account<'info, Board>>,
 }
 
-/// Reads both Boards, writes the table.
+/// `close`: writes the table from both Boards, then wipes the seats and commits the result.
+#[commit]
 #[derive(Accounts)]
 pub struct CloseMatch<'info> {
     pub caller: Signer<'info>,
@@ -2095,10 +2207,29 @@ pub struct CloseMatch<'info> {
         bump = table.bump
     )]
     pub table: Box<Account<'info, Table>>,
-    #[account(seeds = [BOARD_SEED, table.key().as_ref(), &[0]], bump = board_0.bump)]
+    #[account(mut, seeds = [BOARD_SEED, table.key().as_ref(), &[0]], bump = board_0.bump)]
     pub board_0: Box<Account<'info, Board>>,
-    #[account(seeds = [BOARD_SEED, table.key().as_ref(), &[1]], bump = board_1.bump)]
+    #[account(mut, seeds = [BOARD_SEED, table.key().as_ref(), &[1]], bump = board_1.bump)]
     pub board_1: Box<Account<'info, Board>>,
+    #[account(mut, seeds = [VAULT_SEED, table.key().as_ref()], bump = seed_vault.bump)]
+    pub seed_vault: Box<Account<'info, Vault>>,
+    /// CHECK: permission PDA of Board 0
+    #[account(mut, seeds = [PERMISSION_SEED, board_0.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
+    pub board_0_permission: UncheckedAccount<'info>,
+    /// CHECK: permission PDA of Board 1
+    #[account(mut, seeds = [PERMISSION_SEED, board_1.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
+    pub board_1_permission: UncheckedAccount<'info>,
+    /// CHECK: Permission Program
+    #[account(address = PERMISSION_PROGRAM_ID)]
+    pub permission_program: UncheckedAccount<'info>,
+    /// CHECK: ephemeral rent vault
+    #[account(mut, address = EPHEMERAL_VAULT_ID)]
+    pub ephemeral_vault: UncheckedAccount<'info>,
+    #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
+    pub sponsor: Account<'info, Sponsor>,
+    /// CHECK: the TEE validator's magic fee vault, checked in `sponsor_commit`.
+    #[account(mut)]
+    pub magic_fee_vault: UncheckedAccount<'info>,
 }
 
 #[commit]

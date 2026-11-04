@@ -137,7 +137,11 @@ export class BlockPuzzleChain {
    * only `TxFailedError` (landed and failed) or `TxUnconfirmedError` (may still land: see `txOutcome`).
    */
   async sendSigned(signed: Transaction, lastValidBlockHeight?: number): Promise<string> {
-    const raw = signed.serialize();
+    return this.sendSignedRaw(signed.serialize(), lastValidBlockHeight);
+  }
+
+  /** `sendSigned` for already serialized bytes (a v0 transaction built elsewhere). */
+  async sendSignedRaw(raw: Uint8Array, lastValidBlockHeight?: number): Promise<string> {
     const sig = await this.base.sendRawTransaction(raw, { skipPreflight: true });
     // Poll instead of websockets: works through any RPC proxy.
     let err: unknown = null;

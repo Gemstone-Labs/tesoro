@@ -76,14 +76,15 @@ abstract contract EscrowBase is Test {
         pool = fee / 2;
         _recv(
             abi.encodePacked(
-                uint8(4),
+                uint8(11),
                 lz.eid(),
                 _key(id),
                 seq,
                 bytes32(uint256(uint160(address(0x2222)))),
                 amt,
                 uint128(fee),
-                uint128(pool)
+                uint128(pool),
+                uint128(0)
             )
         );
     }
@@ -96,15 +97,24 @@ abstract contract EscrowBase is Test {
     }
 
     function _prize(uint64 payoutId, address asset, address to, uint128 shares) internal view returns (bytes memory) {
+        return _prizeFee(payoutId, asset, to, shares, 0);
+    }
+
+    function _prizeFee(uint64 payoutId, address asset, address to, uint128 shares, uint128 deliveryFee)
+        internal
+        view
+        returns (bytes memory)
+    {
         return abi.encodePacked(
-            uint8(7),
+            uint8(13),
             lz.eid(),
             _vaultKey(),
             payoutId,
             bytes32(uint256(uint160(asset))),
             bytes32(uint256(0x9a17e)),
             bytes32(uint256(uint160(to))),
-            shares
+            shares,
+            deliveryFee
         );
     }
 
@@ -157,7 +167,7 @@ abstract contract EscrowBase is Test {
     }
 
     function _unlock(uint64 id, uint64 seq) internal view returns (bytes memory) {
-        return abi.encodePacked(uint8(3), lz.eid(), _key(id), seq, uint128(0));
+        return abi.encodePacked(uint8(10), lz.eid(), _key(id), seq, uint128(0));
     }
 
     // ---- escrow funding from batches
@@ -271,12 +281,13 @@ abstract contract EscrowBase is Test {
         assertGt(landed, 0);
         // a holder tries to take the newly landed yield: the pending batch comes first
         bytes memory pay = abi.encodePacked(
-            uint8(4),
+            uint8(11),
             lz.eid(),
             _key(id),
             uint64(1),
             bytes32(uint256(uint160(winner))),
             uint128(landed),
+            uint128(0),
             uint128(0),
             uint128(0)
         );
@@ -421,6 +432,40 @@ abstract contract EscrowBase is Test {
         assertEq(vault.treasuryBalance(), treasury, "no Treasury money moved");
     }
 
+    function test_aPrizeCashOutPaysTheDeliveryFeeOutOfTheWinnersShares() public {
+        address tesoro = address(0x7E50);
+        vault.setDelivery(tesoro, type(uint256).max);
+        uint256 esc = _fillEscrow();
+        uint128 take = uint128(esc / 2);
+        uint256 rate = vault.rateSource().underlyingPerShare();
+        uint128 fee = uint128((uint256(take) * rate / 1e18) / 20); // 5% of the prize, in underlying
+        bytes memory m = _prizeFee(1, _token(), winner, take, fee);
+        _recv(m);
+        assertApproxEqAbs(_balance(tesoro), uint256(take) / 20, 2, "5% of the prize in shares");
+        assertEq(_balance(winner) + _balance(tesoro), take, "the winner and Tesoro share exactly the cash-out");
+        assertEq(vault.escrowShares(), esc - take, "the escrow gave up the whole cash-out");
+        (uint8 status, uint128 shares) = _prizeResult(1);
+        assertEq(status, 1);
+        assertEq(shares, take, "the answer names the whole cash-out");
+        uint256 got = _balance(tesoro);
+        _recv(m);
+        assertEq(_balance(tesoro), got, "a repeat pays nothing more");
+    }
+
+    function test_aDeliveryFeeAboveATenthOfThePrizeIsShrunkAndADifferentFeeIsAnotherPayout() public {
+        address tesoro = address(0x7E50);
+        vault.setDelivery(tesoro, type(uint256).max);
+        uint256 esc = _fillEscrow();
+        uint128 take = uint128(esc / 2);
+        _recv(_prizeFee(1, _token(), winner, take, type(uint128).max)); // asks for everything
+        uint256 tenth = _balance(tesoro);
+        assertApproxEqAbs(tenth, uint256(take) / 10, 2, "a tenth of the prize at most");
+        assertEq(_balance(winner) + tenth, take);
+        // The same id with another fee is not the stored payout: nothing moves.
+        _recv(_prizeFee(1, _token(), winner, take, 1));
+        assertEq(_balance(tesoro), tenth);
+    }
+
     function test_payPrizeIsPaidOncePerPayoutIdAndTheAnswerIsRegenerated() public {
         uint256 esc = _fillEscrow();
         uint128 take = uint128(esc / 2);
@@ -447,14 +492,15 @@ abstract contract EscrowBase is Test {
         assertEq(status, 2);
         // a recipient word with dirty high bytes
         bytes memory dirty = abi.encodePacked(
-            uint8(7),
+            uint8(13),
             lz.eid(),
             _vaultKey(),
             uint64(3),
             bytes32(uint256(uint160(_token()))),
             bytes32(uint256(1)),
             bytes32(type(uint256).max),
-            uint128(esc / 4)
+            uint128(esc / 4),
+            uint128(0)
         );
         _recv(dirty);
         (status,) = _prizeResult(3);
@@ -636,7 +682,7 @@ contract PrizeEscrowRealTest is EscrowBase {
         assertLe(vault.treasuryBalance(), 2, "only share dust is left");
         // Instant Redeem cannot reach it either: ask for half of what the Pool is owed
         bytes memory instant = abi.encodePacked(
-            uint8(5), lz.eid(), _key(id), uint64(3), bytes32(uint256(uint160(winner))), uint128(pool / 2)
+            uint8(12), lz.eid(), _key(id), uint64(3), bytes32(uint256(uint160(winner))), uint128(pool / 2), uint128(0)
         );
         vm.prank(address(lz));
         vm.expectPartialRevert(PositionVaultBase.InsufficientTreasury.selector);
