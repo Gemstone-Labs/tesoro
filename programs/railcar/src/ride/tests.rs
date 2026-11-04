@@ -210,7 +210,7 @@ fn braking(n: u8) -> (Box<Table>, Vec<BrakeSeat>) {
 
 fn press(t: &Table, v: &mut Vault, seats: &mut [BrakeSeat], i: usize, secs: f64) {
     let ms = t.ride_ms(at(secs));
-    tick(t, v, &mut seats[i], i as u8, ms, true);
+    tick(t, v, &mut seats[i], i as u8, ms, 1);
 }
 
 #[test]
@@ -285,7 +285,7 @@ fn a_brake_off_the_car_or_before_every_seat_is_bound_does_nothing() {
     // a tick without the Brake leaves everything as it was
     t.brakes_bound = 5;
     let ms = t.ride_ms(at(41.0));
-    tick(&t, &mut v, &mut seats[CY], CY as u8, ms, false);
+    tick(&t, &mut v, &mut seats[CY], CY as u8, ms, 0);
     assert_eq!(
         (v.press_count, seats[CY].used, impact_ms(&v)),
         (0, 0, 52_000)
@@ -378,7 +378,7 @@ proptest! {
         let mut v = vault(crash);
         let (t, mut seats) = braking(100);
         for (k, p) in presses.iter().enumerate() {
-            tick(&t, &mut v, &mut seats[k], k as u8, *p, true);
+            tick(&t, &mut v, &mut seats[k], k as u8, *p, 1);
         }
         prop_assert_eq!(v.pressed(), &presses[..]);
         prop_assert_eq!(impact_ms(&v), engine::impact_ms(&presses, crash));

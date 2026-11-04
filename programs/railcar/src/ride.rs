@@ -21,10 +21,12 @@ pub enum RideError {
     Math,
 }
 
-/// -1 when `a < b`, else 0 (no branch; |values| < 2^62).
+/// -1 when `a < b`, else 0 (no branch; |values| < 2^62). `black_box` hides that the mask comes
+/// from a comparison: otherwise LLVM folds it back into a select, which sBPF runs as a jump (the
+/// compute-unit test caught a 1-unit difference).
 #[inline(always)]
 fn below(a: i64, b: i64) -> i64 {
-    a.wrapping_sub(b) >> 63
+    core::hint::black_box(a.wrapping_sub(b) >> 63)
 }
 
 /// `a` where `mask` is -1, `b` where it is 0 (no branch).
@@ -91,15 +93,15 @@ pub fn advance(t: &mut Table, v: &Vault, slot: u64) -> bool {
     false
 }
 
-/// Table seat `i`'s tick at ride ms `ms` (before the Impact), with `brake` the Player's press.
+/// Table seat `i`'s tick at ride ms `ms` (before the Impact), with `brake` = 1 the Player's press.
 /// The Brake counts when `brake`, the Player is aboard, every seat is bound and the Player has
 /// not Braked on this ride; otherwise nothing changes. The same work runs either way (masks), so
 /// neither a second Brake nor a tick without one can be told from a first Brake.
-pub fn tick(t: &Table, v: &mut Vault, seat: &mut BrakeSeat, i: u8, ms: u32, brake: bool) {
+pub fn tick(t: &Table, v: &mut Vault, seat: &mut BrakeSeat, i: u8, ms: u32, brake: u8) {
     let all_bound = at_least(i64::from(t.brakes_bound), i64::from(t.seated));
     let aboard = i64::from(t.seats[usize::from(i)].aboard());
     let fresh = 1 - i64::from(seat.used & 1);
-    let go = i64::from(brake) & aboard & all_bound & fresh;
+    let go = i64::from(brake & 1) & aboard & all_bound & fresh;
     let on = -go;
     let now = i64::from(ms);
     let end = i64::from(v.slow_end_ms);

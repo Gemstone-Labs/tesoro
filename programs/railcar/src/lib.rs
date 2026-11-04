@@ -1086,13 +1086,14 @@ pub mod railcar {
     }
 
     /// Rollup, the Player of Table seat `seat` (wallet or seat key, as `jump`): a Player page's
-    /// signal, about every second, with `brake` set when the Player presses their Brake. It moves
+    /// signal, about every second, with `brake` = 1 when the Player presses their Brake (a `u8`,
+    /// not a `bool`: Borsh's bool decoding branches, so a press would cost one compute unit less). It moves
     /// the Tell stage and ends the ride from the Impact slot on, as `signal` does; before that, a
     /// Brake by a Player aboard who has not Braked on this ride sets the slow period's end to
     /// max(now, end) + 5 s. Anything else about the Brake does nothing (no error): a refusal would
     /// tell anyone who simulates the transaction that this Player has Braked. A Brake at or after
     /// the Impact slot ends the ride and does not count.
-    pub fn tick(ctx: Context<Tick>, car_no: u64, seat: u8, brake: bool) -> Result<()> {
+    pub fn tick(ctx: Context<Tick>, car_no: u64, seat: u8, brake: u8) -> Result<()> {
         let clock = Clock::get()?;
         let over = {
             let mut t = ctx.accounts.table.load_mut()?;

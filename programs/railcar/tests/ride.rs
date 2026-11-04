@@ -1220,7 +1220,7 @@ impl Env {
             railcar::instruction::Tick {
                 car_no,
                 seat,
-                brake,
+                brake: u8::from(brake),
             },
             vec![],
         )
