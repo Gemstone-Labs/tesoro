@@ -709,7 +709,15 @@ pub(crate) fn join_many_seat_match<'info>(
         );
         require_keys_eq!(key, *info.key, ManySeatError::WrongSeat);
         require_no_mark(&info)?;
-        create_mark(&info, &payer, &system, (&match_key, &id), &funder, bump, seat)?;
+        create_mark(
+            &info,
+            &payer,
+            &system,
+            (&match_key, &id),
+            &funder,
+            bump,
+            seat,
+        )?;
     }
     books.flush()?;
     let (seated, min_since) = {

@@ -879,10 +879,7 @@ pub(crate) fn close_many_seat(ctx: Context<CloseManySeat>, seat: u8) -> Result<(
             .ok_or_else(|| error!(MatchError::AccountMissing))?
             .to_account_info();
         let mark = funder_mark_of(&info, &match_key, funder.to_bytes(), seat)?;
-        require!(
-            mark.payer == mark_payer,
-            TesoroError::InvalidAccount
-        );
+        require!(mark.payer == mark_payer, TesoroError::InvalidAccount);
         close_to(&info, &ctx.accounts.mark_payer.to_account_info())?;
     }
     emit!(ManySeatSeatClosed {

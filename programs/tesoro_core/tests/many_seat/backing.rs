@@ -127,7 +127,11 @@ fn a_backer_funds_the_seat_and_only_the_backers_limit_counts_the_entry() {
     env.set_entry_limit(&ben, 1).expect("Ben's limit");
     env.set_entry_limit(&bob, 1_000).expect("Bob's limit");
     let offer = env.backing(&ben, &bob, 1, SHARE);
-    assert_eq!(env.entry_limit(&bob).window_used, 500, "counted at the Offer");
+    assert_eq!(
+        env.entry_limit(&bob).window_used,
+        500,
+        "counted at the Offer"
+    );
     assert_eq!(env.reserved_of(&bob), 500);
     let car = env.open_car(&opener, (2, 10));
     let seat = env.board_backed(&ben, &bob, offer, car).expect("backed");
@@ -138,7 +142,11 @@ fn a_backer_funds_the_seat_and_only_the_backers_limit_counts_the_entry() {
     assert_eq!(st.share_bps(), SHARE);
     assert_eq!(env.total_gemas(&ben), 0);
     assert_eq!(env.total_gemas(&bob), 1_500);
-    assert_eq!(env.reserved_of(&bob), 0, "the reserved Gemas are in the Pot");
+    assert_eq!(
+        env.reserved_of(&bob),
+        0,
+        "the reserved Gemas are in the Pot"
+    );
     assert_eq!(env.offer_status(offer), OfferStatus::Consumed);
     // nothing counted twice, nothing on the Player
     assert_eq!(env.entry_limit(&ben).window_used, 0);
@@ -314,9 +322,7 @@ fn stepping_off_a_backed_seat_sends_the_entry_home_to_the_backer() {
     wrong.accounts[3].pubkey = s(mark_pda(car.key, bob.account));
     wrong.accounts[5].pubkey = s(counters_pda(bob.account));
     wrong.accounts[6].pubkey = s(protections_pda(bob.account));
-    let err = env
-        .send_v0(&[wrong], &ben.kp.insecure_clone())
-        .unwrap_err();
+    let err = env.send_v0(&[wrong], &ben.kp.insecure_clone()).unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::WrongSeat));
 
     let kp = ben.kp.insecure_clone();
@@ -332,10 +338,7 @@ fn stepping_off_a_backed_seat_sends_the_entry_home_to_the_backer() {
     assert_eq!(env.counters(ben.account).open_matches, 0);
     // Bob's mark carries the rest of his lines home; until then he cannot board this car
     let mark = env.mark(car, &bob).expect("Bob's return");
-    assert_eq!(
-        (mark.returning, mark.funder),
-        (1, bob.account.to_bytes())
-    );
+    assert_eq!((mark.returning, mark.funder), (1, bob.account.to_bytes()));
     assert_eq!(env.total_gemas(&bob), 8 * 50);
     let err = env.board(&bob, car).unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::StillReturning));
