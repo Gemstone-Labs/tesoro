@@ -12,8 +12,9 @@ export const MAX_STORE_LINES = 32_768;
 export const DISC = 8;
 export const STORE_HEADER = 128;
 export const LINE_LEN = 144;
-/** A Ticket or Pot account: 8 B discriminator, a 160 B head, then a line store. */
-export const POT_AT = DISC + 160;
+/** A Ticket or Pot account: 8 B discriminator, a 192 B head, then a line store. */
+export const TICKET_HEAD = 192;
+export const POT_AT = DISC + TICKET_HEAD;
 
 /** One store line, the parts of its 144 bytes the keeper needs (the key, and the whole Gemas). */
 export interface StoreLine {
@@ -87,13 +88,15 @@ export interface TicketFacts {
   target: bigint;
   expiresAt: number;
   spillRoom: number;
+  /** The seat key that co-signed `open_ticket` (the default key for a Pot made by a direct draw). */
+  signer: PublicKey;
 }
 
 /** The head of a Ticket account (offsets in programs/tesoro_core/src/pots.rs). */
 export function decodeTicketHead(data: Uint8Array): TicketFacts {
   const buf = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-  if (buf.length < DISC + 160) throw new Error("not a Ticket: too short");
-  const h = buf.subarray(DISC, DISC + 160);
+  if (buf.length < DISC + TICKET_HEAD) throw new Error("not a Ticket: too short");
+  const h = buf.subarray(DISC, DISC + TICKET_HEAD);
   const state = TICKET_STATES[h[3]];
   if (!state || h[2] > 1) throw new Error("not a Ticket: bad head");
   return {
@@ -106,5 +109,6 @@ export function decodeTicketHead(data: Uint8Array): TicketFacts {
     target: u64(h, 112),
     expiresAt: Number(i64(h, 120)),
     spillRoom: h.readUInt32LE(132),
+    signer: new PublicKey(h.subarray(152, 184)),
   };
 }

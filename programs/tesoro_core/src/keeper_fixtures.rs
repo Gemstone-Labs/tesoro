@@ -82,6 +82,7 @@ fn keeper_fixtures_match_the_program() {
         payer: Pubkey::new_from_array(key(7)),
         spill_room: 6,
         sponsored_lamports: 99,
+        signer: Pubkey::new_from_array(key(8)),
     };
     write_head_fields(&mut ticket[8..8 + TICKET_HEAD_LEN], &fields, &extra);
     {

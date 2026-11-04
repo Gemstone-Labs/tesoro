@@ -156,6 +156,8 @@ export interface OpenTicketArgs {
   payer: PublicKey;
   /** The wallet that signs: the owner for an Entry Ticket, the Requester for a Backing Ticket. */
   authority: PublicKey;
+  /** The seat key that co-signs and may stage and cancel an Entry Ticket; the wallet names itself when absent. */
+  seatSigner?: PublicKey;
   /** The Account whose lines are staged: the Player's own, or the Backer's. */
   owner: PublicKey;
   nonce: bigint;
@@ -178,6 +180,7 @@ export function openTicketIx(a: OpenTicketArgs): TransactionInstruction {
     {
       payer: a.payer,
       authority: a.authority,
+      seatSigner: a.seatSigner ?? a.authority,
       requester: requesterOf(a.authority),
       owner: a.owner,
       basket: basketPda(a.owner),

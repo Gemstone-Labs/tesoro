@@ -36,6 +36,7 @@ export async function openMatchIx(relayer: PublicKey, authority: PublicKey, game
   return coreIx("open_match", [game, new BN(500), new BN(1), new BN(7), false, 0, 4], {
     payer: relayer,
     playerAuthority: authority,
+    seatSigner: authority,
     gameProgram: game,
     programData: key(),
     pot: key(),
@@ -54,6 +55,7 @@ export async function joinMatchIx(relayer: PublicKey, authority: PublicKey, game
   return coreIx("join_match", [new BN(1), 4], {
     payer: relayer,
     playerAuthority: authority,
+    seatSigner: authority,
     gameProgram: game,
     programData: key(),
     pot: key(),
@@ -128,6 +130,7 @@ export async function backingPairIx(relayer: PublicKey, parties: { requester?: P
   const open = await coreIx("open_ticket", [new BN(1), { backing: {} }, key(), new BN(500), 4], {
     payer: relayer,
     authority: requester,
+    seatSigner: requester,
     owner: backerAccount,
     ticket,
     offer: key(),

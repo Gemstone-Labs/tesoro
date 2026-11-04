@@ -6064,6 +6064,7 @@ dependencies = [
  "num-integer",
  "num-traits",
  "proptest",
+ "serde_json",
  "sim_lst",
  "solana-sdk",
 ]

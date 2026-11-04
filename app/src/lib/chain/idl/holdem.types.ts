@@ -6358,7 +6358,8 @@ export type Holdem = {
       "name": "party",
       "docs": [
         "One entrant. `funder == player` unless the entry is Backed; then `share_bps` is the Player's",
-        "share of the surplus from the accepted Offer."
+        "share of the surplus from the accepted Offer. `signer` is the seat key that co-signed the entry",
+        "(the Player's wallet when it named none): it may play this side and cancel it while it is open."
       ],
       "type": {
         "kind": "struct",
@@ -6384,6 +6385,15 @@ export type Holdem = {
           {
             "name": "shareBps",
             "type": "u16"
+          },
+          {
+            "name": "signer",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }

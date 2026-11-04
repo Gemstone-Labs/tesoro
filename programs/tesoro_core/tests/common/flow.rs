@@ -241,6 +241,7 @@ pub fn open_match(
         tesoro_core::accounts::OpenMatch {
             payer: authority,
             player_authority: authority,
+            seat_signer: authority,
             config: pda(&[CONFIG_SEED]),
             economy: pda(&[ECONOMY_SEED]),
             game_record: game_record(game),
@@ -322,6 +323,7 @@ pub fn join_match(
         tesoro_core::accounts::JoinMatch {
             payer: authority,
             player_authority: authority,
+            seat_signer: authority,
             player_account: account,
             counters: pda(&[COUNTERS_SEED, account.as_ref()]),
             protections: pda(&[PROTECTIONS_SEED, account.as_ref()]),
