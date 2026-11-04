@@ -772,3 +772,76 @@ fn every_gema_lands_where_the_payout_says() {
         }
     }
 }
+
+/// Records which Accounts and Sources a chunk really touched.
+struct Watch<'a> {
+    w: &'a mut World,
+    owners: Vec<Key>,
+    sources: Vec<Key>,
+    cut: Vec<Key>,
+}
+
+impl Settlement for Watch<'_> {
+    fn books(&mut self) -> &mut dyn SourceBooks {
+        self.w.books()
+    }
+    fn sync_source(&mut self, source: &Key) -> LcResult<()> {
+        add(&mut self.cut, *source);
+        Ok(())
+    }
+    fn credit(&mut self, owner: &Key, line: &Line) -> LcResult<Placed> {
+        add(&mut self.owners, *owner);
+        add(&mut self.sources, line.source);
+        self.w.credit(owner, line)
+    }
+    fn credit_fee(&mut self, class: u8, owner: Option<&Key>, line: &Line) -> LcResult<()> {
+        add(&mut self.sources, line.source);
+        self.w.credit_fee(class, owner, line)
+    }
+}
+impl SeatCredits for Watch<'_> {
+    fn settlement(&mut self) -> &mut dyn Settlement {
+        self
+    }
+    fn set_hold(&mut self, _owner: &Key, _slots: u32) {}
+    fn hold_of(&self, _owner: &Key) -> u32 {
+        0
+    }
+}
+fn add(v: &mut Vec<Key>, k: Key) {
+    if !v.contains(&k) {
+        v.push(k);
+    }
+}
+
+#[test]
+fn ahead_lists_everything_the_next_chunk_touches() {
+    let mut rng = Rng(77);
+    for steps in [1u32, 2, 3, 5, 12] {
+        let mut w = World::new();
+        let mut c = worked_example_car(&mut w);
+        // a Backed place too
+        w.account(key(6), 16);
+        c.pages.seats[1].funder = key(6);
+        c.pages.seats[1].share_bps = 4_000u16.to_le_bytes();
+        c.settle(&worked_example_result()).unwrap();
+        while c.rec.stage() != ManyStage::Paid {
+            let lines: Vec<Vec<Line>> = c.pages.pots.iter().map(|p| p.lines()).collect();
+            let a = c.rec.ahead(&c.pages.seats, &lines, steps as usize);
+            let mut watch = Watch { w: &mut w, owners: vec![], sources: vec![], cut: vec![] };
+            let r = c.rec.chunk(&mut c.pages, &mut watch, steps).unwrap();
+            for o in &watch.owners {
+                assert!(a.owners.contains(o), "owner {o:?} not listed");
+            }
+            for src in &watch.sources {
+                assert!(a.sources.contains(src));
+            }
+            for src in &watch.cut {
+                assert!(a.cut_sources.contains(src));
+            }
+            assert!(r.lines.iter().all(|l| a.seats.contains(&l.pot_side)));
+            let _ = rng.below(2);
+        }
+        assert_eq!(w.gemas(BEN) + w.gemas(6), 630);
+    }
+}

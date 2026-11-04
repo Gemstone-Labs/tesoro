@@ -829,6 +829,147 @@ impl ManySeatRecord {
     }
 }
 
+/// What the next steps of a run touch, so a client knows which accounts to pass.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Ahead {
+    /// Seats walked (their page and their Pot).
+    pub seats: Vec<u8>,
+    /// Accounts credited (basket and spill).
+    pub owners: Vec<Key>,
+    /// Sources of the lines that move (their book).
+    pub sources: Vec<Key>,
+    /// Sources a fee is cut from (also their Source and Position).
+    pub cut_sources: Vec<Key>,
+}
+
+fn add_key(v: &mut Vec<Key>, k: Key) {
+    if !v.contains(&k) {
+        v.push(k);
+    }
+}
+
+impl ManySeatRecord {
+    /// What the next `max_steps` steps touch, walking the same cursor as [`Self::chunk`] over the
+    /// line amounts only. `seats[i]` and `lines[i]` are seat `i` and its Pot's lines.
+    pub fn ahead(&self, seats: &[Seat], lines: &[Vec<Line>], max_steps: usize) -> Ahead {
+        let mut out = Ahead::default();
+        if !matches!(self.stage(), ManyStage::Settling | ManyStage::Refunding) {
+            return out;
+        }
+        let entry = self.entry();
+        let mut r = self.run;
+        let mut amounts: Vec<Vec<u64>> = lines
+            .iter()
+            .map(|l| l.iter().map(|x| x.amount).collect())
+            .collect();
+        let refund_run = r.is_refund();
+        let mut left = max_steps;
+        let span = (seats.len() as u8).min(self.seat_span());
+        while left > 0 && r.phase != PHASE_DONE {
+            if r.phase == PHASE_HOME {
+                if r.visited >= self.seated || r.seat_i >= span {
+                    r.phase = if r.owed() == 0 { PHASE_DONE } else { PHASE_FORFEITS };
+                    r.seat_i = 0;
+                    r.in_seat = 0;
+                    continue;
+                }
+                let i = r.seat_i as usize;
+                let s = &seats[i];
+                if r.in_seat == 0 {
+                    let whole = refund_run || s.place != 0;
+                    let want = if whole { entry } else { s.refund() };
+                    if s.state() != SeatState::Seated || want == 0 {
+                        if s.state() == SeatState::Seated {
+                            r.visited += 1;
+                        }
+                        r.next_seat();
+                        continue;
+                    }
+                    r.set_seat_left(want);
+                    r.line_i = [0; 4];
+                    r.in_seat = 1;
+                }
+                let Some(at) = (r.line_i()..amounts[i].len()).find(|j| amounts[i][*j] > 0) else {
+                    break;
+                };
+                let k = amounts[i][at].min(r.seat_left());
+                amounts[i][at] -= k;
+                add_key(&mut out.owners, s.funder);
+                add_key(&mut out.sources, lines[i][at].source);
+                if !out.seats.contains(&(i as u8)) {
+                    out.seats.push(i as u8);
+                }
+                r.line_i = (at as u32).to_le_bytes();
+                r.set_seat_left(r.seat_left() - k);
+                if r.seat_left() == 0 {
+                    r.next_seat();
+                    r.visited += 1;
+                }
+                left -= 1;
+            } else {
+                if r.owed() == 0 || r.seat_i >= span {
+                    break;
+                }
+                let i = r.seat_i as usize;
+                let s = &seats[i];
+                if r.in_seat == 0 {
+                    let lost = entry.saturating_sub(s.refund());
+                    if s.state() != SeatState::Seated || s.place != 0 || lost == 0 {
+                        r.next_seat();
+                        continue;
+                    }
+                    r.set_seat_left(lost);
+                    r.line_i = (amounts[i].len() as u32).to_le_bytes();
+                    r.in_seat = 1;
+                }
+                let Some(at) = (0..r.line_i()).rev().find(|j| amounts[i][*j] > 0) else {
+                    break;
+                };
+                let mut k = amounts[i][at].min(r.seat_left());
+                let source = lines[i][at].source;
+                if let Some(c) = (0..3).find(|c| r.cut_left(*c) > 0) {
+                    k = k.min(r.cut_left(c));
+                    r.cut_left[c] = (r.cut_left(c) - k).to_le_bytes();
+                    add_key(&mut out.cut_sources, source);
+                    if c == 1 {
+                        if let Some(studio) = self.terms().studio_owner {
+                            add_key(&mut out.owners, studio);
+                        }
+                    }
+                } else {
+                    while r.won_left() == 0 && (r.place_i as usize + 1) < r.n_places as usize {
+                        if r.enter_place(r.place_i as usize + 1).is_err() {
+                            return out;
+                        }
+                    }
+                    let slot = r.places[r.place_i as usize];
+                    k = k.min(r.won_left());
+                    if slot.backed() && r.player_left() > 0 {
+                        k = k.min(r.player_left());
+                        r.player_left = (r.player_left() - k).to_le_bytes();
+                        add_key(&mut out.owners, slot.player);
+                    } else {
+                        add_key(&mut out.owners, slot.funder);
+                    }
+                    r.won_left = (r.won_left() - k).to_le_bytes();
+                }
+                amounts[i][at] -= k;
+                add_key(&mut out.sources, source);
+                if !out.seats.contains(&(i as u8)) {
+                    out.seats.push(i as u8);
+                }
+                r.line_i = (at as u32 + 1).to_le_bytes();
+                r.set_seat_left(r.seat_left() - k);
+                if r.seat_left() == 0 {
+                    r.next_seat();
+                }
+                left -= 1;
+            }
+        }
+        out
+    }
+}
+
 impl PlaceSlot {
     fn zeroed() -> Self {
         bytemuck::Zeroable::zeroed()
