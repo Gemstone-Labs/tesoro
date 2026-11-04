@@ -22,7 +22,6 @@ const { keypairSigner } = await import("@/games/block-puzzle/live-chain");
 const eth = await import("@/lib/chain/eth");
 const flow = await import("@/lib/chain/eth-flow");
 const { getChain } = await import("@/lib/chain/client");
-const { PublicKey } = await import("@solana/web3.js");
 
 const SOL_KEYS = join(homedir(), ".cache/tesoro-tmp/kd-20/fresh-keys.json");
 const EVM_KEY = process.env.KD20_EVM ?? join(homedir(), ".cache/tesoro-tmp/kd-20/evm-key.json");
@@ -78,7 +77,7 @@ if (cmd === "unlock") {
   const fresh = await eth.fetchEthState(getChain().base, vault.address, id, kp.publicKey);
   console.log("core", fresh.core && { status: fresh.core.status, openAdvance: fresh.core.openAdvance });
   const before = await bal();
-  const sig = await flow.unlockEth(ctx as never, { vault: vault.address, id, position: new PublicKey(fresh.core!.address), openAdvance: fresh.core!.openAdvance });
+  const sig = await flow.unlockEth(ctx as never, { vault: vault.address, id, position: eth.corePositionPda(eth.ethPositionId(vault.address, id)), openAdvance: fresh.core!.openAdvance });
   console.log("UNLOCK sig", sig);
   for (let i = 0; i < 60; i++) {
     await sleep(15_000);
