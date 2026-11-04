@@ -319,12 +319,22 @@ impl Env {
         self.svm.expire_blockhash();
         let mut signers: Vec<&Keypair> = vec![payer];
         signers.extend_from_slice(extra);
-        let tx = Transaction::new_signed_with_payer(
-            ixs,
-            Some(&payer.pubkey()),
-            &signers,
-            self.svm.latest_blockhash(),
-        );
+        let tx = if self.seat_unsigned {
+            // a transaction that leaves the named seat key's signature out
+            let mut tx = Transaction::new_unsigned(solana_sdk::message::Message::new(
+                ixs,
+                Some(&payer.pubkey()),
+            ));
+            tx.partial_sign(&signers, self.svm.latest_blockhash());
+            tx
+        } else {
+            Transaction::new_signed_with_payer(
+                ixs,
+                Some(&payer.pubkey()),
+                &signers,
+                self.svm.latest_blockhash(),
+            )
+        };
         self.last_size = tx.message.serialize().len() + 1 + 64 * tx.signatures.len();
         match self.svm.send_transaction(tx) {
             Ok(meta) => {
