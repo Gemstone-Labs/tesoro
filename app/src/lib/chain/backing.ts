@@ -218,42 +218,6 @@ const config = () => PublicKey.findProgramAddressSync([Buffer.from("config")], g
 const nonce = () => new BN((BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000))).toString());
 
 /**
- * Before a Break or Self-Exclusion: withdraws everything of the signed-in Account that has not started a Match. Their Match
- * nobody joined is refunded, their open Requests cancelled and their open or accepted Offers released. Matches already paired are left to play out.
- * Returns how many things were withdrawn. The keeper does the same for anything a direct transaction leaves behind.
- */
-export async function withdrawOwnOpenItems(signer: ChainSigner): Promise<number> {
-  const chain = getChain();
-  const me = BlockPuzzleChain.coreAccount(signer.publicKey);
-  const [matchRows, reqRows, offerRows]: any[][] = await Promise.all([
-    chain.core.account.matchState.all(),
-    chain.core.account.requestState.all(),
-    chain.core.account.offerState.all(),
-  ]);
-  const mine = (bytes: number[]) => pk(bytes).equals(me);
-  let n = 0;
-  for (const m of matchRows) {
-    if (enumKey(m.account.inner.stage) === "open" && mine(m.account.inner.a.player)) {
-      await refundMatch(signer, matchKeyOfState(m.account));
-      n++;
-    }
-  }
-  for (const r of reqRows) {
-    if (enumKey(r.account.inner.status) === "open" && mine(r.account.inner.player)) {
-      await cancelRequest(signer, r.publicKey);
-      n++;
-    }
-  }
-  for (const o of offerRows) {
-    if (["open", "accepted"].includes(enumKey(o.account.inner.status)) && mine(o.account.inner.backer)) {
-      await cancelOffer(signer, toOffer(o, null));
-      n++;
-    }
-  }
-  return n;
-}
-
-/**
  * The Backer refunds a Match nobody joined, once its deadline has passed (the relayer pays). The opener's own refund or the keeper's safety
  * sweep may land first: then the Match is gone or already refunding, which is the outcome the Backer wanted, so this returns null instead of failing.
  * Returns the signature, or null when someone else already refunded it.
@@ -281,13 +245,14 @@ export async function postRequest(signer: ChainSigner, game: GameId, entry: numb
   return { address, sig: await chain.sendBase(signer, [ix]) };
 }
 
-export async function cancelRequest(signer: ChainSigner, request: PublicKey) {
-  const chain = getChain();
-  const ix = await chain.core.methods
+export const cancelRequestIx = (owner: PublicKey, request: PublicKey) =>
+  getChain().core.methods
     .cancelRequest()
-    .accountsPartial({ playerAuthority: signer.publicKey, playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey), request })
+    .accountsPartial({ playerAuthority: owner, playerAccount: BlockPuzzleChain.coreAccount(owner), request })
     .instruction();
-  return chain.sendBase(signer, [ix]);
+
+export async function cancelRequest(signer: ChainSigner, request: PublicKey) {
+  return getChain().sendBase(signer, [await cancelRequestIx(signer.publicKey, request)]);
 }
 
 /** A Backer answers a Request with an Offer for its game and entry, reserving the entry from their own Gemas. */
@@ -334,20 +299,22 @@ export async function acceptOffer(signer: ChainSigner, request: PublicKey, offer
 }
 
 /** The Backer withdraws an Offer that has not started a Match; the reservation is released. */
-export async function cancelOffer(signer: ChainSigner, offer: ChainOffer) {
-  const chain = getChain();
-  const backerAccount = BlockPuzzleChain.coreAccount(signer.publicKey);
-  const ix = coreIx("cancel_offer", {
-    backerAuthority: signer.publicKey,
+export function cancelOfferIx(owner: PublicKey, offer: PublicKey, acceptedRequest: PublicKey | null) {
+  const backerAccount = BlockPuzzleChain.coreAccount(owner);
+  return coreIx("cancel_offer", {
+    backerAuthority: owner,
     backerAccount,
     basket: basketPda(backerAccount),
     spill: spillPda(backerAccount),
     counters: countersPda(backerAccount),
-    offer: offer.address,
+    offer,
     // An accepted Offer hands its Request back to Open, so the Request comes with the call.
-    request: offer.status === "accepted" ? new PublicKey(offer.request) : undefined,
+    request: acceptedRequest ?? undefined,
   });
-  return chain.sendBase(signer, [ix]);
+}
+
+export async function cancelOffer(signer: ChainSigner, offer: ChainOffer) {
+  return getChain().sendBase(signer, [cancelOfferIx(signer.publicKey, offer.address, offer.status === "accepted" ? new PublicKey(offer.request) : null)]);
 }
 
 /** Anyone releases the reservation of an Offer nobody accepted, or nobody used, within 24h. */
