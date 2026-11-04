@@ -97,6 +97,27 @@ describe("the webhook route", () => {
     expect(await decodePending({ store: t.store, rpc: t.rpc })).toEqual({ decoded: 0, failed: 0 });
   });
 
+  it("captures final boards from a confirmed delivery, before and without decoding, and a capture failure does not stop the decode", async () => {
+    const t = await setup({ deliveredFinalized: true });
+    const [, start] = realDelivery as unknown as RawTx[];
+    const seen: string[] = [];
+    const deps = { ...t.deps, capture: async (txs: { signature: string }[]) => { seen.push(...txs.map((x) => x.signature)); throw new Error("rpc down"); } };
+    await receiveWebhook(deps, SECRET, [start]);
+    await t.scheduled[0]();
+    expect(seen).toEqual([sig(start)]);
+    expect(await t.count("match_history")).toBeGreaterThan(0);
+  });
+
+  it("captures the final boards of rows the catch-up decodes, as the last try", async () => {
+    const t = await setup();
+    const [, start] = realDelivery as unknown as RawTx[];
+    await receiveWebhook(t.deps, SECRET, [start]);
+    await t.store.markFinalized([sig(start)]);
+    const tries: boolean[] = [];
+    await decodePending({ store: t.store, rpc: t.rpc, captureEnds: async (_tx, lastTry) => void tries.push(lastTry) });
+    expect(tries).toEqual([true]);
+  });
+
   it("decodes a Match end to end and repeats harmlessly", async () => {
     const t = await setup({ deliveredFinalized: true });
     await receiveWebhook(t.deps, SECRET, [START_V0, SETTLE_V0]);
