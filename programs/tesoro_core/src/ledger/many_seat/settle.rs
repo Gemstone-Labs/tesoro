@@ -725,7 +725,9 @@ impl ManySeatRecord {
                         while self.run.won_left() == 0 {
                             let next = self.run.place_i as usize + 1;
                             if next >= self.run.n_places as usize {
-                                return Err(LifecycleError::Inconsistent("forfeits beyond the plan"));
+                                return Err(LifecycleError::Inconsistent(
+                                    "forfeits beyond the plan",
+                                ));
                             }
                             self.run.enter_place(next)?;
                         }
@@ -870,7 +872,11 @@ impl ManySeatRecord {
         while left > 0 && r.phase != PHASE_DONE {
             if r.phase == PHASE_HOME {
                 if r.visited >= self.seated || r.seat_i >= span {
-                    r.phase = if r.owed() == 0 { PHASE_DONE } else { PHASE_FORFEITS };
+                    r.phase = if r.owed() == 0 {
+                        PHASE_DONE
+                    } else {
+                        PHASE_FORFEITS
+                    };
                     r.seat_i = 0;
                     r.in_seat = 0;
                     continue;

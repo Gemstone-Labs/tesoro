@@ -148,7 +148,11 @@ impl Env {
             out.push(rem(basket_address(&o).0));
             out.push(rem(spill_address(&o).0));
             let record = overflow_address(&o, OVERFLOW_MATCH, &id.seed()).0;
-            if self.svm.get_account(&s(record)).is_some_and(|r| !r.data.is_empty()) {
+            if self
+                .svm
+                .get_account(&s(record))
+                .is_some_and(|r| !r.data.is_empty())
+            {
                 out.push(rem(record));
             }
         }
@@ -282,7 +286,10 @@ fn five_riders() -> (Env, Car, Vec<Person>, Vec<APk>) {
     let mut env = Env::new();
     env.enable_leaderboard(100);
     let riders: Vec<Person> = (0..5).map(|_| env.rider(2_000)).collect();
-    let sources: Vec<APk> = riders.iter().map(|p| env.sources_in(p.account)[0]).collect();
+    let sources: Vec<APk> = riders
+        .iter()
+        .map(|p| env.sources_in(p.account)[0])
+        .collect();
     let car = env.open_car(&riders[0], (5, 100));
     for p in &riders {
         env.board(p, car).expect("board");
@@ -315,7 +322,10 @@ fn the_worked_example_settles_to_the_gema() {
     assert_eq!((won[0].points, won[0].pool_fee, won[0].entry), (5, 21, 500));
     let run: Vec<ManySeatRunStarted> = env.started();
     assert_eq!(run[0].fees, [44, 64, 21]);
-    assert_eq!((run[0].refunded, run[0].forfeited, run[0].seated), (350, 650, 5));
+    assert_eq!(
+        (run[0].refunded, run[0].forfeited, run[0].seated),
+        (350, 650, 5)
+    );
     let placed: Vec<ManySeatPlaced> = env.started();
     let paid: Vec<(u8, u8, APk, u64)> = placed
         .iter()
@@ -331,8 +341,15 @@ fn the_worked_example_settles_to_the_gema() {
     );
     if let Ok(path) = std::env::var("TESORO_MANY_SEAT_FIXTURE") {
         let hex = |b: &Vec<u8>| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
-        let events: Vec<String> = env.start_events.iter().map(|e| format!("\"{}\"", hex(e))).collect();
-        let who: Vec<String> = riders.iter().map(|p| format!("\"{}\"", p.account)).collect();
+        let events: Vec<String> = env
+            .start_events
+            .iter()
+            .map(|e| format!("\"{}\"", hex(e)))
+            .collect();
+        let who: Vec<String> = riders
+            .iter()
+            .map(|p| format!("\"{}\"", p.account))
+            .collect();
         std::fs::write(
             path,
             format!(
@@ -359,13 +376,22 @@ fn the_worked_example_settles_to_the_gema() {
         .collect();
     assert_eq!(settled.len(), 1);
     // the seats close, every rent goes back, nobody keeps an open Match
-    let marks: Vec<APk> = riders.iter().map(|p| mark_pda(car.key, p.account)).collect();
+    let marks: Vec<APk> = riders
+        .iter()
+        .map(|p| mark_pda(car.key, p.account))
+        .collect();
     env.close_paid_car(car);
     for (p, mark) in riders.iter().zip(marks) {
         assert_eq!(env.counters(p.account).open_matches, 0);
-        assert!(env.svm.get_account(&s(mark)).is_none_or(|a| a.lamports == 0));
+        assert!(env
+            .svm
+            .get_account(&s(mark))
+            .is_none_or(|a| a.lamports == 0));
     }
-    assert!(env.svm.get_account(&s(car.key)).is_none_or(|a| a.lamports == 0));
+    assert!(env
+        .svm
+        .get_account(&s(car.key))
+        .is_none_or(|a| a.lamports == 0));
     assert!(env.svm.get_account(&s(receipt_pda(car.key))).is_some());
 }
 
@@ -412,8 +438,11 @@ fn fees_are_capped_at_the_forfeits_and_the_win_earns_no_points() {
     // refunds nearly every unplaced entry: Ana and Ben get 490 back, Pot after refunds 1,520 asks
     // 91 in fees (Platform 31, Studio 45, Leaderboard 15) and only 20 is forfeited.
     let (mut env, car, riders, sources) = five_riders();
-    env.settle_car(car, result(&[(2, 6000), (3, 2500), (4, 1500)], &[(0, 490), (1, 490)]))
-        .expect("settle");
+    env.settle_car(
+        car,
+        result(&[(2, 6000), (3, 2500), (4, 1500)], &[(0, 490), (1, 490)]),
+    )
+    .expect("settle");
     let run: Vec<ManySeatRunStarted> = env.started();
     assert_eq!((run[0].fees, run[0].fees_capped), ([20, 0, 0], true));
     let won: Vec<MatchWon> = env.started();
@@ -430,7 +459,10 @@ fn a_two_seat_car_won_outright_gives_the_head_to_head_numbers() {
     env.enable_leaderboard(100);
     let ana = env.rider(2_000);
     let ben = env.rider(2_000);
-    let sources = vec![env.sources_in(ana.account)[0], env.sources_in(ben.account)[0]];
+    let sources = vec![
+        env.sources_in(ana.account)[0],
+        env.sources_in(ben.account)[0],
+    ];
     let studio = env.studio.kp.insecure_clone();
     let studio_account = env.studio.account;
     env.ensure_spill(&studio, studio_account, 8);
@@ -439,12 +471,16 @@ fn a_two_seat_car_won_outright_gives_the_head_to_head_numbers() {
     env.board(&ana, car).expect("ana");
     env.board(&ben, car).expect("ben");
     env.depart(car).expect("depart");
-    env.settle_car(car, result(&[(0, 10_000)], &[])).expect("settle");
+    env.settle_car(car, result(&[(0, 10_000)], &[]))
+        .expect("settle");
     let won: Vec<MatchWon> = env.started();
     assert_eq!((won[0].loser, won[0].points), (ben.account, 5));
     env.run_car(car);
     // fees 6% of both entries, all from Ben's: 20 + 30 + 10; Ana 500 + 440
-    assert_eq!((env.total_gemas(&ana), env.total_gemas(&ben)), (1_500 + 940, 1_500));
+    assert_eq!(
+        (env.total_gemas(&ana), env.total_gemas(&ben)),
+        (1_500 + 940, 1_500)
+    );
     assert_eq!(env.counters_of(&sources, CLASS_PLATFORM), 20);
     assert_eq!(env.fee_gemas(&env.studio) - studio_before, 30);
     assert_eq!(env.counters_of(&sources, CLASS_LEADERBOARD), 10);
@@ -487,7 +523,12 @@ fn a_day_after_departure_anyone_refunds_and_the_game_can_no_longer_settle() {
 #[test]
 fn an_upgraded_game_cannot_settle_and_anyone_refunds_at_once() {
     let (mut env, car, riders, _) = five_riders();
-    common::set_program_data(&mut env.svm, s(GAME), Some(env.game_ctl.pubkey()), GAME_SLOT + 5);
+    common::set_program_data(
+        &mut env.svm,
+        s(GAME),
+        Some(env.game_ctl.pubkey()),
+        GAME_SLOT + 5,
+    );
     let err = env
         .settle_car(car, result(&[(3, 10_000)], &[]))
         .unwrap_err();
@@ -518,7 +559,8 @@ fn only_the_game_settles_and_a_bad_result_is_refused() {
         .unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::BadResult));
     // nothing stuck: the right result still settles
-    env.settle_car(car, result(&[(3, 10_000)], &[])).expect("settle");
+    env.settle_car(car, result(&[(3, 10_000)], &[]))
+        .expect("settle");
 }
 
 #[test]
@@ -576,7 +618,8 @@ fn a_winner_with_full_stores_waits_until_anyone_pays_for_room() {
         .send(&[reserve(riders[EVE].account)], &stranger, &[])
         .unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::NotPaidHere));
-    env.send(&[reserve(dee)], &stranger, &[]).expect("room for Dee");
+    env.send(&[reserve(dee)], &stranger, &[])
+        .expect("room for Dee");
     env.run_car(car);
     let record = overflow_address(&dee, OVERFLOW_MATCH, &id.seed()).0;
     let d = env.svm.get_account(&s(record)).expect("record").data;
@@ -599,7 +642,8 @@ fn a_chunk_cannot_be_fed_another_cars_page_or_pot() {
     for p in &other_riders {
         env.board(p, other).expect("board");
     }
-    env.settle_car(car, result(&[(3, 10_000)], &[])).expect("settle");
+    env.settle_car(car, result(&[(3, 10_000)], &[]))
+        .expect("settle");
     let payer = env.admin.insecure_clone();
     let mut i = env.car_chunk_ix(a(payer.pubkey()), car, 4);
     // swap in the other car's page and a Pot of its own
@@ -636,7 +680,9 @@ fn a_chunk_cannot_be_fed_another_cars_page_or_pot() {
 fn hundred_seats(steps: u8) -> (Sent, usize, u64) {
     let mut env = Env::new();
     env.enable_leaderboard(100);
-    let sources: Vec<APk> = (0..10).map(|i| env.forge_source(200 + i as u8, 0)).collect();
+    let sources: Vec<APk> = (0..10)
+        .map(|i| env.forge_source(200 + i as u8, 0))
+        .collect();
     let riders: Vec<Person> = (0..100)
         .map(|_| {
             let p = env.person();
@@ -654,15 +700,23 @@ fn hundred_seats(steps: u8) -> (Sent, usize, u64) {
             env.stage_with(&kp, p, nonce, 255, vec![]).expect("stage");
         }
         let page = env.page_with_room(car);
-        env.board_ix(p, car, page, (nonce, 1, ticket_pda(p.account, nonce)), vec![])
-            .expect("board with a Ticket");
+        env.board_ix(
+            p,
+            car,
+            page,
+            (nonce, 1, ticket_pda(p.account, nonce)),
+            vec![],
+        )
+        .expect("board with a Ticket");
     }
     let studio = env.studio.kp.insecure_clone();
     let studio_account = env.studio.account;
     env.ensure_spill(&studio, studio_account, 64);
     env.depart(car).expect("depart");
     let ladder = [400u64, 350, 300, 250, 200, 150, 100, 50, 25];
-    let refunds: Vec<(u8, u64)> = (0..60u8).map(|i| (i, ladder[i as usize % ladder.len()])).collect();
+    let refunds: Vec<(u8, u64)> = (0..60u8)
+        .map(|i| (i, ladder[i as usize % ladder.len()]))
+        .collect();
     let refunded: u64 = refunds.iter().map(|r| r.1).sum();
     env.settle_car(car, result(&[(99, 6000), (98, 2500), (97, 1500)], &refunds))
         .expect("settle");
@@ -682,7 +736,9 @@ fn hundred_seats(steps: u8) -> (Sent, usize, u64) {
         assert_eq!(env.total_gemas(p), ladder[i % ladder.len()], "rider {i}");
     }
     env.close_paid_car(car);
-    assert!(riders.iter().all(|p| env.counters(p.account).open_matches == 0));
+    assert!(riders
+        .iter()
+        .all(|p| env.counters(p.account).open_matches == 0));
     (worst, sent.len(), start_cu)
 }
 

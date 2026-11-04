@@ -139,7 +139,9 @@ impl<'b, 'info> ChainSeats<'b, 'info> {
             }
             let index = {
                 let data = info.try_borrow_data()?;
-                if data[..DISC] != *SeatPage::DISCRIMINATOR || data[DISC..DISC + 32] != match_key.to_bytes() {
+                if data[..DISC] != *SeatPage::DISCRIMINATOR
+                    || data[DISC..DISC + 32] != match_key.to_bytes()
+                {
                     continue;
                 }
                 data[PAGE_INDEX_AT]
@@ -585,9 +587,8 @@ fn emit_seat_lines(
         overflowed,
         lines: Vec::new(),
     };
-    let mut data = Vec::with_capacity(
-        96 + report.lines.len() * std::mem::size_of::<SettlementLine>(),
-    );
+    let mut data =
+        Vec::with_capacity(96 + report.lines.len() * std::mem::size_of::<SettlementLine>());
     data.extend_from_slice(anchor_lang::event::EVENT_IX_TAG_LE);
     data.extend_from_slice(ManySeatChunkDone::DISCRIMINATOR);
     event
@@ -811,7 +812,10 @@ mod tests {
             opener: [3; 32],
             n: 77,
         };
-        let (m, p) = (Pubkey::new_from_array([5; 32]), Pubkey::new_from_array([6; 32]));
+        let (m, p) = (
+            Pubkey::new_from_array([5; 32]),
+            Pubkey::new_from_array([6; 32]),
+        );
         for (kind, run) in [
             ((0u8, 42u8), RunKind::Win { winner: 42 }),
             ((4, 0), RunKind::Abandoned),

@@ -76,10 +76,16 @@ fn a_cap_shortens_the_later_fee_classes_first() {
     assert_eq!(p.fees, [300, 0, 0]);
     let p = plan_payout(500, 5, &[10_000], 1_500, &terms(2_400, 300), 300).unwrap();
     // P 1,000: Platform 240, Studio 30, Leaderboard 30; forfeited 500, nothing capped
-    assert_eq!((p.fees, p.fees_capped, p.won[0]), ([240, 30, 30], false, 200));
+    assert_eq!(
+        (p.fees, p.fees_capped, p.won[0]),
+        ([240, 30, 30], false, 200)
+    );
     let p = plan_payout(500, 5, &[10_000], 1_740, &terms(2_400, 300), 300).unwrap();
     // P 760: total 228 = Platform 184 + Studio 22 + Leaderboard 22; forfeited 260
-    assert_eq!((p.fees, p.fees_capped, p.won[0]), ([184, 22, 22], false, 32));
+    assert_eq!(
+        (p.fees, p.fees_capped, p.won[0]),
+        ([184, 22, 22], false, 32)
+    );
     let p = plan_payout(500, 5, &[10_000], 1_790, &terms(2_400, 300), 300).unwrap();
     // P 710: Platform 171, Studio 21, Leaderboard 21 (total 213); forfeited 210: Leaderboard cut to 18
     assert_eq!((p.fees, p.fees_capped, p.won[0]), ([171, 21, 18], true, 0));
@@ -115,12 +121,12 @@ fn a_result_that_does_not_fit_the_car_is_refused() {
 // ---------------------------------------------------------------------------------------------
 
 use crate::ledger::book::SourceBook;
-use crate::ledger::draw::{grow_spill_body, spill_body, DrawError, MemBooks, Placed, Pool, SourceBooks};
-use crate::ledger::many_seat::SeatState;
-use crate::ledger::lifecycle::{MatchId, MatchMeta, Settlement};
-use crate::ledger::line_store::{
-    required_len, Line, LineStore, CLASS_GENERAL, SIDE_OWN, SIDE_WON,
+use crate::ledger::draw::{
+    grow_spill_body, spill_body, DrawError, MemBooks, Placed, Pool, SourceBooks,
 };
+use crate::ledger::lifecycle::{MatchId, MatchMeta, Settlement};
+use crate::ledger::line_store::{required_len, Line, LineStore, CLASS_GENERAL, SIDE_OWN, SIDE_WON};
+use crate::ledger::many_seat::SeatState;
 use crate::ledger::many_seat::{ManySeatRecord, ManyStage, Seat, SeatFill, SEATS_PER_PAGE};
 use crate::ledger::Key;
 use std::collections::BTreeMap;
@@ -180,7 +186,10 @@ impl World {
 
     fn lines_of(&self, who: &Key) -> Vec<Line> {
         let a = &self.accts[who];
-        let mut v: Vec<Line> = LineStore::new(a.basket.as_slice()).unwrap().lines().collect();
+        let mut v: Vec<Line> = LineStore::new(a.basket.as_slice())
+            .unwrap()
+            .lines()
+            .collect();
         v.extend(LineStore::new(a.spill.as_slice()).unwrap().lines());
         v
     }
@@ -207,7 +216,9 @@ impl World {
     }
 
     fn fee_of(&self, class: u8, src: u8) -> u64 {
-        self.counters.get(&(class, key(src))).map_or(0, |l| l.amount)
+        self.counters
+            .get(&(class, key(src)))
+            .map_or(0, |l| l.amount)
     }
 }
 
@@ -219,13 +230,19 @@ impl Settlement for World {
         Ok(())
     }
     fn credit(&mut self, owner: &Key, line: &Line) -> LcResult<Placed> {
-        let a = self.accts.get_mut(owner).ok_or(LifecycleError::MissingAccount)?;
+        let a = self
+            .accts
+            .get_mut(owner)
+            .ok_or(LifecycleError::MissingAccount)?;
         let mut b = LineStore::new(a.basket.as_mut_slice()).unwrap();
         let mut s = LineStore::new(a.spill.as_mut_slice()).unwrap();
         Ok(Pool::new(&mut b, &mut s).put(&mut self.books, line)?)
     }
     fn credit_fee(&mut self, class: u8, owner: Option<&Key>, line: &Line) -> LcResult<()> {
-        assert!(owner.is_none(), "Tesoro's own Studio: every fee is a counter");
+        assert!(
+            owner.is_none(),
+            "Tesoro's own Studio: every fee is a counter"
+        );
         let mut counter = self
             .counters
             .get(&(class, line.source))
@@ -268,7 +285,11 @@ impl Seats<Vec<u8>> for Pages {
         if !self.read.contains(&page) {
             self.read.push(page);
         }
-        Ok(self.seats.get(i as usize).copied().unwrap_or_else(Seat::zeroed))
+        Ok(self
+            .seats
+            .get(i as usize)
+            .copied()
+            .unwrap_or_else(Seat::zeroed))
     }
     fn set_seat(&mut self, i: u8, seat: &Seat) -> LcResult<()> {
         self.seats[i as usize] = *seat;
@@ -421,7 +442,10 @@ fn the_worked_example_moves_every_line_to_the_gema() {
     assert_eq!(w.fees(), [44, 64, 21]);
     assert_eq!(got.iter().sum::<u64>() + 129, 2_500);
     // Ana's refund is her own Gemas: her first line whole, 50 of the second
-    assert_eq!((w.held(ANA, 100, SIDE_OWN), w.held(ANA, 101, SIDE_OWN)), (300, 50));
+    assert_eq!(
+        (w.held(ANA, 100, SIDE_OWN), w.held(ANA, 101, SIDE_OWN)),
+        (300, 50)
+    );
     // The forfeits, Ana's 150 of Source 101, then Eve's lines from her last: 300 of 102, 200 of
     // 101. Fees take Ana's 150 down to 21, which goes to Dee with 292 of Eve's 102; Ben gets the
     // last 8 of it and 122 of Eve's 101; Cy the 78 left.
@@ -429,8 +453,14 @@ fn the_worked_example_moves_every_line_to_the_gema() {
         (w.fee_of(0, 101), w.fee_of(1, 101), w.fee_of(2, 101)),
         (44, 64, 21)
     );
-    assert_eq!((w.held(DEE, 101, SIDE_WON), w.held(DEE, 102, SIDE_WON)), (21, 292));
-    assert_eq!((w.held(BEN, 102, SIDE_WON), w.held(BEN, 101, SIDE_WON)), (8, 122));
+    assert_eq!(
+        (w.held(DEE, 101, SIDE_WON), w.held(DEE, 102, SIDE_WON)),
+        (21, 292)
+    );
+    assert_eq!(
+        (w.held(BEN, 102, SIDE_WON), w.held(BEN, 101, SIDE_WON)),
+        (8, 122)
+    );
     assert_eq!(w.held(CY, 101, SIDE_WON), 78);
     // the placed seats' own entries came back as their own Gemas
     assert_eq!(w.held(DEE, 100, SIDE_OWN), 500);
@@ -557,7 +587,10 @@ fn one_place_names_the_seat_that_lost_most_as_its_opponent() {
     c.run(&mut w, 3);
     // forfeited 100 + 400 + 500 + 500 = 1,500; Pot 2,000: fees 120
     assert_eq!(w.gemas(DEE), 500 + 1_500 - 120);
-    assert_eq!((w.gemas(ANA), w.gemas(BEN), w.gemas(CY), w.gemas(EVE)), (400, 100, 0, 0));
+    assert_eq!(
+        (w.gemas(ANA), w.gemas(BEN), w.gemas(CY), w.gemas(EVE)),
+        (400, 100, 0, 0)
+    );
 }
 
 #[test]
@@ -611,19 +644,19 @@ fn a_result_that_breaks_the_rules_is_refused() {
         refunds: refunds(r),
     };
     let bad = [
-        p(&[(3, 6000), (1, 3000)], &[]),                // shares sum to 9,000
-        p(&[(3, 6000), (1, 2500), (2, 2500)], &[]),     // 11,000
-        p(&[(3, 5000), (3, 5000)], &[]),                // a seat placed twice
-        p(&[(3, 3000), (1, 7000)], &[]),                // shares rise
-        p(&[(3, 10_000)], &[(3, 100)]),                 // a refund on a placed seat
-        p(&[(3, 10_000)], &[(0, 501)]),                 // a refund above the entry
-        p(&[(3, 10_000)], &[(0, 0)]),                   // an empty refund
-        p(&[(3, 10_000)], &[(1, 100), (0, 100)]),       // refunds out of order
-        p(&[(3, 10_000)], &[(0, 100), (0, 100)]),       // a seat refunded twice
-        p(&[(7, 10_000)], &[]),                         // an empty seat
-        p(&[(200, 10_000)], &[]),                       // no such seat
-        p(&[], &[]),                                    // nobody placed
-        p(&[(3, 0), (1, 10_000)], &[]),                 // a zero share
+        p(&[(3, 6000), (1, 3000)], &[]),            // shares sum to 9,000
+        p(&[(3, 6000), (1, 2500), (2, 2500)], &[]), // 11,000
+        p(&[(3, 5000), (3, 5000)], &[]),            // a seat placed twice
+        p(&[(3, 3000), (1, 7000)], &[]),            // shares rise
+        p(&[(3, 10_000)], &[(3, 100)]),             // a refund on a placed seat
+        p(&[(3, 10_000)], &[(0, 501)]),             // a refund above the entry
+        p(&[(3, 10_000)], &[(0, 0)]),               // an empty refund
+        p(&[(3, 10_000)], &[(1, 100), (0, 100)]),   // refunds out of order
+        p(&[(3, 10_000)], &[(0, 100), (0, 100)]),   // a seat refunded twice
+        p(&[(7, 10_000)], &[]),                     // an empty seat
+        p(&[(200, 10_000)], &[]),                   // no such seat
+        p(&[], &[]),                                // nobody placed
+        p(&[(3, 0), (1, 10_000)], &[]),             // a zero share
     ];
     for r in bad {
         assert_eq!(refused(&mut c, r.clone()), SeatError::BadResult, "{r:?}");
@@ -641,21 +674,30 @@ fn only_the_game_starts_a_settlement_once_and_within_seven_days() {
     let r = worked_example_result();
     let now = T + 100;
     assert_eq!(
-        c.rec.start_settle(now, &[7; 32], SLOT, LB, &r, &mut c.pages).unwrap_err(),
+        c.rec
+            .start_settle(now, &[7; 32], SLOT, LB, &r, &mut c.pages)
+            .unwrap_err(),
         SeatError::NotGame
     );
     assert_eq!(
-        c.rec.start_settle(now, &AUTH, SLOT + 1, LB, &r, &mut c.pages).unwrap_err(),
+        c.rec
+            .start_settle(now, &AUTH, SLOT + 1, LB, &r, &mut c.pages)
+            .unwrap_err(),
         SeatError::GameUpgraded
     );
     let late = c.rec.deadline_abs();
     assert_eq!(
-        c.rec.start_settle(late, &AUTH, SLOT, LB, &r, &mut c.pages).unwrap_err(),
+        c.rec
+            .start_settle(late, &AUTH, SLOT, LB, &r, &mut c.pages)
+            .unwrap_err(),
         SeatError::PastDeadline
     );
     c.settle(&r).unwrap();
     assert_eq!(c.settle(&r).unwrap_err(), SeatError::NotDeparted);
-    assert_eq!(c.rec.start_refund(late, SLOT).unwrap_err(), SeatError::NotDeparted);
+    assert_eq!(
+        c.rec.start_refund(late, SLOT).unwrap_err(),
+        SeatError::NotDeparted
+    );
 }
 
 #[test]
@@ -664,12 +706,18 @@ fn anyone_refunds_a_day_after_departure_or_when_the_game_changed() {
     let mut c = worked_example_car(&mut w);
     let after = c.rec.refund_after();
     assert_eq!(after, T + 40 + 24 * 3600);
-    assert_eq!(c.rec.start_refund(after - 1, SLOT).unwrap_err(), SeatError::NotExpired);
+    assert_eq!(
+        c.rec.start_refund(after - 1, SLOT).unwrap_err(),
+        SeatError::NotExpired
+    );
     assert_eq!(c.rec.start_refund(after, SLOT).unwrap(), KIND_ABANDONED);
     c.run(&mut w, 4);
     assert!([ANA, BEN, CY, DEE, EVE].iter().all(|p| w.gemas(*p) == 500));
     let mut c = worked_example_car(&mut World::new());
-    assert_eq!(c.rec.start_refund(T + 50, SLOT + 1).unwrap(), KIND_GAME_UPGRADED);
+    assert_eq!(
+        c.rec.start_refund(T + 50, SLOT + 1).unwrap(),
+        KIND_GAME_UPGRADED
+    );
 }
 
 #[test]
@@ -719,7 +767,11 @@ fn every_gema_lands_where_the_payout_says() {
             let mut left = ENTRY;
             let mut lines = vec![];
             for j in 0..k {
-                let a = if j + 1 == k { left } else { 1 + rng.below(left - (k - j - 1) as u64) };
+                let a = if j + 1 == k {
+                    left
+                } else {
+                    1 + rng.below(left - (k - j - 1) as u64)
+                };
                 left -= a;
                 lines.push((100 + rng.below(10) as u8, a));
             }
@@ -739,11 +791,18 @@ fn every_gema_lands_where_the_payout_says() {
         }
         let mut shares: Vec<u16> = (0..n_places).map(|_| 1 + rng.below(9_000) as u16).collect();
         let sum: u32 = shares.iter().map(|s| *s as u32).sum();
-        shares = shares.iter().map(|s| ((*s as u32 * 10_000) / sum).max(1) as u16).collect();
+        shares = shares
+            .iter()
+            .map(|s| ((*s as u32 * 10_000) / sum).max(1) as u16)
+            .collect();
         shares.sort_unstable_by(|a, b| b.cmp(a));
         let fix = 10_000i32 - shares.iter().map(|s| *s as i32).sum::<i32>();
         shares[0] = (shares[0] as i32 + fix) as u16;
-        let pl: Vec<(u8, u16)> = seats[..n_places].iter().copied().zip(shares.clone()).collect();
+        let pl: Vec<(u8, u16)> = seats[..n_places]
+            .iter()
+            .copied()
+            .zip(shares.clone())
+            .collect();
         let mut rf: Vec<(u8, u64)> = vec![];
         for s in &seats[n_places..] {
             if rng.below(2) == 0 {
@@ -762,9 +821,16 @@ fn every_gema_lands_where_the_payout_says() {
         let steps = 1 + rng.below(12) as u32;
         c.run(&mut w, steps);
         let total: u64 = riders.iter().map(|(who, _)| w.gemas(*who)).sum();
-        assert_eq!(total + w.fees().iter().sum::<u64>(), n as u64 * ENTRY, "case {case}");
+        assert_eq!(
+            total + w.fees().iter().sum::<u64>(),
+            n as u64 * ENTRY,
+            "case {case}"
+        );
         if started.kind == KIND_BY_GAME {
-            assert!(riders.iter().all(|(who, _)| w.gemas(*who) == ENTRY), "case {case}");
+            assert!(
+                riders.iter().all(|(who, _)| w.gemas(*who) == ENTRY),
+                "case {case}"
+            );
             continue;
         }
         assert_eq!(w.fees(), pay.fees, "case {case}");
@@ -826,7 +892,16 @@ fn ahead_lists_everything_the_next_chunk_touches() {
     for steps in [1u32, 2, 3, 5, 12] {
         let mut w = World::new();
         let riders: Vec<(u8, &[(u8, u64)])> = (0..23u8)
-            .map(|i| (10 + i, if i % 2 == 0 { &[(100, 200), (101, 300)][..] } else { &[(102, 500)][..] }))
+            .map(|i| {
+                (
+                    10 + i,
+                    if i % 2 == 0 {
+                        &[(100, 200), (101, 300)][..]
+                    } else {
+                        &[(102, 500)][..]
+                    },
+                )
+            })
             .collect();
         let mut c = car(&mut w, &riders, terms(200, 300));
         // a Backed place too
@@ -842,7 +917,12 @@ fn ahead_lists_everything_the_next_chunk_touches() {
             let lines: Vec<Vec<Line>> = c.pages.pots.iter().map(|p| p.lines()).collect();
             let a = c.rec.ahead(&c.pages.seats, &lines, steps as usize);
             c.pages.read.clear();
-            let mut watch = Watch { w: &mut w, owners: vec![], sources: vec![], cut: vec![] };
+            let mut watch = Watch {
+                w: &mut w,
+                owners: vec![],
+                sources: vec![],
+                cut: vec![],
+            };
             let r = c.rec.chunk(&mut c.pages, &mut watch, steps).unwrap();
             for o in &watch.owners {
                 assert!(a.owners.contains(o), "owner {o:?} not listed");

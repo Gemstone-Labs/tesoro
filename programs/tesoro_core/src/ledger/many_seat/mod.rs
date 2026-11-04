@@ -17,8 +17,8 @@
 use super::lifecycle::{MatchId, MatchMeta, Terms, MAX_MATCH_LIFETIME_SECS};
 
 pub mod settle;
-pub use settle::*;
 use super::{is_ladder_entry, Key, MATCH_TIMEOUT_SECS};
+pub use settle::*;
 
 /// Most seats a many-seat Match has.
 pub const MAX_SEATS: u8 = 100;
