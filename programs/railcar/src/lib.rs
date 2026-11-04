@@ -581,6 +581,12 @@ pub mod railcar {
                 RailcarError::BadTable
             );
             let t: &Table = bytemuck::from_bytes(&data[8..Table::SPACE]);
+            let at = Pubkey::create_program_address(
+                &[TABLE_SEED, &car.table.to_le_bytes(), &[t.bump]],
+                &ID,
+            )
+            .map_err(|_| error!(RailcarError::BadTable))?;
+            require_keys_eq!(at, *info.key, RailcarError::BadTable);
             require!(
                 t.phase == PHASE_OVER
                     && t.car_no() == car.car_no
@@ -1259,8 +1265,8 @@ pub struct Finalize<'info> {
     #[account(mut, address = car.payer)]
     pub car_payer: UncheckedAccount<'info>,
     /// CHECK: the car's Table as base holds it (owned by the delegation program while
-    /// delegated); its owner and contents are checked in `finalize`.
-    #[account(seeds = [TABLE_SEED, &car.table.to_le_bytes()], bump)]
+    /// delegated); its address (from its stored bump), owner and contents are checked in
+    /// `finalize`.
     pub table: UncheckedAccount<'info>,
     /// CHECK: the car's core Match; tesoro_core checks it in the settle.
     #[account(mut, address = car.tesoro_match @ RailcarError::WrongCar)]
@@ -1281,13 +1287,9 @@ pub struct Finalize<'info> {
     pub game_program: UncheckedAccount<'info>,
     /// CHECK: this program's ProgramData, checked by tesoro_core.
     pub program_data: UncheckedAccount<'info>,
-    /// CHECK: the settlement receipt, created by tesoro_core at `["settled", match]`.
-    #[account(
-        mut,
-        seeds = [b"settled", car.tesoro_match.as_ref()],
-        bump,
-        seeds::program = tesoro_core::ID
-    )]
+    /// CHECK: the settlement receipt, created by tesoro_core, which checks its address
+    /// `["settled", match]` (deriving it here too would repeat core's bump search).
+    #[account(mut)]
     pub receipt: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
     /// CHECK: tesoro_core's event authority PDA.
