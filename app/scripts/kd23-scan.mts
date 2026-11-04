@@ -28,7 +28,7 @@ const GAMES = [
   { name: "vanguard", pda: v.tablePda, idl: vanguardIdl, over: (t: any) => t.phase === 3 },
 ] as const;
 const { rpc } = await testDb();
-for (const g of GAMES) {
+for (const g of GAMES.filter((x) => !process.env.ONLY || x.name === process.env.ONLY)) {
   const coder = new Program(g.idl as never, { connection: c } as never).coder.accounts;
   const addrs: PublicKey[] = [];
   for (let gen = 0; gen < 3; gen++) for (let i = 0; i < 60; i++) addrs.push(g.pda(gen, i));
@@ -43,7 +43,7 @@ for (const g of GAMES) {
   }
   console.log(g.name, "tables over on base:", found.length);
   for (const f of found) {
-    const sigs = await c.getSignaturesForAddress(f.address, { limit: 40 });
+    const sigs = await c.getSignaturesForAddress(f.address, { limit: Number(process.env.LIMIT ?? 40) });
     let done = false;
     for (const s of sigs) {
       if (s.err) continue;
