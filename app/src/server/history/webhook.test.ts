@@ -26,7 +26,7 @@ async function setup(over: Partial<ReceiveDeps> = {}) {
 describe("decoding a delivered transaction", () => {
   // Bodies of `webhook_tx` rows stored from real Helius deliveries on 2026-11-04 (signatures renamed): a Match start and a settle chunk.
   it("decodes the transactions Helius really delivered", () => {
-    const [start, chunk] = realDelivery as unknown as RawTx[];
+    const [chunk, start] = realDelivery as unknown as RawTx[];
     expect(recordsOfRawTx(start).map((r) => r.type)).toEqual(["won", "start", "lines-start"]);
     expect(recordsOfRawTx(chunk).map((r) => r.type)).toEqual(["chunk", "line-step", "line-step", "line-step", "line-step", "line-step", "lines-progress", "settled"]);
   });
